@@ -1,5 +1,6 @@
 import { api, store } from "./bus.js";
 import { createPanelState } from "./panel-state.js";
+import { groupToolRuns, toolGroupRange, toolGroupStatus, toolResultText } from "./timeline-groups.js";
 
 const states = createPanelState("timeline");
 let rendered = "";
@@ -59,14 +60,15 @@ export function renderTimeline() {
     )
       entries.push({ kind: event.type, event });
   }
-  const hidden = Math.max(0, entries.length - 300),
-    shown = entries.slice(hidden);
-	if (!entries.length) {
-	  const empty = document.createElement("div");
-	  empty.className = "panel-empty";
-	  empty.textContent = "—";
-	  root.append(empty);
-	}
+  const groupedEntries = groupToolRuns(entries),
+    hidden = Math.max(0, groupedEntries.length - 300),
+    shown = groupedEntries.slice(hidden);
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "panel-empty";
+    empty.textContent = "—";
+    root.append(empty);
+  }
   if (hidden) {
     const earlier = document.createElement("div");
     earlier.className = "timeline-earlier";
@@ -76,6 +78,8 @@ export function renderTimeline() {
   for (const entry of shown) {
     if (entry.kind === "model")
       root.append(modelRow(session, entry.event, calls, results, state));
+    else if (entry.kind === "tool-group")
+      root.append(toolGroupRow(session, entry, calls, results, decisions, state));
     else root.append(inlineRow(session, entry.event, decisions, state));
   }
   const jump = document.createElement("button");
@@ -93,6 +97,47 @@ export function renderTimeline() {
     else root.scrollTop = state.scroll;
     jump.hidden = state.follow;
   });
+}
+function toolGroupRow(session, group, calls, results, decisions, state) {
+  const status = toolGroupStatus(group, results),
+    key = `tool-group:${group.firstCallID}`,
+    row = baseRow(
+      key,
+      state,
+      `timeline-tool-group ${status.failed ? "error" : ""} ${status.pending ? "active" : ""} ${status.untrusted ? "untrusted" : ""}`,
+    ),
+    range = toolGroupRange(group, calls);
+  row.head.innerHTML = '<span class="timeline-lamp"></span><span class="timeline-label"></span><span class="timeline-group-count number"></span><span class="timeline-key"></span><span class="duration number"></span><span class="finish"></span>';
+  row.head.children[1].textContent = friendly(group.tool);
+  row.head.children[2].textContent = `×${status.ids.length}`;
+  row.head.children[3].textContent = formatGroupRange(range);
+  row.head.children[4].textContent = formatDuration(status.duration);
+  row.head.children[5].textContent = status.failed
+    ? `${status.failed} failed`
+    : status.pending
+      ? "Running"
+      : status.untrusted
+        ? "Untrusted"
+        : "Done";
+  for (const item of group.items) {
+    if (item.kind === "model") {
+      const call = item.event.data.tool_calls[0],
+        child = toolRow(
+          session,
+          call,
+          calls.get(call.id),
+          results.get(call.id),
+          state,
+          item.event,
+        );
+      child.classList.add("timeline-group-call");
+      child.querySelector(".timeline-label").textContent = `Turn ${item.event.data.turn || ""} · ${friendly(call.name)}`;
+      row.expansion.append(child);
+    } else {
+      row.expansion.append(inlineRow(session, item.event, decisions, state));
+    }
+  }
+  return row.node;
 }
 function modelRow(session, event, calls, results, state) {
   const data = event.data || {},
@@ -127,7 +172,7 @@ function modelRow(session, event, calls, results, state) {
   }
   return row.node;
 }
-function toolRow(session, call, callEvent, resultEvent, state) {
+function toolRow(session, call, callEvent, resultEvent, state, modelEvent = null) {
   const result = resultEvent?.data || {},
     key = `tool:${call.id}`,
     row = baseRow(
@@ -156,12 +201,30 @@ function toolRow(session, call, callEvent, resultEvent, state) {
   );
   const message = (session.messages || []).find(
     (item) => item.tool_call_id === call.id,
-  );
+  ), resultText = toolResultText(message, result, originalToolResult(session, call.id));
   addText(
     row.expansion,
     "result",
-    capLines(message?.content || result.preview || ""),
+    modelEvent ? resultText : capLines(resultText),
   );
+  if (modelEvent) {
+    const model = modelEvent.data || {},
+      assistant = [...(session.messages || [])]
+        .reverse()
+        .find((item) => item.role === "assistant" && item.turn === model.turn);
+    addBlock(row.expansion, "turn", {
+      turn: model.turn,
+      duration_ms: model.duration_ms,
+      finish_reason: model.finish_reason,
+      usage: model.usage,
+      params: model.params || findRequest(session, modelEvent)?.data?.params || {},
+      timings: model.timings,
+    });
+    if (model.content || assistant?.content)
+      addText(row.expansion, "content", model.content || assistant.content);
+    if (assistant?.reasoning)
+      addText(row.expansion, "thinking", assistant.reasoning);
+  }
   return row.node;
 }
 function inlineRow(session, event, decisions, state) {
@@ -248,6 +311,7 @@ function baseRow(key, state, className) {
   const head = document.createElement("button");
   head.type = "button";
   head.className = "timeline-head";
+  head.setAttribute("aria-expanded", String(state.expanded.has(key)));
   head.onclick = () => {
     state.toggle(key);
     renderTimeline();
@@ -283,6 +347,13 @@ function findRequest(session, response) {
         event.data?.turn === response.data?.turn,
     );
 }
+function originalToolResult(session, callID) {
+  return (session.timeline || []).find(
+    (event) =>
+      event.type === "message.appended" &&
+      event.data?.message?.tool_call_id === callID,
+  )?.data?.message?.content || "";
+}
 function safeJSON(value) {
   try {
     return JSON.parse(value);
@@ -304,6 +375,14 @@ function formatNumber(value) {
 }
 function formatSigned(value) {
   return `${value < 0 ? "−" : value > 0 ? "+" : "±"}${formatNumber(Math.abs(value))}`;
+}
+
+function formatGroupRange(range) {
+  if (!range) return "";
+  const label = range.key.endsWith("s") ? range.key : `${range.key}s`;
+  if (range.numeric)
+    return `${label} ${formatNumber(range.first)}–${formatNumber(range.last)}`;
+  return `${label} ${range.first} → ${range.last}`.slice(0, 120);
 }
 
 function keyArgument(args) {

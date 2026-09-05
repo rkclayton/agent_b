@@ -1586,6 +1586,30 @@
 .timeline-tool .timeline-head {
   grid-template-columns: 8px minmax(82px, auto) minmax(0, 1fr) 62px 58px;
 }
+.timeline-tool-group .timeline-head {
+  grid-template-columns: 8px minmax(82px, auto) 5ch minmax(0, 1fr) 62px 58px;
+}
+.timeline-tool-group > .row-expansion {
+  padding-right: 0;
+  padding-left: 0;
+}
+.timeline-tool-group.expanded > .row-expansion {
+  max-height: none;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.timeline-group-call.expanded > .row-expansion {
+  max-height: none;
+}
+.timeline-tool-group > .row-expansion > .timeline-row {
+  margin-left: 18px;
+}
+.timeline-group-count {
+  color: var(--mute);
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
 .timeline-label { font-weight: 500; }
 .timeline-key {
   overflow: hidden;
@@ -1602,6 +1626,17 @@
 .timeline-tool.error .timeline-lamp { background: var(--alarm); }
 .timeline-tool.untrusted .timeline-lamp { background: var(--alarm); }
 .timeline-tool.untrusted .finish { color: var(--alarm); }
+.timeline-tool-group.error > .timeline-head,
+.timeline-tool-group.untrusted > .timeline-head .finish {
+  color: var(--alarm);
+}
+.timeline-tool-group.error > .timeline-head .timeline-lamp,
+.timeline-tool-group.untrusted > .timeline-head .timeline-lamp {
+  background: var(--alarm);
+}
+.timeline-tool-group.active > .timeline-head .timeline-lamp {
+  background: var(--trace);
+}
 .settings-page { inset: var(--app-header-height) 0 0; }
 
 @media (max-width: 800px) {

@@ -23,3 +23,20 @@ for (const scope of ["timeline", "state"]) {
     assert.equal(refreshed.view("main").expanded.has("row-1"), true);
   });
 }
+
+test("timeline group and child expansion both survive rerenders and refresh", () => {
+  const storage = memoryStorage();
+  const live = createPanelState("timeline", storage);
+  const view = live.view("main");
+  assert.equal(view.expanded.has("tool-group:read-1"), false);
+  view.toggle("tool-group:read-1");
+  view.toggle("tool:read-2");
+  for (let event = 0; event < 50; event++) {
+    assert.equal(live.view("main").expanded.has("tool-group:read-1"), true);
+    assert.equal(live.view("main").expanded.has("tool:read-2"), true);
+  }
+
+  const refreshed = createPanelState("timeline", storage).view("main");
+  assert.equal(refreshed.expanded.has("tool-group:read-1"), true);
+  assert.equal(refreshed.expanded.has("tool:read-2"), true);
+});

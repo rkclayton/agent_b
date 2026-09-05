@@ -64,3 +64,29 @@ test("browser reducer applies budget tool costs to session tools", () => {
   assert.equal(store.sessions.main.tools[0].schema_tokens, 60);
   assert.equal(store.sessions.main.tools[0].marginal_tokens, 20);
 });
+
+test("message updates do not overwrite original History event content", () => {
+  reduce({
+    type: "snapshot",
+    data: {
+      sessions: { main: { id: "main", run: { status: "idle" }, tools: [], messages: [], timeline: [] } },
+      replay: false,
+      servers: [],
+      config: {},
+    },
+  });
+  reduce({
+    type: "message.appended",
+    session_id: "main",
+    data: { message: { id: "result-1", role: "tool", content: "complete tool result" } },
+  });
+  reduce({
+    type: "message.updated",
+    session_id: "main",
+    data: { id: "result-1", patch: { content: "[elided: complete tool result]", elided: true } },
+  });
+
+  assert.equal(store.sessions.main.messages[0].content, "[elided: complete tool result]");
+  const appended = store.sessions.main.timeline.find((event) => event.type === "message.appended");
+  assert.equal(appended.data.message.content, "complete tool result");
+});

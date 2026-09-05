@@ -219,9 +219,12 @@ export function reduce(event) {
       break;
     case "message.appended":
       if (target) {
-        if (data.message?.category === "summary")
-          target.messages.splice(1, 0, data.message);
-        else target.messages.push(data.message);
+        // Keep the mutable message projection separate from the immutable event
+        // retained below for History/replay inspection.
+        const message = data.message ? { ...data.message } : data.message;
+        if (message?.category === "summary")
+          target.messages.splice(1, 0, message);
+        else target.messages.push(message);
         if (data.message?.role === "assistant" && modelTurnKey(event) === target._streamTurnKey)
           target._streamTurnKey = "";
       }

@@ -51,6 +51,7 @@ type ReplaySession struct {
 	CompactionModelCalls int          `json:"compaction_model_calls"`
 	CompactionPrompt     int          `json:"compaction_prompt_tokens"`
 	CompactionCompletion int          `json:"compaction_completion_tokens"`
+	history              *historyIndex
 }
 
 type Replay struct {
@@ -91,7 +92,7 @@ func LoadReplay(paths []string) (*Replay, error) {
 			id = fmt.Sprintf("%s-%d", base, suffix)
 		}
 		used[id] = true
-		initial := ReplaySession{ID: id, Label: id, Run: ReplayRun{Status: "replay"}, Runnable: true, LogPath: path, Messages: []Message{}, Tools: []ReplayTool{}, Timeline: []Event{}}
+		initial := ReplaySession{ID: id, Label: id, Run: ReplayRun{Status: "replay"}, Runnable: true, LogPath: path, Messages: []Message{}, Tools: []ReplayTool{}, Timeline: []Event{}, history: newHistoryIndex()}
 		for index := range events {
 			if events[index].SessionID == oldID || events[index].SessionID == "" {
 				events[index].SessionID = id
@@ -170,16 +171,25 @@ func ReduceReplay(sessions map[string]ReplaySession, event Event) {
 		return
 	}
 	data := replayMap(event.Data)
+	if event.Type == SessionReset {
+		item.history = newHistoryIndex()
+	} else {
+		if item.history == nil {
+			item.history = newHistoryIndex()
+		}
+		item.history.recordReplay(event)
+	}
 	switch event.Type {
 	case SessionCreated:
 		var wrapper struct {
 			Session ReplaySession `json:"session"`
 		}
 		if decodeReplay(event.Data, &wrapper) == nil {
-			messages, timeline, logPath := item.Messages, item.Timeline, item.LogPath
+			messages, timeline, logPath, history := item.Messages, item.Timeline, item.LogPath, item.history
 			item = wrapper.Session
 			item.ID = event.SessionID
 			item.Messages, item.Timeline, item.LogPath = messages, timeline, logPath
+			item.history = history
 		}
 	case SessionRenamed:
 		item.Label = replayString(data["label"])
@@ -315,6 +325,7 @@ func cloneReplaySession(value ReplaySession) ReplaySession {
 	data, _ := json.Marshal(value)
 	var out ReplaySession
 	_ = json.Unmarshal(data, &out)
+	out.history = newHistoryIndex()
 	return out
 }
 func decodeReplay(value, target any) error {
@@ -337,6 +348,9 @@ func replayInt(value any) int {
 	return 0
 }
 func replayStrings(value any) []string {
+	if values, ok := value.([]string); ok {
+		return append([]string(nil), values...)
+	}
 	raw, _ := value.([]any)
 	out := make([]string, 0, len(raw))
 	for _, item := range raw {

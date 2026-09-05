@@ -1,9 +1,9 @@
 # Agent_b repository guidance
 
 ## Orientation
-- `NOTES.md` is the document of record for current state: decisions, discovery findings, and the follow-up card backlog. Read it first.
+- Read `PLAN.md` and `NOTES.md` at session start. `PLAN.md` is the sequencing authority; `NOTES.md` is the append-only document of record for decisions, discovery findings, and the follow-up card backlog.
 - `INTERFACES.md` and `SECURITY.md` are binding. `docs/HARDENING.md` is the operator runbook.
-- Planning documents do not live in this repository. Sequencing comes from the current operator prompt; record durable findings and decisions in `NOTES.md`, not a plan file.
+- Planning documents are not tracked. `PLAN.md` is gitignored and operator-owned; record durable findings and decisions in `NOTES.md`.
 
 ## Do not lose NOTES.md
 - Never delete, move, rename, truncate, or overwrite `NOTES.md`. It is gitignored, so git holds no copy and any loss is permanent.

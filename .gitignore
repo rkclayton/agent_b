@@ -24,6 +24,8 @@ workspace/*
 SERVING.md
 # Implementation notes contain local audit and verification details.
 NOTES.md
+# The operator-owned sequencing document is local and intentionally untracked.
+PLAN.md
 # Local serving environment contains model paths and host choices.
 serve/local.env
 # Probe samples contain raw model traffic.

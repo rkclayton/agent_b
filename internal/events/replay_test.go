@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -121,5 +122,72 @@ func TestReplayReconstructsRunAggregatesAndLastStop(t *testing.T) {
 	item := sessions["main"]
 	if item.ModelTurns != 2 || item.CompactionCount != 1 || item.CompactionTokenDelta != -40 || item.CompactionModelCalls != 1 || item.CompactionPrompt != 400 || item.CompactionCompletion != 50 || item.Run.LastStopReason != "tool_errors" {
 		t.Fatalf("replayed aggregates=%+v run=%+v", item, item.Run)
+	}
+}
+
+func TestReplayReconstructsLineageWithoutRestoringMessageBodies(t *testing.T) {
+	sessions := map[string]ReplaySession{"main": {ID: "main", Run: ReplayRun{Status: "replay"}, history: newHistoryIndex()}}
+	ok := true
+	for _, event := range []Event{
+		{SessionID: "main", Type: MessageAppended, Data: map[string]any{"message": Message{ID: "m-1", Role: "tool", Category: "files", Name: "read_file", Content: "original body", OK: &ok}}},
+		{SessionID: "main", Type: MessageUpdated, Data: map[string]any{"id": "m-1", "patch": map[string]any{"content": "[elided]", "elided": true}}},
+		{SessionID: "main", Type: Compaction, Data: map[string]any{"kind": "summarize", "summary_message_id": "m-2", "affected_ids": []string{"m-1"}, "before": 10, "after": 5}},
+		{SessionID: "main", Type: MessageAppended, Data: map[string]any{"message": Message{ID: "m-2", Role: "user", Category: "summary", Content: "summary"}}},
+	} {
+		ReduceReplay(sessions, event)
+	}
+	item := sessions["main"]
+	if len(item.Messages) != 1 || item.Messages[0].ID != "m-2" || strings.Contains(item.Messages[0].Content, "original body") {
+		t.Fatalf("archive leaked into replay messages: %+v", item.Messages)
+	}
+	manifest, err := item.history.resolveReplay("latest")
+	if err != nil || len(manifest.Entries) != 1 || manifest.Entries[0].Ref != "m-1" {
+		t.Fatalf("manifest=%+v err=%v", manifest, err)
+	}
+	lookup, err := item.history.resolveReplay("m-1")
+	if err != nil || lookup.Message.Content != "original body" {
+		t.Fatalf("lookup=%+v err=%v", lookup, err)
+	}
+
+	ReduceReplay(sessions, Event{SessionID: "main", Type: SessionReset})
+	if _, err := sessions["main"].history.resolveReplay("latest"); err == nil {
+		t.Fatal("replay lineage survived session reset")
+	}
+}
+
+func TestLoadReplayReconstructsArchiveOutsideMessages(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lineage.jsonl")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok := true
+	for index, event := range []Event{
+		{TS: "2026-09-05T00:00:00Z", SessionID: "main", Type: SessionCreated, Data: map[string]any{"session": ReplaySession{ID: "main", Label: "lineage", Run: ReplayRun{Status: "idle"}}}},
+		{TS: "2026-09-05T00:00:01Z", SessionID: "main", Type: MessageAppended, Data: map[string]any{"message": Message{ID: "m-1", Role: "tool", Category: "files", Name: "read_file", Content: "archived source", OK: &ok}}},
+		{TS: "2026-09-05T00:00:02Z", SessionID: "main", Type: Compaction, Data: map[string]any{"kind": "summarize", "summary_message_id": "m-2", "affected_ids": []string{"m-1"}}},
+		{TS: "2026-09-05T00:00:03Z", SessionID: "main", Type: MessageAppended, Data: map[string]any{"message": Message{ID: "m-2", Role: "user", Category: "summary", Content: "small summary"}}},
+	} {
+		event.Seq = int64(index + 1)
+		if err := json.NewEncoder(file).Encode(event); err != nil {
+			_ = file.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	replay, err := LoadReplay([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := replay.Sessions["main"]
+	if len(item.Messages) != 1 || item.Messages[0].Content != "small summary" {
+		t.Fatalf("replayed model messages=%+v", item.Messages)
+	}
+	lookup, err := item.history.resolveReplay("m-1")
+	if err != nil || lookup.Message.Content != "archived source" {
+		t.Fatalf("archive lookup=%+v err=%v", lookup, err)
 	}
 }

@@ -71,6 +71,7 @@ try {
     }
     foreach ($link in @(
         @{ Source = $indexSource; Pattern = '<a id="console-launch"[^>]+href="/"'; Name = 'Console selector' },
+        @{ Source = $indexSource; Pattern = '<a id="chat-launch"[^>]+href="/chat"'; Name = 'Console-to-Chat link' },
         @{ Source = $chatSource; Pattern = '<a id="chat-console"[^>]+href="/"'; Name = 'Chat-to-Console link' },
         @{ Source = $chatSource; Pattern = '<a id="chat-settings"[^>]+href="/#settings/servers"'; Name = 'Chat-to-Settings link' }
     )) {
@@ -96,6 +97,9 @@ try {
     }
     if ($indexSource -match 'id="state-filters"' -or $indexSource -notmatch '>Activity<' -or $indexSource -notmatch '>Context<' -or $indexSource -notmatch '>History<') {
         throw 'Installed Console is not using the simplified instrument layout.'
+    }
+    if ($indexSource -match 'id="composer"' -or $indexSource -match 'id="task"' -or $indexSource -match '>Send</button>') {
+        throw 'Installed Console still contains the removed task composer.'
     }
 
     $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $testStart 'Agent_b.lnk'))

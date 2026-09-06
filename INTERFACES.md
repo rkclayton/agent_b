@@ -24,6 +24,8 @@ On SSE connection, `snapshot` [prompt 3] contains `{sessions:{<id>:SessionSnapsh
 
 Profiles target an OpenAI-compatible server at `base_url`. Generation uses `POST /v1/chat/completions`; a nonempty profile key is sent as `Authorization: Bearer <key>`. All requests use JSON and the profile's request timeout. Standard sampling, messages, tools, tool choice, streaming, and usage fields are always OpenAI-shaped. `top_k`, `min_p`, `repeat_penalty`, `cache_prompt`, `return_progress`, and `chat_template_kwargs` are sent only when the probed server is llama.cpp. Reasoning controls never send an effort outside the profile's probed `valid_efforts`. Streaming tool-call arguments may arrive whole or as indexed fragments and are accumulated by index.
 
+A generation request carries model-visible tools or a structured-output schema, never both. The current transport has no structured-output field: agent-loop and reliability-probe requests may carry tools, while compaction and all other probe requests carry neither.
+
 Capability probing uses `GET /props` (falling back to `GET /v1/models`), `POST /tokenize`, `POST /apply-template`, and bounded chat-completion checks. A transport failure retains prior capabilities and leaves `probed_at` unchanged. `probe_mode:off` uses documented assumptions, `minimal` performs only the inexpensive identity/tokenization/template/streaming checks, and `full` includes tool, reasoning, timing, cache, progress, and overflow behavior. Every assumed or measured result produces a plain-language finding.
 
 ## Model-visible tool interface

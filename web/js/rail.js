@@ -1,16 +1,8 @@
 import { store } from "./bus.js";
 import { percentClass } from "./percent.js";
-const root = document.getElementById("rail"),
-  order = [
-    "system",
-    "memory",
-    "tools",
-    "history",
-    "files",
-    "results",
-    "fetched",
-    "summary",
-  ];
+import { contextOccupancy } from "./context-occupancy.js";
+
+const root = document.getElementById("rail");
 export function renderRail() {
   const s = store.sessions[store.active];
   if (!s) {
@@ -18,29 +10,34 @@ export function renderRail() {
     return;
   }
   const b = s.budget || {},
-    n = Math.max(1, b.n_ctx || 1),
-    used = b.used_measured || b.used_est || 0,
-    ratio = used / Math.max(1, b.ceiling || 1),
-    estimated = new Set(b.estimated_categories || []);
+    occupancy = contextOccupancy(b),
+    n = Math.max(1, occupancy.nctx || 1),
+    used = occupancy.occupied,
+    ratio = used / Math.max(1, b.ceiling || 1);
   const meter = document.createElement("div");
   meter.className = `meter ${ratio > 0.85 ? "warn" : ""} ${ratio > 1 ? "over" : ""} ${s._compacted ? "compacted" : ""}`;
+  meter.setAttribute("role", "img");
   const labels = document.createElement("div");
   labels.className = "rail-labels";
-  for (const name of order) {
-    const value = b.categories?.[name] || 0,
-      wide = (value / n) * 100,
-      segment = document.createElement("span");
-    segment.className = `segment ${percentClass(wide)} ${estimated.has(name) ? "estimated" : ""}`;
-    segment.title = `${name} ${estimated.has(name) ? "~" : ""}${number(value)}`;
+  const descriptions = [];
+  for (const item of occupancy.items) {
+    const wide = (item.value / n) * 100,
+      segment = document.createElement("span"),
+      marker = item.estimated ? "~" : "";
+    segment.className = `${item.key === "reserve" ? "reserve" : "segment"} occupancy-${item.key} ${percentClass(wide)} ${item.estimated ? "estimated" : ""}`;
+    segment.title = `${item.label} ${marker}${number(item.value)} (${marker}${percent(wide)})`;
+    descriptions.push(segment.title);
     meter.append(segment);
     const label = document.createElement("span");
-    label.className = `rail-label ${percentClass(wide)}`;
-    label.textContent = wide > 5 ? name : "";
+    label.className = "rail-label";
+    label.append(`${item.label} `);
+    const value = document.createElement("span");
+    value.className = "number";
+    value.textContent = `${marker}${percent(wide)}`;
+    label.append(value);
     labels.append(label);
   }
-  const reserve = document.createElement("span");
-  reserve.className = `reserve ${percentClass(((b.reserve || 0) / n) * 100)}`;
-  meter.append(reserve);
+  meter.setAttribute("aria-label", `Context occupancy: ${descriptions.join(", ")}`);
   const tick = document.createElement("span");
   tick.className = `ceiling-tick ${percentClass(((b.ceiling || 0) / n) * 100)}`;
   meter.append(tick);
@@ -50,7 +47,7 @@ export function renderRail() {
   const readout = document.createElement("div");
   readout.className = "rail-readout";
   const primary = document.createElement("span");
-  primary.textContent = `${b.estimated ? "~" : ""}${number(used)} / ${number(b.ceiling || 0)}`;
+  primary.textContent = `${occupancy.estimated ? "~" : ""}${number(used)} / ${number(b.ceiling || 0)}`;
   readout.append(primary);
   if (b.used_measured) {
     const drift = document.createElement("span");
@@ -67,10 +64,12 @@ export function renderRail() {
     readout.append(`  cached ${number(b.cached_last)}`);
   const caption = document.createElement("div");
   caption.className = "rail-caption";
-  caption.textContent =
-    b.mode === "estimated" ? "context (estimated)" : "context";
+  caption.textContent = occupancy.estimated
+    ? "context occupancy (estimated)"
+    : "context occupancy";
   root.replaceChildren(meter, readout, labels, caption);
 }
 const number = (value) => new Intl.NumberFormat().format(value || 0);
+const percent = (value) => `${Number(value || 0).toFixed(1)}%`;
 const signed = (value) =>
   `${value < 0 ? "−" : value > 0 ? "+" : "±"}${number(Math.abs(value))}`;

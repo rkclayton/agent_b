@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"harness/internal/events"
@@ -12,7 +13,7 @@ import (
 
 func TestNextIsPureAndEmitsVersionedCursorPatch(t *testing.T) {
 	previous := seeded(t)
-	before := cloneSnapshot(t, previous)
+	before, _ := json.Marshal(previous)
 	record := Record{
 		Cursor: Cursor{Generation: "main-a.jsonl", Offset: 42},
 		Event: events.Event{SessionID: "main", Type: events.MessageAppended, Data: map[string]any{
@@ -23,7 +24,8 @@ func TestNextIsPureAndEmitsVersionedCursorPatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(previous, before) {
+	unchanged, _ := json.Marshal(previous)
+	if !reflect.DeepEqual(unchanged, before) {
 		t.Fatal("Next mutated its input snapshot")
 	}
 	if len(next.Messages) != 1 || next.Messages[0].ID != "m1" {
@@ -51,6 +53,25 @@ func TestResetOnlyGenerationIsExplicitlyIncomplete(t *testing.T) {
 	}
 	if next.Cursor.Offset != 101 || next.LogPath != "next.jsonl" {
 		t.Fatalf("snapshot = %#v", next)
+	}
+}
+
+func TestStreamingProjectionUsesIncrementalTextOperations(t *testing.T) {
+	state := seeded(t)
+	state, _, _ = Next(state, Record{Cursor: Cursor{Generation: "main-a.jsonl", Offset: 30}, Event: events.Event{TS: "2026-09-05T00:00:00Z", SessionID: "main", RunID: "r1", Type: events.ModelRequest, Data: map[string]any{"turn": 1}}})
+	state, _, _ = Next(state, Record{Cursor: Cursor{Generation: "main-a.jsonl", Offset: 40}, Event: events.Event{TS: "2026-09-05T00:00:01Z", SessionID: "main", RunID: "r1", Type: events.ModelDelta, Data: map[string]any{"turn": 1, "kind": "reasoning", "text": "first"}}})
+	_, patch, err := Next(state, Record{Cursor: Cursor{Generation: "main-a.jsonl", Offset: 50}, Event: events.Event{TS: "2026-09-05T00:00:02Z", SessionID: "main", RunID: "r1", Type: events.ModelDelta, Data: map[string]any{"turn": 1, "kind": "reasoning", "text": " second"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, operation := range patch.Operations {
+		if operation.Op == "append" && strings.HasSuffix(operation.Path, "/reasoning") && string(operation.Value) == `" second"` {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("operations=%+v", patch.Operations)
 	}
 }
 

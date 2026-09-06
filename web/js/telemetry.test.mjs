@@ -1,31 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyStreamEvent, hydrateTelemetry, liveTelemetry, recordedTelemetry } from "./telemetry.js";
+import { liveTelemetry, recordedTelemetry } from "./telemetry.js";
 
 test("live telemetry projects chunk age, reasoning, and a recent rate", () => {
-  const session = { timeline: [] };
-  applyStreamEvent(session, { type: "model.request", run_id: "r1", data: { turn: 2 } }, 1000);
-  applyStreamEvent(session, { type: "model.delta", run_id: "r1", data: { turn: 2, kind: "reasoning", text: "123456789" } }, 2000);
-  applyStreamEvent(session, { type: "model.delta", run_id: "r1", data: { turn: 2, kind: "content", text: "123456789" } }, 3000);
+  const session = { activity: { stream: { last_chunk_at: 3000, started_at: 1000, reasoning_chars: 9, has_chunk: true, done: false, rate: 2 } } };
   assert.deepEqual(liveTelemetry(session, 4000), { ageSeconds: 1, reasoningTokens: 3, rate: 2, hasChunk: true });
 });
 
 test("live telemetry counts Unicode characters rather than UTF-16 units", () => {
-  const session = { timeline: [] };
-  applyStreamEvent(session, { type: "model.request", run_id: "r1", data: { turn: 1 } }, 1000);
-  applyStreamEvent(session, { type: "model.delta", run_id: "r1", data: { turn: 1, kind: "reasoning", text: "🙂🙂🙂🙂" } }, 2000);
+  const session = { activity: { stream: { last_chunk_at: 2000, started_at: 1000, reasoning_chars: 4, has_chunk: true, done: false, rate: 1 } } };
   assert.equal(liveTelemetry(session, 3000).reasoningTokens, 2);
 });
 
-test("snapshot hydration reconstructs an active stream", () => {
-  const session = { timeline: [
-    { type: "model.request", ts: "2026-01-01T00:00:01Z", run_id: "r2", data: { turn: 1 } },
-    { type: "model.delta", ts: "2026-01-01T00:00:02Z", run_id: "r2", data: { turn: 1, kind: "reasoning", text: "abcdefgh" } },
-  ] };
-  hydrateTelemetry(session);
-  assert.equal(session._streamTelemetry.reasoningChars, 8);
-  assert.equal(session._streamTelemetry.done, false);
+test("snapshot directly carries active stream telemetry", () => {
+  const session = { activity: { stream: { last_chunk_at: 2000, started_at: 1000, reasoning_chars: 8, has_chunk: true, done: false, rate: 2 } } };
+  assert.equal(session.activity.stream.reasoning_chars, 8);
+  assert.equal(session.activity.stream.done, false);
 });
 
 test("replay telemetry is explicitly final recorded data", () => {

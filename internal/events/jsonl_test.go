@@ -100,6 +100,29 @@ func TestOpenSessionResetsHistoryIndex(t *testing.T) {
 	}
 }
 
+func TestRotateSessionReturnsExactPredecessorBoundary(t *testing.T) {
+	writers, err := NewWriters(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = writers.Close() })
+	first, predecessor, err := writers.RotateSession("main")
+	if err != nil || predecessor.Offset != 0 {
+		t.Fatalf("first=%s predecessor=%+v err=%v", first, predecessor, err)
+	}
+	cursor, err := writers.WriteRecord(New(MessageQueued, "main", "", map[string]any{"position": 1}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, predecessor, err := writers.RotateSession("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second || predecessor.Generation != cursor.Generation || predecessor.Offset != cursor.Offset {
+		t.Fatalf("first=%s second=%s cursor=%+v predecessor=%+v", first, second, cursor, predecessor)
+	}
+}
+
 func TestHistorySummaryRefExcludesUnrelatedElision(t *testing.T) {
 	index := newHistoryIndex()
 	for _, message := range []Message{

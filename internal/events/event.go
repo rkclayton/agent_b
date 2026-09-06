@@ -15,6 +15,7 @@ type Event struct {
 
 const (
 	Snapshot          = "snapshot"
+	ProjectionPatch   = "projection.patch"
 	SessionCreated    = "session.created"
 	SessionRenamed    = "session.renamed"
 	SessionUpdated    = "session.updated"

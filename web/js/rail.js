@@ -3,6 +3,8 @@ import { percentClass } from "./percent.js";
 import { contextOccupancy } from "./context-occupancy.js";
 
 const root = document.getElementById("rail");
+const compactionSeen = new Map();
+const compactionPulseUntil = new Map();
 export function renderRail() {
   const s = store.sessions[store.active];
   if (!s) {
@@ -14,8 +16,12 @@ export function renderRail() {
     n = Math.max(1, occupancy.nctx || 1),
     used = occupancy.occupied,
     ratio = used / Math.max(1, b.ceiling || 1);
+  const serial = Number(s.activity?.compaction_serial || 0);
+  if (compactionSeen.has(s.id) && compactionSeen.get(s.id) !== serial) compactionPulseUntil.set(s.id, Date.now() + 160);
+  compactionSeen.set(s.id, serial);
+  const compacted = Number(compactionPulseUntil.get(s.id) || 0) > Date.now();
   const meter = document.createElement("div");
-  meter.className = `meter ${ratio > 0.85 ? "warn" : ""} ${ratio > 1 ? "over" : ""} ${s._compacted ? "compacted" : ""}`;
+  meter.className = `meter ${ratio > 0.85 ? "warn" : ""} ${ratio > 1 ? "over" : ""} ${compacted ? "compacted" : ""}`;
   meter.setAttribute("role", "img");
   const labels = document.createElement("div");
   labels.className = "rail-labels";

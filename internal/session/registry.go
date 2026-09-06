@@ -70,7 +70,7 @@ func (r *Registry) Create(label, serverID, workspace string) (*Session, error) {
 	session.Messages = []events.Message{}
 	session.Budget = initialBudget(profile)
 	r.sessions[id] = session
-	r.bus.Publish(events.New(events.SessionCreated, id, "", map[string]any{"session": session.Snapshot(nil)}))
+	r.bus.Publish(events.New(events.SessionCreated, id, "", map[string]any{"session": session.Snapshot()}))
 	return session, nil
 }
 func (r *Registry) Get(id string) (*Session, bool) {
@@ -181,7 +181,7 @@ func (r *Registry) Reset(id string) (string, error) {
 	if s.IsRunning() {
 		return "", fmt.Errorf("session is running")
 	}
-	path, err := r.writers.OpenSession(id)
+	path, predecessor, err := r.writers.RotateSession(id)
 	if err != nil {
 		return "", err
 	}
@@ -206,8 +206,11 @@ func (r *Registry) Reset(id string) (string, error) {
 		s.MemoryBlock, s.MemoryPath = block, memoryPath
 	}
 	s.mu.Unlock()
-	r.bus.ResetSession(id)
-	r.bus.Publish(events.New(events.SessionReset, id, "", map[string]any{"session_id": id, "log_path": path}))
+	data := map[string]any{"session_id": id, "log_path": path}
+	if predecessor.Offset > 0 {
+		data["predecessor"] = map[string]any{"generation": predecessor.Generation, "offset": predecessor.Offset}
+	}
+	r.bus.Publish(events.New(events.SessionReset, id, "", data))
 	return path, nil
 }
 func (r *Registry) Close(id string, force bool) error {

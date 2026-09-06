@@ -101,7 +101,7 @@ func TestCompactionAuxUnsetUsesOneMainCall(t *testing.T) {
 	if attempt.Role != "main" || attempt.ProfileID != "main" || attempt.Outcome != "accepted" || compact["profile_id"] != "main" {
 		t.Fatalf("attempt=%+v compact=%v", attempt, compact)
 	}
-	snapshot := item.Snapshot(nil)
+	snapshot := item.Snapshot()
 	if snapshot.CompactionModelCalls != 1 || snapshot.CompactionPrompt != 111 || snapshot.CompactionCompletion != 22 {
 		t.Fatalf("ledger=%+v", snapshot)
 	}
@@ -249,7 +249,7 @@ func TestCompactionAuxErrorFallsBackToMain(t *testing.T) {
 	if len(attempts) != 2 || attempts[0].Outcome != "error" || !attempts[0].Dispatched || attempts[1].FallbackReason != "aux_error" {
 		t.Fatalf("attempts=%+v", attempts)
 	}
-	snapshot := item.Snapshot(nil)
+	snapshot := item.Snapshot()
 	if snapshot.CompactionModelCalls != 2 || snapshot.CompactionPrompt != 111 || snapshot.CompactionCompletion != 22 {
 		t.Fatalf("ledger=%+v", snapshot)
 	}
@@ -270,7 +270,7 @@ func TestCompactionAuxFitCheckErrorFallsBackBeforeDispatch(t *testing.T) {
 	if len(attempts) != 2 || attempts[0].Outcome != "error" || attempts[0].Dispatched || attempts[0].Estimated || attempts[1].FallbackReason != "aux_fit_error" {
 		t.Fatalf("attempts=%+v", attempts)
 	}
-	snapshot := item.Snapshot(nil)
+	snapshot := item.Snapshot()
 	if snapshot.CompactionModelCalls != 1 || snapshot.CompactionPrompt != 111 || snapshot.CompactionCompletion != 22 {
 		t.Fatalf("ledger=%+v", snapshot)
 	}
@@ -320,7 +320,35 @@ func TestCompactionRejectedAuxFallsBackToMain(t *testing.T) {
 	}
 }
 
-func compactionRunner(t *testing.T, mainServer, auxServer *summaryServer, auxNCtx int) (*Runner, *session.Session, *events.Bus, *config.Config) {
+type capturedBus struct {
+	*events.Bus
+	mu     sync.Mutex
+	values []events.Event
+}
+
+func newCapturedBus() *capturedBus {
+	value := &capturedBus{Bus: events.NewBus()}
+	value.SetSink(func(event events.Event) error {
+		value.mu.Lock()
+		value.values = append(value.values, event)
+		value.mu.Unlock()
+		return nil
+	})
+	return value
+}
+func (b *capturedBus) Recent(sessionID string) []events.Event {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	result := []events.Event{}
+	for _, event := range b.values {
+		if event.SessionID == sessionID {
+			result = append(result, event)
+		}
+	}
+	return result
+}
+
+func compactionRunner(t *testing.T, mainServer, auxServer *summaryServer, auxNCtx int) (*Runner, *session.Session, *capturedBus, *config.Config) {
 	t.Helper()
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = "auto"
@@ -340,8 +368,8 @@ func compactionRunner(t *testing.T, mainServer, auxServer *summaryServer, auxNCt
 		cfg.Servers = append(cfg.Servers, aux)
 		cfg.Roles.Aux = "aux"
 	}
-	bus := events.NewBus()
-	runner := NewRunner(bus, tools.New(), &PromptRenderer{text: "system {{workspace}} {{memory}} {{tools}}"}, cfg.Profile, func() config.Config { return cfg })
+	bus := newCapturedBus()
+	runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "system {{workspace}} {{memory}} {{tools}}"}, cfg.Profile, func() config.Config { return cfg })
 	item := &session.Session{ID: "main", ServerID: "main", Workspace: t.TempDir(), ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	for index := 0; index < 10; index++ {
 		item.Append(events.Message{ID: fmt.Sprintf("m%d", index), Role: "user", Content: strings.Repeat("history ", 20), Category: "history", Tokens: 100})
@@ -354,7 +382,7 @@ func profileForRunner(runner *Runner, id string) *config.Profile {
 	return profile
 }
 
-func summaryAttempts(bus *events.Bus, sessionID string) []events.CompactionSummaryData {
+func summaryAttempts(bus *capturedBus, sessionID string) []events.CompactionSummaryData {
 	result := []events.CompactionSummaryData{}
 	for _, event := range bus.Recent(sessionID) {
 		if event.Type == events.CompactionSummary {
@@ -364,7 +392,7 @@ func summaryAttempts(bus *events.Bus, sessionID string) []events.CompactionSumma
 	return result
 }
 
-func compactionEvents(t *testing.T, bus *events.Bus, sessionID string) (events.CompactionSummaryData, map[string]any) {
+func compactionEvents(t *testing.T, bus *capturedBus, sessionID string) (events.CompactionSummaryData, map[string]any) {
 	t.Helper()
 	attempts := summaryAttempts(bus, sessionID)
 	if len(attempts) != 1 {

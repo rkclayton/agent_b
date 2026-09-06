@@ -8,7 +8,8 @@ export function renderRack() {
     count.textContent = "";
     return;
   }
-  const visible = s.tools.filter((tool) => tool.calls || s._activeTool === tool.name || s._alarmTool === tool.name);
+  const activity = s.activity || {};
+  const visible = s.tools.filter((tool) => tool.calls || activity.active_tool === tool.name || activity.alarm_tool === tool.name);
   const total = s.tools.reduce((sum, tool) => sum + (tool.calls || 0), 0);
   count.textContent = `${total} calls`;
   if (!visible.length) {
@@ -20,8 +21,8 @@ export function renderRack() {
   for (const tool of visible) {
     const row = document.createElement("div");
     row.className = "tool-row";
-    const live = s._activeTool === tool.name,
-      alarm = s._alarmTool === tool.name;
+    const live = activity.active_tool === tool.name,
+      alarm = activity.alarm_tool === tool.name;
     row.innerHTML = `<span class="lamp ${live ? "live" : ""} ${alarm ? "alarm" : ""}"></span><span></span><span class="tool-calls number"></span>`;
     row.children[1].textContent = tool.name;
     row.children[2].textContent = tool.calls || 0;

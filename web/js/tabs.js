@@ -9,7 +9,7 @@ export function renderTabs() {
   for (const value of Object.values(store.sessions)) {
     const profile = store.servers.find((item) => item.id === value.server_id);
     const tab = document.createElement("div");
-    tab.className = `tab ${value.id === store.active ? "active" : ""} ${value.run.status} ${fault(value) ? "fault" : ""}`;
+    tab.className = `tab ${value.id === store.active ? "active" : ""} ${store.replay ? "replay" : value.run.status} ${fault(value) ? "fault" : ""}`;
     tab.dataset.id = value.id;
     const ratio = value.budget?.ceiling
       ? Math.max(0, (value.budget.used_measured || value.budget.used_est) / value.budget.ceiling)
@@ -48,6 +48,7 @@ export function renderTabs() {
 }
 
 function tabStatus(value) {
+  if (store.replay) return "replay";
   if (!value.runnable) return value.not_runnable_reason;
   const run = value.run;
   if (run.status === "running") return `running ${run.turn}/${run.max_turns}`;

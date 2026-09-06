@@ -5,8 +5,11 @@ package projection
 
 import (
 	"encoding/json"
+	"math"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
 
 	"harness/internal/events"
 )
@@ -42,14 +45,54 @@ type Tool struct {
 }
 
 type Activity struct {
-	Stage           string         `json:"stage"`
-	StageState      string         `json:"stage_state"`
-	CompletedStages []string       `json:"completed_stages"`
-	ActiveTool      string         `json:"active_tool"`
-	AlarmTool       string         `json:"alarm_tool"`
-	DispatchAlarm   bool           `json:"dispatch_alarm"`
-	Progress        map[string]any `json:"progress,omitempty"`
-	LastTimings     map[string]any `json:"last_timings,omitempty"`
+	Stage            string           `json:"stage"`
+	StageState       string           `json:"stage_state"`
+	CompletedStages  []string         `json:"completed_stages"`
+	ActiveTool       string           `json:"active_tool"`
+	AlarmTool        string           `json:"alarm_tool"`
+	DispatchAlarm    bool             `json:"dispatch_alarm"`
+	Progress         map[string]any   `json:"progress,omitempty"`
+	LastTimings      map[string]any   `json:"last_timings,omitempty"`
+	Stream           *StreamTelemetry `json:"stream,omitempty"`
+	CompactionSerial int              `json:"compaction_serial"`
+}
+
+type StreamTelemetry struct {
+	Key             string         `json:"key"`
+	StartedAt       int64          `json:"started_at"`
+	LastChunkAt     int64          `json:"last_chunk_at"`
+	HasChunk        bool           `json:"has_chunk"`
+	ReasoningChars  int            `json:"reasoning_chars"`
+	TotalChars      int            `json:"total_chars"`
+	Rate            int            `json:"rate"`
+	RateStartedAt   int64          `json:"rate_started_at"`
+	RateChars       int            `json:"rate_chars"`
+	Done            bool           `json:"done"`
+	ReasoningTokens int            `json:"reasoning_tokens"`
+	Timings         map[string]any `json:"timings,omitempty"`
+}
+
+type ChatEntry struct {
+	Type                     string         `json:"type"`
+	Key                      string         `json:"key"`
+	RunID                    string         `json:"run_id,omitempty"`
+	Turn                     int            `json:"turn,omitempty"`
+	Text                     string         `json:"text,omitempty"`
+	Reasoning                string         `json:"reasoning,omitempty"`
+	ReasoningTokens          int            `json:"reasoningTokens,omitempty"`
+	ReasoningTokensEstimated bool           `json:"reasoningTokensEstimated,omitempty"`
+	ThinkingStartedMS        int64          `json:"thinkingStartedMS,omitempty"`
+	ThinkingEndedMS          int64          `json:"thinkingEndedMS,omitempty"`
+	ThinkingMS               *int64         `json:"thinkingMS,omitempty"`
+	Done                     bool           `json:"done,omitempty"`
+	ToolCallIDs              []string       `json:"toolCallIDs,omitempty"`
+	CallID                   string         `json:"callID,omitempty"`
+	Name                     string         `json:"name,omitempty"`
+	Args                     map[string]any `json:"args,omitempty"`
+	Result                   map[string]any `json:"result,omitempty"`
+	Content                  string         `json:"content,omitempty"`
+	Event                    *events.Event  `json:"event,omitempty"`
+	Decision                 string         `json:"decision,omitempty"`
 }
 
 // Snapshot is the serializable session projection. Complete is false when the log has no
@@ -79,7 +122,11 @@ type Snapshot struct {
 	CompactionPrompt     int              `json:"compaction_prompt_tokens"`
 	CompactionCompletion int              `json:"compaction_completion_tokens"`
 	Activity             Activity         `json:"activity"`
+	Timeline             []events.Event   `json:"timeline"`
+	Chat                 []ChatEntry      `json:"chat"`
 	Closed               bool             `json:"closed"`
+	Stale                bool             `json:"projection_stale,omitempty"`
+	StaleReason          string           `json:"projection_stale_reason,omitempty"`
 }
 
 type Operation struct {
@@ -89,10 +136,11 @@ type Operation struct {
 }
 
 type Patch struct {
-	SchemaVersion int         `json:"schema_version"`
-	SessionID     string      `json:"session_id"`
-	Cursor        Cursor      `json:"cursor"`
-	Operations    []Operation `json:"operations"`
+	SchemaVersion  int         `json:"schema_version"`
+	SessionID      string      `json:"session_id"`
+	PreviousCursor Cursor      `json:"previous_cursor"`
+	Cursor         Cursor      `json:"cursor"`
+	Operations     []Operation `json:"operations"`
 }
 
 func Empty(sessionID string) Snapshot {
@@ -104,6 +152,8 @@ func Empty(sessionID string) Snapshot {
 		Messages:      []events.Message{},
 		Tools:         []Tool{},
 		Activity:      Activity{CompletedStages: []string{}},
+		Timeline:      []events.Event{},
+		Chat:          []ChatEntry{},
 	}
 }
 
@@ -128,6 +178,9 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 			return previous, Patch{}, err
 		}
 		next = wrapper.Session.snapshot(record.Cursor)
+		if record.Event.SessionID != "" {
+			next.ID = record.Event.SessionID
+		}
 	case events.SessionRenamed:
 		next.Label = stringValue(data["label"])
 	case events.SessionUpdated:
@@ -151,6 +204,8 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 		next.CompactionCompletion = 0
 		next.Run = Run{Status: "idle", MaxTurns: next.Run.MaxTurns}
 		next.Activity = Activity{CompletedStages: []string{}}
+		next.Timeline = []events.Event{}
+		next.Chat = []ChatEntry{}
 		if value := stringValue(data["log_path"]); value != "" {
 			next.LogPath = value
 		}
@@ -189,9 +244,30 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 		} else if !contains(next.Activity.CompletedStages, stage) {
 			next.Activity.CompletedStages = appendCopy(next.Activity.CompletedStages, stage)
 		}
+	case events.ModelRequest:
+		at := eventMillis(record.Event)
+		next.Activity.Stream = &StreamTelemetry{Key: turnKey(record.Event, data), StartedAt: at, LastChunkAt: at, RateStartedAt: at}
+		next.Chat = appendChat(next.Chat, ChatEntry{Type: "agent", Key: "turn:" + turnKey(record.Event, data), RunID: record.Event.RunID, Turn: intValue(data["turn"])})
 	case events.ModelProgress:
 		next.Activity.Progress = cloneMap(data)
+		next.Activity.Stream = touchStream(next.Activity.Stream, record.Event, data, false)
 	case events.ModelDelta:
+		next.Activity.Stream = touchStream(next.Activity.Stream, record.Event, data, true)
+		next.Chat = cloneChat(next.Chat)
+		if entry := chatTurn(next.Chat, record.Event.RunID, intValue(data["turn"])); entry != nil {
+			if stringValue(data["kind"]) == "reasoning" {
+				if entry.ThinkingStartedMS == 0 {
+					entry.ThinkingStartedMS = eventMillis(record.Event)
+				}
+				entry.Reasoning += stringValue(data["text"])
+			}
+			if stringValue(data["kind"]) == "content" {
+				if entry.ThinkingStartedMS > 0 && entry.ThinkingEndedMS == 0 {
+					entry.ThinkingEndedMS = eventMillis(record.Event)
+				}
+				entry.Text += stringValue(data["text"])
+			}
+		}
 		if stringValue(data["kind"]) == "content" {
 			next.Run.Partial += stringValue(data["text"])
 		}
@@ -199,8 +275,35 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 		next.Run.Partial = ""
 		next.ModelTurns++
 		next.Activity.LastTimings = mapValue(data["timings"])
+		next.Activity.Stream = touchStream(next.Activity.Stream, record.Event, data, false)
+		next.Activity.Stream.Done = true
+		next.Activity.Stream.ReasoningTokens = intValue(data["reasoning_tokens"])
+		next.Activity.Stream.Timings = mapValue(data["timings"])
+		next.Chat = cloneChat(next.Chat)
+		entry := chatTurn(next.Chat, record.Event.RunID, intValue(data["turn"]))
+		if entry == nil {
+			next.Chat = append(next.Chat, ChatEntry{Type: "agent", Key: "turn:" + turnKey(record.Event, data), RunID: record.Event.RunID, Turn: intValue(data["turn"])})
+			entry = &next.Chat[len(next.Chat)-1]
+		}
+		if content := stringValue(data["content"]); content != "" {
+			entry.Text = content
+		}
+		entry.ReasoningTokens = intValue(data["reasoning_tokens"])
+		entry.ReasoningTokensEstimated = boolValue(data["reasoning_tokens_estimated"])
+		entry.Done = true
+		if entry.ThinkingStartedMS > 0 {
+			if entry.ThinkingEndedMS == 0 {
+				entry.ThinkingEndedMS = eventMillis(record.Event)
+			}
+			duration := entry.ThinkingEndedMS - entry.ThinkingStartedMS
+			entry.ThinkingMS = &duration
+		}
+		for _, call := range toolCalls(data["tool_calls"]) {
+			entry.ToolCallIDs = append(entry.ToolCallIDs, call.ID)
+		}
 	case events.ToolCallEvent:
 		next.Activity.ActiveTool = stringValue(data["name"])
+		next.Chat = appendChat(next.Chat, ChatEntry{Type: "tool", Key: "tool:" + stringValue(data["call_id"]), CallID: stringValue(data["call_id"]), Name: stringValue(data["name"]), Args: mapValue(data["args"])})
 	case events.ToolResult:
 		next.Activity.ActiveTool = ""
 		next.Tools = cloneTools(next.Tools)
@@ -209,6 +312,11 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 				next.Tools[index].Calls++
 				break
 			}
+		}
+		next.Chat = cloneChat(next.Chat)
+		if entry := chatCall(next.Chat, stringValue(data["call_id"])); entry != nil {
+			entry.Result = cloneMap(data)
+			entry.Content = stringValue(data["preview"])
 		}
 	case events.ToolToggled:
 		next.Tools = cloneTools(next.Tools)
@@ -231,6 +339,24 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 			next.Messages = append(next.Messages[:at], append([]events.Message{wrapper.Message}, next.Messages[at:]...)...)
 		} else {
 			next.Messages = append(next.Messages, wrapper.Message)
+		}
+		next.Chat = cloneChat(next.Chat)
+		if wrapper.Message.Role == "user" {
+			next.Chat = append(next.Chat, ChatEntry{Type: "user", Key: "message:" + wrapper.Message.ID, Text: wrapper.Message.Content})
+		}
+		if wrapper.Message.Role == "assistant" {
+			if entry := chatTurnAny(next.Chat, wrapper.Message.Turn); entry != nil {
+				if wrapper.Message.Content != "" {
+					entry.Text = wrapper.Message.Content
+				}
+				entry.Reasoning = wrapper.Message.Reasoning
+				entry.Done = true
+			}
+		}
+		if wrapper.Message.Role == "tool" {
+			if entry := chatCall(next.Chat, wrapper.Message.ToolCallID); entry != nil {
+				entry.Content = wrapper.Message.Content
+			}
 		}
 	case events.MessageUpdated:
 		next.Messages = cloneMessages(next.Messages)
@@ -270,11 +396,19 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 		next.Run.Status = "paused"
 	case events.ApprovalDecided:
 		next.Run.Status = "running"
+		next.Chat = cloneChat(next.Chat)
+		for index := len(next.Chat) - 1; index >= 0; index-- {
+			if next.Chat[index].Type == "notice" && next.Chat[index].Event != nil && stringValue(eventMap(next.Chat[index].Event.Data)["call_id"]) == stringValue(data["call_id"]) {
+				next.Chat[index].Decision = stringValue(data["decision"])
+				break
+			}
+		}
 	case events.CycleDetected:
 		next.Activity.DispatchAlarm = true
 	case events.WorkspaceConflict:
 		next.Activity.AlarmTool = next.Activity.ActiveTool
 	case events.Compaction:
+		next.Activity.CompactionSerial++
 		next.CompactionCount++
 		next.CompactionTokenDelta += intValue(data["after"]) - intValue(data["before"])
 		if stringValue(data["kind"]) == "summarize" {
@@ -304,9 +438,69 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 		next.MemoryPath = firstString(data["path"], next.MemoryPath)
 		next.MemoryContent = strings.TrimRight(next.MemoryContent, "\r\n") + "\n- " + stringValue(data["note"]) + "\n"
 	}
+	if chatNotice(record.Event.Type) {
+		event := stripDiagnostic(record.Event)
+		next.Chat = appendChat(next.Chat, ChatEntry{Type: "notice", Key: "event:" + strconv.FormatInt(record.Event.Seq, 10), RunID: record.Event.RunID, Event: &event})
+	}
+	if record.Event.Type == events.RunStopped {
+		next.Chat = cloneChat(next.Chat)
+		for index := range next.Chat {
+			if next.Chat[index].Type == "agent" && next.Chat[index].RunID == record.Event.RunID {
+				next.Chat[index].Done = true
+			}
+		}
+	}
+
+	// Timeline is an unbounded durable operational view. Streaming fragments are
+	// retained only while their turn is live; completed response content lives in
+	// messages/model.response and cannot evict operational history.
+	next.Timeline = append(append([]events.Event(nil), next.Timeline...), stripDiagnostic(record.Event))
+	if record.Event.Type == events.ModelResponse {
+		next.Timeline = discardStream(next.Timeline, record.Event.RunID, intValue(data["turn"]))
+	} else if record.Event.Type == events.RunStopped {
+		next.Timeline = discardRunStream(next.Timeline, record.Event.RunID)
+	}
 
 	next.Cursor = record.Cursor
 	return next, diff(before, next), nil
+}
+
+func touchStream(current *StreamTelemetry, event events.Event, data map[string]any, delta bool) *StreamTelemetry {
+	value := &StreamTelemetry{}
+	if current != nil {
+		encoded, _ := json.Marshal(current)
+		_ = json.Unmarshal(encoded, value)
+	}
+	at, key := eventMillis(event), turnKey(event, data)
+	if value.Key != key {
+		value = &StreamTelemetry{Key: key, StartedAt: at, LastChunkAt: at, RateStartedAt: at}
+	}
+	value.LastChunkAt, value.HasChunk = at, true
+	if delta {
+		chars := len([]rune(stringValue(data["text"])))
+		if stringValue(data["kind"]) == "reasoning" {
+			value.ReasoningChars += chars
+		}
+		value.TotalChars += chars
+		if at-value.RateStartedAt > 5000 {
+			value.RateStartedAt, value.RateChars = at, 0
+		}
+		value.RateChars += chars
+		seconds := math.Max(.25, float64(at-value.RateStartedAt)/1000)
+		value.Rate = int(math.Round(float64(value.RateChars) / 3.6 / seconds))
+	}
+	return value
+}
+
+func eventMillis(event events.Event) int64 {
+	value, err := time.Parse(time.RFC3339Nano, event.TS)
+	if err != nil {
+		return 0
+	}
+	return value.UnixMilli()
+}
+func turnKey(event events.Event, data map[string]any) string {
+	return event.RunID + ":" + strconv.Itoa(intValue(data["turn"]))
 }
 
 type seed struct {
@@ -342,17 +536,19 @@ func (value seed) snapshot(cursor Cursor) Snapshot {
 		ModelTurns: value.ModelTurns, CompactionCount: value.CompactionCount, CompactionTokenDelta: value.CompactionTokenDelta,
 		CompactionModelCalls: value.CompactionModelCalls, CompactionPrompt: value.CompactionPrompt,
 		CompactionCompletion: value.CompactionCompletion, Activity: Activity{CompletedStages: []string{}},
+		Timeline: []events.Event{},
+		Chat:     []ChatEntry{},
 	}
 }
 
 func diff(before, after Snapshot) Patch {
-	patch := Patch{SchemaVersion: SchemaVersion, SessionID: after.ID, Cursor: after.Cursor, Operations: []Operation{}}
+	patch := Patch{SchemaVersion: SchemaVersion, SessionID: after.ID, PreviousCursor: before.Cursor, Cursor: after.Cursor, Operations: []Operation{}}
 	fields := []struct {
 		path        string
 		before, now any
 	}{
 		{"complete", before.Complete, after.Complete}, {"id", before.ID, after.ID}, {"label", before.Label, after.Label},
-		{"server_id", before.ServerID, after.ServerID}, {"workspace", before.Workspace, after.Workspace}, {"run", before.Run, after.Run},
+		{"server_id", before.ServerID, after.ServerID}, {"workspace", before.Workspace, after.Workspace},
 		{"tools", before.Tools, after.Tools}, {"messages", before.Messages, after.Messages}, {"budget", before.Budget, after.Budget},
 		{"queued_messages", before.QueuedMessages, after.QueuedMessages}, {"runnable", before.Runnable, after.Runnable},
 		{"not_runnable_reason", before.NotRunnableReason, after.NotRunnableReason}, {"memory_path", before.MemoryPath, after.MemoryPath},
@@ -363,7 +559,10 @@ func diff(before, after Snapshot) Patch {
 		{"compaction_prompt_tokens", before.CompactionPrompt, after.CompactionPrompt},
 		{"compaction_completion_tokens", before.CompactionCompletion, after.CompactionCompletion},
 		{"activity", before.Activity, after.Activity}, {"closed", before.Closed, after.Closed},
+		{"projection_stale", before.Stale, after.Stale}, {"projection_stale_reason", before.StaleReason, after.StaleReason},
 	}
+	patch.Operations = append(patch.Operations, diffRun(before.Run, after.Run)...)
+	patch.Operations = append(patch.Operations, diffChat(before.Chat, after.Chat)...)
 	for _, field := range fields {
 		if reflect.DeepEqual(field.before, field.now) {
 			continue
@@ -371,7 +570,141 @@ func diff(before, after Snapshot) Patch {
 		value, _ := json.Marshal(field.now)
 		patch.Operations = append(patch.Operations, Operation{Op: "replace", Path: "/" + field.path, Value: value})
 	}
+	if !reflect.DeepEqual(before.Timeline, after.Timeline) {
+		if len(after.Timeline) == len(before.Timeline)+1 && reflect.DeepEqual(before.Timeline, after.Timeline[:len(before.Timeline)]) {
+			value, _ := json.Marshal(after.Timeline[len(after.Timeline)-1])
+			patch.Operations = append(patch.Operations, Operation{Op: "append", Path: "/timeline", Value: value})
+		} else {
+			value, _ := json.Marshal(after.Timeline)
+			patch.Operations = append(patch.Operations, Operation{Op: "replace", Path: "/timeline", Value: value})
+		}
+	}
 	return patch
+}
+
+func diffRun(before, after Run) []Operation {
+	if reflect.DeepEqual(before, after) {
+		return nil
+	}
+	withoutBefore, withoutAfter := before, after
+	withoutBefore.Partial, withoutAfter.Partial = "", ""
+	if reflect.DeepEqual(withoutBefore, withoutAfter) && strings.HasPrefix(after.Partial, before.Partial) {
+		value, _ := json.Marshal(strings.TrimPrefix(after.Partial, before.Partial))
+		return []Operation{{Op: "append", Path: "/run/partial", Value: value}}
+	}
+	value, _ := json.Marshal(after)
+	return []Operation{{Op: "replace", Path: "/run", Value: value}}
+}
+
+func diffChat(before, after []ChatEntry) []Operation {
+	if reflect.DeepEqual(before, after) {
+		return nil
+	}
+	if len(after) == len(before)+1 && reflect.DeepEqual(before, after[:len(before)]) {
+		value, _ := json.Marshal(after[len(after)-1])
+		return []Operation{{Op: "append", Path: "/chat", Value: value}}
+	}
+	if len(after) == len(before) && len(after) > 0 && reflect.DeepEqual(before[:len(before)-1], after[:len(after)-1]) && before[len(before)-1].Key == after[len(after)-1].Key {
+		left, right := before[len(before)-1], after[len(after)-1]
+		leftReason, rightReason := left.Reasoning, right.Reasoning
+		left.Reasoning, right.Reasoning = "", ""
+		if reflect.DeepEqual(left, right) && strings.HasPrefix(rightReason, leftReason) {
+			value, _ := json.Marshal(strings.TrimPrefix(rightReason, leftReason))
+			return []Operation{{Op: "append", Path: "/chat/" + pointer(right.Key) + "/reasoning", Value: value}}
+		}
+		left, right = before[len(before)-1], after[len(after)-1]
+		leftText, rightText := left.Text, right.Text
+		left.Text, right.Text = "", ""
+		if reflect.DeepEqual(left, right) && strings.HasPrefix(rightText, leftText) {
+			value, _ := json.Marshal(strings.TrimPrefix(rightText, leftText))
+			return []Operation{{Op: "append", Path: "/chat/" + pointer(right.Key) + "/text", Value: value}}
+		}
+		value, _ := json.Marshal(after[len(after)-1])
+		return []Operation{{Op: "upsert", Path: "/chat/" + pointer(after[len(after)-1].Key), Value: value}}
+	}
+	value, _ := json.Marshal(after)
+	return []Operation{{Op: "replace", Path: "/chat", Value: value}}
+}
+func pointer(value string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(value, "~", "~0"), "/", "~1")
+}
+
+func stripDiagnostic(event events.Event) events.Event {
+	event.Body = nil
+	event.Raw = nil
+	return event
+}
+
+func discardStream(values []events.Event, runID string, turn int) []events.Event {
+	out := make([]events.Event, 0, len(values))
+	for _, event := range values {
+		if (event.Type == events.ModelDelta || event.Type == events.ModelProgress) && event.RunID == runID && intValue(eventMap(event.Data)["turn"]) == turn {
+			continue
+		}
+		out = append(out, event)
+	}
+	return out
+}
+
+func discardRunStream(values []events.Event, runID string) []events.Event {
+	out := make([]events.Event, 0, len(values))
+	for _, event := range values {
+		if (event.Type == events.ModelDelta || event.Type == events.ModelProgress) && event.RunID == runID {
+			continue
+		}
+		out = append(out, event)
+	}
+	return out
+}
+
+func appendChat(values []ChatEntry, entry ChatEntry) []ChatEntry {
+	result := cloneChat(values)
+	return append(result, entry)
+}
+func cloneChat(values []ChatEntry) []ChatEntry {
+	encoded, _ := json.Marshal(values)
+	var result []ChatEntry
+	_ = json.Unmarshal(encoded, &result)
+	if result == nil {
+		result = []ChatEntry{}
+	}
+	return result
+}
+func chatTurn(values []ChatEntry, runID string, turn int) *ChatEntry {
+	for index := len(values) - 1; index >= 0; index-- {
+		if values[index].Type == "agent" && values[index].RunID == runID && values[index].Turn == turn {
+			return &values[index]
+		}
+	}
+	return nil
+}
+func chatTurnAny(values []ChatEntry, turn int) *ChatEntry {
+	for index := len(values) - 1; index >= 0; index-- {
+		if values[index].Type == "agent" && values[index].Turn == turn {
+			return &values[index]
+		}
+	}
+	return nil
+}
+func chatCall(values []ChatEntry, callID string) *ChatEntry {
+	for index := len(values) - 1; index >= 0; index-- {
+		if values[index].Type == "tool" && values[index].CallID == callID {
+			return &values[index]
+		}
+	}
+	return nil
+}
+func toolCalls(value any) []events.ToolCall {
+	var result []events.ToolCall
+	_ = decode(value, &result)
+	return result
+}
+func chatNotice(value string) bool {
+	switch value {
+	case events.RunStopped, events.RunQueued, events.MessageQueued, events.Compaction, events.WorkspaceConflict, events.ApprovalRequired, events.MemoryNoted, events.OperatorContext:
+		return true
+	}
+	return false
 }
 
 func decode(value, target any) error {

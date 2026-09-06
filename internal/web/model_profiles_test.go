@@ -84,6 +84,8 @@ func TestConfigPOSTStoresProfileSecretOutsideJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	bus := events.NewBus()
+	eventStream, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
 	const secret = "profile-test-secret"
 
@@ -109,7 +111,7 @@ func TestConfigPOSTStoresProfileSecretOutsideJSON(t *testing.T) {
 	if err != nil || string(value) != secret {
 		t.Fatalf("stored value=%q err=%v", value, err)
 	}
-	eventJSON, err := json.Marshal(bus.Recent(""))
+	eventJSON, err := json.Marshal(drainTestEvents(eventStream, ""))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,6 +22,7 @@ import (
 	"harness/internal/events"
 	"harness/internal/hardening"
 	"harness/internal/probe"
+	"harness/internal/projection"
 	"harness/internal/serviceaccount"
 	"harness/internal/session"
 	"harness/internal/tools"
@@ -38,7 +39,9 @@ type Server struct {
 	scheduler        *agent.Scheduler
 	runner           *agent.Runner
 	prompt           *agent.PromptRenderer
-	replay           *events.Replay
+	replay           *projection.Replay
+	projector        *projection.Store
+	writers          *events.Writers
 	credential       *credential.Store
 	shell            *tools.Shell
 	account          serviceaccount.Manager
@@ -82,7 +85,10 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 	}
 }
 func (s *Server) SetRegistry(registry *session.Registry) { s.registry = registry }
-func (s *Server) SetReplay(replay *events.Replay)        { s.replay = replay }
+func (s *Server) SetReplay(replay *projection.Replay)    { s.replay = replay }
+func (s *Server) SetProjection(projector *projection.Store, writers *events.Writers) {
+	s.projector, s.writers = projector, writers
+}
 func (s *Server) SetShellSecurity(store *credential.Store, shell *tools.Shell) {
 	s.credential = store
 	s.shell = shell
@@ -242,11 +248,16 @@ func (s *Server) snapshot() map[string]any {
 	if s.replay != nil {
 		return s.snapshotWithSessions(s.replay.Sessions, true)
 	}
-	sessions := map[string]session.Snapshot{}
-	for _, item := range s.registry.List() {
-		sessions[item.ID] = item.Snapshot(s.bus.Recent(item.ID))
+	if s.projector != nil && s.writers != nil {
+		sessions, err := s.projector.Snapshot(s.writers.SessionCursors())
+		if err == nil {
+			return s.snapshotWithSessions(sessions, false)
+		}
+		result := s.snapshotWithSessions(map[string]projection.Snapshot{}, false)
+		result["projection_error"] = err.Error()
+		return result
 	}
-	return s.snapshotWithSessions(sessions, false)
+	return s.snapshotWithSessions(map[string]projection.Snapshot{}, false)
 }
 func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any {
 	masked := s.ConfigSnapshot().Masked()
@@ -379,6 +390,10 @@ func (s *Server) sse(w http.ResponseWriter, r *http.Request) {
 		s.replaySSE(w, r, flusher)
 		return
 	}
+	if s.projector != nil && s.writers != nil {
+		s.projectionSSE(w, r, flusher)
+		return
+	}
 	ch, unsubscribe := s.bus.Subscribe()
 	defer unsubscribe()
 	s.writeFrame(w, events.New(events.Snapshot, "", "", s.snapshot()))
@@ -390,6 +405,49 @@ func (s *Server) sse(w http.ResponseWriter, r *http.Request) {
 		case event, ok := <-ch:
 			if !ok {
 				return
+			}
+			if event.SessionID != "" {
+				continue
+			}
+			s.writeFrame(w, event)
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprint(w, ": ping\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+func (s *Server) projectionSSE(w http.ResponseWriter, r *http.Request, flusher http.Flusher) {
+	raw, unsubscribeRaw := s.bus.Subscribe()
+	defer unsubscribeRaw()
+	sessions, patches, unsubscribeProjection, err := s.projector.SubscribeSnapshot(s.writers.SessionCursors())
+	if err != nil {
+		s.writeFrame(w, events.New(events.Error, "", "", map[string]any{"where": "projection", "message": err.Error()}))
+		flusher.Flush()
+		return
+	}
+	defer unsubscribeProjection()
+	s.writeFrame(w, events.New(events.Snapshot, "", "", s.snapshotWithSessions(sessions, false)))
+	flusher.Flush()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case patch, ok := <-patches:
+			if !ok {
+				return
+			}
+			s.writeFrame(w, events.New(events.ProjectionPatch, patch.SessionID, "", patch))
+			flusher.Flush()
+		case event, ok := <-raw:
+			if !ok {
+				return
+			}
+			if event.SessionID != "" {
+				continue
 			}
 			s.writeFrame(w, event)
 			flusher.Flush()
@@ -406,7 +464,7 @@ func (s *Server) replaySSE(w http.ResponseWriter, r *http.Request, flusher http.
 	s.writeFrame(w, events.New(events.Snapshot, "", "", s.snapshotWithSessions(s.replay.Initial, true)))
 	flusher.Flush()
 	instant := r.URL.Query().Get("instant") == "1"
-	for _, recorded := range s.replay.Events {
+	for _, recorded := range s.replay.Patches {
 		if !instant {
 			timer := time.NewTimer(20 * time.Millisecond)
 			select {
@@ -416,7 +474,7 @@ func (s *Server) replaySSE(w http.ResponseWriter, r *http.Request, flusher http.
 				return
 			}
 		}
-		s.writeFrame(w, recorded)
+		s.writeFrame(w, events.New(events.ProjectionPatch, recorded.Patch.SessionID, "", recorded.Patch))
 		flusher.Flush()
 	}
 	ticker := time.NewTicker(15 * time.Second)
@@ -435,6 +493,10 @@ func (s *Server) writeFrame(w http.ResponseWriter, event events.Event) {
 	event.Body = nil
 	event.Raw = nil
 	data, _ := json.Marshal(event)
+	if event.Type == events.ProjectionPatch || event.Type == events.Snapshot {
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
+		return
+	}
 	fmt.Fprintf(w, "event: %s\ndata: %s\nid: %d\n\n", event.Type, data, event.Seq)
 }
 
@@ -458,9 +520,16 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		values := []session.Snapshot{}
-		for _, item := range s.registry.List() {
-			values = append(values, item.Snapshot(s.bus.Recent(item.ID)))
+		values := []projection.Snapshot{}
+		if s.projector != nil && s.writers != nil {
+			projected, err := s.projector.Snapshot(s.writers.SessionCursors())
+			if err != nil {
+				writeError(w, 500, err.Error(), "projection")
+				return
+			}
+			for _, value := range projected {
+				values = append(values, value)
+			}
 		}
 		writeJSON(w, 200, values)
 	case http.MethodPost:
@@ -496,7 +565,7 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 		if s.runner != nil {
 			s.runner.PublishBudget(r.Context(), item)
 		}
-		writeJSON(w, 201, map[string]any{"session": item.Snapshot(nil)})
+		writeJSON(w, 201, map[string]any{"session": item.Snapshot()})
 	default:
 		method(w)
 	}
@@ -572,7 +641,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		if body.ServerID != nil && s.runner != nil {
 			s.runner.PublishBudget(r.Context(), item)
 		}
-		writeJSON(w, 200, map[string]any{"session": item.Snapshot(nil)})
+		writeJSON(w, 200, map[string]any{"session": item.Snapshot()})
 	case http.MethodDelete:
 		err := s.registry.Close(id, r.URL.Query().Get("force") == "1")
 		if err != nil {

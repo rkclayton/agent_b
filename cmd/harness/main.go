@@ -22,6 +22,7 @@ import (
 	"harness/internal/hardening"
 	"harness/internal/llm"
 	"harness/internal/memory"
+	"harness/internal/projection"
 	"harness/internal/serviceaccount"
 	"harness/internal/session"
 	"harness/internal/tools"
@@ -67,7 +68,7 @@ func main() {
 		log.Printf("tokenize blocks on the generation slot (%d ms measured busy); context.accounting: \"estimated\" avoids it", facts.TokenizeBusyMS)
 	}
 	if strings.TrimSpace(*replayPaths) != "" {
-		replay, loadErr := events.LoadReplay(strings.Split(*replayPaths, ","))
+		replay, loadErr := projection.LoadReplay(strings.Split(*replayPaths, ","))
 		if loadErr != nil {
 			log.Fatal(loadErr)
 		}
@@ -92,8 +93,10 @@ func main() {
 		}
 	}()
 	bus := events.NewBus()
-	bus.SetSink(writers.Write)
+	projector := projection.NewStore()
+	bus.SetDurableSink(writers.WriteRecord, projector.Apply, projector.MarkStale)
 	web := webserver.New(cfg, paths.Config, filepath.Join(paths.Application, "web"), roots, bus)
+	web.SetProjection(projector, writers)
 	for _, notice := range cfg.LoadNotices {
 		bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": cfg.Masked(), "notice": notice}))
 	}

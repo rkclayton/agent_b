@@ -17,6 +17,7 @@ type shellPolicyTool struct {
 	overrideCalls int
 	offerOverride bool
 	operatorMatch *tools.OperatorCommand
+	operatorArgs  map[string]any
 }
 
 type runScriptPolicyTool struct{ calls int }
@@ -42,8 +43,9 @@ func (t *shellPolicyTool) CallDetailed(context.Context, *session.Session, map[st
 	}
 	return tools.CallDetail{Content: "exit=0\nservice-ok"}
 }
-func (t *shellPolicyTool) CallAsOperator(context.Context, *session.Session, map[string]any) (string, error) {
+func (t *shellPolicyTool) CallAsOperator(_ context.Context, _ *session.Session, args map[string]any) (string, error) {
 	t.overrideCalls++
+	t.operatorArgs = args
 	return "exit=0\noperator-ok", nil
 }
 func (t *shellPolicyTool) OperatorCommand(map[string]any) (tools.OperatorCommand, bool) {
@@ -339,9 +341,21 @@ func TestConfiguredOperatorCommandNeverUsesServiceIdentity(t *testing.T) {
 	if outcome := <-done; !outcome.OK || !outcome.OperatorContext {
 		t.Fatalf("first=%+v", outcome)
 	}
+	if got := tool.operatorArgs["command"]; got != `git status; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }` {
+		t.Fatalf("operator command=%q", got)
+	}
 	second := runner.executeTool(context.Background(), s, "run", "git-2", "shell", map[string]any{"command": "git status --short"})
 	if !second.OK || !second.OperatorContext || tool.normalCalls != 0 || tool.overrideCalls != 2 {
 		t.Fatalf("second=%+v normal=%d operator=%d", second, tool.normalCalls, tool.overrideCalls)
+	}
+}
+
+func TestConfiguredOperatorCommandNativeExitWrapperIsPowerShellOnly(t *testing.T) {
+	if !isPowerShellCommand([]string{`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`}) || !isPowerShellCommand([]string{"pwsh"}) {
+		t.Fatal("PowerShell dialect was not recognized")
+	}
+	if isPowerShellCommand([]string{"bash", "-c"}) || isPowerShellCommand(nil) {
+		t.Fatal("non-PowerShell dialect received native exit wrapper")
 	}
 }
 

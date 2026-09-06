@@ -27,6 +27,7 @@ type Config struct {
 	Memory        Memory        `json:"memory"`
 	Tools         Tools         `json:"tools"`
 	Shell         Shell         `json:"shell"`
+	Deliver       Deliver       `json:"deliver"`
 	Signing       Signing       `json:"signing"`
 	LoadNotices   []string      `json:"-"`
 }
@@ -149,6 +150,31 @@ type Approval struct {
 	Mode string `json:"mode"`
 }
 
+type Deliver struct {
+	Mode           string `json:"mode"`
+	ExchangeFolder string `json:"exchange_folder"`
+	initialized    bool
+}
+
+func defaultDeliver() Deliver {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.Getenv("USERPROFILE")
+	}
+	return Deliver{Mode: DeliverModeBoth, ExchangeFolder: filepath.Join(home, "Agent_b"), initialized: true}
+}
+
+func (d *Deliver) UnmarshalJSON(data []byte) error {
+	type plain Deliver
+	value := plain(defaultDeliver())
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*d = Deliver(value)
+	d.initialized = true
+	return nil
+}
+
 const (
 	CurrentConfigVersion     = 5
 	DefaultReserveOutput     = 10240
@@ -156,6 +182,9 @@ const (
 	ApprovalModeMutating     = "mutating"
 	ApprovalModeAll          = "all"
 	ApprovalModeOff          = "off"
+	DeliverModeChips         = "chips"
+	DeliverModeFolder        = "folder"
+	DeliverModeBoth          = "both"
 )
 
 const ApprovalDefaultMigrationNotice = "corrected inherited approval default from mutating to boundary-only; mutating can be reselected in Settings > Run & approval"
@@ -242,7 +271,7 @@ func Defaults(workspace string) Config {
 		ConfigVersion: CurrentConfigVersion,
 		Listen:        "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
 		Servers: []Profile{profile}, Roles: Roles{Main: "local"},
-		Run: RunConfig{MaxTurns: 40, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500},
+		Run: RunConfig{MaxTurns: 40, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(),
 		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
 		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Account: "agentb-svc", Domain: "."}},
 		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
@@ -553,6 +582,12 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Shell.ServiceAccount.Domain) == "" {
 		return fmt.Errorf("shell.service_account.domain: required")
 	}
+	if !oneOf(c.Deliver.Mode, DeliverModeChips, DeliverModeFolder, DeliverModeBoth) {
+		return fmt.Errorf("deliver.mode: must be chips, folder, or both")
+	}
+	if _, err := c.ResolvedExchangeFolder(); err != nil {
+		return err
+	}
 	if c.Signing.TimestampURL != "" && !strings.HasPrefix(strings.ToLower(c.Signing.TimestampURL), "http://") && !strings.HasPrefix(strings.ToLower(c.Signing.TimestampURL), "https://") {
 		return fmt.Errorf("signing.timestamp_url: must be an HTTP(S) URL")
 	}
@@ -605,6 +640,9 @@ func applyDefaults(c *Config) {
 	}
 	if c.Memory.Dir == "" {
 		c.Memory = d.Memory
+	}
+	if !c.Deliver.initialized {
+		c.Deliver = d.Deliver
 	}
 	if c.Tools.ReadFile.DefaultLimit == 0 {
 		c.Tools = d.Tools
@@ -672,6 +710,30 @@ func applyDefaults(c *Config) {
 }
 
 func ApplyDefaults(c *Config) { applyDefaults(c) }
+
+func (c Config) ResolvedExchangeFolder() (string, error) {
+	value := strings.TrimSpace(c.Deliver.ExchangeFolder)
+	if value == "" {
+		return "", fmt.Errorf("deliver.exchange_folder: required")
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		lower := strings.ToLower(value)
+		for {
+			index := strings.Index(lower, "%userprofile%")
+			if index < 0 {
+				break
+			}
+			value = value[:index] + home + value[index+len("%USERPROFILE%"):]
+			lower = strings.ToLower(value)
+		}
+	}
+	value = os.ExpandEnv(value)
+	if !filepath.IsAbs(value) {
+		return "", fmt.Errorf("deliver.exchange_folder: must be an absolute path")
+	}
+	return filepath.Clean(value), nil
+}
+
 func (s Shell) FileRoutingGuardEnabled() bool {
 	return s.FileRoutingGuard == nil || *s.FileRoutingGuard
 }

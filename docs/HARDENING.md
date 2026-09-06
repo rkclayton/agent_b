@@ -1,6 +1,6 @@
 # Windows host hardening
 
-These controls reduce the reach of Agent_b's model-selected OS operations. Shell children and built-in file tools use a dedicated local account. File-tool paths rely on that identity's ACLs; shell is never workspace-confined, and its workspace is only the initial working directory. Absolute paths and `cd ..` therefore remain possible wherever Windows grants the active account access. The managed Agent_b tree grants writes only to its workspace, and service-account outbound traffic is limited to IPv4 loopback, Tailscale's `100.64.0.0/10`, and IPv6 loopback. This is blast-radius reduction on a dedicated Windows host, not a sandbox or exploit boundary.
+These controls reduce the reach of Agent_b's model-selected OS operations. Shell children and built-in file tools use a dedicated local account. File-tool paths rely on that identity's ACLs; shell is never workspace-confined, and its workspace is only the initial working directory. Absolute paths and `cd ..` therefore remain possible wherever Windows grants the active account access. The managed Agent_b tree grants writes to its workspace and configured exchange folder only, and service-account outbound traffic is limited to IPv4 loopback, Tailscale's `100.64.0.0/10`, and IPv6 loopback. This is blast-radius reduction on a dedicated Windows host, not a sandbox or exploit boundary.
 
 Because ACLs constrain shell reach rather than behavior, every shell call requires policy confirmation while the service identity is enabled, regardless of `approval.mode`. This confirmation runs the command normally as the service account; it is distinct from the later **Run once as operator** escape offered after an identity or permission denial. With the service identity disabled, no posture-specific shell gate applies: `boundary-only`/`off` are silent, while `mutating`/`all` retain their configured confirmation. In that unrestricted posture, `internal/tools/jail.go` remains the sole workspace constraint for built-in file tools and must not be removed; it does not apply to shell.
 
@@ -26,13 +26,13 @@ Run an approved `whoami` shell command and require the returned identity to end 
 
 ## 3. Apply host protections
 
-Stop active Agent_b tasks. In Settings → Security → **Host protections**, confirm the displayed model route, select **Apply protection**, and respond if Windows presents a UAC prompt. **Save** stores configuration; **Apply protection** changes Windows policy; **Verify** is read-only. The Apply operation grants workspace access before testing the real service-account shell, avoiding a circular first-run dependency. The button remains disabled until the account exists, the credential is stored, and service identity is enabled. Local UAC policy can suppress consent for trusted Windows binaries, so trust the reported post-condition rather than the presence of a dialog.
+Stop active Agent_b tasks. Choose the exchange path and delivery mode in Settings → Delivery and save them. Then, in Settings → Security → **Host protections**, confirm the displayed model route, select **Apply protection**, and respond if Windows presents a UAC prompt. **Save** stores configuration; **Apply protection** changes Windows policy; **Verify** is read-only. The Apply operation grants workspace and exchange-folder access before testing the real service-account shell, avoiding a circular first-run dependency. The button remains disabled until the account exists, the credential is stored, and service identity is enabled. Local UAC policy can suppress consent for trusted Windows binaries, so trust the reported post-condition rather than the presence of a dialog.
 
 The operation applies and immediately verifies both controls:
 
 - The Program Files application root receives a recursive service-account read/execute grant plus explicit write/delete/ownership denies. The installed binary, web assets, prompts, scripts, documentation, and config template are readable but immutable to the constrained identity.
 - The LocalAppData data root receives a recursive service-account `FullControl` deny. Configuration, the DPAPI credential, logs, and memory remain available only to the operator identity; the service account does not need config access.
-- Parent directories receive only the traverse grants needed to reach the Program Files application and ProgramData workspace. The workspace receives an explicit recursive `Modify` grant. The three trees must be disjoint; no access is granted through the operator's private profile for workspace reachability.
+- Parent directories receive only the traverse grants needed to reach the Program Files application, ProgramData workspace, and configured exchange folder. The workspace and exchange folder each receive an explicit recursive `Modify` grant. Application, data, workspace, and exchange trees must be disjoint; no other operator-profile content is granted read or list access.
 - One outbound Block rule named `AgentB-Svc-Outbound-Block` is scoped to the service account with `-LocalUser`. Non-overlapping address ranges spare `127.0.0.0/8`, `100.64.0.0/10`, and `::1`. There is no competing Allow rule and no machine-wide `DefaultOutboundAction` change.
 
 Select **Verify** at any time to detect missing or replaced ACL entries and firewall drift. Reapply after updating, rebuilding, or adding files to Agent_b because a newly created or replaced application file may not retain its explicit deny.
@@ -78,18 +78,18 @@ Recover an existing account whose password is unknown:
 .\scripts\setup-service-account.ps1 -ResetPassword
 ```
 
-After storing/testing that credential in Settings, preview, apply, and verify ACLs. Substitute the same three explicit roots for each invocation:
+After storing/testing that credential in Settings, preview, apply, and verify ACLs. Substitute the same four explicit roots for each invocation:
 
 ```powershell
-.\scripts\apply-acls.ps1 -ApplicationDirectory "$env:ProgramFiles\Agent_b" -DataDirectory "$env:LOCALAPPDATA\Agent_b" -WorkspaceDirectory "$env:ProgramData\Agent_b\workspace" -WhatIf
+.\scripts\apply-acls.ps1 -ApplicationDirectory "$env:ProgramFiles\Agent_b" -DataDirectory "$env:LOCALAPPDATA\Agent_b" -WorkspaceDirectory "$env:ProgramData\Agent_b\workspace" -ExchangeDirectory "$env:USERPROFILE\Agent_b" -WhatIf
 ```
 
 ```powershell
-.\scripts\apply-acls.ps1 -ApplicationDirectory "$env:ProgramFiles\Agent_b" -DataDirectory "$env:LOCALAPPDATA\Agent_b" -WorkspaceDirectory "$env:ProgramData\Agent_b\workspace"
+.\scripts\apply-acls.ps1 -ApplicationDirectory "$env:ProgramFiles\Agent_b" -DataDirectory "$env:LOCALAPPDATA\Agent_b" -WorkspaceDirectory "$env:ProgramData\Agent_b\workspace" -ExchangeDirectory "$env:USERPROFILE\Agent_b"
 ```
 
 ```powershell
-.\scripts\apply-acls.ps1 -ApplicationDirectory "$env:ProgramFiles\Agent_b" -DataDirectory "$env:LOCALAPPDATA\Agent_b" -WorkspaceDirectory "$env:ProgramData\Agent_b\workspace" -Verify
+.\scripts\apply-acls.ps1 -ApplicationDirectory "$env:ProgramFiles\Agent_b" -DataDirectory "$env:LOCALAPPDATA\Agent_b" -WorkspaceDirectory "$env:ProgramData\Agent_b\workspace" -ExchangeDirectory "$env:USERPROFILE\Agent_b" -Verify
 ```
 
 Preview, apply, and verify the firewall rule, substituting the numeric model address and port:
@@ -117,7 +117,7 @@ Manual rollback uses the scripts before deleting the account:
 ```
 
 ```powershell
-.\scripts\apply-acls.ps1 -ApplicationDirectory "$env:ProgramFiles\Agent_b" -DataDirectory "$env:LOCALAPPDATA\Agent_b" -WorkspaceDirectory "$env:ProgramData\Agent_b\workspace" -Remove
+.\scripts\apply-acls.ps1 -ApplicationDirectory "$env:ProgramFiles\Agent_b" -DataDirectory "$env:LOCALAPPDATA\Agent_b" -WorkspaceDirectory "$env:ProgramData\Agent_b\workspace" -ExchangeDirectory "$env:USERPROFILE\Agent_b" -Remove
 ```
 
 ```powershell

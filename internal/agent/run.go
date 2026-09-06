@@ -14,6 +14,7 @@ import (
 
 	"harness/internal/config"
 	contextmgr "harness/internal/context"
+	"harness/internal/delivery"
 	"harness/internal/events"
 	"harness/internal/llm"
 	"harness/internal/session"
@@ -30,6 +31,7 @@ type Runner struct {
 	budget       *Budgeter
 	compact      *contextmgr.Compactor
 	toolActivity func(string)
+	deliver      func(*session.Session, string, []delivery.Source)
 	ids          atomic.Int64
 }
 
@@ -42,7 +44,10 @@ func (r *Runner) Configure(cfg config.Config) {
 }
 func (r *Runner) Gate() *Gate                     { return r.gate }
 func (r *Runner) SetToolActivity(fn func(string)) { r.toolActivity = fn }
-func (r *Runner) id(prefix string) string         { return fmt.Sprintf("%s-%d", prefix, r.ids.Add(1)) }
+func (r *Runner) SetDeliverer(fn func(*session.Session, string, []delivery.Source)) {
+	r.deliver = fn
+}
+func (r *Runner) id(prefix string) string { return fmt.Sprintf("%s-%d", prefix, r.ids.Add(1)) }
 func (r *Runner) AddUser(ctx context.Context, s *session.Session, text string) (events.Message, error) {
 	message, err := r.QueueUser(ctx, s, text)
 	if err != nil {
@@ -66,6 +71,12 @@ func (r *Runner) AppendUser(s *session.Session, message events.Message) {
 }
 
 func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (string, string, int) {
+	produced := map[string]delivery.Source{}
+	defer func() {
+		if r.deliver != nil {
+			r.deliver(s, runID, delivery.SortedSources(produced))
+		}
+	}()
 	profile, ok := r.profile(s.ServerID)
 	if !ok {
 		return "profile_not_runnable", "profile not found", 0
@@ -254,7 +265,13 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 					item.content, item.ok, item.operatorContext = outcome.Content, outcome.OK, outcome.OperatorContext
 					item.category, item.untrusted, item.metadata = outcome.Category, outcome.Untrusted, outcome.Metadata
 					if item.ok {
-						item.metadata = mergeResultMetadata(item.metadata, producedFileMetadata(s, item.call.Name, item.args))
+						fileMetadata := producedFileMetadata(s, item.call.Name, item.args)
+						item.metadata = mergeResultMetadata(item.metadata, fileMetadata)
+						if file, ok := fileMetadata["file"].(map[string]any); ok {
+							path, _ := file["path"].(string)
+							bytes, _ := file["bytes"].(int64)
+							produced[strings.ToLower(path)] = delivery.Source{Path: path, Bytes: bytes}
+						}
 					}
 				}
 				item.ms = time.Since(start).Milliseconds()

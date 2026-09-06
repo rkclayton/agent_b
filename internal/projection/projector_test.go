@@ -114,6 +114,22 @@ func TestMessageRemovalDeletesProjectedMessageAndChatEntry(t *testing.T) {
 	}
 }
 
+func TestFilesDeliveredProjectsAsDurableChatNotice(t *testing.T) {
+	state := seeded(t)
+	record := Record{Cursor: Cursor{Generation: "main-a.jsonl", Offset: 30}, Event: events.Event{
+		Seq: 9, SessionID: "main", RunID: "r1", Type: events.FilesDelivered,
+		Data: map[string]any{"mode": "both", "items": []any{map[string]any{"source_path": "done.txt", "delivered_path": `C:\\Users\\operator\\Agent_b\\done.txt`, "status": "copied"}}},
+	}}
+	next, _, err := Next(state, record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := next.Chat[len(next.Chat)-1]
+	if entry.Type != "notice" || entry.RunID != "r1" || entry.Event == nil || entry.Event.Type != events.FilesDelivered {
+		t.Fatalf("chat entry=%+v", entry)
+	}
+}
+
 func TestReadFileUsesDurableByteBoundary(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main-a.jsonl")

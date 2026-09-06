@@ -34,9 +34,11 @@ $testName = 'Agent_b-Step4-Test-' + $suffix
 $applicationTestRoot = Assert-DisposableRoot (Join-Path $env:ProgramFiles $testName) $env:ProgramFiles
 $dataTestRoot = Assert-DisposableRoot (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) $testName) ([Environment]::GetFolderPath('LocalApplicationData'))
 $workspaceTestRoot = Assert-DisposableRoot (Join-Path $env:ProgramData $testName) $env:ProgramData
+$exchangeTestRoot = Assert-DisposableRoot (Join-Path $env:USERPROFILE $testName) $env:USERPROFILE
 $applicationRoot = Join-Path $applicationTestRoot 'Application\Agent_b'
 $dataRoot = Join-Path $dataTestRoot 'Data\Agent_b'
 $workspaceRoot = Join-Path $workspaceTestRoot 'Agent_b\workspace'
+$exchangeRoot = Join-Path $exchangeTestRoot 'Agent_b'
 $credentialPath = Join-Path $dataRoot '.agentb-shell-credential.dpapi'
 $firewallRule = 'AgentB-Step4-Test-' + $suffix
 $legacyRule = $firewallRule + '-Legacy'
@@ -72,10 +74,10 @@ try {
     Write-Host 'VERIFY credential storage and decryption'
     & (Join-Path $PSScriptRoot 'setup-service-account.ps1') -AccountName $account -CredentialStore $credentialPath -ValidateCredentialStore
 
-    Write-Host 'VERIFY three-root ACL apply and verify'
+    Write-Host 'VERIFY root and exchange-folder ACL apply and verify'
     $aclAttempted = $true
-    & (Join-Path $PSScriptRoot 'apply-acls.ps1') -AccountName $account -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -NoPrompt -Confirm:$false
-    & (Join-Path $PSScriptRoot 'apply-acls.ps1') -AccountName $account -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -Verify
+    & (Join-Path $PSScriptRoot 'apply-acls.ps1') -AccountName $account -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $exchangeRoot -NoPrompt -Confirm:$false
+    & (Join-Path $PSScriptRoot 'apply-acls.ps1') -AccountName $account -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $exchangeRoot -Verify
 
     Write-Host 'VERIFY service shell identity, workspace write, and application/data denial'
     $env:AGENTB_STEP4_LIVE_ACCOUNT = $account
@@ -100,15 +102,16 @@ try {
         & (Join-Path $PSScriptRoot 'apply-firewall-rule.ps1') -AccountName $account -ModelAddress 127.0.0.1 -ModelPort 8080 -RuleName $firewallRule -LegacyAllowRuleName $legacyRule -Remove -NoPrompt -Confirm:$false
     }
     if ($aclAttempted -and $accountCreated) {
-        & (Join-Path $PSScriptRoot 'apply-acls.ps1') -AccountName $account -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -Remove -NoPrompt -Confirm:$false
+        & (Join-Path $PSScriptRoot 'apply-acls.ps1') -AccountName $account -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $exchangeRoot -Remove -NoPrompt -Confirm:$false
     }
     if ($accountCreated -and (Get-LocalUser -Name $account -ErrorAction SilentlyContinue)) {
         Remove-LocalUser -Name $account
     }
-    foreach ($root in @($applicationTestRoot, $dataTestRoot, $workspaceTestRoot)) {
+    foreach ($root in @($applicationTestRoot, $dataTestRoot, $workspaceTestRoot, $exchangeTestRoot)) {
         if (Test-Path -LiteralPath $root) {
             if ($root -eq $applicationTestRoot) { $null = Assert-DisposableRoot $root $env:ProgramFiles }
             elseif ($root -eq $dataTestRoot) { $null = Assert-DisposableRoot $root ([Environment]::GetFolderPath('LocalApplicationData')) }
+            elseif ($root -eq $exchangeTestRoot) { $null = Assert-DisposableRoot $root $env:USERPROFILE }
             else { $null = Assert-DisposableRoot $root $env:ProgramData }
             Remove-Item -LiteralPath $root -Recurse -Force
         }

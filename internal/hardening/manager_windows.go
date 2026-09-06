@@ -41,6 +41,7 @@ func (m *windowsManager) Status(ctx context.Context, request Request) (Status, e
 		"-ApplicationDirectory", request.ApplicationDirectory,
 		"-DataDirectory", request.DataDirectory,
 		"-WorkspaceDirectory", request.WorkspaceDirectory,
+		"-ExchangeDirectory", request.ExchangeDirectory,
 		"-Inspect",
 	})
 	if err != nil {
@@ -114,6 +115,7 @@ func (m *windowsManager) Run(ctx context.Context, action string, request Request
 		"-ApplicationDirectory", request.ApplicationDirectory,
 		"-DataDirectory", request.DataDirectory,
 		"-WorkspaceDirectory", request.WorkspaceDirectory,
+		"-ExchangeDirectory", request.ExchangeDirectory,
 		"-ModelAddress", request.ModelAddress,
 		"-ModelPort", fmt.Sprint(request.ModelPort),
 	}

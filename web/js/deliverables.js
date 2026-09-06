@@ -17,7 +17,20 @@ export function filesFromResponse(items) {
       bytes: Number.isFinite(recorded?.bytes) ? recorded.bytes : null,
       callID: item.callID || "",
       runID: callRuns.get(item.callID) || "",
+      openScope: "workspace",
+      openPath: path,
     });
+  }
+  const delivery = (items || []).find((item) => item.type === "notice" && item.event?.type === "files.delivered")?.event?.data;
+  if (delivery?.mode === "folder") return [];
+  if (delivery?.mode === "both") {
+    for (const item of delivery.items || []) {
+      if (!item.exchange_path || !["copied", "identical"].includes(item.status)) continue;
+      const file = files.get(String(item.source_path || "").toLowerCase());
+      if (!file) continue;
+      file.openScope = "exchange";
+      file.openPath = item.exchange_path;
+    }
   }
   return [...files.values()];
 }

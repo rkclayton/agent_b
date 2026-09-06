@@ -26,8 +26,8 @@ test("file chips derive only successful writes from a canned projected response"
   ];
   const files = filesFromResponse(items);
   assert.deepEqual(files, [
-    { path: "reports/final.txt", bytes: 1536, callID: "write", runID: "r7" },
-    { path: "legacy.md", bytes: null, callID: "edit", runID: "r7" },
+    { path: "reports/final.txt", bytes: 1536, callID: "write", runID: "r7", openScope: "workspace", openPath: "reports/final.txt" },
+    { path: "legacy.md", bytes: null, callID: "edit", runID: "r7", openScope: "workspace", openPath: "legacy.md" },
   ]);
   const chip = createFileChip(document, files[0], { state: "ready", bytes: 1536 }, { downloadURL: fileURL("main", files[0].path), openFolder() {} });
   assert.equal(chip.children[0].textContent, "final.txt");
@@ -35,6 +35,17 @@ test("file chips derive only successful writes from a canned projected response"
   assert.equal(chip.children[2].textContent, "download");
   assert.equal(chip.children[3].textContent, "open folder");
   assert.equal(chip.children[2].href, "/api/files/reports/final.txt?session=main");
+});
+
+test("both mode points open-folder at the durable exchange copy", () => {
+  const items = [
+    { type: "agent", run_id: "r8", toolCallIDs: ["write"] },
+    { type: "tool", callID: "write", name: "write_file", args: { path: "reports/final.txt" }, result: { ok: true, file: { path: "reports/final.txt", bytes: 8 } } },
+    { type: "notice", event: { type: "files.delivered", data: { mode: "both", items: [{ source_path: "reports/final.txt", exchange_path: "final (2).txt", status: "copied" }] } } },
+  ];
+  const [file] = filesFromResponse(items);
+  assert.equal(file.openScope, "exchange");
+  assert.equal(file.openPath, "final (2).txt");
 });
 
 test("a replay file absent from the workspace renders missing", async () => {

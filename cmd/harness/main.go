@@ -19,6 +19,7 @@ import (
 	"harness/internal/agent"
 	"harness/internal/config"
 	"harness/internal/credential"
+	"harness/internal/delivery"
 	"harness/internal/events"
 	"harness/internal/hardening"
 	"harness/internal/llm"
@@ -143,7 +144,9 @@ func main() {
 	))
 	web.SetSigningManager(signing.New(filepath.Join(paths.Application, "scripts", "manage-signing.ps1")))
 	signingContext, cancelSigning := context.WithTimeout(context.Background(), 15*time.Second)
-	if err := web.RefreshSigningState(signingContext); err != nil { log.Printf("inspect installed signatures: %v", err) }
+	if err := web.RefreshSigningState(signingContext); err != nil {
+		log.Printf("inspect installed signatures: %v", err)
+	}
 	cancelSigning()
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
@@ -159,6 +162,10 @@ func main() {
 		tools.NewRunScript(shellTool),
 	)
 	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Profile, web.ConfigSnapshot)
+	deliveryManager := delivery.New(bus, web.ConfigSnapshot)
+	runner.SetDeliverer(func(item *session.Session, runID string, files []delivery.Source) {
+		deliveryManager.Deliver(item, runID, files)
+	})
 	scheduler := agent.NewScheduler(runner, registry, bus, web.ConfigSnapshot)
 	web.SetRuntime(scheduler, runner, renderer)
 	mainServerID := cfg.Roles.Main

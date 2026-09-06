@@ -75,16 +75,31 @@ func (s *Server) openFileFolder(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		SessionID string `json:"session_id"`
 		Path      string `json:"path"`
+		Scope     string `json:"scope"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
-	workspace, ok := s.fileWorkspace(body.SessionID)
-	if !ok {
-		writeError(w, http.StatusNotFound, "session not found", "session_id")
+	root := ""
+	if body.Scope == "" || body.Scope == "workspace" {
+		var ok bool
+		root, ok = s.fileWorkspace(body.SessionID)
+		if !ok {
+			writeError(w, http.StatusNotFound, "session not found", "session_id")
+			return
+		}
+	} else if body.Scope == "exchange" {
+		var err error
+		root, err = s.ConfigSnapshot().ResolvedExchangeFolder()
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error(), "deliver.exchange_folder")
+			return
+		}
+	} else {
+		writeError(w, http.StatusBadRequest, "scope must be workspace or exchange", "scope")
 		return
 	}
-	resolved, err := tools.Resolve(workspace, body.Path)
+	resolved, err := tools.Resolve(root, body.Path)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "file not found", "path")
 		return

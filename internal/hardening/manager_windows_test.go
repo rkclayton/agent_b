@@ -19,7 +19,8 @@ func TestStatusReportsAbsentAccountWithoutMutation(t *testing.T) {
 	application := filepath.Join(t.TempDir(), "application")
 	data := filepath.Join(t.TempDir(), "data")
 	workspace := filepath.Join(t.TempDir(), "workspace")
-	for _, path := range []string{application, data, workspace} {
+	exchange := filepath.Join(t.TempDir(), "exchange")
+	for _, path := range []string{application, data, workspace, exchange} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -31,7 +32,7 @@ func TestStatusReportsAbsentAccountWithoutMutation(t *testing.T) {
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	status, err := manager.Status(ctx, Request{AccountName: "agentb-test-account-that-does-not-exist", ApplicationDirectory: application, DataDirectory: data, WorkspaceDirectory: workspace, ModelAddress: "127.0.0.1", ModelPort: 8080})
+	status, err := manager.Status(ctx, Request{AccountName: "agentb-test-account-that-does-not-exist", ApplicationDirectory: application, DataDirectory: data, WorkspaceDirectory: workspace, ExchangeDirectory: exchange, ModelAddress: "127.0.0.1", ModelPort: 8080})
 	if err != nil {
 		t.Fatal(err)
 	}

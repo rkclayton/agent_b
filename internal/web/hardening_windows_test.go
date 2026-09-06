@@ -63,7 +63,7 @@ func TestHardeningEndpointAppliesBeforeTestingWorkspaceIdentity(t *testing.T) {
 		t.Fatalf("status=%d calls=%d action=%q tests=%d body=%s", response.Code, manager.runCalls, manager.runAction, testCalls, response.Body)
 	}
 	if manager.runRequest.ModelAddress != "198.51.100.10" || manager.runRequest.ModelPort != 8080 || manager.runRequest.AccountName != "agentb-svc" ||
-		manager.runRequest.ApplicationDirectory != server.roots.Application || manager.runRequest.DataDirectory != server.roots.Data || manager.runRequest.WorkspaceDirectory != server.roots.Workspace {
+		manager.runRequest.ApplicationDirectory != server.roots.Application || manager.runRequest.DataDirectory != server.roots.Data || manager.runRequest.WorkspaceDirectory != server.roots.Workspace || manager.runRequest.ExchangeDirectory == "" {
 		t.Fatalf("unexpected hardening request: %+v", manager.runRequest)
 	}
 }

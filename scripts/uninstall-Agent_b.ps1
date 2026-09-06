@@ -9,6 +9,7 @@ param(
     [string]$UninstallRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b',
     [string]$ExpectedOperatorSid,
     [string]$ExpectedOperatorLocalAppData,
+	[switch]$Alpha,
     [switch]$TestMode
 )
 
@@ -109,9 +110,15 @@ if (-not $launchingSid.Equals($ExpectedOperatorSid, [StringComparison]::OrdinalI
     throw "Uninstall refused: this install belongs to operator SID $ExpectedOperatorSid, but the launching identity is $launchingSid. No root was changed."
 }
 if (-not $TestMode) {
-    $expectedApplicationRoot = Get-FullPath (Join-Path $env:ProgramFiles 'Agent_b')
-    $expectedDataRoot = Get-FullPath (Join-Path $ExpectedOperatorLocalAppData 'Agent_b')
-    $expectedWorkspaceRoot = Get-FullPath (Join-Path $env:ProgramData 'Agent_b\workspace')
+	if ($Alpha) {
+		$expectedApplicationRoot = Get-FullPath 'C:\alpha\Program Files\Agent_b'
+		$expectedDataRoot = Get-FullPath 'C:\alpha\LocalAppData\Agent_b'
+		$expectedWorkspaceRoot = Get-FullPath 'C:\alpha\ProgramData\Agent_b\workspace'
+	} else {
+		$expectedApplicationRoot = Get-FullPath (Join-Path $env:ProgramFiles 'Agent_b')
+		$expectedDataRoot = Get-FullPath (Join-Path $ExpectedOperatorLocalAppData 'Agent_b')
+		$expectedWorkspaceRoot = Get-FullPath (Join-Path $env:ProgramData 'Agent_b\workspace')
+	}
     if (-not $applicationRoot.Equals($expectedApplicationRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Uninstall refused: application root is not $expectedApplicationRoot."
     }
@@ -132,8 +139,9 @@ if (-not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $TestMode)
         '-StartMenuDirectory', $StartMenuDirectory,
         '-UninstallRegistryPath', $UninstallRegistryPath,
         '-ExpectedOperatorSid', $ExpectedOperatorSid,
-        '-ExpectedOperatorLocalAppData', $ExpectedOperatorLocalAppData
-    )
+		'-ExpectedOperatorLocalAppData', $ExpectedOperatorLocalAppData
+	)
+	if ($Alpha) { $arguments += '-Alpha' }
     if ($Quiet) { $arguments += '-Quiet' }
     if ($PurgeData) { $arguments += '-PurgeData' }
     $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList (($arguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ') -Verb RunAs -Wait -PassThru

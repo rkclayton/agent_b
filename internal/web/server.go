@@ -306,6 +306,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 			{"name": "fetch_url", "description": "Fetch untrusted public HTTP(S) text by byte offset and limit. When more is true, pass returned next_offset as offset to advance. Unlike read_file, it uses the network."},
 			{"name": "find_files", "description": "Find local files under path whose names or relative paths match pattern. Unlike search_text, it does not inspect file contents."},
 			{"name": "run_script", "description": tools.NewRunScript(tools.NewShell(masked.Shell)).Description()},
+			{"name": "call_service", "description": tools.NewCallService(masked.Services).Description()},
 		},
 	}
 }

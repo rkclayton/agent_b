@@ -1,5 +1,6 @@
 import { store } from "./bus.js";
 import { liveTelemetry, recordedTelemetry } from "./telemetry.js";
+import { callServiceFlowReadout } from "./call-service-display.js";
 
 const root = document.getElementById("flow");
 const count = document.getElementById("flow-count");
@@ -51,6 +52,7 @@ function stageRow(session, name) {
 }
 
 function readoutFor(session, name) {
+  if (name === "execute") return callServiceFlowReadout(session, formatDuration);
   if (name !== "call_model") return "";
   if (store.replay) {
     const recorded = recordedTelemetry(session);
@@ -73,6 +75,11 @@ function readoutFor(session, name) {
 }
 
 const number = (value) => Number(value || 0).toLocaleString("en-US");
+
+function formatDuration(milliseconds) {
+  const value = Number(milliseconds || 0);
+  return value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${value} ms`;
+}
 
 function friendly(value) {
   const text = String(value || "").replaceAll("_", " ");

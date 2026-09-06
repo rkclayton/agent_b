@@ -140,6 +140,70 @@ func TestApprovalModeDefaultsWhenAbsentOrEmpty(t *testing.T) {
 	}
 }
 
+func TestServicesAdditiveSchemaFiveDefaultsEmpty(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	if cfg.ConfigVersion != 5 || cfg.Services == nil || len(cfg.Services) != 0 {
+		t.Fatalf("defaults version=%d services=%#v", cfg.ConfigVersion, cfg.Services)
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	delete(document, "services")
+	data, err = json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var omitted Config
+	if err := json.Unmarshal(data, &omitted); err != nil {
+		t.Fatal(err)
+	}
+	ApplyDefaults(&omitted)
+	if omitted.ConfigVersion != 5 || omitted.Services == nil || len(omitted.Services) != 0 {
+		t.Fatalf("omitted services=%#v version=%d", omitted.Services, omitted.ConfigVersion)
+	}
+	if err := omitted.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServiceAllowlistValidation(t *testing.T) {
+	valid := Service{BaseURL: "https://broker.example/api", Auth: "exec:entra-token --scope broker", AllowedMethods: []string{"GET", "post"}, TimeoutS: 30, MaxBodyKB: 256, RequireConfirmation: true}
+	cfg := Defaults(t.TempDir())
+	cfg.Services["deploy-broker"] = valid
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Service)
+		want   string
+	}{
+		{"base_url", func(service *Service) { service.BaseURL = "file:///tmp/broker" }, "base_url"},
+		{"auth", func(service *Service) { service.Auth = "oauth:magic" }, "auth"},
+		{"static_env", func(service *Service) { service.Auth = "static_bearer:not-valid" }, "environment variable"},
+		{"methods", func(service *Service) { service.AllowedMethods = nil }, "allowed_methods"},
+		{"timeout", func(service *Service) { service.TimeoutS = 0 }, "timeout_s"},
+		{"body_limit", func(service *Service) { service.MaxBodyKB = 0 }, "max_body_kb"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := cfg
+			service := valid
+			test.mutate(&service)
+			candidate.Services = map[string]Service{"deploy-broker": service}
+			if err := candidate.Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error=%v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "harness.example.json"))
 	if err != nil {

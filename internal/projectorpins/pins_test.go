@@ -1,6 +1,7 @@
 package projectorpins
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,7 +32,7 @@ func TestManifestPinsTenDistinctRealLogs(t *testing.T) {
 	origins := map[string]bool{}
 	shapes := map[string]bool{}
 	for _, item := range manifest.Cases {
-		if item.Rationale == "" || item.OriginSHA256 == "" || item.OriginRecords == 0 {
+		if item.Rationale == "" || item.OriginSHA256 == "" || item.OriginRecords == 0 || item.DecompressedBytes == 0 {
 			t.Fatalf("case %q lacks provenance or rationale", item.ID)
 		}
 		if origins[item.Origin] {
@@ -49,5 +50,28 @@ func TestManifestPinsTenDistinctRealLogs(t *testing.T) {
 		if !shapes[required] {
 			t.Errorf("required shape %q is not pinned", required)
 		}
+	}
+}
+
+func TestFixtureLengthGuardNamesLineEndings(t *testing.T) {
+	root, err := RepoRoot(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, dir, err := LoadManifest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := manifest.Cases[0]
+	data, err := readFixture(filepath.Join(dir, filepath.FromSlash(item.Source)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateFixtureLength(item.ID, data, item.DecompressedBytes); err != nil {
+		t.Fatal(err)
+	}
+	crlf := bytes.ReplaceAll(data, []byte{'\n'}, []byte{'\r', '\n'})
+	if err := validateFixtureLength(item.ID, crlf, item.DecompressedBytes); err == nil || !bytes.Contains([]byte(err.Error()), []byte("line endings")) {
+		t.Fatalf("simulated CRLF guard error = %v", err)
 	}
 }

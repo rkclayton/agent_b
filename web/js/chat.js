@@ -7,6 +7,7 @@ import { createSessionResetController } from "./session-reset.js";
 
 const binding = document.getElementById("chat-binding");
 const status = document.getElementById("chat-status");
+const buildID = document.getElementById("chat-build");
 const stop = document.getElementById("chat-stop");
 const clearConversation = document.getElementById("chat-clear-conversation");
 const operatorStatus = document.getElementById("chat-operator-status");
@@ -159,6 +160,9 @@ function renderBinding(session) {
 
 function renderHeader(session) {
   status.textContent = store.replay ? "replay" : session?.run?.status || "idle";
+  const build = store.build || {};
+  buildID.textContent = `build ${build.display || "unknown"}`;
+  buildID.title = build.known ? `Build ${build.commit}${build.dirty ? " (dirty worktree)" : " (clean commit)"}` : "Build identity unavailable";
   stop.hidden = !!store.replay;
   stop.disabled = !session || !busy(session);
 }

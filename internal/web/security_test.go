@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"harness/internal/buildinfo"
 	"harness/internal/config"
 	"harness/internal/events"
 )
@@ -114,5 +115,18 @@ func TestSnapshotToolInventoryUsesPublicNames(t *testing.T) {
 	want := []string{"read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "find_files"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("tool inventory = %v, want %v", names, want)
+	}
+}
+
+func TestSnapshotExposesBuildIdentity(t *testing.T) {
+	oldCommit, oldDirty := buildinfo.Commit, buildinfo.Dirty
+	t.Cleanup(func() { buildinfo.Commit, buildinfo.Dirty = oldCommit, oldDirty })
+	buildinfo.Commit, buildinfo.Dirty = "abcdef0123456789", "true"
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	info := server.snapshotWithSessions(map[string]any{}, false)["build"].(buildinfo.Info)
+	if info.Commit != buildinfo.Commit || info.Display != "abcdef012345+dirty" || !info.Dirty {
+		t.Fatalf("build identity = %+v", info)
 	}
 }

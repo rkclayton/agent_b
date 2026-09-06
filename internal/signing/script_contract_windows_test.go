@@ -46,4 +46,19 @@ func TestPowerShellSigningScriptsUseHostCompatibleCodeSigningEKUCheck(t *testing
 	if !strings.Contains(string(installer), "$SigningThumbprint -eq 'auto'") {
 		t.Error("installer does not support first-install certificate bootstrap inside its existing elevation")
 	}
+	for _, required := range []string{
+		"Get-ChildItem -LiteralPath 'Cert:\\LocalMachine\\My'",
+		"REUSED: administrator-gated signing certificate",
+		"Add-CurrentUserCertificate -Certificate $certificate -StoreName TrustedPublisher",
+		"Add-CurrentUserCertificate -Certificate $certificate -StoreName Root",
+		"$PSVersionTable.PSEdition -ne 'Desktop'",
+		"Push-Location $sourceRoot",
+	} {
+		if !strings.Contains(string(installer), required) {
+			t.Errorf("installer does not preserve seamless bootstrap contract %q", required)
+		}
+	}
+	if strings.Contains(string(installer), "Import-Certificate -FilePath $tempCertificate") {
+		t.Error("installer retains interactive certificate import path")
+	}
 }

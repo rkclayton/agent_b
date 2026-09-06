@@ -28,6 +28,22 @@ function Test-IsAdministrator {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Add-CurrentUserCertificate {
+    param(
+        [Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+        [Security.Cryptography.X509Certificates.StoreName]$StoreName
+    )
+    $public = [Security.Cryptography.X509Certificates.X509Certificate2]::new($Certificate.RawData)
+    $store = [Security.Cryptography.X509Certificates.X509Store]::new($StoreName, [Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+    try {
+        $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+        $store.Add($public)
+    } finally {
+        $store.Close()
+        $public.Dispose()
+    }
+}
+
 function Quote-ProcessArgument {
     param([string]$Value)
     return '"' + $Value.Replace('"', '\"') + '"'
@@ -195,7 +211,7 @@ if (-not $TestMode) {
     }
 }
 
-if (-not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $TestMode) {
+if ((-not (Test-IsAdministrator) -or $PSVersionTable.PSEdition -ne 'Desktop') -and -not $WhatIfPreference -and -not $TestMode) {
     $arguments = @(
         '-NoLogo', '-NoProfile', '-File', $PSCommandPath,
         '-SourceDirectory', $sourceRoot,
@@ -210,7 +226,12 @@ if (-not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $TestMode)
 	if ($Alpha) { $arguments += '-Alpha' }
 	if ($SkipBuild) { $arguments += '-SkipBuild' }
     if ($SigningThumbprint) { $arguments += @('-SigningThumbprint', $SigningThumbprint) }
-    $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList (($arguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ') -Verb RunAs -Wait -PassThru
+    $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (Test-IsAdministrator) {
+        & $windowsPowerShell @arguments
+        exit $LASTEXITCODE
+    }
+    $process = Start-Process -FilePath $windowsPowerShell -ArgumentList (($arguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ') -Verb RunAs -Wait -PassThru
     exit $process.ExitCode
 }
 
@@ -253,9 +274,11 @@ if ($SkipBuild) {
 	if ($git -and $LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($commit)) {
 		$dirty = @(& $git.Source -C $sourceRoot status --porcelain --untracked-files=normal 2>$null).Count -gt 0
 		$ldflags = "-X harness/internal/buildinfo.Commit=$($commit.Trim()) -X harness/internal/buildinfo.Dirty=$($dirty.ToString().ToLowerInvariant())"
-		& $go build -ldflags $ldflags -o $sourceBinary ./cmd/harness
+		Push-Location $sourceRoot
+		try { & $go build -ldflags $ldflags -o $sourceBinary ./cmd/harness } finally { Pop-Location }
 	} else {
-		& $go build -o $sourceBinary ./cmd/harness
+		Push-Location $sourceRoot
+		try { & $go build -o $sourceBinary ./cmd/harness } finally { Pop-Location }
 	}
     if ($LASTEXITCODE -ne 0) { throw "Agent_b build failed with exit code $LASTEXITCODE." }
 } elseif (-not (Test-Path -LiteralPath $sourceBinary -PathType Leaf)) {
@@ -311,16 +334,20 @@ if (-not $SigningThumbprint -and (-not $config.signing -or [string]::IsNullOrWhi
 	$SigningThumbprint = 'auto'
 }
 if ($SigningThumbprint -eq 'auto') {
-	Import-Module (Join-Path $PSHOME 'Modules\PKI\PKI.psd1') -ErrorAction Stop
-	$certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Agent_b Operator Code Signing' -CertStoreLocation 'Cert:\LocalMachine\My' -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyExportPolicy NonExportable -NotAfter ([DateTime]::Now.AddYears(3))
-	$tempCertificate = Join-Path ([IO.Path]::GetTempPath()) ("agentb-public-{0}.cer" -f [Guid]::NewGuid().ToString('N'))
-	try {
-		$null = Export-Certificate -Cert $certificate -FilePath $tempCertificate -Force
-		$null = Import-Certificate -FilePath $tempCertificate -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher'
-		$null = Import-Certificate -FilePath $tempCertificate -CertStoreLocation 'Cert:\CurrentUser\Root'
-	} finally { Remove-Item -LiteralPath $tempCertificate -Force -ErrorAction SilentlyContinue }
+	Import-Module PKI -ErrorAction Stop
+	$certificate = Get-ChildItem -LiteralPath 'Cert:\LocalMachine\My' | Where-Object {
+		$_.Subject -eq 'CN=Agent_b Operator Code Signing' -and $_.HasPrivateKey -and $_.NotAfter -gt [DateTime]::Now -and
+		@($_.EnhancedKeyUsageList | Where-Object { ([string]$_.ObjectId) -eq '1.3.6.1.5.5.7.3.3' }).Count -gt 0
+	} | Sort-Object NotAfter -Descending | Select-Object -First 1
+	if ($certificate) {
+		Write-Host "REUSED: administrator-gated signing certificate $($certificate.Thumbprint)"
+	} else {
+		$certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Agent_b Operator Code Signing' -CertStoreLocation 'Cert:\LocalMachine\My' -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyExportPolicy NonExportable -NotAfter ([DateTime]::Now.AddYears(3))
+		Write-Host "CREATED: administrator-gated signing certificate $($certificate.Thumbprint)"
+	}
+	Add-CurrentUserCertificate -Certificate $certificate -StoreName TrustedPublisher
+	Add-CurrentUserCertificate -Certificate $certificate -StoreName Root
 	$SigningThumbprint = $certificate.Thumbprint
-	Write-Host "CREATED: administrator-gated signing certificate $SigningThumbprint"
 }
 if ($SigningThumbprint) {
 	if (-not $config.signing) { $config | Add-Member -NotePropertyName signing -NotePropertyValue ([pscustomobject]@{ thumbprint = ''; timestamp_url = 'http://timestamp.digicert.com' }) }

@@ -11,6 +11,13 @@
 - `PLAN.md` appearing, changing, or being reordered mid-task is expected and is not a finding. Do not report it as a workspace anomaly, do not investigate it, and do not re-plan the task in flight because of it.
 - If the operator wants a change to affect work already underway, they will say so in the session. Otherwise a `PLAN.md` change affects the NEXT task, not the current one.
 
+## Alpha testing instance — do not touch
+- A second, production-shaped install runs on **port 7337**, with roots under `C:\alpha` and a git worktree at `C:\alpha\src`. It is the operator's daily driver while development continues.
+- Do not bind port 7337. Do not read or write anything under `C:\alpha`. Do not stop, restart, or reinstall that process.
+- Do not treat alpha's logs as test data or as differential-harness input. Its sessions are the operator's real work, not fixtures.
+- Alpha shares the service account and host firewall rule with production. Do not create a second set, and treat any change touching them as affecting both.
+- Alpha is deployed by the operator from a chosen commit. Its state is not evidence about `origin/main`.
+
 ## Do not lose NOTES.md
 - Never delete, move, rename, truncate, or overwrite `NOTES.md`. It is gitignored, so git holds no copy and any loss is permanent.
 - Append new prompt sections. Never rewrite existing ones.

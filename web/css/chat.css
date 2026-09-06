@@ -96,13 +96,6 @@
   outline: 1px solid var(--trace);
   outline-offset: 2px;
 }
-.chat-identity-alarm {
-  padding: 8px 12px;
-  color: var(--well);
-  background: var(--alarm);
-  font-size: 13px;
-  font-weight: 500;
-}
 .chat-budget {
   position: relative;
   background: var(--well);
@@ -393,7 +386,7 @@
 
 /* Compact application frame shared with Console. */
 .chat-page {
-  grid-template-rows: var(--app-header-height) auto 4px minmax(0, 1fr) auto;
+  grid-template-rows: var(--app-header-height) 4px minmax(0, 1fr) auto;
 }
 .chat-header {
   grid-row: 1;
@@ -401,10 +394,14 @@
   gap: 6px;
   padding: 0 8px;
 }
-.chat-identity-alarm { grid-row: 2; }
-.chat-budget { grid-row: 3; }
-.chat-log { grid-row: 4; }
-.chat-composer { grid-row: 5; }
+.chat-budget { grid-row: 2; }
+.chat-log { grid-row: 3; }
+.chat-composer { grid-row: 4; }
+.chat-content.operator-mode-enabled {
+  padding: 2px 6px;
+  color: var(--well);
+  background: var(--alarm);
+}
 .chat-nav { align-items: center; gap: 2px; }
 .chat-page .stop-sign { width: 24px; height: 24px; min-height: 24px; padding: 0; }
 .chat-page .chat-header-action {

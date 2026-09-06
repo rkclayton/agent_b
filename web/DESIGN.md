@@ -42,6 +42,6 @@ Colour carries state, never identity. Budget categories are Ink at 90/75/60/45/3
 
 **Principles for anything not covered.** 1) Colour is state — amber is now, red is stopped or wrong, nothing else gets hue; identity (tool, category, session) is label, position and luminance. 2) Motion is information — something moves only because execution moved. 3) Numbers are instruments — live, tabular, right-aligned, against their ceiling, updated in place; rates carry units; an estimate looks like an estimate; no toasts. 4) Recess, don't raise — wells not cards, alignment not boxes, no shadows.
 
-**Copy.** Plain verbs, sentence case: "Send", "Stop", "Reset session", "Jump to latest". Status words: idle, queued, running, paused, stopped, replay. Errors say what happened and what to do, in the interface's voice, without apologizing. Empty states invite an action.
+**Copy.** Plain verbs, sentence case: "Send", "Stop", "Clear conversation", "Jump to latest". Status words: idle, queued, running, paused, stopped, replay. Errors say what happened and what to do, in the interface's voice, without apologizing. Empty states invite an action.
 
 **Assets.** Three swappable SVG slots referenced by path only: `assets/mark.svg` (24×24), `assets/agent.svg` (20×20, chat), `assets/idle.svg` (96×96). Placeholders are simple geometric marks in Mute; never inline artwork into markup.

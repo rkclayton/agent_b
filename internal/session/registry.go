@@ -206,6 +206,7 @@ func (r *Registry) Reset(id string) (string, error) {
 		s.MemoryBlock, s.MemoryPath = block, memoryPath
 	}
 	s.mu.Unlock()
+	r.bus.ResetSession(id)
 	r.bus.Publish(events.New(events.SessionReset, id, "", map[string]any{"session_id": id, "log_path": path}))
 	return path, nil
 }

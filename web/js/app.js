@@ -7,10 +7,12 @@ import { renderState } from "./state.js";
 import { renderTimeline } from "./timeline.js";
 import { initSettings } from "./settings.js";
 import { createOperatorStatusController, isOperatorStateEvent } from "./operator-status.js";
+import { createSessionResetController } from "./session-reset.js";
 const form = document.getElementById("composer"),
   input = document.getElementById("task"),
   consoleLaunch = document.getElementById("console-launch"),
   operatorStatus = document.getElementById("operator-status"),
+  clearConversation = document.getElementById("clear-conversation"),
   stop = document.getElementById("stop");
 const requestedSession = new URLSearchParams(location.search).get("session");
 let initialSession = requestedSession;
@@ -18,8 +20,14 @@ let renderFrame = 0;
 const operatorControl = createOperatorStatusController(operatorStatus, {
   identity: () => store.shell_identity,
   interactive: () => !store.replay,
-  confirmEnable: () => window.confirm("Enable operator mode? Tools will run as your Windows account until you turn it off or it expires."),
   setOperatorContext: (enabled) => api("/api/config", { shell: { operator_context: enabled } }),
+  reportError: showError,
+});
+const resetControl = createSessionResetController(clearConversation, {
+  session: () => store.sessions[store.active],
+  interactive: () => !store.replay,
+  confirmClear: (message) => window.confirm(message),
+  reset: (id, force) => api(`/api/sessions/${encodeURIComponent(id)}/reset${force ? "?force=1" : ""}`, {}),
   reportError: showError,
 });
 initSettings();
@@ -66,12 +74,13 @@ function renderConsole() {
   renderRack();
   renderState();
   renderTimeline();
+	resetControl.render();
 	const identityAlarm = document.getElementById("shell-identity-alarm");
 	const identityUnavailable = store.shell_identity?.operator_approval_required || store.shell_identity?.fallback;
 	operatorControl.render();
 	identityAlarm.hidden = !identityUnavailable;
 	identityAlarm.textContent = identityUnavailable
-		? `SERVICE IDENTITY UNAVAILABLE — shell requires explicit operator approval: ${store.shell_identity.reason}`
+		? `Service identity unavailable · shell requires operator approval · ${store.shell_identity.reason}`
 		: "";
   const s = store.sessions[store.active],
     busy = s && s.run.status !== "idle";

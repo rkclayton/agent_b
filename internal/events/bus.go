@@ -79,6 +79,11 @@ func (b *Bus) Recent(sessionID string) []Event {
 	}
 	return append([]Event(nil), source...)
 }
+func (b *Bus) ResetSession(sessionID string) {
+	b.mu.Lock()
+	delete(b.sessionRing, sessionID)
+	b.mu.Unlock()
+}
 func appendBounded(values []Event, value Event, limit int) []Event {
 	values = append(values, value)
 	if len(values) > limit {

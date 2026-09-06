@@ -54,7 +54,6 @@ export function createOperatorStatusController(button, options) {
   async function toggle() {
     if (pending || (options.interactive && !options.interactive())) return;
     const enable = !options.identity()?.operator_context;
-    if (enable && !options.confirmEnable()) return;
     pending = true;
     pendingTarget = enable;
     render();

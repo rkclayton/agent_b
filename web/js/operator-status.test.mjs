@@ -54,22 +54,19 @@ test("only authoritative operator-state events trigger immediate rendering", () 
   }
 });
 
-test("enable confirms once and waits for observed state before changing the image", async () => {
+test("enable requests immediately and waits for observed state before changing the image", async () => {
   const button = new FakeButton();
   let identity = { operator_context: false };
-  let confirmations = 0;
   const requests = [];
   let finishRequest;
   const request = new Promise((resolve) => { finishRequest = resolve; });
   const controller = createOperatorStatusController(button, {
     identity: () => identity,
-    confirmEnable: () => { confirmations++; return true; },
     setOperatorContext: (enabled) => { requests.push(enabled); return request; },
     reportError: assert.fail,
   });
 
   const toggled = button.click();
-  assert.equal(confirmations, 1);
   assert.deepEqual(requests, [true]);
   assert.equal(button.disabled, true);
   assert.equal(button.dataset.pending, "true");
@@ -88,7 +85,6 @@ test("failed enable stays off and reports the endpoint error", async () => {
   const errors = [];
   createOperatorStatusController(button, {
     identity: () => ({ operator_context: false }),
-    confirmEnable: () => true,
     setOperatorContext: async () => { throw new Error("grant refused"); },
     reportError: (message) => errors.push(message),
   });
@@ -99,20 +95,17 @@ test("failed enable stays off and reports the endpoint error", async () => {
   assert.equal(button.disabled, false);
 });
 
-test("disable is immediate and unconfirmed, then expiry renders off", async () => {
+test("disable is immediate, then expiry renders off", async () => {
   const button = new FakeButton();
   let identity = { operator_context: true };
-  let confirmations = 0;
   const requests = [];
   const controller = createOperatorStatusController(button, {
     identity: () => identity,
-    confirmEnable: () => { confirmations++; return true; },
     setOperatorContext: async (enabled) => requests.push(enabled),
     reportError: assert.fail,
   });
 
   await button.click();
-  assert.equal(confirmations, 0);
   assert.deepEqual(requests, [false]);
 
   identity = { operator_context: false };

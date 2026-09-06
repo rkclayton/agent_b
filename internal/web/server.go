@@ -65,6 +65,7 @@ type Server struct {
 	operatorRequest  func(*http.Request) error
 	operatorNow      func() time.Time
 	operatorAfter    func(time.Duration, func()) operatorTimer
+	openFolder       func(string) error
 }
 
 type RuntimeRoots struct {
@@ -87,6 +88,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		operatorAfter: func(duration time.Duration, fn func()) operatorTimer {
 			return time.AfterFunc(duration, fn)
 		},
+		openFolder: openContainingFolder,
 	}
 }
 func (s *Server) SetRegistry(registry *session.Registry) { s.registry = registry }
@@ -134,6 +136,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(s.webDir))))
 	mux.HandleFunc("/api/events", s.sse)
 	mux.HandleFunc("/api/state", s.state)
+	mux.HandleFunc("/api/files/", s.file)
+	mux.HandleFunc("/api/open-folder", s.openFileFolder)
 	mux.HandleFunc("/api/sessions", s.replayGuard(s.sessions))
 	mux.HandleFunc("/api/sessions/", s.replayGuard(s.session))
 	mux.HandleFunc("/api/servers", s.servers)

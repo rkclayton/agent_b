@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -31,5 +33,30 @@ func TestNonzeroShellExitProducesFailedToolResultEvent(t *testing.T) {
 	data := toolResultEventData(1, "call", "shell", outcome.Content, outcome.OK, outcome.OperatorContext, outcome.Untrusted, 1, 1, outcome.Metadata)
 	if data["ok"] != false || !strings.Contains(data["preview"].(string), "exit=9") {
 		t.Fatalf("UI event data=%#v", data)
+	}
+}
+
+func TestProducedFileMetadataTracksOnlyJailedFileTools(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "reports", "done.txt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("done"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &session.Session{Workspace: workspace}
+	for _, name := range []string{"write_file", "edit_file"} {
+		metadata := producedFileMetadata(s, name, map[string]any{"path": "reports/done.txt"})
+		file, _ := metadata["file"].(map[string]any)
+		if file["path"] != "reports/done.txt" || file["bytes"] != int64(4) {
+			t.Fatalf("%s metadata=%#v", name, metadata)
+		}
+	}
+	if metadata := producedFileMetadata(s, "run_script", map[string]any{"path": "reports/done.txt"}); metadata != nil {
+		t.Fatalf("run_script unexpectedly tracked: %#v", metadata)
+	}
+	if metadata := producedFileMetadata(s, "write_file", map[string]any{"path": filepath.Join(t.TempDir(), "outside.txt")}); metadata != nil {
+		t.Fatalf("outside path unexpectedly tracked: %#v", metadata)
 	}
 }

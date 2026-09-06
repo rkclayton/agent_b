@@ -90,7 +90,7 @@ if ($alphaProcesses.Count) {
 $installer = Join-Path $sourceRoot 'scripts\install-Agent_b.ps1'
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $installLog = Join-Path ([IO.Path]::GetTempPath()) ("Agent_b-alpha-install-{0}.log" -f [Guid]::NewGuid().ToString('N'))
-$invokeInstaller = '$ErrorActionPreference = ''Stop''; try { & { Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; & ' +
+$invokeInstaller = '$ErrorActionPreference = ''Stop''; try { & { Import-Module (Join-Path $PSHOME ''Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1'') -ErrorAction Stop; & ' +
 	(Quote-PowerShellLiteral $installer) +
 	' -SourceDirectory ' + (Quote-PowerShellLiteral $sourceRoot) +
 	' -ApplicationDirectory ' + (Quote-PowerShellLiteral $applicationRoot) +

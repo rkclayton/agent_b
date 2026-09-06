@@ -162,6 +162,12 @@
   background: rgba(216, 221, 227, 0.75);
   min-width: 0;
 }
+.occupancy-system { background: rgba(216, 221, 227, 0.9); }
+.occupancy-schemas { background: rgba(216, 221, 227, 0.75); }
+.occupancy-tool-results { background: rgba(216, 221, 227, 0.6); }
+.occupancy-history { background: rgba(216, 221, 227, 0.45); }
+.occupancy-memory { background: rgba(216, 221, 227, 0.3); }
+.occupancy-free { background: transparent; }
 .segment.estimated {
   background: transparent;
   outline: 1px solid rgba(216, 221, 227, 0.45);
@@ -217,11 +223,11 @@
 }
 .rail-labels {
   display: flex;
-  gap: 1px;
+  gap: 12px;
   overflow: hidden;
 }
 .rail-label {
-  width: var(--percentage, 0%);
+  flex: none;
   font-size: 12px;
   line-height: 16px;
   color: var(--mute);

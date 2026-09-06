@@ -21,7 +21,7 @@ import (
 // opt-in because it uses the installed service identity and public network.
 func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	if os.Getenv("AGENTB_CAPABILITY_LIVE") != "1" {
-		t.Skip("set AGENTB_CAPABILITY_LIVE=1 with the alpha roots")
+		t.Skip("set AGENTB_CAPABILITY_LIVE=1 with approved disposable roots")
 	}
 	workspace, dataRoot, appRoot := os.Getenv("AGENTB_CAPABILITY_WORKSPACE"), os.Getenv("AGENTB_CAPABILITY_DATA"), os.Getenv("AGENTB_CAPABILITY_APP")
 	if workspace == "" || dataRoot == "" || appRoot == "" {

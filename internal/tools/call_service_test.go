@@ -81,6 +81,16 @@ func TestCallServiceRequestShapeAndFourXXAreResults(t *testing.T) {
 	if detail.Err != nil {
 		t.Fatal(detail.Err)
 	}
+	registry := New(tool)
+	registryItem := &session.Session{ToolsEnabled: map[string]bool{"call_service": true}}
+	registered := registry.CallDetailed(context.Background(), registryItem, "call_service", map[string]any{
+		"service": "broker", "method": "POST", "path": "jobs/create",
+		"query": map[string]any{"dry_run": true}, "body": map[string]any{"name": "vesper"},
+		"headers": map[string]any{"If-Match": "v1"},
+	})
+	if !registered.OK {
+		t.Fatalf("registered 4xx result=%+v", registered)
+	}
 	var result map[string]any
 	if json.Unmarshal([]byte(detail.Content), &result) != nil || result["status"] != float64(http.StatusConflict) {
 		t.Fatalf("result=%q", detail.Content)
@@ -212,15 +222,22 @@ func TestCallServiceExecArgvParsingDoesNotUseShellSyntax(t *testing.T) {
 }
 
 func TestCallServiceRequireConfirmationIsLoggedButNotEnforced(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
 	var output strings.Builder
 	previous := log.Writer()
 	log.SetOutput(&output)
 	defer log.SetOutput(previous)
-	service := testService("http://127.0.0.1:1", "none")
+	service := testService(server.URL, "none")
 	service.RequireConfirmation = true
-	_ = NewCallService(map[string]config.Service{"flagged": service})
+	tool := NewCallService(map[string]config.Service{"flagged": service})
 	if !strings.Contains(output.String(), `service="flagged" require_confirmation=true`) || !strings.Contains(output.String(), "not enforced") {
 		t.Fatalf("log=%q", output.String())
+	}
+	if _, err := tool.Call(context.Background(), &session.Session{}, map[string]any{"service": "flagged", "method": "GET", "path": "allowed"}); err != nil {
+		t.Fatalf("reserved flag was enforced: %v", err)
 	}
 }
 

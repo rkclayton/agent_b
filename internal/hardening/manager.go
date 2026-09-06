@@ -12,6 +12,7 @@ type Request struct {
 	ApplicationDirectory string
 	DataDirectory        string
 	WorkspaceDirectory   string
+	ExchangeDirectory    string
 	ModelAddress         string
 	ModelPort            int
 }

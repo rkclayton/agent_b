@@ -15,7 +15,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$displayVersion = '0.2.0'
+$displayVersion = '0.3.0'
 
 function Get-FullPath {
     param([string]$Path)
@@ -330,6 +330,13 @@ if ($Alpha) {
 	$config.shell.service_account.enabled = $true
 	$writeConfig = $true
 }
+if (-not $config.deliver) {
+	$config | Add-Member -NotePropertyName deliver -NotePropertyValue ([pscustomobject]@{ mode = 'both'; exchange_folder = '%USERPROFILE%\Agent_b' })
+	$writeConfig = $true
+}
+if ([string]::IsNullOrWhiteSpace([string]$config.deliver.mode)) { $config.deliver.mode = 'both'; $writeConfig = $true }
+if ([string]::IsNullOrWhiteSpace([string]$config.deliver.exchange_folder)) { $config.deliver.exchange_folder = '%USERPROFILE%\Agent_b'; $writeConfig = $true }
+$exchangeRoot = Get-FullPath ([string]$config.deliver.exchange_folder)
 if (-not $SigningThumbprint -and (-not $config.signing -or [string]::IsNullOrWhiteSpace([string]$config.signing.thumbprint))) {
 	$SigningThumbprint = 'auto'
 }
@@ -376,8 +383,9 @@ if ($config.signing -and -not [string]::IsNullOrWhiteSpace([string]$config.signi
 	Write-Host "SIGNED: Agent_b.exe and $($signTargets.Count - 1) PowerShell scripts with $thumbprint"
 }
 
-if ($Alpha) {
-	& (Join-Path $applicationRoot 'scripts\apply-acls.ps1') -AccountName 'agentb-svc' -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -NoPrompt -Confirm:$false
+if ($Alpha -or ($config.shell.service_account -and [bool]$config.shell.service_account.enabled)) {
+	$aclAccount = if ($config.shell.service_account.account) { [string]$config.shell.service_account.account } else { 'agentb-svc' }
+	& (Join-Path $applicationRoot 'scripts\apply-acls.ps1') -AccountName $aclAccount -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $exchangeRoot -NoPrompt -Confirm:$false
 }
 
 $iconPath = Join-Path $applicationRoot 'web\assets\Agent_b.ico'

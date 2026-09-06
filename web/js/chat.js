@@ -368,7 +368,7 @@ function renderResponse(session, entry) {
 }
 
 function renderFileChip(session, file) {
-  const key = `${session.id}:${file.path.toLowerCase()}`;
+  const key = `${session.id}:${file.path.toLowerCase()}:${file.callID}`;
   let state = fileStates.get(key);
   if (!state) {
     state = { state: "checking", bytes: file.bytes };
@@ -382,7 +382,7 @@ function renderFileChip(session, file) {
     downloadURL: fileURL(session.id, file.path),
     openFolder: async () => {
       try {
-        await api("/api/open-folder", { session_id: session.id, path: file.path });
+        await api("/api/open-folder", { session_id: session.id, path: file.openPath, scope: file.openScope });
       } catch (error) {
         localNotice = error.message || String(error);
         localAlarm = true;
@@ -484,6 +484,20 @@ function noticeContent(session, entry) {
     const reason = (data.reason || "").replaceAll("_", " ");
     content.textContent = `stopped: ${reason}${data.reason === "turn_ceiling" ? ` (${data.turns || session.run.max_turns})` : data.detail ? `, ${data.detail}` : ""}`;
     if (data.reason !== "done") content.classList.add("alarm");
+  } else if (event.type === "files.delivered") {
+    const items = data.items || [];
+    if (!items.length) content.hidden = true;
+    else {
+      const copied = items.filter((item) => item.status === "copied").length;
+      const identical = items.filter((item) => item.status === "identical").length;
+      const failed = items.filter((item) => item.status === "failed").length;
+      const parts = [];
+      if (copied) parts.push(`${copied} copied to ${data.exchange_folder}`);
+      if (identical) parts.push(`${identical} identical skipped`);
+      if (failed) parts.push(`${failed} failed`);
+      content.textContent = `delivery: ${parts.join(" · ")}`;
+      if (failed) content.classList.add("alarm");
+    }
   } else if (event.type === "run.queued") content.textContent = `waiting for a slot (position ${data.position})`;
   else if (event.type === "message.queued") content.textContent = `queued (${data.position})`;
   else if (event.type === "compaction") content.textContent = `compacted ${signed((data.after || 0) - (data.before || 0))} tokens${data.profile_id ? ` via ${data.profile_id}` : ""}`;

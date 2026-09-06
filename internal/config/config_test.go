@@ -150,7 +150,8 @@ func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 		Approval      struct {
 			Mode string `json:"mode"`
 		} `json:"approval"`
-		Shell struct {
+		Deliver Deliver `json:"deliver"`
+		Shell   struct {
 			OperatorContextIdleTimeoutMinutes int `json:"operator_context_idle_timeout_minutes"`
 		} `json:"shell"`
 		Tools struct {
@@ -171,11 +172,50 @@ func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 	if document.Approval.Mode != "boundary-only" {
 		t.Fatalf("template approval mode=%q, want literal boundary-only", document.Approval.Mode)
 	}
+	if document.Deliver.Mode != DeliverModeBoth || document.Deliver.ExchangeFolder != `%USERPROFILE%\Agent_b` {
+		t.Fatalf("template delivery=%+v", document.Deliver)
+	}
 	if document.Shell.OperatorContextIdleTimeoutMinutes != 20 {
 		t.Fatalf("template operator idle timeout=%d, want literal 20", document.Shell.OperatorContextIdleTimeoutMinutes)
 	}
 	if len(document.Tools.Fetch.DenyDomains) != 8 || len(document.Tools.FindFiles.SkipRoots) != 5 {
 		t.Fatalf("template policy defaults: deny_domains=%v skip_roots=%v", document.Tools.Fetch.DenyDomains, document.Tools.FindFiles.SkipRoots)
+	}
+}
+
+func TestDeliveryDefaultsOnlyWhenOmitted(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	delete(document, "deliver")
+	data, _ = json.Marshal(document)
+	var omitted Config
+	if err := json.Unmarshal(data, &omitted); err != nil {
+		t.Fatal(err)
+	}
+	ApplyDefaults(&omitted)
+	if omitted.Deliver.Mode != DeliverModeBoth || omitted.Deliver.ExchangeFolder == "" {
+		t.Fatalf("omitted delivery did not default: %+v", omitted.Deliver)
+	}
+
+	document["deliver"] = map[string]any{"mode": "", "exchange_folder": ""}
+	data, _ = json.Marshal(document)
+	var explicit Config
+	if err := json.Unmarshal(data, &explicit); err != nil {
+		t.Fatal(err)
+	}
+	ApplyDefaults(&explicit)
+	if explicit.Deliver.Mode != "" || explicit.Deliver.ExchangeFolder != "" {
+		t.Fatalf("explicit empties were defaulted: %+v", explicit.Deliver)
+	}
+	if err := explicit.Validate(); err == nil || !strings.Contains(err.Error(), "deliver.mode") {
+		t.Fatalf("explicit empty validation=%v", err)
 	}
 }
 

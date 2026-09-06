@@ -8,6 +8,7 @@ param(
     [string]$DataDirectory,
     [Parameter(Mandatory = $true)]
     [string]$WorkspaceDirectory,
+	[string]$ExchangeDirectory = (Join-Path $env:USERPROFILE 'Agent_b'),
     [switch]$Verify,
     [switch]$Remove,
 	[switch]$Inspect,
@@ -172,6 +173,7 @@ if (($Verify.IsPresent -and $Remove.IsPresent) -or ($Inspect.IsPresent -and ($Ve
 $application = [IO.Path]::GetFullPath($ApplicationDirectory).TrimEnd('\')
 $data = [IO.Path]::GetFullPath($DataDirectory).TrimEnd('\')
 $workspace = [IO.Path]::GetFullPath($WorkspaceDirectory).TrimEnd('\')
+$exchange = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($ExchangeDirectory)).TrimEnd('\')
 
 foreach ($required in @(
     @{ Name = 'application'; Path = $application },
@@ -189,14 +191,23 @@ function Test-PathInside {
 }
 if ($application.Equals($data, [StringComparison]::OrdinalIgnoreCase) -or
     $application.Equals($workspace, [StringComparison]::OrdinalIgnoreCase) -or
+    $application.Equals($exchange, [StringComparison]::OrdinalIgnoreCase) -or
     $data.Equals($workspace, [StringComparison]::OrdinalIgnoreCase) -or
+    $data.Equals($exchange, [StringComparison]::OrdinalIgnoreCase) -or
+    $workspace.Equals($exchange, [StringComparison]::OrdinalIgnoreCase) -or
     (Test-PathInside -Child $application -Parent $data) -or
     (Test-PathInside -Child $data -Parent $application) -or
+    (Test-PathInside -Child $exchange -Parent $application) -or
     (Test-PathInside -Child $workspace -Parent $application) -or
     (Test-PathInside -Child $workspace -Parent $data) -or
+    (Test-PathInside -Child $exchange -Parent $data) -or
     (Test-PathInside -Child $application -Parent $workspace) -or
-    (Test-PathInside -Child $data -Parent $workspace)) {
-    [Console]::Error.WriteLine('Application, operator-data, and workspace directories must be three disjoint trees.')
+    (Test-PathInside -Child $data -Parent $workspace) -or
+    (Test-PathInside -Child $exchange -Parent $workspace) -or
+    (Test-PathInside -Child $application -Parent $exchange) -or
+    (Test-PathInside -Child $data -Parent $exchange) -or
+    (Test-PathInside -Child $workspace -Parent $exchange)) {
+    [Console]::Error.WriteLine('Application, operator-data, workspace, and exchange directories must be disjoint trees.')
     exit 1
 }
 
@@ -225,7 +236,7 @@ $sharedAnchors = @(
     [IO.Path]::GetFullPath($env:ProgramFiles).TrimEnd('\'),
     [IO.Path]::GetFullPath($env:ProgramData).TrimEnd('\')
 )
-foreach ($reachable in @($application, $workspace)) {
+foreach ($reachable in @($application, $workspace, $exchange)) {
     $parent = [IO.DirectoryInfo]$reachable
     while ($parent.Parent -and $parent.Parent.Parent) {
         $parent = $parent.Parent
@@ -253,12 +264,23 @@ if (-not (Test-Path -LiteralPath $workspace -PathType Container) -and -not $What
 }
 $targets += [pscustomobject]@{ Path = $workspace; Rights = $allowRights; Inheritance = $recursive; Type = $allow; Intent = 'grant workspace Modify' }
 
-Write-Host 'Agent_b three-root ACL policy'
+if (-not (Test-Path -LiteralPath $exchange -PathType Container) -and -not $WhatIfPreference) {
+    if ($Verify -or $Inspect -or $Remove) {
+        if ($Verify) { Write-Host "DRIFT: exchange directory does not exist :: $exchange" }
+    } else {
+        if (Test-ConfirmationPromptExpected) { Assert-SafeConfirmationInput }
+        if ($PSCmdlet.ShouldProcess($exchange, 'Create exchange directory')) { $null = New-Item -ItemType Directory -Path $exchange }
+    }
+}
+$targets += [pscustomobject]@{ Path = $exchange; Rights = $allowRights; Inheritance = $recursive; Type = $allow; Intent = 'grant exchange-folder Modify' }
+
+Write-Host 'Agent_b root and exchange-folder ACL policy'
 Write-Host "Identity: $env:COMPUTERNAME\$AccountName"
 Write-Host "Application: $application"
 Write-Host "Operator data: $data"
 Write-Host "Service workspace: $workspace"
-Write-Host 'The service identity can read/execute but not mutate the application tree, cannot access operator data, and can modify only the workspace.'
+Write-Host "Exchange folder: $exchange"
+Write-Host 'The service identity can read/execute but not mutate the application tree, cannot access operator data, and can modify only the workspace and exchange folder.'
 
 if (-not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $Verify -and -not $Inspect) {
     [Console]::Error.WriteLine('Administrator elevation is required to apply or remove ACLs.')
@@ -298,7 +320,7 @@ if ($Verify -or $Inspect) {
         if ($Verify) { Write-Host "$(if ($present) { 'PASS' } else { 'DRIFT' }): $($target.Intent) :: $($target.Path)" }
     }
     if ($Inspect) {
-        $status = [ordered]@{ supported = $true; account_exists = $true; applied = ($drift -eq 0); drift = $drift; summary = $(if ($drift -eq 0) { 'three-root ACL policy verified' } else { "$drift ACL drift item(s)" }) }
+        $status = [ordered]@{ supported = $true; account_exists = $true; applied = ($drift -eq 0); drift = $drift; summary = $(if ($drift -eq 0) { 'root and exchange-folder ACL policy verified' } else { "$drift ACL drift item(s)" }) }
         Write-Output ($statusMarker + ($status | ConvertTo-Json -Compress))
         exit 0
     }

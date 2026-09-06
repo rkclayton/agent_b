@@ -38,6 +38,7 @@ const sectionLabels = [
   ["memory", "Memory"],
   ["context", "Context"],
   ["run", "Run & approval"],
+  ["delivery", "Delivery"],
   ["shell", "Security"],
   ["session", "Current session"],
 ];
@@ -143,6 +144,7 @@ function render() {
     memory: () => memory(active),
     context: () => context(active),
     run: () => run(),
+    delivery: () => delivery(),
     shell: () => shell(active),
     session: () => sessionControls(active),
   };
@@ -392,6 +394,13 @@ function run() {
     ${approvalChoices(cfg.approval?.mode)}
     <p class="settings-note">Shell always requires confirmation while the service identity is enabled.</p>
     ${number("run.queue_depth", "queue depth", cfg.run?.queue_depth)}`;
+}
+
+function delivery() {
+  const cfg = store.config.deliver || {};
+  return `${choices("deliver.mode", "delivery", ["chips", "folder", "both"], cfg.mode || "both")}
+    ${text("deliver.exchange_folder", "exchange folder", cfg.exchange_folder || "")}
+    <p class="settings-note">The folder is created on first delivery. Apply host protections after changing it so the service identity receives Modify access only on this folder.</p>`;
 }
 
 function shell(active) {

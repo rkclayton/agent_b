@@ -196,9 +196,13 @@ func (s *Server) hardeningRequest(serverID string) (hardening.Request, error) {
 	if port < 1 || port > 65535 {
 		return hardening.Request{}, fmt.Errorf("model profile port must be between 1 and 65535")
 	}
+	exchange, err := cfg.ResolvedExchangeFolder()
+	if err != nil {
+		return hardening.Request{}, err
+	}
 	return hardening.Request{
 		AccountName: cfg.Shell.ServiceAccount.Account, ApplicationDirectory: s.roots.Application,
-		DataDirectory: s.roots.Data, WorkspaceDirectory: s.roots.Workspace,
+		DataDirectory: s.roots.Data, WorkspaceDirectory: s.roots.Workspace, ExchangeDirectory: exchange,
 		ModelAddress: host, ModelPort: port,
 	}, nil
 }

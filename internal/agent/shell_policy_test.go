@@ -158,11 +158,13 @@ func TestRunScriptRetainsSplitModeConfirmation(t *testing.T) {
 	tool := &runScriptPolicyTool{}
 	runner := &Runner{bus: bus, tools: tools.New(tool), cfg: func() config.Config { return cfg }}
 	runner.gate = NewGate(bus, runner.cfg)
-	s := &session.Session{ID: "session", Workspace: t.TempDir(), Run: session.RunState{Status: "running"}}
+	s := &session.Session{ID: "session", Workspace: t.TempDir(), Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"run_script": true}}
 	eventCh, unsubscribe := bus.Subscribe()
 	defer unsubscribe()
 	done := make(chan tools.CallOutcome, 1)
-	go func() { done <- runner.executeTool(context.Background(), s, "run", "call", "run_script", map[string]any{"source": "ok"}) }()
+	go func() {
+		done <- runner.executeTool(context.Background(), s, "run", "call", "run_script", map[string]any{"source": "ok"})
+	}()
 	required := nextApprovalEvent(t, eventCh)
 	if data := required.Data.(map[string]any); data["name"] != "run_script" || data["boundary_escape"] != false || tool.calls != 0 {
 		t.Fatalf("required=%#v calls=%d", required, tool.calls)

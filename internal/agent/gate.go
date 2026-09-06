@@ -10,7 +10,10 @@ import (
 	"harness/internal/session"
 )
 
-type approvalWait struct{ decision chan string }
+type approvalWait struct {
+	decision    chan string
+	shellScopes bool
+}
 type Gate struct {
 	mu      sync.Mutex
 	waiting map[string]approvalWait
@@ -44,7 +47,12 @@ func (g *Gate) Wait(ctx context.Context, s *session.Session, runID, callID, name
 // WaitPolicyRequired always pauses for a policy decision, regardless of approval.mode.
 // It does not grant operator identity and is not a boundary escape.
 func (g *Gate) WaitPolicyRequired(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) (bool, error) {
-	wait, cleanup := g.beginWait(s, callID)
+	decision, err := g.WaitPolicyDecision(ctx, s, runID, callID, name, args)
+	return approvalGranted(decision), err
+}
+
+func (g *Gate) WaitPolicyDecision(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) (string, error) {
+	wait, cleanup := g.beginWait(s, callID, name == "shell")
 	defer cleanup()
 	g.publishPolicyApprovalRequired(s, runID, callID, name, args)
 	return g.awaitDecision(ctx, s, runID, callID, wait)
@@ -53,15 +61,20 @@ func (g *Gate) WaitPolicyRequired(ctx context.Context, s *session.Session, runID
 // WaitBoundaryEscape always pauses for a user decision, regardless of approval.mode.
 // It is used for identity escalation, never for a model-addressable tool.
 func (g *Gate) WaitBoundaryEscape(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) (bool, error) {
-	wait, cleanup := g.beginWait(s, callID)
+	decision, err := g.WaitBoundaryDecision(ctx, s, runID, callID, name, args)
+	return approvalGranted(decision), err
+}
+
+func (g *Gate) WaitBoundaryDecision(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) (string, error) {
+	wait, cleanup := g.beginWait(s, callID, name == "shell.operator_override" || name == "shell.operator_command")
 	defer cleanup()
 	g.publishBoundaryEscapeRequired(s, runID, callID, name, args)
 	return g.awaitDecision(ctx, s, runID, callID, wait)
 }
 
-func (g *Gate) beginWait(s *session.Session, callID string) (approvalWait, func()) {
+func (g *Gate) beginWait(s *session.Session, callID string, shellScopes bool) (approvalWait, func()) {
 	key := approvalKey(s.ID, callID)
-	wait := approvalWait{decision: make(chan string, 1)}
+	wait := approvalWait{decision: make(chan string, 1), shellScopes: shellScopes}
 	g.mu.Lock()
 	g.waiting[key] = wait
 	g.mu.Unlock()
@@ -94,28 +107,38 @@ func (g *Gate) publishBoundaryEscapeRequired(s *session.Session, runID, callID, 
 	}))
 }
 
-func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, callID string, wait approvalWait) (bool, error) {
+func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, callID string, wait approvalWait) (string, error) {
 	var decision string
 	select {
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return "", ctx.Err()
 	case decision = <-wait.decision:
 	}
 	g.bus.Publish(events.New(events.ApprovalDecided, s.ID, runID, map[string]any{"call_id": callID, "decision": decision}))
 	state := s.Snapshot().Run
 	state.Status = "running"
 	s.SetRun(state)
-	return decision == "approve", nil
+	return decision, nil
 }
 func (g *Gate) Decide(sessionID, callID, decision string) error {
-	if decision != "approve" && decision != "deny" {
-		return fmt.Errorf("decision must be approve or deny")
+	return g.DecideWith(sessionID, callID, decision, nil)
+}
+
+func (g *Gate) DecideWith(sessionID, callID, decision string, before func()) error {
+	if !validApprovalDecision(decision) {
+		return fmt.Errorf("decision must be approve, once, run, operator_mode, or deny")
 	}
 	g.mu.Lock()
+	defer g.mu.Unlock()
 	wait, ok := g.waiting[approvalKey(sessionID, callID)]
-	g.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("approval not found")
+	}
+	if (decision == "run" || decision == "operator_mode") && !wait.shellScopes {
+		return fmt.Errorf("decision %s is only valid for a shell approval", decision)
+	}
+	if before != nil {
+		before()
 	}
 	select {
 	case wait.decision <- decision:
@@ -123,4 +146,17 @@ func (g *Gate) Decide(sessionID, callID, decision string) error {
 	default:
 		return fmt.Errorf("approval already decided")
 	}
+}
+
+func validApprovalDecision(decision string) bool {
+	switch decision {
+	case "approve", "once", "run", "operator_mode", "deny":
+		return true
+	default:
+		return false
+	}
+}
+
+func approvalGranted(decision string) bool {
+	return decision == "approve" || decision == "once" || decision == "run" || decision == "operator_mode"
 }

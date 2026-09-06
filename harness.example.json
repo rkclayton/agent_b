@@ -50,6 +50,7 @@
     "read_file": { "default_limit": 16384, "max_limit": 65536 },
     "list_dir": { "max_entries": 300, "ignore": [".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"] },
     "grep": { "max_matches": 50, "max_line_chars": 200 },
+    "shell": { "operator_commands": ["git"] },
     "fetch": {
       "timeout_s": 20,
       "max_bytes": 2097152,

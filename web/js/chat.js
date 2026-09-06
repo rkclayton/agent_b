@@ -5,6 +5,7 @@ import { createOperatorStatusController, isOperatorStateEvent } from "./operator
 import { createThinkingRenderer } from "./reasoning.js";
 import { createSessionResetController } from "./session-reset.js";
 import { createFileChip, fileURL, filesFromResponse, probeFile } from "./deliverables.js";
+import { approvalChoices } from "./approval.js";
 
 const binding = document.getElementById("chat-binding");
 const status = document.getElementById("chat-status");
@@ -510,6 +511,14 @@ function noticeContent(session, entry) {
     content.textContent = entry.text;
     if (entry.alarm) content.classList.add("operator-mode-enabled");
   }
+  else if (event.type === "shell.grant") {
+    const executable = data.executable ? ` · ${data.executable}` : "";
+    content.textContent = `shell grant: ${String(data.rule || "shell").replaceAll("_", " ")} · ${data.identity || "service"} · for this run${executable}`;
+  }
+  else if (event.type === "shell.grant_lapsed") {
+    const executable = data.executable ? ` · ${data.executable}` : "";
+    content.textContent = `shell grant lapsed: ${String(data.rule || "shell").replaceAll("_", " ")}${executable}`;
+  }
   else if (event.type === "approval.required") {
     content.className += " chat-approval";
     const boundaryEscape = typeof data.boundary_escape === "boolean"
@@ -518,16 +527,14 @@ function noticeContent(session, entry) {
     const shellPolicy = !boundaryEscape && data.name === "shell";
     if (boundaryEscape) content.classList.add("alarm");
     content.append(document.createTextNode(boundaryEscape
-	  ? `Privilege escalation: ${data.args?.reason || "service identity could not run operation"}. Run once as your Windows account? ${keyArgument(data.args || {})}`
+	  ? `Privilege escalation: ${data.args?.reason || "service identity could not run operation"}. ${keyArgument(data.args || {})}`
       : shellPolicy
         ? `Run shell command? ${keyArgument(data.args || {})}`
         : `Policy confirmation: ${data.name} ${keyArgument(data.args || {})}`));
     const decision = entry.decision;
     if (decision) content.append(document.createTextNode(` ${decision}`));
     else if (!store.replay) {
-      for (const choice of boundaryEscape
-        ? [["approve", "Run once as operator"], ["deny", "Keep denied"]]
-        : [["approve", "Approve"], ["deny", "Deny"]]) {
+      for (const choice of approvalChoices(data)) {
         const [value, label] = choice;
         const button = document.createElement("button");
         button.type = "button";

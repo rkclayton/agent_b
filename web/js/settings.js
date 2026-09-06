@@ -341,6 +341,7 @@ function tools(active) {
     ${number("tools.grep.max_matches", "max matches", cfg.tools?.grep?.max_matches)}
     ${number("tools.grep.max_line_chars", "max line chars", cfg.tools?.grep?.max_line_chars)}
     ${head("shell")}
+	${text("tools.shell.operator_commands", "operator commands", (cfg.tools?.shell?.operator_commands || []).join(", "), "list")}
     ${number("shell.timeout_s", "timeout", cfg.shell?.timeout_s)}
     ${number("shell.max_timeout_s", "max timeout", cfg.shell?.max_timeout_s)}
     ${number("shell.max_output_lines_head", "head lines", cfg.shell?.max_output_lines_head)}
@@ -392,7 +393,7 @@ function run() {
     ${number("run.max_consecutive_tool_errors", "max tool errors", cfg.run?.max_consecutive_tool_errors)}
     <p class="settings-note">0 = off</p>
     ${approvalChoices(cfg.approval?.mode)}
-    <p class="settings-note">Shell always requires confirmation while the service identity is enabled.</p>
+    <p class="settings-note">With the service identity enabled, run_script still requires confirmation. Shell follows the approval mode; boundary-only runs in-workspace commands silently, while boundary escapes and configured operator commands still ask.</p>
     ${number("run.queue_depth", "queue depth", cfg.run?.queue_depth)}`;
 }
 

@@ -4,6 +4,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,10 +24,19 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	if os.Getenv("AGENTB_CAPABILITY_LIVE") != "1" {
 		t.Skip("set AGENTB_CAPABILITY_LIVE=1 with approved disposable roots")
 	}
-	workspace, dataRoot, appRoot := os.Getenv("AGENTB_CAPABILITY_WORKSPACE"), os.Getenv("AGENTB_CAPABILITY_DATA"), os.Getenv("AGENTB_CAPABILITY_APP")
-	if workspace == "" || dataRoot == "" || appRoot == "" {
+	workspaceParent, dataRoot, appRoot := os.Getenv("AGENTB_CAPABILITY_WORKSPACE"), os.Getenv("AGENTB_CAPABILITY_DATA"), os.Getenv("AGENTB_CAPABILITY_APP")
+	if workspaceParent == "" || dataRoot == "" || appRoot == "" {
 		t.Fatal("AGENTB_CAPABILITY_WORKSPACE, _DATA, and _APP are required")
 	}
+	workspace, err := os.MkdirTemp(workspaceParent, "agentb-capability-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := removeCapabilityFixture(workspace); err != nil {
+			t.Errorf("remove capability fixture: %v", err)
+		}
+	})
 	cfg := config.Defaults(workspace)
 	cfg.Shell.ServiceAccount.Enabled = true
 	guard := false
@@ -137,4 +147,25 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 			t.Fatalf("detail=%+v", detail)
 		}
 	})
+}
+
+func TestRemoveCapabilityFixture(t *testing.T) {
+	path := os.Getenv("AGENTB_CAPABILITY_CLEANUP_WORKSPACE")
+	if path == "" {
+		t.Skip("set AGENTB_CAPABILITY_CLEANUP_WORKSPACE to an exact capability fixture")
+	}
+	if err := removeCapabilityFixture(path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func removeCapabilityFixture(path string) error {
+	clean, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(strings.ToLower(filepath.Base(clean)), "agentb-") {
+		return fmt.Errorf("refusing non-capability fixture %q", clean)
+	}
+	return os.RemoveAll(clean)
 }

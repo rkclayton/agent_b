@@ -206,8 +206,13 @@ type Tools struct {
 	ReadFile  ReadFileTool  `json:"read_file"`
 	ListDir   ListDirTool   `json:"list_dir"`
 	Grep      GrepTool      `json:"grep"`
+	Shell     ShellTool     `json:"shell"`
 	Fetch     FetchTool     `json:"fetch"`
 	FindFiles FindFilesTool `json:"find_files"`
+}
+
+type ShellTool struct {
+	OperatorCommands []string `json:"operator_commands"`
 }
 type ReadFileTool struct {
 	DefaultLimit int `json:"default_limit"`
@@ -272,7 +277,7 @@ func Defaults(workspace string) Config {
 		Listen:        "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
 		Servers: []Profile{profile}, Roles: Roles{Main: "local"},
 		Run: RunConfig{MaxTurns: 40, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(),
-		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
+		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Shell: ShellTool{OperatorCommands: []string{"git"}}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
 		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Account: "agentb-svc", Domain: "."}},
 		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
 	}
@@ -564,6 +569,11 @@ func (c Config) Validate() error {
 			return fmt.Errorf("tools.find_files.skip_roots: entries cannot be empty")
 		}
 	}
+	for _, command := range c.Tools.Shell.OperatorCommands {
+		if strings.TrimSpace(command) == "" {
+			return fmt.Errorf("tools.shell.operator_commands: entries cannot be empty")
+		}
+	}
 	if len(c.Shell.Command) == 0 {
 		return fmt.Errorf("shell.command: required")
 	}
@@ -654,6 +664,9 @@ func applyDefaults(c *Config) {
 	}
 	if c.Tools.FindFiles.SkipRoots == nil {
 		c.Tools.FindFiles.SkipRoots = append([]string(nil), d.Tools.FindFiles.SkipRoots...)
+	}
+	if c.Tools.Shell.OperatorCommands == nil {
+		c.Tools.Shell.OperatorCommands = append([]string(nil), d.Tools.Shell.OperatorCommands...)
 	}
 	if len(c.Shell.Command) == 0 {
 		c.Shell = d.Shell

@@ -750,7 +750,7 @@ func toolCalls(value any) []events.ToolCall {
 }
 func chatNotice(value string) bool {
 	switch value {
-	case events.RunStopped, events.RunQueued, events.MessageQueued, events.Compaction, events.WorkspaceConflict, events.ApprovalRequired, events.MemoryNoted, events.OperatorContext, events.SigningApplied, events.FilesDelivered:
+	case events.RunStopped, events.RunQueued, events.MessageQueued, events.Compaction, events.WorkspaceConflict, events.ApprovalRequired, events.MemoryNoted, events.OperatorContext, events.SigningApplied, events.FilesDelivered, events.ShellGrant, events.ShellGrantLapsed:
 		return true
 	}
 	return false

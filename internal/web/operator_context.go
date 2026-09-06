@@ -154,6 +154,17 @@ func (s *Server) applyOperatorContextPatch(w http.ResponseWriter, r *http.Reques
 }
 
 func protectedShellConfigField(patch map[string]any) string {
+	if rawTools, ok := patch["tools"]; ok {
+		if toolConfig, ok := rawTools.(map[string]any); ok {
+			if rawShell, ok := toolConfig["shell"]; ok {
+				if shellTool, ok := rawShell.(map[string]any); ok {
+					if _, present := shellTool["operator_commands"]; present {
+						return "tools.shell.operator_commands"
+					}
+				}
+			}
+		}
+	}
 	raw, ok := patch["shell"]
 	if !ok {
 		return ""

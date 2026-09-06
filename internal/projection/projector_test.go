@@ -130,6 +130,29 @@ func TestFilesDeliveredProjectsAsDurableChatNotice(t *testing.T) {
 	}
 }
 
+func TestShellGrantAndLapseProjectAsReplayableNotices(t *testing.T) {
+	state := seeded(t)
+	grant := Record{Cursor: Cursor{Generation: "main-a.jsonl", Offset: 30}, Event: events.Event{
+		Seq: 9, SessionID: "main", RunID: "r1", Type: events.ShellGrant,
+		Data: map[string]any{"run_id": "r1", "scope": "run", "rule": "operator_command", "identity": "operator", "executable": `C:\Program Files\Git\cmd\git.exe`},
+	}}
+	next, _, err := Next(state, grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lapse := Record{Cursor: Cursor{Generation: "main-a.jsonl", Offset: 60}, Event: events.Event{
+		Seq: 10, SessionID: "main", RunID: "r1", Type: events.ShellGrantLapsed,
+		Data: map[string]any{"run_id": "r1", "scope": "run", "rule": "operator_command", "identity": "operator", "executable": `C:\Program Files\Git\cmd\git.exe`, "reason": "run ended"},
+	}}
+	next, _, err = Next(next, lapse)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Chat) < 2 || next.Chat[len(next.Chat)-2].Event.Type != events.ShellGrant || next.Chat[len(next.Chat)-1].Event.Type != events.ShellGrantLapsed {
+		t.Fatalf("chat=%+v", next.Chat)
+	}
+}
+
 func TestReadFileUsesDurableByteBoundary(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main-a.jsonl")

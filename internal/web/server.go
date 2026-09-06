@@ -276,7 +276,9 @@ func (s *Server) snapshot() map[string]any {
 }
 func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any {
 	masked := s.ConfigSnapshot().Masked()
-	shellDescription := tools.NewShell(masked.Shell).Description()
+	describedShell := tools.NewShell(masked.Shell)
+	describedShell.Configure(masked)
+	shellDescription := describedShell.Description()
 	credentialStatus := credential.Status{}
 	identityStatus := tools.ShellIdentityStatus{}
 	if s.credential != nil {
@@ -952,7 +954,15 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, "runtime unavailable", "call_id")
 		return
 	}
-	if err := s.runner.Gate().Decide(body.SessionID, body.CallID, body.Decision); err != nil {
+	var before func()
+	if body.Decision == "operator_mode" {
+		if err := s.operatorRequest(r); err != nil {
+			writeError(w, http.StatusForbidden, "operator mode can be enabled only by a local process owned by the Windows account that launched Agent_b", "decision")
+			return
+		}
+		before = func() { s.setOperatorContext(true, "enabled from shell approval card", 0) }
+	}
+	if err := s.runner.Gate().DecideWith(body.SessionID, body.CallID, body.Decision, before); err != nil {
 		status := 400
 		if strings.Contains(err.Error(), "not found") {
 			status = 404

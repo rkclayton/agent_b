@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	pathpkg "path"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,7 @@ import (
 type Shell struct {
 	mu                sync.RWMutex
 	cfg               config.Shell
+	operatorCommands  []string
 	workspace         string
 	fileCoordinator   *FileCoordinator
 	credential        shellCredentialReader
@@ -57,12 +59,16 @@ func NewShell(cfg config.Shell) *Shell {
 }
 func (*Shell) Name() string { return "shell" }
 func (s *Shell) Description() string {
-	cfg := s.config()
+	cfg, operatorCommands := s.configWithOperatorCommands()
 	dialect := "the configured shell"
 	if len(cfg.Command) > 0 {
 		dialect = shellDialect(cfg.Command[0])
 	}
-	return "Run an unconfined inline command from the workspace root. Shell has no network in service context (enforced outside the tool layer); use fetch_url for every network operation. Agent-written Windows host scripts cannot be executed; use run_script for multi-line source. Use " + dialect + " syntax."
+	description := "Run an unconfined inline command from the workspace root. Shell has no network in service context (enforced outside the tool layer); use fetch_url for every network operation. Agent-written Windows host scripts cannot be executed; use run_script for multi-line source. Use " + dialect + " syntax."
+	if cfg.ServiceAccount.Enabled && len(operatorCommands) > 0 {
+		description += " Git and other configured operator commands run as the operator after one decision per run; expect one prompt, not one per call."
+	}
+	return description
 }
 func (s *Shell) Schema() map[string]any {
 	cfg := s.config()
@@ -82,6 +88,56 @@ func (s *Shell) CallDetailed(ctx context.Context, item *session.Session, args ma
 func (s *Shell) CallAsOperator(ctx context.Context, item *session.Session, args map[string]any) (string, error) {
 	detail := s.call(ctx, item, args, true)
 	return detail.Content, detail.Err
+}
+
+func (s *Shell) OperatorCommand(args map[string]any) (OperatorCommand, bool) {
+	command, _ := args["command"].(string)
+	segments := splitShellCommands(command)
+	if len(segments) == 0 {
+		return OperatorCommand{}, false
+	}
+	words := shellWords(segments[0])
+	for len(words) > 0 && (words[0] == "&" || strings.EqualFold(words[0], "call")) {
+		words = words[1:]
+	}
+	if len(words) == 0 {
+		return OperatorCommand{}, false
+	}
+	resolved, ok := resolveOperatorExecutable(words[0])
+	if !ok {
+		return OperatorCommand{}, false
+	}
+	_, configured := s.configWithOperatorCommands()
+	for _, candidate := range configured {
+		configuredPath, found := resolveOperatorExecutable(candidate)
+		if found && strings.EqualFold(configuredPath, resolved) {
+			return OperatorCommand{Name: shellCommandName(resolved), Executable: resolved}, true
+		}
+	}
+	return OperatorCommand{}, false
+}
+
+func resolveOperatorExecutable(value string) (string, bool) {
+	value = cleanShellScriptToken(value)
+	if value == "" || strings.ContainsAny(value, "$%*?`") {
+		return "", false
+	}
+	resolved, err := exec.LookPath(value)
+	if err != nil {
+		return "", false
+	}
+	absolute, err := filepath.Abs(resolved)
+	if err != nil {
+		return "", false
+	}
+	if evaluated, evalErr := filepath.EvalSymlinks(absolute); evalErr == nil {
+		absolute = evaluated
+	}
+	info, err := os.Stat(absolute)
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+	return filepath.Clean(absolute), true
 }
 
 func (s *Shell) call(ctx context.Context, item *session.Session, args map[string]any, forceOperator bool) (detail CallDetail) {
@@ -407,6 +463,7 @@ func (s *Shell) Configure(value config.Config) {
 	}
 	s.mu.Lock()
 	s.cfg = value.Shell
+	s.operatorCommands = append([]string(nil), value.Tools.Shell.OperatorCommands...)
 	s.workspace = workspace
 	s.mu.Unlock()
 	if value.Shell.OperatorContext {
@@ -444,6 +501,11 @@ func usableShellWorkspace(workspace string) (string, error) {
 }
 
 func (s *Shell) config() config.Shell { s.mu.RLock(); defer s.mu.RUnlock(); return s.cfg }
+func (s *Shell) configWithOperatorCommands() (config.Shell, []string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg, append([]string(nil), s.operatorCommands...)
+}
 func (s *Shell) configWithWorkspace() (config.Shell, string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

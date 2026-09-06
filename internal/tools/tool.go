@@ -51,6 +51,15 @@ type CallDetail struct {
 type OperatorOverrideTool interface {
 	CallAsOperator(context.Context, *session.Session, map[string]any) (string, error)
 }
+
+type OperatorCommand struct {
+	Name       string
+	Executable string
+}
+
+type OperatorCommandTool interface {
+	OperatorCommand(map[string]any) (OperatorCommand, bool)
+}
 type Registry struct {
 	ordered []Tool
 	byName  map[string]Tool
@@ -171,6 +180,15 @@ func (r *Registry) CallAsOperator(ctx context.Context, s *session.Session, name 
 		return "error: " + err.Error(), false
 	}
 	return result, true
+}
+
+func (r *Registry) OperatorCommand(name string, args map[string]any) (OperatorCommand, bool) {
+	tool := r.byName[name]
+	matcher, ok := tool.(OperatorCommandTool)
+	if !ok {
+		return OperatorCommand{}, false
+	}
+	return matcher.OperatorCommand(args)
 }
 func DecodeArgs(raw string) (map[string]any, error) {
 	var out map[string]any

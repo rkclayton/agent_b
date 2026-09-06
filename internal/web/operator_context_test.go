@@ -2,6 +2,7 @@ package web
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"harness/internal/agent"
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/session"
@@ -364,5 +366,57 @@ func TestOperatorContextPatchMustBeIsolatedAndTimeoutIsProtected(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "protected configuration file") {
 		t.Fatalf("timeout patch status=%d body=%s", response.Code, response.Body)
+	}
+}
+
+func TestApprovalOperatorModeRequiresVerifiedOperatorAndShellWait(t *testing.T) {
+	server, _, _ := operatorTestServer(t)
+	runner := agent.NewRunner(server.bus, tools.New(), nil, server.Profile, server.ConfigSnapshot)
+	server.SetRuntime(nil, runner, nil)
+	s := &session.Session{ID: "session", Run: session.RunState{Status: "running"}}
+	eventCh, unsubscribe := server.bus.Subscribe()
+	defer unsubscribe()
+	done := make(chan string, 1)
+	go func() {
+		decision, _ := runner.Gate().WaitPolicyDecision(context.Background(), s, "run", "call", "shell", map[string]any{"command": "git status"})
+		done <- decision
+	}()
+	select {
+	case <-eventCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("approval was not published")
+	}
+
+	server.operatorRequest = func(*http.Request) error { return errors.New("not operator") }
+	request := httptest.NewRequest(http.MethodPost, "/api/approve", strings.NewReader(`{"session_id":"session","call_id":"call","decision":"operator_mode"}`))
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || server.ConfigSnapshot().Shell.OperatorContext {
+		t.Fatalf("unverified status=%d body=%s", response.Code, response.Body)
+	}
+
+	server.operatorRequest = func(*http.Request) error { return nil }
+	request = httptest.NewRequest(http.MethodPost, "/api/approve", strings.NewReader(`{"session_id":"session","call_id":"call","decision":"operator_mode"}`))
+	authorizeMutation(request, server)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !server.ConfigSnapshot().Shell.OperatorContext {
+		t.Fatalf("verified status=%d body=%s", response.Code, response.Body)
+	}
+	if decision := <-done; decision != "operator_mode" {
+		t.Fatalf("decision=%q", decision)
+	}
+}
+
+func TestOperatorCommandPolicyConfigRequiresVerifiedOperator(t *testing.T) {
+	server, _, _ := operatorTestServer(t)
+	server.operatorRequest = func(*http.Request) error { return errors.New("not operator") }
+	request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(`{"tools":{"shell":{"operator_commands":["git","hg"]}}}`))
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "tools.shell.operator_commands") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}
 }

@@ -16,6 +16,17 @@ type shellPolicyTool struct {
 	normalCalls   int
 	overrideCalls int
 	offerOverride bool
+	operatorMatch *tools.OperatorCommand
+}
+
+type runScriptPolicyTool struct{ calls int }
+
+func (*runScriptPolicyTool) Name() string           { return "run_script" }
+func (*runScriptPolicyTool) Description() string    { return "test script" }
+func (*runScriptPolicyTool) Schema() map[string]any { return map[string]any{} }
+func (t *runScriptPolicyTool) Call(context.Context, *session.Session, map[string]any) (string, error) {
+	t.calls++
+	return "script-ok", nil
 }
 
 func (*shellPolicyTool) Name() string           { return "shell" }
@@ -34,6 +45,12 @@ func (t *shellPolicyTool) CallDetailed(context.Context, *session.Session, map[st
 func (t *shellPolicyTool) CallAsOperator(context.Context, *session.Session, map[string]any) (string, error) {
 	t.overrideCalls++
 	return "exit=0\noperator-ok", nil
+}
+func (t *shellPolicyTool) OperatorCommand(map[string]any) (tools.OperatorCommand, bool) {
+	if t.operatorMatch == nil {
+		return tools.OperatorCommand{}, false
+	}
+	return *t.operatorMatch, true
 }
 
 func shellPolicyRunner(t *testing.T, cfg config.Config, tool *shellPolicyTool) (*Runner, *session.Session, *events.Bus) {
@@ -90,7 +107,7 @@ func TestShellApprovalMatrixByServiceAccountPosture(t *testing.T) {
 				args := map[string]any{"command": "Write-Output service-ok"}
 				go func() { done <- runner.executeTool(context.Background(), s, "run", "call", "shell", args) }()
 
-				wantPrompt := serviceEnabled || mode == config.ApprovalModeMutating || mode == config.ApprovalModeAll
+				wantPrompt := mode == config.ApprovalModeMutating || mode == config.ApprovalModeAll
 				if !wantPrompt {
 					select {
 					case event := <-eventCh:
@@ -133,9 +150,34 @@ func TestShellApprovalMatrixByServiceAccountPosture(t *testing.T) {
 	}
 }
 
-func TestDeniedServiceShellPolicyExecutesNothing(t *testing.T) {
+func TestRunScriptRetainsSplitModeConfirmation(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
 	cfg.Approval.Mode = config.ApprovalModeBoundaryOnly
+	cfg.Shell.ServiceAccount.Enabled = true
+	bus := events.NewBus()
+	tool := &runScriptPolicyTool{}
+	runner := &Runner{bus: bus, tools: tools.New(tool), cfg: func() config.Config { return cfg }}
+	runner.gate = NewGate(bus, runner.cfg)
+	s := &session.Session{ID: "session", Workspace: t.TempDir(), Run: session.RunState{Status: "running"}}
+	eventCh, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	done := make(chan tools.CallOutcome, 1)
+	go func() { done <- runner.executeTool(context.Background(), s, "run", "call", "run_script", map[string]any{"source": "ok"}) }()
+	required := nextApprovalEvent(t, eventCh)
+	if data := required.Data.(map[string]any); data["name"] != "run_script" || data["boundary_escape"] != false || tool.calls != 0 {
+		t.Fatalf("required=%#v calls=%d", required, tool.calls)
+	}
+	if err := runner.gate.Decide(s.ID, "call", "approve"); err != nil {
+		t.Fatal(err)
+	}
+	if outcome := <-done; !outcome.OK || tool.calls != 1 {
+		t.Fatalf("outcome=%+v calls=%d", outcome, tool.calls)
+	}
+}
+
+func TestDeniedServiceShellPolicyExecutesNothing(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	cfg.Approval.Mode = config.ApprovalModeMutating
 	cfg.Shell.ServiceAccount.Enabled = true
 	tool := &shellPolicyTool{}
 	runner, s, bus := shellPolicyRunner(t, cfg, tool)
@@ -198,13 +240,6 @@ func TestApprovedServiceShellDenialStillRequiresOperatorEscape(t *testing.T) {
 		done <- runner.executeTool(context.Background(), s, "run", "call", "shell", map[string]any{"command": "Write-Output denied"})
 	}()
 
-	policy := nextApprovalEvent(t, eventCh).Data.(map[string]any)
-	if policy["boundary_escape"] != false || policy["call_id"] != "call" || policy["name"] != "shell" {
-		t.Fatalf("policy event=%#v", policy)
-	}
-	if err := runner.gate.Decide(s.ID, "call", "approve"); err != nil {
-		t.Fatal(err)
-	}
 	escape := nextApprovalEvent(t, eventCh).Data.(map[string]any)
 	if escape["boundary_escape"] != true || escape["call_id"] != "call:operator" || escape["name"] != "shell.operator_override" {
 		t.Fatalf("escape event=%#v", escape)
@@ -225,5 +260,137 @@ func TestApprovedServiceShellDenialStillRequiresOperatorEscape(t *testing.T) {
 	}
 	if strings.Join(phases, ",") != "started,completed" {
 		t.Fatalf("one-shot operator escape changed activity phases=%#v", phases)
+	}
+}
+
+func TestShellPolicyGrantLastsForRunAndLapses(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	cfg.Approval.Mode = config.ApprovalModeMutating
+	cfg.Shell.ServiceAccount.Enabled = true
+	tool := &shellPolicyTool{}
+	runner, s, bus := shellPolicyRunner(t, cfg, tool)
+	eventCh, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+
+	done := make(chan tools.CallOutcome, 1)
+	go func() {
+		done <- runner.executeTool(context.Background(), s, "run-1", "call-1", "shell", map[string]any{"command": "Write-Output first"})
+	}()
+	nextApprovalEvent(t, eventCh)
+	if err := runner.gate.Decide(s.ID, "call-1", "run"); err != nil {
+		t.Fatal(err)
+	}
+	if outcome := <-done; !outcome.OK || outcome.OperatorContext {
+		t.Fatalf("first outcome=%+v", outcome)
+	}
+	second := runner.executeTool(context.Background(), s, "run-1", "call-2", "shell", map[string]any{"command": "Write-Output second"})
+	if !second.OK || second.OperatorContext || tool.normalCalls != 2 {
+		t.Fatalf("second outcome=%+v calls=%d", second, tool.normalCalls)
+	}
+	runner.lapseShellGrants(s, "run-1")
+	types := []string{}
+	for len(eventCh) > 0 {
+		types = append(types, (<-eventCh).Type)
+	}
+	if !strings.Contains(strings.Join(types, ","), events.ShellGrant) || !strings.Contains(strings.Join(types, ","), events.ShellGrantLapsed) {
+		t.Fatalf("events=%v", types)
+	}
+
+	done = make(chan tools.CallOutcome, 1)
+	go func() {
+		done <- runner.executeTool(context.Background(), s, "run-2", "call-3", "shell", map[string]any{"command": "Write-Output third"})
+	}()
+	nextApprovalEvent(t, eventCh)
+	if tool.normalCalls != 2 {
+		t.Fatal("lapsed run executed before a new decision")
+	}
+	if err := runner.gate.Decide(s.ID, "call-3", "deny"); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+}
+
+func TestConfiguredOperatorCommandNeverUsesServiceIdentity(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	cfg.Approval.Mode = config.ApprovalModeBoundaryOnly
+	cfg.Shell.ServiceAccount.Enabled = true
+	command := tools.OperatorCommand{Name: "git", Executable: `C:\Program Files\Git\cmd\git.exe`}
+	tool := &shellPolicyTool{operatorMatch: &command}
+	runner, s, bus := shellPolicyRunner(t, cfg, tool)
+	eventCh, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	done := make(chan tools.CallOutcome, 1)
+	go func() {
+		done <- runner.executeTool(context.Background(), s, "run", "git-1", "shell", map[string]any{"command": "git status"})
+	}()
+	required := nextApprovalEvent(t, eventCh)
+	data := required.Data.(map[string]any)
+	if data["name"] != "shell.operator_command" || data["boundary_escape"] != true {
+		t.Fatalf("required=%#v", required)
+	}
+	if tool.normalCalls != 0 || tool.overrideCalls != 0 {
+		t.Fatal("operator command ran before grant")
+	}
+	if err := runner.gate.Decide(s.ID, "git-1", "run"); err != nil {
+		t.Fatal(err)
+	}
+	if outcome := <-done; !outcome.OK || !outcome.OperatorContext {
+		t.Fatalf("first=%+v", outcome)
+	}
+	second := runner.executeTool(context.Background(), s, "run", "git-2", "shell", map[string]any{"command": "git status --short"})
+	if !second.OK || !second.OperatorContext || tool.normalCalls != 0 || tool.overrideCalls != 2 {
+		t.Fatalf("second=%+v normal=%d operator=%d", second, tool.normalCalls, tool.overrideCalls)
+	}
+}
+
+func TestConfiguredOperatorCommandDenialNamesRuleAndDoesNotFallBack(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	cfg.Shell.ServiceAccount.Enabled = true
+	command := tools.OperatorCommand{Name: "git", Executable: `C:\Program Files\Git\cmd\git.exe`}
+	tool := &shellPolicyTool{operatorMatch: &command}
+	runner, s, bus := shellPolicyRunner(t, cfg, tool)
+	eventCh, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	done := make(chan tools.CallOutcome, 1)
+	go func() {
+		done <- runner.executeTool(context.Background(), s, "run", "git", "shell", map[string]any{"command": "git status"})
+	}()
+	nextApprovalEvent(t, eventCh)
+	if err := runner.gate.Decide(s.ID, "git", "deny"); err != nil {
+		t.Fatal(err)
+	}
+	outcome := <-done
+	if outcome.OK || !strings.Contains(outcome.Content, "operator command rule: git must run as the operator") || tool.normalCalls != 0 || tool.overrideCalls != 0 {
+		t.Fatalf("outcome=%+v normal=%d operator=%d", outcome, tool.normalCalls, tool.overrideCalls)
+	}
+}
+
+func TestShellBoundaryGrantRerunsAndCoversLaterShellCalls(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	cfg.Approval.Mode = config.ApprovalModeBoundaryOnly
+	cfg.Shell.ServiceAccount.Enabled = true
+	tool := &shellPolicyTool{offerOverride: true}
+	runner, s, bus := shellPolicyRunner(t, cfg, tool)
+	eventCh, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	done := make(chan tools.CallOutcome, 1)
+	go func() {
+		done <- runner.executeTool(context.Background(), s, "run", "call", "shell", map[string]any{"command": "Get-Content outside.txt"})
+	}()
+	required := nextApprovalEvent(t, eventCh)
+	data := required.Data.(map[string]any)
+	if data["name"] != "shell.operator_override" || tool.normalCalls != 1 {
+		t.Fatalf("required=%#v normal=%d", required, tool.normalCalls)
+	}
+	if err := runner.gate.Decide(s.ID, "call:operator", "run"); err != nil {
+		t.Fatal(err)
+	}
+	if outcome := <-done; !outcome.OK || !outcome.OperatorContext {
+		t.Fatalf("first=%+v", outcome)
+	}
+	tool.offerOverride = false
+	second := runner.executeTool(context.Background(), s, "run", "later", "shell", map[string]any{"command": "Write-Output later"})
+	if !second.OK || !second.OperatorContext || tool.normalCalls != 1 || tool.overrideCalls != 2 {
+		t.Fatalf("second=%+v normal=%d operator=%d", second, tool.normalCalls, tool.overrideCalls)
 	}
 }

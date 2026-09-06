@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -44,6 +46,66 @@ func TestShellDescriptionNamesConfiguredDialect(t *testing.T) {
 	if got := shell.Description(); !strings.HasSuffix(got, "Use bash syntax.") {
 		t.Fatalf("configured description = %q", got)
 	}
+}
+
+func TestShellDescriptionOperatorClauseOnlyWhenSplitEnabled(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	shell := NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	without := shell.Description()
+	cfg.Shell.ServiceAccount.Enabled = true
+	shell.Configure(cfg)
+	with := shell.Description()
+	clause := " Git and other configured operator commands run as the operator after one decision per run; expect one prompt, not one per call."
+	if with != without+clause {
+		t.Fatalf("description delta=%q", strings.TrimPrefix(with, without))
+	}
+	if len(with)-len(without) != len(clause) {
+		t.Fatalf("description byte delta=%d, want %d", len(with)-len(without), len(clause))
+	}
+	cfg.Tools.Shell.OperatorCommands = []string{}
+	shell.Configure(cfg)
+	if got := shell.Description(); got != without {
+		t.Fatalf("explicit empty operator list retained clause: %q", got)
+	}
+}
+
+func TestOperatorCommandMatchesResolvedFirstExecutableOnly(t *testing.T) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+	cfg := config.Defaults(t.TempDir())
+	cfg.Tools.Shell.OperatorCommands = []string{"git"}
+	shell := NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	match, ok := shell.OperatorCommand(map[string]any{"command": "git status"})
+	if !ok || !strings.EqualFold(match.Executable, canonicalExecutable(t, gitPath)) || match.Name != "git" {
+		t.Fatalf("match=%+v ok=%t", match, ok)
+	}
+	if _, ok := shell.OperatorCommand(map[string]any{"command": "Write-Output git status"}); ok {
+		t.Fatal("git outside first argv matched")
+	}
+	fakeDir := t.TempDir()
+	fake := filepath.Join(fakeDir, filepath.Base(gitPath))
+	if err := os.WriteFile(fake, []byte("fake"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := shell.OperatorCommand(map[string]any{"command": fmt.Sprintf("& %q status", fake)}); ok {
+		t.Fatal("same-basename workspace executable matched configured git")
+	}
+}
+
+func canonicalExecutable(t *testing.T, value string) string {
+	t.Helper()
+	absolute, err := filepath.Abs(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evaluated, err := filepath.EvalSymlinks(absolute); err == nil {
+		absolute = evaluated
+	}
+	return filepath.Clean(absolute)
 }
 
 func TestShellFileRoutingRefusals(t *testing.T) {

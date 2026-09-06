@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -32,6 +33,8 @@ type Runner struct {
 	compact      *contextmgr.Compactor
 	toolActivity func(string)
 	deliver      func(*session.Session, string, []delivery.Source)
+	shellGrantMu sync.Mutex
+	shellGrants  map[string][]shellRunGrant
 	ids          atomic.Int64
 }
 
@@ -77,6 +80,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 			r.deliver(s, runID, delivery.SortedSources(produced))
 		}
 	}()
+	defer r.lapseShellGrants(s, runID)
 	profile, ok := r.profile(s.ServerID)
 	if !ok {
 		return "profile_not_runnable", "profile not found", 0
@@ -376,18 +380,42 @@ func toolResultEventData(turn int, callID, name, content string, ok, operatorCon
 }
 
 func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) tools.CallOutcome {
-	var approved bool
+	cfg := r.cfg()
+	if name == "shell" && cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext {
+		if r.hasShellGrant(s.ID, runID, shellGrantBoundary, "") {
+			return r.callShellAsOperator(ctx, s, name, args)
+		}
+		if command, matched := r.tools.OperatorCommand(name, args); matched {
+			return r.executeOperatorCommand(ctx, s, runID, callID, name, args, command)
+		}
+	}
+	decision := "approve"
 	var gateErr error
-	if (name == "shell" || name == "run_script") && r.cfg().Shell.ServiceAccount.Enabled {
+	if name == "run_script" && cfg.Shell.ServiceAccount.Enabled {
+		var approved bool
 		approved, gateErr = r.gate.WaitPolicyRequired(ctx, s, runID, callID, name, args)
+		if !approved {
+			decision = "deny"
+		}
+	} else if name == "shell" && cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext && r.gate.required(name) {
+		if !r.hasShellGrant(s.ID, runID, shellGrantPolicy, "") {
+			decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, args)
+		}
 	} else {
+		var approved bool
 		approved, gateErr = r.gate.Wait(ctx, s, runID, callID, name, args)
+		if !approved {
+			decision = "deny"
+		}
 	}
 	if gateErr != nil {
 		return tools.CallOutcome{Content: "error: call canceled"}
 	}
-	if !approved {
+	if !approvalGranted(decision) {
 		return tools.CallOutcome{Content: "error: call denied by user"}
+	}
+	if name == "shell" && decision == "run" {
+		r.grantShellRun(s, runID, shellRunGrant{Rule: shellGrantPolicy, Identity: "service"})
 	}
 	outcome := r.callDetailed(ctx, s, name, args)
 	if !outcome.OperatorOverrideAvailable {
@@ -413,15 +441,28 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	if path != "" {
 		overrideArgs["path"] = path
 	}
-	overrideApproved, overrideErr := r.gate.WaitBoundaryEscape(ctx, s, runID, overrideID, name+".operator_override", overrideArgs)
+	overrideDecision := "deny"
+	var overrideErr error
+	if name == "shell" {
+		overrideDecision, overrideErr = r.gate.WaitBoundaryDecision(ctx, s, runID, overrideID, name+".operator_override", overrideArgs)
+	} else {
+		var approved bool
+		approved, overrideErr = r.gate.WaitBoundaryEscape(ctx, s, runID, overrideID, name+".operator_override", overrideArgs)
+		if approved {
+			overrideDecision = "approve"
+		}
+	}
 	if overrideErr != nil {
 		outcome.Content, outcome.OK, outcome.OperatorContext = outcome.Content+"\n\noperator-identity override canceled", false, false
 		return outcome
 	}
-	if !overrideApproved {
+	if !approvalGranted(overrideDecision) {
 		log.Printf("%s operator-identity override denied: session=%s call=%s command=%q path=%q", name, s.ID, callID, command, path)
 		outcome.Content, outcome.OK, outcome.OperatorContext = outcome.Content+"\n\noperator-identity override was offered and denied by the user", false, false
 		return outcome
+	}
+	if name == "shell" && overrideDecision == "run" {
+		r.grantShellRun(s, runID, shellRunGrant{Rule: shellGrantBoundary, Identity: "operator"})
 	}
 	log.Printf("SECURITY: %s operator-identity override approved: session=%s call=%s command=%q path=%q", name, s.ID, callID, command, path)
 	overrideContent, overrideOK := r.tools.CallAsOperator(ctx, s, name, args)

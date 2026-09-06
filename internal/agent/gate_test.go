@@ -69,3 +69,37 @@ func TestPolicyApprovalEventIsNotBoundaryEscape(t *testing.T) {
 		t.Fatal("timed out waiting for policy decision")
 	}
 }
+
+func TestRunAndOperatorModeDecisionsAreShellOnly(t *testing.T) {
+	bus := events.NewBus()
+	eventsCh, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	cfg := config.Defaults(t.TempDir())
+	cfg.Approval.Mode = config.ApprovalModeAll
+	gate := NewGate(bus, func() config.Config { return cfg })
+	s := &session.Session{ID: "session", Run: session.RunState{Status: "running"}}
+	done := make(chan bool, 1)
+	go func() {
+		approved, _ := gate.Wait(context.Background(), s, "run", "call", "write_file", map[string]any{"path": "file.txt"})
+		done <- approved
+	}()
+	select {
+	case <-eventsCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("approval not published")
+	}
+	called := false
+	if err := gate.DecideWith(s.ID, "call", "operator_mode", func() { called = true }); err == nil {
+		t.Fatal("operator_mode accepted for non-shell approval")
+	}
+	if called {
+		t.Fatal("operator callback ran for non-shell approval")
+	}
+	if err := gate.Decide(s.ID, "call", "run"); err == nil {
+		t.Fatal("run accepted for non-shell approval")
+	}
+	if err := gate.Decide(s.ID, "call", "deny"); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+}

@@ -73,26 +73,27 @@ type StreamTelemetry struct {
 }
 
 type ChatEntry struct {
-	Type                     string         `json:"type"`
-	Key                      string         `json:"key"`
-	RunID                    string         `json:"run_id,omitempty"`
-	Turn                     int            `json:"turn,omitempty"`
-	Text                     string         `json:"text,omitempty"`
-	Reasoning                string         `json:"reasoning,omitempty"`
-	ReasoningTokens          int            `json:"reasoningTokens,omitempty"`
-	ReasoningTokensEstimated bool           `json:"reasoningTokensEstimated,omitempty"`
-	ThinkingStartedMS        int64          `json:"thinkingStartedMS,omitempty"`
-	ThinkingEndedMS          int64          `json:"thinkingEndedMS,omitempty"`
-	ThinkingMS               *int64         `json:"thinkingMS,omitempty"`
-	Done                     bool           `json:"done,omitempty"`
-	ToolCallIDs              []string       `json:"toolCallIDs,omitempty"`
-	CallID                   string         `json:"callID,omitempty"`
-	Name                     string         `json:"name,omitempty"`
-	Args                     map[string]any `json:"args,omitempty"`
-	Result                   map[string]any `json:"result,omitempty"`
-	Content                  string         `json:"content,omitempty"`
-	Event                    *events.Event  `json:"event,omitempty"`
-	Decision                 string         `json:"decision,omitempty"`
+	Type                     string              `json:"type"`
+	Key                      string              `json:"key"`
+	RunID                    string              `json:"run_id,omitempty"`
+	Turn                     int                 `json:"turn,omitempty"`
+	Text                     string              `json:"text,omitempty"`
+	Reasoning                string              `json:"reasoning,omitempty"`
+	ReasoningTokens          int                 `json:"reasoningTokens,omitempty"`
+	ReasoningTokensEstimated bool                `json:"reasoningTokensEstimated,omitempty"`
+	ThinkingStartedMS        int64               `json:"thinkingStartedMS,omitempty"`
+	ThinkingEndedMS          int64               `json:"thinkingEndedMS,omitempty"`
+	ThinkingMS               *int64              `json:"thinkingMS,omitempty"`
+	Done                     bool                `json:"done,omitempty"`
+	ToolCallIDs              []string            `json:"toolCallIDs,omitempty"`
+	CallID                   string              `json:"callID,omitempty"`
+	Name                     string              `json:"name,omitempty"`
+	Args                     map[string]any      `json:"args,omitempty"`
+	Result                   map[string]any      `json:"result,omitempty"`
+	Content                  string              `json:"content,omitempty"`
+	Event                    *events.Event       `json:"event,omitempty"`
+	Decision                 string              `json:"decision,omitempty"`
+	Attachments              []events.Attachment `json:"attachments,omitempty"`
 }
 
 // Snapshot is the serializable session projection. Complete is false when the log has no
@@ -342,7 +343,7 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 		}
 		next.Chat = cloneChat(next.Chat)
 		if wrapper.Message.Role == "user" {
-			next.Chat = append(next.Chat, ChatEntry{Type: "user", Key: "message:" + wrapper.Message.ID, Text: wrapper.Message.Content})
+			next.Chat = append(next.Chat, ChatEntry{Type: "user", Key: "message:" + wrapper.Message.ID, Text: wrapper.Message.Content, Attachments: append([]events.Attachment(nil), wrapper.Message.Attachments...)})
 		}
 		if wrapper.Message.Role == "assistant" {
 			if entry := chatTurnAny(next.Chat, wrapper.Message.Turn); entry != nil {

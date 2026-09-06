@@ -52,7 +52,10 @@ func (r *Runner) SetDeliverer(fn func(*session.Session, string, []delivery.Sourc
 }
 func (r *Runner) id(prefix string) string { return fmt.Sprintf("%s-%d", prefix, r.ids.Add(1)) }
 func (r *Runner) AddUser(ctx context.Context, s *session.Session, text string) (events.Message, error) {
-	message, err := r.QueueUser(ctx, s, text)
+	return r.AddUserAttachments(ctx, s, text, nil)
+}
+func (r *Runner) AddUserAttachments(ctx context.Context, s *session.Session, text string, attachments []events.Attachment) (events.Message, error) {
+	message, err := r.QueueUserAttachments(ctx, s, text, attachments)
 	if err != nil {
 		return events.Message{}, err
 	}
@@ -60,12 +63,16 @@ func (r *Runner) AddUser(ctx context.Context, s *session.Session, text string) (
 	return message, nil
 }
 func (r *Runner) QueueUser(ctx context.Context, s *session.Session, text string) (events.Message, error) {
+	return r.QueueUserAttachments(ctx, s, text, nil)
+}
+func (r *Runner) QueueUserAttachments(ctx context.Context, s *session.Session, text string, attachments []events.Attachment) (events.Message, error) {
 	profile, ok := r.profile(s.ServerID)
 	if !ok {
 		return events.Message{}, fmt.Errorf("profile not found")
 	}
-	tokens, estimated := r.count(ctx, profile, text)
-	message := events.Message{ID: r.id("m"), Role: "user", Content: text, Category: "history", Tokens: tokens, Estimated: estimated}
+	message := events.Message{ID: r.id("m"), Role: "user", Content: text, Category: "history", Attachments: append([]events.Attachment(nil), attachments...)}
+	tokens, estimated := r.count(ctx, profile, renderedUserText(profile, s, message))
+	message.Tokens, message.Estimated = tokens, estimated
 	return message, nil
 }
 func (r *Runner) AppendUser(s *session.Session, message events.Message) {
@@ -124,10 +131,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 			messages := []llm.Message{{Role: "system", Content: system}}
 			records := s.MessagesCopy()
 			for _, message := range records {
-				converted := llm.Message{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, Name: message.Name}
-				for _, call := range message.ToolCalls {
-					converted.ToolCalls = append(converted.ToolCalls, llm.ToolCall{ID: call.ID, Type: "function", Function: llm.FunctionCall{Name: call.Name, Arguments: call.Arguments}})
-				}
+				converted := requestMessage(profile, s, message)
 				if profile.Reasoning.Preserve && currentReasoning[message.ID] {
 					converted.ReasoningContent = message.Reasoning
 				}
@@ -140,7 +144,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 			}
 			guardUsed := guardedPromptTokens(budget)
 			request.MaxTokens = requestTokenLimit(profile, budget, guardUsed)
-			body = llm.BuildRequest(profile, request, true)
+			diagnosticRequest := request
+			diagnosticRequest.Messages = diagnosticMessages(request.Messages)
+			body = llm.BuildRequest(profile, diagnosticRequest, true)
 			r.bus.Publish(events.New(events.BudgetEvent, s.ID, runID, budget))
 			data := map[string]any{"turn": turn, "message_count": len(messages), "tool_count": len(schemas), "params": requestParams(profile, request.MaxTokens), "est_prompt_tokens": budget.UsedEst, "estimated": budget.Estimated}
 			requestEvent = events.New(events.ModelRequest, s.ID, runID, data)
@@ -269,6 +275,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 					outcome := r.executeTool(ctx, s, runID, item.call.ID, item.call.Name, item.args)
 					item.content, item.ok, item.operatorContext = outcome.Content, outcome.OK, outcome.OperatorContext
 					item.category, item.untrusted, item.metadata = outcome.Category, outcome.Untrusted, outcome.Metadata
+					if item.ok && item.call.Name == "read_file" && untrustedAttachmentRead(s, item.args) {
+						item.untrusted = true
+					}
 					if item.ok {
 						fileMetadata := producedFileMetadata(s, item.call.Name, item.args)
 						item.metadata = mergeResultMetadata(item.metadata, fileMetadata)
@@ -533,10 +542,7 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Profile, s *sessi
 	records := s.MessagesCopy()
 	messages := make([]llm.Message, 0, len(records))
 	for _, message := range records {
-		converted := llm.Message{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, Name: message.Name}
-		for _, call := range message.ToolCalls {
-			converted.ToolCalls = append(converted.ToolCalls, llm.ToolCall{ID: call.ID, Type: "function", Function: llm.FunctionCall{Name: call.Name, Arguments: call.Arguments}})
-		}
+		converted := requestMessage(p, s, message)
 		if p.Reasoning.Preserve && currentReasoning != nil && currentReasoning[message.ID] {
 			converted.ReasoningContent = message.Reasoning
 		}

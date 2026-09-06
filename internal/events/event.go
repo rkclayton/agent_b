@@ -64,20 +64,26 @@ type ToolCall struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
+type Attachment struct {
+	Path   string `json:"path"`
+	Bytes  int64  `json:"bytes"`
+	SHA256 string `json:"sha256"`
+}
 type Message struct {
-	ID         string     `json:"id"`
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	Reasoning  string     `json:"reasoning,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	Name       string     `json:"name,omitempty"`
-	Category   string     `json:"category"`
-	Tokens     int        `json:"tokens"`
-	Estimated  bool       `json:"estimated"`
-	Elided     bool       `json:"elided"`
-	Turn       int        `json:"turn"`
-	OK         *bool      `json:"ok,omitempty"`
+	ID          string       `json:"id"`
+	Role        string       `json:"role"`
+	Content     string       `json:"content"`
+	Reasoning   string       `json:"reasoning,omitempty"`
+	ToolCalls   []ToolCall   `json:"tool_calls,omitempty"`
+	ToolCallID  string       `json:"tool_call_id,omitempty"`
+	Name        string       `json:"name,omitempty"`
+	Category    string       `json:"category"`
+	Tokens      int          `json:"tokens"`
+	Estimated   bool         `json:"estimated"`
+	Elided      bool         `json:"elided"`
+	Turn        int          `json:"turn"`
+	OK          *bool        `json:"ok,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty"`
 }
 type Budget struct {
 	NCtx                int            `json:"n_ctx"`

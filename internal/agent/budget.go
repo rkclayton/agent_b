@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 
 	"harness/internal/config"
@@ -401,6 +402,16 @@ func messageChars(message llm.Message) float64 {
 func messageText(value any) string {
 	if text, ok := value.(string); ok {
 		return text
+	}
+	if parts, ok := value.([]any); ok {
+		var text strings.Builder
+		for _, part := range parts {
+			object, _ := part.(map[string]any)
+			if object["type"] == "text" {
+				text.WriteString(fmt.Sprint(object["text"]))
+			}
+		}
+		return text.String()
 	}
 	return fmt.Sprint(value)
 }

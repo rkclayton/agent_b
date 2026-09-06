@@ -66,6 +66,7 @@ type Server struct {
 	operatorNow      func() time.Time
 	operatorAfter    func(time.Duration, func()) operatorTimer
 	openFolder       func(string) error
+	extractClient    *http.Client
 }
 
 type RuntimeRoots struct {
@@ -88,7 +89,8 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		operatorAfter: func(duration time.Duration, fn func()) operatorTimer {
 			return time.AfterFunc(duration, fn)
 		},
-		openFolder: openContainingFolder,
+		openFolder:    openContainingFolder,
+		extractClient: &http.Client{},
 	}
 }
 func (s *Server) SetRegistry(registry *session.Registry) { s.registry = registry }
@@ -138,6 +140,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/state", s.state)
 	mux.HandleFunc("/api/files/", s.file)
 	mux.HandleFunc("/api/open-folder", s.openFileFolder)
+	mux.HandleFunc("/api/attachments", s.replayGuard(s.attachments))
+	mux.HandleFunc("/api/exchange-files", s.exchangeFiles)
 	mux.HandleFunc("/api/sessions", s.replayGuard(s.sessions))
 	mux.HandleFunc("/api/sessions/", s.replayGuard(s.session))
 	mux.HandleFunc("/api/servers", s.servers)
@@ -907,13 +911,23 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		SessionID string `json:"session_id"`
-		Text      string `json:"text"`
+		SessionID   string              `json:"session_id"`
+		Text        string              `json:"text"`
+		Attachments []events.Attachment `json:"attachments,omitempty"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
-	result, err := s.scheduler.Submit(r.Context(), body.SessionID, body.Text)
+	attachments, err := s.validateMessageAttachments(body.SessionID, body.Attachments)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), "attachments")
+		return
+	}
+	if strings.TrimSpace(body.Text) == "" && len(attachments) == 0 {
+		writeError(w, http.StatusBadRequest, "text or attachments required", "text")
+		return
+	}
+	result, err := s.scheduler.SubmitAttachments(r.Context(), body.SessionID, body.Text, attachments)
 	if err != nil {
 		status := 400
 		if strings.Contains(err.Error(), "in progress") || strings.Contains(err.Error(), "queue full") {

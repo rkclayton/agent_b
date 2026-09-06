@@ -254,6 +254,7 @@ function profileFields(profile, reason) {
     .join("");
 	return `${text(`${p}.label`, "label", profile.label)}
     ${text(`${p}.base_url`, "base_url", profile.base_url)}
+	${text(`${p}.extract_url`, "extract_url", profile.extract_url || "")}
     ${text(`${p}.model`, "model", profile.model)}
 	${text(`${p}.credential`, "credential ref", profile.credential || "")}
     ${secret(`${p}.api_key`, "api_key", profile.api_key, id)}
@@ -333,6 +334,8 @@ function tools(active) {
     ${head("read_file")}
     ${number("tools.read_file.default_limit", "default bytes", cfg.tools?.read_file?.default_limit)}
     ${number("tools.read_file.max_limit", "max bytes per call", cfg.tools?.read_file?.max_limit)}
+	<div class="settings-subhead">Attachment ingest</div>
+	${number("tools.attachments.max_bytes", "max upload bytes", cfg.tools?.attachments?.max_bytes)}
     ${head("list_dir")}
     ${number("tools.list_dir.max_entries", "max entries", cfg.tools?.list_dir?.max_entries)}
     ${text("tools.list_dir.ignore", "ignore", (cfg.tools?.list_dir?.ignore || []).join(", "), "list")}

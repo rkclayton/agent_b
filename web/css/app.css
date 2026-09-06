@@ -944,6 +944,29 @@
 .timeline-inline.run-stopped.fault .timeline-head {
   color: var(--alarm);
 }
+.timeline-attachment-chips {
+  display: grid;
+  gap: 4px;
+}
+.timeline-attachment-chips .file-chip {
+  min-height: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 6px;
+  color: var(--ink);
+  background: var(--well);
+  outline: 1px solid rgba(125, 135, 148, 0.28);
+  font: 12px/20px var(--mono);
+}
+.timeline-attachment-chips .file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.timeline-attachment-chips .file-chip-size,
+.timeline-attachment-chips .file-chip.missing { color: var(--mute); }
 .timeline-inline.operator-mode-enabled .timeline-head {
   color: var(--well);
   background: var(--alarm);

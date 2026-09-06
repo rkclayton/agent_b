@@ -427,6 +427,27 @@ func TestShellFileRoutingArguments(t *testing.T) {
 	}
 }
 
+func TestShellFileRoutingDoesNotRedirectOutsideWorkspaceWhenSplitEnabled(t *testing.T) {
+	workspace := t.TempDir()
+	external := filepath.Dir(workspace)
+	cfg := config.Defaults(workspace)
+	cfg.Shell.ServiceAccount.Enabled = true
+	shell := NewShell(cfg.Shell)
+	item := &session.Session{ID: "test", Workspace: workspace}
+	command := `Get-ChildItem -Path "` + external + `" -Recurse`
+	detail := shell.CallDetailed(context.Background(), item, map[string]any{"command": command})
+	if detail.Err == nil || !strings.HasPrefix(detail.Err.Error(), "note: command was not executed; ") {
+		t.Fatalf("detail=%+v", detail)
+	}
+	var refusal shellRoutingRefusal
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(detail.Err.Error(), "note: command was not executed; ")), &refusal); err != nil {
+		t.Fatal(err)
+	}
+	if refusal.Replacement != nil || !strings.Contains(refusal.Reason, "outside the workspace") || !strings.Contains(refusal.Guidance, "require an operator decision") {
+		t.Fatalf("outside-workspace refusal=%+v", refusal)
+	}
+}
+
 func TestShellFileRoutingCompoundAllowed(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "route.txt"), []byte("ROUTE_OK\n"), 0o600); err != nil {

@@ -96,8 +96,17 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	if cfg.FileRoutingGuardEnabled() {
 		refusal, ambiguous := inspectShellFileRouting(command)
 		if refusal != nil {
+			if cfg.ServiceAccount.Enabled && refusal.Replacement.Tool == "find_files" && routingReplacementOutsideWorkspace(item.Workspace, refusal) {
+				refusal.Reason = "direct file discovery path is outside the workspace while the service-account split is enabled"
+				refusal.Replacement = nil
+				refusal.Guidance = "paths outside the workspace require an operator decision; state the need once and stop rather than retrying paths"
+			}
 			result, _ := json.Marshal(refusal)
-			log.Printf("shell file-routing refusal: session=%s tool=%s command=%q", item.ID, refusal.Replacement.Tool, command)
+			replacement := "none"
+			if refusal.Replacement != nil {
+				replacement = refusal.Replacement.Tool
+			}
+			log.Printf("shell file-routing refusal: session=%s tool=%s command=%q", item.ID, replacement, command)
 			return CallDetail{Err: fmt.Errorf("note: command was not executed; %s", result)}
 		}
 		if ambiguous {
@@ -436,10 +445,11 @@ type shellRoutingReplacement struct {
 }
 
 type shellRoutingRefusal struct {
-	Refused     bool                    `json:"refused"`
-	Reason      string                  `json:"reason"`
-	Replacement shellRoutingReplacement `json:"replacement"`
-	Command     string                  `json:"command"`
+	Refused     bool                     `json:"refused"`
+	Reason      string                   `json:"reason"`
+	Replacement *shellRoutingReplacement `json:"replacement,omitempty"`
+	Guidance    string                   `json:"guidance,omitempty"`
+	Command     string                   `json:"command"`
 }
 
 type shellSegmentKind int
@@ -506,11 +516,27 @@ func routingRefusal(command, reason, tool string, arguments map[string]string) *
 	return &shellRoutingRefusal{
 		Refused: true,
 		Reason:  "direct " + reason + " is routed to " + tool,
-		Replacement: shellRoutingReplacement{
+		Replacement: &shellRoutingReplacement{
 			Tool: tool, Arguments: arguments,
 		},
 		Command: command,
 	}
+}
+
+func routingReplacementOutsideWorkspace(workspace string, refusal *shellRoutingRefusal) bool {
+	if refusal == nil || refusal.Replacement == nil {
+		return false
+	}
+	requested := refusal.Replacement.Arguments["path"]
+	if requested == "" || !filepath.IsAbs(filepath.FromSlash(requested)) {
+		return false
+	}
+	root, err := filepath.Abs(workspace)
+	if err != nil {
+		return true
+	}
+	relative, err := filepath.Rel(root, filepath.Clean(filepath.FromSlash(requested)))
+	return err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative)
 }
 
 func classifyShellSegment(words []string) shellSegmentKind {

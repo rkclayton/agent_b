@@ -153,6 +153,14 @@ func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 		Shell struct {
 			OperatorContextIdleTimeoutMinutes int `json:"operator_context_idle_timeout_minutes"`
 		} `json:"shell"`
+		Tools struct {
+			Fetch struct {
+				DenyDomains []string `json:"deny_domains"`
+			} `json:"fetch"`
+			FindFiles struct {
+				SkipRoots []string `json:"skip_roots"`
+			} `json:"find_files"`
+		} `json:"tools"`
 	}
 	if err := json.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
@@ -165,6 +173,27 @@ func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 	}
 	if document.Shell.OperatorContextIdleTimeoutMinutes != 20 {
 		t.Fatalf("template operator idle timeout=%d, want literal 20", document.Shell.OperatorContextIdleTimeoutMinutes)
+	}
+	if len(document.Tools.Fetch.DenyDomains) != 8 || len(document.Tools.FindFiles.SkipRoots) != 5 {
+		t.Fatalf("template policy defaults: deny_domains=%v skip_roots=%v", document.Tools.Fetch.DenyDomains, document.Tools.FindFiles.SkipRoots)
+	}
+}
+
+func TestPolicyListsDefaultOnlyWhenOmitted(t *testing.T) {
+	omitted := Defaults(t.TempDir())
+	omitted.Tools.Fetch.DenyDomains = nil
+	omitted.Tools.FindFiles.SkipRoots = nil
+	applyDefaults(&omitted)
+	if len(omitted.Tools.Fetch.DenyDomains) != 8 || len(omitted.Tools.FindFiles.SkipRoots) != 5 {
+		t.Fatalf("omitted defaults: deny=%v skip=%v", omitted.Tools.Fetch.DenyDomains, omitted.Tools.FindFiles.SkipRoots)
+	}
+
+	cleared := Defaults(t.TempDir())
+	cleared.Tools.Fetch.DenyDomains = []string{}
+	cleared.Tools.FindFiles.SkipRoots = []string{}
+	applyDefaults(&cleared)
+	if cleared.Tools.Fetch.DenyDomains == nil || len(cleared.Tools.Fetch.DenyDomains) != 0 || cleared.Tools.FindFiles.SkipRoots == nil || len(cleared.Tools.FindFiles.SkipRoots) != 0 {
+		t.Fatalf("explicit clears were replaced: deny=%#v skip=%#v", cleared.Tools.Fetch.DenyDomains, cleared.Tools.FindFiles.SkipRoots)
 	}
 }
 

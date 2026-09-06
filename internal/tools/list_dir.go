@@ -17,10 +17,11 @@ type ListDir struct {
 	mu      sync.RWMutex
 	cfg     config.ListDirTool
 	ignored map[string]bool
+	readDir func(string) ([]os.DirEntry, error)
 }
 
 func NewListDir(cfg config.ListDirTool) *ListDir {
-	t := &ListDir{cfg: cfg, ignored: map[string]bool{"build": true}}
+	t := &ListDir{cfg: cfg, ignored: map[string]bool{"build": true}, readDir: os.ReadDir}
 	for _, name := range cfg.Ignore {
 		t.ignored[name] = true
 	}
@@ -55,10 +56,15 @@ func (t *ListDir) Call(ctx context.Context, s *session.Session, args map[string]
 		return "", fmt.Errorf("not a directory: %s", path)
 	}
 	all := []string{}
+	skipped := 0
 	var walk func(string, int) error
 	walk = func(dir string, level int) error {
-		entries, err := os.ReadDir(dir)
+		entries, err := t.readDir(dir)
 		if err != nil {
+			if dir != root && isInaccessible(err) {
+				skipped++
+				return nil
+			}
 			return err
 		}
 		sort.Slice(entries, func(i, j int) bool {
@@ -94,9 +100,9 @@ func (t *ListDir) Call(ctx context.Context, s *session.Session, args map[string]
 	}
 	s.Touch(path)
 	if len(all) == 0 {
-		return "directory is empty", nil
+		return withSkippedInaccessible("directory is empty", skipped), nil
 	}
-	return strings.Join(all, "\n"), nil
+	return withSkippedInaccessible(strings.Join(all, "\n"), skipped), nil
 }
 func (t *ListDir) Configure(value config.Config) {
 	t.mu.Lock()

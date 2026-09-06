@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"harness/internal/config"
 	"harness/internal/session"
 )
 
@@ -23,7 +24,7 @@ func TestGlob(t *testing.T) {
 		writeGlobFixture(t, root, "node_modules/hidden.go")
 		writeGlobFixture(t, root, ".git/hidden.go")
 
-		got, err := NewGlob().Call(context.Background(), &session.Session{Workspace: root}, map[string]any{"pattern": "*.go"})
+		got, err := NewGlob(config.Defaults(root).Tools.FindFiles).Call(context.Background(), &session.Session{Workspace: root}, map[string]any{"pattern": "*.go"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -31,7 +32,7 @@ func TestGlob(t *testing.T) {
 		if got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}
-		got, err = NewGlob().Call(context.Background(), &session.Session{Workspace: root}, map[string]any{"pattern": "**/*.go"})
+		got, err = NewGlob(config.Defaults(root).Tools.FindFiles).Call(context.Background(), &session.Session{Workspace: root}, map[string]any{"pattern": "**/*.go"})
 		if err != nil || got != want {
 			t.Fatalf("recursive pattern got %q, %v; want %q", got, err, want)
 		}
@@ -40,7 +41,7 @@ func TestGlob(t *testing.T) {
 	t.Run("no_match", func(t *testing.T) {
 		root := t.TempDir()
 		writeGlobFixture(t, root, "only.txt")
-		got, err := NewGlob().Call(context.Background(), &session.Session{Workspace: root}, map[string]any{"pattern": "*.go"})
+		got, err := NewGlob(config.Defaults(root).Tools.FindFiles).Call(context.Background(), &session.Session{Workspace: root}, map[string]any{"pattern": "*.go"})
 		if err != nil || got != "no matches" {
 			t.Fatalf("got %q, %v", got, err)
 		}
@@ -48,7 +49,7 @@ func TestGlob(t *testing.T) {
 
 	t.Run("boundary_escape", func(t *testing.T) {
 		root := t.TempDir()
-		_, err := NewGlob().Call(context.Background(), &session.Session{Workspace: root}, map[string]any{"pattern": "*", "path": ".."})
+		_, err := NewGlob(config.Defaults(root).Tools.FindFiles).Call(context.Background(), &session.Session{Workspace: root}, map[string]any{"pattern": "*", "path": ".."})
 		if err == nil || !strings.Contains(err.Error(), "outside the workspace") {
 			t.Fatalf("error %v", err)
 		}
@@ -59,7 +60,7 @@ func TestGlob(t *testing.T) {
 		for i := 0; i < globMaxResults+3; i++ {
 			writeGlobFixture(t, root, fmt.Sprintf("file-%03d.txt", i))
 		}
-		got, err := NewGlob().Call(context.Background(), &session.Session{Workspace: root}, map[string]any{"pattern": "*.txt"})
+		got, err := NewGlob(config.Defaults(root).Tools.FindFiles).Call(context.Background(), &session.Session{Workspace: root}, map[string]any{"pattern": "*.txt"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -71,6 +72,28 @@ func TestGlob(t *testing.T) {
 			t.Fatalf("missing explicit truncation marker: %q", lines[len(lines)-1])
 		}
 	})
+}
+
+func TestConfiguredProtectedRootsMatchVolumeRelativePrefixes(t *testing.T) {
+	volumeRoot := string(filepath.Separator)
+	if volume := filepath.VolumeName(t.TempDir()); volume != "" {
+		volumeRoot = volume + string(filepath.Separator)
+	}
+	patterns := config.Defaults(t.TempDir()).Tools.FindFiles.SkipRoots
+	for _, candidate := range []string{
+		filepath.Join(volumeRoot, "Windows", "System32"),
+		filepath.Join(volumeRoot, "$Recycle.Bin", "account"),
+		filepath.Join(volumeRoot, "System Volume Information", "tracking.log"),
+		filepath.Join(volumeRoot, "ProgramData", "Microsoft", "Windows Defender Advanced Threat Protection", "Classification"),
+		filepath.Join(volumeRoot, "Program Files", "Windows Defender", "scan.dll"),
+	} {
+		if !configuredSkipRoot(candidate, patterns) {
+			t.Errorf("protected path did not match: %s", candidate)
+		}
+	}
+	if configuredSkipRoot(filepath.Join(volumeRoot, "ProgramData", "ordinary", "file.txt"), patterns) {
+		t.Fatal("ordinary root matched protected patterns")
+	}
 }
 
 func writeGlobFixture(t *testing.T, root, name string) {

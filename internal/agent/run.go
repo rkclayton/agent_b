@@ -367,7 +367,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		outcome.Content, outcome.OK, outcome.OperatorContext = "operator-identity override succeeded; exact "+subject+" rerun once:\n"+overrideContent, true, true
 		return outcome
 	}
-	outcome.Content, outcome.OK, outcome.OperatorContext = outcome.Content+"\n\noperator-identity override was attempted but failed:\n"+overrideContent, false, false
+	outcome.Content, outcome.OK, outcome.OperatorContext = outcome.Content+"\n\noperator-identity override was attempted but failed:\n"+overrideContent, false, true
 	return outcome
 }
 

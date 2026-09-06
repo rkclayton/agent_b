@@ -1,0 +1,162 @@
+package projection
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+
+	"harness/internal/events"
+)
+
+func TestNextIsPureAndEmitsVersionedCursorPatch(t *testing.T) {
+	previous := seeded(t)
+	before := cloneSnapshot(t, previous)
+	record := Record{
+		Cursor: Cursor{Generation: "main-a.jsonl", Offset: 42},
+		Event: events.Event{SessionID: "main", Type: events.MessageAppended, Data: map[string]any{
+			"message": events.Message{ID: "m1", Role: "user", Content: "hello", Category: "history"},
+		}},
+	}
+	next, patch, err := Next(previous, record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(previous, before) {
+		t.Fatal("Next mutated its input snapshot")
+	}
+	if len(next.Messages) != 1 || next.Messages[0].ID != "m1" {
+		t.Fatalf("messages = %#v", next.Messages)
+	}
+	if patch.SchemaVersion != SchemaVersion || patch.Cursor != record.Cursor || patch.SessionID != "main" {
+		t.Fatalf("patch envelope = %#v", patch)
+	}
+	if len(patch.Operations) == 0 {
+		t.Fatal("message append emitted no projection operation")
+	}
+}
+
+func TestResetOnlyGenerationIsExplicitlyIncomplete(t *testing.T) {
+	state := Empty("main")
+	next, _, err := Next(state, Record{
+		Cursor: Cursor{Generation: "main-reset.jsonl", Offset: 101},
+		Event:  events.Event{SessionID: "main", Type: events.SessionReset, Data: map[string]any{"log_path": "next.jsonl"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Complete {
+		t.Fatal("reset-only generation was presented as a complete snapshot")
+	}
+	if next.Cursor.Offset != 101 || next.LogPath != "next.jsonl" {
+		t.Fatalf("snapshot = %#v", next)
+	}
+}
+
+func TestBudgetReplacementDoesNotRetainOmittedFields(t *testing.T) {
+	state := seeded(t)
+	state.Budget.ToolMarginalTokens = map[string]int{"removed_tool": 145}
+	next, _, err := Next(state, Record{
+		Cursor: Cursor{Generation: "main-a.jsonl", Offset: 80},
+		Event: events.Event{SessionID: "main", Type: events.BudgetEvent, Data: map[string]any{
+			"n_ctx": 32768, "categories": map[string]int{"tools": 1221},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Budget.ToolMarginalTokens != nil {
+		t.Fatalf("omitted marginal map survived replacement: %#v", next.Budget.ToolMarginalTokens)
+	}
+}
+
+func TestReadFileUsesDurableByteBoundary(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main-a.jsonl")
+	one := events.Event{Seq: 1, TS: "2026-09-05T00:00:00Z", SessionID: "main", Type: events.SessionReset, Data: map[string]any{}}
+	two := events.Event{Seq: 2, TS: "2026-09-05T00:00:01Z", SessionID: "main", Type: events.SessionRenamed, Data: map[string]any{"label": "next"}}
+	first, _ := json.Marshal(one)
+	second, _ := json.Marshal(two)
+	content := append(append(append([]byte{}, first...), '\n'), second...)
+	content = append(content, '\n')
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	boundary := int64(len(first) + 1)
+	records, offset, err := ReadFile(path, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || offset != boundary || records[0].Cursor.Offset != boundary {
+		t.Fatalf("records=%d offset=%d cursor=%#v", len(records), offset, records[0].Cursor)
+	}
+	if _, _, err := ReadFile(path, boundary-1); err == nil {
+		t.Fatal("non-record byte offset was accepted")
+	}
+}
+
+func TestCacheIsKeyedByDurableOffsetAndDiscardable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main-a.jsonl")
+	created := events.Event{Seq: 1, TS: "2026-09-05T00:00:00Z", SessionID: "main", Type: events.SessionCreated, Data: map[string]any{
+		"session": map[string]any{"id": "main", "label": "main", "run": map[string]any{"status": "idle"}, "tools": []any{}, "messages": []any{}},
+	}}
+	encoded, _ := json.Marshal(created)
+	encoded = append(encoded, '\n')
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cache := NewCache()
+	first, err := cache.ProjectFile(path, int64(len(encoded)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Label = "mutated caller copy"
+	cached, err := cache.ProjectFile(path, int64(len(encoded)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cached.Label != "main" {
+		t.Fatalf("caller mutation changed cached snapshot: %#v", cached)
+	}
+	cache.Clear()
+	second, err := cache.ProjectFile(path, int64(len(encoded)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cached, second) || !second.Complete {
+		t.Fatalf("rebuilt snapshot differs: cached=%#v second=%#v", cached, second)
+	}
+}
+
+func seeded(t *testing.T) Snapshot {
+	t.Helper()
+	next, _, err := Next(Empty("main"), Record{
+		Cursor: Cursor{Generation: "main-a.jsonl", Offset: 20},
+		Event: events.Event{SessionID: "main", Type: events.SessionCreated, Data: map[string]any{
+			"session": map[string]any{
+				"id": "main", "label": "main", "server_id": "homepc", "workspace": "workspace",
+				"run":   map[string]any{"status": "idle", "max_turns": 40},
+				"tools": []any{}, "messages": []any{}, "runnable": true,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return next
+}
+
+func cloneSnapshot(t *testing.T, value Snapshot) Snapshot {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result Snapshot
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		t.Fatal(err)
+	}
+	return result
+}

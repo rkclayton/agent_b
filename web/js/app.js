@@ -90,6 +90,10 @@ function renderConsole() {
 	chatLaunch.href = `/chat${suffix}`;
 	stop.hidden = !!store.replay;
 	document.getElementById("mode").textContent = store.replay ? "replay" : "";
+	const build = store.build || {};
+	const buildID = document.getElementById("build-id");
+	buildID.textContent = `build ${build.display || "unknown"}`;
+	buildID.title = build.known ? `Build ${build.commit}${build.dirty ? " (dirty worktree)" : " (clean commit)"}` : "Build identity unavailable";
 }
 stop.onclick = (event) => {
   const s = store.sessions[store.active];

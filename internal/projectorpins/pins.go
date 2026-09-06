@@ -3,6 +3,7 @@ package projectorpins
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -18,7 +19,7 @@ import (
 	"harness/internal/projection"
 )
 
-const ManifestSchema = 1
+const ManifestSchema = 2
 
 type Manifest struct {
 	SchemaVersion int    `json:"schema_version"`
@@ -26,15 +27,17 @@ type Manifest struct {
 }
 
 type Case struct {
-	ID              string   `json:"id"`
-	Source          string   `json:"source"`
-	Golden          string   `json:"golden"`
-	Origin          string   `json:"origin"`
-	OriginSHA256    string   `json:"origin_sha256"`
-	OriginRecords   int      `json:"origin_records"`
-	PredecessorCase string   `json:"predecessor_case,omitempty"`
-	Shapes          []string `json:"shapes"`
-	Rationale       string   `json:"rationale"`
+	ID                string   `json:"id"`
+	Source            string   `json:"source"`
+	Golden            string   `json:"golden"`
+	Origin            string   `json:"origin"`
+	OriginSHA256      string   `json:"origin_sha256"`
+	OriginRecords     int      `json:"origin_records"`
+	DecompressedBytes int64    `json:"decompressed_bytes"`
+	PredecessorCase   string   `json:"predecessor_case,omitempty"`
+	Slow              bool     `json:"slow,omitempty"`
+	Shapes            []string `json:"shapes"`
+	Rationale         string   `json:"rationale"`
 }
 
 func RepoRoot(start string) (string, error) {
@@ -75,8 +78,13 @@ func WriteGoldens(root string) error {
 	if err != nil {
 		return err
 	}
+	materialized, cleanup, err := materializeFixtures(manifest, dir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 	for _, item := range manifest.Cases {
-		value, projectErr := projection.GoldenFile(filepath.Join(dir, filepath.FromSlash(item.Source)))
+		value, projectErr := projection.GoldenFile(materialized[item.ID])
 		if projectErr != nil {
 			return fmt.Errorf("%s: %w", item.ID, projectErr)
 		}
@@ -96,13 +104,25 @@ func WriteGoldens(root string) error {
 	return nil
 }
 
-func Verify(root string) error {
+func Verify(root string) error { return verify(root, false) }
+
+func VerifySlow(root string) error { return verify(root, true) }
+
+func verify(root string, slowOnly bool) error {
 	manifest, dir, err := LoadManifest(root)
 	if err != nil {
 		return err
 	}
+	materialized, cleanup, err := materializeFixtures(manifest, dir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 	for _, item := range manifest.Cases {
-		value, projectErr := projection.GoldenFile(filepath.Join(dir, filepath.FromSlash(item.Source)))
+		if item.Slow != slowOnly {
+			continue
+		}
+		value, projectErr := projection.GoldenFile(materialized[item.ID])
 		if projectErr != nil {
 			return fmt.Errorf("%s: %w", item.ID, projectErr)
 		}
@@ -117,6 +137,59 @@ func Verify(root string) error {
 		if !bytes.Equal(actual, expected) {
 			return describeMismatch(item.ID, expected, actual)
 		}
+	}
+	return nil
+}
+
+func materializeFixtures(manifest Manifest, dir string) (map[string]string, func(), error) {
+	temporary, err := os.MkdirTemp("", "agentb-projector-pins-")
+	if err != nil {
+		return nil, func() {}, err
+	}
+	cleanup := func() { _ = os.RemoveAll(temporary) }
+	result := make(map[string]string, len(manifest.Cases))
+	for _, item := range manifest.Cases {
+		data, readErr := readFixture(filepath.Join(dir, filepath.FromSlash(item.Source)))
+		if readErr != nil {
+			cleanup()
+			return nil, func() {}, fmt.Errorf("%s: %w", item.ID, readErr)
+		}
+		if lengthErr := validateFixtureLength(item.ID, data, item.DecompressedBytes); lengthErr != nil {
+			cleanup()
+			return nil, func() {}, lengthErr
+		}
+		name := strings.TrimSuffix(filepath.Base(item.Source), ".gz")
+		path := filepath.Join(temporary, name)
+		if writeErr := os.WriteFile(path, data, 0o644); writeErr != nil {
+			cleanup()
+			return nil, func() {}, writeErr
+		}
+		result[item.ID] = path
+	}
+	return result, cleanup, nil
+}
+
+func readFixture(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	reader, err := gzip.NewReader(file)
+	if err != nil {
+		return nil, fmt.Errorf("open gzip fixture: %w", err)
+	}
+	defer reader.Close()
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("decompress fixture: %w", err)
+	}
+	return data, nil
+}
+
+func validateFixtureLength(id string, data []byte, want int64) error {
+	if int64(len(data)) != want {
+		return fmt.Errorf("fixture %s decompressed to %d bytes, want %d; line endings may have changed", id, len(data), want)
 	}
 	return nil
 }
@@ -147,6 +220,7 @@ func ImportSources(root string) error {
 		return err
 	}
 	byID := map[string]Case{}
+	sources := map[string][]byte{}
 	for _, item := range manifest.Cases {
 		byID[item.ID] = item
 		origin := filepath.Join(root, filepath.FromSlash(item.Origin))
@@ -168,13 +242,7 @@ func ImportSources(root string) error {
 		if item.OriginRecords != 0 && item.OriginRecords != records {
 			return fmt.Errorf("%s: source records changed: got %d", item.ID, records)
 		}
-		path := filepath.Join(dir, filepath.FromSlash(item.Source))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(path, data, 0o644); err != nil {
-			return err
-		}
+		sources[item.ID] = data
 	}
 	for _, item := range manifest.Cases {
 		if item.PredecessorCase == "" {
@@ -184,17 +252,49 @@ func ImportSources(root string) error {
 		if !ok {
 			return fmt.Errorf("%s: predecessor case %q not found", item.ID, item.PredecessorCase)
 		}
-		predecessorPath := filepath.Join(dir, filepath.FromSlash(predecessor.Source))
-		info, err := os.Stat(predecessorPath)
+		generation := strings.TrimSuffix(filepath.Base(predecessor.Source), ".gz")
+		updated, err := rewritePredecessor(sources[item.ID], generation, int64(len(sources[predecessor.ID])))
 		if err != nil {
+			return fmt.Errorf("%s: %w", item.ID, err)
+		}
+		sources[item.ID] = updated
+	}
+	for _, item := range manifest.Cases {
+		data := sources[item.ID]
+		if err := validateFixtureLength(item.ID, data, item.DecompressedBytes); err != nil {
 			return err
 		}
 		path := filepath.Join(dir, filepath.FromSlash(item.Source))
-		if err := rewritePredecessor(path, filepath.Base(predecessorPath), info.Size()); err != nil {
-			return fmt.Errorf("%s: %w", item.ID, err)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := writeGzip(path, data); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func writeGzip(path string, data []byte) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	writer, err := gzip.NewWriterLevel(file, gzip.BestCompression)
+	if err != nil {
+		_ = file.Close()
+		return err
+	}
+	writer.Header.ModTime = time.Unix(0, 0).UTC()
+	writer.Header.OS = 255
+	_, err = writer.Write(data)
+	if closeErr := writer.Close(); err == nil {
+		err = closeErr
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	return err
 }
 
 func allowedOrigin(root, path string) error {
@@ -313,31 +413,27 @@ func safeString(key, value string) bool {
 	return safe[value]
 }
 
-func rewritePredecessor(path, generation string, offset int64) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
+func rewritePredecessor(data []byte, generation string, offset int64) ([]byte, error) {
 	lines := bytes.Split(data, []byte{'\n'})
 	if len(lines) == 0 || len(bytes.TrimSpace(lines[0])) == 0 {
-		return fmt.Errorf("empty reset source")
+		return nil, fmt.Errorf("empty reset source")
 	}
 	var event events.Event
 	if err := json.Unmarshal(lines[0], &event); err != nil {
-		return err
+		return nil, err
 	}
 	if event.Type != events.SessionReset {
-		return fmt.Errorf("first record is %s, want %s", event.Type, events.SessionReset)
+		return nil, fmt.Errorf("first record is %s, want %s", event.Type, events.SessionReset)
 	}
 	dataMap, ok := event.Data.(map[string]any)
 	if !ok {
-		return fmt.Errorf("reset data is not an object")
+		return nil, fmt.Errorf("reset data is not an object")
 	}
 	dataMap["predecessor"] = map[string]any{"generation": generation, "offset": offset}
 	first, err := json.Marshal(event)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	lines[0] = first
-	return os.WriteFile(path, bytes.Join(lines, []byte{'\n'}), 0o644)
+	return bytes.Join(lines, []byte{'\n'}), nil
 }

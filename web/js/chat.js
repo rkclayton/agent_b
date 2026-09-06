@@ -279,7 +279,7 @@ function renderEntry(session, entry) {
     if (entry.text) {
       const answer = document.createElement("div");
       renderMarkdown(answer, entry.text);
-      nodes.push(answer);
+      nodes.push(answer, messageCopy(() => assistantCopyText(entry, [])));
     }
     if (!entry.done) {
       const caret = document.createElement("span");
@@ -318,7 +318,7 @@ function renderResponse(session, entry) {
     if (!itemView) {
       const step = document.createElement("div");
       step.className = `chat-response-step ${item.type === "tool" ? "chat-response-tool" : ""}`;
-      itemView = { step, answer: null, caret: null, answerText: "" };
+      itemView = { step, answer: null, copy: null, caret: null, answerText: "" };
       view.items.set(item.key, itemView);
     }
     const stepNodes = [];
@@ -332,7 +332,9 @@ function renderResponse(session, entry) {
         }
         if (itemView.answerText !== item.text) renderMarkdown(itemView.answer, item.text);
         itemView.answerText = item.text;
-        stepNodes.push(itemView.answer);
+        if (!itemView.copy) itemView.copy = messageCopy(() => "");
+        itemView.copy.onclick = () => navigator.clipboard?.writeText(assistantCopyText(item, entry.items));
+        stepNodes.push(itemView.answer, itemView.copy);
       }
       if (!item.done) {
         if (!itemView.caret) {
@@ -365,6 +367,27 @@ function speaker(name) {
   label.textContent = name;
   node.append(label);
   return node;
+}
+
+function messageCopy(value) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "message-copy";
+  button.textContent = "Copy message";
+  button.onclick = () => navigator.clipboard?.writeText(value());
+  return button;
+}
+
+function assistantCopyText(entry, responseItems) {
+  const parts = [];
+  if (expanded.has(entry.key) && entry.reasoning) parts.push(`Reasoning\n\n${entry.reasoning}`);
+  if (entry.text) parts.push(entry.text);
+  const callIDs = new Set(entry.toolCallIDs || []);
+  for (const item of responseItems) {
+    if (item.type !== "tool" || !callIDs.has(item.callID) || !expanded.has(item.key)) continue;
+    parts.push(`Tool: ${item.name}\n\narguments\n${JSON.stringify(item.args, null, 2)}\n\nresult\n${capResult(item.content)}`);
+  }
+  return parts.join("\n\n");
 }
 
 function thinking(entry, tokens) {
@@ -472,7 +495,7 @@ function renderComposer(session) {
   input.disabled = !session || !!store.replay;
   if (store.replay) input.placeholder = "Replay";
   else if (session?.run.status === "paused") input.placeholder = "paused — waiting for approval";
-  else input.placeholder = "Send a task";
+  else input.placeholder = "Send a task · Enter sends · Shift+Enter newline";
   const queued = session?.queued_messages || 0;
   const message = localNotice || (session && !session.runnable ? session.not_runnable_reason : queued ? `queued (${queued})` : session?.run.status === "paused" ? "paused — waiting for approval" : "");
   notice.textContent = message;

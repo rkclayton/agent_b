@@ -39,6 +39,21 @@ func TestNextIsPureAndEmitsVersionedCursorPatch(t *testing.T) {
 	}
 }
 
+func TestMessageAttachmentProjectsIntoChatEntry(t *testing.T) {
+	state := seeded(t)
+	attachment := events.Attachment{Path: "attachments/spec.txt", Bytes: 12, SHA256: strings.Repeat("a", 64)}
+	next, _, err := Next(state, Record{Cursor: Cursor{Generation: "attachment.events", Offset: 200}, Event: events.Event{
+		SessionID: "main", Type: events.MessageAppended,
+		Data: map[string]any{"message": events.Message{ID: "m-attachment", Role: "user", Content: "review", Category: "history", Attachments: []events.Attachment{attachment}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Chat) != 1 || len(next.Chat[0].Attachments) != 1 || next.Chat[0].Attachments[0] != attachment {
+		t.Fatalf("chat=%+v", next.Chat)
+	}
+}
+
 func TestResetOnlyGenerationIsExplicitlyIncomplete(t *testing.T) {
 	state := Empty("main")
 	next, _, err := Next(state, Record{

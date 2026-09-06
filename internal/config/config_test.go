@@ -788,3 +788,33 @@ func TestSchema4APIKeyMovesToNamedDPAPIStore(t *testing.T) {
 		t.Fatalf("reloaded key=%q err=%v", reloaded.Servers[0].APIKey, err)
 	}
 }
+
+func TestAttachmentConfigIsAdditiveSchemaFive(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	if cfg.ConfigVersion != 5 || cfg.Tools.Attachments.MaxBytes != 8<<20 {
+		t.Fatalf("defaults: version=%d attachments=%+v", cfg.ConfigVersion, cfg.Tools.Attachments)
+	}
+	data, err := os.ReadFile(filepath.Join("..", "..", "harness.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	tools := document["tools"].(map[string]any)
+	delete(tools, "attachments")
+	without, _ := json.Marshal(document)
+	var loaded Config
+	if err := json.Unmarshal(without, &loaded); err != nil {
+		t.Fatal(err)
+	}
+	ApplyDefaults(&loaded)
+	if loaded.ConfigVersion != 5 || loaded.Tools.Attachments.MaxBytes != 8<<20 {
+		t.Fatalf("omitted attachment defaults=%+v version=%d", loaded.Tools.Attachments, loaded.ConfigVersion)
+	}
+	loaded.Tools.Attachments.MaxBytes = 0
+	if err := loaded.Validate(); err == nil || !strings.Contains(err.Error(), "tools.attachments.max_bytes") {
+		t.Fatalf("zero limit validation=%v", err)
+	}
+}

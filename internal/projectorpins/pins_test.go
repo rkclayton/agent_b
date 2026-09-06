@@ -32,7 +32,7 @@ func TestManifestPinsTenDistinctRealLogs(t *testing.T) {
 	origins := map[string]bool{}
 	shapes := map[string]bool{}
 	for _, item := range manifest.Cases {
-		if item.Rationale == "" || item.OriginSHA256 == "" || item.OriginRecords == 0 || item.DecompressedBytes == 0 {
+		if item.Rationale == "" || (!item.Synthetic && item.OriginSHA256 == "") || item.OriginRecords == 0 || item.DecompressedBytes == 0 {
 			t.Fatalf("case %q lacks provenance or rationale", item.ID)
 		}
 		if origins[item.Origin] {

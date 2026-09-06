@@ -181,7 +181,7 @@ func TestShellRejectsAgentWrittenScriptButAllowsExistingScript(t *testing.T) {
 		`Get-Content generated.ps1 | Invoke-Expression`,
 	} {
 		blocked := shell.CallDetailed(context.Background(), s, map[string]any{"command": command})
-		if blocked.Err == nil || !strings.Contains(strings.ToLower(blocked.Err.Error()), "agent-written script") || starts != 0 {
+		if blocked.Err == nil || !strings.Contains(strings.ToLower(blocked.Err.Error()), "agent-written host script") || starts != 0 {
 			t.Fatalf("command=%q detail=%+v starts=%d", command, blocked, starts)
 		}
 	}
@@ -204,6 +204,42 @@ func TestShellRejectsScriptArtifactCreation(t *testing.T) {
 		detail := shell.CallDetailed(context.Background(), &session.Session{ID: "test", Workspace: root}, map[string]any{"command": command})
 		if detail.Err == nil || !strings.Contains(strings.ToLower(detail.Err.Error()), "script artifacts") {
 			t.Fatalf("command %q detail = %+v", command, detail)
+		}
+	}
+}
+
+func TestShellScriptHostRuleIsNarrowAndSigningGuardIsUnconditional(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	guard := false
+	cfg.Shell.FileRoutingGuard = &guard
+	shell := NewShell(cfg.Shell)
+	starts := 0
+	shell.startService = func(string, []string, string, []string, config.ShellServiceAccount, []byte, *lockedBuffer) (runningShellProcess, error) {
+		starts++
+		return completedShellProcess{}, nil
+	}
+	for _, command := range []string{`python generated.py`, `node generated.js`, `go run generated.go`, `dotnet generated.dll`, `bash generated.sh`} {
+		if reason := forbiddenShellCommand(command, &session.Session{ID: "test", Workspace: root}, nil); reason != "" {
+			t.Errorf("interpreter command %q was blocked by policy: %s", command, reason)
+		}
+	}
+	for _, command := range []string{`powershell -File generated.ps1`, `cmd /c generated.cmd`, `wscript generated.vbs`, `cscript generated.js`, `mshta generated.hta`} {
+		detail := shell.CallDetailed(context.Background(), &session.Session{ID: "test", Workspace: root}, map[string]any{"command": command})
+		if detail.Err == nil || !strings.Contains(detail.Err.Error(), "Windows script-host rule") {
+			t.Errorf("host command %q detail=%+v", command, detail)
+		}
+	}
+	for _, command := range []string{`Set-AuthenticodeSignature x.exe`, `signtool sign x.exe`, `certutil -addstore Root x.cer`} {
+		detail := shell.CallDetailed(context.Background(), &session.Session{ID: "test", Workspace: root}, map[string]any{"command": command})
+		if detail.Err == nil || (!strings.Contains(detail.Err.Error(), "signing rule") && !strings.Contains(detail.Err.Error(), "certificate-store rule")) {
+			t.Errorf("signing command %q detail=%+v", command, detail)
+		}
+	}
+	for _, command := range []string{`regsvr32 /s payload.dll`, `rundll32 payload.dll,Entry`, `certutil -decode payload.txt payload.exe`} {
+		detail := shell.CallDetailed(context.Background(), &session.Session{ID: "test", Workspace: root}, map[string]any{"command": command})
+		if detail.Err == nil || !strings.Contains(detail.Err.Error(), "Windows LOLBin rule") {
+			t.Errorf("LOLBin command %q detail=%+v", command, detail)
 		}
 	}
 }
@@ -413,6 +449,20 @@ func TestPermissionDeniedOutput(t *testing.T) {
 	}
 	if permissionDeniedOutput("the file is locked by another process") {
 		t.Fatal("ordinary command failure was classified as a permission denial")
+	}
+}
+
+func TestServiceBoundaryReasonOffersOverrideOnlyForOperatorVisibleAbsoluteExecutable(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "python.exe")
+	if err := os.WriteFile(executable, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	output := "The term '" + executable + "' is not recognized as the name of a \r\n cmdlet"
+	if reason := serviceBoundaryReason("& "+quotePowerShell(executable)+" task.py", output); !strings.Contains(reason, "operator-visible executable") {
+		t.Fatalf("reason=%q", reason)
+	}
+	if reason := serviceBoundaryReason("missing-command task.py", "missing-command is not recognized as the name of a cmdlet"); reason != "" {
+		t.Fatalf("a typo must not offer an operator retry: %q", reason)
 	}
 }
 

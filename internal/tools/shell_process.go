@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"fmt"
 	"os/exec"
 
@@ -15,10 +16,17 @@ type runningShellProcess interface {
 type execShellProcess struct{ cmd *exec.Cmd }
 
 func startHarnessProcess(executable string, argv []string, workspace string, output *lockedBuffer) (runningShellProcess, error) {
+	return startHarnessProcessWithInput(executable, argv, workspace, nil, output)
+}
+
+func startHarnessProcessWithInput(executable string, argv []string, workspace string, input []byte, output *lockedBuffer) (runningShellProcess, error) {
 	cmd := exec.Command(executable, argv...)
 	cmd.Dir = workspace
 	setupProcess(cmd)
 	cmd.Stdout, cmd.Stderr = output, output
+	if input != nil {
+		cmd.Stdin = bytes.NewReader(input)
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -39,6 +47,7 @@ func (p *execShellProcess) Wait() (int, error) {
 func (p *execShellProcess) KillTree() { killProcessTree(p.cmd.Process.Pid) }
 
 type serviceProcessStarter func(string, []string, string, []string, config.ShellServiceAccount, []byte, *lockedBuffer) (runningShellProcess, error)
+type serviceProcessInputStarter func(string, []string, string, []string, config.ShellServiceAccount, []byte, []byte, *lockedBuffer) (runningShellProcess, error)
 
 type serviceSpawnError struct {
 	kind string

@@ -74,5 +74,9 @@
     "operator_context_idle_timeout_minutes": 20,
     "service_account": { "enabled": false, "account": "agentb-svc", "domain": "." },
     "deny": ["rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"]
+  },
+  "signing": {
+    "thumbprint": "",
+    "timestamp_url": "http://timestamp.digicert.com"
   }
 }

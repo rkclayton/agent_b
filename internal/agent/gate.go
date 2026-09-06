@@ -27,7 +27,7 @@ func (g *Gate) required(name string) bool {
 	case config.ApprovalModeBoundaryOnly, config.ApprovalModeOff:
 		return false
 	case config.ApprovalModeMutating:
-		return name == "write_file" || name == "edit_file" || name == "shell"
+		return name == "write_file" || name == "edit_file" || name == "shell" || name == "run_script"
 	case config.ApprovalModeAll:
 		return true
 	default:

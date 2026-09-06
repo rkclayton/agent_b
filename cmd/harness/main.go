@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -25,6 +26,7 @@ import (
 	"harness/internal/projection"
 	"harness/internal/serviceaccount"
 	"harness/internal/session"
+	"harness/internal/signing"
 	"harness/internal/tools"
 	webserver "harness/internal/web"
 )
@@ -74,6 +76,12 @@ func main() {
 		}
 		web := webserver.New(cfg, paths.Config, filepath.Join(paths.Application, "web"), roots, events.NewBus())
 		web.SetReplay(replay)
+		web.SetSigningManager(signing.New(filepath.Join(paths.Application, "scripts", "manage-signing.ps1")))
+		signingContext, cancelSigning := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := web.RefreshSigningState(signingContext); err != nil {
+			log.Printf("inspect installed signatures: %v", err)
+		}
+		cancelSigning()
 		if err := serve(cfg, web.Handler()); err != nil {
 			log.Fatal(err)
 		}
@@ -133,6 +141,10 @@ func main() {
 		filepath.Join(paths.Application, "scripts", "apply-firewall-rule.ps1"),
 		filepath.Join(paths.Application, "scripts", "apply-hardening.ps1"),
 	))
+	web.SetSigningManager(signing.New(filepath.Join(paths.Application, "scripts", "manage-signing.ps1")))
+	signingContext, cancelSigning := context.WithTimeout(context.Background(), 15*time.Second)
+	if err := web.RefreshSigningState(signingContext); err != nil { log.Printf("inspect installed signatures: %v", err) }
+	cancelSigning()
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
@@ -144,6 +156,7 @@ func main() {
 		tools.NewRecall(memoryManager),
 		tools.NewFetch(cfg.Tools.Fetch),
 		fileIdentity.Wrap(tools.NewGlob(cfg.Tools.FindFiles)),
+		tools.NewRunScript(shellTool),
 	)
 	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Profile, web.ConfigSnapshot)
 	scheduler := agent.NewScheduler(runner, registry, bus, web.ConfigSnapshot)
@@ -159,8 +172,33 @@ func main() {
 		log.Fatal(err)
 	}
 	runner.PublishBudget(context.Background(), mainSession)
+	publishPendingSigning(paths.Data, registry, bus)
 	if err := serve(cfg, web.Handler()); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func publishPendingSigning(dataRoot string, registry *session.Registry, bus *events.Bus) {
+	path := filepath.Join(dataRoot, "signing-applied.pending.json")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		log.Printf("read pending signing event: %v", err)
+		return
+	}
+	var detail map[string]any
+	if err := json.Unmarshal(data, &detail); err != nil {
+		log.Printf("decode pending signing event: %v", err)
+		return
+	}
+	bus.Publish(events.New(events.SigningApplied, "", "", detail))
+	for _, item := range registry.List() {
+		bus.Publish(events.New(events.SigningApplied, item.ID, "", detail))
+	}
+	if err := os.Remove(path); err != nil {
+		log.Printf("remove pending signing event: %v", err)
 	}
 }
 

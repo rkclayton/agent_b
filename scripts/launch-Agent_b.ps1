@@ -9,6 +9,7 @@ param(
     [switch]$NoBrowser,
     [switch]$Detached,
     [switch]$NoPause,
+    [switch]$Console,
     [switch]$Check
 )
 
@@ -196,7 +197,7 @@ try {
         WorkingDirectory = $dataRoot
         PassThru = $true
     }
-    if ($Detached) {
+    if ($Detached -or -not $Console) {
         $start.WindowStyle = 'Hidden'
     } else {
         $start.NoNewWindow = $true

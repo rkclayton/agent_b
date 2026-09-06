@@ -470,6 +470,28 @@
   color: var(--well);
   background: var(--alarm);
 }
+.chat-attachment-controls,
+.chat-pending-attachments {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.chat-attachment-controls button,
+.chat-attachment-controls select {
+  min-height: 24px;
+  font: 12px/20px var(--mono);
+}
+.chat-pending-attachments:empty { display: none; }
+.chat-pending-file {
+  padding: 1px 5px;
+  color: var(--ink);
+  background: var(--well);
+  outline: 1px solid rgba(125, 135, 148, 0.28);
+  font: 12px/20px var(--mono);
+}
+.chat-composer.drop-target { outline: 1px solid var(--trace); }
 #chat-build {
   color: var(--mute);
 }

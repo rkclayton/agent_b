@@ -7,6 +7,7 @@ import { createSessionResetController } from "./session-reset.js";
 import { createFileChip, fileURL, filesFromResponse, probeFile } from "./deliverables.js";
 import { approvalChoices } from "./approval.js";
 import { callServiceKey, callServiceStatus } from "./call-service-display.js";
+import { attachmentChipFile, attachmentMetadata, exchangeFiles, exchangeUpload, uploadAttachment } from "./attachment-upload.js";
 
 const binding = document.getElementById("chat-binding");
 const status = document.getElementById("chat-status");
@@ -19,6 +20,11 @@ const log = document.getElementById("chat-log");
 const input = document.getElementById("chat-task");
 const send = document.getElementById("chat-send");
 const notice = document.getElementById("chat-notice");
+const composer = document.querySelector(".chat-composer");
+const attachButton = document.getElementById("chat-attach");
+const filePicker = document.getElementById("chat-file-picker");
+const exchangePicker = document.getElementById("chat-exchange");
+const pendingFiles = document.getElementById("chat-attachments");
 const identityAlarm = document.getElementById("chat-identity-alarm");
 const chatCurrent = document.getElementById("chat-current");
 const consoleButton = document.getElementById("chat-console");
@@ -32,6 +38,9 @@ let localNotice = "";
 let localAlarm = false;
 let frame = 0;
 let renderTimer = 0;
+let attachmentsBusy = false;
+let queuedAttachments = [];
+const attachmentQueues = new Map();
 let lastRender = 0;
 const renderIntervalMS = 50;
 const thinkingRenderer = createThinkingRenderer({
@@ -94,7 +103,7 @@ function consoleURL() {
 subscribe((_state, event) => {
   if (isOperatorStateEvent(event)) operatorControl.render();
   if (event.type === "snapshot") {
-    if (!store.sessions[bound]) bound = requested && store.sessions[requested] ? requested : Object.keys(store.sessions)[0] || "";
+    if (!store.sessions[bound]) changeBound(requested && store.sessions[requested] ? requested : Object.keys(store.sessions)[0] || "");
   }
   if (event.session_id && bound && event.session_id !== bound) return;
   schedule();
@@ -154,7 +163,7 @@ function renderBinding(session) {
     select.append(option);
   }
   select.onchange = () => {
-    bound = select.value;
+    changeBound(select.value);
     follow = true;
     page = 0;
     render();
@@ -235,6 +244,12 @@ function buildEntries(session) {
   return groupResponses(session.chat || []);
 }
 
+function changeBound(value) {
+  if (bound) attachmentQueues.set(bound, queuedAttachments);
+  bound = value;
+  queuedAttachments = attachmentQueues.get(bound) || [];
+}
+
 function groupResponses(entries) {
   const grouped = [];
   let response = null;
@@ -272,7 +287,16 @@ function renderEntry(session, entry) {
   view.row.className = `chat-entry ${entry.type === "user" ? "chat-user" : entry.type === "tool" ? "tool-entry" : "chat-agent"}`;
   const content = view.content;
   if (entry.type === "user") {
-    if (view.text !== entry.text) content.textContent = entry.text;
+    const nodes = [];
+    if (entry.text) {
+      if (!view.userText) view.userText = document.createElement("div");
+      if (view.text !== entry.text) view.userText.textContent = entry.text;
+      nodes.push(view.userText);
+    }
+    for (const attachment of entry.attachments || []) {
+      nodes.push(renderFileChip(session, attachmentChipFile(attachment)));
+    }
+    reconcileChildren(content, nodes);
     view.text = entry.text;
   }
   else if (entry.type === "tool") content.append(toolTick(entry));
@@ -553,6 +577,8 @@ function renderComposer(session) {
   send.textContent = running ? "Stop" : "Send";
   send.disabled = !session || !!store.replay;
   input.disabled = !session || !!store.replay;
+  attachButton.disabled = !session || !!store.replay || attachmentsBusy;
+  exchangePicker.disabled = !session || !!store.replay || attachmentsBusy;
   if (store.replay) input.placeholder = "Replay";
   else if (session?.run.status === "paused") input.placeholder = "paused — waiting for approval";
   else input.placeholder = "Send a task · Enter sends · Shift+Enter newline";
@@ -560,6 +586,13 @@ function renderComposer(session) {
   const message = localNotice || (session && !session.runnable ? session.not_runnable_reason : queued ? `queued (${queued})` : session?.run.status === "paused" ? "paused — waiting for approval" : "");
   notice.textContent = message;
   notice.className = `chat-notice ${localAlarm || (session && !session.runnable) ? "alarm" : ""}`;
+  pendingFiles.replaceChildren(...queuedAttachments.map((file) => {
+    const row = document.createElement("span");
+    row.className = "chat-pending-file";
+    row.textContent = `${file.path.split("/").pop()} · ${format(file.bytes)} B${file.reused ? " · reused" : ""}`;
+    return row;
+  }));
+  composer.classList.toggle("drop-target", attachmentsBusy);
 }
 
 async function submit() {
@@ -571,10 +604,12 @@ async function submit() {
     return renderComposer(session);
   }
   const text = input.value.trim();
-  if (!text) return;
+  if (!text && !queuedAttachments.length) return;
   try {
-    const result = await api("/api/message", { session_id: session.id, text });
+    const result = await api("/api/message", { session_id: session.id, text, attachments: queuedAttachments.map(attachmentMetadata) });
     input.value = "";
+    queuedAttachments = [];
+    attachmentQueues.set(bound, queuedAttachments);
     resize();
     localNotice = result.queued ? `queued (${result.position})` : "";
     localAlarm = false;
@@ -583,6 +618,44 @@ async function submit() {
     localAlarm = true;
   }
   renderComposer(session);
+}
+
+async function queueFiles(files) {
+  const session = store.sessions[bound];
+  if (!session || store.replay || !files.length) return;
+  attachmentsBusy = true;
+  localNotice = "Uploading attachment…";
+  localAlarm = false;
+  renderComposer(session);
+  try {
+    for (const file of files) {
+      const uploaded = await uploadAttachment(file, session.id, { token: store.mutation_token });
+      if (!queuedAttachments.some((item) => item.path.toLowerCase() === uploaded.path.toLowerCase())) queuedAttachments.push(uploaded);
+      localNotice = uploaded.note || "Attachment ready";
+    }
+  } catch (error) {
+    localNotice = error.message || String(error);
+    localAlarm = true;
+  } finally {
+    attachmentsBusy = false;
+    renderComposer(session);
+  }
+}
+
+async function refreshExchangeFiles() {
+  if (store.replay || !store.sessions[bound]) return;
+  try {
+    const files = await exchangeFiles();
+    exchangePicker.replaceChildren(new Option("From exchange…", ""), ...files.map((file, index) => {
+      const option = new Option(`${file.path} · ${format(file.bytes)} B`, String(index));
+      option._attachment = file;
+      return option;
+    }));
+  } catch (error) {
+    localNotice = error.message || String(error);
+    localAlarm = true;
+    renderComposer(store.sessions[bound]);
+  }
 }
 
 async function stopRun() {
@@ -600,7 +673,50 @@ async function stopRun() {
 
 send.onclick = () => (busy(store.sessions[bound]) ? stopRun() : submit());
 stop.onclick = stopRun;
+attachButton.onclick = () => filePicker.click();
+filePicker.addEventListener("change", () => {
+  void queueFiles([...filePicker.files]);
+  filePicker.value = "";
+});
+exchangePicker.addEventListener("focus", () => void refreshExchangeFiles());
+exchangePicker.addEventListener("change", async () => {
+  const session = store.sessions[bound];
+  const item = exchangePicker.selectedOptions[0]?._attachment;
+  if (!session || !item) return;
+  attachmentsBusy = true;
+  localNotice = "Copying from exchange folder…";
+  localAlarm = false;
+  renderComposer(session);
+  try {
+    const uploaded = await exchangeUpload(item, session.id, { token: store.mutation_token, maxBytes: store.config.tools?.attachments?.max_bytes });
+    if (!queuedAttachments.some((value) => value.path.toLowerCase() === uploaded.path.toLowerCase())) queuedAttachments.push(uploaded);
+    localNotice = uploaded.note || "Attachment ready";
+  } catch (error) {
+    localNotice = error.message || String(error);
+    localAlarm = true;
+  } finally {
+    attachmentsBusy = false;
+    exchangePicker.value = "";
+    renderComposer(session);
+  }
+});
+composer.addEventListener("dragover", (event) => {
+  if (!store.replay && event.dataTransfer?.types?.includes("Files")) event.preventDefault();
+});
+composer.addEventListener("drop", (event) => {
+  if (!store.replay && event.dataTransfer?.files?.length) {
+    event.preventDefault();
+    void queueFiles([...event.dataTransfer.files]);
+  }
+});
 input.addEventListener("input", resize);
+input.addEventListener("paste", (event) => {
+  const files = [...(event.clipboardData?.files || [])];
+  if (files.length) {
+    event.preventDefault();
+    void queueFiles(files);
+  }
+});
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();

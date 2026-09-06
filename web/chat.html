@@ -28,6 +28,12 @@
   <div id="chat-budget" class="chat-budget" aria-label="Context budget"><span class="chat-budget-fill"></span><span class="chat-budget-tip"></span></div>
   <main id="chat-log" class="chat-log" tabindex="0" aria-live="polite"></main>
   <footer class="chat-composer">
+    <div class="chat-attachment-controls">
+      <input id="chat-file-picker" type="file" multiple hidden>
+      <button id="chat-attach" type="button">Attach</button>
+      <select id="chat-exchange" aria-label="Attach from exchange folder"><option value="">From exchange…</option></select>
+    </div>
+    <div id="chat-attachments" class="chat-pending-attachments" aria-live="polite"></div>
     <textarea id="chat-task" rows="1" aria-label="Task" placeholder="Send a task"></textarea>
     <button id="chat-send" type="button">Send</button>
     <div id="chat-notice" class="chat-notice" role="status"></div>

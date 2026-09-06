@@ -1,7 +1,9 @@
 package probe
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,8 +17,8 @@ import (
 
 func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, []string, error) {
 	if profile.ProbeMode == "off" {
-		findings := []string{"probe mode off: all capabilities assumed", "server: assumed openai-compatible", "n_ctx: taken from profile context", "tokenize/apply-template/cached tokens/timings/prompt progress: assumed unavailable", "streaming: assumed available", "tool calls: assumed available", "overflow: assumed unknown"}
-		caps := config.Capabilities{Server: "openai-compatible", NCtx: profile.Context.NCtx, Streaming: true, ToolCalls: true, ReasoningControl: "none", ValidEfforts: []string{}, OverflowBehavior: "unknown", Findings: findings, ProbedAt: time.Now().UTC().Format(time.RFC3339)}
+		findings := []string{"probe mode off: all capabilities assumed", "server: assumed openai-compatible", "n_ctx: taken from profile context", "tokenize/apply-template/cached tokens/timings/prompt progress: assumed unavailable", "streaming/tool calls/document input/image input: assumed available", "overflow: assumed unknown"}
+		caps := config.Capabilities{Server: "openai-compatible", NCtx: profile.Context.NCtx, Streaming: true, ToolCalls: true, DocumentInput: true, ImageInput: true, ReasoningControl: "none", ValidEfforts: []string{}, OverflowBehavior: "unknown", Findings: findings, ProbedAt: time.Now().UTC().Format(time.RFC3339)}
 		return caps, findings, nil
 	}
 	caps := config.Capabilities{Server: "unknown", ReasoningControl: "none", OverflowBehavior: "unknown", ValidEfforts: []string{}}
@@ -98,7 +100,7 @@ func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, [
 
 	if profile.ProbeMode == "minimal" {
 		caps.ToolCalls = true
-		findings = append(findings, "tool calls: not probed in minimal mode; assumed available", "reasoning control: not probed in minimal mode; assumed none", "valid efforts: not probed in minimal mode; assumed empty", "overflow: not probed in minimal mode; assumed unknown")
+		findings = append(findings, "tool calls: not probed in minimal mode; assumed available", "document input: not probed in minimal mode; assumed unavailable", "image input: not probed in minimal mode; assumed unavailable", "reasoning control: not probed in minimal mode; assumed none", "valid efforts: not probed in minimal mode; assumed empty", "overflow: not probed in minimal mode; assumed unknown")
 		return finish(caps, findings)
 	}
 
@@ -112,9 +114,43 @@ func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, [
 	caps.GrammarConstrained = caps.Server == "llama.cpp" && caps.ToolCalls
 	findings = append(findings, "tool calls: "+availability(caps.ToolCalls), "grammar constrained: "+availability(caps.GrammarConstrained))
 
+	caps.DocumentInput = probeContentPart(ctx, client, map[string]any{"type": "file", "file": map[string]any{"filename": "probe.pdf", "file_data": "data:application/pdf;base64," + base64.StdEncoding.EncodeToString(probePDF())}})
+	caps.ImageInput = probeContentPart(ctx, client, map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="}})
+	findings = append(findings, "document input: "+availability(caps.DocumentInput), "image input: "+availability(caps.ImageInput))
+
 	probeReasoning(ctx, client, profile, &caps, &findings)
 	probeOverflow(ctx, client, profile, &caps, &findings)
 	return finish(caps, findings)
+}
+
+func probePDF() []byte {
+	objects := []string{
+		"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+		"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+		"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R >>\nendobj\n",
+		"4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
+	}
+	var value bytes.Buffer
+	value.WriteString("%PDF-1.4\n")
+	offsets := make([]int, len(objects))
+	for index, object := range objects {
+		offsets[index] = value.Len()
+		value.WriteString(object)
+	}
+	xref := value.Len()
+	fmt.Fprintf(&value, "xref\n0 %d\n0000000000 65535 f \n", len(objects)+1)
+	for _, offset := range offsets {
+		fmt.Fprintf(&value, "%010d 00000 n \n", offset)
+	}
+	fmt.Fprintf(&value, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xref)
+	return value.Bytes()
+}
+
+func probeContentPart(ctx context.Context, client *llm.Client, part map[string]any) bool {
+	check, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	_, err := client.Chat(check, llm.Request{Messages: []llm.Message{{Role: "user", Content: []any{map[string]any{"type": "text", "text": "Say OK."}, part}}}, MaxTokens: 16})
+	return err == nil
 }
 
 func probeReasoning(ctx context.Context, client *llm.Client, profile *config.Profile, caps *config.Capabilities, findings *[]string) {

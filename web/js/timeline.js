@@ -3,8 +3,10 @@ import { createPanelState } from "./panel-state.js";
 import { groupToolRuns, toolGroupRange, toolGroupStatus, toolResultText } from "./timeline-groups.js";
 import { operatorLogEntry } from "./operator-log.js";
 import { callServiceKey, callServiceStatus } from "./call-service-display.js";
+import { createFileChip, fileURL, probeFile } from "./deliverables.js";
 
 const states = createPanelState("timeline");
+const attachmentStates = new Map();
 let rendered = "";
 const root = document.getElementById("timeline-list"),
   count = document.getElementById("timeline-count");
@@ -48,6 +50,8 @@ export function renderTimeline() {
   for (const event of events) {
     if (event.type === "model.response") entries.push({ kind: "model", event });
     else if (event.type === "compaction.summary" && event.data?.outcome !== "accepted")
+      entries.push({ kind: event.type, event });
+    else if (event.type === "message.appended" && event.data?.message?.role === "user" && event.data?.message?.attachments?.length)
       entries.push({ kind: event.type, event });
     else if (
       [
@@ -284,6 +288,12 @@ function inlineRow(session, event, decisions, state) {
     text.textContent = `Conflict · ${data.path} · ${data.other_label} · ${data.age_s} s`;
   } else if (event.type === "message.queued") {
     text.textContent = `Queued · message ${String(data.message_id || "").replace(/\D/g, "")} · position ${data.position}`;
+  } else if (event.type === "message.appended" && data.message?.attachments?.length) {
+    text.textContent = `Attached · ${data.message.attachments.length} file${data.message.attachments.length === 1 ? "" : "s"}`;
+    const chips = document.createElement("div");
+    chips.className = "timeline-attachment-chips";
+    for (const attachment of data.message.attachments) chips.append(timelineAttachmentChip(session, attachment));
+    row.expansion.append(chips);
   } else if (event.type === "run.queued") {
     text.textContent = `Waiting · position ${data.position}`;
   } else if (event.type === "operator.context") {
@@ -348,6 +358,23 @@ function findRequest(session, response) {
         event.run_id === response.run_id &&
         event.data?.turn === response.data?.turn,
     );
+}
+
+function timelineAttachmentChip(session, attachment) {
+  const key = `${session.id}:${attachment.path.toLowerCase()}:${attachment.sha256}`;
+  let state = attachmentStates.get(key);
+  if (!state) {
+    state = { state: "checking", bytes: attachment.bytes };
+    attachmentStates.set(key, state);
+    probeFile(fileURL(session.id, attachment.path)).then((next) => {
+      attachmentStates.set(key, next);
+      renderTimeline();
+    });
+  }
+  return createFileChip(document, attachment, state, {
+    downloadURL: fileURL(session.id, attachment.path),
+    openFolder: () => api("/api/open-folder", { session_id: session.id, path: attachment.path, scope: "workspace" }),
+  });
 }
 function originalToolResult(session, callID) {
   return (session.timeline || []).find(

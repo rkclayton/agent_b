@@ -38,6 +38,9 @@ func NewScheduler(runner *Runner, registry *session.Registry, bus *events.Bus, c
 	return &Scheduler{runner: runner, registry: registry, bus: bus, cfg: cfg, active: map[string]activeRun{}, pending: map[string][]queuedRun{}}
 }
 func (s *Scheduler) Submit(ctx context.Context, sessionID, text string) (SubmitResult, error) {
+	return s.SubmitAttachments(ctx, sessionID, text, nil)
+}
+func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text string, attachments []events.Attachment) (SubmitResult, error) {
 	item, ok := s.registry.Get(sessionID)
 	if !ok {
 		return SubmitResult{}, fmt.Errorf("session not found")
@@ -52,7 +55,7 @@ func (s *Scheduler) Submit(ctx context.Context, sessionID, text string) (SubmitR
 		if len(s.pending[sessionID]) >= depth {
 			return SubmitResult{}, fmt.Errorf("queue full")
 		}
-		message, err := s.runner.QueueUser(ctx, item, text)
+		message, err := s.runner.QueueUserAttachments(ctx, item, text, attachments)
 		if err != nil {
 			return SubmitResult{}, err
 		}
@@ -62,7 +65,7 @@ func (s *Scheduler) Submit(ctx context.Context, sessionID, text string) (SubmitR
 		s.bus.Publish(events.New(events.MessageQueued, sessionID, "", map[string]any{"message_id": message.ID, "position": position}))
 		return SubmitResult{Queued: true, Position: position}, nil
 	}
-	message, err := s.runner.AddUser(ctx, item, text)
+	message, err := s.runner.AddUserAttachments(ctx, item, text, attachments)
 	if err != nil {
 		return SubmitResult{}, err
 	}

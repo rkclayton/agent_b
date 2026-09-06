@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"harness/internal/agent"
+	"harness/internal/buildinfo"
 	"harness/internal/config"
 	"harness/internal/credential"
 	"harness/internal/events"
@@ -272,6 +273,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 	}
 	return map[string]any{
 		"sessions": sessions, "servers": masked.Servers, "config": masked, "replay": replay,
+		"build": buildinfo.Current(),
 		"mutation_token": s.mutationToken, "shell_credential": credentialStatus, "shell_identity": identityStatus,
 		"serving_facts": servingFacts(filepath.Join(s.roots.Application, "SERVING.md")),
 		"flow":          map[string]any{"stages": events.Stages, "edges": [][2]string{{"assemble", "call_model"}, {"call_model", "parse"}, {"parse", "dispatch"}, {"dispatch", "execute"}, {"execute", "append"}, {"append", "assemble"}}},

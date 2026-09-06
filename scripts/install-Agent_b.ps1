@@ -8,6 +8,8 @@ param(
     [string]$UninstallRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b',
     [string]$OperatorSid,
     [string]$OperatorLocalAppData,
+	[switch]$Alpha,
+	[switch]$SkipBuild,
     [switch]$TestMode
 )
 
@@ -172,9 +174,15 @@ Assert-TestPath $workspaceRoot
 Assert-DisjointRoots @($applicationRoot, $dataRoot, $workspaceRoot)
 if ($sourceRoot.Equals($applicationRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'SourceDirectory and ApplicationDirectory must be different.' }
 if (-not $TestMode) {
-    $expectedApplicationRoot = Get-FullPath (Join-Path $env:ProgramFiles 'Agent_b')
-    $expectedDataRoot = Get-FullPath (Join-Path $OperatorLocalAppData 'Agent_b')
-    $expectedWorkspaceRoot = Get-FullPath (Join-Path $env:ProgramData 'Agent_b\workspace')
+	if ($Alpha) {
+		$expectedApplicationRoot = Get-FullPath 'C:\alpha\Program Files\Agent_b'
+		$expectedDataRoot = Get-FullPath 'C:\alpha\LocalAppData\Agent_b'
+		$expectedWorkspaceRoot = Get-FullPath 'C:\alpha\ProgramData\Agent_b\workspace'
+	} else {
+		$expectedApplicationRoot = Get-FullPath (Join-Path $env:ProgramFiles 'Agent_b')
+		$expectedDataRoot = Get-FullPath (Join-Path $OperatorLocalAppData 'Agent_b')
+		$expectedWorkspaceRoot = Get-FullPath (Join-Path $env:ProgramData 'Agent_b\workspace')
+	}
     if (-not $applicationRoot.Equals($expectedApplicationRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw "ApplicationDirectory must be the admin-protected Program Files location: $expectedApplicationRoot"
     }
@@ -196,8 +204,10 @@ if (-not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $TestMode)
         '-StartMenuDirectory', $StartMenuDirectory,
         '-UninstallRegistryPath', $UninstallRegistryPath,
         '-OperatorSid', $OperatorSid,
-        '-OperatorLocalAppData', $OperatorLocalAppData
-    )
+		'-OperatorLocalAppData', $OperatorLocalAppData
+	)
+	if ($Alpha) { $arguments += '-Alpha' }
+	if ($SkipBuild) { $arguments += '-SkipBuild' }
     $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList (($arguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ') -Verb RunAs -Wait -PassThru
     exit $process.ExitCode
 }
@@ -229,9 +239,22 @@ if (Test-InstalledProcess $installedBinary) {
 }
 
 $go = Find-Go $sourceRoot
-if ($go) {
-    Write-Host "BUILD: $go"
-    & $go build -o $sourceBinary ./cmd/harness
+if ($SkipBuild) {
+	if (-not (Test-Path -LiteralPath $sourceBinary -PathType Leaf)) {
+		throw "SkipBuild requires an existing binary: $sourceBinary"
+	}
+	Write-Host 'BUILD: using the commit-stamped binary supplied by deploy-alpha.ps1.'
+} elseif ($go) {
+	Write-Host "BUILD: $go"
+	$git = Get-Command git.exe -ErrorAction SilentlyContinue
+	$commit = $(if ($git) { & $git.Source -C $sourceRoot rev-parse HEAD 2>$null } else { '' })
+	if ($git -and $LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($commit)) {
+		$dirty = @(& $git.Source -C $sourceRoot status --porcelain --untracked-files=normal 2>$null).Count -gt 0
+		$ldflags = "-X harness/internal/buildinfo.Commit=$($commit.Trim()) -X harness/internal/buildinfo.Dirty=$($dirty.ToString().ToLowerInvariant())"
+		& $go build -ldflags $ldflags -o $sourceBinary ./cmd/harness
+	} else {
+		& $go build -o $sourceBinary ./cmd/harness
+	}
     if ($LASTEXITCODE -ne 0) { throw "Agent_b build failed with exit code $LASTEXITCODE." }
 } elseif (-not (Test-Path -LiteralPath $sourceBinary -PathType Leaf)) {
     throw 'Go 1.24 or newer was not found and Agent_b.exe has not already been built.'
@@ -261,16 +284,33 @@ $null = New-Item -ItemType Directory -Path $workspaceRoot -Force
 if ($workspaceCreated) { Set-PrivateDirectoryAcl -Path $workspaceRoot -Owner $currentSid }
 
 $configPath = Join-Path $dataRoot 'harness.json'
+$writeConfig = $false
 if (Test-Path -LiteralPath $configPath -PathType Leaf) {
-    Write-Host 'PRESERVED: existing operator configuration'
+	Write-Host 'PRESERVED: existing operator configuration'
+	if ($Alpha) { $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json }
 } else {
     $templatePath = Join-Path $applicationRoot 'harness.example.json'
     $config = Get-Content -Raw -LiteralPath $templatePath | ConvertFrom-Json
     $config.workspace = $workspaceRoot
     $config.log_dir = Join-Path $dataRoot 'logs'
-    $config.memory.dir = Join-Path $dataRoot 'memory'
-    [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
-    Write-Host 'CREATED: operator configuration from the installed template'
+	$config.memory.dir = Join-Path $dataRoot 'memory'
+	$writeConfig = $true
+	Write-Host 'CREATED: operator configuration from the installed template'
+}
+if ($Alpha) {
+	$config.listen = '127.0.0.1:7337'
+	$config.workspace = $workspaceRoot
+	$config.log_dir = Join-Path $dataRoot 'logs'
+	$config.memory.dir = Join-Path $dataRoot 'memory'
+	$config.shell.service_account.enabled = $true
+	$writeConfig = $true
+}
+if ($writeConfig) {
+	[IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+}
+
+if ($Alpha) {
+	& (Join-Path $applicationRoot 'scripts\apply-acls.ps1') -AccountName 'agentb-svc' -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -NoPrompt -Confirm:$false
 }
 
 $iconPath = Join-Path $applicationRoot 'web\assets\Agent_b.ico'
@@ -280,6 +320,7 @@ $shortcutPath = Join-Path $StartMenuDirectory 'Agent_b.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = Join-Path $applicationRoot 'Agent_b.cmd'
+$shortcut.Arguments = $(if ($Alpha) { '-DataDirectory "' + $dataRoot + '"' } else { '' })
 $shortcut.WorkingDirectory = $dataRoot
 $shortcut.IconLocation = "$iconPath,0"
 $shortcut.Description = 'Open Agent_b'
@@ -297,11 +338,12 @@ $uninstallArguments = @(
     '-ExpectedOperatorSid', $OperatorSid,
     '-ExpectedOperatorLocalAppData', $OperatorLocalAppData
 )
+if ($Alpha) { $uninstallArguments += '-Alpha' }
 if ($TestMode) { $uninstallArguments += '-TestMode' }
 $uninstallCommand = (Quote-ProcessArgument $powershell) + ' ' + (($uninstallArguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ')
 $null = New-Item -Path $UninstallRegistryPath -Force
 $properties = [ordered]@{
-    DisplayName = 'Agent_b'
+	DisplayName = $(if ($Alpha) { 'Agent_b Alpha' } else { 'Agent_b' })
     DisplayVersion = $displayVersion
     Publisher = 'rkclayton'
     DisplayIcon = $iconPath

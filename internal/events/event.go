@@ -40,6 +40,7 @@ const (
 	ToolToggled       = "tool.toggled"
 	MessageAppended   = "message.appended"
 	MessageUpdated    = "message.updated"
+	MessageRemoved    = "message.removed"
 	MessageQueued     = "message.queued"
 	CycleDetected     = "cycle.detected"
 	ApprovalRequired  = "approval.required"

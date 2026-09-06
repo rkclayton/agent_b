@@ -213,6 +213,24 @@ func (r *Registry) Reset(id string) (string, error) {
 	r.bus.Publish(events.New(events.SessionReset, id, "", data))
 	return path, nil
 }
+
+func (r *Registry) DropLastMessage(id string) (events.Message, error) {
+	s, ok := r.Get(id)
+	if !ok {
+		return events.Message{}, fmt.Errorf("session not found")
+	}
+	if s.IsRunning() {
+		return events.Message{}, fmt.Errorf("session is running")
+	}
+	message, ok := s.DropLastMessage()
+	if !ok {
+		return events.Message{}, fmt.Errorf("session has no messages")
+	}
+	r.bus.Publish(events.New(events.MessageRemoved, id, "", map[string]any{
+		"id": message.ID, "reason": "operator_repair",
+	}))
+	return message, nil
+}
 func (r *Registry) Close(id string, force bool) error {
 	r.mu.Lock()
 	s, ok := r.sessions[id]

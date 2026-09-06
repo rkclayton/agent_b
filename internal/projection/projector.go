@@ -350,6 +350,10 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 					entry.Text = wrapper.Message.Content
 				}
 				entry.Reasoning = wrapper.Message.Reasoning
+				entry.ToolCallIDs = entry.ToolCallIDs[:0]
+				for _, call := range wrapper.Message.ToolCalls {
+					entry.ToolCallIDs = append(entry.ToolCallIDs, call.ID)
+				}
 				entry.Done = true
 			}
 		}
@@ -374,6 +378,34 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 			if value, ok := patch["elided"]; ok {
 				next.Messages[index].Elided = boolValue(value)
 			}
+			if value, ok := patch["tool_calls"]; ok {
+				next.Messages[index].ToolCalls = toolCalls(value)
+				next.Chat = cloneChat(next.Chat)
+				if entry := chatTurnAny(next.Chat, next.Messages[index].Turn); entry != nil {
+					entry.ToolCallIDs = nil
+				}
+			}
+		}
+	case events.MessageRemoved:
+		id := stringValue(data["id"])
+		next.Messages = cloneMessages(next.Messages)
+		removed := events.Message{}
+		kept := next.Messages[:0]
+		for _, message := range next.Messages {
+			if message.ID == id {
+				removed = message
+				continue
+			}
+			kept = append(kept, message)
+		}
+		next.Messages = kept
+		next.Chat = cloneChat(next.Chat)
+		if removed.Role == "user" {
+			next.Chat = removeChatKey(next.Chat, "message:"+removed.ID)
+		} else if removed.Role == "tool" {
+			next.Chat = removeChatKey(next.Chat, "tool:"+removed.ToolCallID)
+		} else if removed.Role == "assistant" {
+			next.Chat = removeAssistantTurn(next.Chat, removed.Turn)
 		}
 	case events.MessageQueued:
 		next.QueuedMessages++
@@ -660,6 +692,23 @@ func discardRunStream(values []events.Event, runID string) []events.Event {
 func appendChat(values []ChatEntry, entry ChatEntry) []ChatEntry {
 	result := cloneChat(values)
 	return append(result, entry)
+}
+func removeChatKey(values []ChatEntry, key string) []ChatEntry {
+	result := make([]ChatEntry, 0, len(values))
+	for _, entry := range values {
+		if entry.Key != key {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+func removeAssistantTurn(values []ChatEntry, turn int) []ChatEntry {
+	for index := len(values) - 1; index >= 0; index-- {
+		if values[index].Type == "agent" && values[index].Turn == turn {
+			return append(values[:index], values[index+1:]...)
+		}
+	}
+	return values
 }
 func cloneChat(values []ChatEntry) []ChatEntry {
 	encoded, _ := json.Marshal(values)

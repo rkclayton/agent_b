@@ -83,6 +83,48 @@ func TestSessionServerReassignment(t *testing.T) {
 	}
 }
 
+func TestDropLastMessageEndpoint(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Servers[0] = runnableTestProfile("main")
+	cfg.Roles.Main = "main"
+	bus := events.NewBus()
+	writers, err := events.NewWriters(filepath.Join(root, "logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = writers.Close() })
+	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
+	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	server.SetRegistry(registry)
+	item, err := registry.Create("main", "main", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item.Append(events.Message{ID: "m1", Role: "user", Content: "first"})
+	item.Append(events.Message{ID: "m2", Role: "assistant", Content: "second"})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/main/messages/drop-last", strings.NewReader(`{}`))
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"message_id":"m2"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if messages := item.MessagesCopy(); len(messages) != 1 || messages[0].ID != "m1" {
+		t.Fatalf("messages=%#v", messages)
+	}
+
+	item.SetRun(session.RunState{Status: "running"})
+	request = httptest.NewRequest(http.MethodPost, "/api/sessions/main/messages/drop-last", strings.NewReader(`{}`))
+	authorizeMutation(request, server)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("running status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func runnableTestProfile(id string) config.Profile {
 	profile := config.Defaults(".").Servers[0]
 	profile.ID, profile.Label, profile.Model = id, id, "model"

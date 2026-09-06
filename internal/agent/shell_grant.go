@@ -104,7 +104,31 @@ func (r *Runner) executeOperatorCommand(ctx context.Context, s *session.Session,
 			r.grantShellRun(s, runID, shellRunGrant{Rule: shellGrantOperatorCommand, Identity: "operator", Executable: command.Executable})
 		}
 	}
-	return r.callShellAsOperator(ctx, s, name, args)
+	return r.callConfiguredCommandAsOperator(ctx, s, name, args)
+}
+
+func (r *Runner) callConfiguredCommandAsOperator(ctx context.Context, s *session.Session, name string, args map[string]any) tools.CallOutcome {
+	executionArgs := args
+	cfg := r.cfg()
+	if command, ok := args["command"].(string); ok && isPowerShellCommand(cfg.Shell.Command) {
+		executionArgs = make(map[string]any, len(args))
+		for key, value := range args {
+			executionArgs[key] = value
+		}
+		executionArgs["command"] = command + `; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }`
+	}
+	return r.callShellAsOperator(ctx, s, name, executionArgs)
+}
+
+func isPowerShellCommand(command []string) bool {
+	if len(command) == 0 {
+		return false
+	}
+	name := strings.ToLower(strings.ReplaceAll(command[0], `\`, "/"))
+	if slash := strings.LastIndex(name, "/"); slash >= 0 {
+		name = name[slash+1:]
+	}
+	return name == "powershell" || name == "powershell.exe" || name == "pwsh" || name == "pwsh.exe"
 }
 
 func (r *Runner) callShellAsOperator(ctx context.Context, s *session.Session, name string, args map[string]any) tools.CallOutcome {

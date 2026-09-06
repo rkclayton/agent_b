@@ -2,6 +2,18 @@
   "schema_version": 2,
   "cases": [
     {
+      "id": "attachment-message",
+      "source": "sources/attachment-message.events",
+      "golden": "golden/attachment-message.golden.json",
+      "origin": "internal/projection/testdata/pins/sources/attachment-message.events",
+      "origin_sha256": "a95ea2fa97dc15233bfc0bc24c3398cf77db2383e4f499d80291f1d31d034c1e",
+      "origin_records": 2,
+      "decompressed_bytes": 657,
+      "synthetic": true,
+      "shapes": ["attachment", "message-replay"],
+      "rationale": "A minimal durable user message with attachment metadata; it pins replay projection into both messages and Chat without embedding file bytes."
+    },
+    {
       "id": "known-good-live",
       "source": "sources/known-good-live.events.gz",
       "golden": "golden/known-good-live.golden.json",

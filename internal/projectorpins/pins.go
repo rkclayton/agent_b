@@ -36,6 +36,7 @@ type Case struct {
 	DecompressedBytes int64    `json:"decompressed_bytes"`
 	PredecessorCase   string   `json:"predecessor_case,omitempty"`
 	Slow              bool     `json:"slow,omitempty"`
+	Synthetic         bool     `json:"synthetic,omitempty"`
 	Shapes            []string `json:"shapes"`
 	Rationale         string   `json:"rationale"`
 }
@@ -170,6 +171,9 @@ func materializeFixtures(manifest Manifest, dir string) (map[string]string, func
 }
 
 func readFixture(path string) ([]byte, error) {
+	if !strings.HasSuffix(strings.ToLower(path), ".gz") {
+		return os.ReadFile(path)
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -223,6 +227,14 @@ func ImportSources(root string) error {
 	sources := map[string][]byte{}
 	for _, item := range manifest.Cases {
 		byID[item.ID] = item
+		if item.Synthetic {
+			data, readErr := readFixture(filepath.Join(dir, filepath.FromSlash(item.Source)))
+			if readErr != nil {
+				return fmt.Errorf("%s: %w", item.ID, readErr)
+			}
+			sources[item.ID] = data
+			continue
+		}
 		origin := filepath.Join(root, filepath.FromSlash(item.Origin))
 		if err := allowedOrigin(root, origin); err != nil {
 			return fmt.Errorf("%s: %w", item.ID, err)

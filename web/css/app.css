@@ -653,7 +653,7 @@
 .flow-well {
   grid-column: span 8;
   display: grid;
-  grid-template-rows: 36px 1fr 44px;
+  grid-template-rows: 36px 1fr;
 }
 .rack-well {
   grid-column: span 4;
@@ -737,24 +737,6 @@
   width: 96px;
   height: 96px;
   margin: auto;
-}
-.composer {
-  display: flex;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--bezel);
-}
-.composer input {
-  min-width: 0;
-  flex: 1;
-  background: var(--well);
-  border: 1px solid rgba(125, 135, 148, 0.28);
-  border-radius: 2px;
-  padding: 3px 8px;
-  font-family: var(--mono);
-}
-.composer input:disabled {
-  color: var(--mute);
 }
 .rack {
   padding: 0 12px;
@@ -1536,7 +1518,7 @@
 }
 .flow-well {
   grid-column: span 8;
-  grid-template-rows: 32px 1fr 40px;
+  grid-template-rows: 32px 1fr;
 }
 .rack-well { grid-column: span 4; }
 .state-well { grid-template-rows: 32px 1fr; }
@@ -1572,7 +1554,6 @@
   font: 12px/16px var(--mono);
   font-variant-numeric: tabular-nums;
 }
-.composer { padding: 6px 8px; }
 .rack {
   padding: 0 10px;
   display: grid;

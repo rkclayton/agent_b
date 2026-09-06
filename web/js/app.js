@@ -8,9 +8,8 @@ import { renderTimeline } from "./timeline.js";
 import { initSettings } from "./settings.js";
 import { createOperatorStatusController, isOperatorStateEvent } from "./operator-status.js";
 import { createSessionResetController } from "./session-reset.js";
-const form = document.getElementById("composer"),
-  input = document.getElementById("task"),
-  consoleLaunch = document.getElementById("console-launch"),
+const consoleLaunch = document.getElementById("console-launch"),
+  chatLaunch = document.getElementById("chat-launch"),
   operatorStatus = document.getElementById("operator-status"),
   clearConversation = document.getElementById("clear-conversation"),
   stop = document.getElementById("stop");
@@ -82,37 +81,15 @@ function renderConsole() {
 	identityAlarm.textContent = identityUnavailable
 		? `Service identity unavailable · shell requires operator approval · ${store.shell_identity.reason}`
 		: "";
-  const s = store.sessions[store.active],
-    busy = s && s.run.status !== "idle";
+  const s = store.sessions[store.active];
   const query = new URLSearchParams();
   if (s) query.set("session", s.id);
   const suffix = query.size ? `?${query}` : "";
   consoleLaunch.href = `/${suffix}`;
-  input.disabled = !!busy;
+	chatLaunch.href = `/chat${suffix}`;
 	stop.hidden = !!store.replay;
 	document.getElementById("mode").textContent = store.replay ? "replay" : "";
-  input.placeholder =
-	store.replay
-	  ? "Replay"
-	  : s?.run.status === "queued"
-      ? "Queued"
-      : busy
-        ? "Run in progress"
-        : "Send a task";
 }
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const s = store.sessions[store.active],
-    text = input.value.trim();
-  if (!s || !text || store.replay) return;
-  input.value = "";
-  try {
-    await api("/api/message", { session_id: s.id, text });
-  } catch (error) {
-    input.value = text;
-    showError(error.message);
-  }
-});
 stop.onclick = (event) => {
   const s = store.sessions[store.active];
   if (s)

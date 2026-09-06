@@ -78,6 +78,8 @@ func (a *HistoryArchive) Record(event Event) {
 		}
 	case MessageUpdated:
 		a.index.update(valueString(data["id"]), valueMap(data["patch"]))
+	case MessageRemoved:
+		a.index.remove(valueString(data["id"]))
 	case Compaction:
 		if valueString(data["kind"]) == "summarize" {
 			a.index.compact(valueString(data["summary_message_id"]), valueStrings(data["affected_ids"]))
@@ -125,6 +127,43 @@ func (h *historyIndex) update(id string, patch map[string]any) {
 	if valueBool(patch["elided"]) {
 		h.elided[id] = true
 	}
+	if calls, ok := patch["tool_calls"]; ok {
+		record, found := h.records[id]
+		if !found {
+			return
+		}
+		for _, call := range record.meta.ToolCalls {
+			delete(h.calls, call.ID)
+		}
+		var updated []ToolCall
+		_ = decodeValue(calls, &updated)
+		record.meta.ToolCalls = updated
+		if record.full != nil {
+			record.full.ToolCalls = append([]ToolCall(nil), record.meta.ToolCalls...)
+		}
+		h.records[id] = record
+	}
+}
+
+func (h *historyIndex) remove(id string) {
+	record, ok := h.records[id]
+	if !ok {
+		return
+	}
+	for _, call := range record.meta.ToolCalls {
+		delete(h.calls, call.ID)
+	}
+	delete(h.records, id)
+	delete(h.lineage, id)
+	delete(h.elided, id)
+	delete(h.compacted, id)
+	kept := h.order[:0]
+	for _, candidate := range h.order {
+		if candidate != id {
+			kept = append(kept, candidate)
+		}
+	}
+	h.order = kept
 }
 
 func (h *historyIndex) compact(summaryID string, affected []string) {

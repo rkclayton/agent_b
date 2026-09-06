@@ -273,7 +273,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 	}
 	return map[string]any{
 		"sessions": sessions, "servers": masked.Servers, "config": masked, "replay": replay,
-		"build": buildinfo.Current(),
+		"build":          buildinfo.Current(),
 		"mutation_token": s.mutationToken, "shell_credential": credentialStatus, "shell_identity": identityStatus,
 		"serving_facts": servingFacts(filepath.Join(s.roots.Application, "SERVING.md")),
 		"flow":          map[string]any{"stages": events.Stages, "edges": [][2]string{{"assemble", "call_model"}, {"call_model", "parse"}, {"parse", "dispatch"}, {"dispatch", "execute"}, {"execute", "append"}, {"append", "assemble"}}},
@@ -580,6 +580,22 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[0]
+	if len(parts) == 3 && parts[1] == "messages" && parts[2] == "drop-last" && r.Method == http.MethodPost {
+		message, err := s.registry.DropLastMessage(id)
+		if err != nil {
+			status := http.StatusConflict
+			if strings.Contains(err.Error(), "not found") {
+				status = http.StatusNotFound
+			}
+			writeError(w, status, err.Error(), "session")
+			return
+		}
+		if item, ok := s.registry.Get(id); ok && s.runner != nil {
+			s.runner.PublishBudget(r.Context(), item)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"message_id": message.ID, "role": message.Role})
+		return
+	}
 	if len(parts) == 2 && parts[1] == "reset" && r.Method == http.MethodPost {
 		if s.scheduler != nil && s.scheduler.Active(id) {
 			if r.URL.Query().Get("force") != "1" {

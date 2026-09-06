@@ -8,9 +8,11 @@ import { renderTimeline } from "./timeline.js";
 import { initSettings } from "./settings.js";
 import { createOperatorStatusController, isOperatorStateEvent } from "./operator-status.js";
 import { createSessionResetController } from "./session-reset.js";
+import { createMessageDropController } from "./message-drop.js";
 const consoleLaunch = document.getElementById("console-launch"),
   chatLaunch = document.getElementById("chat-launch"),
   operatorStatus = document.getElementById("operator-status"),
+  dropLastMessage = document.getElementById("drop-last-message"),
   clearConversation = document.getElementById("clear-conversation"),
   stop = document.getElementById("stop");
 const requestedSession = new URLSearchParams(location.search).get("session");
@@ -27,6 +29,13 @@ const resetControl = createSessionResetController(clearConversation, {
   interactive: () => !store.replay,
   confirmClear: (message) => window.confirm(message),
   reset: (id, force) => api(`/api/sessions/${encodeURIComponent(id)}/reset${force ? "?force=1" : ""}`, {}),
+  reportError: showError,
+});
+const dropControl = createMessageDropController(dropLastMessage, {
+  session: () => store.sessions[store.active],
+  interactive: () => !store.replay,
+  confirmDrop: (message) => window.confirm(message),
+  drop: (id) => api(`/api/sessions/${encodeURIComponent(id)}/messages/drop-last`, {}),
   reportError: showError,
 });
 initSettings();
@@ -74,7 +83,8 @@ function renderConsole() {
   renderRack();
   renderState();
   renderTimeline();
-	resetControl.render();
+  resetControl.render();
+  dropControl.render();
 	const identityAlarm = document.getElementById("shell-identity-alarm");
 	const identityUnavailable = store.shell_identity?.operator_approval_required || store.shell_identity?.fallback;
 	operatorControl.render();

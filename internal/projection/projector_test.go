@@ -92,6 +92,28 @@ func TestBudgetReplacementDoesNotRetainOmittedFields(t *testing.T) {
 	}
 }
 
+func TestMessageRemovalDeletesProjectedMessageAndChatEntry(t *testing.T) {
+	state := seeded(t)
+	appended := Record{Cursor: Cursor{Generation: "main-a.jsonl", Offset: 30}, Event: events.Event{
+		SessionID: "main", Type: events.MessageAppended,
+		Data: map[string]any{"message": events.Message{ID: "m1", Role: "user", Content: "remove me", Category: "history"}},
+	}}
+	state, _, _ = Next(state, appended)
+	removed := Record{Cursor: Cursor{Generation: "main-a.jsonl", Offset: 50}, Event: events.Event{
+		SessionID: "main", Type: events.MessageRemoved, Data: map[string]any{"id": "m1", "reason": "operator_repair"},
+	}}
+	next, patch, err := Next(state, removed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Messages) != 0 || len(next.Chat) != 0 {
+		t.Fatalf("messages=%#v chat=%#v", next.Messages, next.Chat)
+	}
+	if len(patch.Operations) == 0 {
+		t.Fatal("removal emitted no patch")
+	}
+}
+
 func TestReadFileUsesDurableByteBoundary(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main-a.jsonl")

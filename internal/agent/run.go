@@ -75,6 +75,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 	defer r.PublishBudget(context.Background(), s)
 	turn := 0
 	lengthSeen := false
+	accountingRepairTried := false
 	runCfg := r.cfg().Run
 	guards := newRunGuards(runCfg.CycleWindow, runCfg.MaxConsecutiveToolErrors)
 	currentReasoning := map[string]bool{}
@@ -115,30 +116,35 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 				}
 				messages = append(messages, converted)
 			}
-			request = llm.Request{Messages: messages, Tools: schemas, ToolChoice: "auto", MaxTokens: profile.Context.ReserveOutput, Thinking: profile.Reasoning.Enabled}
-			body = llm.BuildRequest(profile, request, true)
+			request = llm.Request{Messages: messages, Tools: schemas, ToolChoice: "auto", Thinking: profile.Reasoning.Enabled}
 			budget, budgetErr = r.budget.Measure(ctx, profile, s, r.cfg().Context, budgetInput{SystemBase: systemBase, System: system, WithoutToolSystems: r.withoutToolSystems(profile, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages[1:], Records: records}, false)
 			if budgetErr != nil {
 				return
 			}
+			guardUsed := guardedPromptTokens(budget)
+			request.MaxTokens = requestTokenLimit(profile, budget, guardUsed)
+			body = llm.BuildRequest(profile, request, true)
 			r.bus.Publish(events.New(events.BudgetEvent, s.ID, runID, budget))
-			data := map[string]any{"turn": turn, "message_count": len(messages), "tool_count": len(schemas), "params": requestParams(profile), "est_prompt_tokens": budget.UsedEst, "estimated": budget.Estimated}
+			data := map[string]any{"turn": turn, "message_count": len(messages), "tool_count": len(schemas), "params": requestParams(profile, request.MaxTokens), "est_prompt_tokens": budget.UsedEst, "estimated": budget.Estimated}
 			requestEvent = events.New(events.ModelRequest, s.ID, runID, data)
 			requestEvent.Body = body
 		})
 		if budgetErr != nil {
+			r.operationalError(s, runID, "budget", budgetErr)
+			if !accountingRepairTried && r.repairMalformedToolCall(ctx, s, runID, profile, currentReasoning) {
+				accountingRepairTried = true
+				turn--
+				continue
+			}
 			return "model_error", "budget accounting: " + budgetErr.Error(), turn - 1
 		}
-		guardUsed := budget.UsedEst
-		if budget.Mode == "estimated" {
-			guardUsed = int(math.Ceil(float64(guardUsed) * 1.10))
-		}
-		if guardUsed+budget.Reserve > budget.NCtx {
+		guardUsed := guardedPromptTokens(budget)
+		if guardUsed+budget.Reserve >= budget.NCtx {
 			if r.compactToFit(ctx, s, runID, profile, currentReasoning, budget) {
 				turn--
 				continue
 			}
-			return "context_ceiling", fmt.Sprintf("prompt %d tokens + reserve %d exceeds n_ctx %d after compaction", guardUsed, budget.Reserve, budget.NCtx), turn - 1
+			return "context_ceiling", fmt.Sprintf("prompt %d tokens + reserve %d leaves no output room in n_ctx %d after compaction", guardUsed, budget.Reserve, budget.NCtx), turn - 1
 		}
 		r.bus.Publish(requestEvent)
 		r.budget.MarkRequest(s.ID, budget.UsedEst)
@@ -177,6 +183,14 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 		s.RecordModelTurn()
 		r.bus.Publish(responseEvent)
 		r.stage(s, runID, turn, "parse", func() {})
+		if response.FinishReason == "length" && len(toolCalls) > 0 {
+			r.appendTruncatedToolReply(ctx, s, runID, profile, turn, request.MaxTokens, response.Content, response.Reasoning, toolCalls, currentReasoning)
+			if lengthSeen {
+				return "length", "model output hit the limit twice", turn
+			}
+			lengthSeen = true
+			continue
+		}
 		if len(toolCalls) == 0 && response.FinishReason != "tool_calls" {
 			if response.FinishReason == "length" && !lengthSeen {
 				lengthSeen = true
@@ -494,7 +508,7 @@ func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID str
 func (r *Runner) operationalError(s *session.Session, runID, where string, err error) {
 	r.bus.Publish(events.New(events.Error, s.ID, runID, map[string]any{"where": where, "message": err.Error()}))
 }
-func requestParams(p *config.Profile) map[string]any {
+func requestParams(p *config.Profile, maxTokens int) map[string]any {
 	s := p.Sampling.Nonthinking
 	if p.Reasoning.Enabled {
 		s = p.Sampling.Thinking
@@ -503,7 +517,19 @@ func requestParams(p *config.Profile) map[string]any {
 	if control == "auto" {
 		control = p.Capabilities.ReasoningControl
 	}
-	return map[string]any{"temperature": s.Temperature, "top_p": s.TopP, "top_k": s.TopK, "min_p": s.MinP, "presence_penalty": s.PresencePenalty, "repeat_penalty": s.RepeatPenalty, "max_tokens": p.Context.ReserveOutput, "reasoning": map[string]any{"control": control, "effort": p.Reasoning.Effort, "enabled": p.Reasoning.Enabled, "preserve": p.Reasoning.Preserve}}
+	return map[string]any{"temperature": s.Temperature, "top_p": s.TopP, "top_k": s.TopK, "min_p": s.MinP, "presence_penalty": s.PresencePenalty, "repeat_penalty": s.RepeatPenalty, "max_tokens": maxTokens, "reasoning": map[string]any{"control": control, "effort": p.Reasoning.Effort, "enabled": p.Reasoning.Enabled, "preserve": p.Reasoning.Preserve}}
+}
+
+func guardedPromptTokens(budget events.Budget) int {
+	used := budget.UsedEst
+	if budget.Mode == "estimated" {
+		used = int(math.Ceil(float64(used) * 1.10))
+	}
+	return used
+}
+
+func requestTokenLimit(p *config.Profile, budget events.Budget, promptTokens int) int {
+	return max(0, min(p.Context.NCtx, budget.NCtx-promptTokens-budget.Reserve))
 }
 func roughBodyTokens(body any) int { return int(math.Ceil(float64(jsonSize(body)) / 3.6)) }
 func jsonSize(value any) int       { data, _ := json.Marshal(value); return len(data) }

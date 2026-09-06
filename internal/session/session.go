@@ -173,6 +173,17 @@ func (s *Session) ReplaceMessages(messages []events.Message) {
 	s.mu.Unlock()
 }
 
+func (s *Session) DropLastMessage() (events.Message, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.Messages) == 0 {
+		return events.Message{}, false
+	}
+	last := s.Messages[len(s.Messages)-1]
+	s.Messages = s.Messages[:len(s.Messages)-1]
+	return last, true
+}
+
 type MessageCount struct {
 	Tokens    int
 	Estimated bool

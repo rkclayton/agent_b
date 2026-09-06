@@ -187,6 +187,8 @@ func (h *historyIndex) record(event Event, location historyLocation) {
 		}
 	case MessageUpdated:
 		h.update(valueString(data["id"]), valueMap(data["patch"]))
+	case MessageRemoved:
+		h.remove(valueString(data["id"]))
 	case Compaction:
 		if valueString(data["kind"]) == "summarize" {
 			h.compact(valueString(data["summary_message_id"]), valueStrings(data["affected_ids"]))

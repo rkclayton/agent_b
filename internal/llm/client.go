@@ -287,7 +287,7 @@ func (c *Client) ApplyTemplate(ctx context.Context, messages []Message, tools []
 		return "", err
 	}
 	if status != 200 {
-		return "", fmt.Errorf("apply-template HTTP %d", status)
+		return "", fmt.Errorf("apply-template HTTP %d: %s", status, strings.TrimSpace(string(raw)))
 	}
 	var out struct {
 		Prompt string `json:"prompt"`

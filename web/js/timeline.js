@@ -2,6 +2,7 @@ import { api, store } from "./bus.js";
 import { createPanelState } from "./panel-state.js";
 import { groupToolRuns, toolGroupRange, toolGroupStatus, toolResultText } from "./timeline-groups.js";
 import { operatorLogEntry } from "./operator-log.js";
+import { callServiceKey, callServiceStatus } from "./call-service-display.js";
 
 const states = createPanelState("timeline");
 let rendered = "";
@@ -186,11 +187,12 @@ function toolRow(session, call, callEvent, resultEvent, state, modelEvent = null
   row.head.children[1].textContent = friendly(call.name);
   row.head.children[2].textContent = keyArgument(args);
   row.head.children[3].textContent = formatDuration(result.ms || 0);
-  row.head.children[4].textContent = result.operator_context
+  const serviceStatus = callServiceStatus(call.name, result);
+  row.head.children[4].textContent = serviceStatus || (result.operator_context
     ? `Operator · ${result.ok === false ? "Failed" : "Done"}`
     : result.ok === false
       ? "Failed"
-      : "Done";
+      : "Done");
   if (result.untrusted) {
     row.node.classList.add("untrusted");
     row.head.children[4].textContent = `Untrusted · ${result.ok === false ? "Failed" : "Done"}`;
@@ -387,6 +389,8 @@ function formatGroupRange(range) {
 
 function keyArgument(args) {
   if (!args || typeof args !== "object") return "";
+  const service = callServiceKey(args);
+  if (service) return service.slice(0, 120);
   for (const key of ["url", "path", "pattern", "query", "command", "note"]) {
     if (args[key]) return String(args[key]).replaceAll("\n", " ").slice(0, 120);
   }

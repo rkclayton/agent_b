@@ -6,6 +6,7 @@ import { createThinkingRenderer } from "./reasoning.js";
 import { createSessionResetController } from "./session-reset.js";
 import { createFileChip, fileURL, filesFromResponse, probeFile } from "./deliverables.js";
 import { approvalChoices } from "./approval.js";
+import { callServiceKey, callServiceStatus } from "./call-service-display.js";
 
 const binding = document.getElementById("chat-binding");
 const status = document.getElementById("chat-status");
@@ -444,7 +445,7 @@ function toolTick(entry) {
   button.innerHTML = '<span class="tool-name"></span><span class="tool-key"></span><span class="tool-state"></span><span class="tool-ms"></span>';
   button.children[0].textContent = `${open ? "▾" : "▸"} ${entry.name}`;
   button.children[1].textContent = keyArgument(entry.args);
-  button.children[2].textContent = state;
+  button.children[2].textContent = callServiceStatus(entry.name, entry.result) || state;
   button.children[2].className = `tool-state ${state === "error" ? "error" : ""}`;
   button.children[3].textContent = entry.result && entry.result.ms !== null && entry.result.ms !== undefined ? `${entry.result.ms} ms` : "";
   button.onclick = () => {
@@ -630,6 +631,8 @@ function busy(session) {
   return !!session && ["running", "queued", "paused", "stopping"].includes(session.run.status);
 }
 function keyArgument(args) {
+  const service = callServiceKey(args);
+  if (service) return service;
   for (const key of ["path", "command", "pattern", "note"]) if (args[key] !== undefined) return String(args[key]);
   const first = Object.values(args)[0];
   return first === undefined ? "" : typeof first === "string" ? first : JSON.stringify(first);

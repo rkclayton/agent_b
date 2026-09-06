@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,21 +16,22 @@ import (
 )
 
 type Config struct {
-	ConfigVersion int           `json:"config_version"`
-	Listen        string        `json:"listen"`
-	Workspace     string        `json:"workspace"`
-	LogDir        string        `json:"log_dir"`
-	Servers       []Profile     `json:"servers"`
-	Roles         Roles         `json:"roles"`
-	Run           RunConfig     `json:"run"`
-	Approval      Approval      `json:"approval"`
-	Context       GlobalContext `json:"context"`
-	Memory        Memory        `json:"memory"`
-	Tools         Tools         `json:"tools"`
-	Shell         Shell         `json:"shell"`
-	Deliver       Deliver       `json:"deliver"`
-	Signing       Signing       `json:"signing"`
-	LoadNotices   []string      `json:"-"`
+	ConfigVersion int                `json:"config_version"`
+	Listen        string             `json:"listen"`
+	Workspace     string             `json:"workspace"`
+	LogDir        string             `json:"log_dir"`
+	Servers       []Profile          `json:"servers"`
+	Services      map[string]Service `json:"services"`
+	Roles         Roles              `json:"roles"`
+	Run           RunConfig          `json:"run"`
+	Approval      Approval           `json:"approval"`
+	Context       GlobalContext      `json:"context"`
+	Memory        Memory             `json:"memory"`
+	Tools         Tools              `json:"tools"`
+	Shell         Shell              `json:"shell"`
+	Deliver       Deliver            `json:"deliver"`
+	Signing       Signing            `json:"signing"`
+	LoadNotices   []string           `json:"-"`
 }
 
 type Roles struct {
@@ -52,6 +54,15 @@ type Profile struct {
 	SystemPromptOverride string       `json:"system_prompt_override"`
 	Capabilities         Capabilities `json:"capabilities"`
 	initialized          bool
+}
+
+type Service struct {
+	BaseURL             string   `json:"base_url"`
+	Auth                string   `json:"auth"`
+	AllowedMethods      []string `json:"allowed_methods"`
+	TimeoutS            int      `json:"timeout_s"`
+	MaxBodyKB           int      `json:"max_body_kb"`
+	RequireConfirmation bool     `json:"require_confirmation"`
 }
 
 func defaultProfile() Profile {
@@ -276,7 +287,8 @@ func Defaults(workspace string) Config {
 		ConfigVersion: CurrentConfigVersion,
 		Listen:        "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
 		Servers: []Profile{profile}, Roles: Roles{Main: "local"},
-		Run: RunConfig{MaxTurns: 40, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(),
+		Services: map[string]Service{},
+		Run:      RunConfig{MaxTurns: 40, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(),
 		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Shell: ShellTool{OperatorCommands: []string{"git"}}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
 		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Account: "agentb-svc", Domain: "."}},
 		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
@@ -445,6 +457,7 @@ func clearBytes(value []byte) {
 }
 
 var slug = regexp.MustCompile(`^[a-z0-9-]+$`)
+var serviceEnvironmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func (c Config) Validate() error {
 	if c.ConfigVersion != CurrentConfigVersion {
@@ -504,6 +517,33 @@ func (c Config) Validate() error {
 	}
 	if c.Roles.Aux != "" && !seen[c.Roles.Aux] {
 		return fmt.Errorf("roles.aux: must be empty or name an existing profile")
+	}
+	for name, service := range c.Services {
+		prefix := "services." + name
+		if !slug.MatchString(name) {
+			return fmt.Errorf("services: names must be slugs")
+		}
+		endpoint, err := url.Parse(strings.TrimSpace(service.BaseURL))
+		if err != nil || endpoint == nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Hostname() == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+			return fmt.Errorf("%s.base_url: must be an absolute HTTP(S) URL without user information, query, or fragment", prefix)
+		}
+		if err := validateServiceAuth(service.Auth); err != nil {
+			return fmt.Errorf("%s.auth: %w", prefix, err)
+		}
+		if len(service.AllowedMethods) == 0 {
+			return fmt.Errorf("%s.allowed_methods: at least one method is required", prefix)
+		}
+		for _, method := range service.AllowedMethods {
+			if !oneOf(strings.ToUpper(strings.TrimSpace(method)), "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE") {
+				return fmt.Errorf("%s.allowed_methods: method %q is invalid", prefix, method)
+			}
+		}
+		if service.TimeoutS < 1 || service.TimeoutS > 300 {
+			return fmt.Errorf("%s.timeout_s: must be between 1 and 300", prefix)
+		}
+		if service.MaxBodyKB < 1 || service.MaxBodyKB > 65536 {
+			return fmt.Errorf("%s.max_body_kb: must be between 1 and 65536", prefix)
+		}
 	}
 	if c.Run.MaxTurns < 1 {
 		return fmt.Errorf("run.max_turns: must be positive")
@@ -651,6 +691,9 @@ func applyDefaults(c *Config) {
 	if c.Memory.Dir == "" {
 		c.Memory = d.Memory
 	}
+	if c.Services == nil {
+		c.Services = map[string]Service{}
+	}
 	if !c.Deliver.initialized {
 		c.Deliver = d.Deliver
 	}
@@ -757,6 +800,24 @@ func validFetchHost(value string) bool {
 		return true
 	}
 	return value != "" && !strings.ContainsAny(value, `/\\:*?`) && !strings.Contains(value, "..")
+}
+
+func validateServiceAuth(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "none" {
+		return nil
+	}
+	if strings.HasPrefix(value, "static_bearer:") {
+		name := strings.TrimSpace(strings.TrimPrefix(value, "static_bearer:"))
+		if name == "" || !serviceEnvironmentName.MatchString(name) {
+			return fmt.Errorf("static_bearer requires an environment variable name")
+		}
+		return nil
+	}
+	if strings.HasPrefix(value, "exec:") && strings.TrimSpace(strings.TrimPrefix(value, "exec:")) != "" {
+		return nil
+	}
+	return fmt.Errorf("must be none, static_bearer:<env>, or exec:<argv>")
 }
 func oneOf(v string, values ...string) bool {
 	for _, x := range values {

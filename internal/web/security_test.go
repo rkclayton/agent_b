@@ -112,7 +112,7 @@ func TestSnapshotToolInventoryUsesPublicNames(t *testing.T) {
 			t.Errorf("shell description = %q", item["description"])
 		}
 	}
-	want := []string{"read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "find_files", "run_script"}
+	want := []string{"read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "find_files", "run_script", "call_service"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("tool inventory = %v, want %v", names, want)
 	}

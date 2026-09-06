@@ -5,6 +5,8 @@ package tools
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,12 +51,38 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	shell.SetFileCoordinator(coordinator)
 	fileIdentity := NewFileIdentity(store)
 	fileIdentity.Configure(cfg)
+	whoami, err := exec.LookPath("whoami.exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityOutput, err := exec.Command(whoami).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	operatorIdentity := strings.TrimSpace(string(identityOutput))
+	if operatorIdentity == "" || strings.EqualFold(filepath.Base(operatorIdentity), cfg.Shell.ServiceAccount.Account) || strings.HasSuffix(strings.ToLower(operatorIdentity), `\`+strings.ToLower(cfg.Shell.ServiceAccount.Account)) {
+		t.Fatalf("operator identity evidence is not distinct from service account: %q", operatorIdentity)
+	}
+	serviceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/identity" || r.Header.Get("Authorization") != "Bearer "+operatorIdentity {
+			http.Error(w, `{"title":"identity mismatch"}`, http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"identity_match":true}`))
+	}))
+	defer serviceServer.Close()
+	cfg.Services = map[string]config.Service{"identity": {
+		BaseURL: serviceServer.URL + "/api", Auth: "exec:" + whoami,
+		AllowedMethods: []string{"GET"}, TimeoutS: 10, MaxBodyKB: 16,
+	}}
+	callService := NewCallService(cfg.Services)
 	toolRegistry := New(
 		fileIdentity.Wrap(NewReadFile(cfg.Tools.ReadFile)), fileIdentity.Wrap(NewListDir(cfg.Tools.ListDir)),
 		fileIdentity.Wrap(NewWriteFile(coordinator)), fileIdentity.Wrap(NewEditFile(coordinator)),
-		fileIdentity.Wrap(NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir)), NewFetch(cfg.Tools.Fetch), fileIdentity.Wrap(NewGlob(cfg.Tools.FindFiles)),
+		fileIdentity.Wrap(NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir)), NewFetch(cfg.Tools.Fetch), fileIdentity.Wrap(NewGlob(cfg.Tools.FindFiles)), callService,
 	)
-	enabled := map[string]bool{"read_file": true, "list_dir": true, "write_file": true, "edit_file": true, "search_text": true, "fetch_url": true, "find_files": true}
+	enabled := map[string]bool{"read_file": true, "list_dir": true, "write_file": true, "edit_file": true, "search_text": true, "fetch_url": true, "find_files": true, "call_service": true}
 	item := &session.Session{ID: "capability", Workspace: workspace, LastSeen: map[string]time.Time{}, ToolsEnabled: enabled}
 
 	t.Run("write_and_run_python_node_shell", func(t *testing.T) {
@@ -131,6 +159,14 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		if err != nil || !strings.Contains(value, "Example Domain") {
 			t.Fatalf("fetch=%q err=%v", value, err)
 		}
+	})
+
+	t.Run("internal_service_exec_identity_call_service", func(t *testing.T) {
+		detail := toolRegistry.CallDetailed(context.Background(), item, "call_service", map[string]any{"service": "identity", "method": "GET", "path": "identity"})
+		if !detail.OK || !detail.OperatorContext || !strings.Contains(detail.Content, `"identity_match":true`) || strings.Contains(detail.Content, operatorIdentity) {
+			t.Fatalf("detail=%+v", detail)
+		}
+		t.Logf("call_service exec child identity: %s (service account: %s); contract=new/pass", operatorIdentity, cfg.Shell.ServiceAccount.Account)
 	})
 
 	t.Run("boundary_file_tool_operator_decision", func(t *testing.T) {

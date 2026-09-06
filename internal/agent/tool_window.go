@@ -23,7 +23,7 @@ func (r *Runner) fitWindowResult(
 	resultTokens int,
 	availableTokens int,
 ) (string, bool, map[string]any, int) {
-	if !ok || (name != "read_file" && name != "fetch_url") || availableTokens < 1 || resultTokens <= availableTokens {
+	if !ok || (name != "read_file" && name != "fetch_url" && name != "call_service") || availableTokens < 1 || resultTokens <= availableTokens {
 		return content, ok, metadata, resultTokens
 	}
 
@@ -31,6 +31,11 @@ func (r *Runner) fitWindowResult(
 	defaultLimit := cfg.Tools.ReadFile.DefaultLimit
 	if name == "fetch_url" {
 		defaultLimit = cfg.Tools.Fetch.DefaultLimit
+	} else if name == "call_service" {
+		serviceName, _ := args["service"].(string)
+		if service, found := cfg.Services[serviceName]; found {
+			defaultLimit = service.MaxBodyKB << 10
+		}
 	}
 	requestedLimit := integerArgument(args["limit"], defaultLimit)
 	retryLimit := requestedLimit / 2

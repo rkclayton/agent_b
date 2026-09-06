@@ -160,6 +160,7 @@ func main() {
 		tools.NewFetch(cfg.Tools.Fetch),
 		fileIdentity.Wrap(tools.NewGlob(cfg.Tools.FindFiles)),
 		tools.NewRunScript(shellTool),
+		tools.NewCallService(cfg.Services),
 	)
 	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Profile, web.ConfigSnapshot)
 	deliveryManager := delivery.New(bus, web.ConfigSnapshot)

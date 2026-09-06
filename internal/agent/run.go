@@ -178,7 +178,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 					partial += delta.Text
 					s.UpdatePartial(partial)
 				}
-				r.bus.Publish(events.New(events.ModelDelta, s.ID, runID, map[string]any{"turn": turn, "kind": delta.Kind, "index": delta.Index, "text": delta.Text}))
+				r.bus.Publish(events.New(events.ModelDelta, s.ID, runID, map[string]any{"turn": turn, "kind": delta.Kind, "index": delta.Index, "text": durableModelDeltaText(delta.Kind, delta.Text)}))
 			})
 			s.UpdatePartial("")
 		})
@@ -194,14 +194,15 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 			toolCalls = append(toolCalls, events.ToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
 		}
 		reasoningTokens, reasoningTokensEstimated := r.count(ctx, profile, response.Reasoning)
-		responseData := map[string]any{"turn": turn, "finish_reason": response.FinishReason, "content": response.Content, "reasoning_tokens": reasoningTokens, "reasoning_tokens_estimated": reasoningTokensEstimated, "tool_calls": toolCalls, "usage": map[string]any{"prompt_tokens": response.Usage.PromptTokens, "completion_tokens": response.Usage.CompletionTokens, "cached_tokens": nullable(response.Usage.CachedTokens)}, "timings": response.Timings, "duration_ms": response.DurationMS}
+		durableToolCalls := sanitizedToolCalls(toolCalls)
+		responseData := map[string]any{"turn": turn, "finish_reason": response.FinishReason, "content": response.Content, "reasoning_tokens": reasoningTokens, "reasoning_tokens_estimated": reasoningTokensEstimated, "tool_calls": durableToolCalls, "usage": map[string]any{"prompt_tokens": response.Usage.PromptTokens, "completion_tokens": response.Usage.CompletionTokens, "cached_tokens": nullable(response.Usage.CachedTokens)}, "timings": response.Timings, "duration_ms": response.DurationMS}
 		responseEvent := events.New(events.ModelResponse, s.ID, runID, responseData)
-		responseEvent.Raw = string(response.Raw)
+		responseEvent.Raw = redactToolCallHeaders(string(response.Raw), toolCalls)
 		s.RecordModelTurn()
 		r.bus.Publish(responseEvent)
 		r.stage(s, runID, turn, "parse", func() {})
 		if response.FinishReason == "length" && len(toolCalls) > 0 {
-			r.appendTruncatedToolReply(ctx, s, runID, profile, turn, request.MaxTokens, response.Content, response.Reasoning, toolCalls, currentReasoning)
+			r.appendTruncatedToolReply(ctx, s, runID, profile, turn, request.MaxTokens, response.Content, response.Reasoning, durableToolCalls, currentReasoning)
 			if lengthSeen {
 				return "length", "model output hit the limit twice", turn
 			}
@@ -229,7 +230,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 		assistant, _ := r.makeMessage(ctx, profile, "assistant", response.Content, "history", turn)
 		assistant.Reasoning = response.Reasoning
 		currentReasoning[assistant.ID] = true
-		assistant.ToolCalls = toolCalls
+		assistant.ToolCalls = durableToolCalls
 		type result struct {
 			call            events.ToolCall
 			args            map[string]any
@@ -252,7 +253,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 				} else {
 					args = map[string]any{}
 				}
-				r.bus.Publish(events.New(events.ToolCallEvent, s.ID, runID, map[string]any{"turn": turn, "call_id": call.ID, "name": call.Name, "args": args}))
+				r.bus.Publish(events.New(events.ToolCallEvent, s.ID, runID, map[string]any{"turn": turn, "call_id": call.ID, "name": call.Name, "args": sanitizedToolArguments(call.Name, args)}))
 				results = append(results, result{call: call, args: args, argErr: err})
 			}
 		})
@@ -309,9 +310,10 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 			}
 		})
 		for _, item := range results {
-			reason, detail, prior := guards.Observe(item.call.ID, item.call.Name, item.args, item.content, item.ok)
+			eventArgs := sanitizedToolArguments(item.call.Name, item.args)
+			reason, detail, prior := guards.Observe(item.call.ID, item.call.Name, eventArgs, item.content, item.ok)
 			if reason == "cycle" {
-				r.bus.Publish(events.New(events.CycleDetected, s.ID, runID, map[string]any{"call_id": item.call.ID, "name": item.call.Name, "args": item.args, "prior_call_id": prior}))
+				r.bus.Publish(events.New(events.CycleDetected, s.ID, runID, map[string]any{"call_id": item.call.ID, "name": item.call.Name, "args": eventArgs, "prior_call_id": prior}))
 			}
 			if reason != "" {
 				return reason, detail, turn
@@ -381,6 +383,7 @@ func toolResultEventData(turn int, callID, name, content string, ok, operatorCon
 
 func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) tools.CallOutcome {
 	cfg := r.cfg()
+	eventArgs := sanitizedToolArguments(name, args)
 	if name == "shell" && cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext {
 		if r.hasShellGrant(s.ID, runID, shellGrantBoundary, "") {
 			return r.callShellAsOperator(ctx, s, name, args)
@@ -393,17 +396,17 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	var gateErr error
 	if name == "run_script" && cfg.Shell.ServiceAccount.Enabled {
 		var approved bool
-		approved, gateErr = r.gate.WaitPolicyRequired(ctx, s, runID, callID, name, args)
+		approved, gateErr = r.gate.WaitPolicyRequired(ctx, s, runID, callID, name, eventArgs)
 		if !approved {
 			decision = "deny"
 		}
 	} else if name == "shell" && cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext && r.gate.required(name) {
 		if !r.hasShellGrant(s.ID, runID, shellGrantPolicy, "") {
-			decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, args)
+			decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
 		}
 	} else {
 		var approved bool
-		approved, gateErr = r.gate.Wait(ctx, s, runID, callID, name, args)
+		approved, gateErr = r.gate.Wait(ctx, s, runID, callID, name, eventArgs)
 		if !approved {
 			decision = "deny"
 		}

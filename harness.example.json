@@ -40,6 +40,7 @@
       }
     }
   ],
+  "services": {},
   "roles": { "main": "local", "aux": "" },
   "run": { "max_turns": 40, "cycle_window": 8, "max_consecutive_tool_errors": 3, "max_concurrent": 2, "queue_depth": 0 },
   "approval": { "mode": "boundary-only" },

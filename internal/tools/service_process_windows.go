@@ -55,6 +55,10 @@ type serviceShellProcess struct {
 }
 
 func startServiceAccountProcess(executable string, argv []string, workspace string, environment []string, account config.ShellServiceAccount, password []byte, output *lockedBuffer) (runningShellProcess, error) {
+	return startServiceAccountProcessWithInput(executable, argv, workspace, environment, account, password, nil, output)
+}
+
+func startServiceAccountProcessWithInput(executable string, argv []string, workspace string, environment []string, account config.ShellServiceAccount, password, input []byte, output *lockedBuffer) (runningShellProcess, error) {
 	qualified := account.Account
 	if account.Domain != "" && account.Domain != "." {
 		qualified = account.Domain + `\` + account.Account
@@ -82,8 +86,14 @@ func startServiceAccountProcess(executable string, argv []string, workspace stri
 	if err := syscall.CreatePipe(&stdinRead, &stdinWrite, &security, 0); err != nil {
 		return nil, &serviceSpawnError{kind: "service-account standard-input pipe creation failed", err: err}
 	}
-	defer syscall.CloseHandle(stdinRead)
-	defer syscall.CloseHandle(stdinWrite)
+	defer func() {
+		if stdinRead != 0 {
+			syscall.CloseHandle(stdinRead)
+		}
+		if stdinWrite != 0 {
+			syscall.CloseHandle(stdinWrite)
+		}
+	}()
 	if err := syscall.CreatePipe(&outputRead, &outputWrite, &security, 0); err != nil {
 		return nil, &serviceSpawnError{kind: "service-account output pipe creation failed", err: err}
 	}
@@ -101,10 +111,6 @@ func startServiceAccountProcess(executable string, argv []string, workspace stri
 	if err := syscall.SetHandleInformation(outputRead, handleFlagInherit, 0); err != nil {
 		return nil, &serviceSpawnError{kind: "service-account output pipe setup failed", err: err}
 	}
-	// Closing the parent's write end makes the child's inherited stdin read as EOF.
-	syscall.CloseHandle(stdinWrite)
-	stdinWrite = 0
-
 	userPtr, err := syscall.UTF16PtrFromString(account.Account)
 	if err != nil {
 		return nil, &serviceSpawnError{kind: "service-account name is invalid", err: err}
@@ -174,6 +180,25 @@ func startServiceAccountProcess(executable string, argv []string, workspace stri
 		syscall.CloseHandle(process.Process)
 		syscall.CloseHandle(syscall.Handle(job))
 		return nil, &serviceSpawnError{kind: "service-account process resume failed", err: resumeErr}
+	}
+	if len(input) > 0 {
+		writer := os.NewFile(uintptr(stdinWrite), "agentb-service-stdin")
+		if writer == nil {
+			procTerminateJobObject.Call(job, 1)
+			return nil, &serviceSpawnError{kind: "service-account input pipe could not be opened"}
+		}
+		if _, writeErr := writer.Write(input); writeErr != nil {
+			_ = writer.Close()
+			stdinWrite = 0
+			procTerminateJobObject.Call(job, 1)
+			return nil, &serviceSpawnError{kind: "service-account input write failed", err: writeErr}
+		}
+		_ = writer.Close()
+		stdinWrite = 0
+	} else {
+		// Closing the parent's write end makes the child's inherited stdin read as EOF.
+		syscall.CloseHandle(stdinWrite)
+		stdinWrite = 0
 	}
 
 	// Only the child keeps the write handles. The reader receives EOF when the tree exits.

@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
 	[Parameter(Mandatory = $true)]
-	[string]$Commit
+	[string]$Commit,
+	[string]$SigningThumbprint
 )
 
 $ErrorActionPreference = 'Stop'
@@ -100,6 +101,7 @@ $invokeInstaller = '$ErrorActionPreference = ''Stop''; try { & { Import-Module (
 	' -UninstallRegistryPath ' + (Quote-PowerShellLiteral $uninstallKey) +
 	' -OperatorSid ' + (Quote-PowerShellLiteral ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value)) +
 	' -OperatorLocalAppData ' + (Quote-PowerShellLiteral ([Environment]::GetFolderPath('LocalApplicationData'))) +
+	$(if ($SigningThumbprint) { ' -SigningThumbprint ' + (Quote-PowerShellLiteral $SigningThumbprint) } else { '' }) +
 	' -Alpha -SkipBuild } *> ' + (Quote-PowerShellLiteral $installLog) +
 	'; exit 0 } catch { ($_ | Format-List * -Force | Out-String) | Add-Content -LiteralPath ' +
 	(Quote-PowerShellLiteral $installLog) + '; exit 1 }'

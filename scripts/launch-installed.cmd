@@ -1,6 +1,14 @@
 @echo off
 setlocal EnableExtensions
 title Agent_b
+if not defined AGENTB_HIDDEN_REENTRY (
+  set "AGENTB_VISIBLE=0"
+  for %%A in (%*) do if /i "%%~A"=="-Console" set "AGENTB_VISIBLE=1"
+  if "%AGENTB_VISIBLE%"=="0" (
+    wscript.exe //B "%~dp0scripts\launch-hidden.vbs" "%ComSpec%" "/d" "/s" "/c" "set AGENTB_HIDDEN_REENTRY=1&& call ""%~f0"" %*"
+    exit /b 0
+  )
+)
 set "AGENT_B_AUTO_CLOSE=0"
 for %%A in (%*) do (
   if /i "%%~A"=="-NoPause" set "AGENT_B_AUTO_CLOSE=1"

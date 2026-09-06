@@ -313,7 +313,7 @@ func toolResultEventData(turn int, callID, name, content string, ok, operatorCon
 func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) tools.CallOutcome {
 	var approved bool
 	var gateErr error
-	if name == "shell" && r.cfg().Shell.ServiceAccount.Enabled {
+	if (name == "shell" || name == "run_script") && r.cfg().Shell.ServiceAccount.Enabled {
 		approved, gateErr = r.gate.WaitPolicyRequired(ctx, s, runID, callID, name, args)
 	} else {
 		approved, gateErr = r.gate.Wait(ctx, s, runID, callID, name, args)
@@ -332,7 +332,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	path, _ := args["path"].(string)
 	subject := "tool call"
 	scope := "rerun this exact tool call once"
-	if name == "shell" {
+	if name == "shell" || name == "run_script" {
 		subject = "command"
 		scope = "rerun this exact command once"
 	}

@@ -23,15 +23,16 @@ import (
 // only its initial working directory; identity, approval, timeout, and deny-list
 // controls do not make it workspace-confined.
 type Shell struct {
-	mu               sync.RWMutex
-	cfg              config.Shell
-	workspace        string
-	fileCoordinator  *FileCoordinator
-	credential       shellCredentialReader
-	startService     serviceProcessStarter
-	identityMu       sync.RWMutex
-	identity         ShellIdentityStatus
-	identityReporter func(ShellIdentityStatus)
+	mu                sync.RWMutex
+	cfg               config.Shell
+	workspace         string
+	fileCoordinator   *FileCoordinator
+	credential        shellCredentialReader
+	startService      serviceProcessStarter
+	startServiceInput serviceProcessInputStarter
+	identityMu        sync.RWMutex
+	identity          ShellIdentityStatus
+	identityReporter  func(ShellIdentityStatus)
 }
 
 type shellCredentialReader interface {
@@ -52,7 +53,7 @@ type operatorOverrideRequired struct{ reason string }
 func (e *operatorOverrideRequired) Error() string { return e.reason }
 
 func NewShell(cfg config.Shell) *Shell {
-	return &Shell{cfg: cfg, startService: startServiceAccountProcess}
+	return &Shell{cfg: cfg, startService: startServiceAccountProcess, startServiceInput: startServiceAccountProcessWithInput}
 }
 func (*Shell) Name() string { return "shell" }
 func (s *Shell) Description() string {
@@ -61,7 +62,7 @@ func (s *Shell) Description() string {
 	if len(cfg.Command) > 0 {
 		dialect = shellDialect(cfg.Command[0])
 	}
-	return "Run an unconfined inline command from the workspace root. Shell has no network in service context (enforced outside the tool layer); use fetch_url for every network operation. Script artifacts written by an agent cannot be executed. Use " + dialect + " syntax."
+	return "Run an unconfined inline command from the workspace root. Shell has no network in service context (enforced outside the tool layer); use fetch_url for every network operation. Agent-written Windows host scripts cannot be executed; use run_script for multi-line source. Use " + dialect + " syntax."
 }
 func (s *Shell) Schema() map[string]any {
 	cfg := s.config()
@@ -145,6 +146,10 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 		}
 		return CallDetail{Err: err}
 	}
+	return waitShellProcess(ctx, process, usedService, timeout, cfg, &output, command)
+}
+
+func waitShellProcess(ctx context.Context, process runningShellProcess, usedService bool, timeout int, cfg config.Shell, output *lockedBuffer, operatorCommand string) CallDetail {
 	type waitResult struct {
 		code int
 		err  error
@@ -179,8 +184,10 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 			if body != "" {
 				content += "\n" + body
 			}
-			if usedService && permissionDeniedOutput(body) {
-				return CallDetail{Content: content, OperatorOverrideReason: "service account was denied permission"}
+			if usedService {
+				if reason := serviceBoundaryReason(operatorCommand, body); reason != "" {
+					return CallDetail{Content: content, OperatorOverrideReason: reason}
+				}
 			}
 			return CallDetail{Err: fmt.Errorf("command failed\n%s", content)}
 		}
@@ -189,6 +196,25 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 		}
 		return CallDetail{Content: "exit=0\n" + body}
 	}
+}
+
+func serviceBoundaryReason(operatorCommand, output string) string {
+	if permissionDeniedOutput(output) {
+		return "service account was denied permission"
+	}
+	lower := strings.ToLower(output)
+	if !strings.Contains(lower, "is not recognized as the name of a") || !strings.Contains(lower, "cmdlet") {
+		return ""
+	}
+	for _, token := range shellPolicyTokens(operatorCommand) {
+		candidate := cleanShellScriptToken(token)
+		if filepath.IsAbs(candidate) {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return "service account could not access an operator-visible executable"
+			}
+		}
+	}
+	return ""
 }
 
 func (s *Shell) start(cfg config.Shell, workspace string, argv []string, output *lockedBuffer) (runningShellProcess, bool, error) {
@@ -218,6 +244,35 @@ func (s *Shell) start(cfg config.Shell, workspace string, argv []string, output 
 	}
 	s.setIdentity(ShellIdentityStatus{OperatorApprovalRequired: true, Reason: reason, Since: time.Now().UTC().Format(time.RFC3339)})
 	log.Printf("ALARM: shell service-account spawn failed; operator approval required: %s", reason)
+	return nil, false, &operatorOverrideRequired{reason: reason}
+}
+
+func (s *Shell) startInput(cfg config.Shell, executable string, argv []string, input []byte, workspace string, output *lockedBuffer, forceOperator bool) (runningShellProcess, bool, error) {
+	if forceOperator || cfg.OperatorContext || !cfg.ServiceAccount.Enabled {
+		process, err := startHarnessProcessWithInput(executable, argv, workspace, input, output)
+		return process, false, err
+	}
+	reason := ""
+	if s.credential == nil {
+		reason = "service-account credential is not configured"
+	} else {
+		password, err := s.credential.Read()
+		if err == nil {
+			defer clearBytes(password)
+			process, spawnErr := s.startServiceInput(executable, argv, workspace, minimalShellEnvironment(cfg.ServiceAccount, workspace), cfg.ServiceAccount, password, input, output)
+			if spawnErr == nil {
+				s.setIdentity(s.configuredIdentityStatus())
+				return process, true, nil
+			}
+			reason = serviceSpawnReason(spawnErr)
+		} else if errors.Is(err, credential.ErrNotStored) {
+			reason = "service-account credential is not stored"
+		} else {
+			reason = "service-account credential cannot be decrypted by this Agent_b process identity"
+		}
+	}
+	s.setIdentity(ShellIdentityStatus{OperatorApprovalRequired: true, Reason: reason, Since: time.Now().UTC().Format(time.RFC3339)})
+	log.Printf("ALARM: run_script service-account spawn failed; operator approval required: %s", reason)
 	return nil, false, &operatorOverrideRequired{reason: reason}
 }
 
@@ -574,22 +629,62 @@ func shellDialect(executable string) string {
 }
 
 func forbiddenShellCommand(command string, item *session.Session, coordinator *FileCoordinator) string {
+	if reason := forbiddenLOLBinCommand(command); reason != "" {
+		return reason
+	}
+	if reason := forbiddenSigningCommand(command); reason != "" {
+		return reason
+	}
 	if requestsExecutionPolicyBypass(command) {
 		return "PowerShell execution-policy bypass is forbidden"
 	}
 	if shellWritesScriptArtifact(command) {
-		return "writing executable script artifacts through shell is forbidden; use write_file or edit_file"
+		return "Windows script-host rule: writing host-executable script artifacts through shell is forbidden; use write_file or edit_file"
 	}
 	for _, candidate := range shellScriptExecutions(command) {
 		if item == nil {
-			return "script-file execution without session provenance is forbidden; pass the command body inline"
+			return "Windows script-host rule: script execution without session provenance is forbidden; use run_script"
 		}
 		resolved, ok := literalShellPath(item.Workspace, candidate)
 		if !ok {
-			return "script-file execution with a non-literal path is forbidden; pass the command body inline"
+			return "Windows script-host rule: script execution with a non-literal path is forbidden; use run_script"
 		}
 		if coordinator == nil || coordinator.wasAgentWritten(item, resolved) {
-			return "an agent-written script file cannot be executed; pass the command body inline"
+			return "Windows script-host rule: an agent-written host script cannot be executed; use run_script"
+		}
+	}
+	return ""
+}
+
+func forbiddenLOLBinCommand(command string) string {
+	words := shellPolicyTokens(strings.ToLower(command))
+	for index, word := range words {
+		switch shellCommandName(word) {
+		case "regsvr32", "rundll32":
+			return "Windows LOLBin rule: regsvr32 and rundll32 execution is forbidden"
+		case "certutil":
+			for _, argument := range words[index+1:] {
+				argument = strings.TrimLeft(strings.ToLower(argument), "-/")
+				if argument == "decode" || argument == "decodehex" || argument == "urlcache" {
+					return "Windows LOLBin rule: certutil decode and URL-cache operations are forbidden"
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func forbiddenSigningCommand(command string) string {
+	normalized := strings.ToLower(command)
+	normalized = strings.NewReplacer("-", "", "_", "", ".", "", "\\", "/").Replace(normalized)
+	if strings.Contains(normalized, "setauthenticodesignature") || strings.Contains(normalized, "signtool") {
+		return "code-signing rule: signing commands are reserved for Settings > Security"
+	}
+	if strings.Contains(normalized, "certutil") {
+		for _, operation := range []string{"addstore", "delstore", "importpfx", "repairstore", "setreg", "pulse"} {
+			if strings.Contains(normalized, operation) {
+				return "certificate-store rule: certutil store operations are reserved for Settings > Security"
+			}
 		}
 	}
 	return ""
@@ -642,7 +737,7 @@ func redirectsToScriptArtifact(command string) bool {
 		if target == "" && index+1 < len(words) {
 			target = words[index+1]
 		}
-		if hasScriptSuffix(target, ".ps1", ".psm1", ".cmd", ".bat", ".vbs", ".wsf", ".sh") {
+		if hasScriptSuffix(target, ".ps1", ".psm1", ".cmd", ".bat", ".vbs", ".wsf", ".hta") {
 			return true
 		}
 	}
@@ -650,7 +745,7 @@ func redirectsToScriptArtifact(command string) bool {
 }
 
 func containsScriptSuffix(value string) bool {
-	for _, suffix := range []string{".ps1", ".psm1", ".bat", ".cmd", ".vbs", ".wsf", ".sh"} {
+	for _, suffix := range []string{".ps1", ".psm1", ".bat", ".cmd", ".vbs", ".wsf", ".hta"} {
 		if strings.Contains(value, suffix) {
 			return true
 		}
@@ -672,7 +767,7 @@ func shellScriptExecutionsDepth(command string, depth int) []string {
 		strings.Contains(lower, "[scriptblock]::create") {
 		for _, word := range shellPolicyTokens(command) {
 			word = cleanShellScriptToken(word)
-			if hasScriptSuffix(word, ".ps1", ".psm1", ".cmd", ".bat", ".vbs", ".wsf", ".sh") {
+			if hasScriptSuffix(word, ".ps1", ".psm1", ".cmd", ".bat", ".vbs", ".wsf", ".hta") {
 				candidates = append(candidates, word)
 			}
 		}
@@ -729,15 +824,15 @@ func shellScriptExecutionsDepth(command string, depth int) []string {
 		case "wscript", "cscript":
 			for _, word := range words[1:] {
 				word = cleanShellScriptToken(word)
-				if hasScriptSuffix(word, ".vbs", ".wsf") {
+				if hasScriptSuffix(word, ".vbs", ".wsf", ".js") {
 					candidates = append(candidates, word)
 					break
 				}
 			}
-		case "sh", "bash", "zsh":
+		case "mshta":
 			for _, word := range words[1:] {
 				word = cleanShellScriptToken(word)
-				if hasScriptSuffix(word, ".sh") {
+				if hasScriptSuffix(word, ".hta") {
 					candidates = append(candidates, word)
 					break
 				}
@@ -745,7 +840,7 @@ func shellScriptExecutionsDepth(command string, depth int) []string {
 		case "start-process":
 			for _, word := range words[1:] {
 				word = cleanShellScriptToken(word)
-				if hasScriptSuffix(word, ".ps1", ".psm1", ".cmd", ".bat", ".vbs", ".wsf", ".sh") {
+				if hasScriptSuffix(word, ".ps1", ".psm1", ".cmd", ".bat", ".vbs", ".wsf", ".hta") {
 					candidates = append(candidates, word)
 					break
 				}
@@ -807,7 +902,7 @@ func hasScriptSuffix(value string, suffixes ...string) bool {
 }
 
 func scriptSuffixForInterpreter(name, value string) bool {
-	return hasScriptSuffix(value, ".ps1", ".psm1", ".cmd", ".bat", ".vbs", ".wsf", ".sh") && name != ""
+	return hasScriptSuffix(value, ".ps1", ".psm1", ".cmd", ".bat", ".vbs", ".wsf", ".hta") && name != ""
 }
 
 func literalShellPath(workspace, value string) (string, bool) {

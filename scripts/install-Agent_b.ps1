@@ -10,11 +10,12 @@ param(
     [string]$OperatorLocalAppData,
 	[switch]$Alpha,
 	[switch]$SkipBuild,
+    [string]$SigningThumbprint,
     [switch]$TestMode
 )
 
 $ErrorActionPreference = 'Stop'
-$displayVersion = '0.1.0'
+$displayVersion = '0.2.0'
 
 function Get-FullPath {
     param([string]$Path)
@@ -208,6 +209,7 @@ if (-not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $TestMode)
 	)
 	if ($Alpha) { $arguments += '-Alpha' }
 	if ($SkipBuild) { $arguments += '-SkipBuild' }
+    if ($SigningThumbprint) { $arguments += @('-SigningThumbprint', $SigningThumbprint) }
     $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList (($arguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ') -Verb RunAs -Wait -PassThru
     exit $process.ExitCode
 }
@@ -287,7 +289,7 @@ $configPath = Join-Path $dataRoot 'harness.json'
 $writeConfig = $false
 if (Test-Path -LiteralPath $configPath -PathType Leaf) {
 	Write-Host 'PRESERVED: existing operator configuration'
-	if ($Alpha) { $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json }
+	$config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
 } else {
     $templatePath = Join-Path $applicationRoot 'harness.example.json'
     $config = Get-Content -Raw -LiteralPath $templatePath | ConvertFrom-Json
@@ -305,8 +307,46 @@ if ($Alpha) {
 	$config.shell.service_account.enabled = $true
 	$writeConfig = $true
 }
+if (-not $SigningThumbprint -and (-not $config.signing -or [string]::IsNullOrWhiteSpace([string]$config.signing.thumbprint))) {
+	$SigningThumbprint = 'auto'
+}
+if ($SigningThumbprint -eq 'auto') {
+	Import-Module (Join-Path $PSHOME 'Modules\PKI\PKI.psd1') -ErrorAction Stop
+	$certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Agent_b Operator Code Signing' -CertStoreLocation 'Cert:\LocalMachine\My' -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyExportPolicy NonExportable -NotAfter ([DateTime]::Now.AddYears(3))
+	$tempCertificate = Join-Path ([IO.Path]::GetTempPath()) ("agentb-public-{0}.cer" -f [Guid]::NewGuid().ToString('N'))
+	try {
+		$null = Export-Certificate -Cert $certificate -FilePath $tempCertificate -Force
+		$null = Import-Certificate -FilePath $tempCertificate -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher'
+		$null = Import-Certificate -FilePath $tempCertificate -CertStoreLocation 'Cert:\CurrentUser\Root'
+	} finally { Remove-Item -LiteralPath $tempCertificate -Force -ErrorAction SilentlyContinue }
+	$SigningThumbprint = $certificate.Thumbprint
+	Write-Host "CREATED: administrator-gated signing certificate $SigningThumbprint"
+}
+if ($SigningThumbprint) {
+	if (-not $config.signing) { $config | Add-Member -NotePropertyName signing -NotePropertyValue ([pscustomobject]@{ thumbprint = ''; timestamp_url = 'http://timestamp.digicert.com' }) }
+	$config.signing.thumbprint = ($SigningThumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+	$writeConfig = $true
+}
 if ($writeConfig) {
 	[IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+}
+
+# Re-sign every deployed signable artifact when the operator configured a
+# Store-backed code-signing certificate. The PFX and private key never enter
+# the installer; the certificate is resolved by thumbprint from the machine or user store.
+if ($config.signing -and -not [string]::IsNullOrWhiteSpace([string]$config.signing.thumbprint)) {
+	$thumbprint = ([string]$config.signing.thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+	$certificate = Get-ChildItem -LiteralPath ("Cert:\LocalMachine\My\{0}" -f $thumbprint) -ErrorAction SilentlyContinue
+	if (-not $certificate) { $certificate = Get-ChildItem -LiteralPath ("Cert:\CurrentUser\My\{0}" -f $thumbprint) -ErrorAction Stop }
+	if (-not $certificate.HasPrivateKey -or @($certificate.EnhancedKeyUsageList | Where-Object { ([string]$_.ObjectId) -eq '1.3.6.1.5.5.7.3.3' }).Count -eq 0) {
+		throw "Configured certificate $thumbprint is not a usable LocalMachine or CurrentUser code-signing certificate."
+	}
+	$signTargets = @($installedBinary) + @(Get-ChildItem -LiteralPath $applicationRoot -Filter '*.ps1' -File -Recurse | ForEach-Object FullName)
+	foreach ($target in $signTargets) {
+		$signature = Set-AuthenticodeSignature -LiteralPath $target -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer ([string]$config.signing.timestamp_url)
+		if ($signature.Status -ne 'Valid') { throw "Signing failed for $target`: $($signature.Status) $($signature.StatusMessage)" }
+	}
+	Write-Host "SIGNED: Agent_b.exe and $($signTargets.Count - 1) PowerShell scripts with $thumbprint"
 }
 
 if ($Alpha) {

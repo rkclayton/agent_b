@@ -25,6 +25,7 @@ const (
 	ConfigChanged     = "config.changed"
 	ShellIdentity     = "shell.identity"
 	ShellCredential   = "shell.credential"
+	SigningApplied    = "signing.applied"
 	OperatorContext   = "operator.context"
 	Error             = "error"
 	RunQueued         = "run.queued"

@@ -91,6 +91,19 @@ func TestStep4LiveThreeRootShell(t *testing.T) {
 			t.Fatalf("service read of operator config unexpectedly succeeded: %+v", detail)
 		}
 	})
+
+	if thumbprint := os.Getenv("AGENTB_SIGNING_THUMBPRINT"); thumbprint != "" {
+		t.Run("operator_signing_key_not_visible", func(t *testing.T) {
+			run := NewRunScript(shell)
+			detail := run.CallDetailed(context.Background(), s, map[string]any{
+				"language": "powershell",
+				"source":   "$certificate = Get-ChildItem -LiteralPath 'Cert:\\LocalMachine\\My\\" + thumbprint + "' -ErrorAction Stop; try { $rsa = [Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($certificate); $null = $rsa.SignData([byte[]](1,2,3), [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1); throw 'operator key usable' } catch { if ($_.Exception.Message -eq 'operator key usable') { throw }; 'operator key unavailable' } finally { if ($rsa) { $rsa.Dispose() } }",
+			})
+			if detail.Err != nil || detail.OperatorOverrideReason != "" || !strings.Contains(detail.Content, "operator key unavailable") {
+				t.Fatalf("service identity could inspect operator key: %+v", detail)
+			}
+		})
+	}
 }
 
 func quotePowerShell(value string) string {

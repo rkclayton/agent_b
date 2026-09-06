@@ -27,6 +27,7 @@ type Config struct {
 	Memory        Memory        `json:"memory"`
 	Tools         Tools         `json:"tools"`
 	Shell         Shell         `json:"shell"`
+	Signing       Signing       `json:"signing"`
 	LoadNotices   []string      `json:"-"`
 }
 
@@ -225,6 +226,11 @@ type ShellServiceAccount struct {
 	Domain  string `json:"domain"`
 }
 
+type Signing struct {
+	Thumbprint   string `json:"thumbprint"`
+	TimestampURL string `json:"timestamp_url"`
+}
+
 func Defaults(workspace string) Config {
 	if workspace == "" {
 		workspace = "./workspace"
@@ -237,8 +243,9 @@ func Defaults(workspace string) Config {
 		Listen:        "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
 		Servers: []Profile{profile}, Roles: Roles{Main: "local"},
 		Run: RunConfig{MaxTurns: 40, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500},
-		Tools: Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
-		Shell: Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Account: "agentb-svc", Domain: "."}},
+		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
+		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Account: "agentb-svc", Domain: "."}},
+		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
 	}
 }
 
@@ -546,6 +553,9 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Shell.ServiceAccount.Domain) == "" {
 		return fmt.Errorf("shell.service_account.domain: required")
 	}
+	if c.Signing.TimestampURL != "" && !strings.HasPrefix(strings.ToLower(c.Signing.TimestampURL), "http://") && !strings.HasPrefix(strings.ToLower(c.Signing.TimestampURL), "https://") {
+		return fmt.Errorf("signing.timestamp_url: must be an HTTP(S) URL")
+	}
 	return nil
 }
 
@@ -609,6 +619,9 @@ func applyDefaults(c *Config) {
 	}
 	if len(c.Shell.Command) == 0 {
 		c.Shell = d.Shell
+	}
+	if c.Signing.TimestampURL == "" {
+		c.Signing.TimestampURL = d.Signing.TimestampURL
 	}
 	if c.Shell.FileRoutingGuard == nil {
 		c.Shell.FileRoutingGuard = boolPointer(true)

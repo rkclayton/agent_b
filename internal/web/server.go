@@ -26,6 +26,7 @@ import (
 	"harness/internal/projection"
 	"harness/internal/serviceaccount"
 	"harness/internal/session"
+	"harness/internal/signing"
 	"harness/internal/tools"
 )
 
@@ -49,6 +50,9 @@ type Server struct {
 	hardening        hardening.Manager
 	hardeningMu      sync.RWMutex
 	hardeningOp      hardeningOperation
+	signing          signing.Manager
+	signingMu        sync.Mutex
+	signingStatus    signing.Status
 	shellTest        func(context.Context) (string, error)
 	accountMu        sync.Mutex
 	mutationToken    string
@@ -97,6 +101,7 @@ func (s *Server) SetShellSecurity(store *credential.Store, shell *tools.Shell) {
 }
 func (s *Server) SetServiceAccountManager(manager serviceaccount.Manager) { s.account = manager }
 func (s *Server) SetHardeningManager(manager hardening.Manager)           { s.hardening = manager }
+func (s *Server) SetSigningManager(manager signing.Manager)               { s.signing = manager }
 func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, prompt *agent.PromptRenderer) {
 	s.scheduler = scheduler
 	s.runner = runner
@@ -137,6 +142,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/shell-credential", s.replayGuard(s.shellCredential))
 	mux.HandleFunc("/api/service-account", s.replayGuard(s.serviceAccount))
 	mux.HandleFunc("/api/hardening", s.replayGuard(s.hostHardening))
+	mux.HandleFunc("/api/signing", s.replayGuard(s.codeSigning))
 	mux.HandleFunc("/api/message", s.replayGuard(s.message))
 	mux.HandleFunc("/api/stop", s.replayGuard(s.stop))
 	mux.HandleFunc("/api/approve", s.replayGuard(s.approve))
@@ -274,6 +280,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 	return map[string]any{
 		"sessions": sessions, "servers": masked.Servers, "config": masked, "replay": replay,
 		"build":          buildinfo.Current(),
+		"signature":      s.signingState(),
 		"mutation_token": s.mutationToken, "shell_credential": credentialStatus, "shell_identity": identityStatus,
 		"serving_facts": servingFacts(filepath.Join(s.roots.Application, "SERVING.md")),
 		"flow":          map[string]any{"stages": events.Stages, "edges": [][2]string{{"assemble", "call_model"}, {"call_model", "parse"}, {"parse", "dispatch"}, {"dispatch", "execute"}, {"execute", "append"}, {"append", "assemble"}}},
@@ -288,6 +295,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 			{"name": "recall", "description": "Read all durable workspace notes; takes no arguments. Use before remember to avoid duplicates; unlike recall, remember never writes."},
 			{"name": "fetch_url", "description": "Fetch untrusted public HTTP(S) text by byte offset and limit. When more is true, pass returned next_offset as offset to advance. Unlike read_file, it uses the network."},
 			{"name": "find_files", "description": "Find local files under path whose names or relative paths match pattern. Unlike search_text, it does not inspect file contents."},
+			{"name": "run_script", "description": tools.NewRunScript(tools.NewShell(masked.Shell)).Description()},
 		},
 	}
 }

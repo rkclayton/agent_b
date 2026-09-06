@@ -21,6 +21,10 @@ let hardeningStatus = { loaded: false, supported: true, applied: false };
 let hardeningBusy = false;
 let hardeningMessage = "";
 let hardeningAlarm = false;
+let signingStatus = { loaded: false, supported: true, configured: false, can_manage: false, files: [] };
+let signingBusy = false;
+let signingMessage = "";
+let signingAlarm = false;
 let settingsSaving = false;
 let settingsSaveMessage = "All changes saved";
 let settingsSaveAlarm = false;
@@ -82,6 +86,7 @@ export function initSettings() {
     if (open && event.type === "snapshot") {
       refreshServiceAccountStatus();
       refreshHardeningStatus();
+	  refreshSigningStatus();
     }
   });
   const requested = location.hash.match(/^#settings(?:\/([a-z-]+))?$/);
@@ -104,6 +109,7 @@ function openSettings(section = "") {
   render();
   refreshServiceAccountStatus();
 	refreshHardeningStatus();
+	refreshSigningStatus();
   requestAnimationFrame(() => sheet.querySelector(".settings-nav button.selected")?.focus());
 }
 
@@ -338,7 +344,7 @@ function tools(active) {
     ${number("shell.max_output_lines_head", "head lines", cfg.shell?.max_output_lines_head)}
     ${number("shell.max_output_lines_tail", "tail lines", cfg.shell?.max_output_lines_tail)}
     ${text("shell.deny", "deny", (cfg.shell?.deny || []).join(", "), "list")}
-    ${head("remember")}${head("recall")}${head("fetch_url")}${head("find_files")}`;
+    ${head("remember")}${head("recall")}${head("fetch_url")}${head("find_files")}${head("run_script")}`;
 }
 
 function memory(active) {
@@ -443,6 +449,11 @@ function shell(active) {
 	const protectionFeedback = applyBlocker
 		? `Apply unavailable: ${applyBlocker}${hardeningMessage ? ` Last result: ${hardeningMessage}` : ""}`
 		: hardeningMessage;
+	const signedFiles = signingStatus.files || [];
+	const signaturesValid = signedFiles.length > 0 && signedFiles.every((file) => file.status === "Valid" && file.thumbprint === signingStatus.thumbprint && file.timestamped);
+	const certificateDone = signingStatus.configured && signingStatus.has_private_key && signingStatus.code_signing_eku;
+	const verifyDone = certificateDone && signingStatus.chain_valid && signaturesValid;
+	const signingAllowed = signingStatus.can_manage && !signingBusy;
   return `<div class="settings-subhead">Service identity</div>
 	<p class="settings-note">Use the operator control beside Stop to run tools temporarily as your Windows account.</p>
     ${row("status", `<span class="account-status"><span class="lamp ${serviceAccountStatus.administrator ? "alarm" : serviceAccountStatus.exists ? "live" : ""}"></span>${html(accountState)}</span>`)}
@@ -466,6 +477,23 @@ function shell(active) {
 	  <button type="button" class="${armed.has("hardening:remove") ? "confirm" : ""}" data-action="remove-hardening" ${canInspect ? "" : "disabled"}>${armed.has("hardening:remove") ? "Confirm remove" : "Remove"}</button>
 	</div>
 	${feedback(protectionFeedback, hardeningAlarm || !!applyBlocker, "Apply protection requests Windows approval, grants workspace access, then tests the service identity.")}
+	<div class="settings-subhead">Code signing</div>
+	<p class="settings-note">Gives this installation a stable publisher identity and trusted local chain; it does not create Defender cloud reputation.</p>
+	${row("certificate", `<span class="account-status"><span class="lamp ${certificateDone ? "live" : ""}"></span>${html(certificateDone ? `${signingStatus.subject} · ${signingStatus.thumbprint}` : "not done")}</span>`)}
+	${row("artifacts", `<span class="account-status"><span class="lamp ${verifyDone ? "live" : signingStatus.loaded ? "alarm" : ""}"></span>${html(verifyDone ? "done · signed, timestamped, chain valid" : "not done")}</span>`)}
+	${signingStatus.can_manage ? `<div class="settings-actions vertical">
+	  <button type="button" data-action="create-signing" ${signingAllowed ? "" : "disabled"}>Create certificate</button>
+	  <p class="settings-note">Create a protected certificate here, or import or select one you already own.</p>
+	  ${row("PFX", '<input id="signing-pfx" type="file" accept=".pfx,application/x-pkcs12">')}
+	  ${row("password", '<input id="signing-password" type="password" autocomplete="off">')}
+	  ${row("stored certificate", `<select id="signing-thumbprint"><option value="">Select code-signing certificate</option>${(signingStatus.certificates || []).filter((certificate) => certificate.has_private_key).map((certificate) => `<option value="${attr(certificate.thumbprint)}" ${certificate.thumbprint === store.config.signing?.thumbprint ? "selected" : ""}>${html(certificate.subject)} · ${html(certificate.thumbprint)}</option>`).join("")}</select>`)}
+	  <div class="settings-actions"><button type="button" data-action="import-signing" ${signingAllowed ? "" : "disabled"}>Import certificate</button><button type="button" data-action="export-signing" ${certificateDone && signingAllowed ? "" : "disabled"}>Export .cer</button></div>
+	  <button type="button" data-action="sign-application" ${certificateDone && signingAllowed ? "" : "disabled"}>Sign application</button>
+	  <p class="settings-note">Sign Agent_b.exe and PowerShell scripts, then restart Agent_b.</p>
+	  <button type="button" data-action="verify-signing" ${signingBusy ? "disabled" : ""}>Verify signatures</button>
+	  <p class="settings-note">Verify signer, thumbprint, timestamp, and certificate chain.</p>
+	</div>` : `<div class="settings-actions vertical"><button type="button" data-action="verify-signing" ${signingBusy ? "disabled" : ""}>Verify signatures</button><p class="settings-note">Standard users can verify signatures but cannot create, import, select, export, or sign.</p></div>`}
+	${feedback(signingMessage, signingAlarm, "Self-created keys are non-exportable and usable only by the elevated signing helper; imported keys keep their existing protection.")}
     <details class="settings-advanced">
       <summary>Advanced</summary>
       ${toggle("shell.service_account.enabled", "service identity", service.enabled)}
@@ -658,6 +686,11 @@ async function click(event) {
 		armed.delete("hardening:remove");
 		return hardeningAction("remove");
 	}
+	if (action === "create-signing") return signingAction("create");
+	if (action === "import-signing") return importSigning();
+	if (action === "sign-application") return signingAction("sign");
+	if (action === "verify-signing") return refreshSigningStatus();
+	if (action === "export-signing") return exportSigning();
   if (action === "copy") {
     if (button.dataset.value) await navigator.clipboard?.writeText(button.dataset.value);
   }
@@ -745,6 +778,76 @@ async function hardeningAction(action) {
 		hardeningBusy = hardeningStatus.operation?.state === "running";
 		if (open) render();
 	}
+}
+
+async function refreshSigningStatus(preserveMessage = false) {
+	try {
+		const status = await api("/api/signing", undefined, "GET");
+		signingStatus = { ...status, loaded: true };
+		if (!preserveMessage) { signingMessage = ""; signingAlarm = false; }
+	} catch (error) {
+		signingStatus = { loaded: true, supported: false, configured: false, can_manage: false, files: [] };
+		signingMessage = error.message;
+		signingAlarm = true;
+	}
+	if (open) render();
+}
+
+async function signingAction(action, fields = {}) {
+	signingBusy = true;
+	signingAlarm = false;
+	signingMessage = action === "sign" ? "Approve Windows UAC; Agent_b will restart after verification." : `${action} in progress…`;
+	render();
+	try {
+		const response = await api("/api/signing", { action, ...fields });
+		if (response.config) reduce({ type: "config.changed", data: { config: response.config } });
+		signingMessage = response.result?.message || `${action} complete`;
+		if (action !== "sign") await refreshSigningStatus(true);
+	} catch (error) {
+		signingMessage = error.message;
+		signingAlarm = true;
+	} finally {
+		signingBusy = false;
+		if (open) render();
+	}
+}
+
+async function importSigning() {
+	const file = sheet.querySelector("#signing-pfx")?.files?.[0];
+	const password = sheet.querySelector("#signing-password")?.value || "";
+	const thumbprint = sheet.querySelector("#signing-thumbprint")?.value || "";
+	const passwordInput = sheet.querySelector("#signing-password");
+	if (passwordInput) passwordInput.value = "";
+	if (!file && thumbprint) return signingAction("select", { thumbprint });
+	if (!file || !password) {
+		signingMessage = !file ? "Choose a .pfx file or a stored certificate." : "Enter the PFX password.";
+		signingAlarm = true;
+		return render();
+	}
+	const bytes = new Uint8Array(await file.arrayBuffer());
+	let binary = "";
+	for (const value of bytes) binary += String.fromCharCode(value);
+	bytes.fill(0);
+	return signingAction("import", { pfx_base64: btoa(binary), password });
+}
+
+async function exportSigning() {
+	try {
+		const response = await fetch("/api/signing", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": store.mutation_token },
+			body: JSON.stringify({ action: "export" }),
+		});
+		if (!response.ok) throw new Error((await response.json()).error || `HTTP ${response.status}`);
+		const link = document.createElement("a");
+		link.href = URL.createObjectURL(await response.blob());
+		link.download = "Agent_b-code-signing.cer";
+		link.click();
+		URL.revokeObjectURL(link.href);
+		signingMessage = "Public certificate exported.";
+		signingAlarm = false;
+	} catch (error) { signingMessage = error.message; signingAlarm = true; }
+	if (open) render();
 }
 
 async function setupServiceAccount(action) {

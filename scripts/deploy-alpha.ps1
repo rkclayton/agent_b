@@ -20,6 +20,11 @@ function Quote-ProcessArgument {
 	return '"' + $Value.Replace('"', '\"') + '"'
 }
 
+function Quote-PowerShellLiteral {
+	param([string]$Value)
+	return "'" + $Value.Replace("'", "''") + "'"
+}
+
 function Test-IsAdministrator {
 	$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 	$principal = [Security.Principal.WindowsPrincipal]::new($identity)
@@ -83,24 +88,21 @@ if ($alphaProcesses.Count) {
 }
 
 $installer = Join-Path $sourceRoot 'scripts\install-Agent_b.ps1'
-$installerArguments = @(
-	'-NoLogo', '-NoProfile', '-File', $installer,
-	'-SourceDirectory', $sourceRoot,
-	'-ApplicationDirectory', $applicationRoot,
-	'-DataDirectory', $dataRoot,
-	'-WorkspaceDirectory', $workspaceRoot,
-	'-StartMenuDirectory', $startMenuRoot,
-	'-UninstallRegistryPath', $uninstallKey,
-	'-OperatorSid', [Security.Principal.WindowsIdentity]::GetCurrent().User.Value,
-	'-OperatorLocalAppData', [Environment]::GetFolderPath('LocalApplicationData'),
-	'-Alpha', '-SkipBuild'
-)
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $installLog = Join-Path ([IO.Path]::GetTempPath()) ("Agent_b-alpha-install-{0}.log" -f [Guid]::NewGuid().ToString('N'))
-$invokeInstaller = '& { Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; & ' +
-	(Quote-ProcessArgument $installer) + ' ' +
-	(($installerArguments | Select-Object -Skip 4 | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ') +
-	'} *> ' + (Quote-ProcessArgument $installLog) + '; if ($?) { exit 0 } else { exit 1 }'
+$invokeInstaller = '$ErrorActionPreference = ''Stop''; try { & { Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; & ' +
+	(Quote-PowerShellLiteral $installer) +
+	' -SourceDirectory ' + (Quote-PowerShellLiteral $sourceRoot) +
+	' -ApplicationDirectory ' + (Quote-PowerShellLiteral $applicationRoot) +
+	' -DataDirectory ' + (Quote-PowerShellLiteral $dataRoot) +
+	' -WorkspaceDirectory ' + (Quote-PowerShellLiteral $workspaceRoot) +
+	' -StartMenuDirectory ' + (Quote-PowerShellLiteral $startMenuRoot) +
+	' -UninstallRegistryPath ' + (Quote-PowerShellLiteral $uninstallKey) +
+	' -OperatorSid ' + (Quote-PowerShellLiteral ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value)) +
+	' -OperatorLocalAppData ' + (Quote-PowerShellLiteral ([Environment]::GetFolderPath('LocalApplicationData'))) +
+	' -Alpha -SkipBuild } *> ' + (Quote-PowerShellLiteral $installLog) +
+	'; exit 0 } catch { ($_ | Format-List * -Force | Out-String) | Add-Content -LiteralPath ' +
+	(Quote-PowerShellLiteral $installLog) + '; exit 1 }'
 $encodedInstaller = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($invokeInstaller))
 $install = Start-Process -FilePath $powershell -ArgumentList "-NoLogo -NoProfile -EncodedCommand $encodedInstaller" -Verb RunAs -Wait -PassThru
 if ($install.ExitCode -ne 0) {

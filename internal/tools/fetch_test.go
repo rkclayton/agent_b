@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -173,6 +174,29 @@ func TestFetchDomainAllowList(t *testing.T) {
 	}
 	if !domainAllowed("docs.example.com", cfg.AllowDomains) {
 		t.Fatal("subdomain of allowed domain was refused")
+	}
+}
+
+func TestFetchDeniedGeolocationHostReturnsRuleWithoutRequest(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		fmt.Fprint(w, "must not be reached")
+	}))
+	defer server.Close()
+	cfg := fetchTestConfig()
+	cfg.AllowInternalHosts = nil
+	cfg.DenyDomains = []string{"127.0.0.1"}
+	item := &session.Session{ToolsEnabled: map[string]bool{"fetch_url": true}}
+	outcome := New(NewFetch(cfg)).CallDetailed(context.Background(), item, "fetch_url", map[string]any{"url": server.URL})
+	if outcome.OK || !strings.HasPrefix(outcome.Content, "note: network-location rule refused domain 127.0.0.1") || requests.Load() != 0 {
+		t.Fatalf("outcome=%+v requests=%d", outcome, requests.Load())
+	}
+
+	cfg.AllowDomains = []string{"ipinfo.io"}
+	cfg.DenyDomains = []string{"ipinfo.io"}
+	if err := validateFetchTarget(mustURL(t, "https://ipinfo.io/json"), cfg); err != nil {
+		t.Fatalf("explicit allow_domains did not supersede deny_domains: %v", err)
 	}
 }
 

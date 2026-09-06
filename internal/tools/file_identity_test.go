@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -32,6 +33,15 @@ func (*permissionDeniedFileTool) Description() string    { return "test" }
 func (*permissionDeniedFileTool) Schema() map[string]any { return map[string]any{} }
 func (*permissionDeniedFileTool) Call(context.Context, *session.Session, map[string]any) (string, error) {
 	return "", os.ErrPermission
+}
+
+type descriptionTestTool struct{ name string }
+
+func (t descriptionTestTool) Name() string         { return t.name }
+func (descriptionTestTool) Description() string    { return "file tool" }
+func (descriptionTestTool) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (descriptionTestTool) Call(context.Context, *session.Session, map[string]any) (string, error) {
+	return "", nil
 }
 
 func enabledFileIdentity(t *testing.T, credential *fileIdentityTestCredential) *FileIdentity {
@@ -126,6 +136,47 @@ func TestFileIdentityPermissionDenialOffersOperatorOverride(t *testing.T) {
 	)
 	if detail.Err != nil || detail.OperatorOverrideReason != "service account was denied permission for the requested path" {
 		t.Fatalf("detail=%+v", detail)
+	}
+}
+
+func TestFileToolJailDescriptionOnlyWhenServiceSplitEnabled(t *testing.T) {
+	workspace := t.TempDir()
+	identity := NewFileIdentity(nil)
+	cfg := config.Defaults(workspace)
+	names := []string{"read_file", "list_dir", "write_file", "edit_file", "search_text", "find_files"}
+	items := make([]Tool, 0, len(names))
+	enabled := make(map[string]bool, len(names))
+	for _, name := range names {
+		items = append(items, identity.Wrap(descriptionTestTool{name: name}))
+		enabled[name] = true
+	}
+	registry := New(items...)
+	identity.Configure(cfg)
+	off, err := json.Marshal(registry.Schemas(enabled))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(off), "Paths outside the workspace") {
+		t.Fatalf("disabled split changed description: %s", off)
+	}
+	cfg.Shell.ServiceAccount.Enabled = true
+	registry.Configure(cfg)
+	on, err := json.Marshal(registry.Schemas(enabled))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Paths outside the workspace require an operator decision; state the need once and stop rather than retrying paths."
+	if strings.Count(string(on), want) != len(names) || string(on) == string(off) {
+		t.Fatalf("enabled split schema=%s", on)
+	}
+	cfg.Shell.ServiceAccount.Enabled = false
+	registry.Configure(cfg)
+	again, err := json.Marshal(registry.Schemas(enabled))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != string(off) {
+		t.Fatalf("disabled schema did not return byte-identically: before=%s after=%s", off, again)
 	}
 }
 

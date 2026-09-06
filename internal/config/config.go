@@ -173,10 +173,11 @@ type Memory struct {
 	MaxTokens int    `json:"max_tokens"`
 }
 type Tools struct {
-	ReadFile ReadFileTool `json:"read_file"`
-	ListDir  ListDirTool  `json:"list_dir"`
-	Grep     GrepTool     `json:"grep"`
-	Fetch    FetchTool    `json:"fetch"`
+	ReadFile  ReadFileTool  `json:"read_file"`
+	ListDir   ListDirTool   `json:"list_dir"`
+	Grep      GrepTool      `json:"grep"`
+	Fetch     FetchTool     `json:"fetch"`
+	FindFiles FindFilesTool `json:"find_files"`
 }
 type ReadFileTool struct {
 	DefaultLimit int `json:"default_limit"`
@@ -190,6 +191,9 @@ type GrepTool struct {
 	MaxMatches   int `json:"max_matches"`
 	MaxLineChars int `json:"max_line_chars"`
 }
+type FindFilesTool struct {
+	SkipRoots []string `json:"skip_roots"`
+}
 type FetchTool struct {
 	TimeoutS           int      `json:"timeout_s"`
 	MaxBytes           int64    `json:"max_bytes"`
@@ -197,6 +201,7 @@ type FetchTool struct {
 	DefaultLimit       int      `json:"default_limit"`
 	MaxLimit           int      `json:"max_limit"`
 	AllowDomains       []string `json:"allow_domains"`
+	DenyDomains        []string `json:"deny_domains"`
 	AllowInternalHosts []string `json:"allow_internal_hosts"`
 }
 type Shell struct {
@@ -232,7 +237,7 @@ func Defaults(workspace string) Config {
 		Listen:        "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
 		Servers: []Profile{profile}, Roles: Roles{Main: "local"},
 		Run: RunConfig{MaxTurns: 40, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500},
-		Tools: Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, AllowInternalHosts: []string{}}},
+		Tools: Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
 		Shell: Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Account: "agentb-svc", Domain: "."}},
 	}
 }
@@ -513,9 +518,14 @@ func (c Config) Validate() error {
 	if c.Tools.Fetch.DefaultLimit < 1 || c.Tools.Fetch.MaxLimit < 1 || c.Tools.Fetch.DefaultLimit > c.Tools.Fetch.MaxLimit {
 		return fmt.Errorf("tools.fetch: byte limits must be positive and default_limit no greater than max_limit")
 	}
-	for _, host := range append(append([]string{}, c.Tools.Fetch.AllowDomains...), c.Tools.Fetch.AllowInternalHosts...) {
+	for _, host := range append(append(append([]string{}, c.Tools.Fetch.AllowDomains...), c.Tools.Fetch.DenyDomains...), c.Tools.Fetch.AllowInternalHosts...) {
 		if !validFetchHost(host) {
-			return fmt.Errorf("tools.fetch: allow-list entries must be hostnames or IP addresses without schemes, ports, paths, or wildcards")
+			return fmt.Errorf("tools.fetch: domain-list entries must be hostnames or IP addresses without schemes, ports, paths, or wildcards")
+		}
+	}
+	for _, root := range c.Tools.FindFiles.SkipRoots {
+		if strings.TrimSpace(root) == "" {
+			return fmt.Errorf("tools.find_files.skip_roots: entries cannot be empty")
 		}
 	}
 	if len(c.Shell.Command) == 0 {
@@ -590,6 +600,12 @@ func applyDefaults(c *Config) {
 		c.Tools = d.Tools
 	} else if c.Tools.Fetch.TimeoutS == 0 {
 		c.Tools.Fetch = d.Tools.Fetch
+	}
+	if c.Tools.Fetch.DenyDomains == nil {
+		c.Tools.Fetch.DenyDomains = append([]string(nil), d.Tools.Fetch.DenyDomains...)
+	}
+	if c.Tools.FindFiles.SkipRoots == nil {
+		c.Tools.FindFiles.SkipRoots = append([]string(nil), d.Tools.FindFiles.SkipRoots...)
 	}
 	if len(c.Shell.Command) == 0 {
 		c.Shell = d.Shell

@@ -63,7 +63,7 @@ func TestRenamedToolsRegisterExposeSchemasAndExecute(t *testing.T) {
 	}))
 	defer server.Close()
 
-	registry := New(NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir), NewGlob(), NewFetch(cfg.Tools.Fetch))
+	registry := New(NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir), NewGlob(cfg.Tools.FindFiles), NewFetch(cfg.Tools.Fetch))
 	enabled := map[string]bool{"search_text": true, "find_files": true, "fetch_url": true}
 	if got, want := registry.Names(enabled), []string{"search_text", "find_files", "fetch_url"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("registered names = %v, want %v", got, want)

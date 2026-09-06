@@ -315,8 +315,14 @@ func validateFetchTarget(target *url.URL, cfg config.FetchTool) error {
 	}
 	host := normalizedHost(target.Hostname())
 	internal := allowedInternal(host, cfg.AllowInternalHosts)
-	if !internal && !domainAllowed(host, cfg.AllowDomains) {
-		return fmt.Errorf("domain %s is not in tools.fetch.allow_domains", host)
+	if !internal {
+		if len(cfg.AllowDomains) > 0 {
+			if !domainAllowed(host, cfg.AllowDomains) {
+				return fmt.Errorf("domain %s is not in tools.fetch.allow_domains", host)
+			}
+		} else if domainListed(host, cfg.DenyDomains) {
+			return fmt.Errorf("note: network-location rule refused domain %s; never use network tools to determine the operator's location, identity, or IP; ask for a location the OS did not provide", host)
+		}
 	}
 	if ip := net.ParseIP(host); ip != nil && blockedFetchIP(ip) && !internal {
 		return fmt.Errorf("SSRF guard refused non-public address %s", host)
@@ -328,7 +334,11 @@ func domainAllowed(host string, allow []string) bool {
 	if len(allow) == 0 {
 		return true
 	}
-	for _, candidate := range allow {
+	return domainListed(host, allow)
+}
+
+func domainListed(host string, domains []string) bool {
+	for _, candidate := range domains {
 		candidate = normalizedHost(candidate)
 		if host == candidate || strings.HasSuffix(host, "."+candidate) {
 			return true

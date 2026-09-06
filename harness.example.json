@@ -56,7 +56,11 @@
       "default_limit": 16384,
       "max_limit": 65536,
       "allow_domains": [],
+      "deny_domains": ["ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"],
       "allow_internal_hosts": []
+    },
+    "find_files": {
+      "skip_roots": ["Windows", "$Recycle.Bin", "System Volume Information", "ProgramData\\Microsoft\\Windows Defender*", "Program Files\\Windows Defender*"]
     }
   },
   "shell": {

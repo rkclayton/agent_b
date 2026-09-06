@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
+	"harness/internal/config"
 	"harness/internal/session"
 )
 
@@ -21,9 +23,15 @@ var globIgnoredDirs = map[string]bool{
 	"memory":       true,
 }
 
-type Glob struct{}
+type Glob struct {
+	mu      sync.RWMutex
+	cfg     config.FindFilesTool
+	walkDir func(string, fs.WalkDirFunc) error
+}
 
-func NewGlob() *Glob       { return &Glob{} }
+func NewGlob(cfg config.FindFilesTool) *Glob {
+	return &Glob{cfg: cfg, walkDir: filepath.WalkDir}
+}
 func (*Glob) Name() string { return "find_files" }
 func (*Glob) Description() string {
 	return "Find local files under path whose names or relative paths match pattern. Unlike search_text, it does not inspect file contents."
@@ -31,7 +39,8 @@ func (*Glob) Description() string {
 func (*Glob) Schema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"pattern": map[string]any{"type": "string"}, "path": map[string]any{"type": "string", "default": "."}}, "required": []string{"pattern"}}
 }
-func (*Glob) Call(ctx context.Context, s *session.Session, args map[string]any) (string, error) {
+func (g *Glob) Call(ctx context.Context, s *session.Session, args map[string]any) (string, error) {
+	cfg := g.config()
 	pattern, ok := args["pattern"].(string)
 	if !ok || pattern == "" {
 		return "", fmt.Errorf("pattern is required")
@@ -59,8 +68,13 @@ func (*Glob) Call(ctx context.Context, s *session.Session, args map[string]any) 
 
 	matches := make([]string, 0, globMaxResults)
 	total := 0
-	err = filepath.WalkDir(root, func(filePath string, entry fs.DirEntry, walkErr error) error {
+	skipped := 0
+	err = g.walkDir(root, func(filePath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if filePath != root && isInaccessible(walkErr) {
+				skipped++
+				return nil
+			}
 			return walkErr
 		}
 		if err := ctx.Err(); err != nil {
@@ -68,6 +82,9 @@ func (*Glob) Call(ctx context.Context, s *session.Session, args map[string]any) 
 		}
 		if entry.IsDir() {
 			if filePath != root && globIgnoredDirs[entry.Name()] {
+				return filepath.SkipDir
+			}
+			if filePath != root && configuredSkipRoot(filePath, cfg.SkipRoots) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -91,14 +108,51 @@ func (*Glob) Call(ctx context.Context, s *session.Session, args map[string]any) 
 		return "", err
 	}
 	if total == 0 {
-		return "no matches", nil
+		return withSkippedInaccessible("no matches", skipped), nil
 	}
 	sort.Strings(matches)
 	result := strings.Join(matches, "\n")
 	if total > len(matches) {
 		result += fmt.Sprintf("\n[truncated: %d of %d paths shown]", len(matches), total)
 	}
-	return result, nil
+	return withSkippedInaccessible(result, skipped), nil
+}
+
+func (g *Glob) Configure(value config.Config) {
+	g.mu.Lock()
+	g.cfg = value.Tools.FindFiles
+	g.mu.Unlock()
+}
+
+func (g *Glob) config() config.FindFilesTool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return config.FindFilesTool{SkipRoots: append([]string(nil), g.cfg.SkipRoots...)}
+}
+
+func configuredSkipRoot(filePath string, patterns []string) bool {
+	volume := filepath.VolumeName(filePath)
+	relative := strings.TrimLeft(filepath.Clean(strings.TrimPrefix(filePath, volume)), `\/`)
+	parts := strings.Split(filepath.ToSlash(relative), "/")
+	for _, raw := range patterns {
+		normalized := strings.ReplaceAll(strings.TrimSpace(raw), `\`, "/")
+		patternParts := strings.Split(strings.Trim(normalized, "/"), "/")
+		if len(patternParts) == 0 || len(patternParts) > len(parts) {
+			continue
+		}
+		matched := true
+		for index := range patternParts {
+			ok, err := pathpkg.Match(strings.ToLower(patternParts[index]), strings.ToLower(parts[index]))
+			if err != nil || !ok {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
 }
 
 func validateGlobPattern(pattern string) error {

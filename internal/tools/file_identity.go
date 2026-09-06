@@ -56,8 +56,16 @@ type identityFileTool struct {
 }
 
 func (t *identityFileTool) Name() string           { return t.tool.Name() }
-func (t *identityFileTool) Description() string    { return t.tool.Description() }
 func (t *identityFileTool) Schema() map[string]any { return t.tool.Schema() }
+
+func (t *identityFileTool) Description() string {
+	description := t.tool.Description()
+	service, _, _, _ := t.identity.snapshot()
+	if service.Enabled {
+		description += " Paths outside the workspace require an operator decision; state the need once and stop rather than retrying paths."
+	}
+	return description
+}
 
 func (t *identityFileTool) Configure(cfg config.Config) {
 	if configurableTool, ok := t.tool.(configurable); ok {

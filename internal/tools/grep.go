@@ -15,10 +15,11 @@ import (
 )
 
 type Grep struct {
-	mu     sync.RWMutex
-	cfg    config.GrepTool
-	ignore map[string]bool
-	read   func(string) ([]byte, error)
+	mu      sync.RWMutex
+	cfg     config.GrepTool
+	ignore  map[string]bool
+	read    func(string) ([]byte, error)
+	walkDir func(string, fs.WalkDirFunc) error
 }
 
 func NewGrep(cfg config.GrepTool, list config.ListDirTool) *Grep {
@@ -26,7 +27,7 @@ func NewGrep(cfg config.GrepTool, list config.ListDirTool) *Grep {
 	for _, name := range list.Ignore {
 		ignore[name] = true
 	}
-	return &Grep{cfg: cfg, ignore: ignore, read: os.ReadFile}
+	return &Grep{cfg: cfg, ignore: ignore, read: os.ReadFile, walkDir: filepath.WalkDir}
 }
 func (*Grep) Name() string { return "search_text" }
 func (*Grep) Description() string {
@@ -61,8 +62,13 @@ func (g *Grep) Call(ctx context.Context, s *session.Session, args map[string]any
 	}
 	matches := make([]string, 0, cfg.MaxMatches)
 	total := 0
-	err = filepath.WalkDir(root, func(filePath string, entry fs.DirEntry, walkErr error) error {
+	skipped := 0
+	err = g.walkDir(root, func(filePath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if filePath != root && isInaccessible(walkErr) {
+				skipped++
+				return nil
+			}
 			return walkErr
 		}
 		if err := ctx.Err(); err != nil {
@@ -82,6 +88,10 @@ func (g *Grep) Call(ctx context.Context, s *session.Session, args map[string]any
 		}
 		data, readErr := g.read(filePath)
 		if readErr != nil {
+			if filePath != root && isInaccessible(readErr) {
+				skipped++
+				return nil
+			}
 			return readErr
 		}
 		sample := data
@@ -112,13 +122,13 @@ func (g *Grep) Call(ctx context.Context, s *session.Session, args map[string]any
 		return "", err
 	}
 	if total == 0 {
-		return "no matches", nil
+		return withSkippedInaccessible("no matches", skipped), nil
 	}
 	result := strings.Join(matches, "\n")
 	if total > len(matches) {
 		result += fmt.Sprintf("\n[%d of %d matches shown]", len(matches), total)
 	}
-	return result, nil
+	return withSkippedInaccessible(result, skipped), nil
 }
 func (g *Grep) Configure(value config.Config) {
 	g.mu.Lock()

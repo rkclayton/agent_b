@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -251,6 +253,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 					outcome := r.executeTool(ctx, s, runID, item.call.ID, item.call.Name, item.args)
 					item.content, item.ok, item.operatorContext = outcome.Content, outcome.OK, outcome.OperatorContext
 					item.category, item.untrusted, item.metadata = outcome.Category, outcome.Untrusted, outcome.Metadata
+					if item.ok {
+						item.metadata = mergeResultMetadata(item.metadata, producedFileMetadata(s, item.call.Name, item.args))
+					}
 				}
 				item.ms = time.Since(start).Milliseconds()
 				resultTokens := r.textTokens(ctx, profile, item.content)
@@ -296,6 +301,49 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 		}
 		r.compactAfterTurn(ctx, s, runID, turn, profile, currentReasoning)
 	}
+}
+
+func producedFileMetadata(s *session.Session, name string, args map[string]any) map[string]any {
+	if name != "write_file" && name != "edit_file" {
+		return nil
+	}
+	requested, _ := args["path"].(string)
+	if requested == "" {
+		return nil
+	}
+	resolved, err := tools.Resolve(s.Workspace, requested)
+	if err != nil {
+		return nil
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
+	root, err := filepath.EvalSymlinks(s.Workspace)
+	if err != nil {
+		return nil
+	}
+	relative, err := filepath.Rel(root, resolved)
+	if err != nil || relative == "." || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return nil
+	}
+	return map[string]any{"file": map[string]any{
+		"path":  filepath.ToSlash(relative),
+		"bytes": info.Size(),
+	}}
+}
+
+func mergeResultMetadata(current, added map[string]any) map[string]any {
+	if len(added) == 0 {
+		return current
+	}
+	if current == nil {
+		current = map[string]any{}
+	}
+	for key, value := range added {
+		current[key] = value
+	}
+	return current
 }
 
 func toolResultEventData(turn int, callID, name, content string, ok, operatorContext, untrusted bool, ms int64, tokens int, metadata map[string]any) map[string]any {

@@ -1,0 +1,48 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { createFileChip, fileURL, filesFromResponse, probeFile } from "./deliverables.js";
+
+class FakeNode {
+  constructor(tagName) {
+    this.tagName = tagName;
+    this.children = [];
+    this.className = "";
+    this.disabled = false;
+    this.textContent = "";
+  }
+  append(...nodes) { this.children.push(...nodes); }
+}
+
+const document = { createElement: (tag) => new FakeNode(tag) };
+
+test("file chips derive only successful writes from a canned projected response", () => {
+  const items = [
+    { type: "agent", run_id: "r7", toolCallIDs: ["write", "read", "script", "edit"] },
+    { type: "tool", callID: "write", name: "write_file", args: { path: "draft.txt" }, result: { ok: true, file: { path: "reports/final.txt", bytes: 1536 } } },
+    { type: "tool", callID: "read", name: "read_file", args: { path: "input.txt" }, result: { ok: true } },
+    { type: "tool", callID: "script", name: "run_script", args: { language: "python" }, result: { ok: true } },
+    { type: "tool", callID: "edit", name: "edit_file", args: { path: "legacy.md" }, result: { ok: true } },
+  ];
+  const files = filesFromResponse(items);
+  assert.deepEqual(files, [
+    { path: "reports/final.txt", bytes: 1536, callID: "write", runID: "r7" },
+    { path: "legacy.md", bytes: null, callID: "edit", runID: "r7" },
+  ]);
+  const chip = createFileChip(document, files[0], { state: "ready", bytes: 1536 }, { downloadURL: fileURL("main", files[0].path), openFolder() {} });
+  assert.equal(chip.children[0].textContent, "final.txt");
+  assert.equal(chip.children[1].textContent, "1.5 KiB");
+  assert.equal(chip.children[2].textContent, "download");
+  assert.equal(chip.children[3].textContent, "open folder");
+  assert.equal(chip.children[2].href, "/api/files/reports/final.txt?session=main");
+});
+
+test("a replay file absent from the workspace renders missing", async () => {
+  const status = await probeFile("/api/files/gone.txt?session=main", async () => ({ ok: false, headers: new Map() }));
+  const chip = createFileChip(document, { path: "gone.txt", bytes: 12 }, status, { downloadURL: "unused", openFolder() {} });
+  assert.deepEqual(status, { state: "missing", bytes: null });
+  assert.equal(chip.className, "file-chip missing");
+  assert.equal(chip.children[1].textContent, "missing");
+  assert.equal(chip.children.some((child) => child.textContent === "download"), false);
+  assert.equal(chip.children.at(-1).disabled, true);
+});

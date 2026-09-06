@@ -4,6 +4,7 @@ import { operatorLogEntry } from "./operator-log.js";
 import { createOperatorStatusController, isOperatorStateEvent } from "./operator-status.js";
 import { createThinkingRenderer } from "./reasoning.js";
 import { createSessionResetController } from "./session-reset.js";
+import { createFileChip, fileURL, filesFromResponse, probeFile } from "./deliverables.js";
 
 const binding = document.getElementById("chat-binding");
 const status = document.getElementById("chat-status");
@@ -39,6 +40,7 @@ const thinkingRenderer = createThinkingRenderer({
   formatDuration: formatThoughtSeconds,
 });
 const entryViews = new Map();
+const fileStates = new Map();
 let usedEntryViews = new Set();
 const earlierButton = document.createElement("button");
 earlierButton.type = "button";
@@ -349,9 +351,45 @@ function renderResponse(session, entry) {
     reconcileChildren(itemView.step, stepNodes);
     nodes.push(itemView.step);
   }
+  const files = filesFromResponse(entry.items);
+  if (files.length) {
+    let chips = view.chips;
+    if (!chips) {
+      chips = document.createElement("div");
+      chips.className = "file-chips";
+      view.chips = chips;
+    }
+    chips.replaceChildren(...files.map((file) => renderFileChip(session, file)));
+    nodes.push(chips);
+  }
   reconcileChildren(view.content, nodes);
   for (const key of view.items.keys()) if (!usedItems.has(key)) view.items.delete(key);
   return view.row;
+}
+
+function renderFileChip(session, file) {
+  const key = `${session.id}:${file.path.toLowerCase()}`;
+  let state = fileStates.get(key);
+  if (!state) {
+    state = { state: "checking", bytes: file.bytes };
+    fileStates.set(key, state);
+    probeFile(fileURL(session.id, file.path)).then((next) => {
+      fileStates.set(key, next);
+      schedule();
+    });
+  }
+  return createFileChip(document, file, state, {
+    downloadURL: fileURL(session.id, file.path),
+    openFolder: async () => {
+      try {
+        await api("/api/open-folder", { session_id: session.id, path: file.path });
+      } catch (error) {
+        localNotice = error.message || String(error);
+        localAlarm = true;
+        renderComposer(session);
+      }
+    },
+  });
 }
 
 function speaker(name) {

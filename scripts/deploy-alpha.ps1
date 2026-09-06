@@ -96,8 +96,18 @@ $installerArguments = @(
 	'-Alpha', '-SkipBuild'
 )
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$install = Start-Process -FilePath $powershell -ArgumentList (($installerArguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ') -Verb RunAs -Wait -PassThru
-if ($install.ExitCode -ne 0) { throw "Alpha install failed with exit code $($install.ExitCode)." }
+$installLog = Join-Path ([IO.Path]::GetTempPath()) ("Agent_b-alpha-install-{0}.log" -f [Guid]::NewGuid().ToString('N'))
+$invokeInstaller = '& { Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; & ' +
+	(Quote-ProcessArgument $installer) + ' ' +
+	(($installerArguments | Select-Object -Skip 4 | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ') +
+	'} *> ' + (Quote-ProcessArgument $installLog) + '; if ($?) { exit 0 } else { exit 1 }'
+$encodedInstaller = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($invokeInstaller))
+$install = Start-Process -FilePath $powershell -ArgumentList "-NoLogo -NoProfile -EncodedCommand $encodedInstaller" -Verb RunAs -Wait -PassThru
+if ($install.ExitCode -ne 0) {
+	$detail = if (Test-Path -LiteralPath $installLog -PathType Leaf) { Get-Content -Raw -LiteralPath $installLog } else { 'no installer log was produced' }
+	throw "Alpha install failed with exit code $($install.ExitCode). Log: $installLog`n$detail"
+}
+if (Test-Path -LiteralPath $installLog -PathType Leaf) { Remove-Item -LiteralPath $installLog -Force }
 
 $launcher = Join-Path $applicationRoot 'scripts\launch-Agent_b.ps1'
 if (Test-IsAdministrator) {

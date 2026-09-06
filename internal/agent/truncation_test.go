@@ -74,8 +74,9 @@ func TestLengthDuringToolArgumentsDoesNotEnterToolHistory(t *testing.T) {
 	}
 }
 
-func TestAccountingFailureRepairsMalformedToolCallAndRetriesOnce(t *testing.T) {
+func TestMalformedHistoryRepairPreservesFailureNoteWithoutRestoringFailedAction(t *testing.T) {
 	var rejected atomic.Int32
+	var dispatched atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/apply-template":
@@ -95,6 +96,12 @@ func TestAccountingFailureRepairsMalformedToolCallAndRetriesOnce(t *testing.T) {
 		case "/tokenize":
 			fmt.Fprint(w, `{"tokens":[1,2,3,4]}`)
 		case "/v1/chat/completions":
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			encoded, _ := json.Marshal(body["messages"])
+			dispatched.Store(string(encoded))
 			writeStreamChunk(t, w, map[string]any{
 				"choices": []any{map[string]any{"delta": map[string]any{"content": "Recovered."}, "finish_reason": "stop"}},
 				"usage":   map[string]any{"prompt_tokens": 40, "completion_tokens": 2},
@@ -122,11 +129,21 @@ func TestAccountingFailureRepairsMalformedToolCallAndRetriesOnce(t *testing.T) {
 	if len(messages) != 4 || messages[0].ID != "m-bad" || len(messages[0].ToolCalls) != 0 || messages[1].ID != "m-later" {
 		t.Fatalf("repaired messages=%#v", messages)
 	}
-	if messages[2].Content != truncatedToolCallNote(item.Snapshot().Budget.Reserve, []events.ToolCall{{Name: "write_file"}}) && !strings.Contains(messages[2].Content, "write_file arguments") {
-		t.Fatalf("recovery note=%q", messages[2].Content)
+	wantNote := "reply was cut off at the 10240-token output limit while emitting write_file arguments; the call was not executed."
+	if messages[2].Role != "user" || messages[2].Content != wantNote {
+		t.Fatalf("recovery note=%#v, want %q", messages[2], wantNote)
 	}
 	if messages[3].Content != "Recovered." {
 		t.Fatalf("final=%#v", messages[3])
+	}
+	for _, message := range messages {
+		if len(message.ToolCalls) != 0 || message.ToolCallID == "call-bad" || strings.Contains(message.Content, "invalid JSON arguments") || strings.Contains(message.Content, "<!doctype") {
+			t.Fatalf("failed action was restored to transcript: %#v", message)
+		}
+	}
+	dispatchedMessages, _ := dispatched.Load().(string)
+	if dispatchedMessages == "" || strings.Contains(dispatchedMessages, "call-bad") || strings.Contains(dispatchedMessages, "<!doctype") || !strings.Contains(dispatchedMessages, "cut off") || !strings.Contains(dispatchedMessages, "write_file") {
+		t.Fatalf("dispatched transcript does not preserve only the failure note: %s", dispatchedMessages)
 	}
 	foundBody := false
 	for _, event := range bus.Recent(item.ID) {

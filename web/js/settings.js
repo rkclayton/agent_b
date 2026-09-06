@@ -509,8 +509,9 @@ function sessionControls(active) {
   if (!active) return '<p class="settings-note">No active session.</p>';
   const resetKey = `reset:${active.id}`;
   return `<div class="settings-actions vertical">
-      <button type="button" class="${armed.has(resetKey) ? "confirm" : ""}" data-action="reset-session" data-id="${attr(active.id)}">${armed.has(resetKey) ? "Confirm reset" : "Reset session"}</button>
+      <button type="button" class="${armed.has(resetKey) ? "confirm" : ""}" data-action="reset-session" data-id="${attr(active.id)}">${armed.has(resetKey) ? "Confirm clear" : "Clear conversation"}</button>
     </div>
+    <p class="settings-note">Clears messages and run counters; keeps workspace, profile, enabled tools, and memory.</p>
     ${copyRow("JSONL", active.log_path || "")}`;
 }
 

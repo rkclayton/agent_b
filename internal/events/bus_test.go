@@ -30,6 +30,22 @@ func TestRecentOmitsDiagnosticPayloadsButSinkReceivesThem(t *testing.T) {
 	}
 }
 
+func TestResetSessionClearsOnlyThatRecentProjection(t *testing.T) {
+	bus := NewBus()
+	bus.Publish(New(MessageAppended, "main", "", map[string]any{"message": "old"}))
+	bus.Publish(New(MessageAppended, "other", "", map[string]any{"message": "keep"}))
+	bus.ResetSession("main")
+	bus.Publish(New(SessionReset, "main", "", map[string]any{"session_id": "main"}))
+
+	main := bus.Recent("main")
+	if len(main) != 1 || main[0].Type != SessionReset {
+		t.Fatalf("main recent=%+v, want only reset", main)
+	}
+	if other := bus.Recent("other"); len(other) != 1 || other[0].Type != MessageAppended {
+		t.Fatalf("other recent=%+v, want preserved message", other)
+	}
+}
+
 func TestSinkFailureBecomesOperationalError(t *testing.T) {
 	bus := NewBus()
 	bus.SetSink(func(Event) error { return fmt.Errorf("disk full") })

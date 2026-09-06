@@ -61,16 +61,15 @@ try {
         throw 'Installed application still contains redundant in-page Agent_b branding.'
     }
     if ($indexSource -notmatch '<header class="header window-titlebar">\s+<nav id="tabs"' -or
-        $indexSource.IndexOf('id="stop"') -gt $indexSource.IndexOf('id="chat-launch"') -or
+        $indexSource.IndexOf('id="stop"') -gt $indexSource.IndexOf('id="console-launch"') -or
         $chatSource.IndexOf('id="chat-stop"') -gt $chatSource.IndexOf('id="chat-current"') -or
         $indexSource -notmatch 'class="stop-sign"' -or $chatSource -notmatch 'class="stop-sign"') {
         throw 'Installed application is missing the consolidated tab header or leading stop-sign control.'
     }
-    foreach ($required in @('id="chat-console"', 'id="chat-settings"', 'id="chat-stop"', '/static/assets/Agent_b.ico', '/static/app.webmanifest')) {
+    foreach ($required in @('id="chat-console"', 'id="chat-settings"', 'id="chat-stop"', 'id="chat-clear-conversation"', 'class="identity-status"', '/static/assets/Agent_b.ico', '/static/app.webmanifest')) {
         if ($chatSource -notmatch [regex]::Escape($required)) { throw "Installed Chat view is missing: $required" }
     }
     foreach ($link in @(
-        @{ Source = $indexSource; Pattern = '<a id="chat-launch"[^>]+href="/chat"'; Name = 'Console-to-Chat link' },
         @{ Source = $indexSource; Pattern = '<a id="console-launch"[^>]+href="/"'; Name = 'Console selector' },
         @{ Source = $chatSource; Pattern = '<a id="chat-console"[^>]+href="/"'; Name = 'Chat-to-Console link' },
         @{ Source = $chatSource; Pattern = '<a id="chat-settings"[^>]+href="/#settings/servers"'; Name = 'Chat-to-Settings link' }
@@ -78,7 +77,7 @@ try {
         if ($link.Source -notmatch $link.Pattern) { throw "Installed application is missing its native $($link.Name)." }
     }
     $chatCSS = Get-Content -Raw -LiteralPath (Join-Path $testApplication 'web\css\chat.css')
-    foreach ($required in @('.chat-identity-alarm { grid-row: 2; }', '.chat-budget { grid-row: 3; }', '.chat-log { grid-row: 4; }', '.chat-composer { grid-row: 5; }', '#chat-send {')) {
+    foreach ($required in @('.chat-budget { grid-row: 2; }', '.chat-log { grid-row: 3; }', '.chat-composer { grid-row: 4; }', '#chat-send {')) {
         if ($chatCSS -notmatch [regex]::Escape($required)) { throw "Installed Chat layout is missing: $required" }
     }
     $chatScript = Get-Content -Raw -LiteralPath (Join-Path $testApplication 'web\js\chat.js')

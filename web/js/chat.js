@@ -1,10 +1,14 @@
 import { api, store, subscribe } from "./bus.js";
+import { renderMarkdown } from "./markdown.js";
+import { operatorLogEntry } from "./operator-log.js";
 import { createOperatorStatusController, isOperatorStateEvent } from "./operator-status.js";
 import { createThinkingRenderer, hydrateAgentEntries, modelTurnKey } from "./reasoning.js";
+import { createSessionResetController } from "./session-reset.js";
 
 const binding = document.getElementById("chat-binding");
 const status = document.getElementById("chat-status");
 const stop = document.getElementById("chat-stop");
+const clearConversation = document.getElementById("chat-clear-conversation");
 const operatorStatus = document.getElementById("chat-operator-status");
 const budget = document.getElementById("chat-budget");
 const log = document.getElementById("chat-log");
@@ -55,8 +59,18 @@ jumpButton.onclick = () => {
 const operatorControl = createOperatorStatusController(operatorStatus, {
   identity: () => store.shell_identity,
   interactive: () => !store.replay,
-  confirmEnable: () => window.confirm("Enable operator mode? Tools will run as your Windows account until you turn it off or it expires."),
   setOperatorContext: (enabled) => api("/api/config", { shell: { operator_context: enabled } }),
+  reportError: (message) => {
+    localNotice = message;
+    localAlarm = true;
+    renderComposer(store.sessions[bound]);
+  },
+});
+const resetControl = createSessionResetController(clearConversation, {
+  session: () => store.sessions[bound],
+  interactive: () => !store.replay,
+  confirmClear: (message) => window.confirm(message),
+  reset: (id, force) => api(`/api/sessions/${encodeURIComponent(id)}/reset${force ? "?force=1" : ""}`, {}),
   reportError: (message) => {
     localNotice = message;
     localAlarm = true;
@@ -101,6 +115,7 @@ function render() {
   chatCurrent.href = `/chat${query.size ? `?${query}` : ""}`;
   consoleButton.href = consoleURL();
   settingsButton.href = `${consoleURL()}#settings/servers`;
+  resetControl.render();
   renderIdentityAlarm();
   renderBinding(session);
   renderHeader(session);
@@ -114,7 +129,7 @@ function renderIdentityAlarm() {
   operatorControl.render();
   identityAlarm.hidden = !unavailable;
   identityAlarm.textContent = unavailable
-    ? `SERVICE IDENTITY UNAVAILABLE — tools require explicit operator approval: ${store.shell_identity.reason}`
+    ? `Service identity unavailable · tools require operator approval · ${store.shell_identity.reason}`
     : "";
 }
 
@@ -374,6 +389,7 @@ const noticeTypes = new Set([
   "workspace.conflict",
   "approval.required",
   "memory.noted",
+  "operator.context",
 ]);
 
 function renderEntry(session, entry) {
@@ -555,6 +571,11 @@ function noticeContent(session, entry) {
     content.textContent = `conflict: ${data.path} written by ${data.other_label} ${data.age_s} s ago`;
     content.classList.add("alarm");
   } else if (event.type === "memory.noted") content.textContent = "noted for next session";
+  else if (event.type === "operator.context") {
+    const entry = operatorLogEntry(data);
+    content.textContent = entry.text;
+    if (entry.alarm) content.classList.add("operator-mode-enabled");
+  }
   else if (event.type === "approval.required") {
     content.className += " chat-approval";
     const boundaryEscape = typeof data.boundary_escape === "boolean"
@@ -675,49 +696,6 @@ function keyArgument(args) {
 function capResult(value) {
   const lines = String(value || "").split("\n");
   return lines.length <= 200 ? lines.join("\n") : [...lines.slice(0, 199), "[… open in timeline for the rest]"].join("\n");
-}
-function renderMarkdown(root, text) {
-  const lines = String(text).split("\n");
-  let index = 0;
-  while (index < lines.length) {
-    if (lines[index].startsWith("```")) {
-      const code = [];
-      index++;
-      while (index < lines.length && !lines[index].startsWith("```")) code.push(lines[index++]);
-      index++;
-      const pre = document.createElement("pre");
-      pre.textContent = code.join("\n");
-      root.append(pre);
-    } else if (/^[-*] /.test(lines[index])) {
-      const list = document.createElement("ul");
-      while (index < lines.length && /^[-*] /.test(lines[index])) {
-        const item = document.createElement("li");
-        inline(item, lines[index].slice(2));
-        list.append(item);
-        index++;
-      }
-      root.append(list);
-    } else if (lines[index].trim()) {
-      const paragraph = [];
-      while (index < lines.length && lines[index].trim() && !lines[index].startsWith("```") && !/^[-*] /.test(lines[index])) paragraph.push(lines[index++]);
-      const p = document.createElement("p");
-      inline(p, paragraph.join("\n"));
-      root.append(p);
-    } else index++;
-  }
-}
-function inline(root, text) {
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*)/g;
-  let at = 0;
-  for (const match of text.matchAll(pattern)) {
-    root.append(document.createTextNode(text.slice(at, match.index)));
-    const value = match[0];
-    const node = document.createElement(value.startsWith("`") ? "code" : "strong");
-    node.textContent = value.startsWith("`") ? value.slice(1, -1) : value.slice(2, -2);
-    root.append(node);
-    at = match.index + value.length;
-  }
-  root.append(document.createTextNode(text.slice(at)));
 }
 function signed(value) {
   return `${value < 0 ? "−" : value > 0 ? "+" : "±"}${format(Math.abs(value))}`;

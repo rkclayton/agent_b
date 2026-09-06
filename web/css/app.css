@@ -32,13 +32,6 @@
 .header-action:hover {
   background: rgba(216, 221, 227, 0.12);
 }
-.identity-alarm {
-  padding: 8px 16px;
-  color: var(--well);
-  background: var(--alarm);
-  font-size: 13px;
-  font-weight: 600;
-}
 .icon-button {
   width: 32px;
   padding: 4px;
@@ -960,6 +953,10 @@
 .timeline-inline.workspace-conflict .timeline-head,
 .timeline-inline.run-stopped.fault .timeline-head {
   color: var(--alarm);
+}
+.timeline-inline.operator-mode-enabled .timeline-head {
+  color: var(--well);
+  background: var(--alarm);
 }
 .timeline-inline.approval-required .timeline-head {
   color: var(--ink);

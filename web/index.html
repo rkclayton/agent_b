@@ -14,14 +14,15 @@
     <nav id="tabs" class="tabs" aria-label="Sessions"></nav>
     <span id="mode" class="mode"></span>
     <div id="connection" role="status"></div>
+    <span id="shell-identity-alarm" class="identity-status" role="status" hidden></span>
     <nav class="app-nav" aria-label="Application">
       <button id="stop" class="stop-sign" type="button" aria-label="Stop" title="Stop"><span aria-hidden="true"></span></button>
       <button id="operator-status" class="operator-status" type="button" aria-label="Operator mode off" aria-pressed="false" title="Operator mode off"><img src="/static/assets/operator-off-24.png" srcset="/static/assets/operator-off-48.png 2x" width="24" height="24" alt=""></button>
+      <button id="clear-conversation" class="header-action" type="button">Clear conversation</button>
       <a id="console-launch" class="header-action selected" href="/" aria-current="page">Console</a>
       <button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings">⚙</button>
     </nav>
   </header>
-  <div id="shell-identity-alarm" class="identity-alarm" role="alert" hidden></div>
   <section id="rail" class="rail" aria-label="Context budget"></section>
   <main class="grid">
     <section class="well flow-well">

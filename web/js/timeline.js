@@ -1,6 +1,7 @@
 import { api, store } from "./bus.js";
 import { createPanelState } from "./panel-state.js";
 import { groupToolRuns, toolGroupRange, toolGroupStatus, toolResultText } from "./timeline-groups.js";
+import { operatorLogEntry } from "./operator-log.js";
 
 const states = createPanelState("timeline");
 let rendered = "";
@@ -284,10 +285,9 @@ function inlineRow(session, event, decisions, state) {
   } else if (event.type === "run.queued") {
     text.textContent = `Waiting · position ${data.position}`;
   } else if (event.type === "operator.context") {
-    text.textContent = data.enabled
-      ? `Operator context · on${data.expires_at ? ` · until ${new Date(data.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`
-      : `Operator context · off · ${data.reason || "operator request"}`;
-    if (data.enabled) row.node.classList.add("fault");
+    const entry = operatorLogEntry(data);
+    text.textContent = entry.text;
+    if (entry.alarm) row.node.classList.add("operator-mode-enabled");
   } else if (event.type === "compaction") {
     const affected = data.affected_ids?.length || "",
       delta = (data.after || 0) - (data.before || 0),

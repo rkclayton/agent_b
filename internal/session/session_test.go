@@ -12,7 +12,7 @@ func TestSnapshotCarriesToolCallCounts(t *testing.T) {
 	s.IncrementToolCall("read_file")
 	s.IncrementToolCall("read_file")
 	s.IncrementToolCall("unknown")
-	snapshot := s.Snapshot(nil)
+	snapshot := s.Snapshot()
 	if len(snapshot.Tools) != 1 || snapshot.Tools[0].Calls != 2 || snapshot.Tools[0].SchemaTokens != 42 || snapshot.Tools[0].MarginalTokens != 17 {
 		t.Fatalf("snapshot tools=%+v", snapshot.Tools)
 	}
@@ -24,7 +24,7 @@ func TestSnapshotCarriesRunAggregates(t *testing.T) {
 	s.RecordModelTurn()
 	s.RecordCompaction(-123)
 	s.RecordCompactionModel(400, 50)
-	snapshot := s.Snapshot(nil)
+	snapshot := s.Snapshot()
 	if snapshot.ModelTurns != 2 || snapshot.CompactionCount != 1 || snapshot.CompactionTokenDelta != -123 || snapshot.CompactionModelCalls != 1 || snapshot.CompactionPrompt != 400 || snapshot.CompactionCompletion != 50 {
 		t.Fatalf("snapshot aggregates=%+v", snapshot)
 	}

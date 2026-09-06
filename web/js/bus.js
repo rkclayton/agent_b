@@ -1,19 +1,9 @@
 import { createOperatorReconciler } from "./operator-reconcile.js";
-import { modelTurnKey, trimTimeline } from "./reasoning.js";
-import { applyStreamEvent, hydrateTelemetry } from "./telemetry.js";
 
 export const store = {
-  sessions: {},
-  active: "",
-  servers: [],
-  config: {},
-  flow: { stages: [], edges: [] },
-  tools: [],
-  serving_facts: {},
-	mutation_token: "",
-	shell_credential: { stored: false, stored_at: "" },
-  shell_identity: { fallback: false, operator_approval_required: false, operator_context: false, reason: "", since: "" },
-  replay: false,
+  sessions: {}, active: "", servers: [], config: {}, flow: { stages: [], edges: [] }, tools: [], serving_facts: {},
+  mutation_token: "", shell_credential: { stored: false, stored_at: "" },
+  shell_identity: { fallback: false, operator_approval_required: false, operator_context: false, reason: "", since: "" }, replay: false,
 };
 const listeners = new Set();
 const operatorReconciler = createOperatorReconciler({
@@ -24,427 +14,130 @@ const operatorReconciler = createOperatorReconciler({
   },
   applyIdentity: (identity) => reduce({ type: "shell.identity", data: identity }),
 });
-export function subscribe(fn) {
-  listeners.add(fn);
-  fn(store, { type: "init" });
-  return () => listeners.delete(fn);
-}
-function notify(event) {
-  for (const fn of listeners) fn(store, event);
-}
-function session(event) {
-  return store.sessions[event.session_id];
-}
-function mergeRun(target, patch) {
-  target.run = Object.assign({}, target.run, patch);
-}
-// Keep event-state changes synchronized with internal/events/ReduceReplay.
+export function subscribe(fn) { listeners.add(fn); fn(store, { type: "init" }); return () => listeners.delete(fn); }
+function notify(event) { for (const fn of listeners) fn(store, event); }
+
+// Session state is server-authored. This client applies versioned projection
+// operations; it does not fold raw domain events into session fields.
 export function reduce(event) {
   const data = event.data || {};
   if (event.type === "snapshot") {
     const active = store.active;
     Object.assign(store, data);
-    store.active = store.sessions[active]
-      ? active
-      : Object.keys(store.sessions)[0] || "";
-    for (const value of Object.values(store.sessions)) hydrate(value);
+    store.active = store.sessions[active] ? active : Object.keys(store.sessions)[0] || "";
     operatorReconciler.observed();
     notify(event);
     return;
   }
-  const target = session(event);
+  if (event.type === "projection.patch") {
+    applyProjectionPatch(data);
+    notify(event);
+    return;
+  }
   switch (event.type) {
-    case "session.created":
-      store.sessions[data.session.id] = data.session;
-	  if (store.replay) store.sessions[data.session.id].run.status = "replay";
-      hydrate(data.session);
-      if (!store.active) store.active = data.session.id;
-      break;
-    case "session.renamed":
-      if (target) target.label = data.label;
-      break;
-    case "session.updated":
-      if (target) {
-        target.server_id = data.server_id;
-        target.runnable = data.runnable;
-        target.not_runnable_reason = data.not_runnable_reason;
-        target.memory_path = data.memory_path;
-        target.memory_content = data.memory_content;
-      }
-      break;
-    case "session.reset":
-      if (target) {
-        target.messages = [];
-        target.timeline = [];
-        for (const tool of target.tools || []) tool.calls = 0;
-        target.queued_messages = 0;
-        target.model_turns = 0;
-        target.compaction_count = 0;
-        target.compaction_token_delta = 0;
-        target.compaction_model_calls = 0;
-        target.compaction_prompt_tokens = 0;
-        target.compaction_completion_tokens = 0;
-        mergeRun(target, { status: store.replay ? "replay" : "idle", turn: 0, partial: "", last_stop_reason: "" });
-      }
-      break;
-    case "session.closed":
-	  if (!store.replay) delete store.sessions[data.session_id];
-      if (store.active === data.session_id)
-        store.active = Object.keys(store.sessions)[0] || "";
-      break;
     case "server.probed": {
-      const p = store.servers.find((x) => x.id === data.server_id);
-      if (p) {
-        p.capabilities = data.capabilities;
-        p.reasoning.valid_efforts = data.capabilities?.valid_efforts || [];
-        p._probing = false;
-      }
-	  const configured = store.config.servers?.find((x) => x.id === data.server_id);
-	  if (configured) {
-		configured.capabilities = data.capabilities;
-		configured.reasoning.valid_efforts = data.capabilities?.valid_efforts || [];
-	  }
+      const profile = store.servers.find((value) => value.id === data.server_id);
+      if (profile) { profile.capabilities = data.capabilities; profile.reasoning.valid_efforts = data.capabilities?.valid_efforts || []; profile._probing = false; }
+      const configured = store.config.servers?.find((value) => value.id === data.server_id);
+      if (configured) { configured.capabilities = data.capabilities; configured.reasoning.valid_efforts = data.capabilities?.valid_efforts || []; }
       break;
     }
-    case "config.changed":
-      store.config = data.config;
-      store.servers = data.config.servers || store.servers;
+    case "config.changed": store.config = data.config; store.servers = data.config.servers || store.servers; break;
+    case "shell.identity": store.shell_identity = data; operatorReconciler.observed(); break;
+    case "shell.credential": store.shell_credential = data; break;
+    case "operator.context":
+      store.shell_identity = { ...store.shell_identity, operator_context: !!data.enabled,
+        operator_context_expires_at: data.expires_at || "", reason: data.enabled ? data.reason || store.shell_identity.reason : "" };
+      operatorReconciler.observed();
       break;
-	case "shell.identity":
-		store.shell_identity = data;
-		operatorReconciler.observed();
-		break;
-	case "shell.credential":
-		store.shell_credential = data;
-		break;
-	case "operator.context":
-		store.shell_identity = {
-			...store.shell_identity,
-			operator_context: !!data.enabled,
-			operator_context_expires_at: data.expires_at || "",
-			reason: data.enabled ? data.reason || store.shell_identity.reason : "",
-		};
-		operatorReconciler.observed();
-		break;
-    case "error":
-      store.error = data;
-      break;
-    case "run.queued":
-      if (target)
-        mergeRun(target, {
-		  status: store.replay ? "replay" : "queued",
-          run_id: data.run_id,
-          queue_position: data.position,
-        });
-      break;
-    case "run.started":
-      if (target) {
-        mergeRun(target, {
-          status: store.replay ? "replay" : "running",
-          run_id: data.run_id,
-          turn: 0,
-          queue_position: 0,
-          last_stop_reason: "",
-        });
-        target.queued_messages = Math.max(0, (target.queued_messages || 0) - 1);
-        target._lastStop = "";
-        target._dispatchAlarm = false;
-      }
-      break;
-    case "run.stopped":
-      if (target) {
-        mergeRun(target, { status: store.replay ? "replay" : "idle", partial: "", last_stop_reason: data.reason || "" });
-        target._streamTurnKey = "";
-        target._lastStop = data.reason;
-        target._stage = "wait_user";
-        if (data.reason === "tool_errors") target._dispatchAlarm = true;
-      }
-      break;
-    case "model.request":
-      if (target) {
-        target._streamTurnKey = modelTurnKey(event);
-        applyStreamEvent(target, event);
-      }
-      break;
-    case "stage":
-      if (target) {
-        target._stage = data.state === "enter" ? data.stage : target._stage;
-        target._stageState = data.state;
-        if (data.state === "enter" && data.stage === "assemble")
-          target._completedStages = [];
-        else if (
-          data.state === "exit" &&
-          !target._completedStages.includes(data.stage)
-        )
-          target._completedStages.push(data.stage);
-        target.run.turn = data.turn;
-      }
-      break;
-    case "model.progress":
-      if (target) {
-        target._progress = data;
-        applyStreamEvent(target, event);
-      }
-      break;
-    case "model.delta":
-      if (target) {
-        applyStreamEvent(target, event);
-        if (data.kind === "content")
-          target.run.partial = (target.run.partial || "") + data.text;
-      }
-      break;
-    case "model.response":
-      if (target) {
-        target.model_turns = (target.model_turns || 0) + 1;
-        applyStreamEvent(target, event);
-        target._timings = data.timings;
-        target.run.partial = "";
-      }
-      break;
-    case "tool.call":
-      if (target) target._activeTool = data.name;
-      break;
-    case "tool.result":
-      if (target) {
-        target._activeTool = "";
-        const tool = target.tools.find((x) => x.name === data.name);
-        if (tool) tool.calls = (tool.calls || 0) + 1;
-      }
-      break;
-    case "tool.toggled":
-      if (target) {
-        const tool = target.tools.find((x) => x.name === data.name);
-        if (tool) tool.enabled = data.enabled;
-      }
-      break;
-    case "message.appended":
-      if (target) {
-        // Keep the mutable message projection separate from the immutable event
-        // retained below for History/replay inspection.
-        const message = data.message ? { ...data.message } : data.message;
-        if (message?.category === "summary")
-          target.messages.splice(1, 0, message);
-        else target.messages.push(message);
-        if (data.message?.role === "assistant" && modelTurnKey(event) === target._streamTurnKey)
-          target._streamTurnKey = "";
-      }
-      break;
-    case "message.updated":
-      if (target) {
-        const m = target.messages.find((x) => x.id === data.id);
-        if (m) Object.assign(m, data.patch);
-      }
-      break;
-    case "message.queued":
-      if (target) target.queued_messages = (target.queued_messages || 0) + 1;
-      break;
-    case "budget":
-      if (target) {
-        target.budget = data;
-        for (const tool of target.tools || []) {
-          if (Object.hasOwn(data.tool_schema_tokens || {}, tool.name))
-            tool.schema_tokens = data.tool_schema_tokens[tool.name];
-          if (Object.hasOwn(data.tool_marginal_tokens || {}, tool.name))
-            tool.marginal_tokens = data.tool_marginal_tokens[tool.name];
-        }
-      }
-      break;
-    case "approval.required":
-      if (target) mergeRun(target, { status: "paused" });
-      break;
-    case "approval.decided":
-      if (target) mergeRun(target, { status: "running" });
-      break;
-    case "cycle.detected":
-      if (target) target._dispatchAlarm = true;
-      break;
-    case "workspace.conflict":
-      if (target) {
-        target._alarmTool = target._activeTool;
-        const alarmTarget = target;
-        setTimeout(() => {
-          alarmTarget._alarmTool = "";
-          notify({ type: "rack.alarm.cleared", session_id: alarmTarget.id });
-        }, 600);
-      }
-      break;
-    case "compaction":
-      if (target) {
-        target.compaction_count = (target.compaction_count || 0) + 1;
-        target.compaction_token_delta = (target.compaction_token_delta || 0) + ((data.after || 0) - (data.before || 0));
-      }
-      if (target && data.kind === "summarize") {
-        const removed = new Set(data.affected_ids || []);
-        target.messages = target.messages.filter(
-          (message) => !removed.has(message.id),
-        );
-      }
-      if (target) {
-        target._compacted = true;
-        const compactedTarget = target;
-        setTimeout(() => {
-          compactedTarget._compacted = false;
-          notify({
-            type: "rail.compaction.done",
-            session_id: compactedTarget.id,
-          });
-        }, 160);
-      }
-      break;
-    case "memory.noted":
-	  if (target) {
-		target.memory_path = data.path || target.memory_path;
-		const line = `- ${data.note}`;
-		target.memory_content = target.memory_content
-		  ? `${target.memory_content.trimEnd()}\n${line}\n`
-		  : `${line}\n`;
-      }
-      break;
-    case "compaction.summary":
-      if (target && data.dispatched) {
-        target.compaction_model_calls = (target.compaction_model_calls || 0) + 1;
-        target.compaction_prompt_tokens = (target.compaction_prompt_tokens || 0) + (data.usage?.prompt_tokens || 0);
-        target.compaction_completion_tokens = (target.compaction_completion_tokens || 0) + (data.usage?.completion_tokens || 0);
-      }
-      break;
-  }
-  if (target) {
-    target.timeline = target.timeline || [];
-    target.timeline.push(event);
-    if (!store.replay) target.timeline = trimTimeline(target.timeline, target._streamTurnKey);
-  }
-  if (event.type === "workspace.conflict" && data.other_session_id) {
-    const other = store.sessions[data.other_session_id];
-    if (other && other !== target) {
-      other.timeline = other.timeline || [];
-      other.timeline.push(event);
-      if (other.timeline.length > 500)
-        other.timeline = other.timeline.slice(-500);
-    }
+    case "error": store.error = data; break;
+    default: return;
   }
   notify(event);
 }
-function hydrate(value) {
-  value.messages = value.messages || [];
-  value.timeline = value.timeline || [];
-  value.tools = value.tools || [];
-	value._stage = "";
-	value._completedStages = [];
-	value._activeTool = "";
-	value._streamTurnKey = "";
-	value._streamTelemetry = null;
-	for (const event of value.timeline) {
-	  const data = event.data || {};
-	  if (event.type === "stage") {
-		if (data.state === "enter") {
-		  value._stage = data.stage;
-		  if (data.stage === "assemble") value._completedStages = [];
-		} else if (!value._completedStages.includes(data.stage)) value._completedStages.push(data.stage);
-	  } else if (event.type === "model.request") value._streamTurnKey = modelTurnKey(event);
-	  else if (event.type === "model.progress") value._progress = data;
-	  else if (event.type === "model.response") value._timings = data.timings;
-	  else if (event.type === "tool.call") value._activeTool = data.name;
-	  else if (event.type === "tool.result") value._activeTool = "";
-	  else if (event.type === "message.appended" && data.message?.role === "assistant" && modelTurnKey(event) === value._streamTurnKey) value._streamTurnKey = "";
-	  else if (event.type === "run.stopped") {
-		value._streamTurnKey = "";
-		value._lastStop = data.reason;
-		value._stage = "wait_user";
-		value._stageState = "enter";
-	  }
-	}
-	if (value.run.status === "idle" || value.run.status === "replay") value._streamTurnKey = "";
-	if (!store.replay) value.timeline = trimTimeline(value.timeline, value._streamTurnKey);
-	hydrateTelemetry(value);
-}
-export function setActive(id) {
-  if (store.sessions[id]) {
-    store.active = id;
-    notify({ type: "active.changed", data: { id } });
+
+function applyProjectionPatch(patch) {
+  if (patch.schema_version !== 1) { void resync(); return; }
+  let target = store.sessions[patch.session_id];
+  const previous = patch.previous_cursor || { generation: "", offset: 0 };
+  if (target && !sameCursor(target.cursor, previous)) { void resync(); return; }
+  if (!target) target = store.sessions[patch.session_id] = { id: patch.session_id, cursor: previous };
+  for (const operation of patch.operations || []) {
+    if (!applyOperation(target, operation)) { void resync(); return; }
   }
+  target.cursor = patch.cursor;
+  if (target.closed && !store.replay) {
+    delete store.sessions[patch.session_id];
+    if (store.active === patch.session_id) store.active = Object.keys(store.sessions)[0] || "";
+  } else if (!store.active) store.active = patch.session_id;
 }
+function applyOperation(target, operation) {
+  const parts = String(operation.path || "").split("/").slice(1).map((value) => value.replaceAll("~1", "/").replaceAll("~0", "~"));
+  if (!parts.length || !parts[0]) return false;
+  if (parts.length === 1) {
+    const key = parts[0];
+    if (operation.op === "replace") target[key] = operation.value;
+    else if (operation.op === "append") {
+      if (Array.isArray(target[key])) target[key].push(operation.value);
+      else if (typeof target[key] === "string") target[key] += String(operation.value || "");
+      else return false;
+    } else if (operation.op === "delete") delete target[key];
+    else return false;
+    return true;
+  }
+  if (parts.length === 2 && operation.op === "upsert" && Array.isArray(target[parts[0]])) {
+    const index = target[parts[0]].findIndex((value) => value.key === parts[1] || value.id === parts[1] || value.name === parts[1]);
+    if (index >= 0) target[parts[0]][index] = operation.value;
+    else target[parts[0]].push(operation.value);
+    return true;
+  }
+  let parent = target[parts[0]];
+  if (Array.isArray(parent)) parent = parent.find((value) => value.key === parts[1] || value.id === parts[1] || value.name === parts[1]);
+  else parent = parent?.[parts[1]];
+  const key = parts[2];
+  if (!parent || !key) return false;
+  if (operation.op === "replace") parent[key] = operation.value;
+  else if (operation.op === "append" && typeof parent[key] === "string") parent[key] += String(operation.value || "");
+  else return false;
+  return true;
+}
+function sameCursor(left = {}, right = {}) {
+  return (left.generation || "") === (right.generation || "") && Number(left.offset || 0) === Number(right.offset || 0);
+}
+let resyncing = false;
+async function resync() {
+  if (resyncing) return;
+  resyncing = true;
+  try { reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); }
+  finally { resyncing = false; }
+}
+
+export function setActive(id) { if (store.sessions[id]) { store.active = id; notify({ type: "active.changed", data: { id } }); } }
 export async function api(path, body, method = "POST") {
   const options = { method, headers: {} };
-	if (method !== "GET" && method !== "HEAD")
-		options.headers["X-AgentB-Mutation-Token"] = store.mutation_token;
-  if (body !== undefined) {
-    options.headers["Content-Type"] = "application/json";
-    options.body = JSON.stringify(body);
-  }
+  if (method !== "GET" && method !== "HEAD") options.headers["X-AgentB-Mutation-Token"] = store.mutation_token;
+  if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
   const response = await fetch(path, options);
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-	const error = new Error(data.error || `HTTP ${response.status}`);
-	error.field = data.field || "";
-	error.status = response.status;
-	error.data = data;
-	throw error;
-  }
+  if (!response.ok) { const error = new Error(data.error || `HTTP ${response.status}`); error.field = data.field || ""; error.status = response.status; error.data = data; throw error; }
   return data;
 }
+
 const connection = document.getElementById("connection");
 let reconnected = false;
-const source = new EventSource("/api/events");
+const eventSearch = typeof location === "undefined" ? "" : location.search;
+const eventURL = new URLSearchParams(eventSearch).get("instant") === "1" ? "/api/events?instant=1" : "/api/events";
+const source = new EventSource(eventURL);
 source.onopen = () => {
-  if (reconnected && connection) {
-    connection.textContent = "reconnected";
-    connection.className = "";
-    setTimeout(() => {
-      connection.textContent = "";
-    }, 3000);
-  }
+  if (reconnected && connection) { connection.textContent = "reconnected"; connection.className = ""; setTimeout(() => { connection.textContent = ""; }, 3000); }
   reconnected = true;
   void operatorReconciler.reconcile().catch(() => {});
 };
-source.onerror = () => {
-  if (connection) {
-    connection.textContent = "connection lost — retrying";
-    connection.className = "alarm";
-  }
-};
+source.onerror = () => { if (connection) { connection.textContent = "connection lost — retrying"; connection.className = "alarm"; } };
 source.onmessage = (event) => reduce(JSON.parse(event.data));
-for (const type of [
-  "snapshot",
-  "session.created",
-  "session.renamed",
-  "session.updated",
-  "session.reset",
-  "session.closed",
-  "server.probed",
-  "config.changed",
-	"shell.identity",
-	"shell.credential",
-	"operator.context",
-  "error",
-  "run.queued",
-  "run.started",
-  "run.stopped",
-  "stage",
-  "model.request",
-  "model.progress",
-  "model.delta",
-  "model.response",
-  "tool.call",
-  "tool.result",
-  "tool.toggled",
-  "message.appended",
-  "message.updated",
-  "message.queued",
-  "budget",
-  "approval.required",
-  "approval.decided",
-  "cycle.detected",
-  "workspace.conflict",
-  "compaction",
-  "compaction.summary",
-  "memory.noted",
-]) {
+for (const type of ["snapshot", "projection.patch", "server.probed", "config.changed", "shell.identity", "shell.credential", "operator.context", "error"])
   source.addEventListener(type, (event) => reduce(JSON.parse(event.data)));
-}
-
-function reconcileVisibleClient() {
-  if (!document.hidden) void operatorReconciler.reconcile().catch(() => {});
-}
+function reconcileVisibleClient() { if (!document.hidden) void operatorReconciler.reconcile().catch(() => {}); }
 document.addEventListener("visibilitychange", reconcileVisibleClient);
 window.addEventListener("focus", reconcileVisibleClient);
 window.addEventListener("pageshow", reconcileVisibleClient);

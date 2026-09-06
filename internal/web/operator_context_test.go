@@ -210,6 +210,8 @@ func TestServiceIdentityCannotDisableItsOwnSplit(t *testing.T) {
 
 func TestOperatorContextIsRuntimeOnlyAndExpiresAfterIdleTimeout(t *testing.T) {
 	server, shell, path := operatorTestServer(t)
+	eventStream, unsubscribe := server.bus.Subscribe()
+	defer unsubscribe()
 	server.operatorRequest = func(*http.Request) error { return nil }
 	clock := useFakeOperatorClock(server)
 
@@ -232,7 +234,7 @@ func TestOperatorContextIsRuntimeOnlyAndExpiresAfterIdleTimeout(t *testing.T) {
 	if shell.IdentityStatus().OperatorContext || server.ConfigSnapshot().Shell.OperatorContext {
 		t.Fatal("operator context did not expire")
 	}
-	eventsSeen := server.bus.Recent("")
+	eventsSeen := drainTestEvents(eventStream, "")
 	var enabled, disabled bool
 	for _, event := range eventsSeen {
 		if event.Type != events.OperatorContext {

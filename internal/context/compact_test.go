@@ -31,8 +31,8 @@ func TestSummarizeRejectsContextGrowth(t *testing.T) {
 		t.Fatal("growing summary was accepted")
 	}
 	after := item.MessagesCopy()
-	if len(after) != len(before) || item.Snapshot(nil).CompactionCount != 0 {
-		t.Fatalf("rejected summary mutated session: messages=%d compactions=%d", len(after), item.Snapshot(nil).CompactionCount)
+	if len(after) != len(before) || item.Snapshot().CompactionCount != 0 {
+		t.Fatalf("rejected summary mutated session: messages=%d compactions=%d", len(after), item.Snapshot().CompactionCount)
 	}
 }
 
@@ -44,7 +44,7 @@ func TestSummarizeRecordsReduction(t *testing.T) {
 	if !New(events.NewBus()).Summarize(item, "run", events.Message{ID: "summary", Tokens: 1}, events.CompactionSummaryData{}) {
 		t.Fatal("reducing summary was rejected")
 	}
-	snapshot := item.Snapshot(nil)
+	snapshot := item.Snapshot()
 	if snapshot.CompactionCount != 1 || snapshot.CompactionTokenDelta >= 0 {
 		t.Fatalf("compaction aggregate=%+v", snapshot)
 	}

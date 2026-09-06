@@ -70,7 +70,7 @@ func (g *Gate) beginWait(s *session.Session, callID string) (approvalWait, func(
 		delete(g.waiting, key)
 		g.mu.Unlock()
 	}
-	state := s.Snapshot(nil).Run
+	state := s.Snapshot().Run
 	state.Status = "paused"
 	s.SetRun(state)
 	return wait, cleanup
@@ -102,7 +102,7 @@ func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, cal
 	case decision = <-wait.decision:
 	}
 	g.bus.Publish(events.New(events.ApprovalDecided, s.ID, runID, map[string]any{"call_id": callID, "decision": decision}))
-	state := s.Snapshot(nil).Run
+	state := s.Snapshot().Run
 	state.Status = "running"
 	s.SetRun(state)
 	return decision == "approve", nil

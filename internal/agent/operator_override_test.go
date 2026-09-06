@@ -108,7 +108,7 @@ func testOperatorOverrideRequiresApproval(t *testing.T, approvalMode string) {
 	if !ok || args["command"] != "Set-Content protected.txt value" || args["scope"] != "rerun this exact command once" {
 		t.Fatalf("approval args=%#v", data["args"])
 	}
-	if status := s.Snapshot(nil).Run.Status; status != "paused" {
+	if status := s.Snapshot().Run.Status; status != "paused" {
 		t.Fatalf("run status=%q, want paused", status)
 	}
 	if err := runner.gate.Decide(s.ID, "call:operator", "approve"); err != nil {

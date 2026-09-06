@@ -68,7 +68,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 	if !ok {
 		return "profile_not_runnable", "profile not found", 0
 	}
-	snapshot := s.Snapshot(nil)
+	snapshot := s.Snapshot()
 	if !snapshot.Runnable {
 		return "profile_not_runnable", snapshot.NotRunnableReason, 0
 	}
@@ -88,7 +88,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (str
 			return "profile_not_runnable", "profile not found", turn - 1
 		}
 		client := llm.New(profile)
-		state := s.Snapshot(nil).Run
+		state := s.Snapshot().Run
 		state.Turn = turn
 		s.SetRun(state)
 		enabled := s.EnabledTools()
@@ -486,8 +486,8 @@ func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID str
 		}
 	}
 	if changed {
-		r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "compact", "state": "enter", "turn": s.Snapshot(nil).Run.Turn, "ms": 0}))
-		r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "compact", "state": "exit", "turn": s.Snapshot(nil).Run.Turn, "ms": 0}))
+		r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "compact", "state": "enter", "turn": s.Snapshot().Run.Turn, "ms": 0}))
+		r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "compact", "state": "exit", "turn": s.Snapshot().Run.Turn, "ms": 0}))
 	}
 	return changed
 }

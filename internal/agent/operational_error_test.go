@@ -13,8 +13,8 @@ import (
 )
 
 func TestOperationalErrorIsPublished(t *testing.T) {
-	bus := events.NewBus()
-	runner := &Runner{bus: bus}
+	bus := newCapturedBus()
+	runner := &Runner{bus: bus.Bus}
 	runner.operationalError(&session.Session{ID: "main"}, "run", "budget", fmt.Errorf("tokenizer unavailable"))
 	recent := bus.Recent("main")
 	if len(recent) != 1 || recent[0].Type != events.Error {

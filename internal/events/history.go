@@ -57,6 +57,37 @@ type historyIndex struct {
 	calls     map[string]HistoryCall
 }
 
+// HistoryArchive is a non-model projection of compacted/elided message lineage.
+// It retains replay bodies independently of SessionSnapshot.Messages.
+type HistoryArchive struct{ index *historyIndex }
+
+func NewHistoryArchive() *HistoryArchive { return &HistoryArchive{index: newHistoryIndex()} }
+func (a *HistoryArchive) Record(event Event) {
+	if event.Type == SessionReset {
+		a.index = newHistoryIndex()
+		return
+	}
+	data := valueMap(event.Data)
+	switch event.Type {
+	case MessageAppended:
+		var wrapper struct {
+			Message Message `json:"message"`
+		}
+		if decodeValue(event.Data, &wrapper) == nil {
+			a.index.append(wrapper.Message, historyLocation{}, true)
+		}
+	case MessageUpdated:
+		a.index.update(valueString(data["id"]), valueMap(data["patch"]))
+	case Compaction:
+		if valueString(data["kind"]) == "summarize" {
+			a.index.compact(valueString(data["summary_message_id"]), valueStrings(data["affected_ids"]))
+		}
+	}
+}
+func (a *HistoryArchive) Resolve(ref string) (HistoryLookup, error) {
+	return a.index.resolveReplay(ref)
+}
+
 func newHistoryIndex() *historyIndex {
 	return &historyIndex{
 		records:   map[string]historyRecord{},
@@ -91,7 +122,7 @@ func (h *historyIndex) append(message Message, location historyLocation, keepFul
 }
 
 func (h *historyIndex) update(id string, patch map[string]any) {
-	if replayBool(patch["elided"]) {
+	if valueBool(patch["elided"]) {
 		h.elided[id] = true
 	}
 }
@@ -104,25 +135,6 @@ func (h *historyIndex) compact(summaryID string, affected []string) {
 	h.lineage[summaryID] = append([]string(nil), affected...)
 	for _, id := range affected {
 		h.compacted[id] = true
-	}
-}
-
-func (h *historyIndex) recordReplay(event Event) {
-	data := replayMap(event.Data)
-	switch event.Type {
-	case MessageAppended:
-		var wrapper struct {
-			Message Message `json:"message"`
-		}
-		if decodeReplay(event.Data, &wrapper) == nil {
-			h.append(wrapper.Message, historyLocation{}, true)
-		}
-	case MessageUpdated:
-		h.update(replayString(data["id"]), replayMap(data["patch"]))
-	case Compaction:
-		if replayString(data["kind"]) == "summarize" {
-			h.compact(replayString(data["summary_message_id"]), replayStrings(data["affected_ids"]))
-		}
 	}
 }
 

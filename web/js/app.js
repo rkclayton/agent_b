@@ -38,9 +38,10 @@ subscribe((_state, event) => {
     setActive(id);
     return;
   }
-  // Stream traffic only changes the Activity readout. Avoid rebuilding History
-  // and State rows while the model is producing tokens or prompt progress.
-  if (event.type === "model.delta" || event.type === "model.progress") {
+  // Incremental text projection changes only the live Activity readout on Console.
+  // Chat consumes the same patch independently; avoid rebuilding History/State.
+  if (event.type === "projection.patch" && (event.data?.operations || []).some((operation) =>
+    operation.path === "/run/partial" || /^\/chat\/[^/]+\/(reasoning|text)$/.test(operation.path))) {
     scheduleFlowRender();
     return;
   }
@@ -61,7 +62,7 @@ function scheduleFlowRender() {
 }
 setInterval(() => {
   const session = store.sessions[store.active];
-  if (session && session.run.status === "running" && session._stage === "call_model")
+  if (session && session.run.status === "running" && session.activity?.stage === "call_model")
     scheduleFlowRender();
 }, 1000);
 

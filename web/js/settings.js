@@ -66,7 +66,7 @@ export function initSettings() {
   });
   subscribe((_state, event) => {
     if (
-      open &&
+      open && (
       [
         "init",
         "snapshot",
@@ -75,18 +75,8 @@ export function initSettings() {
 		"shell.identity",
 		"shell.credential",
         "server.probed",
-        "session.created",
-        "session.renamed",
-        "session.updated",
-        "session.closed",
-        "session.reset",
-        "memory.noted",
-        "run.started",
-        "run.stopped",
-        "tool.result",
-        "tool.toggled",
-		"budget",
-      ].includes(event.type)
+      ].includes(event.type) || (event.type === "projection.patch" && (event.data?.operations || []).some((operation) =>
+        ["/label", "/server_id", "/runnable", "/not_runnable_reason", "/tools", "/memory_path", "/memory_content", "/budget", "/closed"].includes(operation.path))))
     )
       render();
     if (open && event.type === "snapshot") {
@@ -872,12 +862,10 @@ async function change(event) {
   if (!select) return;
   const id = select.dataset.sessionServer;
   try {
-    const result = await api(`/api/sessions/${encodeURIComponent(id)}`, { server_id: select.value });
+    await api(`/api/sessions/${encodeURIComponent(id)}`, { server_id: select.value });
     errors.delete(`session.${id}`);
-    if (result.session) {
-      reduce({ type: "session.updated", session_id: id, data: result.session });
-      setActive(id);
-    }
+    reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+    setActive(id);
   } catch (error) {
     errors.set(`session.${id}`, error.message);
     render();
@@ -1000,7 +988,7 @@ async function newSession() {
   };
   try {
     const result = await api("/api/sessions", body);
-    reduce({ type: "session.created", session_id: result.session.id, data: { session: result.session } });
+    reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
     setActive(result.session.id);
   } catch (error) {
     errors.set("new-session", error.message);

@@ -32,7 +32,6 @@ type Snapshot struct {
 	Tools                []ToolState      `json:"tools"`
 	Messages             []events.Message `json:"messages"`
 	Budget               events.Budget    `json:"budget"`
-	Timeline             []events.Event   `json:"timeline"`
 	QueuedMessages       int              `json:"queued_messages"`
 	Runnable             bool             `json:"runnable"`
 	NotRunnableReason    string           `json:"not_runnable_reason"`
@@ -72,7 +71,7 @@ type Session struct {
 	mu                             sync.Mutex
 }
 
-func (s *Session) Snapshot(timeline []events.Event) Snapshot {
+func (s *Session) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tools := make([]ToolState, 0, len(s.ToolsEnabled))
@@ -82,7 +81,7 @@ func (s *Session) Snapshot(timeline []events.Event) Snapshot {
 			tools = append(tools, ToolState{Name: name, Enabled: enabled, Calls: s.ToolCalls[name], SchemaTokens: s.SchemaTokens[name], MarginalTokens: s.MarginalTokens[name]})
 		}
 	}
-	return Snapshot{ID: s.ID, Label: s.Label, ServerID: s.ServerID, Workspace: s.Workspace, Run: s.Run, Tools: tools, Messages: append([]events.Message{}, s.Messages...), Budget: s.Budget, Timeline: timeline, QueuedMessages: s.queuedMessages, Runnable: s.Runnable, NotRunnableReason: s.NotRunnableReason, MemoryPath: s.MemoryPath, MemoryContent: s.MemoryBlock, LogPath: s.LogPath, ModelTurns: s.modelTurns, CompactionCount: s.compactionCount, CompactionTokenDelta: s.compactionTokenDelta, CompactionModelCalls: s.compactionModelCalls, CompactionPrompt: s.compactionPrompt, CompactionCompletion: s.compactionCompletion}
+	return Snapshot{ID: s.ID, Label: s.Label, ServerID: s.ServerID, Workspace: s.Workspace, Run: s.Run, Tools: tools, Messages: append([]events.Message{}, s.Messages...), Budget: s.Budget, QueuedMessages: s.queuedMessages, Runnable: s.Runnable, NotRunnableReason: s.NotRunnableReason, MemoryPath: s.MemoryPath, MemoryContent: s.MemoryBlock, LogPath: s.LogPath, ModelTurns: s.modelTurns, CompactionCount: s.compactionCount, CompactionTokenDelta: s.compactionTokenDelta, CompactionModelCalls: s.compactionModelCalls, CompactionPrompt: s.compactionPrompt, CompactionCompletion: s.compactionCompletion}
 }
 func (s *Session) IsRunning() bool {
 	s.mu.Lock()

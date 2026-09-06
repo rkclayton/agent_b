@@ -122,7 +122,7 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 }
 func (s *Scheduler) repositionLocked() {
 	for index, entry := range s.queue {
-		state := entry.s.Snapshot(nil).Run
+		state := entry.s.Snapshot().Run
 		state.QueuePosition = index + 1
 		entry.s.SetRun(state)
 	}

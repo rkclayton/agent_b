@@ -23,6 +23,8 @@ func TestSessionServerReassignment(t *testing.T) {
 	cfg.Servers = append(cfg.Servers, second, config.Profile{ID: "incomplete", Label: "Incomplete"})
 
 	bus := events.NewBus()
+	eventStream, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
 	writers, err := events.NewWriters(filepath.Join(root, "logs"))
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +62,7 @@ func TestSessionServerReassignment(t *testing.T) {
 	if body.Session.Budget.NCtx != 32768 || body.Session.Budget.Reserve != 2048 {
 		t.Fatalf("budget was not reset for selected profile: %+v", body.Session.Budget)
 	}
-	recent := bus.Recent(item.ID)
+	recent := drainTestEvents(eventStream, item.ID)
 	if recent[len(recent)-1].Type != events.SessionUpdated {
 		t.Fatalf("last event=%q, want %q", recent[len(recent)-1].Type, events.SessionUpdated)
 	}
@@ -70,7 +72,7 @@ func TestSessionServerReassignment(t *testing.T) {
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "session is running") {
 		t.Fatalf("running status=%d body=%s", response.Code, response.Body)
 	}
-	if snapshot := item.Snapshot(nil); snapshot.ServerID != "second" {
+	if snapshot := item.Snapshot(); snapshot.ServerID != "second" {
 		t.Fatalf("running update changed server to %q", snapshot.ServerID)
 	}
 

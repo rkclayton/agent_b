@@ -20,6 +20,13 @@ type Writers struct {
 	history    map[string]*historyIndex
 }
 
+// LogCursor identifies a complete record boundary in one JSONL generation.
+type LogCursor struct {
+	Generation string `json:"generation"`
+	Offset     int64  `json:"offset"`
+	Path       string `json:"-"`
+}
+
 func NewWriters(dir string) (*Writers, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -32,31 +39,39 @@ func NewWriters(dir string) (*Writers, error) {
 	return &Writers{dir: dir, start: stamp, global: file, sessions: map[string]*os.File{}, paths: map[string]string{}, sizes: map[string]int64{}, history: map[string]*historyIndex{}}, nil
 }
 func (w *Writers) OpenSession(id string) (string, error) {
+	path, _, err := w.RotateSession(id)
+	return path, err
+}
+
+// RotateSession opens a new generation and returns the durable end of its predecessor.
+// An empty predecessor is meaningful for a session's first generation.
+func (w *Writers) RotateSession(id string) (string, LogCursor, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	predecessor := LogCursor{Generation: filepath.Base(w.paths[id]), Offset: w.sizes[id], Path: w.paths[id]}
 	if old := w.sessions[id]; old != nil {
 		if err := old.Sync(); err != nil {
-			return "", err
+			return "", LogCursor{}, err
 		}
 		if err := old.Close(); err != nil {
-			return "", err
+			return "", LogCursor{}, err
 		}
 	}
-	path := filepath.Join(w.dir, fmt.Sprintf("%s-%s.jsonl", id, time.Now().UTC().Format("20060102T150405.000Z")))
+	path := filepath.Join(w.dir, fmt.Sprintf("%s-%s.jsonl", id, time.Now().UTC().Format("20060102T150405.000000000Z")))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
-		return "", err
+		return "", LogCursor{}, err
 	}
 	info, err := file.Stat()
 	if err != nil {
 		_ = file.Close()
-		return "", err
+		return "", LogCursor{}, err
 	}
 	w.sessions[id] = file
 	w.paths[id] = path
 	w.sizes[id] = info.Size()
 	w.history[id] = newHistoryIndex()
-	return path, nil
+	return path, predecessor, nil
 }
 func (w *Writers) CloseSession(id string) error {
 	w.mu.Lock()
@@ -79,35 +94,58 @@ func (w *Writers) CloseSession(id string) error {
 	return closeErr
 }
 func (w *Writers) Write(event Event) error {
+	_, err := w.WriteRecord(event)
+	return err
+}
+
+// WriteRecord returns a cursor only after a complete JSONL record was appended.
+func (w *Writers) WriteRecord(event Event) (LogCursor, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	file := w.global
+	path := ""
 	if event.SessionID != "" && w.sessions[event.SessionID] != nil {
 		file = w.sessions[event.SessionID]
+		path = w.paths[event.SessionID]
 	}
 	data, err := json.Marshal(event)
 	if err != nil {
-		return err
+		return LogCursor{}, err
 	}
 	line := append(data, '\n')
 	offset := w.sizes[event.SessionID]
 	written, err := file.Write(line)
-	if event.SessionID != "" && file == w.sessions[event.SessionID] {
-		w.sizes[event.SessionID] += int64(written)
-	}
 	if err != nil {
-		return err
+		return LogCursor{}, err
 	}
 	if written != len(line) {
-		return io.ErrShortWrite
+		return LogCursor{}, io.ErrShortWrite
+	}
+	if event.SessionID != "" && file == w.sessions[event.SessionID] {
+		w.sizes[event.SessionID] += int64(written)
 	}
 	if index := w.history[event.SessionID]; index != nil {
 		index.record(event, historyLocation{path: w.paths[event.SessionID], offset: offset, length: written})
 	}
 	if event.Type == "run.stopped" {
-		return file.Sync()
+		if err := file.Sync(); err != nil {
+			return LogCursor{}, err
+		}
 	}
-	return nil
+	if event.SessionID == "" || path == "" {
+		return LogCursor{}, nil
+	}
+	return LogCursor{Generation: filepath.Base(path), Offset: offset + int64(written), Path: path}, nil
+}
+
+func (w *Writers) SessionCursors() map[string]LogCursor {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	result := make(map[string]LogCursor, len(w.paths))
+	for id, path := range w.paths {
+		result[id] = LogCursor{Generation: filepath.Base(path), Offset: w.sizes[id], Path: path}
+	}
+	return result
 }
 
 func (w *Writers) ResolveHistory(sessionID, ref string) (HistoryLookup, error) {
@@ -138,20 +176,20 @@ func (w *Writers) ResolveHistory(sessionID, ref string) (HistoryLookup, error) {
 }
 
 func (h *historyIndex) record(event Event, location historyLocation) {
-	data := replayMap(event.Data)
+	data := valueMap(event.Data)
 	switch event.Type {
 	case MessageAppended:
 		var wrapper struct {
 			Message Message `json:"message"`
 		}
-		if decodeReplay(event.Data, &wrapper) == nil {
+		if decodeValue(event.Data, &wrapper) == nil {
 			h.append(wrapper.Message, location, false)
 		}
 	case MessageUpdated:
-		h.update(replayString(data["id"]), replayMap(data["patch"]))
+		h.update(valueString(data["id"]), valueMap(data["patch"]))
 	case Compaction:
-		if replayString(data["kind"]) == "summarize" {
-			h.compact(replayString(data["summary_message_id"]), replayStrings(data["affected_ids"]))
+		if valueString(data["kind"]) == "summarize" {
+			h.compact(valueString(data["summary_message_id"]), valueStrings(data["affected_ids"]))
 		}
 	}
 }
@@ -176,7 +214,7 @@ func readHistoryMessage(location historyLocation) (Message, error) {
 	var wrapper struct {
 		Message Message `json:"message"`
 	}
-	if err := decodeReplay(event.Data, &wrapper); err != nil {
+	if err := decodeValue(event.Data, &wrapper); err != nil {
 		return Message{}, err
 	}
 	return wrapper.Message, nil

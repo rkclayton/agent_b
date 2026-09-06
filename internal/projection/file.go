@@ -20,7 +20,11 @@ func ReadFile(path string, through int64) ([]Record, int64, error) {
 		return nil, 0, err
 	}
 	defer file.Close()
-	return read(filepath.Base(path), file, through)
+	var source io.Reader = file
+	if through > 0 {
+		source = io.LimitReader(file, through)
+	}
+	return read(filepath.Base(path), source, through)
 }
 
 func ProjectFile(path string, through int64) (Snapshot, []Patch, error) {
@@ -29,6 +33,14 @@ func ProjectFile(path string, through int64) (Snapshot, []Patch, error) {
 		return Snapshot{}, nil, err
 	}
 	state := Empty(sessionID(records))
+	if predecessor, ok := predecessorCursor(records); ok {
+		previousPath := filepath.Join(filepath.Dir(path), predecessor.Generation)
+		previous, _, previousErr := ProjectFile(previousPath, predecessor.Offset)
+		if previousErr != nil {
+			return Snapshot{}, nil, fmt.Errorf("project predecessor %s at byte %d: %w", previousPath, predecessor.Offset, previousErr)
+		}
+		state = previous
+	}
 	patches := make([]Patch, 0, len(records))
 	for _, record := range records {
 		next, patch, nextErr := Next(state, record)
@@ -44,6 +56,16 @@ func ProjectFile(path string, through int64) (Snapshot, []Patch, error) {
 	return state, patches, nil
 }
 
+func predecessorCursor(records []Record) (Cursor, bool) {
+	if len(records) == 0 || records[0].Event.Type != events.SessionReset {
+		return Cursor{}, false
+	}
+	data := eventMap(records[0].Event.Data)
+	value := eventMap(data["predecessor"])
+	cursor := Cursor{Generation: stringValue(value["generation"]), Offset: int64(intValue(value["offset"]))}
+	return cursor, cursor.Generation != "" && cursor.Offset > 0
+}
+
 func read(generation string, source io.Reader, through int64) ([]Record, int64, error) {
 	reader := bufio.NewReaderSize(source, 64*1024)
 	result := []Record{}
@@ -52,6 +74,9 @@ func read(generation string, source io.Reader, through int64) ([]Record, int64, 
 	for {
 		chunk, err := reader.ReadBytes('\n')
 		if len(chunk) > 0 {
+			if err == io.EOF && through > 0 && chunk[len(chunk)-1] != '\n' {
+				return nil, offset, fmt.Errorf("byte offset %d is not a JSONL record boundary", through)
+			}
 			line++
 			if len(chunk) > maxRecordBytes {
 				return nil, offset, fmt.Errorf("line %d exceeds %d bytes", line, maxRecordBytes)

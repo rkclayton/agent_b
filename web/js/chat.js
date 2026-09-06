@@ -2,7 +2,7 @@ import { api, store, subscribe } from "./bus.js";
 import { renderMarkdown } from "./markdown.js";
 import { operatorLogEntry } from "./operator-log.js";
 import { createOperatorStatusController, isOperatorStateEvent } from "./operator-status.js";
-import { createThinkingRenderer, hydrateAgentEntries, modelTurnKey } from "./reasoning.js";
+import { createThinkingRenderer } from "./reasoning.js";
 import { createSessionResetController } from "./session-reset.js";
 
 const binding = document.getElementById("chat-binding");
@@ -224,116 +224,7 @@ function reconcileChildren(parent, nodes) {
 }
 
 function buildEntries(session) {
-  const entries = [];
-  const turns = new Map();
-  const calls = new Map();
-  const decisions = new Map();
-  const userMessageIDs = new Set();
-  for (const event of session.timeline || []) {
-    const data = event.data || {};
-    const turnKey = `${event.run_id}:${data.turn}`;
-    if (event.type === "message.appended" && data.message?.role === "user") {
-      entries.push({ type: "user", key: `message:${data.message.id}`, text: data.message.content });
-      userMessageIDs.add(data.message.id);
-    } else if (event.type === "model.request") {
-      const entry = { type: "agent", key: `turn:${turnKey}`, text: "", reasoning: "", reasoningTokens: 0, thinkingStartedMS: 0, thinkingEndedMS: 0, thinkingMS: null, done: false };
-      turns.set(turnKey, entry);
-      entries.push(entry);
-    } else if (event.type === "model.delta") {
-      let entry = turns.get(turnKey);
-      if (!entry && activeModelTurn(session, event)) {
-        entry = { type: "agent", key: `turn:${turnKey}`, text: "", reasoning: "", reasoningTokens: 0, thinkingStartedMS: 0, thinkingEndedMS: 0, thinkingMS: null, done: false };
-        turns.set(turnKey, entry);
-        entries.push(entry);
-      }
-      if (entry) {
-        if (data.kind === "reasoning") {
-          if (!entry.thinkingStartedMS) entry.thinkingStartedMS = eventTime(event);
-          entry.reasoning += data.text || "";
-        } else {
-          if (entry.thinkingStartedMS && !entry.thinkingEndedMS) entry.thinkingEndedMS = eventTime(event);
-          if (data.kind === "content") entry.text += data.text || "";
-        }
-      }
-    } else if (event.type === "model.response") {
-      let entry = turns.get(turnKey);
-      if (!entry) {
-        entry = { type: "agent", key: `turn:${turnKey}`, text: "", reasoning: "", reasoningTokens: 0, thinkingStartedMS: 0, thinkingEndedMS: 0, thinkingMS: null, done: false };
-        turns.set(turnKey, entry);
-        entries.push(entry);
-      }
-      entry.text = data.content || entry.text;
-      entry.toolCallIDs = (data.tool_calls || []).map((call) => call.id);
-      entry.reasoningTokens = data.reasoning_tokens || 0;
-      entry.reasoningTokensEstimated = !!data.reasoning_tokens_estimated;
-      if (entry.thinkingStartedMS && !entry.thinkingEndedMS) entry.thinkingEndedMS = eventTime(event);
-      entry.thinkingMS = entry.thinkingStartedMS && entry.thinkingEndedMS
-        ? Math.max(0, entry.thinkingEndedMS - entry.thinkingStartedMS)
-        : entry.reasoningTokens > 0 ? data.duration_ms || null : null;
-      entry.done = true;
-    } else if (event.type === "tool.call") {
-      const entry = { type: "tool", key: `tool:${data.call_id}`, callID: data.call_id, name: data.name, args: data.args || {}, result: null };
-      calls.set(data.call_id, entry);
-      entries.push(entry);
-    } else if (event.type === "tool.result") {
-      const entry = calls.get(data.call_id);
-      if (entry) entry.result = data;
-    } else if (event.type === "approval.decided") {
-      decisions.set(data.call_id, data.decision);
-    } else if (noticeTypes.has(event.type)) {
-	  if (event.type === "run.stopped")
-		for (const [key, turn] of turns) if (key.startsWith(`${event.run_id}:`)) turn.done = true;
-      entries.push({ type: "notice", key: `event:${event.seq}`, event, decisions });
-    }
-  }
-  for (const entry of entries) {
-    if (entry.type !== "tool") continue;
-    entry.content = (session.messages || []).find((message) => message.tool_call_id === entry.callID)?.content || entry.result?.preview || "";
-  }
-  // The live timeline is a bounded tail. Rebuild messages that aged out as one
-  // ordered prefix; separating user and assistant fallbacks destroys turn order.
-  const matchedMessages = hydrateAgentEntries(entries, session.messages || []);
-  const callDetails = messageCallDetails(session.messages || []);
-  const missing = [];
-  for (let index = (session.messages || []).length - 1; index >= 0; index--) {
-    const message = session.messages[index];
-    if (message.role === "user") {
-      if (userMessageIDs.has(message.id)) continue;
-      missing.push({ type: "user", key: `message:${message.id}`, text: message.content });
-    } else if (message.role === "assistant") {
-      if (matchedMessages.has(message)) continue;
-      if (message.content || message.reasoning) {
-        const tokens = Math.ceil(Array.from(message.reasoning || "").length / 3.6);
-        const rate = Number(session._timings?.predicted_per_second || 0);
-        missing.push({
-          type: "agent",
-          key: `message:${message.id}`,
-          text: message.content || "",
-          reasoning: message.reasoning || "",
-          reasoningTokens: 0,
-          thinkingMS: tokens > 0 && rate > 0 ? (tokens / rate) * 1000 : null,
-          thinkingEstimated: tokens > 0,
-          done: true,
-        });
-      }
-    } else if (message.role === "tool" && !calls.has(message.tool_call_id)) {
-      const detail = callDetails.get(message.tool_call_id) || {};
-      const content = message.content || "";
-      missing.push({
-        type: "tool",
-        key: `tool-message:${message.id}`,
-        callID: message.tool_call_id,
-        name: message.name || detail.name || "tool",
-        args: detail.args || {},
-        content,
-        result: { ok: typeof message.ok === "boolean" ? message.ok : null, ms: null, preview: content },
-      });
-    }
-  }
-  entries.unshift(...missing.reverse());
-  const active = [...entries].reverse().find((entry) => entry.type === "agent" && !entry.done);
-  if (session.run.partial && active && session.run.partial.length > active.text.length) active.text = session.run.partial;
-  return groupResponses(entries);
+  return groupResponses(session.chat || []);
 }
 
 function groupResponses(entries) {
@@ -355,42 +246,6 @@ function groupResponses(entries) {
   }
   return grouped;
 }
-
-function eventTime(event) {
-  const value = Date.parse(event.ts || "");
-  return Number.isFinite(value) ? value : 0;
-}
-
-function activeModelTurn(session, event) {
-  const status = session.run?.status || "idle";
-  return status !== "idle" && status !== "replay" && modelTurnKey(event) === `${session.run.run_id}:${session.run.turn}`;
-}
-
-function messageCallDetails(messages) {
-  const details = new Map();
-  for (const message of messages) {
-    for (const call of message.tool_calls || []) {
-      let args = call.function?.arguments || {};
-      if (typeof args === "string") {
-        try { args = JSON.parse(args); }
-        catch { args = { arguments: args }; }
-      }
-      details.set(call.id, { name: call.function?.name || "tool", args });
-    }
-  }
-  return details;
-}
-
-const noticeTypes = new Set([
-  "run.stopped",
-  "run.queued",
-  "message.queued",
-  "compaction",
-  "workspace.conflict",
-  "approval.required",
-  "memory.noted",
-  "operator.context",
-]);
 
 function renderEntry(session, entry) {
   if (entry.type === "notice") return renderNotice(session, entry);
@@ -588,7 +443,7 @@ function noticeContent(session, entry) {
       : shellPolicy
         ? `Run shell command? ${keyArgument(data.args || {})}`
         : `Policy confirmation: ${data.name} ${keyArgument(data.args || {})}`));
-    const decision = entry.decisions.get(data.call_id);
+    const decision = entry.decision;
     if (decision) content.append(document.createTextNode(` ${decision}`));
     else if (!store.replay) {
       for (const choice of boundaryEscape

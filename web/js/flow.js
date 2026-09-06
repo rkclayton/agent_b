@@ -23,7 +23,7 @@ export function renderFlow() {
     count.textContent = "";
     return;
   }
-  count.textContent =
+  count.textContent = store.replay ? "replay" :
     session.run.status === "running" || session.run.status === "paused"
       ? `${session.run.turn}/${session.run.max_turns}`
       : session.run.status;
@@ -31,9 +31,10 @@ export function renderFlow() {
 
 function stageRow(session, name) {
   const row = document.createElement("div");
-  const active = !!session && (session._stage === name || (session.run.status === "paused" && name === "dispatch"));
-  const alarm = !!session && name === "dispatch" && session._dispatchAlarm;
-  const done = !!session && (session._completedStages || []).includes(name);
+  const activity = session?.activity || {};
+  const active = !!session && (activity.stage === name || (session.run.status === "paused" && name === "dispatch"));
+  const alarm = !!session && name === "dispatch" && activity.dispatch_alarm;
+  const done = !!session && (activity.completed_stages || []).includes(name);
   row.className = `activity-row ${active ? "active" : ""} ${done ? "done" : ""} ${alarm ? "alarm" : ""}`;
 
   const lamp = document.createElement("span");
@@ -60,13 +61,13 @@ function readoutFor(session, name) {
   if (telemetry) {
     if (!telemetry.hasChunk)
       return `waiting ${telemetry.ageSeconds}s · think ~0 · rate —`;
-    const progress = session?._progress;
+    const progress = session?.activity?.progress;
     if (telemetry.rate === null && telemetry.reasoningTokens === 0 && progress?.total)
       return `prefill ${number(progress.cache || progress.processed || 0)}/${number(progress.total)} · chunk ${telemetry.ageSeconds}s`;
     const rate = telemetry.rate === null ? "rate —" : `~${telemetry.rate} tok/s`;
     return `chunk ${telemetry.ageSeconds}s · think ~${number(telemetry.reasoningTokens)} · ${rate}`;
   }
-  const progress = session?._progress;
+  const progress = session?.activity?.progress;
   if (progress?.total) return `${progress.cache || progress.processed || 0} / ${progress.total}`;
   return "";
 }

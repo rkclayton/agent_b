@@ -152,6 +152,9 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		if result := toolRegistry.CallDetailed(context.Background(), item, "find_files", map[string]any{"path": workspace, "pattern": "capability-*"}); !result.OK || !strings.Contains(result.Content, "capability-text.txt") {
 			t.Fatalf("find=%+v", result)
 		}
+		if result := toolRegistry.CallDetailed(context.Background(), item, "list_dir", map[string]any{"path": workspace}); !result.OK || !strings.Contains(result.Content, "capability-text.txt") {
+			t.Fatalf("list=%+v", result)
+		}
 	})
 
 	t.Run("fetch_public_text_fetch_url", func(t *testing.T) {

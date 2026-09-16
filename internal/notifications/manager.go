@@ -260,7 +260,7 @@ func humanNotice(data map[string]any, eventType string) events.HumanNotice {
 
 func notifiable(eventType string) bool {
 	switch eventType {
-	case events.ApprovalRequired, events.RunStopped, events.ItemDone, events.PlanDone:
+	case events.ApprovalRequired, events.RunStopped, events.ItemDone, events.ItemStuck, events.PlanDone, events.WorkerJob:
 		return true
 	default:
 		return false

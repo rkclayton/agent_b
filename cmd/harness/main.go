@@ -190,6 +190,12 @@ func main() {
 	if err := renderer.LoadPlanner(filepath.Join(paths.Application, "prompts", "planner.md")); err != nil {
 		log.Fatal(err)
 	}
+
+	// The worker brief is optional in the same way the planner's is: an install
+	// without it simply has no worker, rather than refusing to start.
+	if err := renderer.LoadWorker(filepath.Join(paths.Application, "prompts", "worker.md")); err != nil {
+		log.Printf("debug: %v", err)
+	}
 	workspaces := session.NewWorkspaceRegistry()
 	coordinator := tools.NewFileCoordinator(workspaces, registry.Label, bus)
 	credentialStore := credential.New(paths.Data)

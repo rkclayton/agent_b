@@ -112,7 +112,7 @@ func (r *Registry) Restore(saved Snapshot) (*Session, error) {
 		role = "b"
 	}
 	planID, planDir, planRepo := "", "", ""
-	if role == "d" && saved.PlanID != "" {
+	if (role == "d" || role == "c") && saved.PlanID != "" {
 		planID, err = normalizePlanID(saved.PlanID)
 		if err != nil {
 			return nil, fmt.Errorf("restore session %s: %w", saved.ID, err)
@@ -193,8 +193,8 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	if role == "" {
 		role = "b"
 	}
-	if role != "b" && role != "d" {
-		return nil, fmt.Errorf("role must be b or d")
+	if role != "b" && role != "d" && role != "c" {
+		return nil, fmt.Errorf("role must be b, c or d")
 	}
 	profileID := agent.B
 	if role == "d" {
@@ -202,6 +202,11 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		if profileID == "" {
 			return nil, fmt.Errorf("agent_d is not assigned")
 		}
+	}
+	// The worker runs on the c profile when one is assigned and falls back to b,
+	// so Go works on a single-profile install rather than refusing to start.
+	if role == "c" && agent.C != "" {
+		profileID = agent.C
 	}
 	profile, ok := r.profiles(profileID)
 	if !ok {

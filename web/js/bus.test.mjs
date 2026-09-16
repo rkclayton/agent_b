@@ -142,3 +142,15 @@ test("pending agent server changes are projected and cleared by terminal events"
   reduce({ type: "agent.server_change", data: { status: "cancelled", agent_id: "coder" } });
   assert.equal(store.agent_server_changes.coder, undefined);
 });
+
+test("a patch the snapshot already holds is skipped, not applied twice and not a resync", () => {
+  snapshot({ model_turns: 4, timeline: [] });
+  // The snapshot at offset 10 already includes records 9 and 10.
+  patch(9, [{ op: "append", path: "/timeline", value: { type: "model.response" } }], 8);
+  patch(10, [{ op: "replace", path: "/model_turns", value: 99 }], 9);
+  assert.equal(store.sessions.main.timeline.length, 0);
+  assert.equal(store.sessions.main.model_turns, 4);
+  assert.equal(store.sessions.main.cursor.offset, 10);
+  patch(11, [{ op: "replace", path: "/model_turns", value: 5 }], 10);
+  assert.equal(store.sessions.main.model_turns, 5);
+});

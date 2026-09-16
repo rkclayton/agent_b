@@ -803,7 +803,22 @@ function renderComposer(session) {
   const occupied = busy ? `model busy · ${busy.host || "model"}` : "";
   const primary = session && !session.runnable ? session.not_runnable_reason : activity || unavailable || occupied || state;
   const message = [localNotice || primary, activity && unavailable ? unavailable : "", activity && occupied ? occupied : "", queueText, operatorUntil].filter(Boolean).join(" · ");
-  notice.textContent = message;
+  // Live state, not decoration: the robot runs beside the live line for exactly
+  // as long as the run is live, and is absent otherwise. Its eyes take the same
+  // state colour the tab robot uses.
+  const running = !!activity;
+  notice.replaceChildren();
+  if (running) {
+    const glyph = document.createElement("span");
+    glyph.className = `chat-run-robot ${session?.model_unreachable ? "offline" : session?.pending_approval || session?.pending_repo_policy ? "waiting" : "running"}`;
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.innerHTML = '<img src="/static/assets/agent.svg" alt=""><span class="chat-run-robot-eyes"></span>';
+    notice.append(glyph);
+  }
+  const text = document.createElement("span");
+  text.className = "chat-notice-text";
+  text.textContent = message;
+  notice.append(text);
   notice.className = `chat-notice ${localAlarm || unreachable || (session && !session.runnable) ? "alarm" : ""}`;
 	pendingFiles.replaceChildren(...queuedAttachments.map((file) => {
     const row = document.createElement("span");

@@ -549,10 +549,46 @@
   line-height: 20px;
 }
 .chat-notice {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   min-height: 16px;
   color: var(--mute);
   font-size: 12px;
   line-height: 16px;
+}
+/* Live-state motion, beside the traveling trace and the streaming caret. The
+   robot is present only while a run is live and takes no extra height: 12px
+   inside the strip's existing 16px line box. Palette only, no glow, no easing
+   -- a two-frame step loop, which is a run cycle and not an ease. */
+.chat-run-robot {
+  position: relative;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--trace);
+  animation: chat-run-robot 0.36s steps(1, end) infinite;
+}
+.chat-run-robot img {
+  display: block;
+  width: 12px;
+  height: 12px;
+  opacity: 0.8;
+}
+.chat-run-robot-eyes {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 1px;
+  height: 1px;
+  background: currentColor;
+  box-shadow: 3px 0 0 currentColor;
+}
+.chat-run-robot.waiting { color: var(--alarm); }
+.chat-run-robot.offline { color: var(--alarm); }
+@keyframes chat-run-robot {
+  0% { transform: translateY(0) scaleX(1); }
+  50% { transform: translateY(-1px) scaleX(-1); }
 }
 .chat-notice.alarm {
   color: var(--alarm);

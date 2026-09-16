@@ -39,6 +39,14 @@ serve/probes/reliability/runs/
 serve/probes/reliability/testdata/**/*.jsonl
 # GGUF model weights are large local artifacts.
 *.gguf
+# Tool scratch directories hold whole copies of past release candidates and
+# installer transcripts. Untracked but unignored is one `git add -A` away
+# from publishing them.
+.codex-temp/
+.claude-temp/
+.tmp/
+# The operator's local zip is not a project file.
+operatorbutton.zip
 # Remote-access scratch material is machine-specific.
 .remote/
 # Locally installed helper toolchains are machine-specific.

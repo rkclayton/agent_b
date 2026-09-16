@@ -223,3 +223,4 @@ if ($purge) {
 Write-Host 'REMOVED: operator Start Menu shortcut and HKCU Installed apps registration'
 Write-Host 'UNCHANGED: Windows service account, managed ACLs outside removed trees, and firewall policy; remove Host protections first when no longer needed.'
 Write-Host 'UNINSTALL COMPLETE'
+exit 0

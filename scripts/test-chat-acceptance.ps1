@@ -30,8 +30,9 @@ $evidence = if (-not [string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
 }
 $expectedCommit = $ExpectedCommit
 if ([string]::IsNullOrWhiteSpace($expectedCommit)) {
-    $expectedCommit = (& git -C $sourceRoot rev-parse HEAD).Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($expectedCommit)) { throw 'Could not resolve the source commit.' }
+    $expectedCommit = [string](& git -C $sourceRoot rev-parse HEAD 2>$null | Select-Object -First 1)
+    if ([string]::IsNullOrWhiteSpace($expectedCommit)) { throw 'Could not resolve the source commit. Pass -ExpectedCommit when the source is not a git checkout.' }
+    $expectedCommit = $expectedCommit.Trim()
 }
 $expectedDirty = $ExpectedDirty
 if (-not [string]::IsNullOrWhiteSpace($expectedDirty) -and $expectedDirty -notin @('true', 'false')) {

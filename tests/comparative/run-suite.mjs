@@ -141,7 +141,11 @@ try {
   app.stderr.on("data", (chunk) => { appOutput += chunk; });
   const base = `http://127.0.0.1:${port}`;
   let state = await waitState(base, () => true, "disposable Agent_b startup", 30_000);
-  assert.equal(state.build?.tag, "v0.55.0", "runner must use the v0.55.0 tree");
+  // The tree is pinned so a re-run cannot silently compare two builds. A later
+  // release re-runs the same suite against its own repairs and says so:
+  // --expect-tag names the build, and runtime-build.json records what answered.
+  const expectedTag = args["expect-tag"] || "v0.55.0";
+  assert.equal(state.build?.tag, expectedTag, `runner must use the ${expectedTag} tree`);
   writeExclusive(path.join(evidenceRoot, "runtime-build.json"), `${JSON.stringify(state.build, null, 2)}\n`);
   const token = state.mutation_token;
   const headers = { "Content-Type": "application/json", "X-AgentB-Mutation-Token": token };

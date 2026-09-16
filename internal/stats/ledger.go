@@ -205,7 +205,7 @@ func add(c *Counters, event events.Event, r *run) {
 			}
 		} else if reason == "model_error" || reason == "model_unreachable" || reason == "length" {
 			c.Reliability.ModelFailures++
-		} else if reason == "tool_errors" || reason == "profile_not_runnable" || reason == "context_ceiling" {
+		} else if reason == "tool_errors" || reason == "profile_not_runnable" || reason == "context_ceiling" || reason == "context_exhausted" {
 			c.Reliability.HarnessFailures++
 		} else if reason == "turn_ceiling" {
 			c.Reliability.BriefFailures++

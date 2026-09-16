@@ -8,6 +8,14 @@ const categoryGroups = [
   { key: "agent-memory", label: "agent memory", sources: ["agent_memory"] },
 ];
 
+const fixedPrefix = new Set([
+  "system",
+  "project",
+  "schemas",
+  "workspace-memory",
+  "agent-memory",
+]);
+
 export function contextOccupancy(budget = {}) {
   const categories = budget.categories || {};
   const explicitlyEstimated = new Set(budget.estimated_categories || []);
@@ -19,7 +27,16 @@ export function contextOccupancy(budget = {}) {
     estimated:
       allSourcesEstimated || group.sources.some((source) => explicitlyEstimated.has(source)),
   }));
-  const occupied = items.reduce((total, item) => total + item.value, 0);
+  // The fixed prefix is a floor, not a variable. Compaction cannot remove the
+  // system prompt, project instructions, tool schemas or memory, so the meter
+  // never draws them as zero even before the next measured request lands.
+  const floor = items
+    .filter((item) => fixedPrefix.has(item.key))
+    .reduce((total, item) => total + item.value, 0);
+  const occupied = Math.max(
+    floor,
+    items.reduce((total, item) => total + item.value, 0),
+  );
   const reserve = positive(budget.reserve);
   const nctx = positive(budget.n_ctx);
   const anyEstimated = items.some((item) => item.estimated);
@@ -32,7 +49,7 @@ export function contextOccupancy(budget = {}) {
     },
     { key: "reserve", label: "reserve", value: reserve, estimated: false },
   );
-  return { items, occupied, nctx, estimated: anyEstimated };
+  return { items, occupied, floor, nctx, estimated: anyEstimated };
 }
 
 function positive(value) {

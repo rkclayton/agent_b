@@ -18,11 +18,52 @@ type Compactor struct{ bus *events.Bus }
 
 func New(bus *events.Bus) *Compactor { return &Compactor{bus: bus} }
 
+// pinIndex returns the first index compaction may not touch. Everything from it
+// onward is the running turn's user message and the work answering it.
+//
+// No run in flight (empty pin) leaves the whole history touchable, which is the
+// behaviour outside a run. A pin that is set but no longer present is a bug
+// somewhere upstream, and the honest response is to touch nothing rather than
+// guess, so it returns 0.
+func pinIndex(messages []events.Message, pin string) int {
+	if pin == "" {
+		return len(messages)
+	}
+	for index, message := range messages {
+		if message.ID == pin {
+			return index
+		}
+	}
+	return 0
+}
+
+// atomicFoldEnd pulls a summarize span back so no tool call is folded while its
+// result is kept. Results are always after their call, so moving the boundary
+// to the earliest such call is enough and terminates in one pass.
+func atomicFoldEnd(messages []events.Message, foldEnd int) int {
+	callIndex := map[string]int{}
+	for index, message := range messages {
+		for _, call := range message.ToolCalls {
+			callIndex[call.ID] = index
+		}
+	}
+	for index := foldEnd; index < len(messages); index++ {
+		if messages[index].Role != "tool" || messages[index].ToolCallID == "" {
+			continue
+		}
+		if at, ok := callIndex[messages[index].ToolCallID]; ok && at < foldEnd {
+			foldEnd = at
+		}
+	}
+	return foldEnd
+}
+
 func (c *Compactor) Supersede(s *session.Session, runID string, turn, readDefaultLimit int, count Counter) bool {
 	messages := s.MessagesCopy()
 	changed := false
 	affected := []string{}
 	before := tokenSum(messages)
+	pin := pinIndex(messages, s.RunPin())
 	for current := range messages {
 		item := messages[current]
 		if item.Role != "tool" || item.Turn != turn || item.Elided || !successful(item) || (item.Name != "read_file" && item.Name != "search_text") {
@@ -32,7 +73,7 @@ func (c *Compactor) Supersede(s *session.Session, runID string, turn, readDefaul
 		if !ok {
 			continue
 		}
-		for prior := 0; prior < current; prior++ {
+		for prior := 0; prior < current && prior < pin; prior++ {
 			older := messages[prior]
 			if older.Role != "tool" || older.Name != item.Name || older.Elided || !successful(older) {
 				continue
@@ -78,13 +119,14 @@ func (c *Compactor) ElideOld(s *session.Session, runID string, used, target, rea
 	for _, index := range toolIndexes[max(0, len(toolIndexes)-4):] {
 		skip[index] = true
 	}
+	pin := pinIndex(messages, s.RunPin())
 	affected := []string{}
 	before := used
 	for index, item := range messages {
 		if used <= target {
 			break
 		}
-		if skip[index] || item.Elided || !eligibleOldElision(item) || (item.Category != "files" && item.Category != "results" && item.Category != "fetched") {
+		if index >= pin || skip[index] || item.Elided || !eligibleOldElision(item) || (item.Category != "files" && item.Category != "results" && item.Category != "fetched") {
 			continue
 		}
 		call, _ := callFor(messages, item.ToolCallID)
@@ -103,23 +145,49 @@ func (c *Compactor) ElideOld(s *session.Session, runID string, used, target, rea
 	return true, used
 }
 
+// SummarizeSpan reports the exclusive end of the span Summarize would fold, so
+// the caller can build the note's header and prompt from the same messages that
+// are about to disappear. It is a pure read of the session.
+func SummarizeSpan(messages []events.Message, pin string) (int, bool) {
+	if len(messages) <= 7 {
+		return 0, false
+	}
+	foldEnd := atomicFoldEnd(messages, min(max(1, len(messages)-6), pinIndex(messages, pin)))
+	if foldEnd <= 1 {
+		return 0, false
+	}
+	return foldEnd, true
+}
+
 func (c *Compactor) Summarize(s *session.Session, runID string, summary events.Message, source events.CompactionSummaryData) bool {
 	messages := s.MessagesCopy()
 	if len(messages) <= 7 {
 		return false
 	}
-	keep := map[int]bool{0: true}
-	for index := max(1, len(messages)-6); index < len(messages); index++ {
-		keep[index] = true
+	// The span ends at the earlier of the retention window and the run pin, then
+	// retreats far enough that no folded tool call loses its kept result.
+	foldEnd := min(max(1, len(messages)-6), pinIndex(messages, s.RunPin()))
+	foldEnd = atomicFoldEnd(messages, foldEnd)
+	if foldEnd <= 1 {
+		source.Outcome = "rejected"
+		source.Reason = "nothing outside the running turn left to summarize"
+		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
+		return false
 	}
 	affected := []string{}
 	out := []events.Message{messages[0], summary}
 	for index := 1; index < len(messages); index++ {
-		if keep[index] {
+		if index >= foldEnd {
 			out = append(out, messages[index])
 		} else {
 			affected = append(affected, messages[index].ID)
 		}
+	}
+	if len(affected) == 0 {
+		source.Outcome = "rejected"
+		source.Reason = "nothing outside the running turn left to summarize"
+		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
+		return false
 	}
 	before, after := tokenSum(messages), tokenSum(out)
 	if after >= before {

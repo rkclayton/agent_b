@@ -473,7 +473,13 @@ func (m *Manager) ExportChat(snapshot session.Snapshot) (string, error) {
 }
 
 func summaryExportContent(content string) string {
-	content = strings.TrimPrefix(content, "Progress note (auto-summary of earlier turns):\n")
+	// The header now names the turns the note covers, so strip the whole first
+	// line whenever it is one of ours rather than one fixed string.
+	if strings.HasPrefix(content, "Progress note (auto-summary of ") {
+		if index := strings.Index(content, "\n"); index >= 0 {
+			content = content[index+1:]
+		}
+	}
 	if index := strings.Index(content, "\n\n[BEGIN COMPACTION EVIDENCE]"); index >= 0 {
 		content = content[:index]
 	}

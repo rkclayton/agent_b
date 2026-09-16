@@ -123,6 +123,7 @@ type Session struct {
 	compactionPrompt                                     int
 	compactionCompletion                                 int
 	submitting                                           int
+	runPinID                                             string
 	planPage                                             bool
 	planAccept                                           bool
 	mu                                                   sync.Mutex
@@ -545,6 +546,35 @@ func (s *Session) ReplaceMessages(messages []events.Message) {
 	s.mu.Lock()
 	s.Messages = append([]events.Message(nil), messages...)
 	s.mu.Unlock()
+}
+
+// SetRunPin records the message that starts the running turn. Compaction may
+// never touch it or anything after it: that span is the task being answered.
+// An empty id means no run is in flight and nothing is pinned.
+func (s *Session) SetRunPin(id string) {
+	s.mu.Lock()
+	s.runPinID = id
+	s.mu.Unlock()
+}
+
+// RunPin returns the pinned run-start message id, or "" when no run is in flight.
+func (s *Session) RunPin() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.runPinID
+}
+
+// RunPinFromTail picks the first message of the trailing block of user messages,
+// which is what a run answers: one message normally, several when they queued.
+func RunPinFromTail(messages []events.Message) string {
+	pin := ""
+	for index := len(messages) - 1; index >= 0; index-- {
+		if messages[index].Role != "user" {
+			break
+		}
+		pin = messages[index].ID
+	}
+	return pin
 }
 
 // SetPlanPage marks a chat as using the operator-governed Plan surface. It is

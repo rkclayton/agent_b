@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"harness/internal/config"
+	contextmgr "harness/internal/context"
 	"harness/internal/events"
 	"harness/internal/llm"
 	"harness/internal/session"
@@ -21,7 +22,16 @@ const compactionEvidenceRunes = 320
 const compactionEvidenceStart = "[BEGIN COMPACTION EVIDENCE]"
 const compactionEvidenceEnd = "[END COMPACTION EVIDENCE]"
 
-const compactionInstruction = "Summarize the work so far for your own future reference: the task, files touched and what changed in each, decisions made, and what remains. Preserve observed findings needed for the final answer, the current cursor or offset, what has already been consumed, and the condition for stopping. For sequential reads, keep at least one concrete observed finding from each completed early, middle, and late region, with its offset or line range. Keep progress compact rather than listing every call. Use assistant working notes, retained tool-result bodies, and verbatim evidence anchors for content findings; use compact tool evidence for progress. Report only direct observations: a name being used or referenced is not evidence that its definition or declaration was observed. Do not invent observations or claim content from results marked elided. Under 300 words. No preamble."
+const compactionNoteHeaderPrefix = "Progress note (auto-summary of "
+
+const compactionInstruction = "Summarize the work so far for your own future reference, under these headings exactly:\n" +
+	"INTENT: the task you were asked to do, in the operator's terms.\n" +
+	"USER MESSAGES: every user message in the span, verbatim, in order. Copy them; do not paraphrase or omit any.\n" +
+	"FILES: each file touched and what changed in it.\n" +
+	"ERRORS AND FIXES: each error observed and what resolved it, or that it is unresolved.\n" +
+	"PENDING: what remains unfinished.\n" +
+	"NEXT STEP: the single next action.\n" +
+	"If a progress note already appears above, consolidate it into these headings rather than writing a second note; the result must read as one note covering the whole span. Preserve observed findings needed for the final answer, the current cursor or offset, what has already been consumed, and the condition for stopping. For sequential reads, keep at least one concrete observed finding from each completed early, middle, and late region, with its offset or line range. Keep progress compact rather than listing every call. Use assistant working notes, retained tool-result bodies, and verbatim evidence anchors for content findings; use compact tool evidence for progress. Report only direct observations: a name being used or referenced is not evidence that its definition or declaration was observed. Do not invent observations or claim content from results marked elided. Under 400 words. No preamble."
 
 type compactionEvidence struct {
 	Tool     string `json:"tool"`
@@ -100,7 +110,7 @@ func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID strin
 	cached := nullableInt(response.Usage.CachedTokens)
 	source := events.CompactionSummaryData{Role: role, ProfileID: profile.ID, Model: profile.Model, FallbackReason: fallback, Dispatched: true, EstimatedPromptTokens: estimatedPromptTokens, Estimated: estimated, NCtx: profile.Context.NCtx, Usage: events.ModelUsage{PromptTokens: response.Usage.PromptTokens, CompletionTokens: response.Usage.CompletionTokens, CachedTokens: cached}, DurationMS: response.DurationMS}
 	s.RecordCompactionModel(response.Usage.PromptTokens, response.Usage.CompletionTokens)
-	summaryContent := "Progress note (auto-summary of earlier turns):\n" + response.Content
+	summaryContent := compactionNoteHeader(s) + response.Content
 	if evidence := summaryEvidenceAppendix(s.MessagesCopy()); evidence != "" {
 		summaryContent += "\n\n" + evidence
 	}
@@ -132,10 +142,63 @@ func (r *Runner) summaryMessages(profile *config.Profile, s *session.Session) []
 		}
 	}
 	instruction := compactionInstruction
+	if verbatim := spanUserMessages(records, s.RunPin()); verbatim != "" {
+		instruction = instruction + "\n\n" + verbatim
+	}
 	if evidence := summaryToolEvidence(records); evidence != "" {
 		instruction = evidence + "\n\n" + instruction
 	}
 	return append(messages, llm.Message{Role: "user", Content: instruction})
+}
+
+// compactionNoteHeader names the turns the note covers so the model can see at a
+// glance that the task it is answering is not among them.
+func compactionNoteHeader(s *session.Session) string {
+	records := s.MessagesCopy()
+	foldEnd, ok := contextmgr.SummarizeSpan(records, s.RunPin())
+	if !ok {
+		return compactionNoteHeaderPrefix + "earlier turns):\n"
+	}
+	low, high, seen := 0, 0, false
+	for index := 1; index < foldEnd && index < len(records); index++ {
+		turn := records[index].Turn
+		if !seen || turn < low {
+			low = turn
+		}
+		if !seen || turn > high {
+			high = turn
+		}
+		seen = true
+	}
+	if !seen {
+		return compactionNoteHeaderPrefix + "earlier turns):\n"
+	}
+	if low == high {
+		return fmt.Sprintf("%sturn %d):\n", compactionNoteHeaderPrefix, low)
+	}
+	return fmt.Sprintf("%sturns %d-%d):\n", compactionNoteHeaderPrefix, low, high)
+}
+
+// spanUserMessages copies every user message inside the span verbatim into the
+// instruction. The model is being asked to carry them forward exactly, and the
+// surest way to get that is to hand it the text rather than hope it scrolls back.
+func spanUserMessages(records []events.Message, pin string) string {
+	foldEnd, ok := contextmgr.SummarizeSpan(records, pin)
+	if !ok {
+		return ""
+	}
+	lines := []string{}
+	for index := 1; index < foldEnd && index < len(records); index++ {
+		message := records[index]
+		if message.Role != "user" || message.Elided || message.Category != "history" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("(turn %d) %s", message.Turn, message.Content))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "USER MESSAGES in the span, verbatim, to copy into the note:\n" + strings.Join(lines, "\n\n")
 }
 
 func summaryHistoryContent(message events.Message) string {

@@ -196,17 +196,11 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	if role != "b" && role != "d" && role != "c" {
 		return nil, fmt.Errorf("role must be b, c or d")
 	}
-	profileID := agent.B
-	if role == "d" {
-		profileID = agent.D
-		if profileID == "" {
-			return nil, fmt.Errorf("agent_d is not assigned")
-		}
-	}
 	// The worker runs on the c profile when one is assigned and falls back to b,
 	// so Go works on a single-profile install rather than refusing to start.
-	if role == "c" && agent.C != "" {
-		profileID = agent.C
+	profileID := agent.ProfileFor(role)
+	if role == "d" && profileID == "" {
+		return nil, fmt.Errorf("agent_d is not assigned")
 	}
 	profile, ok := r.profiles(profileID)
 	if !ok {
@@ -492,12 +486,9 @@ func (r *Registry) AgentRoleRunnable(agentID, role string) (bool, string) {
 	if !ok {
 		return false, "unknown agent " + agentID
 	}
-	profileID := agent.B
-	if role == "d" {
-		profileID = agent.D
-		if profileID == "" {
-			return false, "agent_d is not assigned"
-		}
+	profileID := agent.ProfileFor(role)
+	if role == "d" && profileID == "" {
+		return false, "agent_d is not assigned"
 	}
 	return r.ProfileRunnable(profileID)
 }
@@ -638,12 +629,9 @@ func (r *Registry) SetAgent(id, agentID string) error {
 		return fmt.Errorf("agent_id: unknown agent %s", agentID)
 	}
 	snapshot := s.Snapshot()
-	profileID := agent.B
-	if snapshot.Role == "d" {
-		profileID = agent.D
-		if profileID == "" {
-			return fmt.Errorf("agent_id: agent_d is not assigned")
-		}
+	profileID := agent.ProfileFor(snapshot.Role)
+	if snapshot.Role == "d" && profileID == "" {
+		return fmt.Errorf("agent_id: agent_d is not assigned")
 	}
 	profile, ok := r.profiles(profileID)
 	if !ok {
@@ -715,10 +703,7 @@ func (r *Registry) ApplyAgentBinding(agentID string) error {
 		if snapshot.Run.Status == "running" || snapshot.Run.Status == "stopping" {
 			return fmt.Errorf("agent_id: session %s is running", snapshot.ID)
 		}
-		profileID := agent.B
-		if snapshot.Role == "d" {
-			profileID = agent.D
-		}
+		profileID := agent.ProfileFor(snapshot.Role)
 		profile, ok := r.profiles(profileID)
 		if !ok {
 			return fmt.Errorf("agent_id: %s profile %s was not found", snapshot.Role, profileID)

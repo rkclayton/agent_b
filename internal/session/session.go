@@ -502,9 +502,8 @@ func (s *Session) ApplyAgentConfig(agentID string, agent config.Agent, profile c
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	profileID := agent.B
+	profileID := agent.ProfileFor(s.Role)
 	if s.Role == "d" {
-		profileID = agent.D
 		enabled["shell"] = false
 		enabled["run_script"] = false
 	}

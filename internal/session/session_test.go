@@ -5,11 +5,34 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"harness/internal/config"
 	"harness/internal/events"
 	workspaceinfo "harness/internal/workspace"
 )
+
+// The run loop re-binds a session to its agent on every turn. It must re-bind
+// to the profile that role runs on: a worker created on the c profile was
+// switched to b on its first turn, so the real Go ran on the wrong model.
+func TestApplyAgentConfigKeepsEachRoleOnItsOwnProfile(t *testing.T) {
+	agent := config.Agent{Name: "Worker", B: "fast", C: "strong", D: "planner", Toolset: []string{"read_file"}}
+	for _, row := range []struct{ role, want string }{{"b", "fast"}, {"c", "strong"}, {"d", "planner"}} {
+		item := &Session{ID: "s1", Role: row.role, ToolsEnabled: map[string]bool{}, LastSeen: map[string]time.Time{}}
+		item.ApplyAgentConfig("worker", agent, config.Profile{ID: row.want, Label: row.want})
+		if got := item.Snapshot().ServerID; got != row.want {
+			t.Errorf("role %q bound to %q, want %q", row.role, got, row.want)
+		}
+	}
+	// Without a c profile the worker falls back to b, so Go works on a
+	// single-profile install.
+	single := config.Agent{Name: "Solo", B: "fast", Toolset: []string{"read_file"}}
+	item := &Session{ID: "s2", Role: "c", ToolsEnabled: map[string]bool{}, LastSeen: map[string]time.Time{}}
+	item.ApplyAgentConfig("solo", single, config.Profile{ID: "fast", Label: "fast"})
+	if got := item.Snapshot().ServerID; got != "fast" {
+		t.Errorf("a worker with no c profile bound to %q, want the b profile", got)
+	}
+}
 
 func TestSnapshotCarriesToolCallCounts(t *testing.T) {
 	s := &Session{

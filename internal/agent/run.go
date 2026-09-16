@@ -222,7 +222,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		}
 		cfg := r.cfg()
 		if agent, found := cfg.Agent(s.Snapshot().AgentID); found {
-			if bound, exists := cfg.Profile(agent.B); exists {
+			if bound, exists := cfg.Profile(agent.ProfileFor(s.Snapshot().Role)); exists {
 				s.ApplyAgentConfig(s.Snapshot().AgentID, *agent, *bound)
 			}
 		}

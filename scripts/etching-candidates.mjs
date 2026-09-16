@@ -82,7 +82,10 @@ try {
   results.build = state.build;
   await mkdir(resolve(args.evidence), { recursive: true });
 
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  // Headed on purpose (item 2el): headless Edge composites without painting, so
+  // the paint counter can only discriminate on a visible window. This script is
+  // not part of the release gate and needs an unlocked desktop.
+  browser = await chromium.launch({ channel: "msedge", headless: false });
   const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: 1 });
   await page.goto(`${args.base}/?setup=skip`);
   await page.waitForSelector(".app-shell");

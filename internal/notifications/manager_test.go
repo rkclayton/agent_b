@@ -180,3 +180,16 @@ func TestWebhookGuardRejectsRedirectableOrLookalikeTargets(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) Do(request *http.Request) (*http.Response, error) { return fn(request) }
+
+// A worker has no chat, so the notification for its approval points at the
+// Plan page, where its card is drawn, and still carries the human sentence.
+func TestWorkerApprovalNotificationPointsAtThePlan(t *testing.T) {
+	manager := New(events.NewBus(), func(string) string { return "worker" }, "http://127.0.0.1:8790")
+	message := manager.message(events.New(events.ApprovalRequired, "c1", "r1", events.WithHuman(events.ApprovalRequired, map[string]any{"name": "read_file.operator_override", "boundary_escape": true, "role": "c", "plan_id": "p1"})))
+	if !strings.Contains(message, "http://127.0.0.1:8790/plan") || strings.Contains(message, "/chat?session=c1") {
+		t.Fatalf("worker approval link = %q", message)
+	}
+	if !strings.Contains(message, "needs your") {
+		t.Fatalf("worker approval lost its human sentence: %q", message)
+	}
+}

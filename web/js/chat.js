@@ -8,7 +8,7 @@ import { createApprovalCard } from "./approval.js";
 import { callServiceKey, callServiceStatus } from "./call-service-display.js";
 import { attachmentChipFile, attachmentMetadata, exchangeFiles, exchangeUpload, uploadAttachment } from "./attachment-upload.js";
 import { attachmentReadability } from "./attachment-readability.js";
-import { agentAuthor, isRunning, openSessions } from "./chat-lifecycle.js";
+import { agentAuthor, isRunning, openSessions, sameWorkerPlan, workerApproval } from "./chat-lifecycle.js";
 import { renderStopState } from "./stop-state.js";
 import { groupResponseRows, hasVisibleChatContent, isIdenticalSingleStepFold, itemFailed, responseBlocks, responseSummary } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
@@ -92,7 +92,12 @@ subscribe((_state, event) => {
     else if (store.selection.agent_id === "agent_b" && (!store.sessions[selectedID()] || store.sessions[selectedID()].closed)) changeBound(open[0]?.id || "");
   }
   if (store.selection.agent_id === "agent_b" && store.sessions[selectedID()]?.closed) changeBound(newestOpenSessions()[0]?.id || "");
-  if (event.session_id && selectedID() && event.session_id !== selectedID()) return;
+  if (event.session_id && selectedID() && event.session_id !== selectedID()) {
+    // The worker has no thread of its own: a change to its pending card is drawn
+    // in the design thread of its plan, and at once, because it waits on the operator.
+    if (sameWorkerPlan(store.sessions, event.session_id, selectedID())) renderNow();
+    return;
+  }
   // A question waiting on the operator is not drawn on an animation frame: a
   // page that is not in the foreground gets none, and the worker would be
   // waiting on an answer nobody was shown.
@@ -864,12 +869,18 @@ function renderComposer(session) {
     }
     return row;
 	}));
-	pendingApproval.hidden = !(session?.pending_approval || session?.pending_repo_policy);
+	const worker = workerApproval(store.sessions, session);
+	pendingApproval.hidden = !(session?.pending_approval || session?.pending_repo_policy || worker);
 	const policyCard = session?.pending_repo_policy ? createPolicyCard(session) : null;
+	const workerCard = worker ? [createApprovalCard(document, worker.pending_approval, {
+		replay: store.replay,
+		author: agentAuthor(worker, "c"),
+		decide: (callID, decision) => api("/api/approve", { session_id: worker.id, call_id: callID, decision }),
+	})] : [];
 	pendingApproval.replaceChildren(...(session?.pending_approval ? [createApprovalCard(document, session.pending_approval, {
 		replay: store.replay,
 		decide: (callID, decision) => api("/api/approve", { session_id: session.id, call_id: callID, decision }),
-	})] : policyCard ? [policyCard] : []));
+	})] : policyCard ? [policyCard] : []), ...workerCard);
   renderStopState(stop, session, store.replay);
   retryModel.hidden = !unreachable;
   retryModel.disabled = !session || store.replay;

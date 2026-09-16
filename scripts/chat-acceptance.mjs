@@ -225,7 +225,21 @@ const waitProjectedChatText = async (sessionID, text, label, timeout = 12000) =>
   }
   throw new Error(`projection timeout: ${label}`);
 };
+// Left click on a tab no longer flips between Chat and Console, so a scenario
+// that ends on Console (opening Settings switches the surface beneath it) has to
+// say so rather than rely on the removed toggle. One entry in the tab menu names
+// whichever side you are not on.
+const ensureChat = async () => {
+  if (await page.locator("#chat-task").isVisible()) return;
+  await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
+  await page.locator('.agent-tab-wrap.selected .agent-chat-menu').waitFor({ state: "visible" });
+  const entry = page.locator('.agent-tab-wrap.selected .agent-chat-console');
+  if ((await entry.innerText()) === "Chat") await entry.click();
+  else await page.keyboard.press("Escape");
+  await page.locator("#chat-task").waitFor({ state: "visible", timeout: 15000 });
+};
 const setTask = async (text) => {
+  await ensureChat();
   await page.locator("#chat-task").fill(text);
   await page.locator("#chat-send").click();
 };
@@ -453,9 +467,12 @@ if (realModel) {
   });
   const chatGeometry = await captureShellGeometry();
   const chatToConsoleStarted = performance.now();
+  // Left click only selects now; Console is an entry in the tab's right-click menu.
+  await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
+  await page.locator('.agent-tab-wrap.selected .agent-chat-menu').waitFor({ state: "visible" });
   await Promise.all([
     page.waitForURL((url) => url.pathname === "/" && url.searchParams.get("session") === sessionID),
-    page.locator('.agent-tab-wrap.selected .agent-tab').click()
+    page.locator('.agent-tab-wrap.selected .agent-chat-console').click()
   ]);
   await page.locator("#console-lifetime").waitFor({ state: "visible" });
   await page.waitForFunction(() => window.__agentbLoadTiming?.snapshot !== null);
@@ -476,9 +493,13 @@ if (realModel) {
   assert.equal(await toggleMenu.locator(".agent-chat-delete").count(), await toggleMenu.locator(".agent-chat-row").count());
   await page.locator("#console-lifetime").click();
   const consoleToChatStarted = performance.now();
+  // The same one entry, naming the side you are not on, so the round trip holds.
+  await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
+  await page.locator('.agent-tab-wrap.selected .agent-chat-menu').waitFor({ state: "visible" });
+  assert.equal(await page.locator('.agent-tab-wrap.selected .agent-chat-console').innerText(), "Chat");
   await Promise.all([
     page.waitForURL((url) => url.pathname === "/chat" && url.searchParams.get("session") === sessionID),
-    page.locator('.agent-tab-wrap.selected .agent-tab').click()
+    page.locator('.agent-tab-wrap.selected .agent-chat-console').click()
   ]);
   await page.locator("#chat-task").waitFor({ state: "visible" });
   await page.waitForFunction(() => window.__agentbLoadTiming?.snapshot !== null && document.querySelector(".chat-entry"));
@@ -488,7 +509,7 @@ if (realModel) {
   const chatLoadTiming = await captureLoadTiming();
   assert.deepEqual(returnedChatGeometry, chatGeometry, JSON.stringify({ chatGeometry, returnedChatGeometry }));
   shellFlipEvidence = { chat: chatGeometry, console: consoleGeometry, returned_chat: returnedChatGeometry, chat_to_console_ms: chatToConsoleMS, console_to_chat_ms: consoleToChatMS, console_load: consoleLoadTiming, chat_load: chatLoadTiming };
-  record("agent-tab-left-toggle-preserves-chat-and-right-menu");
+  record("agent-tab-menu-flip-preserves-chat-and-right-menu");
 
   const shellStateDirectory = join(args.evidence, "shell-states");
   await mkdir(shellStateDirectory, { recursive: true });
@@ -571,7 +592,13 @@ if (realModel) {
   await page.locator('.profile-row:has(.profile-summary[data-id="acceptance"]) [data-action="probe"]').click();
   await browser.wait(`document.querySelector('.profile-summary[data-id="acceptance"] .profile-state')?.textContent.includes('Test passed')`, "Settings Test passed before Chat return");
   assert.match(await profileState.innerText(), /Test passed/);
+  // Opening Settings switches the surface beneath it to Console, and left click
+  // no longer toggles sides, so Chat is reached the way the product now offers
+  // it: the tab menu's single entry, which names the side you are not on.
   await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click();
+  await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click({ button: "right" });
+  await page.locator('.agent-tab-wrap.selected .agent-chat-menu').waitFor({ state: "visible" });
+  await page.locator('.agent-tab-wrap.selected .agent-chat-console').click();
   await page.locator("#chat-task").waitFor({ state: "visible" });
   assert.equal(await page.locator("#settings-page").isHidden(), true);
   assert.equal(await page.locator("#settings-page").getAttribute("aria-hidden"), "true");

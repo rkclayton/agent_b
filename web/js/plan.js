@@ -1,7 +1,7 @@
 import { api, store, subscribe } from "./bus.js";
 import { mountChat } from "./chat.js";
 import { initShell } from "./shell.js";
-import { claimHint, noteReports, planRows, proposalKey, proposalLabel } from "./plan-surface.js";
+import { claimHint, noteReports, planRows, proposalKey, proposalLabel, workerProposals } from "./plan-surface.js";
 
 const shell = initShell({ page: "plan" });
 mountChat(shell);
@@ -63,14 +63,15 @@ function renderItems(items, reports) {
 
 function renderProposals(session) {
   const resolved = readSet(resolvedKey(session.id));
-  const proposals = (session.messages || []).flatMap((message) => message.plan_proposals || []).filter((proposal) => !resolved.has(proposalKey(proposal)));
+  const proposals = [...(session.messages || []).flatMap((message) => message.plan_proposals || []), ...workerProposals(store.sessions, session)].filter((proposal) => !resolved.has(proposalKey(proposal)));
   if (!proposals.length) { const empty=document.createElement("p"); empty.className="plan-empty-tray"; empty.textContent="No proposed edits."; roots.proposals.replaceChildren(empty); return; }
   roots.proposals.replaceChildren(...proposals.map((proposal) => {
     const row=document.createElement("article"); row.className="plan-proposal"; row.tabIndex=0;
     const label=document.createElement("span"); label.textContent=proposalLabel(proposal);
     const path=document.createElement("code"); path.textContent=proposal.old_text;
     const actions=document.createElement("div"); actions.className="plan-proposal-actions";
-    const accept=button("Accept"), dismiss=button("Dismiss"); actions.append(accept,dismiss); row.append(label,path,actions);
+    // A verifier request has no text to accept: only the planner can name the command.
+    const accept=button("Accept"), dismiss=button("Dismiss"); if (proposal.kind !== "verifier") actions.append(accept); actions.append(dismiss); row.append(label,path,actions);
     row.onclick=(event)=>{ if(event.target.closest("button")) return; quote(proposal); };
     row.onkeydown=(event)=>{ if(event.key==="Enter") quote(proposal); };
     accept.onclick=async()=>{ await api("/api/plan/accept",{session_id:session.id,proposal}); remember(resolvedKey(session.id),proposalKey(proposal)); showHint("accepted"); await forceRefresh(); };
@@ -79,7 +80,7 @@ function renderProposals(session) {
   }));
 }
 
-function quote(proposal) { roots.input.value = `${roots.input.value}${roots.input.value ? "\n" : ""}> ${proposalLabel(proposal)}\n> ${proposal.new_text}`; roots.input.focus(); }
+function quote(proposal) { roots.input.value = `${roots.input.value}${roots.input.value ? "\n" : ""}> ${proposalLabel(proposal)}\n> ${proposal.new_text || proposal.old_text}`; roots.input.focus(); }
 function showHint(id) { const text=claimHint(localStorage,id); if(!text)return; roots.hint.textContent=text; const clear=()=>{roots.hint.textContent=""; document.removeEventListener("click",clear,true);}; setTimeout(()=>document.addEventListener("click",clear,true),0); }
 async function forceRefresh(){ loaded=null; await refresh(); }
 function markerClass(marker){ return ({x:"x","~":"half","!":"blocked","-":"dropped"," ":"open"})[marker] || "open"; }

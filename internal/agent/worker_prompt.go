@@ -35,6 +35,7 @@ func (r *PromptRenderer) renderWorker(s *session.Session) string {
 		"{{item_acceptance}}": job.Acceptance,
 		"{{item_negative}}":   job.Negative,
 		"{{plan_repo}}":       job.Repo,
+		"{{item_verify}}":     job.Verify,
 	} {
 		text := strings.TrimSpace(field)
 		if text == "" {

@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { exactInputIdentity, loadPublishedProposal, validateProposal } from "./plan-lint.mjs";
+import { exactInputIdentity, loadPublishedProposal, replaceCurrentOrderBody, validateProposal } from "./plan-lint.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const defaultRoot = path.resolve(here, "..");
@@ -86,6 +86,50 @@ function validationFailure(errors) {
   const error = new Error(`publication validation failed:\n${errors.map((value) => `- ${value}`).join("\n")}`);
   error.code = "VALIDATION_FAILED";
   return error;
+}
+
+// dryRunPublication answers the one question the planner cannot otherwise ask:
+// what will the worker's gate say about this order body? It builds the same
+// candidate prepare would, from the live published plan plus a body file and the
+// current item files, runs every check, and writes nothing at all -- no candidate
+// directory, no regenerated index, no seal.
+export function dryRunPublication({ root = defaultRoot, body }) {
+  root = path.resolve(root);
+  const published = loadPublishedProposal(root);
+  let planText = published.planText;
+  let orderBody = null;
+  if (body) {
+    orderBody = fs.readFileSync(path.resolve(body), "utf8");
+    // An order body as the planner writes it opens with its own
+    // `## Current work order` heading. The plan supplies that heading, so
+    // keeping the body's copy would report two bodies where there is one.
+    orderBody = orderBody.replace(/^\s*## Current work order[^\n]*\r?\n/, "");
+    planText = replaceCurrentOrderBody(planText, orderBody);
+  }
+  const proposed = { planText, itemContents: published.itemContents, inputErrors: published.inputErrors };
+  const structural = validateProposal({ ...proposed, structuralOnly: true, inputErrors: [...proposed.inputErrors, ...publicationErrors(planText)] });
+  // prepare regenerates the index before the admission pass, so a stale index is
+  // not a finding here either; everything else is reported exactly as it would be.
+  const indexed = structural.errors.includes(staleIndexError) ? indexedPlan(planText, structural.indexSection) : planText;
+  const result = validateProposal({ planText: indexed, itemContents: published.itemContents, inputErrors: [...published.inputErrors, ...publicationErrors(indexed)] });
+  const reported = result.errors.filter((message) => message !== staleIndexError);
+  // A body for the NEXT order names a different order id while this order's
+  // markers are still live, so the marker-ownership check fires every time a
+  // planner checks ahead. It is a true statement and it is not about the body,
+  // so it is reported separately rather than hidden or counted as a failure.
+  const inFlight = reported.filter((message) => /^PLAN\.md: In flight marker .* belongs to another order/.test(message));
+  const errors = reported.filter((message) => !inFlight.includes(message));
+  return {
+    ok: errors.length === 0,
+    proposal_id: result.proposalId,
+    base_id: validateProposal(published).proposalId,
+    items: result.itemCount,
+    index_regenerated: structural.errors.includes(staleIndexError),
+    errors,
+    expected_while_an_order_is_in_flight: inFlight,
+    warnings: result.warnings,
+    gated_items: result.completion.map(({ itemId, workIds }) => `${itemId}:${workIds.join("/")}`),
+  };
 }
 
 export function preparePublication({ root = defaultRoot, candidate }) {
@@ -182,22 +226,29 @@ function parseCLI(argv) {
   const command = argv[2];
   let root = defaultRoot;
   let candidate = "";
+  let body = "";
+  let dryRun = false;
   for (let index = 3; index < argv.length; index += 1) {
     if (argv[index] === "--root" && argv[index + 1]) root = argv[++index];
     else if (argv[index] === "--candidate" && argv[index + 1]) candidate = argv[++index];
+    else if (argv[index] === "--body" && argv[index + 1]) body = argv[++index];
+    else if (argv[index] === "--dry-run") dryRun = true;
     else throw new Error(`unknown argument: ${argv[index]}`);
   }
-  if (!candidate) throw new Error("--candidate is required");
-  return { command, root, candidate };
+  if (!dryRun && !candidate) throw new Error("--candidate is required");
+  if (dryRun && command !== "prepare") throw new Error("--dry-run applies to prepare");
+  return { command, root, candidate, body, dryRun };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const { command, root, candidate } = parseCLI(process.argv);
-    const result = command === "prepare" ? preparePublication({ root, candidate })
-      : command === "publish" ? publishPublication({ root, candidate })
-        : (() => { throw new Error("command must be prepare or publish"); })();
+    const { command, root, candidate, body, dryRun } = parseCLI(process.argv);
+    const result = dryRun ? dryRunPublication({ root, body })
+      : command === "prepare" ? preparePublication({ root, candidate })
+        : command === "publish" ? publishPublication({ root, candidate })
+          : (() => { throw new Error("command must be prepare or publish"); })();
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (dryRun && !result.ok) process.exitCode = 1;
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;

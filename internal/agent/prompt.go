@@ -15,6 +15,7 @@ type PromptRenderer struct {
 	mu         sync.RWMutex
 	path, text string
 	planner    string
+	worker     string
 }
 
 func (r *PromptRenderer) LoadPlanner(path string) error {
@@ -91,6 +92,12 @@ func (r *PromptRenderer) RenderMemoryParts(profile *config.Profile, s *session.S
 	value = strings.ReplaceAll(value, "{{date}}", time.Now().Format("2006-01-02"))
 	if planner != "" && (s.Role == "d" || s.IsPlanPage()) {
 		value = strings.TrimRight(value, "\r\n") + "\n\n" + planner
+	}
+	// The worker is told what it is doing, not how the product works: its whole
+	// brief is the item in front of it, and it replaces the planner block rather
+	// than stacking with it.
+	if s.Role == "c" && r.worker != "" {
+		value = strings.TrimRight(value, "\r\n") + "\n\n" + r.renderWorker(s)
 	}
 	if memory == "" && project == "" {
 		value = strings.TrimRight(value, "\r\n")

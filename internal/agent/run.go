@@ -91,6 +91,17 @@ func (r *Runner) AcceptPlanEdit(ctx context.Context, s *session.Session, path, o
 	}
 	return outcome
 }
+// Verify runs an item's verifier command as the worker: the ordinary shell tool,
+// through the same gate, grants and identity a model's shell call takes, so it
+// can raise the same card. It reports whether the command exited 0. The run it
+// belongs to has already stopped, so the session's run state is put back after.
+func (r *Runner) Verify(ctx context.Context, s *session.Session, command string) (bool, string) {
+	before := s.Snapshot().Run
+	defer s.SetRun(before)
+	runID := r.id("verify")
+	outcome := r.executeTool(ctx, s, runID, runID+"-call", "shell", map[string]any{"command": command})
+	return outcome.OK, outcome.Content
+}
 func (r *Runner) SettlePlanTurns(ctx context.Context, s *session.Session, itemID string, ids []string) bool {
 	pointer := fmt.Sprintf("[settled → plan item %s]", itemID)
 	p, ok := r.profile(s.ServerID)

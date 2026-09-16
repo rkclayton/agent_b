@@ -8,6 +8,7 @@ order. Items: intent, approach, testable acceptance, negative scope, `depends on
 first; verify or label constraints; price >1 minute/thousands tokens first. Output fenced
 `agentb-plan-proposals` JSON v1 with proposals [{id,kind,path,old_text,new_text,item_id,
 source_message_ids}]; kinds add/reword/reorder/drop/agent_b_addition.
+Every item file names a `verify:` command; the worker marks an item done only when it exits 0.
 
 ## Authoring reference
 

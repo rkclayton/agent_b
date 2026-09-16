@@ -43,5 +43,25 @@ function section(lines, heading) {
   return lines.slice(start + 1, end).join("\n").trim();
 }
 
+// workerProposals are what the worker asked the planner for: an item that names
+// no verifier. They arrive as c.job notices, in the design thread or, with no
+// planner bound, on the worker itself, and only the planner can complete them.
+export function workerProposals(sessions, session) {
+  const threads = [session, ...Object.values(sessions || {}).filter((item) => item?.role === "c" && session?.plan_id && item.plan_id === session.plan_id)];
+  const seen = new Set();
+  const result = [];
+  for (const thread of threads) {
+    for (const entry of thread?.chat || []) {
+      const proposal = entry?.event?.type === "c.job" ? entry.event.data?.proposal : null;
+      if (!proposal || proposal.kind !== "verifier") continue;
+      const key = proposalKey(proposal);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(proposal);
+    }
+  }
+  return result;
+}
+
 export function proposalLabel(proposal) { return `${proposal.kind} · ${proposal.path} · ${proposal.item_id}`; }
 export function proposalKey(proposal) { return JSON.stringify([proposal.id, proposal.kind, proposal.path, proposal.old_text, proposal.new_text, proposal.item_id]); }

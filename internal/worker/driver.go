@@ -18,6 +18,12 @@ type Submitter interface {
 	Stop(sessionID string, all bool) int
 }
 
+// Verifier runs an item's verifier command under the worker's own tools and
+// reports whether it exited 0, with what it printed.
+type Verifier interface {
+	Verify(ctx context.Context, s *session.Session, command string) (bool, string)
+}
+
 // Driver walks a plan's waiting items, one at a time, in plan order.
 type Driver struct {
 	bus       *events.Bus
@@ -29,7 +35,11 @@ type Driver struct {
 	last      map[string]Summary
 	// deadline bounds one item, including any wait on the operator's card.
 	deadline time.Duration
+	verifier Verifier
 }
+
+// SetVerifier is what lets an item reach [x]. Without one nothing can.
+func (d *Driver) SetVerifier(v Verifier) { d.verifier = v }
 
 // ItemDeadline is how long one item may take, a wait on an approval included.
 const ItemDeadline = 6 * time.Hour
@@ -102,15 +112,28 @@ func (d *Driver) Go(parent context.Context, s *session.Session, plan *Plan, repo
 			return d.recorded(planID, summary, err)
 		}
 		items := Parse(text)
-		item, ok := Next(items)
+		item, ok := NextIn(items, plan.Dir)
 		if !ok {
 			break
 		}
+		// Marking [~] clears any earlier stuck reason, so a retried item starts clean.
 		if err := plan.Mark(item, "~", ""); err != nil {
 			return d.recorded(planID, summary, err)
 		}
-		s.SetWorkerJob(Brief(item, plan.Dir, repo))
-		outcome := d.runItem(ctx, s, item)
+		item.Text = WithReason(item.Text, "")
+		job := Brief(item, plan.Dir, repo)
+		s.SetWorkerJob(job)
+		var outcome Outcome
+		if job.Verify == "" {
+			// Nothing could ever show this item done, so the worker does not start
+			// it: it says what is missing and the tray proposes it to the planner.
+			outcome = Outcome{ItemID: job.ItemID, Marker: "!", Reason: NoVerifier}
+		} else {
+			outcome = d.runItem(ctx, s, item)
+			if outcome.Marker == "x" {
+				outcome = d.verify(ctx, s, job)
+			}
+		}
 		if outcome.Marker == "x" {
 			summary.Done++
 		} else {
@@ -135,7 +158,10 @@ func (d *Driver) Go(parent context.Context, s *session.Session, plan *Plan, repo
 		// question it could not answer from the plan or the repo. It is posted in
 		// the design thread and routed — to d when a bound d-session can answer
 		// from the plan, to the operator otherwise.
-		if outcome.Marker != "x" {
+		if outcome.Reason == NoVerifier {
+			target, routedTo := RouteTarget(d.sessionList(), planID)
+			AskVerifier(d.bus, s, target, routedTo, current, plan.Dir)
+		} else if outcome.Marker != "x" {
 			if question := lastSaid(s); question != "" {
 				target, routedTo := RouteTarget(d.sessionList(), planID)
 				Ask(d.bus, s, target, "", question, routedTo)
@@ -187,6 +213,26 @@ func (d *Driver) record(planID string, summary Summary, err error) {
 	if err != nil {
 		d.lastError[planID] = err.Error()
 	}
+}
+
+// verify is the only way an item reaches [x]: its verifier command, run under
+// the worker's own tools after the run stopped cleanly, has to exit 0.
+func (d *Driver) verify(ctx context.Context, s *session.Session, job session.WorkerJob) Outcome {
+	if d.verifier == nil {
+		return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "no verifier available"}
+	}
+	ok, output := d.verifier.Verify(ctx, s, job.Verify)
+	if ok {
+		return Outcome{ItemID: job.ItemID, Marker: "x"}
+	}
+	text := "verifier failed"
+	if detail := oneLine(output); detail != "" {
+		text += ": " + detail
+	}
+	if len(text) > 160 {
+		text = text[:157] + "..."
+	}
+	return Outcome{ItemID: job.ItemID, Marker: "!", Reason: text}
 }
 
 func findByText(items []Item, text string) (Item, bool) {
@@ -241,9 +287,8 @@ func (d *Driver) runItem(ctx context.Context, s *session.Session, item Item) Out
 	}
 }
 
-// classify turns a stop reason into a marker. "done" is the only marker that can
-// produce [x], and even then the run has to have said something: a run that
-// ends without a final answer has not shown its work.
+// classify turns a stop reason into a marker. "done" is the only stop that can go
+// on to [x], and only through the item's verifier: classify's x is provisional.
 func classify(itemID string, event events.Event) Outcome {
 	data, _ := event.Data.(map[string]any)
 	reason, _ := data["reason"].(string)

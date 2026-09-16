@@ -20,3 +20,18 @@ test("the four shipped hint texts persist as shown across a restart",()=>{
   for(const id of Object.keys(hintTexts)){assert.equal(claimHint(storage,id),hintTexts[id]);assert.equal(claimHint(storage,id),"");}
   for(const id of Object.keys(hintTexts)) assert.equal(claimHint(storage,id),"");
 });
+
+test("the tray shows a worker's verifier request from the thread or the worker, once, for its plan only", async () => {
+  const { workerProposals } = await import("./plan-surface.js");
+  const proposal = { id: "verify-2aa", kind: "verifier", path: "plan/items/2aa.md", old_text: "2aa first item", new_text: "", item_id: "2aa" };
+  const job = (value) => ({ type: "notice", event: { type: "c.job", data: { question: "names no verifier", proposal: value } } });
+  const sessions = {
+    d1: { id: "d1", role: "d", plan_id: "p1", chat: [job(proposal), { type: "notice", event: { type: "c.job", data: { question: "which db?" } } }] },
+    c1: { id: "c1", role: "c", plan_id: "p1", chat: [job(proposal), job({ ...proposal, id: "verify-2ab", old_text: "2ab other", item_id: "2ab" })] },
+    c2: { id: "c2", role: "c", plan_id: "p2", chat: [job({ ...proposal, id: "verify-9zz", item_id: "9zz" })] },
+  };
+  const got = workerProposals(sessions, sessions.d1);
+  assert.deepEqual(got.map((value) => value.id), ["verify-2aa", "verify-2ab"]);
+  assert.deepEqual(workerProposals(sessions, { id: "b1", role: "b" }), []);
+  assert.deepEqual(workerProposals(sessions, { id: "d3", role: "d", plan_id: "p1", chat: [job({ ...proposal, kind: "reword" })] }).map((value) => value.id), ["verify-2aa", "verify-2ab"]);
+});

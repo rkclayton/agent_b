@@ -100,7 +100,7 @@ func TestWorkerApprovalIsRaisedForItsPlanAndAnsweringItResumes(t *testing.T) {
 	for _, cycle := range []bool{false, true} {
 		bus, gate, worker, fake, plan := gatedWorker(t, cycle)
 		stream, release := bus.Subscribe()
-		driver := New(bus, fake, nil)
+		driver := verified(New(bus, fake, nil))
 		result := make(chan Summary, 1)
 		go func() {
 			summary, _ := driver.Go(context.Background(), worker, plan, `C:\repo`)
@@ -142,7 +142,7 @@ func TestWorkerApprovalIsRaisedForItsPlanAndAnsweringItResumes(t *testing.T) {
 // waiting for approval, and the run is ended rather than left on the card.
 func TestUnansweredWorkerApprovalExpiresAsWaitedForApproval(t *testing.T) {
 	bus, _, worker, fake, plan := gatedWorker(t, false)
-	driver := New(bus, fake, nil)
+	driver := verified(New(bus, fake, nil))
 	driver.deadline = 150 * time.Millisecond
 	summary, err := driver.Go(context.Background(), worker, plan, `C:\repo`)
 	if err != nil {

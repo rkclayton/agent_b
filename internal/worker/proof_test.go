@@ -84,7 +84,48 @@ func newProofPlan(t *testing.T) *Plan {
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte(proofPlan), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// Every proof item names a verifier, so [x] is reachable at all.
+	for _, id := range []string{"2aa", "2ab", "2ac"} {
+		writeItem(t, dir, id, "verify: pass")
+	}
 	return &Plan{Dir: dir}
+}
+
+func writeItem(t *testing.T, dir, id, header string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, "plan", "items"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "state: live\n" + header + "\n\n# " + id + "\n\n## Acceptance\n\nverify: not-the-header\n"
+	if err := os.WriteFile(filepath.Join(dir, "plan", "items", id+".md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// fakeVerifier passes the command "pass", fails anything else, and records what
+// it was asked to run, so a test can see [x] follow the verifier and nothing else.
+type fakeVerifier struct {
+	mu    sync.Mutex
+	calls []string
+	check func(command string) (bool, string)
+}
+
+func (f *fakeVerifier) Verify(_ context.Context, _ *session.Session, command string) (bool, string) {
+	f.mu.Lock()
+	f.calls = append(f.calls, command)
+	f.mu.Unlock()
+	if f.check != nil {
+		return f.check(command)
+	}
+	if command == "pass" {
+		return true, "exit=0"
+	}
+	return false, "command failed\nexit=1\nassertion failed"
+}
+
+func verified(driver *Driver) *Driver {
+	driver.SetVerifier(&fakeVerifier{})
+	return driver
 }
 
 // The whole loop, on a three-item plan with a seeded stuck item and a seeded
@@ -117,7 +158,7 @@ func TestWorkerProof(t *testing.T) {
 	fake.said["2ac seeded question item"] = "Which database should the cache use?"
 
 	plan := newProofPlan(t)
-	driver := New(bus, fake, func() []*session.Session { return []*session.Session{planner} })
+	driver := verified(New(bus, fake, func() []*session.Session { return []*session.Session{planner} }))
 	summary, err := driver.Go(context.Background(), worker, plan, `C:\repo`)
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +250,7 @@ func TestWorkerQuestionRoutesToTheOperatorWithoutABoundPlanner(t *testing.T) {
 	fake.said["2aa first item"] = "Where does the config live?"
 	fake.answers["2ab seeded stuck item"] = "tool_errors"
 	fake.answers["2ac seeded question item"] = "tool_errors"
-	driver := New(bus, fake, func() []*session.Session { return nil })
+	driver := verified(New(bus, fake, func() []*session.Session { return nil }))
 	if _, err := driver.Go(context.Background(), worker, newProofPlan(t), `C:\repo`); err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +271,7 @@ func TestStopEndsTheWorkerAndGoReEnables(t *testing.T) {
 	fake := newFake(bus, worker)
 	fake.blockOn = "2ab seeded stuck item"
 	plan := newProofPlan(t)
-	driver := New(bus, fake, func() []*session.Session { return nil })
+	driver := verified(New(bus, fake, func() []*session.Session { return nil }))
 
 	finished := make(chan Summary, 1)
 	go func() {

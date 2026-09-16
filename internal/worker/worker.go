@@ -117,7 +117,9 @@ func (p *Plan) Read() (string, error) {
 	return string(data), nil
 }
 
-// Mark flips one item's marker and, for a stuck item, records the reason.
+// Mark flips one item's marker. A stuck marker records its reason once; any
+// other marker clears an earlier reason. The line must still read exactly as it
+// did when the item was found, or nothing is written.
 func (p *Plan) Mark(item Item, marker, reason string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -125,27 +127,37 @@ func (p *Plan) Mark(item Item, marker, reason string) error {
 	if err != nil {
 		return err
 	}
-	if marker == "!" {
-		match := markerLine.FindStringSubmatch(item.Line)
-		if match == nil {
-			return fmt.Errorf("line %d carries no marker", item.Index)
-		}
-		item.Line = match[1] + "[" + item.Marker + "] " + WithReason(match[3], reason)
-		lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
-		if item.Index < len(lines) {
-			lines[item.Index] = item.Line
-		}
-		newline := "\n"
-		if strings.Contains(text, "\r\n") {
-			newline = "\r\n"
-		}
-		text = strings.Join(lines, newline)
-	}
-	next, err := SetMarker(text, item, marker)
+	next, err := markLine(text, item, marker, reason)
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(p.Path(), []byte(next), 0o600)
+}
+
+func markLine(text string, item Item, marker, reason string) (string, error) {
+	if !strings.Contains("~x! ", marker) || len(marker) != 1 {
+		return "", fmt.Errorf("marker %q is not one of [ ] [~] [x] [!]", marker)
+	}
+	newline := "\n"
+	if strings.Contains(text, "\r\n") {
+		newline = "\r\n"
+	}
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	if item.Index < 0 || item.Index >= len(lines) {
+		return "", fmt.Errorf("item line %d is outside plan.md", item.Index)
+	}
+	if lines[item.Index] != item.Line {
+		return "", fmt.Errorf("plan.md line %d changed under the worker", item.Index)
+	}
+	match := markerLine.FindStringSubmatch(item.Line)
+	if match == nil {
+		return "", fmt.Errorf("line %d carries no marker", item.Index)
+	}
+	if marker != "!" {
+		reason = ""
+	}
+	lines[item.Index] = match[1] + "[" + marker + "] " + WithReason(match[3], reason)
+	return strings.Join(lines, newline), nil
 }
 
 // Outcome is why a worker stopped on one item.
@@ -238,6 +250,7 @@ func Brief(item Item, planDir, repo string) session.WorkerJob {
 		return job
 	}
 	body := string(data)
+	job.Verify = field(body, "verify")
 	job.Acceptance = section(body, "## Acceptance")
 	job.Approach = section(body, "## Contract")
 	job.Negative = section(body, "## Not in scope")
@@ -251,6 +264,80 @@ func itemID(text string) string {
 		return match[1]
 	}
 	return ""
+}
+
+// field reads one "name: value" line from an item file's header, which ends at
+// its first heading. Only the header counts, so prose that happens to start a
+// line with the same word cannot become the item's verifier.
+func field(body, name string) string {
+	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(line, "#") {
+			break
+		}
+		if value, ok := strings.CutPrefix(line, name+":"); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// NoVerifier is the stuck reason for an item that names no verifier command.
+const NoVerifier = "no verifier named"
+
+// Retryable is an item stuck only for want of a verifier that has one now.
+func Retryable(item Item, planDir string) bool {
+	if item.Marker != "!" || !strings.HasSuffix(item.Text, "  — stuck: "+NoVerifier) {
+		return false
+	}
+	bare := item
+	bare.Text = WithReason(item.Text, "")
+	return Brief(bare, planDir, "").Verify != ""
+}
+
+// NextIn is the next item the worker takes: the first waiting one, or one that
+// was stuck only for want of a verifier and now names one.
+func NextIn(items []Item, planDir string) (Item, bool) {
+	for _, item := range items {
+		if item.Marker == " " || Retryable(item, planDir) {
+			return item, true
+		}
+	}
+	return Item{}, false
+}
+
+// RemainingIn reports whether the worker has anything to take.
+func RemainingIn(items []Item, planDir string) bool {
+	_, ok := NextIn(items, planDir)
+	return ok
+}
+
+// AskVerifier is the worker telling the planner an item names no verifier. It is
+// the worker's speech, not a turn: a c.job notice carrying a proposal the tray
+// shows, which only the planner can complete because only it can name the command.
+func AskVerifier(bus *events.Bus, s *session.Session, target *session.Session, routedTo string, item Item, planDir string) {
+	if bus == nil {
+		return
+	}
+	job := s.WorkerJob()
+	path := "plan.md"
+	if job.ItemID != "" {
+		if _, err := os.Stat(filepath.Join(planDir, "plan", "items", job.ItemID+".md")); err == nil {
+			path = "plan/items/" + job.ItemID + ".md"
+		}
+	}
+	itemID := job.ItemID
+	if itemID == "" {
+		itemID = "item"
+	}
+	sessionID := s.ID
+	if target != nil {
+		sessionID = target.ID
+	}
+	bus.Publish(events.New(events.WorkerJob, sessionID, "", map[string]any{
+		"plan_id": s.PlanID, "item": job.ItemID, "question": "This item names no verifier command; name one with verify: so the worker can check it.",
+		"routed_to": routedTo, "role": "c", "worker": s.ID,
+		"proposal": map[string]any{"id": "verify-" + itemID, "kind": "verifier", "path": path, "old_text": WithReason(item.Text, ""), "new_text": "", "item_id": itemID},
+	}))
 }
 
 func section(body, heading string) string {

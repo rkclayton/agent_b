@@ -5,6 +5,7 @@ APPROACH: {{item_approach}}
 ACCEPTANCE: {{item_acceptance}}
 NOT IN SCOPE: {{item_negative}}
 REPO: {{plan_repo}}
+VERIFY: {{item_verify}} — the harness runs it after you stop; the item is done only if it exits 0.
 
 Work only in the repo and your scratch folder. Never edit the plan's text; the harness writes the markers.
 If the item is ambiguous or blocked, ask one question in the design thread and stop; never invent a constraint.

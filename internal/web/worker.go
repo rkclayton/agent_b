@@ -48,9 +48,9 @@ func (s *Server) planGoState(w http.ResponseWriter, r *http.Request) {
 	running := s.worker != nil && s.worker.Running(item.Snapshot().PlanID)
 	items := worker.Parse(text)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"waiting": worker.Remaining(items),
+		"waiting": worker.RemainingIn(items, planDir),
 		"running": running,
-		"enabled": worker.Remaining(items) && !running,
+		"enabled": worker.RemainingIn(items, planDir) && !running,
 		"items":   len(items),
 	})
 }

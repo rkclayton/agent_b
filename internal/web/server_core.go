@@ -165,6 +165,9 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 	// only once there is one to drive.
 	if scheduler != nil {
 		s.worker = worker.New(s.bus, schedulerSubmitter{scheduler}, func() []*session.Session { return s.registry.List() })
+		if runner != nil {
+			s.worker.SetVerifier(runner)
+		}
 	}
 	if runner != nil {
 		runner.SetModelUnreachable(func(sessionID, profileID string) {

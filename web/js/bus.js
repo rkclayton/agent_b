@@ -94,6 +94,10 @@ function applyProjectionPatch(patch) {
   if (patch.schema_version !== 1) { void resync(); return; }
   let target = store.sessions[patch.session_id];
   const previous = patch.previous_cursor || { generation: "", offset: 0 };
+  // A snapshot may already include records whose patches are still on their way.
+  // A patch at or behind what this session holds is already applied; only a gap
+  // (or a new generation) needs a fresh snapshot.
+  if (target && target.cursor && (target.cursor.generation || "") === (patch.cursor?.generation || "") && Number(patch.cursor?.offset || 0) <= Number(target.cursor.offset || 0)) return;
   if (target && !sameCursor(target.cursor, previous)) { void resync(); return; }
   if (!target) target = store.sessions[patch.session_id] = { id: patch.session_id, cursor: previous };
   for (const operation of patch.operations || []) {

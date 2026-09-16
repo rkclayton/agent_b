@@ -222,7 +222,10 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		label = id
 	}
 	planDir, planName, selectedRepo := "", "", ""
-	if role == "d" && planID != "" {
+	// d and c both bind to the plan: d to write its text, c to work in the
+	// repository the plan names. Without this the worker lands in scratch and
+	// every path in its item points at nothing.
+	if (role == "d" || role == "c") && planID != "" {
 		normalized, normalizeErr := normalizePlanID(planID)
 		if normalizeErr != nil {
 			return nil, normalizeErr

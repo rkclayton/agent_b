@@ -174,6 +174,18 @@ const fakeHandler = async (request, response) => {
   }
   if (user.includes("acceptance: slow accounting")) { await sleep(700); return stream(response, { content: "Slow accounting recovered with an estimate." }); }
   if (user.includes("acceptance: compaction")) return stream(response, { content: `Compaction answer ${"stable ".repeat(180)}` });
+  // 2t-ii — the worker's two items. The first finishes cleanly after reading
+  // the repository it was given; the second fails three tool calls with
+  // DISTINCT arguments, so the cycle guard does not fire before the consecutive
+  // tool-error backstop does, while saying the one thing it could not work out.
+  if (user.includes("2t worker reads the repository it was given")) {
+    if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "worker-read", type: "function", function: { name: "read_file", arguments: JSON.stringify({ path: "AGENTS.md" }) } }] }, "tool_calls");
+    return stream(response, { content: "Read the acceptance rules and made the item true." });
+  }
+  if (user.includes("2u worker cannot finish this one")) {
+    const count = toolCountAfterLatestUser(body);
+    return stream(response, { content: "Which database should the cache use?", tool_calls: [{ index: 0, id: `worker-missing-${count}`, type: "function", function: { name: "read_file", arguments: JSON.stringify({ path: `missing-${count}.txt` }) } }] }, "tool_calls");
+  }
   if (user.includes("acceptance: plan proposals")) return stream(response, { content: `Plan candidates.\n\`\`\`agentb-plan-proposals\n${JSON.stringify({ version: 1, proposals: [
     { id: "browser-accept", kind: "add", path: "plan.md", old_text: "# Browser plan", new_text: "# Browser plan\n[ ] 2t accepted via tray", item_id: "2t" },
     { id: "browser-dismiss", kind: "reword", path: "plan.md", old_text: "# Browser plan", new_text: "# Dismissed plan", item_id: "2t" },
@@ -1479,6 +1491,7 @@ if (realModel) {
   await mkdir(join(browserPlanDir, "plan", "items"), { recursive: true });
   await writeFile(join(browserPlanDir, "plan.md"), "# Browser plan\n");
   await writeFile(join(browserPlanDir, "NOTES.md"), "");
+  await writeFile(join(browserPlanDir, "plan.json"), JSON.stringify({ repo: bound }, null, 2));
   const beforeD = await state();
   await json(`http://127.0.0.1:${appPort}/api/config`, {
     method: "POST",
@@ -1523,6 +1536,99 @@ if (realModel) {
   assert.equal(await readFile(join(browserPlanDir, "plan.md"), "utf8"), "# Browser plan\n[ ] 2t accepted via tray\n");
   await page.screenshot({ path: join(evidenceRun, "plan-accepted.png") });
   record("plan-empty-propose-dismiss-quote-accept");
+
+  // 2t-ii — Go, the worker's post in the design thread, and the done card.
+  // The plan gets two items: one the worker can finish and one it cannot. The
+  // worker is its own c-role session, so nothing here is typed into a chat.
+  await writeFile(join(browserPlanDir, "plan.md"), "# Browser plan\n\n- [ ] 2t worker reads the repository it was given\n- [ ] 2u worker cannot finish this one\n");
+  await page.reload();
+  await browser.wait(`document.querySelector('#plan-go') && !document.querySelector('#plan-go').disabled`, "Go enabled by a waiting item");
+  assert.equal(await page.locator("#plan-go").innerText(), "Go");
+  assert.equal(await page.locator("#plan-go").getAttribute("title"), "Run the accepted items in plan order");
+  const planHeadHeight = await page.evaluate(() => document.querySelector(".plan-panel-head").getBoundingClientRect().height);
+  assert.equal(planHeadHeight, 36, "Go changed the plan header's height");
+  await page.screenshot({ path: join(evidenceRun, "plan-go.png") });
+  await page.locator("#plan-go").click();
+  await browser.wait(`document.querySelector('#plan-go')?.textContent === 'Stop'`, "Go reads Stop while a worker runs");
+  await page.screenshot({ path: join(evidenceRun, "plan-worker-running.png") });
+  const workerSession = Object.values((await state()).sessions).find((entry) => entry.role === "c");
+  assert.ok(workerSession, "the worker did not get its own session");
+  assert.equal(workerSession.plan_id, "browser-plan");
+  assert.equal(await page.locator('.agent-tab-wrap[data-session="' + workerSession.id + '"]').count(), 0, "the worker appeared in the tab strip");
+  // The worker is a new session, so its first file tool asks the operator to
+  // run as them — and the worker has no chat for that card to appear in. The
+  // gate answers it the way the operator would, and records that the card had
+  // nowhere to be seen: that gap is a finding, not a thing to design around.
+  const planPath = join(browserPlanDir, "plan.md");
+  let workerApproval = null;
+  for (const deadline = Date.now() + 45000; Date.now() < deadline; ) {
+    const entry = Object.values((await state()).sessions).find((item) => item.role === "c" && item.pending_approval);
+    if (entry) { workerApproval = { session: entry, approval: entry.pending_approval }; break; }
+    if ((await readFile(planPath, "utf8")).includes("[x] 2t")) break;
+    await sleep(100);
+  }
+  if (workerApproval) {
+    assert.equal(await page.locator(".approval-card").count(), 0, "a worker approval card appeared in a thread that is not the worker's");
+    const callID = workerApproval.approval.callID || workerApproval.approval.event?.data?.call_id;
+    process.stdout.write(`WORKER APPROVAL ${workerApproval.approval.event?.data?.name || "unnamed"} call=${callID}` + String.fromCharCode(10));
+    await json(`http://127.0.0.1:${appPort}/api/approve`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ session_id: workerApproval.session.id, call_id: callID, decision: "session" }) });
+    record("worker-approval-has-no-surface-and-is-answerable-only-by-api");
+  }
+  // A worker that did not get where it was going has to say why in the gate's
+  // own output, or the next person reads a bare timeout.
+  try {
+    await waitFileContains(join(browserPlanDir, "plan.md"), "- [x] 2t worker reads the repository it was given", 90000);
+  } catch (error) {
+    const workers = Object.values((await state()).sessions).filter((entry) => entry.role === "c");
+    process.stdout.write(`WORKER DIAGNOSTIC plan=${JSON.stringify(await readFile(join(browserPlanDir, "plan.md"), "utf8"))}\n`);
+    for (const entry of workers) process.stdout.write(`WORKER SESSION ${JSON.stringify({ id: entry.id, run: entry.run, runnable: entry.runnable, reason: entry.not_runnable_reason, workspace: entry.workspace_dir, plan: entry.plan_id, messages: (entry.messages || []).map((message) => [message.role, String(message.content || "").slice(0, 160)]) })}\n`);
+    for (const event of (await sessionEvents(null)).slice(-40)) process.stdout.write(`WORKER EVENT ${event.type} ${event.session_id} ${JSON.stringify(event.data).slice(0, 220)}\n`);
+    throw error;
+  }
+  await waitFileContains(join(browserPlanDir, "plan.md"), "- [!] 2u worker cannot finish this one  — stuck: tool_errors", 90000);
+  // The operator is looking at this page while the worker runs; a background tab
+  // gets no animation frames, and this thread renders on one.
+  await page.bringToFront();
+  // Watch the SCREEN first. /api/state must not be polled while waiting: a
+  // snapshot taken between an event's durable append and its fold advances the
+  // projector past it without broadcasting, and the patch is then never sent —
+  // a poller starves its own live stream. Recorded as a finding, not designed
+  // around: this gate reads the projection once, after the screen has it.
+  const questionText = "Which database should the cache use?";
+  const questionOnScreen = async () => (await browserText("#chat-log")).includes(questionText);
+  let postArrival = "live";
+  for (const deadline = Date.now() + 40000; !(await questionOnScreen()) && Date.now() < deadline; ) await sleep(250);
+  if (!(await questionOnScreen())) {
+    postArrival = "after a reload";
+    await page.reload();
+    await page.waitForSelector("#chat-log");
+    for (const deadline = Date.now() + 15000; !(await questionOnScreen()) && Date.now() < deadline; ) await sleep(250);
+  }
+  assert.ok(await questionOnScreen(), "the worker's question is not in the design thread even after a reload");
+  assert.match(await browserText("#chat-log"), /agent_c/, "the question is not attributed to the worker");
+  process.stdout.write(`WORKER POST ON SCREEN ${postArrival}` + String.fromCharCode(10));
+  const postedEntry = ((await state()).sessions[boundD.id]?.chat || []).find((entry) => entry.event?.type === "c.job");
+  assert.ok(postedEntry, "the worker's question is on screen but not in the planner's projection");
+  assert.equal(postedEntry.agent_role, "c", JSON.stringify(postedEntry));
+  assert.equal(postedEntry.event.data.routed_to, "d");
+  assert.equal(postedEntry.event.data.worker, workerSession.id);
+  await page.screenshot({ path: join(evidenceRun, "plan-worker-post.png") });
+  const workerJob = await waitEvent(null, (event) => event.type === "c.job", "c.job on the bus");
+  assert.equal(workerJob.session_id, boundD.id, "the question was not posted in the planner's thread");
+  assert.equal(workerJob.data.routed_to, "d");
+  assert.equal(workerJob.data.role, "c");
+  assert.equal(workerJob.data.worker, workerSession.id);
+  await browser.wait(`document.querySelector('#plan-done') && !document.querySelector('#plan-done').hidden`, "the done card", 60000);
+  const doneText = await browserText("#plan-done");
+  assert.match(doneText, /Ready to test, with gaps/, doneText);
+  assert.match(doneText, /1 done · 1 stuck · 0 waiting/, doneText);
+  assert.match(doneText, /2u worker cannot finish this one: tool_errors/, doneText);
+  assert.equal(await page.locator("#plan-go").innerText(), "Go");
+  assert.equal(await page.locator("#plan-go").isDisabled(), true, "Go stayed live with nothing waiting");
+  await page.screenshot({ path: join(evidenceRun, "plan-done-card.png") });
+  const markedPlan = await readFile(join(browserPlanDir, "plan.md"), "utf8");
+  assert.ok(!markedPlan.includes("[~]"), markedPlan);
+  record("plan-go-worker-post-and-done-card");
   record("fake-model-script-complete");
   await writeFile(join(evidenceRun, "result.json"), JSON.stringify({ scenarios, duration_ms: Date.now() - startedAt, session_id: sessionID, shell_flip: shellFlipEvidence, shell_style_boundary: shellStyleBoundaryEvidence }, null, 2));
   const evidenceLogs = join(evidenceRun, "jsonl");

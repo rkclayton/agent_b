@@ -93,8 +93,26 @@ subscribe((_state, event) => {
   }
   if (store.selection.agent_id === "agent_b" && store.sessions[selectedID()]?.closed) changeBound(newestOpenSessions()[0]?.id || "");
   if (event.session_id && selectedID() && event.session_id !== selectedID()) return;
+  // A question waiting on the operator is not drawn on an animation frame: a
+  // page that is not in the foreground gets none, and the worker would be
+  // waiting on an answer nobody was shown.
+  if (waitsOnTheOperator(event)) { renderNow(); return; }
   schedule();
 });
+
+function waitsOnTheOperator(event) {
+  if (event?.type !== "projection.patch") return false;
+  return (event.data?.operations || []).some((operation) =>
+    String(operation?.path || "").startsWith("/chat") && operation?.value?.event?.type === "c.job");
+}
+
+function renderNow() {
+  if (!mounted) return;
+  if (frame) { cancelAnimationFrame(frame); frame = 0; }
+  if (renderTimer) { clearTimeout(renderTimer); renderTimer = 0; }
+  lastRender = performance.now();
+  render();
+}
 
 function schedule() {
   if (!mounted) return;
@@ -234,6 +252,10 @@ function changeBound(value) {
   queuedAttachments = attachmentQueues.get(value) || [];
 }
 
+// The projection names this field agent_role; read it in one place so the
+// author of a c-role notice cannot go missing the way it did.
+function entryRole(entry) { return entry?.agent_role || entry?.agentRole || "b"; }
+
 function groupResponses(entries) {
   const grouped = [];
   let response = null;
@@ -250,7 +272,10 @@ function groupResponses(entries) {
       response = null;
       continue;
     }
-    if (entry.type === "notice" && entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") {
+    // A notice that is waiting on the operator is never folded into a steps
+    // group: an unreachable model, and a question from the worker, are the two
+    // things in this thread that nobody can answer without seeing them.
+    if (entry.type === "notice" && ((entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") || entry.event?.type === "c.job")) {
       grouped.push(entry);
       response = null;
       continue;
@@ -283,14 +308,14 @@ function renderEntry(session, entry) {
     row.tabIndex = 0;
     const content = document.createElement("div");
     content.className = "chat-content";
-    const author = speaker(entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entry.agentRole), entry.type !== "user" && entry.type !== "summary");
+    const author = speaker(entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entryRole(entry)), entry.type !== "user" && entry.type !== "summary");
     row.append(author, content);
     view = { row, author, content, text: "" };
     entryViews.set(entry.key, view);
   }
   usedEntryViews.add(entry.key);
   view.row.dataset.entryKey = entry.key;
-  view.author.lastElementChild.textContent = entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entry.agentRole);
+  view.author.lastElementChild.textContent = entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entryRole(entry));
   view.row.className = `chat-entry ${entry.type === "user" ? "chat-user" : entry.type === "summary" ? "chat-summary" : entry.type === "tool" ? "tool-entry" : "chat-agent"}`;
   const content = view.content;
   if (entry.type === "user") {
@@ -727,6 +752,9 @@ function noticeContent(session, entry, actionable) {
 			const line=document.createElement("span"); line.textContent=`model unreachable · ${entry.text || session.model_unreachable?.host || "model"}`; if(data.detail) line.title=data.detail; content.append(line);
 		} else content.textContent = `stopped: ${reason}${data.detail ? ` · ${data.detail}` : ""}`;
     if (data.reason !== "done") content.classList.add("alarm");
+  } else if (event.type === "c.job") {
+    content.textContent = data.question || "the worker asked a question";
+    if (data.item) content.title = `item ${data.item}`;
   } else if (event.type === "files.delivered") {
     const items = data.items || [];
     if (!items.length) content.hidden = true;
@@ -777,7 +805,7 @@ function noticeContent(session, entry, actionable) {
 			decide: actionable ? (callID, decision) => api("/api/approve", { session_id: session.id, call_id: callID, decision }) : null,
 		});
   }
-  if (entry.agentRole === "c") {
+  if (entryRole(entry) === "c") {
     const label = document.createElement("span");
     label.className = "chat-notice-author";
     label.textContent = agentAuthor(session, "c");

@@ -89,6 +89,7 @@ func SetMarker(text string, item Item, marker string) (string, error) {
 // WithReason appends a stuck reason to an item's text, replacing any previous
 // one so a second failure does not stack a second parenthetical.
 func WithReason(line, reason string) string {
+	reason = oneLine(reason)
 	trimmed := strings.TrimRight(line, " \t")
 	if index := strings.LastIndex(trimmed, "  — stuck: "); index >= 0 {
 		trimmed = trimmed[:index]
@@ -194,6 +195,13 @@ func Ask(bus *events.Bus, s *session.Session, target *session.Session, runID, qu
 		"plan_id": s.PlanID, "item": s.WorkerJob().ItemID, "question": question,
 		"routed_to": routedTo, "role": "c", "worker": s.ID,
 	}))
+}
+
+// oneLine flattens anything that would break the item line it is appended to.
+// Tool errors and model text arrive with newlines, tabs and runs of spaces, and
+// a newline here would split one item into an item and a line of prose.
+func oneLine(value string) string {
+	return strings.TrimSpace(strings.Join(strings.Fields(value), " "))
 }
 
 // Route picks where a worker's question goes. A bound d-session that is not

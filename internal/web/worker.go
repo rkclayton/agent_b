@@ -35,6 +35,10 @@ func (s *Server) planGoState(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error(), "session_id")
 		return
 	}
+	if item.Snapshot().PlanID == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"waiting": false, "running": false, "enabled": false, "items": 0})
+		return
+	}
 	plan := &worker.Plan{Dir: planDir}
 	text, err := plan.Read()
 	if err != nil {
@@ -69,6 +73,13 @@ func (s *Server) planGoStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snapshot := item.Snapshot()
+	// Go belongs to a plan, not to a folder. A chat that merely sits in a
+	// plan repository has no plan id, and a worker started without one would
+	// share a running slot with every other unbound worker.
+	if snapshot.PlanID == "" {
+		writeError(w, http.StatusBadRequest, "this chat is not bound to a plan", "session_id")
+		return
+	}
 	if body.Stop {
 		writeJSON(w, http.StatusOK, map[string]any{"stopped": s.worker.Stop(snapshot.PlanID, s.workerSessionID(snapshot.PlanID))})
 		return

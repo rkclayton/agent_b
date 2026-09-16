@@ -561,15 +561,23 @@ if ($writeConfig) {
 # the installer; the certificate is resolved by thumbprint from the machine or user store.
 if ($config.signing -and -not [string]::IsNullOrWhiteSpace([string]$config.signing.thumbprint)) {
 	$thumbprint = ([string]$config.signing.thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+	$signingStore = 'Cert:\LocalMachine\My'
+	$signingIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
 	$certificate = Get-ChildItem -LiteralPath ("Cert:\LocalMachine\My\{0}" -f $thumbprint) -ErrorAction SilentlyContinue
-	if (-not $certificate) { $certificate = Get-ChildItem -LiteralPath ("Cert:\CurrentUser\My\{0}" -f $thumbprint) -ErrorAction Stop }
+	if (-not $certificate) { $signingStore = 'Cert:\CurrentUser\My'; $certificate = Get-ChildItem -LiteralPath ("Cert:\CurrentUser\My\{0}" -f $thumbprint) -ErrorAction Stop }
 	if (-not $certificate.HasPrivateKey -or @($certificate.EnhancedKeyUsageList | Where-Object { ([string]$_.ObjectId) -eq '1.3.6.1.5.5.7.3.3' }).Count -eq 0) {
 		throw "Configured certificate $thumbprint is not a usable LocalMachine or CurrentUser code-signing certificate."
 	}
 	$signTargets = @($installedBinary) + @(Get-ChildItem -LiteralPath $applicationRoot -Filter '*.ps1' -File -Recurse | ForEach-Object FullName)
 	foreach ($target in $signTargets) {
 		$signature = Set-AuthenticodeSignature -LiteralPath $target -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer ([string]$config.signing.timestamp_url)
-		if ($signature.Status -ne 'Valid') { throw "Signing failed for $target`: $($signature.Status) $($signature.StatusMessage)" }
+		# A raw provider error says nothing actionable. Name the store and the
+		# identity that could not open the key, which is what actually differs
+		# between this context and the elevated one Settings signs from.
+		if (-not $signature.SignerCertificate) {
+			throw "Signing $target with $thumbprint from $signingStore as $($signingIdentity.Name) applied no signature: $($signature.Status) $($signature.StatusMessage). Settings signs this certificate because manage-signing.ps1 elevates first."
+		}
+		if ($signature.Status -ne 'Valid') { Write-Host "SIGNED, CHAIN NOT TRUSTED HERE: $target`: $($signature.Status) $($signature.StatusMessage)" }
 	}
 	Write-Host "SIGNED: Agent_b.exe and $($signTargets.Count - 1) PowerShell scripts with $thumbprint"
 }

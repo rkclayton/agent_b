@@ -1,5 +1,10 @@
 [CmdletBinding()]
-param()
+param(
+    # Locks the workstation and disconnects the console session during the
+    # session-lifetime scenario (item 2em). Off by default: it locks the
+    # operator's screen.
+    [switch]$LockWorkstation
+)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
@@ -147,7 +152,8 @@ try {
         (Join-Path $testApplication 'NOTICE'),
         (Join-Path $testApplication 'scripts\launch-Agent_b.ps1'),
         (Join-Path $testApplication 'web\assets\Agent_b.ico'),
-        (Join-Path $testStart 'Agent_b.lnk')
+        (Join-Path $testStart 'Agent_b.lnk'),
+        (Join-Path $testStart 'Startup/Agent_b.lnk')
     )) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing installed file: $path" }
     }
@@ -304,6 +310,10 @@ try {
         throw 'Installed launcher does not classify configuration and permission startup failures.'
     }
 
+    $lifetimeArguments = @{ ApplicationDirectory = $testApplication; DataDirectory = $testData; StartMenuDirectory = $testStart; Port = $testPort }
+    if ($LockWorkstation) { $lifetimeArguments.LockWorkstation = $true }
+    & (Join-Path $PSScriptRoot 'test-session-lifetime.ps1') @lifetimeArguments
+
     $credentialPath = Join-Path $testData '.agentb-shell-credential.dpapi'
     [IO.File]::WriteAllBytes($credentialPath, [byte[]](1, 2, 3, 4))
     $credentialHash = (Get-FileHash -LiteralPath $credentialPath -Algorithm SHA256).Hash
@@ -360,7 +370,8 @@ try {
         -not $_.FullName.StartsWith((Join-Path $testData 'logs') + '\', [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.StartsWith((Join-Path $testData 'stats') + '\', [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.Equals($configPath, [StringComparison]::OrdinalIgnoreCase) -and
-        -not $_.FullName.Equals((Join-Path $testData 'STATE.md'), [StringComparison]::OrdinalIgnoreCase)
+        -not $_.FullName.Equals((Join-Path $testData 'STATE.md'), [StringComparison]::OrdinalIgnoreCase) -and
+        -not $_.FullName.Equals((Join-Path $testData 'agent_b-run.json'), [StringComparison]::OrdinalIgnoreCase)
     } | ForEach-Object {
         [pscustomobject]@{ Path = $_.FullName; Length = $_.Length; PrefixSHA256 = Get-FilePrefixHash -Path $_.FullName -Length $_.Length }
     })
@@ -512,6 +523,7 @@ try {
         -not (Test-Path -LiteralPath $workspaceMarker -PathType Leaf) -or
         (Test-Path -LiteralPath (Join-Path $testApplication 'Agent_b.exe')) -or
         (Test-Path -LiteralPath (Join-Path $testStart 'Agent_b.lnk')) -or
+        (Test-Path -LiteralPath (Join-Path $testStart 'Startup/Agent_b.lnk')) -or
         (Test-Path -LiteralPath $testRegistry)) {
         throw 'Preserving uninstall did not keep only local data.'
     }
@@ -528,6 +540,7 @@ try {
         (Test-Path -LiteralPath $testData) -or
         (Test-Path -LiteralPath $testWorkspace) -or
         (Test-Path -LiteralPath (Join-Path $testStart 'Agent_b.lnk')) -or
+        (Test-Path -LiteralPath (Join-Path $testStart 'Startup/Agent_b.lnk')) -or
         (Test-Path -LiteralPath $testRegistry)) {
         throw 'Uninstall left a program, shortcut, or registration artifact.'
     }

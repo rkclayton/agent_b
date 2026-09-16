@@ -5,7 +5,7 @@ import { claimHint, noteReports, planRows, proposalKey, proposalLabel } from "./
 
 const shell = initShell({ page: "plan" });
 mountChat(shell);
-const roots = { empty: byID("plan-empty"), hint: byID("plan-hint"), name: byID("plan-name"), cubes: byID("plan-cubes"), current: byID("plan-current"), items: byID("plan-items"), proposals: byID("plan-proposals"), input: byID("chat-task") };
+const roots = { empty: byID("plan-empty"), hint: byID("plan-hint"), name: byID("plan-name"), cubes: byID("plan-cubes"), go: byID("plan-go"), done: byID("plan-done"), current: byID("plan-current"), items: byID("plan-items"), proposals: byID("plan-proposals"), input: byID("chat-task") };
 let loaded = null;
 let loading = "";
 const resolvedKey = (id) => `agentb.plan.resolved.${id}`;
@@ -32,6 +32,7 @@ function render() {
   roots.current.textContent = rows.order || "No current work order.";
   renderItems(rows.items, noteReports(loaded.notes));
   renderProposals(session);
+  void renderGo(session);
   if (loaded.fallback) showHint("noPlanner");
 }
 
@@ -87,3 +88,62 @@ function readSet(key){ try{return new Set(JSON.parse(localStorage.getItem(key)||
 function remember(key,id){const values=readSet(key);values.add(id);localStorage.setItem(key,JSON.stringify([...values]));}
 function button(text){const value=document.createElement("button");value.type="button";value.textContent=text;return value;}
 function byID(id){return document.getElementById(id);}
+
+// Go is the one control 2t-ii adds. It is enabled only when the plan has a
+// waiting item and no worker is running, and it is the same button that stops
+// one, because Stop ends the worker like any run.
+let goState = { enabled: false, running: false };
+async function renderGo(session) {
+  if (!roots.go || !session?.plan_id) return;
+  try {
+    goState = await api(`/api/plan/go?session_id=${encodeURIComponent(session.id)}`, undefined, "GET");
+  } catch { goState = { enabled: false, running: false }; }
+  roots.go.textContent = goState.running ? "Stop" : "Go";
+  roots.go.classList.toggle("running", !!goState.running);
+  roots.go.disabled = !goState.running && !goState.enabled;
+  roots.go.title = goState.running
+    ? "Stop the worker"
+    : goState.enabled ? "Run the accepted items in plan order" : "No item is waiting";
+  await renderDone(session);
+}
+
+roots.go?.addEventListener("click", async () => {
+  const session = store.sessions[store.selection.session_id];
+  if (!session) return;
+  roots.go.disabled = true;
+  try { await api("/api/plan/go", { session_id: session.id, stop: !!goState.running }); }
+  catch (error) { roots.done.hidden = false; roots.done.textContent = error.message; }
+  finally { void renderGo(session); }
+});
+
+// The done card: what finished, what is stuck and why, and the actions the
+// source names. Nothing else.
+async function renderDone(session) {
+  if (!roots.done) return;
+  let report;
+  try { report = await api(`/api/plan/worker?session_id=${encodeURIComponent(session.id)}`, undefined, "GET"); }
+  catch { return; }
+  if (!report?.done || goState.running) { roots.done.hidden = true; return; }
+  const summary = report.summary || {};
+  roots.done.replaceChildren();
+  const line = document.createElement("div");
+  const head = document.createElement("strong");
+  head.textContent = summary.stopped ? "Worker stopped" : summary.stuck ? "Ready to test, with gaps" : "Ready to test";
+  line.append(head, ` · ${summary.done || 0} done · ${summary.stuck || 0} stuck · ${summary.waiting || 0} waiting`);
+  roots.done.append(line);
+  if (report.error) {
+    const failed = document.createElement("div");
+    failed.textContent = report.error;
+    roots.done.append(failed);
+  }
+  if ((summary.reasons || []).length) {
+    const list = document.createElement("ul");
+    for (const reason of summary.reasons) {
+      const entry = document.createElement("li");
+      entry.textContent = reason;
+      list.append(entry);
+    }
+    roots.done.append(list);
+  }
+  roots.done.hidden = false;
+}

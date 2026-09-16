@@ -31,6 +31,7 @@ import (
 	"harness/internal/stats"
 	"harness/internal/tools"
 	workspaceinfo "harness/internal/workspace"
+	"harness/internal/worker"
 )
 
 type Server struct {
@@ -41,6 +42,8 @@ type Server struct {
 	bus               *events.Bus
 	registry          *session.Registry
 	webDir            string
+	worker            *worker.Driver
+	workerStates      map[string]workerState
 	scheduler         *agent.Scheduler
 	runner            *agent.Runner
 	prompt            *agent.PromptRenderer
@@ -158,6 +161,11 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 		scheduler.SetAgentIdleCallback(s.applyPendingAgentServer)
 		s.tryAgentIdle = scheduler.TryAgentIdle
 	}
+	// The worker drives ordinary runs through the same scheduler, so it exists
+	// only once there is one to drive.
+	if scheduler != nil {
+		s.worker = worker.New(s.bus, schedulerSubmitter{scheduler}, func() []*session.Session { return s.registry.List() })
+	}
 	if runner != nil {
 		runner.SetModelUnreachable(func(sessionID, profileID string) {
 			if scheduler != nil {
@@ -210,6 +218,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/plan", s.replayGuard(s.planSurface))
 	mux.HandleFunc("/api/plan/accept", s.replayGuard(s.planAccept))
 	mux.HandleFunc("/api/plan/marker", s.replayGuard(s.planMarker))
+	mux.HandleFunc("/api/plan/go", s.replayGuard(s.planGo))
+	mux.HandleFunc("/api/plan/worker", s.replayGuard(s.planWorker))
 	mux.HandleFunc("/api/sessions/", s.replayGuard(s.session))
 	mux.HandleFunc("/api/workspaces", s.replayGuard(s.workspaces))
 	mux.HandleFunc("/api/workspaces/", s.replayGuard(s.workspaceAction))

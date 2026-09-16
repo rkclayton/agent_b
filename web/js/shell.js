@@ -77,7 +77,7 @@ export function initShell(options = {}) {
 
   function sessionsFor(agentID, includeClosed = true) {
     return Object.values(store.sessions)
-      .filter((session) => `agent_${session.role === "d" ? "d" : "b"}` === agentID && (includeClosed || !session.closed))
+      .filter((session) => session.role !== "c" && `agent_${session.role === "d" ? "d" : "b"}` === agentID && (includeClosed || !session.closed))
       .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
   }
 
@@ -110,7 +110,8 @@ export function initShell(options = {}) {
 
   function renderTabs() {
     tabs.replaceChildren();
-    const open = Object.values(store.sessions).filter((session) => !session.closed).sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
+    // A worker has no chat: role c never appears in the tab strip.
+    const open = Object.values(store.sessions).filter((session) => !session.closed && session.role !== "c").sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
     const selectedSession = store.sessions[store.selection.session_id];
     const configured = configuredAgent(selectedSession);
     const hasD = !!String(configured?.d || "").trim();

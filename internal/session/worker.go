@@ -9,6 +9,8 @@ type WorkerJob struct {
 	Acceptance string `json:"acceptance"`
 	Negative   string `json:"negative"`
 	Repo       string `json:"repo"`
+	// Verify is the item's verifier command. [x] is written only when it exits 0.
+	Verify string `json:"verify,omitempty"`
 }
 
 // SetWorkerJob binds the session to one item. It is set before the run starts

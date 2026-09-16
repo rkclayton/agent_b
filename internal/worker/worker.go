@@ -178,28 +178,44 @@ func PublishPlanDone(bus *events.Bus, s *session.Session, runID string, done, st
 // Ask posts the worker's one permitted kind of speech: a question it cannot
 // answer from the plan or the repo, routed to d when a bound d-session can
 // answer from the plan and to the operator otherwise.
-func Ask(bus *events.Bus, s *session.Session, runID, question, routedTo string) {
+// Ask posts the worker's one piece of speech where it was routed: in the bound
+// planner's thread when one can answer, and on the worker's own session — where
+// the notifications manager still carries it to the operator — when none can.
+// role:"c" is what makes the thread show it as the worker speaking.
+func Ask(bus *events.Bus, s *session.Session, target *session.Session, runID, question, routedTo string) {
 	if bus == nil {
 		return
 	}
-	bus.Publish(events.New(events.WorkerJob, s.ID, runID, map[string]any{
-		"plan_id": s.PlanID, "item": s.WorkerJob().ItemID, "question": question, "routed_to": routedTo,
+	sessionID := s.ID
+	if target != nil {
+		sessionID = target.ID
+	}
+	bus.Publish(events.New(events.WorkerJob, sessionID, runID, map[string]any{
+		"plan_id": s.PlanID, "item": s.WorkerJob().ItemID, "question": question,
+		"routed_to": routedTo, "role": "c", "worker": s.ID,
 	}))
 }
 
 // Route picks where a worker's question goes. A bound d-session that is not
 // itself running can answer from the plan; otherwise it is the operator's.
 func Route(sessions []*session.Session, planID string) string {
+	_, routed := RouteTarget(sessions, planID)
+	return routed
+}
+
+// RouteTarget is Route plus the session that answers, so the post can be made
+// in that thread rather than only announced.
+func RouteTarget(sessions []*session.Session, planID string) (*session.Session, string) {
 	for _, item := range sessions {
 		if item == nil {
 			continue
 		}
 		snapshot := item.Snapshot()
 		if snapshot.Role == "d" && snapshot.PlanID == planID && !snapshot.Closed {
-			return "d"
+			return item, "d"
 		}
 	}
-	return "operator"
+	return nil, "operator"
 }
 
 // Brief turns an item's plan line into the fields the worker prompt renders.

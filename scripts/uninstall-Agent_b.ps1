@@ -150,6 +150,7 @@ if (-not $currentSid.Equals($ExpectedOperatorSid, [StringComparison]::OrdinalIgn
 
 $installedBinary = Join-Path $applicationRoot 'Agent_b.exe'
 $shortcutPath = Join-Path $startMenuRoot 'Agent_b.lnk'
+$startupShortcutPath = Join-Path $startMenuRoot 'Startup\Agent_b.lnk'
 $purge = $PurgeData.IsPresent
 Write-Host 'Agent_b uninstall'
 Write-Host "Application: $applicationRoot"
@@ -192,6 +193,10 @@ if ($WhatIfPreference) {
 
 if (Test-Path -LiteralPath $shortcutPath) {
     $removalPath = Assert-RemovalWithinAllowedRoots -Path $shortcutPath -AllowedRoots @($startMenuRoot) -Purpose 'Start Menu shortcut cleanup'
+    Remove-Item -LiteralPath $removalPath -Force
+}
+if (Test-Path -LiteralPath $startupShortcutPath) {
+    $removalPath = Assert-RemovalWithinAllowedRoots -Path $startupShortcutPath -AllowedRoots @($startMenuRoot) -Purpose 'sign-in shortcut cleanup'
     Remove-Item -LiteralPath $removalPath -Force
 }
 if (Test-Path -LiteralPath $UninstallRegistryPath) { Remove-Item -LiteralPath $UninstallRegistryPath -Recurse -Force }

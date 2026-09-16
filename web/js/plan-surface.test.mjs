@@ -35,3 +35,11 @@ test("the tray shows a worker's verifier request from the thread or the worker, 
   assert.deepEqual(workerProposals(sessions, { id: "b1", role: "b" }), []);
   assert.deepEqual(workerProposals(sessions, { id: "d3", role: "d", plan_id: "p1", chat: [job({ ...proposal, kind: "reword" })] }).map((value) => value.id), ["verify-2aa", "verify-2ab"]);
 });
+
+test("an item's [[id]] is kept on the row and never shown as its text", () => {
+  const plain = planRows("# P\n[ ] 2aa first item\n[x] same\n");
+  const named = planRows("# P\n[ ] [[2aa]] 2aa first item\n[x] [[3]] same\n");
+  assert.deepEqual(named.items.map((item) => item.text), plain.items.map((item) => item.text));
+  assert.deepEqual(named.items.map((item) => item.id), ["2aa", "3"]);
+  assert.equal(named.items[0].line, "[ ] [[2aa]] 2aa first item");
+});

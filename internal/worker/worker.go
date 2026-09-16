@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -23,11 +24,16 @@ import (
 type Item struct {
 	Line   string // the whole line, verbatim, so a rewrite can be exact
 	Marker string // " ", "~", "x" or "!"
-	Text   string // what follows the marker
+	ID     string // the line's [[id]], its identity; empty until the writer assigns one
+	Text   string // what follows the marker and the id
 	Index  int    // line number, zero-based
 }
 
 var markerLine = regexp.MustCompile(`^(\s*[-*]\s*)\[([ ~x!])\]\s?(.*)$`)
+
+// idToken is an item line's identity, written straight after its marker. The
+// shape is the item-file id shape, so it can never name a path outside the plan.
+var idToken = regexp.MustCompile(`^\[\[([0-9]+[a-z]*)\]\]\s*`)
 
 // Parse reads plan.md into its marker lines, in plan order. Lines without a
 // marker are not items and are left alone.
@@ -38,9 +44,79 @@ func Parse(text string) []Item {
 		if match == nil {
 			continue
 		}
-		items = append(items, Item{Line: line, Marker: match[2], Text: strings.TrimSpace(match[3]), Index: index})
+		rest, id := match[3], ""
+		if token := idToken.FindStringSubmatch(rest); token != nil {
+			id, rest = token[1], rest[len(token[0]):]
+		}
+		items = append(items, Item{Line: line, Marker: match[2], ID: id, Text: strings.TrimSpace(rest), Index: index})
 	}
 	return items
+}
+
+// AssignIDs gives every item line without an id one, once. An item that starts
+// with an item-file id keeps that id when no other line has claimed it; any
+// other line, a duplicate included, gets the smallest number no line uses and
+// no item file is named for. Nothing but the inserted token changes.
+func AssignIDs(text, planDir string) string {
+	items := Parse(text)
+	used := map[string]bool{}
+	for _, item := range items {
+		if item.ID != "" {
+			used[item.ID] = true
+		}
+	}
+	free := func(id string) bool {
+		if used[id] {
+			return false
+		}
+		if planDir != "" {
+			if _, err := os.Stat(filepath.Join(planDir, "plan", "items", id+".md")); err == nil {
+				return false
+			}
+		}
+		return true
+	}
+	newline := "\n"
+	if strings.Contains(text, "\r\n") {
+		newline = "\r\n"
+	}
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	next := 1
+	for _, item := range items {
+		if item.ID != "" {
+			continue
+		}
+		id := itemID(item.Text)
+		if id == "" || used[id] {
+			for !free(strconv.Itoa(next)) {
+				next++
+			}
+			id = strconv.Itoa(next)
+		}
+		used[id] = true
+		match := markerLine.FindStringSubmatch(item.Line)
+		lines[item.Index] = match[1] + "[" + match[2] + "] [[" + id + "]] " + match[3]
+	}
+	return strings.Join(lines, newline)
+}
+
+// findByID is how a marker finds its line again: by identity, so two items with
+// the same text are never confused and an edited text still gets its marker.
+func findByID(items []Item, id string) (Item, error) {
+	var found []Item
+	for _, item := range items {
+		if item.ID == id {
+			found = append(found, item)
+		}
+	}
+	switch len(found) {
+	case 1:
+		return found[0], nil
+	case 0:
+		return Item{}, fmt.Errorf("item [[%s]] left plan.md", id)
+	default:
+		return Item{}, fmt.Errorf("item [[%s]] appears %d times in plan.md", id, len(found))
+	}
 }
 
 // Next is the first item still waiting, in plan order.
@@ -70,6 +146,13 @@ func SetMarker(text string, item Item, marker string) (string, error) {
 		newline = "\r\n"
 	}
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	if item.ID != "" {
+		current, err := findByID(Parse(text), item.ID)
+		if err != nil {
+			return "", err
+		}
+		item = current
+	}
 	if item.Index < 0 || item.Index >= len(lines) {
 		return "", fmt.Errorf("item line %d is outside plan.md", item.Index)
 	}
@@ -118,20 +201,27 @@ func (p *Plan) Read() (string, error) {
 }
 
 // Mark flips one item's marker. A stuck marker records its reason once; any
-// other marker clears an earlier reason. The line must still read exactly as it
-// did when the item was found, or nothing is written.
+// other marker clears an earlier reason. It goes through the plan file's one
+// serialised writer, which re-reads plan.md first, and it finds the line by the
+// item's id in that fresh text; an item without an id must still read exactly
+// as it did when it was found, or nothing is written.
 func (p *Plan) Mark(item Item, marker, reason string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	text, err := p.Read()
-	if err != nil {
-		return err
-	}
-	next, err := markLine(text, item, marker, reason)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(p.Path(), []byte(next), 0o600)
+	return session.UpdatePlanFile(p.Path(), func(text string, exists bool) (string, error) {
+		if !exists {
+			return "", fmt.Errorf("plan.md was not found")
+		}
+		return markLine(text, item, marker, reason)
+	})
+}
+
+// AssignIDs gives the plan's item lines their ids, through the same writer.
+func (p *Plan) AssignIDs() error {
+	return session.UpdatePlanFile(p.Path(), func(text string, exists bool) (string, error) {
+		if !exists {
+			return "", fmt.Errorf("plan.md was not found")
+		}
+		return AssignIDs(text, p.Dir), nil
+	})
 }
 
 func markLine(text string, item Item, marker, reason string) (string, error) {
@@ -143,6 +233,13 @@ func markLine(text string, item Item, marker, reason string) (string, error) {
 		newline = "\r\n"
 	}
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	if item.ID != "" {
+		current, err := findByID(Parse(text), item.ID)
+		if err != nil {
+			return "", err
+		}
+		item = current
+	}
 	if item.Index < 0 || item.Index >= len(lines) {
 		return "", fmt.Errorf("item line %d is outside plan.md", item.Index)
 	}
@@ -242,9 +339,16 @@ func RouteTarget(sessions []*session.Session, planID string) (*session.Session, 
 // The plan line is the intent; the item file, when one exists, carries the rest.
 func Brief(item Item, planDir, repo string) session.WorkerJob {
 	job := session.WorkerJob{ItemID: itemID(item.Text), Intent: item.Text, Repo: repo}
+	// The line's own id names its item file when one exists under that id.
+	if item.ID != "" {
+		if _, err := os.Stat(filepath.Join(planDir, "plan", "items", item.ID+".md")); err == nil {
+			job.ItemID = item.ID
+		}
+	}
 	if job.ItemID == "" {
 		return job
 	}
+
 	data, err := os.ReadFile(filepath.Join(planDir, "plan", "items", job.ItemID+".md"))
 	if err != nil {
 		return job

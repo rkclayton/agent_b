@@ -31,6 +31,7 @@ function render() {
   const rows = planRows(loaded.plan);
   roots.current.textContent = rows.order || "No current work order.";
   renderItems(rows.items, noteReports(loaded.notes));
+  if (loaded.refusal) { const line=document.createElement("p"); line.className="plan-refusal"; line.textContent=loaded.refusal; roots.items.prepend(line); }
   renderProposals(session);
   void renderGo(session);
   if (loaded.fallback) showHint("noPlanner");
@@ -104,7 +105,7 @@ async function renderGo(session) {
   roots.go.disabled = !goState.running && !goState.enabled;
   roots.go.title = goState.running
     ? "Stop the worker"
-    : goState.enabled ? "Run the accepted items in plan order" : "No item is waiting";
+    : goState.enabled ? "Run the accepted items in plan order" : goState.refusal || "No item is waiting";
   await renderDone(session);
 }
 

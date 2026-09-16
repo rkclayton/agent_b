@@ -125,6 +125,15 @@ func (d *Driver) Go(parent context.Context, s *session.Session, plan *Plan, repo
 		if err := plan.Mark(current, outcome.Marker, outcome.Reason); err != nil {
 			return summary, err
 		}
+		// A worker that could not finish has one permitted piece of speech: the
+		// question it could not answer from the plan or the repo. It is posted in
+		// the design thread and routed — to d when a bound d-session can answer
+		// from the plan, to the operator otherwise.
+		if outcome.Marker != "x" {
+			if question := lastSaid(s); question != "" {
+				Ask(d.bus, s, "", question, Route(d.sessionList(), planID))
+			}
+		}
 		Publish(d.bus, s, "", outcome)
 		if ctx.Err() != nil {
 			summary.Stopped = true
@@ -214,4 +223,32 @@ func classify(itemID string, event events.Event) Outcome {
 		}
 		return Outcome{ItemID: itemID, Marker: "!", Reason: text}
 	}
+}
+
+// lastSaid is the worker's final assistant message: what it said when it could
+// not finish. Empty when it said nothing, in which case there is no question to
+// post and the stuck reason stands alone.
+func lastSaid(s *session.Session) string {
+	messages := s.MessagesCopy()
+	for index := len(messages) - 1; index >= 0; index-- {
+		if messages[index].Role != "assistant" || messages[index].Elided {
+			continue
+		}
+		text := strings.TrimSpace(messages[index].Content)
+		if text == "" {
+			continue
+		}
+		if len(text) > 400 {
+			text = text[:397] + "..."
+		}
+		return text
+	}
+	return ""
+}
+
+func (d *Driver) sessionList() []*session.Session {
+	if d.sessions == nil {
+		return nil
+	}
+	return d.sessions()
 }

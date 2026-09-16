@@ -7,6 +7,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'removal-guard.ps1')
 Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
 Import-Module (Join-Path $PSHOME 'Modules\PKI\PKI.psd1') -ErrorAction Stop
 $inputText = if ($RequestBase64) { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($RequestBase64)) } else { [Console]::In.ReadToEnd() }
@@ -211,6 +212,6 @@ switch ($Action) {
                 Start-ScheduledTask -TaskName $taskName
                 Start-Sleep -Milliseconds 750
             } finally { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue }
-        } finally { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { try { Remove-TreeWithinAllowedRoots -Path $stage -AllowedRoots @($stage) -Purpose 'signing stage cleanup' } catch { Write-Warning $_.Exception.Message } }
     }
 }

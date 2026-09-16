@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { removeTreeWithinAllowedRoots } from "../../scripts/removal-guard.mjs";
 
 const suiteRoot = path.dirname(fileURLToPath(import.meta.url));
 const seedRoot = path.join(suiteRoot, "fixture", "seed");
@@ -94,7 +95,7 @@ for (const task of manifest) {
     const after = runVerifier(task, worktree);
     assert.equal(after.status, 0, `${task.id}: oracle verifier failed\n${after.stdout}\n${after.stderr}`);
   } finally {
-    fs.rmSync(temporary, { recursive: true, force: true });
+    removeTreeWithinAllowedRoots(temporary, [temporary], "comparative fixture cleanup");
   }
   process.stdout.write(`PASS ${task.id}\n`);
 }

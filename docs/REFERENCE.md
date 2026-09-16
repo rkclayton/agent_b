@@ -8,6 +8,12 @@ On Windows, double-click **`install-Agent_b.cmd`** once for the normal installat
 
 Developers can instead double-click **`start-Agent_b.cmd`** to build and run directly from the checkout. Both paths find Go on `PATH` or in the ignored local `.tools\go` directory. No PowerShell command is required.
 
+The test suites also need `node_modules` (Playwright). One command rebuilds both ignored tool folders, from `package-lock.json` and from an installed Go at or above `go.mod`'s version, and removes nothing it did not create:
+
+    powershell -NoProfile -File scripts\rebuild-tool-folders.ps1
+
+Remove a linked git worktree only with `scripts\remove-worktree.ps1 -Path <worktree>`. `git worktree remove` descends through junctions, so a worktree given junctions to this checkout's `node_modules` or `.tools\go` takes their contents with it.
+
 The normal hidden launcher wrapper owns the Agent_b process and exits with it; pass `-Console` for an attached visible console. An installed launch failure is appended to `%LocalAppData%\Agent_b\logs\launcher-errors.log`; a source launch writes beneath the checkout. Test automation should use `Agent_b.cmd -Detached -NoBrowser -NoPause` (or the same switches with `start-Agent_b.cmd`): the server starts in a hidden background process and the launcher returns after its readiness check. A detached server does not stop when its browser closes, so automation must stop the exact Agent_b process it started after confirming sessions are idle.
 
 Agent_b refuses to start with an elevated Administrator token. Membership in the local Administrators group is fine: double-click the launcher normally, without **Run as administrator** and outside an elevated terminal.

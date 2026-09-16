@@ -571,6 +571,12 @@ func (m *Manager) ApplyRetention() ([]string, error) {
 	if days <= 0 {
 		return nil, nil
 	}
+	if err := assertRetentionRoot(m.logDir); err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
 	entries, err := os.ReadDir(m.logDir)
 	if os.IsNotExist(err) {
 		return []string{}, nil
@@ -581,7 +587,8 @@ func (m *Manager) ApplyRetention() ([]string, error) {
 	cutoff := m.now().Add(-time.Duration(days) * 24 * time.Hour)
 	candidates := []string{}
 	for _, entry := range entries {
-		if entry.IsDir() || strings.EqualFold(entry.Name(), "evidence") || !strings.HasSuffix(strings.ToLower(entry.Name()), ".jsonl") {
+		// Type() is the Lstat mode: a link named *.jsonl is never followed.
+		if !entry.Type().IsRegular() || strings.EqualFold(entry.Name(), "evidence") || !strings.HasSuffix(strings.ToLower(entry.Name()), ".jsonl") {
 			continue
 		}
 		info, infoErr := entry.Info()
@@ -600,6 +607,28 @@ func (m *Manager) ApplyRetention() ([]string, error) {
 		m.publish(events.New(events.LogRetention, "", "", map[string]any{"days": days, "files": files, "count": len(files)}))
 	}
 	return removed, removeErr
+}
+
+// assertRetentionRoot is checked before retention deletes anything: the log
+// directory must be absolute, not a volume root, and a real directory rather
+// than a junction or symbolic link, so a misconfigured root can never point the
+// pruner at another tree (v0.64.0, item 2en).
+func assertRetentionRoot(dir string) error {
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("retention refused: log directory is not absolute: %q", dir)
+	}
+	clean := filepath.Clean(dir)
+	if clean == filepath.Clean(filepath.VolumeName(clean)+string(filepath.Separator)) {
+		return fmt.Errorf("retention refused: log directory is a volume root: %s", clean)
+	}
+	info, err := os.Lstat(clean)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || info.Mode()&os.ModeIrregular != 0 || !info.IsDir() {
+		return fmt.Errorf("retention refused: log directory is not a plain directory: %s", clean)
+	}
+	return nil
 }
 
 func (m *Manager) RunRetention(ctx context.Context) {

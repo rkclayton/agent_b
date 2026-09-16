@@ -7,6 +7,7 @@ import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { preparePublication, publishPublication, workerStopped } from "./plan-publish.mjs";
+import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const linter = path.join(here, "plan-lint.mjs");
@@ -14,7 +15,7 @@ const publisher = path.join(here, "plan-publish.mjs");
 const linterHash = crypto.createHash("sha256").update(fs.readFileSync(linter)).digest("hex");
 const roots = [];
 process.on("exit", () => {
-  for (const root of roots) if (path.basename(root).startsWith("agentb-plan-publish-")) fs.rmSync(root, { recursive: true, force: true });
+  for (const root of roots) if (path.basename(root).startsWith("agentb-plan-publish-")) removeTreeWithinAllowedRoots(root, [root], "plan-publish test cleanup");
 });
 
 function item(id, { state = "live", authorization = "operator", acceptance = "Fixture behavior is verified." } = {}) {

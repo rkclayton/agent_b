@@ -6,6 +6,7 @@ import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { loadPublishedProposal, validateProposal, validateResume } from "./plan-lint.mjs";
+import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const linter = path.join(here, "plan-lint.mjs");
@@ -13,7 +14,7 @@ const fixtureRoots = [];
 process.on("exit", () => {
   for (const root of fixtureRoots) {
     const relative = path.relative(os.tmpdir(), root);
-    if (!relative.startsWith("..") && path.basename(root).startsWith("agentb-plan-lint-")) fs.rmSync(root, { recursive: true, force: true });
+    if (!relative.startsWith("..") && path.basename(root).startsWith("agentb-plan-lint-")) removeTreeWithinAllowedRoots(root, [root], "plan-lint test cleanup");
   }
 });
 

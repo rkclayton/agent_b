@@ -11,6 +11,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'removal-guard.ps1')
 $sourceRoot = Split-Path -Parent $PSScriptRoot
 $applicationSource = if ([string]::IsNullOrWhiteSpace($SourceDirectory)) { $sourceRoot } else { $SourceDirectory }
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-v0170-menu-' + [Guid]::NewGuid().ToString('N'))
@@ -55,6 +56,6 @@ try {
     if ($resolvedTest.StartsWith($resolvedTemp, [StringComparison]::OrdinalIgnoreCase) -and
         (Split-Path -Leaf $resolvedTest) -like 'Agent_b-v0170-menu-*' -and
         (Test-Path -LiteralPath $resolvedTest)) {
-        Remove-Item -LiteralPath $resolvedTest -Recurse -Force
+        Remove-TreeWithinAllowedRoots -Path $resolvedTest -AllowedRoots @($resolvedTest) -Purpose 'menu-replay disposable-root cleanup'
     }
 }

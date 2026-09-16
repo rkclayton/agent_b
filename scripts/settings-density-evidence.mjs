@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 
 const root = process.cwd();
 const which = process.argv[2] || "after";
@@ -82,4 +83,4 @@ for (const [name, render] of Object.entries(pages)) {
 }
 
 console.log(JSON.stringify({ which, ref: ref || "working tree", report }, null, 1));
-if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
+if (scratch) removeTreeWithinAllowedRoots(scratch, [scratch], "settings-density scratch cleanup");

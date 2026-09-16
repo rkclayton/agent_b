@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 
 const root = process.cwd();
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "planlint-dryrun-"));
@@ -117,7 +118,7 @@ say("### control — the live published plan, uncorrupted");
 say(`  exit ${clean.code}  ok=${clean.result.ok}  wrote nothing=${clean.untouched}  items=${clean.result.items}`);
 say(`  gated items: ${clean.result.gated_items.join("  ")}`);
 
-fs.rmSync(scratch, { recursive: true, force: true });
+removeTreeWithinAllowedRoots(scratch, [scratch], "dry-run proof scratch cleanup");
 
 const failures = [];
 if (one.code === 0 || !one.result.errors.some((e) => e.includes("2al"))) failures.push("shape 1 did not reproduce");

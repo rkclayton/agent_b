@@ -1103,6 +1103,21 @@ func (c Config) Profile(id string) (*Profile, bool) {
 	return nil, false
 }
 
+// ProfileFor is the profile a session of this role runs on. c falls back to b so
+// Go works on a single-profile install; d has no fallback, because a planner
+// without a d profile is refused at creation.
+func (a Agent) ProfileFor(role string) string {
+	switch role {
+	case "d":
+		return a.D
+	case "c":
+		if a.C != "" {
+			return a.C
+		}
+	}
+	return a.B
+}
+
 func (c Config) Agent(id string) (*Agent, bool) {
 	for i := range c.Agents {
 		if AgentID(c.Agents[i].Name) == id {

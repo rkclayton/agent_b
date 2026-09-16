@@ -12,6 +12,7 @@ const args = Object.fromEntries(Array.from({ length: Math.floor(process.argv.sli
 }));
 for (const key of ["app", "data", "workspace", "evidence"]) assert.ok(args[key], `missing --${key}`);
 const realModel = !!args["real-model-url"];
+const headless = args.headless === "true";
 const startedAt = Date.now();
 const scenarios = [];
 const children = [];
@@ -345,7 +346,7 @@ assert.equal(loadedConfig.servers?.[0]?.capabilities?.tokenize, true, "slow-acco
 assert.equal(loadedConfig.context?.accounting, "auto", "slow-accounting fixture needs automatic exact accounting");
 edgeContext = await chromium.launchPersistentContext("", {
   channel: "msedge",
-  headless: false,
+  headless,
   viewport: { width: 1250, height: 975 },
   args: [`--app=http://127.0.0.1:${appPort}/chat`, "--window-size=1250,975"],
 });

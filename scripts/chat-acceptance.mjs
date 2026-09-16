@@ -1578,7 +1578,16 @@ if (realModel) {
     if ((await readFile(planPath, "utf8")).includes("[x] [[2t]] 2t")) break;
     await sleep(100);
   }
+  if (!workerCards) {
+    const serverWorker = Object.values((await state()).sessions).find((entry) => entry.role === "c");
+    const clientWorker = await page.evaluate((id) => {
+      const html = document.querySelector("#chat-pending-approval")?.outerHTML || "";
+      return { html: html.slice(0, 400) };
+    }, serverWorker?.id);
+    process.stdout.write(`WORKER CARD DIAGNOSTIC plan=${JSON.stringify(await readFile(planPath, "utf8"))} server_pending=${JSON.stringify(serverWorker?.pending_approval?.event?.data?.name || null)} run=${JSON.stringify(serverWorker?.run?.status || null)} client=${JSON.stringify(clientWorker)}` + String.fromCharCode(10));
+  }
   assert.ok(workerCards > 0, "the worker's approval was never drawn in the design thread");
+
   process.stdout.write(`WORKER APPROVAL IN THREAD answered ${workerCards} card(s)` + String.fromCharCode(10));
   record("worker-approval-card-in-design-thread-answered-there");
   // A worker that did not get where it was going has to say why in the gate's

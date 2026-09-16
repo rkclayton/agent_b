@@ -1,0 +1,244 @@
+// Package worker runs accepted plan items, one at a time, in plan order.
+//
+// The worker is a c-role session with no chat. It marks the item it is on,
+// works under the same approvals and backstops as any run, and writes the
+// repository — never the plan's text. Markers are the harness's writes, which is
+// why they live here and not in the model's tool surface.
+package worker
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+
+	"harness/internal/events"
+	"harness/internal/session"
+)
+
+// Item is one line of plan.md carrying a marker.
+type Item struct {
+	Line   string // the whole line, verbatim, so a rewrite can be exact
+	Marker string // " ", "~", "x" or "!"
+	Text   string // what follows the marker
+	Index  int    // line number, zero-based
+}
+
+var markerLine = regexp.MustCompile(`^(\s*[-*]\s*)\[([ ~x!])\]\s?(.*)$`)
+
+// Parse reads plan.md into its marker lines, in plan order. Lines without a
+// marker are not items and are left alone.
+func Parse(text string) []Item {
+	items := []Item{}
+	for index, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		match := markerLine.FindStringSubmatch(line)
+		if match == nil {
+			continue
+		}
+		items = append(items, Item{Line: line, Marker: match[2], Text: strings.TrimSpace(match[3]), Index: index})
+	}
+	return items
+}
+
+// Next is the first item still waiting, in plan order.
+func Next(items []Item) (Item, bool) {
+	for _, item := range items {
+		if item.Marker == " " {
+			return item, true
+		}
+	}
+	return Item{}, false
+}
+
+// Remaining reports whether any item is still waiting.
+func Remaining(items []Item) bool {
+	_, ok := Next(items)
+	return ok
+}
+
+// SetMarker rewrites one item's marker in place. It replaces only the first
+// bracket on that exact line, so nothing else in plan.md can move.
+func SetMarker(text string, item Item, marker string) (string, error) {
+	if !strings.Contains("~x! ", marker) || len(marker) != 1 {
+		return "", fmt.Errorf("marker %q is not one of [ ] [~] [x] [!]", marker)
+	}
+	newline := "\n"
+	if strings.Contains(text, "\r\n") {
+		newline = "\r\n"
+	}
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	if item.Index < 0 || item.Index >= len(lines) {
+		return "", fmt.Errorf("item line %d is outside plan.md", item.Index)
+	}
+	if lines[item.Index] != item.Line {
+		return "", fmt.Errorf("plan.md line %d changed under the worker", item.Index)
+	}
+	match := markerLine.FindStringSubmatch(item.Line)
+	if match == nil {
+		return "", fmt.Errorf("line %d carries no marker", item.Index)
+	}
+	rest := match[3]
+	// A stuck reason is written after the text, once: re-running must not stack.
+	lines[item.Index] = match[1] + "[" + marker + "] " + rest
+	return strings.Join(lines, newline), nil
+}
+
+// WithReason appends a stuck reason to an item's text, replacing any previous
+// one so a second failure does not stack a second parenthetical.
+func WithReason(line, reason string) string {
+	trimmed := strings.TrimRight(line, " \t")
+	if index := strings.LastIndex(trimmed, "  — stuck: "); index >= 0 {
+		trimmed = trimmed[:index]
+	}
+	if reason == "" {
+		return trimmed
+	}
+	return trimmed + "  — stuck: " + reason
+}
+
+// Plan is the file the worker marks. Reads and writes go through here so the
+// path is resolved once and every write is a whole-file replace of known text.
+type Plan struct {
+	Dir string
+	mu  sync.Mutex
+}
+
+func (p *Plan) Path() string { return filepath.Join(p.Dir, "plan.md") }
+
+func (p *Plan) Read() (string, error) {
+	data, err := os.ReadFile(p.Path())
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// Mark flips one item's marker and, for a stuck item, records the reason.
+func (p *Plan) Mark(item Item, marker, reason string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	text, err := p.Read()
+	if err != nil {
+		return err
+	}
+	if marker == "!" {
+		match := markerLine.FindStringSubmatch(item.Line)
+		if match == nil {
+			return fmt.Errorf("line %d carries no marker", item.Index)
+		}
+		item.Line = match[1] + "[" + item.Marker + "] " + WithReason(match[3], reason)
+		lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+		if item.Index < len(lines) {
+			lines[item.Index] = item.Line
+		}
+		newline := "\n"
+		if strings.Contains(text, "\r\n") {
+			newline = "\r\n"
+		}
+		text = strings.Join(lines, newline)
+	}
+	next, err := SetMarker(text, item, marker)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p.Path(), []byte(next), 0o600)
+}
+
+// Outcome is why a worker stopped on one item.
+type Outcome struct {
+	ItemID string
+	Marker string
+	Reason string
+}
+
+// Publish emits the plan events 2dz already declares and dispatches.
+func Publish(bus *events.Bus, s *session.Session, runID string, outcome Outcome) {
+	if bus == nil {
+		return
+	}
+	switch outcome.Marker {
+	case "x":
+		bus.Publish(events.New(events.ItemDone, s.ID, runID, map[string]any{"item": outcome.ItemID, "plan_id": s.PlanID}))
+	case "!":
+		bus.Publish(events.New(events.ItemStuck, s.ID, runID, map[string]any{"item": outcome.ItemID, "plan_id": s.PlanID, "reason": outcome.Reason}))
+	}
+}
+
+// PublishPlanDone says the plan has no waiting items left.
+func PublishPlanDone(bus *events.Bus, s *session.Session, runID string, done, stuck int) {
+	if bus == nil {
+		return
+	}
+	bus.Publish(events.New(events.PlanDone, s.ID, runID, map[string]any{"plan_id": s.PlanID, "done": done, "stuck": stuck}))
+}
+
+// Ask posts the worker's one permitted kind of speech: a question it cannot
+// answer from the plan or the repo, routed to d when a bound d-session can
+// answer from the plan and to the operator otherwise.
+func Ask(bus *events.Bus, s *session.Session, runID, question, routedTo string) {
+	if bus == nil {
+		return
+	}
+	bus.Publish(events.New(events.WorkerJob, s.ID, runID, map[string]any{
+		"plan_id": s.PlanID, "item": s.WorkerJob().ItemID, "question": question, "routed_to": routedTo,
+	}))
+}
+
+// Route picks where a worker's question goes. A bound d-session that is not
+// itself running can answer from the plan; otherwise it is the operator's.
+func Route(sessions []*session.Session, planID string) string {
+	for _, item := range sessions {
+		if item == nil {
+			continue
+		}
+		snapshot := item.Snapshot()
+		if snapshot.Role == "d" && snapshot.PlanID == planID && !snapshot.Closed {
+			return "d"
+		}
+	}
+	return "operator"
+}
+
+// Brief turns an item's plan line into the fields the worker prompt renders.
+// The plan line is the intent; the item file, when one exists, carries the rest.
+func Brief(item Item, planDir, repo string) session.WorkerJob {
+	job := session.WorkerJob{ItemID: itemID(item.Text), Intent: item.Text, Repo: repo}
+	if job.ItemID == "" {
+		return job
+	}
+	data, err := os.ReadFile(filepath.Join(planDir, "plan", "items", job.ItemID+".md"))
+	if err != nil {
+		return job
+	}
+	body := string(data)
+	job.Acceptance = section(body, "## Acceptance")
+	job.Approach = section(body, "## Contract")
+	job.Negative = section(body, "## Not in scope")
+	return job
+}
+
+var idPattern = regexp.MustCompile(`^([0-9]+[a-z]*)\b`)
+
+func itemID(text string) string {
+	if match := idPattern.FindStringSubmatch(strings.TrimSpace(text)); match != nil {
+		return match[1]
+	}
+	return ""
+}
+
+func section(body, heading string) string {
+	index := strings.Index(body, heading)
+	if index < 0 {
+		return ""
+	}
+	rest := body[index+len(heading):]
+	if end := strings.Index(rest, "\n## "); end >= 0 {
+		rest = rest[:end]
+	}
+	return strings.TrimSpace(rest)
+}
+
+var _ = context.Background

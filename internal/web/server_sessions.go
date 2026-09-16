@@ -76,8 +76,8 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 		if role == "" {
 			role = "b"
 		}
-		if role != "d" && body.PlanID != "" {
-			writeError(w, 400, "plan_id is available only for role d", "plan_id")
+		if role != "d" && role != "c" && body.PlanID != "" {
+			writeError(w, 400, "plan_id is available only for roles c and d", "plan_id")
 			return
 		}
 		if runnable, reason := s.registry.AgentRoleRunnable(body.AgentID, role); !runnable {

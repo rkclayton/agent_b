@@ -130,6 +130,7 @@ type Session struct {
 	compactionCompletion                                 int
 	submitting                                           int
 	runPinID                                             string
+	workerJob                                            WorkerJob
 	planPage                                             bool
 	planAccept                                           bool
 	mu                                                   sync.Mutex
@@ -172,7 +173,8 @@ func (s *Session) ReadRoot(path string) (string, error) {
 			return s.PlanRepo, nil
 		}
 	}
-	if s.Role == "b" && filepath.IsAbs(candidate) {
+	// c reads its bound repo the way b reads any registered one.
+	if (s.Role == "b" || s.Role == "c") && filepath.IsAbs(candidate) {
 		if root := s.planRepoRootLocked(candidate); root != "" {
 			s.touchPlanRepoLocked(root)
 			return root, nil
@@ -185,6 +187,9 @@ func (s *Session) WriteRoot(path string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	candidate := filepath.FromSlash(path)
+	// The worker never writes plan text. d writes its own plan folder; c is bound
+	// to a plan but may only ever write the repo, so the plans root is closed to
+	// it exactly as it is to b. Markers are the harness's writes, not the model's.
 	if filepath.IsAbs(candidate) && s.PlansRoot != "" && pathWithin(s.PlansRoot, candidate) && (s.Role != "d" || s.PlanDir == "" || !pathWithin(s.PlanDir, candidate)) {
 		return "", fmt.Errorf("path is outside the folder")
 	}

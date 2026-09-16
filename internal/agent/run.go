@@ -138,6 +138,11 @@ func (r *Runner) AppendUser(s *session.Session, message events.Message) {
 
 func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (reason string, detail string, turns int) {
 	s.ResetRunTouches()
+	// Pin the message this run is answering before anything can compact. From
+	// here to the end of the history is the task, and it is never summarised,
+	// elided or superseded away.
+	s.SetRunPin(session.RunPinFromTail(s.MessagesCopy()))
+	defer s.SetRunPin("")
 	r.beginFlight(s.ID, runID)
 	defer r.endFlight(s.ID, runID)
 	runCfg := r.cfg().Run
@@ -308,9 +313,16 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		guardUsed := guardedPromptTokens(budget)
 		floor := outputFloor(profile)
 		if guardUsed+floor > budget.NCtx {
-			if r.compactToFit(ctx, s, runID, profile, currentReasoning, budget) {
+			changed, exhausted := r.compactToFit(ctx, s, runID, profile, currentReasoning, budget)
+			if changed {
 				turn--
 				continue
+			}
+			if exhausted {
+				// Everything outside the running turn is already compacted. The
+				// only thing left to cut is the task itself, and answering some
+				// older message instead is what 2eg was filed for.
+				return "context_exhausted", "the task and the work answering it no longer fit the remaining context window; nothing outside it is left to compact", turn - 1
 			}
 			return "context_ceiling", fmt.Sprintf("prompt %d tokens leaves less than the %d-token output floor in n_ctx %d after compaction", guardUsed, floor, budget.NCtx), turn - 1
 		}
@@ -1005,7 +1017,9 @@ func shouldBatchElide(used, ceiling int, cfg config.GlobalContext, coldPrefill b
 	}
 	return used >= int(float64(ceiling)*high)
 }
-func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID string, p *config.Profile, current map[string]bool, budget events.Budget) bool {
+// compactToFit reports whether it changed anything, and whether the only reason
+// it could not is that the running turn is all that is left.
+func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID string, p *config.Profile, current map[string]bool, budget events.Budget) (bool, bool) {
 	cfg := r.cfg()
 	readDefaultLimit := min(cfg.Tools.ReadFile.DefaultLimit, cfg.Tools.ReadFile.MaxLimit)
 	changed, _ := r.compact.ElideOld(s, runID, budget.UsedEst, int(float64(budget.Ceiling)*.60), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
@@ -1024,8 +1038,10 @@ func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID str
 	if changed {
 		r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "compact", "state": "enter", "turn": s.Snapshot().Run.Turn, "ms": 0}))
 		r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "compact", "state": "exit", "turn": s.Snapshot().Run.Turn, "ms": 0}))
+		return true, false
 	}
-	return changed
+	_, spanLeft := contextmgr.SummarizeSpan(s.MessagesCopy(), s.RunPin())
+	return false, !spanLeft
 }
 func (r *Runner) operationalError(s *session.Session, runID, where string, err error) {
 	r.bus.Publish(events.New(events.Error, s.ID, runID, map[string]any{"where": where, "message": err.Error()}))

@@ -596,6 +596,10 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 		next.Activity.CompactionSerial++
 		next.CompactionCount++
 		next.CompactionTokenDelta += intValue(data["after"]) - intValue(data["before"])
+		// The meter follows the compaction immediately rather than waiting for
+		// the next measured request. The freed tokens come off the compactible
+		// categories only; the fixed prefix is a floor, never zero.
+		next.Budget = compactedBudget(next.Budget, intValue(data["before"]), intValue(data["after"]))
 		if stringValue(data["kind"]) == "summarize" {
 			removed := map[string]bool{}
 			for _, id := range stringValues(data["affected_ids"]) {
@@ -665,8 +669,44 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 	return next, diff(before, next), nil
 }
 
+// compactibleCategories are the only ones compaction can shrink. system, project,
+// tools and the two memory layers are the fixed prefix and stay where they are.
+var compactibleCategories = []string{"files", "results", "fetched", "history", "summary"}
+
+func compactedBudget(budget events.Budget, before, after int) events.Budget {
+	freed := before - after
+	if freed <= 0 || budget.UsedEst <= 0 {
+		return budget
+	}
+	budget.UsedEst = max(0, budget.UsedEst-freed)
+	if len(budget.Categories) == 0 {
+		return budget
+	}
+	categories := make(map[string]int, len(budget.Categories))
+	for key, value := range budget.Categories {
+		categories[key] = value
+	}
+	remaining := freed
+	for _, key := range compactibleCategories {
+		if remaining <= 0 {
+			break
+		}
+		take := min(categories[key], remaining)
+		categories[key] -= take
+		remaining -= take
+	}
+	budget.Categories = categories
+	return budget
+}
+
 func summaryTranscript(content string) string {
-	content = strings.TrimPrefix(content, "Progress note (auto-summary of earlier turns):\n")
+	// The header now names the turns the note covers, so strip the whole first
+	// line whenever it is one of ours rather than one fixed string.
+	if strings.HasPrefix(content, "Progress note (auto-summary of ") {
+		if index := strings.Index(content, "\n"); index >= 0 {
+			content = content[index+1:]
+		}
+	}
 	if index := strings.Index(content, "\n\n[BEGIN COMPACTION EVIDENCE]"); index >= 0 {
 		content = content[:index]
 	}

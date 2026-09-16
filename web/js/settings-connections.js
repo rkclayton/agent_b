@@ -1,7 +1,6 @@
-import { store as memoryStore } from "./bus.js";
-let expanded, armed, drafts, errors, probeMessages, serverProfiles, row, text, number, numberControl, textarea, secret, toggle, choices, profileReason, html, attr;
+let expanded, armed, drafts, errors, probeMessages, serverProfiles, row, text, number, numberControl, textarea, secret, toggle, choices, profileReason, html, attr, store;
 function useSettingsContext(context) {
-  ({ expanded, armed, drafts, errors, probeMessages, serverProfiles, row, text, number, numberControl, textarea, secret, toggle, choices, profileReason, html, attr } = context);
+  ({ expanded, armed, drafts, errors, probeMessages, serverProfiles, row, text, number, numberControl, textarea, secret, toggle, choices, profileReason, html, attr, store } = context);
 }
 
 function servers() {
@@ -51,7 +50,7 @@ function servers() {
 const count = (value) => new Intl.NumberFormat().format(Number(value) || 0);
 
 function memoryFinding() {
-  const session = Object.values(memoryStore.sessions || {})[0];
+  const session = Object.values(store?.sessions || {})[0];
   if (!session || !session.memory_max_tokens) return [];
   const budget = count(session.memory_max_tokens);
   const agent = count(session.agent_memory_tokens || 0);

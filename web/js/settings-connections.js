@@ -1,3 +1,4 @@
+import { store as memoryStore } from "./bus.js";
 let expanded, armed, drafts, errors, probeMessages, serverProfiles, row, text, number, numberControl, textarea, secret, toggle, choices, profileReason, html, attr;
 function useSettingsContext(context) {
   ({ expanded, armed, drafts, errors, probeMessages, serverProfiles, row, text, number, numberControl, textarea, secret, toggle, choices, profileReason, html, attr } = context);
@@ -44,6 +45,23 @@ function servers() {
   return `<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-server">Add connection</button></div><div class="settings-subhead">Profiles</div><div class="profile-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${editors}`;
 }
 
+// One line on the existing findings row: each memory layer's current size
+// against its budget, so the operator sees a layer filling up before the
+// injection starts dropping its oldest notes. No control, no new row.
+const count = (value) => new Intl.NumberFormat().format(Number(value) || 0);
+
+function memoryFinding() {
+  const session = Object.values(memoryStore.sessions || {})[0];
+  if (!session || !session.memory_max_tokens) return [];
+  const budget = count(session.memory_max_tokens);
+  const agent = count(session.agent_memory_tokens || 0);
+  const folder = count(session.memory_tokens || 0);
+  const over = [];
+  if (session.agent_memory_over_budget) over.push("agent");
+  if (session.memory_over_budget) over.push("folder");
+  const suffix = over.length ? ` · ${over.join(" and ")} over budget, oldest notes omitted` : "";
+  return [`<li>memory: agent ${agent}/${budget} · folder ${folder}/${budget}${suffix}</li>`];
+}
 function profileFields(profile, reason) {
   const id = profile.id;
   const p = `servers.${id}`;
@@ -52,6 +70,7 @@ function profileFields(profile, reason) {
   const llama = caps.server === "llama.cpp";
   const findings = (caps.findings || [])
     .map((value) => `<li>${html(value)}</li>`)
+    .concat(memoryFinding())
     .join("");
   const samplingRows = [
     ["temperature", "temperature", "0.01", false],

@@ -69,6 +69,11 @@ type Snapshot struct {
 	MemoryContent        string                     `json:"memory_content"`
 	AgentMemoryPath      string                     `json:"agent_memory_path"`
 	AgentMemoryContent   string                     `json:"agent_memory_content"`
+	MemoryTokens         int                        `json:"memory_tokens"`
+	AgentMemoryTokens    int                        `json:"agent_memory_tokens"`
+	MemoryMaxTokens      int                        `json:"memory_max_tokens"`
+	MemoryOverBudget     bool                       `json:"memory_over_budget"`
+	AgentMemoryOverBudget bool                      `json:"agent_memory_over_budget"`
 	PromptAddendum       string                     `json:"-"`
 	NetworkBoundary      string                     `json:"network_boundary"`
 	LogPath              string                     `json:"log_path"`
@@ -111,6 +116,7 @@ type Session struct {
 	MemoryPath                                           string
 	AgentMemoryBlock                                     string
 	AgentMemoryPath                                      string
+	MemoryMaxTokens                                      int
 	PromptAddendum                                       string
 	NetworkBoundary                                      string
 	SchemaTokens                                         map[string]int
@@ -144,7 +150,7 @@ func (s *Session) SnapshotUnlocked() Snapshot {
 			tools = append(tools, ToolState{Name: name, Enabled: enabled, Calls: s.ToolCalls[name], SchemaTokens: s.SchemaTokens[name], MarginalTokens: s.MarginalTokens[name]})
 		}
 	}
-	return Snapshot{ID: s.ID, Label: s.Label, AgentID: s.AgentID, ServerID: s.ServerID, AgentName: s.AgentName, BProfile: s.BProfile, Role: s.Role, PlanID: s.PlanID, PlanName: s.PlanName, PlanDir: s.PlanDir, PlanRepo: s.PlanRepo, CreatedAt: s.CreatedAt.Format(time.RFC3339Nano), Closed: s.Closed, NamePinned: s.NamePinned, Workspace: s.Workspace, WorkspaceDir: s.Workspace, WorkspaceMissing: s.WorkspaceMissing, Scratch: s.Scratch, ProjectContent: s.ProjectBlock, ProjectFiles: append([]string(nil), s.ProjectFiles...), ProjectNotes: append([]string(nil), s.ProjectNotes...), PendingRepoPolicy: clonePolicyState(s.PendingRepoPolicy), RepoPolicy: clonePolicyState(s.RepoPolicy), Run: s.Run, Tools: tools, Messages: append([]events.Message{}, s.Messages...), Budget: s.Budget, QueuedMessages: s.queuedMessages, Runnable: s.Runnable, NotRunnableReason: s.NotRunnableReason, MemoryPath: s.MemoryPath, MemoryContent: s.MemoryBlock, AgentMemoryPath: s.AgentMemoryPath, AgentMemoryContent: s.AgentMemoryBlock, PromptAddendum: s.PromptAddendum, NetworkBoundary: s.NetworkBoundary, LogPath: s.LogPath, ModelTurns: s.modelTurns, CompactionCount: s.compactionCount, CompactionTokenDelta: s.compactionTokenDelta, CompactionModelCalls: s.compactionModelCalls, CompactionPrompt: s.compactionPrompt, CompactionCompletion: s.compactionCompletion}
+	return Snapshot{ID: s.ID, Label: s.Label, AgentID: s.AgentID, ServerID: s.ServerID, AgentName: s.AgentName, BProfile: s.BProfile, Role: s.Role, PlanID: s.PlanID, PlanName: s.PlanName, PlanDir: s.PlanDir, PlanRepo: s.PlanRepo, CreatedAt: s.CreatedAt.Format(time.RFC3339Nano), Closed: s.Closed, NamePinned: s.NamePinned, Workspace: s.Workspace, WorkspaceDir: s.Workspace, WorkspaceMissing: s.WorkspaceMissing, Scratch: s.Scratch, ProjectContent: s.ProjectBlock, ProjectFiles: append([]string(nil), s.ProjectFiles...), ProjectNotes: append([]string(nil), s.ProjectNotes...), PendingRepoPolicy: clonePolicyState(s.PendingRepoPolicy), RepoPolicy: clonePolicyState(s.RepoPolicy), Run: s.Run, Tools: tools, Messages: append([]events.Message{}, s.Messages...), Budget: s.Budget, QueuedMessages: s.queuedMessages, Runnable: s.Runnable, NotRunnableReason: s.NotRunnableReason, MemoryPath: s.MemoryPath, MemoryContent: s.MemoryBlock, AgentMemoryPath: s.AgentMemoryPath, AgentMemoryContent: s.AgentMemoryBlock, MemoryTokens: estimateMemoryTokens(s.MemoryBlock), AgentMemoryTokens: estimateMemoryTokens(s.AgentMemoryBlock), MemoryMaxTokens: s.MemoryMaxTokens, MemoryOverBudget: overBudget(s.MemoryBlock), AgentMemoryOverBudget: overBudget(s.AgentMemoryBlock), PromptAddendum: s.PromptAddendum, NetworkBoundary: s.NetworkBoundary, LogPath: s.LogPath, ModelTurns: s.modelTurns, CompactionCount: s.compactionCount, CompactionTokenDelta: s.compactionTokenDelta, CompactionModelCalls: s.compactionModelCalls, CompactionPrompt: s.compactionPrompt, CompactionCompletion: s.compactionCompletion}
 }
 
 func (s *Session) ReadRoot(path string) (string, error) {
@@ -309,6 +315,22 @@ func pathWithin(root, candidate string) bool {
 	rel, err := filepath.Rel(root, filepath.Clean(candidate))
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
+// estimateMemoryTokens uses the same four-characters-per-token fallback the
+// memory manager uses when a profile tokenizer is unavailable, so the number
+// Settings shows and the number the budget trims against agree.
+func estimateMemoryTokens(block string) int {
+	if block == "" {
+		return 0
+	}
+	return (len([]rune(block)) + 3) / 4
+}
+
+// overBudget reports whether the injected block carries the omission notice,
+// which is the only place the trimming is visible.
+func overBudget(block string) bool {
+	return strings.Contains(block, "are omitted here because the layer is over its budget")
+}
+
 func (s *Session) CombinedMemory() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

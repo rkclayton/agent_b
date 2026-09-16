@@ -101,7 +101,7 @@ func (m *Manager) load(ctx context.Context, path, serverID, heading string) (str
 	maxTokens := m.cfg().Memory.MaxTokens
 	dropped := 0
 	for len(lines) > 0 {
-		body := memoryBlock(heading, lines, dropped)
+		body := memoryBlock(heading, layerName(heading), lines, dropped)
 		tokens, countErr := m.count(ctx, serverID, body)
 		if countErr != nil {
 			tokens = (len([]rune(body)) + 3) / 4
@@ -233,13 +233,22 @@ func (m *Manager) clearPath(path string) error {
 	return err
 }
 
-func memoryBlock(heading string, lines []string, dropped int) string {
+// layerName turns the injected heading into the words the model and the
+// operator both use for that layer, so the notice says which one is full.
+func layerName(heading string) string {
+	if strings.Contains(strings.ToLower(heading), "agent") {
+		return "agent memory"
+	}
+	return "folder memory"
+}
+
+func memoryBlock(heading, layer string, lines []string, dropped int) string {
 	if len(lines) == 0 {
 		return ""
 	}
 	out := []string{heading}
 	if dropped > 0 {
-		out = append(out, fmt.Sprintf("[%d older notes omitted; the file is over the memory budget — prune it by hand]", dropped))
+		out = append(out, fmt.Sprintf("[%d older %s notes are omitted here because the layer is over its budget. Nothing has been deleted. When you have a spare turn, consolidate the oldest notes into fewer lines with remember, keeping every fact that still holds.]", dropped, layer))
 	}
 	out = append(out, lines...)
 	return strings.Join(out, "\n")

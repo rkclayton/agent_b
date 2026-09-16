@@ -16,6 +16,14 @@ sentence that says "Codex" applies to you. Everything else here is the same for 
   instructions into `INBOX.md`; you acknowledge and truncate it.
 - Append your report to `NOTES.md` under a new heading; never rewrite an existing section.
 
+## Reporting cadence
+
+- One report per order, at the close, appended to `NOTES.md` — or at a hard stop. Do not pause
+  between W steps to summarise progress or ask whether to continue; the order is the answer.
+  Progress lives in the `## In flight` markers, which the operator can read at any time.
+- The only mid-order questions are hard stops. A refuted inference or an unmet condition stops
+  that step, is recorded, and the next independent step begins.
+
 ## Markers
 
 - Before any step, read `## In flight` in `PLAN.md`. A step with a start marker and no

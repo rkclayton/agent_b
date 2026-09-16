@@ -66,6 +66,8 @@ export function initSettings() {
     open ? closeSettings() : openSettings();
   });
   document.addEventListener("settings.open", (event) => openSettings(event.detail?.section));
+  // Choosing a chat from the tab strip while Settings is open shows that chat.
+  document.addEventListener("settings.close", (event) => { if (open) closeSettings(event.detail?.surface || "console"); });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && open) closeSettings();
     if (open && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {

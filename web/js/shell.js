@@ -139,19 +139,32 @@ export function initShell(options = {}) {
       tab.setAttribute("aria-label", `${agentID} chat · ${chatName} · ${side}`);
       const robot = agentID.slice(-1);
       tab.innerHTML = `<span class="agent-tab-robot agent-tab-robot-${robot} ${glyphState}" aria-hidden="true"><img src="/static/assets/agent.svg" alt=""><span class="agent-tab-eyes"></span></span><span>${escapeHTML(agentID)}</span>`;
-      // Left click selects the chat and does nothing else. Clicking the selected
-      // tab used to flip to Console, which is a destination nobody expects from a
-      // second click; Console is now an entry in this tab's right-click menu.
+      // Left click selects the chat and does nothing else on Chat or Console:
+      // clicking the selected tab used to flip between them, which is not a
+      // destination anyone expects from a second click. Console is now an entry
+      // in this tab's right-click menu.
+      //
+      // Selecting from Settings still shows the chat, because that is what
+      // choosing a chat from another surface means; it is not the removed flip.
       tab.onclick = () => {
         if (!session) return;
         setSelection(agentID, session.id);
+        const settingsOpen = document.querySelector(".shell-settings")?.getAttribute("aria-expanded") === "true";
+        if (settingsOpen) {
+          // Opening Settings from Chat switches the surface beneath it to
+          // Console, so closing alone would leave the operator on Console.
+          // Selecting the chat takes them to the side that chat was last on,
+          // which is a destination, not the removed toggle.
+          document.dispatchEvent(new CustomEvent("settings.close", { detail: { surface: side } }));
+          openSide(agentID, session.id, side);
+        }
       };
       const menu = node("div", "shell-menu agent-chat-menu");
       menu.hidden = true;
       tab.oncontextmenu = (event) => {
         event.preventDefault();
         for (const other of tabs.querySelectorAll(".shell-menu")) if (other !== menu) other.hidden = true;
-        renderAgentMenu(menu, agentID, session ? () => openConsole(agentID, session.id, side) : null);
+        renderAgentMenu(menu, agentID, session ? { label: side === "console" ? "Chat" : "Console", open: () => openSide(agentID, session.id, side === "console" ? "chat" : "console") } : null);
         revealMenu(menu, tab);
       };
       wrap.append(tab);
@@ -169,15 +182,17 @@ export function initShell(options = {}) {
     }
   }
 
-  // The flip the second click used to perform, reached deliberately from the
-  // tab menu. Keyboard access is preserved because the menu entry is a button.
-  function openConsole(agentID, sessionID, side) {
-    const navigation = { kind: "flip", from: page, to: "console", fullDocument: !options.switchView, chatID: sessionID, mutationToken: store.mutation_token };
+  // The flip the second click used to perform, reached deliberately from the tab
+  // menu. Keyboard access is preserved because the menu entry is a button. The
+  // tab was the only route between the two sides, so the entry names whichever
+  // side you are not on rather than stranding you on Console.
+  function openSide(agentID, sessionID, next) {
+    const navigation = { kind: "flip", from: page, to: next, fullDocument: !options.switchView, chatID: sessionID, mutationToken: store.mutation_token };
     setSelection(agentID, sessionID);
-    rememberAgentSide(agentID, "console");
+    rememberAgentSide(agentID, next);
     const suffix = sessionID ? `?session=${encodeURIComponent(sessionID)}` : "";
-    if (options.switchView) options.switchView("console", navigation);
-    else requestNavigation(navigation, `/${suffix}`);
+    if (options.switchView) options.switchView(next, navigation);
+    else requestNavigation(navigation, next === "chat" ? `/chat${suffix}` : `/${suffix}`);
   }
 
   function configuredAgent(session) {
@@ -195,13 +210,13 @@ export function initShell(options = {}) {
     revealMenu(menu, anchor);
   }
 
-  function renderAgentMenu(menu, agentID, showConsole) {
+  function renderAgentMenu(menu, agentID, flip) {
     const sessions = sessionsFor(agentID, true);
     menu.replaceChildren();
-    if (showConsole) {
-      const console = button("Console", `Open Console for ${agentName(agentID)}`, "agent-chat-console");
-      console.onclick = () => { menu.hidden = true; showConsole(); };
-      menu.append(console);
+    if (flip) {
+      const entry = button(flip.label, `Open ${flip.label} for ${agentName(agentID)}`, "agent-chat-console");
+      entry.onclick = () => { menu.hidden = true; flip.open(); };
+      menu.append(entry);
     }
     const openCount = sessions.filter((session) => !session.closed).length;
     const count = node("div", "agent-chat-count");

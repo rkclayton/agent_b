@@ -48,8 +48,24 @@ func (s *Server) planSurface(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "notes")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"plan": string(plan), "notes": string(notes), "plan_id": filepath.Base(planDir), "fallback": item.Role != "d"})
+	writeJSON(w, http.StatusOK, map[string]any{"plan": string(plan), "notes": string(notes), "plan_id": filepath.Base(planDir), "fallback": item.Role != "d", "refusal": planRefusal(planDir)})
 }
+
+// planRefusal is why a plan cannot be worked, shown on its panel instead of a
+// worker that could only be refused: today, a repository inside the plans folder.
+func planRefusal(planDir string) string {
+	plans, err := session.ListPlans(filepath.Dir(planDir))
+	if err != nil {
+		return ""
+	}
+	for _, plan := range plans {
+		if plan.ID == filepath.Base(planDir) {
+			return session.RepoInsidePlans(filepath.Dir(planDir), plan.Repo)
+		}
+	}
+	return ""
+}
+
 
 func (s *Server) planAccept(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

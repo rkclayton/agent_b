@@ -75,6 +75,14 @@ export function createApprovalCard(document, entry = {}, options = {}) {
 	if (data.boundary_escape) content.classList.add("alarm");
 	const title = document.createElement("span");
 	title.textContent = wording.title;
+	if (options.author) {
+		// A card from the worker is drawn in another thread, so it names who asks.
+		content.classList.add("worker-approval");
+		const author = document.createElement("span");
+		author.className = "chat-notice-author";
+		author.textContent = options.author;
+		title.append(" ", author);
+	}
 	const request = document.createElement("strong");
 	request.textContent = wording.request;
 	const reason = document.createElement("span");

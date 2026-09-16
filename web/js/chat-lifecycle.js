@@ -20,6 +20,21 @@ export function agentAuthor(session, role = "b") {
   return `agent_${letter}`;
 }
 
+// workerApproval is the card the worker of a plan is waiting on. The worker has
+// no chat, so its approvals and cycle decisions are drawn in the design thread
+// of the plan it is bound to, and answered against the session of the worker.
+export function workerApproval(sessions, session) {
+  const planID = session?.plan_id;
+  if (!planID || session?.role === "c") return null;
+  return Object.values(sessions || {}).find((item) => item?.role === "c" && !item.closed && item.plan_id === planID && item.pending_approval) || null;
+}
+
+export function sameWorkerPlan(sessions, sessionID, selectedID) {
+  const worker = sessions?.[sessionID];
+  const selected = sessions?.[selectedID];
+  return !!worker && worker.role === "c" && !!worker.plan_id && worker.plan_id === selected?.plan_id;
+}
+
 export function runCount(session) {
   const ids = new Set();
   for (const event of session?.timeline || []) {

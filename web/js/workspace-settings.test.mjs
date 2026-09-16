@@ -23,7 +23,7 @@ test("Settings Security owns operator attachments mailbox approvals retention an
 	assert.match(settings, /data-action="empty-operator-attachments"/);
 	assert.match(settings, /Confirm empty/);
 	assert.match(settings, /operator_files\.allow_mailbox_approvals/);
-	assert.match(settings, /whoever can write to your synced folder can then grant the agent your identity/);
+	assert.match(settings, /Whoever can write to your synced folder can then grant the agent your identity/);
 	assert.match(settings, /operator_files\.log_retention_days/);
 	assert.match(settings, /Adopt repository instructions/);
 	assert.match(settings, /Also remove AGENTS\.md \/ CLAUDE\.md/);
@@ -33,7 +33,9 @@ test("Settings Security owns operator attachments mailbox approvals retention an
 
 test("Security has one install-wide Docker Sandbox switch and no per-folder control", () => {
   assert.match(settings, /toggle\("sandbox\.enabled", "Docker Sandbox"/);
-  assert.match(settings, /install-wide setting/);
+  // The explanation is hover text on the subheading and the switch now, not a
+  // visible paragraph. The words are kept, not weakened.
+  assert.match(settings, /Install-wide: routes shell and bash through Docker Sandbox/);
   assert.match(settings, /inert/);
   assert.doesNotMatch(settings, /data-action="sandbox-workspace-toggle"/);
   assert.doesNotMatch(settings, /sandbox\.workspaces/);

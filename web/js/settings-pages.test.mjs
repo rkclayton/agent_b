@@ -28,7 +28,7 @@ function pageContext() {
     hardeningBusy: false, hardeningMessage: "", hardeningAlarm: false,
     signingStatus: { loaded: false, supported: true, configured: false, can_manage: false, files: [] },
     signingBusy: false, signingMessage: "", signingAlarm: false,
-    serverProfiles: () => [], row: blank, field: blank, text: blank, number: blank, numberControl: blank,
+    serverProfiles: () => [], row: blank, subhead: blank, field: blank, text: blank, number: blank, numberControl: blank,
     textarea: blank, secret: blank, toggle: blank, choices: blank, approvalChoices: blank, copyRow: blank,
     currentValue: (_path, fallback) => fallback, issue: blank, profileReason: blank,
     html: String, attr: String, selectedHardeningServerID: blank,
@@ -52,11 +52,14 @@ test("Security renders the LAN switch and detected confirmation list", () => {
 	const context = pageContext();
 	context.store.config.shell.allow_local_network = false;
 	context.hardeningStatus.detected_local_subnets = ["192.168.50.0/24"];
-	context.row = (label, value) => `${label}:${value}`;
+	// The explanatory sentence is hover text now rather than a visible line, so
+	// the stub renders the hint the real row renders as a title attribute.
+	context.row = (label, value, _extra, hint) => `${label}:${value}${hint ? ` title=${hint}` : ""}`;
 	const page = renderSecurityPage("shell", null, context);
 	assert.match(page, /Allow my local network/);
 	assert.match(page, /192\.168\.50\.0\/24/);
-	assert.match(page, /link-local, cloud metadata, and Agent_b's own listener remain refused/i);
+	assert.match(page, /link-local, cloud metadata and Agent_b's own listener remain refused/i);
+	// The subnets ride the switch's own row rather than a block beneath it.
 });
 
 test("Connections summary row never renders decoder detail verbatim", () => {

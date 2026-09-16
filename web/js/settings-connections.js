@@ -82,15 +82,12 @@ function profileFields(profile, reason) {
 	return `<div class="profile-fieldset profile-identity"><h4>Connection</h4>${text(`${p}.label`, "label", profile.label)}
     ${text(`${p}.base_url`, "base_url", profile.base_url)}
 	${text(`${p}.extract_url`, "extract_url", profile.extract_url || "")}
-	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], profile.attachment_handling || "auto")}
-	<p class="settings-note">auto follows probed capability; native always sends supported attachment kinds; extract keeps their binary local</p>
+	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], profile.attachment_handling || "auto", "auto follows probed capability; native always sends supported attachment kinds; extract keeps their binary local")}
     ${text(`${p}.model`, "model", profile.model)}
 	${text(`${p}.credential`, "credential ref", profile.credential || "")}
-    ${secret(`${p}.api_key`, "api_key", profile.api_key, id)}
-	<p class="settings-note">API keys are stored in user-scoped DPAPI storage; configuration keeps only the credential reference.</p>
+    ${secret(`${p}.api_key`, "api_key", profile.api_key, id, "API keys are stored in user-scoped DPAPI storage; configuration keeps only the credential reference.")}
     ${number(`${p}.request_timeout_s`, "timeout", profile.request_timeout_s)}
-    ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], profile.probe_mode)}
-    <p class="settings-note">minimal and off skip checks that spend tokens; assumed values are marked in findings</p></div>
+    ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], profile.probe_mode, "minimal and off skip checks that spend tokens; assumed values are marked in findings")}</div>
     <div class="profile-fieldset profile-reasoning"><h4>Reasoning &amp; context</h4>
     ${choices(`${p}.reasoning.control`, "control", ["auto", "chat_template_kwargs", "top_level", "server_flag", "none"], profile.reasoning.control)}
     ${toggle(`${p}.reasoning.enabled`, "enabled", profile.reasoning.enabled)}
@@ -98,12 +95,10 @@ function profileFields(profile, reason) {
     ${toggle(`${p}.reasoning.preserve`, "preserve", profile.reasoning.preserve)}
     ${number(`${p}.reasoning.max_tokens`, "reasoning cap", profile.reasoning.max_tokens || 0, "1")}
     ${number(`${p}.context.reserve_output`, "reserve", profile.context.reserve_output)}
-	${number(`${p}.context.n_ctx`, "context size", profile.context.n_ctx, "1")}
-    <p class="settings-note">Test fills this from the server when available. Otherwise enter the server's configured context window; it is required for use and for probe mode off.</p></div>
+	${number(`${p}.context.n_ctx`, "context size", profile.context.n_ctx, "1", false, "", false, "number", "Test fills this from the server when available. Otherwise enter the server's configured context window; it is required for use and for probe mode off.")}</div>
     <div class="profile-fieldset profile-sampling"><h4>Sampling</h4><div class="sampling-grid"><div></div><div class="sampling-column">Thinking</div><div class="sampling-column">Non-thinking</div>${samplingRows}</div></div>
     <div class="profile-fieldset profile-prompt"><h4>System prompt</h4>
-    ${textarea(`${p}.system_prompt_override`, "system prompt override", profile.system_prompt_override || "")}
-    <p class="settings-note">variables: {{folder}} {{plans}} {{tools}} {{agent}} {{project}} {{memory}}</p></div>
+    ${textarea(`${p}.system_prompt_override`, "system prompt override", profile.system_prompt_override || "", "variables: {{folder}} {{plans}} {{tools}} {{agent}} {{project}} {{memory}}")}</div>
     <div class="profile-fieldset profile-capabilities"><h4>Capabilities</h4>
     <div class="findings"><span class="settings-note">${html(caps.probed_at || "not probed")}</span><ul>${findings || "<li>no findings</li>"}</ul></div>
     ${reason && reason !== "context length unknown" ? `<p class="field-error">${html(reason)}</p>` : ""}

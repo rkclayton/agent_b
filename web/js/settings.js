@@ -209,7 +209,7 @@ function settingsPageContext(active) {
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, serverProfiles,
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm,
-    row, field, text, number, numberControl, textarea, secret, toggle, choices, approvalChoices,
+    row, subhead, field, text, number, numberControl, textarea, secret, toggle, choices, approvalChoices,
     copyRow, currentValue, issue, profileReason, html, attr, selectedHardeningServerID, operatorStatusView,
   };
 }
@@ -248,8 +248,13 @@ async function refreshOperatorFileState() {
 	if(open&&activeSection==="shell")render();
 }
 
-function row(label, control, extra = "") {
-  return `<div class="setting-row ${extra}"><label>${html(label)}</label><div>${control}</div></div>`;
+function row(label, control, extra = "", hint = "") {
+  return `<div class="setting-row ${extra}"${hint ? ` title="${attr(hint)}"` : ""}><label>${html(label)}</label><div>${control}</div></div>`;
+}
+
+// A subsection heading carries the paragraph that used to sit under it.
+function subhead(label, hint = "") {
+  return `<div class="settings-subhead"${hint ? ` title="${attr(hint)}"` : ""}>${html(label)}</div>`;
 }
 
 function current(path, fallback) {
@@ -269,42 +274,42 @@ function issue(path) {
   return "";
 }
 
-function field(path, label, control, alarm = false) {
+function field(path, label, control, alarm = false, hint = "") {
   const problem = issue(path);
-  return `${row(label, control, alarm || problem ? "invalid" : "")}${problem ? `<p class="field-error">${html(problem)}</p>` : ""}`;
+  return `${row(label, control, alarm || problem ? "invalid" : "", hint)}${problem ? `<p class="field-error">${html(problem)}</p>` : ""}`;
 }
 
-function text(path, label, value, kind = "text") {
-  return field(path, label, `<input class="setting-input" data-path="${attr(path)}" data-kind="${kind}" value="${attr(current(path, value))}">`);
+function text(path, label, value, kind = "text", hint = "") {
+  return field(path, label, `<input class="setting-input" data-path="${attr(path)}" data-kind="${kind}" value="${attr(current(path, value))}">`, false, hint);
 }
 
-function number(path, label, value, step = "1", disabled = false, note = "", alarm = false, kind = "number") {
+function number(path, label, value, step = "1", disabled = false, note = "", alarm = false, kind = "number", hint = "") {
   const control = `${numberControl(path, value, step, disabled, kind)}${note ? `<span class="control-note">${html(note)}</span>` : ""}`;
-  return field(path, label, control, alarm);
+  return field(path, label, control, alarm, hint);
 }
 
 function numberControl(path, value, step = "1", disabled = false, kind = "number") {
   return `<input class="setting-input number" type="number" step="${step}" data-path="${attr(path)}" data-kind="${kind}" value="${attr(current(path, value))}" ${disabled ? "disabled" : ""}>`;
 }
 
-function textarea(path, label, value) {
-  return field(path, label, `<textarea class="setting-input" rows="8" data-path="${attr(path)}" data-kind="text">${html(current(path, value))}</textarea>`);
+function textarea(path, label, value, hint = "") {
+  return field(path, label, `<textarea class="setting-input" rows="8" data-path="${attr(path)}" data-kind="text">${html(current(path, value))}</textarea>`, false, hint);
 }
 
-function secret(path, label, value, id) {
+function secret(path, label, value, id, hint = "") {
   const shown = shownKeys.has(id);
   const type = shown ? "text" : "password";
-  return field(path, label, `<span class="secret-control"><input class="setting-input" type="${type}" data-path="${attr(path)}" data-kind="secret" value="${attr(current(path, value))}"><button type="button" data-action="show-key" data-id="${attr(id)}">${shown ? "hide" : "show"}</button></span>`);
+  return field(path, label, `<span class="secret-control"><input class="setting-input" type="${type}" data-path="${attr(path)}" data-kind="secret" value="${attr(current(path, value))}"><button type="button" data-action="show-key" data-id="${attr(id)}">${shown ? "hide" : "show"}</button></span>`, false, hint);
 }
 
-function toggle(path, label, value) {
+function toggle(path, label, value, hint = "") {
   const selected = !!currentValue(path, value);
-  return field(path, label, `<button type="button" role="switch" aria-checked="${selected}" class="switch ${selected ? "on" : ""}" data-action="config-toggle" data-path="${attr(path)}" data-value="${selected ? "false" : "true"}"></button>`);
+  return field(path, label, `<button type="button" role="switch" aria-checked="${selected}" class="switch ${selected ? "on" : ""}" data-action="config-toggle" data-path="${attr(path)}" data-value="${selected ? "false" : "true"}"></button>`, false, hint);
 }
 
-function choices(path, label, values, selected) {
+function choices(path, label, values, selected, hint = "") {
   selected = currentValue(path, selected);
-  return field(path, label, `<span class="choice-row">${values.map((value) => `<button type="button" class="${value === selected ? "selected" : ""}" data-action="config-choice" data-path="${attr(path)}" data-value="${attr(value)}">${html(value)}</button>`).join("")}</span>`);
+  return field(path, label, `<span class="choice-row">${values.map((value) => `<button type="button" class="${value === selected ? "selected" : ""}" data-action="config-choice" data-path="${attr(path)}" data-value="${attr(value)}">${html(value)}</button>`).join("")}</span>`, false, hint);
 }
 
 function selectSetting(path, label, options, selected) {
@@ -312,7 +317,7 @@ function selectSetting(path, label, options, selected) {
 	return field(path, label, `<select class="setting-input" data-path="${attr(path)}" data-kind="text">${options.map(([value, text]) => `<option value="${attr(value)}" ${value === selected ? "selected" : ""}>${html(text)}</option>`).join("")}</select>`);
 }
 
-function approvalChoices(selected) {
+function approvalChoices(selected, hint = "") {
   selected = currentValue("approval.mode", selected);
   const displayed = selected === "off" ? "boundary-only" : selected;
   const modes = [
@@ -320,7 +325,7 @@ function approvalChoices(selected) {
     ["mutating", "Confirm every file write, edit, and shell command."],
     ["all", "Confirm every tool call."],
   ];
-  return field("approval.mode", "approval mode", `<span class="approval-choices">${modes.map(([value, explanation]) => `<button type="button" class="${value === displayed ? "selected" : ""}" data-action="config-choice" data-path="approval.mode" data-value="${attr(value)}"><strong>${html(value)}</strong><span>${html(explanation)}</span></button>`).join("")}</span>`);
+  return field("approval.mode", "approval mode", `<span class="approval-choices">${modes.map(([value, explanation]) => `<button type="button" class="${value === displayed ? "selected" : ""}" data-action="config-choice" data-path="approval.mode" data-value="${attr(value)}"><strong>${html(value)}</strong><span>${html(explanation)}</span></button>`).join("")}</span>`, false, hint);
 }
 
 function copyRow(label, value) {

@@ -1,6 +1,6 @@
-let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, serverProfiles, row, text, toggle, copyRow, profileReason, html, attr, selectedHardeningServerID, operatorStatusView;
+let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, serverProfiles, row, subhead, text, toggle, copyRow, profileReason, html, attr, selectedHardeningServerID, operatorStatusView;
 function useSettingsContext(context) {
-  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, serverProfiles, row, text, toggle, copyRow, profileReason, html, attr, selectedHardeningServerID, operatorStatusView } = context);
+  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, serverProfiles, row, subhead, text, toggle, copyRow, profileReason, html, attr, selectedHardeningServerID, operatorStatusView } = context);
 }
 
 function shell(active) {
@@ -71,16 +71,15 @@ function shell(active) {
 	const confirmedSubnets = new Set(store.config.shell?.confirmed_local_subnets || []);
 	const detectedSubnets = hardeningStatus.detected_local_subnets || [];
 	const subnetChoices = detectedSubnets.length
-		? detectedSubnets.map((subnet) => `<label class="settings-note"><input type="checkbox" data-local-subnet value="${attr(subnet)}" ${confirmedSubnets.has(subnet) ? "checked" : ""} ${lanEnabled ? "" : "disabled"}> ${html(subnet)}</label>`).join("")
-		: '<p class="settings-note">No private IPv4 LAN subnet detected.</p>';
-  return `<div class="settings-subhead">Operator mode</div>
+		? detectedSubnets.map((subnet) => `<label class="settings-chip"><input type="checkbox" data-local-subnet value="${attr(subnet)}" ${confirmedSubnets.has(subnet) ? "checked" : ""} ${lanEnabled ? "" : "disabled"}> ${html(subnet)}</label>`).join("")
+		: '<span class="settings-chip-empty">none detected</span>';
+  return `${subhead("Operator mode", "Run everything as you for 20 minutes. This is the one line that stays visible because misreading it is dangerous.")}
 	${row("identity", `<button type="button" class="settings-operator-status" data-action="operator-context" aria-pressed="${operatorView.active}" aria-label="${attr(operatorView.label)}"><img src="${operatorView.src}" srcset="${operatorView.srcset}" width="24" height="24" alt=""><span>${operatorView.active ? "Stop running everything as me" : "Run everything as me for 20 minutes"}</span></button>`)}
 	<p class="settings-note">This defeats the service-account OS boundary for every tool in every chat until it expires.</p>
-	<div class="settings-subhead">Docker Sandbox</div>
-	${toggle("sandbox.enabled", "Docker Sandbox", sandboxEnabled)}
-	${row("status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`)}
-	<p class="settings-note">This install-wide setting routes shell and bash through Docker Sandbox. When Docker Sandbox is unavailable, the setting stays on but is inert and reports why.</p>
-	<div class="settings-subhead">Service identity</div>
+	${subhead("Docker Sandbox", "Install-wide: routes shell and bash through Docker Sandbox. When Docker Sandbox is unavailable the setting stays on but is inert and reports why.")}
+	${toggle("sandbox.enabled", "Docker Sandbox", sandboxEnabled, "Install-wide: routes shell and bash through Docker Sandbox.")}
+	${row("status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`, "", "Inert means the setting is on but Docker Sandbox is unavailable; the reason is shown here.")}
+	${subhead("Service identity", "The non-admin Windows account shell and file tools run as. Windows may request approval.")}
     ${row("status", `<span class="account-status"><span class="lamp ${serviceAccountStatus.administrator ? "alarm" : serviceAccountStatus.exists ? "live" : ""}"></span>${html(accountState)}</span>`)}
     ${row("credential", `<span class="account-status">${html(stored)}</span>`)}
     ${row("new password", `<input id="service-account-setup-password" type="password" autocomplete="new-password" aria-label="New service-account password" ${setupDisabled ? "disabled" : ""}>`)}
@@ -91,13 +90,11 @@ function shell(active) {
       <button type="button" data-action="refresh-service-account" ${serviceAccountBusy ? "disabled" : ""}>Refresh</button>
     </div>
     ${feedback(serviceAccountMessage, serviceAccountAlarm, "The non-admin Windows account used by shell and file tools. Windows may request approval.")}
-	<div class="settings-subhead">Host protections</div>
+	${subhead("Host protections", "Applies folder access for the service identity and the user-scoped outbound firewall rule. Windows requests approval.")}
 	${row("Agent_b", `<span class="account-status ${hardeningStatus.harness_elevated ? "alarm" : ""}">${html(elevationState)}</span>`)}
 	${row("status", `<span class="account-status"><span class="lamp ${protectionReady ? "live" : hardeningStatus.loaded ? "alarm" : ""}"></span>${html(protectionState)}</span>`)}
 	${row("model route", `<select id="hardening-server" aria-label="Model route for host protections">${hardeningProfiles()}</select>`)}
-	${row("Allow my local network", `<button type="button" role="switch" aria-checked="${lanEnabled}" class="switch ${lanEnabled ? "on" : ""}" data-action="local-network-toggle"></button>`)}
-	<div class="settings-subnets" data-local-subnets>${subnetChoices}</div>
-	<p class="settings-note">Select each detected subnet you intend to expose, then Apply protection. Link-local, cloud metadata, and Agent_b's own listener remain refused.</p>
+	${row("Allow my local network", `<button type="button" role="switch" aria-checked="${lanEnabled}" class="switch ${lanEnabled ? "on" : ""}" data-action="local-network-toggle"></button><span class="settings-subnets" data-local-subnets>${subnetChoices}</span>`, "", "Select each detected subnet you intend to expose, then Apply protection. Link-local, cloud metadata and Agent_b's own listener remain refused.")}
 	<div class="settings-actions">
 	  <button type="button" data-action="apply-hardening" title="${attr(applyBlocker)}" aria-busy="${hardeningBusy}" ${canApply ? "" : "disabled"}>${hardeningBusy ? "Working…" : drafts.size ? "Save first" : "Apply protection"}</button>
 	  <button type="button" data-action="verify-hardening" ${canInspect ? "" : "disabled"}>Verify</button>
@@ -105,22 +102,18 @@ function shell(active) {
 	  <button type="button" class="${armed.has("hardening:remove") ? "confirm" : ""}" data-action="remove-hardening" ${canInspect ? "" : "disabled"}>${armed.has("hardening:remove") ? "Confirm remove" : "Remove"}</button>
 	</div>
 	${feedback(protectionFeedback, hardeningAlarm || !!applyBlocker, "Apply protection requests Windows approval, grants folder access, then tests the service identity.")}
-	<div class="settings-subhead">Code signing</div>
-	<p class="settings-note">Gives this installation a stable publisher identity and trusted local chain; it does not create Defender cloud reputation.</p>
+	${subhead("Code signing", "Gives this installation a stable publisher identity and trusted local chain. It does not create Defender cloud reputation.")}
 	${row("certificate", `<span class="account-status"><span class="lamp ${certificateDone ? "live" : ""}"></span>${html(certificateDone ? `${signingStatus.subject} · ${signingStatus.thumbprint}` : "not done")}</span>`)}
 	${row("artifacts", `<span class="account-status"><span class="lamp ${verifyDone ? "live" : signingStatus.loaded ? "alarm" : ""}"></span>${html(verifyDone ? "done · signed, timestamped, chain valid" : "not done")}</span>`)}
 	${signingStatus.can_manage ? `<div class="settings-actions vertical">
-	  <button type="button" data-action="create-signing" ${signingAllowed ? "" : "disabled"}>Create certificate</button>
-	  <p class="settings-note">Create a protected certificate here, or import or select one you already own.</p>
+	  <button type="button" data-action="create-signing" title="Create a protected certificate here, or import or select one you already own." ${signingAllowed ? "" : "disabled"}>Create certificate</button>
 	  ${row("PFX", '<input id="signing-pfx" type="file" accept=".pfx,application/x-pkcs12">')}
 	  ${row("password", '<input id="signing-password" type="password" autocomplete="off">')}
 	  ${row("stored certificate", `<select id="signing-thumbprint"><option value="">Select code-signing certificate</option>${(signingStatus.certificates || []).filter((certificate) => certificate.has_private_key).map((certificate) => `<option value="${attr(certificate.thumbprint)}" ${certificate.thumbprint === store.config.signing?.thumbprint ? "selected" : ""}>${html(certificate.subject)} · ${html(certificate.thumbprint)}</option>`).join("")}</select>`)}
 	  <div class="settings-actions"><button type="button" data-action="import-signing" ${signingAllowed ? "" : "disabled"}>Import certificate</button><button type="button" data-action="export-signing" ${certificateDone && signingAllowed ? "" : "disabled"}>Export .cer</button></div>
-	  <button type="button" data-action="sign-application" ${certificateDone && signingAllowed ? "" : "disabled"}>Sign application</button>
-	  <p class="settings-note">Sign Agent_b.exe and PowerShell scripts, then restart Agent_b.</p>
-	  <button type="button" data-action="verify-signing" ${signingBusy ? "disabled" : ""}>Verify signatures</button>
-	  <p class="settings-note">Verify signer, thumbprint, timestamp, and certificate chain.</p>
-	</div>` : `<div class="settings-actions vertical"><button type="button" data-action="verify-signing" ${signingBusy ? "disabled" : ""}>Verify signatures</button><p class="settings-note">Standard users can verify signatures but cannot create, import, select, export, or sign.</p></div>`}
+	  <button type="button" data-action="sign-application" title="Sign Agent_b.exe and the PowerShell scripts, then restart Agent_b." ${certificateDone && signingAllowed ? "" : "disabled"}>Sign application</button>
+	  <button type="button" data-action="verify-signing" title="Verify signer, thumbprint, timestamp and certificate chain." ${signingBusy ? "disabled" : ""}>Verify signatures</button>
+	</div>` : `<div class="settings-actions vertical"><button type="button" data-action="verify-signing" title="Standard users can verify signatures but cannot create, import, select, export or sign." ${signingBusy ? "disabled" : ""}>Verify signatures</button></div>`}
 	${feedback(signingMessage, signingAlarm, "Self-created keys are non-exportable and usable only by the elevated signing helper; imported keys keep their existing protection.")}
     <details class="settings-advanced">
       <summary>Advanced</summary>
@@ -157,7 +150,7 @@ function sessionControls(active) {
   return `<div class="settings-actions vertical">
       <button type="button" class="${armed.has(resetKey) ? "confirm" : ""}" data-action="reset-session" data-id="${attr(active.id)}">${armed.has(resetKey) ? "Confirm clear" : "Clear conversation"}</button>
     </div>
-    <p class="settings-note">Clears messages and run counters; keeps folder, profile, enabled tools, and memory.</p>
+
     ${copyRow("JSONL", active.log_path || "")}`;
 }
 

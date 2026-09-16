@@ -10,7 +10,9 @@ param(
     [string]$ExpectedDirty,
     [switch]$SkipBuild,
     [switch]$ReplayOnly,
-    [switch]$ExpectStableShell
+    [switch]$ExpectStableShell,
+    [ValidateSet('true', 'false')]
+    [string]$Headless = 'false'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,7 +72,8 @@ try {
             '--workspace', $workspace,
             '--evidence', $evidence,
             '--expected-commit', $expectedCommit,
-            '--expected-dirty', $expectedDirty
+            '--expected-dirty', $expectedDirty,
+            '--headless', $Headless
         )
         if ($RealModel) {
             if ([string]::IsNullOrWhiteSpace($RealModelUrl) -or [string]::IsNullOrWhiteSpace($RealModelName)) {

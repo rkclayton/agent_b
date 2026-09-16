@@ -149,7 +149,7 @@ func TestUnansweredWorkerApprovalExpiresAsWaitedForApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	text, _ := plan.Read()
-	if !strings.Contains(text, "- [!] 2aa first item  — stuck: waited for approval") {
+	if !strings.Contains(text, "- [!] [[2aa]] 2aa first item  — stuck: waited for approval") {
 		t.Fatalf("plan.md after expiry:\n%s", text)
 	}
 	if summary.Stuck != 1 || summary.Done != 0 {

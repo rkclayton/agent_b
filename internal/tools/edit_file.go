@@ -30,6 +30,14 @@ func (e *EditFile) Call(ctx context.Context, s *session.Session, args map[string
 		return "", fmt.Errorf("plan-page writes require accepting a proposal")
 	}
 	path, _ := args["path"].(string)
+	// A planner writing its plan.md takes the one plan-file lock every other
+	// writer of that file takes, so its edit and a worker's marker serialise.
+	if s.Role == "d" {
+		if planFile, isPlan := s.PlanFileFor(path); isPlan {
+			unlock := session.LockPlanFile(planFile)
+			defer unlock()
+		}
+	}
 	old, oldOK := args["old_string"].(string)
 	replacement, newOK := args["new_string"].(string)
 	if path == "" {

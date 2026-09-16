@@ -177,9 +177,9 @@ func TestWorkerProof(t *testing.T) {
 	// Markers: [x] for the clean finish, [!] with the reason for the others.
 	text, _ := plan.Read()
 	for _, want := range []string{
-		"- [x] 2aa first item",
-		"- [!] 2ab seeded stuck item  — stuck: tool_errors",
-		"- [!] 2ac seeded question item  — stuck: context_exhausted",
+		"- [x] [[2aa]] 2aa first item",
+		"- [!] [[2ab]] 2ab seeded stuck item  — stuck: tool_errors",
+		"- [!] [[2ac]] 2ac seeded question item  — stuck: context_exhausted",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("plan.md is missing %q:\n%s", want, text)
@@ -279,10 +279,16 @@ func TestStopEndsTheWorkerAndGoReEnables(t *testing.T) {
 		finished <- summary
 	}()
 	deadline := time.After(5 * time.Second)
-	for !driver.Running("p1") {
+	// Stop while the blocked second item runs, so the first has finished: the
+	// test is about keeping what was done, not about where a Stop happens to land.
+	for {
+		text, _ := plan.Read()
+		if driver.Running("p1") && strings.Contains(text, "[~] [[2ab]]") {
+			break
+		}
 		select {
 		case <-deadline:
-			t.Fatal("the worker never started")
+			t.Fatalf("the worker never reached the blocked item:\n%s", text)
 		default:
 			time.Sleep(5 * time.Millisecond)
 		}
@@ -303,7 +309,7 @@ func TestStopEndsTheWorkerAndGoReEnables(t *testing.T) {
 	}
 	// What it finished before the stop is kept.
 	text, _ := plan.Read()
-	if !strings.Contains(text, "- [x] 2aa first item") {
+	if !strings.Contains(text, "- [x] [[2aa]] 2aa first item") {
 		t.Fatalf("the first item's result was lost:\n%s", text)
 	}
 }

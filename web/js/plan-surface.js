@@ -18,7 +18,10 @@ export function planRows(text = "") {
   const items = [];
   lines.forEach((line, index) => {
     const match = line.match(/^\s*\[([x~ !-])\]\s+(.+)$/);
-    if (match) items.push({ marker: match[1], text: match[2], line, index });
+    // An item's [[id]] is its identity for the harness, not text for the operator.
+    const id = match?.[2].match(/^\[\[([0-9]+[a-z]*)\]\]\s*/);
+    if (match) items.push({ marker: match[1], text: id ? match[2].slice(id[0].length) : match[2], id: id?.[1] || "", line, index });
+
   });
   return { order, items };
 }

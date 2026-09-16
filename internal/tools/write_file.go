@@ -102,6 +102,14 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 	if !ok || path == "" {
 		return "", fmt.Errorf("path is required")
 	}
+	// A planner writing its plan.md takes the one plan-file lock every other
+	// writer of that file takes, so its edit and a worker's marker serialise.
+	if s.Role == "d" {
+		if planFile, isPlan := s.PlanFileFor(path); isPlan {
+			unlock := session.LockPlanFile(planFile)
+			defer unlock()
+		}
+	}
 	content, ok := args["content"].(string)
 	if !ok {
 		return "", fmt.Errorf("content is required")

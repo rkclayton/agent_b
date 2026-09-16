@@ -57,7 +57,7 @@ func TestItemWithNoVerifierIsStuckAndProposesOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	text, _ := plan.Read()
-	if !strings.Contains(text, "- [!] 2aa first item  — stuck: no verifier named") {
+	if !strings.Contains(text, "- [!] [[2aa]] 2aa first item  — stuck: no verifier named") {
 		t.Fatalf("plan.md:\n%s", text)
 	}
 	if fake.runs != 0 || len(verifier.calls) != 0 {
@@ -100,11 +100,11 @@ func TestFailingVerifierMarksStuckWithTheFailure(t *testing.T) {
 	if _, err := driver.Go(context.Background(), worker, plan, `C:\repo`); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(during, "- [~] 2aa first item") {
+	if !strings.Contains(during, "- [~] [[2aa]] 2aa first item") {
 		t.Fatalf("the item was not [~] while its verifier ran:\n%s", during)
 	}
 	text, _ := plan.Read()
-	if !strings.Contains(text, "- [!] 2aa first item  — stuck: verifier failed: command failed exit=1 --- FAIL: TestBroken") {
+	if !strings.Contains(text, "- [!] [[2aa]] 2aa first item  — stuck: verifier failed: command failed exit=1 --- FAIL: TestBroken") {
 		t.Fatalf("plan.md:\n%s", text)
 	}
 	if len(verifier.calls) != 1 || verifier.calls[0] != "go test ./broken" {
@@ -126,7 +126,7 @@ func TestPassingVerifierIsTheOnlyWayToDone(t *testing.T) {
 		t.Fatal(err)
 	}
 	text, _ := plan.Read()
-	if !strings.Contains(text, "- [!] 2aa first item  — stuck: no verifier available") {
+	if !strings.Contains(text, "- [!] [[2aa]] 2aa first item  — stuck: no verifier available") {
 		t.Fatalf("a clean stop without a verifier reached:\n%s", text)
 	}
 
@@ -140,7 +140,7 @@ func TestPassingVerifierIsTheOnlyWayToDone(t *testing.T) {
 		t.Fatal(err)
 	}
 	text, _ = plan.Read()
-	if !strings.Contains(text, "- [x] 2aa first item") || summary.Done != 1 {
+	if !strings.Contains(text, "- [x] [[2aa]] 2aa first item") || summary.Done != 1 {
 		t.Fatalf("a passing verifier did not mark done: %+v\n%s", summary, text)
 	}
 	if len(verifier.calls) != 1 || verifier.calls[0] != "pass" {
@@ -175,7 +175,7 @@ func TestAChangesNothingFixtureNeverReachesDone(t *testing.T) {
 	if strings.Contains(text, "[x]") || summary.Done != 0 {
 		t.Fatalf("a run that changed nothing reached done: %+v\n%s", summary, text)
 	}
-	if !strings.Contains(text, "- [!] 2aa write NOTICE  — stuck: verifier failed: command failed exit=1") {
+	if !strings.Contains(text, "- [!] [[2aa]] 2aa write NOTICE  — stuck: verifier failed: command failed exit=1") {
 		t.Fatalf("plan.md:\n%s", text)
 	}
 }
@@ -211,7 +211,7 @@ func TestItemIsRetriedOnceItNamesAVerifier(t *testing.T) {
 		t.Fatal("the retry did not finish")
 	}
 	text, _ := plan.Read()
-	if !strings.Contains(text, "- [x] 2aa first item\n") {
+	if !strings.Contains(text, "- [x] [[2aa]] 2aa first item\n") {
 		t.Fatalf("plan.md:\n%s", text)
 	}
 }

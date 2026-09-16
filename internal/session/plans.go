@@ -85,6 +85,9 @@ func (r *Registry) ensurePlanLocked(repo string) (Plan, bool, error) {
 	if err != nil {
 		return Plan{}, false, err
 	}
+	if reason := RepoInsidePlans(r.plansRoot, canonical); reason != "" {
+		return Plan{}, false, fmt.Errorf("%s", reason)
+	}
 	for _, item := range r.planListLocked() {
 		if item.Repo != "" && samePath(item.Repo, canonical) {
 			return item, false, nil
@@ -101,7 +104,7 @@ func (r *Registry) ensurePlanLocked(repo string) (Plan, bool, error) {
 		return Plan{}, false, err
 	}
 	name := filepath.Base(canonical)
-	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# "+name+"\n"), 0o600); err != nil {
+	if err := UpdatePlanFile(filepath.Join(planDir, "plan.md"), func(string, bool) (string, error) { return "# " + name + "\n", nil }); err != nil {
 		return Plan{}, false, err
 	}
 	if err := os.WriteFile(filepath.Join(planDir, "NOTES.md"), nil, 0o600); err != nil {

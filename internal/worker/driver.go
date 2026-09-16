@@ -107,6 +107,11 @@ func (d *Driver) Go(parent context.Context, s *session.Session, plan *Plan, repo
 			summary.Stopped = true
 			break
 		}
+		// First touch gives every item line its id, and an item accepted while the
+		// worker ran gets one before it is taken; the writer does nothing otherwise.
+		if err := plan.AssignIDs(); err != nil {
+			return d.recorded(planID, summary, err)
+		}
 		text, err := plan.Read()
 		if err != nil {
 			return d.recorded(planID, summary, err)
@@ -142,18 +147,20 @@ func (d *Driver) Go(parent context.Context, s *session.Session, plan *Plan, repo
 				summary.Reasons = append(summary.Reasons, item.Text+": "+outcome.Reason)
 			}
 		}
-		// Re-read: the run may have changed plan.md's length under us.
+		// The marker finds its line by id in plan.md as it is now, whatever the
+		// planner accepted into the file while the item ran.
 		text, err = plan.Read()
 		if err != nil {
 			return d.recorded(planID, summary, err)
 		}
-		current, found := findByText(Parse(text), item.Text)
-		if !found {
-			return summary, fmt.Errorf("item %q left plan.md while the worker was on it", item.Text)
+		current, err := findByID(Parse(text), item.ID)
+		if err != nil {
+			return d.recorded(planID, summary, fmt.Errorf("%w while the worker was on it", err))
 		}
 		if err := plan.Mark(current, outcome.Marker, outcome.Reason); err != nil {
 			return d.recorded(planID, summary, err)
 		}
+
 		// A worker that could not finish has one permitted piece of speech: the
 		// question it could not answer from the plan or the repo. It is posted in
 		// the design thread and routed — to d when a bound d-session can answer
@@ -233,15 +240,6 @@ func (d *Driver) verify(ctx context.Context, s *session.Session, job session.Wor
 		text = text[:157] + "..."
 	}
 	return Outcome{ItemID: job.ItemID, Marker: "!", Reason: text}
-}
-
-func findByText(items []Item, text string) (Item, bool) {
-	for _, item := range items {
-		if item.Text == text || WithReason(item.Text, "") == text {
-			return item, true
-		}
-	}
-	return Item{}, false
 }
 
 // runItem submits one item and waits for its run to stop, then reads the stop

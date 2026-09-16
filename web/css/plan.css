@@ -30,6 +30,7 @@
 .plan-proposal-actions button { min-height:24px; padding:2px 7px; background:rgba(216,221,227,.08); }
 .plan-proposal-actions button:hover { background:rgba(216,221,227,.12); }
 .plan-empty-tray { padding:10px; color:var(--mute); font-size:12px; }
+.plan-refusal { margin:0; padding:5px 10px; border-bottom:1px solid rgba(125,135,148,.18); color:var(--alarm); font:12px/20px var(--mono); }
 #plan-hint { color:var(--mute); }
 @media(max-width:980px){.plan-workspace{grid-template-columns:1fr 1fr}.plan-tray{position:absolute;right:0;top:var(--app-header-height);bottom:0;width:280px;box-shadow:-1px 0 rgba(125,135,148,.28)}}
 /* Go sits beside the cubes in the header's existing 36px row: no new chrome,

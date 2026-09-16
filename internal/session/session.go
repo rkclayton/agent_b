@@ -231,7 +231,7 @@ func (s *Session) WriteRoot(path string) (string, error) {
 	if err := os.MkdirAll(filepath.Join(planDir, "plan", "items"), 0o700); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Untitled plan\n"), 0o600); err != nil {
+	if err := UpdatePlanFile(filepath.Join(planDir, "plan.md"), func(string, bool) (string, error) { return "# Untitled plan\n", nil }); err != nil {
 		return "", err
 	}
 	if err := os.WriteFile(filepath.Join(planDir, "NOTES.md"), nil, 0o600); err != nil {

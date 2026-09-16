@@ -47,11 +47,13 @@ func (s *Server) planGoState(w http.ResponseWriter, r *http.Request) {
 	}
 	running := s.worker != nil && s.worker.Running(item.Snapshot().PlanID)
 	items := worker.Parse(text)
+	refusal := planRefusal(planDir)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"waiting": worker.RemainingIn(items, planDir),
 		"running": running,
-		"enabled": worker.RemainingIn(items, planDir) && !running,
+		"enabled": worker.RemainingIn(items, planDir) && !running && refusal == "",
 		"items":   len(items),
+		"refusal": refusal,
 	})
 }
 
@@ -93,6 +95,11 @@ func (s *Server) planGoStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "a worker is already running on this plan", "worker")
 		return
 	}
+	if refusal := planRefusal(planDir); refusal != "" {
+		writeError(w, http.StatusConflict, refusal, "plan")
+		return
+	}
+
 	// The worker is its own session: a c-role one, bound to the same plan and
 	// repo, with no chat. The d-session that pressed Go keeps its own thread.
 	created, err := s.registry.CreateRole("worker", snapshot.AgentID, "", "c", snapshot.PlanID)

@@ -12,7 +12,7 @@ param(
     [switch]$ReplayOnly,
     [switch]$ExpectStableShell,
     [ValidateSet('true', 'false')]
-    [string]$Headless = 'false'
+    [string]$Headless = 'true'
 )
 
 $ErrorActionPreference = 'Stop'

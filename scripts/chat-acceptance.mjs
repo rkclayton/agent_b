@@ -12,7 +12,10 @@ const args = Object.fromEntries(Array.from({ length: Math.floor(process.argv.sli
 }));
 for (const key of ["app", "data", "workspace", "evidence"]) assert.ok(args[key], `missing --${key}`);
 const realModel = !!args["real-model-url"];
-const headless = args.headless === "true";
+// The release gate runs headless (item 2el): a locked or unattended desktop
+// cannot deliver real input to a visible window, and nothing here measures
+// paint. --headless false is for looking at a run, never the release path.
+const headless = args.headless !== "false";
 const startedAt = Date.now();
 const scenarios = [];
 const children = [];
@@ -347,6 +350,8 @@ assert.equal(loadedConfig.context?.accounting, "auto", "slow-accounting fixture 
 edgeContext = await chromium.launchPersistentContext("", {
   channel: "msedge",
   headless,
+  // Headless hides scrollbars by default; keep them so captures still show them.
+  ignoreDefaultArgs: ["--hide-scrollbars"],
   viewport: { width: 1250, height: 975 },
   args: [`--app=http://127.0.0.1:${appPort}/chat`, "--window-size=1250,975"],
 });

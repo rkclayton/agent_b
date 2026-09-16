@@ -8,9 +8,9 @@ export function renderNotificationsPage(pageContext) {
 	return `<div class="settings-subhead">Discord</div>
 		<div class="setting-row ${notificationAlarm ? "invalid" : ""}">
 			<label for="discord-webhook-url">webhook URL</label>
-			<div><input id="discord-webhook-url" type="password" autocomplete="off" placeholder="${configured ? "•••• set" : "https://discord.com/api/webhooks/…"}" aria-label="Discord webhook URL"></div>
+			<div><input id="discord-webhook-url" type="password" autocomplete="off" placeholder="${configured ? "•••• set" : "https://discord.com/api/webhooks/…"}" aria-label="Discord webhook URL" title="The URL is protected with Windows DPAPI and is never written to harness.json or logs."></div>
 		</div>
-		<p class="settings-note">${html(host)} The URL is protected with Windows DPAPI and is never written to harness.json or logs.</p>
+		<p class="settings-note">${html(host)}</p>
 		<div class="settings-actions">
 			<button type="button" data-action="save-notification" ${notificationBusy ? "disabled" : ""}>Save URL</button>
 			<button type="button" data-action="test-notification" ${notificationBusy || !configured ? "disabled" : ""}>Send test</button>

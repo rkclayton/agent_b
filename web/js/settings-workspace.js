@@ -19,14 +19,11 @@ function operatorFilesFolder() {
 	const dir=store.sessions[store.active]?.workspace||store.config.workspace||"";
 	const found=operatorFileState.instruction_found||[];
 	const adoptable=!found.includes("AGENT_B.md")&&found.some((name)=>name==="AGENTS.md"||name==="CLAUDE.md");
-	const adopt=adoptable?`<div class="settings-subhead">Adopt repository instructions</div>
-		<p class="settings-note">Create AGENT_B.md from ${html(found.join(" + "))}; source files remain in place.</p>
-		<label class="settings-check warning"><input id="adopt-instruction-cleanup" type="checkbox"> Also remove AGENTS.md / CLAUDE.md</label>
-		<p class="settings-note">Cleanup is destructive and is off by default.</p>
+	const adopt=adoptable?`<div class="settings-subhead" title="Create AGENT_B.md from ${attr(found.join(" + "))}; source files remain in place.">Adopt repository instructions</div>
+		<label class="settings-check warning" title="Cleanup is destructive and is off by default."><input id="adopt-instruction-cleanup" type="checkbox"> Also remove AGENTS.md / CLAUDE.md</label>
 		<button type="button" data-action="adopt-instructions" data-id="${attr(dir)}">Adopt</button>`:"";
 	return `${row("attachments",`<span class="path" title="${attr(operatorFileState.attachments_path||"")}">${files} files · ${bytes} bytes</span><button type="button" class="${armed.has(emptyKey)?"confirm":""}" data-action="empty-operator-attachments" ${files?"":"disabled"}>${armed.has(emptyKey)?"Confirm empty":"Empty"}</button>`)}
-		${toggle("operator_files.allow_mailbox_approvals","Allow approvals from the mailbox",store.config.operator_files?.allow_mailbox_approvals===true)}
-		<p class="settings-note">whoever can write to your synced folder can then grant the agent your identity.</p>
+		${toggle("operator_files.allow_mailbox_approvals","Allow approvals from the mailbox",store.config.operator_files?.allow_mailbox_approvals===true,"Whoever can write to your synced folder can then grant the agent your identity.")}
 		${number("operator_files.log_retention_days","log retention (days)",store.config.operator_files?.log_retention_days||30)}
 		${adopt}<div class="settings-subhead">Known directories</div>`;
 }

@@ -48,9 +48,8 @@ function tools(active) {
     ? `<div class="settings-subhead">Current session</div>${active.tools.map((tool) => row(tool.name, `<span class="session-tool-control"><span class="number">${tool.calls || 0} calls</span><button class="switch ${tool.enabled ? "on" : ""}" type="button" data-action="session-tool-toggle" data-id="${attr(tool.name)}" data-enabled="${tool.enabled}" aria-label="Toggle ${attr(tool.name)}" aria-pressed="${tool.enabled}"></button></span>`)).join("")}`
     : '<p class="settings-note">No active session.</p>';
   const blockTokens = active?.budget?.categories?.tools;
-  const block = row("enabled tools block", `<span class="number">${blockTokens == null ? "not measured" : `${tokenCount(blockTokens)} tokens`}</span>`);
+  const block = row("enabled tools block", `<span class="number">${blockTokens == null ? "not measured" : `${tokenCount(blockTokens)} tokens`}</span>`, "", "Marginals include the tool-name prompt; neither marginals nor schema sizes sum to the block because shared scaffolding is counted once.");
   return `${availability}<div class="settings-subhead">Configuration and request cost</div>${block}
-    <p class="settings-note">Marginals include the tool-name prompt; neither marginals nor schema sizes sum to the block because shared scaffolding is counted once.</p>
     ${head("read_file")}
     ${number("tools.read_file.default_limit", "default bytes", cfg.tools?.read_file?.default_limit)}
     ${number("tools.read_file.max_limit", "max bytes per call", cfg.tools?.read_file?.max_limit)}

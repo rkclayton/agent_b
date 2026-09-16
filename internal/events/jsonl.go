@@ -1,0 +1,473 @@
+package events
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"sync"
+	"time"
+)
+
+type Writers struct {
+	mu                  sync.Mutex
+	dir, chatDir, start string
+	global              *os.File
+	sessions            map[string]*os.File
+	chats               map[string]*os.File
+	paths               map[string]string
+	sizes               map[string]int64
+	history             map[string]*historyIndex
+}
+
+// LogCursor identifies a complete record boundary in one JSONL generation.
+type LogCursor struct {
+	Generation string `json:"generation"`
+	Offset     int64  `json:"offset"`
+	Path       string `json:"-"`
+}
+
+type MemoryWrite struct {
+	Path    string `json:"path"`
+	Note    string `json:"note"`
+	Target  string `json:"target"`
+	AgentID string `json:"agent_id,omitempty"`
+}
+
+type SessionInventory struct {
+	Events       int           `json:"events"`
+	JSONLFiles   int           `json:"jsonl_files"`
+	JSONLBytes   int64         `json:"jsonl_bytes"`
+	MemoryWrites []MemoryWrite `json:"memory_writes"`
+	Paths        []string      `json:"-"`
+}
+
+func NewWriters(dir string) (*Writers, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	chatDir := filepath.Join(filepath.Dir(dir), "chats")
+	if err := os.MkdirAll(chatDir, 0o700); err != nil {
+		return nil, err
+	}
+	stamp := time.Now().UTC().Format("20060102T150405.000Z")
+	file, err := os.OpenFile(filepath.Join(dir, "Agent_b-"+stamp+".jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	return &Writers{dir: dir, chatDir: chatDir, start: stamp, global: file, sessions: map[string]*os.File{}, chats: map[string]*os.File{}, paths: map[string]string{}, sizes: map[string]int64{}, history: map[string]*historyIndex{}}, nil
+}
+
+// DurableChatPaths returns the retained chat journals. Unlike the operational
+// tapes in logs, these files are not subject to log retention.
+func (w *Writers) DurableChatPaths() ([]string, error) {
+	w.mu.Lock()
+	dir := w.chatDir
+	w.mu.Unlock()
+	paths, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// LatestOperationalSessionPaths supports the one-time upgrade from releases
+// that had only launch tapes. It selects the newest generation for each
+// recorded session ID; once retained journals exist startup no longer uses it.
+func (w *Writers) LatestOperationalSessionPaths() ([]string, error) {
+	w.mu.Lock()
+	dir := w.dir
+	w.mu.Unlock()
+	paths, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	latest := map[string]string{}
+	for _, path := range paths {
+		file, openErr := os.Open(path)
+		if openErr != nil {
+			return nil, openErr
+		}
+		decoder := json.NewDecoder(file)
+		var event Event
+		decodeErr := decoder.Decode(&event)
+		closeErr := file.Close()
+		if decodeErr == io.EOF || event.SessionID == "" {
+			continue
+		}
+		if decodeErr != nil {
+			return nil, fmt.Errorf("inspect legacy chat %s: %w", path, decodeErr)
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		if previous := latest[event.SessionID]; previous == "" || filepath.Base(path) > filepath.Base(previous) {
+			latest[event.SessionID] = path
+		}
+	}
+	result := make([]string, 0, len(latest))
+	for _, path := range latest {
+		result = append(result, path)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func (w *Writers) durableChatLocked(id string) (*os.File, error) {
+	if filepath.Base(id) != id || id == "." || id == "" {
+		return nil, fmt.Errorf("invalid session id %q", id)
+	}
+	if file := w.chats[id]; file != nil {
+		return file, nil
+	}
+	file, err := os.OpenFile(filepath.Join(w.chatDir, id+".jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	w.chats[id] = file
+	return file, nil
+}
+func (w *Writers) OpenSession(id string) (string, error) {
+	path, _, err := w.RotateSession(id)
+	return path, err
+}
+
+// RotateSession opens a new generation and returns the durable end of its predecessor.
+// An empty predecessor is meaningful for a session's first generation.
+func (w *Writers) RotateSession(id string) (string, LogCursor, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	predecessor := LogCursor{Generation: filepath.Base(w.paths[id]), Offset: w.sizes[id], Path: w.paths[id]}
+	if old := w.sessions[id]; old != nil {
+		if err := old.Sync(); err != nil {
+			return "", LogCursor{}, err
+		}
+		if err := old.Close(); err != nil {
+			return "", LogCursor{}, err
+		}
+	}
+	stamp := time.Now().UTC()
+	var path string
+	var file *os.File
+	var err error
+	for {
+		path = filepath.Join(w.dir, fmt.Sprintf("%s-%s.jsonl", id, stamp.Format("20060102T150405.000000000Z")))
+		file, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			break
+		}
+		if !os.IsExist(err) {
+			return "", LogCursor{}, err
+		}
+		stamp = stamp.Add(time.Nanosecond)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return "", LogCursor{}, err
+	}
+	w.sessions[id] = file
+	w.paths[id] = path
+	w.sizes[id] = info.Size()
+	w.history[id] = newHistoryIndex()
+	return path, predecessor, nil
+}
+func (w *Writers) CloseSession(id string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	file := w.sessions[id]
+	if file == nil {
+		return nil
+	}
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if closeErr == nil {
+		delete(w.sessions, id)
+		delete(w.paths, id)
+		delete(w.sizes, id)
+		delete(w.history, id)
+	}
+	if syncErr != nil {
+		return syncErr
+	}
+	return closeErr
+}
+
+func (w *Writers) SessionInventory(id string) (SessionInventory, error) {
+	w.mu.Lock()
+	if file := w.sessions[id]; file != nil {
+		if err := file.Sync(); err != nil {
+			w.mu.Unlock()
+			return SessionInventory{}, err
+		}
+	}
+	dir := w.dir
+	w.mu.Unlock()
+	matches, err := filepath.Glob(filepath.Join(dir, id+"-*.jsonl"))
+	if err != nil {
+		return SessionInventory{}, err
+	}
+	result := SessionInventory{Paths: []string{}, MemoryWrites: []MemoryWrite{}}
+	for _, path := range matches {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			return SessionInventory{}, statErr
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		result.Paths = append(result.Paths, path)
+		result.JSONLFiles++
+		result.JSONLBytes += info.Size()
+		file, openErr := os.Open(path)
+		if openErr != nil {
+			return SessionInventory{}, openErr
+		}
+		decoder := json.NewDecoder(file)
+		for {
+			var event Event
+			decodeErr := decoder.Decode(&event)
+			if decodeErr == io.EOF {
+				break
+			}
+			if decodeErr != nil {
+				_ = file.Close()
+				return SessionInventory{}, fmt.Errorf("inventory %s: %w", path, decodeErr)
+			}
+			if event.SessionID == id && event.Type == MemoryNoted {
+				data := valueMap(event.Data)
+				result.MemoryWrites = append(result.MemoryWrites, MemoryWrite{Path: valueString(data["path"]), Note: valueString(data["note"]), Target: valueString(data["target"]), AgentID: valueString(data["agent_id"])})
+			}
+			if event.SessionID == id {
+				result.Events++
+			}
+		}
+		if closeErr := file.Close(); closeErr != nil {
+			return SessionInventory{}, closeErr
+		}
+	}
+	sort.Strings(result.Paths)
+	return result, nil
+}
+
+func (w *Writers) DeleteSession(id string) (SessionInventory, error) {
+	inventory, err := w.SessionInventory(id)
+	if err != nil {
+		return SessionInventory{}, err
+	}
+	if err := w.CloseSession(id); err != nil {
+		return SessionInventory{}, err
+	}
+	if _, err := DeleteOperationalPaths(inventory.Paths); err != nil {
+		return SessionInventory{}, err
+	}
+	w.mu.Lock()
+	chat := w.chats[id]
+	delete(w.chats, id)
+	chatPath := filepath.Join(w.chatDir, id+".jsonl")
+	w.mu.Unlock()
+	if chat != nil {
+		if err := chat.Close(); err != nil {
+			return SessionInventory{}, err
+		}
+	}
+	if err := os.Remove(chatPath); err != nil && !os.IsNotExist(err) {
+		return SessionInventory{}, err
+	}
+	return inventory, nil
+}
+
+// DeleteOperationalPaths is the one removal primitive shared by retention and
+// permanent chat deletion. Callers remain responsible for selecting only
+// operational JSONL paths; retained chat journals are deliberately separate.
+func DeleteOperationalPaths(paths []string) ([]string, error) {
+	removed := []string{}
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return removed, err
+		}
+		removed = append(removed, path)
+	}
+	return removed, nil
+}
+func (w *Writers) Write(event Event) error {
+	_, err := w.WriteRecord(event)
+	return err
+}
+
+// WriteRecord returns a cursor only after a complete JSONL record was appended.
+func (w *Writers) WriteRecord(event Event) (LogCursor, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	file := w.global
+	path := ""
+	if event.SessionID != "" && w.sessions[event.SessionID] != nil {
+		file = w.sessions[event.SessionID]
+		path = w.paths[event.SessionID]
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		return LogCursor{}, err
+	}
+	line := append(data, '\n')
+	var chat *os.File
+	if event.SessionID != "" {
+		chat, err = w.durableChatLocked(event.SessionID)
+		if err != nil {
+			return LogCursor{}, err
+		}
+	}
+	offset := w.sizes[event.SessionID]
+	written, err := file.Write(line)
+	if err != nil {
+		return LogCursor{}, err
+	}
+	if written != len(line) {
+		return LogCursor{}, io.ErrShortWrite
+	}
+	if chat != nil {
+		chatWritten, chatErr := chat.Write(line)
+		if chatErr != nil {
+			return LogCursor{}, chatErr
+		}
+		if chatWritten != len(line) {
+			return LogCursor{}, io.ErrShortWrite
+		}
+	}
+	if event.SessionID != "" && file == w.sessions[event.SessionID] {
+		w.sizes[event.SessionID] += int64(written)
+	}
+	if index := w.history[event.SessionID]; index != nil {
+		index.record(event, historyLocation{path: w.paths[event.SessionID], offset: offset, length: written})
+	}
+	if event.Type == "run.stopped" {
+		if err := file.Sync(); err != nil {
+			return LogCursor{}, err
+		}
+		if chat != nil {
+			if err := chat.Sync(); err != nil {
+				return LogCursor{}, err
+			}
+		}
+	}
+	if event.SessionID == "" || path == "" {
+		return LogCursor{}, nil
+	}
+	return LogCursor{Generation: filepath.Base(path), Offset: offset + int64(written), Path: path}, nil
+}
+
+func (w *Writers) SessionCursors() map[string]LogCursor {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	result := make(map[string]LogCursor, len(w.paths))
+	for id, path := range w.paths {
+		result[id] = LogCursor{Generation: filepath.Base(path), Offset: w.sizes[id], Path: path}
+	}
+	return result
+}
+
+func (w *Writers) ResolveHistory(sessionID, ref string) (HistoryLookup, error) {
+	w.mu.Lock()
+	index := w.history[sessionID]
+	if index == nil {
+		w.mu.Unlock()
+		return HistoryLookup{}, fmt.Errorf("history is not available for this session")
+	}
+	lookup, err := index.resolve(ref, func(record historyRecord) (Message, error) {
+		return Message{}, nil
+	})
+	if err != nil || lookup.Kind == "manifest" {
+		w.mu.Unlock()
+		return lookup, err
+	}
+	record := index.records[ref]
+	w.mu.Unlock()
+	message, err := readHistoryMessage(record.location)
+	if err != nil {
+		return HistoryLookup{}, err
+	}
+	if message.ID != ref {
+		return HistoryLookup{}, fmt.Errorf("recorded history ref mismatch: got %q, want %q", message.ID, ref)
+	}
+	lookup.Message = message
+	return lookup, nil
+}
+
+func (h *historyIndex) record(event Event, location historyLocation) {
+	data := valueMap(event.Data)
+	switch event.Type {
+	case MessageAppended:
+		var wrapper struct {
+			Message Message `json:"message"`
+		}
+		if decodeValue(event.Data, &wrapper) == nil {
+			h.append(wrapper.Message, location, false)
+		}
+	case MessageUpdated:
+		h.update(valueString(data["id"]), valueMap(data["patch"]))
+	case MessageRemoved:
+		h.remove(valueString(data["id"]))
+	case Compaction:
+		if valueString(data["kind"]) == "summarize" {
+			h.compact(valueString(data["summary_message_id"]), valueStrings(data["affected_ids"]))
+		}
+	}
+}
+
+func readHistoryMessage(location historyLocation) (Message, error) {
+	file, err := os.Open(location.path)
+	if err != nil {
+		return Message{}, err
+	}
+	defer file.Close()
+	data := make([]byte, location.length)
+	if _, err := file.ReadAt(data, location.offset); err != nil && err != io.EOF {
+		return Message{}, err
+	}
+	var event Event
+	if err := json.Unmarshal(data, &event); err != nil {
+		return Message{}, err
+	}
+	if event.Type != MessageAppended {
+		return Message{}, fmt.Errorf("recorded history location is %q, not %q", event.Type, MessageAppended)
+	}
+	var wrapper struct {
+		Message Message `json:"message"`
+	}
+	if err := decodeValue(event.Data, &wrapper); err != nil {
+		return Message{}, err
+	}
+	return wrapper.Message, nil
+}
+func (w *Writers) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var first error
+	files := append([]*os.File{w.global}, mapFiles(w.sessions)...)
+	files = append(files, mapFiles(w.chats)...)
+	for _, file := range files {
+		if file == nil {
+			continue
+		}
+		if err := file.Sync(); err != nil && first == nil {
+			first = err
+		}
+		if err := file.Close(); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+func mapFiles(values map[string]*os.File) []*os.File {
+	out := make([]*os.File, 0, len(values))
+	for _, file := range values {
+		out = append(out, file)
+	}
+	return out
+}

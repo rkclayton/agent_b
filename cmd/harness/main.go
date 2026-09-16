@@ -1,0 +1,490 @@
+package main
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"harness/internal/agent"
+	"harness/internal/config"
+	"harness/internal/credential"
+	"harness/internal/delivery"
+	"harness/internal/events"
+	"harness/internal/hardening"
+	"harness/internal/llm"
+	"harness/internal/memory"
+	"harness/internal/notifications"
+	"harness/internal/operatorfiles"
+	"harness/internal/progress"
+	"harness/internal/projection"
+	"harness/internal/serviceaccount"
+	"harness/internal/session"
+	"harness/internal/signing"
+	"harness/internal/stats"
+	"harness/internal/tools"
+	webserver "harness/internal/web"
+	workspaceinfo "harness/internal/workspace"
+)
+
+func main() {
+	if err := startupElevationError(processIsElevated()); err != nil {
+		log.Fatal(err)
+	}
+	configOverride := flag.String("config", "", "configuration file (overrides AGENTB_CONFIG and installed/default locations)")
+	applicationOverride := flag.String("app-root", "", "application root containing web, prompts, scripts, and harness.example.json")
+	dataOverride := flag.String("data-root", "", "operator data root containing configuration, credentials, logs, and memory")
+	replayPaths := flag.String("replay", "", "comma-separated session JSONL files to replay")
+	startupLog := flag.String("startup-log", "", "optional append-only startup diagnostic log")
+	flag.Parse()
+	if strings.TrimSpace(*startupLog) != "" {
+		file, openErr := os.OpenFile(filepath.Clean(*startupLog), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if openErr != nil {
+			log.Fatalf("open startup diagnostic log %s: %v", *startupLog, openErr)
+		}
+		log.SetOutput(io.MultiWriter(os.Stderr, file))
+	}
+	paths, err := resolveStartupPaths(*configOverride, *applicationOverride, *dataOverride)
+	if err != nil {
+		log.Fatal(err)
+	}
+	cfg, migrated, created, err := config.LoadWithRoots(paths.Config, filepath.Join(paths.Application, "harness.example.json"), paths.Data)
+	if err != nil {
+		log.Fatal(err)
+	}
+	workspaceRoot, err := filepath.Abs(cfg.Workspace)
+	if err != nil {
+		log.Fatal(err)
+	}
+	paths.Workspace = filepath.Clean(workspaceRoot)
+	roots := webserver.RuntimeRoots{Application: paths.Application, Data: paths.Data, Workspace: paths.Workspace}
+	if created {
+		log.Printf("created %s from %s - set servers[0].base_url and model", paths.Config, filepath.Join(paths.Application, "harness.example.json"))
+	}
+	if migrated {
+		log.Printf("migrated %s to config schema %d", filepath.Base(paths.Config), config.CurrentConfigVersion)
+	}
+	for _, notice := range cfg.LoadNotices {
+		log.Printf("config migration: %s", notice)
+	}
+	facts := readServingFacts(filepath.Join(paths.Application, "SERVING.md"))
+	if !facts.Complete {
+		log.Printf("debug: SERVING.md missing or partial; skipping /tokenize latency hint")
+	} else if facts.TokenizeBlocksOnSlot == "yes" {
+		log.Printf("tokenize blocks on the generation slot (%d ms measured busy); context.accounting: \"estimated\" avoids it", facts.TokenizeBusyMS)
+	}
+	if strings.TrimSpace(*replayPaths) != "" {
+		replay, loadErr := projection.LoadReplay(strings.Split(*replayPaths, ","))
+		if loadErr != nil {
+			log.Fatal(loadErr)
+		}
+		web := webserver.New(cfg, paths.Config, filepath.Join(paths.Application, "web"), roots, events.NewBus())
+		web.SetReplay(replay)
+		web.SetSigningManager(signing.New(filepath.Join(paths.Application, "scripts", "manage-signing.ps1")))
+		signingContext, cancelSigning := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := web.RefreshSigningState(signingContext); err != nil {
+			log.Printf("inspect installed signatures: %v", err)
+		}
+		cancelSigning()
+		if err := serve(cfg, web.Handler()); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	logDir := cfg.LogDir
+	if !filepath.IsAbs(logDir) {
+		logDir = filepath.Join(paths.Data, logDir)
+	}
+	writers, err := events.NewWriters(logDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := writers.Close(); err != nil {
+			log.Printf("close event logs: %v", err)
+		}
+	}()
+	bus := events.NewBus()
+	projector := projection.NewStore()
+	bus.SetDurableSink(writers.WriteRecord, projector.Apply, projector.MarkStale)
+	progressManager := progress.New(bus)
+	progressManager.Start()
+	defer progressManager.Close()
+	web := webserver.New(cfg, paths.Config, filepath.Join(paths.Application, "web"), roots, bus)
+	web.SetProjection(projector, writers)
+	for _, notice := range cfg.LoadNotices {
+		bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": cfg.Masked(), "notice": notice}))
+	}
+	memoryManager := memory.New(paths.Data, web.ConfigSnapshot, func(ctx context.Context, serverID, text string) (int, error) {
+		profile, ok := web.Profile(serverID)
+		if !ok || !profile.Capabilities.Tokenize {
+			return 0, fmt.Errorf("tokenizer unavailable")
+		}
+		return llm.New(profile).Tokenize(ctx, text, false)
+	})
+	workspaceManager := workspaceinfo.New(memoryManager.Dir(), memoryManager.Path)
+	registry := session.NewRegistry(bus, writers, web.Profile, cfg.Run.MaxTurns, web.ConfigSnapshot)
+	registry.SetMemoryLoader(memoryManager.Load)
+	registry.SetAgentMemoryLoader(memoryManager.LoadAgent)
+	registry.SetWorkspaceManager(workspaceManager)
+	web.SetRegistry(registry)
+	notificationStore, err := credential.NewNamed(paths.Data, cfg.Notifications.DiscordCredential)
+	if err != nil {
+		log.Fatal(err)
+	}
+	notificationManager := notifications.New(bus, registry.Label, "http://"+cfg.Listen)
+	if value, readErr := notificationStore.Read(); readErr == nil {
+		if configureErr := notificationManager.Configure(string(value)); configureErr != nil {
+			log.Printf("Discord notification credential is invalid; notifications disabled: %v", configureErr)
+		}
+	} else if !errors.Is(readErr, credential.ErrNotStored) {
+		log.Printf("load Discord notification credential: %v", readErr)
+	}
+	notificationManager.Start(context.Background())
+	defer notificationManager.Close()
+	web.SetNotifications(notificationManager, notificationStore)
+	web.SetWorkspaceState(workspaceManager, memoryManager)
+	operatorFiles := operatorfiles.New(paths.Data, logDir, web.ConfigSnapshot)
+	operatorFiles.SetEventPublisher(func(event events.Event) { bus.Publish(event) })
+	if err := operatorFiles.Ensure(); err != nil {
+		log.Fatal(err)
+	}
+	if _, err := operatorFiles.ApplyRetention(); err != nil {
+		log.Printf("apply log retention: %v", err)
+	}
+	web.SetOperatorFiles(operatorFiles)
+	operatorContext, cancelOperatorFiles := context.WithCancel(context.Background())
+	defer cancelOperatorFiles()
+	go operatorFiles.RunRetention(operatorContext)
+	operatorEvents, unsubscribeOperatorEvents := bus.Subscribe()
+	defer unsubscribeOperatorEvents()
+	go func() {
+		for event := range operatorEvents {
+			var snapshot *session.Snapshot
+			if item, ok := registry.Get(event.SessionID); ok {
+				value := item.Snapshot()
+				snapshot = &value
+			}
+			operatorFiles.HandleEvent(event, snapshot)
+		}
+	}()
+	statsManager := stats.New(paths.Data, registry, bus)
+	web.SetStats(statsManager)
+	renderer, err := agent.LoadTemplate(filepath.Join(paths.Application, "prompts", "system.md"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := renderer.LoadPlanner(filepath.Join(paths.Application, "prompts", "planner.md")); err != nil {
+		log.Fatal(err)
+	}
+	workspaces := session.NewWorkspaceRegistry()
+	coordinator := tools.NewFileCoordinator(workspaces, registry.Label, bus)
+	credentialStore := credential.New(paths.Data)
+	fileIdentity := tools.NewFileIdentity(credentialStore)
+	fileIdentity.Configure(*cfg)
+	shellTool := tools.NewShell(cfg.Shell)
+	shellTool.SetFileCoordinator(coordinator)
+	shellTool.Configure(*cfg)
+	shellTool.SetCredentialStore(credentialStore)
+	shellTool.SetIdentityReporter(func(status tools.ShellIdentityStatus) {
+		bus.Publish(events.New(events.ShellIdentity, "", "", status))
+	})
+	web.SetShellSecurity(credentialStore, shellTool)
+	web.SetServiceAccountManager(serviceaccount.New(filepath.Join(paths.Application, "scripts", "setup-service-account.ps1")))
+	web.SetHardeningManager(hardening.New(
+		filepath.Join(paths.Application, "scripts", "apply-acls.ps1"),
+		filepath.Join(paths.Application, "scripts", "apply-firewall-rule.ps1"),
+		filepath.Join(paths.Application, "scripts", "apply-hardening.ps1"),
+	))
+	web.SetSigningManager(signing.New(filepath.Join(paths.Application, "scripts", "manage-signing.ps1")))
+	signingContext, cancelSigning := context.WithTimeout(context.Background(), 15*time.Second)
+	if err := web.RefreshSigningState(signingContext); err != nil {
+		log.Printf("inspect installed signatures: %v", err)
+	}
+	cancelSigning()
+	toolRegistry := tools.New(
+		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
+		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
+		fileIdentity.Wrap(tools.NewWriteFile(coordinator)),
+		fileIdentity.Wrap(tools.NewEditFile(coordinator)),
+		fileIdentity.Wrap(tools.NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir)),
+		shellTool,
+		tools.NewRemember(memoryManager, bus),
+		tools.NewRecall(memoryManager),
+		tools.NewFetch(cfg.Tools.Fetch),
+		fileIdentity.Wrap(tools.NewGlob(cfg.Tools.FindFiles)),
+		tools.NewRunScript(shellTool),
+		tools.NewCallService(cfg.Services),
+	)
+	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Profile, web.ConfigSnapshot)
+	runner.SetSessionRenamer(registry.RenameBy)
+	deliveryManager := delivery.New(bus, web.ConfigSnapshot)
+	runner.SetDeliverer(func(item *session.Session, runID string, files []delivery.Source) delivery.Result {
+		return deliveryManager.Deliver(item, runID, files)
+	})
+	scheduler := agent.NewScheduler(runner, registry, bus, web.ConfigSnapshot)
+	runner.SetMailboxBoundary(func(_ context.Context, sessionID string, approvalPending bool) agent.BoundaryAction {
+		action, err := operatorFiles.CheckInbox(sessionID, approvalPending)
+		return agent.BoundaryAction{Stop: action.Stop, Revision: action.Revision, Delay: action.Delay, Err: err}
+	})
+	runner.Gate().SetMailboxDecision(func(sessionID string) (string, error) {
+		action, err := operatorFiles.CheckInbox(sessionID, true)
+		if action.Stop {
+			scheduler.Stop(sessionID, false)
+			return "deny", err
+		}
+		return action.Decision, err
+	})
+	web.SetRuntime(scheduler, runner, renderer)
+	if len(cfg.Servers) == 0 {
+		log.Printf("first-run setup required: no model profiles are configured")
+	} else {
+		mainAgentID := cfg.DefaultAgentID()
+		if ready, reason := registry.AgentRunnable(mainAgentID); ready {
+			log.Printf("startup agent %s ready from saved capabilities", mainAgentID)
+		} else {
+			log.Printf("startup agent %s not runnable: %s; use Connections > Test", mainAgentID, reason)
+		}
+		restored, restoreErr := restoreRetainedChats(writers, registry)
+		if restoreErr != nil {
+			log.Fatal(restoreErr)
+		}
+		open := false
+		for _, item := range restored {
+			if !item.IsClosed() {
+				open = true
+			}
+		}
+		if !open {
+			mainSession, createErr := registry.Create("main", mainAgentID, "")
+			if createErr != nil {
+				log.Fatal(createErr)
+			}
+			restored = append(restored, mainSession)
+		}
+		registry.RefreshRunnable()
+		for _, item := range restored {
+			if !item.IsClosed() {
+				runner.PublishBudget(context.Background(), item)
+			}
+		}
+	}
+	publishPendingSigning(paths.Data, registry, bus)
+	if err := serve(cfg, web.Handler()); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func restoreRetainedChats(writers *events.Writers, registry *session.Registry) ([]*session.Session, error) {
+	paths, err := writers.DurableChatPaths()
+	if err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		paths, err = writers.LatestOperationalSessionPaths()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	replay, err := projection.LoadReplay(paths)
+	if err != nil {
+		return nil, fmt.Errorf("load retained chats: %w", err)
+	}
+	ids := make([]string, 0, len(replay.Sessions))
+	for id := range replay.Sessions {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	result := make([]*session.Session, 0, len(ids))
+	for _, id := range ids {
+		encoded, marshalErr := json.Marshal(replay.Sessions[id])
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		var saved session.Snapshot
+		if unmarshalErr := json.Unmarshal(encoded, &saved); unmarshalErr != nil {
+			return nil, unmarshalErr
+		}
+		item, restoreErr := registry.Restore(saved)
+		if restoreErr != nil {
+			return nil, restoreErr
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+func publishPendingSigning(dataRoot string, registry *session.Registry, bus *events.Bus) {
+	path := filepath.Join(dataRoot, "signing-applied.pending.json")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		log.Printf("read pending signing event: %v", err)
+		return
+	}
+	var detail map[string]any
+	if err := json.Unmarshal(data, &detail); err != nil {
+		log.Printf("decode pending signing event: %v", err)
+		return
+	}
+	bus.Publish(events.New(events.SigningApplied, "", "", detail))
+	for _, item := range registry.List() {
+		bus.Publish(events.New(events.SigningApplied, item.ID, "", detail))
+	}
+	if err := os.Remove(path); err != nil {
+		log.Printf("remove pending signing event: %v", err)
+	}
+}
+
+type startupPaths struct {
+	Application string
+	Data        string
+	Workspace   string
+	Config      string
+}
+
+func resolveStartupPaths(configOverride, applicationOverride, dataOverride string) (startupPaths, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return startupPaths{}, fmt.Errorf("resolve working directory: %w", err)
+	}
+	application := applicationOverride
+	if application == "" {
+		application = cwd
+	}
+	application, err = filepath.Abs(application)
+	if err != nil {
+		return startupPaths{}, fmt.Errorf("resolve application root: %w", err)
+	}
+
+	localData := ""
+	if base := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); base != "" {
+		localData = filepath.Join(base, "Agent_b")
+	}
+	configPath := strings.TrimSpace(configOverride)
+	data := strings.TrimSpace(dataOverride)
+	if configPath == "" {
+		configPath = strings.TrimSpace(os.Getenv("AGENTB_CONFIG"))
+	}
+	if configPath != "" && data == "" {
+		if localData != "" {
+			data = localData
+		} else {
+			data = cwd
+		}
+	}
+	if configPath == "" && localData != "" {
+		candidate := filepath.Join(localData, "harness.json")
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			configPath = candidate
+			if data == "" {
+				data = localData
+			}
+		} else if !os.IsNotExist(statErr) {
+			return startupPaths{}, fmt.Errorf("inspect installed configuration: %w", statErr)
+		}
+	}
+	if configPath == "" {
+		configPath = filepath.Join(cwd, "harness.json")
+		if data == "" {
+			data = cwd
+		}
+	}
+	configPath, err = filepath.Abs(configPath)
+	if err != nil {
+		return startupPaths{}, fmt.Errorf("resolve configuration path: %w", err)
+	}
+	data, err = filepath.Abs(data)
+	if err != nil {
+		return startupPaths{}, fmt.Errorf("resolve data root: %w", err)
+	}
+	return startupPaths{Application: filepath.Clean(application), Data: filepath.Clean(data), Config: filepath.Clean(configPath)}, nil
+}
+
+func startupElevationError(elevated bool) error {
+	if !elevated {
+		return nil
+	}
+	return fmt.Errorf("SECURITY: Agent_b refuses to run with an elevated Administrator token; local administrators can launch it normally by double-clicking start-Agent_b.cmd in File Explorer (do not use Run as administrator)")
+}
+
+func serve(cfg *config.Config, handler http.Handler) error {
+	httpServer := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	errors := make(chan error, 1)
+	go func() {
+		log.Printf("Agent_b listening on http://%s", cfg.Listen)
+		errors <- httpServer.ListenAndServe()
+	}()
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	select {
+	case sig := <-signals:
+		log.Printf("stopping on %s", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return httpServer.Shutdown(ctx)
+	case err := <-errors:
+		if err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	}
+}
+
+type servingFacts struct {
+	TokenizeIdleMS       int
+	TokenizeBusyMS       int
+	TokenizeBlocksOnSlot string
+	Complete             bool
+}
+
+// readServingFacts reads only the accounting facts needed at startup. Missing or
+// malformed values remain zero-valued so a documentation issue cannot stop Agent_b.
+func readServingFacts(path string) servingFacts {
+	file, err := os.Open(path)
+	if err != nil {
+		return servingFacts{}
+	}
+	defer file.Close()
+
+	var facts servingFacts
+	var idleFound, busyFound, blocksFound bool
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		key, value, found := strings.Cut(strings.TrimSpace(scanner.Text()), "=")
+		if !found {
+			continue
+		}
+		switch key {
+		case "tokenize_idle_ms":
+			facts.TokenizeIdleMS, err = strconv.Atoi(strings.TrimSpace(value))
+			idleFound = err == nil
+		case "tokenize_busy_ms":
+			facts.TokenizeBusyMS, err = strconv.Atoi(strings.TrimSpace(value))
+			busyFound = err == nil
+		case "tokenize_blocks_on_slot":
+			facts.TokenizeBlocksOnSlot = strings.ToLower(strings.TrimSpace(value))
+			blocksFound = facts.TokenizeBlocksOnSlot == "yes" || facts.TokenizeBlocksOnSlot == "no" || facts.TokenizeBlocksOnSlot == "partial"
+		}
+	}
+	facts.Complete = scanner.Err() == nil && idleFound && busyFound && blocksFound
+	return facts
+}

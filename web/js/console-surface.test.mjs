@@ -1,0 +1,84 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import test from "node:test";
+
+const index = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const script = fs.readFileSync(new URL("app.js", import.meta.url), "utf8");
+const styles = fs.readFileSync(new URL("../css/app.css", import.meta.url), "utf8");
+const shell = fs.readFileSync(new URL("shell.js", import.meta.url), "utf8");
+const settings = ["settings.js", "settings-connections.js", "settings-general.js", "settings-context.js", "settings-run.js", "settings-delivery.js", "settings-about.js", "settings-workspace.js", "settings-security.js"]
+  .map((name) => fs.readFileSync(new URL(name, import.meta.url), "utf8"))
+  .join("\n");
+const timeline = fs.readFileSync(new URL("timeline.js", import.meta.url), "utf8");
+
+test("Console uses the shared shell without retaining a task composer", () => {
+  assert.match(index, /id="app-shell"[^>]+data-page="console"/);
+  assert.doesNotMatch(index, /id="(?:composer|task)"/);
+  assert.doesNotMatch(script, /getElementById\("(?:composer|task)"\)/);
+  assert.doesNotMatch(shell, /\["chat", "Chat", "\/chat"\]|\["console", "Console", "\/"\]/);
+  assert.match(shell, /\[\["plan", "\/plan"\]\]/);
+  assert.match(shell, /options\.switchView\(next, navigation\)/);
+});
+
+test("Activity uses the full panel height after composer removal", () => {
+  const flowRules = [...styles.matchAll(/\.flow-well\s*\{([^}]+)\}/g)].map((match) => match[1]);
+  assert.ok(flowRules.length >= 2);
+  for (const rule of flowRules) assert.doesNotMatch(rule, /grid-template-rows:[^;]*1fr[^;]*\d+px/);
+  assert.doesNotMatch(styles, /\.composer(?:\s|\{|\.)/);
+});
+
+test("Console header omits build identity and Settings owns About", () => {
+  assert.doesNotMatch(index, /build-id|signature-state/);
+  assert.doesNotMatch(script, /renderBuildHeader/);
+  assert.match(settings, /\["about", "About"\]/);
+  assert.match(settings, /function about\(\)/);
+});
+
+test("Settings navigation remains install-global while agent controls live on Console", () => {
+  assert.doesNotMatch(settings, /\["sessions", "Sessions"\]|\["tools", "Tools"\]|\["memory", "Memory"\]|\["session", "Current session"\]/);
+  assert.match(index, /id="console-agent"/);
+  assert.match(index, /id="console-agent-server"/);
+  assert.match(index, /id="console-agent-server-state" role="status"/);
+  assert.match(index, /id="console-agent-server-cancel"[^>]+hidden/);
+  assert.match(script, /Applied \$\{agent\.b\} · pending \$\{pending\.to\}/);
+  assert.match(index, /id="console-tools"/);
+  assert.match(index, /id="flush-memory"/);
+});
+
+test("Console server controls gain wrapped height before narrow layouts can clip them", () => {
+  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.console-agent-group \{ height:78px; grid-template-rows:22px 56px; \}/);
+  assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.console-agent-group \{ height:110px; grid-template-rows:22px 88px; \}/);
+});
+
+test("Console pins the current approval and shows waiting for you in state colour", () => {
+	assert.match(index, /id="console-pending-approval" class="pending-approval" hidden/);
+	assert.match(script, /renderPendingApproval\(session\)/);
+	assert.match(styles, /\.pending-approval\[hidden\]\s*\{\s*display:\s*none/);
+	const flow = fs.readFileSync(new URL("flow.js", import.meta.url), "utf8");
+	assert.match(flow, /session\.pending_approval \? "waiting for you"/);
+	assert.match(flow, /classList\.toggle\("alarm"/);
+});
+
+test("Console live state uses the same named stage and tool readout as Chat", () => {
+	assert.match(script, /import \{ liveActivityText \} from "\.\/chat-activity\.js"/);
+	assert.match(script, /liveActivityText\(session\) \|\| session\.run\?\.status \|\| "idle"/);
+});
+
+test("Console tool rows show an execution target carried by tool.result", () => {
+  assert.match(timeline, /result\.target \? `\$\{result\.target\} · `/);
+});
+
+test("Console adds only the completed-run stop line and optional three-way label", () => {
+  assert.match(index, /id="console-run-result"[^>]+hidden/);
+  assert.match(index, /id="console-run-stop"/);
+  assert.match(index, /id="console-run-label"[^>]+aria-label="Label this run"/);
+  assert.match(script, /Ended: \$\{run\.last_stop_reason\}/);
+  assert.match(script, /\["productive", "stuck", "mixed"\]/);
+  assert.match(script, /\/result-label/);
+});
+
+test("Drop last message is relocated beside the latest History turn and Clear is absent", () => {
+  assert.match(index, /id="drop-last-message"/);
+  assert.match(script, /target\.append\(dropLastMessage\)/);
+  assert.doesNotMatch(index + script, /clear-conversation|Clear conversation|createSessionResetController/);
+});

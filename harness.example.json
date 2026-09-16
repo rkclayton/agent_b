@@ -1,0 +1,56 @@
+{
+  "config_version": 6,
+  "listen": "127.0.0.1:8790",
+  "workspace": "./workspace",
+  "log_dir": "logs",
+  "servers": [],
+  "services": {},
+  "agents": [],
+  "chat": { "auto_rename": true },
+  "run": { "max_turns": 10000, "max_wall_clock_seconds": 21600, "max_tool_calls": 1000, "cycle_window": 8, "max_consecutive_tool_errors": 3, "max_concurrent": 2, "queue_depth": 0 },
+  "approval": { "mode": "boundary-only" },
+  "deliver": { "mode": "both", "exchange_folder": "%USERPROFILE%\\Agent_b" },
+  "operator_files": { "allow_mailbox_approvals": false, "log_retention_days": 30 },
+  "notifications": { "discord_credential": "discord-webhook" },
+  "context": { "soft_pct": 0.75, "summary_pct": 0.85, "accounting": "auto" },
+  "memory": { "enabled": true, "dir": "memory", "max_tokens": 1500 },
+  "tools": {
+    "read_file": { "default_limit": 16384, "max_limit": 65536 },
+    "attachments": { "max_bytes": 8388608 },
+    "list_dir": { "max_entries": 300, "ignore": [".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"] },
+    "grep": { "max_matches": 50, "max_line_chars": 200 },
+    "shell": { "operator_commands": ["git"] },
+    "fetch": {
+      "timeout_s": 20,
+      "max_bytes": 2097152,
+      "max_redirects": 5,
+      "default_limit": 16384,
+      "max_limit": 65536,
+      "allow_domains": [],
+      "deny_domains": ["ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"],
+      "allow_internal_hosts": []
+    },
+    "find_files": {
+      "skip_roots": ["Windows", "$Recycle.Bin", "System Volume Information", "ProgramData\\Microsoft\\Windows Defender*", "Program Files\\Windows Defender*"]
+    }
+  },
+  "shell": {
+    "command": ["powershell", "-NoProfile", "-NonInteractive", "-Command"],
+    "timeout_s": 60,
+    "max_timeout_s": 600,
+    "max_output_lines_head": 60,
+    "max_output_lines_tail": 40,
+    "file_routing_guard": true,
+    "operator_context": false,
+    "operator_context_idle_timeout_minutes": 20,
+	"allow_local_network": false,
+	"confirmed_local_subnets": [],
+    "service_account": { "enabled": false, "account": "agentb-svc", "domain": "." },
+    "deny": ["rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"]
+  },
+  "sandbox": { "enabled": true },
+  "signing": {
+    "thumbprint": "",
+    "timestamp_url": "http://timestamp.digicert.com"
+  }
+}

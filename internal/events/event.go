@@ -1,0 +1,175 @@
+package events
+
+import "time"
+
+type Event struct {
+	Seq       int64  `json:"seq"`
+	TS        string `json:"ts"`
+	SessionID string `json:"session_id"`
+	RunID     string `json:"run_id"`
+	Type      string `json:"type"`
+	Data      any    `json:"data"`
+	Body      any    `json:"body,omitempty"`
+	Raw       any    `json:"raw,omitempty"`
+}
+
+const (
+	Snapshot             = "snapshot"
+	ProjectionPatch      = "projection.patch"
+	SessionCreated       = "session.created"
+	SessionRenamed       = "session.renamed"
+	SessionUpdated       = "session.updated"
+	SessionReset         = "session.reset"
+	SessionClosed        = "session.closed"
+	SessionReopened      = "session.reopened"
+	ChatExported         = "chat.exported"
+	ServerProbed         = "server.probed"
+	ConfigChanged        = "config.changed"
+	ShellIdentity        = "shell.identity"
+	ShellCredential      = "shell.credential"
+	ShellGrant           = "shell.grant"
+	ShellGrantLapsed     = "shell.grant_lapsed"
+	FileGrant            = "file.grant"
+	FileGrantLapsed      = "file.grant_lapsed"
+	SigningApplied       = "signing.applied"
+	OperatorContext      = "operator.context"
+	Error                = "error"
+	UIError              = "ui.error"
+	LogRetention         = "log.retention"
+	RunQueued            = "run.queued"
+	RunStarted           = "run.started"
+	RunStopping          = "run.stopping"
+	RunStopped           = "run.stopped"
+	RunLabeled           = "run.labeled"
+	RunAborted           = "run.aborted"
+	ItemDone             = "item.done"
+	PlanDone             = "plan.done"
+	Stage                = "stage"
+	ModelRequest         = "model.request"
+	ModelProgress        = "model.progress"
+	ModelDelta           = "model.delta"
+	ModelResponse        = "model.response"
+	ModelRetry           = "model.retry"
+	ModelUnreachable     = "model.unreachable"
+	ModelBusy            = "model.busy"
+	ModelReachable       = "model.reachable"
+	ToolCallEvent        = "tool.call"
+	ToolResult           = "tool.result"
+	ToolToggled          = "tool.toggled"
+	MessageAppended      = "message.appended"
+	MessageUpdated       = "message.updated"
+	MessageRemoved       = "message.removed"
+	MessageQueued        = "message.queued"
+	CycleDetected        = "cycle.detected"
+	ApprovalRequired     = "approval.required"
+	ApprovalDecided      = "approval.decided"
+	WorkspaceConflict    = "workspace.conflict"
+	WorkspaceBound       = "workspace.bound"
+	MemoryNoted          = "memory.noted"
+	MemoryCleared        = "memory.cleared"
+	MemoryFlushed        = "memory.flushed"
+	StatsCleared         = "stats.cleared"
+	ProjectInstructions  = "project.instructions_loaded"
+	PolicyApproved       = "policy.approved"
+	PolicyDenied         = "policy.denied"
+	PolicyRevoked        = "policy.revoked"
+	Compaction           = "compaction"
+	CompactionSummary    = "compaction.summary"
+	BudgetEvent          = "budget"
+	FilesDelivered       = "files.delivered"
+	NavigationStarted    = "navigation.started"
+	NavigationMeasured   = "navigation.measured"
+	NavigationSuppressed = "navigation.suppressed"
+	NotificationFailed   = "notification.failed"
+	NotificationChanged  = "notification.changed"
+	ProgressShadow       = "progress.shadow"
+	ProgressAux          = "progress.aux"
+)
+
+const (
+	NavigationDocumentStarted   = "navigation.document_started"
+	NavigationDocumentCompleted = "navigation.document_completed"
+	AgentServerChange           = "agent.server_change"
+)
+
+var Stages = []string{"assemble", "call_model", "parse", "dispatch", "execute", "append", "compact", "wait_user"}
+var StopReasons = []string{"done", "aborted_mid_model", "aborted_mid_tool", "aborted_mid_run", "mailbox_stop", "turn_ceiling", "wall_clock", "tool_budget", "cycle", "tool_errors", "context_ceiling", "length", "model_error", "model_unreachable", "profile_not_runnable"}
+
+type ToolCall struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+type Attachment struct {
+	Path    string `json:"path"`
+	Bytes   int64  `json:"bytes"`
+	SHA256  string `json:"sha256"`
+	Kind    string `json:"kind,omitempty"`
+	Outcome string `json:"outcome,omitempty"`
+}
+type PlanProposal struct {
+	ID               string   `json:"id"`
+	Kind             string   `json:"kind"`
+	Path             string   `json:"path"`
+	OldText          string   `json:"old_text"`
+	NewText          string   `json:"new_text"`
+	ItemID           string   `json:"item_id"`
+	SourceMessageIDs []string `json:"source_message_ids,omitempty"`
+}
+type Message struct {
+	ID            string         `json:"id"`
+	Role          string         `json:"role"`
+	Content       string         `json:"content"`
+	Reasoning     string         `json:"reasoning,omitempty"`
+	ToolCalls     []ToolCall     `json:"tool_calls,omitempty"`
+	ToolCallID    string         `json:"tool_call_id,omitempty"`
+	Name          string         `json:"name,omitempty"`
+	Category      string         `json:"category"`
+	Tokens        int            `json:"tokens"`
+	Estimated     bool           `json:"estimated"`
+	Elided        bool           `json:"elided"`
+	Turn          int            `json:"turn"`
+	OK            *bool          `json:"ok,omitempty"`
+	Attachments   []Attachment   `json:"attachments,omitempty"`
+	PlanProposals []PlanProposal `json:"plan_proposals,omitempty"`
+}
+type Budget struct {
+	NCtx                int            `json:"n_ctx"`
+	Reserve             int            `json:"reserve"`
+	Ceiling             int            `json:"ceiling"`
+	UsedEst             int            `json:"used_est"`
+	UsedMeasured        int            `json:"used_measured"`
+	Drift               int            `json:"drift"`
+	CachedLast          *int           `json:"cached_last"`
+	Mode                string         `json:"mode"`
+	Estimated           bool           `json:"estimated"`
+	EstimatedCategories []string       `json:"estimated_categories"`
+	Categories          map[string]int `json:"categories"`
+	ToolSchemaTokens    map[string]int `json:"tool_schema_tokens"`
+	ToolMarginalTokens  map[string]int `json:"tool_marginal_tokens"`
+}
+
+type ModelUsage struct {
+	PromptTokens     int  `json:"prompt_tokens"`
+	CompletionTokens int  `json:"completion_tokens"`
+	CachedTokens     *int `json:"cached_tokens"`
+}
+
+type CompactionSummaryData struct {
+	Role                  string     `json:"role"`
+	ProfileID             string     `json:"profile_id"`
+	Model                 string     `json:"model"`
+	Outcome               string     `json:"outcome"`
+	Reason                string     `json:"reason,omitempty"`
+	FallbackReason        string     `json:"fallback_reason,omitempty"`
+	Dispatched            bool       `json:"dispatched"`
+	EstimatedPromptTokens int        `json:"estimated_prompt_tokens"`
+	Estimated             bool       `json:"estimated"`
+	NCtx                  int        `json:"n_ctx"`
+	Usage                 ModelUsage `json:"usage"`
+	DurationMS            int64      `json:"duration_ms"`
+}
+
+func New(eventType, sessionID, runID string, data any) Event {
+	return Event{TS: time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00"), SessionID: sessionID, RunID: runID, Type: eventType, Data: data}
+}

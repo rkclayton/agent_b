@@ -105,6 +105,23 @@ func TestStuckReasonReplacesRatherThanStacks(t *testing.T) {
 	}
 }
 
+// A stuck reason is tool text. It goes into plan.md, so it is one line or it
+// is not written at all: a newline would turn one item into an item and prose.
+func TestStuckReasonIsFlattenedToOneLine(t *testing.T) {
+	reason := "tool_errors: open C:\\x: The system\ncannot find it.\r\n  retry?\tlater"
+	line := WithReason("2aa first item", reason)
+	if strings.ContainsAny(line, "\n\r\t") {
+		t.Fatalf("the reason broke the item line: %q", line)
+	}
+	if !strings.HasSuffix(line, "retry? later") {
+		t.Fatalf("the reason lost its tail: %q", line)
+	}
+	// And it still replaces rather than stacks.
+	if strings.Count(WithReason(line, "context_exhausted"), "— stuck:") != 1 {
+		t.Fatal("a flattened reason stacked")
+	}
+}
+
 func TestPlanMarkWritesThroughToDisk(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte(plan), 0o600); err != nil {

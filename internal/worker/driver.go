@@ -27,10 +27,15 @@ type Driver struct {
 	running   map[string]context.CancelFunc
 	lastError map[string]string
 	last      map[string]Summary
+	// deadline bounds one item, including any wait on the operator's card.
+	deadline time.Duration
 }
 
+// ItemDeadline is how long one item may take, a wait on an approval included.
+const ItemDeadline = 6 * time.Hour
+
 func New(bus *events.Bus, submit Submitter, sessions func() []*session.Session) *Driver {
-	return &Driver{bus: bus, submit: submit, sessions: sessions, running: map[string]context.CancelFunc{}, lastError: map[string]string{}, last: map[string]Summary{}}
+	return &Driver{bus: bus, submit: submit, sessions: sessions, running: map[string]context.CancelFunc{}, lastError: map[string]string{}, last: map[string]Summary{}, deadline: ItemDeadline}
 }
 
 // Running reports whether a worker is on this plan right now. Go is disabled
@@ -205,14 +210,22 @@ func (d *Driver) runItem(ctx context.Context, s *session.Session, item Item) Out
 	if err != nil {
 		return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "could not start: " + err.Error()}
 	}
-	deadline := time.NewTimer(6 * time.Hour)
+	deadline := time.NewTimer(d.deadline)
 	defer deadline.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "stopped"}
 		case <-deadline.C:
-			return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "worker wall clock"}
+			// An item that ran out of time while its run sat on a card was waiting
+			// on the operator, and says so. Either way the run is ended: a gate
+			// wait must not outlive the item it belongs to.
+			reason := "worker wall clock"
+			if s.Snapshot().Run.Status == "paused" {
+				reason = "waited for approval"
+			}
+			d.submit.Stop(s.ID, false)
+			return Outcome{ItemID: job.ItemID, Marker: "!", Reason: reason}
 		case event, open := <-stream:
 			if !open {
 				return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "event stream closed"}

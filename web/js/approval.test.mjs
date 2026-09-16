@@ -60,3 +60,39 @@ test("every resolved approval is one decided line and never a pending card", () 
 		assert.match(card.textContent, new RegExp(approvalDecisionText(decision)));
 	}
 });
+
+test("a worker's card names the worker and nothing else changes for a chat's own card", async () => {
+	const { workerApproval, sameWorkerPlan } = await import("./chat-lifecycle.js");
+	const pending = { type: "notice", event: { type: "approval.required", data: { call_id: "call-1", name: "read_file.operator_override", boundary_escape: true, role: "c", plan_id: "p1" } } };
+	const sessions = {
+		d1: { id: "d1", role: "d", plan_id: "p1" },
+		c1: { id: "c1", role: "c", plan_id: "p1", pending_approval: pending },
+		c2: { id: "c2", role: "c", plan_id: "p2", pending_approval: pending },
+		b1: { id: "b1", role: "b" },
+	};
+	assert.equal(workerApproval(sessions, sessions.d1)?.id, "c1");
+	assert.equal(workerApproval(sessions, sessions.b1), null);
+	assert.equal(workerApproval({ ...sessions, c1: { ...sessions.c1, closed: true } }, sessions.d1), null);
+	assert.equal(sameWorkerPlan(sessions, "c1", "d1"), true);
+	assert.equal(sameWorkerPlan(sessions, "c2", "d1"), false);
+	const decided = [];
+	const doc = fakeDocument();
+	const card = createApprovalCard(doc, pending, { author: "agent_c", decide: (callID, decision) => decided.push([callID, decision]) });
+	assert.equal(card.children[0].children.at(-1).textContent, "agent_c");
+	assert.ok(card.className.includes("worker-approval"));
+	const own = createApprovalCard(doc, pending, { decide: () => {} });
+	assert.equal(own.children[0].children.length, 0);
+	assert.ok(!own.className.includes("worker-approval"));
+	card.children.at(-1).children[0].onclick();
+	assert.deepEqual(decided, [["call-1", "session"]]);
+});
+
+function fakeDocument() {
+	return {
+		createElement: (tag) => {
+			const node = { tag, children: [], className: "", textContent: "", append(...children) { this.children.push(...children); } };
+			node.classList = { add: (name) => { node.className = `${node.className} ${name}`.trim(); } };
+			return node;
+		},
+	};
+}

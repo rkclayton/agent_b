@@ -472,6 +472,7 @@
 }
 .chat-empty.chat-render-failure { color: var(--mute); }
 .chat-notice-author { color: var(--mute); font: 12px/20px var(--mono); margin-right: 8px; }
+.worker-approval .chat-notice-author { margin: 0 0 0 8px; text-transform: none; }
 .chat-approval button {
   min-height: 20px;
   margin-left: 6px;

@@ -240,7 +240,10 @@ func (m *Manager) message(event events.Event) string {
 		parts = append(parts, "Actions: "+strings.Join(notice.Actions, " / "))
 	}
 	link := m.baseURL
-	if event.SessionID != "" {
+	if data["role"] == "c" && data["plan_id"] != nil && data["plan_id"] != "" {
+		// A worker has no chat; what it waits on is drawn on the Plan page.
+		link += "/plan"
+	} else if event.SessionID != "" {
 		link += "/chat?session=" + url.QueryEscape(event.SessionID)
 	}
 	parts = append(parts, link)

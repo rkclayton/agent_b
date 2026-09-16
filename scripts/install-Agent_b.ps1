@@ -97,6 +97,32 @@ function Assert-SafeRegistryPath {
     }
 }
 
+function Assert-ScriptExitCode {
+    param([string]$Purpose, $Code)
+    if ($null -eq $Code) { throw "$Purpose failed: no exit code. The invoked script returned without setting one." }
+    if ($Code -ne 0) { throw "$Purpose failed with exit code $Code." }
+}
+
+# Get-GitOutput runs git without assuming the source root is a checkout.
+# Windows PowerShell 5.1 turns a native command's stderr into a terminating
+# error under ErrorActionPreference Stop, and 2>$null does not suppress the
+# error record there, so the caller's own fallback was never reached from a
+# plain extracted archive. Returning empty on any failure restores it.
+function Get-GitOutput {
+    param([string]$Git, [string[]]$Arguments)
+    try {
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $output = & $Git @Arguments 2>$null
+        $ErrorActionPreference = $previous
+        if ($LASTEXITCODE -ne 0) { return @() }
+        return @($output)
+    } catch {
+        $ErrorActionPreference = 'Stop'
+        return @()
+    }
+}
+
 function Assert-TestPath {
     param([string]$Path)
     if (-not $TestMode) { return }
@@ -425,9 +451,9 @@ if ($preflightAclEnabled) {
     $sourceAclScript = Join-Path $sourceRoot 'scripts\apply-acls.ps1'
     Write-Host 'PRESTOP POLICY: applying and verifying host policy before stopping Agent_b.'
     & $sourceAclScript -AccountName $preflightAclAccount -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $preflightExchangeRoot -NoPrompt -Confirm:$false
-    if ($LASTEXITCODE -ne 0) { throw "Pre-stop ACL policy apply failed with exit code $LASTEXITCODE." }
+    Assert-ScriptExitCode -Purpose 'Pre-stop ACL policy apply' -Code $LASTEXITCODE
     & $sourceAclScript -AccountName $preflightAclAccount -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $preflightExchangeRoot -Verify
-    if ($LASTEXITCODE -ne 0) { throw "Pre-stop ACL policy verification failed with exit code $LASTEXITCODE." }
+    Assert-ScriptExitCode -Purpose 'Pre-stop ACL policy verification' -Code $LASTEXITCODE
     Write-Host 'PRESTOP POLICY PASS: Agent_b is still running.'
 }
 if ($installedProcesses.Count) {
@@ -445,9 +471,10 @@ if ($SkipBuild) {
 } elseif ($go) {
 	Write-Host "BUILD: $go"
 	$git = Get-Command git.exe -ErrorAction SilentlyContinue
-	$commit = $(if ($git) { & $git.Source -C $sourceRoot rev-parse HEAD 2>$null } else { '' })
-	if ($git -and $LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($commit)) {
-		$dirty = @(& $git.Source -C $sourceRoot status --porcelain --untracked-files=normal 2>$null).Count -gt 0
+	$commit = ''
+	if ($git) { $commit = [string](@(Get-GitOutput -Git $git.Source -Arguments @('-C', $sourceRoot, 'rev-parse', 'HEAD')) | Select-Object -First 1) }
+	if (-not [string]::IsNullOrWhiteSpace($commit)) {
+		$dirty = @(Get-GitOutput -Git $git.Source -Arguments @('-C', $sourceRoot, 'status', '--porcelain', '--untracked-files=normal')).Count -gt 0
 		$ldflags = "-X harness/internal/buildinfo.Commit=$($commit.Trim()) -X harness/internal/buildinfo.Dirty=$($dirty.ToString().ToLowerInvariant())"
 		Push-Location $sourceRoot
 		try { & $go build -ldflags $ldflags -o $sourceBinary ./cmd/harness } finally { Pop-Location }
@@ -620,3 +647,4 @@ Stop-InstallTranscript
 Remove-InstallerRollbackRoot -Path $script:rollbackRoot
 $script:rollbackRoot = $null
 $script:stoppedInstalledVersion = $false
+exit 0

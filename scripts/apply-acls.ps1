@@ -379,3 +379,7 @@ foreach ($target in $targets) {
     Set-ManagedRule -Target $target -Identity $serviceSid
 }
 Write-Summary -Changed @("$script:changed managed ACL rule(s) applied") -NotChanged @("$script:unchanged exact managed rule(s)") -Next @('verify from Settings', 'run the RBAC checks')
+# Every path out of this script sets a code. A caller that dot-invokes it reads
+# $LASTEXITCODE, and falling off the end leaves whatever was there before --
+# which is $null in a fresh elevated session, and $null -ne 0 is true.
+exit 0

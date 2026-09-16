@@ -280,3 +280,4 @@ if ($PSCmdlet.ShouldProcess($ruleName, 'Create or repair Agent_b user-scoped out
     Write-Host "APPLIED: $ruleName"
 }
 Write-Summary -Changed @('user-scoped outbound Block rule applied') -NotChanged @('firewall profile defaults') -Next @('verify from Settings', 'run the RBAC network check')
+exit 0

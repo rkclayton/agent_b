@@ -556,5 +556,91 @@ try {
     }
 }
 
+# --- Scenario: the first clone. A plain extracted tree with no .git, under
+# Windows PowerShell 5.1, is what anyone who clones rkclayton/agent_b has. The
+# release tooling used to assume a checkout and PowerShell 7, so this path was
+# never proved and broke without anyone noticing.
+$cloneRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-installer-test-clone-' + [Guid]::NewGuid().ToString('N'))
+try {
+    $sourceRoot = Split-Path -Parent $PSScriptRoot
+    $null = New-Item -ItemType Directory -Path $cloneRoot -Force
+    $git = Get-Command git.exe -ErrorAction SilentlyContinue
+    if (-not $git) { throw 'git.exe is required to produce the clean archive for the first-clone scenario.' }
+    $tree = Join-Path $cloneRoot 'tree'
+    $null = New-Item -ItemType Directory -Path $tree -Force
+    # Copy the TRACKED WORKING TREE rather than archiving HEAD: the point is to
+    # catch a regression in the change being made, not in the last commit.
+    $tracked = @(& $git.Source -C $sourceRoot ls-files)
+    if ($LASTEXITCODE -ne 0 -or -not $tracked.Count) { throw "git ls-files produced no tracked files." }
+    foreach ($relative in $tracked) {
+        $from = Join-Path $sourceRoot ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
+        $to = Join-Path $tree ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        $null = New-Item -ItemType Directory -Path (Split-Path -Parent $to) -Force
+        Copy-Item -LiteralPath $from -Destination $to -Force
+    }
+    if (Test-Path -LiteralPath (Join-Path $tree '.git')) { throw 'the extracted archive must not be a git checkout.' }
+
+    # The binary is built here rather than by the installer only because a clone
+    # carries no vendored toolchain; the point of the scenario is that the
+    # installer completes from a tree with no .git, not that it can find Go.
+    $go = Get-Command go.exe -ErrorAction SilentlyContinue
+    if ($go) {
+        Push-Location $tree
+        try { & $go.Source build -o (Join-Path $tree 'Agent_b.exe') ./cmd/harness } finally { Pop-Location }
+        if ($LASTEXITCODE -ne 0) { throw "clean-archive build exited $LASTEXITCODE." }
+    } else {
+        Copy-Item -LiteralPath (Join-Path $sourceRoot 'Agent_b.exe') -Destination (Join-Path $tree 'Agent_b.exe') -ErrorAction Stop
+    }
+
+    $cloneApplication = Join-Path $cloneRoot 'Application\Agent_b'
+    $cloneData = Join-Path $cloneRoot 'Data\Agent_b'
+    $cloneWorkspace = Join-Path $cloneRoot 'ProgramData\Agent_b\workspace'
+    $cloneRegistry = $testRegistry + '-Clone'
+    # -File under powershell.exe IS Windows PowerShell 5.1 on this host, which is
+    # the shell the operator's installer actually runs in.
+    $cloneOutput = (& powershell.exe -NoLogo -NoProfile -File (Join-Path $tree 'scripts\install-Agent_b.ps1') -SourceDirectory $tree -ApplicationDirectory $cloneApplication -DataDirectory $cloneData -WorkspaceDirectory $cloneWorkspace -StartMenuDirectory (Join-Path $cloneRoot 'StartMenu') -UninstallRegistryPath $cloneRegistry -TestMode | Out-String)
+    if ($LASTEXITCODE -ne 0) { throw "clean-archive install under Windows PowerShell 5.1 exited $LASTEXITCODE.`n$cloneOutput" }
+    if ($cloneOutput -match 'not a git repository') { throw "clean-archive install hit the git-checkout assumption.`n$cloneOutput" }
+    if ($cloneOutput -match 'NativeCommandError') { throw "clean-archive install raised NativeCommandError under 5.1.`n$cloneOutput" }
+    if (-not (Test-Path -LiteralPath (Join-Path $cloneApplication 'Agent_b.exe'))) { throw 'clean-archive install produced no application binary.' }
+    Write-Host 'PASS: clean archive with no .git installs under Windows PowerShell 5.1'
+} finally {
+    if (Test-Path -LiteralPath $cloneRoot) {
+        $cloneRemoval = Assert-RemovalWithinAllowedRoots -Path $cloneRoot -AllowedRoots @($cloneRoot) -Purpose 'installer-suite first-clone cleanup'
+        Remove-Item -LiteralPath $cloneRemoval -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Remove-Item -LiteralPath ($testRegistry + '-Clone') -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# --- Scenario: the pre-stop gate fails closed on a missing exit code.
+# apply-acls used to fall off its success path, leaving $LASTEXITCODE null,
+# and $null -ne 0 threw with an empty code in the message. Every install failed.
+# The helper is lifted out of the shipped installer and exercised directly, so
+# the scenario proves the code that runs rather than a copy of it.
+$installerText = Get-Content -Raw -LiteralPath $installer
+$helperMatch = [regex]::Match($installerText, '(?s)function Assert-ScriptExitCode \{.*?\r?\n\}')
+if (-not $helperMatch.Success) { throw 'the installer no longer defines Assert-ScriptExitCode.' }
+$helperFile = Join-Path $testRoot 'exit-gate-probe.ps1'
+$null = New-Item -ItemType Directory -Path $testRoot -Force
+Set-Content -LiteralPath $helperFile -Value $helperMatch.Value -Encoding UTF8
+function Invoke-ExitGateProbe {
+    param([string]$Body)
+    $script = Join-Path $testRoot ('exit-gate-case-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+    Set-Content -LiteralPath $script -Value ((". '" + $helperFile + "'"), 'try {', $Body, "} catch { " + '$_.Exception.Message' + ' }') -Encoding UTF8
+    return (& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $script 2>&1 | Out-String)
+}
+$nullProbe = Invoke-ExitGateProbe -Body ("Assert-ScriptExitCode -Purpose 'probe' -Code " + '$null')
+if ($nullProbe -notmatch 'no exit code') { throw "the gate does not fail closed on a null exit code: $nullProbe" }
+$zeroProbe = Invoke-ExitGateProbe -Body "Assert-ScriptExitCode -Purpose 'probe' -Code 0; 'gate-ok'"
+if ($zeroProbe -notmatch 'gate-ok') { throw "the gate rejects a successful exit code: $zeroProbe" }
+$twoProbe = Invoke-ExitGateProbe -Body "Assert-ScriptExitCode -Purpose 'probe' -Code 2"
+if ($twoProbe -notmatch 'exit code 2') { throw "the gate loses the real exit code: $twoProbe" }
+foreach ($required in @('apply-acls.ps1', 'install-Agent_b.ps1', 'uninstall-Agent_b.ps1', 'apply-firewall-rule.ps1')) {
+    $text = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot $required)
+    if ($text.TrimEnd() -notmatch 'exit 0$') { throw "$required no longer ends with an explicit exit code." }
+}
+Write-Host 'PASS: the pre-stop gate fails closed on a null exit code, keeps a real one, and every invoked script exits explicitly'
+
 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-chat-acceptance.ps1')
 if ($LASTEXITCODE -ne 0) { throw "Chat acceptance release gate exited $LASTEXITCODE." }

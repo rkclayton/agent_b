@@ -50,7 +50,13 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .agent-tab.selected{background:transparent}
 .agent-tab-new{flex:none;width:20px;height:20px;min-height:20px;margin-right:3px;padding:0;background:transparent;color:var(--mute);font:500 13px/20px var(--mono)}
 .app-shell .agent-tab-new{width:20px;height:20px;min-height:20px;padding:0}
-.agent-tab-close{flex:none;width:18px;height:20px;min-height:20px;padding:0;background:transparent;color:var(--mute);font:500 12px/20px var(--mono)}
+/* The close mark overlays the tab's trailing edge instead of extending the
+   strip: it is taken out of flow so it adds no width, and the tab's own
+   width is its label's. The 18x20 hit target is unchanged. */
+.agent-tab-close{position:absolute;right:2px;top:50%;transform:translateY(-50%);z-index:2;flex:none;width:18px;height:20px;min-height:20px;padding:0;background:transparent;color:var(--ink);opacity:.35;font:500 12px/20px var(--mono)}
+.agent-tab-close:hover:not(:disabled){opacity:1}
+.agent-tab-close:focus-visible{opacity:1}
+.agent-tab-wrap .agent-tab{padding-right:18px}
 .agent-tab-close:disabled{opacity:.35}
 .agent-tab-robot{position:relative;display:inline-block;flex:none;width:20px;height:20px;margin-right:2px;color:var(--mute)}
 .agent-tab-robot img{display:block;width:20px;height:20px;opacity:.8;transform-origin:center}

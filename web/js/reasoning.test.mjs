@@ -42,7 +42,9 @@ test("thinking renderer preserves its DOM and never opens to an empty body", () 
   renderer.begin();
   const first = renderer.render(active, 0);
   renderer.end();
-  const firstDots = first.children[0].children[1].children[0];
+  // children: [caret, thought-glyph, "Thinking", <em> summary]. The glyph is one
+  // node reused across renders, which is what "preserves its DOM" means here.
+  const firstGlyph = first.children[0].children[1];
   const body = first.children.find((child) => child.className === "thinking-body");
   const collapse = first.children.find((child) => child.className === "collapse-arrow");
   assert.equal(body.textContent, "Waiting for reasoning text…");
@@ -52,19 +54,20 @@ test("thinking renderer preserves its DOM and never opens to an empty body", () 
   const second = renderer.render({ ...active, reasoning: "streamed thought" }, 4);
   renderer.end();
   assert.equal(second, first);
-  assert.equal(second.children[0].children[1].children[0], firstDots);
+  assert.equal(second.children[0].children[1], firstGlyph);
+  assert.equal(firstGlyph.className, "thought-glyph");
   assert.equal(body.textContent, "streamed thought");
 
   renderer.begin();
   const completed = renderer.render({ ...active, reasoning: "streamed thought", done: true, thinkingMS: 1200 }, 4);
   renderer.end();
   assert.equal(completed, first);
-  assert.equal(completed.children[0].children[2].textContent, "Thought 1.2 (4 tokens)");
+  assert.equal(completed.children[0].children[3].textContent, "Thought 1.2 (4 tokens)");
 
   renderer.begin();
   const noDuration = renderer.render({ ...active, reasoning: "streamed thought", done: true, thinkingMS: null }, 4);
   renderer.end();
-  assert.equal(noDuration.children[0].children[2].textContent, "Thought (4 tokens)");
+  assert.equal(noDuration.children[0].children[3].textContent, "Thought (4 tokens)");
 
   const inlineRenderer = createThinkingRenderer({
     document: fakeDocument,
@@ -77,7 +80,7 @@ test("thinking renderer preserves its DOM and never opens to an empty body", () 
   inlineRenderer.begin();
   const inline = inlineRenderer.render({ ...active, reasoning: "fragment", done: true, thinkingMS: 1200 }, 4);
   inlineRenderer.end();
-  assert.equal(inline.children[0].children[2].textContent, "Thought 1.2 (thoughts uncounted)");
+  assert.equal(inline.children[0].children[3].textContent, "Thought 1.2 (thoughts uncounted)");
 
   renderer.begin();
   const unavailable = renderer.render({ ...active, done: true, thinkingMS: 1200 }, 4);

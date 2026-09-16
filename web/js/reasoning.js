@@ -24,20 +24,25 @@ export function createThinkingRenderer(options) {
   return { begin, render, end };
 }
 
+const THOUGHT_BUBBLE =
+  '<svg class="thought-bubble" viewBox="0 0 16 12" width="11" height="9" aria-hidden="true" focusable="false"><path d="M4.2 7.4a2.4 2.4 0 0 1 .5-4.3 3 3 0 0 1 5.6-.6 2.6 2.6 0 0 1 1.5 4.9z" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/><circle cx="4" cy="9.4" r="1.15" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="1.6" cy="11" r="0.7" fill="none" stroke="currentColor" stroke-width="0.9"/></svg>';
+
 function createView(document, key, expanded, rerender) {
   const root = document.createElement("div");
   const button = document.createElement("button");
   button.type = "button";
   const caret = document.createElement("span");
   caret.className = "disclosure-caret";
+  // One reasoning mark, used at rest and while live: a thought bubble in line
+  // art, palette colours only. It replaces the animated "..." that nobody could
+  // read as "the model is thinking".
+  const glyph = document.createElement("span");
+  glyph.className = "thought-glyph";
+  glyph.innerHTML = THOUGHT_BUBBLE;
   const active = document.createElement("span");
   active.textContent = "Thinking";
-  const dots = document.createElement("span");
-  dots.className = "thinking-dots";
-  dots.textContent = "...";
-  active.append(dots);
   const summary = document.createElement("em");
-  button.append(caret, active, summary);
+  button.append(caret, glyph, active, summary);
   button.onclick = () => {
     expanded.has(key) ? expanded.delete(key) : expanded.add(key);
     rerender();
@@ -51,7 +56,7 @@ function createView(document, key, expanded, rerender) {
   collapse.setAttribute("aria-label", "Collapse thought");
   collapse.onclick = () => { expanded.delete(key); rerender(); };
   root.append(button, collapse, body);
-  return { root, button, caret, active, dots, summary, body, collapse };
+  return { root, button, caret, glyph, active, summary, body, collapse };
 }
 
 function updateView(view, entry, tokens, options) {

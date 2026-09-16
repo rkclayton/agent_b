@@ -139,32 +139,26 @@ export function initShell(options = {}) {
       tab.setAttribute("aria-label", `${agentID} chat · ${chatName} · ${side}`);
       const robot = agentID.slice(-1);
       tab.innerHTML = `<span class="agent-tab-robot agent-tab-robot-${robot} ${glyphState}" aria-hidden="true"><img src="/static/assets/agent.svg" alt=""><span class="agent-tab-eyes"></span></span><span>${escapeHTML(agentID)}</span>`;
+      // Left click selects the chat and does nothing else. Clicking the selected
+      // tab used to flip to Console, which is a destination nobody expects from a
+      // second click; Console is now an entry in this tab's right-click menu.
       tab.onclick = () => {
         if (!session) return;
-        if (!selected) {
-          setSelection(agentID, session.id);
-          return;
-        }
-        const targetSession = session.id;
-        const navigation = { kind: "flip", from: page, to: side === "chat" ? "console" : "chat", fullDocument: !options.switchView, chatID: targetSession, mutationToken: store.mutation_token };
-        setSelection(agentID, targetSession);
-        const next = side === "chat" ? "console" : "chat";
-        rememberAgentSide(agentID, next);
-        const sessionID = store.selection.session_id;
-        const suffix = sessionID ? `?session=${encodeURIComponent(sessionID)}` : "";
-        if (options.switchView) options.switchView(next, navigation);
-        else requestNavigation(navigation, next === "chat" ? `/chat${suffix}` : `/${suffix}`);
+        setSelection(agentID, session.id);
       };
       const menu = node("div", "shell-menu agent-chat-menu");
       menu.hidden = true;
       tab.oncontextmenu = (event) => {
         event.preventDefault();
         for (const other of tabs.querySelectorAll(".shell-menu")) if (other !== menu) other.hidden = true;
-        renderAgentMenu(menu, agentID);
+        renderAgentMenu(menu, agentID, session ? () => openConsole(agentID, session.id, side) : null);
         revealMenu(menu, tab);
       };
       wrap.append(tab);
       if (session) {
+        // The close mark overlays the tab's own trailing edge rather than sitting
+        // beside it, so the tab's width is its label's width. It stays a sibling
+        // of the tab because a button inside a button is not valid HTML.
         const close = button("×", `Close ${chatName}`, "agent-tab-close");
         close.disabled = store.replay || isRunning(session);
         close.onclick = (event) => { event.stopPropagation(); void closeChat(session, menu, agentID); };
@@ -173,6 +167,17 @@ export function initShell(options = {}) {
       wrap.append(menu);
       tabs.append(wrap);
     }
+  }
+
+  // The flip the second click used to perform, reached deliberately from the
+  // tab menu. Keyboard access is preserved because the menu entry is a button.
+  function openConsole(agentID, sessionID, side) {
+    const navigation = { kind: "flip", from: page, to: "console", fullDocument: !options.switchView, chatID: sessionID, mutationToken: store.mutation_token };
+    setSelection(agentID, sessionID);
+    rememberAgentSide(agentID, "console");
+    const suffix = sessionID ? `?session=${encodeURIComponent(sessionID)}` : "";
+    if (options.switchView) options.switchView("console", navigation);
+    else requestNavigation(navigation, `/${suffix}`);
   }
 
   function configuredAgent(session) {
@@ -190,9 +195,14 @@ export function initShell(options = {}) {
     revealMenu(menu, anchor);
   }
 
-  function renderAgentMenu(menu, agentID) {
+  function renderAgentMenu(menu, agentID, showConsole) {
     const sessions = sessionsFor(agentID, true);
     menu.replaceChildren();
+    if (showConsole) {
+      const console = button("Console", `Open Console for ${agentName(agentID)}`, "agent-chat-console");
+      console.onclick = () => { menu.hidden = true; showConsole(); };
+      menu.append(console);
+    }
     const openCount = sessions.filter((session) => !session.closed).length;
     const count = node("div", "agent-chat-count");
     count.textContent = `${sessions.length} ${sessions.length === 1 ? "chat" : "chats"} · ${openCount} open · ${sessions.length - openCount} closed`;

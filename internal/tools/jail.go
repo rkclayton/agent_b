@@ -38,7 +38,37 @@ func resolveForSessionTool(ctx context.Context, s *session.Session, root, path s
 	return resolveForTool(ctx, root, path)
 }
 
+// resolveForWorkerWrite is the write resolution for every file tool. A worker
+// never writes plan text: the plans folder is closed to a c session even when an
+// operator grant lets Windows, not the jail, decide the rest of the path — a
+// relative path climbing out of the repository must not reach the item file
+// whose verifier decides [x].
+func resolveForWorkerWrite(ctx context.Context, s *session.Session, root, path string) (string, error) {
+	resolved, err := resolveForSessionTool(ctx, s, root, path)
+	if err != nil || s.Role != "c" || s.PlansRoot == "" {
+		return resolved, err
+	}
+	plans, absErr := filepath.Abs(s.PlansRoot)
+	if absErr != nil {
+		return "", absErr
+	}
+	if real, evalErr := filepath.EvalSymlinks(plans); evalErr == nil {
+		plans = real
+	}
+	candidate := resolved
+	if real, evalErr := filepath.EvalSymlinks(filepath.Dir(resolved)); evalErr == nil {
+		candidate = filepath.Join(real, filepath.Base(resolved))
+	}
+	for _, value := range []string{resolved, candidate} {
+		if rel, relErr := filepath.Rel(plans, value); relErr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+			return "", fmt.Errorf("path is outside the folder")
+		}
+	}
+	return resolved, nil
+}
+
 func resolvePath(workspace, path string, enforceWorkspace bool) (string, error) {
+
 	if path == "" {
 		path = "."
 	}

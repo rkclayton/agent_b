@@ -215,3 +215,36 @@ func TestItemIsRetriedOnceItNamesAVerifier(t *testing.T) {
 		t.Fatalf("plan.md:\n%s", text)
 	}
 }
+
+// A verifier that waits past the item's deadline (on a card nobody answers, or
+// a command that hangs) does not hold the worker: the item is stuck and says why.
+func TestVerifierIsBoundedByTheItemDeadline(t *testing.T) {
+	bus := events.NewBus()
+	worker := &session.Session{ID: "c1", Role: "c", PlanID: "p1"}
+	plan := onePlan(t, "- [ ] 2aa first item")
+	writeItem(t, plan.Dir, "2aa", "verify: pass")
+	driver := New(bus, newFake(bus, worker), nil)
+	driver.deadline = 100 * time.Millisecond
+	driver.SetVerifier(&blockingVerifier{})
+	done := make(chan struct{})
+	go func() {
+		_, _ = driver.Go(context.Background(), worker, plan, `C:\repo`)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a verifier outlived the item deadline")
+	}
+	text, _ := plan.Read()
+	if !strings.Contains(text, "- [!] [[2aa]] 2aa first item  — stuck: verifier did not finish before the item deadline") {
+		t.Fatalf("plan.md:\n%s", text)
+	}
+}
+
+type blockingVerifier struct{}
+
+func (blockingVerifier) Verify(ctx context.Context, _ *session.Session, _ string) (bool, string) {
+	<-ctx.Done()
+	return false, "error: call canceled"
+}

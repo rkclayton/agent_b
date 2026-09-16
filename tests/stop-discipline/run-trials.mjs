@@ -5,6 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { loadFixtures, scoreTrial, aggregateScores } from "./score.mjs";
+import { removeTreeWithinAllowedRoots } from "../../scripts/removal-guard.mjs";
 
 const requestTimeoutMS = 300_000;
 const maxTurns = 12;
@@ -171,7 +172,7 @@ async function runTrial(fixture, profile, baseURL, ordinal) {
     const temporaryRoot = path.resolve(os.tmpdir());
     const resolved = path.resolve(workspace);
     if (!resolved.startsWith(`${temporaryRoot}${path.sep}`) || !path.basename(resolved).startsWith("agentb-stop-")) throw new Error(`refusing unsafe cleanup ${resolved}`);
-    fs.rmSync(resolved, { recursive: true, force: true });
+    removeTreeWithinAllowedRoots(resolved, [resolved], "stop-discipline trial cleanup");
   }
 }
 

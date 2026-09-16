@@ -606,6 +606,20 @@ $shortcut.IconLocation = "$iconPath,0"
 $shortcut.Description = 'Open Agent_b'
 $shortcut.Save()
 
+# Production returns at the operator's next sign-in without a Start menu click
+# (item 2em). A Fast Startup shutdown logs the user off, which ends every process
+# in the session. The launcher starts nothing when Agent_b is already running.
+$startupDirectory = Join-Path $StartMenuDirectory 'Startup'
+$null = New-Item -ItemType Directory -Path $startupDirectory -Force
+$startupPath = Join-Path $startupDirectory 'Agent_b.lnk'
+$startup = $shell.CreateShortcut($startupPath)
+$startup.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
+$startup.Arguments = '//B "' + $hiddenLauncher + '" "' + $batchLauncher + '" -Detached -NoBrowser -NoPause -DataDirectory "' + $dataRoot + '"'
+$startup.WorkingDirectory = $dataRoot
+$startup.IconLocation = "$iconPath,0"
+$startup.Description = 'Start Agent_b in the background at sign-in'
+$startup.Save()
+
 $uninstallScript = Join-Path $applicationRoot 'scripts\uninstall-Agent_b.ps1'
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $uninstallArguments = @(
@@ -646,6 +660,7 @@ $null = New-ItemProperty -Path $UninstallRegistryPath -Name NoRepair -Value 1 -P
 Write-Host ''
 Write-Host 'INSTALLATION COMPLETE'
 Write-Host "Start Menu: $shortcutPath"
+Write-Host "At sign-in: $startupPath"
 Write-Host 'Registration: HKCU and the operator Start Menu, matching the LocalAppData configuration and user-scoped DPAPI owner.'
 Write-Host 'Settings: created once in LocalAppData and preserved on upgrades'
 Write-Host "Transcript: $script:installTranscriptPath"

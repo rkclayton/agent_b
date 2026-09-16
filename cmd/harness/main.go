@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -99,7 +100,7 @@ func main() {
 			log.Printf("inspect installed signatures: %v", err)
 		}
 		cancelSigning()
-		if err := serve(cfg, web.Handler()); err != nil {
+		if err := serve(cfg, web.Handler(), nil); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -289,7 +290,7 @@ func main() {
 		}
 	}
 	publishPendingSigning(paths.Data, registry, bus)
-	if err := serve(cfg, web.Handler()); err != nil {
+	if err := serve(cfg, web.Handler(), newLifetime(paths.Data, time.Now)); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -432,25 +433,52 @@ func startupElevationError(elevated bool) error {
 	return fmt.Errorf("SECURITY: Agent_b refuses to run with an elevated Administrator token; local administrators can launch it normally by double-clicking start-Agent_b.cmd in File Explorer (do not use Run as administrator)")
 }
 
-func serve(cfg *config.Config, handler http.Handler) error {
+// serve binds, then records the process lifetime (when life is non-nil) from
+// the moment the listener exists until the server stops, whatever stops it.
+func serve(cfg *config.Config, handler http.Handler, life *lifetime) error {
 	httpServer := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	listener, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		return err
+	}
+	stopped := func(string) {}
+	closeRequests := make(chan struct{}, 1)
+	if life != nil {
+		life.begin()
+		watchSessionEnd(life.stopped, func() {
+			select {
+			case closeRequests <- struct{}{}:
+			default:
+			}
+		})
+		stopped = life.stopped
+	}
 	errors := make(chan error, 1)
 	go func() {
 		log.Printf("Agent_b listening on http://%s", cfg.Listen)
-		errors <- httpServer.ListenAndServe()
+		errors <- httpServer.Serve(listener)
 	}()
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	select {
 	case sig := <-signals:
 		log.Printf("stopping on %s", sig)
+		stopped(fmt.Sprintf("signal %s", sig))
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return httpServer.Shutdown(ctx)
+	case <-closeRequests:
+		log.Printf("stopping on a close request")
+		stopped("asked to close (taskkill without /F or the installer's graceful stop)")
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return httpServer.Shutdown(ctx)
 	case err := <-errors:
 		if err != nil && err != http.ErrServerClosed {
+			stopped(fmt.Sprintf("the HTTP server failed: %v", err))
 			return err
 		}
+		stopped("the HTTP server closed")
 		return nil
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"harness/internal/events"
+	"harness/internal/session"
 )
 
 const plan = `# Demo plan
@@ -176,4 +177,26 @@ func TestOnlyACleanFinishProducesADoneMarker(t *testing.T) {
 
 func stoppedEvent(reason, detail string) events.Event {
 	return events.Event{Type: events.RunStopped, SessionID: "s1", Data: map[string]any{"reason": reason, "detail": detail}}
+}
+
+// Routing: a bound d-session that can answer from the plan gets the question;
+// otherwise it is the operator's.
+func TestRouteGoesToDWhenOneIsBoundAndToTheOperatorOtherwise(t *testing.T) {
+	planned := &session.Session{ID: "d1", Role: "d", PlanID: "p1"}
+	other := &session.Session{ID: "d2", Role: "d", PlanID: "p2"}
+	chat := &session.Session{ID: "b1", Role: "b"}
+	closed := &session.Session{ID: "d3", Role: "d", PlanID: "p1", Closed: true}
+
+	if got := Route([]*session.Session{planned, chat}, "p1"); got != "d" {
+		t.Errorf("a bound d-session should answer, got %q", got)
+	}
+	if got := Route([]*session.Session{other, chat}, "p1"); got != "operator" {
+		t.Errorf("a d-session on another plan cannot answer, got %q", got)
+	}
+	if got := Route([]*session.Session{closed}, "p1"); got != "operator" {
+		t.Errorf("a closed d-session cannot answer, got %q", got)
+	}
+	if got := Route(nil, "p1"); got != "operator" {
+		t.Errorf("no sessions means the operator, got %q", got)
+	}
 }

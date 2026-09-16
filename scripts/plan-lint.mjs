@@ -55,7 +55,7 @@ function normalizeItemContents(itemContents) {
   })).sort((a, b) => a.relative.localeCompare(b.relative));
 }
 
-function replaceCurrentOrderBody(planText, orderBody) {
+export function replaceCurrentOrderBody(planText, orderBody) {
   if (orderBody === undefined || orderBody === null) return planText;
   const current = planText.match(/^## Current work order[^\n]*\n[\s\S]*?(?=^## (?:Next work order|In flight|Index)|(?![\s\S]))/m);
   if (!current) return planText;
@@ -230,6 +230,14 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
       for (const marker of activeMarkers.values()) if (marker.orderId !== orderId) errors.push(`PLAN.md: In flight marker ${marker.orderId}/${marker.workId} belongs to another order (current ${orderId})`);
     }
     const workItems = [...currentText.matchAll(/^- (W\d+)\s+\*\*(?:item\s+)?([0-9]+[a-z]*)\b([^\n]*)/gmi)];
+    // A lettered W heading (W2b, W3c) does not match the pattern above, so its
+    // item silently rides the order ungated. That is how 0b reached REPO-MOVE
+    // with three unresolved frontmatter fields. Name it rather than skip it.
+    for (const lettered of currentText.matchAll(/^- (W\d+[a-z]+)\s+\*\*(?:item\s+)?([0-9]+[a-z]*)\b/gmi)) {
+      const message = `ORDER GATE: W headings must be plain W<number>; ${lettered[1]} names item ${lettered[2].toLowerCase()} and would never be gated`;
+      errors.push(message);
+      admission.errors.push(message);
+    }
     if (!/No product changes/i.test(currentText)) {
       const executable = new Map();
       for (const match of workItems) {

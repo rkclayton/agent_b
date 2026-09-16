@@ -98,6 +98,22 @@ func TestPlanRepoSelectionAndCanonicalDetection(t *testing.T) {
 	if d.Workspace != repo || d.PlanRepo != repo {
 		t.Fatalf("plan-selected folder=%q repo=%q", d.Workspace, d.PlanRepo)
 	}
+	// The worker binds to the same plan, and to the repository the plan names:
+	// a worker in scratch is a worker whose every path points at nothing.
+	c, err := registry.CreateRole("worker", profile, "", "c", plans[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Workspace != repo || c.PlanRepo != repo || c.PlanID != plans[0].ID {
+		t.Fatalf("worker folder=%q repo=%q plan=%q", c.Workspace, c.PlanRepo, c.PlanID)
+	}
+	if c.Scratch {
+		t.Fatal("the worker was put in scratch instead of the plan's repository")
+	}
+	// Bound, and still refused the plan's text.
+	if _, err := c.WriteRoot(filepath.Join(c.PlanDir, "plan.md")); err == nil {
+		t.Fatal("the bound worker was allowed to write plan text")
+	}
 }
 
 func TestRetainedChatRestoresPreviousFolder(t *testing.T) {

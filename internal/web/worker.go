@@ -93,8 +93,7 @@ func (s *Server) planGoStart(w http.ResponseWriter, r *http.Request) {
 	repo := snapshot.PlanRepo
 	s.setWorkerSession(snapshot.PlanID, created.ID)
 	go func() {
-		summary, runErr := s.worker.Go(context.Background(), created, plan, repo)
-		s.setWorkerSummary(snapshot.PlanID, summary, runErr)
+		_, _ = s.worker.Go(context.Background(), created, plan, repo)
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]any{"started": created.ID, "plan_id": snapshot.PlanID})
 }
@@ -111,8 +110,12 @@ func (s *Server) planWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	planID := item.Snapshot().PlanID
-	summary, err, present := s.workerSummary(planID)
-	if !present {
+	if s.worker == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"done": false})
+		return
+	}
+	summary, err, present := s.worker.Result(planID)
+	if !present || s.worker.Running(planID) {
 		writeJSON(w, http.StatusOK, map[string]any{"done": false})
 		return
 	}
@@ -124,33 +127,10 @@ func (s *Server) planWorker(w http.ResponseWriter, r *http.Request) {
 }
 
 
-// The worker's summary is held until the done card reads it, and the session id
-// is kept so Stop can reach the run as well as the loop.
+// The session id is kept so Stop can reach the run as well as the loop; the
+// outcome itself lives in the driver, which records it before it announces it.
 type workerState struct {
-	summary worker.Summary
-	err     string
 	session string
-}
-
-func (s *Server) setWorkerSummary(planID string, summary worker.Summary, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.workerStates == nil {
-		s.workerStates = map[string]workerState{}
-	}
-	state := s.workerStates[planID]
-	state.summary, state.err = summary, ""
-	if err != nil {
-		state.err = err.Error()
-	}
-	s.workerStates[planID] = state
-}
-
-func (s *Server) workerSummary(planID string) (worker.Summary, string, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	state, ok := s.workerStates[planID]
-	return state.summary, state.err, ok
 }
 
 func (s *Server) setWorkerSession(planID, sessionID string) {

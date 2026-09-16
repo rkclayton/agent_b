@@ -168,6 +168,13 @@ func TestWorkerProof(t *testing.T) {
 	if data["routed_to"] != "d" {
 		t.Errorf("routed to %v, want d", data["routed_to"])
 	}
+	// It is posted IN that thread, tagged as the worker speaking.
+	if job.SessionID != planner.ID {
+		t.Errorf("the question was posted on %q, want the planner's thread %q", job.SessionID, planner.ID)
+	}
+	if data["role"] != "c" || data["worker"] != worker.ID {
+		t.Errorf("the post is not attributed to the worker: %v", data)
+	}
 
 	// The done card's numbers.
 	if summary.Done != 1 || summary.Stuck != 2 || summary.Waiting != 0 || summary.Stopped {
@@ -189,6 +196,9 @@ func TestWorkerQuestionRoutesToTheOperatorWithoutABoundPlanner(t *testing.T) {
 			if event.Type == events.WorkerJob {
 				data, _ := event.Data.(map[string]any)
 				routed, _ := data["routed_to"].(string)
+				if event.SessionID != "c1" {
+					routed = "posted on " + event.SessionID
+				}
 				got <- routed
 			}
 		}

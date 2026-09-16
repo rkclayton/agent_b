@@ -26,10 +26,11 @@ type Driver struct {
 	mu        sync.Mutex
 	running   map[string]context.CancelFunc
 	lastError map[string]string
+	last      map[string]Summary
 }
 
 func New(bus *events.Bus, submit Submitter, sessions func() []*session.Session) *Driver {
-	return &Driver{bus: bus, submit: submit, sessions: sessions, running: map[string]context.CancelFunc{}, lastError: map[string]string{}}
+	return &Driver{bus: bus, submit: submit, sessions: sessions, running: map[string]context.CancelFunc{}, lastError: map[string]string{}, last: map[string]Summary{}}
 }
 
 // Running reports whether a worker is on this plan right now. Go is disabled
@@ -93,7 +94,7 @@ func (d *Driver) Go(parent context.Context, s *session.Session, plan *Plan, repo
 		}
 		text, err := plan.Read()
 		if err != nil {
-			return summary, err
+			return d.recorded(planID, summary, err)
 		}
 		items := Parse(text)
 		item, ok := Next(items)
@@ -101,7 +102,7 @@ func (d *Driver) Go(parent context.Context, s *session.Session, plan *Plan, repo
 			break
 		}
 		if err := plan.Mark(item, "~", ""); err != nil {
-			return summary, err
+			return d.recorded(planID, summary, err)
 		}
 		s.SetWorkerJob(Brief(item, plan.Dir, repo))
 		outcome := d.runItem(ctx, s, item)
@@ -116,14 +117,14 @@ func (d *Driver) Go(parent context.Context, s *session.Session, plan *Plan, repo
 		// Re-read: the run may have changed plan.md's length under us.
 		text, err = plan.Read()
 		if err != nil {
-			return summary, err
+			return d.recorded(planID, summary, err)
 		}
 		current, found := findByText(Parse(text), item.Text)
 		if !found {
 			return summary, fmt.Errorf("item %q left plan.md while the worker was on it", item.Text)
 		}
 		if err := plan.Mark(current, outcome.Marker, outcome.Reason); err != nil {
-			return summary, err
+			return d.recorded(planID, summary, err)
 		}
 		// A worker that could not finish has one permitted piece of speech: the
 		// question it could not answer from the plan or the repo. It is posted in
@@ -131,7 +132,8 @@ func (d *Driver) Go(parent context.Context, s *session.Session, plan *Plan, repo
 		// from the plan, to the operator otherwise.
 		if outcome.Marker != "x" {
 			if question := lastSaid(s); question != "" {
-				Ask(d.bus, s, "", question, Route(d.sessionList(), planID))
+				target, routedTo := RouteTarget(d.sessionList(), planID)
+				Ask(d.bus, s, target, "", question, routedTo)
 			}
 		}
 		Publish(d.bus, s, "", outcome)
@@ -149,10 +151,37 @@ func (d *Driver) Go(parent context.Context, s *session.Session, plan *Plan, repo
 			}
 		}
 	}
+	d.record(planID, summary, nil)
 	if !summary.Stopped && summary.Waiting == 0 {
 		PublishPlanDone(d.bus, s, "", summary.Done, summary.Stuck)
 	}
 	return summary, nil
+}
+
+// Result is the last worker's outcome on a plan, and whether one has finished
+// at all. The done card reads this.
+func (d *Driver) Result(planID string) (Summary, string, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	summary, ok := d.last[planID]
+	return summary, d.lastError[planID], ok
+}
+
+// recorded is the error path's record-and-return, so no exit from Go leaves the
+// done card reading a stale outcome.
+func (d *Driver) recorded(planID string, summary Summary, err error) (Summary, error) {
+	d.record(planID, summary, err)
+	return summary, err
+}
+
+func (d *Driver) record(planID string, summary Summary, err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.last[planID] = summary
+	delete(d.lastError, planID)
+	if err != nil {
+		d.lastError[planID] = err.Error()
+	}
 }
 
 func findByText(items []Item, text string) (Item, bool) {

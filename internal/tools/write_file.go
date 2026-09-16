@@ -129,7 +129,7 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 	if err := refuseRepoPolicyWrite(root, path); err != nil {
 		return "", err
 	}
-	resolved, err := resolveForSessionTool(ctx, s, root, path)
+	resolved, err := resolveForWorkerWrite(ctx, s, root, path)
 	if err != nil {
 		return "", err
 	}

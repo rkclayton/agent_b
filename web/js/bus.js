@@ -155,11 +155,19 @@ function sameCursor(left = {}, right = {}) {
   return (left.generation || "") === (right.generation || "") && Number(left.offset || 0) === Number(right.offset || 0);
 }
 let resyncing = false;
+let resyncAgain = false;
+// A resync asked for while one is in flight is not dropped: the snapshot already
+// on its way may predate the patch that asked, and a paused session sends no
+// later patch to trigger another.
 async function resync() {
-  if (resyncing) return;
+  if (resyncing) { resyncAgain = true; return; }
   resyncing = true;
-  try { reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); }
-  finally { resyncing = false; }
+  try {
+    do {
+      resyncAgain = false;
+      reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+    } while (resyncAgain);
+  } finally { resyncing = false; }
 }
 
 function roleAgentID(session) { return `agent_${session?.role === "d" ? "d" : "b"}`; }

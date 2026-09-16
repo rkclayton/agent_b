@@ -140,13 +140,21 @@ func (s *Store) snapshotLocked(sources map[string]events.LogCursor) (map[string]
 			if err != nil {
 				return nil, fmt.Errorf("project session %s: %w", id, err)
 			}
+			// A snapshot never advances the broadcast cursor. It may seed a session
+			// nobody has been sent yet; once one has been, only Apply moves it, so a
+			// record appended but not yet folded still reaches every subscriber as a
+			// patch. A client holding this snapshot resyncs on the cursor mismatch.
+			if !s.initialized[id] {
+				s.states[id] = projected
+				s.initialized[id] = true
+			}
 			state = projected
-			s.states[id] = state
-			s.initialized[id] = true
 		}
 		if reason := s.stale[id]; reason != "" {
 			state.Stale, state.StaleReason = true, reason
-			s.states[id] = state
+			if s.states[id].Cursor == state.Cursor {
+				s.states[id] = state
+			}
 		}
 		result[id] = state
 	}

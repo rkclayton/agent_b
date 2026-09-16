@@ -36,13 +36,24 @@ function Get-ReleaseCertificate {
 # open the key. Only opening it answers that, so open it.
 function Test-PrivateKeyUsable {
     param($Certificate)
-    try {
-        $key = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($Certificate)
-        if ($null -eq $key) { return [pscustomobject]@{ Usable = $false; Reason = 'the certificate exposes no RSA private key handle' } }
-        return [pscustomobject]@{ Usable = $true; Reason = '' }
-    } catch {
-        return [pscustomobject]@{ Usable = $false; Reason = $_.Exception.Message }
+    $reasons = @()
+    # These are extension methods on the X509Certificate2 class, not members of
+    # it: under Windows PowerShell 5.1 calling them on the instance fails with
+    # "does not contain a method named", which would make a perfectly reachable
+    # key look unreachable.
+    foreach ($pair in @(
+        @{ Name = 'RSA'; Type = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]; Method = 'GetRSAPrivateKey' },
+        @{ Name = 'ECDsa'; Type = [System.Security.Cryptography.X509Certificates.ECDsaCertificateExtensions]; Method = 'GetECDsaPrivateKey' }
+    )) {
+        try {
+            $key = $pair.Type::($pair.Method)($Certificate)
+            if ($null -ne $key) { return [pscustomobject]@{ Usable = $true; Reason = '' } }
+            $reasons += "no $($pair.Name) private key handle"
+        } catch {
+            $reasons += $_.Exception.Message
+        }
     }
+    return [pscustomobject]@{ Usable = $false; Reason = ($reasons -join '; ') }
 }
 
 function Get-SignableFiles {

@@ -588,13 +588,23 @@ func (s *Session) RunPin() string {
 
 // RunPinFromTail picks the first message of the trailing block of user messages,
 // which is what a run answers: one message normally, several when they queued.
+//
+// If the tail is not a user message at all, it pins the last message rather than
+// returning "". An empty pin means "no run in flight, nothing protected", and
+// degrading to that silently is the one failure that loses the task again.
 func RunPinFromTail(messages []events.Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
 	pin := ""
 	for index := len(messages) - 1; index >= 0; index-- {
 		if messages[index].Role != "user" {
 			break
 		}
 		pin = messages[index].ID
+	}
+	if pin == "" {
+		pin = messages[len(messages)-1].ID
 	}
 	return pin
 }

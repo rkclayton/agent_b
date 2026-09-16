@@ -1,7 +1,6 @@
 package session
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,7 +82,7 @@ func RepoInsidePlans(plansRoot, repo string) string {
 		return ""
 	}
 	if pathWithin(filepath.Clean(plansRoot), filepath.Clean(repo)) {
-		return fmt.Sprintf("the repository %s is inside the plans folder %s, where nothing may be written; choose a repository outside it", repo, plansRoot)
+		return "this repository is inside the plans folder, where nothing may be written; choose a repository outside it"
 	}
 	return ""
 }

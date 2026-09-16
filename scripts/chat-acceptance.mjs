@@ -1540,7 +1540,12 @@ if (realModel) {
   // 2t-ii — Go, the worker's post in the design thread, and the done card.
   // The plan gets two items: one the worker can finish and one it cannot. The
   // worker is its own c-role session, so nothing here is typed into a chat.
-  await writeFile(join(browserPlanDir, "plan.md"), "# Browser plan\n\n- [ ] 2t worker reads the repository it was given\n- [ ] 2u worker cannot finish this one\n");
+  await writeFile(join(browserPlanDir, "plan.md"), "# Browser plan\n\n- [ ] 2t worker reads the repository it was given\n- [ ] 2u worker cannot finish this one\n- [ ] 2v names no verifier\n");
+  // v0.63.0: [x] needs a verifier. An item that may finish names one in its item
+  // file header; 2v names none, so it is stuck without being started.
+  await writeFile(join(browserPlanDir, "plan", "items", "2t.md"), "state: live\nverify: echo verified\n\n# 2t\n");
+  await writeFile(join(browserPlanDir, "plan", "items", "2u.md"), "state: live\nverify: echo verified\n\n# 2u\n");
+  await writeFile(join(browserPlanDir, "plan", "items", "2v.md"), "state: live\n\n# 2v\n");
   await page.reload();
   await browser.wait(`document.querySelector('#plan-go') && !document.querySelector('#plan-go').disabled`, "Go enabled by a waiting item");
   assert.equal(await page.locator("#plan-go").innerText(), "Go");
@@ -1556,28 +1561,30 @@ if (realModel) {
   assert.equal(workerSession.plan_id, "browser-plan");
   assert.equal(await page.locator('.agent-tab-wrap[data-session="' + workerSession.id + '"]').count(), 0, "the worker appeared in the tab strip");
   // The worker is a new session, so its first file tool asks the operator to
-  // run as them — and the worker has no chat for that card to appear in. The
-  // gate answers it the way the operator would, and records that the card had
-  // nowhere to be seen: that gap is a finding, not a thing to design around.
+  // run as them. The worker has no chat: the card is drawn in this plan's design
+  // thread, marked as the worker's, and answered there by clicking it.
   const planPath = join(browserPlanDir, "plan.md");
-  let workerApproval = null;
+  let workerCards = 0;
   for (const deadline = Date.now() + 45000; Date.now() < deadline; ) {
-    const entry = Object.values((await state()).sessions).find((item) => item.role === "c" && item.pending_approval);
-    if (entry) { workerApproval = { session: entry, approval: entry.pending_approval }; break; }
-    if ((await readFile(planPath, "utf8")).includes("[x] 2t")) break;
+    const card = page.locator("#chat-pending-approval .approval-card.worker-approval");
+    if (await card.count()) {
+      assert.match(await card.first().innerText(), /agent_c/, "the worker's card does not name the worker");
+      if (!workerCards) await page.screenshot({ path: join(evidenceRun, "plan-worker-approval.png") });
+      workerCards++;
+      await card.first().getByRole("button", { name: "Yes, for this chat" }).click();
+      await sleep(250);
+      continue;
+    }
+    if ((await readFile(planPath, "utf8")).includes("[x] [[2t]] 2t")) break;
     await sleep(100);
   }
-  if (workerApproval) {
-    assert.equal(await page.locator(".approval-card").count(), 0, "a worker approval card appeared in a thread that is not the worker's");
-    const callID = workerApproval.approval.callID || workerApproval.approval.event?.data?.call_id;
-    process.stdout.write(`WORKER APPROVAL ${workerApproval.approval.event?.data?.name || "unnamed"} call=${callID}` + String.fromCharCode(10));
-    await json(`http://127.0.0.1:${appPort}/api/approve`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ session_id: workerApproval.session.id, call_id: callID, decision: "session" }) });
-    record("worker-approval-has-no-surface-and-is-answerable-only-by-api");
-  }
+  assert.ok(workerCards > 0, "the worker's approval was never drawn in the design thread");
+  process.stdout.write(`WORKER APPROVAL IN THREAD answered ${workerCards} card(s)` + String.fromCharCode(10));
+  record("worker-approval-card-in-design-thread-answered-there");
   // A worker that did not get where it was going has to say why in the gate's
   // own output, or the next person reads a bare timeout.
   try {
-    await waitFileContains(join(browserPlanDir, "plan.md"), "- [x] 2t worker reads the repository it was given", 90000);
+    await waitFileContains(join(browserPlanDir, "plan.md"), "- [x] [[2t]] 2t worker reads the repository it was given", 90000);
   } catch (error) {
     const workers = Object.values((await state()).sessions).filter((entry) => entry.role === "c");
     process.stdout.write(`WORKER DIAGNOSTIC plan=${JSON.stringify(await readFile(join(browserPlanDir, "plan.md"), "utf8"))}\n`);
@@ -1585,15 +1592,14 @@ if (realModel) {
     for (const event of (await sessionEvents(null)).slice(-40)) process.stdout.write(`WORKER EVENT ${event.type} ${event.session_id} ${JSON.stringify(event.data).slice(0, 220)}\n`);
     throw error;
   }
-  await waitFileContains(join(browserPlanDir, "plan.md"), "- [!] 2u worker cannot finish this one  — stuck: tool_errors", 90000);
+  await waitFileContains(join(browserPlanDir, "plan.md"), "- [!] [[2u]] 2u worker cannot finish this one  — stuck: tool_errors", 90000);
+  await waitFileContains(join(browserPlanDir, "plan.md"), "- [!] [[2v]] 2v names no verifier  — stuck: no verifier named", 90000);
   // The operator is looking at this page while the worker runs; a background tab
   // gets no animation frames, and this thread renders on one.
   await page.bringToFront();
-  // Watch the SCREEN first. /api/state must not be polled while waiting: a
-  // snapshot taken between an event's durable append and its fold advances the
-  // projector past it without broadcasting, and the patch is then never sent —
-  // a poller starves its own live stream. Recorded as a finding, not designed
-  // around: this gate reads the projection once, after the screen has it.
+  // Watch the SCREEN first. Until v0.63.0 a snapshot taken between an event's
+  // durable append and its fold silenced that patch; the store no longer lets a
+  // snapshot move the broadcast cursor, and the post must arrive live.
   const questionText = "Which database should the cache use?";
   const questionOnScreen = async () => (await browserText("#chat-log")).includes(questionText);
   let postArrival = "live";
@@ -1607,13 +1613,13 @@ if (realModel) {
   assert.ok(await questionOnScreen(), "the worker's question is not in the design thread even after a reload");
   assert.match(await browserText("#chat-log"), /agent_c/, "the question is not attributed to the worker");
   process.stdout.write(`WORKER POST ON SCREEN ${postArrival}` + String.fromCharCode(10));
-  const postedEntry = ((await state()).sessions[boundD.id]?.chat || []).find((entry) => entry.event?.type === "c.job");
+  const postedEntry = ((await state()).sessions[boundD.id]?.chat || []).find((entry) => entry.event?.type === "c.job" && entry.event?.data?.question === questionText);
   assert.ok(postedEntry, "the worker's question is on screen but not in the planner's projection");
   assert.equal(postedEntry.agent_role, "c", JSON.stringify(postedEntry));
   assert.equal(postedEntry.event.data.routed_to, "d");
   assert.equal(postedEntry.event.data.worker, workerSession.id);
   await page.screenshot({ path: join(evidenceRun, "plan-worker-post.png") });
-  const workerJob = await waitEvent(null, (event) => event.type === "c.job", "c.job on the bus");
+  const workerJob = await waitEvent(null, (event) => event.type === "c.job" && event.data?.question === questionText, "c.job on the bus");
   assert.equal(workerJob.session_id, boundD.id, "the question was not posted in the planner's thread");
   assert.equal(workerJob.data.routed_to, "d");
   assert.equal(workerJob.data.role, "c");
@@ -1621,14 +1627,38 @@ if (realModel) {
   await browser.wait(`document.querySelector('#plan-done') && !document.querySelector('#plan-done').hidden`, "the done card", 60000);
   const doneText = await browserText("#plan-done");
   assert.match(doneText, /Ready to test, with gaps/, doneText);
-  assert.match(doneText, /1 done · 1 stuck · 0 waiting/, doneText);
+  assert.match(doneText, /1 done · 2 stuck · 0 waiting/, doneText);
   assert.match(doneText, /2u worker cannot finish this one: tool_errors/, doneText);
+  assert.match(doneText, /2v names no verifier: no verifier named/, doneText);
   assert.equal(await page.locator("#plan-go").innerText(), "Go");
   assert.equal(await page.locator("#plan-go").isDisabled(), true, "Go stayed live with nothing waiting");
   await page.screenshot({ path: join(evidenceRun, "plan-done-card.png") });
   const markedPlan = await readFile(join(browserPlanDir, "plan.md"), "utf8");
   assert.ok(!markedPlan.includes("[~]"), markedPlan);
   record("plan-go-worker-post-and-done-card");
+  // The item that names no verifier is proposed to the planner: in the tray,
+  // with Dismiss and quote, and no Accept, because only the planner can name it.
+  await browser.wait(`[...document.querySelectorAll('.plan-proposal')].some((row) => row.innerText.includes('verifier · plan/items/2v.md · 2v'))`, "the verifier proposal in the tray", 20000);
+  const verifierRow = page.locator(".plan-proposal", { hasText: "verifier · plan/items/2v.md · 2v" });
+  assert.equal(await verifierRow.getByRole("button", { name: "Accept" }).count(), 0, "a verifier proposal offered Accept");
+  assert.equal(await verifierRow.getByRole("button", { name: "Dismiss" }).count(), 1);
+  record("no-verifier-item-stuck-and-proposed-in-tray");
+  // A plan whose repository is inside the plans folder shows why on its panel,
+  // and Go is refused rather than starting a worker that could only be refused.
+  const planManifest = join(browserPlanDir, "plan.json");
+  const originalManifest = await readFile(planManifest, "utf8");
+  const insideRepo = join(browserPlanDir, "repo-inside-plans");
+  await mkdir(insideRepo, { recursive: true });
+  await writeFile(planManifest, JSON.stringify({ repo: insideRepo }, null, 2));
+  await writeFile(planPath, markedPlan + "- [ ] 2w would be refused\n");
+  await page.reload();
+  await browser.wait(`document.querySelector('.plan-refusal')?.innerText.includes('inside the plans folder')`, "the refusal line on the plan panel", 20000);
+  await browser.wait(`document.querySelector('#plan-go') && document.querySelector('#plan-go').disabled`, "Go refused for a repo inside the plans folder", 20000);
+  await page.screenshot({ path: join(evidenceRun, "plan-refusal.png") });
+  await writeFile(planManifest, originalManifest);
+  await writeFile(planPath, markedPlan);
+  record("repo-inside-plans-refusal-line-and-go-refused");
+
   record("fake-model-script-complete");
   await writeFile(join(evidenceRun, "result.json"), JSON.stringify({ scenarios, duration_ms: Date.now() - startedAt, session_id: sessionID, shell_flip: shellFlipEvidence, shell_style_boundary: shellStyleBoundaryEvidence }, null, 2));
   const evidenceLogs = join(evidenceRun, "jsonl");

@@ -17,7 +17,8 @@ test("Console uses the shared shell without retaining a task composer", () => {
   assert.doesNotMatch(script, /getElementById\("(?:composer|task)"\)/);
   assert.doesNotMatch(shell, /\["chat", "Chat", "\/chat"\]|\["console", "Console", "\/"\]/);
   assert.match(shell, /\[\["plan", "\/plan"\]\]/);
-  assert.match(shell, /options\.switchView\(next, navigation\)/);
+  assert.match(shell, /options\.switchView\("console", navigation\)/);
+  assert.doesNotMatch(shell, /options\.switchView\(next, navigation\)/);
 });
 
 test("Activity uses the full panel height after composer removal", () => {

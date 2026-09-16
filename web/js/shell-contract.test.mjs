@@ -43,7 +43,13 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   assert.match(tokens, /--agent-tab-width:118px/);
   assert.match(tokens, /\.agent-tab-wrap\{[^}]*flex:0 0 var\(--agent-tab-width\)/);
   assert.match(tokens, /\.agent-tab\{[^}]*flex:1 1 auto;[^}]*min-width:69px/);
-  assert.match(shell, /if \(options\.switchView\) options\.switchView\(next, navigation\)/);
+  // Left click only selects; Console is an entry in the tab right-click menu.
+  assert.match(shell, /if \(options\.switchView\) options\.switchView\("console", navigation\)/);
+  assert.match(shell, /button\("Console", `Open Console for/);
+  assert.match(shell, /tab\.onclick = \(\) => \{[\s\S]{0,120}setSelection\(agentID, session\.id\);[\s\S]{0,20}\};/);
+  // The close mark overlays the tab rather than extending the strip.
+  assert.match(tokens, /\.agent-tab-close\{position:absolute/);
+  assert.match(tokens, /\.agent-tab-wrap \.agent-tab\{padding-right:18px\}/);
   assert.match(shell, /agentb\.side\.\$\{agentID\}/);
   assert.match(tokens, /\.agent-tab\.side-chat\{color:var\(--ink\)\}/);
   assert.match(tokens, /\.agent-tab\.side-console\{color:var\(--ink\)\}/);

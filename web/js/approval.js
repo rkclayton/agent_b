@@ -1,0 +1,113 @@
+export function shellGrantApproval(data = {}) {
+  const boundary = typeof data.boundary_escape === "boolean"
+    ? data.boundary_escape
+    : data.name?.endsWith(".operator_override");
+  return (!boundary && data.name === "shell")
+    || data.name === "shell.operator_override"
+    || data.name === "shell.operator_command";
+}
+
+export function approvalChoices(data = {}) {
+	if (data.kind === "cycle" || data.name === "run.cycle") return [["continue", "Continue"], ["stop", "Stop"]];
+	return [["session", "Yes, for this chat"], ["once", "Just once"], ["deny", "No"]];
+}
+
+export function approvalText(data = {}) {
+	const human = data.human && typeof data.human === "object" ? data.human : null;
+	if (human?.happened && human?.harness_action) return {
+		title: data.kind === "cycle" || data.name === "run.cycle" ? "Loop check" : (data.boundary_escape ? "Run as you" : "Allow this"),
+		request: human.happened,
+		reason: human.harness_action,
+		question: human.question || "",
+		detail: data.args?.path ?? data.args?.command ?? data.args?.pattern ?? "",
+	};
+	const boundary = typeof data.boundary_escape === "boolean"
+		? data.boundary_escape
+		: data.name?.endsWith(".operator_override");
+	const value = data.args?.path ?? data.args?.command ?? data.args?.pattern ?? "";
+	if (data.kind === "cycle" || data.name === "run.cycle") return {
+		title: "Loop check",
+		request: "You’re repeating — continue or stop?",
+		reason: data.args?.detail || "The same tool call and result repeated.",
+		detail: data.args?.tool || "",
+	};
+	if (boundary) return {
+		title: "Run as you",
+		request: `${data.name || "This operation"} needs your Windows identity.`,
+		reason: data.args?.reason || "The restricted account cannot complete it.",
+		detail: value,
+	};
+	return {
+		title: "Allow this",
+		request: `${data.name || "This operation"} is restricted by your approval rules.`,
+		reason: "It will run only after your decision.",
+		detail: value,
+	};
+}
+
+export function approvalDecisionText(decision) {
+	return ({
+		session: "allowed for this chat",
+		once: "allowed once",
+		approve: "allowed",
+		run: "allowed for this run",
+		operator_mode: "Run as you enabled",
+		deny: "denied",
+		superseded: "superseded",
+		dismissed: "dismissed",
+		continue: "continued",
+		stop: "stopped",
+	})[decision] || String(decision || "decided").replaceAll("_", " ");
+}
+
+export function createApprovalCard(document, entry = {}, options = {}) {
+	const event = entry.event || entry;
+	const data = event.data || {};
+	const wording = approvalText(data);
+	if (entry.decision) {
+		const decided = document.createElement("div");
+		decided.className = "approval-decided";
+		decided.textContent = `${wording.title}: ${approvalDecisionText(entry.decision)}`;
+		return decided;
+	}
+	const content = document.createElement("section");
+	content.className = "approval-card chat-approval";
+	if (data.boundary_escape) content.classList.add("alarm");
+	const title = document.createElement("span");
+	title.textContent = wording.title;
+	const request = document.createElement("strong");
+	request.textContent = wording.request;
+	const reason = document.createElement("span");
+	reason.textContent = wording.reason;
+	content.append(title, request, reason);
+	if (wording.question) {
+		const question = document.createElement("span");
+		question.className = "approval-question";
+		question.textContent = wording.question;
+		content.append(question);
+	}
+	const technical = document.createElement("details");
+	const summary = document.createElement("summary");
+	summary.textContent = "Technical detail";
+	const pre = document.createElement("pre");
+	pre.textContent = wording.detail;
+	technical.append(summary, pre);
+	content.append(technical);
+	if (!options.replay && options.decide) {
+		const actions = document.createElement("div");
+		actions.className = "approval-actions";
+		for (const [decision, label] of approvalChoices(data)) {
+			const button = document.createElement("button");
+			button.type = "button";
+			button.textContent = label;
+			if (decision === "session" || decision === "continue") {
+				button.className = "default";
+				button.autofocus = true;
+			}
+			button.onclick = () => options.decide(data.call_id, decision);
+			actions.append(button);
+		}
+		content.append(actions);
+	}
+	return content;
+}

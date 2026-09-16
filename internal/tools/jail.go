@@ -1,0 +1,122 @@
+package tools
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"harness/internal/session"
+)
+
+func Resolve(workspace, path string) (string, error) {
+	return resolvePath(workspace, path, true)
+}
+
+type osPathPolicyKey struct{}
+
+func withOSPathPolicy(ctx context.Context) context.Context {
+	return context.WithValue(ctx, osPathPolicyKey{}, true)
+}
+
+func resolveForTool(ctx context.Context, workspace, path string) (string, error) {
+	enforceWorkspace := true
+	if allowed, _ := ctx.Value(osPathPolicyKey{}).(bool); allowed {
+		enforceWorkspace = false
+	}
+	return resolvePath(workspace, path, enforceWorkspace)
+}
+
+func resolveForSessionTool(ctx context.Context, s *session.Session, root, path string) (string, error) {
+	// D's plan-write boundary is immutable and operator identity cannot widen it.
+	// Resolve D paths canonically even when an OS-authorized B file-tool mode
+	// would otherwise let Windows ACLs decide.
+	if s.Role == "d" {
+		return resolvePath(root, path, true)
+	}
+	return resolveForTool(ctx, root, path)
+}
+
+func resolvePath(workspace, path string, enforceWorkspace bool) (string, error) {
+	if path == "" {
+		path = "."
+	}
+	root, err := filepath.Abs(workspace)
+	if err != nil {
+		return "", err
+	}
+	candidate := filepath.FromSlash(path)
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(root, candidate)
+	}
+	candidate = filepath.Clean(candidate)
+	// In OS-authorized modes Windows, rather than the workspace jail, is the
+	// boundary. Avoid resolving every ancestor here: EvalSymlinks opens parent
+	// directories for metadata access and can reject an otherwise traversable,
+	// ACL-authorized target under a private user profile.
+	if !enforceWorkspace {
+		return candidate, nil
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	existing := candidate
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return "", fmt.Errorf("path is outside the folder")
+		}
+		existing = parent
+	}
+	resolved, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return "", err
+	}
+	rest, err := filepath.Rel(existing, candidate)
+	if err != nil {
+		return "", err
+	}
+	candidate = filepath.Join(resolved, rest)
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path is outside the folder")
+	}
+	return candidate, nil
+}
+
+func refuseRepoPolicyWrite(workspace, path string) error {
+	root, err := filepath.Abs(workspace)
+	if err != nil {
+		return err
+	}
+	candidate := filepath.FromSlash(path)
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(root, candidate)
+	}
+	rel, err := filepath.Rel(root, filepath.Clean(candidate))
+	if err == nil {
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		if len(parts) > 0 && strings.EqualFold(parts[0], ".agentb") {
+			return fmt.Errorf("repo-policy immutability rule: model file tools cannot write .agentb/")
+		}
+	}
+	return nil
+}
+
+func refusePlanManifestWrite(s *session.Session, path string) error {
+	if s == nil || s.Role != "d" || s.PlanDir == "" {
+		return nil
+	}
+	manifest := filepath.Join(filepath.Clean(s.PlanDir), "plan.json")
+	if strings.EqualFold(filepath.Clean(path), manifest) {
+		return fmt.Errorf("plan manifest immutability rule: model file tools cannot write plan.json")
+	}
+	return nil
+}

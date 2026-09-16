@@ -228,10 +228,21 @@ func (d *Driver) verify(ctx context.Context, s *session.Session, job session.Wor
 	if d.verifier == nil {
 		return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "no verifier available"}
 	}
-	ok, output := d.verifier.Verify(ctx, s, job.Verify)
-	if ok {
+	// The verifier is part of the item: it can raise a card like any shell call,
+	// and the item's deadline bounds that wait too.
+	bounded, cancel := context.WithTimeout(ctx, d.deadline)
+	defer cancel()
+	ok, output := d.verifier.Verify(bounded, s, job.Verify)
+	if ok && bounded.Err() == nil {
 		return Outcome{ItemID: job.ItemID, Marker: "x"}
 	}
+	if ctx.Err() != nil {
+		return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "stopped"}
+	}
+	if bounded.Err() != nil {
+		return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "verifier did not finish before the item deadline"}
+	}
+
 	text := "verifier failed"
 	if detail := oneLine(output); detail != "" {
 		text += ": " + detail

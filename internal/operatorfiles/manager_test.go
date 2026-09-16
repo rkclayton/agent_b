@@ -3,6 +3,7 @@ package operatorfiles
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -278,5 +279,51 @@ func TestRetentionDeletesOnlyExpiredTopLevelJSONL(t *testing.T) {
 	data, _ := json.Marshal(published[0].Data)
 	if !strings.Contains(string(data), `"days":30`) || !strings.Contains(string(data), `"files":["old.jsonl"]`) {
 		t.Fatalf("retention event=%s", data)
+	}
+}
+
+func TestRetentionRefusesARootThatIsNotAPlainDirectory(t *testing.T) {
+	manager, cfg := testManager(t)
+	cfg.OperatorFiles.LogRetentionDays = 30
+	now := time.Date(2026, 9, 16, 0, 40, 0, 0, time.UTC)
+	manager.now = func() time.Time { return now }
+	outside := filepath.Join(t.TempDir(), "node_modules")
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(outside, "old.jsonl")
+	if err := os.WriteFile(victim, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(victim, now.Add(-31*24*time.Hour), now.Add(-31*24*time.Hour))
+
+	linked := filepath.Join(filepath.Dir(manager.logDir), "linked-logs")
+	if err := os.Symlink(outside, linked); err != nil {
+		if output, mklinkErr := exec.Command("cmd", "/c", "mklink", "/J", linked, outside).CombinedOutput(); mklinkErr != nil {
+			t.Skipf("cannot create a link: %v / %v %s", err, mklinkErr, output)
+		}
+	}
+	for _, root := range []string{linked, "relative-logs", filepath.VolumeName(outside) + string(filepath.Separator)} {
+		manager.logDir = root
+		removed, err := manager.ApplyRetention()
+		if err == nil || len(removed) != 0 || !strings.Contains(err.Error(), "retention refused") {
+			t.Fatalf("root %q: removed=%v err=%v", root, removed, err)
+		}
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Fatalf("retention through a linked root deleted %s: %v", victim, err)
+	}
+
+	// A link named *.jsonl inside a real log directory is never followed or removed.
+	manager.logDir = filepath.Join(filepath.Dir(linked), "logs")
+	link := filepath.Join(manager.logDir, "linked.jsonl")
+	if err := os.Symlink(victim, link); err == nil {
+		removed, err := manager.ApplyRetention()
+		if err != nil || len(removed) != 0 {
+			t.Fatalf("link candidate: removed=%v err=%v", removed, err)
+		}
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Fatalf("retention followed a link: %v", err)
 	}
 }

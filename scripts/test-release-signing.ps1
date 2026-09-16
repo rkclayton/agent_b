@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'removal-guard.ps1')
 
 # v0.61.0/W6 under r2. Prove scripts/sign-release.ps1 signs, timestamps and
 # produces a chain that validates -- WITHOUT installing any root into the
@@ -68,7 +69,7 @@ try {
             Write-Output 'FAIL: see the per-file lines above'
         }
     } finally {
-        Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+        try { Remove-TreeWithinAllowedRoots -Path $stage -AllowedRoots @($stage) -Purpose 'signing-probe stage cleanup' } catch { Write-Warning $_.Exception.Message }
     }
 } finally {
     Remove-Probe

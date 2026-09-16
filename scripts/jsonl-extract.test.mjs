@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { extractRun, readJSONL, selectRun } from "./jsonl-extract.mjs";
+import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentb-jsonl-extract-"));
 try {
@@ -38,5 +39,5 @@ try {
   });
   process.stdout.write("PASS shared JSONL extraction\n");
 } finally {
-  fs.rmSync(root, { recursive: true, force: true });
+  removeTreeWithinAllowedRoots(root, [root], "jsonl-extract test cleanup");
 }

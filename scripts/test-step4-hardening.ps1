@@ -2,6 +2,7 @@
 param()
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'removal-guard.ps1')
 
 function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -174,7 +175,7 @@ try {
             elseif ($root -eq $dataTestRoot) { $null = Assert-DisposableRoot $root ([Environment]::GetFolderPath('LocalApplicationData')) }
             elseif ($root -eq $exchangeTestRoot) { $null = Assert-DisposableRoot $root $env:USERPROFILE }
             else { $null = Assert-DisposableRoot $root $env:ProgramData }
-            Remove-Item -LiteralPath $root -Recurse -Force
+            Remove-TreeWithinAllowedRoots -Path $root -AllowedRoots @($root) -Purpose 'step4 disposable-root cleanup'
         }
     }
 }

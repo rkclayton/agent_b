@@ -551,8 +551,7 @@ try {
     }
     if (Test-Path -LiteralPath $testRoot) {
         Assert-TemporaryTestPath $testRoot
-        $removalPath = Assert-RemovalWithinAllowedRoots -Path $testRoot -AllowedRoots @($testRoot) -Purpose 'installer-suite disposable-root cleanup'
-        Remove-Item -LiteralPath $removalPath -Recurse -Force
+        Remove-TreeWithinAllowedRoots -Path $testRoot -AllowedRoots @($testRoot) -Purpose 'installer-suite disposable-root cleanup'
     }
 }
 
@@ -607,8 +606,7 @@ try {
     Write-Host 'PASS: clean archive with no .git installs under Windows PowerShell 5.1'
 } finally {
     if (Test-Path -LiteralPath $cloneRoot) {
-        $cloneRemoval = Assert-RemovalWithinAllowedRoots -Path $cloneRoot -AllowedRoots @($cloneRoot) -Purpose 'installer-suite first-clone cleanup'
-        Remove-Item -LiteralPath $cloneRemoval -Recurse -Force -ErrorAction SilentlyContinue
+        try { Remove-TreeWithinAllowedRoots -Path $cloneRoot -AllowedRoots @($cloneRoot) -Purpose 'installer-suite first-clone cleanup' } catch { Write-Warning $_.Exception.Message }
     }
     Remove-Item -LiteralPath ($testRegistry + '-Clone') -Recurse -Force -ErrorAction SilentlyContinue
 }

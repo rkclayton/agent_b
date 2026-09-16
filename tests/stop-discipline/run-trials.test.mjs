@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { executeTool, materializeFixture, snapshotPaths } from "./run-trials.mjs";
+import { removeTreeWithinAllowedRoots } from "../../scripts/removal-guard.mjs";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentb-stop-runner-test-"));
 try {
@@ -20,5 +21,5 @@ try {
   assert.equal(executeTool(root, "read_file", { path: "../outside" }).ok, false);
   console.log("PASS stop-discipline runner materialization, tools, hashes, and path boundary");
 } finally {
-  fs.rmSync(root, { recursive: true, force: true });
+  removeTreeWithinAllowedRoots(root, [root], "stop-discipline test cleanup");
 }

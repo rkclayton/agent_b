@@ -9,7 +9,4 @@ $temporary = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
 if (-not $full.StartsWith($temporary + '\Agent_b-eval-', [StringComparison]::OrdinalIgnoreCase)) {
     throw "Comparative cleanup refused a non-eval temporary root: $full"
 }
-$removalPath = Assert-RemovalWithinAllowedRoots -Path $full -AllowedRoots @($temporary) -Purpose 'comparative disposable cleanup'
-if (Test-Path -LiteralPath $removalPath) {
-    Remove-Item -LiteralPath $removalPath -Recurse -Force
-}
+Remove-TreeWithinAllowedRoots -Path $full -AllowedRoots @($full) -Purpose 'comparative disposable cleanup'

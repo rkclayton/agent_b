@@ -14,6 +14,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'removal-guard.ps1')
 $sourceRoot = Split-Path -Parent $PSScriptRoot
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-chat-acceptance-' + [Guid]::NewGuid().ToString('N'))
 $application = Join-Path $testRoot 'Application\Agent_b'
@@ -100,6 +101,6 @@ try {
     if ($resolvedTest.StartsWith($resolvedTemp, [StringComparison]::OrdinalIgnoreCase) -and
         (Split-Path -Leaf $resolvedTest) -like 'Agent_b-chat-acceptance-*' -and
         (Test-Path -LiteralPath $resolvedTest)) {
-        Remove-Item -LiteralPath $resolvedTest -Recurse -Force
+        Remove-TreeWithinAllowedRoots -Path $resolvedTest -AllowedRoots @($resolvedTest) -Purpose 'chat-acceptance disposable-root cleanup'
     }
 }

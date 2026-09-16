@@ -8,6 +8,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { chromium } from "playwright";
+import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 
 const argv = process.argv.slice(2);
 const args = Object.fromEntries(Array.from({ length: Math.floor(argv.length / 2) }, (_, i) => [argv[i * 2].replace(/^--/, ""), argv[i * 2 + 1]]));
@@ -64,7 +65,7 @@ async function measure(root, label) {
 }
 
 const scratch = resolve(args.evidence, "before-app");
-rmSync(scratch, { recursive: true, force: true });
+removeTreeWithinAllowedRoots(scratch, [scratch], "settings-height scratch cleanup");
 mkdirSync(scratch, { recursive: true });
 const files = execFileSync("git", ["ls-tree", "-r", "--name-only", args["before-ref"], "web/"], { encoding: "utf8" }).split("\n").filter(Boolean);
 for (const name of files) {
@@ -87,5 +88,5 @@ const report = {
   control_delta: after.controls - before.controls,
 };
 writeFileSync(resolve(args.evidence, "settings-heights.json"), `${JSON.stringify(report, null, 2)}\n`);
-rmSync(scratch, { recursive: true, force: true });
+removeTreeWithinAllowedRoots(scratch, [scratch], "settings-height scratch cleanup");
 console.log(JSON.stringify(report, null, 1));

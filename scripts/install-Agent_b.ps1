@@ -205,8 +205,7 @@ function Copy-ProgramDirectory {
         $null = New-Item -ItemType Directory -Path $to -Force
     } else {
         foreach ($item in Get-ChildItem -LiteralPath $to -Force) {
-            $removalPath = Assert-RemovalWithinAllowedRoots -Path $item.FullName -AllowedRoots $AllowedRemovalRoots -Purpose 'installer program-directory cleanup'
-            Remove-Item -LiteralPath $removalPath -Recurse -Force
+            Remove-TreeWithinAllowedRoots -Path $item.FullName -AllowedRoots $AllowedRemovalRoots -Purpose 'installer program-directory cleanup'
         }
     }
     foreach ($item in Get-ChildItem -LiteralPath $from -Force) {
@@ -220,8 +219,7 @@ function Copy-ApplicationTree {
     $null = New-Item -ItemType Directory -Path $Destination -Force
     foreach ($item in Get-ChildItem -LiteralPath $Destination -Force) {
         if (-not (Test-Path -LiteralPath (Join-Path $Source $item.Name))) {
-            $removalPath = Assert-RemovalWithinAllowedRoots -Path $item.FullName -AllowedRoots $AllowedRemovalRoots -Purpose 'installer application-tree restore cleanup'
-            Remove-Item -LiteralPath $removalPath -Recurse -Force
+            Remove-TreeWithinAllowedRoots -Path $item.FullName -AllowedRoots $AllowedRemovalRoots -Purpose 'installer application-tree restore cleanup'
         }
     }
     foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
@@ -252,7 +250,7 @@ function Remove-InstallerRollbackRoot {
         -not (Split-Path -Leaf $full).StartsWith('Agent_b-install-rollback-', [StringComparison]::Ordinal)) {
         throw "Refusing to remove unexpected installer rollback root: $full"
     }
-    Remove-Item -LiteralPath $full -Recurse -Force
+    Remove-TreeWithinAllowedRoots -Path $full -AllowedRoots @($full) -Purpose 'installer rollback-root cleanup'
 }
 
 function Set-PrivateDirectoryAcl {

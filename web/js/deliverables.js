@@ -69,6 +69,17 @@ export async function probeFile(url, fetcher = fetch) {
   }
 }
 
+const FOLDER_GLYPH =
+  '<svg viewBox="0 0 16 12" width="13" height="10" aria-hidden="true" focusable="false"><path d="M1 2.5V10.5a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5V4a.5.5 0 0 0-.5-.5H7.2L5.9 1.8a.5.5 0 0 0-.4-.3H1.5a.5.5 0 0 0-.5.5z" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg>';
+
+// The same document types the server's /api/open-file opens; anything whose
+// default action runs it (scripts, executables) offers only its folder.
+const OPENABLE = new Set([".xlsx", ".xls", ".csv", ".docx", ".doc", ".pptx", ".pdf", ".txt", ".md", ".json", ".log", ".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+export function openableFile(path = "") {
+  const match = /\.[^./\\]+$/.exec(String(path).toLowerCase());
+  return !!match && OPENABLE.has(match[0]);
+}
+
 export function createFileChip(document, file, status, actions) {
   const root = document.createElement("div");
   root.className = `file-chip${status?.state === "missing" ? " missing" : ""}`;
@@ -80,9 +91,22 @@ export function createFileChip(document, file, status, actions) {
   size.className = "file-chip-size";
   size.textContent = status?.state === "missing" ? "missing" : formatBytes(status?.bytes ?? file.bytes);
   root.append(name, size);
+  // Item 2ep: a delivered document opens with the operator's default
+  // application from its name; the folder is a glyph, "folder" on hover.
+  if (status?.state !== "missing" && actions.openFile && openableFile(file.path)) {
+    name.className = "file-chip-name openable";
+    name.title = `open ${file.path}`;
+    name.onclick = (event) => {
+      event?.preventDefault?.();
+      return actions.openFile();
+    };
+  }
   if (status?.state !== "missing") {
     const folder = document.createElement("a");
-    folder.textContent = "folder";
+    folder.className = "file-chip-folder";
+    folder.innerHTML = FOLDER_GLYPH;
+    folder.title = "folder";
+    folder.ariaLabel = "folder";
     folder.href = "#";
     folder.onclick = (event) => {
       event.preventDefault();

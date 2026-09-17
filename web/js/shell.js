@@ -109,6 +109,16 @@ export function initShell(options = {}) {
   }
 
   function renderTabs() {
+    // Item 2eo: a live run sends a steady stream of patches, and rebuilding the
+    // strip replaced an open tab menu with a hidden one, so right-click did
+    // nothing while the model was thinking. The strip still rebuilds; a menu
+    // that is open moves, as the same element, into its tab's new wrap, so the
+    // entry being pointed at is never replaced underneath the pointer.
+    const openMenus = new Map();
+    for (const wrap of tabs.querySelectorAll(".agent-tab-wrap")) {
+      const open = wrap.querySelector(":scope > .agent-chat-menu");
+      if (open && !open.hidden) openMenus.set(wrap.dataset.session || wrap.dataset.agent, open);
+    }
     tabs.replaceChildren();
     // A worker has no chat: role c never appears in the tab strip.
     const open = Object.values(store.sessions).filter((session) => !session.closed && session.role !== "c").sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
@@ -160,12 +170,14 @@ export function initShell(options = {}) {
           openSide(agentID, session.id, side);
         }
       };
-      const menu = node("div", "shell-menu agent-chat-menu");
-      menu.hidden = true;
+      const kept = openMenus.get(session ? session.id : agentID);
+      const menu = kept || node("div", "shell-menu agent-chat-menu");
+      if (!kept) menu.hidden = true;
+      const flip = session ? { label: side === "console" ? "Chat" : "Console", open: () => openSide(agentID, session.id, side === "console" ? "chat" : "console") } : null;
       tab.oncontextmenu = (event) => {
         event.preventDefault();
         for (const other of tabs.querySelectorAll(".shell-menu")) if (other !== menu) other.hidden = true;
-        renderAgentMenu(menu, agentID, session ? { label: side === "console" ? "Chat" : "Console", open: () => openSide(agentID, session.id, side === "console" ? "chat" : "console") } : null);
+        renderAgentMenu(menu, agentID, flip);
         revealMenu(menu, tab);
       };
       wrap.append(tab);

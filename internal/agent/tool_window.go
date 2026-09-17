@@ -27,7 +27,7 @@ func (r *Runner) fitWindowResult(
 	availableTokens int,
 	operatorContext bool,
 ) (string, bool, map[string]any, int) {
-	if !ok || (name != "read_file" && name != "fetch_url" && name != "call_service") || availableTokens < 1 || resultTokens <= availableTokens {
+	if !ok || (name != "read_file" && name != "fetch_url" && name != "call_service") || availableTokens < 0 || resultTokens <= availableTokens {
 		return content, ok, metadata, resultTokens
 	}
 	if name == "read_file" && s != nil {

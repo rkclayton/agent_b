@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/events"
 	"harness/internal/session"
 	"harness/internal/tools"
 )
@@ -120,5 +121,45 @@ func TestFitWindowResultRefusesOversizedReadBatchWithBatchGuidance(t *testing.T)
 	}
 	if metadata["result_too_large"] != true || metadata["retry_windows"] != "fewer_or_smaller" {
 		t.Fatalf("metadata=%#v", metadata)
+	}
+}
+
+// Item 2et: on the s7 tape a 30,000-byte read came back whole because the
+// turn's remaining room had reached 0 and zero was treated as "no limit".
+// Zero room is zero room; only an unknown window (-1) passes a result through.
+func TestFitReadFileWithNoRoomLeftIsNotReturnedWhole(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte(strings.Repeat("<div>x</div>", 5000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(root)
+	registry := tools.New(tools.NewReadFile(cfg.Tools.ReadFile))
+	item := &session.Session{Workspace: root, ToolsEnabled: map[string]bool{"read_file": true}, LastSeen: map[string]time.Time{}}
+	runner := &Runner{cfg: func() config.Config { return cfg }, tools: registry}
+	profile := &cfg.Servers[0]
+	args := map[string]any{"path": "index.html", "offset": 9293, "limit": 30000}
+	original, ok := registry.Call(context.Background(), item, "read_file", args)
+	if !ok {
+		t.Fatal(original)
+	}
+	originalTokens := runner.textTokens(context.Background(), profile, original)
+	content, _, metadata, tokens := runner.fitWindowResult(context.Background(), item, profile, "read_file", args, original, true, nil, originalTokens, 0, false)
+	if content == original || tokens >= originalTokens || metadata["result_too_large"] != true {
+		t.Fatalf("a read with no room left came back whole: tokens=%d of %d metadata=%#v", tokens, originalTokens, metadata)
+	}
+	if unknown, _, _, _ := runner.fitWindowResult(context.Background(), item, profile, "read_file", args, original, true, nil, originalTokens, -1, false); unknown != original {
+		t.Fatal("an unknown window must pass the result through")
+	}
+}
+
+func TestContextExhaustedNamesTheReadsItKept(t *testing.T) {
+	item := &session.Session{ID: "s7"}
+	item.ReplaceMessages([]events.Message{
+		{ID: "m-1", Role: "assistant", ToolCalls: []events.ToolCall{{ID: "a", Name: "read_file", Arguments: `{"path":"C:/work/rpg/game.js"}`}, {ID: "b", Name: "read_file", Arguments: `{"path":"map.js"}`}}},
+		{ID: "m-2", Role: "tool", Name: "read_file", ToolCallID: "a", Content: "bytes"},
+		{ID: "m-3", Role: "tool", Name: "read_file", ToolCallID: "b", Content: "[elided: read_file map.js, 900 tokens]", Elided: true},
+	})
+	if got := keptReadsSentence(item); got != "; reads kept verbatim: game.js" {
+		t.Fatalf("sentence=%q", got)
 	}
 }

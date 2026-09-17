@@ -37,6 +37,43 @@ func pinIndex(messages []events.Message, pin string) int {
 	return 0
 }
 
+// RecentToolWindow is how many of the newest tool results elision keeps
+// verbatim, inside the running turn or not (item 2et).
+const RecentToolWindow = 4
+
+func pinPresent(messages []events.Message, pin string) bool {
+	for _, message := range messages {
+		if message.ID == pin {
+			return true
+		}
+	}
+	return false
+}
+
+// StubOlderResults returns messages with every un-elided tool result that
+// precedes the last user message replaced by its elision stub, the form a
+// retained chat is restored in: the JSONL keeps the bytes, the next request
+// carries only what the last turn read (item 2et).
+func StubOlderResults(messages []events.Message, readDefaultLimit int) []events.Message {
+	lastUser := -1
+	for index, message := range messages {
+		if message.Role == "user" {
+			lastUser = index
+		}
+	}
+	out := append([]events.Message(nil), messages...)
+	estimate := func(text string) (int, bool) { return (len([]rune(text))*10 + 35) / 36, true }
+	for index := 0; index < lastUser; index++ {
+		item := out[index]
+		if item.Role != "tool" || item.Elided || (item.Category != "files" && item.Category != "results" && item.Category != "fetched") {
+			continue
+		}
+		call, _ := callFor(out, item.ToolCallID)
+		out[index] = elide(item, call.Arguments, readDefaultLimit, estimate)
+	}
+	return out
+}
+
 // atomicFoldEnd pulls a summarize span back so no tool call is folded while its
 // result is kept. Results are always after their call, so moving the boundary
 // to the earliest such call is enough and terminates in one pass.
@@ -116,17 +153,25 @@ func (c *Compactor) ElideOld(s *session.Session, runID string, used, target, rea
 		}
 	}
 	skip := map[int]bool{}
-	for _, index := range toolIndexes[max(0, len(toolIndexes)-4):] {
+	for _, index := range toolIndexes[max(0, len(toolIndexes)-RecentToolWindow):] {
 		skip[index] = true
 	}
-	pin := pinIndex(messages, s.RunPin())
+	// Item 2et: the running turn's user message and the model's own messages are
+	// never elided (only tool-result categories are candidates), and neither are
+	// the last RecentToolWindow tool results. Older results inside the running
+	// turn may become stubs, oldest first, before the run stops for context.
+	// Summaries still never reach into the running turn (SummarizeSpan).
+	// A pin that is set but missing still protects everything.
+	if pin := s.RunPin(); pin != "" && !pinPresent(messages, pin) {
+		return false, used
+	}
 	affected := []string{}
 	before := used
 	for index, item := range messages {
 		if used <= target {
 			break
 		}
-		if index >= pin || skip[index] || item.Elided || !eligibleOldElision(item) || (item.Category != "files" && item.Category != "results" && item.Category != "fetched") {
+		if skip[index] || item.Elided || !eligibleOldElision(item) || (item.Category != "files" && item.Category != "results" && item.Category != "fetched") {
 			continue
 		}
 		call, _ := callFor(messages, item.ToolCallID)

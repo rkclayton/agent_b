@@ -91,6 +91,7 @@ func (r *Runner) AcceptPlanEdit(ctx context.Context, s *session.Session, path, o
 	}
 	return outcome
 }
+
 // Verify runs an item's verifier command as the worker: the ordinary shell tool,
 // through the same gate, grants and identity a model's shell call takes, so it
 // can raise the same card. It reports whether the command exited 0. The run it
@@ -346,7 +347,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				// Everything outside the running turn is already compacted. The
 				// only thing left to cut is the task itself, and answering some
 				// older message instead is what 2eg was filed for.
-				return "context_exhausted", "the task and the work answering it no longer fit the remaining context window; nothing outside it is left to compact", turn - 1
+				return "context_exhausted", "the task and the work answering it no longer fit the remaining context window; nothing outside it is left to compact" + keptReadsSentence(s), turn - 1
 			}
 			return "context_ceiling", fmt.Sprintf("prompt %d tokens leaves less than the %d-token output floor in n_ctx %d after compaction", guardUsed, floor, budget.NCtx), turn - 1
 		}
@@ -483,7 +484,12 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		}
 		toolCallsUsed += len(results)
 		r.stage(s, runID, turn, "execute", func() {
-			remainingResultTokens := max(0, budget.NCtx-budget.Reserve-budget.UsedEst-toolResultContextMargin)
+			// Item 2et: -1 means the window is unknown and nothing is clamped;
+			// 0 means no room is left, which clamps every later window read.
+			remainingResultTokens := -1
+			if budget.NCtx > 0 {
+				remainingResultTokens = max(0, budget.NCtx-budget.Reserve-budget.UsedEst-toolResultContextMargin)
+			}
 			for index := range results {
 				item := &results[index]
 				r.bus.Publish(events.New(events.ToolCallEvent, s.ID, runID, map[string]any{"turn": turn, "call_id": item.call.ID, "name": item.call.Name, "args": sanitizedToolArguments(item.call.Name, item.args)}))
@@ -518,7 +524,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				item.content, item.ok, item.metadata, resultTokens = r.fitWindowResult(
 					ctx, s, profile, item.call.Name, item.args, item.content, item.ok, item.metadata, resultTokens, remainingResultTokens, item.operatorContext,
 				)
-				remainingResultTokens = max(0, remainingResultTokens-resultTokens)
+				if remainingResultTokens >= 0 {
+					remainingResultTokens = max(0, remainingResultTokens-resultTokens)
+				}
 				data := toolResultEventData(turn, item.call.ID, item.call.Name, item.content, item.ok, item.operatorContext, item.untrusted, item.ms, resultTokens, item.metadata)
 				s.IncrementToolCall(item.call.Name)
 				r.bus.Publish(events.New(events.ToolResult, s.ID, runID, data))
@@ -1041,6 +1049,7 @@ func shouldBatchElide(used, ceiling int, cfg config.GlobalContext, coldPrefill b
 	}
 	return used >= int(float64(ceiling)*high)
 }
+
 // compactToFit reports whether it changed anything, and whether the only reason
 // it could not is that the running turn is all that is left.
 func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID string, p *config.Profile, current map[string]bool, budget events.Budget) (bool, bool) {
@@ -1080,6 +1089,34 @@ func requestParams(p *config.Profile, maxTokens int) map[string]any {
 		control = p.Capabilities.ReasoningControl
 	}
 	return map[string]any{"temperature": s.Temperature, "top_p": s.TopP, "top_k": s.TopK, "min_p": s.MinP, "presence_penalty": s.PresencePenalty, "repeat_penalty": s.RepeatPenalty, "max_tokens": maxTokens, "reasoning": map[string]any{"control": control, "effort": p.Reasoning.Effort, "enabled": p.Reasoning.Enabled, "preserve": p.Reasoning.Preserve, "max_tokens": p.Reasoning.MaxTokens}}
+}
+
+// keptReadsSentence names the reads still carried verbatim when a run stops
+// for context, so the stop says what it was holding on to (item 2et).
+func keptReadsSentence(s *session.Session) string {
+	messages := s.MessagesCopy()
+	calls := map[string]events.ToolCall{}
+	for _, message := range messages {
+		for _, call := range message.ToolCalls {
+			calls[call.ID] = call
+		}
+	}
+	kept := []string{}
+	for _, message := range messages {
+		if message.Role != "tool" || message.Elided || message.Name != "read_file" {
+			continue
+		}
+		var args struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal([]byte(calls[message.ToolCallID].Arguments), &args) == nil && args.Path != "" {
+			kept = append(kept, filepath.Base(args.Path))
+		}
+	}
+	if len(kept) == 0 {
+		return ""
+	}
+	return "; reads kept verbatim: " + strings.Join(kept, ", ")
 }
 
 func guardedPromptTokens(budget events.Budget) int {

@@ -22,6 +22,7 @@ import (
 
 	"harness/internal/agent"
 	"harness/internal/config"
+	contextmgr "harness/internal/context"
 	"harness/internal/credential"
 	"harness/internal/delivery"
 	"harness/internal/events"
@@ -372,6 +373,9 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry) (
 		if unmarshalErr := json.Unmarshal(encoded, &saved); unmarshalErr != nil {
 			return nil, unmarshalErr
 		}
+		// Item 2et: results older than the chat's last user turn come back as
+		// their elision stubs; the JSONL keeps the bytes.
+		saved.Messages = contextmgr.StubOlderResults(saved.Messages, config.Defaults("").Tools.ReadFile.DefaultLimit)
 		item, restoreErr := registry.Restore(saved)
 		if restoreErr != nil {
 			return nil, restoreErr

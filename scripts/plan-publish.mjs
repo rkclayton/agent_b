@@ -74,7 +74,7 @@ export function workerStopped(planText) {
   const inFlight = String(planText).match(/^## In flight\s*$\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] ?? "";
   const escaped = orderId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const active = new Set();
-  const markers = new RegExp(`^(?:-\\s*)?${escaped}/(W\\d+)\\s+(started|completed)\\b`, "gmi");
+  const markers = new RegExp(`^(?:-\\s*)?${escaped}/(W\\d+)\\s+(started|completed|stopped)\\b`, "gmi");
   for (const match of inFlight.matchAll(markers)) {
     if (match[2].toLowerCase() === "started") active.add(match[1].toUpperCase());
     else active.delete(match[1].toUpperCase());

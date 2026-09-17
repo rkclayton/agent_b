@@ -260,6 +260,15 @@ function prepare(root) {
 }
 
 {
+  // v0.65.0/W0: a previous order's step closed with `stopped` is not live.
+  const root = makeFixture("\nNo product changes.\n\n- W1 Inspect.", []);
+  prepare(root);
+  fs.writeFileSync(path.join(root, "PLAN.md"), fs.readFileSync(path.join(root, "PLAN.md"), "utf8").replace("- TEST/W0 started", "- OTHER/W0 started 12:00\n- OTHER/W0 stopped 12:01\n- TEST/W0 started"));
+  const result = run(root, "--structural");
+  assert.doesNotMatch(result.stderr, /belongs to another order/);
+}
+
+{
   const root = makeFixture("\nNo product changes.\n\n- W1 Inspect.", [], { inFlight: "OTHER/W0 started 11:00\nOTHER/W0 completed 11:01\nTEST/W0 started 12:00" });
   prepare(root);
   const result = run(root, "--structural");

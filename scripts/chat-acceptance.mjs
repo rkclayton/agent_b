@@ -276,6 +276,25 @@ const clickPendingApproval = async (text, expectedCallID, previousCard = null) =
   return handle;
 };
 const state = () => json(`http://127.0.0.1:${appPort}/api/state`);
+// Item 2er: the fixtures below replace a live session's client transcript. A
+// projection patch for that session arriving afterwards (a run's stop, a budget)
+// replaced the fixture and the next wait timed out, more often under load. A
+// fixture is injected only once the session has settled: the server's cursor
+// for it is unchanged across two reads and the page has applied that cursor.
+async function settleSession(id, what) {
+  const deadline = Date.now() + 60000;
+  let previous = "";
+  while (Date.now() < deadline) {
+    const server = (await state()).sessions?.[id];
+    const cursor = JSON.stringify(server?.cursor || null);
+    const idle = !["running", "queued", "paused", "stopping"].includes(server?.run?.status);
+    const client = await browser.evaluate(`(async () => { const bus = await import('/static/js/bus.js'); return JSON.stringify(bus.store.sessions[${JSON.stringify(id)}]?.cursor || null); })()`);
+    if (idle && cursor === previous && client === cursor) return;
+    previous = cursor;
+    await sleep(400);
+  }
+  throw new Error(`session ${id} did not settle before ${what}`);
+}
 const sessionEvents = async (sessionID) => {
   const files = (await readdir(join(args.data, "logs"))).filter((name) => name.endsWith(".jsonl"));
   const values = [];
@@ -347,7 +366,9 @@ assert.equal(loadedConfig.shell?.service_account?.enabled, true, "disposable ins
 assert.equal(loadedConfig.servers?.[0]?.request_timeout_s, 3, "slow-accounting fixture needs a three-second request timeout");
 assert.equal(loadedConfig.servers?.[0]?.capabilities?.tokenize, true, "slow-accounting fixture needs exact tokenization");
 assert.equal(loadedConfig.context?.accounting, "auto", "slow-accounting fixture needs automatic exact accounting");
-edgeContext = await chromium.launchPersistentContext("", {
+// Item 2er: the Edge profile lives inside the disposable root, so every run
+// starts with a new profile and none is left behind in %TEMP%.
+edgeContext = await chromium.launchPersistentContext(join(args.data, "..", "..", "edge-profile"), {
   channel: "msedge",
   headless,
   // Headless hides scrollbars by default; keep them so captures still show them.
@@ -702,8 +723,11 @@ if (realModel) {
     return Math.abs(node.getBoundingClientRect().top - (log.getBoundingClientRect().top + Number.parseFloat(getComputedStyle(node).top))) < 2;
   });
   const arrowPinned = await collapseArrow.boundingBox();
+  // Item 2er: wait for the scroll to land rather than a fixed 50 ms.
+  const scrollBeforeTrack = await page.evaluate(() => document.querySelector("#chat-log").scrollTop);
   await page.mouse.wheel(0, 200);
-  await page.waitForTimeout(50);
+  await page.waitForFunction((before) => document.querySelector("#chat-log").scrollTop > before, scrollBeforeTrack);
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const arrowDuringScroll = await collapseArrow.boundingBox();
   const arrowTrackingState = await collapseArrow.evaluate((node) => {
     const log = document.querySelector("#chat-log");
@@ -713,19 +737,26 @@ if (realModel) {
   });
   assert.ok(arrowPinned && arrowDuringScroll && Math.abs(arrowDuringScroll.y - arrowPinned.y) < 8, `collapse arrow must track while its section remains on screen: ${JSON.stringify({ arrowBeforeScroll, arrowPinned, arrowDuringScroll, arrowTrackingState })}`);
   await page.mouse.wheel(0, 5000);
-  await page.waitForTimeout(50);
+  await page.waitForFunction(() => {
+    const node = document.querySelector('[data-entry-key*="menu-stream-0"] .collapse-arrow');
+    const box = node?.getBoundingClientRect();
+    return !node || node.hidden || !box || box.bottom < 0 || box.top > innerHeight;
+  }, undefined, { timeout: 10000 }).catch(() => {});
   const arrowAfterSection = await collapseArrow.boundingBox();
   assert.ok(!arrowAfterSection || arrowAfterSection.y < 0 || arrowAfterSection.y > 975, "collapse arrow must leave the viewport with its section");
   await page.evaluate(() => document.querySelector('[data-acceptance-spacer="collapse-arrow"]')?.remove());
   await toolRoot.evaluate((root) => { root.style.minHeight = ""; });
   await toolButton.scrollIntoViewIfNeeded();
   await collapseArrow.click();
+  await page.waitForFunction((node) => node.getAttribute("aria-expanded") === "false", toolButtonHandle, { timeout: 10000 }).catch(() => {});
   assert.equal(await toolButtonHandle.getAttribute("aria-expanded"), "false", "collapse arrow must collapse its own tool section");
   await collapseArrow.waitFor({ state: "hidden" });
   record("tool-tick-node-lifecycle-active-run");
   await page.locator("#chat-stop").click();
   await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > lifecycleRunStarted.seq, "tool-tick lifecycle run stopped");
   await browser.wait(`document.querySelector('#chat-stop').disabled`, "tool-tick lifecycle stop projected");
+
+  await settleSession(sessionID, "a transcript fixture");
 
   const missingArgsInitial = await browser.evaluate(`(async () => {
     const bus = await import('/static/js/bus.js');
@@ -763,6 +794,7 @@ if (realModel) {
 
   let events = await sessionEvents(sessionID);
   const beforeRenderFailure = events.at(-1)?.seq || 0;
+  await settleSession(sessionID, "a transcript fixture");
   await browser.evaluate(`(async () => {
     const bus = await import('/static/js/bus.js');
     const session = bus.store.sessions[${JSON.stringify(sessionID)}];
@@ -806,6 +838,8 @@ if (realModel) {
   await browser.evaluate(`(async () => { const bus = await import('/static/js/bus.js'); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('deliberate render failure')`, "server snapshot restored");
 
+  await settleSession(sessionID, "a transcript fixture");
+
   const groupingInitial = await browser.evaluate(`(async () => {
     const bus = await import('/static/js/bus.js');
     const session = bus.store.sessions[${JSON.stringify(sessionID)}];
@@ -847,6 +881,8 @@ if (realModel) {
   await browser.evaluate(`(async () => { const bus = await import('/static/js/bus.js'); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('TWO COMPLETE FAILURE')`, "grouping fixture restored");
 
+  await settleSession(sessionID, "a transcript fixture");
+
   await browser.evaluate(`(async () => {
     const bus = await import('/static/js/bus.js');
     const session = bus.store.sessions[${JSON.stringify(sessionID)}];
@@ -886,6 +922,16 @@ if (realModel) {
   await browser.evaluate(`(async () => { const bus = await import('/static/js/bus.js'); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('two independent sections')`, "two-arrow fixture restored");
 
+  await settleSession(sessionID, "a transcript fixture");
+  // Item 2er: the delivered file must exist where the chip's probe looks, the
+  // session's own folder; it was written only to the legacy workspace, so the
+  // probe answered "missing" and the check passed only when it read first.
+  const chipFolder = (await state()).sessions[sessionID]?.workspace_dir || args.workspace;
+  await mkdir(join(chipFolder, "reports"), { recursive: true });
+  await writeFile(join(chipFolder, "reports", "final.txt"), "delivered file\n");
+  // Item 2er: the chip renders before its file probe answers and re-renders when
+  // it does; read the chip only after that answer, not in between.
+  const chipProbe = page.waitForResponse((response) => response.url().includes("/api/files/reports/final.txt") && response.request().method() === "HEAD", { timeout: 30000 }).catch(() => null);
   await browser.evaluate(`(async () => {
     const bus = await import('/static/js/bus.js');
     const session = bus.store.sessions[${JSON.stringify(sessionID)}];
@@ -900,6 +946,8 @@ if (realModel) {
     return true;
   })()`);
   await page.locator(".chat-step-summary").click();
+  await chipProbe;
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.locator('.file-chips .file-chip a').last().waitFor({ state: "visible" });
   const deliveredChip = await page.evaluate(() => {
     const chips = document.querySelectorAll('.file-chips .file-chip');
@@ -925,6 +973,8 @@ if (realModel) {
   record("delivered-file-chip-folder-link-only");
   await browser.evaluate(`(async () => { const bus = await import('/static/js/bus.js'); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('DELIVERY READY')`, "delivery fixture restored");
+
+  await settleSession(sessionID, "a transcript fixture");
 
   await browser.evaluate(`(async () => {
     const bus = await import('/static/js/bus.js');
@@ -1502,8 +1552,8 @@ if (realModel) {
   const plusID = Object.keys(afterPlus.sessions).find((id) => !idsBeforePlus.has(id));
   assert.ok(plusID, "+ after a restart must create a new session id");
   await page.waitForFunction((id) => document.querySelector(".agent-tab-wrap.selected")?.dataset.session === id, plusID);
-  assert.equal(afterPlus.sessions[plusID].messages.length, 0, "+ after a restart must start with no messages");
-  assert.equal(afterPlus.sessions[plusID].chat.length, 0, "+ after a restart must show an empty transcript");
+  assert.equal((afterPlus.sessions[plusID].messages || []).length, 0, "+ after a restart must start with no messages");
+  assert.equal((afterPlus.sessions[plusID].chat || []).length, 0, "+ after a restart must show an empty transcript");
   assert.notEqual(afterPlus.sessions[plusID].workspace_dir, restartedState.sessions[scriptSessionID].workspace_dir, "+ must get its own scratch folder");
   assert.equal(afterPlus.sessions[plusID].budget?.categories?.files || 0, 0, "+ must carry no files");
   record("chats-transcripts-and-names-survive-application-restart");

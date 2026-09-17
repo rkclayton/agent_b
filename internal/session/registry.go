@@ -76,6 +76,14 @@ func (r *Registry) createLike(sourceID string) (*Session, error) {
 // retained transcript is the authority; the new session.created event seeds
 // this launch's discardable projector and log generation from that state.
 func (r *Registry) Restore(saved Snapshot) (*Session, error) {
+	return r.RestoreWithTranscript(saved, nil)
+}
+
+// RestoreWithTranscript is Restore carrying the chat's visible transcript, as
+// projected from its retained journal, in the session.created event. A restore
+// opens a new log generation with no predecessor, so without it the projector
+// starts the chat empty while its messages come back whole (item 2es).
+func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Session, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if saved.ID == "" {
@@ -147,7 +155,11 @@ func (r *Registry) Restore(saved Snapshot) (*Session, error) {
 			r.next = value + 1
 		}
 	}
-	r.bus.Publish(events.New(events.SessionCreated, s.ID, "", map[string]any{"workspace_dir": s.Workspace, "session": s.SnapshotUnlocked()}))
+	data := map[string]any{"workspace_dir": s.Workspace, "session": s.SnapshotUnlocked()}
+	if transcript != nil {
+		data["chat"] = transcript
+	}
+	r.bus.Publish(events.New(events.SessionCreated, s.ID, "", data))
 	return s, nil
 }
 

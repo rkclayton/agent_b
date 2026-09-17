@@ -9,6 +9,7 @@ import (
 	"harness/internal/agent"
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/projection"
 	"harness/internal/session"
 	"harness/internal/tools"
 )
@@ -79,6 +80,21 @@ func TestNewChatAfterRestartCarriesNothingFromARetainedChat(t *testing.T) {
 	restored, err := restoreRetainedChats(secondWriters, secondRegistry)
 	if err != nil || len(restored) != 1 || len(restored[0].Snapshot().Messages) != 3 {
 		t.Fatalf("restore: %d chats, err %v", len(restored), err)
+	}
+	// The restored chat's new log generation projects its retained transcript,
+	// not an empty chat (the gate caught the first attempt at this failing).
+	projected, _, err := projection.ProjectFile(restored[0].LogPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := false
+	for _, entry := range projected.Chat {
+		if entry.Type == "user" && entry.Text == "work on the runbook" {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatalf("restored chat projects without its transcript: %+v", projected.Chat)
 	}
 	if floor := retainedIDFloor(secondWriters); floor < 9 {
 		t.Fatalf("id floor %d does not cover m-9", floor)

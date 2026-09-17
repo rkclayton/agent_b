@@ -376,7 +376,7 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry) (
 		// Item 2et: results older than the chat's last user turn come back as
 		// their elision stubs; the JSONL keeps the bytes.
 		saved.Messages = contextmgr.StubOlderResults(saved.Messages, config.Defaults("").Tools.ReadFile.DefaultLimit)
-		item, restoreErr := registry.Restore(saved)
+		item, restoreErr := registry.RestoreWithTranscript(saved, replay.Sessions[id].Chat)
 		if restoreErr != nil {
 			return nil, restoreErr
 		}

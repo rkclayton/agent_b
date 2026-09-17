@@ -207,7 +207,8 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 	switch record.Event.Type {
 	case events.SessionCreated:
 		var wrapper struct {
-			Session seed `json:"session"`
+			Session seed        `json:"session"`
+			Chat    []ChatEntry `json:"chat"`
 		}
 		if err := decode(record.Event.Data, &wrapper); err != nil {
 			return previous, Patch{}, err
@@ -220,7 +221,9 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 		// its original created_at. It keeps the transcript already projected
 		// from its earlier segments; reseeding it empty made a chat with twenty
 		// messages of model context look like a new one.
-		if previous.ID == next.ID && previous.CreatedAt != "" && previous.CreatedAt == next.CreatedAt {
+		if len(wrapper.Chat) > 0 {
+			next.Chat = wrapper.Chat
+		} else if previous.ID == next.ID && previous.CreatedAt != "" && previous.CreatedAt == next.CreatedAt {
 			next.Chat, next.Timeline = previous.Chat, previous.Timeline
 		}
 	case events.SessionRenamed:

@@ -50,6 +50,22 @@ if (Test-Path -LiteralPath $evidence) {
     throw "EvidenceDirectory already exists: $evidence"
 }
 
+# Item 2er: each run proves it starts from nothing it did not create. The
+# disposable root (and the Edge profile inside it) must not exist yet, and the
+# host's CPU load is recorded beside the run's evidence for as long as it runs.
+if (Test-Path -LiteralPath $testRoot) { throw "Disposable root already exists: $testRoot" }
+$hostLoadPath = Join-Path $evidence 'host-load.json'
+$hostLoad = Start-Job -ScriptBlock {
+    param($path)
+    $samples = New-Object System.Collections.Generic.List[object]
+    while ($true) {
+        try { $value = [Math]::Round((Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 2 -MaxSamples 1).CounterSamples[0].CookedValue, 1) } catch { $value = $null }
+        $samples.Add([ordered]@{ at = (Get-Date).ToString('o'); cpu_percent = $value })
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path)
+        [IO.File]::WriteAllText($path, ($samples | ConvertTo-Json -Depth 3))
+    }
+} -ArgumentList $hostLoadPath
+
 try {
     $installArguments = @{
         SourceDirectory = $sourceRoot
@@ -98,6 +114,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Chat replay acceptance failed with exit code $LASTEXITCODE." }
     }
 } finally {
+    Stop-Job $hostLoad -ErrorAction SilentlyContinue
+    Remove-Job $hostLoad -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $registry) { Remove-Item -LiteralPath $registry -Recurse -Force }
     $resolvedTemp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
     $resolvedTest = [IO.Path]::GetFullPath($testRoot)
@@ -106,4 +124,6 @@ try {
         (Test-Path -LiteralPath $resolvedTest)) {
         Remove-TreeWithinAllowedRoots -Path $resolvedTest -AllowedRoots @($resolvedTest) -Purpose 'chat-acceptance disposable-root cleanup'
     }
+    if (Test-Path -LiteralPath $testRoot) { Write-Warning "Disposable root was not removed: $testRoot" }
+    elseif (Test-Path -LiteralPath $evidence) { Set-Content -LiteralPath (Join-Path $evidence 'root-freshness.txt') -Value "root $testRoot did not exist before the run and was removed after it, with its Edge profile" }
 }

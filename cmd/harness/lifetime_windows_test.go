@@ -34,11 +34,34 @@ func TestSessionEndIsRecordedBeforeWindowsEndsTheProcess(t *testing.T) {
 	if hwnd == 0 {
 		t.Fatal("the session-end window was never created")
 	}
+	// Item 2eq: nothing that can merely address the window stops production or
+	// writes a session-end line. WM_CLOSE is ignored; a posted session end is
+	// not Windows'.
+	postMessage := user32.NewProc("PostMessageW")
 	sendMessage.Call(hwnd, wmClose, 0, 0)
+	postMessage.Call(hwnd, wmQueryEndSession, 0, endSessionLogoff)
+	postMessage.Call(hwnd, wmEndSession, 1, endSessionLogoff)
+	select {
+	case <-closes:
+		t.Fatal("WM_CLOSE was acted on")
+	case <-time.After(500 * time.Millisecond):
+	}
+	if data, _ := os.ReadFile(filepath.Join(root, "logs", launcherLogName)); len(data) != 0 {
+		t.Fatalf("a posted session end was recorded: %q", data)
+	}
+	// The graceful stop's own channel.
+	openEvent := syscall.NewLazyDLL("kernel32.dll").NewProc("OpenEventW")
+	eventName, _ := syscall.UTF16PtrFromString(stopEventName(os.Getpid()))
+	event, _, openErr := openEvent.Call(0x0002 /* EVENT_MODIFY_STATE */, 0, uintptr(unsafe.Pointer(eventName)))
+	if event == 0 {
+		t.Fatalf("the stop event does not exist: %v", openErr)
+	}
+	defer syscall.CloseHandle(syscall.Handle(event))
+	syscall.NewLazyDLL("kernel32.dll").NewProc("SetEvent").Call(event)
 	select {
 	case <-closes:
 	case <-time.After(2 * time.Second):
-		t.Fatal("WM_CLOSE was not delivered as a close request")
+		t.Fatal("the stop event was not delivered as a close request")
 	}
 	if answer, _, _ := sendMessage.Call(hwnd, wmQueryEndSession, 0, endSessionLogoff); answer != 1 {
 		t.Fatalf("WM_QUERYENDSESSION answered %d", answer)

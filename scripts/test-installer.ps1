@@ -8,6 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
+. (Join-Path $PSScriptRoot 'agentb-stop.ps1')
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-installer-test-' + [Guid]::NewGuid().ToString('N'))
 $testApplication = Join-Path $testRoot 'Application\Agent_b'
 $testData = Join-Path $testRoot 'Data\Agent_b'
@@ -511,8 +512,7 @@ try {
     if ($rollbackState.build.commit -ne $afterState.build.commit -or [bool]$rollbackState.build.dirty -ne [bool]$afterState.build.dirty) {
         throw 'Forced-failure restart identity does not match the previously installed build.'
     }
-    & (Join-Path $env:SystemRoot 'System32\taskkill.exe') /PID $afterProcesses[0].Id | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not stop the restarted disposable Agent_b.' }
+    $null = Request-AgentbGracefulStop -ProcessId $afterProcesses[0].Id
     $afterProcesses[0].WaitForExit(15000) | Out-Null
     if (-not $afterProcesses[0].HasExited) { throw 'Restarted disposable Agent_b did not exit.' }
 

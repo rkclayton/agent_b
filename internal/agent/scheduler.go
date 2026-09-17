@@ -44,6 +44,9 @@ type Scheduler struct {
 	agentIdle   func(string)
 }
 
+// ReserveIDs moves the run-id counter past floor (item 2es).
+func (s *Scheduler) ReserveIDs(floor int64) { reserveCounter(&s.ids, floor) }
+
 func NewScheduler(runner *Runner, registry *session.Registry, bus *events.Bus, cfg func() config.Config) *Scheduler {
 	return &Scheduler{runner: runner, registry: registry, bus: bus, cfg: cfg, active: map[string]*activeRun{}, pending: map[string][]queuedRun{}, held: map[string]bool{}, unreachable: map[string]bool{}}
 }

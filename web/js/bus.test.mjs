@@ -154,3 +154,19 @@ test("a patch the snapshot already holds is skipped, not applied twice and not a
   patch(11, [{ op: "replace", path: "/model_turns", value: 5 }], 10);
   assert.equal(store.sessions.main.model_turns, 5);
 });
+
+test("a restored chat with messages is never selected for the operator; an empty chat may be", () => {
+  // Item 2es: after a restart the retained s7 was picked and looked like a new chat.
+  setSelection("agent_b", "");
+  const base = { cursor: { generation: "g", offset: 10 }, run: { status: "idle" }, tools: [], timeline: [], role: "b" };
+  reduce({ type: "snapshot", data: { sessions: { s7: { ...base, id: "s7", messages: [{ id: "m-1", role: "user", content: "earlier work" }] } }, replay: false, servers: [], config: {} } });
+  assert.equal(store.active, "");
+  assert.equal(store.selection.session_id, "");
+  reduce({ type: "projection.patch", data: { schema_version: 1, session_id: "s7", previous_cursor: { generation: "g", offset: 10 }, cursor: { generation: "g", offset: 11 }, operations: [{ op: "replace", path: "/model_turns", value: 1 }] } });
+  assert.equal(store.active, "", "a patch for a retained chat does not select it");
+  reduce({ type: "snapshot", data: { sessions: { s7: { ...base, id: "s7", messages: [{ id: "m-1", role: "user", content: "earlier work" }] }, s8: { ...base, id: "s8", messages: [] } }, replay: false, servers: [], config: {} } });
+  assert.equal(store.active, "s8");
+  setSelection("agent_b", "s7");
+  reduce({ type: "snapshot", data: { sessions: { s7: { ...base, id: "s7", messages: [{ id: "m-1", role: "user", content: "earlier work" }] } }, replay: false, servers: [], config: {} } });
+  assert.equal(store.active, "s7", "the operator's own selection stands");
+});

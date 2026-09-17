@@ -7,10 +7,12 @@ function Assert-RemovalWithinAllowedRoots {
     if ([string]::IsNullOrWhiteSpace($Path) -or -not $AllowedRoots.Count) {
         throw "Refusing $Purpose without a path and explicit allowed removal roots."
     }
-    $full = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Path)).TrimEnd('\')
+    # Literal paths: a name such as %HOMEPATH% is a file name here, never a
+    # variable (v0.64.0/W8).
+    $full = [IO.Path]::GetFullPath($Path).TrimEnd('\')
     foreach ($rootPath in $AllowedRoots) {
         if ([string]::IsNullOrWhiteSpace($rootPath)) { continue }
-        $root = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($rootPath)).TrimEnd('\')
+        $root = [IO.Path]::GetFullPath($rootPath).TrimEnd('\')
         if ($full.Equals($root, [StringComparison]::OrdinalIgnoreCase) -or
             $full.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) {
             return $full

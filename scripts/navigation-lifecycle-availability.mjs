@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "node:http";
@@ -107,5 +108,5 @@ try {
     edgeProcess.kill();
     await Promise.race([new Promise((done) => edgeProcess.once("exit", done)), sleep(3000)]);
   }
-  await rm(tempRoot, { recursive: true, force: true });
+  removeTreeWithinAllowedRoots(tempRoot, [tmpdir()], "navigation-lifecycle-availability cleanup");
 }

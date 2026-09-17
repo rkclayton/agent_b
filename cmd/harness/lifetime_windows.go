@@ -19,17 +19,25 @@ const (
 	endSessionCloseApp             = 0x00000001
 	endSessionCritical             = 0x40000000
 	endSessionLogoff               = 0x80000000
+	ismexSend                      = 0x00000001
 )
 
+// stopEventName is the installer's graceful-stop channel for one process, in
+// the session namespace the installer and the process share.
+func stopEventName(pid int) string { return fmt.Sprintf(`Local\Agent_b-stop-%d`, pid) }
+
 var (
-	user32              = syscall.NewLazyDLL("user32.dll")
-	procRegisterClassEx = user32.NewProc("RegisterClassExW")
-	procCreateWindowEx  = user32.NewProc("CreateWindowExW")
-	procDefWindowProc   = user32.NewProc("DefWindowProcW")
-	procGetMessage      = user32.NewProc("GetMessageW")
-	procDispatchMessage = user32.NewProc("DispatchMessageW")
-	procGetModuleHandle = syscall.NewLazyDLL("kernel32.dll").NewProc("GetModuleHandleW")
-	sessionEndClassName = fmt.Sprintf("Agent_b-session-end-%d", os.Getpid())
+	user32                        = syscall.NewLazyDLL("user32.dll")
+	procRegisterClassEx           = user32.NewProc("RegisterClassExW")
+	procCreateWindowEx            = user32.NewProc("CreateWindowExW")
+	procDefWindowProc             = user32.NewProc("DefWindowProcW")
+	procGetMessage                = user32.NewProc("GetMessageW")
+	procDispatchMessage           = user32.NewProc("DispatchMessageW")
+	procGetModuleHandle           = syscall.NewLazyDLL("kernel32.dll").NewProc("GetModuleHandleW")
+	procCreateEvent               = syscall.NewLazyDLL("kernel32.dll").NewProc("CreateEventW")
+	procInSendMessageEx           = user32.NewProc("InSendMessageEx")
+	procConvertSecurityDescriptor = syscall.NewLazyDLL("advapi32.dll").NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
+	sessionEndClassName           = fmt.Sprintf("Agent_b-session-end-%d", os.Getpid())
 )
 
 type wndClassEx struct {
@@ -95,25 +103,32 @@ func processRunning(pid int, created int64) bool {
 // console control events are not delivered to an interactive user's process at
 // logoff. The reason is written synchronously: Windows may end the process as
 // soon as the handler returns.
-// WM_CLOSE (taskkill without /F, the installer's graceful stop) is a stop
-// request, answered like the console close signal rather than by destroying the
-// window and leaving the process running.
+//
+// Item 2eq: any process on the desktop can address a top-level window, so the
+// window acts on nothing it cannot attribute to Windows. WM_CLOSE is ignored.
+// A session end is recorded only when WM_QUERYENDSESSION and then WM_ENDSESSION
+// were both sent (the way Windows delivers them), never posted. The graceful
+// stop has its own channel instead: a named event in this session that only
+// the operator's account and SYSTEM may signal (stopEventName).
 func watchSessionEnd(record func(string), closeRequested func()) {
+	watchStopEvent(closeRequested)
 	go func() {
 		runtime.LockOSThread()
 		className, _ := syscall.UTF16PtrFromString(sessionEndClassName)
 		instance, _, _ := procGetModuleHandle.Call(0)
+		queried := false
 		callback := syscall.NewCallback(func(hwnd syscall.Handle, message uint32, wParam, lParam uintptr) uintptr {
 			switch message {
 			case wmQueryEndSession:
+				queried = sentMessage()
 				return 1
 			case wmClose:
-				closeRequested()
 				return 0
 			case wmEndSession:
-				if wParam != 0 {
+				if wParam != 0 && queried && sentMessage() {
 					record(sessionEndReason(lParam))
 				}
+				queried = false
 				return 0
 			}
 			result, _, _ := procDefWindowProc.Call(uintptr(hwnd), uintptr(message), wParam, lParam)
@@ -135,6 +150,55 @@ func watchSessionEnd(record func(string), closeRequested func()) {
 				return
 			}
 			procDispatchMessage.Call(uintptr(unsafe.Pointer(&message)))
+		}
+	}()
+}
+
+// sentMessage is true while the window procedure handles a message another
+// thread sent with SendMessage; a posted message is not one.
+func sentMessage() bool {
+	flags, _, _ := procInSendMessageEx.Call(0)
+	return flags&ismexSend != 0
+}
+
+// watchStopEvent creates the graceful-stop channel. The installer opens the
+// event by name and sets it. Its DACL admits only this process's user and
+// SYSTEM, so a service-account tool process cannot signal it; if the name
+// already exists (someone created it first), the channel is not used, since
+// its creator would control it.
+func watchStopEvent(closeRequested func()) {
+	token, err := syscall.OpenCurrentProcessToken()
+	if err != nil {
+		return
+	}
+	user, err := token.GetTokenUser()
+	token.Close()
+	if err != nil {
+		return
+	}
+	sid, err := user.User.Sid.String()
+	if err != nil {
+		return
+	}
+	sddl, _ := syscall.UTF16PtrFromString("D:P(A;;GA;;;" + sid + ")(A;;GA;;;SY)")
+	var descriptor uintptr
+	if ok, _, _ := procConvertSecurityDescriptor.Call(uintptr(unsafe.Pointer(sddl)), 1, uintptr(unsafe.Pointer(&descriptor)), 0); ok == 0 {
+		return
+	}
+	defer syscall.LocalFree(syscall.Handle(descriptor))
+	attributes := syscall.SecurityAttributes{Length: uint32(unsafe.Sizeof(syscall.SecurityAttributes{})), SecurityDescriptor: descriptor}
+	name, _ := syscall.UTF16PtrFromString(stopEventName(os.Getpid()))
+	event, _, createErr := procCreateEvent.Call(uintptr(unsafe.Pointer(&attributes)), 1, 0, uintptr(unsafe.Pointer(name)))
+	if event == 0 {
+		return
+	}
+	if createErr == syscall.ERROR_ALREADY_EXISTS {
+		syscall.CloseHandle(syscall.Handle(event))
+		return
+	}
+	go func() {
+		if wait, _ := syscall.WaitForSingleObject(syscall.Handle(event), syscall.INFINITE); wait == syscall.WAIT_OBJECT_0 {
+			closeRequested()
 		}
 	}()
 }

@@ -33,6 +33,18 @@ const (
 	errorLogonFailure        = syscall.Errno(1326)
 	errorLogonTypeNotGranted = syscall.Errno(1385)
 	errorDirectory           = syscall.Errno(267)
+
+	// JOBOBJECT_BASIC_UI_RESTRICTIONS (item 2eq). A service-account tool shares
+	// the operator's desktop; these deny it USER handles owned by processes
+	// outside its job (so it cannot address production's or the operator's
+	// windows), desktop creation and switching, display-settings changes and
+	// ExitWindows.
+	jobObjectBasicUIRestrictions = 4
+	jobUILimitHandles            = 0x00000001
+	jobUILimitDisplaySettings    = 0x00000010
+	jobUILimitDesktop            = 0x00000040
+	jobUILimitExitWindows        = 0x00000080
+	serviceJobUIRestrictions     = jobUILimitHandles | jobUILimitDesktop | jobUILimitDisplaySettings | jobUILimitExitWindows
 )
 
 var (
@@ -41,6 +53,7 @@ var (
 	serviceKernel32             = syscall.NewLazyDLL("kernel32.dll")
 	procCreateJobObjectW        = serviceKernel32.NewProc("CreateJobObjectW")
 	procAssignProcessToJob      = serviceKernel32.NewProc("AssignProcessToJobObject")
+	procSetInformationJobObject = serviceKernel32.NewProc("SetInformationJobObject")
 	procTerminateJobObject      = serviceKernel32.NewProc("TerminateJobObject")
 	procResumeThread            = serviceKernel32.NewProc("ResumeThread")
 	serviceSpawnMu              sync.Mutex
@@ -166,6 +179,13 @@ func startServiceAccountProcessWithInput(executable string, argv []string, works
 		syscall.TerminateProcess(process.Process, 1)
 		syscall.CloseHandle(process.Process)
 		return nil, &serviceSpawnError{kind: "service-account job object creation failed", err: jobErr}
+	}
+	uiRestrictions := uint32(serviceJobUIRestrictions)
+	if restricted, _, restrictErr := procSetInformationJobObject.Call(job, jobObjectBasicUIRestrictions, uintptr(unsafe.Pointer(&uiRestrictions)), unsafe.Sizeof(uiRestrictions)); restricted == 0 {
+		syscall.TerminateProcess(process.Process, 1)
+		syscall.CloseHandle(process.Process)
+		syscall.CloseHandle(syscall.Handle(job))
+		return nil, &serviceSpawnError{kind: "service-account job UI restriction failed", err: restrictErr}
 	}
 	assigned, _, assignErr := procAssignProcessToJob.Call(job, uintptr(process.Process))
 	if assigned == 0 {

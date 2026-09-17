@@ -469,7 +469,7 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime) error {
 		return httpServer.Shutdown(ctx)
 	case <-closeRequests:
 		log.Printf("stopping on a close request")
-		stopped("asked to close (taskkill without /F or the installer's graceful stop)")
+		stopped("asked to close (the installer's graceful stop)")
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return httpServer.Shutdown(ctx)

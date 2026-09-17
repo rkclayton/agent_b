@@ -269,6 +269,9 @@ func main() {
 		if restoreErr != nil {
 			log.Fatal(restoreErr)
 		}
+		floor := retainedIDFloor(writers)
+		runner.ReserveIDs(floor)
+		scheduler.ReserveIDs(floor)
 		open := false
 		for _, item := range restored {
 			if !item.IsClosed() {
@@ -293,6 +296,47 @@ func main() {
 	if err := serve(cfg, web.Handler(), newLifetime(paths.Data, time.Now)); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// retainedIDFloor is the highest numeric id suffix a restored chat holds in a
+// message id or a run id. Message and run ids come from counters that start at
+// 1 in every process; without this floor the first run after a restart reused
+// r1 and m-1 inside a chat that already had them (item 2es).
+func retainedIDFloor(writers *events.Writers) int64 {
+	paths, err := writers.DurableChatPaths()
+	if err != nil || len(paths) == 0 {
+		return 0
+	}
+	replay, err := projection.LoadReplay(paths)
+	if err != nil {
+		return 0
+	}
+	var floor int64
+	note := func(id string) {
+		end := len(id)
+		start := end
+		for start > 0 && id[start-1] >= '0' && id[start-1] <= '9' {
+			start--
+		}
+		if start == end {
+			return
+		}
+		if value, parseErr := strconv.ParseInt(id[start:end], 10, 64); parseErr == nil && value > floor {
+			floor = value
+		}
+	}
+	for _, snapshot := range replay.Sessions {
+		for _, message := range snapshot.Messages {
+			note(message.ID)
+		}
+		for _, entry := range snapshot.Chat {
+			note(entry.RunID)
+		}
+		for _, event := range snapshot.Timeline {
+			note(event.RunID)
+		}
+	}
+	return floor
 }
 
 func restoreRetainedChats(writers *events.Writers, registry *session.Registry) ([]*session.Session, error) {

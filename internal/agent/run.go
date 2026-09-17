@@ -111,6 +111,19 @@ func (r *Runner) SettlePlanTurns(ctx context.Context, s *session.Session, itemID
 	return r.compact.Settle(s, "", pointer, ids, func(text string) (int, bool) { return r.count(ctx, p, text) })
 }
 func (r *Runner) id(prefix string) string { return fmt.Sprintf("%s-%d", prefix, r.ids.Add(1)) }
+
+// ReserveIDs moves the id counter past floor, so ids minted after a restart
+// never repeat one a restored chat already holds (item 2es).
+func (r *Runner) ReserveIDs(floor int64) { reserveCounter(&r.ids, floor) }
+
+func reserveCounter(counter *atomic.Int64, floor int64) {
+	for {
+		current := counter.Load()
+		if current >= floor || counter.CompareAndSwap(current, floor) {
+			return
+		}
+	}
+}
 func (r *Runner) AddUser(ctx context.Context, s *session.Session, text string) (events.Message, error) {
 	return r.AddUserAttachments(ctx, s, text, nil)
 }

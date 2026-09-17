@@ -1491,6 +1491,21 @@ if (realModel) {
   assert.equal(Object.keys(restartedState.sessions).length, retainedBeforeRestart);
   assert.ok(restartedState.sessions[scriptSessionID]?.messages?.some((message) => message.content?.includes("acceptance: run-script grant")));
   assert.ok((await readdir(join(args.data, "chats"))).filter((name) => name.endsWith(".jsonl")).length >= retainedBeforeRestart);
+  // Item 2es: a restored chat keeps its visible transcript, and `+` after the
+  // restart is a new, selected, empty chat with nothing of the retained ones.
+  assert.ok(restartedState.sessions[scriptSessionID]?.chat?.some((entry) => entry.type === "user" && entry.text?.includes("acceptance: run-script grant")), "a restored chat must keep its transcript");
+  const idsBeforePlus = new Set(Object.keys(restartedState.sessions));
+  const tabsBeforePlus = await page.locator(".agent-tab-wrap[data-session]").count();
+  await page.locator(".shell-left > .agent-tab-new").click();
+  await page.waitForFunction((count) => document.querySelectorAll(".agent-tab-wrap[data-session]").length === count + 1, tabsBeforePlus);
+  const afterPlus = await state();
+  const plusID = Object.keys(afterPlus.sessions).find((id) => !idsBeforePlus.has(id));
+  assert.ok(plusID, "+ after a restart must create a new session id");
+  await page.waitForFunction((id) => document.querySelector(".agent-tab-wrap.selected")?.dataset.session === id, plusID);
+  assert.equal(afterPlus.sessions[plusID].messages.length, 0, "+ after a restart must start with no messages");
+  assert.equal(afterPlus.sessions[plusID].chat.length, 0, "+ after a restart must show an empty transcript");
+  assert.notEqual(afterPlus.sessions[plusID].workspace_dir, restartedState.sessions[scriptSessionID].workspace_dir, "+ must get its own scratch folder");
+  assert.equal(afterPlus.sessions[plusID].budget?.categories?.files || 0, 0, "+ must carry no files");
   record("chats-transcripts-and-names-survive-application-restart");
 
   const browserPlanDir = join(args.data, "plans", "browser-plan");

@@ -72,8 +72,9 @@ test("Degraded accounting is labeled estimated in the Chat occupancy bar", () =>
 test("State strip owns queue operator pending and unreachable state without chat rows", () => {
   assert.match(html, /id="chat-status-strip"[\s\S]*id="chat-notice"[\s\S]*id="chat-retry-model"/);
   assert.doesNotMatch(html + chat, /chat-run-as-you/);
-  assert.match(chat, /model unreachable · \$\{unreachable\.host/);
-	assert.match(chat, /model busy · \$\{busy\.host/);
+  // Item 2eo: a busy or unreachable model is the whole strip line, never both.
+  assert.match(chat, /const modelLine = unreachable \? "model unreachable" : busy \? "model busy" : ""/);
+	assert.doesNotMatch(chat, /model busy · \$\{busy\.host/);
 	assert.match(chat, /session\.server_id \|\| session\.b_profile/);
   assert.match(chat, /queued \(\$\{queued\}\).*waiting for model/);
   assert.match(chat, /operator mode · until/);

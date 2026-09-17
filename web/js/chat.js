@@ -10,7 +10,7 @@ import { attachmentChipFile, attachmentMetadata, exchangeFiles, exchangeUpload, 
 import { attachmentReadability } from "./attachment-readability.js";
 import { agentAuthor, isRunning, openSessions, sameWorkerPlan, workerApproval } from "./chat-lifecycle.js";
 import { renderStopState } from "./stop-state.js";
-import { groupResponseRows, hasVisibleChatContent, isIdenticalSingleStepFold, itemFailed, responseBlocks, responseSummary } from "./chat-response-groups.js";
+import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, isIdenticalSingleStepFold, itemFailed, responseBlocks, responseSummary } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
 
@@ -446,7 +446,11 @@ function renderResponseStepFold(session, view, block, active) {
     view.fold.append(view.head, view.rows);
   }
   const totals = responseSummary(block.steps);
-  const open = active || expanded.has(block.key);
+  // Item 2eo: one tool call and one thought are two rows, not a group.
+  const headerless = !active && isHeaderlessSteps(block.steps);
+  const open = active || headerless || expanded.has(block.key);
+  view.head.hidden = headerless;
+  view.fold.classList.toggle("headerless", headerless);
   view.fold.classList.toggle("alarm", totals.failed > 0);
   setAttribute(view.head, "aria-expanded", String(open));
   setText(view.head, `${open ? "▾" : "▸"} Steps · ${responseSummaryText(totals, block.steps.length)}`);
@@ -698,6 +702,15 @@ function toolTick(entry, forceOpen = false) {
     view = { root, button, pre, collapse, args: null, result: null, content: null };
     toolViews.set(entry.key, view);
   }
+  // Item 2eo: a harness note is a line of its own, never part of the result.
+  const note = typeof entry.result?.harness_note === "string" ? entry.result.harness_note : "";
+  if (note) {
+    if (!view.note) { view.note = document.createElement("div"); view.note.className = "tool-harness-note"; }
+    setText(view.note, `harness · ${note}`);
+    if (view.root.firstChild !== view.note) view.root.prepend(view.note);
+  } else if (view.note?.isConnected) {
+    view.note.remove();
+  }
   const open = forceOpen || expanded.has(entry.key);
   setAttribute(view.button, "aria-expanded", String(open));
   const state = entry.result && typeof entry.result.ok === "boolean" ? (entry.result.ok ? "ok" : "error") : "";
@@ -832,10 +845,12 @@ function renderComposer(session) {
   const operatorUntil = store.shell_identity?.operator_context ? `operator mode · until ${shortTime(store.shell_identity.operator_context_expires_at)}` : "";
   const queueText = queued ? `queued (${queued})${unreachable ? " · waiting for model" : ""}` : "";
   const activity = liveActivityText(session);
-  const unavailable = unreachable ? `model unreachable · ${unreachable.host || "model"}` : "";
-  const occupied = busy ? `model busy · ${busy.host || "model"}` : "";
-  const primary = session && !session.runnable ? session.not_runnable_reason : activity || unavailable || occupied || state;
-  const message = [localNotice || primary, activity && unavailable ? unavailable : "", activity && occupied ? occupied : "", queueText, operatorUntil].filter(Boolean).join(" · ");
+  // Item 2eo: "remove the redundant text above chat that says model busy -
+  // model unavailable. just put 'model busy'". A busy or unreachable model is
+  // the whole line, and the two never appear together; the host is on hover.
+  const modelLine = unreachable ? "model unreachable" : busy ? "model busy" : "";
+  const primary = session && !session.runnable ? session.not_runnable_reason : modelLine || activity || state;
+  const message = localNotice || (modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil].filter(Boolean).join(" · "));
   // Live state, not decoration: the robot runs beside the live line for exactly
   // as long as the run is live, and is absent otherwise. Its eyes take the same
   // state colour the tab robot uses.
@@ -851,6 +866,7 @@ function renderComposer(session) {
   const text = document.createElement("span");
   text.className = "chat-notice-text";
   text.textContent = message;
+  if (modelLine && message === modelLine) text.title = (unreachable || busy)?.host || "";
   notice.append(text);
   notice.className = `chat-notice ${localAlarm || unreachable || (session && !session.runnable) ? "alarm" : ""}`;
 	pendingFiles.replaceChildren(...queuedAttachments.map((file) => {

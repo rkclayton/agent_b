@@ -89,7 +89,7 @@ type WriteFile struct{ coordinator *FileCoordinator }
 func NewWriteFile(c *FileCoordinator) *WriteFile { return &WriteFile{coordinator: c} }
 func (*WriteFile) Name() string                  { return "write_file" }
 func (*WriteFile) Description() string {
-	return "Create or fully replace the file at path with content, creating parent directories. Unlike edit_file, it writes the whole file."
+	return "Create or fully replace the file at path with content, creating parent directories. Unlike edit_file, it writes the whole file. A path ending .xlsx takes Markdown tables, one per ## sheet-name heading, and writes an Excel workbook."
 }
 func (*WriteFile) Schema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "content": map[string]any{"type": "string"}}, "required": []string{"path", "content"}}
@@ -139,6 +139,25 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 	if err := refusePlanManifestWrite(s, resolved); err != nil {
 		return "", err
 	}
+	// Item 2ep: an .xlsx path turns its Markdown tables into a workbook; every
+	// other extension is written as the bytes given.
+	sheetSummary := ""
+	if strings.EqualFold(filepath.Ext(resolved), ".xlsx") {
+		sheets, parseErr := markdownWorkbook(content)
+		if parseErr != nil {
+			return "", parseErr
+		}
+		workbook, buildErr := buildWorkbook(sheets)
+		if buildErr != nil {
+			return "", buildErr
+		}
+		rows := 0
+		for _, sheet := range sheets {
+			rows += len(sheet.rows)
+		}
+		sheetSummary = fmt.Sprintf("%d %s, %d rows", len(sheets), map[bool]string{true: "sheet", false: "sheets"}[len(sheets) == 1], rows)
+		content = string(workbook)
+	}
 	if existing, readErr := os.ReadFile(resolved); readErr == nil && string(existing) == content {
 		w.coordinator.publishPlan(s)
 		return fmt.Sprintf("unchanged: %s already has the requested bytes", cleanRel(path)), nil
@@ -181,6 +200,9 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 		if strings.HasSuffix(content, "\n") {
 			lines--
 		}
+	}
+	if sheetSummary != "" {
+		return prefix + fmt.Sprintf("ok: wrote %s (%s)", cleanRel(path), sheetSummary), nil
 	}
 	return prefix + fmt.Sprintf("ok: wrote %s (%d lines)", cleanRel(path), lines), nil
 }

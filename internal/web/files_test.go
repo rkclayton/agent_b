@@ -75,3 +75,34 @@ func TestOpenFolderUsesJailResolvedWorkspaceFile(t *testing.T) {
 		t.Fatalf("status=%d opened=%q body=%s", response.Code, opened, response.Body)
 	}
 }
+
+// Item 2ep: the chip opens a delivered document with the operator's default
+// application, never a file type whose default action runs it.
+func TestOpenFileOpensDocumentsOnlyInsideTheWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	for name, body := range map[string]string{"report.xlsx": "xlsx", "run.bat": "@echo off"} {
+		if err := os.WriteFile(filepath.Join(workspace, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := config.Defaults(workspace)
+	server := New(&cfg, filepath.Join(t.TempDir(), "harness.json"), t.TempDir(), RuntimeRoots{Workspace: workspace}, events.NewBus())
+	opened := []string{}
+	server.openFile = func(value string) error { opened = append(opened, value); return nil }
+	call := func(body string) int {
+		request := httptest.NewRequest(http.MethodPost, "/api/open-file", strings.NewReader(body))
+		authorizeMutation(request, server)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		return response.Code
+	}
+	if code := call(`{"path":"report.xlsx"}`); code != http.StatusOK || len(opened) != 1 || opened[0] != filepath.Join(workspace, "report.xlsx") {
+		t.Fatalf("xlsx status=%d opened=%v", code, opened)
+	}
+	if code := call(`{"path":"run.bat"}`); code != http.StatusUnsupportedMediaType || len(opened) != 1 {
+		t.Fatalf("bat status=%d opened=%v", code, opened)
+	}
+	if code := call(`{"path":"../outside.xlsx"}`); code != http.StatusNotFound || len(opened) != 1 {
+		t.Fatalf("escape status=%d opened=%v", code, opened)
+	}
+}

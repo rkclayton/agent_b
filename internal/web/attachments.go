@@ -202,7 +202,15 @@ func (s *Server) extractAttachment(ctx context.Context, profile config.Profile, 
 	case attachmentfile.Text:
 		return "text", "read with read_file", "", nil
 	case attachmentfile.Office:
-		text, extractErr := attachmentfile.ExtractOffice(resolved, maxBytes)
+		// Item 2ep: a workbook or document keeps its structure (tables per sheet;
+		// headings, lists and tables in order); other Office types stay plain text.
+		note = "crude stdlib XML text extracted"
+		text, structured, extractErr := attachmentfile.ExtractStructuredOffice(resolved, maxBytes)
+		if structured {
+			note = "structured Markdown extracted (tables per sheet; headings, lists and tables in order)"
+		} else {
+			text, extractErr = attachmentfile.ExtractOffice(resolved, maxBytes)
+		}
 		if extractErr != nil {
 			return "", "", "", extractErr
 		}
@@ -214,7 +222,7 @@ func (s *Server) extractAttachment(ctx context.Context, profile config.Profile, 
 		if writeErr := attachmentfile.WriteSidecar(path, text); writeErr != nil && !os.IsExist(writeErr) {
 			return "", "", "", writeErr
 		}
-		return "office", "crude stdlib XML text extracted", sidecar, nil
+		return "office", note, sidecar, nil
 	case attachmentfile.PDF:
 		if profile.NativeDocumentInput() {
 			return "native", "document routed natively", "", nil

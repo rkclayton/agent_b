@@ -33,8 +33,17 @@ test("file chips derive only successful writes from a canned projected response"
   assert.equal(chip.children[0].textContent, "final.txt");
   assert.equal(chip.children[1].textContent, "1.5 KiB");
   assert.equal(chip.children[2].tagName, "a");
-  assert.equal(chip.children[2].textContent, "folder");
-  assert.equal(chip.children.some((child) => child.textContent === "download" || child.textContent === "open folder"), false);
+  // Item 2ep: the folder link is a glyph with "folder" on hover, no visible word.
+  assert.equal(chip.children[2].textContent, "");
+  assert.equal(chip.children[2].title, "folder");
+  assert.equal(chip.children.some((child) => child.textContent === "download" || child.textContent === "open folder" || child.textContent === "folder"), false);
+  let opened = 0;
+  const openable = createFileChip(document, { path: "reports/report.xlsx", bytes: 2534 }, { state: "ready", bytes: 2534 }, { openFolder() {}, openFile() { opened++; } });
+  assert.equal(openable.children[0].className, "file-chip-name openable");
+  openable.children[0].onclick();
+  assert.equal(opened, 1);
+  const script = createFileChip(document, { path: "run.bat", bytes: 9 }, { state: "ready", bytes: 9 }, { openFolder() {}, openFile() { opened++; } });
+  assert.equal(script.children[0].className, "file-chip-name", "a file whose default action runs it is not opened from its name");
 });
 
 test("both mode points open-folder at the durable exchange copy", () => {

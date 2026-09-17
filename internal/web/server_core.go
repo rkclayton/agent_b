@@ -30,8 +30,8 @@ import (
 	"harness/internal/signing"
 	"harness/internal/stats"
 	"harness/internal/tools"
-	workspaceinfo "harness/internal/workspace"
 	"harness/internal/worker"
+	workspaceinfo "harness/internal/workspace"
 )
 
 type Server struct {
@@ -74,6 +74,7 @@ type Server struct {
 	operatorNow       func() time.Time
 	operatorAfter     func(time.Duration, func()) operatorTimer
 	openFolder        func(string) error
+	openFile          func(string) error
 	extractClient     *http.Client
 	ocrExtract        func(string) (string, error)
 	detectLocal       func(context.Context, string) (any, error)
@@ -115,6 +116,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 			return time.AfterFunc(duration, fn)
 		},
 		openFolder:   openContainingFolder,
+		openFile:     openWithDefaultApplication,
 		probeCancels: map[string]*probeRun{},
 		reachability: map[string]*reachabilityRetry{},
 		reachabilityAfter: func(duration time.Duration, fn func()) operatorTimer {
@@ -208,6 +210,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/local-detection", s.localDetection)
 	mux.HandleFunc("/api/files/", s.file)
 	mux.HandleFunc("/api/open-folder", s.openFileFolder)
+	mux.HandleFunc("/api/open-file", s.openDeliveredFile)
 	mux.HandleFunc("/api/attachments", s.replayGuard(s.attachments))
 	mux.HandleFunc("/api/exchange-files", s.exchangeFiles)
 	mux.HandleFunc("/api/operator-attachments", s.operatorAttachments)

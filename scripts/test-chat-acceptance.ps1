@@ -117,6 +117,11 @@ try {
     Stop-Job $hostLoad -ErrorAction SilentlyContinue
     Remove-Job $hostLoad -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $registry) { Remove-Item -LiteralPath $registry -Recurse -Force }
+    # Item 2er: removal raced the disposable application's exit and left the root
+    # behind on a loaded host; wait for every process started from the root to end.
+    foreach ($process in @(Get-Process -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -and [IO.Path]::GetFullPath($_.Path).StartsWith([IO.Path]::GetFullPath($testRoot) + '\', [StringComparison]::OrdinalIgnoreCase) } catch { $false } })) {
+        if (-not $process.WaitForExit(20000)) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue; $null = $process.WaitForExit(10000) }
+    }
     $resolvedTemp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
     $resolvedTest = [IO.Path]::GetFullPath($testRoot)
     if ($resolvedTest.StartsWith($resolvedTemp, [StringComparison]::OrdinalIgnoreCase) -and

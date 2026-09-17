@@ -1654,11 +1654,21 @@ if (realModel) {
   }
   if (!workerCards) {
     const serverWorker = Object.values((await state()).sessions).find((entry) => entry.role === "c");
-    const clientWorker = await page.evaluate((id) => {
+    const clientWorker = await page.evaluate(async (id) => {
       const html = document.querySelector("#chat-pending-approval")?.outerHTML || "";
-      return { html: html.slice(0, 400) };
+      // v0.65.0/W8 (2er): what the page's store holds for the worker and the
+      // selected design thread, beside the server's view.
+      const bus = await import("/static/js/bus.js");
+      const worker = bus.store.sessions[id];
+      const selected = bus.store.sessions[bus.store.selection.session_id];
+      return {
+        html: html.slice(0, 400),
+        store_worker: worker ? { role: worker.role, plan_id: worker.plan_id, closed: worker.closed, pending: worker.pending_approval?.event?.data?.name || null, cursor: worker.cursor, run: worker.run?.status } : null,
+        selected: selected ? { id: selected.id, role: selected.role, plan_id: selected.plan_id } : null,
+        session_ids: Object.keys(bus.store.sessions),
+      };
     }, serverWorker?.id);
-    process.stdout.write(`WORKER CARD DIAGNOSTIC plan=${JSON.stringify(await readFile(planPath, "utf8"))} server_pending=${JSON.stringify(serverWorker?.pending_approval?.event?.data?.name || null)} run=${JSON.stringify(serverWorker?.run?.status || null)} client=${JSON.stringify(clientWorker)}` + String.fromCharCode(10));
+    process.stdout.write(`WORKER CARD DIAGNOSTIC plan=${JSON.stringify(await readFile(planPath, "utf8"))} server_pending=${JSON.stringify(serverWorker?.pending_approval?.event?.data?.name || null)} server_worker=${JSON.stringify({ id: serverWorker?.id, plan_id: serverWorker?.plan_id, cursor: serverWorker?.cursor })} run=${JSON.stringify(serverWorker?.run?.status || null)} client=${JSON.stringify(clientWorker)}` + String.fromCharCode(10));
   }
   assert.ok(workerCards > 0, "the worker's approval was never drawn in the design thread");
 

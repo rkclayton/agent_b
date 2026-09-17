@@ -8,11 +8,16 @@ globalThis.sessionStorage = { getItem: (key) => stored.get(key) || null, setItem
 globalThis.EventSource = class { addEventListener() {} };
 const { reduce, setSelection, store, subscribe } = await import("./bus.js");
 
+// Each fixture snapshot is a new log generation: within one generation a
+// server's offsets only grow, and a snapshot behind what the page holds is kept
+// out (see "a snapshot older than patches already applied").
+let generation = 0;
 function snapshot(session = {}) {
-  reduce({ type: "snapshot", data: { sessions: { main: { id: "main", cursor: { generation: "g", offset: 10 }, run: { status: "idle" }, tools: [], messages: [], timeline: [], ...session } }, replay: false, servers: [], config: {} } });
+  generation++;
+  reduce({ type: "snapshot", data: { sessions: { main: { id: "main", cursor: { generation: `g${generation}`, offset: 10 }, run: { status: "idle" }, tools: [], messages: [], timeline: [], ...session } }, replay: false, servers: [], config: {} } });
 }
 function patch(offset, operations, previous = offset - 1) {
-  reduce({ type: "projection.patch", data: { schema_version: 1, session_id: "main", previous_cursor: { generation: "g", offset: previous }, cursor: { generation: "g", offset }, operations } });
+  reduce({ type: "projection.patch", data: { schema_version: 1, session_id: "main", previous_cursor: { generation: `g${generation}`, offset: previous }, cursor: { generation: `g${generation}`, offset }, operations } });
 }
 
 test("browser applies authoritative replace and append operations", () => {
@@ -169,4 +174,17 @@ test("a restored chat with messages is never selected for the operator; an empty
   setSelection("agent_b", "s7");
   reduce({ type: "snapshot", data: { sessions: { s7: { ...base, id: "s7", messages: [{ id: "m-1", role: "user", content: "earlier work" }] } }, replay: false, servers: [], config: {} } });
   assert.equal(store.active, "s7", "the operator's own selection stands");
+});
+
+test("a snapshot older than patches already applied does not move a session backwards", () => {
+  // v0.65.0/W8 (2er): the worker's approval card was never drawn because a
+  // resync snapshot, fetched while its patches kept arriving, replaced them.
+  const base = { run: { status: "running" }, tools: [], timeline: [], messages: [], role: "c", plan_id: "p" };
+  reduce({ type: "snapshot", data: { sessions: { w: { ...base, id: "w", cursor: { generation: "g", offset: 10 } } }, replay: false, servers: [], config: {} } });
+  reduce({ type: "projection.patch", data: { schema_version: 1, session_id: "w", previous_cursor: { generation: "g", offset: 10 }, cursor: { generation: "g", offset: 20 }, operations: [{ op: "replace", path: "/pending_approval", value: { event: { data: { name: "read_file.operator_override" } } } }] } });
+  reduce({ type: "snapshot", data: { sessions: { w: { ...base, id: "w", cursor: { generation: "g", offset: 12 } } }, replay: false, servers: [], config: {} } });
+  assert.equal(store.sessions.w.cursor.offset, 20);
+  assert.equal(store.sessions.w.pending_approval?.event?.data?.name, "read_file.operator_override");
+  reduce({ type: "snapshot", data: { sessions: { w: { ...base, id: "w", cursor: { generation: "g", offset: 30 }, pending_approval: null } }, replay: false, servers: [], config: {} } });
+  assert.equal(store.sessions.w.cursor.offset, 30, "a newer snapshot still replaces the session");
 });

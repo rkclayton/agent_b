@@ -41,10 +41,17 @@ const (
 	// ExitWindows.
 	jobObjectBasicUIRestrictions = 4
 	jobUILimitHandles            = 0x00000001
+	jobUILimitReadClipboard      = 0x00000002
+	jobUILimitWriteClipboard     = 0x00000004
+	jobUILimitSystemParameters   = 0x00000008
 	jobUILimitDisplaySettings    = 0x00000010
+	jobUILimitGlobalAtoms        = 0x00000020
 	jobUILimitDesktop            = 0x00000040
 	jobUILimitExitWindows        = 0x00000080
-	serviceJobUIRestrictions     = jobUILimitHandles | jobUILimitDesktop | jobUILimitDisplaySettings | jobUILimitExitWindows
+	// v0.65.0/W15 cold review: the clipboard, global atoms (DDE) and system
+	// parameters are the operator's too, so all eight limits apply.
+	serviceJobUIRestrictions = jobUILimitHandles | jobUILimitReadClipboard | jobUILimitWriteClipboard | jobUILimitSystemParameters |
+		jobUILimitDisplaySettings | jobUILimitGlobalAtoms | jobUILimitDesktop | jobUILimitExitWindows
 )
 
 var (

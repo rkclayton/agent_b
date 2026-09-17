@@ -74,7 +74,7 @@ const FOLDER_GLYPH =
 
 // The same document types the server's /api/open-file opens; anything whose
 // default action runs it (scripts, executables) offers only its folder.
-const OPENABLE = new Set([".xlsx", ".xls", ".csv", ".docx", ".doc", ".pptx", ".pdf", ".txt", ".md", ".json", ".log", ".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+const OPENABLE = new Set([".xlsx", ".docx", ".pptx", ".pdf", ".txt", ".md", ".json", ".log", ".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 export function openableFile(path = "") {
   const match = /\.[^./\\]+$/.exec(String(path).toLowerCase());
   return !!match && OPENABLE.has(match[0]);

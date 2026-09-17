@@ -87,6 +87,30 @@ try {
     if ((Test-Path -LiteralPath $racing) -or -not (Test-Path -LiteralPath (Join-Path $raceTarget 'keep.txt'))) { throw 'A junction created during the removal was followed.' }
     Write-Host 'PASS: a junction created after the removal began is unlinked and its target is intact'
 
+    # v0.65.0/W15 cold review: a directory ABOVE the entry in hand swapped for a
+    # junction while the walk is inside it. The walk must stop, not follow it.
+    $ancestorRace = Join-Path $disposable 'ancestor-race'
+    $null = New-Item -ItemType Directory -Path (Join-Path $ancestorRace 'a\b') -Force
+    [IO.File]::WriteAllText((Join-Path $ancestorRace 'a\b\own.txt'), 'own')
+    $victim = Join-Path $disposable 'ancestor-victim'
+    $null = New-Item -ItemType Directory -Path (Join-Path $victim 'b') -Force
+    [IO.File]::WriteAllText((Join-Path $victim 'b\secret.txt'), 'keep')
+    $global:AgentbRemovalBeforeDescend = {
+        param($entered)
+        if ((Split-Path -Leaf $entered) -eq 'b' -and (Split-Path -Leaf (Split-Path -Parent $entered)) -eq 'a' -and (Test-Path -LiteralPath (Join-Path $ancestorRace 'a\b\own.txt'))) {
+            [IO.Directory]::Move((Join-Path $ancestorRace 'a'), (Join-Path $ancestorRace 'a-moved'))
+            $null = New-Item -ItemType Junction -Path (Join-Path $ancestorRace 'a') -Target $victim
+        }
+    }.GetNewClosure()
+    $ancestorMessage = ''
+    try { Remove-TreeWithinAllowedRoots -Path $ancestorRace -AllowedRoots @($disposable) -Purpose 'test cleanup' }
+    catch { $ancestorMessage = $_.Exception.Message }
+    finally { Remove-Variable -Name AgentbRemovalBeforeDescend -Scope Global -ErrorAction SilentlyContinue }
+    if (-not (Test-Path -LiteralPath (Join-Path $victim 'b\secret.txt'))) { throw 'A junction swapped in above the walk was followed and its target emptied.' }
+    if ($ancestorMessage -notlike '*became a junction*') { throw "The ancestor swap was not refused (got: '$ancestorMessage')" }
+    if (Test-Path -LiteralPath (Join-Path $ancestorRace 'a')) { [IO.Directory]::Delete((Join-Path $ancestorRace 'a'), $false) }
+    Write-Host 'PASS: a junction swapped in above the entry in hand stops the removal and its target is intact'
+
     # A junction inside a removed tree is unlinked, never descended into.
     $tree = Join-Path $disposable 'tree'
     $null = New-Item -ItemType Directory -Path (Join-Path $tree 'a\b') -Force
@@ -110,6 +134,19 @@ try {
     & $remover -Path $worktree -Repository $repository | Out-Null
     if ((Test-Path -LiteralPath $worktree) -or -not (Test-Path -LiteralPath $keep)) { throw 'Worktree removal emptied a junction target.' }
     Write-Host 'PASS: remove-worktree refuses the main worktree and a non-worktree, and keeps a junction target intact'
+
+    # v0.65.0/W15 cold review: a worktree record edited to name another folder.
+    $forged = Join-Path $disposable 'forged-worktree'
+    & $git -C $repository worktree add -q $forged HEAD 2>$null
+    if ($LASTEXITCODE -ne 0) { throw 'could not create the forged-record worktree' }
+    $documents = Join-Path $disposable 'operator-documents'
+    $null = New-Item -ItemType Directory -Path $documents -Force
+    [IO.File]::WriteAllText((Join-Path $documents 'report.docx'), 'keep')
+    $forgedRecord = Join-Path $repository '.git\worktrees\forged-worktree\gitdir'
+    [IO.File]::WriteAllText($forgedRecord, ((Join-Path $documents '.git').Replace('\', '/') + "`n"))
+    Assert-Refused { & $remover -Path $documents -Repository $repository } 'Refusing: * has no .git file linking it to *' 'Removal of a folder named by a forged worktree record'
+    if (-not (Test-Path -LiteralPath (Join-Path $documents 'report.docx'))) { throw 'A forged worktree record led to deleting the folder it named.' }
+    Write-Host 'PASS: remove-worktree refuses a folder that a forged worktree record names'
 } finally {
     if (Test-Path -LiteralPath $disposable) { Remove-TreeWithinAllowedRoots -Path $disposable -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'removal-guard test cleanup' }
 }

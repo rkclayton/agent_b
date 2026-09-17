@@ -47,13 +47,35 @@ function Assert-RemovalWithinAllowedRoots {
 # junction that appears after the removal started is unlinked, not followed.
 # v0.64.0/W1: a worktree holding junctions to the repository's node_modules and
 # .tools\go was removed with `git worktree remove --force`, which emptied both.
+# v0.65.0/W15 cold review: re-reading only the entry in hand is not enough. A
+# directory above it (inside the tree) renamed and replaced by a junction would
+# lead the walk into the junction's target. Every entry therefore proves that
+# each directory between it and the removal root is still a real directory
+# before anything is removed or entered.
+function Assert-NoLinkAbove {
+    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][string]$Root)
+    $ancestor = Split-Path -Parent $Path
+    while ($ancestor -and $ancestor.Length -ge $Root.Length) {
+        $directory = New-Object IO.DirectoryInfo $ancestor
+        if (-not $directory.Exists -or ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "Refusing removal: $ancestor became a junction, a link or went missing while $Root was being removed"
+        }
+        if ($ancestor.Equals($Root, [StringComparison]::OrdinalIgnoreCase)) { return }
+        $ancestor = Split-Path -Parent $ancestor
+    }
+}
+
 function Remove-EntryWithoutFollowing {
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param([Parameter(Mandatory = $true)][string]$Path, [string]$Root = $Path)
+    if (-not $Path.Equals($Root, [StringComparison]::OrdinalIgnoreCase)) { Assert-NoLinkAbove -Path $Path -Root $Root }
     $info = New-Object IO.DirectoryInfo $Path
     if (-not $info.Exists) {
         $file = New-Object IO.FileInfo $Path
         if ($file.Exists) {
-            if ($file.Attributes -band [IO.FileAttributes]::ReadOnly) { $file.Attributes = $file.Attributes -band -bnot [IO.FileAttributes]::ReadOnly }
+            # A file link is deleted as a link; its target's attributes are never touched.
+            if (-not ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -and ($file.Attributes -band [IO.FileAttributes]::ReadOnly)) {
+                $file.Attributes = $file.Attributes -band -bnot [IO.FileAttributes]::ReadOnly
+            }
             [IO.File]::Delete($Path)
         }
         return
@@ -62,9 +84,10 @@ function Remove-EntryWithoutFollowing {
         [IO.Directory]::Delete($Path, $false)
         return
     }
-    # Test seam (scripts/test-removal-guard.ps1): something replacing this
-    # directory with a junction just before it is entered.
+    # Test seam (scripts/test-removal-guard.ps1): something replacing a directory
+    # with a junction just before it is entered.
     if ($global:AgentbRemovalBeforeDescend -is [scriptblock]) { & $global:AgentbRemovalBeforeDescend $Path }
+    if (-not $Path.Equals($Root, [StringComparison]::OrdinalIgnoreCase)) { Assert-NoLinkAbove -Path $Path -Root $Root }
     $info = New-Object IO.DirectoryInfo $Path
     if ($info.Exists -and ($info.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
         [IO.Directory]::Delete($Path, $false)
@@ -72,12 +95,14 @@ function Remove-EntryWithoutFollowing {
     }
     if (-not $info.Exists) { return }
     foreach ($child in $info.GetFileSystemInfos()) {
-        Remove-EntryWithoutFollowing -Path $child.FullName
+        Remove-EntryWithoutFollowing -Path $child.FullName -Root $Root
     }
     # The directory is read again before it is removed: if it became a link while
     # its children were being removed, the link is unlinked, not its target emptied.
+    if (-not $Path.Equals($Root, [StringComparison]::OrdinalIgnoreCase)) { Assert-NoLinkAbove -Path $Path -Root $Root }
     $again = New-Object IO.DirectoryInfo $Path
     if ($again.Exists) {
+        if ($again.Attributes -band [IO.FileAttributes]::ReparsePoint) { [IO.Directory]::Delete($Path, $false); return }
         if ($again.Attributes -band [IO.FileAttributes]::ReadOnly) { $again.Attributes = $again.Attributes -band -bnot [IO.FileAttributes]::ReadOnly }
         [IO.Directory]::Delete($Path, $false)
     }
@@ -97,5 +122,5 @@ function Remove-TreeWithinAllowedRoots {
     }
     $full = Assert-RemovalWithinAllowedRoots -Path $Path -AllowedRoots $AllowedRoots -Purpose $Purpose
     if (-not (Test-Path -LiteralPath $full)) { return }
-    Remove-EntryWithoutFollowing -Path $full
+    Remove-EntryWithoutFollowing -Path $full -Root $full
 }

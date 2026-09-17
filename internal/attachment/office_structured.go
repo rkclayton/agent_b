@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -102,6 +103,9 @@ func workbookMarkdown(files map[string]*zip.File, budget *zipBudget) (string, er
 		}
 		out.WriteString("## " + markdownInline(sheet.name) + "\n\n")
 		writeGridTable(&out, grid)
+		if int64(out.Len()) > budget.limit {
+			return "", fmt.Errorf("workbook Markdown exceeds %d bytes", budget.limit)
+		}
 	}
 	if out.Len() == 0 {
 		return "", fmt.Errorf("workbook contains no sheets")
@@ -211,12 +215,13 @@ func sharedStrings(files map[string]*zip.File, budget *zipBudget) ([]string, err
 }
 
 type cellGrid struct {
-	cells   map[[2]int]string
-	maxRow  int
-	maxCol  int
-	minRow  int
-	merges  [][4]int
-	present bool
+	cells     map[[2]int]string
+	maxRow    int
+	maxCol    int
+	minRow    int
+	merges    [][4]int
+	present   bool
+	truncated bool
 }
 
 func sheetGrid(files map[string]*zip.File, budget *zipBudget, part string, shared []string) (*cellGrid, error) {
@@ -309,8 +314,8 @@ func sheetGrid(files map[string]*zip.File, budget *zipBudget, part string, share
 		if top == "" {
 			continue
 		}
-		for r := merge[0]; r <= merge[2] && r-merge[0] < 10000; r++ {
-			for c := merge[1]; c <= merge[3] && c-merge[1] < 1000; c++ {
+		for r := merge[0]; r <= merge[2] && r-merge[0] < 10000 && !grid.full(); r++ {
+			for c := merge[1]; c <= merge[3] && c <= maxSheetColumns && !grid.full(); c++ {
 				grid.set(r, c, top)
 			}
 		}
@@ -318,11 +323,31 @@ func sheetGrid(files map[string]*zip.File, budget *zipBudget, part string, share
 	return grid, nil
 }
 
+// v0.65.0/W15 cold review: a few kilobytes of merge ranges or two far-apart
+// cells made the grid (and the Markdown) hundreds of megabytes. A sheet keeps at
+// most maxSheetCells cells and maxSheetColumns+1 columns; the rest is marked
+// truncated, never silently dropped.
+const (
+	maxSheetCells   = 200000
+	maxSheetColumns = 255
+)
+
+func (g *cellGrid) full() bool { return len(g.cells) >= maxSheetCells }
+
 func (g *cellGrid) set(row, col int, text string) {
-	if row < 0 || col < 0 || row > 1048575 || col > 16383 {
+	if row < 0 || col < 0 || row > 1048575 {
 		return
 	}
-	g.cells[[2]int{row, col}] = text
+	if col > maxSheetColumns {
+		g.truncated = true
+		return
+	}
+	key := [2]int{row, col}
+	if _, exists := g.cells[key]; !exists && g.full() {
+		g.truncated = true
+		return
+	}
+	g.cells[key] = text
 	g.present = true
 	if row > g.maxRow {
 		g.maxRow = row
@@ -356,8 +381,20 @@ func writeGridTable(out *strings.Builder, grid *cellGrid) {
 	writeRow := func(values []string) { out.WriteString("| " + strings.Join(values, " | ") + " |\n") }
 	writeRow(header)
 	writeRow(separator)
+	// Only rows that hold a cell are visited; the span between them is empty.
+	rows := map[int]bool{}
+	for key := range grid.cells {
+		if key[0] > grid.minRow {
+			rows[key[0]] = true
+		}
+	}
+	order := make([]int, 0, len(rows))
+	for r := range rows {
+		order = append(order, r)
+	}
+	sort.Ints(order)
 	body := 0
-	for r := grid.minRow + 1; r <= grid.maxRow; r++ {
+	for _, r := range order {
 		values := row(r)
 		if strings.Join(values, "") == "" {
 			continue
@@ -369,6 +406,9 @@ func writeGridTable(out *strings.Builder, grid *cellGrid) {
 		}
 		writeRow(values)
 		body++
+	}
+	if grid.truncated {
+		out.WriteString(fmt.Sprintf("\n(truncated: this sheet has more than %d cells or %d columns)\n", maxSheetCells, maxSheetColumns+1))
 	}
 }
 
@@ -581,7 +621,6 @@ func markdownCell(value string) string {
 }
 
 func markdownInline(value string) string { return strings.Join(strings.Fields(value), " ") }
-
 
 // ExtractStructuredOffice opens the file at path and returns its structured
 // Markdown when it is an .xlsx or .docx; ok is false for other Office types,

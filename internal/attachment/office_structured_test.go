@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func officeZip(t *testing.T, parts map[string]string) *zip.Reader {
@@ -104,5 +105,28 @@ func TestRetainedUniflowWorkbookIngests(t *testing.T) {
 	}
 	if !strings.Contains(string(text), "## ") || !strings.Contains(string(text), "| --- |") {
 		t.Fatalf("no sheet table:\n%s", text)
+	}
+}
+
+// v0.65.0/W15 cold review: merge ranges and far-apart cells cannot make the
+// grid or the Markdown unbounded.
+func TestWorkbookIngestIsBoundedAgainstMergesAndSparseCells(t *testing.T) {
+	merges := strings.Repeat(`<mergeCell ref="A1:ALL10000"/>`, 50)
+	reader := officeZip(t, map[string]string{
+		"xl/workbook.xml":            `<workbook xmlns:r="r"><sheets><sheet name="Bomb" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
+		"xl/worksheets/sheet1.xml":   `<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>x</t></is></c></row><row r="1048576"><c r="XFD1048576" t="inlineStr"><is><t>far</t></is></c></row></sheetData><mergeCells>` + merges + `</mergeCells></worksheet>`,
+	})
+	done := make(chan struct{})
+	var text string
+	var err error
+	go func() { text, _, err = StructuredOffice(reader, ".xlsx", 32<<20); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("bounded ingest did not finish")
+	}
+	if err == nil && (!strings.Contains(text, "(truncated:") || len(text) > 32<<20) {
+		t.Fatalf("unbounded or unmarked output: %d bytes", len(text))
 	}
 }

@@ -785,12 +785,14 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	if overrideErr != nil {
 		outcome.OK, outcome.OperatorContext = false, false
 		outcome.Metadata = withHarnessNote(outcome.Metadata, "operator-identity override canceled")
+		outcome.Content = withModelNote(outcome.Content, "operator-identity override canceled")
 		return outcome
 	}
 	if !approvalGranted(overrideDecision) {
 		log.Printf("%s operator-identity override denied: session=%s call=%s command=%q path=%q", name, s.ID, callID, command, path)
 		outcome.OK, outcome.OperatorContext = false, false
 		outcome.Metadata = withHarnessNote(outcome.Metadata, "operator-identity override was offered and denied by the user")
+		outcome.Content = withModelNote(outcome.Content, "operator-identity override was offered and denied by the user")
 		return outcome
 	}
 	if name == "shell" && overrideDecision == "run" {
@@ -820,7 +822,16 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	}
 	outcome.Content, outcome.OK, outcome.OperatorContext = overrideContent, false, true
 	outcome.Metadata = withHarnessNote(outcome.Metadata, "operator-identity override was attempted but failed")
+	outcome.Content = withModelNote(outcome.Content, "operator-identity override was attempted but failed")
 	return outcome
+}
+
+// withModelNote tells the model what happened to a call that did not succeed
+// (v0.65.0/W15 cold review): a denied, canceled or failed override is an error,
+// not file content, and a model that is not told retries and prompts again. A
+// successful rerun's content stays exactly what the tool returned.
+func withModelNote(content, note string) string {
+	return content + "\n\n[harness: " + note + "]"
 }
 
 // withHarnessNote records what the harness did around a tool call as a result

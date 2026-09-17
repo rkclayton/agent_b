@@ -172,7 +172,7 @@ async function runTrial(fixture, profile, baseURL, ordinal) {
     const temporaryRoot = path.resolve(os.tmpdir());
     const resolved = path.resolve(workspace);
     if (!resolved.startsWith(`${temporaryRoot}${path.sep}`) || !path.basename(resolved).startsWith("agentb-stop-")) throw new Error(`refusing unsafe cleanup ${resolved}`);
-    removeTreeWithinAllowedRoots(resolved, [resolved], "stop-discipline trial cleanup");
+    removeTreeWithinAllowedRoots(resolved, [path.dirname(resolved)], "stop-discipline trial cleanup");
   }
 }
 

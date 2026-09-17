@@ -175,7 +175,7 @@ try {
             elseif ($root -eq $dataTestRoot) { $null = Assert-DisposableRoot $root ([Environment]::GetFolderPath('LocalApplicationData')) }
             elseif ($root -eq $exchangeTestRoot) { $null = Assert-DisposableRoot $root $env:USERPROFILE }
             else { $null = Assert-DisposableRoot $root $env:ProgramData }
-            Remove-TreeWithinAllowedRoots -Path $root -AllowedRoots @($root) -Purpose 'step4 disposable-root cleanup'
+            Remove-TreeWithinAllowedRoots -Path $root -AllowedRoots @(Split-Path -Parent $root) -Purpose 'step4 disposable-root cleanup'
         }
     }
 }

@@ -21,5 +21,5 @@ try {
   assert.equal(executeTool(root, "read_file", { path: "../outside" }).ok, false);
   console.log("PASS stop-discipline runner materialization, tools, hashes, and path boundary");
 } finally {
-  removeTreeWithinAllowedRoots(root, [root], "stop-discipline test cleanup");
+  removeTreeWithinAllowedRoots(root, [os.tmpdir()], "stop-discipline test cleanup");
 }

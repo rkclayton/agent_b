@@ -56,6 +56,6 @@ try {
     if ($resolvedTest.StartsWith($resolvedTemp, [StringComparison]::OrdinalIgnoreCase) -and
         (Split-Path -Leaf $resolvedTest) -like 'Agent_b-v0170-menu-*' -and
         (Test-Path -LiteralPath $resolvedTest)) {
-        Remove-TreeWithinAllowedRoots -Path $resolvedTest -AllowedRoots @($resolvedTest) -Purpose 'menu-replay disposable-root cleanup'
+        Remove-TreeWithinAllowedRoots -Path $resolvedTest -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'menu-replay disposable-root cleanup'
     }
 }

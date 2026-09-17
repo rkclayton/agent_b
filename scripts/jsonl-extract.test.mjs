@@ -39,5 +39,5 @@ try {
   });
   process.stdout.write("PASS shared JSONL extraction\n");
 } finally {
-  removeTreeWithinAllowedRoots(root, [root], "jsonl-extract test cleanup");
+  removeTreeWithinAllowedRoots(root, [os.tmpdir()], "jsonl-extract test cleanup");
 }

@@ -26,7 +26,7 @@ test("a removal outside the allow-list or of a volume root is refused and remove
     assert.throws(() => removeTreeWithinAllowedRoots(`${target}-sibling`, [target], "test"), /outside allowed removal roots/);
     assert.ok(fs.existsSync(path.join(target, "keep.txt")));
   } finally {
-    removeTreeWithinAllowedRoots(root, [root], "test cleanup");
+    removeTreeWithinAllowedRoots(root, [os.tmpdir()], "test cleanup");
   }
 });
 
@@ -36,14 +36,33 @@ test("a junction inside a removed tree is unlinked and its target survives", () 
     const tree = path.join(root, "tree", "a");
     fs.mkdirSync(tree, { recursive: true });
     fs.symlinkSync(target, path.join(tree, "node_modules"), "junction");
-    removeTreeWithinAllowedRoots(path.join(root, "tree"), [path.join(root, "tree")], "test");
+    removeTreeWithinAllowedRoots(path.join(root, "tree"), [root], "test");
     assert.equal(fs.existsSync(path.join(root, "tree")), false);
     assert.ok(fs.existsSync(path.join(target, "keep.txt")));
     fs.symlinkSync(target, path.join(root, "direct"), "junction");
-    removeTreeWithinAllowedRoots(path.join(root, "direct"), [path.join(root, "direct")], "test");
+    removeTreeWithinAllowedRoots(path.join(root, "direct"), [root], "test");
     assert.ok(fs.existsSync(path.join(target, "keep.txt")));
   } finally {
-    removeTreeWithinAllowedRoots(root, [root], "test cleanup");
+    removeTreeWithinAllowedRoots(root, [os.tmpdir()], "test cleanup");
+  }
+});
+
+test("an allowed root equal to its target and a removal beneath a parent junction are refused", () => {
+  // v0.65.0/W9: a self-rooted allow-list allowed anything that was not a volume
+  // root; a junction in a parent redirected the removal into its target.
+  const { root, target } = disposable();
+  try {
+    assert.throws(() => removeTreeWithinAllowedRoots(target, [target], "test"), /an allowed removal root must contain the target, not be it/);
+    assert.ok(fs.existsSync(path.join(target, "keep.txt")));
+    const realWorkspace = path.join(root, "real-parent", "workspace");
+    fs.mkdirSync(realWorkspace, { recursive: true });
+    fs.writeFileSync(path.join(realWorkspace, "operator-work.txt"), "keep");
+    fs.symlinkSync(path.join(root, "real-parent"), path.join(root, "linked-parent"), "junction");
+    assert.throws(() => removeTreeWithinAllowedRoots(path.join(root, "linked-parent", "workspace"), [root], "test"), /beneath a junction or link/);
+    assert.ok(fs.existsSync(path.join(realWorkspace, "operator-work.txt")));
+    fs.unlinkSync(path.join(root, "linked-parent"));
+  } finally {
+    removeTreeWithinAllowedRoots(root, [os.tmpdir()], "test cleanup");
   }
 });
 

@@ -14,7 +14,7 @@ const fixtureRoots = [];
 process.on("exit", () => {
   for (const root of fixtureRoots) {
     const relative = path.relative(os.tmpdir(), root);
-    if (!relative.startsWith("..") && path.basename(root).startsWith("agentb-plan-lint-")) removeTreeWithinAllowedRoots(root, [root], "plan-lint test cleanup");
+    if (!relative.startsWith("..") && path.basename(root).startsWith("agentb-plan-lint-")) removeTreeWithinAllowedRoots(root, [os.tmpdir()], "plan-lint test cleanup");
   }
 });
 

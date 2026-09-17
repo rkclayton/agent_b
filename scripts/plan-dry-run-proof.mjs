@@ -118,7 +118,7 @@ say("### control — the live published plan, uncorrupted");
 say(`  exit ${clean.code}  ok=${clean.result.ok}  wrote nothing=${clean.untouched}  items=${clean.result.items}`);
 say(`  gated items: ${clean.result.gated_items.join("  ")}`);
 
-removeTreeWithinAllowedRoots(scratch, [scratch], "dry-run proof scratch cleanup");
+removeTreeWithinAllowedRoots(scratch, [os.tmpdir()], "dry-run proof scratch cleanup");
 
 const failures = [];
 if (one.code === 0 || !one.result.errors.some((e) => e.includes("2al"))) failures.push("shape 1 did not reproduce");

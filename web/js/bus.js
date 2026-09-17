@@ -35,7 +35,7 @@ export function reduce(event) {
     store.selection = selection;
     const selected = selection.session_id || active;
     store.active = store.sessions[selected] && !store.sessions[selected].closed && roleAgentID(store.sessions[selected]) === selection.agent_id
-      ? selected : firstOpenSessionID(selection.agent_id);
+      ? selected : firstOpenSessionID(selection.agent_id, { freshOnly: true });
     store.selection.session_id = store.active;
     persistSelection();
     operatorReconciler.observed();
@@ -108,7 +108,7 @@ function applyProjectionPatch(patch) {
     store.active = firstOpenSessionID(store.selection.agent_id);
     store.selection.session_id = store.active;
     persistSelection();
-  } else if (!store.active && !target.closed && roleAgentID(target) === store.selection.agent_id) {
+  } else if (!store.active && !target.closed && roleAgentID(target) === store.selection.agent_id && !(target.messages || []).length) {
     store.active = patch.session_id;
     store.selection.session_id = patch.session_id;
     persistSelection();
@@ -175,8 +175,11 @@ async function resync() {
 }
 
 function roleAgentID(session) { return `agent_${session?.role === "d" ? "d" : "b"}`; }
-function firstOpenSessionID(agentID = "agent_b") {
-  return Object.values(store.sessions).find((session) => !session.closed && roleAgentID(session) === agentID)?.id || "";
+// Item 2es: with nothing selected, a chat that already holds messages (a
+// retained chat restored at startup) is never picked for the operator — they
+// select its tab. Only an empty chat may become the target on its own.
+function firstOpenSessionID(agentID = "agent_b", { freshOnly = false } = {}) {
+  return Object.values(store.sessions).find((session) => !session.closed && roleAgentID(session) === agentID && (!freshOnly || !(session.messages || []).length))?.id || "";
 }
 export function setActive(id) { setSelection(store.selection.agent_id || "agent_b", id); }
 export function setSelection(agentID, sessionID = "") {

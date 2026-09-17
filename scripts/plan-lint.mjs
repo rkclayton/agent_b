@@ -222,7 +222,7 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
     const inFlight = effectivePlan.match(/^## In flight\s*$\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] ?? "";
     if (orderId) {
       const activeMarkers = new Map();
-      for (const marker of inFlight.matchAll(/^(?:-\s*)?`?([^\s`/]+)\/(W\d+)\s+(started|completed)\b/gmi)) {
+      for (const marker of inFlight.matchAll(/^(?:-\s*)?`?([^\s`/]+)\/(W\d+)\s+(started|completed|stopped)\b/gmi)) {
         const key = `${marker[1]}/${marker[2].toUpperCase()}`;
         if (marker[3].toLowerCase() === "started") activeMarkers.set(key, { orderId: marker[1], workId: marker[2].toUpperCase() });
         else activeMarkers.delete(key);

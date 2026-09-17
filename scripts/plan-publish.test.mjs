@@ -143,6 +143,8 @@ function expectPrepareFailure(root, candidate, pattern) {
 
 assert.equal(workerStopped(plan("- W1 **2a work.**", "TEST/W1 started 12:00")).stopped, false);
 assert.equal(workerStopped(plan("- W1 **2a work.**", "TEST/W1 started 12:00\nTEST/W1 completed 12:01")).stopped, true);
+// v0.65.0/W0: CLAUDE.md closes a step with `stopped` as well as `completed`.
+assert.equal(workerStopped(plan("- W1 **2a work.**", "TEST/W1 started 12:00\nTEST/W1 stopped 12:01 — unmet condition")).stopped, true);
 assert.equal(crypto.createHash("sha256").update(fs.readFileSync(linter)).digest("hex"), linterHash, "plan-lint.mjs must remain byte-unchanged");
 assert.equal(fs.existsSync(publisher), true);
 

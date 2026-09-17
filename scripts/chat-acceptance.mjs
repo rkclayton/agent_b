@@ -215,7 +215,10 @@ const json = async (url, options) => {
   if (!response.ok) throw new Error(`${response.status} ${JSON.stringify(value)}`);
   return value;
 };
-const waitHTTP = async (url, timeout = 15000) => {
+// Item 2er: the application's own start (including the signing-state
+// inspection it runs before listening) took more than 15 s on a saturated host;
+// the wait is for the server answering, with a deadline that load cannot reach.
+const waitHTTP = async (url, timeout = 90000) => {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     try { return await json(url); } catch { await sleep(50); }

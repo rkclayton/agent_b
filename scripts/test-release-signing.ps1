@@ -69,7 +69,7 @@ try {
             Write-Output 'FAIL: see the per-file lines above'
         }
     } finally {
-        try { Remove-TreeWithinAllowedRoots -Path $stage -AllowedRoots @($stage) -Purpose 'signing-probe stage cleanup' } catch { Write-Warning $_.Exception.Message }
+        try { Remove-TreeWithinAllowedRoots -Path $stage -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'signing-probe stage cleanup' } catch { Write-Warning $_.Exception.Message }
     }
 } finally {
     Remove-Probe

@@ -133,7 +133,7 @@ try {
     if ($resolvedTest.StartsWith($resolvedTemp, [StringComparison]::OrdinalIgnoreCase) -and
         (Split-Path -Leaf $resolvedTest) -like 'Agent_b-chat-acceptance-*' -and
         (Test-Path -LiteralPath $resolvedTest)) {
-        Remove-TreeWithinAllowedRoots -Path $resolvedTest -AllowedRoots @($resolvedTest) -Purpose 'chat-acceptance disposable-root cleanup'
+        Remove-TreeWithinAllowedRoots -Path $resolvedTest -AllowedRoots @($resolvedTemp) -Purpose 'chat-acceptance disposable-root cleanup'
     }
     if (Test-Path -LiteralPath $testRoot) { Write-Warning "Disposable root was not removed: $testRoot" }
     elseif (Test-Path -LiteralPath $evidence) { Set-Content -LiteralPath (Join-Path $evidence 'root-freshness.txt') -Value "root $testRoot did not exist before the run and was removed after it, with its Edge profile" }

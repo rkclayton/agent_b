@@ -83,4 +83,4 @@ for (const [name, render] of Object.entries(pages)) {
 }
 
 console.log(JSON.stringify({ which, ref: ref || "working tree", report }, null, 1));
-if (scratch) removeTreeWithinAllowedRoots(scratch, [scratch], "settings-density scratch cleanup");
+if (scratch) removeTreeWithinAllowedRoots(scratch, [os.tmpdir()], "settings-density scratch cleanup");

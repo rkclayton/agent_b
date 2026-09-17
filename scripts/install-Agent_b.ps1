@@ -252,7 +252,7 @@ function Remove-InstallerRollbackRoot {
         -not (Split-Path -Leaf $full).StartsWith('Agent_b-install-rollback-', [StringComparison]::Ordinal)) {
         throw "Refusing to remove unexpected installer rollback root: $full"
     }
-    Remove-TreeWithinAllowedRoots -Path $full -AllowedRoots @($full) -Purpose 'installer rollback-root cleanup'
+    Remove-TreeWithinAllowedRoots -Path $full -AllowedRoots @($temporary) -Purpose 'installer rollback-root cleanup'
 }
 
 function Set-PrivateDirectoryAcl {
@@ -616,7 +616,16 @@ $null = New-Item -ItemType Directory -Path $startupDirectory -Force
 $startupPath = Join-Path $startupDirectory 'Agent_b.lnk'
 $startup = $shell.CreateShortcut($startupPath)
 $startup.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
-$startup.Arguments = '//B "' + $hiddenLauncher + '" "' + $batchLauncher + '" -Detached -NoBrowser -NoPause -DataDirectory "' + $dataRoot + '"'
+# v0.65.0/W9: the arguments pass through WScript.Shell.Run and cmd's `call`, and
+# both expand %VAR%. The default data root is the launcher's own default, so it
+# is not passed at all; any other root is passed only when it holds no `%`.
+$startupArguments = '//B "' + $hiddenLauncher + '" "' + $batchLauncher + '" -Detached -NoBrowser -NoPause'
+$defaultDataRoot = [IO.Path]::GetFullPath((Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Agent_b')).TrimEnd('\')
+if (-not $dataRoot.Equals($defaultDataRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    if ($dataRoot.Contains('%')) { throw "The data directory contains '%', which the sign-in start would expand as a variable: $dataRoot" }
+    $startupArguments += ' -DataDirectory "' + $dataRoot + '"'
+}
+$startup.Arguments = $startupArguments
 $startup.WorkingDirectory = $dataRoot
 $startup.IconLocation = "$iconPath,0"
 $startup.Description = 'Start Agent_b in the background at sign-in'

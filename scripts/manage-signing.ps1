@@ -212,6 +212,6 @@ switch ($Action) {
                 Start-ScheduledTask -TaskName $taskName
                 Start-Sleep -Milliseconds 750
             } finally { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue }
-        } finally { try { Remove-TreeWithinAllowedRoots -Path $stage -AllowedRoots @($stage) -Purpose 'signing stage cleanup' } catch { Write-Warning $_.Exception.Message } }
+        } finally { try { Remove-TreeWithinAllowedRoots -Path $stage -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'signing stage cleanup' } catch { Write-Warning $_.Exception.Message } }
     }
 }

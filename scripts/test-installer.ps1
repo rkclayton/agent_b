@@ -551,7 +551,7 @@ try {
         $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
         if ((Split-Path -Parent $resolvedTranscript).Equals($tempRoot, [StringComparison]::OrdinalIgnoreCase) -and
             (Split-Path -Leaf $resolvedTranscript) -like 'Agent_b-whatif-installer-*.log') {
-            $removalPath = Assert-RemovalWithinAllowedRoots -Path $resolvedTranscript -AllowedRoots @($whatIfTranscript) -Purpose 'WhatIf transcript cleanup'
+            $removalPath = Assert-RemovalWithinAllowedRoots -Path $resolvedTranscript -AllowedRoots @($tempRoot) -Purpose 'WhatIf transcript cleanup'
             Remove-Item -LiteralPath $removalPath -Force
         }
     }
@@ -564,7 +564,7 @@ try {
     }
     if (Test-Path -LiteralPath $testRoot) {
         Assert-TemporaryTestPath $testRoot
-        Remove-TreeWithinAllowedRoots -Path $testRoot -AllowedRoots @($testRoot) -Purpose 'installer-suite disposable-root cleanup'
+        Remove-TreeWithinAllowedRoots -Path $testRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'installer-suite disposable-root cleanup'
     }
 }
 
@@ -619,7 +619,7 @@ try {
     Write-Host 'PASS: clean archive with no .git installs under Windows PowerShell 5.1'
 } finally {
     if (Test-Path -LiteralPath $cloneRoot) {
-        try { Remove-TreeWithinAllowedRoots -Path $cloneRoot -AllowedRoots @($cloneRoot) -Purpose 'installer-suite first-clone cleanup' } catch { Write-Warning $_.Exception.Message }
+        try { Remove-TreeWithinAllowedRoots -Path $cloneRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'installer-suite first-clone cleanup' } catch { Write-Warning $_.Exception.Message }
     }
     Remove-Item -LiteralPath ($testRegistry + '-Clone') -Recurse -Force -ErrorAction SilentlyContinue
 }

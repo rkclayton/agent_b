@@ -783,12 +783,14 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		overrideDecision, overrideErr = r.gate.WaitBoundaryDecision(ctx, s, runID, overrideID, name+".operator_override", overrideArgs)
 	}
 	if overrideErr != nil {
-		outcome.Content, outcome.OK, outcome.OperatorContext = outcome.Content+"\n\noperator-identity override canceled", false, false
+		outcome.OK, outcome.OperatorContext = false, false
+		outcome.Metadata = withHarnessNote(outcome.Metadata, "operator-identity override canceled")
 		return outcome
 	}
 	if !approvalGranted(overrideDecision) {
 		log.Printf("%s operator-identity override denied: session=%s call=%s command=%q path=%q", name, s.ID, callID, command, path)
-		outcome.Content, outcome.OK, outcome.OperatorContext = outcome.Content+"\n\noperator-identity override was offered and denied by the user", false, false
+		outcome.OK, outcome.OperatorContext = false, false
+		outcome.Metadata = withHarnessNote(outcome.Metadata, "operator-identity override was offered and denied by the user")
 		return outcome
 	}
 	if name == "shell" && overrideDecision == "run" {
@@ -812,12 +814,25 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		if strings.TrimSpace(overrideContent) == "" {
 			overrideContent = "the tool completed with no output"
 		}
-		outcome.Content, outcome.OK, outcome.OperatorContext = "operator-identity override succeeded; exact "+subject+" rerun once:\n"+overrideContent, true, true
-		outcome.Metadata = mergeResultMetadata(outcome.Metadata, sandboxResultMetadata(cfg, s, name, args))
+		outcome.Content, outcome.OK, outcome.OperatorContext = overrideContent, true, true
+		outcome.Metadata = withHarnessNote(mergeResultMetadata(outcome.Metadata, sandboxResultMetadata(cfg, s, name, args)), "operator-identity override succeeded; exact "+subject+" rerun once")
 		return outcome
 	}
-	outcome.Content, outcome.OK, outcome.OperatorContext = outcome.Content+"\n\noperator-identity override was attempted but failed:\n"+overrideContent, false, true
+	outcome.Content, outcome.OK, outcome.OperatorContext = overrideContent, false, true
+	outcome.Metadata = withHarnessNote(outcome.Metadata, "operator-identity override was attempted but failed")
 	return outcome
+}
+
+// withHarnessNote records what the harness did around a tool call as a result
+// field, rendered as its own harness line. Item 2eo: prepended to the content,
+// the note was read by the model as the first line of the file it had asked for.
+func withHarnessNote(metadata map[string]any, note string) map[string]any {
+	next := cloneMetadata(metadata)
+	if next == nil {
+		next = map[string]any{}
+	}
+	next["harness_note"] = note
+	return next
 }
 
 func sandboxResultMetadata(cfg config.Config, s *session.Session, name string, args map[string]any) map[string]any {

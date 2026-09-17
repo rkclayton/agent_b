@@ -63,7 +63,12 @@ function updateView(view, entry, tokens, options) {
   const open = options.expanded.has(entry.key);
   setAttribute(view.button, "class", `thinking-line ${entry.done ? "thought-line" : "thinking-active"}`);
   setAttribute(view.button, "aria-expanded", String(open));
+  // Item 2eo: "use the thought icon as the caret". The glyph is the disclosure
+  // mark (Mute closed, Ink open, Trace while live); the caret node stays, hidden,
+  // so the row keeps its structure and hit target.
   setText(view.caret, open ? "▾" : "▸");
+  view.caret.hidden = true;
+  setAttribute(view.glyph, "data-open", String(open));
   view.active.hidden = entry.done;
   view.summary.hidden = !entry.done;
   if (entry.done) {

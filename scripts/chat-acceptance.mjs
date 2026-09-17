@@ -284,6 +284,13 @@ const state = () => json(`http://127.0.0.1:${appPort}/api/state`);
 // replaced the fixture and the next wait timed out, more often under load. A
 // fixture is injected only once the session has settled: the server's cursor
 // for it is unchanged across two reads and the page has applied that cursor.
+// Item 2eo: a Steps fold with at most one tool call and one thought has no
+// header and is always open; a fold that has a header is opened by clicking it.
+async function openStepFoldIfDrawn() {
+  const heads = page.locator(".chat-step-summary:visible");
+  if (await heads.count()) await heads.first().click();
+}
+
 async function settleSession(id, what) {
   const deadline = Date.now() + 60000;
   let previous = "";
@@ -438,7 +445,7 @@ if (realModel) {
   assert.equal(session?.id, sessionID, "selected new chat must exist in the server snapshot");
   assert.equal(session?.scratch, true);
   assert.equal(session?.workspace_dir, join(args.data, "scratch", sessionID));
-  await browser.wait(`document.querySelector('.shell-session-title')?.innerText === 'agent_b · Acceptance'`, "role and profile title");
+  await browser.wait(`document.querySelector('.shell-session-title')?.innerText === 'Acceptance'`, "profile-name title (item 2eo)");
   assert.equal(await page.locator(".shell-session-title").getAttribute("title"), null);
   record("new-chat");
 
@@ -775,7 +782,7 @@ if (realModel) {
     const summary = document.querySelector('.chat-response-summary');
     return { collapsed: summary?.innerText || '' };
   })()`);
-  await page.locator(".chat-step-summary").last().click();
+  await openStepFoldIfDrawn();
   await page.waitForFunction(() => document.querySelectorAll('[data-entry-key^="hotfix:"]').length === 3);
   const missingArgsFixture = await page.evaluate(() => {
     const summary = document.querySelector('.chat-response-summary');
@@ -811,7 +818,7 @@ if (realModel) {
     await new Promise(resolve => setTimeout(resolve, 65));
     return true;
   })()`);
-  await page.locator(".chat-step-summary").click();
+  await openStepFoldIfDrawn();
   await page.waitForFunction(() => document.querySelector(".chat-render-failure")?.textContent.includes("deliberate render failure"));
   const throwingFixture = await browser.evaluate(`(async () => {
     const bus = await import('/static/js/bus.js');
@@ -860,7 +867,7 @@ if (realModel) {
     const summary = document.querySelector('.chat-response-summary');
     return { collapsed: summary?.innerText || '', collapsedRows: document.querySelectorAll('.chat-response-rows > *').length };
   })()`);
-  await page.locator(".chat-step-summary").click();
+  await openStepFoldIfDrawn();
   const groupingOpen = await page.evaluate(() => {
     const group = document.querySelector('.chat-tool-group-head');
     return { rows: document.querySelectorAll('.chat-step-rows > *').length, groupText: group?.innerText || '' };
@@ -899,7 +906,7 @@ if (realModel) {
     await new Promise(resolve => setTimeout(resolve, 120));
     return true;
   })()`);
-  await page.locator(".chat-step-summary").click();
+  await openStepFoldIfDrawn();
   for (const toolTick of await page.locator(".tool-tick").all()) await toolTick.click();
   const twoArrowFixture = await page.evaluate(() => {
     const nodes = [...document.querySelectorAll('button.collapse-arrow')].filter(node => !node.hidden);
@@ -948,7 +955,7 @@ if (realModel) {
     await new Promise(resolve => setTimeout(resolve, 120));
     return true;
   })()`);
-  await page.locator(".chat-step-summary").click();
+  await openStepFoldIfDrawn();
   await chipProbe;
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.locator('.file-chips .file-chip a').last().waitFor({ state: "visible" });
@@ -973,6 +980,7 @@ if (realModel) {
   assert.equal(deliveredChip.gap, "8px");
   assert.equal(deliveredChip.horizontalOverflow, false);
   await page.screenshot({ path: join(baselineDirectory, "chat-delivered-folder-link.png") });
+  assert.equal(await page.locator(".chat-step-summary:visible").count(), 0, "one tool call renders its row without a Steps header (item 2eo)");
   record("delivered-file-chip-folder-link-only");
   await browser.evaluate(`(async () => { const bus = await import('/static/js/bus.js'); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('DELIVERY READY')`, "delivery fixture restored");
@@ -989,7 +997,9 @@ if (realModel) {
       { type: 'tool', key: 'prose:first-tool', name: 'read_file', args: { path: 'first.txt' }, content: 'FIRST TOOL RESULT', result: { ok: true, ms: 4 } },
       { type: 'notice', key: 'prose:first-notice', event: { type: 'compaction', data: { before: 20, after: 10 } } },
       { type: 'agent', key: 'prose:second', text: 'SECOND PROSE BLOCK', reasoning: 'SECOND PRIVATE THOUGHT', reasoningTokens: 9, done: true },
-      { type: 'tool', key: 'prose:second-tool', name: 'shell', args: { command: 'echo second' }, content: 'SECOND TOOL RESULT', result: { ok: true, ms: 5 } }
+      { type: 'tool', key: 'prose:second-tool', name: 'shell', args: { command: 'echo second' }, content: 'SECOND TOOL RESULT', result: { ok: true, ms: 5 } },
+      // Item 2eo: two tool calls keep this a group with a header.
+      { type: 'tool', key: 'prose:second-tool-2', name: 'search_text', args: { pattern: 'again' }, content: 'AGAIN', result: { ok: true, ms: 3 } }
     ];
     bus.setSelection('agent_b', ${JSON.stringify(sessionID)});
     await new Promise(resolve => setTimeout(resolve, 120));
@@ -1053,7 +1063,7 @@ if (realModel) {
   assert.deepEqual(proseBlocksFixture.afterTurnOpen, ["true", "true"]);
   assert.deepEqual(proseBlocksFixture.afterTurnOpenKeys, [
     ["thought:prose:first", "prose:first-tool", "prose:first-notice"],
-    ["thought:prose:second", "prose:second-tool"]
+    ["thought:prose:second", "prose:second-tool", "prose:second-tool-2"]
   ]);
   assert.deepEqual(proseBlocksFixture.afterTurnClose, ["false", "false"]);
   assert.deepEqual(proseBlocksFixture.finalProse, ["FIRST PROSE BLOCK", "SECOND PROSE BLOCK"]);
@@ -1311,11 +1321,13 @@ if (realModel) {
   assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--alarm)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
   assert.equal(await page.locator("#chat-task").isEnabled(), true);
   assert.equal(await page.locator("#chat-send").isEnabled(), true);
-  const unreachableText = await browserText("#chat-status-strip");
+  const unreachableText = await browserText("#chat-notice");
   await setTask("acceptance: recovered");
-  await browser.wait(`document.querySelector('#chat-status-strip')?.innerText.includes('queued (1)')`, "recovery queued");
-  assert.ok(unreachableText.includes("model unreachable"));
-  assert.ok((await browserText("#chat-status-strip")).includes("model unreachable"));
+  // Item 2eo: while the model is unreachable the strip reads that alone, so the
+  // queued message is observed on the tape, and the strip is checked for the rule.
+  await waitEvent(sessionID, (event) => event.type === "message.queued" && event.data.position === 1 && event.data.text?.includes?.("acceptance: recovered") !== false, "recovery queued");
+  assert.equal(unreachableText.trim(), "model unreachable", "an unreachable model is the whole strip line (item 2eo)");
+  assert.equal((await browserText("#chat-notice")).trim(), "model unreachable", "queued behind an unreachable model, the strip still reads model unreachable alone");
   const automaticRecoveryStarted = Date.now();
   await startFake(modelPort);
   await waitProjectedChatText(sessionID, "Recovered after Retry.", "automatic recovery", 20000);
@@ -1375,7 +1387,7 @@ if (realModel) {
     await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > beforeSequence, `compaction run ${index}`, 20000);
   }
   const compaction = await waitEvent(sessionID, (event) => event.type === "compaction", "compaction", 20000);
-  assert.ok(compaction.data.before > compaction.data.after);
+  assert.ok(compaction.data.before > compaction.data.after, `compaction must free tokens: ${JSON.stringify(compaction.data)}`);
   events = await sessionEvents(sessionID);
   const requests = events.filter((event) => event.type === "model.request" && event.body && event.seq > beforeCompactionSequence);
   const prefix = (event) => JSON.stringify({ system: event.body.messages?.[0], tools: event.body.tools });
@@ -1585,7 +1597,7 @@ if (realModel) {
   assert.ok(dSession, JSON.stringify(dState.sessions));
   assert.equal(dSession.server_id, "acceptance");
   assert.equal(dSession.workspace_dir, join(args.data, "scratch", dSession.id));
-  assert.equal(await page.title(), `agent_d · ${dSession.b_profile || dSession.server_id}`);
+  assert.equal(await page.title(), dSession.b_profile || dSession.server_id, "item 2eo: the title is the profile name only");
   await page.screenshot({ path: join(evidenceRun, "d-plan.png") });
   record("d-plus-unbound-scratch-tab-and-title");
   const boundCreated = await json(`http://127.0.0.1:${appPort}/api/sessions`, {

@@ -968,6 +968,10 @@ if (realModel) {
       buttons: chip?.querySelectorAll('button').length || 0,
       downloadLinks: chip?.querySelectorAll('a[download]').length || 0,
       linkText: chip?.querySelector('a')?.innerText || '',
+      linkTitle: chip?.querySelector('a')?.title || '',
+      linkLabel: chip?.querySelector('a')?.getAttribute('aria-label') || '',
+      glyph: !!chip?.querySelector('a svg'),
+      nameOpenable: !!chip?.querySelector('.file-chip-name.openable'),
       gap: chip ? getComputedStyle(chip).gap : '',
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
     };
@@ -976,7 +980,12 @@ if (realModel) {
   assert.equal(deliveredChip.links, 1);
   assert.equal(deliveredChip.buttons, 0);
   assert.equal(deliveredChip.downloadLinks, 0);
-  assert.equal(deliveredChip.linkText, "folder");
+  // Item 2ep: the folder link is a glyph with "folder" on hover; the name opens the document.
+  assert.equal(deliveredChip.linkText, "");
+  assert.equal(deliveredChip.linkTitle, "folder");
+  assert.equal(deliveredChip.linkLabel, "folder");
+  assert.equal(deliveredChip.glyph, true);
+  assert.equal(deliveredChip.nameOpenable, true);
   assert.equal(deliveredChip.gap, "8px");
   assert.equal(deliveredChip.horizontalOverflow, false);
   await page.screenshot({ path: join(baselineDirectory, "chat-delivered-folder-link.png") });

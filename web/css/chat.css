@@ -325,6 +325,25 @@
 .file-chip-name {
   color: var(--ink);
 }
+/* Item 2ep: a delivered document opens from its name; the folder is a glyph. */
+.file-chip-name.openable {
+  cursor: pointer;
+}
+.file-chip-name.openable:hover {
+  text-decoration: underline;
+}
+.file-chip a.file-chip-folder {
+  display: inline-flex;
+  align-items: center;
+  color: var(--mute);
+  text-decoration: none;
+}
+.file-chip a.file-chip-folder:hover {
+  color: var(--ink);
+}
+.file-chip-folder svg {
+  display: block;
+}
 .file-chip-size,
 .file-chip.missing {
   color: var(--mute);

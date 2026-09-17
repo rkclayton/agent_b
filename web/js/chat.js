@@ -652,6 +652,15 @@ function renderFileChip(session, file) {
         renderComposer(session);
       }
     },
+    openFile: async () => {
+      try {
+        await api("/api/open-file", { session_id: session.id, path: file.openPath, scope: file.openScope });
+      } catch (error) {
+        localNotice = error.message || String(error);
+        localAlarm = true;
+        renderComposer(session);
+      }
+    },
   });
   fileViews.set(key, { node, fingerprint });
   return node;

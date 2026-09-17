@@ -87,7 +87,9 @@ func (s *Server) openDeliveredFile(w http.ResponseWriter, r *http.Request) {
 }
 
 var openableExtensions = map[string]bool{
-	".xlsx": true, ".xls": true, ".csv": true, ".docx": true, ".doc": true, ".pptx": true,
+	// v0.65.0/W15 cold review: .csv, .xls and .doc are left out; a tool can write
+	// them byte for byte with formulas or macros that would run as the operator.
+	".xlsx": true, ".docx": true, ".pptx": true,
 	".pdf": true, ".txt": true, ".md": true, ".json": true, ".log": true,
 	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true,
 }

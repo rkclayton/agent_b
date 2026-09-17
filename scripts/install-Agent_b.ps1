@@ -18,6 +18,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $displayVersion = '0.63.0'
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
+. (Join-Path $PSScriptRoot 'agentb-stop.ps1')
 
 function Get-FullPath {
     param([string]$Path)
@@ -176,13 +177,14 @@ function Get-InstalledProcesses {
 function Stop-InstalledProcesses {
     param([System.Diagnostics.Process[]]$Processes)
     if (-not $Processes.Count) { return }
-    $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
     foreach ($process in $Processes) {
         Write-Host "STOPPING: Agent_b PID $($process.Id)"
-        & $taskkill /PID $process.Id
-        if ($LASTEXITCODE -ne 0) {
-            throw "Agent_b PID $($process.Id) could not be stopped gracefully (taskkill exit $LASTEXITCODE). Installation was not changed."
+        try {
+            $channel = Request-AgentbGracefulStop -ProcessId $process.Id
+        } catch {
+            throw "Agent_b PID $($process.Id) could not be stopped gracefully ($($_.Exception.Message)). Installation was not changed."
         }
+        Write-Host "STOP REQUESTED: Agent_b PID $($process.Id) through the $channel"
     }
     $deadline = [DateTime]::UtcNow.AddSeconds(15)
     do {

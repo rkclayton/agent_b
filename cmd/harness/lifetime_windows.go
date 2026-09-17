@@ -125,7 +125,10 @@ func watchSessionEnd(record func(string), closeRequested func()) {
 			case wmClose:
 				return 0
 			case wmEndSession:
-				if wParam != 0 && queried && sentMessage() {
+				// ENDSESSION_CLOSEAPP alone is Restart Manager asking applications to
+				// close; this process does not act on it, so it is not recorded as an end.
+				closeAppOnly := lParam&endSessionCloseApp != 0 && lParam&(endSessionLogoff|endSessionCritical) == 0
+				if wParam != 0 && queried && sentMessage() && !closeAppOnly {
 					record(sessionEndReason(lParam))
 				}
 				queried = false

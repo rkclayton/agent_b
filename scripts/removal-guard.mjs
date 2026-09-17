@@ -29,26 +29,56 @@ export function assertRemovalWithinAllowedRoots(target, allowedRoots, purpose = 
   for (let ancestor = path.dirname(full); trim(ancestor).toLowerCase() !== volume; ancestor = path.dirname(ancestor)) {
     let stat;
     try { stat = fs.lstatSync(ancestor); } catch (error) { if (error.code === "ENOENT") continue; throw error; }
-    if (stat.isSymbolicLink()) throw new Error(`Refusing ${purpose} beneath a junction or link: ${ancestor}`);
+    if (isLink(ancestor, stat)) throw new Error(`Refusing ${purpose} beneath a junction or link: ${ancestor}`);
   }
   return full;
 }
 
 export function removeTreeWithinAllowedRoots(target, allowedRoots, purpose = "removal") {
   const full = assertRemovalWithinAllowedRoots(target, allowedRoots, purpose);
-  removeEntryWithoutFollowing(full);
+  removeEntryWithoutFollowing(full, full);
 }
 
-function removeEntryWithoutFollowing(entry) {
+// v0.65.0/W15 cold review: Node reports a junction to a volume GUID path
+// (\??\Volume{…}\) as a plain directory, so lstat's isSymbolicLink is not
+// enough. An entry is a link when it is a symbolic link or when its real path is
+// not its real parent joined with its own name.
+function isLink(entry, stat) {
+  if (stat.isSymbolicLink()) return true;
+  if (!stat.isDirectory()) return false;
+  try {
+    const real = fs.realpathSync.native(entry).toLowerCase();
+    const expected = path.join(fs.realpathSync.native(path.dirname(entry)), path.basename(entry)).toLowerCase();
+    return real !== expected;
+  } catch {
+    return true;
+  }
+}
+
+// Every directory between an entry and the removal root must still be a real
+// directory; one swapped for a junction during the walk stops it.
+function assertNoLinkAbove(entry, root) {
+  for (let ancestor = path.dirname(entry); ancestor.length >= root.length; ancestor = path.dirname(ancestor)) {
+    let stat;
+    try { stat = fs.lstatSync(ancestor); } catch { throw new Error(`Refusing removal: ${ancestor} went missing while ${root} was being removed`); }
+    if (isLink(ancestor, stat)) throw new Error(`Refusing removal: ${ancestor} became a junction or link while ${root} was being removed`);
+    if (ancestor.toLowerCase() === root.toLowerCase()) return;
+    if (path.dirname(ancestor) === ancestor) return;
+  }
+}
+
+function removeEntryWithoutFollowing(entry, root) {
+  if (entry !== root) assertNoLinkAbove(entry, root);
   let stat;
   try { stat = fs.lstatSync(entry); } catch (error) { if (error.code === "ENOENT") return; throw error; }
-  if (stat.isSymbolicLink()) { unlinkLink(entry); return; }
+  if (isLink(entry, stat)) { unlinkLink(entry); return; }
   if (!stat.isDirectory()) { fs.rmSync(entry, { force: true }); return; }
-  for (const name of fs.readdirSync(entry)) removeEntryWithoutFollowing(path.join(entry, name));
+  for (const name of fs.readdirSync(entry)) removeEntryWithoutFollowing(path.join(entry, name), root);
   // Read again: if the directory became a link while its children were removed,
   // unlink the link rather than remove anything through it.
+  if (entry !== root) assertNoLinkAbove(entry, root);
   const again = fs.lstatSync(entry);
-  if (again.isSymbolicLink()) unlinkLink(entry);
+  if (isLink(entry, again)) unlinkLink(entry);
   else fs.rmdirSync(entry);
 }
 

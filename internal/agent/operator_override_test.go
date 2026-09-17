@@ -163,7 +163,7 @@ func TestOperatorOverrideDenialDoesNotRetry(t *testing.T) {
 	select {
 	case got := <-done:
 		// Item 2eo: the denial is a harness note, not part of what the tool returned.
-		denialReported := strings.Contains(got.note, "denied by the user") && !strings.Contains(got.content, "denied by")
+		denialReported := strings.Contains(got.note, "denied by the user") && strings.Contains(got.content, "[harness: operator-identity override was offered and denied by the user]")
 		if got.ok || !denialReported || !strings.Contains(got.content, "Access to the path is denied") {
 			t.Fatalf("denial result=%#v", got)
 		}
@@ -368,7 +368,7 @@ func TestFailedApprovedOverrideIsLabeledOperatorContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	outcome := <-done
-	if outcome.OK || !outcome.OperatorContext || tool.overrideCalls != 1 || outcome.Metadata["harness_note"] != "operator-identity override was attempted but failed" || strings.Contains(outcome.Content, "override was attempted") {
+	if outcome.OK || !outcome.OperatorContext || tool.overrideCalls != 1 || outcome.Metadata["harness_note"] != "operator-identity override was attempted but failed" || !strings.Contains(outcome.Content, "[harness: operator-identity override was attempted but failed]") {
 		t.Fatalf("outcome=%+v override calls=%d", outcome, tool.overrideCalls)
 	}
 }

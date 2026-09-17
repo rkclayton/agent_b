@@ -11,6 +11,9 @@ function Request-AgentbGracefulStop {
         $stopEvent = [System.Threading.EventWaitHandle]::OpenExisting("Local\Agent_b-stop-$ProcessId")
     } catch [System.Threading.WaitHandleCannotBeOpenedException] {
         $stopEvent = $null
+    } catch [System.UnauthorizedAccessException] {
+        # The event admits only the operator's account and SYSTEM (item 2eq).
+        throw "Agent_b PID $ProcessId can be stopped gracefully only by the operator's own account; run the installer as the operator or stop Agent_b first."
     }
     if ($stopEvent) {
         try { $null = $stopEvent.Set() } finally { $stopEvent.Dispose() }

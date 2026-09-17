@@ -31,6 +31,22 @@ export function reduce(event) {
   if (event.type === "snapshot") {
     const active = store.active;
     const selection = store.selection;
+    // v0.65.0/W8 (2er): a resync's snapshot is fetched while patches keep
+    // arriving on the event stream. A session this page already advanced past
+    // the snapshot's cursor (same generation, later offset) keeps its newer
+    // state: replacing it moved the page backwards, the patches it lost were
+    // already consumed, and a paused worker sends nothing that would reveal the
+    // gap, so its approval card was never drawn.
+    if (data.sessions && store.sessions) {
+      for (const [id, current] of Object.entries(store.sessions)) {
+        const incoming = data.sessions[id];
+        if (incoming && current?.cursor && incoming.cursor &&
+          (current.cursor.generation || "") === (incoming.cursor.generation || "") &&
+          Number(current.cursor.offset || 0) > Number(incoming.cursor.offset || 0)) {
+          data.sessions[id] = current;
+        }
+      }
+    }
     Object.assign(store, data);
     store.selection = selection;
     const selected = selection.session_id || active;

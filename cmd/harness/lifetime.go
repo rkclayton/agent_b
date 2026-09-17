@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,10 +46,10 @@ func (l *lifetime) begin() {
 	if err := os.MkdirAll(filepath.Dir(l.logPath), 0o700); err != nil {
 		return
 	}
-	if data, err := os.ReadFile(l.markerPath); err == nil {
+	if data, err := readMarker(l.markerPath); err == nil {
 		var previous runMarker
 		if json.Unmarshal(data, &previous) == nil && previous.PID > 0 && !(previous.PID == l.pid && previous.Created == l.created) && !processRunning(previous.PID, previous.Created) {
-			l.append(fmt.Sprintf("Agent_b PID %d (started %s) ended without recording a reason: the Windows session was logged off or shut down, the process was ended from outside, or the host lost power.", previous.PID, previous.Started))
+			l.append(fmt.Sprintf("Agent_b PID %d (started %s) ended without recording a reason: the Windows session was logged off or shut down, the process was ended from outside, or the host lost power.", previous.PID, printable(previous.Started)))
 		}
 	}
 	marker, _ := json.Marshal(runMarker{PID: l.pid, Created: l.created, Started: l.stamp()})
@@ -79,4 +80,26 @@ func (l *lifetime) append(message string) {
 	defer file.Close()
 	_, _ = fmt.Fprintf(file, "%s %s\r\n", l.stamp(), message)
 	_ = file.Sync()
+}
+
+// readMarker reads at most 4 KiB of the run marker: it is a few fields, and a
+// larger file is not one this process wrote (v0.64.0/W8).
+func readMarker(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(io.LimitReader(file, 4096))
+}
+
+// printable drops control characters, so a marker's text cannot start a
+// second line in the launcher log.
+func printable(value string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, value)
 }

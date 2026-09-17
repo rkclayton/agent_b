@@ -59,10 +59,12 @@ test("no script removes a tree or a worktree except through the removal guard", 
     fs.readFileSync(full, "utf8").split(/\r?\n/).forEach((line, index) => {
       if (/^\s*(#|\/\/)/.test(line)) return;
       const powershellTree = /Remove-Item\b/i.test(line) && /-Recurse\b/i.test(line) && !/-LiteralPath\s+\(?\$\w*Registry\w*/i.test(line); // registry keys, not the filesystem
-      const nodeTree = /\brmSync\s*\(/.test(line) && /recursive\s*:\s*true/.test(line);
+      // v0.64.0/W8: the promise rm and .NET's recursive Directory.Delete count too.
+      const nodeTree = /\brm(Sync)?\s*\(/.test(line) && /recursive\s*:\s*true/.test(line);
+      const dotnetTree = /Directory\]::Delete\([^)]*,\s*\$true\s*\)/i.test(line);
       const worktree = /worktree['"]?\s*,?\s*['"]?remove\b/i.test(line);
       const shell = /\b(rm\s+-r|rmdir\s+\/s|rd\s+\/s)/i.test(line);
-      if (powershellTree || nodeTree || worktree || shell) offenders.push(`${name}:${index + 1}: ${line.trim()}`);
+      if (powershellTree || nodeTree || dotnetTree || worktree || shell) offenders.push(`${name}:${index + 1}: ${line.trim()}`);
     });
   }
   assert.deepEqual(offenders, []);

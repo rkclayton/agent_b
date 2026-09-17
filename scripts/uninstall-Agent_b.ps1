@@ -202,19 +202,19 @@ if (Test-Path -LiteralPath $startupShortcutPath) {
 if (Test-Path -LiteralPath $UninstallRegistryPath) { Remove-Item -LiteralPath $UninstallRegistryPath -Recurse -Force }
 Set-Location ([IO.Path]::GetTempPath())
 if (Test-Path -LiteralPath $applicationRoot) {
-    Remove-TreeWithinAllowedRoots -Path $applicationRoot -AllowedRoots @($applicationRoot) -Purpose 'application cleanup'
+    Remove-TreeWithinAllowedRoots -Path $applicationRoot -AllowedRoots @(Split-Path -Parent $applicationRoot) -Purpose 'application cleanup'
 }
 
 if ($purge) {
     if (Test-Path -LiteralPath $dataRoot) {
-        Remove-TreeWithinAllowedRoots -Path $dataRoot -AllowedRoots @($dataRoot) -Purpose 'operator-data cleanup'
+        Remove-TreeWithinAllowedRoots -Path $dataRoot -AllowedRoots @(Split-Path -Parent $dataRoot) -Purpose 'operator-data cleanup'
     }
     if (Test-Path -LiteralPath $workspaceRoot) {
-        Remove-TreeWithinAllowedRoots -Path $workspaceRoot -AllowedRoots @($workspaceRoot) -Purpose 'workspace cleanup'
+        Remove-TreeWithinAllowedRoots -Path $workspaceRoot -AllowedRoots @(Split-Path -Parent $workspaceRoot) -Purpose 'workspace cleanup'
     }
     $workspaceParent = Split-Path -Parent $workspaceRoot
     if ((Split-Path -Leaf $workspaceParent) -eq 'Agent_b' -and (Test-Path -LiteralPath $workspaceParent) -and -not (Get-ChildItem -LiteralPath $workspaceParent -Force | Select-Object -First 1)) {
-        $removalPath = Assert-RemovalWithinAllowedRoots -Path $workspaceParent -AllowedRoots @($workspaceParent) -Purpose 'empty workspace-parent cleanup'
+        $removalPath = Assert-RemovalWithinAllowedRoots -Path $workspaceParent -AllowedRoots @(Split-Path -Parent $workspaceParent) -Purpose 'empty workspace-parent cleanup'
         Remove-Item -LiteralPath $removalPath -Force
     }
     Write-Host 'REMOVED: program files, operator data, and service workspace'

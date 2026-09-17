@@ -65,7 +65,7 @@ async function measure(root, label) {
 }
 
 const scratch = resolve(args.evidence, "before-app");
-removeTreeWithinAllowedRoots(scratch, [scratch], "settings-height scratch cleanup");
+removeTreeWithinAllowedRoots(scratch, [args.evidence], "settings-height scratch cleanup");
 mkdirSync(scratch, { recursive: true });
 const files = execFileSync("git", ["ls-tree", "-r", "--name-only", args["before-ref"], "web/"], { encoding: "utf8" }).split("\n").filter(Boolean);
 for (const name of files) {
@@ -88,5 +88,5 @@ const report = {
   control_delta: after.controls - before.controls,
 };
 writeFileSync(resolve(args.evidence, "settings-heights.json"), `${JSON.stringify(report, null, 2)}\n`);
-removeTreeWithinAllowedRoots(scratch, [scratch], "settings-height scratch cleanup");
+removeTreeWithinAllowedRoots(scratch, [args.evidence], "settings-height scratch cleanup");
 console.log(JSON.stringify(report, null, 1));

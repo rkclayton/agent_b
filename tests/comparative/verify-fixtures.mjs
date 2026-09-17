@@ -95,7 +95,7 @@ for (const task of manifest) {
     const after = runVerifier(task, worktree);
     assert.equal(after.status, 0, `${task.id}: oracle verifier failed\n${after.stdout}\n${after.stderr}`);
   } finally {
-    removeTreeWithinAllowedRoots(temporary, [temporary], "comparative fixture cleanup");
+    removeTreeWithinAllowedRoots(temporary, [os.tmpdir()], "comparative fixture cleanup");
   }
   process.stdout.write(`PASS ${task.id}\n`);
 }

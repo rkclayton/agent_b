@@ -48,11 +48,50 @@ try {
     if (Test-Path -LiteralPath $literal) { throw 'The literal variable-looking directory was not removed.' }
     Write-Host 'PASS: a variable-looking name is removed literally, not expanded'
 
+    # v0.65.0/W9 (1): an allowed root that is the target itself is no allow-list.
+    $selfRooted = Join-Path $disposable 'self-rooted'
+    $null = New-Item -ItemType Directory -Path $selfRooted -Force
+    Assert-Refused { Remove-TreeWithinAllowedRoots -Path $selfRooted -AllowedRoots @($selfRooted) -Purpose 'test cleanup' } 'Refusing test cleanup: an allowed removal root must contain the target, not be it:*' 'Self-rooted removal'
+    if (-not (Test-Path -LiteralPath $selfRooted)) { throw 'A refused self-rooted removal deleted its target.' }
+    Write-Host 'PASS: an allowed root equal to its target is refused'
+
+    # v0.65.0/W9 (2): a junction in a parent redirects the removal into its target.
+    $realParent = Join-Path $disposable 'real-parent'
+    $realWorkspace = Join-Path $realParent 'workspace'
+    $null = New-Item -ItemType Directory -Path $realWorkspace -Force
+    [IO.File]::WriteAllText((Join-Path $realWorkspace 'operator-work.txt'), 'keep')
+    $linkedParent = Join-Path $disposable 'linked-parent'
+    $null = New-Item -ItemType Junction -Path $linkedParent -Target $realParent
+    Assert-Refused { Remove-TreeWithinAllowedRoots -Path (Join-Path $linkedParent 'workspace') -AllowedRoots @($disposable) -Purpose 'test cleanup' } 'Refusing test cleanup beneath a junction or link:*' 'Removal beneath a parent junction'
+    if (-not (Test-Path -LiteralPath (Join-Path $realWorkspace 'operator-work.txt'))) { throw 'A removal beneath a parent junction emptied its target.' }
+    [IO.Directory]::Delete($linkedParent, $false)
+    Write-Host 'PASS: a removal beneath a parent junction is refused and its target is intact'
+
+    # v0.65.0/W9 (3): a junction that appears after the removal began is unlinked,
+    # not followed. The seam replaces a directory with a junction just before the
+    # walk enters it.
+    $racing = Join-Path $disposable 'racing'
+    $null = New-Item -ItemType Directory -Path (Join-Path $racing 'swap\inner') -Force
+    $raceTarget = Join-Path $disposable 'race-target'
+    $null = New-Item -ItemType Directory -Path $raceTarget -Force
+    [IO.File]::WriteAllText((Join-Path $raceTarget 'keep.txt'), 'keep')
+    $global:AgentbRemovalBeforeDescend = {
+        param($entered)
+        if ((Split-Path -Leaf $entered) -eq 'swap' -and -not ((Get-Item -LiteralPath $entered -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            [IO.Directory]::Delete($entered, $true)
+            $null = New-Item -ItemType Junction -Path $entered -Target $raceTarget
+        }
+    }
+    try { Remove-TreeWithinAllowedRoots -Path $racing -AllowedRoots @($disposable) -Purpose 'test cleanup' }
+    finally { Remove-Variable -Name AgentbRemovalBeforeDescend -Scope Global -ErrorAction SilentlyContinue }
+    if ((Test-Path -LiteralPath $racing) -or -not (Test-Path -LiteralPath (Join-Path $raceTarget 'keep.txt'))) { throw 'A junction created during the removal was followed.' }
+    Write-Host 'PASS: a junction created after the removal began is unlinked and its target is intact'
+
     # A junction inside a removed tree is unlinked, never descended into.
     $tree = Join-Path $disposable 'tree'
     $null = New-Item -ItemType Directory -Path (Join-Path $tree 'a\b') -Force
     $null = New-Item -ItemType Junction -Path (Join-Path $tree 'a\b\node_modules') -Target $target
-    Remove-TreeWithinAllowedRoots -Path $tree -AllowedRoots @($tree) -Purpose 'test cleanup'
+    Remove-TreeWithinAllowedRoots -Path $tree -AllowedRoots @($disposable) -Purpose 'test cleanup'
     if ((Test-Path -LiteralPath $tree) -or -not (Test-Path -LiteralPath $keep)) { throw 'Tree removal did not keep the junction target intact.' }
     Write-Host 'PASS: tree removal unlinks a nested junction and leaves its target intact'
 
@@ -72,5 +111,5 @@ try {
     if ((Test-Path -LiteralPath $worktree) -or -not (Test-Path -LiteralPath $keep)) { throw 'Worktree removal emptied a junction target.' }
     Write-Host 'PASS: remove-worktree refuses the main worktree and a non-worktree, and keeps a junction target intact'
 } finally {
-    if (Test-Path -LiteralPath $disposable) { Remove-TreeWithinAllowedRoots -Path $disposable -AllowedRoots @($disposable) -Purpose 'removal-guard test cleanup' }
+    if (Test-Path -LiteralPath $disposable) { Remove-TreeWithinAllowedRoots -Path $disposable -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'removal-guard test cleanup' }
 }

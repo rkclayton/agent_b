@@ -77,6 +77,14 @@ export function isIdenticalSingleStepFold(items = [], blocks = []) {
   return blocks[0].steps.every((item, index) => item === items[index] || item?.key === items[index]?.key);
 }
 
+// Item 2eo: a header appears only when it groups two or more things. A Steps
+// fold holding at most one tool call and one thought renders those rows with no
+// header; counts are still computed from the rows wherever a header renders.
+export function isHeaderlessSteps(steps = []) {
+  const summary = responseSummary(steps);
+  return steps.length > 0 && steps.length <= 2 && summary.tools <= 1 && summary.thoughts <= 1 && steps.every((item) => item?.type === "tool" || item?.type === "agent");
+}
+
 export function itemFailed(item) {
   return item?.type === "tool" && item.result?.ok === false;
 }

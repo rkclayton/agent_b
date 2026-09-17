@@ -176,13 +176,19 @@ func (c *Compactor) ElideOld(s *session.Session, runID string, used, target, rea
 		}
 		call, _ := callFor(messages, item.ToolCallID)
 		updated := elide(item, call.Arguments, readDefaultLimit, count)
-		used -= max(0, item.Tokens-updated.Tokens)
+		// v0.65.0/W11: a result whose stub is no smaller (a fresh in-turn result
+		// not yet weighed) frees nothing; eliding it would only hide its bytes
+		// and publish a compaction with before == after.
+		if updated.Tokens >= item.Tokens {
+			continue
+		}
+		used -= item.Tokens - updated.Tokens
 		messages[index] = updated
 		affected = append(affected, item.ID)
 		c.updated(s, runID, updated)
 	}
-	if len(affected) == 0 {
-		return false, used
+	if len(affected) == 0 || used >= before {
+		return false, before
 	}
 	s.ReplaceMessages(messages)
 	s.RecordCompaction(used - before)

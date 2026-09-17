@@ -34,6 +34,6 @@ test("Open chat list excludes durable closed sessions", () => {
 test("Assistant labels use only role and the header carries only role and profile", () => {
   assert.equal(agentAuthor(idle), "agent_b");
   assert.equal(agentAuthor(idle, "c"), "agent_c");
-  assert.equal(sessionTitle(idle), "agent_b · Home API");
-  assert.equal(sessionTitle({ ...idle, role: "d", plan_name: "Release map", workspace: "C:\\code\\vesper" }), "agent_d · Home API");
+  assert.equal(sessionTitle(idle), "Home API", "item 2eo: the header reads the profile name only");
+  assert.equal(sessionTitle({ ...idle, role: "d", plan_name: "Release map", workspace: "C:\\code\\vesper" }), "Home API");
 });

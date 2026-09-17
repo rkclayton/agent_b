@@ -402,6 +402,9 @@
   display: block;
   overflow: visible;
 }
+.thought-glyph[data-open="true"] {
+  color: var(--ink);
+}
 .thinking-active .thought-glyph {
   color: var(--trace);
 }
@@ -447,6 +450,13 @@
 }
 .tool-state {
   color: var(--mute);
+}
+/* Item 2eo: what the harness did around a call, on its own line above the call. */
+.tool-harness-note {
+  min-height: 20px;
+  color: var(--mute);
+  font: 400 12px/20px var(--mono);
+  user-select: none;
 }
 .tool-state.error {
   color: var(--alarm);

@@ -11,8 +11,8 @@ export function firstUserLine(session) {
 
 export function sessionTitle(session) {
   if (!session) return "";
-  const profile = session.b_profile || session.server_id || "profile";
-  return `agent_${session.role === "d" ? "d" : "b"} · ${profile}`;
+  // Item 2eo: "lets leave just the active model name" — the tab already carries the role.
+  return session.b_profile || session.server_id || "profile";
 }
 
 export function agentAuthor(session, role = "b") {

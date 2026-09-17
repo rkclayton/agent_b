@@ -116,7 +116,7 @@ func testOperatorOverrideRequiresApproval(t *testing.T, approvalMode string) {
 	}
 	select {
 	case got := <-done:
-		if !got.ok || !got.operatorContext || got.content != "operator-identity override succeeded; exact command rerun once:\nexit=0\noperator-ok" {
+		if !got.ok || !got.operatorContext || got.content != "exit=0\noperator-ok" {
 			t.Fatalf("result=%#v", got)
 		}
 		if strings.Contains(got.content, "Access to the path is denied") {
@@ -142,13 +142,15 @@ func TestOperatorOverrideDenialDoesNotRetry(t *testing.T) {
 	s := &session.Session{ID: "session", Workspace: t.TempDir(), Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"shell": true}}
 	type denialResult struct {
 		content string
+		note    string
 		ok      bool
 	}
 	done := make(chan denialResult, 1)
 	go func() {
 		outcome := runner.executeTool(context.Background(), s, "run", "call", "shell", map[string]any{"command": "Set-Content protected.txt value"})
 		content, ok := outcome.Content, outcome.OK
-		done <- denialResult{content: content, ok: ok}
+		note, _ := outcome.Metadata["harness_note"].(string)
+		done <- denialResult{content: content, note: note, ok: ok}
 	}()
 	select {
 	case <-eventCh:
@@ -160,7 +162,8 @@ func TestOperatorOverrideDenialDoesNotRetry(t *testing.T) {
 	}
 	select {
 	case got := <-done:
-		denialReported := strings.Contains(got.content, "denied by the user") || strings.Contains(got.content, "denied by user")
+		// Item 2eo: the denial is a harness note, not part of what the tool returned.
+		denialReported := strings.Contains(got.note, "denied by the user") && !strings.Contains(got.content, "denied by")
 		if got.ok || !denialReported || !strings.Contains(got.content, "Access to the path is denied") {
 			t.Fatalf("denial result=%#v", got)
 		}
@@ -184,13 +187,15 @@ func TestFileToolOperatorOverrideUsesPathAndExactCall(t *testing.T) {
 	s := &session.Session{ID: "session", Workspace: t.TempDir(), Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"read_file": true}}
 	type fileResult struct {
 		content string
+		note    string
 		ok      bool
 	}
 	done := make(chan fileResult, 1)
 	go func() {
 		outcome := runner.executeTool(context.Background(), s, "run", "call", "read_file", map[string]any{"path": `C:\allowed.txt`})
 		content, ok := outcome.Content, outcome.OK
-		done <- fileResult{content: content, ok: ok}
+		note, _ := outcome.Metadata["harness_note"].(string)
+		done <- fileResult{content: content, note: note, ok: ok}
 	}()
 	required := <-eventCh
 	data := required.Data.(map[string]any)
@@ -202,7 +207,7 @@ func TestFileToolOperatorOverrideUsesPathAndExactCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := <-done
-	if !got.ok || !strings.Contains(got.content, "override succeeded; exact tool call rerun once") || tool.overrideCalls != 1 {
+	if !got.ok || !strings.Contains(got.note, "override succeeded; exact tool call rerun once") || strings.Contains(got.content, "override succeeded") || tool.overrideCalls != 1 {
 		t.Fatalf("result=%#v override calls=%d", got, tool.overrideCalls)
 	}
 }
@@ -363,7 +368,7 @@ func TestFailedApprovedOverrideIsLabeledOperatorContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	outcome := <-done
-	if outcome.OK || !outcome.OperatorContext || tool.overrideCalls != 1 || !strings.Contains(outcome.Content, "override was attempted but failed") {
+	if outcome.OK || !outcome.OperatorContext || tool.overrideCalls != 1 || outcome.Metadata["harness_note"] != "operator-identity override was attempted but failed" || strings.Contains(outcome.Content, "override was attempted") {
 		t.Fatalf("outcome=%+v override calls=%d", outcome, tool.overrideCalls)
 	}
 }
@@ -379,8 +384,9 @@ func TestSuccessfulEmptyOperatorOverrideIsUnambiguous(t *testing.T) {
 	s := &session.Session{ID: "session", Workspace: t.TempDir(), Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"list_dir": true}}
 	done := make(chan string, 1)
 	go func() {
-		content := runner.executeTool(context.Background(), s, "run", "call", "list_dir", map[string]any{}).Content
-		done <- content
+		outcome := runner.executeTool(context.Background(), s, "run", "call", "list_dir", map[string]any{})
+		note, _ := outcome.Metadata["harness_note"].(string)
+		done <- note + "\n" + outcome.Content
 	}()
 	<-eventCh
 	if err := runner.gate.Decide(s.ID, "call:operator", "approve"); err != nil {

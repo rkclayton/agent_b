@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "@playwright/test";
@@ -219,5 +220,5 @@ try {
     await new Promise((done) => model.close(done)).catch(() => {});
   }
   const expectedPrefix = join(tmpdir(), "Agent_b-navigation-network-");
-  if (tempRoot.startsWith(expectedPrefix)) await rm(tempRoot, { recursive: true, force: true });
+  if (tempRoot.startsWith(expectedPrefix)) removeTreeWithinAllowedRoots(tempRoot, [tmpdir()], "navigation-network-evidence cleanup");
 }

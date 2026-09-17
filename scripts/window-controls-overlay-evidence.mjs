@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { chromium } from "playwright";
@@ -113,7 +114,7 @@ try {
   server.closeAllConnections?.();
   await new Promise((done) => server.close(done)).catch(() => {});
   if (profile.startsWith(join(tmpdir(), "Agent_b-wco-"))) {
-    try { await rm(profile, { recursive: true, force: true }); }
+    try { removeTreeWithinAllowedRoots(profile, [tmpdir()], "window-controls-overlay-evidence cleanup"); }
     catch (error) { process.stderr.write(`cleanup warning: ${error.message}\n`); }
   }
 }

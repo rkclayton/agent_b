@@ -39,6 +39,15 @@ try {
     Assert-Refused { Remove-TreeWithinAllowedRoots -Path $volume -AllowedRoots @($volume) -Purpose 'test cleanup' } 'Refusing test cleanup of a volume root:*' 'Volume-root removal'
     Write-Host 'PASS: tree removal refuses a path outside its allow-list and a volume root'
 
+    # v0.64.0/W8: a name that looks like a variable is removed as named, never expanded.
+    $literal = Join-Path $disposable '%USERPROFILE%'
+    $null = New-Item -ItemType Directory -Path $literal -Force
+    $resolved = Assert-RemovalWithinAllowedRoots -Path $literal -AllowedRoots @($disposable) -Purpose 'test cleanup'
+    if ($resolved -ne [IO.Path]::GetFullPath($literal).TrimEnd('\')) { throw "A variable-looking name was expanded: $resolved" }
+    Remove-TreeWithinAllowedRoots -Path $literal -AllowedRoots @($disposable) -Purpose 'test cleanup'
+    if (Test-Path -LiteralPath $literal) { throw 'The literal variable-looking directory was not removed.' }
+    Write-Host 'PASS: a variable-looking name is removed literally, not expanded'
+
     # A junction inside a removed tree is unlinked, never descended into.
     $tree = Join-Path $disposable 'tree'
     $null = New-Item -ItemType Directory -Path (Join-Path $tree 'a\b') -Force

@@ -233,6 +233,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	lengthSeen := false
 	truncatedToolRetry := ""
 	accountingRepairTried := false
+	softLineChecked := false
 	guards := newRunGuards(runCfg.CycleWindow, runCfg.MaxConsecutiveToolErrors)
 	currentReasoning := map[string]bool{}
 	for {
@@ -334,6 +335,16 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				return "model_unreachable", budgetErr.Error(), turn - 1
 			}
 			return "model_error", "budget accounting: " + budgetErr.Error(), turn - 1
+		}
+		// Item 2ey: a run's first request gets the projection a later turn gets at
+		// its end, so a restored chat over the soft line compacts before it is
+		// sent instead of after it overflows.
+		if !softLineChecked {
+			softLineChecked = true
+			if budget.Ceiling > 0 && budget.UsedEst >= int(float64(budget.Ceiling)*r.cfg().Context.SoftPct) && r.compactAfterTurn(ctx, s, runID, turn-1, profile, currentReasoning) {
+				turn--
+				continue
+			}
 		}
 		guardUsed := guardedPromptTokens(budget)
 		floor := outputFloor(profile)
@@ -1033,47 +1044,62 @@ func (r *Runner) withoutToolSystems(p *config.Profile, s *session.Session, enabl
 	return out
 }
 
-func (r *Runner) compactAfterTurn(ctx context.Context, s *session.Session, runID string, turn int, p *config.Profile, current map[string]bool) {
+// compactAfterTurn projects the next request at the end of a turn (item 2ey):
+// at soft_pct it elides one batch toward 60%, at summary_pct it summarizes, so
+// the next request starts under the line. It reports whether anything changed.
+func (r *Runner) compactAfterTurn(ctx context.Context, s *session.Session, runID string, turn int, p *config.Profile, current map[string]bool) bool {
 	cfg := r.cfg()
 	readDefaultLimit := min(cfg.Tools.ReadFile.DefaultLimit, cfg.Tools.ReadFile.MaxLimit)
 	changed := r.compact.Supersede(s, runID, turn, readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
 	budget, err := r.measureSession(ctx, p, s, current, false)
 	if err != nil {
 		r.operationalError(s, runID, "compaction_budget", err)
-		return
+		return changed
 	}
 	if shouldBatchElide(budget.UsedEst, budget.Ceiling, cfg.Context, r.budget.ColdPrefill(s.ID)) {
-		did, _ := r.compact.ElideOld(s, runID, budget.UsedEst, int(float64(budget.Ceiling)*.60), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
+		did, _ := r.compact.ElideOld(s, runID, "soft_pct", budget.UsedEst, int(float64(budget.Ceiling)*.60), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
 		changed = changed || did
 		if did {
 			budget, err = r.measureSession(ctx, p, s, current, false)
 			if err != nil {
 				r.operationalError(s, runID, "compaction_budget", err)
-				return
+				return changed
 			}
 		}
 	}
 	if budget.Ceiling > 0 && budget.UsedEst >= int(float64(budget.Ceiling)*cfg.Context.SummaryPct) {
-		changed = r.summarize(ctx, s, runID, p) || changed
+		changed = r.summarize(withCompactionTrigger(ctx, "summary_pct"), s, runID, p) || changed
 	}
 	if changed {
 		next, err := r.measureSession(ctx, p, s, current, false)
 		if err != nil {
 			r.operationalError(s, runID, "compaction_budget", err)
-			return
+			return changed
 		}
 		r.bus.Publish(events.New(events.BudgetEvent, s.ID, runID, next))
 	}
+	return changed
 }
 func shouldBatchElide(used, ceiling int, cfg config.GlobalContext, coldPrefill bool) bool {
 	if ceiling <= 0 || coldPrefill {
 		return false
 	}
-	high := cfg.SummaryPct
-	if high <= cfg.SoftPct {
-		high = min(.95, cfg.SoftPct+.10)
-	}
-	return used >= int(float64(ceiling)*high)
+	// Item 2ey: the batch elide fires at the soft line (it waited for
+	// summary_pct before, so the first compaction came only near overflow).
+	return used >= int(float64(ceiling)*cfg.SoftPct)
+}
+
+type compactionTriggerKey struct{}
+
+// withCompactionTrigger names the line that asked for a compaction, so the
+// summarize event records it without threading a parameter through every path.
+func withCompactionTrigger(ctx context.Context, trigger string) context.Context {
+	return context.WithValue(ctx, compactionTriggerKey{}, trigger)
+}
+
+func compactionTrigger(ctx context.Context) string {
+	trigger, _ := ctx.Value(compactionTriggerKey{}).(string)
+	return trigger
 }
 
 // compactToFit reports whether it changed anything, and whether the only reason
@@ -1081,7 +1107,8 @@ func shouldBatchElide(used, ceiling int, cfg config.GlobalContext, coldPrefill b
 func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID string, p *config.Profile, current map[string]bool, budget events.Budget) (bool, bool) {
 	cfg := r.cfg()
 	readDefaultLimit := min(cfg.Tools.ReadFile.DefaultLimit, cfg.Tools.ReadFile.MaxLimit)
-	changed, _ := r.compact.ElideOld(s, runID, budget.UsedEst, int(float64(budget.Ceiling)*.60), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
+	ctx = withCompactionTrigger(ctx, "overflow")
+	changed, _ := r.compact.ElideOld(s, runID, "overflow", budget.UsedEst, int(float64(budget.Ceiling)*.60), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
 	next, err := r.measureSession(ctx, p, s, current, false)
 	if err != nil {
 		r.operationalError(s, runID, "compaction_budget", err)

@@ -108,7 +108,7 @@ func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID strin
 		response.DurationMS = duration
 	}
 	cached := nullableInt(response.Usage.CachedTokens)
-	source := events.CompactionSummaryData{Role: role, ProfileID: profile.ID, Model: profile.Model, FallbackReason: fallback, Dispatched: true, EstimatedPromptTokens: estimatedPromptTokens, Estimated: estimated, NCtx: profile.Context.NCtx, Usage: events.ModelUsage{PromptTokens: response.Usage.PromptTokens, CompletionTokens: response.Usage.CompletionTokens, CachedTokens: cached}, DurationMS: response.DurationMS}
+	source := events.CompactionSummaryData{Role: role, ProfileID: profile.ID, Model: profile.Model, FallbackReason: fallback, Dispatched: true, EstimatedPromptTokens: estimatedPromptTokens, Estimated: estimated, NCtx: profile.Context.NCtx, Usage: events.ModelUsage{PromptTokens: response.Usage.PromptTokens, CompletionTokens: response.Usage.CompletionTokens, CachedTokens: cached}, DurationMS: response.DurationMS, Trigger: compactionTrigger(ctx)}
 	s.RecordCompactionModel(response.Usage.PromptTokens, response.Usage.CompletionTokens)
 	summaryContent := compactionNoteHeader(s) + response.Content
 	if evidence := summaryEvidenceAppendix(s.MessagesCopy()); evidence != "" {

@@ -38,14 +38,14 @@ func s7r2Turn() []events.Message {
 	return append(messages, results...)
 }
 
-func TestInTurnResultsElideOldestFirstKeepingTheTaskAndTheRecentWindow(t *testing.T) {
+func TestInTurnResultsElideKeepingTheTaskAndTheRecentWindow(t *testing.T) {
 	messages := s7r2Turn()
 	s := &session.Session{ID: "s7"}
 	s.ReplaceMessages(messages)
 	s.SetRunPin("m-60")
 	used := tokenSum(messages)
 	count := func(text string) (int, bool) { return len(text) / 3, true }
-	changed, after := New(events.NewBus()).ElideOld(s, "r2", used, used-6000, 16384, count)
+	changed, after := New(events.NewBus()).ElideOld(s, "r2", "test", used, used-6000, 16384, count)
 	if !changed || after > used-6000 {
 		t.Fatalf("in-turn elision did not make room: changed=%t used %d → %d", changed, used, after)
 	}
@@ -64,7 +64,7 @@ func TestInTurnResultsElideOldestFirstKeepingTheTaskAndTheRecentWindow(t *testin
 		}
 	}
 	if !byID["m-41"].Elided || !byID["m-62"].Elided {
-		t.Fatalf("the oldest results were not elided first: m-41=%t m-62=%t", byID["m-41"].Elided, byID["m-62"].Elided)
+		t.Fatalf("the eligible results outside the window were not elided: m-41=%t m-62=%t", byID["m-41"].Elided, byID["m-62"].Elided)
 	}
 	if !strings.HasPrefix(byID["m-62"].Content, "[elided: read_file") {
 		t.Fatalf("an in-turn result must become a stub, never a summary: %q", byID["m-62"].Content)
@@ -77,7 +77,7 @@ func TestAMissingPinStillProtectsEverything(t *testing.T) {
 	s.ReplaceMessages(messages)
 	s.SetRunPin("m-does-not-exist")
 	used := tokenSum(messages)
-	if changed, _ := New(events.NewBus()).ElideOld(s, "r2", used, 0, 16384, func(text string) (int, bool) { return len(text) / 3, true }); changed {
+	if changed, _ := New(events.NewBus()).ElideOld(s, "r2", "test", used, 0, 16384, func(text string) (int, bool) { return len(text) / 3, true }); changed {
 		t.Fatal("a pin that is set but missing must protect everything")
 	}
 }
@@ -95,5 +95,50 @@ func TestRestoreStubsResultsOlderThanTheLastUserTurn(t *testing.T) {
 				t.Fatalf("%s belongs to the last turn and must stay verbatim", message.ID)
 			}
 		}
+	}
+}
+
+// Item 2ey: one pass frees the most by taking the largest stale result first.
+// One 8k result among ten 200-token ones is elided first, and alone suffices.
+func TestElideTakesTheLargestStaleResultFirst(t *testing.T) {
+	messages := []events.Message{{ID: "m-1", Role: "user", Category: "history", Content: "task", Tokens: 5}}
+	assistant := events.Message{ID: "m-2", Role: "assistant", Category: "history", Content: "reading", Tokens: 5}
+	results := []events.Message{}
+	sizes := []int{200, 200, 200, 8000, 200, 200, 200, 200, 200, 200, 200}
+	for index, size := range sizes {
+		id := fmt.Sprintf("call-%d", index)
+		args, _ := json.Marshal(map[string]any{"path": fmt.Sprintf("f%d.txt", index)})
+		assistant.ToolCalls = append(assistant.ToolCalls, events.ToolCall{ID: id, Name: "read_file", Arguments: string(args)})
+		results = append(results, events.Message{ID: fmt.Sprintf("m-%d", 10+index), Role: "tool", Name: "read_file", Category: "files", ToolCallID: id, Content: strings.Repeat("x", size*3), Tokens: size, OK: ok()})
+	}
+	messages = append(append(messages, assistant), results...)
+	messages = append(messages, events.Message{ID: "m-99", Role: "user", Category: "history", Content: "next", Tokens: 2})
+	s := &session.Session{ID: "s"}
+	s.ReplaceMessages(messages)
+	used := tokenSum(messages)
+	var trigger any
+	bus := events.NewBus()
+	events_, cancel := bus.Subscribe()
+	defer cancel()
+	changed, after := New(bus).ElideOld(s, "r", "soft_pct", used, used-7000, 16384, func(text string) (int, bool) { return len(text) / 3, true })
+	if !changed || after > used-7000 {
+		t.Fatalf("no room made: changed=%t %d → %d", changed, used, after)
+	}
+	elided := []string{}
+	for _, message := range s.MessagesCopy() {
+		if message.Elided {
+			elided = append(elided, message.ID)
+		}
+	}
+	if len(elided) != 1 || elided[0] != "m-13" {
+		t.Fatalf("expected only the 8k result m-13 elided, got %v", elided)
+	}
+	for len(events_) > 0 {
+		if event := <-events_; event.Type == events.Compaction {
+			trigger = event.Data.(map[string]any)["trigger"]
+		}
+	}
+	if trigger != "soft_pct" {
+		t.Fatalf("compaction event trigger = %v", trigger)
 	}
 }

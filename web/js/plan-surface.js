@@ -14,7 +14,9 @@ export function claimHint(storage, id) {
 
 export function planRows(text = "") {
   const lines = String(text).replaceAll("\r", "").split("\n");
-  const order = section(lines, "## Current work order");
+  // The current order is a "Current work order" heading at level 2 (the
+  // harness form, optionally suffixed) or 3 (inside a new plan's milestones).
+  const order = section(lines, /^(#{2,3})\s+Current work order\b/);
   const items = [];
   lines.forEach((line, index) => {
     const match = line.match(/^\s*\[([x~ !-])\]\s+(.+)$/);
@@ -39,9 +41,10 @@ export function noteReports(text = "") {
 }
 
 function section(lines, heading) {
-  const start = lines.findIndex((line) => line.trim() === heading);
+  const start = lines.findIndex((line) => heading.test(line.trim()));
   if (start < 0) return "";
-  let end = lines.findIndex((line, index) => index > start && /^##\s/.test(line));
+  const level = lines[start].trim().match(heading)[1].length;
+  let end = lines.findIndex((line, index) => index > start && (line.match(/^(#{1,6})\s/)?.[1].length ?? 7) <= level);
   if (end < 0) end = lines.length;
   return lines.slice(start + 1, end).join("\n").trim();
 }

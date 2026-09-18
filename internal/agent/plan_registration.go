@@ -58,10 +58,18 @@ func (r *Runner) registerPlan(ctx context.Context, item *session.Session, runID,
 	if item.RegisterPlan == nil {
 		return "plan registration is unavailable"
 	}
+	// A path that could never be registered raises no card; one that resolves
+	// elsewhere shows where it resolves, so the operator approves the real folder.
+	resolved, reason := session.RegistrationRefusal(item.PlansRoot, path)
+	if reason != "" {
+		return "plan registration refused: " + reason
+	}
+	args := map[string]any{"path": path}
+	if !strings.EqualFold(resolved, path) {
+		args["resolves_to"] = resolved
+	}
 	callID := r.id("plan-registration")
-	approved, err := r.gate.WaitPolicyRequired(ctx, item, runID, callID, name, map[string]any{
-		"path": path,
-	})
+	approved, err := r.gate.WaitPolicyRequired(ctx, item, runID, callID, name, args)
 	if err != nil {
 		return "plan registration approval ended: " + err.Error()
 	}

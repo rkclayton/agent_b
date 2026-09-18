@@ -28,6 +28,22 @@ func LockPlanFile(path string) func() {
 	return mu.Unlock
 }
 
+// LockPlanFileWrite is LockPlanFile for a file tool writing a plan's plan.md
+// (an accepted edit, a planner's own write): the returned unlock announces
+// plan.updated when the file changed while it was held, so every route that
+// rewrites plan.md reaches the page, not only the worker's markers.
+func LockPlanFileWrite(path string) func() {
+	unlock := LockPlanFile(path)
+	before, beforeErr := os.Stat(path)
+	return func() {
+		after, afterErr := os.Stat(path)
+		unlock()
+		if afterErr == nil && (beforeErr != nil || !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size()) {
+			notifyPlan("plan.updated", filepath.Dir(path))
+		}
+	}
+}
+
 // UpdatePlanFile is the serialised writer: under the plan file's lock it re-reads
 // the file as it is now, hands that text to change, and writes the result. A
 // change computed from an earlier read can therefore never overwrite a write
@@ -80,6 +96,43 @@ func (s *Session) PlanFileFor(path string) (string, bool) {
 		return "", false
 	}
 	return candidate, true
+}
+
+// RegistrationRefusal is the reason a folder may not become a plan's
+// repository, judged on the folder the path actually names: junctions and
+// links are resolved first, so a link cannot carry a registration into the
+// plans folder. The folder must exist, must not be a drive or network root,
+// and must neither sit inside the plans folder nor contain it. A network path
+// is refused before it is touched, so registration never opens a share. The
+// first result is the resolved folder, for the card to show.
+func RegistrationRefusal(plansRoot, repo string) (string, string) {
+	clean := filepath.Clean(repo)
+	if strings.HasPrefix(filepath.VolumeName(clean), `\\`) {
+		return "", "a network path cannot be a plan's repository; choose a local folder"
+	}
+	resolved, err := finalPath(clean)
+	if err != nil {
+		return "", "this folder does not exist or cannot be read; choose an existing repository"
+	}
+	if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
+		return "", "this path is not a folder; choose an existing repository"
+	}
+	if strings.HasPrefix(filepath.VolumeName(resolved), `\\`) || filepath.Dir(resolved) == resolved {
+		return "", "a drive or network root cannot be a plan's repository; choose the repository's own folder"
+	}
+	if plansRoot != "" {
+		root := filepath.Clean(plansRoot)
+		if value, err := finalPath(root); err == nil {
+			root = value
+		}
+		if pathWithin(root, resolved) {
+			return "", "this repository is inside the plans folder, where nothing may be written; choose a repository outside it"
+		}
+		if pathWithin(resolved, root) {
+			return "", "this folder contains the plans folder; choose the repository's own folder"
+		}
+	}
+	return resolved, ""
 }
 
 // RepoInsidePlans is the reason a repository cannot back a plan: a repository

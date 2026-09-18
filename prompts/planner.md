@@ -9,13 +9,14 @@ first; verify or label constraints; price >1 minute/thousands tokens first. Outp
 `agentb-plan-proposals` JSON v1 with proposals [{id,kind,path,old_text,new_text,item_id,
 source_message_ids}]; kinds add/reword/reorder/drop/agent_b_addition.
 Every item file names a `verify:` command; the worker marks an item done only when it exits 0.
+An item-file proposal carries the item's `## Contract` block too; the tray refuses one without it.
 
 ## Authoring reference
 
 Authoring guidance for whoever plans AgentB's work. This is the planner's workflow, not the
-worker's brief and not a standing rule every worker rereads. [[2bq]] tracks harvesting the rest of
-the planner's practice into this file; today it holds the discovery template, adopted 2026-09-11
-on Astra's direction that it belongs here rather than in a product item.
+worker's brief and not a standing rule every worker rereads. It holds the discovery template,
+adopted 2026-09-11 on Astra's direction that it belongs here rather than in a product item, and the
+planner's practice harvested under [[2bq]] (v0.67.0) — see `## Practice` below.
 
 ## The discovery template
 
@@ -91,3 +92,47 @@ it as a reason to keep deferring rather than as a question with an answer.
 deferral.** When a blocking condition has been tested repeatedly without resolving, state which
 part is satisfied, which remains uncertain, and what decides it. An unresolved gate nobody revisits
 becomes a permanent no that nobody chose.
+
+## Practice
+
+Harvested from NOTES.md, the `## Invented` sections, the miss ledger and the recorded stops (item
+2bq, v0.67.0). Each entry keeps the failure that produced it and is marked **general** (any plan,
+any worker) or **specific** (this repository and its worker). Revise it after each order, or say in
+the report that it did not change.
+
+- **Discovery before repair, as a reflex.** *general.* Failure: three measurement rounds were spent
+  reasoning about a cause instead of establishing it.
+- **Write your own errors into the order.** *general.* Failure avoided: the transcript-size
+  hypothesis died cleanly because the order named it as the planner's; unnamed, it would have
+  survived quietly.
+- **Name a hypothesis so it can be refuted; label it inferred; say what would kill it.** *general.*
+  Failure: premises carried forward as facts (see the corrections below).
+- **Separate measured from inferred in every claim.** *general.* Failure: a release was asserted
+  not installed from file dates while About showed it installed.
+- **The escape hatch.** *general.* A discovery that finds a cause stops and proposes the repair
+  with its cost: one round trip, not a new release. Failure: repairs shipped as whole releases
+  for a one-line cause.
+- **Declare a scope combination; split when the parts share no surface.** *general.* Failure:
+  bundled work read as drift in the report.
+- **Prefer the cheapest action that fits: a note over a REVISE over a STOP.** *general.* Failure:
+  STOPs spent where a note would have carried the change.
+- **Verify an item's premise against the code before ordering it.** *specific (this repository's
+  planner has file access and no execution).* Failure, v0.67.0: 2ex assumed attachments sat in
+  `files`; they were read_file results. 2fb assumed the summary note was appended; it was
+  already inserted at its span. Both steps stopped at discovery.
+
+### The wrong lessons, kept as corrections
+
+- **A rule retired before a check covered its failure.** *general.* Failure: W0's index
+  regeneration was retired and restored the same day, because nothing else made W0 run it.
+- **A design invented that already existed.** *specific.* Failure: a mechanism specified in an
+  item was already in the tree; the worker found it at discovery.
+- **A report's claim propagated into an item premise unverified.** *general.* Failure: 2eu's
+  evidence ("a stale binary was installed") came from a report inference; `/api/state` showed the
+  right build, and the stale shell came from the alpha instance.
+- **Evidence destroyed as housekeeping.** *general.* Failure: a pre-validation request/result was
+  moved out of `plan/validation/` to tidy it, destroying the proof of the check.
+- **A pin drawn too wide.** *specific.* Failure: a pinned span covered the running turn and
+  starved compaction until the run stopped for context.
+- **A target assumed instead of asked (chrome vs well).** *general.* Failure: a UI direction was
+  applied to the window chrome when the operator meant the transcript well.

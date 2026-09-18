@@ -48,12 +48,19 @@ func (s *Server) planGoState(w http.ResponseWriter, r *http.Request) {
 	running := s.worker != nil && s.worker.Running(item.Snapshot().PlanID)
 	items := worker.Parse(text)
 	refusal := planRefusal(planDir)
+	// Item 2bq: the plan lint runs before Go; an error refuses it and every
+	// finding is drawn on the panel.
+	diagnostics := worker.Lint(planDir)
+	if refusal == "" {
+		refusal = worker.Refusal(diagnostics)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"waiting": worker.RemainingIn(items, planDir),
-		"running": running,
-		"enabled": worker.RemainingIn(items, planDir) && !running && refusal == "",
-		"items":   len(items),
-		"refusal": refusal,
+		"waiting":     worker.RemainingIn(items, planDir),
+		"running":     running,
+		"enabled":     worker.RemainingIn(items, planDir) && !running && refusal == "",
+		"items":       len(items),
+		"refusal":     refusal,
+		"diagnostics": diagnostics,
 	})
 }
 
@@ -96,6 +103,10 @@ func (s *Server) planGoStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if refusal := planRefusal(planDir); refusal != "" {
+		writeError(w, http.StatusConflict, refusal, "plan")
+		return
+	}
+	if refusal := worker.Refusal(worker.Lint(planDir)); refusal != "" {
 		writeError(w, http.StatusConflict, refusal, "plan")
 		return
 	}

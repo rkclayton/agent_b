@@ -5,7 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { loadPublishedProposal, validateProposal, validateResume } from "./plan-lint.mjs";
+import { loadPublishedProposal, replaceCurrentOrderBody, validateProposal, validateResume } from "./plan-lint.mjs";
 import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -327,3 +327,27 @@ function prepare(root) {
 }
 
 process.stdout.write("plan-lint fixtures passed\n");
+
+{
+  // v0.67.0/W0: milestones on the road to 1.0 are written 1.<n>; other majors stay refused.
+  for (const [milestone, ok] of [["1.0", true], ["1.3", true], ["2.0", false], ["1", false]]) {
+    const root = makeFixture("\n- W1 **2a milestone check.**", [{ id: "2a", where: "items", text: item("2a").replace("milestone: 0.2", `milestone: ${milestone}`) }]);
+    const result = run(root, "--write-index", "--structural");
+    if (ok) assert.equal(result.status, 0, `${milestone}: ${result.stdout}${result.stderr}`);
+    else assert.match(result.stderr, /invalid milestone/, milestone);
+  }
+}
+
+{
+  // v0.67.0/W0: the body's own heading becomes the plan's heading (v0.66.0 was
+  // published under v0.65.0's title); a body without one keeps the plan's.
+  const plan = "# P\n\n## Current work order — v0.65.0: old title\n\nOrder ID: `v0.65.0`\n\nold body\n\n## In flight\n\nmarkers\n";
+  const replaced = replaceCurrentOrderBody(plan, "## Current work order — v0.67.0: new title\n\nOrder ID: `v0.67.0`\n\nnew body\n");
+  assert.equal((replaced.match(/^## Current work order/gm) || []).length, 1);
+  assert.match(replaced, /^## Current work order — v0\.67\.0: new title\n\nOrder ID: `v0\.67\.0`\n\nnew body\n\n## In flight/m);
+  assert.doesNotMatch(replaced, /old title|old body/);
+  const bodyOnly = replaceCurrentOrderBody(plan, "Order ID: `v0.67.0`\n\nnew body");
+  assert.match(bodyOnly, /^## Current work order — v0\.65\.0: old title\n\nOrder ID: `v0\.67\.0`/m);
+  const crlf = replaceCurrentOrderBody(plan, "## Current work order — v0.67.0: crlf\r\n\r\nbody\r\n");
+  assert.match(crlf, /^## Current work order — v0\.67\.0: crlf\n\nbody/m);
+}

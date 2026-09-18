@@ -59,8 +59,17 @@ export function replaceCurrentOrderBody(planText, orderBody) {
   if (orderBody === undefined || orderBody === null) return planText;
   const current = planText.match(/^## Current work order[^\n]*\n[\s\S]*?(?=^## (?:Next work order|In flight|Index)|(?![\s\S]))/m);
   if (!current) return planText;
-  const heading = current[0].match(/^## Current work order[^\n]*/)?.[0] ?? "## Current work order";
-  const replacement = `${heading}\n\n${String(orderBody).replace(/^\s+|\s+$/g, "")}\n\n`;
+  // An order body written by the planner opens with its own `## Current work order`
+  // heading. That heading replaces the published one, so the title always names
+  // the order below it (v0.66.0 was published under v0.65.0's title before this).
+  let body = String(orderBody).replace(/^\s+|\s+$/g, "");
+  let heading = current[0].match(/^## Current work order[^\n]*/)?.[0] ?? "## Current work order";
+  const own = body.match(/^## Current work order[^\r\n]*/);
+  if (own) {
+    heading = own[0].replace(/\s+$/, "");
+    body = body.slice(own[0].length).replace(/^\s+/, "");
+  }
+  const replacement = `${heading}\n\n${body}\n\n`;
   return `${planText.slice(0, current.index)}${replacement}${planText.slice(current.index + current[0].length)}`;
 }
 
@@ -90,7 +99,7 @@ function issueDetail(message) {
     : message.includes("non-empty ## Unresolved") ? "(none), or an explicit discovery/blocker representation"
       : message.includes("does not exist") || message.includes("unresolved item reference") ? "a resolvable item file in plan/items or plan/archive"
         : message.includes("expected live") ? "state: live"
-          : message.includes("invalid milestone") ? "unknown, -, or 0.<number>"
+          : message.includes("invalid milestone") ? "unknown, -, 0.<number>, or 1.<number>"
             : message.includes("invalid state") ? "proposed, live, shipped, superseded, or dead"
               : message.includes("invalid kind") ? "defect, feature, decision, or discovery"
                 : message.includes("invalid surfaces") ? "one or more registered surface names"
@@ -157,7 +166,7 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
     const firstKeys = [...metadata.keys()];
     if (firstKeys[0] !== "state" || firstKeys[1] !== "milestone") errors.push(`${relative}: state and milestone must be the first two metadata fields`);
     if (!validStates.has(state)) errors.push(`${relative}: invalid state ${JSON.stringify(state)}`);
-    if (!/^(?:unknown|-|0\.\d+)$/.test(milestone ?? "")) errors.push(`${relative}: invalid milestone ${JSON.stringify(milestone)}`);
+    if (!/^(?:unknown|-|[01]\.\d+)$/.test(milestone ?? "")) errors.push(`${relative}: invalid milestone ${JSON.stringify(milestone)}`);
     if (location === "items" && !["proposed", "live"].includes(state)) errors.push(`${relative}: state ${state} must not live in plan/items`);
     if (location === "archive" && ["proposed", "live"].includes(state)) errors.push(`${relative}: state ${state} must not live in plan/archive`);
     const required = state === "live" ? ["state", "milestone", "kind", "surfaces", "evidence", "acceptance"]

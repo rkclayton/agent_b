@@ -109,14 +109,14 @@ try {
   const replayDeadline = Date.now() + replayTimeout;
   let streamedCursor;
   while (Date.now() < replayDeadline) {
-    streamedCursor = await page.evaluate(async (id) => (await import("/static/js/bus.js")).store.sessions?.[id]?.cursor, sessionID);
+    streamedCursor = await page.evaluate(async (id) => (await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href)).store.sessions?.[id]?.cursor, sessionID);
     if (streamedCursor?.generation === finalCursor.generation && Number(streamedCursor?.offset || 0) === Number(finalCursor.offset || 0)) break;
     await sleep(100);
   }
   assert.deepEqual(streamedCursor, finalCursor, `streaming replay did not reach the final cursor in ${replayTimeout} ms`);
   await page.waitForTimeout(150);
   const result = await page.evaluate(async (id) => {
-    const { store } = await import("/static/js/bus.js");
+    const { store } = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
     return {
       cursor: store.sessions?.[id]?.cursor,
       mountedRenderFailures: document.querySelectorAll(".chat-render-failure").length,

@@ -153,10 +153,10 @@ function Get-CandidateExeIdentity {
 }
 
 function Assert-CandidateIdentity {
-    param([string]$SourceRoot, [string]$Binary, [string]$Version)
+    param([string]$SourceRoot, [string]$Binary, [string]$Version, [switch]$AfterStop)
     $expectedTag = 'v' + $Version
     $manifestPath = Join-Path $SourceRoot 'candidate-final.json'
-    $rule = 'The installer never builds: the release step (scripts\build-candidate.ps1) builds Agent_b.exe and writes candidate-final.json beside it. Nothing was stopped or changed.'
+    $rule = 'The installer never builds: the release step (scripts\build-candidate.ps1) builds Agent_b.exe and writes candidate-final.json beside it. ' + $(if ($AfterStop) { 'Agent_b was already stopped; the previous version is restored and restarted.' } else { 'Nothing was stopped or changed.' })
     if (-not (Test-Path -LiteralPath $Binary -PathType Leaf)) { throw "CANDIDATE REFUSED: $Binary is missing. $rule" }
     $found = Get-CandidateExeIdentity -Path $Binary
     $foundText = "$($found.Tag) $($found.Commit) sha256 $($found.Sha256)"
@@ -499,10 +499,6 @@ if ($installedProcesses.Count) {
 Stop-InstalledProcesses -Processes $installedProcesses
 if ($installedProcesses.Count) { $script:stoppedInstalledVersion = $true }
 
-# Checked again after the stop: nothing may swap the candidate between the
-# pre-stop check and the copy. A failure here rolls back and restarts.
-Assert-CandidateIdentity -SourceRoot $sourceRoot -Binary $sourceBinary -Version $displayVersion
-
 $applicationCreated = -not (Test-Path -LiteralPath $applicationRoot -PathType Container)
 $dataCreated = -not (Test-Path -LiteralPath $dataRoot -PathType Container)
 $null = New-Item -ItemType Directory -Path $applicationRoot -Force
@@ -517,6 +513,10 @@ foreach ($file in @('Agent_b.exe', 'harness.example.json', 'SECURITY.md', 'LICEN
     Copy-Item -LiteralPath $from -Destination (Join-Path $applicationRoot $file) -Force
 }
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'scripts\launch-installed.cmd') -Destination (Join-Path $applicationRoot 'Agent_b.cmd') -Force
+# The copy that will run is checked, after the copy and before it is signed:
+# the candidate could have changed between the pre-stop check and the copy.
+# A failure here rolls back and restarts the previous version.
+Assert-CandidateIdentity -SourceRoot $sourceRoot -Binary $installedBinary -Version $displayVersion -AfterStop
 
 $null = New-Item -ItemType Directory -Path $dataRoot -Force
 if ($dataCreated) { Set-PrivateDirectoryAcl -Path $dataRoot -Owner $currentSid }

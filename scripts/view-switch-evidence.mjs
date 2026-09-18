@@ -91,7 +91,7 @@ try {
   await page.locator("#chat-task").waitFor();
   await page.locator("#chat-task").fill("draft-survival-marker");
   const marker = await page.evaluate(() => window.__documentMarker = crypto.randomUUID());
-  const subscriptions = await page.evaluate(() => import("/static/js/bus.js").then((module) => module.subscriberCount()));
+  const subscriptions = await page.evaluate(() => import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href).then((module) => module.subscriberCount()));
   const trials = {};
   async function flips(name, count = 5) {
     const values = [];
@@ -143,7 +143,7 @@ try {
   assert.equal(await page.locator("#chat-task").inputValue(), "draft-survival-marker");
   assert.equal(await page.evaluate(() => window.__documentMarker), marker);
   assert.equal(await page.evaluate(() => window.__viewEvidence.eventSources), 1);
-  assert.equal(await page.evaluate(() => import("/static/js/bus.js").then((module) => module.subscriberCount())), subscriptions);
+  assert.equal(await page.evaluate(() => import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href).then((module) => module.subscriberCount())), subscriptions);
   assert.equal(await page.locator("#chat-log").innerText(), transcriptBefore);
   await page.screenshot({ path: join(evidence, "chat-final.png") });
   await page.locator('.agent-tab[data-agent="agent_b"]').click();

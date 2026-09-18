@@ -42,8 +42,10 @@ function Write-LauncherRecord {
 function Get-AgentBListener {
     param([string]$Url)
     $port = ([Uri]$Url).Port
-    $owner = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1)
-    if ($owner.Count) { return "PID $($owner[0].OwningProcess) answering on port $port" }
+    try {
+        $owner = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $port -State Listen -ErrorAction Stop | Select-Object -First 1)
+        if ($owner.Count) { return "PID $($owner[0].OwningProcess) answering on port $port" }
+    } catch { }
     return "port $port"
 }
 
@@ -105,15 +107,17 @@ function Get-AgentBProcesses {
 }
 
 function Show-AgentBWindow {
-    param([string]$Url, [switch]$ReplaceExisting)
+    param([string]$Url)
     if ($NoBrowser -or $env:AGENTB_NO_BROWSER) {
         Write-Host "UI ready: $Url"
         return
     }
 
-    # Item 2ev: only a window opened on this installation's own URL is reused or
-    # replaced. A title match used to bring forward any "Agent_b" window, which
-    # could be a retired instance on another port.
+    # Item 2ev: only a window opened on this installation's own URL is reused. A
+    # title match used to bring forward, or close, any "Agent_b" window, which
+    # could be a retired instance on another port or an ordinary browser window
+    # sharing the process. Nothing is closed: a window left open across an
+    # upgrade reloads itself when its event stream reaches the new server.
     $origin = [Uri]::new([Uri]$Url, '/').AbsoluteUri
     $ownWindows = @{}
     foreach ($candidate in @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe'" -ErrorAction SilentlyContinue)) {
@@ -122,16 +126,9 @@ function Show-AgentBWindow {
     $shell = New-Object -ComObject WScript.Shell
     foreach ($name in @('msedge', 'chrome')) {
         foreach ($browser in Get-Process -Name $name -ErrorAction SilentlyContinue) {
-            if ($ownWindows.ContainsKey($browser.Id) -and $browser.MainWindowHandle -ne [IntPtr]::Zero) {
-                if ($ReplaceExisting) {
-                    if ($browser.CloseMainWindow()) {
-                        Write-Host 'CLOSED: stale Agent_b application window'
-                        try { $browser.WaitForExit(3000) | Out-Null } catch { }
-                    }
-                } elseif ($shell.AppActivate($browser.Id)) {
-                    Write-Host 'REUSED: existing Agent_b browser window'
-                    return
-                }
+            if ($ownWindows.ContainsKey($browser.Id) -and $browser.MainWindowHandle -ne [IntPtr]::Zero -and $shell.AppActivate($browser.Id)) {
+                Write-Host 'REUSED: existing Agent_b browser window'
+                return
             }
         }
     }
@@ -280,7 +277,7 @@ try {
         Write-Host $(if ($Detached) { 'The process is being left running in the background; inspect logs or use -Check to confirm readiness.' } else { 'The process is being left running in this console so delayed startup remains visible.' })
     } else {
         Write-LauncherRecord "Agent_b is ready at $appUrl ($(Get-AgentBListener -Url $url)); started as process $($process.Id)."
-        Show-AgentBWindow -Url $appUrl -ReplaceExisting
+        Show-AgentBWindow -Url $appUrl
     }
 } finally {
     if ($locked) { $mutex.ReleaseMutex() }

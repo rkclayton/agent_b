@@ -46,14 +46,14 @@ func TestDocumentIsNoStoreAndCarriesTheServingBuild(t *testing.T) {
 	if !strings.Contains(body, `<meta name="agentb-build" content="`+build+`">`) {
 		t.Fatalf("document does not carry the serving build %s:\n%s", build, body)
 	}
-	for _, asset := range []string{`href="/static/css/chat.css?v=` + build[:12] + `"`, `src="/static/js/build-check.js?v=` + build[:12] + `"`} {
+	for _, asset := range []string{`href="/static/~` + build[:12] + `/css/chat.css"`, `src="/static/~` + build[:12] + `/js/build-check.js"`} {
 		if !strings.Contains(body, asset) {
 			t.Fatalf("document is missing versioned asset %s:\n%s", asset, body)
 		}
 	}
 
 	asset := httptest.NewRecorder()
-	server.Handler().ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "/static/css/chat.css?v="+build[:12], nil))
+	server.Handler().ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "/static/~"+build[:12]+"/css/chat.css", nil))
 	if asset.Code != http.StatusOK || asset.Header().Get("Cache-Control") != "no-cache" {
 		t.Fatalf("asset status=%d Cache-Control=%q", asset.Code, asset.Header().Get("Cache-Control"))
 	}
@@ -61,7 +61,7 @@ func TestDocumentIsNoStoreAndCarriesTheServingBuild(t *testing.T) {
 
 func TestStampDocumentLeavesOtherReferencesAlone(t *testing.T) {
 	got := string(stampDocument([]byte(`<head><a href="https://example.com/static/x.js"></a><img src="/static/a.svg?x=1"><img src="/static/b.svg"></head>`), "0123456789abcdef"))
-	if !strings.Contains(got, `href="https://example.com/static/x.js"`) || !strings.Contains(got, `src="/static/a.svg?x=1"`) || !strings.Contains(got, `src="/static/b.svg?v=0123456789ab"`) {
+	if !strings.Contains(got, `href="https://example.com/static/x.js"`) || !strings.Contains(got, `src="/static/~0123456789ab/a.svg?x=1"`) || !strings.Contains(got, `src="/static/~0123456789ab/b.svg"`) {
 		t.Fatalf("unexpected stamping: %s", got)
 	}
 	if !strings.HasPrefix(got, "<head>\n  <meta name=\"agentb-build\" content=\"0123456789abcdef\">") {

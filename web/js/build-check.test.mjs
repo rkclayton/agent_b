@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { checkBuild, decideBuildAction } from "./build-check.js";
+import { checkBuild, compareWithServer, decideBuildAction } from "./build-check.js";
 
 test("A page from the running build is current", () => {
   assert.equal(decideBuildAction("aaa", "aaa", ""), "current");
@@ -50,4 +50,23 @@ test("A current page clears the reload marker", async () => {
   assert.equal(await checkBuild(current.options), "current");
   assert.equal(current.calls.reloads, 0);
   assert.equal(current.values.has("agentb.build-reload"), false);
+});
+
+test("A snapshot from a restarted server with another build reloads the open page once", () => {
+  const values = new Map();
+  const storage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) };
+  let reloads = 0;
+  const doc = { querySelector: () => ({ content: "old" }) };
+  assert.equal(compareWithServer("new", { doc, storage, reload: () => { reloads += 1; } }), "reload");
+  assert.equal(compareWithServer("new", { doc, storage, reload: () => { reloads += 1; } }), "stale");
+  assert.equal(reloads, 1);
+});
+
+test("Blocked or write-failing storage never reloads, so it cannot loop", () => {
+  let reloads = 0;
+  const doc = { querySelector: () => ({ content: "old" }) };
+  assert.equal(compareWithServer("new", { doc, storage: null, reload: () => { reloads += 1; } }), "stale");
+  const readOnly = { getItem: () => null, setItem: () => { throw new Error("quota"); }, removeItem: () => {} };
+  assert.equal(compareWithServer("new", { doc, storage: readOnly, reload: () => { reloads += 1; } }), "stale");
+  assert.equal(reloads, 0);
 });

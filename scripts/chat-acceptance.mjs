@@ -298,7 +298,7 @@ async function settleSession(id, what) {
     const server = (await state()).sessions?.[id];
     const cursor = JSON.stringify(server?.cursor || null);
     const idle = !["running", "queued", "paused", "stopping"].includes(server?.run?.status);
-    const client = await browser.evaluate(`(async () => { const bus = await import('/static/js/bus.js'); return JSON.stringify(bus.store.sessions[${JSON.stringify(id)}]?.cursor || null); })()`);
+    const client = await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); return JSON.stringify(bus.store.sessions[${JSON.stringify(id)}]?.cursor || null); })()`);
     if (idle && cursor === previous && client === cursor) return;
     previous = cursor;
     await sleep(400);
@@ -440,9 +440,9 @@ record("open-chat");
   assert.equal(documentResponse.headers.get("cache-control"), "no-store", "the document must never be stored");
   const current = await documentResponse.text();
   assert.ok(current.includes(`<meta name="agentb-build" content="${serverBuild}">`), "the document must carry the serving build");
-  const assetResponse = await fetch(`http://127.0.0.1:${appPort}/static/js/build-check.js?v=${serverBuild.slice(0, 12)}`);
+  const assetResponse = await fetch(`http://127.0.0.1:${appPort}/static/~${serverBuild.slice(0, 12)}/js/build-check.js`);
   assert.equal(assetResponse.headers.get("cache-control"), "no-cache", "assets must be revalidated");
-  assert.ok(current.includes(`/static/js/build-check.js?v=${serverBuild.slice(0, 12)}"`), "asset URLs must carry the build id");
+  assert.ok(current.includes(`"/static/~${serverBuild.slice(0, 12)}/js/build-check.js"`), "asset URLs must carry the build id");
   const stale = current.replace(`content="${serverBuild}"`, `content="0000000000000000000000000000000000000000000000000000000000000000"`);
   const proofURL = `http://127.0.0.1:${appPort}/chat?build-proof=1`;
   // The shell may add ?session= before it reloads, so match the proof marker, not the exact URL.
@@ -460,6 +460,18 @@ record("open-chat");
   await page.unroute(isProof);
   assert.equal(served, 2, "exactly one automatic reload");
   record("stale-build-page-reloads-once");
+
+  // A window left open across an upgrade: the snapshot its reconnected stream
+  // receives names another build, and the page reloads.
+  const reloaded = page.waitForEvent("load", { timeout: 15000 });
+  await page.evaluate(async () => {
+    const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
+    const current = await fetch("/api/state", { cache: "no-store" }).then((response) => response.json());
+    bus.reduce({ type: "snapshot", data: { ...current, build: { ...current.build, executable_sha256: "f".repeat(64) } } });
+  }).catch(() => {});
+  await reloaded;
+  await browser.wait(`document.querySelector('#chat-task') && document.querySelector('.agent-tab')`, "current shell after the snapshot-driven reload");
+  record("open-page-reloads-on-new-build-snapshot");
 }
 
 if (realModel) {
@@ -801,7 +813,7 @@ if (realModel) {
   await settleSession(sessionID, "a transcript fixture");
 
   const missingArgsInitial = await browser.evaluate(`(async () => {
-    const bus = await import('/static/js/bus.js');
+    const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
     const session = bus.store.sessions[${JSON.stringify(sessionID)}];
     session.run = { ...session.run, status: 'idle' };
     session.chat = [
@@ -838,7 +850,7 @@ if (realModel) {
   const beforeRenderFailure = events.at(-1)?.seq || 0;
   await settleSession(sessionID, "a transcript fixture");
   await browser.evaluate(`(async () => {
-    const bus = await import('/static/js/bus.js');
+    const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
     const session = bus.store.sessions[${JSON.stringify(sessionID)}];
     session.run = { ...session.run, status: 'idle' };
     const args = new Proxy({}, { ownKeys() { throw new Error('deliberate render failure'); } });
@@ -853,7 +865,7 @@ if (realModel) {
   await openStepFoldIfDrawn();
   await page.waitForFunction(() => document.querySelector(".chat-render-failure")?.textContent.includes("deliberate render failure"));
   const throwingFixture = await browser.evaluate(`(async () => {
-    const bus = await import('/static/js/bus.js');
+    const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
     for (let index = 1; index < 32; index++) {
       bus.setSelection('agent_b', ${JSON.stringify(sessionID)});
       await new Promise(resolve => setTimeout(resolve, 65));
@@ -877,13 +889,13 @@ if (realModel) {
   assert.deepEqual(relayedRenderFailures.map((event) => [event.data.repeat_count, event.data.capped]), [[1, false], [25, true]]);
   record("render-failure-empty-state-and-bounded-relay-2");
 
-  await browser.evaluate(`(async () => { const bus = await import('/static/js/bus.js'); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
+  await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('deliberate render failure')`, "server snapshot restored");
 
   await settleSession(sessionID, "a transcript fixture");
 
   const groupingInitial = await browser.evaluate(`(async () => {
-    const bus = await import('/static/js/bus.js');
+    const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
     const session = bus.store.sessions[${JSON.stringify(sessionID)}];
     session.run = { ...session.run, status: 'idle' };
     session.chat = [
@@ -920,13 +932,13 @@ if (realModel) {
   assert.equal(groupingFixture.details, 2);
   for (const text of ["ONE COMPLETE", "thin recorded thought", "TWO COMPLETE FAILURE", "long recorded thought", "THREE COMPLETE"]) assert.match(groupingFixture.text, new RegExp(text));
   record("three-level-chat-fold-adjacent-thin-failure-complete");
-  await browser.evaluate(`(async () => { const bus = await import('/static/js/bus.js'); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
+  await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('TWO COMPLETE FAILURE')`, "grouping fixture restored");
 
   await settleSession(sessionID, "a transcript fixture");
 
   await browser.evaluate(`(async () => {
-    const bus = await import('/static/js/bus.js');
+    const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
     const session = bus.store.sessions[${JSON.stringify(sessionID)}];
     session.run = { ...session.run, status: 'idle' };
     session.chat = [
@@ -961,7 +973,7 @@ if (realModel) {
   assert.equal(twoArrowFixture.horizontalOverflow, false);
   await page.screenshot({ path: join(baselineDirectory, "chat-two-expanded-arrows.png") });
   record("two-expanded-sections-two-bounded-arrows");
-  await browser.evaluate(`(async () => { const bus = await import('/static/js/bus.js'); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
+  await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('two independent sections')`, "two-arrow fixture restored");
 
   await settleSession(sessionID, "a transcript fixture");
@@ -975,7 +987,7 @@ if (realModel) {
   // it does; read the chip only after that answer, not in between.
   const chipProbe = page.waitForResponse((response) => response.url().includes("/api/files/reports/final.txt") && response.request().method() === "HEAD", { timeout: 30000 }).catch(() => null);
   await browser.evaluate(`(async () => {
-    const bus = await import('/static/js/bus.js');
+    const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
     const session = bus.store.sessions[${JSON.stringify(sessionID)}];
     session.run = { ...session.run, status: 'idle' };
     session.chat = [
@@ -1023,13 +1035,13 @@ if (realModel) {
   await page.screenshot({ path: join(baselineDirectory, "chat-delivered-folder-link.png") });
   assert.equal(await page.locator(".chat-step-summary:visible").count(), 0, "one tool call renders its row without a Steps header (item 2eo)");
   record("delivered-file-chip-folder-link-only");
-  await browser.evaluate(`(async () => { const bus = await import('/static/js/bus.js'); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
+  await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('DELIVERY READY')`, "delivery fixture restored");
 
   await settleSession(sessionID, "a transcript fixture");
 
   await browser.evaluate(`(async () => {
-    const bus = await import('/static/js/bus.js');
+    const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
     const session = bus.store.sessions[${JSON.stringify(sessionID)}];
     session.run = { ...session.run, status: 'idle' };
     session.chat = [
@@ -1128,7 +1140,7 @@ if (realModel) {
   assert.ok(narrowProse.logOverflow <= 0 && narrowProse.pageOverflow <= 0, JSON.stringify(narrowProse));
   await page.setViewportSize({ width: 1250, height: 975 });
   record("prose-always-visible-independent-step-folds-no-horizontal-scroll");
-  await browser.evaluate(`(async () => { const bus = await import('/static/js/bus.js'); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
+  await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('FIRST PROSE BLOCK')`, "prose fixture restored");
 
   const geometry = await browser.evaluate(`(() => { const textarea=document.querySelector('#chat-task').getBoundingClientRect(); const row=document.querySelector('.chat-composer-row').getBoundingClientRect(); const expand=document.querySelector('#chat-expand').getBoundingClientRect(); const robot=document.querySelector('.agent-tab-wrap.selected .agent-tab-robot').getBoundingClientRect(); const tab=document.querySelector('.agent-tab-wrap.selected').getBoundingClientRect(); const plus=document.querySelector('.shell-left > .agent-tab-new').getBoundingClientRect(); const send=document.querySelector('#chat-send').getBoundingClientRect(); const stop=document.querySelector('#chat-stop').getBoundingClientRect(); return {textarea:textarea.width,row:row.width,rowHeight:row.height,expandTop:expand.top-textarea.top,expandRight:textarea.right-expand.right,robot:robot.width,tab:tab.width,plus:{width:plus.width,height:plus.height},send:{width:send.width,height:send.height},stop:{width:stop.width,height:stop.height}}; })()`);
@@ -1711,7 +1723,7 @@ if (realModel) {
       const html = document.querySelector("#chat-pending-approval")?.outerHTML || "";
       // v0.65.0/W8 (2er): what the page's store holds for the worker and the
       // selected design thread, beside the server's view.
-      const bus = await import("/static/js/bus.js");
+      const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
       const worker = bus.store.sessions[id];
       const selected = bus.store.sessions[bus.store.selection.session_id];
       return {

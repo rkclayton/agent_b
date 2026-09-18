@@ -104,7 +104,7 @@ func (r *Registry) ensurePlanLocked(repo string) (Plan, bool, error) {
 		return Plan{}, false, err
 	}
 	name := filepath.Base(canonical)
-	if err := UpdatePlanFile(filepath.Join(planDir, "plan.md"), func(string, bool) (string, error) { return "# " + name + "\n", nil }); err != nil {
+	if err := UpdatePlanFile(filepath.Join(planDir, "plan.md"), func(string, bool) (string, error) { return PlanTemplate(name, canonical), nil }); err != nil {
 		return Plan{}, false, err
 	}
 	if err := os.WriteFile(filepath.Join(planDir, "NOTES.md"), nil, 0o600); err != nil {
@@ -113,6 +113,7 @@ func (r *Registry) ensurePlanLocked(repo string) (Plan, bool, error) {
 	if err := writePlanRepo(planDir, canonical); err != nil {
 		return Plan{}, false, err
 	}
+	notifyPlan("plan.created", planDir)
 	return Plan{ID: planID, Name: name, Repo: canonical}, true, nil
 }
 

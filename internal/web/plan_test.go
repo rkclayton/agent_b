@@ -129,7 +129,9 @@ func TestPlanDogfoodFakeServerProposesThenAcceptsExactPlanDiff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(before) != "# AgentB\n" || string(after) != "# AgentB\n[ ] 2t fake-server dogfood\n" {
+	// Item 2bq: a new plan starts from the five-section template; Accept
+	// changes exactly the proposed span and nothing else.
+	if !strings.HasPrefix(string(before), "# AgentB\n\n## Product and end goals\n") || string(after) != strings.Replace(string(before), "# AgentB\n", "# AgentB\n[ ] 2t fake-server dogfood\n", 1) {
 		t.Fatalf("before=%q after=%q", before, after)
 	}
 

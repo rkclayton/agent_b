@@ -47,7 +47,15 @@ func UpdatePlanFile(path string, change func(current string, exists bool) (strin
 	if exists && next == string(data) {
 		return nil
 	}
-	return os.WriteFile(path, []byte(next), 0o600)
+	if err := os.WriteFile(path, []byte(next), 0o600); err != nil {
+		return err
+	}
+	// A new plan's creator announces it once its folder is complete; a rewrite
+	// of an existing plan.md is announced here, whoever wrote it (item 2bq).
+	if exists && strings.EqualFold(filepath.Base(path), "plan.md") {
+		notifyPlan("plan.updated", filepath.Dir(path))
+	}
+	return nil
 }
 
 // PlanFileFor reports the plan.md a d session's file-tool path names, if it

@@ -101,9 +101,8 @@ export function dryRunPublication({ root = defaultRoot, body }) {
   if (body) {
     orderBody = fs.readFileSync(path.resolve(body), "utf8");
     // An order body as the planner writes it opens with its own
-    // `## Current work order` heading. The plan supplies that heading, so
-    // keeping the body's copy would report two bodies where there is one.
-    orderBody = orderBody.replace(/^\s*## Current work order[^\n]*\r?\n/, "");
+    // `## Current work order` heading; replaceCurrentOrderBody makes it the
+    // plan's heading, so there is still exactly one body.
     planText = replaceCurrentOrderBody(planText, orderBody);
   }
   const proposed = { planText, itemContents: published.itemContents, inputErrors: published.inputErrors };

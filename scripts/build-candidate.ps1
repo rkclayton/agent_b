@@ -84,6 +84,16 @@ if ($reported.commit -ne $Commit) { $failures += "commit $($reported.commit) (ex
 if ([string]([bool]$reported.dirty).ToString().ToLowerInvariant() -ne $Dirty) { $failures += "dirty $($reported.dirty) (expected $Dirty)" }
 if ($reported.source -ne 'ldflags') { $failures += "identity source $($reported.source) (expected ldflags)" }
 if ($reported.executable_sha256 -ne $sha) { $failures += "reported sha256 $($reported.executable_sha256) (file is $sha)" }
+if ($ExpectedTag -and [bool]$reported.dirty) { $failures += 'a dirty tree (a release is built from a clean commit)' }
+# The installer reads the identity from the -ldflags text in the Go build
+# information without running the exe; prove that text is there (it is not
+# under -trimpath), so a candidate that passes here cannot fail there.
+$text = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($binary))
+$embeddedTag = [regex]::Match($text, '-X harness/internal/buildinfo\.Tag=(v[0-9A-Za-z.+-]+)')
+$embeddedCommit = [regex]::Match($text, '-X harness/internal/buildinfo\.Commit=([0-9a-f]{40})')
+if (-not $embeddedTag.Success -or $embeddedTag.Groups[1].Value -ne $sourceTag -or -not $embeddedCommit.Success -or $embeddedCommit.Groups[1].Value -ne $Commit) {
+    $failures += 'build information the installer can read without running it (no matching -ldflags text; was -trimpath set?)'
+}
 if ($failures.Count) { throw "CANDIDATE BUILD REFUSED: Agent_b.exe reports $($failures -join '; '). No manifest was written." }
 
 $manifest = [ordered]@{

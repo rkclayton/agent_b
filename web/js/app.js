@@ -94,8 +94,12 @@ setInterval(() => {
 }, 1000);
 
 async function refreshLedger(render = true) {
-  if (!selectedAgent || store.replay) { ledger = null; ledgerAsked = true; if (render) scheduleRender(); return; }
-  try { ledger = await api(`/api/stats/${encodeURIComponent(selectedAgent)}`, undefined, "GET"); ledgerAsked = true; }
+  // Only a settled answer may say "no activity": the true empty cases (no agent, replay)
+  // once the snapshot is in, or a completed fetch for the agent now selected.
+  if (!selectedAgent || store.replay) { ledger = null; ledgerAsked = store.loaded; if (render) scheduleRender(); return; }
+  const askedFor = selectedAgent;
+  ledgerAsked = false;
+  try { ledger = await api(`/api/stats/${encodeURIComponent(askedFor)}`, undefined, "GET"); ledgerAsked = askedFor === selectedAgent; }
   catch (error) { showError(error.message); }
   if (render) scheduleRender();
 }
@@ -209,7 +213,7 @@ function renderTools(agent) {
 
 function renderLifetime() {
   const root = document.getElementById("console-stats");
-  if (!ledger) { root.innerHTML = ledgerAsked ? '<p class="console-empty">No lifetime activity.</p>' : ""; return; }
+  if (!ledger) { root.innerHTML = store.loaded && ledgerAsked ? '<p class="console-empty">No lifetime activity.</p>' : ""; return; }
   const sections = [[selectedAgent, ledger.agent], ...Object.entries(ledger.profiles || {})];
   root.replaceChildren(...sections.flatMap(([name, counters]) => [text(name, "console-profile-head"), ...lifetimeRows(counters, percentile).map(([label, value]) => line(label, value))]));
 }

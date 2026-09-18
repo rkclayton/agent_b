@@ -142,3 +142,46 @@ func TestElideTakesTheLargestStaleResultFirst(t *testing.T) {
 		t.Fatalf("compaction event trigger = %v", trigger)
 	}
 }
+
+// Cold review (v0.67.0/W8): the running turn's own large read is stubbed only
+// after every stale result from earlier turns, however large it is.
+func TestElidePrefersOlderTurnsOverTheRunningTurnsLargestRead(t *testing.T) {
+	messages := []events.Message{{ID: "m-1", Role: "user", Category: "history", Content: "earlier task", Tokens: 5}}
+	older := events.Message{ID: "m-2", Role: "assistant", Category: "history", Content: "reading", Tokens: 5}
+	olderResults := []events.Message{}
+	for index := 0; index < 3; index++ {
+		id := fmt.Sprintf("old-%d", index)
+		args, _ := json.Marshal(map[string]any{"path": fmt.Sprintf("old%d.txt", index)})
+		older.ToolCalls = append(older.ToolCalls, events.ToolCall{ID: id, Name: "read_file", Arguments: string(args)})
+		olderResults = append(olderResults, events.Message{ID: fmt.Sprintf("m-%d", 3+index), Role: "tool", Name: "read_file", Category: "files", ToolCallID: id, Content: strings.Repeat("x", 2000*3), Tokens: 2000, OK: ok()})
+	}
+	messages = append(append(messages, older), olderResults...)
+	messages = append(messages, events.Message{ID: "m-10", Role: "user", Category: "history", Content: "current task", Tokens: 5})
+	current := events.Message{ID: "m-11", Role: "assistant", Category: "history", Content: "reading", Tokens: 5}
+	currentResults := []events.Message{}
+	for index, size := range []int{8000, 100, 100, 100, 100} {
+		id := fmt.Sprintf("cur-%d", index)
+		args, _ := json.Marshal(map[string]any{"path": fmt.Sprintf("cur%d.txt", index)})
+		current.ToolCalls = append(current.ToolCalls, events.ToolCall{ID: id, Name: "read_file", Arguments: string(args)})
+		currentResults = append(currentResults, events.Message{ID: fmt.Sprintf("m-%d", 12+index), Role: "tool", Name: "read_file", Category: "files", ToolCallID: id, Content: strings.Repeat("x", size*3), Tokens: size, OK: ok()})
+	}
+	messages = append(append(messages, current), currentResults...)
+	s := &session.Session{ID: "s"}
+	s.ReplaceMessages(messages)
+	s.SetRunPin("m-10")
+	used := tokenSum(messages)
+	changed, _ := New(events.NewBus()).ElideOld(s, "r", "soft_pct", used, used-5000, 16384, func(text string) (int, bool) { return len(text) / 3, true })
+	if !changed {
+		t.Fatal("nothing elided")
+	}
+	byID := map[string]events.Message{}
+	for _, message := range s.MessagesCopy() {
+		byID[message.ID] = message
+	}
+	if byID["m-12"].Elided {
+		t.Fatal("the running turn's 8k read was stubbed ahead of older turns' results")
+	}
+	if !byID["m-3"].Elided || !byID["m-4"].Elided || !byID["m-5"].Elided {
+		t.Fatalf("older turns' results were not elided first: %t %t %t", byID["m-3"].Elided, byID["m-4"].Elided, byID["m-5"].Elided)
+	}
+}

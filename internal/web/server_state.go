@@ -230,9 +230,10 @@ func (s *Server) pageContent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	path := filepath.Join(s.webDir, name)
+	w.Header().Set("Cache-Control", "no-store")
 	if data, err := os.ReadFile(path); err == nil {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(data)
+		_, _ = w.Write(stampDocument(data, pageBuildID()))
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

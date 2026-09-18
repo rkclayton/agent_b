@@ -105,8 +105,10 @@ $report = [ordered]@{
 if (-not $usable.Usable) {
     $report.outcome = 'unreachable'
     # One sentence, naming the store and the identity, rather than the raw provider error.
-    $report.reason = "The signing key for $($certificate.Thumbprint) is in $($resolved.Store) and cannot be opened as $($identity.Name)$(if (-not $elevated) { ' without elevation' }); Settings signs this same certificate because manage-signing.ps1 elevates first, so sign from Settings or move the certificate to Cert:\CurrentUser\My. Underlying: $($usable.Reason)"
+    $report.reason = "The signing key for $($certificate.Thumbprint) is in $($resolved.Store) and cannot be opened as $($identity.Name)$(if (-not $elevated) { ' without elevation' }). Underlying: $($usable.Reason)"
     Write-Host "SIGNING UNREACHABLE: $($report.reason)"
+    # v0.66.0 (2eu): signing is an install-time step. One sentence says so.
+    Write-Host 'The staged candidate stays unsigned by design: the elevated installer signs every installed artifact with this certificate and records SIGNED: in its transcript.'
     foreach ($file in $targets) {
         $after = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
         if ($after -ne $before[$file]) { throw "a failed signing attempt changed $file" }
@@ -137,6 +139,17 @@ foreach ($file in $targets) {
     $status = Get-AuthenticodeSignature -LiteralPath $file
     if (-not $status.SignerCertificate) { throw "verification found no signature on $file after signing" }
     if (-not $status.TimeStamperCertificate) { throw "no timestamp on $file" }
+}
+
+# A signature changes Agent_b.exe's bytes but not the tag and commit in its build
+# information, so the candidate manifest's SHA-256 follows the signed file.
+$candidateManifest = Join-Path $root 'candidate-final.json'
+if ((Test-Path -LiteralPath $candidateManifest -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $root 'Agent_b.exe') -PathType Leaf)) {
+    $manifest = Get-Content -Raw -LiteralPath $candidateManifest | ConvertFrom-Json
+    $manifest.exe_sha256 = (Get-FileHash -LiteralPath (Join-Path $root 'Agent_b.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifest.exe_bytes = (Get-Item -LiteralPath (Join-Path $root 'Agent_b.exe')).Length
+    [IO.File]::WriteAllText($candidateManifest, ($manifest | ConvertTo-Json) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    Write-Host "MANIFEST: exe_sha256 updated to the signed Agent_b.exe"
 }
 
 if ($untrusted.Count) {

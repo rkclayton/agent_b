@@ -55,11 +55,15 @@ func TestPowerShellSigningScriptsUseHostCompatibleCodeSigningEKUCheck(t *testing
 		"Add-CurrentUserCertificate -Certificate $certificate -StoreName TrustedPublisher",
 		"Add-CurrentUserCertificate -Certificate $certificate -StoreName Root",
 		"$PSVersionTable.PSEdition -ne 'Desktop'",
-		"Push-Location $sourceRoot",
+		"Assert-CandidateIdentity -SourceRoot $sourceRoot -Binary $sourceBinary -Version $displayVersion",
 	} {
 		if !strings.Contains(string(installer), required) {
 			t.Errorf("installer does not preserve seamless bootstrap contract %q", required)
 		}
+	}
+	// Item 2eu: the installer signs what the release step built and never builds.
+	if strings.Contains(string(installer), "go build") || strings.Contains(string(installer), "Find-Go") {
+		t.Error("installer builds; the release step builds the candidate and the installer only verifies it")
 	}
 	if strings.Contains(string(installer), "Import-Certificate -FilePath $tempCertificate") {
 		t.Error("installer retains interactive certificate import path")

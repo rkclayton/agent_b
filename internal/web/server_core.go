@@ -204,7 +204,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/chat", s.page)
 	mux.HandleFunc("/plan", s.page)
 	mux.HandleFunc("/setup", s.page)
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(s.webDir))))
+	mux.Handle("/static/", revalidateStatic(http.StripPrefix("/static/", http.FileServer(http.Dir(s.webDir)))))
 	mux.HandleFunc("/api/events", s.sse)
 	mux.HandleFunc("/api/state", s.state)
 	mux.HandleFunc("/api/local-detection", s.localDetection)

@@ -93,6 +93,28 @@ function Get-RootFingerprint {
     } | ConvertTo-Json -Depth 6 -Compress)
 }
 
+function Copy-TrackedTree {
+    param([string]$Source, [string]$Destination)
+    $git = Get-Command git.exe -ErrorAction SilentlyContinue
+    if (-not $git) { throw 'git.exe is required to copy the tracked tree.' }
+    $tracked = @(& $git.Source -C $Source ls-files)
+    if ($LASTEXITCODE -ne 0 -or -not $tracked.Count) { throw "git ls-files produced no tracked files." }
+    foreach ($relative in $tracked) {
+        $from = Join-Path $Source ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
+        $to = Join-Path $Destination ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        $null = New-Item -ItemType Directory -Path (Split-Path -Parent $to) -Force
+        Copy-Item -LiteralPath $from -Destination $to -Force
+    }
+}
+
+# Item 2eu: the installer never builds. The release step's build runs once
+# here, and every install below takes the exe and manifest it wrote.
+$repositoryRoot = Split-Path -Parent $PSScriptRoot
+& powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $repositoryRoot
+if ($LASTEXITCODE -ne 0) { throw "Candidate build exited $LASTEXITCODE." }
+$candidateManifest = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'candidate-final.json') | ConvertFrom-Json
+
 $whatIfTranscript = ''
 try {
     $whatIfApplication = Join-Path $testRoot 'WhatIf\Application\Agent_b'
@@ -114,6 +136,9 @@ try {
 
     & powershell.exe -NoLogo -NoProfile -File $installer -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode
     if ($LASTEXITCODE -ne 0) { throw "First install exited $LASTEXITCODE." }
+    $installedSha = (Get-FileHash -LiteralPath (Join-Path $testApplication 'Agent_b.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($installedSha -ne $candidateManifest.exe_sha256) { throw "First install did not install the manifest's exe: $installedSha, manifest $($candidateManifest.exe_sha256)." }
+    Write-Host "PROOF candidate identity: installed Agent_b.exe sha256 $installedSha equals candidate-final.json"
 
     $configPath = Join-Path $testData 'harness.json'
     $installedConfig = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
@@ -383,6 +408,48 @@ try {
         [pscustomobject]@{ Path = $_.FullName; Length = $_.Length; PrefixSHA256 = Get-FilePrefixHash -Path $_.FullName -Length $_.Length }
     })
 
+    # --- Scenario (2eu): a candidate whose exe is not the one its manifest names
+    # is refused before anything is stopped. The stale exe is a real build that
+    # reports the early-September commit the operator saw on 2026-09-17.
+    $staleTree = Join-Path $testRoot 'stale-candidate'
+    Copy-TrackedTree -Source $repositoryRoot -Destination $staleTree
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'candidate-final.json') -Destination (Join-Path $staleTree 'candidate-final.json')
+    $staleCommit = [string](& git -C $repositoryRoot rev-parse 8b03cf0 | Select-Object -First 1)
+    $buildGo = @((Join-Path $repositoryRoot '.tools\go\bin\go.exe'), 'C:\Go\bin\go.exe') | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    if (-not $buildGo) { throw 'The stale-exe scenario needs Go to build its stale exe.' }
+    Push-Location $repositoryRoot
+    try { & $buildGo build -ldflags "-X harness/internal/buildinfo.Tag=$($candidateManifest.tag) -X harness/internal/buildinfo.Commit=$($staleCommit.Trim()) -X harness/internal/buildinfo.Dirty=false" -o (Join-Path $staleTree 'Agent_b.exe') ./cmd/harness } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { throw "Stale-exe build exited $LASTEXITCODE." }
+    $installedShaBeforeStale = (Get-FileHash -LiteralPath $installedBinary -Algorithm SHA256).Hash
+    $staleTranscriptPath = Join-Path $testData 'logs\stale-candidate-transcript.log'
+    $savedInstallLog = $env:AGENT_B_INSTALL_LOG
+    $savedNoPause = $env:AGENT_B_INSTALL_NO_PAUSE
+    $savedNoBrowser = $env:AGENT_B_INSTALL_NO_BROWSER
+    $env:AGENT_B_INSTALL_LOG = $staleTranscriptPath
+    $env:AGENT_B_INSTALL_NO_PAUSE = '1'
+    $env:AGENT_B_INSTALL_NO_BROWSER = '1'
+    try {
+        $staleOutput = (& (Join-Path $staleTree 'install-Agent_b.cmd') -SourceDirectory $staleTree -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode 2>&1 | Out-String)
+        $staleExit = $LASTEXITCODE
+    } finally {
+        $env:AGENT_B_INSTALL_LOG = $savedInstallLog
+        $env:AGENT_B_INSTALL_NO_PAUSE = $savedNoPause
+        $env:AGENT_B_INSTALL_NO_BROWSER = $savedNoBrowser
+    }
+    $staleNormalized = $staleOutput -replace '\s+', ' '
+    $expectedStaleLine = "CANDIDATE REFUSED: expected Agent_b.exe $($candidateManifest.tag) $($candidateManifest.commit) sha256 $($candidateManifest.exe_sha256)"
+    if ($staleExit -eq 0 -or $staleNormalized -notmatch [regex]::Escape($expectedStaleLine) -or
+        $staleNormalized -notmatch [regex]::Escape("found $($candidateManifest.tag) $($staleCommit.Trim()) sha256 ") -or
+        $staleNormalized -notmatch 'Nothing was stopped or changed' -or $staleNormalized -match 'STOPPING:') {
+        throw "Stale candidate was not refused before the stop with both identities.`n$staleOutput"
+    }
+    if ($beforeProcess.HasExited) { throw 'The stale-candidate refusal stopped the running instance.' }
+    $staleState = Invoke-RestMethod -Uri "http://127.0.0.1:$testPort/api/state" -TimeoutSec 5
+    if ($staleState.build.commit -ne $beforeState.build.commit -or (Get-FileHash -LiteralPath $installedBinary -Algorithm SHA256).Hash -ne $installedShaBeforeStale) {
+        throw 'The stale-candidate refusal changed the running version.'
+    }
+    Write-Host "PROOF stale candidate: $expectedStaleLine ... found $($candidateManifest.tag) $($staleCommit.Trim()); exit $staleExit; PID $($beforeProcess.Id) still serving $($staleState.build.display)"
+
     $upgradeTranscriptPath = Join-Path $testData 'logs\running-upgrade-transcript.log'
     $savedInstallLog = $env:AGENT_B_INSTALL_LOG
     $savedNoPause = $env:AGENT_B_INSTALL_NO_PAUSE
@@ -391,7 +458,7 @@ try {
     $env:AGENT_B_INSTALL_NO_PAUSE = '1'
     $env:AGENT_B_INSTALL_NO_BROWSER = '1'
     try {
-        $upgradeOutput = (& $installerWrapper -SourceDirectory (Split-Path -Parent $PSScriptRoot) -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode -SkipBuild 2>&1 | Out-String)
+        $upgradeOutput = (& $installerWrapper -SourceDirectory (Split-Path -Parent $PSScriptRoot) -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode 2>&1 | Out-String)
         $upgradeExit = $LASTEXITCODE
     } finally {
         $env:AGENT_B_INSTALL_LOG = $savedInstallLog
@@ -477,7 +544,7 @@ try {
     $env:AGENT_B_INSTALL_NO_PAUSE = '1'
     $env:AGENT_B_INSTALL_NO_BROWSER = '1'
     try {
-        $forcedOutput = (& $installerWrapper -SourceDirectory (Split-Path -Parent $PSScriptRoot) -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode -SkipBuild -ForcePostStopVerificationFailure 2>&1 | Out-String)
+        $forcedOutput = (& $installerWrapper -SourceDirectory (Split-Path -Parent $PSScriptRoot) -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode -ForcePostStopVerificationFailure 2>&1 | Out-String)
         $forcedExit = $LASTEXITCODE
     } finally {
         $env:AGENT_B_INSTALL_LOG = $savedInstallLog
@@ -593,17 +660,27 @@ try {
     }
     if (Test-Path -LiteralPath (Join-Path $tree '.git')) { throw 'the extracted archive must not be a git checkout.' }
 
-    # The binary is built here rather than by the installer only because a clone
-    # carries no vendored toolchain; the point of the scenario is that the
-    # installer completes from a tree with no .git, not that it can find Go.
-    $go = Get-Command go.exe -ErrorAction SilentlyContinue
-    if ($go) {
-        Push-Location $tree
-        try { & $go.Source build -o (Join-Path $tree 'Agent_b.exe') ./cmd/harness } finally { Pop-Location }
-        if ($LASTEXITCODE -ne 0) { throw "clean-archive build exited $LASTEXITCODE." }
-    } else {
-        Copy-Item -LiteralPath (Join-Path $sourceRoot 'Agent_b.exe') -Destination (Join-Path $tree 'Agent_b.exe') -ErrorAction Stop
+    # The release step builds the candidate (item 2eu); the installer never does.
+    # A tree with no .git states its commit explicitly.
+    $treeCommit = [string](& $git.Source -C $sourceRoot rev-parse HEAD | Select-Object -First 1)
+    & powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true
+    if ($LASTEXITCODE -ne 0) { throw "clean-archive candidate build exited $LASTEXITCODE." }
+    $treeManifest = Get-Content -Raw -LiteralPath (Join-Path $tree 'candidate-final.json') | ConvertFrom-Json
+
+    # The release step refuses an exe that does not report the tag being released.
+    $savedErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $mismatchOutput = (& powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -ExpectedTag 'v9.9.9' 2>&1 | Out-String)
+    $mismatchExit = $LASTEXITCODE
+    $ErrorActionPreference = $savedErrorAction
+    if ($mismatchExit -eq 0 -or $mismatchOutput -notmatch 'CANDIDATE BUILD REFUSED' -or $mismatchOutput -notmatch 'release is v9\.9\.9' -or
+        (Test-Path -LiteralPath (Join-Path $tree 'candidate-final.json'))) {
+        throw "The release step did not refuse an exe reporting the wrong tag.`n$mismatchOutput"
     }
+    Write-Host "PROOF release step: an exe reporting $($treeManifest.tag) is refused for release v9.9.9 and no manifest is left"
+    & powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true
+    if ($LASTEXITCODE -ne 0) { throw "clean-archive candidate rebuild exited $LASTEXITCODE." }
+    $treeManifest = Get-Content -Raw -LiteralPath (Join-Path $tree 'candidate-final.json') | ConvertFrom-Json
 
     $cloneApplication = Join-Path $cloneRoot 'Application\Agent_b'
     $cloneData = Join-Path $cloneRoot 'Data\Agent_b'
@@ -611,8 +688,23 @@ try {
     $cloneRegistry = $testRegistry + '-Clone'
     # -File under powershell.exe IS Windows PowerShell 5.1 on this host, which is
     # the shell the operator's installer actually runs in.
-    $cloneOutput = (& powershell.exe -NoLogo -NoProfile -File (Join-Path $tree 'scripts\install-Agent_b.ps1') -SourceDirectory $tree -ApplicationDirectory $cloneApplication -DataDirectory $cloneData -WorkspaceDirectory $cloneWorkspace -StartMenuDirectory (Join-Path $cloneRoot 'StartMenu') -UninstallRegistryPath $cloneRegistry -TestMode | Out-String)
-    if ($LASTEXITCODE -ne 0) { throw "clean-archive install under Windows PowerShell 5.1 exited $LASTEXITCODE.`n$cloneOutput" }
+    # Go absent: no .tools in the tree and no go.exe on PATH. The installer has
+    # nothing to build with and must not need anything.
+    if (Test-Path -LiteralPath (Join-Path $tree '.tools')) { throw 'the extracted archive must not carry a toolchain.' }
+    $savedPath = $env:PATH
+    $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -and -not (Test-Path -LiteralPath (Join-Path $_ 'go.exe') -PathType Leaf) }) -join ';'
+    try {
+        if (Get-Command go.exe -ErrorAction SilentlyContinue) { throw 'go.exe is still reachable for the Go-absent install.' }
+        $cloneOutput = (& powershell.exe -NoLogo -NoProfile -File (Join-Path $tree 'scripts\install-Agent_b.ps1') -SourceDirectory $tree -ApplicationDirectory $cloneApplication -DataDirectory $cloneData -WorkspaceDirectory $cloneWorkspace -StartMenuDirectory (Join-Path $cloneRoot 'StartMenu') -UninstallRegistryPath $cloneRegistry -TestMode | Out-String)
+        $cloneExit = $LASTEXITCODE
+    } finally { $env:PATH = $savedPath }
+    if ($cloneExit -ne 0) { throw "clean-archive install under Windows PowerShell 5.1 exited $cloneExit.`n$cloneOutput" }
+    if ($cloneOutput -match 'BUILD' -or $cloneOutput -notmatch [regex]::Escape("CANDIDATE: Agent_b.exe $($treeManifest.tag) $($treeManifest.display) sha256 $($treeManifest.exe_sha256) matches candidate-final.json")) {
+        throw "Go-absent install did not take the manifest's exe exactly as a Go-present install does.`n$cloneOutput"
+    }
+    $cloneSha = (Get-FileHash -LiteralPath (Join-Path $cloneApplication 'Agent_b.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($cloneSha -ne $treeManifest.exe_sha256) { throw "Go-absent install installed $cloneSha, manifest $($treeManifest.exe_sha256)." }
+    Write-Host "PROOF Go absent: installed sha256 $cloneSha equals candidate-final.json, no BUILD line, as with Go present"
     if ($cloneOutput -match 'not a git repository') { throw "clean-archive install hit the git-checkout assumption.`n$cloneOutput" }
     if ($cloneOutput -match 'NativeCommandError') { throw "clean-archive install raised NativeCommandError under 5.1.`n$cloneOutput" }
     if (-not (Test-Path -LiteralPath (Join-Path $cloneApplication 'Agent_b.exe'))) { throw 'clean-archive install produced no application binary.' }
@@ -653,5 +745,5 @@ foreach ($required in @('apply-acls.ps1', 'install-Agent_b.ps1', 'uninstall-Agen
 }
 Write-Host 'PASS: the pre-stop gate fails closed on a null exit code, keeps a real one, and every invoked script exits explicitly'
 
-& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-chat-acceptance.ps1')
+& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-chat-acceptance.ps1') -SkipBuild
 if ($LASTEXITCODE -ne 0) { throw "Chat acceptance release gate exited $LASTEXITCODE." }

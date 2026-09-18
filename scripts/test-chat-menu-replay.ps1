@@ -35,7 +35,11 @@ try {
         UninstallRegistryPath = $registry
         TestMode = $true
     }
-    if ($SkipBuild) { $installArguments.SkipBuild = $true }
+    # The installer never builds (item 2eu); the release step's build runs here.
+    if (-not $SkipBuild) {
+        & powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $applicationSource
+        if ($LASTEXITCODE -ne 0) { throw "Candidate build failed with exit code $LASTEXITCODE." }
+    }
     & (Join-Path $PSScriptRoot 'install-Agent_b.ps1') @installArguments
     if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
         throw "Disposable install failed with exit code $LASTEXITCODE."

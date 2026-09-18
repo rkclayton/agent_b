@@ -8,7 +8,6 @@ param(
     [string]$UninstallRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b',
     [string]$OperatorSid,
     [string]$OperatorLocalAppData,
-    [switch]$SkipBuild,
     [string]$SigningThumbprint,
     [switch]$TestMode,
     [switch]$ForcePostStopVerificationFailure,
@@ -104,26 +103,6 @@ function Assert-ScriptExitCode {
     if ($Code -ne 0) { throw "$Purpose failed with exit code $Code." }
 }
 
-# Get-GitOutput runs git without assuming the source root is a checkout.
-# Windows PowerShell 5.1 turns a native command's stderr into a terminating
-# error under ErrorActionPreference Stop, and 2>$null does not suppress the
-# error record there, so the caller's own fallback was never reached from a
-# plain extracted archive. Returning empty on any failure restores it.
-function Get-GitOutput {
-    param([string]$Git, [string[]]$Arguments)
-    try {
-        $previous = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        $output = & $Git @Arguments 2>$null
-        $ErrorActionPreference = $previous
-        if ($LASTEXITCODE -ne 0) { return @() }
-        return @($output)
-    } catch {
-        $ErrorActionPreference = 'Stop'
-        return @()
-    }
-}
-
 function Assert-TestPath {
     param([string]$Path)
     if (-not $TestMode) { return }
@@ -152,13 +131,74 @@ function Assert-DisjointRoots {
     }
 }
 
-function Find-Go {
-    param([string]$Source)
-    $local = Join-Path $Source '.tools\go\bin\go.exe'
-    if (Test-Path -LiteralPath $local -PathType Leaf) { return $local }
-    $command = Get-Command go.exe -ErrorAction SilentlyContinue
-    if ($command) { return $command.Source }
-    return $null
+# Item 2eu: the installer never builds. The release step (build-candidate.ps1)
+# builds the exe once and writes candidate-final.json beside it; the installer
+# installs that exe only when its SHA-256 and the tag and commit embedded in its
+# Go build information equal the manifest, and refuses before stopping anything.
+function Get-CandidateExeIdentity {
+    param([string]$Path)
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try { $sha = ([BitConverter]::ToString($hasher.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant() } finally { $hasher.Dispose() }
+    # The -ldflags the exe was built with are plain text in its Go build
+    # information, so the identity is read without running the exe.
+    $text = [Text.Encoding]::GetEncoding(28591).GetString($bytes)
+    $tag = [regex]::Match($text, '-X harness/internal/buildinfo\.Tag=(v[0-9A-Za-z.+-]+)')
+    $commit = [regex]::Match($text, '-X harness/internal/buildinfo\.Commit=([0-9a-f]{40})')
+    return [pscustomobject]@{
+        Tag = $(if ($tag.Success) { $tag.Groups[1].Value } else { 'no-embedded-tag' })
+        Commit = $(if ($commit.Success) { $commit.Groups[1].Value } else { 'no-embedded-commit' })
+        Sha256 = $sha
+    }
+}
+
+function Assert-CandidateIdentity {
+    param([string]$SourceRoot, [string]$Binary, [string]$Version)
+    $expectedTag = 'v' + $Version
+    $manifestPath = Join-Path $SourceRoot 'candidate-final.json'
+    $rule = 'The installer never builds: the release step (scripts\build-candidate.ps1) builds Agent_b.exe and writes candidate-final.json beside it. Nothing was stopped or changed.'
+    if (-not (Test-Path -LiteralPath $Binary -PathType Leaf)) { throw "CANDIDATE REFUSED: $Binary is missing. $rule" }
+    $found = Get-CandidateExeIdentity -Path $Binary
+    $foundText = "$($found.Tag) $($found.Commit) sha256 $($found.Sha256)"
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "CANDIDATE REFUSED: expected a candidate-final.json beside $Binary; found Agent_b.exe $foundText and no manifest. $rule"
+    }
+    try { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json } catch {
+        throw "CANDIDATE REFUSED: $manifestPath is not valid JSON ($($_.Exception.Message)); found Agent_b.exe $foundText. $rule"
+    }
+    $expectedText = "$($manifest.tag) $($manifest.commit) sha256 $($manifest.exe_sha256)"
+    $problems = @()
+    if ($manifest.schema -ne 1) { $problems += "manifest schema $($manifest.schema) is not 1" }
+    if ([string]$manifest.tag -ne $expectedTag) { $problems += "the manifest names $($manifest.tag) but this installer is $expectedTag" }
+    if ([string]$manifest.exe_sha256 -ne $found.Sha256) { $problems += 'the SHA-256 differs' }
+    if ($found.Tag -ne [string]$manifest.tag) { $problems += 'the embedded tag differs' }
+    if ($found.Commit -ne [string]$manifest.commit) { $problems += 'the embedded commit differs' }
+    if ($problems.Count) {
+        throw "CANDIDATE REFUSED: expected Agent_b.exe $expectedText (candidate-final.json; installer $expectedTag); found $foundText at $Binary; $($problems -join '; '). $rule"
+    }
+    Write-Host "CANDIDATE: Agent_b.exe $($manifest.tag) $($manifest.display) sha256 $($found.Sha256) matches candidate-final.json"
+}
+
+# v0.65.0's installer suite failed once copying Agent_b.exe a moment after the
+# old process reported STOPPED ("being used by another process"). The copy
+# waits, bounded, for the file lock instead.
+function Wait-FileUnlocked {
+    param([string]$Path, [int]$Seconds = 20)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+    $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+    $waited = $false
+    while ($true) {
+        try {
+            $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+            $stream.Dispose()
+            if ($waited) { Write-Host "UNLOCKED: $Path" }
+            return
+        } catch {
+            if ([DateTime]::UtcNow -ge $deadline) { throw "$Path is still in use by another process after $Seconds seconds." }
+            if (-not $waited) { Write-Host "WAITING: $Path is in use by another process; waiting up to $Seconds seconds."; $waited = $true }
+            Start-Sleep -Milliseconds 250
+        }
+    }
 }
 
 function Get-InstalledProcesses {
@@ -376,7 +416,6 @@ if (Test-Path -LiteralPath $preflightConfigPath -PathType Leaf) {
 
 $sourceBinary = Join-Path $sourceRoot 'Agent_b.exe'
 $installedBinary = Join-Path $applicationRoot 'Agent_b.exe'
-$go = Find-Go $sourceRoot
 foreach ($directory in @('web', 'prompts', 'scripts', 'docs')) {
     $required = Join-Path $sourceRoot $directory
     if (-not (Test-Path -LiteralPath $required -PathType Container)) { throw "Required program directory is missing: $required" }
@@ -385,12 +424,7 @@ foreach ($file in @('harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE', 
     $required = Join-Path $sourceRoot $file
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Required program file is missing: $required" }
 }
-if ($SkipBuild -and -not (Test-Path -LiteralPath $sourceBinary -PathType Leaf)) {
-    throw "SkipBuild requires an existing binary: $sourceBinary"
-}
-if (-not $SkipBuild -and -not $go -and -not (Test-Path -LiteralPath $sourceBinary -PathType Leaf)) {
-    throw 'Go 1.24 or newer was not found and Agent_b.exe has not already been built.'
-}
+Assert-CandidateIdentity -SourceRoot $sourceRoot -Binary $sourceBinary -Version $displayVersion
 $preflightProcesses = @(Get-InstalledProcesses $installedBinary)
 if ($preflightProcesses.Count) {
     Write-Host "PREFLIGHT: running Agent_b PID(s) $(@($preflightProcesses.Id) -join ', ') will be stopped after elevation."
@@ -410,7 +444,6 @@ if ((-not (Test-IsAdministrator) -or $PSVersionTable.PSEdition -ne 'Desktop') -a
 		'-OperatorLocalAppData', $OperatorLocalAppData,
         '-TranscriptPath', $script:installTranscriptPath
 	)
-	if ($SkipBuild) { $arguments += '-SkipBuild' }
     if ($SigningThumbprint) { $arguments += @('-SigningThumbprint', $SigningThumbprint) }
     $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     Stop-InstallTranscript
@@ -435,7 +468,7 @@ Write-Host "Operator SID: $OperatorSid"
 
 if ($WhatIfPreference) {
     Write-Host 'Mode: WhatIf; no build, file, ACL, shortcut, or registry change will be made.'
-    $null = $PSCmdlet.ShouldProcess($sourceBinary, 'Build Agent_b')
+    $null = $PSCmdlet.ShouldProcess($sourceBinary, 'Install the verified candidate Agent_b.exe')
     $null = $PSCmdlet.ShouldProcess($applicationRoot, 'Install or upgrade admin-only program files')
     $null = $PSCmdlet.ShouldProcess($dataRoot, 'Create or preserve private operator data')
 	if (Test-Path -LiteralPath $workspaceRoot -PathType Container) { $null = $PSCmdlet.ShouldProcess($workspaceRoot, 'Preserve legacy service workspace') }
@@ -466,28 +499,9 @@ if ($installedProcesses.Count) {
 Stop-InstalledProcesses -Processes $installedProcesses
 if ($installedProcesses.Count) { $script:stoppedInstalledVersion = $true }
 
-if ($SkipBuild) {
-	Write-Host 'BUILD: skipped; using the existing commit-stamped binary.'
-} elseif ($go) {
-	Write-Host "BUILD: $go"
-	$git = Get-Command git.exe -ErrorAction SilentlyContinue
-	$commit = ''
-	if ($git) { $commit = [string](@(Get-GitOutput -Git $git.Source -Arguments @('-C', $sourceRoot, 'rev-parse', 'HEAD')) | Select-Object -First 1) }
-	if (-not [string]::IsNullOrWhiteSpace($commit)) {
-		$dirty = @(Get-GitOutput -Git $git.Source -Arguments @('-C', $sourceRoot, 'status', '--porcelain', '--untracked-files=normal')).Count -gt 0
-		$ldflags = "-X harness/internal/buildinfo.Commit=$($commit.Trim()) -X harness/internal/buildinfo.Dirty=$($dirty.ToString().ToLowerInvariant())"
-		Push-Location $sourceRoot
-		try { & $go build -ldflags $ldflags -o $sourceBinary ./cmd/harness } finally { Pop-Location }
-	} else {
-		Push-Location $sourceRoot
-		try { & $go build -o $sourceBinary ./cmd/harness } finally { Pop-Location }
-	}
-    if ($LASTEXITCODE -ne 0) { throw "Agent_b build failed with exit code $LASTEXITCODE." }
-} elseif (-not (Test-Path -LiteralPath $sourceBinary -PathType Leaf)) {
-    throw 'Go 1.24 or newer was not found and Agent_b.exe has not already been built.'
-} else {
-    Write-Host 'BUILD: Go was not found; using the existing Agent_b.exe.'
-}
+# Checked again after the stop: nothing may swap the candidate between the
+# pre-stop check and the copy. A failure here rolls back and restarts.
+Assert-CandidateIdentity -SourceRoot $sourceRoot -Binary $sourceBinary -Version $displayVersion
 
 $applicationCreated = -not (Test-Path -LiteralPath $applicationRoot -PathType Container)
 $dataCreated = -not (Test-Path -LiteralPath $dataRoot -PathType Container)
@@ -496,6 +510,7 @@ if ($applicationCreated) { Set-ApplicationDirectoryAcl -Path $applicationRoot -O
 foreach ($directory in @('web', 'prompts', 'scripts', 'docs')) {
     Copy-ProgramDirectory -Name $directory -Source $sourceRoot -Destination $applicationRoot -AllowedRemovalRoots @($applicationRoot)
 }
+Wait-FileUnlocked -Path $installedBinary
 foreach ($file in @('Agent_b.exe', 'harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE')) {
     $from = Join-Path $sourceRoot $file
     if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { throw "Required program file is missing: $from" }

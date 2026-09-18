@@ -5,7 +5,7 @@ param(
     [string]$DataDirectory,
     [string]$ConfigPath,
     [ValidateRange(5, 300)]
-    [int]$StartupTimeoutSeconds = 30,
+    [int]$StartupTimeoutSeconds = 120,
     [switch]$NoBrowser,
     [switch]$Detached,
     [switch]$NoPause,
@@ -26,6 +26,26 @@ if ([string]::IsNullOrWhiteSpace($ConfigPath)) { $ConfigPath = Join-Path $dataRo
 $configPath = [IO.Path]::GetFullPath($ConfigPath)
 $executable = Join-Path $applicationRoot 'Agent_b.exe'
 $launcherErrorLog = Join-Path $dataRoot 'logs\launcher-errors.log'
+$launcherLog = Join-Path $dataRoot 'logs\launcher.log'
+
+# Item 2ev: every launch decision is written down, so a second launch path
+# (the sign-in start, a Start menu click) says what it did even when hidden.
+function Write-LauncherRecord {
+    param([string]$Message)
+    Write-Host $Message
+    try {
+        $null = New-Item -ItemType Directory -Path (Split-Path -Parent $launcherLog) -Force
+        Add-Content -LiteralPath $launcherLog -Encoding UTF8 -Value ('{0} {1}' -f [DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss zzz'), $Message)
+    } catch { }
+}
+
+function Get-AgentBListener {
+    param([string]$Url)
+    $port = ([Uri]$Url).Port
+    $owner = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($owner.Count) { return "PID $($owner[0].OwningProcess) answering on port $port" }
+    return "port $port"
+}
 
 trap {
     $message = ($_.Exception.Message -replace '[\r\n]+', ' ').Trim()
@@ -91,10 +111,18 @@ function Show-AgentBWindow {
         return
     }
 
+    # Item 2ev: only a window opened on this installation's own URL is reused or
+    # replaced. A title match used to bring forward any "Agent_b" window, which
+    # could be a retired instance on another port.
+    $origin = [Uri]::new([Uri]$Url, '/').AbsoluteUri
+    $ownWindows = @{}
+    foreach ($candidate in @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe'" -ErrorAction SilentlyContinue)) {
+        if ([string]$candidate.CommandLine -and ([string]$candidate.CommandLine).Contains('--app=' + $origin)) { $ownWindows[[int]$candidate.ProcessId] = $true }
+    }
     $shell = New-Object -ComObject WScript.Shell
-    foreach ($name in @('msedge', 'chrome', 'firefox')) {
+    foreach ($name in @('msedge', 'chrome')) {
         foreach ($browser in Get-Process -Name $name -ErrorAction SilentlyContinue) {
-            if ($browser.MainWindowTitle -like 'Agent_b*') {
+            if ($ownWindows.ContainsKey($browser.Id) -and $browser.MainWindowHandle -ne [IntPtr]::Zero) {
                 if ($ReplaceExisting) {
                     if ($browser.CloseMainWindow()) {
                         Write-Host 'CLOSED: stale Agent_b application window'
@@ -193,14 +221,14 @@ try {
     }
 
     if (Test-AgentBEndpoint -Url $url) {
-        Write-Host 'Agent_b is already running; no new server was started.'
+        Write-LauncherRecord "Agent_b is already running ($(Get-AgentBListener -Url $url)); no new server was started."
         Show-AgentBWindow -Url $appUrl
         exit 0
     }
 
     $existing = Get-AgentBProcesses
     if ($existing.Count) {
-        Write-Host "Agent_b process $($existing[0].ProcessId) exists; waiting for its UI instead of starting another instance."
+        Write-LauncherRecord "Agent_b is already running as process $($existing[0].ProcessId) and not answering yet; waiting for its UI instead of starting another instance."
         $state = Wait-AgentBEndpoint -Url $url -Seconds $StartupTimeoutSeconds
         if ($state -eq 'ready') {
             Show-AgentBWindow -Url $appUrl
@@ -251,7 +279,7 @@ try {
         Write-Warning "Agent_b process $($process.Id) is running, but $url did not become ready within $StartupTimeoutSeconds seconds. No browser was opened."
         Write-Host $(if ($Detached) { 'The process is being left running in the background; inspect logs or use -Check to confirm readiness.' } else { 'The process is being left running in this console so delayed startup remains visible.' })
     } else {
-        Write-Host "Agent_b is ready at $appUrl"
+        Write-LauncherRecord "Agent_b is ready at $appUrl ($(Get-AgentBListener -Url $url)); started as process $($process.Id)."
         Show-AgentBWindow -Url $appUrl -ReplaceExisting
     }
 } finally {

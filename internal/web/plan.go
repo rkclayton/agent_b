@@ -13,9 +13,13 @@ import (
 
 	"harness/internal/events"
 	"harness/internal/session"
+	"harness/internal/worker"
 )
 
 var planProposalID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+// itemVerifyLine is an item file's verifier header line (item 2bq).
+var itemVerifyLine = regexp.MustCompile(`(?m)^verify:\s*\S`)
 
 type planProposal = events.PlanProposal
 
@@ -97,7 +101,13 @@ func (s *Server) planAccept(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error(), "proposal")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"accepted": body.Proposal.ID, "result": result})
+	// Item 2bq: the plan lint runs on Accept too, and its findings go back to
+	// the panel with the result.
+	diagnostics := []worker.Diagnostic{}
+	if planDir, err := s.planDirFor(item); err == nil && planDir != "" {
+		diagnostics = worker.Lint(planDir)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"accepted": body.Proposal.ID, "result": result, "diagnostics": diagnostics})
 }
 
 func (s *Server) planMarker(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +179,11 @@ func validatePlanProposal(value planProposal) error {
 	case "add":
 		if !strings.Contains(value.NewText, value.OldText) || len(value.NewText) <= len(value.OldText) {
 			return fmt.Errorf("add proposals must preserve the exact source span")
+		}
+		// Item 2bq: an item written into its own file carries its contract and
+		// the command that verifies it.
+		if strings.HasPrefix(clean, "plan/items/") && (!strings.Contains(value.NewText, "## Contract") || !itemVerifyLine.MatchString(value.NewText)) {
+			return fmt.Errorf("an item file proposal must carry a ## Contract block and a verify: line")
 		}
 	case "drop":
 		if value.NewText != "" {

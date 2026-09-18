@@ -134,6 +134,7 @@ func main() {
 	progressManager.Start()
 	defer progressManager.Close()
 	web := webserver.New(cfg, paths.Config, filepath.Join(paths.Application, "web"), roots, bus)
+	web.PublishPlanChanges()
 	web.SetProjection(projector, writers)
 	for _, notice := range cfg.LoadNotices {
 		bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": cfg.Masked(), "notice": notice}))

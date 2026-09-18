@@ -50,6 +50,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 		"sessions": sessions, "servers": masked.Servers, "config": masked, "replay": replay,
 		"agent_server_changes": s.agentServerChanges(),
 		"build":                buildinfo.Current(),
+		"plans":                s.planList(),
 		"signature":            s.signingState(),
 		"mutation_token":       s.mutationToken, "shell_credential": credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,
 		"serving_facts": servingFacts(filepath.Join(s.roots.Application, "SERVING.md")),

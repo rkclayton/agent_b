@@ -3,7 +3,7 @@ import { createOperatorReconciler } from "./operator-reconcile.js";
 import { navigationEventSourceConstructed, navigationEventSourceOpened, navigationSnapshotStarted, navigationStateFetchEnded, navigationStateFetchStarted } from "./navigation-telemetry.js";
 
 export const store = {
-  sessions: {}, active: "", selection: readSelection(), servers: [], config: {}, flow: { stages: [], edges: [] }, tools: [], serving_facts: {},
+  sessions: {}, active: "", selection: readSelection(), servers: [], config: {}, flow: { stages: [], edges: [] }, tools: [], serving_facts: {}, plans: [],
   agent_server_changes: {},
   build: { tag: "", commit: "unknown", dirty: false, known: false, source: "unknown", display: "unknown" }, signature: {},
   mutation_token: "", shell_credential: { stored: false, stored_at: "" },
@@ -97,6 +97,16 @@ export function reduce(event) {
       break;
     case "shell.identity": store.shell_identity = data; operatorReconciler.observed(); break;
     case "shell.credential": store.shell_credential = data; break;
+    // Item 2bq: a plan created, rewritten or removed by any route. The list
+    // follows, and every subscriber (the Plan panel) re-reads its plan.
+    case "plan.created":
+    case "plan.updated":
+    case "plan.removed": {
+      const plans = (store.plans || []).filter((plan) => plan.id !== data.plan_id);
+      if (event.type !== "plan.removed" && data.plan) plans.push(data.plan);
+      store.plans = plans;
+      break;
+    }
     case "operator.context":
       store.shell_identity = { ...store.shell_identity, operator_context: !!data.enabled,
         operator_context_expires_at: data.expires_at || "", reason: data.enabled ? data.reason || store.shell_identity.reason : "" };
@@ -271,7 +281,7 @@ export function applyServerEvent(event) {
   }
 }
 source.onmessage = applyServerEvent;
-for (const type of ["snapshot", "projection.patch", "server.probed", "config.changed", "agent.server_change", "shell.identity", "shell.credential", "operator.context"])
+for (const type of ["snapshot", "projection.patch", "server.probed", "config.changed", "agent.server_change", "shell.identity", "shell.credential", "operator.context", "plan.created", "plan.updated", "plan.removed"])
   source.addEventListener(type, applyServerEvent);
 function reconcileVisibleClient() { if (!document.hidden) void operatorReconciler.reconcile().catch(() => {}); }
 document.addEventListener("visibilitychange", reconcileVisibleClient);

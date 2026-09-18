@@ -5,7 +5,7 @@ import { claimHint, noteReports, planRows, proposalKey, proposalLabel, workerPro
 
 const shell = initShell({ page: "plan" });
 mountChat(shell);
-const roots = { empty: byID("plan-empty"), hint: byID("plan-hint"), name: byID("plan-name"), cubes: byID("plan-cubes"), go: byID("plan-go"), done: byID("plan-done"), current: byID("plan-current"), items: byID("plan-items"), proposals: byID("plan-proposals"), input: byID("chat-task") };
+const roots = { empty: byID("plan-empty"), hint: byID("plan-hint"), name: byID("plan-name"), cubes: byID("plan-cubes"), go: byID("plan-go"), lint: byID("plan-lint"), done: byID("plan-done"), current: byID("plan-current"), items: byID("plan-items"), proposals: byID("plan-proposals"), input: byID("chat-task") };
 let loaded = null;
 let loading = "";
 const resolvedKey = (id) => `agentb.plan.resolved.${id}`;
@@ -106,7 +106,24 @@ async function renderGo(session) {
   roots.go.title = goState.running
     ? "Stop the worker"
     : goState.enabled ? "Run the accepted items in plan order" : goState.refusal || "No item is waiting";
+  renderLint(goState.diagnostics);
   await renderDone(session);
+}
+
+// Item 2bq: the plan lint's findings, one line under the header. An error is
+// why Go refuses; warnings (an item with no verifier) change nothing.
+export function lintLine(diagnostics = []) {
+  if (!diagnostics.length) return { text: "", error: false };
+  const errors = diagnostics.filter((entry) => entry.severity === "error");
+  const shown = (errors.length ? errors : diagnostics).map((entry) => entry.message);
+  return { text: shown.join(" · "), error: errors.length > 0 };
+}
+function renderLint(diagnostics) {
+  if (!roots.lint) return;
+  const line = lintLine(diagnostics || []);
+  roots.lint.hidden = !line.text;
+  roots.lint.textContent = line.text;
+  roots.lint.classList.toggle("warn", !line.error);
 }
 
 roots.go?.addEventListener("click", async () => {

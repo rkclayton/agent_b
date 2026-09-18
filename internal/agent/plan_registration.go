@@ -35,25 +35,45 @@ func (r *Runner) handlePlanRegistration(ctx context.Context, item *session.Sessi
 	if !requested {
 		return false, ""
 	}
+	return true, r.registerPlan(ctx, item, runID, path, "plan registration")
+}
+
+// handleModelPlanProposal lets the model raise the operator's own registration
+// card (item 2fa): a final model message that is exactly
+// "Add <absolute-path> as a plan" asks, through the same Allow-this card, named
+// so the card says the model proposed it. Registration only; the worker never
+// proposes, and b's read-only relation to plan files is unchanged.
+func (r *Runner) handleModelPlanProposal(ctx context.Context, item *session.Session, runID, content string) (bool, string) {
+	if item.Snapshot().Role == "c" {
+		return false, ""
+	}
+	path, requested := requestedPlanPath(strings.TrimSpace(content))
+	if !requested {
+		return false, ""
+	}
+	return true, r.registerPlan(ctx, item, runID, path, "plan registration proposed by agent_b")
+}
+
+func (r *Runner) registerPlan(ctx context.Context, item *session.Session, runID, path, name string) string {
 	if item.RegisterPlan == nil {
-		return true, "plan registration is unavailable"
+		return "plan registration is unavailable"
 	}
 	callID := r.id("plan-registration")
-	approved, err := r.gate.WaitPolicyRequired(ctx, item, runID, callID, "plan registration", map[string]any{
+	approved, err := r.gate.WaitPolicyRequired(ctx, item, runID, callID, name, map[string]any{
 		"path": path,
 	})
 	if err != nil {
-		return true, "plan registration approval ended: " + err.Error()
+		return "plan registration approval ended: " + err.Error()
 	}
 	if !approved {
-		return true, "plan registration declined"
+		return "plan registration declined"
 	}
 	plan, created, err := item.RegisterPlan(path)
 	if err != nil {
-		return true, "plan registration failed: " + err.Error()
+		return "plan registration failed: " + err.Error()
 	}
 	if !created {
-		return true, "plan already exists: " + plan.Name
+		return "plan already exists: " + plan.Name
 	}
-	return true, "plan registered: " + plan.Name
+	return "plan registered: " + plan.Name
 }

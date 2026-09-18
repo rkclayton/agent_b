@@ -25,6 +25,8 @@ test("chat and console empty states are gated on the first snapshot or the ledge
   assert.ok(gate > 0 && gate < chat.indexOf("No agent connected") && gate < chat.indexOf("Send a task to start the loop."), "chat empty states must follow the loaded gate");
   const app = await readFile(new URL("./app.js", import.meta.url), "utf8");
   assert.match(app, /store\.loaded \? "No configured agents" : ""/);
-  assert.match(app, /ledgerAsked \? '<p class="console-empty">No lifetime activity\.<\/p>' : ""/);
+  assert.match(app, /store\.loaded && ledgerAsked \? '<p class="console-empty">No lifetime activity\.<\/p>' : ""/);
+  // An in-flight fetch never says "no activity": the flag clears before the request.
+  assert.match(app, /ledgerAsked = false;\s+try \{ ledger = await api/);
   assert.match(app, /!store\.loaded \? "" : !hasSelectedChat \? "no open chat"/);
 });

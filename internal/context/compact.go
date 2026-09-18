@@ -1,6 +1,6 @@
-// Package contextmgr batches compaction oldest-first. Editing the oldest prefix
-// invalidates the model cache, so doing this rarely and in one batch minimizes
-// repeated prefill work.
+// Package contextmgr batches compaction, largest stale result first (item 2ey).
+// Editing the prompt prefix invalidates the model cache, so doing this rarely and
+// in one batch minimizes repeated prefill work.
 package contextmgr
 
 import (
@@ -144,7 +144,11 @@ func eligibleOldElision(message events.Message) bool {
 	return !strings.HasPrefix(prefix, "error:") && !strings.HasPrefix(prefix, "note:")
 }
 
-func (c *Compactor) ElideOld(s *session.Session, runID string, used, target, readDefaultLimit int, count Counter) (bool, int) {
+// ElideOld stubs eligible stale results until used falls to target. Item 2ey:
+// the largest eligible result goes first (ties oldest first), so one pass on a
+// small window frees the most; trigger names the line that asked for the pass
+// (soft_pct, overflow) and is recorded on the compaction event.
+func (c *Compactor) ElideOld(s *session.Session, runID, trigger string, used, target, readDefaultLimit int, count Counter) (bool, int) {
 	messages := s.MessagesCopy()
 	toolIndexes := []int{}
 	for index, item := range messages {
@@ -159,7 +163,7 @@ func (c *Compactor) ElideOld(s *session.Session, runID string, used, target, rea
 	// Item 2et: the running turn's user message and the model's own messages are
 	// never elided (only tool-result categories are candidates), and neither are
 	// the last RecentToolWindow tool results. Older results inside the running
-	// turn may become stubs, oldest first, before the run stops for context.
+	// turn may become stubs, largest first, before the run stops for context.
 	// Summaries still never reach into the running turn (SummarizeSpan).
 	// A pin that is set but missing still protects everything.
 	if pin := s.RunPin(); pin != "" && !pinPresent(messages, pin) {
@@ -167,13 +171,19 @@ func (c *Compactor) ElideOld(s *session.Session, runID string, used, target, rea
 	}
 	affected := []string{}
 	before := used
+	order := make([]int, 0, len(messages))
 	for index, item := range messages {
-		if used <= target {
-			break
-		}
 		if skip[index] || item.Elided || !eligibleOldElision(item) || (item.Category != "files" && item.Category != "results" && item.Category != "fetched") {
 			continue
 		}
+		order = append(order, index)
+	}
+	sort.SliceStable(order, func(a, b int) bool { return messages[order[a]].Tokens > messages[order[b]].Tokens })
+	for _, index := range order {
+		if used <= target {
+			break
+		}
+		item := messages[index]
 		call, _ := callFor(messages, item.ToolCallID)
 		updated := elide(item, call.Arguments, readDefaultLimit, count)
 		// v0.65.0/W11: a result whose stub is no smaller (a fresh in-turn result
@@ -192,7 +202,7 @@ func (c *Compactor) ElideOld(s *session.Session, runID string, used, target, rea
 	}
 	s.ReplaceMessages(messages)
 	s.RecordCompaction(used - before)
-	c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "elide", "before": before, "after": used, "affected_ids": affected}))
+	c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "elide", "trigger": trigger, "before": before, "after": used, "affected_ids": affected}))
 	return true, used
 }
 
@@ -251,7 +261,7 @@ func (c *Compactor) Summarize(s *session.Session, runID string, summary events.M
 	s.RecordCompaction(after - before)
 	source.Outcome = "accepted"
 	c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
-	c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "summarize", "before": before, "after": after, "affected_ids": affected, "summary_message_id": summary.ID, "role": source.Role, "profile_id": source.ProfileID, "model": source.Model, "fallback_reason": source.FallbackReason, "usage": source.Usage}))
+	c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "summarize", "trigger": source.Trigger, "before": before, "after": after, "affected_ids": affected, "summary_message_id": summary.ID, "role": source.Role, "profile_id": source.ProfileID, "model": source.Model, "fallback_reason": source.FallbackReason, "usage": source.Usage}))
 	return true
 }
 

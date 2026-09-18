@@ -104,7 +104,7 @@ func TestOldResultElisionNeverRemovesFailedCallRecord(t *testing.T) {
 	for index := 0; index < 5; index++ {
 		item.Append(events.Message{ID: fmt.Sprintf("passed-%d", index), Role: "tool", Name: "read_file", Category: "files", Tokens: 100, OK: &passed, Content: "body"})
 	}
-	New(events.NewBus()).ElideOld(item, "run", 600, 0, 16384, func(text string) (int, bool) { return len(text), false })
+	New(events.NewBus()).ElideOld(item, "run", "test", 600, 0, 16384, func(text string) (int, bool) { return len(text), false })
 	if got := item.MessagesCopy()[0]; got.Elided || got.Content != "error: denied" {
 		t.Fatalf("failed record changed: %+v", got)
 	}
@@ -117,7 +117,7 @@ func TestOldResultElisionRecognizesLegacyFailurePrefixWithoutOKField(t *testing.
 	for index := 0; index < 5; index++ {
 		item.Append(events.Message{ID: fmt.Sprintf("passed-%d", index), Role: "tool", Name: "read_file", Category: "files", Tokens: 100, OK: &passed, Content: "body"})
 	}
-	New(events.NewBus()).ElideOld(item, "run", 600, 0, 16384, func(text string) (int, bool) { return len(text), false })
+	New(events.NewBus()).ElideOld(item, "run", "test", 600, 0, 16384, func(text string) (int, bool) { return len(text), false })
 	if got := item.MessagesCopy()[0]; got.Elided || got.Content != "error: access denied" {
 		t.Fatalf("legacy failed record changed: %+v", got)
 	}

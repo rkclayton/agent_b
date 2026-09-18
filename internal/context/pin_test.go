@@ -171,7 +171,7 @@ func TestElideKeepsEveryCallWithItsResultAndRespectsThePin(t *testing.T) {
 	s := &session.Session{ID: "main", Messages: messages}
 	s.SetRunPin("call-e")
 	compactor := New(events.NewBus())
-	changed, _ := compactor.ElideOld(s, "r1", 4000, 100, 200, func(text string) (int, bool) { return len(text), true })
+	changed, _ := compactor.ElideOld(s, "r1", "test", 4000, 100, 200, func(text string) (int, bool) { return len(text), true })
 	if !changed {
 		t.Fatal("expected elision before the pin")
 	}

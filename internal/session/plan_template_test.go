@@ -66,3 +66,26 @@ func TestRepoMapNamesAnUnboundPlanHonestly(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// The fourth route: a d-session's first write creates its plan from the same
+// template, announced once the folder is complete.
+func TestADSessionsFirstWriteCreatesATemplatedPlan(t *testing.T) {
+	heard := []string{}
+	PlanChanged = func(kind, planDir string) { heard = append(heard, kind) }
+	defer func() { PlanChanged = nil }()
+	s := &Session{ID: "d1", Role: "d", PlansRoot: t.TempDir()}
+	dir, err := s.WriteRoot("plan.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := os.ReadFile(filepath.Join(dir, "plan.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(text), "# Untitled plan\n\n## Product and end goals") || !strings.Contains(string(text), "no repository is bound") {
+		t.Fatalf("plan.md:\n%s", text)
+	}
+	if len(heard) != 1 || heard[0] != "plan.created" {
+		t.Fatalf("heard %v", heard)
+	}
+}

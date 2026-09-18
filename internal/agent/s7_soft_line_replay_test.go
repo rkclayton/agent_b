@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -61,6 +62,9 @@ func loadS7Shape(t *testing.T) []events.Message {
 	return messages
 }
 
+// It proves the soft-line trigger and its order only. It does not prove the
+// request starts under the line or that "test" runs: the three large results sit
+// in the newest-4 elide window, and this fake server does not stream.
 func TestS7SegmentCompactsAtTheSoftLineBeforeTheRequest(t *testing.T) {
 	server := newSummaryServer(t, "INTENT: continue the rpg\nNEXT STEP: answer the operator")
 	cfg := config.Defaults(t.TempDir())
@@ -78,6 +82,17 @@ func TestS7SegmentCompactsAtTheSoftLineBeforeTheRequest(t *testing.T) {
 	s := &session.Session{ID: "s7", AgentID: cfg.DefaultAgentID(), ServerID: "main", Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 10}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	// As restore does (cmd/harness), older results come back as stubs.
 	s.ReplaceMessages(contextmgr.StubOlderResults(loadS7Shape(t), 16384))
+	// As restore does (item 2es): new ids start past every id the chat holds.
+	// The real s7 holds duplicate ids (m-1…m-13 twice); without the floor the
+	// new user message collides with one and the pin resolves mid-history.
+	floor := int64(0)
+	for _, message := range s.MessagesCopy() {
+		var n int64
+		if _, err := fmt.Sscanf(message.ID, "m-%d", &n); err == nil && n >= floor {
+			floor = n + 1
+		}
+	}
+	runner.ReserveIDs(floor)
 	if _, err := runner.AddUser(context.Background(), s, "test"); err != nil {
 		t.Fatal(err)
 	}
@@ -107,6 +122,9 @@ func TestS7SegmentCompactsAtTheSoftLineBeforeTheRequest(t *testing.T) {
 	t.Logf("s7 20:01 replay: reason=%s detail=%q first compaction #%d trigger=%v, first request #%d", reason, detail, firstCompaction, trigger, firstRequest)
 	if firstCompaction < 0 || trigger != "soft_pct" {
 		t.Fatalf("first compaction #%d trigger %v, want soft_pct", firstCompaction, trigger)
+	}
+	if pin := s.RunPin(); pin != "" {
+		t.Fatalf("run pin left set: %s", pin)
 	}
 	if firstRequest >= 0 && firstCompaction > firstRequest {
 		t.Fatalf("compaction #%d came after the first request #%d", firstCompaction, firstRequest)

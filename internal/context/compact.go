@@ -129,7 +129,7 @@ func (c *Compactor) Supersede(s *session.Session, runID string, turn, readDefaul
 		s.ReplaceMessages(messages)
 		after := tokenSum(messages)
 		s.RecordCompaction(after - before)
-		c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "elide", "before": before, "after": after, "affected_ids": affected}))
+		c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "elide", "trigger": "supersede", "before": before, "after": after, "affected_ids": affected}))
 	}
 	return changed
 }
@@ -145,9 +145,9 @@ func eligibleOldElision(message events.Message) bool {
 }
 
 // ElideOld stubs eligible stale results until used falls to target. Item 2ey:
-// the largest eligible result goes first (ties oldest first), so one pass on a
-// small window frees the most; trigger names the line that asked for the pass
-// (soft_pct, overflow) and is recorded on the compaction event.
+// results older than the running turn go first, largest first (ties oldest first),
+// then the running turn's own, so one pass on a small window frees the most;
+// trigger names what asked for the pass and is recorded on the compaction event.
 func (c *Compactor) ElideOld(s *session.Session, runID, trigger string, used, target, readDefaultLimit int, count Counter) (bool, int) {
 	messages := s.MessagesCopy()
 	toolIndexes := []int{}
@@ -178,7 +178,17 @@ func (c *Compactor) ElideOld(s *session.Session, runID, trigger string, used, ta
 		}
 		order = append(order, index)
 	}
-	sort.SliceStable(order, func(a, b int) bool { return messages[order[a]].Tokens > messages[order[b]].Tokens })
+	// Results older than the running turn go first, largest first; the running
+	// turn's own results only after them, so the file the model is working
+	// from is the last thing a soft-line pass stubs.
+	pin := pinIndex(messages, s.RunPin())
+	sort.SliceStable(order, func(a, b int) bool {
+		olderA, olderB := order[a] < pin, order[b] < pin
+		if olderA != olderB {
+			return olderA
+		}
+		return messages[order[a]].Tokens > messages[order[b]].Tokens
+	})
 	for _, index := range order {
 		if used <= target {
 			break
@@ -299,7 +309,7 @@ func (c *Compactor) Settle(s *session.Session, runID, pointer string, ids []stri
 	s.ReplaceMessages(messages)
 	after := tokenSum(messages)
 	s.RecordCompaction(after - before)
-	c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "settled", "before": before, "after": after, "affected_ids": affected}))
+	c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "settled", "trigger": "settle", "before": before, "after": after, "affected_ids": affected}))
 	return true
 }
 

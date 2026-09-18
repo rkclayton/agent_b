@@ -73,6 +73,15 @@ try {
     $running = Get-Running
     if ($running.Count -ne 1 -or $running[0].Id -ne $first.Id) { throw 'A second sign-in start started another server.' }
     Write-Host "PASS: the sign-in shortcut starts Agent_b hidden and detached (PID $($first.Id)), and a second sign-in start does not start another"
+    # Item 2ev: both launch paths say what they did, durably, naming the PID.
+    $decisions = Join-Path $DataDirectory 'logs\launcher.log'
+    $readyLine = "(PID $($first.Id) answering on port $Port); started as process $($first.Id)."
+    $alreadyLine = "Agent_b is already running (PID $($first.Id) answering on port $Port); no new server was started."
+    $decisionText = if (Test-Path -LiteralPath $decisions) { Get-Content -Raw -LiteralPath $decisions -Encoding UTF8 } else { '' }
+    if (-not $decisionText.Contains($readyLine) -or -not $decisionText.Contains($alreadyLine)) {
+        throw "launcher.log does not record one start and one 'already running' naming PID $($first.Id):`n$decisionText"
+    }
+    Write-Host "PASS: exactly one launch; launcher.log records the start and the second path's '$alreadyLine'"
 
     if ($LockWorkstation) {
         $lock = Add-Type -Name LockProbe -Namespace AgentB -PassThru -MemberDefinition '[DllImport("user32.dll")] public static extern bool LockWorkStation();'

@@ -106,6 +106,8 @@ try {
   // TestMode roots are disposable and pre-created so the eval does not depend on
   // host ACL cmdlets; the install still performs its full copy/config/registration path.
   for (const root of [applicationRoot, dataRoot, workspaceRoot, startRoot]) fs.mkdirSync(root, { recursive: true });
+  // The installer never builds (item 2eu); the release step's build runs first.
+  mustRun("powershell.exe", ["-NoLogo", "-NoProfile", "-File", path.join(repoRoot, "scripts", "build-candidate.ps1"), "-SourceDirectory", repoRoot]);
   mustRun("powershell.exe", ["-NoLogo", "-NoProfile", "-File", path.join(repoRoot, "scripts", "install-Agent_b.ps1"),
     "-SourceDirectory", repoRoot, "-ApplicationDirectory", applicationRoot, "-DataDirectory", dataRoot,
     "-WorkspaceDirectory", workspaceRoot, "-StartMenuDirectory", startRoot, "-UninstallRegistryPath", registryPath,

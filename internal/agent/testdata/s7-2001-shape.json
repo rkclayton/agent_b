@@ -1,0 +1,468 @@
+[
+ {
+  "id": "m-13",
+  "role": "user",
+  "category": "history",
+  "tokens": 4
+ },
+ {
+  "id": "m-56",
+  "role": "assistant",
+  "category": "summary",
+  "tokens": 962
+ },
+ {
+  "id": "m-50",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 20,
+  "turn": 1,
+  "tool_calls": [
+   {
+    "id": "HDKu29RNY2eBjiTHwamlnG3SLzrAL7QW",
+    "name": "search_text",
+    "arguments": "{}"
+   },
+   {
+    "id": "eLvIplYK3iSRYPHt5iiC2B9INSXuPovQ",
+    "name": "search_text",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-51",
+  "role": "tool",
+  "category": "results",
+  "tokens": 44,
+  "elided": true,
+  "name": "search_text",
+  "tool_call_id": "HDKu29RNY2eBjiTHwamlnG3SLzrAL7QW",
+  "turn": 1,
+  "ok": true
+ },
+ {
+  "id": "m-52",
+  "role": "tool",
+  "category": "results",
+  "tokens": 42,
+  "elided": true,
+  "name": "search_text",
+  "tool_call_id": "eLvIplYK3iSRYPHt5iiC2B9INSXuPovQ",
+  "turn": 1,
+  "ok": true
+ },
+ {
+  "id": "m-53",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 35,
+  "turn": 2,
+  "tool_calls": [
+   {
+    "id": "OzGfmvSQhfYXgB6P80ZZ3vyEp1wUFmoE",
+    "name": "read_file",
+    "arguments": "{\"path\":\"file-5-0.js\"}"
+   },
+   {
+    "id": "zhQSSBJGjfZ3OH6rhgqVWkHDbt5IQIaR",
+    "name": "read_file",
+    "arguments": "{\"path\":\"file-5-1.js\"}"
+   }
+  ]
+ },
+ {
+  "id": "m-54",
+  "role": "tool",
+  "category": "files",
+  "tokens": 37,
+  "elided": true,
+  "name": "read_file",
+  "tool_call_id": "OzGfmvSQhfYXgB6P80ZZ3vyEp1wUFmoE",
+  "turn": 2,
+  "ok": true
+ },
+ {
+  "id": "m-55",
+  "role": "tool",
+  "category": "files",
+  "tokens": 37,
+  "elided": true,
+  "name": "read_file",
+  "tool_call_id": "zhQSSBJGjfZ3OH6rhgqVWkHDbt5IQIaR",
+  "turn": 2,
+  "ok": true
+ },
+ {
+  "id": "m-57",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 14,
+  "turn": 3,
+  "tool_calls": [
+   {
+    "id": "i6ZdE8oM4KxeQm6AyDxK3W0kfLroLtak",
+    "name": "read_file",
+    "arguments": "{\"path\":\"file-8-0.js\"}"
+   },
+   {
+    "id": "eE9OlLXs11fLcV7ZDDGqUMQK49teKy9v",
+    "name": "list_dir",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-58",
+  "role": "tool",
+  "category": "files",
+  "tokens": 40,
+  "elided": true,
+  "name": "read_file",
+  "tool_call_id": "i6ZdE8oM4KxeQm6AyDxK3W0kfLroLtak",
+  "turn": 3,
+  "ok": true
+ },
+ {
+  "id": "m-59",
+  "role": "tool",
+  "category": "results",
+  "tokens": 22,
+  "elided": true,
+  "name": "list_dir",
+  "tool_call_id": "eE9OlLXs11fLcV7ZDDGqUMQK49teKy9v",
+  "turn": 3,
+  "ok": true
+ },
+ {
+  "id": "m-60",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 24,
+  "turn": 4,
+  "tool_calls": [
+   {
+    "id": "R7HNVMZXiAQXMsK1d7yC4xm9T3Y2xRgZ",
+    "name": "read_file",
+    "arguments": "{\"path\":\"file-11-0.js\"}"
+   },
+   {
+    "id": "1pC9ACNGvP62YIO6FlkOedtFpw0alOvg",
+    "name": "list_dir",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-61",
+  "role": "tool",
+  "category": "files",
+  "tokens": 37,
+  "elided": true,
+  "name": "read_file",
+  "tool_call_id": "R7HNVMZXiAQXMsK1d7yC4xm9T3Y2xRgZ",
+  "turn": 4,
+  "ok": true
+ },
+ {
+  "id": "m-62",
+  "role": "tool",
+  "category": "results",
+  "tokens": 25,
+  "elided": true,
+  "name": "list_dir",
+  "tool_call_id": "1pC9ACNGvP62YIO6FlkOedtFpw0alOvg",
+  "turn": 4,
+  "ok": true
+ },
+ {
+  "id": "m-63",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 22,
+  "turn": 5,
+  "tool_calls": [
+   {
+    "id": "VfngdnCjMUSGK7SZ3Av20SCz7YvaQJtF",
+    "name": "read_file",
+    "arguments": "{\"path\":\"file-14-0.js\"}"
+   },
+   {
+    "id": "EQGRiw4fxNm9Ni1JKbO39LNxwghw7Umj",
+    "name": "list_dir",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-64",
+  "role": "tool",
+  "category": "files",
+  "tokens": 39,
+  "elided": true,
+  "name": "read_file",
+  "tool_call_id": "VfngdnCjMUSGK7SZ3Av20SCz7YvaQJtF",
+  "turn": 5,
+  "ok": true
+ },
+ {
+  "id": "m-65",
+  "role": "tool",
+  "category": "results",
+  "tokens": 24,
+  "elided": true,
+  "name": "list_dir",
+  "tool_call_id": "EQGRiw4fxNm9Ni1JKbO39LNxwghw7Umj",
+  "turn": 5,
+  "ok": true
+ },
+ {
+  "id": "m-66",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 5,
+  "turn": 6
+ },
+ {
+  "id": "m-1",
+  "role": "user",
+  "category": "history",
+  "tokens": 1
+ },
+ {
+  "id": "m-2",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 10,
+  "turn": 1
+ },
+ {
+  "id": "m-3",
+  "role": "user",
+  "category": "history",
+  "tokens": 5
+ },
+ {
+  "id": "m-4",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 28,
+  "turn": 1
+ },
+ {
+  "id": "m-5",
+  "role": "user",
+  "category": "history",
+  "tokens": 6
+ },
+ {
+  "id": "m-6",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 190,
+  "turn": 1
+ },
+ {
+  "id": "m-7",
+  "role": "user",
+  "category": "history",
+  "tokens": 40
+ },
+ {
+  "id": "m-8",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 1,
+  "tool_calls": [
+   {
+    "id": "ss0UTGbYcjHbpGaN90Qtbg4vuLCJV7K4",
+    "name": "read_file",
+    "arguments": "{\"path\":\"file-25-0.js\"}"
+   }
+  ]
+ },
+ {
+  "id": "m-9",
+  "role": "tool",
+  "category": "files",
+  "tokens": 24,
+  "elided": true,
+  "name": "read_file",
+  "tool_call_id": "ss0UTGbYcjHbpGaN90Qtbg4vuLCJV7K4",
+  "turn": 1,
+  "ok": true
+ },
+ {
+  "id": "m-10",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 389,
+  "turn": 2
+ },
+ {
+  "id": "m-11",
+  "role": "user",
+  "category": "history",
+  "tokens": 5
+ },
+ {
+  "id": "m-12",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 1,
+  "tool_calls": [
+   {
+    "id": "99TWQMd5S4cJdZFVjPaB2eaqawPjJm7n",
+    "name": "write_file",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-13",
+  "role": "tool",
+  "category": "results",
+  "tokens": 719,
+  "elided": true,
+  "name": "write_file",
+  "tool_call_id": "99TWQMd5S4cJdZFVjPaB2eaqawPjJm7n",
+  "turn": 1,
+  "ok": true
+ },
+ {
+  "id": "m-14",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 253,
+  "turn": 2
+ },
+ {
+  "id": "m-1",
+  "role": "user",
+  "category": "history",
+  "tokens": 1
+ },
+ {
+  "id": "m-2",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 48,
+  "turn": 1
+ },
+ {
+  "id": "m-3",
+  "role": "user",
+  "category": "history",
+  "tokens": 10
+ },
+ {
+  "id": "m-4",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 20,
+  "turn": 1,
+  "tool_calls": [
+   {
+    "id": "4v3rTPhFsRChAMhUIK67AFa0agdZLRXN",
+    "name": "read_file",
+    "arguments": "{\"path\":\"file-35-0.js\"}"
+   },
+   {
+    "id": "WgLlHjC1gVuPr33vw6E55j6MOMdP00qF",
+    "name": "read_file",
+    "arguments": "{\"path\":\"file-35-1.js\"}"
+   },
+   {
+    "id": "ddI18ImEjBbliUC5SRifF0N1hGMkni9a",
+    "name": "read_file",
+    "arguments": "{\"path\":\"file-35-2.js\"}"
+   },
+   {
+    "id": "f8Vzc0jGyCDw65GvrPeyMwsgktpS8BFS",
+    "name": "read_file",
+    "arguments": "{\"path\":\"file-35-3.js\"}"
+   }
+  ]
+ },
+ {
+  "id": "m-5",
+  "role": "tool",
+  "category": "files",
+  "tokens": 4757,
+  "name": "read_file",
+  "tool_call_id": "4v3rTPhFsRChAMhUIK67AFa0agdZLRXN",
+  "turn": 1,
+  "ok": true
+ },
+ {
+  "id": "m-6",
+  "role": "tool",
+  "category": "files",
+  "tokens": 171,
+  "name": "read_file",
+  "tool_call_id": "WgLlHjC1gVuPr33vw6E55j6MOMdP00qF",
+  "turn": 1,
+  "ok": true
+ },
+ {
+  "id": "m-7",
+  "role": "tool",
+  "category": "files",
+  "tokens": 304,
+  "name": "read_file",
+  "tool_call_id": "ddI18ImEjBbliUC5SRifF0N1hGMkni9a",
+  "turn": 1,
+  "ok": true
+ },
+ {
+  "id": "m-8",
+  "role": "tool",
+  "category": "files",
+  "tokens": 14465,
+  "name": "read_file",
+  "tool_call_id": "f8Vzc0jGyCDw65GvrPeyMwsgktpS8BFS",
+  "turn": 1,
+  "ok": true
+ },
+ {
+  "id": "m-10",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 2,
+  "tool_calls": [
+   {
+    "id": "PYmAU1RDegj5Ym7VifKLI4jJaNcyLp7v",
+    "name": "read_file",
+    "arguments": "{\"path\":\"file-40-0.js\"}"
+   },
+   {
+    "id": "FJIgmu8RWVouRXbKSIxglAEItDSD0JLs",
+    "name": "read_file",
+    "arguments": "{\"path\":\"file-40-1.js\"}"
+   }
+  ]
+ },
+ {
+  "id": "m-11",
+  "role": "tool",
+  "category": "files",
+  "tokens": 5480,
+  "name": "read_file",
+  "tool_call_id": "PYmAU1RDegj5Ym7VifKLI4jJaNcyLp7v",
+  "turn": 2,
+  "ok": true
+ },
+ {
+  "id": "m-12",
+  "role": "tool",
+  "category": "files",
+  "tokens": 3388,
+  "name": "read_file",
+  "tool_call_id": "FJIgmu8RWVouRXbKSIxglAEItDSD0JLs",
+  "turn": 2,
+  "ok": true
+ }
+]

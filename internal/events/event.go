@@ -170,6 +170,7 @@ type CompactionSummaryData struct {
 	NCtx                  int        `json:"n_ctx"`
 	Usage                 ModelUsage `json:"usage"`
 	DurationMS            int64      `json:"duration_ms"`
+	Trigger               string     `json:"trigger,omitempty"`
 }
 
 func New(eventType, sessionID, runID string, data any) Event {

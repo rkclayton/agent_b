@@ -1,3 +1,4 @@
+import { compareWithServer } from "./build-check.js";
 import { createOperatorReconciler } from "./operator-reconcile.js";
 import { navigationEventSourceConstructed, navigationEventSourceOpened, navigationSnapshotStarted, navigationStateFetchEnded, navigationStateFetchStarted } from "./navigation-telemetry.js";
 
@@ -29,6 +30,9 @@ function notify(event) { for (const fn of listeners) fn(store, event); }
 export function reduce(event) {
   const data = event.data || {};
   if (event.type === "snapshot") {
+    // Item 2ev: every snapshot, including the one after the event stream
+    // reconnects to a restarted server, names the server's build.
+    if (typeof document !== "undefined" && data.build?.executable_sha256) { try { compareWithServer(data.build.executable_sha256); } catch {} }
     const active = store.active;
     const selection = store.selection;
     // v0.65.0/W8 (2er): a resync's snapshot is fetched while patches keep

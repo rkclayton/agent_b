@@ -191,7 +191,7 @@ try {
     }
 
     $launcherSource = Get-Content -Raw -LiteralPath (Join-Path $testApplication 'scripts\launch-Agent_b.ps1')
-    if ($launcherSource -notmatch "'chat'" -or $launcherSource -notmatch 'Show-AgentBWindow -Url \$appUrl -ReplaceExisting') {
+    if ($launcherSource -notmatch "'chat'" -or $launcherSource -notmatch 'Show-AgentBWindow -Url \$appUrl' -or $launcherSource -match 'CloseMainWindow') {
         throw 'Installed launcher is not configured to open the Chat-first application view.'
     }
     if ($launcherSource -notmatch '\[switch\]\$Detached' -or

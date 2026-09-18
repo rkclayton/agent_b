@@ -32,10 +32,12 @@ sentence that says "Codex" applies to you. Everything else here is the same for 
 
 ## Hard stops
 
-The standing rules in `PLAN.md` list them. The ones you will meet most: UAC or elevation;
-touching production (port 8790); the model server; deleting, recreating or rewriting this
-repository or its history; anything the order names as operator-only. A hard stop is a report
-and an end, not a question mid-run.
+The standing rules in `PLAN.md` list them. The ones you will meet most: UAC or elevation, or any
+interactive Windows security prompt on the operator's desktop; touching production (port 8790);
+the model server; deleting, recreating or rewriting this repository or its history; **locking,
+disconnecting or switching the operator's session** — lock/disconnect proofs are the operator's
+to schedule, never run unattended; anything the order names as operator-only. A hard stop is a
+report and an end, not a question mid-run.
 
 ## Remote
 

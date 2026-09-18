@@ -96,6 +96,11 @@ func (r *Registry) ensurePlanLocked(repo string) (Plan, bool, error) {
 	if err := os.MkdirAll(r.plansRoot, 0o700); err != nil {
 		return Plan{}, false, err
 	}
+	// v0.68.0/W16: judged on the folder the path resolves to, whatever route
+	// asked, so no link or ancestor brings the plans folder into a repository.
+	if _, reason := RegistrationRefusal(r.plansRoot, canonical); reason != "" {
+		return Plan{}, false, fmt.Errorf("%s", reason)
+	}
 	planID, planDir, err := allocatePlanDir(r.plansRoot)
 	if err != nil {
 		return Plan{}, false, err

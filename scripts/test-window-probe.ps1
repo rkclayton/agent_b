@@ -33,6 +33,8 @@ function Get-Running {
 }
 
 try {
+    & powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $repository
+    if ($LASTEXITCODE -ne 0) { throw "Candidate build exited $LASTEXITCODE." }
     & powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'install-Agent_b.ps1') -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode
     if ($LASTEXITCODE -ne 0) { throw "Disposable install exited $LASTEXITCODE." }
     $configPath = Join-Path $testData 'harness.json'

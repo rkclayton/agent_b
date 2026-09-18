@@ -70,3 +70,5 @@ sandbox/*
 node_modules/
 playwright-report/
 test-results/
+# The release step writes the candidate manifest beside the exe it built.
+candidate-final.json

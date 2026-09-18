@@ -430,6 +430,38 @@ await browser.wait(`document.querySelector('#chat-task')`, "Chat opened");
 await browser.wait(`document.querySelector('.agent-tab')`, "Agent tab rendered");
 record("open-chat");
 
+// Item 2ev: a page stamped by another build reloads itself once and then runs
+// the current shell. The first response for the proof URL is a stale copy (the
+// current document carrying an earlier build id), standing in for a cached page.
+{
+  const serverBuild = runtimeState.build?.executable_sha256;
+  assert.ok(serverBuild, "server must report its executable hash");
+  const documentResponse = await fetch(`http://127.0.0.1:${appPort}/chat`);
+  assert.equal(documentResponse.headers.get("cache-control"), "no-store", "the document must never be stored");
+  const current = await documentResponse.text();
+  assert.ok(current.includes(`<meta name="agentb-build" content="${serverBuild}">`), "the document must carry the serving build");
+  const assetResponse = await fetch(`http://127.0.0.1:${appPort}/static/js/build-check.js?v=${serverBuild.slice(0, 12)}`);
+  assert.equal(assetResponse.headers.get("cache-control"), "no-cache", "assets must be revalidated");
+  assert.ok(current.includes(`/static/js/build-check.js?v=${serverBuild.slice(0, 12)}"`), "asset URLs must carry the build id");
+  const stale = current.replace(`content="${serverBuild}"`, `content="0000000000000000000000000000000000000000000000000000000000000000"`);
+  const proofURL = `http://127.0.0.1:${appPort}/chat?build-proof=1`;
+  // The shell may add ?session= before it reloads, so match the proof marker, not the exact URL.
+  const isProof = (url) => url.pathname === "/chat" && url.searchParams.get("build-proof") === "1";
+  let served = 0;
+  await page.route(isProof, async (route) => {
+    served += 1;
+    if (served === 1) await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: stale });
+    else await route.continue();
+  });
+  await page.goto(proofURL);
+  await browser.wait(`document.querySelector('meta[name="agentb-build"]')?.content === ${JSON.stringify(serverBuild)}`, "stale page reloaded to the current build", 15000);
+  await browser.wait(`document.querySelector('#chat-task') && document.querySelector('.agent-tab')`, "current shell after the reload");
+  await sleep(1500);
+  await page.unroute(isProof);
+  assert.equal(served, 2, "exactly one automatic reload");
+  record("stale-build-page-reloads-once");
+}
+
 if (realModel) {
   await setTask("Reply with the exact words REAL MODEL ACCEPTANCE OK.");
   await waitProjectedChatText((await state()).active, "REAL MODEL ACCEPTANCE OK", "real model answer", 120000);

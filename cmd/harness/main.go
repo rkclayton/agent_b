@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"harness/internal/agent"
+	"harness/internal/buildinfo"
 	"harness/internal/config"
 	contextmgr "harness/internal/context"
 	"harness/internal/credential"
@@ -51,7 +52,14 @@ func main() {
 	dataOverride := flag.String("data-root", "", "operator data root containing configuration, credentials, logs, and memory")
 	replayPaths := flag.String("replay", "", "comma-separated session JSONL files to replay")
 	startupLog := flag.String("startup-log", "", "optional append-only startup diagnostic log")
+	version := flag.Bool("version", false, "print this build's identity as JSON and exit")
 	flag.Parse()
+	if *version {
+		if err := json.NewEncoder(os.Stdout).Encode(buildinfo.Current()); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if strings.TrimSpace(*startupLog) != "" {
 		file, openErr := os.OpenFile(filepath.Clean(*startupLog), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if openErr != nil {

@@ -22,7 +22,7 @@ func TestShippedPromptCarriesBothMemorySentencesAndIsByteStable(t *testing.T) {
 
 	for _, want := range []string{
 		"Remember, with remember, only these: a correction the operator gave you, a preference the operator stated, or a repository fact you had to discover; recall first and never write a note that restates one you already have.",
-		"When the operator names a project that is not in the plan list, ask for its path and offer to register it as a plan through the usual approval; never search the operator's profile, home directory or drives to find it.",
+		"When the operator names a project that is not in the plan list, ask for its path and offer to register it as a plan through the usual approval: the operator sends exactly `Add <absolute-path> as a plan`, or you may reply with exactly that line and nothing else to raise the same card; never search the operator's profile, home directory or drives to find it.",
 	} {
 		if strings.Count(text, want) != 1 {
 			t.Errorf("shipped prompt does not carry this sentence exactly once:\n%s", want)

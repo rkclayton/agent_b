@@ -456,6 +456,12 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				s.Append(message)
 				r.bus.Publish(events.New(events.MessageAppended, s.ID, runID, map[string]any{"message": message}))
 			})
+			// Item 2fa: a final message that is exactly the registration sentence
+			// raises the operator's card; the line stays in the transcript above it.
+			finalText, _ := parsePlanProposals(response.Content)
+			if handled, detail := r.handleModelPlanProposal(ctx, s, runID, finalText); handled {
+				return "done", detail, turn
+			}
 			return "done", "", turn
 		}
 		visible, proposals := parsePlanProposals(response.Content)

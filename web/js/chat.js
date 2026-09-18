@@ -178,6 +178,11 @@ function renderLog(session) {
   usedEntryViews = new Set();
   usedFileViews = new Set();
   usedToolViews = new Set();
+  // Item 2ew: before the first snapshot nothing is known, so nothing is claimed.
+  if (!store.loaded) {
+    finishLogRender([]);
+    return;
+  }
   if (!session) {
     const empty = document.createElement("div");
     empty.className = "chat-empty";

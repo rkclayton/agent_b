@@ -8,6 +8,10 @@ export const store = {
   build: { tag: "", commit: "unknown", dirty: false, known: false, source: "unknown", display: "unknown" }, signature: {},
   mutation_token: "", shell_credential: { stored: false, stored_at: "" },
   shell_identity: { fallback: false, operator_approval_required: false, operator_context: false, reason: "", since: "" }, replay: false,
+  // Item 2ew: false until the first full snapshot is applied. Empty-state text
+  // (no agent, an empty transcript, no activity) waits for it, so a reload or a
+  // slow server never shows "nothing here" when there is something.
+  loaded: false,
 };
 const listeners = new Set();
 const operatorReconciler = createOperatorReconciler({
@@ -52,6 +56,7 @@ export function reduce(event) {
       }
     }
     Object.assign(store, data);
+    store.loaded = true;
     store.selection = selection;
     const selected = selection.session_id || active;
     store.active = store.sessions[selected] && !store.sessions[selected].closed && roleAgentID(store.sessions[selected]) === selection.agent_id

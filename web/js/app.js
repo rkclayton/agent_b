@@ -15,6 +15,8 @@ const requestedSession = new URLSearchParams(location.search).get("session");
 let initialSession = requestedSession;
 let selectedAgent = "";
 let ledger = null;
+// Item 2ew: "No lifetime activity" is said only once the ledger has been asked.
+let ledgerAsked = false;
 let renderFrame = 0;
 let mounted = false;
 const liveContent = document.getElementById("console-live-content");
@@ -92,8 +94,8 @@ setInterval(() => {
 }, 1000);
 
 async function refreshLedger(render = true) {
-  if (!selectedAgent || store.replay) { ledger = null; if (render) scheduleRender(); return; }
-  try { ledger = await api(`/api/stats/${encodeURIComponent(selectedAgent)}`, undefined, "GET"); }
+  if (!selectedAgent || store.replay) { ledger = null; ledgerAsked = true; if (render) scheduleRender(); return; }
+  try { ledger = await api(`/api/stats/${encodeURIComponent(selectedAgent)}`, undefined, "GET"); ledgerAsked = true; }
   catch (error) { showError(error.message); }
   if (render) scheduleRender();
 }
@@ -106,17 +108,17 @@ function renderConsole() {
   agentSelect.replaceChildren(...agents.map((agent) => option(agentKey(agent), agent.name, agentKey(agent) === selectedAgent)));
   const agent = agents.find((candidate) => agentKey(candidate) === selectedAgent);
   renderAgentServer(agent);
-  document.getElementById("console-agent-binding").textContent = agent ? `${agent.c ? `c ${agent.c}` : ""}${agent.c && agent.d ? " · " : ""}${agent.d ? `d ${agent.d}` : ""}` : "No configured agents";
+  document.getElementById("console-agent-binding").textContent = agent ? `${agent.c ? `c ${agent.c}` : ""}${agent.c && agent.d ? " · " : ""}${agent.d ? `d ${agent.d}` : ""}` : store.loaded ? "No configured agents" : "";
   renderTools(agent);
   renderLifetime();
   const session = store.sessions[store.active];
   const hasSelectedChat = !!session && session.agent_id === selectedAgent;
   liveContent.hidden = !hasSelectedChat;
-  liveEmpty.hidden = hasSelectedChat;
+  liveEmpty.hidden = hasSelectedChat || !store.loaded;
   renderStopState(consoleStop, hasSelectedChat ? session : null, store.replay);
   consoleLiveCompactions.textContent = hasSelectedChat ? compactionFigures(session) : "";
   consoleLiveCompactions.hidden = !hasSelectedChat;
-  document.getElementById("console-live-state").textContent = !hasSelectedChat ? "no open chat" : session.pending_approval ? "waiting for you" : liveActivityText(session) || session.run?.status || "idle";
+  document.getElementById("console-live-state").textContent = !store.loaded ? "" : !hasSelectedChat ? "no open chat" : session.pending_approval ? "waiting for you" : liveActivityText(session) || session.run?.status || "idle";
   renderRunResult(hasSelectedChat ? session : null);
   if (hasSelectedChat) {
     renderRail(); renderFlow(); renderRack(); renderState(); renderTimeline(); placeDropLastMessage(); dropControl.render(); renderPendingApproval(session);
@@ -191,7 +193,7 @@ async function cancelAgentServerChange() {
 
 function renderTools(agent) {
   const root = document.getElementById("console-tools");
-  if (!agent) { root.innerHTML = '<p class="console-empty">No agent selected.</p>'; return; }
+  if (!agent) { root.innerHTML = store.loaded ? '<p class="console-empty">No agent selected.</p>' : ""; return; }
   const enabled = new Set(agent.toolset || []);
   document.getElementById("console-tools-link").textContent = `${enabled.size} tools active`;
   const counters = ledger?.agent?.tools || {};
@@ -207,7 +209,7 @@ function renderTools(agent) {
 
 function renderLifetime() {
   const root = document.getElementById("console-stats");
-  if (!ledger) { root.innerHTML = '<p class="console-empty">No lifetime activity.</p>'; return; }
+  if (!ledger) { root.innerHTML = ledgerAsked ? '<p class="console-empty">No lifetime activity.</p>' : ""; return; }
   const sections = [[selectedAgent, ledger.agent], ...Object.entries(ledger.profiles || {})];
   root.replaceChildren(...sections.flatMap(([name, counters]) => [text(name, "console-profile-head"), ...lifetimeRows(counters, percentile).map(([label, value]) => line(label, value))]));
 }

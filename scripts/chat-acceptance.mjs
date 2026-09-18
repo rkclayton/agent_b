@@ -483,6 +483,8 @@ if (realModel) {
   let snapshot;
   await browser.wait(`new URLSearchParams(location.search).get('session')?.startsWith('s')`, "new session selected");
   record("agent-tab-new-chat-idle");
+  // Item 2ew: a genuinely empty chat still says so once the snapshot is in.
+  await browser.wait(`[...document.querySelectorAll('.chat-empty')].some((node) => node.innerText.includes('Send a task to start the loop.'))`, "true empty-state text on a new chat");
   snapshot = await state();
   let sessionID = await browser.evaluate(`new URLSearchParams(location.search).get('session')`);
   const session = snapshot.sessions[sessionID];
@@ -501,6 +503,36 @@ if (realModel) {
   assert.equal(await readFile(join(args.data, "scratch", sessionID, "scratch-proof.txt"), "utf8"), "scratch tool passed\n");
   record("scratch-chat-title-and-file-tool");
   sessionID = fixtureSessionID;
+
+  // Item 2ew: a reload while the page is loading, and a late /api/state, never
+  // show empty-state text over a chat that has history.
+  {
+    await edgeContext.addInitScript(() => {
+      window.__emptySeen = [];
+      new MutationObserver(() => {
+        for (const node of document.querySelectorAll(".chat-empty")) {
+          const seen = node.innerText.trim();
+          if (seen && !window.__emptySeen.includes(seen)) window.__emptySeen.push(seen);
+        }
+      }).observe(document, { childList: true, subtree: true, characterData: true });
+    });
+    const historyURL = `http://127.0.0.1:${appPort}/chat?session=${fixtureSessionID}`;
+    const historyShown = `document.querySelectorAll('.chat-entry, .chat-response').length > 0`;
+    await page.goto(historyURL, { waitUntil: "commit" });
+    await page.reload({ waitUntil: "commit" });
+    await browser.wait(historyShown, "history after a reload during load");
+    assert.deepEqual(await page.evaluate(() => window.__emptySeen), [], "empty-state text was shown during a reload over a chat with history");
+    record("reload-shows-no-false-empty-state");
+    const lateState = (url) => url.pathname === "/api/state" || url.pathname === "/api/events";
+    await page.route(lateState, async (route) => { await sleep(2000); await route.continue().catch(() => {}); });
+    await page.goto(historyURL);
+    await sleep(1000);
+    assert.deepEqual(await page.evaluate(() => window.__emptySeen), [], "empty-state text was shown before a late snapshot");
+    await page.unroute(lateState);
+    await browser.wait(historyShown, "history after a late snapshot", 15000);
+    assert.deepEqual(await page.evaluate(() => window.__emptySeen), [], "empty-state text was shown around a late snapshot");
+    record("late-state-shows-blank-then-history");
+  }
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
   await browser.wait(`document.querySelector('#chat-task')`, "fixture chat restored after scratch acceptance");
 

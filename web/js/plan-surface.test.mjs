@@ -43,3 +43,8 @@ test("an item's [[id]] is kept on the row and never shown as its text", () => {
   assert.deepEqual(named.items.map((item) => item.id), ["2aa", "3"]);
   assert.equal(named.items[0].line, "[ ] [[2aa]] 2aa first item");
 });
+test("a new plan's order sits under its milestones, and the harness form keeps its suffix",()=>{
+  const fresh=planRows("# P\n## Milestones and current order\n### Milestones\n1.0\n### Current work order\nShip it\n- [ ] [[1]] one\n## Index\nx");
+  assert.equal(fresh.order,"Ship it\n- [ ] [[1]] one");
+  assert.equal(planRows("# P\n## Current work order — v1\nDo this\n### W1\nstep\n## Items\n[ ] 3 next").order,"Do this\n### W1\nstep");
+});

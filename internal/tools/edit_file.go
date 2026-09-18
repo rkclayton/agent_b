@@ -34,7 +34,7 @@ func (e *EditFile) Call(ctx context.Context, s *session.Session, args map[string
 	// writer of that file takes, so its edit and a worker's marker serialise.
 	if s.Role == "d" {
 		if planFile, isPlan := s.PlanFileFor(path); isPlan {
-			unlock := session.LockPlanFile(planFile)
+			unlock := session.LockPlanFileWrite(planFile)
 			defer unlock()
 		}
 	}

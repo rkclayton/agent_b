@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -26,6 +27,9 @@ func TestModelProposedPlanRegistrationRaisesTheOperatorsCard(t *testing.T) {
 	}{{"approved", "once", true}, {"declined", "deny", false}} {
 		t.Run(tc.name, func(t *testing.T) {
 			root, repo := t.TempDir(), filepath.Join(t.TempDir(), "repo")
+			if err := os.MkdirAll(repo, 0o700); err != nil {
+				t.Fatal(err)
+			}
 			line := "Add " + repo + " as a plan"
 			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -64,7 +68,10 @@ func TestModelProposedPlanRegistrationRaisesTheOperatorsCard(t *testing.T) {
 				t.Fatal(err)
 			}
 			done := make(chan string, 1)
-			go func() { reason, detail, _ := runner.Run(context.Background(), item, "run-1"); done <- reason + " / " + detail }()
+			go func() {
+				reason, detail, _ := runner.Run(context.Background(), item, "run-1")
+				done <- reason + " / " + detail
+			}()
 			var required events.Event
 			select {
 			case required = <-approvals:

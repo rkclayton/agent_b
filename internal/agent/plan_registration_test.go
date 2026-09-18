@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -29,6 +30,9 @@ func TestAddPlanSentenceUsesAllowThisAndApprovalControlsRegistration(t *testing.
 			defer model.Close()
 
 			root, repo := t.TempDir(), filepath.Join(t.TempDir(), "repo")
+			if err := os.MkdirAll(repo, 0o700); err != nil {
+				t.Fatal(err)
+			}
 			cfg := config.Defaults(root)
 			profile := cfg.Servers[0]
 			profile.ID, profile.BaseURL = "main", model.URL

@@ -77,7 +77,12 @@ func TestItemFileProposalsCarryAContractAndAVerifier(t *testing.T) {
 	if err := validatePlanProposal(base); err == nil || !strings.Contains(err.Error(), "## Contract") {
 		t.Fatalf("an item without a contract and verifier must be refused: %v", err)
 	}
+	// A verifier below the heading is one the worker never reads (v0.68.0/W16).
 	base.NewText = "# 7a\n\nverify: Test-Path CHANGELOG.md\n\n## Contract\n\n@change add a line [assumed]\n"
+	if err := validatePlanProposal(base); err == nil {
+		t.Fatal("a verifier the worker cannot see was accepted")
+	}
+	base.NewText = "verify: Test-Path CHANGELOG.md\n\n# 7a\n\n## Contract\n\n@change add a line [assumed]\n"
 	if err := validatePlanProposal(base); err != nil {
 		t.Fatalf("a complete item was refused: %v", err)
 	}

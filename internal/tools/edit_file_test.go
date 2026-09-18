@@ -100,6 +100,11 @@ func TestPlanPageModelWritesRefuseUntilAcceptGate(t *testing.T) {
 	item := testSession(root, "d-plan", "Planner")
 	item.Role, item.PlansRoot, item.PlanDir = "d", filepath.Dir(plan), plan
 	item.SetPlanPage(true)
+	// v0.68.0/W16: an accepted edit to plan.md reaches the page as plan.updated;
+	// a refused one announces nothing.
+	announced := []string{}
+	session.PlanChanged = func(kind, planDir string) { announced = append(announced, kind+" "+filepath.Base(planDir)) }
+	t.Cleanup(func() { session.PlanChanged = nil })
 	if _, err := edit.Call(context.Background(), item, map[string]any{"path": "plan.md", "old_string": "old", "new_string": "new"}); err == nil || !strings.Contains(err.Error(), "accepting a proposal") {
 		t.Fatalf("direct edit err=%v", err)
 	}
@@ -113,6 +118,9 @@ func TestPlanPageModelWritesRefuseUntilAcceptGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	item.EndPlanAccept()
+	if strings.Join(announced, ",") != "plan.updated one" {
+		t.Fatalf("accepted edit announced %v", announced)
+	}
 	if got, err := os.ReadFile(filepath.Join(plan, "plan.md")); err != nil || string(got) != "[ ] new\n" {
 		t.Fatalf("plan=%q err=%v", got, err)
 	}

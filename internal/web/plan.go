@@ -18,9 +18,6 @@ import (
 
 var planProposalID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
-// itemVerifyLine is an item file's verifier header line (item 2bq).
-var itemVerifyLine = regexp.MustCompile(`(?m)^verify:\s*\S`)
-
 type planProposal = events.PlanProposal
 
 func (s *Server) planSurface(w http.ResponseWriter, r *http.Request) {
@@ -181,9 +178,11 @@ func validatePlanProposal(value planProposal) error {
 			return fmt.Errorf("add proposals must preserve the exact source span")
 		}
 		// Item 2bq: an item written into its own file carries its contract and
-		// the command that verifies it.
-		if strings.HasPrefix(clean, "plan/items/") && (!strings.Contains(value.NewText, "## Contract") || !itemVerifyLine.MatchString(value.NewText)) {
-			return fmt.Errorf("an item file proposal must carry a ## Contract block and a verify: line")
+		// the command that verifies it, read exactly as the worker reads it (in
+		// the header, before the first heading), so the tray cannot accept a
+		// verifier Go won't see.
+		if strings.HasPrefix(clean, "plan/items/") && (!strings.Contains(value.NewText, "## Contract") || worker.ItemVerifier(value.NewText) == "") {
+			return fmt.Errorf("an item file proposal must carry a ## Contract block and a verify: line before its first heading")
 		}
 	case "drop":
 		if value.NewText != "" {

@@ -53,3 +53,25 @@ func TestPlanLintRefusesMalformedPlansAndWarnsOnMissingVerifiers(t *testing.T) {
 		}
 	}
 }
+
+// v0.68.0/W16: the Unresolved vocabulary binds only items Go would work, and
+// the section is read line by line, so neither placement nor fences hide an
+// entry or invent one.
+func TestPlanLintReadsEveryUnresolvedSectionAndSparesFinishedItems(t *testing.T) {
+	cases := map[string]struct {
+		marker, body string
+		refuses      bool
+	}{
+		"finished item keeps old free text": {"x", "verify: echo ok\n\n## Unresolved\n\nask the operator\n", false},
+		"section on the first line":         {" ", "## Unresolved\nfree text\n", true},
+		"heading with trailing spaces":      {" ", "verify: echo ok\n\n## Unresolved   \nfree text\n", true},
+		"second section":                    {" ", "verify: echo ok\n\n## Unresolved\n\n(none)\n\n## Notes\n\n## Unresolved\n\nfree text\n", true},
+		"fenced example is not an entry":    {" ", "verify: echo ok\n\n## Unresolved\n\n```\n## Unresolved\nfree\n```\n* [blocker] a real one\n(None)\n", false},
+	}
+	for name, value := range cases {
+		dir := lintFixture(t, "# P\n\n- ["+value.marker+"] [[1]] one\n", map[string]string{"1": value.body})
+		if refuses := Refusal(Lint(dir)) != ""; refuses != value.refuses {
+			t.Errorf("%s: refuses=%v, want %v (%+v)", name, refuses, value.refuses, Lint(dir))
+		}
+	}
+}

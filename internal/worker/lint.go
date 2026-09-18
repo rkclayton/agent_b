@@ -15,7 +15,7 @@ type Diagnostic struct {
 	Message  string `json:"message"`
 }
 
-var unresolvedEntry = regexp.MustCompile(`^- \[(discovery|blocker)\] \S`)
+var unresolvedEntry = regexp.MustCompile(`^[-*] \[(discovery|blocker)\] \S`)
 
 // Lint checks a plan folder with the rules the harness's own orders are gated by
 // (item 2bq): an id names at most one line, and an item file's ## Unresolved is
@@ -52,8 +52,13 @@ func Lint(planDir string) []Diagnostic {
 		if item.Marker == " " && field(text, "verify") == "" {
 			diagnostics = append(diagnostics, Diagnostic{"warning", fmt.Sprintf("item %s: names no verifier; Go will mark it [!] and ask for one", item.ID)})
 		}
+		// Only an item Go would work is held to the vocabulary: a finished item's
+		// record, written before the lint existed, never refuses Go.
+		if item.Marker == "x" {
+			continue
+		}
 		for _, line := range unresolvedLines(text) {
-			if line != "(none)" && !unresolvedEntry.MatchString(line) {
+			if !strings.EqualFold(line, "(none)") && !unresolvedEntry.MatchString(line) {
 				diagnostics = append(diagnostics, Diagnostic{"error", fmt.Sprintf("item %s: unresolved entry outside the vocabulary: %q (use (none), - [discovery] … or - [blocker] …)", item.ID, line)})
 			}
 		}
@@ -71,19 +76,34 @@ func Refusal(diagnostics []Diagnostic) string {
 	return ""
 }
 
+// unresolvedLines are the entries of every ## Unresolved section, read line by
+// line: any heading ends a section, and fenced blocks are neither headings nor
+// entries.
 func unresolvedLines(text string) []string {
-	_, rest, ok := strings.Cut(text, "\n## Unresolved\n")
-	if !ok {
-		return nil
-	}
-	if end := strings.Index(rest, "\n## "); end >= 0 {
-		rest = rest[:end]
-	}
 	lines := []string{}
-	for _, line := range strings.Split(rest, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
+	inside, fenced := false, false
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
+			fenced = !fenced
+			continue
+		}
+		if fenced {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			inside = strings.HasPrefix(line, "## ") && strings.EqualFold(strings.TrimSpace(line[3:]), "Unresolved")
+			continue
+		}
+		if inside && line != "" {
 			lines = append(lines, line)
 		}
 	}
 	return lines
+}
+
+// ItemVerifier is an item file's verifier command as the worker reads it: a
+// verify: line in the header, before the first heading; "" when none.
+func ItemVerifier(body string) string {
+	return field(body, "verify")
 }

@@ -8,6 +8,20 @@ order. Items: intent, approach, testable acceptance, negative scope, `depends on
 first; verify or label constraints; price >1 minute/thousands tokens first. Output fenced
 `agentb-plan-proposals` JSON v1 with proposals [{id,kind,path,old_text,new_text,item_id,
 source_message_ids}]; kinds add/reword/reorder/drop/agent_b_addition.
+Every proposal goes in that block; a suggestion written only as prose never reaches the tray.
+old_text is an exact span of the file now, never empty; add keeps it and appends; drop sets
+new_text "". A new item is a plan.md line; item files are edited, never created. item_id is the
+item's id. A line for AGENT_B.md is kind agent_b_addition, path "AGENT_B.md", one line each.
+Example, rewording one plan.md line:
+```agentb-plan-proposals
+{"version":1,"proposals":[{"id":"reword-7","kind":"reword","path":"plan.md",
+"old_text":"- [ ] [[7]] Add a smoke test",
+"new_text":"- [ ] [[7]] Add a smoke test; done when `make smoke` exits 0",
+"item_id":"7","source_message_ids":[]}]}
+```
+If you cannot write the block, write `Proposals:` on its own line, then numbered lines:
+`1. add: <new plan line>`, `2. reword: item 3 => <new line>`,
+`3. reorder: item 4 => after: item 1`, `4. drop: item 2`.
 Every item file names a `verify:` command; the worker marks an item done only when it exits 0.
 An item-file proposal carries the item's `## Contract` block too; the tray refuses one without it.
 

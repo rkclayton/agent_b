@@ -38,33 +38,62 @@ func resolveForSessionTool(ctx context.Context, s *session.Session, root, path s
 	return resolveForTool(ctx, root, path)
 }
 
-// resolveForWorkerWrite is the write resolution for every file tool. A worker
-// never writes plan text: the plans folder is closed to a c session even when an
-// operator grant lets Windows, not the jail, decide the rest of the path — a
-// relative path climbing out of the repository must not reach the item file
-// whose verifier decides [x].
+// resolveForWorkerWrite is the write resolution for every file tool. Plan text
+// is written only by the d session bound to that plan: the plans folder is
+// closed to b and c sessions even when an operator grant lets Windows, not the
+// jail, decide the rest of the path — a relative path climbing out of the
+// repository must not reach the item file whose verifier decides [x]. Item 2fq:
+// both sides are compared as real paths, so a junction, symbolic link or
+// reparse point cannot reach the plans folder under another name.
 func resolveForWorkerWrite(ctx context.Context, s *session.Session, root, path string) (string, error) {
 	resolved, err := resolveForSessionTool(ctx, s, root, path)
-	if err != nil || s.Role != "c" || s.PlansRoot == "" {
+	if err != nil || s.PlansRoot == "" {
 		return resolved, err
 	}
-	plans, absErr := filepath.Abs(s.PlansRoot)
-	if absErr != nil {
-		return "", absErr
-	}
-	if real, evalErr := filepath.EvalSymlinks(plans); evalErr == nil {
-		plans = real
-	}
-	candidate := resolved
-	if real, evalErr := filepath.EvalSymlinks(filepath.Dir(resolved)); evalErr == nil {
-		candidate = filepath.Join(real, filepath.Base(resolved))
-	}
-	for _, value := range []string{resolved, candidate} {
-		if rel, relErr := filepath.Rel(plans, value); relErr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
-			return "", fmt.Errorf("path is outside the folder")
+	// Each side is compared both as written and as the file system resolves
+	// it; a path whose ancestors cannot be opened keeps only its text form,
+	// since the operator grant that let Windows decide it decides it there too.
+	forms := func(path string) []string {
+		values := []string{}
+		if abs, absErr := filepath.Abs(path); absErr == nil {
+			values = append(values, abs)
 		}
+		if real, realErr := session.RealPath(path); realErr == nil {
+			values = append(values, real)
+		}
+		return values
 	}
-	return resolved, nil
+	inside := func(roots, targets []string) bool {
+		for _, root := range roots {
+			for _, target := range targets {
+				if within(root, target) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	targets := forms(resolved)
+	if !inside(forms(s.PlansRoot), targets) {
+		return resolved, nil
+	}
+	// d writes its own plan: every form of the target that lies in the plans
+	// folder must lie in that plan.
+	if s.Role == "d" && s.PlanDir != "" {
+		own, plans := forms(s.PlanDir), forms(s.PlansRoot)
+		for _, target := range targets {
+			if inside(plans, []string{target}) && !inside(own, []string{target}) {
+				return "", fmt.Errorf("path is outside the folder")
+			}
+		}
+		return resolved, nil
+	}
+	return "", fmt.Errorf("path is outside the folder")
+}
+
+func within(root, candidate string) bool {
+	rel, err := filepath.Rel(root, candidate)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 func resolvePath(workspace, path string, enforceWorkspace bool) (string, error) {

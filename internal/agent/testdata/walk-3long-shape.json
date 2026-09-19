@@ -1,0 +1,363 @@
+[
+ {
+  "id": "m-1",
+  "role": "user",
+  "category": "history",
+  "tokens": 8
+ },
+ {
+  "id": "m-2",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 4,
+  "turn": 1
+ },
+ {
+  "id": "m-3",
+  "role": "user",
+  "category": "history",
+  "tokens": 68
+ },
+ {
+  "id": "m-4",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 1,
+  "tool_calls": [
+   {
+    "id": "2mk8b7v8ETjjE7EQqMasAZlqd3Ts7OjP",
+    "name": "list_dir",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-5",
+  "role": "tool",
+  "category": "results",
+  "tokens": 3,
+  "name": "list_dir",
+  "tool_call_id": "2mk8b7v8ETjjE7EQqMasAZlqd3Ts7OjP",
+  "turn": 1,
+  "ok": true
+ },
+ {
+  "id": "m-6",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 2,
+  "tool_calls": [
+   {
+    "id": "ySSwDUAOkHQeI05d8dG7dLozLJhWIMRO",
+    "name": "write_file",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-7",
+  "role": "tool",
+  "category": "results",
+  "tokens": 9,
+  "name": "write_file",
+  "tool_call_id": "ySSwDUAOkHQeI05d8dG7dLozLJhWIMRO",
+  "turn": 2,
+  "ok": true
+ },
+ {
+  "id": "m-8",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 3,
+  "tool_calls": [
+   {
+    "id": "LDk2p96Zdl152IZhtc44UEACgmPcfeYj",
+    "name": "read_file",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-9",
+  "role": "tool",
+  "category": "files",
+  "tokens": 36,
+  "name": "read_file",
+  "tool_call_id": "LDk2p96Zdl152IZhtc44UEACgmPcfeYj",
+  "turn": 3,
+  "ok": true
+ },
+ {
+  "id": "m-10",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 4,
+  "tool_calls": [
+   {
+    "id": "zwkNufXI8R2ZnLzXYTRmSpF7gj3vwOtx",
+    "name": "edit_file",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-11",
+  "role": "tool",
+  "category": "results",
+  "tokens": 51,
+  "name": "edit_file",
+  "tool_call_id": "zwkNufXI8R2ZnLzXYTRmSpF7gj3vwOtx",
+  "turn": 4,
+  "ok": true
+ },
+ {
+  "id": "m-12",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 5,
+  "tool_calls": [
+   {
+    "id": "QTIKUQnx5NHki9OYdd1GalUWQwM36kUp",
+    "name": "search_text",
+    "arguments": "{}"
+   },
+   {
+    "id": "99x2tiICVThQUzDfLqpbsZgfbUhVPQER",
+    "name": "find_files",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-13",
+  "role": "tool",
+  "category": "results",
+  "tokens": 9,
+  "name": "search_text",
+  "tool_call_id": "QTIKUQnx5NHki9OYdd1GalUWQwM36kUp",
+  "turn": 5,
+  "ok": true
+ },
+ {
+  "id": "m-14",
+  "role": "tool",
+  "category": "results",
+  "tokens": 2,
+  "name": "find_files",
+  "tool_call_id": "99x2tiICVThQUzDfLqpbsZgfbUhVPQER",
+  "turn": 5,
+  "ok": true
+ },
+ {
+  "id": "m-15",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 3,
+  "turn": 6
+ },
+ {
+  "id": "m-16",
+  "role": "user",
+  "category": "history",
+  "tokens": 54
+ },
+ {
+  "id": "m-17",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 1,
+  "tool_calls": [
+   {
+    "id": "6kzLN7DrMzuPNFvhQbG7SoOYOxndg3mx",
+    "name": "shell",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-18",
+  "role": "tool",
+  "category": "results",
+  "tokens": 25,
+  "name": "shell",
+  "tool_call_id": "6kzLN7DrMzuPNFvhQbG7SoOYOxndg3mx",
+  "turn": 1,
+  "ok": true
+ },
+ {
+  "id": "m-19",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 2,
+  "tool_calls": [
+   {
+    "id": "fmfODQio1VwGaSWJ7fqqbEMyw3Zt8rVN",
+    "name": "run_script",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-20",
+  "role": "tool",
+  "category": "results",
+  "tokens": 7,
+  "name": "run_script",
+  "tool_call_id": "fmfODQio1VwGaSWJ7fqqbEMyw3Zt8rVN",
+  "turn": 2,
+  "ok": true
+ },
+ {
+  "id": "m-21",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 3,
+  "tool_calls": [
+   {
+    "id": "w96mcbdvanW8nkiAlR4ZY4sF1JnUh33B",
+    "name": "remember",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-22",
+  "role": "tool",
+  "category": "results",
+  "tokens": 8,
+  "name": "remember",
+  "tool_call_id": "w96mcbdvanW8nkiAlR4ZY4sF1JnUh33B",
+  "turn": 3,
+  "ok": true
+ },
+ {
+  "id": "m-23",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 4,
+  "tool_calls": [
+   {
+    "id": "1SSVbruDyRNG2JLurwEpqf1uAj51Lcbq",
+    "name": "recall",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-24",
+  "role": "tool",
+  "category": "results",
+  "tokens": 22,
+  "name": "recall",
+  "tool_call_id": "1SSVbruDyRNG2JLurwEpqf1uAj51Lcbq",
+  "turn": 4,
+  "ok": true
+ },
+ {
+  "id": "m-25",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 3,
+  "turn": 5
+ },
+ {
+  "id": "m-26",
+  "role": "user",
+  "category": "history",
+  "tokens": 38
+ },
+ {
+  "id": "m-27",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 1,
+  "tool_calls": [
+   {
+    "id": "mPnZ5zsEaMOK9yIFwWscCCd0RZ14ZprL",
+    "name": "fetch_url",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-28",
+  "role": "tool",
+  "category": "fetched",
+  "tokens": 147,
+  "name": "fetch_url",
+  "tool_call_id": "mPnZ5zsEaMOK9yIFwWscCCd0RZ14ZprL",
+  "turn": 1,
+  "ok": true
+ },
+ {
+  "id": "m-29",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 92,
+  "turn": 2
+ },
+ {
+  "id": "m-30",
+  "role": "user",
+  "category": "history",
+  "tokens": 30
+ },
+ {
+  "id": "m-31",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 1,
+  "tool_calls": [
+   {
+    "id": "2VKepS5rddcEvf8UrPtEzAEVdxo8qJro",
+    "name": "find_files",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-32",
+  "role": "tool",
+  "category": "results",
+  "tokens": 3,
+  "name": "find_files",
+  "tool_call_id": "2VKepS5rddcEvf8UrPtEzAEVdxo8qJro",
+  "turn": 1,
+  "ok": true
+ },
+ {
+  "id": "m-33",
+  "role": "assistant",
+  "category": "history",
+  "tokens": 0,
+  "turn": 2,
+  "tool_calls": [
+   {
+    "id": "eQfBGxjCa574ZXmkuZArVA5B9j3BadMD",
+    "name": "read_file",
+    "arguments": "{}"
+   }
+  ]
+ },
+ {
+  "id": "m-34",
+  "role": "tool",
+  "category": "files",
+  "tokens": 17571,
+  "name": "read_file",
+  "tool_call_id": "eQfBGxjCa574ZXmkuZArVA5B9j3BadMD",
+  "turn": 2,
+  "ok": true
+ }
+]

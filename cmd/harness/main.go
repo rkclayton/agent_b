@@ -275,11 +275,10 @@ func main() {
 		} else {
 			log.Printf("startup agent %s not runnable: %s; use Connections > Test", mainAgentID, reason)
 		}
-		restored, restoreErr := restoreRetainedChats(writers, registry)
+		restored, floor, restoreErr := restoreRetainedChats(writers, registry, bus, retainedIDFloor(writers))
 		if restoreErr != nil {
 			log.Fatal(restoreErr)
 		}
-		floor := retainedIDFloor(writers)
 		runner.ReserveIDs(floor)
 		scheduler.ReserveIDs(floor)
 		open := false
@@ -349,23 +348,25 @@ func retainedIDFloor(writers *events.Writers) int64 {
 	return floor
 }
 
-func restoreRetainedChats(writers *events.Writers, registry *session.Registry) ([]*session.Session, error) {
+// restoreRetainedChats restores every retained chat and returns the id floor
+// past everything it holds, including ids it re-minted (item 2fd rule 7).
+func restoreRetainedChats(writers *events.Writers, registry *session.Registry, bus *events.Bus, floor int64) ([]*session.Session, int64, error) {
 	paths, err := writers.DurableChatPaths()
 	if err != nil {
-		return nil, err
+		return nil, floor, err
 	}
 	if len(paths) == 0 {
 		paths, err = writers.LatestOperationalSessionPaths()
 		if err != nil {
-			return nil, err
+			return nil, floor, err
 		}
 	}
 	if len(paths) == 0 {
-		return nil, nil
+		return nil, floor, nil
 	}
 	replay, err := projection.LoadReplay(paths)
 	if err != nil {
-		return nil, fmt.Errorf("load retained chats: %w", err)
+		return nil, floor, fmt.Errorf("load retained chats: %w", err)
 	}
 	ids := make([]string, 0, len(replay.Sessions))
 	for id := range replay.Sessions {
@@ -376,22 +377,49 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry) (
 	for _, id := range ids {
 		encoded, marshalErr := json.Marshal(replay.Sessions[id])
 		if marshalErr != nil {
-			return nil, marshalErr
+			return nil, floor, marshalErr
 		}
 		var saved session.Snapshot
 		if unmarshalErr := json.Unmarshal(encoded, &saved); unmarshalErr != nil {
-			return nil, unmarshalErr
+			return nil, floor, unmarshalErr
 		}
-		// Item 2et: results older than the chat's last user turn come back as
+		// Item 2et, anchored by item 2fd rule 3: results older than the newest
+		// user message the journal names — surviving or folded — come back as
 		// their elision stubs; the JSONL keeps the bytes.
-		saved.Messages = contextmgr.StubOlderResults(saved.Messages, config.Defaults("").Tools.ReadFile.DefaultLimit)
+		saved.Messages = contextmgr.StubResultsBefore(saved.Messages, newestRunUserMessage(replay.Sessions[id].Timeline), config.Defaults("").Tools.ReadFile.DefaultLimit)
+		// Item 2fd rule 7: a repeated id gets a new one once, with a journal note.
+		var reminted []contextmgr.Remint
+		saved.Messages, reminted, floor = contextmgr.RemintDuplicateIDs(saved.Messages, floor)
 		item, restoreErr := registry.RestoreWithTranscript(saved, replay.Sessions[id].Chat)
 		if restoreErr != nil {
-			return nil, restoreErr
+			return nil, floor, restoreErr
+		}
+		if len(reminted) > 0 {
+			changes := make([]any, 0, len(reminted))
+			for _, change := range reminted {
+				changes = append(changes, map[string]any{"index": change.Index, "from": change.From, "to": change.To})
+			}
+			bus.Publish(events.New(events.MessagesReminted, item.ID, "", map[string]any{"reminted": changes}))
 		}
 		result = append(result, item)
 	}
-	return result, nil
+	return result, floor, nil
+}
+
+// newestRunUserMessage is the user message id of the newest run.started in a
+// chat's journal, or "" when it has none.
+func newestRunUserMessage(timeline []events.Event) string {
+	for index := len(timeline) - 1; index >= 0; index-- {
+		if timeline[index].Type != events.RunStarted {
+			continue
+		}
+		if data, ok := timeline[index].Data.(map[string]any); ok {
+			if id, ok := data["user_message_id"].(string); ok && id != "" {
+				return id
+			}
+		}
+	}
+	return ""
 }
 
 func publishPendingSigning(dataRoot string, registry *session.Registry, bus *events.Bus) {

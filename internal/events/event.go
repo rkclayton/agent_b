@@ -61,6 +61,7 @@ const (
 	MessageAppended      = "message.appended"
 	MessageUpdated       = "message.updated"
 	MessageRemoved       = "message.removed"
+	MessagesReminted     = "messages.reminted"
 	MessageQueued        = "message.queued"
 	CycleDetected        = "cycle.detected"
 	ApprovalRequired     = "approval.required"

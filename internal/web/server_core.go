@@ -77,6 +77,7 @@ type Server struct {
 	openFile          func(string) error
 	extractClient     *http.Client
 	ocrExtract        func(string) (string, error)
+	ocrPDF            func(string, int) (string, error)
 	detectLocal       func(context.Context, string) (any, error)
 	workspaceState    *workspaceinfo.Manager
 	memoryState       *memory.Manager
@@ -126,6 +127,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		agentServers:  map[string]pendingAgentServer{},
 		extractClient: &http.Client{},
 		ocrExtract:    ocr.Extract,
+		ocrPDF:        ocr.ExtractPDF,
 		detectLocal: func(ctx context.Context, account string) (any, error) {
 			return detection.Local(ctx, filepath.Join(roots.Application, "scripts", "detect-local-capabilities.ps1"), account)
 		},

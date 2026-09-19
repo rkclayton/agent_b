@@ -21,8 +21,11 @@ type outsideDecision struct {
 }
 
 // statementBreak splits a command line into statements: && and || before the
-// single separators, then ; | and line breaks.
-var statementBreak = regexp.MustCompile(`&&|\|\||[;|\r\n]`)
+// single separators, then ; | & and line breaks. A bare & is cmd's separator
+// and PowerShell's call operator; splitting on it only makes more statements,
+// and only a navigation statement is ever exempt (v1.0.0/W4 cold review: `cd
+// /d C:\ & type <outside file>` was one statement headed by cd).
+var statementBreak = regexp.MustCompile(`&&|\|\||[;|&\r\n]`)
 
 // navigationVerbs change or list a directory; they read no file's content.
 var navigationVerbs = map[string]bool{
@@ -33,7 +36,11 @@ var navigationVerbs = map[string]bool{
 // laterRead is a file-reading verb or form. After a directory change to an
 // outside folder it would read relative to that folder, so the change counts
 // as a read of it: `cd C:\secret; type key.txt` still reaches the card.
-var laterRead = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])(type|cat|gc|get-content|more|less|head|tail|select-string|sls|findstr|copy|cp|copy-item|move|mv|move-item|import-csv|import-clixml|get-filehash|format-hex|readall\w*|open)([^a-z0-9_-]|$)|\[(system\.)?io\.file\]|<`)
+// The v1.0.0/W4 cold review widened it with the forms that read or carry a
+// relative file after a directory change: certutil, robocopy, xcopy, fc,
+// comp, print, archivers, Invoke-Expression, subshells, openers, uploaders,
+// and any [IO.*] class.
+var laterRead = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])(type|cat|gc|get-content|more|less|head|tail|select-string|sls|findstr|copy|cp|copy-item|move|mv|move-item|import-\w+|get-filehash|format-hex|readall\w*|open|certutil|robocopy|xcopy|fc|comp|print|tar|7z|expand|expand-archive|compress-archive|makecab|iex|invoke-expression|invoke-command|icm|powershell|pwsh|cmd|start|start-process|saps|invoke-item|ii|notepad|curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod|bitsadmin|streamreader)([^a-z0-9_-]|$)|\[(system\.)?io\.\w+\]|<`)
 
 // pathListReason names every path, up to a bound, so one cannot hide behind three.
 func pathListReason(prefix string, paths []string) string {
@@ -54,6 +61,15 @@ func statementVerb(statement string) string {
 		return ""
 	}
 	return strings.ToLower(strings.Trim(fields[0], `"'`))
+}
+
+// statementArguments is a statement without its command word.
+func statementArguments(statement string) string {
+	fields := strings.Fields(strings.TrimLeft(strings.TrimSpace(statement), "&( "))
+	if len(fields) < 2 {
+		return ""
+	}
+	return strings.Join(fields[1:], " ")
 }
 
 // outsideCommandDecision classifies each literal outside path by the statement
@@ -83,7 +99,10 @@ func outsideCommandDecision(source string, s *session.Session) outsideDecision {
 		if index < len(bounds) {
 			start = bounds[index][1]
 		}
-		navigation := navigationVerbs[statementVerb(statement)] && !laterRead.MatchString(rest)
+		// The read test covers the statement after its verb as well as the
+		// rest of the source.
+		verb := statementVerb(statement)
+		navigation := navigationVerbs[verb] && !laterRead.MatchString(statementArguments(statement)) && !laterRead.MatchString(rest)
 		for _, path := range outsideLiteralPaths(statement, s) {
 			key := strings.ToLower(path)
 			if !outside[key] || seen[key] || navigation {

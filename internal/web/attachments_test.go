@@ -281,3 +281,40 @@ func multipartAttachmentRequest(t *testing.T, server *Server, name string, data 
 	authorizeMutation(request, server)
 	return request
 }
+
+// Item 2fj: on a profile with no document input and no extraction service, a
+// PDF's text layer is read locally (the walk's walk-doc.pdf), and a PDF with no
+// text layer is read by OCR page by page; the result names the route.
+func TestAttachmentsPDFTextLayerAndScanAreReadLocally(t *testing.T) {
+	server, workspace := attachmentTestServer(t, nil)
+	walkDoc, err := os.ReadFile(filepath.Join("..", "attachment", "testdata", "walk-doc.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := postAttachment(t, server, "walk-doc.pdf", walkDoc)
+	if result.Tier != "extracted" || result.Sidecar != "attachments/walk-doc.pdf.txt" || !strings.Contains(result.Note, "text layer") {
+		t.Fatalf("text-layer result=%+v", result)
+	}
+	text, err := os.ReadFile(filepath.Join(workspace, "attachments", "walk-doc.pdf.txt"))
+	if err != nil || !strings.Contains(string(text), "Walk PDF says orange 271") || !strings.Contains(string(text), "untrusted: true") || !strings.Contains(string(text), "by its text layer") {
+		t.Fatalf("text-layer sidecar=%q, %v", text, err)
+	}
+
+	pages := 0
+	server.ocrPDF = func(_ string, limit int) (string, error) { pages = limit; return "## Page 1\n\nscanned words", nil }
+	scan := []byte("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]/Contents 4 0 R>>endobj\n4 0 obj<</Length 11>>stream\n0 0 m 1 1 l\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
+	result = postAttachment(t, server, "scan.pdf", scan)
+	if result.Tier != "ocr" || !strings.Contains(result.Note, "read by OCR page by page") || pages != pdfOCRPageLimit {
+		t.Fatalf("scan result=%+v pages=%d", result, pages)
+	}
+	text, err = os.ReadFile(filepath.Join(workspace, "attachments", "scan.pdf.txt"))
+	if err != nil || !strings.Contains(string(text), "scanned words") || !strings.Contains(string(text), "by OCR") {
+		t.Fatalf("scan sidecar=%q, %v", text, err)
+	}
+
+	server.ocrPDF = func(string, int) (string, error) { return "", ocr.ErrNoText }
+	result = postAttachment(t, server, "blank.pdf", scan)
+	if result.Tier != "binary" || !strings.Contains(result.Note, "no text layer") {
+		t.Fatalf("unreadable scan result=%+v", result)
+	}
+}

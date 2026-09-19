@@ -248,6 +248,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	toolCallsUsed := 0
 	lengthSeen := false
 	truncatedToolRetry := ""
+	// Item 2fv: a read_file window that cannot fit twice running ends the read;
+	// from then on the model answers from what it has read, without tools.
+	readRefused, readCutShort := false, false
 	accountingRepairTried := false
 	templateRetryTried := false
 	softLineChecked := false
@@ -320,6 +323,8 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			request = llm.Request{Messages: messages, Tools: schemas, ToolChoice: "auto", Thinking: profile.Reasoning.Enabled}
 			if truncatedToolRetry != "" {
 				request.ToolChoice = map[string]any{"type": "function", "function": map[string]any{"name": truncatedToolRetry}}
+			} else if readCutShort {
+				request.ToolChoice = "none"
 			}
 			budget, budgetErr = r.budget.MeasureWithBusy(ctx, profile, s, r.cfg().Context, budgetInput{SystemBase: systemBase, SystemProject: systemProject, SystemWorkspaceMemory: systemWorkspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(profile, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages[1:], Records: requestRecords}, false, func(err error) {
 				budgetBusy = true
@@ -570,6 +575,18 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				item.content, item.ok, item.metadata, resultTokens = r.fitWindowResult(
 					ctx, s, profile, item.call.Name, item.args, item.content, item.ok, item.metadata, resultTokens, remainingResultTokens, item.operatorContext,
 				)
+				if item.call.Name == "read_file" {
+					if tooLarge, _ := item.metadata["result_too_large"].(bool); tooLarge {
+						if readRefused {
+							item.content, item.ok, item.metadata = readCutShortResult(item.args, item.metadata)
+							resultTokens = r.textTokens(ctx, profile, item.content)
+							readCutShort = true
+						}
+						readRefused = true
+					} else if item.ok {
+						readRefused = false
+					}
+				}
 				if remainingResultTokens >= 0 {
 					remainingResultTokens = max(0, remainingResultTokens-resultTokens)
 				}
@@ -626,7 +643,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			return "turn_ceiling", "maximum turns reached", turn
 		}
 		r.stage(s, runID, turn, "compact", func() {
-			r.compactAfterTurn(ctx, s, runID, turn, profile, currentReasoning)
+			// Item 2fv: after a refused window the elide runs even on a cold
+			// prefill, so a second refusal means nothing elidable was left.
+			r.compactAfterTurnForcing(ctx, s, runID, turn, profile, currentReasoning, readRefused)
 		})
 	}
 }
@@ -1119,6 +1138,13 @@ func (r *Runner) withoutToolSystems(p *config.Profile, s *session.Session, enabl
 // at soft_pct it elides one batch toward 60%, at summary_pct it summarizes, so
 // the next request starts under the line. It reports whether anything changed.
 func (r *Runner) compactAfterTurn(ctx context.Context, s *session.Session, runID string, turn int, p *config.Profile, current map[string]bool) bool {
+	return r.compactAfterTurnForcing(ctx, s, runID, turn, p, current, false)
+}
+
+// compactAfterTurnForcing is compactAfterTurn with the cold-prefill deferral of
+// the batch elide overridden when force is set (item 2fv: a read window was
+// just refused, so waiting a turn for a warm cache would only refuse again).
+func (r *Runner) compactAfterTurnForcing(ctx context.Context, s *session.Session, runID string, turn int, p *config.Profile, current map[string]bool, force bool) bool {
 	cfg := r.cfg()
 	readDefaultLimit := min(cfg.Tools.ReadFile.DefaultLimit, cfg.Tools.ReadFile.MaxLimit)
 	changed := r.compact.Supersede(s, runID, turn, readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
@@ -1127,7 +1153,7 @@ func (r *Runner) compactAfterTurn(ctx context.Context, s *session.Session, runID
 		r.operationalError(s, runID, "compaction_budget", err)
 		return changed
 	}
-	if shouldBatchElide(budget.UsedEst, budget.Ceiling, cfg.Context, r.budget.ColdPrefill(s.ID)) {
+	if shouldBatchElide(budget.UsedEst, budget.Ceiling, cfg.Context, r.budget.ColdPrefill(s.ID) && !force) {
 		did, _ := r.compact.ElideOldWindow(s, runID, "soft_pct", budget.UsedEst, int(float64(budget.Ceiling)*.60), contextWindow(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
 		changed = changed || did
 		if did {

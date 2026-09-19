@@ -189,9 +189,10 @@ func (s *Server) createPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"plan": plan, "created": created})
 }
 
-// planBuildDraft is what "Build plan now?" puts in the planning chat's
-// composer. The operator sends it: the harness never speaks in the operator's
-// name (hard stop 9), so Yes opens the chat with the request ready, not sent.
+// planBuildDraft is the planning chat's opening message. v0.70.1 overrule
+// (the planner's, vetoable by the operator): the operator's Yes to "Build plan
+// now?" is the consent, so the harness sends exactly this fixed request as the
+// chat's first message; it composes no other message in the operator's name.
 const planBuildDraft = "Read this repository and draft its plan: the product and end goals, the architecture, and the first items, as plan-edit proposals."
 
 // buildPlan answers POST /api/plans/build {plan_id, agent_id}: the planning
@@ -211,7 +212,7 @@ func (s *Server) buildPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if bound := s.planners(target.ID); len(bound) > 0 {
-		writeJSON(w, http.StatusOK, map[string]any{"session_id": bound[0].ID, "draft": planBuildDraft, "reused": true})
+		s.openPlanning(w, r, http.StatusOK, bound[0], map[string]any{"reused": true})
 		return
 	}
 	agentID := body.AgentID
@@ -234,7 +235,7 @@ func (s *Server) buildPlan(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error(), "agent_id")
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{"session_id": created.ID, "draft": planBuildDraft, "fallback": true, "session": created.Snapshot()})
+		s.openPlanning(w, r, http.StatusCreated, created, map[string]any{"fallback": true})
 		return
 	}
 	created, err := s.registry.CreateRole("", agentID, "", "d", target.ID)
@@ -242,7 +243,28 @@ func (s *Server) buildPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error(), "agent_id")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"session_id": created.ID, "draft": planBuildDraft, "session": created.Snapshot()})
+	s.openPlanning(w, r, http.StatusCreated, created, map[string]any{})
+}
+
+// openPlanning answers "Build plan now?" with the planning chat. A chat that
+// has no message yet is sent the opening request, so its first turn begins on
+// the operator's Yes; a chat already under way is only opened, with the
+// request offered as a draft rather than sent a second time.
+func (s *Server) openPlanning(w http.ResponseWriter, r *http.Request, status int, item *session.Session, extra map[string]any) {
+	payload := map[string]any{"session_id": item.ID, "draft": planBuildDraft, "sent": false}
+	for key, value := range extra {
+		payload[key] = value
+	}
+	if len(item.MessagesCopy()) == 0 && s.scheduler != nil {
+		result, err := s.scheduler.Submit(r.Context(), item.ID, planBuildDraft)
+		if err != nil {
+			writeError(w, http.StatusConflict, err.Error(), "session_id")
+			return
+		}
+		payload["sent"], payload["run_id"] = true, result.RunID
+	}
+	payload["session"] = item.Snapshot()
+	writeJSON(w, status, payload)
 }
 
 func (s *Server) buildPlanRoute(w http.ResponseWriter, r *http.Request) {

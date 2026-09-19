@@ -462,6 +462,22 @@ func TestAMessageSentWhileStoppingIsHeldUntilTheOperatorSendsAgain(t *testing.T)
 	if scheduler.Active(item.ID) || len(item.MessagesCopy()) != 0 {
 		t.Fatalf("a reachability release started the held message: %+v", item.MessagesCopy())
 	}
+	// v0.70.2/W5 (2fg residual): nothing but the operator's next message in this
+	// chat releases the hold — not another chat's run ending (which drains the
+	// queue), not another Stop here or a Stop of everything, not time passing.
+	scheduler.mu.Lock()
+	other := &activeRun{cancel: func() {}, runID: "r-other", done: make(chan struct{})}
+	scheduler.active["another-chat"] = other
+	scheduler.drainLocked()
+	delete(scheduler.active, "another-chat")
+	scheduler.drainLocked()
+	scheduler.mu.Unlock()
+	scheduler.Stop(item.ID, false)
+	scheduler.Stop("", true)
+	time.Sleep(1500 * time.Millisecond)
+	if scheduler.Active(item.ID) || len(item.MessagesCopy()) != 0 || item.Snapshot().Run.Status != "held" {
+		t.Fatalf("the hold was released without the operator's message: run %+v, messages %+v", item.Snapshot().Run, item.MessagesCopy())
+	}
 	if _, err := scheduler.Submit(context.Background(), item.ID, "go on"); err != nil {
 		t.Fatal(err)
 	}

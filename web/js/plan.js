@@ -256,9 +256,10 @@ roots.buildYes.addEventListener("click", async () => {
   try {
     const agentID = store.sessions[store.selection.session_id]?.agent_id || "";
     const result = await api("/api/plans/build", { plan_id: buildFor, agent_id: agentID });
-    // The harness never sends a message in the operator's name: the planning
-    // chat opens with the request in its composer, and the operator sends it.
-    try { sessionStorage.setItem(`agentb.draft.${result.session_id}`, result.draft); } catch { /* the chat opens empty */ }
+    // v0.70.1 overrule: Yes is the consent, so the server sends the fixed
+    // opening request to a new planning chat. A chat already under way is only
+    // opened, with the request left in its composer.
+    if (!result.sent) { try { sessionStorage.setItem(`agentb.draft.${result.session_id}`, result.draft); } catch { /* the chat opens empty */ } }
     location.href = `/chat?session=${encodeURIComponent(result.session_id)}`;
   } catch (error) {
     roots.addError.textContent = error.message;

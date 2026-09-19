@@ -122,16 +122,27 @@ func VerifierContradicts(command string) bool {
 	return false
 }
 
-var inlineVerifier = regexp.MustCompile(`(?m)(?:^|;)\s*verify:\s*(.+)$`)
+// openItemVerifier is an open plan line's inline "; verify: …" clause.
+var openItemVerifier = regexp.MustCompile(`^\s*[-*] \[ \] .*?;\s*verify:\s*(.+)$`)
 
-// ContradictoryVerifiers are the self-contradicting verifier commands in a
-// piece of plan text: an item file's verify: header or a plan line's inline
-// "; verify: …" clause.
-func ContradictoryVerifiers(text string) []string {
+// ContradictoryVerifiers are the self-contradicting verifier commands a plan
+// edit would leave where Go reads them (v0.70.2 cold review: no quoted example
+// in prose, no finished item): an item file's verify: header, or an open plan
+// line's inline "; verify: …" clause.
+func ContradictoryVerifiers(path, text string) []string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
 	found := []string{}
-	for _, match := range inlineVerifier.FindAllStringSubmatch(strings.ReplaceAll(text, "\r\n", "\n"), -1) {
-		if command := strings.TrimSpace(match[1]); VerifierContradicts(command) {
+	if strings.HasPrefix(strings.ReplaceAll(path, "\\", "/"), "plan/items/") {
+		if command := ItemVerifier(text); VerifierContradicts(command) {
 			found = append(found, command)
+		}
+		return found
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if match := openItemVerifier.FindStringSubmatch(line); match != nil {
+			if command := strings.TrimSpace(match[1]); VerifierContradicts(command) {
+				found = append(found, command)
+			}
 		}
 	}
 	return found

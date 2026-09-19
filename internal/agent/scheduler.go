@@ -512,10 +512,10 @@ func (s *Scheduler) forceFinish(sessionID string, expected *activeRun, detail st
 // releaseForCard is called when a run pauses on a card: the run keeps its place
 // in active but gives up its model slot, and whatever it was holding back runs
 // (item 2fs).
-func (s *Scheduler) releaseForCard(sessionID string) {
+func (s *Scheduler) releaseForCard(sessionID, runID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active[sessionID] == nil || s.paused[sessionID] {
+	if active := s.active[sessionID]; active == nil || active.runID != runID || s.paused[sessionID] {
 		return
 	}
 	s.paused[sessionID] = true
@@ -526,10 +526,10 @@ func (s *Scheduler) releaseForCard(sessionID string) {
 // reacquireAfterCard is called once a card is answered and before the run goes
 // on: it takes back a model slot, waiting behind the runs now holding them if
 // there is none free. Cancellation (Stop) ends the wait.
-func (s *Scheduler) reacquireAfterCard(ctx context.Context, sessionID string) error {
+func (s *Scheduler) reacquireAfterCard(ctx context.Context, sessionID, runID string) error {
 	s.mu.Lock()
 	active := s.active[sessionID]
-	if active == nil || !s.paused[sessionID] {
+	if active == nil || active.runID != runID || !s.paused[sessionID] {
 		s.mu.Unlock()
 		return nil
 	}
@@ -541,6 +541,15 @@ func (s *Scheduler) reacquireAfterCard(ctx context.Context, sessionID string) er
 	}
 	waiter := resumeWaiter{sessionID: sessionID, ready: make(chan struct{})}
 	s.resuming = append(s.resuming, waiter)
+	// v0.70.2 cold review: an earlier waiter blocked on another model must not
+	// hold this one back when its own model has a free slot.
+	s.drainLocked()
+	select {
+	case <-waiter.ready:
+		s.mu.Unlock()
+		return nil
+	default:
+	}
 	position := len(s.resuming)
 	state := item.Snapshot().Run
 	state.Status, state.QueuePosition = "queued", position

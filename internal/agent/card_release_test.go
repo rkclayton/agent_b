@@ -200,3 +200,59 @@ func TestAnAnsweredRunWaitsForTheModelItReleased(t *testing.T) {
 	rig.scheduler.mu.Unlock()
 	rig.until("A to finish once the slot is free", func() bool { return rig.stopped[rig.a.ID] == 1 })
 }
+
+// v0.70.2 cold review: an answered run whose own model has a free slot takes it
+// at once, even while another answered run waits for a different, busy model.
+func TestAnAnsweredRunIsNotHeldBehindAWaiterForAnotherModel(t *testing.T) {
+	workspace := t.TempDir()
+	cfg := config.Defaults(workspace)
+	cfg.Run.MaxConcurrent = 4
+	first := cfg.Servers[0]
+	second := first
+	second.ID, second.Label = "second", "second"
+	cfg.Servers = []config.Profile{first, second}
+	bus := events.NewBus()
+	writers, err := events.NewWriters(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writers.Close()
+	lookup := func(id string) (*config.Profile, bool) {
+		for index := range cfg.Servers {
+			if cfg.Servers[index].ID == id {
+				return &cfg.Servers[index], true
+			}
+		}
+		return nil, false
+	}
+	current := func() config.Config { return cfg }
+	registry := session.NewRegistry(bus, writers, lookup, cfg.Run.MaxTurns, current)
+	holder, _ := registry.Create("holder", first.ID, workspace)
+	waitingA, _ := registry.Create("waiting-a", first.ID, workspace)
+	answeredB, _ := registry.Create("answered-b", second.ID, workspace)
+	scheduler := NewScheduler(NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, lookup, current), registry, bus, current)
+	scheduler.mu.Lock()
+	scheduler.active[holder.ID] = &activeRun{runID: "r-holder"}
+	scheduler.active[waitingA.ID] = &activeRun{runID: "r-a"}
+	scheduler.active[answeredB.ID] = &activeRun{runID: "r-b"}
+	scheduler.paused[waitingA.ID], scheduler.paused[answeredB.ID] = true, true
+	scheduler.resuming = []resumeWaiter{{sessionID: waitingA.ID, ready: make(chan struct{})}}
+	scheduler.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := scheduler.reacquireAfterCard(ctx, answeredB.ID, "r-b"); err != nil {
+		t.Fatalf("the run on the free model waited behind the other model's waiter: %v", err)
+	}
+	scheduler.mu.Lock()
+	defer scheduler.mu.Unlock()
+	if scheduler.paused[answeredB.ID] || len(scheduler.resuming) != 1 || scheduler.resuming[0].sessionID != waitingA.ID {
+		t.Fatalf("paused=%v resuming=%v", scheduler.paused, scheduler.resuming)
+	}
+	// A late hook from an earlier run of the same chat touches nothing.
+	scheduler.mu.Unlock()
+	scheduler.releaseForCard(answeredB.ID, "r-old")
+	scheduler.mu.Lock()
+	if scheduler.paused[answeredB.ID] {
+		t.Fatal("a stale run's card released the running run's slot")
+	}
+}

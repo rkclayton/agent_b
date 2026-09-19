@@ -250,7 +250,7 @@ func (s *Server) acceptPlanProposal(r *http.Request, item *session.Session, prop
 		}
 	}
 	// Item 2fx: Accept refuses a verifier that can never pass, with the lint's words.
-	if contradictions := worker.ContradictoryVerifiers(proposal.NewText); len(contradictions) > 0 {
+	if contradictions := worker.ContradictoryVerifiers(proposal.Path, proposal.NewText); len(contradictions) > 0 {
 		return "", fmt.Errorf("verifier contradicts itself: %s", contradictions[0])
 	}
 	writer.SetPlanPage(true)

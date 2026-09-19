@@ -952,8 +952,10 @@
 }
 /* Item 2fw: the model row that holds "Drop last message" gives it its own
    column, so the fixed-height head never wraps it over the row below. */
-.timeline-model > .timeline-head:has(#drop-last-message) {
-  grid-template-columns: minmax(70px, auto) 62px minmax(150px, 1fr) 72px auto;
+@media (min-width: 521px) {
+  .timeline-model > .timeline-head:has(#drop-last-message) {
+    grid-template-columns: minmax(70px, auto) 62px minmax(150px, 1fr) 72px auto;
+  }
 }
 .timeline-head #drop-last-message {
   min-height: 20px;

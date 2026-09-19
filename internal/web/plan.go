@@ -77,7 +77,6 @@ func planRefusal(planDir string) string {
 	return ""
 }
 
-
 func (s *Server) planAccept(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		method(w)
@@ -249,6 +248,10 @@ func (s *Server) acceptPlanProposal(r *http.Request, item *session.Session, prop
 			PlanDir: planDir, PlanRepo: item.Workspace, PlansRoot: filepath.Dir(planDir),
 			ToolsEnabled: map[string]bool{"edit_file": true}, LastSeen: map[string]time.Time{},
 		}
+	}
+	// Item 2fx: Accept refuses a verifier that can never pass, with the lint's words.
+	if contradictions := worker.ContradictoryVerifiers(proposal.NewText); len(contradictions) > 0 {
+		return "", fmt.Errorf("verifier contradicts itself: %s", contradictions[0])
 	}
 	writer.SetPlanPage(true)
 	// The accepted old_text is the browser's exact observed span; count that

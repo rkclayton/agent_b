@@ -52,6 +52,9 @@ func Lint(planDir string) []Diagnostic {
 		if item.Marker == " " && field(text, "verify") == "" {
 			diagnostics = append(diagnostics, Diagnostic{"warning", fmt.Sprintf("item %s: names no verifier; Go will mark it [!] and ask for one", item.ID)})
 		}
+		if item.Marker == " " && VerifierContradicts(field(text, "verify")) {
+			diagnostics = append(diagnostics, Diagnostic{"error", fmt.Sprintf("item %s: verifier contradicts itself: %s", item.ID, field(text, "verify"))})
+		}
 		// Only an item Go would work is held to the vocabulary: a finished item's
 		// record, written before the lint existed, never refuses Go.
 		if item.Marker == "x" {
@@ -100,6 +103,38 @@ func unresolvedLines(text string) []string {
 		}
 	}
 	return lines
+}
+
+// VerifierContradicts reports a verifier that can never pass because one of
+// its && parts is another part negated — `C && ! C`, the shape a real planner
+// wrote in the second walk (item 2fx). It is the plainest contradiction only;
+// no attempt is made at general satisfiability.
+func VerifierContradicts(command string) bool {
+	parts := map[string]bool{}
+	for _, part := range strings.Split(command, "&&") {
+		parts[strings.Join(strings.Fields(part), " ")] = true
+	}
+	for part := range parts {
+		if negated, ok := strings.CutPrefix(part, "!"); ok && parts[strings.TrimSpace(negated)] {
+			return true
+		}
+	}
+	return false
+}
+
+var inlineVerifier = regexp.MustCompile(`(?m)(?:^|;)\s*verify:\s*(.+)$`)
+
+// ContradictoryVerifiers are the self-contradicting verifier commands in a
+// piece of plan text: an item file's verify: header or a plan line's inline
+// "; verify: …" clause.
+func ContradictoryVerifiers(text string) []string {
+	found := []string{}
+	for _, match := range inlineVerifier.FindAllStringSubmatch(strings.ReplaceAll(text, "\r\n", "\n"), -1) {
+		if command := strings.TrimSpace(match[1]); VerifierContradicts(command) {
+			found = append(found, command)
+		}
+	}
+	return found
 }
 
 // ItemVerifier is an item file's verifier command as the worker reads it: a

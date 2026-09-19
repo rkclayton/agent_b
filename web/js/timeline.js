@@ -37,7 +37,11 @@ export function renderTimeline() {
     summaryCalls = session.compaction_model_calls || 0,
     summaryPrompt = session.compaction_prompt_tokens || 0,
     summaryCompletion = session.compaction_completion_tokens || 0;
-  count.textContent = `${turns} turns${compactions ? ` · ${compactions} compact · ${formatSigned(compactedTokens)} context` : ""}${summaryCalls ? ` · ${summaryCalls} summary ${formatNumber(summaryPrompt)} in/${formatNumber(summaryCompletion)} out` : ""}`;
+  // Item 2fw: the count heads the rows below it. A chat can have more turns
+  // than its History keeps (a reset timeline); then it says how many are shown.
+  const drawnTurns = events.filter((event) => event.type === "model.response").length;
+  const turnText = turns > drawnTurns ? `${drawnTurns} of ${turns} turns` : `${drawnTurns} turns`;
+  count.textContent = `${turnText}${compactions ? ` · ${compactions} compact · ${formatSigned(compactedTokens)} context` : ""}${summaryCalls ? ` · ${summaryCalls} summary ${formatNumber(summaryPrompt)} in/${formatNumber(summaryCompletion)} out` : ""}`;
   const calls = new Map(),
     results = new Map(),
     decisions = new Map();

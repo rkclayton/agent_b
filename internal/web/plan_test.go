@@ -151,6 +151,16 @@ func TestPlanDogfoodFakeServerProposesThenAcceptsExactPlanDiff(t *testing.T) {
 		t.Fatal("tampered proposal matched the tray record")
 	}
 	request := httptest.NewRequest(http.MethodPost, "/api/plan/accept", nil)
+	// Item 2fx: the second walk's proposal — a verifier that can never pass — is
+	// refused on Accept with the lint's words, and the plan is left as it was.
+	contradictory := fallbackProposal
+	contradictory.NewText = string(after) + "- [ ] [[1]] Fill in the goals; verify: grep -q \"(what this plan is for\" plan.md && ! grep -q \"(what this plan is for\" plan.md\n"
+	if _, err := server.acceptPlanProposal(request, fallback, contradictory); err == nil || !strings.Contains(err.Error(), "verifier contradicts itself") {
+		t.Fatalf("a self-contradicting verifier was accepted: %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(item.PlanDir, "plan.md")); string(got) != string(after) {
+		t.Fatalf("a refused Accept wrote the plan: %q", got)
+	}
 	if _, err := server.acceptPlanProposal(request, fallback, fallbackProposal); err != nil {
 		t.Fatalf("fallback accept through d writer: %v", err)
 	}

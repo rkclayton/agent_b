@@ -12,7 +12,7 @@ button:disabled{cursor:default;opacity:.55}
 .setup-page{font:400 13px/20px var(--sans)}
 .setup-header{display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--bezel)}
 .setup-header strong{font-weight:500}
-.setup-header span{color:var(--mute)}
+.setup-header span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mute)}
 .setup-header #connection{margin-left:auto}
 .setup-header #connection.alarm,.setup-feedback.alarm{color:var(--alarm)}
 .setup-main{min-height:calc(100dvh - var(--app-header-height));display:grid;place-items:center;padding:32px 16px}

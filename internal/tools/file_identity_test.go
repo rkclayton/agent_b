@@ -134,13 +134,10 @@ func TestFileIdentityOperatorContextUsesOperatorOSAccessOutsideWorkspace(t *test
 
 func TestFileIdentityPermissionDenialOffersOperatorOverride(t *testing.T) {
 	identity := enabledFileIdentity(t, &fileIdentityTestCredential{password: []byte{1, 2, 3}})
-	// A denial is of a path that exists (item 2fy): the target is a real file.
-	protected := filepath.Join(t.TempDir(), "protected.txt")
-	if err := os.WriteFile(protected, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	// v0.71.0 cold review: a denial keeps its card even when the target does
+	// not exist yet (a new file the service account may not create).
 	detail := identity.Wrap(&permissionDeniedFileTool{}).(DetailedTool).CallDetailed(
-		context.Background(), &session.Session{Workspace: t.TempDir()}, map[string]any{"path": protected},
+		context.Background(), &session.Session{Workspace: t.TempDir()}, map[string]any{"path": `C:\protected.txt`},
 	)
 	if detail.Err != nil || detail.OperatorOverrideReason != "service account was denied permission for the requested path" {
 		t.Fatalf("detail=%+v", detail)

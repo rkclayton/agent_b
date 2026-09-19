@@ -68,7 +68,7 @@ A control stays in one slot on every page. A purposeless control collapses witho
 **Kept by default until the operator vetoes (v0.71.0, the UI pass).** Five lines where the spec was silent or had drifted from what ships; each stands until vetoed, and a veto removes it here.
 - *Hover.* A control whose face is only a glyph carries hover text naming its action; a worded control needs none.
 - *Unknown ceiling.* With no known ceiling (an unprobed profile) the budget rail draws occupied tokens only — no percentages, no fill against a ceiling, no Alarm — until the profile is probed.
-- *Composer.* The composer is the one rounded surface: a floating well with an 8px radius and an inset hairline (item 2ap).
+- *Composer.* The composer is the one surface rounded beyond the 2px panel radius: a floating well with an 8px radius and an inset hairline (item 2ap).
 - *Header.* The header carries the chat tabs at left and, at right, the selected Agent's name, the Chat/Console flip and Settings; Stop, state and operator mode live in the chat's status strip and Console's live instruments. (This supersedes the controls table above where they differ.)
 - *Tab strip.* Tabs keep a readable fixed width; when they outnumber the strip, the strip alone scrolls horizontally — the one exception to "no horizontal scrollbars" (it supersedes "shrink to 72px … `+N`" above).
 

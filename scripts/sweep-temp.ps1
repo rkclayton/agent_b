@@ -28,7 +28,10 @@ if (-not $PSBoundParameters.ContainsKey('Cutoff')) {
         Where-Object { $_.Name -match '^\d{4}-\d\d-\d\d-v(\d+)\.(\d+)\.(\d+)$' } |
         Sort-Object { [version]($_.Name -replace '^\d{4}-\d\d-\d\d-v', '') } -Descending)
     if ($orders.Count -lt 3) { throw 'Fewer than three order folders under logs\evidence; pass -Cutoff.' }
-    $Cutoff = $orders[2].CreationTime
+    # The earlier of the folder's creation and the date in its name: a restored
+    # or copied evidence folder is created "now" (v0.70.2 cold review).
+    $named = [datetime]::ParseExact($orders[2].Name.Substring(0, 10), 'yyyy-MM-dd', $null)
+    $Cutoff = @($orders[2].CreationTime, $named) | Sort-Object | Select-Object -First 1
     $cutoffSource = $orders[2].Name
 } else { $cutoffSource = 'parameter' }
 
@@ -60,7 +63,7 @@ function Get-TreeInfo {
 $candidates = @()
 # v0.70.2/W7: files at the top of %TEMP% (transcripts, logs) are swept too.
 foreach ($entry in Get-ChildItem -LiteralPath $temp -Force -ErrorAction SilentlyContinue) {
-    if ($entry.Name -notmatch '^(?i)(agent_?b)') { continue }
+    if ($entry.Name -notmatch '^(?i)agent_?b(?=$|[-_.])') { continue }
     if ($entry.PSIsContainer -and $entry.Name -ieq 'agentb-worker') {
         foreach ($order in Get-ChildItem -LiteralPath $entry.FullName -Directory -Force) { $candidates += @{ path = $order.FullName; root = $entry.FullName; area = 'temp' } }
         continue
@@ -76,7 +79,8 @@ $rows = foreach ($candidate in $candidates) {
     $info = Get-TreeInfo -Path $candidate.path
     $reason = $null
     if ($info.newest -ge $Cutoff) { $reason = 'within the last three orders' }
-    elseif ($worktrees -contains [IO.Path]::GetFullPath($candidate.path).TrimEnd('\')) { $reason = 'a linked git worktree: remove it with scripts\remove-worktree.ps1' }
+    elseif ($name -like 'Agent_b-install-rollback-*') { $reason = 'an install rollback copy: it may hold the only copy of the previous install' }
+    elseif ($worktrees | Where-Object { $full = [IO.Path]::GetFullPath($candidate.path).TrimEnd('\'); $_ -eq $full -or $_.StartsWith($full + '\', [StringComparison]::OrdinalIgnoreCase) }) { $reason = 'a linked git worktree (or holds one): remove it with scripts\remove-worktree.ps1' }
     elseif ($live | Where-Object { $_.StartsWith($candidate.path + '\', [StringComparison]::OrdinalIgnoreCase) }) { $reason = 'holds a running Agent_b.exe' }
     elseif ($citedText.IndexOf($name, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $reason = 'named by NOTES.md or an open item' }
     [pscustomobject]@{ area = $candidate.area; path = $candidate.path; root = $candidate.root; bytes = $info.bytes; newest = $info.newest.ToString('s'); action = $(if ($reason) { 'keep' } else { 'remove' }); reason = $reason; result = $null }

@@ -93,7 +93,17 @@ func TestAVerifierThatContradictsItselfIsRefused(t *testing.T) {
 	if refusal := Refusal(Lint(dir)); !strings.Contains(refusal, "verifier contradicts itself") {
 		t.Fatalf("refusal = %q", refusal)
 	}
-	if found := ContradictoryVerifiers("- [ ] [[1]] goals; verify: x && ! x\n- [ ] [[2]] fine; verify: y\n"); len(found) != 1 || found[0] != "x && ! x" {
+	if found := ContradictoryVerifiers("plan.md", "- [ ] [[1]] goals; verify: x && ! x\n- [ ] [[2]] fine; verify: y\n"); len(found) != 1 || found[0] != "x && ! x" {
 		t.Fatalf("inline verifiers found %v", found)
+	}
+	// Only where Go reads a verifier: not a finished item, not prose quoting one.
+	if found := ContradictoryVerifiers("plan.md", "- [x] [[1]] done; verify: x && ! x\nThe walk saw `; verify: x && ! x` once.\n"); len(found) != 0 {
+		t.Fatalf("a finished item or prose was refused: %v", found)
+	}
+	if found := ContradictoryVerifiers("plan/items/7a.md", "state: live\nverify: x && ! x\n\n# 7a\n"); len(found) != 1 {
+		t.Fatalf("an item file's verify header was not checked: %v", found)
+	}
+	if found := ContradictoryVerifiers("plan/items/7a.md", "state: live\nverify: y\n\n# 7a\n\nBody quoting verify: x && ! x\n"); len(found) != 0 {
+		t.Fatalf("an item body quoting a verifier was refused: %v", found)
 	}
 }

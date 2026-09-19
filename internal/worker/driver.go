@@ -296,8 +296,13 @@ func (d *Driver) runItem(ctx context.Context, s *session.Session, item Item) Out
 			// on the operator, and says so. Either way the run is ended: a gate
 			// wait must not outlive the item it belongs to.
 			reason := "worker wall clock"
-			if s.Snapshot().Run.Status == "paused" {
+			switch s.Snapshot().Run.Status {
+			case "paused":
 				reason = "waited for approval"
+			case "queued":
+				// v0.70.2 cold review: a begun run shows queued only while, its
+				// card answered, it waits to take its model slot back (item 2fs).
+				reason = "waited for the model"
 			}
 			d.submit.Stop(s.ID, false)
 			return Outcome{ItemID: job.ItemID, Marker: "!", Reason: reason}

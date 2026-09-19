@@ -30,14 +30,25 @@ function compare(a, b) {
 export function evidencePlan({ root, keep = 5 }) {
   const evidence = path.join(root, "logs", "evidence");
   const names = fs.existsSync(evidence) ? fs.readdirSync(evidence).filter((name) => fs.statSync(path.join(evidence, name)).isDirectory()) : [];
-  const cited = new Set();
-  const items = path.join(root, "plan", "items");
-  if (fs.existsSync(items)) {
-    for (const file of fs.readdirSync(items).filter((name) => name.endsWith(".md"))) {
-      const text = fs.readFileSync(path.join(items, file), "utf8").replaceAll("\\", "/");
-      for (const match of text.matchAll(/logs\/evidence\/([^/\s`'")\]]+)/g)) cited.add(match[1]);
+  // v0.70.1 cold review: a directory is cited when any open item's text names
+  // `logs/evidence/<dir>` followed by anything that is not part of a name —
+  // judged per directory, ignoring case and slash direction, so trailing
+  // punctuation or `Logs\Evidence\` cannot make a cited directory look free.
+  const texts = [];
+  const collect = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) collect(full);
+      else if (entry.name.endsWith(".md")) texts.push(fs.readFileSync(full, "utf8").replaceAll("\\", "/").toLowerCase());
     }
-  }
+  };
+  const items = path.join(root, "plan", "items");
+  if (fs.existsSync(items)) collect(items);
+  const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const cited = new Set(names.filter((name) => {
+    const pattern = new RegExp(`logs/evidence/${escape(name.toLowerCase())}(?![a-z0-9_-])`);
+    return texts.some((text) => pattern.test(text));
+  }));
   const releases = [...new Set(names.map(version).filter(Boolean).map((value) => value.join(".")))].map((value) => value.split(".").map(Number)).sort(compare);
   const kept = new Set(releases.slice(-keep).map((value) => value.join(".")));
   const plan = { keepReleases: [...kept].map((value) => `v${value}`), keep: [], cited: [], unversioned: [], remove: [] };

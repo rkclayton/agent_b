@@ -166,4 +166,8 @@ func TestBuildPlanOpensTheBoundPlannerOrTheBFallback(t *testing.T) {
 	if fallback["fallback"] != true || chat.Role != "b" || !strings.EqualFold(filepath.Clean(chat.Workspace), filepath.Clean(plan.Repo)) || len(chat.MessagesCopy()) != 0 {
 		t.Fatalf("with no d profile: %v role=%s workspace=%s", fallback, chat.Role, chat.Workspace)
 	}
+	// v0.70.1 cold review: a second Yes reuses that chat rather than making another.
+	if again := build(); again["session_id"] != fallback["session_id"] || again["reused"] != true {
+		t.Fatalf("a second Yes with no d profile made another chat: %v", again)
+	}
 }

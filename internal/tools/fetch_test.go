@@ -372,3 +372,19 @@ func mustURL(t *testing.T, raw string) *url.URL {
 	}
 	return parsed
 }
+
+// v0.70.1 (2fr cold review): x/net v0.50 refuses HTML nested more than 512
+// elements deep. The page's text still comes back, tags removed, with the
+// reason, rather than nothing.
+func TestAPageNestedTooDeepStillReturnsItsText(t *testing.T) {
+	page := "<html><body><script>ignored()</script>" + strings.Repeat("<div>", 600) + "Deep text &amp; more" + strings.Repeat("</div>", 600) + "</body></html>"
+	for name, extract := range map[string]func() (string, error){
+		"page":    func() (string, error) { return extractHTML([]byte(page), nil) },
+		"article": func() (string, error) { text, _, _, err := extractArticle([]byte(page), nil); return text, err },
+	} {
+		text, err := extract()
+		if err != nil || !strings.Contains(text, "Deep text & more") || strings.Contains(text, "ignored") || !strings.Contains(text, "too deeply to parse") {
+			t.Fatalf("%s: %q %v", name, text, err)
+		}
+	}
+}

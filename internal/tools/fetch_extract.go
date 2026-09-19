@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -157,7 +158,8 @@ func tightenExtractedPunctuation(value string) string {
 func extractArticle(data []byte, base *url.URL) (string, int, bool, error) {
 	document, err := html.Parse(strings.NewReader(string(data)))
 	if err != nil {
-		return "", 0, false, fmt.Errorf("parse HTML: %w", err)
+		// A page the parser refuses (nesting over 512) falls back to its text.
+		return strippedHTMLText(data), 0, true, nil
 	}
 	root := bestArticleRoot(document)
 	if root == nil {
@@ -314,4 +316,19 @@ func articleSkippedNode(node *html.Node) bool {
 		}
 	}
 	return false
+}
+
+var (
+	unparsedBlocks = regexp.MustCompile(`(?is)<(script|style|noscript|template)\b[^>]*>.*?</(script|style|noscript|template)\s*>`)
+	unparsedTags   = regexp.MustCompile(`(?s)<[^>]*>`)
+)
+
+// strippedHTMLText is a page's text when the HTML parser refuses the page:
+// script and style blocks and every tag removed, entities decoded, spacing
+// normalised, under one line saying so.
+func strippedHTMLText(data []byte) string {
+	text := unparsedBlocks.ReplaceAllString(string(data), " ")
+	text = unparsedTags.ReplaceAllString(text, " ")
+	text = normalizeExtractedText(html.UnescapeString(text))
+	return "[the page nests its elements too deeply to parse as HTML; its text is shown with the tags removed]\n" + text
 }

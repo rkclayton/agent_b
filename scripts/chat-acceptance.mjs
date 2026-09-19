@@ -777,7 +777,7 @@ if (realModel) {
   await browser.wait(`document.getElementById('console-stats')?.innerText.includes('runs / briefs')`, "lifetime numbers on a direct load", 3000);
   const history = await page.evaluate(() => {
     const box = (node) => { const r = node.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
-    const texts = [...document.querySelectorAll("#timeline-list *")].filter((node) => node.childElementCount === 0 && node.textContent.trim() && node.offsetParent).map((node) => ({ text: node.textContent.trim().slice(0, 40), ...box(node) }));
+    const texts = [...document.querySelectorAll("#timeline-list > .timeline-row > .timeline-head *")].filter((node) => node.childElementCount === 0 && node.textContent.trim() && node.offsetParent).map((node) => ({ text: node.textContent.trim().slice(0, 40), ...box(node) }));
     const overlaps = [];
     for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
       const a = texts[i], b = texts[j];

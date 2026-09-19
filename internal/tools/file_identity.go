@@ -88,6 +88,12 @@ func (t *identityFileTool) CallDetailed(ctx context.Context, s *session.Session,
 	}
 	if !service.Enabled {
 		result, err := t.tool.Call(ctx, s, args)
+		// Item 2fi: with no service identity the outside-folder refusal offers
+		// the same operator decision the service posture offers, and holds;
+		// declining leaves the refusal as the tool's result.
+		if err != nil && strings.Contains(strings.ToLower(err.Error()), "path is outside the folder") {
+			return CallDetail{Content: "file operation was not completed: path is outside the folder", OperatorOverrideReason: "path is outside the folder"}
+		}
 		return CallDetail{Content: result, Err: err}
 	}
 	if credential == nil {

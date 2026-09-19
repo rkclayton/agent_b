@@ -8,68 +8,10 @@
 //   node scripts/screenshot-gate.mjs BASELINE_DIR CANDIDATE_DIR [--report FILE]
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { inflateSync, deflateSync } from "node:zlib";
+import { decodePNG, encodePNG } from "./png.mjs";
 import { pathToFileURL } from "node:url";
 
-// decodePNG reads the PNGs the browser writes: 8-bit, non-interlaced, RGB or
-// RGBA. Anything else is refused rather than guessed at.
-export function decodePNG(buffer) {
-  if (buffer.readUInt32BE(0) !== 0x89504e47) throw new Error("not a PNG");
-  let offset = 8, width = 0, height = 0, channels = 0;
-  const data = [];
-  while (offset < buffer.length) {
-    const length = buffer.readUInt32BE(offset);
-    const type = buffer.toString("latin1", offset + 4, offset + 8);
-    const chunk = buffer.subarray(offset + 8, offset + 8 + length);
-    if (type === "IHDR") {
-      width = chunk.readUInt32BE(0); height = chunk.readUInt32BE(4);
-      const [depth, color, , , interlace] = chunk.subarray(8);
-      if (depth !== 8 || interlace !== 0 || (color !== 2 && color !== 6)) throw new Error(`unsupported PNG: depth ${depth}, colour type ${color}, interlace ${interlace}`);
-      channels = color === 6 ? 4 : 3;
-    } else if (type === "IDAT") data.push(chunk);
-    else if (type === "IEND") break;
-    offset += 12 + length;
-  }
-  const raw = inflateSync(Buffer.concat(data));
-  const stride = width * channels, out = new Uint8Array(width * height * 4);
-  let previous = new Uint8Array(stride);
-  for (let y = 0; y < height; y++) {
-    const filter = raw[y * (stride + 1)];
-    const line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
-    const row = new Uint8Array(stride);
-    for (let i = 0; i < stride; i++) {
-      const a = i >= channels ? row[i - channels] : 0, b = previous[i], c = i >= channels ? previous[i - channels] : 0;
-      let p = 0;
-      if (filter === 1) p = a;
-      else if (filter === 2) p = b;
-      else if (filter === 3) p = (a + b) >> 1;
-      else if (filter === 4) { const e = a + b - c, pa = Math.abs(e - a), pb = Math.abs(e - b), pc = Math.abs(e - c); p = pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
-      else if (filter !== 0) throw new Error(`bad PNG filter ${filter}`);
-      row[i] = (line[i] + p) & 255;
-    }
-    for (let x = 0; x < width; x++) {
-      for (let k = 0; k < 3; k++) out[(y * width + x) * 4 + k] = row[x * channels + k];
-      out[(y * width + x) * 4 + 3] = channels === 4 ? row[x * channels + 3] : 255;
-    }
-    previous = row;
-  }
-  return { width, height, data: out };
-}
-
-// encodePNG writes RGBA, filter 0; the tests build their images with it.
-export function encodePNG({ width, height, data }) {
-  const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
-  const crc = (bytes) => { let c = 0xffffffff; for (const byte of bytes) c = crcTable[(c ^ byte) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
-  const chunk = (type, body) => {
-    const head = Buffer.alloc(8); head.writeUInt32BE(body.length, 0); head.write(type, 4, "latin1");
-    const tail = Buffer.alloc(4); tail.writeUInt32BE(crc(Buffer.concat([head.subarray(4), body])), 0);
-    return Buffer.concat([head, body, tail]);
-  };
-  const header = Buffer.alloc(13); header.writeUInt32BE(width, 0); header.writeUInt32BE(height, 4); header[8] = 8; header[9] = 6;
-  const raw = Buffer.alloc(height * (width * 4 + 1));
-  for (let y = 0; y < height; y++) Buffer.from(data.buffer, data.byteOffset + y * width * 4, width * 4).copy(raw, y * (width * 4 + 1) + 1);
-  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", header), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
-}
+export { decodePNG, encodePNG };
 
 // compareMasked counts differing pixels outside and inside the masks. masks
 // is [{name, rects: [[x, y, w, h], …]}]; a rectangle past the image is clipped.

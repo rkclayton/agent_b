@@ -72,3 +72,5 @@ playwright-report/
 test-results/
 # The release step writes the candidate manifest beside the exe it built.
 candidate-final.json
+# Staged release candidates (scripts/stage-candidate.mjs); the last three are kept.
+candidates/

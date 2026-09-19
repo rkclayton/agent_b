@@ -131,18 +131,9 @@ func Extract(path string) (string, error) {
 	}
 	defer roUninitialize.Call()
 
-	engineFactory, err := activationFactory("Windows.Media.Ocr.OcrEngine", &iidOcrEngineStatics)
+	engine, err := newEngine()
 	if err != nil {
 		return "", err
-	}
-	defer release(engineFactory)
-	var engine *inspectable
-	hr, _, _ = syscall.SyscallN(engineFactory.vtable[10], uintptr(unsafe.Pointer(engineFactory)), uintptr(unsafe.Pointer(&engine)))
-	if failed(hr) {
-		return "", fmt.Errorf("create OCR engine for user languages: HRESULT 0x%08x", uint32(hr))
-	}
-	if engine == nil {
-		return "", fmt.Errorf("no Windows OCR language matches the user profile")
 	}
 	defer release(engine)
 
@@ -160,14 +151,37 @@ func Extract(path string) (string, error) {
 		return "", fmt.Errorf("open image for OCR: HRESULT 0x%08x", uint32(hr))
 	}
 	defer release(stream)
+	return recognizeStream(engine, stream)
+}
 
+// newEngine is the OCR engine for the user's profile languages.
+func newEngine() (*inspectable, error) {
+	engineFactory, err := activationFactory("Windows.Media.Ocr.OcrEngine", &iidOcrEngineStatics)
+	if err != nil {
+		return nil, err
+	}
+	defer release(engineFactory)
+	var engine *inspectable
+	hr, _, _ := syscall.SyscallN(engineFactory.vtable[10], uintptr(unsafe.Pointer(engineFactory)), uintptr(unsafe.Pointer(&engine)))
+	if failed(hr) {
+		return nil, fmt.Errorf("create OCR engine for user languages: HRESULT 0x%08x", uint32(hr))
+	}
+	if engine == nil {
+		return nil, fmt.Errorf("no Windows OCR language matches the user profile")
+	}
+	return engine, nil
+}
+
+// recognizeStream decodes the first frame of an image stream and recognizes
+// its text with engine.
+func recognizeStream(engine, stream *inspectable) (string, error) {
 	decoderFactory, err := activationFactory("Windows.Graphics.Imaging.BitmapDecoder", &iidBitmapDecoderStatics)
 	if err != nil {
 		return "", err
 	}
 	defer release(decoderFactory)
 	var operation *inspectable
-	hr, _, _ = syscall.SyscallN(decoderFactory.vtable[14], uintptr(unsafe.Pointer(decoderFactory)), uintptr(unsafe.Pointer(stream)), uintptr(unsafe.Pointer(&operation)))
+	hr, _, _ := syscall.SyscallN(decoderFactory.vtable[14], uintptr(unsafe.Pointer(decoderFactory)), uintptr(unsafe.Pointer(stream)), uintptr(unsafe.Pointer(&operation)))
 	if failed(hr) {
 		return "", fmt.Errorf("decode image for OCR: HRESULT 0x%08x", uint32(hr))
 	}

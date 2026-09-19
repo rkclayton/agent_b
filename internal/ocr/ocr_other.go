@@ -7,3 +7,7 @@ import "fmt"
 func Extract(string) (string, error) {
 	return "", fmt.Errorf("Windows.Media.Ocr is available only on Windows")
 }
+
+func ExtractPDF(string, int) (string, error) {
+	return "", fmt.Errorf("Windows.Data.Pdf is available only on Windows")
+}

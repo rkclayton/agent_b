@@ -1,0 +1,81 @@
+package agent
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"harness/internal/config"
+	"harness/internal/events"
+	"harness/internal/session"
+	"harness/internal/tools"
+)
+
+// Item 2fi, the walk's step 7 with no service identity: reading a file outside
+// the folder raises the operator's card through read_file, run_script and shell
+// alike; declining continues without the file, approving reads it once.
+func TestAnOutsideReadRaisesTheCardInEveryToolWithNoServiceIdentity(t *testing.T) {
+	workspace, outsideDir := t.TempDir(), t.TempDir()
+	outside := filepath.Join(outsideDir, "win.ini")
+	if err := os.WriteFile(outside, []byte("; for 16-bit app support\n[fonts]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(workspace)
+	cfg.Approval.Mode = config.ApprovalModeBoundaryOnly
+	cfg.Shell.ServiceAccount.Enabled = false
+	identity := tools.NewFileIdentity(nil)
+	identity.Configure(cfg)
+	shell := tools.NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	registry := tools.New(identity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)), shell, tools.NewRunScript(shell))
+	bus := events.NewBus()
+	runner := &Runner{bus: bus, tools: registry, cfg: func() config.Config { return cfg }}
+	runner.gate = NewGate(bus, runner.cfg)
+	s := &session.Session{ID: "walk", Workspace: workspace, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"read_file": true, "shell": true, "run_script": true}, LastSeen: map[string]time.Time{}}
+
+	calls := []struct {
+		name string
+		args map[string]any
+	}{
+		{"read_file", map[string]any{"path": outside}},
+		{"run_script", map[string]any{"language": "powershell", "source": `[System.IO.File]::ReadAllLines("` + outside + `")[0]`}},
+		{"shell", map[string]any{"command": `[System.IO.File]::ReadAllText('` + outside + `')`}},
+	}
+	for index, call := range calls {
+		for _, decision := range []string{"deny", "approve"} {
+			eventCh, unsubscribe := bus.Subscribe()
+			callID := call.name + "-" + decision
+			done := make(chan string, 1)
+			go func() {
+				outcome := runner.executeTool(context.Background(), s, "run", callID, call.name, call.args)
+				done <- outcome.Content
+			}()
+			var asked map[string]any
+			for asked == nil {
+				select {
+				case event := <-eventCh:
+					if data, ok := event.Data.(map[string]any); ok && data["name"] == call.name+".operator_override" {
+						asked = data
+					}
+				case <-time.After(10 * time.Second):
+					t.Fatalf("%d %s: no card was raised for a read outside the folder", index, call.name)
+				}
+			}
+			unsubscribe()
+			if err := runner.gate.Decide(s.ID, callID+":operator", decision); err != nil {
+				t.Fatal(err)
+			}
+			content := <-done
+			read := strings.Contains(content, "16-bit app support")
+			if decision == "deny" && read {
+				t.Fatalf("%s: declining the card still read the file: %q", call.name, content)
+			}
+			if decision == "approve" && !read {
+				t.Fatalf("%s: approving the card did not read the file once: %q", call.name, content)
+			}
+		}
+	}
+}

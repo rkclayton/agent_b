@@ -98,6 +98,14 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	default:
 		return CallDetail{Err: fmt.Errorf("language must be powershell, python, node, or bash")}
 	}
+	// Item 2fi: with no service identity a script naming a path outside the
+	// folder raises the same operator decision as read_file (the walk read
+	// C:Windowswin.ini through [System.IO.File] with no card).
+	if !forceOperator && !cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
+		if reason := outsideReadReason(source, item); reason != "" {
+			return CallDetail{Content: "script was not started: " + reason, OperatorOverrideReason: reason}
+		}
+	}
 	timeout := number(args["timeout_s"], cfg.TimeoutS)
 	if timeout <= 0 {
 		timeout = cfg.TimeoutS

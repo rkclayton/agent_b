@@ -743,17 +743,27 @@ function Invoke-ExitGateProbe {
     Set-Content -LiteralPath $script -Value ((". '" + $helperFile + "'"), 'try {', $Body, "} catch { " + '$_.Exception.Message' + ' }') -Encoding UTF8
     return (& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $script 2>&1 | Out-String)
 }
-$nullProbe = Invoke-ExitGateProbe -Body ("Assert-ScriptExitCode -Purpose 'probe' -Code " + '$null')
-if ($nullProbe -notmatch 'no exit code') { throw "the gate does not fail closed on a null exit code: $nullProbe" }
-$zeroProbe = Invoke-ExitGateProbe -Body "Assert-ScriptExitCode -Purpose 'probe' -Code 0; 'gate-ok'"
-if ($zeroProbe -notmatch 'gate-ok') { throw "the gate rejects a successful exit code: $zeroProbe" }
-$twoProbe = Invoke-ExitGateProbe -Body "Assert-ScriptExitCode -Purpose 'probe' -Code 2"
-if ($twoProbe -notmatch 'exit code 2') { throw "the gate loses the real exit code: $twoProbe" }
-foreach ($required in @('apply-acls.ps1', 'install-Agent_b.ps1', 'uninstall-Agent_b.ps1', 'apply-firewall-rule.ps1')) {
-    $text = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot $required)
-    if ($text.TrimEnd() -notmatch 'exit 0$') { throw "$required no longer ends with an explicit exit code." }
+try {
+    $nullProbe = Invoke-ExitGateProbe -Body ("Assert-ScriptExitCode -Purpose 'probe' -Code " + '$null')
+    if ($nullProbe -notmatch 'no exit code') { throw "the gate does not fail closed on a null exit code: $nullProbe" }
+    $zeroProbe = Invoke-ExitGateProbe -Body "Assert-ScriptExitCode -Purpose 'probe' -Code 0; 'gate-ok'"
+    if ($zeroProbe -notmatch 'gate-ok') { throw "the gate rejects a successful exit code: $zeroProbe" }
+    $twoProbe = Invoke-ExitGateProbe -Body "Assert-ScriptExitCode -Purpose 'probe' -Code 2"
+    if ($twoProbe -notmatch 'exit code 2') { throw "the gate loses the real exit code: $twoProbe" }
+    foreach ($required in @('apply-acls.ps1', 'install-Agent_b.ps1', 'uninstall-Agent_b.ps1', 'apply-firewall-rule.ps1')) {
+        $text = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot $required)
+        if ($text.TrimEnd() -notmatch 'exit 0$') { throw "$required no longer ends with an explicit exit code." }
+    }
+} catch {
+    # Item 2ft: a failing scenario keeps its root for evidence and says where.
+    Write-Host "KEPT for evidence: $testRoot"
+    throw
 }
 Write-Host 'PASS: the pre-stop gate fails closed on a null exit code, keeps a real one, and every invoked script exits explicitly'
+# Item 2ft: the probe recreated the disposable root after its cleanup above; a
+# passing scenario removes it again (a failing one threw first and keeps it).
+Assert-TemporaryTestPath $testRoot
+Remove-TreeWithinAllowedRoots -Path $testRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'installer-suite exit-gate probe cleanup'
 
 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-chat-acceptance.ps1') -SkipBuild
 if ($LASTEXITCODE -ne 0) { throw "Chat acceptance release gate exited $LASTEXITCODE." }

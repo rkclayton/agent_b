@@ -146,6 +146,14 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	var process runningShellProcess
 	var usedService bool
 	var err error
+	// Item 2fi: with no service identity a command naming a path outside the
+	// folder raises the same operator decision as read_file, so a file cannot be
+	// read around the card.
+	if !forceOperator && !cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
+		if reason := outsideReadReason(command, item); reason != "" {
+			return CallDetail{Content: "command was not started: " + reason, OperatorOverrideReason: reason}
+		}
+	}
 	if !forceOperator && cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
 		if name := operatorOnlyInterpreter(command, exec.LookPath, operatorHome()); name != "" {
 			reason := name + " is operator-only; needs Run as you"

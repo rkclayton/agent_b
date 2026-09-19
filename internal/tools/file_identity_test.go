@@ -83,7 +83,10 @@ func TestFileIdentityKeepsBoundDirectoryJailUnderServiceIdentity(t *testing.T) {
 	}
 }
 
-func TestFileIdentityDisabledKeepsWorkspaceBoundary(t *testing.T) {
+// Item 2fi: with no service identity the boundary still holds — nothing is
+// listed — and the refusal offers the operator's decision, as the service
+// posture does.
+func TestFileIdentityDisabledKeepsWorkspaceBoundaryAndOffersTheCard(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	external := filepath.Join(root, "external")
@@ -95,11 +98,11 @@ func TestFileIdentityDisabledKeepsWorkspaceBoundary(t *testing.T) {
 	}
 	identity := NewFileIdentity(nil)
 	identity.Configure(config.Defaults(workspace))
-	_, err := identity.Wrap(NewListDir(config.Defaults(workspace).Tools.ListDir)).Call(
+	detail := identity.Wrap(NewListDir(config.Defaults(workspace).Tools.ListDir)).(DetailedTool).CallDetailed(
 		context.Background(), &session.Session{Workspace: workspace}, map[string]any{"path": external},
 	)
-	if err == nil || !strings.Contains(err.Error(), "outside the folder") {
-		t.Fatalf("err=%v", err)
+	if detail.Err != nil || !strings.Contains(detail.OperatorOverrideReason, "outside the folder") || detail.Content != "file operation was not completed: path is outside the folder" {
+		t.Fatalf("detail=%+v", detail)
 	}
 }
 

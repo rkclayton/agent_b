@@ -434,3 +434,48 @@ func schedulerFixtureAccounting(t *testing.T, modelURL, accounting string) (conf
 	runner := NewRunner(bus, tools.New(), &PromptRenderer{text: "system {{tools}} {{memory}}"}, lookup, func() config.Config { return cfg })
 	return cfg, &profile, item, NewScheduler(runner, registry, bus, func() config.Config { return cfg })
 }
+
+// Item 2fg (the walk's step 3): a message sent while a stopped run is still
+// stopping is held with the queue. A reachability release does not start it;
+// only the operator's next message does.
+func TestAMessageSentWhileStoppingIsHeldUntilTheOperatorSendsAgain(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n"))
+	}))
+	defer model.Close()
+	cfg, profile, item, scheduler := schedulerFixture(t, model.URL)
+	item.SetRun(session.RunState{Status: "running", RunID: "r0", MaxTurns: cfg.Run.MaxTurns})
+	done := make(chan struct{})
+	close(done)
+	scheduler.active[item.ID] = &activeRun{cancel: func() {}, runID: "r0", done: done}
+	scheduler.Stop(item.ID, false)
+	if result, err := scheduler.Submit(context.Background(), item.ID, "sent while stopping"); err != nil || !result.Queued {
+		t.Fatalf("submit while stopping=%+v err=%v", result, err)
+	}
+	scheduler.finish(queuedRun{s: item, runID: "r0"}, "aborted_mid_tool", "tool execution canceled", 1)
+	if snapshot := item.Snapshot(); snapshot.Run.Status != "held" || snapshot.QueuedMessages != 1 {
+		t.Fatalf("the message sent while stopping must be held: %+v", snapshot.Run)
+	}
+	scheduler.ReleaseModel(profile.ID)
+	time.Sleep(50 * time.Millisecond)
+	if scheduler.Active(item.ID) || len(item.MessagesCopy()) != 0 {
+		t.Fatalf("a reachability release started the held message: %+v", item.MessagesCopy())
+	}
+	if _, err := scheduler.Submit(context.Background(), item.ID, "go on"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for (scheduler.Active(item.ID) || item.Snapshot().QueuedMessages != 0) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	users := []string{}
+	for _, message := range item.MessagesCopy() {
+		if message.Role == "user" {
+			users = append(users, message.Content)
+		}
+	}
+	if strings.Join(users, "|") != "sent while stopping|go on" {
+		t.Fatalf("the operator's message releases the hold, in order: %v", users)
+	}
+}

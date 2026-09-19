@@ -108,3 +108,36 @@ func TestVerifyDefersToStructuredStatusInspection(t *testing.T) {
 		t.Fatalf("Run(verify) = (%+v, %v)", result, err)
 	}
 }
+
+// Item 2fe: a fresh install's workspace is <data>\scratch. That is part of the
+// operator-data tree by design, so Security's status inspection succeeds; a
+// workspace elsewhere inside the data root is still refused.
+func TestStatusAcceptsTheScratchWorkspaceInsideTheDataRoot(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	application := filepath.Join(t.TempDir(), "application")
+	data := filepath.Join(t.TempDir(), "data")
+	exchange := filepath.Join(t.TempDir(), "exchange")
+	for _, path := range []string{application, filepath.Join(data, "scratch"), filepath.Join(data, "other"), exchange} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manager := New(
+		filepath.Join(root, "scripts", "apply-acls.ps1"),
+		filepath.Join(root, "scripts", "apply-firewall-rule.ps1"),
+		filepath.Join(root, "scripts", "apply-hardening.ps1"),
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	request := Request{AccountName: "agentb-test-account-that-does-not-exist", ApplicationDirectory: application, DataDirectory: data, WorkspaceDirectory: filepath.Join(data, "scratch"), ExchangeDirectory: exchange, ModelAddress: "127.0.0.1", ModelPort: 8080}
+	if status, err := manager.Status(ctx, request); err != nil || !status.Supported {
+		t.Fatalf("a scratch workspace must inspect: %+v %v", status, err)
+	}
+	request.WorkspaceDirectory = filepath.Join(data, "other")
+	if _, err := manager.Status(ctx, request); err == nil || !strings.Contains(err.Error(), "disjoint") {
+		t.Fatalf("a non-scratch workspace inside the data root must still be refused: %v", err)
+	}
+}

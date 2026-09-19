@@ -1,6 +1,6 @@
 # sweep-temp.ps1 — the operator's sweep of Agent_b scratch (item 2ft).
 #
-# Lists, and with -Apply removes, Agent_b roots under %TEMP% (names starting
+# Lists, and with -Apply removes, Agent_b roots and files under %TEMP% (names starting
 # Agent_b / AgentB / agentb, and each order folder under agentb-worker) and the
 # entries of the repository's retired .tmp, when ALL of these hold:
 #   - older than the last three orders: last written before the creation of the
@@ -39,6 +39,10 @@ foreach ($item in Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot 'plan\it
 }
 $citedText = $cited.ToString()
 
+# A linked git worktree is left to scripts\remove-worktree.ps1, which also
+# removes git's record of it.
+$worktrees = @(& git -C $RepositoryRoot worktree list --porcelain 2>$null | Where-Object { $_ -like 'worktree *' } | ForEach-Object { [IO.Path]::GetFullPath($_.Substring(9).Replace('/', '\')).TrimEnd('\') })
+
 $live = @(Get-Process -Name 'Agent_b' -ErrorAction SilentlyContinue | ForEach-Object { try { $_.Path } catch { $null } } | Where-Object { $_ })
 
 function Get-TreeInfo {
@@ -54,9 +58,10 @@ function Get-TreeInfo {
 }
 
 $candidates = @()
-foreach ($entry in Get-ChildItem -LiteralPath $temp -Directory -Force -ErrorAction SilentlyContinue) {
+# v0.70.2/W7: files at the top of %TEMP% (transcripts, logs) are swept too.
+foreach ($entry in Get-ChildItem -LiteralPath $temp -Force -ErrorAction SilentlyContinue) {
     if ($entry.Name -notmatch '^(?i)(agent_?b)') { continue }
-    if ($entry.Name -ieq 'agentb-worker') {
+    if ($entry.PSIsContainer -and $entry.Name -ieq 'agentb-worker') {
         foreach ($order in Get-ChildItem -LiteralPath $entry.FullName -Directory -Force) { $candidates += @{ path = $order.FullName; root = $entry.FullName; area = 'temp' } }
         continue
     }
@@ -71,8 +76,9 @@ $rows = foreach ($candidate in $candidates) {
     $info = Get-TreeInfo -Path $candidate.path
     $reason = $null
     if ($info.newest -ge $Cutoff) { $reason = 'within the last three orders' }
-    elseif ($citedText.IndexOf($name, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $reason = 'named by NOTES.md or an open item' }
+    elseif ($worktrees -contains [IO.Path]::GetFullPath($candidate.path).TrimEnd('\')) { $reason = 'a linked git worktree: remove it with scripts\remove-worktree.ps1' }
     elseif ($live | Where-Object { $_.StartsWith($candidate.path + '\', [StringComparison]::OrdinalIgnoreCase) }) { $reason = 'holds a running Agent_b.exe' }
+    elseif ($citedText.IndexOf($name, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $reason = 'named by NOTES.md or an open item' }
     [pscustomobject]@{ area = $candidate.area; path = $candidate.path; root = $candidate.root; bytes = $info.bytes; newest = $info.newest.ToString('s'); action = $(if ($reason) { 'keep' } else { 'remove' }); reason = $reason; result = $null }
 }
 

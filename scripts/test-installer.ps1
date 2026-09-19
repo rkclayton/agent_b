@@ -390,6 +390,16 @@ try {
         } catch { }
     } while (-not $ready -and -not $beforeProcess.HasExited -and [DateTime]::UtcNow -lt $deadline)
     if (-not $ready) { throw 'Installed Agent_b did not become ready before the running-instance upgrade.' }
+    # Item 2fe: on a fresh install the workspace is <data>\scratch, inside the
+    # data root by design, and Settings > Security must still load its status.
+    $securityServer = [string]@($beforeState.config.servers)[0].id
+    try {
+        $security = Invoke-WebRequest -UseBasicParsing -Uri ("http://127.0.0.1:$testPort/api/hardening?server_id=" + [Uri]::EscapeDataString($securityServer)) -TimeoutSec 60
+    } catch {
+        throw ('Fresh install: Settings > Security did not load: ' + $_.Exception.Message + ' ' + $_.ErrorDetails.Message)
+    }
+    if ($security.StatusCode -ne 200) { throw ('Fresh install: Settings > Security returned ' + $security.StatusCode) }
+    Write-Host 'PASS: fresh install, workspace <data>\scratch: Settings > Security loads its status'
     $configFingerprint = Get-StableConfigFingerprint -Path $configPath
 
     $dataBefore = @(Get-ChildItem -LiteralPath $testData -File -Recurse | Where-Object {

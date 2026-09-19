@@ -248,9 +248,11 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	toolCallsUsed := 0
 	lengthSeen := false
 	truncatedToolRetry := ""
-	// Item 2fv: a read_file window that cannot fit twice running ends the read;
-	// from then on the model answers from what it has read, without tools.
-	readRefused, readCutShort := false, false
+	// Item 2fv: a read_file window refused on two consecutive turns ends the
+	// read; from then on the model answers from what it has read, without
+	// tools. refusedTurn is the turn of the latest refusal (-1: none since the
+	// last window that fit). The elide between the two turns has had its chance.
+	refusedTurn, readCutShort := -1, false
 	accountingRepairTried := false
 	templateRetryTried := false
 	softLineChecked := false
@@ -575,16 +577,17 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				item.content, item.ok, item.metadata, resultTokens = r.fitWindowResult(
 					ctx, s, profile, item.call.Name, item.args, item.content, item.ok, item.metadata, resultTokens, remainingResultTokens, item.operatorContext,
 				)
-				if item.call.Name == "read_file" {
+				if _, batch := item.args["windows"]; item.call.Name == "read_file" && !batch {
 					if tooLarge, _ := item.metadata["result_too_large"].(bool); tooLarge {
-						if readRefused {
+						if refusedTurn >= 0 && refusedTurn == turn-1 {
 							item.content, item.ok, item.metadata = readCutShortResult(item.args, item.metadata)
 							resultTokens = r.textTokens(ctx, profile, item.content)
 							readCutShort = true
+						} else if refusedTurn != turn {
+							refusedTurn = turn
 						}
-						readRefused = true
 					} else if item.ok {
-						readRefused = false
+						refusedTurn = -1
 					}
 				}
 				if remainingResultTokens >= 0 {
@@ -645,7 +648,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		r.stage(s, runID, turn, "compact", func() {
 			// Item 2fv: after a refused window the elide runs even on a cold
 			// prefill, so a second refusal means nothing elidable was left.
-			r.compactAfterTurnForcing(ctx, s, runID, turn, profile, currentReasoning, readRefused)
+			r.compactAfterTurnForcing(ctx, s, runID, turn, profile, currentReasoning, refusedTurn == turn)
 		})
 	}
 }

@@ -43,15 +43,15 @@ type Gate struct {
 	mailboxDecision  func(string) (string, error)
 	// Item 2fs: the scheduler's hooks. A run waiting on a card gives up its
 	// model slot (released) and takes one back once answered (reacquire).
-	released  func(sessionID string)
-	reacquire func(ctx context.Context, sessionID string) error
+	released  func(sessionID, runID string)
+	reacquire func(ctx context.Context, sessionID, runID string) error
 }
 
 func NewGate(bus *events.Bus, cfg func() config.Config) *Gate {
 	return &Gate{waiting: map[string]*approvalWait{}, pendingBySession: map[string]string{}, bus: bus, cfg: cfg}
 }
 func (g *Gate) SetMailboxDecision(fn func(string) (string, error)) { g.mailboxDecision = fn }
-func (g *Gate) setModelHooks(released func(string), reacquire func(context.Context, string) error) {
+func (g *Gate) setModelHooks(released func(string, string), reacquire func(context.Context, string, string) error) {
 	g.released, g.reacquire = released, reacquire
 }
 func approvalKey(sessionID, callID string) string { return sessionID + "\x00" + callID }
@@ -205,8 +205,11 @@ func workerApproval(s *session.Session, data map[string]any) map[string]any {
 }
 
 func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, callID string, wait *approvalWait) (string, error) {
-	if g.released != nil {
-		g.released(s.ID)
+	// v0.70.2 cold review: a run already cancelled keeps nothing to release, and
+	// the hooks name the run so a late wait of an ended run never touches the
+	// run that followed it in the same chat.
+	if g.released != nil && ctx.Err() == nil {
+		g.released(s.ID, runID)
 	}
 	var signal approvalSignal
 	var ticker *time.Ticker
@@ -249,13 +252,15 @@ func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, cal
 	if !signal.logged {
 		g.publishDecision(wait, signal.decision)
 	}
-	if signal.decision == "superseded" {
-		return signal.decision, fmt.Errorf("approval superseded by a newer decision")
-	}
+	// Every path out of a wait takes the model slot back before the run goes
+	// on, the superseded one included (v0.70.2 cold review).
 	if g.reacquire != nil {
-		if err := g.reacquire(ctx, s.ID); err != nil {
+		if err := g.reacquire(ctx, s.ID, runID); err != nil && signal.decision != "superseded" {
 			return "dismissed", err
 		}
+	}
+	if signal.decision == "superseded" {
+		return signal.decision, fmt.Errorf("approval superseded by a newer decision")
 	}
 	if signal.decision != "superseded" && signal.decision != "dismissed" {
 		state := s.Snapshot().Run

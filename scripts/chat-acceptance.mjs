@@ -5,6 +5,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { chromium } from "playwright";
 import { agentStates, assertPageStyleBoundary, provePageStyleBoundaryControl } from "./page-style-boundary.mjs";
+import { LIVE_VALUES, OTHER_CHAT_STATE, captureWithMasks } from "./screenshot-masks.mjs";
 
 const args = Object.fromEntries(Array.from({ length: Math.floor(process.argv.slice(2).length / 2) }, (_, index) => {
   const offset = index * 2 + 2;
@@ -404,7 +405,9 @@ edgeContext = await chromium.launchPersistentContext(join(args.data, "..", "..",
   // Headless hides scrollbars by default; keep them so captures still show them.
   ignoreDefaultArgs: ["--hide-scrollbars"],
   viewport: { width: 1250, height: 975 },
-  args: [`--app=http://127.0.0.1:${appPort}/chat`, "--window-size=1250,975"],
+  // Item 2ga: software rendering, so an antialiased edge is painted the same
+  // way in every run and the screenshot gate compares like with like.
+  args: [`--app=http://127.0.0.1:${appPort}/chat`, "--window-size=1250,975", "--disable-gpu"],
 });
 await edgeContext.addInitScript(() => {
   const timing = window.__agentbLoadTiming = { dom_content_loaded: null, load: null, event_source_constructed: null, event_source_open: null, snapshot: null, first_surface_content: null, state_fetches: [] };
@@ -687,7 +690,7 @@ if (realModel) {
           eyes: { top: eyeStyle.top, width: eyeStyle.width, height: eyeStyle.height, opacity: eyeStyle.opacity, background: eyeStyle.backgroundColor },
         };
       }, state);
-      await page.locator(".app-shell").screenshot({ path: join(shellStateDirectory, `${pageName}-${state}.png`) });
+      await captureWithMasks(page.locator(".app-shell"), join(shellStateDirectory, `${pageName}-${state}.png`), { specs: [...LIVE_VALUES, OTHER_CHAT_STATE] });
     }
     return { boundary, robots };
   };
@@ -737,7 +740,7 @@ if (realModel) {
 
   const baselineDirectory = join(args.evidence, "baseline-initial");
   await mkdir(baselineDirectory, { recursive: true });
-  const chatIdleScreenshot = await page.screenshot({ path: join(baselineDirectory, "chat-idle.png") });
+  const chatIdleScreenshot = await captureWithMasks(page, join(baselineDirectory, "chat-idle.png"));
   await page.locator(".shell-settings").click();
   await page.locator("#settings-page").waitFor({ state: "visible" });
   const profileState = page.locator('.profile-summary[data-id="acceptance"] .profile-state');
@@ -754,14 +757,14 @@ if (realModel) {
   await page.locator("#chat-task").waitFor({ state: "visible" });
   assert.equal(await page.locator("#settings-page").isHidden(), true);
   assert.equal(await page.locator("#settings-page").getAttribute("aria-hidden"), "true");
-  assert.deepEqual(await page.screenshot(), chatIdleScreenshot, "Chat idle changed after Settings → Test → Chat round trip");
+  assert.deepEqual(await page.screenshot({ animations: "disabled" }), chatIdleScreenshot, "Chat idle changed after Settings → Test → Chat round trip");
   record("settings-test-chat-round-trip");
   await page.locator(".agent-tab").first().click({ button: "right" });
   await page.locator(".agent-chat-count").waitFor({ state: "visible" });
   await page.locator(`.agent-chat-row[data-session="${sessionID}"] .agent-chat-open`).waitFor({ state: "visible" });
   const initialMenuRows = await page.locator(".agent-chat-row").count();
   assert.match(await page.locator(".agent-chat-count").innerText(), new RegExp(`^${initialMenuRows} chats? · ${initialMenuRows} open · 0 closed$`));
-  await page.screenshot({ path: join(baselineDirectory, "tab-menu-open.png") });
+  await captureWithMasks(page, join(baselineDirectory, "tab-menu-open.png"));
   await page.goto(`http://127.0.0.1:${appPort}/?session=${sessionID}`);
   await page.locator("#console-lifetime").waitFor({ state: "visible" });
   await page.locator("#console-run-result").waitFor({ state: "visible" });
@@ -789,13 +792,13 @@ if (realModel) {
   assert.match(history.count, new RegExp(`^${history.turns} (of [0-9]+ )?turns`), JSON.stringify(history));
   assert.deepEqual(history.overlaps, [], "History draws one text per line");
   record("console-direct-load-lifetime-and-history-rows");
-  await page.screenshot({ path: join(baselineDirectory, "console.png") });
+  await captureWithMasks(page, join(baselineDirectory, "console.png"));
   await page.locator(".shell-settings").click();
   await page.locator("#settings-page").waitFor({ state: "visible" });
-  await page.screenshot({ path: join(baselineDirectory, "settings.png") });
+  await captureWithMasks(page, join(baselineDirectory, "settings.png"));
   await page.goto(`http://127.0.0.1:${appPort}/plan?session=${sessionID}`);
   await page.locator('#app-shell[data-page="plan"]').waitFor({ state: "visible" });
-  await page.screenshot({ path: join(baselineDirectory, "plan.png") });
+  await captureWithMasks(page, join(baselineDirectory, "plan.png"));
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
   await page.locator("#chat-task").waitFor({ state: "visible" });
 
@@ -835,7 +838,7 @@ if (realModel) {
   const toolRoot = toolButton.locator("..");
   const collapseArrow = toolRoot.locator("button.collapse-arrow");
   await collapseArrow.waitFor({ state: "visible" });
-  await page.screenshot({ path: join(baselineDirectory, "chat-mid-run.png") });
+  await captureWithMasks(page, join(baselineDirectory, "chat-mid-run.png"));
   await toolRoot.evaluate((root) => { root.style.minHeight = "1200px"; });
   await page.evaluate(() => {
     const spacer = document.createElement("div");
@@ -1047,7 +1050,7 @@ if (realModel) {
     assert.ok(band.arrow.top >= band.section.top && band.arrow.bottom <= band.section.bottom, `collapse arrow escaped its section band: ${JSON.stringify(band)}`);
   }
   assert.equal(twoArrowFixture.horizontalOverflow, false);
-  await page.screenshot({ path: join(baselineDirectory, "chat-two-expanded-arrows.png") });
+  await captureWithMasks(page, join(baselineDirectory, "chat-two-expanded-arrows.png"));
   record("two-expanded-sections-two-bounded-arrows");
   await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('two independent sections')`, "two-arrow fixture restored");
@@ -1108,7 +1111,7 @@ if (realModel) {
   assert.equal(deliveredChip.nameOpenable, true);
   assert.equal(deliveredChip.gap, "8px");
   assert.equal(deliveredChip.horizontalOverflow, false);
-  await page.screenshot({ path: join(baselineDirectory, "chat-delivered-folder-link.png") });
+  await captureWithMasks(page, join(baselineDirectory, "chat-delivered-folder-link.png"));
   assert.equal(await page.locator(".chat-step-summary:visible").count(), 0, "one tool call renders its row without a Steps header (item 2eo)");
   record("delivered-file-chip-folder-link-only");
   await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
@@ -1261,13 +1264,13 @@ if (realModel) {
   assert.match(liveToolState.status, /^tool executing · shell(?: ·|$)/);
   assert.equal(liveToolState.carets, 0, JSON.stringify(liveToolState));
   assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--trace)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
-  await page.screenshot({ path: join(baselineDirectory, "chat-live-tool.png") });
+  await captureWithMasks(page, join(baselineDirectory, "chat-live-tool.png"));
   await page.goto(`http://127.0.0.1:${appPort}/?session=${sessionID}`);
   await browser.wait(`document.querySelector('#console-live-state')?.innerText.startsWith('tool executing · shell')`, "Console named slow tool activity");
   const compactionState = (await state()).sessions[sessionID];
   assert.equal(await page.locator("#console-live-compactions").innerText(), `${compactionState.compaction_count || 0} compactions · ${compactionState.compaction_model_calls || 0} summaries`);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
-  await page.screenshot({ path: join(baselineDirectory, "console-live-tool.png") });
+  await captureWithMasks(page, join(baselineDirectory, "console-live-tool.png"));
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
   await browser.wait(`document.querySelector('#chat-task')`, "Chat restored after live-tool Console proof");
   await waitProjectedChatText(sessionID, "LIVE TOOL COMPLETE", "live-tool final answer");
@@ -1450,7 +1453,11 @@ if (realModel) {
   await ocrAttachment.waitFor({ state: "visible" });
   assert.match(await ocrAttachment.innerText(), /OCR: ocr-acceptance\.png\.txt/);
   assert.doesNotMatch(await ocrAttachment.innerText(), /cannot read images/);
-  await page.screenshot({ path: join(baselineDirectory, "chat-ocr-sidecar-before-send.png") });
+  // Item 2ga: a capture of a finished run waits until the page shows it
+  // finished — Stop idle — and two frames have painted, or it races the run.
+  await browser.wait(`document.querySelector('#chat-stop')?.dataset.state === 'idle'`, "run idle before the OCR capture");
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await captureWithMasks(page, join(baselineDirectory, "chat-ocr-sidecar-before-send.png"));
   await setTask("acceptance: attachment OCR");
   await waitProjectedChatText(sessionID, "Attachment received and rendered.", "OCR attachment answer");
   const ocrMessage = await waitEvent(sessionID, (event) => event.type === "message.appended" && event.data.message?.attachments?.some((item) => item.path.endsWith("ocr-acceptance.png")), "OCR attachment retained in JSONL");
@@ -1502,7 +1509,7 @@ if (realModel) {
   assert.equal(unreachableRows.responses, 0, JSON.stringify(unreachableRows));
   assert.equal(unreachableRows.step_folds, 0, JSON.stringify(unreachableRows));
   assert.equal(unreachableRows.flat_notices, 1, JSON.stringify(unreachableRows));
-  await page.screenshot({ path: join(args.evidence, "unreachable-no-empty-folds.png") });
+  await captureWithMasks(page, join(args.evidence, "unreachable-no-empty-folds.png"));
   record("model-unreachable-no-empty-fold-groups");
   await browser.wait(`document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')?.classList.contains('offline')`, "offline agent eyes");
   assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--alarm)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
@@ -1539,7 +1546,11 @@ if (realModel) {
   await browser.wait(`!document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')?.classList.contains('offline')`, "recovered agent eyes");
   await browser.wait(`document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')?.classList.contains('idle')`, "idle recovered eyes");
   assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--mute)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
-  await page.screenshot({ path: join(args.evidence, "reachable-after-retry.png") });
+  // Item 2ga: a capture of a finished run waits until the page shows it
+  // finished — Stop idle — and two frames have painted, or it races the run.
+  await browser.wait(`document.querySelector('#chat-stop')?.dataset.state === 'idle'`, "run idle before the retry capture");
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await captureWithMasks(page, join(args.evidence, "reachable-after-retry.png"));
   record("model-unreachable-retry-release");
 
   await stopFake();
@@ -1596,7 +1607,7 @@ if (realModel) {
   const presentedSummary = await summaryRow.innerText();
   assert.doesNotMatch(presentedSummary, /Progress note \(auto-summary of earlier turns\):|\[BEGIN COMPACTION EVIDENCE\]/);
   await summaryRow.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: join(args.evidence, "compaction-summary.png") });
+  await captureWithMasks(page, join(args.evidence, "compaction-summary.png"));
   record("compaction-keeps-model-prefix-stable");
 	const compactedSession = (await state()).sessions[sessionID];
 	assert.ok(compactedSession.compaction_count > 0, JSON.stringify(compactedSession));

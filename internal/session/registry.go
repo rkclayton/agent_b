@@ -137,7 +137,7 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		Run: run, ToolsEnabled: tools, ToolCalls: calls, LastSeen: map[string]time.Time{}, CreatedAt: createdAt,
 		Closed: saved.Closed, NamePinned: saved.NamePinned, Messages: append([]events.Message(nil), saved.Messages...), Budget: saved.Budget,
 		LogPath: logPath, Runnable: saved.Runnable, NotRunnableReason: saved.NotRunnableReason,
-		MemoryBlock: saved.MemoryContent, MemoryPath: saved.MemoryPath, AgentMemoryBlock: saved.AgentMemoryContent, AgentMemoryPath: saved.AgentMemoryPath,
+		LoadFolderMemory: r.folderLoader(saved.ServerID), MemoryBlock: saved.MemoryContent, MemoryPath: saved.MemoryPath, AgentMemoryBlock: saved.AgentMemoryContent, AgentMemoryPath: saved.AgentMemoryPath,
 		SchemaTokens: schemaTokens, MarginalTokens: marginalTokens, queuedMessages: saved.QueuedMessages,
 		modelTurns: saved.ModelTurns, compactionCount: saved.CompactionCount, compactionTokenDelta: saved.CompactionTokenDelta,
 		compactionModelCalls: saved.CompactionModelCalls, compactionPrompt: saved.CompactionPrompt, compactionCompletion: saved.CompactionCompletion,
@@ -330,7 +330,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	}
 	memoryBlock, memoryPath := "", ""
 	if r.memory != nil {
-		memoryBlock, memoryPath, err = r.memory(context.Background(), abs, agent.B)
+		memoryBlock, memoryPath, err = r.folderMemory(scratch, abs, agent.B)
 		if err != nil {
 			return nil, err
 		}
@@ -343,7 +343,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 	}
 	settings := r.config()
-	session := &Session{ID: id, Label: label, AgentID: agentID, ServerID: profileID, AgentName: agent.Name, BProfile: profile.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: time.Now().UTC(), LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ServerID: profileID, AgentName: agent.Name, BProfile: profile.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: time.Now().UTC(), LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		session.ProjectTouch = r.projectTouch(session)
 	}
@@ -590,13 +590,13 @@ func (r *Registry) SetServer(id, serverID string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("session is running")
 	}
-	workspace := s.Workspace
+	workspace, scratch := s.Workspace, s.Scratch
 	memoryBlock, memoryPath := s.MemoryBlock, s.MemoryPath
 	s.mu.Unlock()
 
 	if r.memory != nil {
 		var err error
-		memoryBlock, memoryPath, err = r.memory(context.Background(), workspace, serverID)
+		memoryBlock, memoryPath, err = r.folderMemory(scratch, workspace, serverID)
 		if err != nil {
 			return err
 		}
@@ -663,12 +663,12 @@ func (r *Registry) SetAgent(id, agentID string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("session is running")
 	}
-	workspace := s.Workspace
+	workspace, scratch := s.Workspace, s.Scratch
 	s.mu.Unlock()
 	memoryBlock, memoryPath := "", ""
 	if r.memory != nil {
 		var err error
-		memoryBlock, memoryPath, err = r.memory(context.Background(), workspace, profileID)
+		memoryBlock, memoryPath, err = r.folderMemory(scratch, workspace, profileID)
 		if err != nil {
 			return err
 		}
@@ -726,7 +726,7 @@ func (r *Registry) ApplyAgentBinding(agentID string) error {
 		memoryBlock, memoryPath := snapshot.MemoryContent, snapshot.MemoryPath
 		if r.memory != nil {
 			var err error
-			memoryBlock, memoryPath, err = r.memory(context.Background(), snapshot.Workspace, profileID)
+			memoryBlock, memoryPath, err = r.folderMemory(snapshot.Scratch, snapshot.Workspace, profileID)
 			if err != nil {
 				return err
 			}
@@ -793,7 +793,7 @@ func (r *Registry) Reset(id string) (string, error) {
 	s.LogPath = path
 	s.Run = RunState{Status: "idle", MaxTurns: r.maxTurns}
 	if r.memory != nil {
-		block, memoryPath, loadErr := r.memory(context.Background(), s.Workspace, s.ServerID)
+		block, memoryPath, loadErr := r.folderMemory(s.Scratch, s.Workspace, s.ServerID)
 		if loadErr != nil {
 			s.mu.Unlock()
 			return "", loadErr
@@ -937,5 +937,25 @@ func (r *Registry) RefreshRunnable() {
 		}
 		ok, reason := runnable(profile, r.config().Context.Accounting)
 		item.SetRunnable(ok, reason)
+	}
+}
+
+// folderMemory loads a chat's folder memory layer. A scratch folder has no
+// layer of its own (item 2fh): a scratch chat's folder memory is the layers of
+// the plan repositories it writes into, loaded at run start.
+func (r *Registry) folderMemory(scratch bool, workspace, profileID string) (string, string, error) {
+	if scratch || r.memory == nil {
+		return "", "", nil
+	}
+	return r.memory(context.Background(), workspace, profileID)
+}
+
+// folderLoader loads one folder's layer for a chat on profileID.
+func (r *Registry) folderLoader(profileID string) func(string) (string, string, error) {
+	return func(folder string) (string, string, error) {
+		if r.memory == nil {
+			return "", "", nil
+		}
+		return r.memory(context.Background(), folder, profileID)
 	}
 }

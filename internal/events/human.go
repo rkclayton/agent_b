@@ -36,8 +36,16 @@ func HumanNoticeFor(eventType string, data map[string]any) HumanNotice {
 				Actions:       []string{"Continue", "Stop"},
 			}
 		}
+		happened := fmt.Sprintf("%s needs your approval before it can continue.", name)
+		// A card that crosses the folder or identity boundary says why
+		// (v0.69.0/W12 cold review: the reason was only in collapsed detail).
+		if args, ok := data["args"].(map[string]any); ok && data["boundary_escape"] == true {
+			if reason := textValue(args["reason"], ""); reason != "" {
+				happened = fmt.Sprintf("%s needs your approval before it can continue: %s.", name, strings.TrimSuffix(reason, "."))
+			}
+		}
 		return HumanNotice{
-			Happened:      fmt.Sprintf("%s needs your approval before it can continue.", name),
+			Happened:      happened,
 			HarnessAction: "The harness paused before running the action.",
 			Question:      "Allow this action?",
 			Actions:       []string{"Yes, for this chat", "Just once", "No"},

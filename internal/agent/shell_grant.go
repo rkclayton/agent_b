@@ -200,6 +200,11 @@ func (r *Runner) grantIdentityChat(sessionID, runID string) {
 	r.identityChatGrants[sessionID] = runID
 }
 
+// outsideFolderChatGrant is "Yes, for this chat" on the outside-folder card
+// with no service identity: later outside-folder calls in the chat run without
+// asking. It lapses with the chat's other grants.
+const outsideFolderChatGrant = "outside_folder"
+
 func (r *Runner) hasPolicyChatGrant(sessionID, name string) bool {
 	r.policyGrantMu.Lock()
 	defer r.policyGrantMu.Unlock()

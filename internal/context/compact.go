@@ -100,7 +100,10 @@ func idNumber(id string) (int64, bool) {
 	for start > 0 && id[start-1] >= '0' && id[start-1] <= '9' {
 		start--
 	}
-	if start == end || start == 0 || id[start-1] != '-' {
+	// More than fifteen digits is no id this harness minted; reading it would
+	// wrap int64 and move the re-mint floor below every real id (v0.69.0/W12
+	// cold review).
+	if start == end || start == 0 || id[start-1] != '-' || end-start > 15 {
 		return 0, false
 	}
 	var value int64

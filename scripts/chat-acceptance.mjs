@@ -1950,12 +1950,18 @@ if (realModel) {
   await page.locator("#plan-build-yes").click();
   await page.waitForURL((url) => url.pathname === "/chat" && !!url.searchParams.get("session"));
   await page.locator("#chat-task").waitFor({ state: "visible" });
-  await browser.wait(`document.querySelector('#chat-task')?.value.includes('draft its plan')`, "the build request waits in the composer");
+  // v0.70.1 overrule: Yes sends the fixed opening request — one user message,
+  // that request, and nothing else in the operator's name; the composer is empty.
+  await waitEvent(null, (event) => event.type === "message.appended" && event.data?.message?.role === "user" && String(event.data?.message?.content || "").includes("draft its plan"), "the opening request sent on Yes", 20000);
   const planner = Object.values((await state()).sessions).find((entry) => entry.role === "d" && entry.plan_id === createdPlan.id);
   assert.ok(planner, "Yes did not open a planning chat bound to the plan");
-  assert.equal((planner.messages || []).filter((message) => message.role === "user").length, 0, "the harness sent a message in the operator's name");
-  await page.locator("#chat-task").fill("");
-  record("plan-flyout-add-folder-build-prompt");
+  const opening = (planner.messages || []).filter((message) => message.role === "user");
+  assert.equal(opening.length, 1, "Yes sends exactly one message");
+  assert.match(opening[0].content, /draft its plan/);
+  assert.equal(await page.locator("#chat-task").inputValue(), "", "the request was sent, not left in the composer");
+  // Its run holds the shared profile; the queue scenario below starts after it.
+  await waitEvent(planner.id, (event) => event.type === "run.stopped", "the planning chat's opening run finished", 30000);
+  record("plan-flyout-add-folder-build-prompt-yes-sends");
 
   // Item 2fc: runs queue per model profile. While one chat holds the profile,
   // another waits with the role it is behind, and Go refuses with the reason.

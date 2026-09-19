@@ -205,26 +205,23 @@ function Test-PathInside {
     param([string]$Child, [string]$Parent)
     return $Child.StartsWith($Parent.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
 }
-if ($application.Equals($data, [StringComparison]::OrdinalIgnoreCase) -or
-    $application.Equals($workspace, [StringComparison]::OrdinalIgnoreCase) -or
-    $application.Equals($exchange, [StringComparison]::OrdinalIgnoreCase) -or
-    $data.Equals($workspace, [StringComparison]::OrdinalIgnoreCase) -or
-    $data.Equals($exchange, [StringComparison]::OrdinalIgnoreCase) -or
-    $workspace.Equals($exchange, [StringComparison]::OrdinalIgnoreCase) -or
-    (Test-PathInside -Child $application -Parent $data) -or
-    (Test-PathInside -Child $data -Parent $application) -or
-    (Test-PathInside -Child $exchange -Parent $application) -or
-    (Test-PathInside -Child $workspace -Parent $application) -or
-    (Test-PathInside -Child $workspace -Parent $data) -or
-    (Test-PathInside -Child $exchange -Parent $data) -or
-    (Test-PathInside -Child $application -Parent $workspace) -or
-    (Test-PathInside -Child $data -Parent $workspace) -or
-    (Test-PathInside -Child $exchange -Parent $workspace) -or
-    (Test-PathInside -Child $application -Parent $exchange) -or
-    (Test-PathInside -Child $data -Parent $exchange) -or
-    (Test-PathInside -Child $workspace -Parent $exchange)) {
-    [Console]::Error.WriteLine('Application, operator-data, workspace, and exchange directories must be disjoint trees.')
-    exit 1
+# Item 2fe: since 2dw a fresh install's workspace is the scratch root inside the
+# data tree. That is by design: scratch is part of the operator-data tree and is
+# granted Modify below as the scratch folder, so it is not a fourth tree and is
+# not granted a second time as a legacy workspace. A legacy workspace (anywhere
+# else) is still a tree of its own and must be disjoint from the others.
+$workspaceIsScratch = $workspace.Equals($scratch, [StringComparison]::OrdinalIgnoreCase) -or (Test-PathInside -Child $workspace -Parent $scratch)
+$trees = @($application, $data, $exchange)
+if (-not $workspaceIsScratch) { $trees += $workspace }
+for ($left = 0; $left -lt $trees.Count; $left++) {
+    for ($right = $left + 1; $right -lt $trees.Count; $right++) {
+        if ($trees[$left].Equals($trees[$right], [StringComparison]::OrdinalIgnoreCase) -or
+            (Test-PathInside -Child $trees[$left] -Parent $trees[$right]) -or
+            (Test-PathInside -Child $trees[$right] -Parent $trees[$left])) {
+            [Console]::Error.WriteLine('Application, operator-data, workspace, and exchange directories must be disjoint trees.')
+            exit 1
+        }
+    }
 }
 
 $denyRights = [Security.AccessControl.FileSystemRights]::WriteData `
@@ -290,7 +287,9 @@ if (-not (Test-Path -LiteralPath $scratch -PathType Container) -and -not $WhatIf
 }
 $targets += [pscustomobject]@{ Path = $scratch; Rights = $allowRights; Inheritance = $recursive; Type = $allow; Intent = 'grant scratch-folder Modify' }
 
-if (-not (Test-Path -LiteralPath $workspace -PathType Container) -and -not $WhatIfPreference) {
+if ($workspaceIsScratch) {
+	Write-Host "Workspace is the scratch folder; its ACL is the scratch grant: $workspace"
+} elseif (-not (Test-Path -LiteralPath $workspace -PathType Container) -and -not $WhatIfPreference) {
 	Write-Host "Legacy workspace is absent; no workspace ACL is required: $workspace"
 } elseif (Test-Path -LiteralPath $workspace -PathType Container) {
 	$targets += [pscustomobject]@{ Path = $workspace; Rights = $allowRights; Inheritance = $recursive; Type = $allow; Intent = 'grant legacy workspace Modify' }

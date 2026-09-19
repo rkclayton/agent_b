@@ -77,7 +77,7 @@ func TestNewChatAfterRestartCarriesNothingFromARetainedChat(t *testing.T) {
 	}, nil, nil)
 	secondRegistry := session.NewRegistry(secondBus, secondWriters, profiles, 40, func() config.Config { return cfg })
 	secondRegistry.SetPlansRoot(filepath.Join(root, "plans"))
-	restored, err := restoreRetainedChats(secondWriters, secondRegistry)
+	restored, _, err := restoreRetainedChats(secondWriters, secondRegistry, secondBus, 0)
 	if err != nil || len(restored) != 1 || len(restored[0].Snapshot().Messages) != 3 {
 		t.Fatalf("restore: %d chats, err %v", len(restored), err)
 	}

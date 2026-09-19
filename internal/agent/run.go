@@ -233,6 +233,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	lengthSeen := false
 	truncatedToolRetry := ""
 	accountingRepairTried := false
+	templateRetryTried := false
 	softLineChecked := false
 	guards := newRunGuards(runCfg.CycleWindow, runCfg.MaxConsecutiveToolErrors)
 	currentReasoning := map[string]bool{}
@@ -279,9 +280,10 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			system = r.prompt.RenderMemoryParts(profile, s, toolNames, s.ProjectBlock, s.MemoryBlock, s.AgentMemoryBlock)
 			messages := []llm.Message{{Role: "system", Content: system}}
 			requestRecords := make([]events.Message, 0, len(records))
+			current := runningTurnIDs(records, s.RunPin())
 			for _, message := range records {
 				if isHarnessAbortRecord(message) {
-					messages = append(messages, requestMessage(profile, s, message))
+					messages = append(messages, requestMessageAt(profile, s, message, current[message.ID]))
 					requestRecords = append(requestRecords, message)
 				}
 			}
@@ -289,13 +291,16 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				if isHarnessAbortRecord(message) {
 					continue
 				}
-				converted := requestMessage(profile, s, message)
+				converted := requestMessageAt(profile, s, message, current[message.ID])
 				if profile.Reasoning.Preserve && currentReasoning[message.ID] {
 					converted.ReasoningContent = message.Reasoning
 				}
 				messages = append(messages, converted)
 				requestRecords = append(requestRecords, message)
 			}
+			// Item 2fd rule 1: the list is checked before it is measured or sent.
+			conversation, repairedRecords, _ := normalizeAdjacentAssistants(messages[1:], requestRecords)
+			messages, requestRecords = append(messages[:1:1], conversation...), repairedRecords
 			request = llm.Request{Messages: messages, Tools: schemas, ToolChoice: "auto", Thinking: profile.Reasoning.Enabled}
 			if truncatedToolRetry != "" {
 				request.ToolChoice = map[string]any{"type": "function", "function": map[string]any{"name": truncatedToolRetry}}
@@ -327,6 +332,14 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			r.operationalError(s, runID, "budget", budgetErr)
 			if !accountingRepairTried && r.repairMalformedToolCall(ctx, s, runID, profile, currentReasoning) {
 				accountingRepairTried = true
+				turn--
+				continue
+			}
+			// Item 2fd rule 2: a refused template is repaired and tried once more;
+			// only a second refusal stops the run, with its reason. The list is
+			// normalised on every assembly, so the retry reassembles it.
+			if !templateRetryTried && templateRefused(budgetErr) {
+				templateRetryTried = true
 				turn--
 				continue
 			}
@@ -1027,13 +1040,15 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Profile, s *sessi
 	system := r.prompt.RenderMemoryParts(p, s, toolNames, s.ProjectBlock, s.MemoryBlock, s.AgentMemoryBlock)
 	records := s.MessagesCopy()
 	messages := make([]llm.Message, 0, len(records))
+	current := runningTurnIDs(records, s.RunPin())
 	for _, message := range records {
-		converted := requestMessage(p, s, message)
+		converted := requestMessageAt(p, s, message, current[message.ID])
 		if p.Reasoning.Preserve && currentReasoning != nil && currentReasoning[message.ID] {
 			converted.ReasoningContent = message.Reasoning
 		}
 		messages = append(messages, converted)
 	}
+	messages, records, _ = normalizeAdjacentAssistants(messages, records)
 	return r.budget.Measure(ctx, p, s, r.cfg().Context, budgetInput{SystemBase: base, SystemProject: project, SystemWorkspaceMemory: workspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(p, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages, Records: records}, mark)
 }
 
@@ -1063,7 +1078,7 @@ func (r *Runner) compactAfterTurn(ctx context.Context, s *session.Session, runID
 		return changed
 	}
 	if shouldBatchElide(budget.UsedEst, budget.Ceiling, cfg.Context, r.budget.ColdPrefill(s.ID)) {
-		did, _ := r.compact.ElideOld(s, runID, "soft_pct", budget.UsedEst, int(float64(budget.Ceiling)*.60), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
+		did, _ := r.compact.ElideOldWindow(s, runID, "soft_pct", budget.UsedEst, int(float64(budget.Ceiling)*.60), contextWindow(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
 		changed = changed || did
 		if did {
 			budget, err = r.measureSession(ctx, p, s, current, false)
@@ -1114,7 +1129,7 @@ func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID str
 	cfg := r.cfg()
 	readDefaultLimit := min(cfg.Tools.ReadFile.DefaultLimit, cfg.Tools.ReadFile.MaxLimit)
 	ctx = withCompactionTrigger(ctx, "overflow")
-	changed, _ := r.compact.ElideOld(s, runID, "overflow", budget.UsedEst, int(float64(budget.Ceiling)*.60), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
+	changed, _ := r.compact.ElideOldWindow(s, runID, "overflow", budget.UsedEst, int(float64(budget.Ceiling)*.60), contextWindow(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
 	next, err := r.measureSession(ctx, p, s, current, false)
 	if err != nil {
 		r.operationalError(s, runID, "compaction_budget", err)

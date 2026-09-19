@@ -38,7 +38,8 @@ func pinIndex(messages []events.Message, pin string) int {
 }
 
 // RecentToolWindow is how many of the newest tool results elision keeps
-// verbatim, inside the running turn or not (item 2et).
+// verbatim inside the running turn (item 2et; item 2fd made the window the
+// running turn rather than a count across turns).
 const RecentToolWindow = 4
 
 func pinPresent(messages []events.Message, pin string) bool {
@@ -55,23 +56,90 @@ func pinPresent(messages []events.Message, pin string) bool {
 // retained chat is restored in: the JSONL keeps the bytes, the next request
 // carries only what the last turn read (item 2et).
 func StubOlderResults(messages []events.Message, readDefaultLimit int) []events.Message {
-	lastUser := -1
-	for index, message := range messages {
-		if message.Role == "user" {
-			lastUser = index
+	return StubResultsBefore(messages, "", readDefaultLimit)
+}
+
+// StubResultsBefore is StubOlderResults anchored on the newest user message the
+// journal names (item 2fd rule 3), surviving or not: every tool result whose id
+// is older than anchor comes back as a stub. Message ids are minted in order, so
+// age is the id's number, which holds when the anchor itself was folded into a
+// summary. An anchor that is empty or not numbered falls back to the last user
+// message present.
+func StubResultsBefore(messages []events.Message, anchor string, readDefaultLimit int) []events.Message {
+	older := func(int) bool { return false }
+	if limit, ok := idNumber(anchor); ok {
+		older = func(index int) bool {
+			value, ok := idNumber(messages[index].ID)
+			return ok && value < limit
 		}
+	} else {
+		lastUser := -1
+		for index, message := range messages {
+			if message.Role == "user" {
+				lastUser = index
+			}
+		}
+		older = func(index int) bool { return index < lastUser }
 	}
 	out := append([]events.Message(nil), messages...)
 	estimate := func(text string) (int, bool) { return (len([]rune(text))*10 + 35) / 36, true }
-	for index := 0; index < lastUser; index++ {
+	for index := range out {
 		item := out[index]
-		if item.Role != "tool" || item.Elided || (item.Category != "files" && item.Category != "results" && item.Category != "fetched") {
+		if !older(index) || item.Role != "tool" || item.Elided || (item.Category != "files" && item.Category != "results" && item.Category != "fetched") {
 			continue
 		}
 		call, _ := callFor(out, item.ToolCallID)
 		out[index] = elide(item, call.Arguments, readDefaultLimit, estimate)
 	}
 	return out
+}
+
+// idNumber is the trailing number of a message id ("m-42" is 42).
+func idNumber(id string) (int64, bool) {
+	end, start := len(id), len(id)
+	for start > 0 && id[start-1] >= '0' && id[start-1] <= '9' {
+		start--
+	}
+	if start == end || start == 0 || id[start-1] != '-' {
+		return 0, false
+	}
+	var value int64
+	for _, digit := range id[start:end] {
+		value = value*10 + int64(digit-'0')
+	}
+	return value, true
+}
+
+// Remint is one duplicate message id given a new one on restore.
+type Remint struct {
+	Index int    `json:"index"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+}
+
+// RemintDuplicateIDs gives every later copy of a repeated message id a new id
+// above floor (item 2fd rule 7), so a pin, a compaction or a weight cache can
+// never resolve to the wrong message. The first copy keeps its id. It returns
+// the messages, what changed, and the new floor.
+func RemintDuplicateIDs(messages []events.Message, floor int64) ([]events.Message, []Remint, int64) {
+	seen := map[string]bool{}
+	out := append([]events.Message(nil), messages...)
+	changes := []Remint{}
+	for index, message := range out {
+		if message.ID == "" {
+			continue
+		}
+		if !seen[message.ID] {
+			seen[message.ID] = true
+			continue
+		}
+		floor++
+		to := fmt.Sprintf("m-%d", floor)
+		changes = append(changes, Remint{Index: index, From: message.ID, To: to})
+		out[index].ID = to
+		seen[to] = true
+	}
+	return out, changes, floor
 }
 
 // atomicFoldEnd pulls a summarize span back so no tool call is folded while its
@@ -149,6 +217,17 @@ func eligibleOldElision(message events.Message) bool {
 // then the running turn's own, so one pass on a small window frees the most;
 // trigger names what asked for the pass and is recorded on the compaction event.
 func (c *Compactor) ElideOld(s *session.Session, runID, trigger string, used, target, readDefaultLimit int, count Counter) (bool, int) {
+	return c.ElideOldWindow(s, runID, trigger, used, target, 0, readDefaultLimit, count)
+}
+
+// ElideOldWindow is ElideOld with the context window known (item 2fd rule 4).
+// The recent window is a turn, not a message count: only the running turn —
+// its user message (the pin) onward — is protected, and inside it the newest
+// RecentToolWindow results (2et's in-turn rule). Results of earlier turns are
+// eligible however recent, and a single result larger than a quarter of window
+// is eligible once the model has answered after it. window 0 disables that
+// last clause. With no run in flight the whole history is touchable.
+func (c *Compactor) ElideOldWindow(s *session.Session, runID, trigger string, used, target, window, readDefaultLimit int, count Counter) (bool, int) {
 	messages := s.MessagesCopy()
 	toolIndexes := []int{}
 	for index, item := range messages {
@@ -156,8 +235,23 @@ func (c *Compactor) ElideOld(s *session.Session, runID, trigger string, used, ta
 			toolIndexes = append(toolIndexes, index)
 		}
 	}
+	running := pinIndex(messages, s.RunPin())
+	answered := func(index int) bool {
+		for later := index + 1; later < len(messages); later++ {
+			if messages[later].Role == "assistant" {
+				return true
+			}
+		}
+		return false
+	}
 	skip := map[int]bool{}
 	for _, index := range toolIndexes[max(0, len(toolIndexes)-RecentToolWindow):] {
+		if index < running {
+			continue
+		}
+		if window > 0 && messages[index].Tokens > window/4 && answered(index) {
+			continue
+		}
 		skip[index] = true
 	}
 	// Item 2et: the running turn's user message and the model's own messages are
@@ -220,12 +314,28 @@ func (c *Compactor) ElideOld(s *session.Session, runID, trigger string, used, ta
 // the caller can build the note's header and prompt from the same messages that
 // are about to disappear. It is a pure read of the session.
 func SummarizeSpan(messages []events.Message, pin string) (int, bool) {
+	return foldBoundary(messages, pin)
+}
+
+// foldBoundary is the exclusive end of the span a summarize folds. It starts at
+// the earlier of the retention window and the run pin and retreats far enough
+// that no folded tool call loses its kept result. Item 2fd rule 1: it then
+// advances to the next user message, so the note — an assistant message — is
+// never followed by another assistant message, which a chat template refuses at
+// the end of any measured prefix. The pin is itself a user message, so the
+// advance never enters the running turn; with no pin and no later user message
+// the span runs to the end of the list.
+func foldBoundary(messages []events.Message, pin string) (int, bool) {
 	if len(messages) <= 7 {
 		return 0, false
 	}
-	foldEnd := atomicFoldEnd(messages, min(max(1, len(messages)-6), pinIndex(messages, pin)))
+	limit := pinIndex(messages, pin)
+	foldEnd := atomicFoldEnd(messages, min(max(1, len(messages)-6), limit))
 	if foldEnd <= 1 {
 		return 0, false
+	}
+	for foldEnd < limit && foldEnd < len(messages) && messages[foldEnd].Role != "user" {
+		foldEnd++
 	}
 	return foldEnd, true
 }
@@ -235,11 +345,8 @@ func (c *Compactor) Summarize(s *session.Session, runID string, summary events.M
 	if len(messages) <= 7 {
 		return false
 	}
-	// The span ends at the earlier of the retention window and the run pin, then
-	// retreats far enough that no folded tool call loses its kept result.
-	foldEnd := min(max(1, len(messages)-6), pinIndex(messages, s.RunPin()))
-	foldEnd = atomicFoldEnd(messages, foldEnd)
-	if foldEnd <= 1 {
+	foldEnd, ok := foldBoundary(messages, s.RunPin())
+	if !ok {
 		source.Outcome = "rejected"
 		source.Reason = "nothing outside the running turn left to summarize"
 		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))

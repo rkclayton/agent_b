@@ -16,6 +16,13 @@ import (
 )
 
 func renderedUserText(profile *config.Profile, s *session.Session, message events.Message) string {
+	return renderedUserTextAt(profile, s, message, true)
+}
+
+// renderedUserTextAt renders a user message's text and attachment lines. inline
+// is false once the message's turn has ended (item 2fd rule 6): a native image
+// or PDF is then named, not re-sent, and the line says how to see it again.
+func renderedUserTextAt(profile *config.Profile, s *session.Session, message events.Message, inline bool) string {
 	lines := make([]string, 0, len(message.Attachments)+1)
 	if message.Content != "" {
 		lines = append(lines, message.Content)
@@ -35,6 +42,8 @@ func renderedUserText(profile *config.Profile, s *session.Session, message event
 			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — extracted text: %s (untrusted:true) — read it with read_file", item.Path, item.Bytes, sidecar))
 		case kind == attachmentfile.Image && hasSidecar:
 			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — OCR text: %s (untrusted:true; layout not preserved) — read it with read_file", item.Path, item.Bytes, sidecar))
+		case nativeAttachment(profile, kind) && !inline:
+			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — shown in an earlier turn and not re-sent; ask the operator to re-attach it to see it again", item.Path, item.Bytes))
 		case kind == attachmentfile.PDF && profile.NativeDocumentInput():
 			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — included inline in this message", item.Path, item.Bytes))
 		case kind == attachmentfile.Image && profile.NativeImageInput():
@@ -49,11 +58,18 @@ func renderedUserText(profile *config.Profile, s *session.Session, message event
 }
 
 func requestMessage(profile *config.Profile, s *session.Session, message events.Message) llm.Message {
-	content := any(renderedUserText(profile, s, message))
+	return requestMessageAt(profile, s, message, true)
+}
+
+// requestMessageAt converts a stored message for a request. inline says whether
+// the message belongs to the running turn; only then are native attachment
+// parts sent (item 2fd rule 6).
+func requestMessageAt(profile *config.Profile, s *session.Session, message events.Message, inline bool) llm.Message {
+	content := any(renderedUserTextAt(profile, s, message, inline))
 	parts := []any{}
 	for _, item := range message.Attachments {
 		kind := attachmentKind(item)
-		if item.Outcome != "" || !nativeAttachment(profile, kind) {
+		if !inline || item.Outcome != "" || !nativeAttachment(profile, kind) {
 			continue
 		}
 		resolved, err := tools.Resolve(s.Workspace, item.Path)
@@ -126,9 +142,16 @@ func nativeAttachmentBudget(profile *config.Profile) int64 {
 	return int64(max(0, profile.Context.NCtx-profile.Context.ReserveOutput))
 }
 
+// remainingNativeAttachmentBudget counts only the trailing user messages, the
+// ones that will share the next turn: older native parts are not re-sent (item
+// 2fd rule 6).
 func remainingNativeAttachmentBudget(profile *config.Profile, messages []events.Message) int64 {
 	remaining := nativeAttachmentBudget(profile)
-	for _, message := range messages {
+	start := len(messages)
+	for start > 0 && messages[start-1].Role == "user" {
+		start--
+	}
+	for _, message := range messages[start:] {
 		for _, item := range message.Attachments {
 			if item.Outcome == "" && nativeAttachment(profile, attachmentKind(item)) {
 				remaining = max(int64(0), remaining-nativeAttachmentEncodedUpperBound(item))
@@ -183,4 +206,72 @@ func diagnosticMessages(messages []llm.Message) []llm.Message {
 		result[index].Content = strings.Join(textParts, "\n")
 	}
 	return result
+}
+
+// runningTurnIDs are the messages of the running turn: its pin (the first of
+// the trailing user messages) and everything after it. No run in flight means
+// no running turn.
+func runningTurnIDs(records []events.Message, pin string) map[string]bool {
+	ids := map[string]bool{}
+	if pin == "" {
+		return ids
+	}
+	found := false
+	for _, message := range records {
+		if message.ID == pin {
+			found = true
+		}
+		if found {
+			ids[message.ID] = true
+		}
+	}
+	return ids
+}
+
+// normalizeAdjacentAssistants folds an assistant message that is followed by
+// another assistant message into the later one, for the request only (item 2fd
+// rule 1). A chat template refuses a list that ends in two assistant messages,
+// and the budget measures every prefix, so one adjacent pair anywhere refuses
+// every request; the session keeps both messages. It returns how many folds it
+// made.
+func normalizeAdjacentAssistants(messages []llm.Message, records []events.Message) ([]llm.Message, []events.Message, int) {
+	if len(messages) != len(records) {
+		return messages, records, 0
+	}
+	outMessages := make([]llm.Message, 0, len(messages))
+	outRecords := make([]events.Message, 0, len(records))
+	folds := 0
+	for index, message := range messages {
+		last := len(outMessages) - 1
+		if last >= 0 && message.Role == "assistant" && outMessages[last].Role == "assistant" && len(outMessages[last].ToolCalls) == 0 {
+			earlier, earlierOK := outMessages[last].Content.(string)
+			later, laterOK := message.Content.(string)
+			if earlierOK && laterOK {
+				merged := message
+				merged.Content = strings.TrimSpace(earlier + "\n\n" + later)
+				outMessages[last] = merged
+				outRecords[last] = records[index]
+				folds++
+				continue
+			}
+		}
+		outMessages = append(outMessages, message)
+		outRecords = append(outRecords, records[index])
+	}
+	return outMessages, outRecords, folds
+}
+
+// templateRefused reports an apply-template refusal: the server answered, and
+// refused the list it was given.
+func templateRefused(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "apply-template HTTP 4")
+}
+
+// contextWindow is the model's context window for item 2fd rule 4's
+// quarter-window test: n_ctx when known, else the ceiling.
+func contextWindow(budget events.Budget) int {
+	if budget.NCtx > 0 {
+		return budget.NCtx
+	}
+	return budget.Ceiling
 }

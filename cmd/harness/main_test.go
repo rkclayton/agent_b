@@ -58,7 +58,7 @@ func TestRetainedChatsRestoreWithoutOperationalLogsAndDeleteExplicitly(t *testin
 	secondBus := events.NewBus()
 	secondBus.SetDurableSink(secondWriters.WriteRecord, nil, nil)
 	secondRegistry := session.NewRegistry(secondBus, secondWriters, profiles, 40, func() config.Config { return cfg })
-	restored, err := restoreRetainedChats(secondWriters, secondRegistry)
+	restored, _, err := restoreRetainedChats(secondWriters, secondRegistry, secondBus, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestRestoreRetainedChatsBootstrapsNewestLegacyOperationalGeneration(t *test
 	secondBus := events.NewBus()
 	secondBus.SetDurableSink(secondWriters.WriteRecord, nil, nil)
 	secondRegistry := session.NewRegistry(secondBus, secondWriters, profiles, 40, func() config.Config { return cfg })
-	restored, err := restoreRetainedChats(secondWriters, secondRegistry)
+	restored, _, err := restoreRetainedChats(secondWriters, secondRegistry, secondBus, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -541,6 +541,19 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 				}
 			}
 		}
+	case events.MessagesReminted:
+		// Item 2fd rule 7: restore gave later copies of a repeated id new ids.
+		// Each change names its position, so only that copy is renamed, and a
+		// replay applies it once and never needs it again.
+		next.Messages = cloneMessages(next.Messages)
+		changes, _ := data["reminted"].([]any)
+		for _, raw := range changes {
+			change := eventMap(raw)
+			index := intValue(change["index"])
+			if index >= 0 && index < len(next.Messages) && next.Messages[index].ID == stringValue(change["from"]) {
+				next.Messages[index].ID = stringValue(change["to"])
+			}
+		}
 	case events.MessageRemoved:
 		id := stringValue(data["id"])
 		next.Messages = cloneMessages(next.Messages)

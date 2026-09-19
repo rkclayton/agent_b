@@ -98,7 +98,7 @@ func newCardRig(t *testing.T) *cardRig {
 	if rig.a == nil || rig.b == nil {
 		t.Fatal("sessions were not created")
 	}
-	rig.runner = NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, lookup, current)
+	rig.runner = NewRunner(bus, tools.New(tools.NewListDir(cfg.Tools.ListDir)), &PromptRenderer{text: "system"}, lookup, current)
 	rig.scheduler = NewScheduler(rig.runner, registry, bus, current)
 	return rig
 }

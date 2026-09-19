@@ -121,6 +121,15 @@ func TestTheRoutingGuardInterceptsReadsNotDirectoryChanges(t *testing.T) {
 		{`cd C:\Windows; type win.ini`, "card"},
 		{`Set-Location C:\Windows; Get-Content .\win.ini`, "card"},
 		{`[System.IO.File]::ReadAllText('C:\Windows\win.ini')`, "card"},
+		// v1.0.0/W4 cold review: cmd's bare & joins a read to a cd, and
+		// relative reads after a cd through verbs the first list missed.
+		{`cd /d C:\ & type C:\Windows\win.ini`, "card"},
+		{`cd /d C:\Windows & more win.ini`, "card"},
+		{`Set-Location C:\Windows; certutil -encode win.ini CON`, "card"},
+		{`cd C:\Windows; robocopy . C:\elsewhere win.ini`, "card"},
+		{`cd C:\Windows; [System.IO.StreamReader]::new('win.ini').ReadToEnd()`, "card"},
+		{`cd C:\Windows; iex (Get-Item win.ini)`, "card"},
+		{`pushd C:\Windows && cmd /c type win.ini`, "card"},
 		{`type C:\nope-2fz\missing.txt`, "missing"},
 		{`Get-Content C:\nope-2fz\missing.txt`, "missing"},
 	} {

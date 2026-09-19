@@ -5,9 +5,14 @@
 // scripts/screenshot-gate.mjs blanks them in both images before comparing and
 // reports every capture whose difference lay only inside them as masked.
 export const LIVE_VALUES = [
-  { name: "duration", reason: "elapsed and wall times (ms, s) are measured each run", selector: "body", pattern: String.raw`\b\d[\d,]*(?:\.\d+)?\s?(?:ms|s)\b` },
+  // The app writes a duration as a number, a space, then ms or s ("67 ms",
+  // "5.2 s"); prose such as "3s" or "1990s" is not one (v1.0.0/W4 cold review).
+  { name: "duration", reason: "elapsed and wall times (ms, s) are measured each run", selector: "body", pattern: String.raw`(?<![\w.,])\d[\d,]*(?:\.\d+)? (?:ms|s)\b` },
   { name: "timestamp", reason: "ISO times of last use are the clock's", selector: "body", pattern: String.raw`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z` },
-  { name: "acceptance-folder", reason: "each run's temporary folder name carries a fresh GUID", selector: "body", pattern: String.raw`Agent_b-chat-acceptance-[0-9a-f]{1,32}|[0-9a-f]{32}` },
+  // The GUID is set in proportional type, so what follows it reflows with its
+  // width, even onto the next line: this mask alone runs from the GUID to the
+  // end of its text, each line to the right edge of the element holding it.
+  { name: "acceptance-folder", reason: "each run's temporary folder name carries a fresh GUID", selector: "body", pattern: String.raw`Agent_b-chat-acceptance-[0-9a-f]{1,32}`, restOfText: true },
   { name: "sandbox-name", reason: "the shell's sandbox is named per run", selector: "body", pattern: String.raw`sandbox agentb-[0-9a-f]+` },
   // Not a live value: two runs of one build (v1.0.0/W2 captures k and l)
   // antialias the composer text box's bottom corners a level or two apart, 2 by 2
@@ -28,8 +33,7 @@ export const OTHER_CHAT_STATE = { name: "other-chat-state", reason: "another cha
 // its matching text (or of its elements when it has no pattern), each clipped
 // to every element around it that clips its overflow, so an ellipsised or
 // scrolled-away value masks only what is visible, and text that overflows a
-// box that does not clip is still masked where it shows. A text match extends
-// to the end of its line in the element holding it.
+// box that does not clip is still masked where it shows.
 function liveValueRects(specs) {
   const clipOf = (element) => {
     let box = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
@@ -79,11 +83,11 @@ function liveValueRects(specs) {
           if (!match[0]) { pattern.lastIndex++; continue; }
           const range = document.createRange();
           range.setStart(text, match.index);
-          range.setEnd(text, match.index + match[0].length);
-          // In proportional type a value of another width moves what follows
-          // it on its line, so a text mask runs to the end of that line within
-          // the element holding it.
-          const box = clipOf(holder), end = holder.getBoundingClientRect().right;
+          range.setEnd(text, spec.restOfText ? text.data.length : match.index + match[0].length);
+          // A restOfText mask runs from the match to the end of its text, each
+          // line to the right edge of the element holding it; any other covers
+          // the matched text only.
+          const box = clipOf(holder), end = spec.restOfText ? holder.getBoundingClientRect().right : -Infinity;
           for (const r of range.getClientRects()) { const c = clipped({ left: r.left, top: r.top, right: Math.max(r.right, end), bottom: r.bottom }, box); if (c) rects.push(c); }
         }
       }

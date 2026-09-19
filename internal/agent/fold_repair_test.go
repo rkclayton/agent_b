@@ -488,15 +488,25 @@ func TestS7RestoreRunsTestWithUniqueIDs(t *testing.T) {
 	}
 	reason, detail, _ := runner.Run(context.Background(), item, "r-test")
 	inline, stubs := 0, 0
-	for _, message := range item.MessagesCopy() {
+	kept := []string{}
+	anchor := -1
+	for index, message := range restored {
+		if message.ID == "m-3" {
+			anchor = index
+		}
+	}
+	for index, message := range item.MessagesCopy() {
 		if message.Category == "files" {
 			if message.Elided {
 				stubs++
 			} else {
 				inline++
+				// v0.70.2/W5 (2fd residual): name what keeps its bytes.
+				kept = append(kept, fmt.Sprintf("%s(%s %d tokens, index %d, anchor m-3 at %d)", message.ID, message.Name, message.Tokens, index, anchor))
 			}
 		}
 	}
+	t.Logf("s7 20:01 inline files results: %v", kept)
 	var firstRequest events.Budget
 	for _, event := range bus.Recent(item.ID) {
 		if event.Type == events.BudgetEvent && firstRequest.Ceiling == 0 {

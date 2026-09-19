@@ -102,8 +102,14 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	// folder raises the same operator decision as read_file (the walk read
 	// C:Windowswin.ini through [System.IO.File] with no card).
 	if !forceOperator && !cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
-		if reason := outsideReadReason(source, item); reason != "" {
-			return CallDetail{Content: "script was not started: " + reason, OperatorOverrideReason: reason}
+		// Item 2fz: directory changes and listings run; an existing outside
+		// read raises the card; a missing one is a plain error.
+		decision := outsideCommandDecision(source, item)
+		if decision.card != "" {
+			return CallDetail{Content: "script was not started: " + decision.card, OperatorOverrideReason: decision.card}
+		}
+		if decision.missing != "" {
+			return CallDetail{Err: fmt.Errorf("script was not started: %s; there is nothing for the operator to allow — check the path, or use a file inside your folder", decision.missing)}
 		}
 	}
 	timeout := number(args["timeout_s"], cfg.TimeoutS)

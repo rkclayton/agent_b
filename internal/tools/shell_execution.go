@@ -150,8 +150,14 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	// folder raises the same operator decision as read_file, so a file cannot be
 	// read around the card.
 	if !forceOperator && !cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
-		if reason := outsideReadReason(command, item); reason != "" {
-			return CallDetail{Content: "command was not started: " + reason, OperatorOverrideReason: reason}
+		// Item 2fz: directory changes and listings run; an existing outside
+		// read raises the card; a missing one is a plain error.
+		decision := outsideCommandDecision(command, item)
+		if decision.card != "" {
+			return CallDetail{Content: "command was not started: " + decision.card, OperatorOverrideReason: decision.card}
+		}
+		if decision.missing != "" {
+			return CallDetail{Err: fmt.Errorf("command was not started: %s; there is nothing for the operator to allow — check the path, or use a file inside your folder", decision.missing)}
 		}
 	}
 	if !forceOperator && cfg.ServiceAccount.Enabled && !cfg.OperatorContext {

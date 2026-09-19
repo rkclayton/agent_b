@@ -16,10 +16,8 @@ import (
 // Item 2fy, v0.71.0/W1. read_file on a path outside the folder that does not
 // exist answers with a tool error naming the boundary and raises no card; the
 // run goes on. The eval's two miss tapes (v0.70.2/W10) were shell commands
-// naming invented paths; the file tools' change does not reach the shell's
-// literal-path check, and this test records that they still raise the card
-// (the contract's @touches names only the file tools — carded, not changed).
-func TestAMissingOutsideReadRaisesNoCardAndTheTapesStillDo(t *testing.T) {
+// changing directory to invented paths; since item 2fz they raise no card.
+func TestAMissingOutsideReadRaisesNoCardAndNeitherDoTheTapes(t *testing.T) {
 	workspace := t.TempDir()
 	cfg := config.Defaults(workspace)
 	cfg.Approval.Mode = config.ApprovalModeBoundaryOnly
@@ -61,8 +59,12 @@ func TestAMissingOutsideReadRaisesNoCardAndTheTapesStillDo(t *testing.T) {
 		`cd C:\Users\Public\Documents\GitHub\eval-20260310-110411-1120 && C:\Go\bin\go.exe test ./logic -run ^TestTouchedPlanRoots$ -v`,
 		`cd /d "C:\Users\..." 2>nul; C:\Go\bin\go.exe test ./logic -run ^TestRetentionPreservesNestedEvidence$ -v`,
 	} {
-		if carded, content := cardFor("tape", "shell", map[string]any{"command": tape}); !carded {
-			t.Fatalf("the shell tape %q no longer raises the card: %q — 2fy's shell half would then be done, update this test", tape, content)
+		// v1.0.0/W1 (item 2fz): the tape's `cd` to an invented folder is a
+		// directory change and runs under the OS boundary; no card is raised,
+		// and any failure is the shell's own, which the model reads and recovers
+		// from (on Windows PowerShell 5.1 the first tape's `&&` is itself refused).
+		if carded, content := cardFor("tape", "shell", map[string]any{"command": tape}); carded {
+			t.Fatalf("the shell tape %q still raises the card: %q", tape, content)
 		}
 	}
 }

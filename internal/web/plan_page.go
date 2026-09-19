@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"harness/internal/session"
@@ -198,7 +199,14 @@ const planBuildDraft = "Read this repository and draft its plan: the product and
 // buildPlan answers POST /api/plans/build {plan_id, agent_id}: the planning
 // chat for the plan — an open d chat bound to it, or a new one — on the
 // agent's d profile, or b when none is assigned.
+// buildPlanMu serialises "Build plan now?": two requests for one plan find or
+// create one planning chat and send its opening request once (v0.70.1 cold
+// review).
+var buildPlanMu sync.Mutex
+
 func (s *Server) buildPlan(w http.ResponseWriter, r *http.Request) {
+	buildPlanMu.Lock()
+	defer buildPlanMu.Unlock()
 	var body struct {
 		PlanID  string `json:"plan_id"`
 		AgentID string `json:"agent_id"`
@@ -229,6 +237,14 @@ func (s *Server) buildPlan(w http.ResponseWriter, r *http.Request) {
 		if target.Repo == "" {
 			writeError(w, http.StatusBadRequest, "this plan names no repository to plan in", "plan_id")
 			return
+		}
+		// An open b chat already planning in this repository is reused, so a
+		// second Yes does not start a second planning chat.
+		for _, item := range s.registry.List() {
+			if item.Role == "b" && !item.IsClosed() && strings.EqualFold(filepath.Clean(item.Workspace), filepath.Clean(target.Repo)) {
+				s.openPlanning(w, r, http.StatusOK, item, map[string]any{"fallback": true, "reused": true})
+				return
+			}
 		}
 		created, err := s.registry.Create("", agentID, target.Repo)
 		if err != nil {

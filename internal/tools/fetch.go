@@ -488,7 +488,10 @@ func permanentlyRefusedFetchIP(ip net.IP) bool {
 func extractHTML(data []byte, base *url.URL) (string, error) {
 	document, err := html.Parse(strings.NewReader(string(data)))
 	if err != nil {
-		return "", fmt.Errorf("parse HTML: %w", err)
+		// v0.70.1 (2fr cold review): x/net v0.50 refuses documents nested more
+		// than 512 elements deep. Such a page still has text; it is returned
+		// with its tags removed and says why, rather than as nothing.
+		return strippedHTMLText(data), nil
 	}
 	var out strings.Builder
 	var render func(*html.Node)

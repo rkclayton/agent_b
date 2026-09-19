@@ -126,3 +126,18 @@ function makeRoot(inflight) {
   assert.deepEqual(evidencePlan({ root, keep: 4 }).remove, ["2026-09-02-v0.2.0", "v0.2.0-extra"]);
   assert.ok(fs.existsSync(path.join(root, "logs", "evidence", "2026-09-02-v0.2.0")), "listing removes nothing");
 }
+
+// v0.70.1 cold review: a citation with trailing punctuation, another case or
+// backslashes, or in an item subfolder still keeps its directory.
+{
+  const { evidencePlan } = await import("./rotate-evidence.mjs");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentb-plan-shape-cite-"));
+  roots.push(root);
+  for (const name of ["v0.1.0-a", "v0.2.0-b", "v0.3.0-c", "v0.4.0-d", "v0.9.0-z"]) fs.mkdirSync(path.join(root, "logs", "evidence", name), { recursive: true });
+  fs.mkdirSync(path.join(root, "plan", "items", "sub"), { recursive: true });
+  fs.writeFileSync(path.join(root, "plan", "items", "a.md"), `see \`logs/evidence/v0.1.0-a.\` and ${["Logs", "Evidence", "v0.2.0-b;"].join(String.fromCharCode(92))}\n`);
+  fs.writeFileSync(path.join(root, "plan", "items", "sub", "b.md"), "logs/evidence/v0.3.0-c\n");
+  const plan = evidencePlan({ root, keep: 1 });
+  assert.deepEqual(plan.cited.sort(), ["v0.1.0-a", "v0.2.0-b", "v0.3.0-c"]);
+  assert.deepEqual(plan.remove, ["v0.4.0-d"]);
+}

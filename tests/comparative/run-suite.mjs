@@ -191,17 +191,22 @@ try {
         // the trial's own deadline, as a worker item's does, and the trial is then
         // stopped and recorded as waited for approval — never stopped at once,
         // never left waiting.
-        const trialDeadline = Date.now() + trialTimeoutMS;
         let waitedForApproval = false;
         state = await waitState(base, (value) => {
           const run = value.sessions?.[session.id]?.run;
           return run && (run.status === "held" || (run.status === "idle" && !!run.last_stop_reason));
         }, key, trialTimeoutMS).catch(() => null);
-        if (!state || state.sessions?.[session.id]?.run?.status !== "idle") {
+        // The deadline passed: a run still on a card waited for approval; any
+        // other still-live run is stopped. A held run has no run to stop and is
+        // recorded as it stands, as before.
+        if (!state) {
           state = await json(`${base}/api/state`);
-          if (state.sessions[session.id].run.status === "paused" || Date.now() >= trialDeadline) waitedForApproval = state.sessions[session.id].run.status === "paused";
-          await json(`${base}/api/stop`, { method: "POST", headers, body: JSON.stringify({ session_id: session.id }) });
-          await waitState(base, (value) => value.sessions?.[session.id]?.run?.status === "idle", `${key} stop after the trial deadline`, 30_000);
+          const status = state.sessions[session.id].run.status;
+          waitedForApproval = status === "paused";
+          if (status !== "held" && status !== "idle") {
+            await json(`${base}/api/stop`, { method: "POST", headers, body: JSON.stringify({ session_id: session.id }) });
+            await waitState(base, (value) => value.sessions?.[session.id]?.run?.status === "idle", `${key} stop after the trial deadline`, 30_000);
+          }
         }
 
         const records = readJSONL(logPaths(dataRoot));

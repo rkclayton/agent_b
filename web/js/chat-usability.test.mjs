@@ -175,3 +175,8 @@ test("chat has no workspace bind offer", () => {
 test("Reduced motion remains zero-duration", () => {
   assert.match(css, /prefers-reduced-motion:\s*reduce[\s\S]*animation-duration:\s*0ms\s*!important/);
 });
+
+test("A run stopped mid-tool is a flat transcript line, never folded into Steps (item 2fg)", () => {
+	assert.match(chat, /entry\.event\?\.type === "run\.stopped" && entry\.event\?\.data\?\.reason === "aborted_mid_tool"\)[\s\S]*grouped\.push\(entry\);/);
+	assert.match(chat, /data\.reason === "aborted_mid_tool"[\s\S]{0,200}stopped mid-tool/);
+});

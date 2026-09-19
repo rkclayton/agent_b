@@ -116,6 +116,12 @@ const fakeHandler = async (request, response) => {
       : "Earlier acceptance steps completed; keep the stable system and tool prefix.";
     return void response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 300, completion_tokens: 18, prompt_tokens_details: { cached_tokens: 200 } } }));
   }
+  // Item 2fg: the walk's step 3 — a 60 s tool the operator stops.
+  if (user.includes("acceptance: stop mid tool") && !hasToolAfterLatestUser(body)) {
+    return stream(response, { tool_calls: [{ index: 0, id: "stop-mid-tool", type: "function", function: { name: "shell", arguments: JSON.stringify({ command: "Start-Sleep -Seconds 60; Write-Output walk-slept", timeout_s: 120 }) } }] }, "tool_calls");
+  }
+  if (user.includes("acceptance: sent while stopping")) return stream(response, { content: "Held message answered." });
+  if (user.includes("acceptance: resume after stop")) return stream(response, { content: "Resumed after the stop." });
   if (user.includes("acceptance: stop")) return;
 	if (user.includes("acceptance: inbox stop") && !hasToolAfterLatestUser(body)) {
 		await sleep(500);
@@ -1270,6 +1276,34 @@ if (realModel) {
   assert.ok(Date.now() - stopStart < 1000, `Stop took ${Date.now() - stopStart} ms`);
   await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.data.reason === "aborted_mid_model", "stopped run");
   record("stop-under-one-second");
+
+  // Item 2fg: Stop during a long tool, a message sent while the run is still
+  // stopping — the message is held (nothing releases it on a timer or a
+  // reachability event), the transcript shows the stop, and only the operator's
+  // next message releases the queue, in order.
+  events = await sessionEvents(sessionID);
+  const beforeStopMidTool = events.at(-1)?.seq || 0;
+  await setTask("acceptance: stop mid tool");
+  await waitEvent(sessionID, (event) => event.seq > beforeStopMidTool && event.type === "stage" && event.data?.stage === "execute" && event.data?.state === "enter", "60 s tool executing");
+  await page.locator("#chat-stop").click();
+  const sentWhileStopping = await page.evaluate(async (sessionID) => {
+    const token = (await (await fetch("/api/state")).json()).mutation_token;
+    const response = await fetch("/api/message", { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": token }, body: JSON.stringify({ session_id: sessionID, text: "acceptance: sent while stopping" }) });
+    return response.status;
+  }, sessionID);
+  assert.equal(sentWhileStopping, 202);
+  const stoppedMidTool = await waitEvent(sessionID, (event) => event.seq > beforeStopMidTool && event.type === "run.stopped" && event.data?.reason === "aborted_mid_tool", "stopped mid-tool", 10000);
+  assert.equal(stoppedMidTool.data.queue_held, true, "a message sent while stopping is held");
+  await sleep(3000);
+  events = await sessionEvents(sessionID);
+  assert.equal(events.some((event) => event.seq > stoppedMidTool.seq && (event.type === "run.started" || event.type === "model.unreachable")), false, "the held message ran, or the stop read as an outage");
+  await browser.wait(`[...document.querySelectorAll('#chat-log > .chat-notice-row')].some((row) => row.innerText.startsWith('stopped mid-tool'))`, "stopped-mid-tool marker in the transcript");
+  await setTask("acceptance: resume after stop");
+  await waitProjectedChatText(sessionID, "Resumed after the stop.", "resume after stop");
+  events = await sessionEvents(sessionID);
+  const afterStopUsers = events.filter((event) => event.seq > stoppedMidTool.seq && event.type === "message.appended" && event.data.message?.role === "user").map((event) => event.data.message.content);
+  assert.deepEqual(afterStopUsers, ["acceptance: sent while stopping", "acceptance: resume after stop"]);
+  record("stop-mid-tool-holds-a-message-sent-while-stopping");
 
 	events = await sessionEvents(sessionID);
 	const beforeInboxStop = events.at(-1)?.seq || 0;

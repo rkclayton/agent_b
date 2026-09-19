@@ -150,6 +150,11 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 		s.pending[sessionID] = append(s.pending[sessionID], queuedRun{s: item, userMessageID: message.ID, userMessage: message})
 		position := len(s.pending[sessionID])
 		item.SetQueuedMessages(position)
+		// Item 2fg: Stop holds queued messages, including one sent while the run
+		// is still stopping; only the operator's next message releases the hold.
+		if active := s.active[sessionID]; active != nil && active.stopReason != "" {
+			s.held[sessionID] = true
+		}
 		s.bus.Publish(events.New(events.MessageQueued, sessionID, "", map[string]any{"message_id": message.ID, "position": position}))
 		return SubmitResult{Queued: true, Position: position}, nil
 	}

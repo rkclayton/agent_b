@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -225,7 +226,19 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	publishFinalBudget := true
 	defer func() {
 		if publishFinalBudget {
-			r.PublishBudget(ctx, s)
+			if ctx.Err() == nil {
+				r.PublishBudget(ctx, s)
+				return
+			}
+			// Item 2fg: a Stop cancels ctx. The closing measurement is not part of
+			// the stopped run: it runs on its own bounded context, after the run
+			// has returned, so Stop's bound holds and a canceled request never
+			// reads as an outage.
+			go func() {
+				closing, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+				defer cancel()
+				r.PublishBudget(closing, s)
+			}()
 		}
 	}()
 	turn := 0
@@ -985,7 +998,8 @@ func estimatedTokenCount(text string) int {
 }
 
 func modelUnavailable(profile *config.Profile, err error) (string, bool) {
-	if err == nil {
+	// Item 2fg: a canceled request says nothing about the model.
+	if err == nil || errors.Is(err, context.Canceled) {
 		return "", false
 	}
 	if llm.TransportKindOf(err) != llm.TransportDial {
@@ -1038,7 +1052,20 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Profile, s *sessi
 	project := r.prompt.RenderParts(p, s, toolNames, s.ProjectBlock, "")
 	workspaceMemory := r.prompt.RenderMemoryParts(p, s, toolNames, s.ProjectBlock, s.MemoryBlock, "")
 	system := r.prompt.RenderMemoryParts(p, s, toolNames, s.ProjectBlock, s.MemoryBlock, s.AgentMemoryBlock)
-	records := s.MessagesCopy()
+	// As the run's own assembly does, harness abort records lead the list: a
+	// system-role record mid-history is refused by chat templates (item 2fg).
+	all := s.MessagesCopy()
+	records := make([]events.Message, 0, len(all))
+	for _, message := range all {
+		if isHarnessAbortRecord(message) {
+			records = append(records, message)
+		}
+	}
+	for _, message := range all {
+		if !isHarnessAbortRecord(message) {
+			records = append(records, message)
+		}
+	}
 	messages := make([]llm.Message, 0, len(records))
 	current := runningTurnIDs(records, s.RunPin())
 	for _, message := range records {

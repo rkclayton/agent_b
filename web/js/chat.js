@@ -284,8 +284,9 @@ function groupResponses(entries) {
     }
     // A notice that is waiting on the operator is never folded into a steps
     // group: an unreachable model, and a question from the worker, are the two
-    // things in this thread that nobody can answer without seeing them.
-    if (entry.type === "notice" && ((entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") || entry.event?.type === "c.job")) {
+    // things in this thread that nobody can answer without seeing them. Item
+    // 2fg: nor is a run stopped mid-tool, so the transcript shows the stop.
+    if (entry.type === "notice" && ((entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "aborted_mid_tool") || entry.event?.type === "c.job")) {
       grouped.push(entry);
       response = null;
       continue;
@@ -782,6 +783,9 @@ function noticeContent(session, entry, actionable) {
     const reason = (data.reason || "").replaceAll("_", " ");
 		if (data.reason === "model_unreachable") {
 			const line=document.createElement("span"); line.textContent=`model unreachable · ${entry.text || session.model_unreachable?.host || "model"}`; if(data.detail) line.title=data.detail; content.append(line);
+		} else if (data.reason === "aborted_mid_tool") {
+			content.textContent = `stopped mid-tool${data.queue_held ? " · queued messages held" : ""}`;
+			if (data.detail) content.title = data.detail;
 		} else content.textContent = `stopped: ${reason}${data.detail ? ` · ${data.detail}` : ""}`;
     if (data.reason !== "done") content.classList.add("alarm");
   } else if (event.type === "c.job") {

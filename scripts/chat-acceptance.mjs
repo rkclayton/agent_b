@@ -1430,6 +1430,10 @@ if (realModel) {
   await page.locator("#chat-retry-model").click();
   const retryReachable = await waitEvent(sessionID, (event) => event.seq > retryUnreachableAfter && event.type === "model.reachable", "Retry model.reachable");
   await waitEvent(sessionID, (event) => event.seq > retryReachable.seq && event.type === "run.stopped" && event.data?.reason === "done", "Retry released run completed", 20000);
+  // Item 2ff: the open page follows the recovery without a reload — the
+  // released answer is on screen, and the notice and Retry are gone.
+  await browser.wait(`[...document.querySelectorAll('#chat-log *')].filter((node) => node.childElementCount === 0 && node.textContent.trim() === 'Recovered after Retry.').length >= 2`, "recovered answer on the open page");
+  await browser.wait(`!document.querySelector('#chat-notice')?.innerText.includes('unreachable') && document.querySelector('#chat-retry-model')?.hidden`, "unreachable notice cleared without a reload");
   await browser.wait(`!document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')?.classList.contains('offline')`, "recovered agent eyes");
   await browser.wait(`document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')?.classList.contains('idle')`, "idle recovered eyes");
   assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--mute)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));

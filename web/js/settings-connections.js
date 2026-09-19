@@ -79,22 +79,22 @@ function profileFields(profile, reason) {
     ["presence_penalty", "presence penalty", "0.1", false],
     ["repeat_penalty", "repeat penalty", "0.1", !llama],
   ].map(([name, label, step, disabled]) => `<div class="sampling-label">${html(label)}</div>${["thinking", "nonthinking"].map((mode) => `<div>${numberControl(`${p}.sampling.${mode}.${name}`, profile.sampling[mode][name], step, disabled)}${disabled ? '<span class="control-note">llama.cpp only</span>' : ""}</div>`).join("")}`).join("");
-	return `<div class="profile-fieldset profile-identity"><h4>Connection</h4>${text(`${p}.label`, "label", profile.label)}
-    ${text(`${p}.base_url`, "base_url", profile.base_url)}
-	${text(`${p}.extract_url`, "extract_url", profile.extract_url || "")}
+	return `<div class="profile-fieldset profile-identity"><h4>Connection</h4>${text(`${p}.label`, "label", profile.label, "text", "The name this connection is shown by.")}
+    ${text(`${p}.base_url`, "base_url", profile.base_url, "text", "The model server's address.")}
+	${text(`${p}.extract_url`, "extract_url", profile.extract_url || "", "text", "An optional service that turns PDFs into text for this connection; it is used before the local reader.")}
 	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], profile.attachment_handling || "auto", "auto follows probed capability; native always sends supported attachment kinds; extract keeps their binary local")}
-    ${text(`${p}.model`, "model", profile.model)}
-	${text(`${p}.credential`, "credential ref", profile.credential || "")}
+    ${text(`${p}.model`, "model", profile.model, "text", "The model name sent with each request.")}
+	${text(`${p}.credential`, "credential ref", profile.credential || "", "text", "The name the stored API key is kept under; the key itself is never in the configuration.")}
     ${secret(`${p}.api_key`, "api_key", profile.api_key, id, "API keys are stored in user-scoped DPAPI storage; configuration keeps only the credential reference.")}
-    ${number(`${p}.request_timeout_s`, "timeout", profile.request_timeout_s)}
+    ${number(`${p}.request_timeout_s`, "timeout", profile.request_timeout_s, "1", false, "", false, "number", "Seconds to wait for the model server before a request counts as failed.")}
     ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], profile.probe_mode, "minimal and off skip checks that spend tokens; assumed values are marked in findings")}</div>
     <div class="profile-fieldset profile-reasoning"><h4>Reasoning &amp; context</h4>
-    ${choices(`${p}.reasoning.control`, "control", ["auto", "chat_template_kwargs", "top_level", "server_flag", "none"], profile.reasoning.control)}
-    ${toggle(`${p}.reasoning.enabled`, "enabled", profile.reasoning.enabled)}
-    ${efforts.length ? choices(`${p}.reasoning.effort`, "effort", efforts, profile.reasoning.effort) : row("effort", '<span class="settings-note inline">not supported by this server</span>')}
-    ${toggle(`${p}.reasoning.preserve`, "preserve", profile.reasoning.preserve)}
-    ${number(`${p}.reasoning.max_tokens`, "reasoning cap", profile.reasoning.max_tokens || 0, "1")}
-    ${number(`${p}.context.reserve_output`, "reserve", profile.context.reserve_output)}
+    ${choices(`${p}.reasoning.control`, "control", ["auto", "chat_template_kwargs", "top_level", "server_flag", "none"], profile.reasoning.control, "How the thinking switch is sent to this server; auto uses what the probe found.")}
+    ${toggle(`${p}.reasoning.enabled`, "enabled", profile.reasoning.enabled, "Asks the model to think before it answers, where the server supports it.")}
+    ${efforts.length ? choices(`${p}.reasoning.effort`, "effort", efforts, profile.reasoning.effort, "How much the model thinks before it answers.") : row("effort", '<span class="settings-note inline">not supported by this server</span>', "", "This server offers no thinking levels to choose from.")}
+    ${toggle(`${p}.reasoning.preserve`, "preserve", profile.reasoning.preserve, "Sends the model's own earlier reasoning back to it within a run.")}
+    ${number(`${p}.reasoning.max_tokens`, "reasoning cap", profile.reasoning.max_tokens || 0, "1", false, "", false, "number", "The most tokens the model may spend thinking per answer; 0 means no cap.")}
+    ${number(`${p}.context.reserve_output`, "reserve", profile.context.reserve_output, "1", false, "", false, "number", "Tokens kept free for the model's answer.")}
 	${number(`${p}.context.n_ctx`, "context size", profile.context.n_ctx, "1", false, "", false, "number", "Test fills this from the server when available. Otherwise enter the server's configured context window; it is required for use and for probe mode off.")}</div>
     <div class="profile-fieldset profile-sampling"><h4>Sampling</h4><div class="sampling-grid"><div></div><div class="sampling-column">Thinking</div><div class="sampling-column">Non-thinking</div>${samplingRows}</div></div>
     <div class="profile-fieldset profile-prompt"><h4>System prompt</h4>

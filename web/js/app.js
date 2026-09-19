@@ -101,7 +101,9 @@ async function refreshLedger(render = true) {
   ledgerAsked = false;
   try { ledger = await api(`/api/stats/${encodeURIComponent(askedFor)}`, undefined, "GET"); ledgerAsked = askedFor === selectedAgent; }
   catch (error) { showError(error.message); }
-  if (render) scheduleRender();
+  // Item 2fl: the answer is drawn when it arrives. The render the caller asked
+  // for ran before it did, so skipping this left lifetime blank until a redraw.
+  scheduleRender();
 }
 
 function renderConsole() {

@@ -75,3 +75,25 @@ func TestPlanLintReadsEveryUnresolvedSectionAndSparesFinishedItems(t *testing.T)
 		}
 	}
 }
+
+// Item 2fx: `C && ! C` can never pass; the lint refuses it, anything else passes.
+func TestAVerifierThatContradictsItselfIsRefused(t *testing.T) {
+	for command, want := range map[string]bool{
+		`grep -q "(what" plan.md && ! grep -q "(what" plan.md`:  true,
+		`test -f a && !  test -f a`:                             true,
+		`grep -q "(what" plan.md && ! grep -q "(other" plan.md`: false,
+		`Test-Path CHANGELOG.md`:                                false,
+		`! grep -q TODO notes.md`:                               false,
+	} {
+		if got := VerifierContradicts(command); got != want {
+			t.Errorf("VerifierContradicts(%q) = %t, want %t", command, got, want)
+		}
+	}
+	dir := lintFixture(t, "- [ ] [[7a]] one\n", map[string]string{"7a": "state: live\nverify: test -f a && ! test -f a\n\n# 7a\n"})
+	if refusal := Refusal(Lint(dir)); !strings.Contains(refusal, "verifier contradicts itself") {
+		t.Fatalf("refusal = %q", refusal)
+	}
+	if found := ContradictoryVerifiers("- [ ] [[1]] goals; verify: x && ! x\n- [ ] [[2]] fine; verify: y\n"); len(found) != 1 || found[0] != "x && ! x" {
+		t.Fatalf("inline verifiers found %v", found)
+	}
+}

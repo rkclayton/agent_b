@@ -66,7 +66,11 @@ consoleRunLabel.addEventListener("click", (event) => {
 
 subscribe((_state, event) => {
   if (event.type === "snapshot" && initialSession && store.sessions[initialSession]) {
-    const id = initialSession; initialSession = ""; setActive(id); return;
+    const id = initialSession; initialSession = ""; setActive(id);
+    // Item 2fu: on a direct load this is the first snapshot; the ledger is asked
+    // for here too, or lifetime and the tool counts stay empty until a redraw.
+    if (mounted) { selectedAgent = store.sessions[id]?.agent_id || agentKey(store.config.agents?.[0]); void refreshLedger(false); }
+    return;
   }
   if (!selectedAgent || ["selection.changed", "active.changed"].includes(event.type)) selectedAgent = store.sessions[store.active]?.agent_id || agentKey(store.config.agents?.[0]);
   if (event.type === "projection.patch" && (event.data?.operations || []).some((operation) => operation.path === "/run/partial" || /^\/chat\/[^/]+\/(reasoning|text)$/.test(operation.path))) {

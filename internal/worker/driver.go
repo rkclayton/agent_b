@@ -265,13 +265,33 @@ func (d *Driver) runItem(ctx context.Context, s *session.Session, item Item) Out
 	if err != nil {
 		return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "could not start: " + err.Error()}
 	}
-	deadline := time.NewTimer(d.deadline)
-	defer deadline.Stop()
+	// v0.69.0/W16 cold review: the item's time starts when its run starts. A
+	// run queued behind its model profile (item 2fc) has not begun, and time
+	// spent waiting there is not the item's.
+	var deadline *time.Timer
+	var expired <-chan time.Time
+	begin := func() {
+		if deadline == nil {
+			deadline = time.NewTimer(d.deadline)
+			expired = deadline.C
+		}
+	}
+	defer func() {
+		if deadline != nil {
+			deadline.Stop()
+		}
+	}()
+	check := time.NewTicker(2 * time.Second)
+	defer check.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "stopped"}
-		case <-deadline.C:
+		case <-check.C:
+			if run := s.Snapshot().Run; run.Status != "queued" && run.Status != "" {
+				begin()
+			}
+		case <-expired:
 			// An item that ran out of time while its run sat on a card was waiting
 			// on the operator, and says so. Either way the run is ended: a gate
 			// wait must not outlive the item it belongs to.
@@ -284,6 +304,10 @@ func (d *Driver) runItem(ctx context.Context, s *session.Session, item Item) Out
 		case event, open := <-stream:
 			if !open {
 				return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "event stream closed"}
+			}
+			if event.Type == events.RunStarted && event.SessionID == s.ID && (runID == "" || event.RunID == runID) {
+				begin()
+				continue
 			}
 			if event.Type != events.RunStopped || event.SessionID != s.ID {
 				continue

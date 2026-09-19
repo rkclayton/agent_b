@@ -128,3 +128,42 @@ func TestPlanRewritesReachTheEventStreamWithinASecond(t *testing.T) {
 	}
 	t.Logf("plan.updated on the stream %v after the write", time.Since(started))
 }
+
+// Item 2fc (W16 cold review): "Build plan now?" opens a d chat bound to the
+// plan, or — with no d profile — a b chat in the plan's repository, the
+// planner fallback; neither sends a message.
+func TestBuildPlanOpensTheBoundPlannerOrTheBFallback(t *testing.T) {
+	server, registry, _, repo := planLintServer(t)
+	plan, _, err := registry.EnsurePlan(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := func() map[string]any {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/plans/build", strings.NewReader(`{"plan_id":"`+plan.ID+`","agent_id":"lint"}`))
+		server.buildPlan(response, request)
+		var body map[string]any
+		_ = json.Unmarshal(response.Body.Bytes(), &body)
+		if response.Code >= 300 {
+			t.Fatalf("build: %d %s", response.Code, response.Body)
+		}
+		return body
+	}
+	first := build()
+	item, _ := registry.Get(first["session_id"].(string))
+	if item.Role != "d" || item.PlanID != plan.ID || len(item.MessagesCopy()) != 0 {
+		t.Fatalf("with a d profile: role=%s plan=%s messages=%d", item.Role, item.PlanID, len(item.MessagesCopy()))
+	}
+	if again := build(); again["session_id"] != first["session_id"] || again["reused"] != true {
+		t.Fatalf("an open planning chat is reused: %v", again)
+	}
+	cfg := server.ConfigSnapshot()
+	cfg.Agents[0].D = ""
+	*server.cfg = cfg
+	item.Close()
+	fallback := build()
+	chat, _ := registry.Get(fallback["session_id"].(string))
+	if fallback["fallback"] != true || chat.Role != "b" || !strings.EqualFold(filepath.Clean(chat.Workspace), filepath.Clean(plan.Repo)) || len(chat.MessagesCopy()) != 0 {
+		t.Fatalf("with no d profile: %v role=%s workspace=%s", fallback, chat.Role, chat.Workspace)
+	}
+}

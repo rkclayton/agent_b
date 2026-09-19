@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -117,32 +116,17 @@ func resolvePath(workspace, path string, enforceWorkspace bool) (string, error) 
 	if !enforceWorkspace {
 		return candidate, nil
 	}
-	root, err = filepath.EvalSymlinks(root)
+	// v0.69.0/W16 cold review: both sides are judged where the file system
+	// takes them. filepath.EvalSymlinks does not follow a junction (Go 1.23+),
+	// so a junction inside a folder used to pass the jail by its text path.
+	root, err = session.RealPath(root)
 	if err != nil {
 		return "", err
 	}
-	existing := candidate
-	for {
-		if _, err := os.Lstat(existing); err == nil {
-			break
-		} else if !os.IsNotExist(err) {
-			return "", err
-		}
-		parent := filepath.Dir(existing)
-		if parent == existing {
-			return "", fmt.Errorf("path is outside the folder")
-		}
-		existing = parent
-	}
-	resolved, err := filepath.EvalSymlinks(existing)
+	candidate, err = session.RealPath(candidate)
 	if err != nil {
 		return "", err
 	}
-	rest, err := filepath.Rel(existing, candidate)
-	if err != nil {
-		return "", err
-	}
-	candidate = filepath.Join(resolved, rest)
 	rel, err := filepath.Rel(root, candidate)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return "", fmt.Errorf("path is outside the folder")

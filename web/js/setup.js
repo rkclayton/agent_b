@@ -27,6 +27,10 @@ async function load() {
 
 function render() {
   if (!snapshot) return;
+  // Item 1b: the step's name sits in the header beside "Setup", not as an
+  // eyebrow above the title (DESIGN.md: no eyebrows).
+  const stepName = document.getElementById("setup-step");
+  if (stepName) stepName.textContent = step === "choose" ? "First connection" : step === "api" ? "API connection" : step === "local" ? "Local detection" : "Ready";
   root.innerHTML = step === "choose" ? chooseStep()
     : step === "api" ? connectionStep("api")
       : step === "local" ? connectionStep("local")
@@ -35,7 +39,6 @@ function render() {
 
 function chooseStep() {
   return `<section class="setup-section">
-    <p class="setup-kicker">First connection</p>
     <h1>How will Agent_b reach its models?</h1>
     <div class="setup-cards">
       ${setupCard("api", "API only", "Use a model service you already have.")}
@@ -58,7 +61,6 @@ function connectionStep(kind) {
   const title = local ? (choice === "hybrid" ? "Connect Agent C" : "Connect the local model") : "Connect the API";
   const role = local && choice === "hybrid" ? "Agent C uses this profile." : "Agent B uses this profile.";
   return `<section class="setup-section">
-    <p class="setup-kicker">${local ? "Local detection" : "API connection"}</p>
     <h1>${title}</h1><p>${role}</p>
     ${local ? localDetection() : ""}
     <div class="setup-fields">
@@ -108,7 +110,7 @@ function capabilities(caps, profile) {
 }
 
 function doneStep() {
-  return `<section class="setup-section"><p class="setup-kicker">Ready</p><h1>Setup is complete</h1>
+  return `<section class="setup-section"><h1>Setup is complete</h1>
     <p>You can return here from Connections in Settings.</p>${feedback()}
     <div class="setup-actions"><button type="button" data-action="finish">Open Chat</button><a class="setup-button quiet" href="/chat?setup=skip">Skip for now</a></div>
   </section>`;

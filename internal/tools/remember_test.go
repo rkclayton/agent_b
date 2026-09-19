@@ -99,7 +99,9 @@ func TestRememberToolsBlockByteDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const wantDelta = 102
+	// v0.69.0/W6 (item 2fh): the description names which layer carries across
+	// chats, +77 bytes over 2eb's 102.
+	const wantDelta = 179
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("remember tools-block byte delta=%d, want %d", delta, wantDelta)
 	}

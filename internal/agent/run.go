@@ -164,6 +164,9 @@ func (r *Runner) AppendUser(s *session.Session, message events.Message) {
 
 func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (reason string, detail string, turns int) {
 	s.ResetRunTouches()
+	// Item 2fh: a scratch chat's folder memory is the layers of the plan
+	// repositories it has written into; a run boundary is where it may change.
+	s.RefreshScratchMemory()
 	// Pin the message this run is answering before anything can compact. From
 	// here to the end of the history is the task, and it is never summarised,
 	// elided or superseded away.

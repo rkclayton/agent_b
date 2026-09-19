@@ -108,6 +108,11 @@ type Session struct {
 	ToolCalls                                            map[string]int
 	LastSeen                                             map[string]time.Time
 	TouchedPlanRepos                                     map[string]bool
+	// WrittenPlanRepos are the plan repositories this chat has written into,
+	// oldest first, for its lifetime (item 2fh); TouchedPlanRepos is per run.
+	WrittenPlanRepos []string
+	// LoadFolderMemory loads one folder's memory layer for this chat's profile.
+	LoadFolderMemory func(folder string) (string, string, error)
 	CreatedAt                                            time.Time
 	LogPath                                              string
 	Runnable                                             bool
@@ -260,7 +265,62 @@ func (s *Session) touchPlanRepoLocked(root string) {
 	if s.TouchedPlanRepos == nil {
 		s.TouchedPlanRepos = map[string]bool{}
 	}
-	s.TouchedPlanRepos[filepath.Clean(root)] = true
+	root = filepath.Clean(root)
+	s.TouchedPlanRepos[root] = true
+	kept := s.WrittenPlanRepos[:0]
+	for _, written := range s.WrittenPlanRepos {
+		if !strings.EqualFold(written, root) {
+			kept = append(kept, written)
+		}
+	}
+	s.WrittenPlanRepos = append(kept, root)
+}
+
+// MemoryFolder is where a folder-layer note from this chat belongs (item 2fh):
+// a scratch chat has no memory layer of its own, so a project fact goes to the
+// plan repository it wrote into most recently, and "" means none is in scope.
+// Any other chat's folder is its workspace.
+func (s *Session) MemoryFolder() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.Scratch {
+		return s.Workspace
+	}
+	if len(s.WrittenPlanRepos) == 0 {
+		return ""
+	}
+	return s.WrittenPlanRepos[len(s.WrittenPlanRepos)-1]
+}
+
+// RefreshScratchMemory rebuilds a scratch chat's folder memory from the layers
+// of the plan repositories it has written into (item 2fh). The runner calls it
+// at a run's start, so the prompt changes only at a run boundary and only
+// when a new repository joined. It reports whether the block changed.
+func (s *Session) RefreshScratchMemory() bool {
+	s.mu.Lock()
+	if !s.Scratch || s.LoadFolderMemory == nil {
+		s.mu.Unlock()
+		return false
+	}
+	repos := append([]string(nil), s.WrittenPlanRepos...)
+	load := s.LoadFolderMemory
+	s.mu.Unlock()
+	blocks, path := []string{}, ""
+	for _, repo := range repos {
+		block, blockPath, err := load(repo)
+		if err != nil || block == "" {
+			continue
+		}
+		blocks, path = append(blocks, block), blockPath
+	}
+	block := strings.Join(blocks, "\n\n")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if block == s.MemoryBlock {
+		return false
+	}
+	s.MemoryBlock, s.MemoryPath = block, path
+	return true
 }
 
 func (s *Session) ResetRunTouches() {

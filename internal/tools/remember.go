@@ -19,7 +19,7 @@ func NewRemember(manager *memory.Manager, bus *events.Bus) *Remember {
 }
 func (*Remember) Name() string { return "remember" }
 func (*Remember) Description() string {
-	return "Save durable memory: use folder for project facts and agent for operator preferences, style, or standing working habits; call recall first to avoid duplicates."
+	return "Save durable memory; recall first to avoid duplicates. agent carries across all chats of this agent: preferences, habits, anything for later chats. folder is the project repository this chat has written to; with none, it saves to agent."
 }
 func (*Remember) Schema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"note": map[string]any{"type": "string"}, "target": map[string]any{"type": "string", "enum": []string{"folder", "agent"}, "default": "folder"}}, "required": []string{"note"}}
@@ -36,19 +36,30 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	var path string
 	var duplicate bool
 	var err error
+	scope := ""
+	if target == "folder" || target == "workspace" {
+		// Item 2fh: a scratch chat has no folder layer of its own. A project fact
+		// belongs to the plan repository it is working in; with none in scope the
+		// note goes to the agent layer, which every chat of this agent loads.
+		folder := s.MemoryFolder()
+		if folder == "" {
+			target, scope = "agent", " No project was in scope, so it went to the agent layer, which every chat of this agent loads."
+		} else {
+			target = "folder"
+			path, duplicate, err = r.memory.Note(folder, note)
+		}
+	}
 	if target == "agent" {
 		path, duplicate, err = r.memory.NoteAgent(s.AgentID, note)
-	} else if target == "folder" || target == "workspace" {
-		path, duplicate, err = r.memory.Note(s.Workspace, note)
-	} else {
+	} else if target != "folder" {
 		return "", fmt.Errorf("target must be folder or agent")
 	}
 	if err != nil {
 		return "", err
 	}
 	if duplicate {
-		return "ok: already noted", nil
+		return "ok: already noted" + scope, nil
 	}
 	r.bus.Publish(events.New(events.MemoryNoted, s.ID, "", map[string]any{"note": note, "path": path, "target": target, "agent_id": s.AgentID}))
-	return "ok: noted; active next session.", nil
+	return "ok: noted; active next session." + scope, nil
 }

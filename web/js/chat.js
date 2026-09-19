@@ -13,6 +13,7 @@ import { renderStopState } from "./stop-state.js";
 import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, isIdenticalSingleStepFold, itemFailed, responseBlocks, responseSummary } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
+import { renderChatProposals } from "./chat-proposals.js";
 
 const budget = document.getElementById("chat-budget");
 const log = document.getElementById("chat-log");
@@ -21,6 +22,7 @@ const expandComposer = document.getElementById("chat-expand");
 const send = document.getElementById("chat-send");
 const notice = document.getElementById("chat-notice");
 const pendingApproval = document.getElementById("chat-pending-approval");
+const chatProposals = document.getElementById("chat-proposals");
 const composer = document.querySelector(".chat-composer");
 const attachButton = document.getElementById("chat-attach");
 const attachMenu = document.getElementById("chat-attach-menu");
@@ -260,6 +262,15 @@ function changeBound(value) {
   if (previous) attachmentQueues.set(previous, queuedAttachments);
   setSelection(`agent_${store.sessions[value]?.role === "d" ? "d" : "b"}`, value);
   queuedAttachments = attachmentQueues.get(value) || [];
+  // Item 2fc: "Build plan now?" opens the planning chat with its request in
+  // the composer; the operator sends it, so the harness speaks for no one.
+  try {
+    const draft = sessionStorage.getItem(`agentb.draft.${value}`);
+    if (draft !== null) {
+      sessionStorage.removeItem(`agentb.draft.${value}`);
+      if (!input.value) input.value = draft;
+    }
+  } catch { /* no draft */ }
 }
 
 // The projection names this field agent_role; read it in one place so the
@@ -805,7 +816,7 @@ function noticeContent(session, entry, actionable) {
       content.textContent = `delivery: ${parts.join(" · ")}`;
       if (failed) content.classList.add("alarm");
     }
-  } else if (event.type === "run.queued") content.textContent = `waiting for a slot (position ${data.position})`;
+  } else if (event.type === "run.queued") content.textContent = data.behind ? `waiting for model · behind ${data.behind}` : `waiting for a slot (position ${data.position})`;
   else if (event.type === "run.aborted") {
     const pathCount = Array.isArray(data.possibly_written_paths) ? data.possibly_written_paths.length : 0;
     content.textContent = `harness: ${String(data.reason || "aborted").replaceAll("_", " ")} at turn ${data.turn || 0}${pathCount ? ` · ${pathCount} possibly partial path${pathCount === 1 ? "" : "s"} unverified` : ""}`;
@@ -851,13 +862,16 @@ function noticeContent(session, entry, actionable) {
 }
 
 function renderComposer(session) {
+  renderChatProposals(chatProposals, session, input);
 	document.body.classList.toggle("no-open-chats", !session);
   send.disabled = !session || !!store.replay;
   input.disabled = !session || !!store.replay;
   attachButton.disabled = !session || !!store.replay || attachmentsBusy;
   input.removeAttribute("placeholder");
   const queued = session?.queued_messages || 0;
-  const state = session?.pending_approval || session?.pending_repo_policy ? "waiting for you" : session?.run?.status || "idle";
+  // Item 2fc: a run queued behind its model profile says whose run it waits on.
+  const queuedBehind = session?.run?.status === "queued" && session.run.waiting_behind ? `waiting for model · behind ${session.run.waiting_behind}` : "";
+  const state = session?.pending_approval || session?.pending_repo_policy ? "waiting for you" : queuedBehind || session?.run?.status || "idle";
   const unreachable = session?.model_unreachable;
   const busy = session?.model_busy;
   const operatorUntil = store.shell_identity?.operator_context ? `operator mode · until ${shortTime(store.shell_identity.operator_context_expires_at)}` : "";

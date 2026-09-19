@@ -99,7 +99,10 @@ type Profile struct {
 	Context              Context      `json:"context"`
 	SystemPromptOverride string       `json:"system_prompt_override"`
 	Capabilities         Capabilities `json:"capabilities"`
-	initialized          bool
+	// MaxConcurrent is how many runs this model serves at once (item 2fc);
+	// zero means one. The global run.max_concurrent still caps the total.
+	MaxConcurrent int `json:"max_concurrent,omitempty"`
+	initialized   bool
 }
 
 type Service struct {
@@ -641,6 +644,9 @@ func (c Config) Validate() error {
 			return fmt.Errorf("%s.id: duplicate", prefix)
 		}
 		seen[p.ID] = true
+		if p.MaxConcurrent < 0 {
+			return fmt.Errorf("%s.max_concurrent: cannot be negative", prefix)
+		}
 		if p.Credential != "" {
 			if _, err := credential.NewNamed(".", p.Credential); err != nil {
 				return fmt.Errorf("%s.credential: %w", prefix, err)

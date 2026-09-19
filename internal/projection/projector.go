@@ -39,6 +39,9 @@ type Run struct {
 	LastRunID      string   `json:"last_run_id,omitempty"`
 	ArmedDetectors []string `json:"armed_detectors,omitempty"`
 	ResultLabel    string   `json:"result_label,omitempty"`
+	// WaitingBehind names the role holding a queued run's model profile
+	// (item 2fc), for "waiting for model · behind <role>".
+	WaitingBehind string `json:"waiting_behind,omitempty"`
 }
 
 type Tool struct {
@@ -331,11 +334,13 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 		next.Run.Status = "queued"
 		next.Run.RunID = firstString(data["run_id"], record.Event.RunID)
 		next.Run.QueuePosition = intValue(data["position"])
+		next.Run.WaitingBehind = stringValue(data["behind"])
 	case events.RunStarted:
 		next.Run.Status = "running"
 		next.Run.RunID = firstString(data["run_id"], record.Event.RunID)
 		next.Run.Turn = 0
 		next.Run.QueuePosition = 0
+		next.Run.WaitingBehind = ""
 		next.Run.Partial = ""
 		next.Run.LastStopReason = ""
 		next.Run.LastStopDetail = ""

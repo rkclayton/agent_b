@@ -126,12 +126,12 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 		s.pending[sessionID] = s.pending[sessionID][1:]
 		item.SetQueuedMessages(len(s.pending[sessionID]))
 		next.runID = fmt.Sprintf("r%d", s.ids.Add(1))
-		if len(s.active) < s.cfg().Run.MaxConcurrent {
+		if s.admitLocked(item) {
 			s.startLocked(next)
 		} else {
 			s.queue = append(s.queue, next)
 			item.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.queue), ArmedDetectors: s.armedDetectors(item)})
-			s.bus.Publish(events.New(events.RunQueued, sessionID, next.runID, map[string]any{"run_id": next.runID, "position": len(s.queue)}))
+			s.bus.Publish(events.New(events.RunQueued, sessionID, next.runID, s.queuedDataLocked(item, next.runID, len(s.queue))))
 		}
 		return SubmitResult{Queued: true, Position: position}, nil
 	}
@@ -163,7 +163,7 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 		return SubmitResult{}, err
 	}
 	runID := fmt.Sprintf("r%d", s.ids.Add(1))
-	if len(s.active) < s.cfg().Run.MaxConcurrent {
+	if s.admitLocked(item) {
 		s.startLocked(queuedRun{s: item, runID: runID, userMessageID: message.ID})
 		return SubmitResult{RunID: runID}, nil
 	}
@@ -171,7 +171,7 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 	s.queue = append(s.queue, entry)
 	position := len(s.queue)
 	item.SetRun(session.RunState{Status: "queued", RunID: runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: position, ArmedDetectors: s.armedDetectors(item)})
-	s.bus.Publish(events.New(events.RunQueued, sessionID, runID, map[string]any{"run_id": runID, "position": position}))
+	s.bus.Publish(events.New(events.RunQueued, sessionID, runID, s.queuedDataLocked(item, runID, position)))
 	return SubmitResult{RunID: runID, Queued: true, Position: position}, nil
 }
 func (s *Scheduler) startLocked(entry queuedRun) {
@@ -224,13 +224,79 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 	entry.s.SetRun(state)
 	s.bus.Publish(events.New(events.RunStopped, entry.s.ID, entry.runID, events.WithHuman(events.RunStopped, map[string]any{"run_id": entry.runID, "reason": reason, "detail": detail, "turns": turns, "queue_held": queueHeld, "armed_detectors": state.ArmedDetectors})))
 	s.notifyAgentIdleLocked(entry.s.Snapshot().AgentID)
-	for len(s.queue) > 0 && len(s.active) < s.cfg().Run.MaxConcurrent {
-		next := s.queue[0]
-		s.queue = s.queue[1:]
-		s.startLocked(next)
-	}
+	s.drainLocked()
 	s.repositionLocked()
 	s.mu.Unlock()
+}
+
+// Item 2fc: runs are admitted per model profile as well as globally. A profile
+// serves at most its own max_concurrent runs at once (one when unset), so a
+// planner and a worker on a shared profile never overlap unless the operator
+// has raised that profile's limit.
+func (s *Scheduler) profileLimit(profileID string) int {
+	if profile, ok := s.cfg().Profile(profileID); ok && profile.MaxConcurrent > 0 {
+		return profile.MaxConcurrent
+	}
+	return 1
+}
+
+// profileRunsLocked counts the runs a profile is serving and names the role of
+// one of them, for "waiting for model · behind <role>".
+func (s *Scheduler) profileRunsLocked(profileID string) (int, string) {
+	count, role := 0, ""
+	for sessionID := range s.active {
+		if item, ok := s.registry.Get(sessionID); ok && item.ServerID == profileID {
+			count++
+			if role == "" {
+				role = item.Role
+			}
+		}
+	}
+	return count, role
+}
+
+func (s *Scheduler) admitLocked(item *session.Session) bool {
+	if len(s.active) >= s.cfg().Run.MaxConcurrent {
+		return false
+	}
+	count, _ := s.profileRunsLocked(item.ServerID)
+	return count < s.profileLimit(item.ServerID)
+}
+
+// drainLocked starts every queued run that can be admitted, in queue order; a
+// run waiting on a busy profile does not hold back one for a free profile.
+func (s *Scheduler) drainLocked() {
+	for index := 0; index < len(s.queue) && len(s.active) < s.cfg().Run.MaxConcurrent; {
+		next := s.queue[index]
+		if !s.admitLocked(next.s) {
+			index++
+			continue
+		}
+		s.queue = append(s.queue[:index], s.queue[index+1:]...)
+		s.startLocked(next)
+	}
+}
+
+// queuedDataLocked is run.queued's payload; behind names the role of the run
+// holding the profile when the profile, not the global limit, is why it waits.
+func (s *Scheduler) queuedDataLocked(item *session.Session, runID string, position int) map[string]any {
+	data := map[string]any{"run_id": runID, "position": position}
+	if count, role := s.profileRunsLocked(item.ServerID); count >= s.profileLimit(item.ServerID) && role != "" {
+		data["behind"] = "agent_" + role
+	}
+	return data
+}
+
+// ProfileBusy reports whether a profile is serving as many runs as it may, and
+// the role of one of them (item 2fc: Go refuses rather than queue behind it).
+func (s *Scheduler) ProfileBusy(profileID string) (bool, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count, role := s.profileRunsLocked(profileID)
+	if count < s.profileLimit(profileID) {
+		return false, ""
+	}
+	return true, "agent_" + role
 }
 
 func (s *Scheduler) armedDetectors(item *session.Session) []string {
@@ -275,12 +341,12 @@ func (s *Scheduler) ReleaseModel(profileID string) {
 		s.pending[sessionID] = waiting[1:]
 		item.SetQueuedMessages(len(waiting) - 1)
 		next.runID = fmt.Sprintf("r%d", s.ids.Add(1))
-		if len(s.active) < s.cfg().Run.MaxConcurrent {
+		if s.admitLocked(item) {
 			s.startLocked(next)
 		} else {
 			s.queue = append(s.queue, next)
 			item.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.queue), ArmedDetectors: s.armedDetectors(item)})
-			s.bus.Publish(events.New(events.RunQueued, sessionID, next.runID, map[string]any{"run_id": next.runID, "position": len(s.queue)}))
+			s.bus.Publish(events.New(events.RunQueued, sessionID, next.runID, s.queuedDataLocked(item, next.runID, len(s.queue))))
 		}
 	}
 }
@@ -394,11 +460,7 @@ func (s *Scheduler) forceFinish(sessionID string, expected *activeRun, detail st
 	item.SetRun(state)
 	s.bus.Publish(events.New(events.RunStopped, sessionID, active.runID, events.WithHuman(events.RunStopped, map[string]any{"run_id": active.runID, "reason": active.stopReason, "detail": detail, "turns": turn, "queue_held": queueHeld, "armed_detectors": state.ArmedDetectors})))
 	s.notifyAgentIdleLocked(item.Snapshot().AgentID)
-	for len(s.queue) > 0 && len(s.active) < s.cfg().Run.MaxConcurrent {
-		next := s.queue[0]
-		s.queue = s.queue[1:]
-		s.startLocked(next)
-	}
+	s.drainLocked()
 	s.repositionLocked()
 }
 

@@ -110,7 +110,8 @@ test("unbounded chat tabs scroll only inside the tab strip", () => {
 test("Stop follows the selected chat from each page-local lower control", () => {
   assert.match(chat, /api\("\/api\/stop", \{ session_id: session\.id \}\)/);
   assert.match(consoleApp, /api\("\/api\/stop",\{session_id:id\}\)/);
-  assert.match(plan, /mountChat\(shell\)/);
+  // Item 2fc: the Plan page shows plans, not a chat; the planning chat is its own tab.
+  assert.doesNotMatch(plan, /mountChat/);
   assert.doesNotMatch(chat+consoleApp+plan, /all:\s*true/);
 });
 

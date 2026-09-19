@@ -206,6 +206,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/chat", s.page)
 	mux.HandleFunc("/plan", s.page)
 	mux.HandleFunc("/setup", s.page)
+	// Item 2fo: a page that names no icon still asks for /favicon.ico.
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join(s.webDir, "assets", "Agent_b.ico"))
+	})
 	mux.Handle("/static/", revalidateStatic(http.StripPrefix("/static/", http.FileServer(http.Dir(s.webDir)))))
 	mux.HandleFunc("/api/events", s.sse)
 	mux.HandleFunc("/api/state", s.state)

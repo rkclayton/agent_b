@@ -6,7 +6,7 @@ export function renderNotificationsPage(pageContext) {
 	const configured = !!notificationStatus?.configured;
 	const host = configured ? `Configured for ${notificationStatus.host || "Discord"}. Leave the field blank to keep it.` : "No Discord webhook configured.";
 	return `<div class="settings-subhead">Discord</div>
-		<div class="setting-row ${notificationAlarm ? "invalid" : ""}">
+		<div class="setting-row ${notificationAlarm ? "invalid" : ""}" title="The Discord webhook that receives a message when a run needs you or finishes.">
 			<label for="discord-webhook-url">webhook URL</label>
 			<div><input id="discord-webhook-url" type="password" autocomplete="off" placeholder="${configured ? "•••• set" : "https://discord.com/api/webhooks/…"}" aria-label="Discord webhook URL" title="The URL is protected with Windows DPAPI and is never written to harness.json or logs."></div>
 		</div>

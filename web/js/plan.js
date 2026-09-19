@@ -27,7 +27,7 @@ function render() {
   roots.empty.hidden = !session || (session.messages || []).length > 0;
   roots.name.textContent = session?.plan_name || "Plan";
   if (!session || !loaded) return;
-  if (loaded.error) { roots.current.textContent = loaded.error; roots.items.replaceChildren(); roots.proposals.replaceChildren(); return; }
+  if (loaded.error || loaded.no_plan) { roots.current.textContent = loaded.error || loaded.reason; roots.items.replaceChildren(); roots.proposals.replaceChildren(); return; }
   const rows = planRows(loaded.plan);
   roots.current.textContent = rows.order || "No current work order.";
   renderItems(rows.items, noteReports(loaded.notes));

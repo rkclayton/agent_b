@@ -5,7 +5,7 @@ function useSettingsContext(context) {
 
 function delivery() {
   const cfg = store.config.deliver || {};
-  return `${choices("deliver.mode", "delivery", ["chips", "folder", "both"], cfg.mode || "both")}
+  return `${choices("deliver.mode", "delivery", ["chips", "folder", "both"], cfg.mode || "both", "Where files a run produces are delivered: as chips in the chat, copied to the exchange folder, or both.")}
     ${text("deliver.exchange_folder", "exchange folder", cfg.exchange_folder || "", "text", "The folder is created on first delivery. Apply host protections after changing it so the service identity receives Modify access only on this folder.")}`;
 }
 

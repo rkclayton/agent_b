@@ -328,6 +328,12 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 		tools = selected
 	}
+	// v0.69.0/W16 cold review: a repository's policy picks tools within the
+	// role, never around it — a planner reads the folder and never runs it.
+	if role == "d" {
+		tools["shell"] = false
+		tools["run_script"] = false
+	}
 	memoryBlock, memoryPath := "", ""
 	if r.memory != nil {
 		memoryBlock, memoryPath, err = r.folderMemory(scratch, abs, agent.B)
@@ -400,6 +406,9 @@ func (r *Registry) ApplyRepoPolicySession(sessionID string, state workspaceinfo.
 			s.ToggleTool(name, false)
 		}
 		for _, name := range state.Policy.DefaultToolset {
+			if s.Role == "d" && (name == "shell" || name == "run_script") {
+				continue
+			}
 			s.ToggleTool(name, true)
 		}
 	}

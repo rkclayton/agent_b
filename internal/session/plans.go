@@ -88,19 +88,25 @@ func (r *Registry) ensurePlanLocked(repo string) (Plan, bool, error) {
 	if reason := RepoInsidePlans(r.plansRoot, canonical); reason != "" {
 		return Plan{}, false, fmt.Errorf("%s", reason)
 	}
-	for _, item := range r.planListLocked() {
-		if item.Repo != "" && samePath(item.Repo, canonical) {
-			return item, false, nil
-		}
-	}
 	if err := os.MkdirAll(r.plansRoot, 0o700); err != nil {
 		return Plan{}, false, err
 	}
 	// v0.68.0/W16: judged on the folder the path resolves to, whatever route
 	// asked, so no link or ancestor brings the plans folder into a repository.
-	if _, reason := RegistrationRefusal(r.plansRoot, canonical); reason != "" {
+	// v0.69.0/W16 cold review: and that resolved folder is what is stored, so a
+	// link re-pointed after registration changes nothing, and two names for one
+	// folder find the same plan.
+	typed := canonical
+	resolved, reason := RegistrationRefusal(r.plansRoot, canonical)
+	for _, item := range r.planListLocked() {
+		if item.Repo != "" && (samePath(item.Repo, typed) || (resolved != "" && samePath(item.Repo, resolved))) {
+			return item, false, nil
+		}
+	}
+	if reason != "" {
 		return Plan{}, false, fmt.Errorf("%s", reason)
 	}
+	canonical = resolved
 	planID, planDir, err := allocatePlanDir(r.plansRoot)
 	if err != nil {
 		return Plan{}, false, err
@@ -108,7 +114,7 @@ func (r *Registry) ensurePlanLocked(repo string) (Plan, bool, error) {
 	if err := os.MkdirAll(filepath.Join(planDir, "plan", "items"), 0o700); err != nil {
 		return Plan{}, false, err
 	}
-	name := filepath.Base(canonical)
+	name := filepath.Base(typed)
 	if err := UpdatePlanFile(filepath.Join(planDir, "plan.md"), func(string, bool) (string, error) { return PlanTemplate(name, canonical), nil }); err != nil {
 		return Plan{}, false, err
 	}

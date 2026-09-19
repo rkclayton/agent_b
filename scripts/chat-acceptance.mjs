@@ -772,6 +772,23 @@ if (realModel) {
   await page.locator('#console-run-label button[data-label="mixed"].selected').waitFor({ state: "visible" });
   assert.equal((await state()).sessions[sessionID].run.result_label, "mixed");
   record("console-run-result-and-label");
+  // Items 2fu and 2fw, on this direct load: the lifetime numbers arrive with no
+  // interaction, and History's count heads the rows it draws, one text per line.
+  await browser.wait(`document.getElementById('console-stats')?.innerText.includes('runs / briefs')`, "lifetime numbers on a direct load", 3000);
+  const history = await page.evaluate(() => {
+    const box = (node) => { const r = node.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+    const texts = [...document.querySelectorAll("#timeline-list *")].filter((node) => node.childElementCount === 0 && node.textContent.trim() && node.offsetParent).map((node) => ({ text: node.textContent.trim().slice(0, 40), ...box(node) }));
+    const overlaps = [];
+    for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
+      const a = texts[i], b = texts[j];
+      if (a.w && b.w && a.x < b.x + b.w - 1 && b.x < a.x + a.w - 1 && a.y < b.y + b.h - 1 && b.y < a.y + a.h - 1) overlaps.push(`${a.text} × ${b.text}`);
+    }
+    return { count: document.getElementById("timeline-count").textContent, turns: document.querySelectorAll("#timeline-list > .timeline-model").length, overlaps };
+  });
+  assert.ok(history.turns > 0, "History drew no turn for a chat that ran");
+  assert.match(history.count, new RegExp(`^${history.turns} (of [0-9]+ )?turns`), JSON.stringify(history));
+  assert.deepEqual(history.overlaps, [], "History draws one text per line");
+  record("console-direct-load-lifetime-and-history-rows");
   await page.screenshot({ path: join(baselineDirectory, "console.png") });
   await page.locator(".shell-settings").click();
   await page.locator("#settings-page").waitFor({ state: "visible" });

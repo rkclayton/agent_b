@@ -184,7 +184,7 @@ function render() {
   sheet.innerHTML = `
     <header class="settings-head">
       <div><strong>Settings</strong><span data-save-status class="${settingsSaveAlarm ? "alarm" : ""}">${html(settingsSaveMessage)}</span></div>
-      <div class="settings-head-actions"><button type="button" class="settings-save" data-action="save-settings" ${settingsSaving || !drafts.size ? "disabled" : ""}>${saveLabel}</button><button type="button" data-action="close" aria-label="Close settings">×</button></div>
+      <div class="settings-head-actions"><button type="button" class="settings-save" data-action="save-settings" ${settingsSaving || !drafts.size ? "disabled" : ""}>${saveLabel}</button><button type="button" data-action="close" aria-label="Close settings" title="Close settings">×</button></div>
     </header>
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="Settings sections">
@@ -306,7 +306,7 @@ function secret(path, label, value, id, hint = "") {
 
 function toggle(path, label, value, hint = "") {
   const selected = !!currentValue(path, value);
-  return field(path, label, `<button type="button" role="switch" aria-checked="${selected}" class="switch ${selected ? "on" : ""}" data-action="config-toggle" data-path="${attr(path)}" data-value="${selected ? "false" : "true"}"></button>`, false, hint);
+  return field(path, label, `<button type="button" role="switch" aria-checked="${selected}" aria-label="${attr(label)}" title="${attr(label)}" class="switch ${selected ? "on" : ""}" data-action="config-toggle" data-path="${attr(path)}" data-value="${selected ? "false" : "true"}"></button>`, false, hint);
 }
 
 function choices(path, label, values, selected, hint = "") {

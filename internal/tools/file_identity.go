@@ -97,7 +97,7 @@ func (t *identityFileTool) CallDetailed(ctx context.Context, s *session.Session,
 			// Item 2fy: a card widens the folder for a file that exists; for one
 			// that does not, the tool says so and no card is raised. The harness's
 			// own view decides here, since there is no service account.
-			if target := outsideTarget(s, args); targetMissing(target) {
+			if target := outsideTarget(s, t.tool.Name(), args); targetMissing(target) {
 				return missingOutside(t.tool.Name(), target)
 			}
 			return CallDetail{Content: "file operation was not completed: path is outside the folder", OperatorOverrideReason: "path is outside the folder"}
@@ -118,8 +118,11 @@ func (t *identityFileTool) CallDetailed(ctx context.Context, s *session.Session,
 	missing := false
 	result, err := runner(service, password, func() (string, error) {
 		result, err := t.tool.Call(ctx, s, args)
-		if err != nil && (errors.Is(err, os.ErrPermission) || strings.Contains(strings.ToLower(err.Error()), "path is outside the folder")) {
-			missing = targetMissing(outsideTarget(s, args))
+		// v0.71.0 cold review: only the jail's outside-folder refusal is judged;
+		// a permission error inside the folder is the service account's denial
+		// and keeps its card, whether or not the target exists yet.
+		if err != nil && strings.Contains(strings.ToLower(err.Error()), "path is outside the folder") {
+			missing = targetMissing(outsideTarget(s, t.tool.Name(), args))
 		}
 		return result, err
 	})
@@ -127,7 +130,7 @@ func (t *identityFileTool) CallDetailed(ctx context.Context, s *session.Session,
 		return CallDetail{Content: result}
 	}
 	if missing {
-		return missingOutside(t.tool.Name(), outsideTarget(s, args))
+		return missingOutside(t.tool.Name(), outsideTarget(s, t.tool.Name(), args))
 	}
 	var identityErr *serviceFileIdentityError
 	if errors.As(err, &identityErr) {
@@ -149,16 +152,25 @@ func (t *identityFileTool) CallAsOperator(ctx context.Context, s *session.Sessio
 	return t.tool.Call(withOSPathPolicy(ctx), s, args)
 }
 
-// outsideTarget is the call's own path resolved as the jail resolves it: a
-// relative path is taken from the chat's folder.
-func outsideTarget(s *session.Session, args map[string]any) string {
+// outsideTarget is the call's own path resolved as the tool resolves it: a
+// relative path is taken from the tool's read or write root (a d chat's is its
+// plan folder), falling back to the chat's folder.
+func outsideTarget(s *session.Session, name string, args map[string]any) string {
 	path, _ := args["path"].(string)
 	if strings.TrimSpace(path) == "" {
 		return ""
 	}
 	path = filepath.FromSlash(path)
 	if !filepath.IsAbs(path) && s != nil {
-		path = filepath.Join(s.Workspace, path)
+		rootFor := s.ReadRoot
+		if name == "write_file" || name == "edit_file" {
+			rootFor = s.WriteRoot
+		}
+		root, err := rootFor(path)
+		if err != nil || root == "" {
+			root = s.Workspace
+		}
+		path = filepath.Join(root, path)
 	}
 	return filepath.Clean(path)
 }
@@ -174,8 +186,10 @@ func targetMissing(path string) bool {
 }
 
 // missingOutside answers a call on a path outside the folder that does not
-// exist: a plain tool error naming the boundary, never a card. A write is
-// refused outright — a card cannot widen the folder for a new file (item 2fy).
+// exist: a plain tool error naming the boundary, never a card. A write to a
+// new file outside the folder is refused outright, by item 2fy's contract ("a
+// write can never be widened by a card"); before it, the card's operator
+// replay could create one.
 func missingOutside(name, path string) CallDetail {
 	if name == "write_file" || name == "edit_file" {
 		return CallDetail{Err: fmt.Errorf("path is outside the folder and does not exist: %s; a write outside the folder is refused and there is nothing for the operator to allow — write inside your folder", path)}

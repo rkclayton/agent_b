@@ -45,7 +45,7 @@ function tools(active) {
   };
   const cfg = store.config;
   const availability = active
-    ? `<div class="settings-subhead">Current session</div>${active.tools.map((tool) => row(tool.name, `<span class="session-tool-control"><span class="number">${tool.calls || 0} calls</span><button class="switch ${tool.enabled ? "on" : ""}" type="button" data-action="session-tool-toggle" data-id="${attr(tool.name)}" data-enabled="${tool.enabled}" aria-label="Toggle ${attr(tool.name)}" aria-pressed="${tool.enabled}"></button></span>`, "", `Turns ${tool.name} on or off for this session from its next model request; the count is its calls so far.`)).join("")}`
+    ? `<div class="settings-subhead">Current session</div>${active.tools.map((tool) => row(tool.name, `<span class="session-tool-control"><span class="number">${tool.calls || 0} calls</span><button class="switch ${tool.enabled ? "on" : ""}" type="button" data-action="session-tool-toggle" data-id="${attr(tool.name)}" data-enabled="${tool.enabled}" aria-label="Toggle ${attr(tool.name)}" title="Toggle ${attr(tool.name)}" aria-pressed="${tool.enabled}"></button></span>`, "", `Turns ${tool.name} on or off for this session from its next model request; the count is its calls so far.`)).join("")}`
     : '<p class="settings-note">No active session.</p>';
   const blockTokens = active?.budget?.categories?.tools;
   const block = row("enabled tools block", `<span class="number">${blockTokens == null ? "not measured" : `${tokenCount(blockTokens)} tokens`}</span>`, "", "Marginals include the tool-name prompt; neither marginals nor schema sizes sum to the block because shared scaffolding is counted once.");

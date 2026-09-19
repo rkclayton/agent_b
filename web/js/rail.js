@@ -15,45 +15,52 @@ export function renderRail() {
     occupancy = contextOccupancy(b),
     n = Math.max(1, occupancy.nctx || 1),
     used = occupancy.occupied,
-    ratio = used / Math.max(1, b.ceiling || 1);
+    ratio = used / Math.max(1, b.ceiling || 1),
+    // Item 1b (proposed DESIGN line P2): with no known ceiling — an unprobed
+    // profile — the rail draws occupied tokens only: no percentages, no fill
+    // against a ceiling, no Alarm.
+    known = (occupancy.nctx || 0) > 0 && (b.ceiling || 0) > 0;
   const serial = Number(s.activity?.compaction_serial || 0);
   if (compactionSeen.has(s.id) && compactionSeen.get(s.id) !== serial) compactionPulseUntil.set(s.id, Date.now() + 160);
   compactionSeen.set(s.id, serial);
   const compacted = Number(compactionPulseUntil.get(s.id) || 0) > Date.now();
   const meter = document.createElement("div");
-  meter.className = `meter ${ratio > 0.85 ? "warn" : ""} ${ratio > 1 ? "over" : ""} ${compacted ? "compacted" : ""}`;
+  meter.className = `meter ${known && ratio > 0.85 ? "warn" : ""} ${known && ratio > 1 ? "over" : ""} ${compacted ? "compacted" : ""}`;
   meter.setAttribute("role", "img");
   const labels = document.createElement("div");
   labels.className = "rail-labels";
   const descriptions = [];
   for (const item of occupancy.items) {
+    if (!known && (item.key === "free" || item.key === "reserve")) continue;
     const wide = (item.value / n) * 100,
       segment = document.createElement("span"),
       marker = item.estimated ? "~" : "";
     segment.className = `${item.key === "reserve" ? "reserve" : "segment"} occupancy-${item.key} ${percentClass(wide)} ${item.estimated ? "estimated" : ""}`;
-    segment.title = `${item.label} ${marker}${number(item.value)} (${marker}${percent(wide)})`;
+    segment.title = known ? `${item.label} ${marker}${number(item.value)} (${marker}${percent(wide)})` : `${item.label} ${marker}${number(item.value)}`;
     descriptions.push(segment.title);
-    meter.append(segment);
+    if (known) meter.append(segment);
     const label = document.createElement("span");
     label.className = "rail-label";
     label.append(`${item.label} `);
     const value = document.createElement("span");
     value.className = "number";
-    value.textContent = `${marker}${percent(wide)}`;
+    value.textContent = known ? `${marker}${percent(wide)}` : `${marker}${number(item.value)}`;
     label.append(value);
     labels.append(label);
   }
   meter.setAttribute("aria-label", `Context occupancy: ${descriptions.join(", ")}`);
-  const tick = document.createElement("span");
-  tick.className = `ceiling-tick ${percentClass(((b.ceiling || 0) / n) * 100)}`;
-  meter.append(tick);
-  const edge = document.createElement("span");
-  edge.className = `fill-edge ${percentClass((used / n) * 100)}`;
-  meter.append(edge);
+  if (known) {
+    const tick = document.createElement("span");
+    tick.className = `ceiling-tick ${percentClass(((b.ceiling || 0) / n) * 100)}`;
+    meter.append(tick);
+    const edge = document.createElement("span");
+    edge.className = `fill-edge ${percentClass((used / n) * 100)}`;
+    meter.append(edge);
+  }
   const readout = document.createElement("div");
   readout.className = "rail-readout";
   const primary = document.createElement("span");
-  primary.textContent = `${occupancy.estimated ? "~" : ""}${number(used)} / ${number(b.ceiling || 0)}`;
+  primary.textContent = known ? `${occupancy.estimated ? "~" : ""}${number(used)} / ${number(b.ceiling || 0)}` : `${occupancy.estimated ? "~" : ""}${number(used)}`;
   readout.append(primary);
   if (b.used_measured) {
     const drift = document.createElement("span");

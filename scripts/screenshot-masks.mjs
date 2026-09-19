@@ -22,6 +22,11 @@ export const LIVE_VALUES = [
   { name: "transcript-scrollbar", reason: "the thumb's length and place follow the transcript's height, which live text wraps change", selector: "#chat-log", scrollbar: true },
   { name: "loopback-port", reason: "the fake model server's port is chosen when it starts", selector: "body", pattern: String.raw`(?:127\.0\.0\.1|localhost):\d{2,5}` },
   { name: "budget-meter", reason: "the chat's budget fill follows measured token counts", selector: ".chat-budget-fill" },
+  // v1.0.0/W5: the staged candidate's prompt measured five tokens more than a
+  // working-tree build's, so every token readout and the Console rail's
+  // segment widths are live values between builds (2ga's "the meter's numbers").
+  { name: "token-count", reason: "token counts follow the measured prompt, which differs between builds of one tree", selector: "body", pattern: String.raw`(?<![\w.,])~?\d[\d,]* (?:/ ~?\d[\d,]*|in · \d[\d,]* out)` },
+  { name: "context-rail", reason: "the Console rail's segments and numbers follow measured token counts", selector: "#rail .meter, #rail .rail-labels .number, #rail .rail-readout" },
 ];
 
 // OTHER_CHAT_STATE is declared by the shell-state captures only: they set the

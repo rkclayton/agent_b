@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +53,21 @@ func newTemplateServer(t *testing.T, respond func(body map[string]any, messages 
 				return
 			}
 			count := len(body.Messages)
+			// Like HomePC's template (and the gate's fake): system messages may
+			// lead the list, but not follow history.
+			historyStarted := false
+			for _, message := range body.Messages {
+				if role := message["role"]; role == "system" || role == "developer" {
+					if historyStarted {
+						result.refusals.Add(1)
+						w.WriteHeader(http.StatusInternalServerError)
+						fmt.Fprint(w, "System message must be at the beginning.")
+						return
+					}
+				} else {
+					historyStarted = true
+				}
+			}
 			forced := result.refuse.Load() > 0 && result.refuse.Add(-1) >= 0
 			if forced || (count >= 2 && body.Messages[count-1]["role"] == "assistant" && body.Messages[count-2]["role"] == "assistant") {
 				result.refusals.Add(1)
@@ -511,4 +527,56 @@ func contextmgrIDNumber(id string) (int64, bool) {
 		return 0, false
 	}
 	return value, true
+}
+
+// Item 2fg: a Stop cancels the run's context. The closing budget measurement
+// runs on its own context, and a canceled request never reads as an outage —
+// in the walk it did, and the false outage is what released the held queue.
+func TestAStopIsNotAnOutage(t *testing.T) {
+	canceled := &url.Error{Op: "Post", URL: "http://127.0.0.1:8080/apply-template", Err: context.Canceled}
+	profile := &config.Profile{BaseURL: "http://127.0.0.1:8080"}
+	if _, unavailable := modelUnavailable(profile, canceled); unavailable {
+		t.Fatal("a canceled request was read as an unreachable model")
+	}
+	server := newTemplateServer(t, func(map[string]any, []map[string]any) map[string]any { return map[string]any{"content": "ok"} })
+	runner, item, bus := templateRunner(t, server)
+	if _, err := runner.AddUser(context.Background(), item, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runner.Run(ctx, item, "r1")
+	// The closing measurement runs after the stopped run returns.
+	measured := false
+	for deadline := time.Now().Add(3 * time.Second); !measured && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for _, event := range bus.Recent(item.ID) {
+			if event.Type == events.ModelUnreachable {
+				t.Fatalf("a stopped run published model.unreachable: %v", event.Data)
+			}
+			measured = measured || event.Type == events.BudgetEvent
+		}
+	}
+	if !measured {
+		t.Fatal("the closing budget was not measured after the stop")
+	}
+}
+
+// Item 2fg: after a stop the harness abort record (a system-role message) sits
+// mid-history; every measurement lifts it to the front as the run's own
+// assembly does, so the template never refuses a system message mid-list.
+func TestTheAbortRecordLeadsEveryMeasurement(t *testing.T) {
+	server := newTemplateServer(t, func(map[string]any, []map[string]any) map[string]any { return map[string]any{"content": "ok"} })
+	runner, item, bus := templateRunner(t, server)
+	profile, _ := runner.profile(item.ServerID)
+	item.Append(events.Message{ID: "start", Role: "user", Category: "history", Content: "start"})
+	item.Append(events.Message{ID: "abort", Role: "system", Category: "history", Content: harnessAbortRecordPrefix + "\nshell Start-Sleep was canceled"})
+	item.Append(events.Message{ID: "after", Role: "user", Category: "history", Content: "You were stopped. Now just say CONTINUED."})
+	if _, err := runner.measureSession(context.Background(), profile, item, nil, false); err != nil {
+		t.Fatalf("a measurement with the abort record mid-history was refused: %v", err)
+	}
+	for _, event := range bus.Recent(item.ID) {
+		if event.Type == events.Error {
+			t.Fatalf("error: %v", event.Data)
+		}
+	}
 }

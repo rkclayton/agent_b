@@ -41,13 +41,20 @@ type Gate struct {
 	bus              *events.Bus
 	cfg              func() config.Config
 	mailboxDecision  func(string) (string, error)
+	// Item 2fs: the scheduler's hooks. A run waiting on a card gives up its
+	// model slot (released) and takes one back once answered (reacquire).
+	released  func(sessionID string)
+	reacquire func(ctx context.Context, sessionID string) error
 }
 
 func NewGate(bus *events.Bus, cfg func() config.Config) *Gate {
 	return &Gate{waiting: map[string]*approvalWait{}, pendingBySession: map[string]string{}, bus: bus, cfg: cfg}
 }
 func (g *Gate) SetMailboxDecision(fn func(string) (string, error)) { g.mailboxDecision = fn }
-func approvalKey(sessionID, callID string) string                  { return sessionID + "\x00" + callID }
+func (g *Gate) setModelHooks(released func(string), reacquire func(context.Context, string) error) {
+	g.released, g.reacquire = released, reacquire
+}
+func approvalKey(sessionID, callID string) string { return sessionID + "\x00" + callID }
 func (g *Gate) required(name string) bool {
 	return approvalRequired(g.cfg().Approval.Mode, name)
 }
@@ -198,6 +205,9 @@ func workerApproval(s *session.Session, data map[string]any) map[string]any {
 }
 
 func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, callID string, wait *approvalWait) (string, error) {
+	if g.released != nil {
+		g.released(s.ID)
+	}
 	var signal approvalSignal
 	var ticker *time.Ticker
 	var mailbox <-chan time.Time
@@ -241,6 +251,11 @@ func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, cal
 	}
 	if signal.decision == "superseded" {
 		return signal.decision, fmt.Errorf("approval superseded by a newer decision")
+	}
+	if g.reacquire != nil {
+		if err := g.reacquire(ctx, s.ID); err != nil {
+			return "dismissed", err
+		}
 	}
 	if signal.decision != "superseded" && signal.decision != "dismissed" {
 		state := s.Snapshot().Run

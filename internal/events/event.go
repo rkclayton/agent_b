@@ -37,6 +37,7 @@ const (
 	UIError              = "ui.error"
 	LogRetention         = "log.retention"
 	RunQueued            = "run.queued"
+	RunResumed           = "run.resumed"
 	RunStarted           = "run.started"
 	RunStopping          = "run.stopping"
 	RunStopped           = "run.stopped"

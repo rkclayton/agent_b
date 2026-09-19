@@ -24,6 +24,13 @@ type activeRun struct {
 	runID      string
 	done       chan struct{}
 }
+
+// resumeWaiter is an answered run waiting to take back the model slot it
+// released while paused on a card (item 2fs).
+type resumeWaiter struct {
+	sessionID string
+	ready     chan struct{}
+}
 type SubmitResult struct {
 	RunID    string `json:"run_id"`
 	Queued   bool   `json:"queued,omitempty"`
@@ -40,15 +47,24 @@ type Scheduler struct {
 	pending     map[string][]queuedRun
 	held        map[string]bool
 	unreachable map[string]bool
-	ids         atomic.Int64
-	agentIdle   func(string)
+	// Item 2fs: a run paused on a card holds no model slot. paused marks it;
+	// resuming lists answered runs waiting to take a slot back, served before
+	// the queue.
+	paused    map[string]bool
+	resuming  []resumeWaiter
+	ids       atomic.Int64
+	agentIdle func(string)
 }
 
 // ReserveIDs moves the run-id counter past floor (item 2es).
 func (s *Scheduler) ReserveIDs(floor int64) { reserveCounter(&s.ids, floor) }
 
 func NewScheduler(runner *Runner, registry *session.Registry, bus *events.Bus, cfg func() config.Config) *Scheduler {
-	return &Scheduler{runner: runner, registry: registry, bus: bus, cfg: cfg, active: map[string]*activeRun{}, pending: map[string][]queuedRun{}, held: map[string]bool{}, unreachable: map[string]bool{}}
+	s := &Scheduler{runner: runner, registry: registry, bus: bus, cfg: cfg, active: map[string]*activeRun{}, pending: map[string][]queuedRun{}, held: map[string]bool{}, unreachable: map[string]bool{}, paused: map[string]bool{}}
+	if runner != nil && runner.gate != nil {
+		runner.gate.setModelHooks(s.releaseForCard, s.reacquireAfterCard)
+	}
+	return s
 }
 func (s *Scheduler) SetAgentIdleCallback(callback func(string)) {
 	s.mu.Lock()
@@ -200,6 +216,7 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 		return
 	}
 	delete(s.active, entry.s.ID)
+	s.forgetPausedLocked(entry.s.ID)
 	if active != nil && active.stopReason != "" {
 		reason = active.stopReason
 	}
@@ -245,6 +262,9 @@ func (s *Scheduler) profileLimit(profileID string) int {
 func (s *Scheduler) profileRunsLocked(profileID string) (int, string) {
 	count, role := 0, ""
 	for sessionID := range s.active {
+		if s.paused[sessionID] {
+			continue
+		}
 		if item, ok := s.registry.Get(sessionID); ok && item.ServerID == profileID {
 			count++
 			if role == "" {
@@ -255,8 +275,20 @@ func (s *Scheduler) profileRunsLocked(profileID string) (int, string) {
 	return count, role
 }
 
+// runningLocked counts the runs using a model slot: every active run except
+// one paused on a card (item 2fs).
+func (s *Scheduler) runningLocked() int {
+	count := 0
+	for sessionID := range s.active {
+		if !s.paused[sessionID] {
+			count++
+		}
+	}
+	return count
+}
+
 func (s *Scheduler) admitLocked(item *session.Session) bool {
-	if len(s.active) >= s.cfg().Run.MaxConcurrent {
+	if s.runningLocked() >= s.cfg().Run.MaxConcurrent {
 		return false
 	}
 	count, _ := s.profileRunsLocked(item.ServerID)
@@ -266,7 +298,19 @@ func (s *Scheduler) admitLocked(item *session.Session) bool {
 // drainLocked starts every queued run that can be admitted, in queue order; a
 // run waiting on a busy profile does not hold back one for a free profile.
 func (s *Scheduler) drainLocked() {
-	for index := 0; index < len(s.queue) && len(s.active) < s.cfg().Run.MaxConcurrent; {
+	// An answered run is mid-run: it takes a free slot before any queued run.
+	for index := 0; index < len(s.resuming); {
+		waiter := s.resuming[index]
+		item, ok := s.registry.Get(waiter.sessionID)
+		if ok && !s.admitLocked(item) {
+			index++
+			continue
+		}
+		s.resuming = append(s.resuming[:index], s.resuming[index+1:]...)
+		delete(s.paused, waiter.sessionID)
+		close(waiter.ready)
+	}
+	for index := 0; index < len(s.queue) && s.runningLocked() < s.cfg().Run.MaxConcurrent; {
 		next := s.queue[index]
 		if !s.admitLocked(next.s) {
 			index++
@@ -446,6 +490,7 @@ func (s *Scheduler) forceFinish(sessionID string, expected *activeRun, detail st
 		return
 	}
 	delete(s.active, sessionID)
+	s.forgetPausedLocked(sessionID)
 	item, _ := s.registry.Get(sessionID)
 	if item == nil {
 		return
@@ -462,6 +507,77 @@ func (s *Scheduler) forceFinish(sessionID string, expected *activeRun, detail st
 	s.notifyAgentIdleLocked(item.Snapshot().AgentID)
 	s.drainLocked()
 	s.repositionLocked()
+}
+
+// releaseForCard is called when a run pauses on a card: the run keeps its place
+// in active but gives up its model slot, and whatever it was holding back runs
+// (item 2fs).
+func (s *Scheduler) releaseForCard(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.active[sessionID] == nil || s.paused[sessionID] {
+		return
+	}
+	s.paused[sessionID] = true
+	s.drainLocked()
+	s.repositionLocked()
+}
+
+// reacquireAfterCard is called once a card is answered and before the run goes
+// on: it takes back a model slot, waiting behind the runs now holding them if
+// there is none free. Cancellation (Stop) ends the wait.
+func (s *Scheduler) reacquireAfterCard(ctx context.Context, sessionID string) error {
+	s.mu.Lock()
+	active := s.active[sessionID]
+	if active == nil || !s.paused[sessionID] {
+		s.mu.Unlock()
+		return nil
+	}
+	item, ok := s.registry.Get(sessionID)
+	if !ok || (len(s.resuming) == 0 && s.admitLocked(item)) {
+		delete(s.paused, sessionID)
+		s.mu.Unlock()
+		return nil
+	}
+	waiter := resumeWaiter{sessionID: sessionID, ready: make(chan struct{})}
+	s.resuming = append(s.resuming, waiter)
+	position := len(s.resuming)
+	state := item.Snapshot().Run
+	state.Status, state.QueuePosition = "queued", position
+	item.SetRun(state)
+	data := s.queuedDataLocked(item, active.runID, position)
+	data["resuming"] = true
+	s.bus.Publish(events.New(events.RunQueued, sessionID, active.runID, data))
+	s.mu.Unlock()
+	select {
+	case <-waiter.ready:
+	case <-ctx.Done():
+		s.mu.Lock()
+		for index, candidate := range s.resuming {
+			if candidate.ready == waiter.ready {
+				s.resuming = append(s.resuming[:index], s.resuming[index+1:]...)
+				break
+			}
+		}
+		s.mu.Unlock()
+		return ctx.Err()
+	}
+	state = item.Snapshot().Run
+	state.Status, state.QueuePosition = "running", 0
+	item.SetRun(state)
+	s.bus.Publish(events.New(events.RunResumed, sessionID, active.runID, map[string]any{"run_id": active.runID}))
+	return nil
+}
+
+// forgetPausedLocked drops a finished run's pause and any wait to re-acquire.
+func (s *Scheduler) forgetPausedLocked(sessionID string) {
+	delete(s.paused, sessionID)
+	for index, waiter := range s.resuming {
+		if waiter.sessionID == sessionID {
+			s.resuming = append(s.resuming[:index], s.resuming[index+1:]...)
+			break
+		}
+	}
 }
 
 func itemRunID(item *session.Session) string {

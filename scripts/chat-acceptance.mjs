@@ -158,6 +158,12 @@ const fakeHandler = async (request, response) => {
     return stream(response, { content: "HELD ANSWER" });
   }
   if (user.includes("acceptance: queued behind")) return stream(response, { content: "BEHIND ANSWER" });
+  // Item 2fs: a run paused on a card nobody answers, and a chat on the same model.
+  if (user.includes("acceptance: card nobody answers")) {
+    if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "unanswered-card", type: "function", function: { name: "run_script", arguments: JSON.stringify({ language: "powershell", source: "Write-Output card-answered" }) } }] }, "tool_calls");
+    return stream(response, { content: "CARD RELEASED ANSWER" });
+  }
+  if (user.includes("acceptance: beside the card")) return stream(response, { content: "BESIDE THE CARD ANSWER" });
   if (user.includes("acceptance: live tool")) {
     if (!hasToolAfterLatestUser(body)) {
       await sleep(300);
@@ -1983,6 +1989,28 @@ if (realModel) {
   await waitProjectedChatText(waiter.id, "BEHIND ANSWER", "the waiting chat answered once the profile was free", 20000);
   await writeFile(planPath, markedPlan);
   record("per-profile-queue-waiting-behind-and-go-refused");
+
+  // Item 2fs, the walk's reproduction: chat A pauses on a card nobody answers;
+  // chat B on the same model runs to its answer meanwhile; answering A's card
+  // lets A take the model back and finish.
+  const carded = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
+  const beside = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
+  await post(carded.id, "acceptance: card nobody answers");
+  const unanswered = await waitEvent(carded.id, (event) => event.type === "approval.required", "chat A's card");
+  await page.goto(chatURL(beside.id));
+  await page.locator("#chat-task").waitFor({ state: "visible" });
+  await post(beside.id, "acceptance: beside the card");
+  await waitProjectedChatText(beside.id, "BESIDE THE CARD ANSWER", "chat B answered while chat A's card waited", 20000);
+  assert.equal((await state()).sessions[carded.id].run.status, "paused", "chat A is still waiting on its card");
+  await page.screenshot({ path: join(evidenceRun, "beside-the-card.png") });
+  let answering = unanswered;
+  for (let guard = 0; guard < 4 && answering; guard += 1) {
+    await json(`http://127.0.0.1:${appPort}/api/approve`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ session_id: carded.id, call_id: answering.data.call_id, decision: "once" }) });
+    answering = await waitEvent(carded.id, (event) => event.seq > answering.seq && (event.type === "approval.required" || event.type === "run.stopped"), "chat A's next card or its end", 20000);
+    if (answering.type === "run.stopped") answering = null;
+  }
+  await waitProjectedChatText(carded.id, "CARD RELEASED ANSWER", "chat A finished once its card was answered", 20000);
+  record("card-nobody-answers-does-not-hold-the-model");
 
   // Item 2fc: no horizontal scrollbar on the Plan page at any supported width,
   // and no vertical one for a plan that fits.

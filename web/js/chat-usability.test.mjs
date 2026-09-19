@@ -94,8 +94,8 @@ test("Operator mode lives only in Settings Security and states the defeated boun
 test("No-agent and empty Plan invitations are explicit and Console links to active tools", () => {
   assert.match(chat, /No agent connected — add one in/);
   assert.match(chat, /operator-off-48\.png/);
-  assert.match(plan, />Tell me what you want to do\.<\/span>/);
-  assert.match(plan, /idle\.svg/);
+  // Item 2fc: the Plan page lists plans; with none it says how to add one.
+  assert.match(plan, />No plans yet\. \+ adds one for a folder\.<\/p>/);
   assert.match(consoleHTML, /id="console-tools-link"[^>]*>0 tools active<\/a>/);
 });
 

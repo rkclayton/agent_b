@@ -48,3 +48,19 @@ test("a new plan's order sits under its milestones, and the harness form keeps i
   assert.equal(fresh.order,"Ship it\n- [ ] [[1]] one");
   assert.equal(planRows("# P\n## Current work order — v1\nDo this\n### W1\nstep\n## Items\n[ ] 3 next").order,"Do this\n### W1\nstep");
 });
+
+test("the Plan page highlights only what changed, fades it over an hour, and filters by name", async () => {
+  const { changedLines, fadeFor, fadeWindowMS, filterPlans, markerSummary } = await import("./plan-surface.js");
+  assert.deepEqual(changedLines("a\nb\n", "a\nb\nc\n"), ["c"]);
+  assert.deepEqual(changedLines("- [ ] one\n", "- [x] one\n"), ["- [x] one"]);
+  assert.deepEqual(changedLines("x\n", "x\nx\n"), ["x"], "a repeated line is new when it appears more often");
+  assert.equal(fadeFor(0, 5), 0);
+  assert.equal(fadeFor(1000, 1000), 1);
+  assert.equal(fadeFor(1000, 1000 + fadeWindowMS), 0);
+  assert.ok(fadeFor(1000, 1000 + fadeWindowMS / 2) > 0.49);
+  const plans = [{ id: "p1", name: "Walk plan" }, { id: "p2", name: "Agent_b" }];
+  assert.deepEqual(filterPlans(plans, "walk").map((plan) => plan.id), ["p1"]);
+  assert.equal(filterPlans(plans, "").length, 2);
+  assert.equal(markerSummary({ open: 2, done: 1, stuck: 0 }), "2 open · 1 done");
+  assert.equal(markerSummary({}), "no items");
+});

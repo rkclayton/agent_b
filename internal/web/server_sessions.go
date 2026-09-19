@@ -99,6 +99,10 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) plans(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		s.createPlan(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		method(w)
 		return

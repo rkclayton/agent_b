@@ -7,36 +7,36 @@
   <link rel="icon" href="/static/assets/Agent_b.ico" type="image/x-icon">
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/app.css">
-  <link rel="stylesheet" href="/static/css/chat.css">
   <link rel="stylesheet" href="/static/css/plan.css">
 </head>
 <body class="plan-page" data-page="plan">
   <header id="app-shell" class="app-shell window-titlebar" data-page="plan"></header>
   <main class="plan-workspace" aria-label="Plan">
-    <section class="plan-chat" aria-label="Design chat">
-      <div id="chat-budget" class="chat-budget" aria-label="Context budget"><span class="chat-budget-fill"></span><span class="chat-budget-tip"></span></div>
-      <div id="plan-empty" class="plan-empty" hidden><img src="/static/assets/idle.svg" alt=""><span>Tell me what you want to do.</span></div>
-      <div id="chat-log" class="chat-log" tabindex="0" aria-live="polite"></div>
-      <footer id="chat-composer" class="chat-composer">
-        <div id="chat-pending-approval" class="pending-approval" hidden></div>
-        <div class="chat-status-strip"><span id="chat-notice" class="chat-notice" role="status"></span><span id="plan-hint" role="status"></span><button id="chat-retry-model" class="chat-retry" type="button" hidden>Retry</button></div>
-        <div class="chat-composer-row">
-          <input id="chat-file-picker" type="file" multiple hidden>
-          <div id="chat-attachments" class="chat-pending-attachments" aria-live="polite"></div>
-          <div class="chat-input-wrap">
-            <textarea id="chat-task" rows="5" aria-label="Task"></textarea>
-            <button id="chat-expand" type="button" aria-label="Expand composer">↥</button>
-            <span class="chat-input-actions"><span class="chat-attach-wrap"><button id="chat-attach" class="chat-attach" type="button" aria-label="Attach">📎</button><span id="chat-attach-menu" class="chat-attach-menu" hidden><button id="chat-attach-browse" type="button">Browse…</button><button id="chat-attach-exchange" type="button">From attachments</button><span id="chat-exchange-files" class="chat-exchange-files"></span></span></span><span class="chat-submit-actions"><button id="chat-stop" class="stop-sign" type="button" aria-label="Stop"><span aria-hidden="true"></span></button><button id="chat-send" type="button" aria-label="Send">↵</button></span></span>
-          </div>
-        </div>
-      </footer>
+    <nav class="plan-flyout" aria-label="Plans">
+      <div class="plan-flyout-head">
+        <input id="plan-search" type="search" aria-label="Search plans" placeholder="search" autocomplete="off" spellcheck="false">
+        <button id="plan-add" class="plan-add" type="button" aria-label="Add a plan" title="Add a plan for a folder">+</button>
+      </div>
+      <form id="plan-add-form" class="plan-add-form" hidden>
+        <input id="plan-add-path" aria-label="Folder for the new plan" placeholder="folder path, then Enter" autocomplete="off" spellcheck="false">
+        <p id="plan-add-error" class="plan-add-error" hidden></p>
+      </form>
+      <div id="plan-build" class="plan-build" role="group" aria-label="Build plan now?" hidden>
+        <span>Build plan now?</span><button id="plan-build-yes" type="button">Yes</button><button id="plan-build-no" type="button">No</button>
+      </div>
+      <ul id="plan-list" class="plan-list"></ul>
+      <p id="plan-list-empty" class="plan-list-empty" hidden>No plans yet. + adds one for a folder.</p>
+    </nav>
+    <section class="plan-view" aria-label="Plan document">
+      <header class="plan-panel-head"><span id="plan-name">Plan</span><button type="button" id="plan-go" class="plan-go" disabled>Go</button></header>
+      <div id="plan-lint" class="plan-lint" role="status" hidden></div>
+      <p id="plan-refusal" class="plan-refusal" hidden></p>
+      <div id="plan-done" class="plan-done" hidden></div>
+      <div class="plan-body">
+        <pre id="plan-raw" class="plan-raw" aria-label="plan.md, read-only"></pre>
+        <dl id="plan-stats" class="plan-stats" aria-label="Plan statistics"></dl>
+      </div>
     </section>
-    <section class="plan-panel" aria-label="Plan document">
-      <header class="plan-panel-head"><span id="plan-name">Plan</span><span class="plan-head-right"><button type="button" id="plan-go" class="plan-go" disabled>Go</button><span id="plan-cubes" class="plan-cubes" aria-label="Milestone progress"></span></span></header>
-      <div id="plan-lint" class="plan-lint" role="status" hidden></div><div id="plan-done" class="plan-done" hidden></div><div id="plan-current" class="plan-current"></div>
-      <div id="plan-items" class="plan-items"></div>
-    </section>
-    <aside id="plan-tray" class="plan-tray" aria-label="Proposed edits"><header>Proposed edits</header><div id="plan-proposals"></div></aside>
   </main>
   <script type="module" src="/static/js/build-check.js"></script>
   <script type="module" src="/static/js/plan.js"></script>

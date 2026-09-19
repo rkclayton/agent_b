@@ -2,7 +2,9 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"time"
 
 	"harness/internal/agent"
 	"harness/internal/worker"
@@ -25,17 +27,17 @@ func (s *Server) planGo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) planGoState(w http.ResponseWriter, r *http.Request) {
-	item, ok := s.registry.Get(r.URL.Query().Get("session_id"))
-	if !ok {
-		writeError(w, http.StatusNotFound, "session not found", "session_id")
-		return
-	}
-	planDir, err := s.planDirFor(item)
+	target, _, err := s.planTargetFor(r.URL.Query().Get("session_id"), r.URL.Query().Get("plan_id"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error(), "session_id")
+		status := http.StatusBadRequest
+		if err.Error() == "session not found" || errors.Is(err, errPlanNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err.Error(), "session_id")
 		return
 	}
-	if item.Snapshot().PlanID == "" {
+	planDir := target.Dir
+	if target.ID == "" {
 		writeJSON(w, http.StatusOK, map[string]any{"waiting": false, "running": false, "enabled": false, "items": 0})
 		return
 	}
@@ -45,7 +47,7 @@ func (s *Server) planGoState(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "plan.md was not found", "plan")
 		return
 	}
-	running := s.worker != nil && s.worker.Running(item.Snapshot().PlanID)
+	running := s.worker != nil && s.worker.Running(target.ID)
 	items := worker.Parse(text)
 	refusal := planRefusal(planDir)
 	// Item 2bq: the plan lint runs before Go; an error refuses it and every
@@ -53,6 +55,11 @@ func (s *Server) planGoState(w http.ResponseWriter, r *http.Request) {
 	diagnostics := worker.Lint(planDir)
 	if refusal == "" {
 		refusal = worker.Refusal(diagnostics)
+	}
+	// Item 2fc: Go refuses while the worker's model is at its limit, rather
+	// than queueing the worker behind a planner or a chat on that profile.
+	if refusal == "" && !running {
+		refusal = s.workerProfileBusy(target.AgentID)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"waiting":     worker.RemainingIn(items, planDir),
@@ -67,38 +74,51 @@ func (s *Server) planGoState(w http.ResponseWriter, r *http.Request) {
 func (s *Server) planGoStart(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		SessionID string `json:"session_id"`
+		PlanID    string `json:"plan_id"`
 		Stop      bool   `json:"stop"`
 	}
 	if !decode(w, r, &body) {
-		return
-	}
-	item, ok := s.registry.Get(body.SessionID)
-	if !ok {
-		writeError(w, http.StatusNotFound, "session not found", "session_id")
 		return
 	}
 	if s.worker == nil {
 		writeError(w, http.StatusServiceUnavailable, "the worker is not available on this build", "worker")
 		return
 	}
-	snapshot := item.Snapshot()
-	// Go belongs to a plan, not to a folder. A chat that merely sits in a
-	// plan repository has no plan id, and a worker started without one would
-	// share a running slot with every other unbound worker.
-	if snapshot.PlanID == "" {
-		writeError(w, http.StatusBadRequest, "this chat is not bound to a plan", "session_id")
-		return
+	var target planTarget
+	if body.PlanID != "" {
+		found, err := s.planByID(body.PlanID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error(), "plan_id")
+			return
+		}
+		target = found
+	} else {
+		item, ok := s.registry.Get(body.SessionID)
+		if !ok {
+			writeError(w, http.StatusNotFound, "session not found", "session_id")
+			return
+		}
+		snapshot := item.Snapshot()
+		// Go belongs to a plan, not to a folder. A chat that merely sits in a
+		// plan repository has no plan id, and a worker started without one would
+		// share a running slot with every other unbound worker.
+		if snapshot.PlanID == "" {
+			writeError(w, http.StatusBadRequest, "this chat is not bound to a plan", "session_id")
+			return
+		}
+		planDir, err := s.planDirFor(item)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error(), "session_id")
+			return
+		}
+		target = planTarget{ID: snapshot.PlanID, Dir: planDir, Repo: snapshot.PlanRepo, AgentID: snapshot.AgentID}
 	}
 	if body.Stop {
-		writeJSON(w, http.StatusOK, map[string]any{"stopped": s.worker.Stop(snapshot.PlanID, s.workerSessionID(snapshot.PlanID))})
+		writeJSON(w, http.StatusOK, map[string]any{"stopped": s.worker.Stop(target.ID, s.workerSessionID(target.ID))})
 		return
 	}
-	planDir, err := s.planDirFor(item)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error(), "session_id")
-		return
-	}
-	if s.worker.Running(snapshot.PlanID) {
+	planDir := target.Dir
+	if s.worker.Running(target.ID) {
 		writeError(w, http.StatusConflict, "a worker is already running on this plan", "worker")
 		return
 	}
@@ -110,21 +130,25 @@ func (s *Server) planGoStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, refusal, "plan")
 		return
 	}
+	if refusal := s.workerProfileBusy(target.AgentID); refusal != "" {
+		writeError(w, http.StatusConflict, refusal, "worker")
+		return
+	}
 
 	// The worker is its own session: a c-role one, bound to the same plan and
 	// repo, with no chat. The d-session that pressed Go keeps its own thread.
-	created, err := s.registry.CreateRole("worker", snapshot.AgentID, "", "c", snapshot.PlanID)
+	created, err := s.registry.CreateRole("worker", target.AgentID, "", "c", target.ID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error(), "worker")
 		return
 	}
 	plan := &worker.Plan{Dir: planDir}
-	repo := snapshot.PlanRepo
-	s.setWorkerSession(snapshot.PlanID, created.ID)
+	repo := target.Repo
+	s.setWorkerSession(target.ID, created.ID)
 	go func() {
 		_, _ = s.worker.Go(context.Background(), created, plan, repo)
 	}()
-	writeJSON(w, http.StatusAccepted, map[string]any{"started": created.ID, "plan_id": snapshot.PlanID})
+	writeJSON(w, http.StatusAccepted, map[string]any{"started": created.ID, "plan_id": target.ID})
 }
 
 // planWorker reports the done card's summary once a worker has finished.
@@ -133,12 +157,16 @@ func (s *Server) planWorker(w http.ResponseWriter, r *http.Request) {
 		method(w)
 		return
 	}
-	item, ok := s.registry.Get(r.URL.Query().Get("session_id"))
-	if !ok {
+	target, _, resolveErr := s.planTargetFor(r.URL.Query().Get("session_id"), r.URL.Query().Get("plan_id"))
+	if resolveErr != nil && r.URL.Query().Get("plan_id") != "" {
+		writeError(w, http.StatusNotFound, resolveErr.Error(), "plan_id")
+		return
+	}
+	if resolveErr != nil && resolveErr.Error() == "session not found" {
 		writeError(w, http.StatusNotFound, "session not found", "session_id")
 		return
 	}
-	planID := item.Snapshot().PlanID
+	planID := target.ID
 	if s.worker == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"done": false})
 		return
@@ -155,11 +183,11 @@ func (s *Server) planWorker(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, payload)
 }
 
-
 // The session id is kept so Stop can reach the run as well as the loop; the
 // outcome itself lives in the driver, which records it before it announces it.
 type workerState struct {
-	session string
+	session   string
+	startedAt time.Time
 }
 
 func (s *Server) setWorkerSession(planID, sessionID string) {
@@ -170,6 +198,7 @@ func (s *Server) setWorkerSession(planID, sessionID string) {
 	}
 	state := s.workerStates[planID]
 	state.session = sessionID
+	state.startedAt = time.Now()
 	s.workerStates[planID] = state
 }
 

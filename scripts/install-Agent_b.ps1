@@ -268,7 +268,29 @@ function Copy-ApplicationTree {
         if ($item.PSIsContainer) {
             Copy-ProgramDirectory -Name $item.Name -Source $Source -Destination $Destination -AllowedRemovalRoots $AllowedRemovalRoots
         } else {
-            Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $Destination $item.Name) -Force
+            Copy-FileWhenReleased -Source $item.FullName -Destination (Join-Path $Destination $item.Name)
+        }
+    }
+}
+
+# v0.70.1: a freshly written executable can be held open for a moment by
+# another process (a scanner opening a new binary) right after Agent_b has
+# exited, and a rollback that meets it would leave a half-restored install. A
+# sharing violation is retried for at most five seconds; anything else, or a
+# lock that outlasts that, fails as before.
+function Copy-FileWhenReleased {
+    param([string]$Source, [string]$Destination)
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    $attempts = 0
+    while ($true) {
+        $attempts++
+        try {
+            Copy-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
+            if ($attempts -gt 1) { Write-Host "COPY RETRIED: $([IO.Path]::GetFileName($Destination)) was held open by another process; copied on attempt $attempts" }
+            return
+        } catch [System.IO.IOException] {
+            if ([DateTime]::UtcNow -ge $deadline) { throw }
+            Start-Sleep -Milliseconds 250
         }
     }
 }

@@ -19,7 +19,7 @@ export function approvalText(data = {}) {
 		request: human.happened,
 		reason: human.harness_action,
 		question: human.question || "",
-		detail: data.args?.path ?? data.args?.command ?? data.args?.pattern ?? "",
+		detail: data.args?.path ?? data.args?.command ?? data.args?.source ?? data.args?.pattern ?? "",
 	};
 	const boundary = typeof data.boundary_escape === "boolean"
 		? data.boundary_escape

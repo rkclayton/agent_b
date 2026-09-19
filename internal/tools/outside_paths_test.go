@@ -66,3 +66,29 @@ func TestOutsidePathCardIsNotRaisedWithTheServiceIdentityOn(t *testing.T) {
 		t.Fatalf("with the service identity on the script runs under that identity: %+v started=%t", detail, started)
 	}
 }
+
+// v0.69.0/W12 cold review: a climb written as an absolute path, a text file
+// dressed as an executable, a .bat file's text, and a fourth path behind three
+// all reach the card; a real executable's path still does not.
+func TestOutsidePathsSeeClimbsFakeExecutablesAndEveryPath(t *testing.T) {
+	root := t.TempDir()
+	item := &session.Session{ID: "review", Workspace: root}
+	for _, source := range []string{
+		`Get-ChildItem ` + root + `\..`,
+		`Get-Content ` + root + `\x\..\..\..`,
+		`Get-Content 'C:\Windows\win.ini .exe'`,
+		`open('C:/Users/someone/.ssh/id_rsa#.exe'.split('#')[0])`,
+		`Get-Content C:\Users\someone\secrets.bat`,
+	} {
+		if reason := outsideReadReason(source, item); reason == "" {
+			t.Errorf("no card for %q", source)
+		}
+	}
+	if reason := outsideReadReason(`& C:\Windows\System32\where.exe notepad`, item); reason != "" {
+		t.Errorf("a real executable's path is not a read: %q", reason)
+	}
+	reason := outsideReadReason(`Get-Content C:\a C:\b C:\c C:\Users\someone\.ssh\id_rsa`, item)
+	if !strings.Contains(reason, `id_rsa`) {
+		t.Fatalf("the fourth path hid behind three: %q", reason)
+	}
+}

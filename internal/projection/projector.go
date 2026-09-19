@@ -335,6 +335,12 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 		next.Run.RunID = firstString(data["run_id"], record.Event.RunID)
 		next.Run.QueuePosition = intValue(data["position"])
 		next.Run.WaitingBehind = stringValue(data["behind"])
+	case events.RunResumed:
+		// Item 2fs: an answered run took back the model slot it released on its
+		// card; unlike run.started nothing about the run resets.
+		next.Run.Status = "running"
+		next.Run.QueuePosition = 0
+		next.Run.WaitingBehind = ""
 	case events.RunStarted:
 		next.Run.Status = "running"
 		next.Run.RunID = firstString(data["run_id"], record.Event.RunID)

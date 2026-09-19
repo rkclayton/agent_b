@@ -477,7 +477,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				return "length", "model output was truncated", turn
 			}
 			r.stage(s, runID, turn, "append", func() {
-				visible, proposals := parsePlanProposals(response.Content)
+				visible, proposals := planProposalsFor(s, response.Content)
 				message, _ := r.makeMessage(ctx, profile, "assistant", visible, "history", turn)
 				message.Reasoning = response.Reasoning
 				message.PlanProposals = bindPlanProposalSources(s.MessagesCopy(), proposals, message.ID)
@@ -493,7 +493,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			}
 			return "done", "", turn
 		}
-		visible, proposals := parsePlanProposals(response.Content)
+		visible, proposals := planProposalsFor(s, response.Content)
 		assistant, _ := r.makeMessage(ctx, profile, "assistant", visible, "history", turn)
 		assistant.Reasoning = response.Reasoning
 		assistant.PlanProposals = bindPlanProposalSources(s.MessagesCopy(), proposals, assistant.ID)

@@ -93,6 +93,10 @@ function makeRoot(inflight) {
   assert.match(releaseFindings("RELEASE: v0.69.2 (PATCH)", tags).errors[0], /does not follow v0\.69\.0; expected v0\.69\.1/);
   assert.match(releaseFindings("RELEASE: v0.70.1 (MINOR, milestone: x)", tags).errors[0], /expected v0\.70\.0/);
   assert.match(releaseFindings("RELEASE: v1.0.0 (MAJOR)", tags).errors[0], /hard stop 7/);
+  // v1.0.0/W0: MAJOR with a named milestone is the alpha tag, and follows the last tag's major.
+  assert.deepEqual(releaseFindings("RELEASE: v1.0.0 (MAJOR, milestone: alpha) at W5", ["v0.70.2", "v0.71.0"]).errors, []);
+  assert.match(releaseFindings("RELEASE: v2.0.0 (MAJOR, milestone: alpha)", ["v0.71.0"]).errors[0], /expected v1\.0\.0/);
+  assert.match(releaseFindings("RELEASE: v1.0.1 (MAJOR, milestone: alpha)", ["v0.71.0"]).errors[0], /expected v1\.0\.0/);
   assert.match(releaseFindings("RELEASE: SOMETIMES", tags).errors[0], /expected PATCH or MINOR/);
   const admission = validateProposal({ planText: plan("X", "- W1 **2a work.**", "RELEASE: v0.69.3 (PATCH)"), itemContents: [{ relative: "plan/items/2a.md", text: item("2a") }], releaseTags: tags });
   assert.ok(admission.admission.errors.some((message) => /RELEASE: v0\.69\.3/.test(message)), "the gate refuses a release that does not follow");

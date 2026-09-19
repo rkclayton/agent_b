@@ -236,8 +236,11 @@ export function releaseFindings(orderText, tags) {
       errors.push("RELEASE: " + label + " names kind " + JSON.stringify(release.kind) + "; expected PATCH or MINOR (milestone: …)");
       continue;
     }
-    if (kind === "MAJOR") {
-      errors.push("RELEASE: " + label + " is MAJOR, which exceeds an order's release scope (hard stop 7)");
+    // v1.0.0/W0: a MAJOR is the alpha tag's kind ("v1.0.0 at alpha"). It is
+    // accepted only when the order names its milestone; a bare MAJOR still
+    // exceeds an order's release scope (hard stop 7).
+    if (kind === "MAJOR" && !/milestone\s*:/i.test(release.kind)) {
+      errors.push("RELEASE: " + label + " is MAJOR without a milestone, which exceeds an order's release scope (hard stop 7)");
       continue;
     }
     if (known.has(release.text)) {
@@ -247,7 +250,7 @@ export function releaseFindings(orderText, tags) {
     if (kind === "MINOR" && !/milestone\s*:/i.test(release.kind)) warnings.push("RELEASE: " + label + " is MINOR without a milestone; PATCH is the default");
     if (!release.version || tags === null) continue;
     if (previous) {
-      const expected = kind === "PATCH" ? [previous[0], previous[1], previous[2] + 1] : [previous[0], previous[1] + 1, 0];
+      const expected = kind === "PATCH" ? [previous[0], previous[1], previous[2] + 1] : kind === "MAJOR" ? [previous[0] + 1, 0, 0] : [previous[0], previous[1] + 1, 0];
       if (compare(release.version, expected) !== 0) errors.push("RELEASE: " + release.text + " (" + kind + ") does not follow v" + previous.join(".") + "; expected v" + expected.join("."));
     }
     previous = release.version;

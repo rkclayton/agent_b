@@ -120,6 +120,12 @@ func RegistrationRefusal(plansRoot, repo string) (string, string) {
 	if strings.HasPrefix(filepath.VolumeName(resolved), `\\`) || filepath.Dir(resolved) == resolved {
 		return "", "a drive or network root cannot be a plan's repository; choose the repository's own folder"
 	}
+	// v0.69.0/W16 cold review: registering a folder adds it to every chat's
+	// writable union, so the operator's whole profile and the system folders
+	// are refused wherever the typed path led.
+	if reason := protectedRepoFolder(resolved); reason != "" {
+		return "", reason
+	}
 	if plansRoot != "" {
 		root := filepath.Clean(plansRoot)
 		if value, err := finalPath(root); err == nil {
@@ -144,6 +150,33 @@ func RepoInsidePlans(plansRoot, repo string) string {
 	}
 	if pathWithin(filepath.Clean(plansRoot), filepath.Clean(repo)) {
 		return "this repository is inside the plans folder, where nothing may be written; choose a repository outside it"
+	}
+	return ""
+}
+
+// protectedRepoFolder is why a resolved folder may not back a plan: the
+// operator's profile folder itself, or anything in or equal to the Windows or
+// Program Files folders. Folders inside the profile stay usable.
+func protectedRepoFolder(resolved string) string {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if real, realErr := finalPath(home); realErr == nil {
+			home = real
+		}
+		if strings.EqualFold(filepath.Clean(home), filepath.Clean(resolved)) {
+			return "your whole profile folder cannot be a plan's repository; choose the repository's own folder"
+		}
+	}
+	for _, name := range []string{"SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"} {
+		root := os.Getenv(name)
+		if root == "" {
+			continue
+		}
+		if real, err := finalPath(root); err == nil {
+			root = real
+		}
+		if strings.EqualFold(filepath.Clean(root), filepath.Clean(resolved)) || pathWithin(root, resolved) {
+			return "a Windows or Program Files folder cannot be a plan's repository; choose the repository's own folder"
+		}
 	}
 	return ""
 }

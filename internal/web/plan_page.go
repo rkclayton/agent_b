@@ -218,6 +218,25 @@ func (s *Server) buildPlan(w http.ResponseWriter, r *http.Request) {
 	if agentID == "" {
 		agentID = target.AgentID
 	}
+	// With no d profile the planner is a b chat in the plan's repository, the
+	// fallback the Plan page already names (2t-i): b plans, reviews are off.
+	s.mu.RLock()
+	agent, known := s.cfg.Agent(agentID)
+	hasPlanner := known && agent.ProfileFor("d") != ""
+	s.mu.RUnlock()
+	if !hasPlanner {
+		if target.Repo == "" {
+			writeError(w, http.StatusBadRequest, "this plan names no repository to plan in", "plan_id")
+			return
+		}
+		created, err := s.registry.Create("", agentID, target.Repo)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error(), "agent_id")
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"session_id": created.ID, "draft": planBuildDraft, "fallback": true, "session": created.Snapshot()})
+		return
+	}
 	created, err := s.registry.CreateRole("", agentID, "", "d", target.ID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error(), "agent_id")

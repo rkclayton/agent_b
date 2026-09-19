@@ -73,3 +73,33 @@ func TestPlansFolderWriteThroughAJunctionIsRefusedInBothPostures(t *testing.T) {
 		t.Fatalf("the bound d session could not write its own plan through its real path: %v", err)
 	}
 }
+
+// v0.69.0/W16 cold review: a junction inside a chat folder or a registered
+// repository pointed the jail at another folder under its own text path. The
+// jail now judges the real path, so a write through it is outside the folder,
+// while a path through a junction that stays inside is still inside.
+func TestTheJailJudgesAJunctionByWhereItLeads(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	outside := filepath.Join(root, "profile")
+	inner := filepath.Join(repo, "src")
+	for _, dir := range []string{repo, outside, inner} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, target := range map[string]string{filepath.Join(repo, "docs"): outside, filepath.Join(repo, "alias"): inner} {
+		if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+			t.Fatalf("junction: %v %s", err, out)
+		}
+	}
+	if _, err := Resolve(repo, filepath.Join("docs", "secret.txt")); err == nil {
+		t.Fatal("a junction out of the folder passed the jail")
+	}
+	if _, err := Resolve(repo, filepath.Join("alias", "main.go")); err != nil {
+		t.Fatalf("a junction that stays inside the folder was refused: %v", err)
+	}
+	if _, err := Resolve(repo, filepath.Join("src", "new", "file.go")); err != nil {
+		t.Fatalf("a new file inside the folder was refused: %v", err)
+	}
+}

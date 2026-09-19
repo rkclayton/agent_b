@@ -5,7 +5,10 @@
 // operator's step: hard stop (3) still governs the worker. Directories whose
 // name names no release (plan-snapshots, dated one-offs) are never touched.
 //
-//   node scripts/rotate-evidence.mjs [--root <repo>] [--keep 5] [--apply]
+//   node scripts/rotate-evidence.mjs [--root <repo>] [--keep 5] [--apply --yes]
+//
+// --apply removes only with --yes beside it: there is no prompt, so the run can
+// be unattended, and --apply alone refuses rather than asking.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -52,14 +55,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   let root = path.resolve(here, "..");
   let keep = 5;
   let apply = false;
+  let yes = false;
   for (let index = 2; index < process.argv.length; index += 1) {
     const argument = process.argv[index];
     if (argument === "--root" && process.argv[index + 1]) root = path.resolve(process.argv[++index]);
     else if (argument === "--keep" && process.argv[index + 1]) keep = Number(process.argv[++index]);
     else if (argument === "--apply") apply = true;
+    else if (argument === "--yes") yes = true;
     else throw new Error(`unknown argument: ${argument}`);
   }
   if (!Number.isInteger(keep) || keep < 1) throw new Error("--keep must be a positive integer");
+  if (apply && !yes) throw new Error("--apply removes evidence; add --yes to confirm");
   const plan = evidencePlan({ root, keep });
   process.stdout.write(`${JSON.stringify({ ...plan, applied: apply }, null, 2)}\n`);
   if (apply) {

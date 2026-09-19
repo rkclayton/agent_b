@@ -227,6 +227,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/navigation-suppressions", s.replayGuard(s.navigationSuppression))
 	mux.HandleFunc("/api/sessions", s.replayGuard(s.sessions))
 	mux.HandleFunc("/api/plans", s.replayGuard(s.plans))
+	mux.HandleFunc("/api/plans/build", s.replayGuard(s.buildPlanRoute))
 	mux.HandleFunc("/api/plan", s.replayGuard(s.planSurface))
 	mux.HandleFunc("/api/plan/accept", s.replayGuard(s.planAccept))
 	mux.HandleFunc("/api/plan/marker", s.replayGuard(s.planMarker))

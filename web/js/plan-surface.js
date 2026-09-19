@@ -71,3 +71,38 @@ export function workerProposals(sessions, session) {
 
 export function proposalLabel(proposal) { return `${proposal.kind} · ${proposal.path} · ${proposal.item_id}`; }
 export function proposalKey(proposal) { return JSON.stringify([proposal.id, proposal.kind, proposal.path, proposal.old_text, proposal.new_text, proposal.item_id]); }
+
+// Item 2fc: the Plan page's pure parts, kept here so they can be tested.
+
+// changedLines are the lines of next that were not in previous, counted as a
+// multiset so a repeated line is new only when it appears more often.
+export function changedLines(previous = "", next = "") {
+  const counts = new Map();
+  for (const line of String(previous).replaceAll("\r", "").split("\n")) counts.set(line, (counts.get(line) || 0) + 1);
+  const changed = [];
+  for (const line of String(next).replaceAll("\r", "").split("\n")) {
+    const left = counts.get(line) || 0;
+    if (left > 0) counts.set(line, left - 1);
+    else if (line.trim()) changed.push(line);
+  }
+  return changed;
+}
+
+// fadeFor is a changed line's highlight strength: full when it changed, gone
+// after an hour, and nothing for a line that has not changed since opening.
+export const fadeWindowMS = 60 * 60 * 1000;
+export function fadeFor(changedAt, now = Date.now()) {
+  if (!changedAt) return 0;
+  return Math.max(0, 1 - (now - changedAt) / fadeWindowMS);
+}
+
+export function filterPlans(plans = [], query = "") {
+  const needle = String(query).trim().toLowerCase();
+  return needle ? plans.filter((plan) => `${plan.name || ""} ${plan.id}`.toLowerCase().includes(needle)) : plans;
+}
+
+export function markerSummary(markers = {}) {
+  const parts = [["open", "open"], ["done", "done"], ["stuck", "stuck"], ["partial", "partial"], ["dropped", "dropped"]]
+    .filter(([key]) => markers?.[key]).map(([key, label]) => `${markers[key]} ${label}`);
+  return parts.join(" · ") || "no items";
+}

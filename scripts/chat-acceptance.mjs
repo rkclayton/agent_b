@@ -152,6 +152,12 @@ const fakeHandler = async (request, response) => {
     }
     return stream(response, { content: "Menu stream completed." });
   }
+  // Item 2fc: one chat holds the model while another waits behind it.
+  if (user.includes("acceptance: hold the model")) {
+    await sleep(4000);
+    return stream(response, { content: "HELD ANSWER" });
+  }
+  if (user.includes("acceptance: queued behind")) return stream(response, { content: "BEHIND ANSWER" });
   if (user.includes("acceptance: live tool")) {
     if (!hasToolAfterLatestUser(body)) {
       await sleep(300);
@@ -1283,7 +1289,7 @@ if (realModel) {
   // log no console error — no 409 for "no plan", no 404 for /favicon.ico.
   consoleErrors.length = 0;
   await page.goto(`http://127.0.0.1:${appPort}/plan?session=${sessionID}`);
-  await browser.wait(`document.querySelector('#plan-current')?.textContent.includes('has no plan')`, "no-plan state on the Plan page");
+  await browser.wait(`document.querySelector('#plan-list') && (document.querySelector('.plan-entry') || !document.querySelector('#plan-list-empty').hidden)`, "the Plan page drew its list");
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
   await browser.wait(`document.querySelector('#chat-task')`, "chat for the console check");
   await page.goto(`http://127.0.0.1:${appPort}/?session=${sessionID}`);
@@ -1768,20 +1774,35 @@ if (realModel) {
     body: JSON.stringify({ agent_id: "acceptance", role: "d", plan_id: "browser-plan" }),
   });
   const boundD = boundCreated.session;
-  await page.goto(`http://127.0.0.1:${appPort}/plan?session=${encodeURIComponent(boundD.id)}`);
-  await browser.wait(`document.querySelector('#plan-empty') && !document.querySelector('#plan-empty').hidden`, "empty Plan invitation");
-  await page.screenshot({ path: join(evidenceRun, "plan-empty.png") });
+  // Item 2fc: the Plan page lists plans and shows one raw; the planning chat is
+  // its own tab, and its proposals sit in its thread above the composer.
+  const planPageURL = `http://127.0.0.1:${appPort}/plan?plan=browser-plan`;
+  const chatURL = (id) => `http://127.0.0.1:${appPort}/chat?session=${encodeURIComponent(id)}`;
+  await page.goto(planPageURL);
+  await browser.wait(`document.querySelector('#plan-raw')?.textContent.includes('# Browser plan')`, "the raw plan on the Plan page");
+  assert.ok(await page.locator(".plan-entry.selected").count() === 1, "the selected plan is expanded in the flyout");
+  await page.locator("#plan-search").fill("no-such-plan");
+  assert.equal(await page.locator(".plan-entry").count(), 0, "search filters the flyout by name");
+  await page.locator("#plan-search").fill("");
+  assert.ok(await page.locator(".plan-entry").count() >= 1);
+  assert.equal(await page.locator(".plan-proposal").count(), 0, "the Plan page has no tray");
+  await page.screenshot({ path: join(evidenceRun, "plan-page.png") });
+  await page.goto(chatURL(boundD.id));
+  await page.locator("#chat-task").waitFor({ state: "visible" });
   await page.locator("#chat-task").fill("acceptance: plan proposals");
   await page.locator("#chat-task").press("Enter");
-  await browser.wait(`document.querySelectorAll('.plan-proposal').length === 3`, "three inert Plan proposals");
+  await browser.wait(`document.querySelectorAll('#chat-proposals .plan-proposal').length === 3`, "three inert proposals in the planning chat");
   await page.screenshot({ path: join(evidenceRun, "plan-proposals.png") });
-  await page.locator('.plan-proposal').nth(2).click();
+  await page.locator('#chat-proposals .plan-proposal').nth(2).click();
   assert.match(await page.locator("#chat-task").inputValue(), /Quoted plan/, "clicking a proposal quotes it");
-  await page.locator('.plan-proposal').nth(1).getByRole('button', { name: 'Dismiss' }).click();
-  assert.equal(await page.locator('.plan-proposal').count(), 2, "Dismiss removes only that proposal");
-  await page.locator('.plan-proposal').nth(0).getByRole('button', { name: 'Accept' }).click();
-  await browser.wait(`document.querySelector('#plan-items')?.innerText.includes('2t accepted via tray')`, "accepted Plan edit rendered");
+  await page.locator("#chat-task").fill("");
+  await page.locator('#chat-proposals .plan-proposal').nth(1).getByRole('button', { name: 'Dismiss' }).click();
+  assert.equal(await page.locator('#chat-proposals .plan-proposal').count(), 2, "Dismiss removes only that proposal");
+  await page.locator('#chat-proposals .plan-proposal').nth(0).getByRole('button', { name: 'Accept' }).click();
+  await waitFileContains(join(browserPlanDir, "plan.md"), "2t accepted via tray");
   assert.equal(await readFile(join(browserPlanDir, "plan.md"), "utf8"), "# Browser plan\n[ ] 2t accepted via tray\n");
+  await page.goto(planPageURL);
+  await browser.wait(`document.querySelector('#plan-raw')?.textContent.includes('2t accepted via tray')`, "accepted edit in the raw plan");
   await page.screenshot({ path: join(evidenceRun, "plan-accepted.png") });
   record("plan-empty-propose-dismiss-quote-accept");
 
@@ -1807,10 +1828,11 @@ if (realModel) {
   const workerSession = Object.values((await state()).sessions).find((entry) => entry.role === "c");
   assert.ok(workerSession, "the worker did not get its own session");
   assert.equal(workerSession.plan_id, "browser-plan");
+  // The worker has no chat: its card is drawn in the planning chat's thread,
+  // marked as the worker's, and answered there.
+  await page.goto(chatURL(boundD.id));
+  await page.locator("#chat-task").waitFor({ state: "visible" });
   assert.equal(await page.locator('.agent-tab-wrap[data-session="' + workerSession.id + '"]').count(), 0, "the worker appeared in the tab strip");
-  // The worker is a new session, so its first file tool asks the operator to
-  // run as them. The worker has no chat: the card is drawn in this plan's design
-  // thread, marked as the worker's, and answered there by clicking it.
   const planPath = join(browserPlanDir, "plan.md");
   let workerCards = 0;
   for (const deadline = Date.now() + 45000; Date.now() < deadline; ) {
@@ -1828,24 +1850,9 @@ if (realModel) {
   }
   if (!workerCards) {
     const serverWorker = Object.values((await state()).sessions).find((entry) => entry.role === "c");
-    const clientWorker = await page.evaluate(async (id) => {
-      const html = document.querySelector("#chat-pending-approval")?.outerHTML || "";
-      // v0.65.0/W8 (2er): what the page's store holds for the worker and the
-      // selected design thread, beside the server's view.
-      const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
-      const worker = bus.store.sessions[id];
-      const selected = bus.store.sessions[bus.store.selection.session_id];
-      return {
-        html: html.slice(0, 400),
-        store_worker: worker ? { role: worker.role, plan_id: worker.plan_id, closed: worker.closed, pending: worker.pending_approval?.event?.data?.name || null, cursor: worker.cursor, run: worker.run?.status } : null,
-        selected: selected ? { id: selected.id, role: selected.role, plan_id: selected.plan_id } : null,
-        session_ids: Object.keys(bus.store.sessions),
-      };
-    }, serverWorker?.id);
-    process.stdout.write(`WORKER CARD DIAGNOSTIC plan=${JSON.stringify(await readFile(planPath, "utf8"))} server_pending=${JSON.stringify(serverWorker?.pending_approval?.event?.data?.name || null)} server_worker=${JSON.stringify({ id: serverWorker?.id, plan_id: serverWorker?.plan_id, cursor: serverWorker?.cursor })} run=${JSON.stringify(serverWorker?.run?.status || null)} client=${JSON.stringify(clientWorker)}` + String.fromCharCode(10));
+    process.stdout.write(`WORKER CARD DIAGNOSTIC plan=${JSON.stringify(await readFile(planPath, "utf8"))} server_pending=${JSON.stringify(serverWorker?.pending_approval?.event?.data?.name || null)} run=${JSON.stringify(serverWorker?.run?.status || null)}` + String.fromCharCode(10));
   }
   assert.ok(workerCards > 0, "the worker's approval was never drawn in the design thread");
-
   process.stdout.write(`WORKER APPROVAL IN THREAD answered ${workerCards} card(s)` + String.fromCharCode(10));
   record("worker-approval-card-in-design-thread-answered-there");
   // A worker that did not get where it was going has to say why in the gate's
@@ -1861,12 +1868,7 @@ if (realModel) {
   }
   await waitFileContains(join(browserPlanDir, "plan.md"), "- [!] [[2u]] 2u worker cannot finish this one  — stuck: tool_errors", 90000);
   await waitFileContains(join(browserPlanDir, "plan.md"), "- [!] [[2v]] 2v names no verifier  — stuck: no verifier named", 90000);
-  // The operator is looking at this page while the worker runs; a background tab
-  // gets no animation frames, and this thread renders on one.
   await page.bringToFront();
-  // Watch the SCREEN first. Until v0.63.0 a snapshot taken between an event's
-  // durable append and its fold silenced that patch; the store no longer lets a
-  // snapshot move the broadcast cursor, and the post must arrive live.
   const questionText = "Which database should the cache use?";
   const questionOnScreen = async () => (await browserText("#chat-log")).includes(questionText);
   let postArrival = "live";
@@ -1891,6 +1893,13 @@ if (realModel) {
   assert.equal(workerJob.data.routed_to, "d");
   assert.equal(workerJob.data.role, "c");
   assert.equal(workerJob.data.worker, workerSession.id);
+  // The item that names no verifier is proposed to the planner: in its thread,
+  // with Dismiss and quote, and no Accept, because only the planner can name it.
+  await browser.wait(`[...document.querySelectorAll('#chat-proposals .plan-proposal')].some((row) => row.innerText.includes('verifier · plan/items/2v.md · 2v'))`, "the verifier proposal in the planning chat", 20000);
+  const verifierRow = page.locator("#chat-proposals .plan-proposal", { hasText: "verifier · plan/items/2v.md · 2v" });
+  assert.equal(await verifierRow.getByRole("button", { name: "Accept" }).count(), 0, "a verifier proposal offered Accept");
+  assert.equal(await verifierRow.getByRole("button", { name: "Dismiss" }).count(), 1);
+  await page.goto(planPageURL);
   await browser.wait(`document.querySelector('#plan-done') && !document.querySelector('#plan-done').hidden`, "the done card", 60000);
   const doneText = await browserText("#plan-done");
   assert.match(doneText, /Ready to test, with gaps/, doneText);
@@ -1899,16 +1908,11 @@ if (realModel) {
   assert.match(doneText, /2v names no verifier: no verifier named/, doneText);
   assert.equal(await page.locator("#plan-go").innerText(), "Go");
   assert.equal(await page.locator("#plan-go").isDisabled(), true, "Go stayed live with nothing waiting");
+  assert.match(await browserText("#plan-stats"), /1 done · 2 stuck/, "the plan's numbers show the worker's result");
   await page.screenshot({ path: join(evidenceRun, "plan-done-card.png") });
   const markedPlan = await readFile(join(browserPlanDir, "plan.md"), "utf8");
   assert.ok(!markedPlan.includes("[~]"), markedPlan);
   record("plan-go-worker-post-and-done-card");
-  // The item that names no verifier is proposed to the planner: in the tray,
-  // with Dismiss and quote, and no Accept, because only the planner can name it.
-  await browser.wait(`[...document.querySelectorAll('.plan-proposal')].some((row) => row.innerText.includes('verifier · plan/items/2v.md · 2v'))`, "the verifier proposal in the tray", 20000);
-  const verifierRow = page.locator(".plan-proposal", { hasText: "verifier · plan/items/2v.md · 2v" });
-  assert.equal(await verifierRow.getByRole("button", { name: "Accept" }).count(), 0, "a verifier proposal offered Accept");
-  assert.equal(await verifierRow.getByRole("button", { name: "Dismiss" }).count(), 1);
   record("no-verifier-item-stuck-and-proposed-in-tray");
   // A plan whose repository is inside the plans folder shows why on its panel,
   // and Go is refused rather than starting a worker that could only be refused.
@@ -1919,12 +1923,74 @@ if (realModel) {
   await writeFile(planManifest, JSON.stringify({ repo: insideRepo }, null, 2));
   await writeFile(planPath, markedPlan + "- [ ] 2w would be refused\n");
   await page.reload();
-  await browser.wait(`document.querySelector('.plan-refusal')?.innerText.includes('inside the plans folder')`, "the refusal line on the plan panel", 20000);
+  await browser.wait(`document.querySelector('#plan-refusal')?.innerText.includes('inside the plans folder')`, "the refusal line on the plan panel", 20000);
   await browser.wait(`document.querySelector('#plan-go') && document.querySelector('#plan-go').disabled`, "Go refused for a repo inside the plans folder", 20000);
   await page.screenshot({ path: join(evidenceRun, "plan-refusal.png") });
   await writeFile(planManifest, originalManifest);
   await writeFile(planPath, markedPlan);
   record("repo-inside-plans-refusal-line-and-go-refused");
+
+  // Item 2fc: + asks for a folder, registers its plan from the template, and
+  // asks "Build plan now?"; Yes opens the planning chat bound to it with the
+  // request in its composer — sent by the operator, never by the harness.
+  const newRepo = join(args.data, "..", "flyout-repo");
+  await mkdir(newRepo, { recursive: true });
+  await page.goto(planPageURL);
+  await page.locator("#plan-add").click();
+  await page.locator("#plan-add-path").fill(join(args.data, "..", "no-such-folder"));
+  await page.locator("#plan-add-path").press("Enter");
+  await browser.wait(`document.querySelector('#plan-add-error') && !document.querySelector('#plan-add-error').hidden`, "a missing folder is refused with the reason");
+  await page.locator("#plan-add-path").fill(newRepo);
+  await page.locator("#plan-add-path").press("Enter");
+  await browser.wait(`document.querySelector('#plan-build') && !document.querySelector('#plan-build').hidden`, "Build plan now?");
+  await browser.wait(`document.querySelector('#plan-raw')?.textContent.includes('## ')`, "the new plan's template on the right");
+  const createdPlan = (await (await fetch(`http://127.0.0.1:${appPort}/api/plans`)).json()).find((plan) => plan.repo && plan.repo.toLowerCase().endsWith("flyout-repo"));
+  assert.ok(createdPlan, "the plan was not registered");
+  await page.screenshot({ path: join(evidenceRun, "plan-build-prompt.png") });
+  await page.locator("#plan-build-yes").click();
+  await page.waitForURL((url) => url.pathname === "/chat" && !!url.searchParams.get("session"));
+  await page.locator("#chat-task").waitFor({ state: "visible" });
+  await browser.wait(`document.querySelector('#chat-task')?.value.includes('draft its plan')`, "the build request waits in the composer");
+  const planner = Object.values((await state()).sessions).find((entry) => entry.role === "d" && entry.plan_id === createdPlan.id);
+  assert.ok(planner, "Yes did not open a planning chat bound to the plan");
+  assert.equal((planner.messages || []).filter((message) => message.role === "user").length, 0, "the harness sent a message in the operator's name");
+  await page.locator("#chat-task").fill("");
+  record("plan-flyout-add-folder-build-prompt");
+
+  // Item 2fc: runs queue per model profile. While one chat holds the profile,
+  // another waits with the role it is behind, and Go refuses with the reason.
+  const holder = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
+  const waiter = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
+  const post = async (id, text) => fetch(`http://127.0.0.1:${appPort}/api/message`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ session_id: id, text }) });
+  await writeFile(planPath, markedPlan + "- [ ] 2x waits for the model\n");
+  await writeFile(join(browserPlanDir, "plan", "items", "2x.md"), "state: live\nverify: echo verified\n\n# 2x\n");
+  await post(holder.id, "acceptance: hold the model");
+  await waitEvent(holder.id, (event) => event.type === "run.started", "the holder's run started");
+  await page.goto(chatURL(waiter.id));
+  await page.locator("#chat-task").waitFor({ state: "visible" });
+  await post(waiter.id, "acceptance: queued behind");
+  await browser.wait(`document.querySelector('#chat-notice')?.innerText.includes('waiting for model · behind agent_b')`, "the strip names the role ahead");
+  const busyGo = await (await fetch(`http://127.0.0.1:${appPort}/api/plan/go?plan_id=browser-plan`)).json();
+  assert.equal(busyGo.enabled, false, JSON.stringify(busyGo));
+  assert.match(busyGo.refusal || "", /the model is busy: agent_b is running/, JSON.stringify(busyGo));
+  await page.screenshot({ path: join(evidenceRun, "queued-behind.png") });
+  await waitProjectedChatText(waiter.id, "BEHIND ANSWER", "the waiting chat answered once the profile was free", 20000);
+  await writeFile(planPath, markedPlan);
+  record("per-profile-queue-waiting-behind-and-go-refused");
+
+  // Item 2fc: no horizontal scrollbar on the Plan page at any supported width,
+  // and no vertical one for a plan that fits.
+  for (const width of [900, 1250, 1600]) {
+    await page.setViewportSize({ width, height: 975 });
+    await page.goto(planPageURL);
+    await browser.wait(`document.querySelector('#plan-raw')?.textContent.includes('# Browser plan')`, `the plan at ${width}px`);
+    const overflow = await page.evaluate(() => [document.documentElement, ...document.querySelectorAll(".plan-flyout, .plan-list, .plan-view, .plan-body, .plan-raw, .plan-stats")].map((node) => ({ name: node.className || node.tagName, wide: node.scrollWidth - node.clientWidth, tall: node.scrollHeight - node.clientHeight })));
+    for (const entry of overflow) assert.ok(entry.wide <= 0, `horizontal overflow at ${width}px: ${JSON.stringify(entry)}`);
+    const body = overflow.find((entry) => entry.name === "plan-body");
+    assert.ok(body && body.tall <= 0, `a plan that fits scrolls at ${width}px: ${JSON.stringify(body)}`);
+  }
+  await page.setViewportSize({ width: 1250, height: 975 });
+  record("plan-page-no-horizontal-scrollbar-at-supported-widths");
 
   record("fake-model-script-complete");
   await writeFile(join(evidenceRun, "result.json"), JSON.stringify({ scenarios, duration_ms: Date.now() - startedAt, session_id: sessionID, shell_flip: shellFlipEvidence, shell_style_boundary: shellStyleBoundaryEvidence }, null, 2));

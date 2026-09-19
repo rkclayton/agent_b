@@ -800,3 +800,15 @@
 @media (max-width: 620px) {
   .chat-entry { grid-template-columns: 72px minmax(0, 1fr); }
 }
+
+/* Item 2fc: proposed plan edits sit in the planning chat's own thread, above
+   the composer, with the tray's rows and controls. */
+.chat-proposals { max-height:40vh; overflow-y:auto; border-top:1px solid rgba(125,135,148,.28); }
+.chat-proposals[hidden] { display:none; }
+.plan-proposal { padding:6px 10px; border-bottom:1px solid rgba(125,135,148,.18); cursor:pointer; font-size:12px; }
+.plan-proposal:hover { background:rgba(216,221,227,.04); }
+.plan-proposal code { display:block; color:var(--mute); font:12px/16px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.plan-proposal-actions { display:flex; gap:4px; margin-top:4px; }
+.plan-proposal-actions button { min-height:22px; padding:2px 7px; background:rgba(216,221,227,.08); }
+.plan-proposal-actions button:hover { background:rgba(216,221,227,.12); }
+.plan-proposal .field-error { margin:4px 0 0; color:var(--alarm); }

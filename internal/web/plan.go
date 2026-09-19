@@ -22,6 +22,10 @@ var planProposalID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 type planProposal = events.PlanProposal
 
 func (s *Server) planSurface(w http.ResponseWriter, r *http.Request) {
+	if planID := r.URL.Query().Get("plan_id"); planID != "" && r.Method == http.MethodGet {
+		s.planPage(w, planID)
+		return
+	}
 	sessionID := r.URL.Query().Get("session_id")
 	item, ok := s.registry.Get(sessionID)
 	if !ok {

@@ -479,3 +479,68 @@ func TestAMessageSentWhileStoppingIsHeldUntilTheOperatorSendsAgain(t *testing.T)
 		t.Fatalf("the operator's message releases the hold, in order: %v", users)
 	}
 }
+
+// Item 2fc: runs are admitted per model profile. A profile serves one run at a
+// time unless its max_concurrent is raised; a run waiting on a busy profile
+// names the role ahead of it, and another profile's run is not held back.
+func TestRunsAreAdmittedPerProfileAndNameTheRoleAhead(t *testing.T) {
+	workspace := t.TempDir()
+	cfg := config.Defaults(workspace)
+	cfg.Run.MaxConcurrent = 4
+	first := cfg.Servers[0]
+	second := first
+	second.ID, second.Label = "second", "second"
+	cfg.Servers = []config.Profile{first, second}
+	bus := events.NewBus()
+	writers, err := events.NewWriters(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writers.Close()
+	lookup := func(id string) (*config.Profile, bool) {
+		for index := range cfg.Servers {
+			if cfg.Servers[index].ID == id {
+				return &cfg.Servers[index], true
+			}
+		}
+		return nil, false
+	}
+	registry := session.NewRegistry(bus, writers, lookup, cfg.Run.MaxTurns, func() config.Config { return cfg })
+	planner, _ := registry.Create("planner", first.ID, workspace)
+	chat, _ := registry.Create("chat", first.ID, workspace)
+	other, _ := registry.Create("other", second.ID, workspace)
+	if planner == nil || chat == nil || other == nil {
+		t.Fatal("sessions were not created")
+	}
+	planner.Role = "d"
+	scheduler := NewScheduler(NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, lookup, func() config.Config { return cfg }), registry, bus, func() config.Config { return cfg })
+	scheduler.active[planner.ID] = &activeRun{}
+
+	scheduler.mu.Lock()
+	sameProfile, otherProfile := scheduler.admitLocked(chat), scheduler.admitLocked(other)
+	data := scheduler.queuedDataLocked(chat, "r9", 1)
+	scheduler.mu.Unlock()
+	if sameProfile || !otherProfile {
+		t.Fatalf("admission: same profile=%t other profile=%t", sameProfile, otherProfile)
+	}
+	if data["behind"] != "agent_d" {
+		t.Fatalf("run.queued data = %v, want behind agent_d", data)
+	}
+	if busy, role := scheduler.ProfileBusy(first.ID); !busy || role != "agent_d" {
+		t.Fatalf("ProfileBusy = %t %q", busy, role)
+	}
+	cfg.Servers[0].MaxConcurrent = 2
+	scheduler.mu.Lock()
+	raised := scheduler.admitLocked(chat)
+	scheduler.mu.Unlock()
+	if !raised {
+		t.Fatal("a raised profile limit still refused the second run")
+	}
+	cfg.Run.MaxConcurrent = 1
+	scheduler.mu.Lock()
+	global := scheduler.admitLocked(other)
+	scheduler.mu.Unlock()
+	if global {
+		t.Fatal("the global limit no longer caps the total")
+	}
+}

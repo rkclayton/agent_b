@@ -6,7 +6,7 @@
 - Planning documents are not tracked. `PLAN.md` is gitignored and operator-owned; record durable findings and decisions in `NOTES.md`.
 
 ## PLAN.md is operator-owned
-- Never create, delete, or commit `PLAN.md`. It is edited by the operator, outside your session, except that Codex may append progress lines beneath its existing `## In flight` heading while a work order is underway.
+- Never create, delete, or commit `PLAN.md`. It is edited by the operator, outside your session, except that Codex may append progress lines to `plan/_inflight.md` (where PLAN.md's `## In flight` points since 2026-09-19) while a work order is underway.
 - Read it at session start for sequencing. After that, the work order you were given is the authority for the task in flight.
 - `PLAN.md` appearing, changing, or being reordered mid-task is expected and is not a finding. Do not report it as a workspace anomaly, do not investigate it, and do not re-plan the task in flight because of it.
 - If the operator wants a change to affect work already underway, they will say so in the session. Otherwise a `PLAN.md` change affects the NEXT task, not the current one.

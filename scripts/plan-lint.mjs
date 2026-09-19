@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -134,8 +135,128 @@ function namesDistinguishingMeasurement(body) {
   return Boolean(section?.[1].trim());
 }
 
+const inFlightSection = /^## In flight\s*$\n([\s\S]*?)(?=^## |(?![\s\S]))/m;
+export const packageMapStaleError = "PLAN.md package map: stale; run node scripts/plan-lint.mjs --write-index --structural";
+const packageMapRegion = /<!-- package-map -->[\s\S]*?<!-- \/package-map -->/;
+
+/**
+ * The marker lines the tooling reads (item 1c): the `## In flight` section of
+ * PLAN.md, then `plan/_inflight.md`, which holds the current order's markers
+ * once they have moved out of PLAN.md. Both are read, so the move is never a
+ * moment when markers disappear.
+ */
+export function markerText(planText, itemContents = []) {
+  const section = String(planText ?? "").match(inFlightSection)?.[1] ?? "";
+  const inflight = normalizeItemContents(itemContents).find(({ relative }) => relative === "plan/_inflight.md")?.text ?? "";
+  return section + "\n" + inflight;
+}
+
+function firstCommentLine(lines) {
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const comment = trimmed.match(/^\/\/\s?(.*)$/);
+    return comment ? comment[1].trim() : "";
+  }
+  return "";
+}
+
+/**
+ * The generated package map (item 1c): every Go package under cmd/ and
+ * internal/ with the first sentence of its package doc comment, and every
+ * web/js module with its first comment line. A package or module with none is
+ * listed by name alone, so the map is complete even where it is terse.
+ */
+export function packageMap(root = scriptRoot) {
+  const rows = [];
+  for (const parent of ["cmd", "internal"]) {
+    const base = path.join(root, parent);
+    if (!fs.existsSync(base)) continue;
+    for (const name of fs.readdirSync(base).sort()) {
+      const directory = path.join(base, name);
+      if (!fs.statSync(directory).isDirectory()) continue;
+      const files = fs.readdirSync(directory).filter((file) => file.endsWith(".go") && !file.endsWith("_test.go")).sort();
+      if (!files.length) continue;
+      let doc = "";
+      for (const file of files) {
+        const lines = fs.readFileSync(path.join(directory, file), "utf8").split(/\r?\n/);
+        const clause = lines.findIndex((line) => /^package\s+\w+/.test(line));
+        if (clause < 1) continue;
+        const block = [];
+        for (let index = clause - 1; index >= 0 && /^\/\//.test(lines[index]); index -= 1) block.unshift(lines[index].replace(/^\/\/\s?/, ""));
+        if (/^(?:Package|Command)\s+[\w-]+\s/.test(block[0] ?? "")) {
+          doc = block.join(" ").replace(/\s+/g, " ").trim();
+          break;
+        }
+      }
+      const sentence = (doc.match(/^.*?\.(?=\s|$)/)?.[0] ?? doc).replace(/^(?:Package|Command)\s+[\w-]+\s+/, "");
+      rows.push("- `" + parent + "/" + name + "`" + (sentence ? " — " + sentence : ""));
+    }
+  }
+  const web = path.join(root, "web", "js");
+  if (fs.existsSync(web)) {
+    for (const file of fs.readdirSync(web).filter((name) => name.endsWith(".js")).sort()) {
+      const line = firstCommentLine(fs.readFileSync(path.join(web, file), "utf8").split(/\r?\n/).slice(0, 5));
+      rows.push("- `web/js/" + file + "`" + (line ? " — " + line : ""));
+    }
+  }
+  return ["<!-- package-map -->", "Generated from the tree by `plan-lint --write-index`; edit the doc comments, not this list.", "", ...rows, "<!-- /package-map -->"].join("\n");
+}
+
+/** The release tags the repository already has, or null when git cannot say. */
+export function releaseTags(root = scriptRoot) {
+  try {
+    return execFileSync("git", ["-C", root, "tag", "--list", "v*"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The RELEASE line of an order (item 1c): PATCH by default, MINOR on a
+ * milestone step, none for no release. Each named version must follow the one
+ * before it by its kind, starting from the newest existing tag; a version that
+ * is already tagged is history and only moves the starting point.
+ */
+export function releaseFindings(orderText, tags) {
+  const errors = [];
+  const warnings = [];
+  const line = String(orderText ?? "").match(/^\**RELEASE:\**\s*([\s\S]*?)(?=\n\s*\n|\n[A-Z][A-Z ]+:|$(?![\s\S]))/m)?.[1]?.replace(/\s+/g, " ").trim();
+  if (!line || /^none\b/i.test(line)) return { errors, warnings };
+  const named = [...line.matchAll(/\bv(\d+)\.(\d+)\.(\d+)\s*\(([^)]*)\)/g)].map((match) => ({ version: match.slice(1, 4).map(Number), text: "v" + match[1] + "." + match[2] + "." + match[3], kind: match[4].trim() }));
+  const releases = named.length ? named : [{ version: null, text: "", kind: line }];
+  const parse = (version) => version.slice(1).split(".").map(Number);
+  const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+  let previous = (tags ?? []).filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag)).map(parse).sort(compare).at(-1) ?? null;
+  const known = new Set(tags ?? []);
+  for (const release of releases) {
+    const label = release.text || "the order";
+    const kind = release.kind.match(/^(PATCH|MINOR|MAJOR)\b/i)?.[1]?.toUpperCase();
+    if (!kind) {
+      errors.push("RELEASE: " + label + " names kind " + JSON.stringify(release.kind) + "; expected PATCH or MINOR (milestone: …)");
+      continue;
+    }
+    if (kind === "MAJOR") {
+      errors.push("RELEASE: " + label + " is MAJOR, which exceeds an order's release scope (hard stop 7)");
+      continue;
+    }
+    if (known.has(release.text)) {
+      if (!previous || compare(release.version, previous) > 0) previous = release.version;
+      continue;
+    }
+    if (kind === "MINOR" && !/milestone\s*:/i.test(release.kind)) warnings.push("RELEASE: " + label + " is MINOR without a milestone; PATCH is the default");
+    if (!release.version || tags === null) continue;
+    if (previous) {
+      const expected = kind === "PATCH" ? [previous[0], previous[1], previous[2] + 1] : [previous[0], previous[1] + 1, 0];
+      if (compare(release.version, expected) !== 0) errors.push("RELEASE: " + release.text + " (" + kind + ") does not follow v" + previous.join(".") + "; expected v" + expected.join("."));
+    }
+    previous = release.version;
+  }
+  return { errors, warnings };
+}
+
 /** Validate an exact plan proposal without writing it to the repository. */
-export function validateProposal({ planText, orderBody = null, itemContents, structuralOnly = false, inputErrors = [] }) {
+export function validateProposal({ planText, orderBody = null, itemContents, structuralOnly = false, inputErrors = [], packageMap: generatedPackageMap = null, releaseTags: tags = null }) {
   const errors = [...inputErrors];
   const warnings = [];
   const admission = { errors: [], warnings: [] };
@@ -146,7 +267,7 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
   const normalizedItems = normalizeItemContents(itemContents);
 
   for (const { relative, text } of normalizedItems) {
-    if (relative === "plan/_reference.md" || relative === "plan/_history.md") {
+    if (relative === "plan/_reference.md" || relative === "plan/_history.md" || relative === "plan/_inflight.md") {
       sourceTexts.push({ relative, text });
       continue;
     }
@@ -223,12 +344,14 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
   if (!indexMatch) errors.push("PLAN.md: missing ## Index");
   else if (indexMatch[0].replaceAll("\r\n", "\n").replace(/\s+$/, "") !== indexSection.replace(/\s+$/, "")) errors.push("PLAN.md index: stale or malformed; run node scripts/plan-lint.mjs --write-index --structural");
   if (/^## (?:Completed|Closed|Previous) work order\b/im.test(effectivePlan)) errors.push("PLAN.md: completed-order heading is not allowed");
+  const mapRegion = effectivePlan.match(packageMapRegion)?.[0];
+  if (mapRegion && generatedPackageMap !== null && mapRegion.replaceAll("\r\n", "\n") !== generatedPackageMap) errors.push(packageMapStaleError);
   const currentMatch = effectivePlan.match(/^## Current work order([^\n]*)\n([\s\S]*?)(?=^## (?:Next work order|In flight|Index)|(?![\s\S]))/m);
   if (!currentMatch) errors.push("PLAN.md: cannot find Current work order");
   else {
     const currentText = currentMatch[2];
     const orderId = currentText.match(/^Order ID:\s*`([^`]+)`/m)?.[1] ?? currentMatch[1].match(/\b(v\d+\.\d+\.\d+|[A-Z][A-Z0-9-]+)\b/)?.[1];
-    const inFlight = effectivePlan.match(/^## In flight\s*$\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] ?? "";
+    const inFlight = markerText(effectivePlan, normalizedItems);
     if (orderId) {
       const activeMarkers = new Map();
       for (const marker of inFlight.matchAll(/^(?:-\s*)?`?([^\s`/]+)\/(W\d+)\s+(started|completed|stopped)\b/gmi)) {
@@ -237,6 +360,12 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
         else activeMarkers.delete(key);
       }
       for (const marker of activeMarkers.values()) if (marker.orderId !== orderId) errors.push(`PLAN.md: In flight marker ${marker.orderId}/${marker.workId} belongs to another order (current ${orderId})`);
+    }
+    if (!structuralOnly) {
+      const release = releaseFindings(currentText, tags);
+      errors.push(...release.errors);
+      admission.errors.push(...release.errors);
+      warnings.push(...release.warnings);
     }
     const workItems = [...currentText.matchAll(/^- (W\d+)\s+\*\*(?:item\s+)?([0-9]+[a-z]*)\b([^\n]*)/gmi)];
     // A lettered W heading (W2b, W3c) does not match the pattern above, so its
@@ -347,13 +476,13 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
   };
 }
 
-function currentOrderRecord(planText) {
+function currentOrderRecord(planText, itemContents = []) {
   const match = String(planText ?? "").match(/^## Current work order([^\n]*)\n([\s\S]*?)(?=^## (?:Next work order|In flight|Index)|(?![\s\S]))/m);
   if (!match) return null;
   const text = match[2];
   const orderId = text.match(/^Order ID:\s*`([^`]+)`/m)?.[1] ?? match[1].match(/\b(v\d+\.\d+\.\d+|[A-Z][A-Z0-9-]+)\b/)?.[1] ?? null;
   const revision = text.match(/^\*\*Revision(?::)?\s+(r[0-9]+)\b/im)?.[1].toLowerCase() ?? null;
-  const inFlight = String(planText ?? "").match(/^## In flight\s*$\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] ?? "";
+  const inFlight = markerText(planText, itemContents);
   const work = [...text.matchAll(/^- (W\d+)\s+\*\*(?:item\s+)?([0-9]+[a-z]*)\b/gmi)].map((entry) => ({ workId: entry[1].toUpperCase(), itemId: entry[2].toLowerCase() }));
   const completedWork = orderId ? [...inFlight.matchAll(new RegExp(`^(?:-\\s*)?${orderId.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}/(W\\d+) completed\\b`, "gmi"))].map((entry) => entry[1].toUpperCase()) : [];
   return { orderId, revision, text, work, completedWork };
@@ -396,7 +525,7 @@ export function mergeAcceptedSnapshotParts(parts) {
 }
 
 function resumeInputs(proposal) {
-  const order = currentOrderRecord(proposal.planText);
+  const order = currentOrderRecord(proposal.planText, proposal.itemContents);
   const contents = new Map(normalizeItemContents(proposal.itemContents).map((entry) => [entry.relative, entry.text]));
   const required = new Map();
   if (order) {
@@ -475,12 +604,12 @@ export function loadPublishedProposal(root = scriptRoot) {
     }
     for (const name of fs.readdirSync(directory).sort()) if (name.endsWith(".md")) itemContents.push({ relative: path.posix.join("plan", label, name), text: fs.readFileSync(path.join(directory, name), "utf8") });
   }
-  for (const extra of ["plan/_reference.md", "plan/_history.md"]) {
+  for (const extra of ["plan/_reference.md", "plan/_history.md", "plan/_inflight.md"]) {
     const full = path.join(root, ...extra.split("/"));
     if (fs.existsSync(full)) itemContents.push({ relative: extra, text: fs.readFileSync(full, "utf8") });
   }
   if (!fs.existsSync(planPath)) inputErrors.push("missing PLAN.md");
-  return { planText: fs.existsSync(planPath) ? fs.readFileSync(planPath, "utf8") : "", itemContents, inputErrors };
+  return { planText: fs.existsSync(planPath) ? fs.readFileSync(planPath, "utf8") : "", itemContents, inputErrors, packageMap: packageMap(root), releaseTags: releaseTags(root) };
 }
 
 function runCLI() {
@@ -501,9 +630,10 @@ function runCLI() {
   let result = validateProposal({ ...loaded, structuralOnly });
   if (writeIndex) {
     const stale = "PLAN.md index: stale or malformed; run node scripts/plan-lint.mjs --write-index --structural";
-    if (!result.errors.filter((message) => message !== stale).length) {
+    if (!result.errors.filter((message) => message !== stale && message !== packageMapStaleError).length) {
       const newline = loaded.planText.includes("\r\n") ? "\r\n" : "\n";
-      fs.writeFileSync(path.join(root, "PLAN.md"), loaded.planText.replace(/^## Index\s*$[\s\S]*$/m, result.indexSection).replaceAll("\n", newline), "utf8");
+      const mapped = loaded.planText.replaceAll("\r\n", "\n").replace(packageMapRegion, () => loaded.packageMap);
+      fs.writeFileSync(path.join(root, "PLAN.md"), mapped.replace(/^## Index\s*$[\s\S]*$/m, () => result.indexSection).replaceAll("\n", newline), "utf8");
       result = validateProposal({ ...loadPublishedProposal(root), structuralOnly });
     }
   }

@@ -22,9 +22,9 @@ function operatorFilesFolder() {
 	const adopt=adoptable?`<div class="settings-subhead" title="Create AGENT_B.md from ${attr(found.join(" + "))}; source files remain in place.">Adopt repository instructions</div>
 		<label class="settings-check warning" title="Cleanup is destructive and is off by default."><input id="adopt-instruction-cleanup" type="checkbox"> Also remove AGENTS.md / CLAUDE.md</label>
 		<button type="button" data-action="adopt-instructions" data-id="${attr(dir)}">Adopt</button>`:"";
-	return `${row("attachments",`<span class="path" title="${attr(operatorFileState.attachments_path||"")}">${files} files · ${bytes} bytes</span><button type="button" class="${armed.has(emptyKey)?"confirm":""}" data-action="empty-operator-attachments" ${files?"":"disabled"}>${armed.has(emptyKey)?"Confirm empty":"Empty"}</button>`)}
+	return `${row("attachments",`<span class="path" title="${attr(operatorFileState.attachments_path||"")}">${files} files · ${bytes} bytes</span><button type="button" class="${armed.has(emptyKey)?"confirm":""}" data-action="empty-operator-attachments" ${files?"":"disabled"}>${armed.has(emptyKey)?"Confirm empty":"Empty"}</button>`,"","Files attached to chats, kept in the attachments folder; Empty removes them.")}
 		${toggle("operator_files.allow_mailbox_approvals","Allow approvals from the mailbox",store.config.operator_files?.allow_mailbox_approvals===true,"Whoever can write to your synced folder can then grant the agent your identity.")}
-		${number("operator_files.log_retention_days","log retention (days)",store.config.operator_files?.log_retention_days||30)}
+		${number("operator_files.log_retention_days","log retention (days)",store.config.operator_files?.log_retention_days||30,"1",false,"",false,"number","How many days operational logs are kept; retained chats are not affected.")}
 		${adopt}<div class="settings-subhead">Known directories</div>`;
 }
 

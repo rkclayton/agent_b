@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -32,6 +33,11 @@ func (s *Server) planSurface(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	planDir, err := s.planDirFor(item)
+	if errors.Is(err, errNoPlan) {
+		// Item 2fo: a chat without a plan is an ordinary state, not a conflict.
+		writeJSON(w, http.StatusOK, map[string]any{"plan": "", "notes": "", "no_plan": true, "reason": err.Error()})
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error(), "plan")
 		return
@@ -266,5 +272,8 @@ func (s *Server) planDirFor(item *session.Session) (string, error) {
 			return filepath.Join(s.roots.Data, "plans", plan.ID), nil
 		}
 	}
-	return "", fmt.Errorf("this chat's folder has no plan")
+	return "", errNoPlan
 }
+
+// errNoPlan is a chat whose folder backs no plan.
+var errNoPlan = errors.New("this chat's folder has no plan")

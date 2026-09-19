@@ -360,7 +360,9 @@ const config = {
     capabilities: { server: "agentb-fake", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["acceptance fake"] } }],
   services: {}, agents: [{ name: "Acceptance", b: "acceptance", toolset }], chat: { auto_rename: false },
   run: { max_turns: 12, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 2, queue_depth: 0 }, approval: { mode: "boundary-only" },
-  deliver: { mode: "chips", exchange_folder: join(args.workspace, "exchange") }, context: { soft_pct: .75, summary_pct: .85, accounting: "auto" }, memory: { enabled: false, dir: join(args.data, "memory"), max_tokens: 1500 },
+  // The exchange folder is its own tree, as on an install (item 2fo: inside the
+  // workspace it made the hardening check refuse, and Settings logged a 500).
+  deliver: { mode: "chips", exchange_folder: join(args.data, "..", "exchange") }, context: { soft_pct: .75, summary_pct: .85, accounting: "auto" }, memory: { enabled: false, dir: join(args.data, "memory"), max_tokens: 1500 },
 	operator_files: { allow_mailbox_approvals: false, log_retention_days: 30 },
   tools: { read_file: { default_limit: 16384, max_limit: 65536 }, attachments: { max_bytes: 8388608 }, list_dir: { max_entries: 300, ignore: [".git"] }, grep: { max_matches: 50, max_line_chars: 200 }, shell: { operator_commands: [gitPath] }, fetch: { timeout_s: 20, max_bytes: 2097152, max_redirects: 5, default_limit: 16384, max_limit: 65536, allow_domains: [], deny_domains: [], allow_internal_hosts: [] }, find_files: { skip_roots: [] } },
   shell: { command: ["powershell", "-NoProfile", "-NonInteractive", "-Command"], timeout_s: 60, max_timeout_s: 600, max_output_lines_head: 60, max_output_lines_tail: 40, file_routing_guard: true, operator_context: false, operator_context_idle_timeout_minutes: 20, service_account: { enabled: true, account: "agentb-svc", domain: "." }, deny: [] },
@@ -420,6 +422,10 @@ await edgeContext.addInitScript(() => {
 });
 page = edgeContext.pages()[0] || await edgeContext.newPage();
 page.on("pageerror", (error) => process.stderr.write(`PAGE ERROR: ${error.stack || error}\n`));
+// Item 2fo: console errors, including failed requests, collected for the clean-console scenario.
+const consoleErrors = [];
+page.on("console", (message) => { if (message.type() === "error") consoleErrors.push({ text: message.text(), url: page.url() }); });
+page.on("response", (response) => { if (response.status() >= 400) consoleErrors.push({ text: `HTTP ${response.status()} ${response.request().method()} ${response.url()}`, url: page.url() }); });
 browser = {
   evaluate: (expression) => page.evaluate(expression),
   wait: async (expression, label, timeout = 12000) => {
@@ -606,6 +612,9 @@ if (realModel) {
     page.locator('.agent-tab-wrap.selected .agent-chat-console').click()
   ]);
   await page.locator("#console-lifetime").waitFor({ state: "visible" });
+  // Item 2fl: with runs on record, the lifetime numbers are drawn within a
+  // second of opening Console, without waiting for an unrelated redraw.
+  await browser.wait(`document.querySelector('#console-stats')?.childElementCount > 0 && !document.querySelector('#console-stats')?.innerText.includes('No lifetime activity')`, "lifetime numbers within a second", 1000);
   await page.waitForFunction(() => window.__agentbLoadTiming?.snapshot !== null);
   const chatToConsoleMS = performance.now() - chatToConsoleStarted;
   assert.equal(await page.locator('.shell-page[aria-label="plan"] .shell-page-icon').count(), 1);
@@ -1248,6 +1257,20 @@ if (realModel) {
   assert.equal(await browser.evaluate(`document.querySelector('[data-path="operator_files.allow_mailbox_approvals"]')?.getAttribute('aria-checked')`), "false");
   assert.equal(await readFile(join(bound, "AGENTS.md"), "utf8"), "Use the acceptance rules.\n");
   record("scratch-operator-files-and-global-sandbox");
+  // Item 2fn: every Settings row, in every section, says what it does on hover.
+  const settingsSections = await page.locator(".settings-nav button").allInnerTexts();
+  const rowsWithoutHover = [];
+  let settingsRows = 0;
+  for (const section of settingsSections) {
+    assert.equal(await clickText(".settings-nav button", section), true);
+    await sleep(150);
+    const rows = await browser.evaluate(`[...document.querySelectorAll('.settings-content .setting-row')].map((row) => ({ label: row.querySelector('label')?.textContent.trim() || '', title: (row.getAttribute('title') || '').trim() }))`);
+    settingsRows += rows.length;
+    for (const row of rows) if (!row.title) rowsWithoutHover.push(`${section}: ${row.label}`);
+  }
+  assert.ok(settingsRows >= 30, `Settings rows enumerated: ${settingsRows}`);
+  assert.deepEqual(rowsWithoutHover, [], "every Settings row carries hover text");
+  record("settings-every-row-has-hover-text");
   assert.equal(await clickText(".settings-nav button", "Security"), true);
   await browser.wait(`document.querySelector('.settings-operator-status[data-action="operator-context"]')`, "Settings operator toggle");
   const operatorBefore = await browser.evaluate(`document.querySelector('.settings-operator-status').getAttribute('aria-pressed')`);
@@ -1256,6 +1279,22 @@ if (realModel) {
   await page.locator(".settings-operator-status").click();
   await browser.wait(`document.querySelector('.settings-operator-status').getAttribute('aria-pressed')===${JSON.stringify(operatorBefore)}`, "Settings operator restored");
   record("settings-operator-mode-live-toggle");
+  // Item 2fo: the Plan page for a b-chat with no plan, and the ordinary pages,
+  // log no console error — no 409 for "no plan", no 404 for /favicon.ico.
+  consoleErrors.length = 0;
+  await page.goto(`http://127.0.0.1:${appPort}/plan?session=${sessionID}`);
+  await browser.wait(`document.querySelector('#plan-current')?.textContent.includes('has no plan')`, "no-plan state on the Plan page");
+  await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
+  await browser.wait(`document.querySelector('#chat-task')`, "chat for the console check");
+  await page.goto(`http://127.0.0.1:${appPort}/?session=${sessionID}`);
+  await page.locator("#console-lifetime").waitFor({ state: "visible" });
+  await page.locator(".shell-settings").click();
+  await page.locator("#settings-page").waitFor({ state: "visible" });
+  await sleep(500);
+  assert.deepEqual(consoleErrors, [], "ordinary pages log no console errors");
+  const favicon = await fetch(`http://127.0.0.1:${appPort}/favicon.ico`);
+  assert.equal(favicon.status, 200, "/favicon.ico serves the icon");
+  record("clean-console-on-ordinary-pages");
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
 	await browser.wait(`document.querySelector('#chat-task')`, "chat restored after settings");
 	events = await sessionEvents(sessionID);

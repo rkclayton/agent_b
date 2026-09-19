@@ -821,10 +821,24 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	if path != "" {
 		overrideArgs["path"] = path
 	}
+	// v0.69.0/W12 cold review: run_script has no command or path argument, so
+	// its card showed nothing of what would run as the operator.
+	if source, _ := args["source"].(string); name == "run_script" && source != "" {
+		overrideArgs["source"] = source
+		if language, _ := args["language"].(string); language != "" {
+			overrideArgs["language"] = language
+		}
+	}
+	// With no service identity, the outside-folder card (item 2fi): its "Yes,
+	// for this chat" holds for this chat's outside-folder calls in this posture.
+	// The identity grants below apply only with the service identity on, so
+	// storing them here left a grant that woke up if the posture changed. The
+	// sandbox card keeps its own handling.
+	outsideCard := !cfg.Shell.ServiceAccount.Enabled && strings.Contains(outcome.OperatorOverrideReason, "outside the folder")
 	overrideDecision := "deny"
 	var overrideErr error
-	if name == "shell" {
-		overrideDecision, overrideErr = r.gate.WaitBoundaryDecision(ctx, s, runID, overrideID, name+".operator_override", overrideArgs)
+	if outsideCard && r.hasPolicyChatGrant(s.ID, outsideFolderChatGrant) {
+		overrideDecision = "once"
 	} else {
 		overrideDecision, overrideErr = r.gate.WaitBoundaryDecision(ctx, s, runID, overrideID, name+".operator_override", overrideArgs)
 	}
@@ -840,6 +854,12 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		outcome.Metadata = withHarnessNote(outcome.Metadata, "operator-identity override was offered and denied by the user")
 		outcome.Content = withModelNote(outcome.Content, "operator-identity override was offered and denied by the user")
 		return outcome
+	}
+	if outsideCard {
+		if overrideDecision == "session" {
+			r.grantPolicyChat(s.ID, outsideFolderChatGrant)
+		}
+		overrideDecision = "once"
 	}
 	if name == "shell" && overrideDecision == "run" {
 		r.grantShellRun(s, runID, shellRunGrant{Rule: shellGrantBoundary, Identity: "operator"})

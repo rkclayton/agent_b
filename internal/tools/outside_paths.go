@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -28,8 +30,10 @@ func literalPaths(source string) []string {
 
 // outsideLiteralPaths lists the absolute paths a command or script names that
 // lie outside the chat's own folder and the plan repositories it may work in
-// (item 2fi). An executable's path is not a file the script reads, so .exe,
-// .cmd and .bat paths are left alone. Paths built at runtime are not seen:
+// (item 2fi). An executable's path is not a file the script reads, so a path
+// to an .exe that exists as a file is left alone; .cmd and .bat are text a
+// script can read and are not (v0.69.0/W12 cold review: "win.ini .exe" and
+// "id_rsa#.exe" rode that exemption). Paths built at runtime are not seen:
 // with no service identity this is the card's ergonomics, not a boundary.
 func outsideLiteralPaths(source string, s *session.Session) []string {
 	roots := []string{s.Workspace}
@@ -39,10 +43,16 @@ func outsideLiteralPaths(source string, s *session.Session) []string {
 	seen := map[string]bool{}
 	outside := []string{}
 	for _, match := range literalPaths(source) {
-		candidate := filepath.Clean(strings.TrimRight(match, `.\/`))
-		switch strings.ToLower(filepath.Ext(candidate)) {
-		case ".exe", ".cmd", ".bat":
-			continue
+		// Clean first: trimming a sentence's full stop before cleaning turned
+		// `C:\ws\chat\..` into the folder itself.
+		candidate := filepath.Clean(match)
+		if strings.HasSuffix(candidate, ".") && !strings.HasSuffix(candidate, "..") {
+			candidate = filepath.Clean(strings.TrimSuffix(candidate, "."))
+		}
+		if strings.EqualFold(filepath.Ext(candidate), ".exe") {
+			if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
+				continue
+			}
 		}
 		inside := false
 		for _, root := range roots {
@@ -71,8 +81,9 @@ func outsideReadReason(source string, s *session.Session) string {
 	if len(paths) == 0 {
 		return ""
 	}
-	if len(paths) > 3 {
-		paths = append(paths[:3], "…")
+	// Every path is named, up to a bound, so one cannot hide behind three.
+	if len(paths) > 12 {
+		paths = append(paths[:12], fmt.Sprintf("and %d more", len(paths)-12))
 	}
 	return "names a path outside the folder: " + strings.Join(paths, ", ")
 }

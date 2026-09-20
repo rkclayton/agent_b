@@ -105,7 +105,10 @@ test("agent menu is the chat history as date, name and close", () => {
   assert.doesNotMatch(shell, /agent-chat-count/);
   assert.doesNotMatch(shell, /drop_memory/);
   assert.doesNotMatch(shell, /window\.confirm\([^)]*Delete/);
-  assert.doesNotMatch(shell, /window\.confirm\([^)]*closeConfirmText|closeConfirmText/);
+  // Item 2gq (v1.2.5): close deletes, so the one-line confirm RETURNS - it is
+  // the dialog the removed permanent-delete control used to own.
+  assert.match(shell, /window\.confirm\(closeConfirmText\)/);
+  assert.match(shell, /Delete this chat\? Its memory notes, plans and files stay\./);
   // Item 2gh: the tab menu opens AT THE POINTER, so the reveal carries the
   // event's coordinates. It used to be revealMenu(menu, tab), which placed it
   // at the tab and put its left edge 41 px from the pointer (W5's measurement).

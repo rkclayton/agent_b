@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -97,6 +98,17 @@ func (g *Gate) WaitPolicyRequired(ctx context.Context, s *session.Session, runID
 }
 
 func (g *Gate) WaitPolicyDecision(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) (string, error) {
+	// Item 5f: unattended means nothing asks. The refusal is recorded on the
+	// item and the run moves on rather than sitting on a card nobody will see.
+	if g.unattended(s) {
+		// Registering a plan is its own kind, so the morning list says which of
+		// the four it was rather than calling them all policy.
+		kind := boundaryPolicy
+		if strings.HasPrefix(name, "plan registration") {
+			kind = boundaryRegister
+		}
+		return g.refuseUnattended(s, runID, callID, kind, name, args), nil
+	}
 	kind := approvalPolicyScopes
 	if name == "shell" {
 		kind = approvalShellScopes
@@ -117,6 +129,9 @@ func (g *Gate) WaitBoundaryEscape(ctx context.Context, s *session.Session, runID
 }
 
 func (g *Gate) WaitBoundaryDecision(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) (string, error) {
+	if g.unattended(s) {
+		return g.refuseUnattended(s, runID, callID, boundaryEscape, name, args), nil
+	}
 	kind := approvalFileScopes
 	if name == "shell.operator_override" || name == "shell.operator_command" {
 		kind = approvalShellScopes
@@ -130,6 +145,9 @@ func (g *Gate) WaitBoundaryDecision(ctx context.Context, s *session.Session, run
 }
 
 func (g *Gate) WaitCycleDecision(ctx context.Context, s *session.Session, runID, callID string, args map[string]any) (string, error) {
+	if g.unattended(s) {
+		return g.refuseUnattended(s, runID, callID, boundaryCycle, "run.cycle", args), nil
+	}
 	g.sequenceMu.Lock()
 	wait, cleanup := g.beginWait(s, runID, callID, approvalCycle)
 	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, events.WithHuman(events.ApprovalRequired, workerApproval(s, map[string]any{

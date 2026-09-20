@@ -35,110 +35,138 @@ type ToolState struct {
 	MarginalTokens int    `json:"marginal_tokens"`
 }
 type Snapshot struct {
-	ID                   string                     `json:"id"`
-	Label                string                     `json:"label"`
-	AgentID              string                     `json:"agent_id"`
-	ServerID             string                     `json:"server_id"`
-	AgentName            string                     `json:"agent_name"`
-	BProfile             string                     `json:"b_profile"`
-	Role                 string                     `json:"role"`
-	PlanID               string                     `json:"plan_id,omitempty"`
-	PlanName             string                     `json:"plan_name,omitempty"`
-	PlanDir              string                     `json:"plan_dir,omitempty"`
-	PlanRepo             string                     `json:"plan_repo,omitempty"`
-	CreatedAt            string                     `json:"created_at"`
-	Closed               bool                       `json:"closed"`
-	NamePinned           bool                       `json:"name_pinned"`
-	Workspace            string                     `json:"workspace"`
-	WorkspaceDir         string                     `json:"workspace_dir"`
-	WorkspaceMissing     bool                       `json:"workspace_missing"`
-	Scratch              bool                       `json:"scratch,omitempty"`
-	ProjectContent       string                     `json:"project_content"`
-	ProjectFiles         []string                   `json:"project_files"`
-	ProjectNotes         []string                   `json:"project_notes"`
-	PendingRepoPolicy    *workspaceinfo.PolicyState `json:"pending_repo_policy,omitempty"`
-	RepoPolicy           *workspaceinfo.PolicyState `json:"repo_policy,omitempty"`
-	Run                  RunState                   `json:"run"`
-	Tools                []ToolState                `json:"tools"`
-	Messages             []events.Message           `json:"messages"`
-	Budget               events.Budget              `json:"budget"`
-	QueuedMessages       int                        `json:"queued_messages"`
-	Runnable             bool                       `json:"runnable"`
-	NotRunnableReason    string                     `json:"not_runnable_reason"`
-	MemoryPath           string                     `json:"memory_path"`
-	MemoryContent        string                     `json:"memory_content"`
-	AgentMemoryPath      string                     `json:"agent_memory_path"`
-	AgentMemoryContent   string                     `json:"agent_memory_content"`
-	MemoryTokens         int                        `json:"memory_tokens"`
-	AgentMemoryTokens    int                        `json:"agent_memory_tokens"`
-	MemoryMaxTokens      int                        `json:"memory_max_tokens"`
-	MemoryOverBudget     bool                       `json:"memory_over_budget"`
-	AgentMemoryOverBudget bool                      `json:"agent_memory_over_budget"`
-	PromptAddendum       string                     `json:"-"`
-	NetworkBoundary      string                     `json:"network_boundary"`
-	LogPath              string                     `json:"log_path"`
-	ModelTurns           int                        `json:"model_turns"`
-	CompactionCount      int                        `json:"compaction_count"`
-	CompactionTokenDelta int                        `json:"compaction_token_delta"`
-	CompactionModelCalls int                        `json:"compaction_model_calls"`
-	CompactionPrompt     int                        `json:"compaction_prompt_tokens"`
-	CompactionCompletion int                        `json:"compaction_completion_tokens"`
+	ID                string                     `json:"id"`
+	Label             string                     `json:"label"`
+	AgentID           string                     `json:"agent_id"`
+	ServerID          string                     `json:"server_id"`
+	AgentName         string                     `json:"agent_name"`
+	BProfile          string                     `json:"b_profile"`
+	Role              string                     `json:"role"`
+	PlanID            string                     `json:"plan_id,omitempty"`
+	PlanName          string                     `json:"plan_name,omitempty"`
+	PlanDir           string                     `json:"plan_dir,omitempty"`
+	PlanRepo          string                     `json:"plan_repo,omitempty"`
+	CreatedAt         string                     `json:"created_at"`
+	Closed            bool                       `json:"closed"`
+	NamePinned        bool                       `json:"name_pinned"`
+	Workspace         string                     `json:"workspace"`
+	WorkspaceDir      string                     `json:"workspace_dir"`
+	WorkspaceMissing  bool                       `json:"workspace_missing"`
+	Scratch           bool                       `json:"scratch,omitempty"`
+	ProjectContent    string                     `json:"project_content"`
+	ProjectFiles      []string                   `json:"project_files"`
+	ProjectNotes      []string                   `json:"project_notes"`
+	PendingRepoPolicy *workspaceinfo.PolicyState `json:"pending_repo_policy,omitempty"`
+	RepoPolicy        *workspaceinfo.PolicyState `json:"repo_policy,omitempty"`
+	Run               RunState                   `json:"run"`
+	Tools             []ToolState                `json:"tools"`
+	Messages          []events.Message           `json:"messages"`
+	Budget            events.Budget              `json:"budget"`
+	QueuedMessages    int                        `json:"queued_messages"`
+	Runnable          bool                       `json:"runnable"`
+	NotRunnableReason string                     `json:"not_runnable_reason"`
+	// Item 2gy (v1.2.5): what this profile cannot do, for the strip to say once.
+	// A missing capability gates the feature that needs it, never the chat.
+	DegradedNotes         []string `json:"degraded_notes,omitempty"`
+	MemoryPath            string   `json:"memory_path"`
+	MemoryContent         string   `json:"memory_content"`
+	AgentMemoryPath       string   `json:"agent_memory_path"`
+	AgentMemoryContent    string   `json:"agent_memory_content"`
+	MemoryTokens          int      `json:"memory_tokens"`
+	AgentMemoryTokens     int      `json:"agent_memory_tokens"`
+	MemoryMaxTokens       int      `json:"memory_max_tokens"`
+	MemoryOverBudget      bool     `json:"memory_over_budget"`
+	AgentMemoryOverBudget bool     `json:"agent_memory_over_budget"`
+	PromptAddendum        string   `json:"-"`
+	NetworkBoundary       string   `json:"network_boundary"`
+	LogPath               string   `json:"log_path"`
+	ModelTurns            int      `json:"model_turns"`
+	CompactionCount       int      `json:"compaction_count"`
+	CompactionTokenDelta  int      `json:"compaction_token_delta"`
+	CompactionModelCalls  int      `json:"compaction_model_calls"`
+	CompactionPrompt      int      `json:"compaction_prompt_tokens"`
+	CompactionCompletion  int      `json:"compaction_completion_tokens"`
 }
 type Session struct {
 	ID, Label, AgentID, ServerID, Workspace              string
 	Role, PlanID, PlanName, PlanDir, PlanRepo, PlansRoot string
-	WorkspaceMissing                                     bool
-	Scratch                                              bool
-	ProjectBlock                                         string
-	ProjectFiles                                         []string
-	ProjectNotes                                         []string
-	PendingRepoPolicy                                    *workspaceinfo.PolicyState
-	RepoPolicy                                           *workspaceinfo.PolicyState
-	PlanRepos                                            func() []string
-	RegisterPlan                                         func(string) (Plan, bool, error)
-	ProjectTouch                                         func(string)
-	EnsurePlan                                           func(string)
-	AgentName, BProfile                                  string
-	Closed                                               bool
-	NamePinned                                           bool
-	Messages                                             []events.Message
-	Budget                                               events.Budget
-	Run                                                  RunState
-	ToolsEnabled                                         map[string]bool
-	ToolCalls                                            map[string]int
-	LastSeen                                             map[string]time.Time
-	TouchedPlanRepos                                     map[string]bool
+	// Item 5f (v1.2.5): cards refused while unattended, for this run.
+	boundaryHits        []string
+	WorkspaceMissing    bool
+	Scratch             bool
+	ProjectBlock        string
+	ProjectFiles        []string
+	ProjectNotes        []string
+	PendingRepoPolicy   *workspaceinfo.PolicyState
+	RepoPolicy          *workspaceinfo.PolicyState
+	PlanRepos           func() []string
+	RegisterPlan        func(string) (Plan, bool, error)
+	ProjectTouch        func(string)
+	EnsurePlan          func(string)
+	AgentName, BProfile string
+	Closed              bool
+	NamePinned          bool
+	Messages            []events.Message
+	Budget              events.Budget
+	Run                 RunState
+	ToolsEnabled        map[string]bool
+	ToolCalls           map[string]int
+	LastSeen            map[string]time.Time
+	TouchedPlanRepos    map[string]bool
 	// WrittenPlanRepos are the plan repositories this chat has written into,
 	// oldest first, for its lifetime (item 2fh); TouchedPlanRepos is per run.
 	WrittenPlanRepos []string
 	// LoadFolderMemory loads one folder's memory layer for this chat's profile.
-	LoadFolderMemory func(folder string) (string, string, error)
-	CreatedAt                                            time.Time
-	LogPath                                              string
-	Runnable                                             bool
-	NotRunnableReason                                    string
-	MemoryBlock                                          string
-	MemoryPath                                           string
-	AgentMemoryBlock                                     string
-	AgentMemoryPath                                      string
-	MemoryMaxTokens                                      int
-	PromptAddendum                                       string
-	NetworkBoundary                                      string
-	SchemaTokens                                         map[string]int
-	MarginalTokens                                       map[string]int
-	queuedMessages                                       int
-	modelTurns                                           int
-	compactionCount                                      int
-	compactionTokenDelta                                 int
-	compactionModelCalls                                 int
-	compactionPrompt                                     int
-	compactionCompletion                                 int
-	submitting                                           int
-	runPinID                                             string
-	workerJob                                            WorkerJob
-	planPage                                             bool
-	planAccept                                           bool
-	mu                                                   sync.Mutex
+	LoadFolderMemory     func(folder string) (string, string, error)
+	CreatedAt            time.Time
+	LogPath              string
+	Runnable             bool
+	NotRunnableReason    string
+	DegradedNotes        []string
+	MemoryBlock          string
+	MemoryPath           string
+	AgentMemoryBlock     string
+	AgentMemoryPath      string
+	MemoryMaxTokens      int
+	PromptAddendum       string
+	NetworkBoundary      string
+	SchemaTokens         map[string]int
+	MarginalTokens       map[string]int
+	queuedMessages       int
+	modelTurns           int
+	compactionCount      int
+	compactionTokenDelta int
+	compactionModelCalls int
+	compactionPrompt     int
+	compactionCompletion int
+	submitting           int
+	runPinID             string
+	workerJob            WorkerJob
+	planPage             bool
+	planAccept           bool
+	mu                   sync.Mutex
+}
+
+// Item 5f (v1.2.5): every card this run would have raised while unattended.
+// The worker reads them onto its item and the morning report lists them.
+func (s *Session) RecordBoundaryHit(reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.boundaryHits = append(s.boundaryHits, reason)
+}
+
+// BoundaryHits returns the hits recorded since the last reset, oldest first.
+func (s *Session) BoundaryHits() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.boundaryHits...)
+}
+
+// ResetBoundaryHits clears them at a run boundary, so an item reports its own.
+func (s *Session) ResetBoundaryHits() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.boundaryHits = nil
 }
 
 func (s *Session) Snapshot() Snapshot {
@@ -156,7 +184,7 @@ func (s *Session) SnapshotUnlocked() Snapshot {
 			tools = append(tools, ToolState{Name: name, Enabled: enabled, Calls: s.ToolCalls[name], SchemaTokens: s.SchemaTokens[name], MarginalTokens: s.MarginalTokens[name]})
 		}
 	}
-	return Snapshot{ID: s.ID, Label: s.Label, AgentID: s.AgentID, ServerID: s.ServerID, AgentName: s.AgentName, BProfile: s.BProfile, Role: s.Role, PlanID: s.PlanID, PlanName: s.PlanName, PlanDir: s.PlanDir, PlanRepo: s.PlanRepo, CreatedAt: s.CreatedAt.Format(time.RFC3339Nano), Closed: s.Closed, NamePinned: s.NamePinned, Workspace: s.Workspace, WorkspaceDir: s.Workspace, WorkspaceMissing: s.WorkspaceMissing, Scratch: s.Scratch, ProjectContent: s.ProjectBlock, ProjectFiles: append([]string(nil), s.ProjectFiles...), ProjectNotes: append([]string(nil), s.ProjectNotes...), PendingRepoPolicy: clonePolicyState(s.PendingRepoPolicy), RepoPolicy: clonePolicyState(s.RepoPolicy), Run: s.Run, Tools: tools, Messages: append([]events.Message{}, s.Messages...), Budget: s.Budget, QueuedMessages: s.queuedMessages, Runnable: s.Runnable, NotRunnableReason: s.NotRunnableReason, MemoryPath: s.MemoryPath, MemoryContent: s.MemoryBlock, AgentMemoryPath: s.AgentMemoryPath, AgentMemoryContent: s.AgentMemoryBlock, MemoryTokens: estimateMemoryTokens(s.MemoryBlock), AgentMemoryTokens: estimateMemoryTokens(s.AgentMemoryBlock), MemoryMaxTokens: s.MemoryMaxTokens, MemoryOverBudget: overBudget(s.MemoryBlock), AgentMemoryOverBudget: overBudget(s.AgentMemoryBlock), PromptAddendum: s.PromptAddendum, NetworkBoundary: s.NetworkBoundary, LogPath: s.LogPath, ModelTurns: s.modelTurns, CompactionCount: s.compactionCount, CompactionTokenDelta: s.compactionTokenDelta, CompactionModelCalls: s.compactionModelCalls, CompactionPrompt: s.compactionPrompt, CompactionCompletion: s.compactionCompletion}
+	return Snapshot{ID: s.ID, Label: s.Label, AgentID: s.AgentID, ServerID: s.ServerID, AgentName: s.AgentName, BProfile: s.BProfile, Role: s.Role, PlanID: s.PlanID, PlanName: s.PlanName, PlanDir: s.PlanDir, PlanRepo: s.PlanRepo, CreatedAt: s.CreatedAt.Format(time.RFC3339Nano), Closed: s.Closed, NamePinned: s.NamePinned, Workspace: s.Workspace, WorkspaceDir: s.Workspace, WorkspaceMissing: s.WorkspaceMissing, Scratch: s.Scratch, ProjectContent: s.ProjectBlock, ProjectFiles: append([]string(nil), s.ProjectFiles...), ProjectNotes: append([]string(nil), s.ProjectNotes...), PendingRepoPolicy: clonePolicyState(s.PendingRepoPolicy), RepoPolicy: clonePolicyState(s.RepoPolicy), Run: s.Run, Tools: tools, Messages: append([]events.Message{}, s.Messages...), Budget: s.Budget, QueuedMessages: s.queuedMessages, Runnable: s.Runnable, NotRunnableReason: s.NotRunnableReason, DegradedNotes: append([]string(nil), s.DegradedNotes...), MemoryPath: s.MemoryPath, MemoryContent: s.MemoryBlock, AgentMemoryPath: s.AgentMemoryPath, AgentMemoryContent: s.AgentMemoryBlock, MemoryTokens: estimateMemoryTokens(s.MemoryBlock), AgentMemoryTokens: estimateMemoryTokens(s.AgentMemoryBlock), MemoryMaxTokens: s.MemoryMaxTokens, MemoryOverBudget: overBudget(s.MemoryBlock), AgentMemoryOverBudget: overBudget(s.AgentMemoryBlock), PromptAddendum: s.PromptAddendum, NetworkBoundary: s.NetworkBoundary, LogPath: s.LogPath, ModelTurns: s.modelTurns, CompactionCount: s.compactionCount, CompactionTokenDelta: s.compactionTokenDelta, CompactionModelCalls: s.compactionModelCalls, CompactionPrompt: s.compactionPrompt, CompactionCompletion: s.compactionCompletion}
 }
 
 func (s *Session) ReadRoot(path string) (string, error) {
@@ -381,6 +409,7 @@ func pathWithin(root, candidate string) bool {
 	rel, err := filepath.Rel(root, filepath.Clean(candidate))
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
+
 // estimateMemoryTokens uses the same four-characters-per-token fallback the
 // memory manager uses when a profile tokenizer is unavailable, so the number
 // Settings shows and the number the budget trims against agree.

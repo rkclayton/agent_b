@@ -346,7 +346,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 	}
 	settings := r.config()
-	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ServerID: profileID, AgentName: agent.Name, BProfile: profile.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: time.Now().UTC(), LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ServerID: profileID, AgentName: agent.Name, BProfile: profile.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: time.Now().UTC(), LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(profile, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		session.ProjectTouch = r.projectTouch(session)
 	}
@@ -896,28 +896,45 @@ func (r *Registry) Delete(id string) (events.SessionInventory, error) {
 	r.mu.Unlock()
 	return inventory, nil
 }
+// Item 2gy (v1.2.5): a capability finding gates the FEATURE that needs it, not
+// the chat. A probe that could not get an answer - a busy GPU, a timeout, a 503
+// - used to be recorded as a server that cannot call tools, and that finding
+// then stopped every run with "profile not runnable". A chat the operator can
+// still talk in is not unrunnable because one capability is missing.
+//
+// "Not runnable" now means exactly what it says: there is no endpoint or no
+// model name, so there is nothing to send a request to. Everything else - no
+// tool calling, no streaming, a truncating server, no /tokenize for exact
+// accounting - degrades the feature and says so, which is what the honest
+// degradation rule has always asked for.
 func runnable(profile *config.Profile, accounting string) (bool, string) {
 	if reason := config.ProfileSetupReason(profile); reason != "" {
 		return false, reason
 	}
+	return true, ""
+}
+
+// degradedFeatures lists what this profile cannot do, for the strip to say once
+// rather than for the run to refuse.
+func degradedFeatures(profile *config.Profile, accounting string) []string {
 	c := profile.Capabilities
-	n := profile.Context.NCtx
-	if n == 0 {
-		return false, "context length unknown"
+	var notes []string
+	if profile.Context.NCtx == 0 {
+		notes = append(notes, "context length unknown")
 	}
 	if !c.ToolCalls {
-		return false, "tool calling unavailable"
+		notes = append(notes, "tools off · profile reports no tool calling")
 	}
 	if c.OverflowBehavior == "truncate" {
-		return false, "server truncates context"
+		notes = append(notes, "server truncates context")
 	}
 	if !c.Streaming {
-		return false, "streaming unavailable"
+		notes = append(notes, "streaming unavailable")
 	}
 	if accounting == "exact" && !c.Tokenize {
-		return false, "exact accounting requested but this server has no /tokenize"
+		notes = append(notes, "exact accounting requested but this server has no /tokenize")
 	}
-	return true, ""
+	return notes
 }
 
 func initialBudget(profile *config.Profile) events.Budget {

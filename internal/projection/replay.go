@@ -22,7 +22,19 @@ type Replay struct {
 	Archives map[string]*events.HistoryArchive
 }
 
+// LoadReplayStates is LoadReplay for a caller that wants the sessions and
+// their archives but no patches — startup's retained-chat restore. It is the
+// difference between 96.6 s and a few seconds on the operator's journals
+// (item 2gm): the patch per record is quadratic in the chat's length.
+func LoadReplayStates(paths []string) (*Replay, error) {
+	return loadReplay(paths, false)
+}
+
 func LoadReplay(paths []string) (*Replay, error) {
+	return loadReplay(paths, true)
+}
+
+func loadReplay(paths []string, wantPatches bool) (*Replay, error) {
 	result := &Replay{Initial: map[string]Snapshot{}, Sessions: map[string]Snapshot{}, Patches: []ReplayPatch{}, Archives: map[string]*events.HistoryArchive{}}
 	used := map[string]bool{}
 	for _, rawPath := range paths {
@@ -51,7 +63,7 @@ func LoadReplay(paths []string) (*Replay, error) {
 		archive := events.NewHistoryArchive()
 		if predecessor, ok := predecessorCursor(records); ok {
 			previousPath := filepath.Join(filepath.Dir(path), predecessor.Generation)
-			previous, _, previousErr := ProjectFile(previousPath, predecessor.Offset)
+			previous, previousErr := ProjectFileState(previousPath, predecessor.Offset)
 			if previousErr != nil {
 				return nil, fmt.Errorf("replay predecessor %s: %w", previousPath, previousErr)
 			}
@@ -63,18 +75,29 @@ func LoadReplay(paths []string) (*Replay, error) {
 		for _, record := range records {
 			record.Event.SessionID = id
 			archive.Record(record.Event)
-			next, patch, nextErr := Next(state, record)
+			var (
+				next    Snapshot
+				patch   Patch
+				nextErr error
+			)
+			if wantPatches {
+				next, patch, nextErr = Next(state, record)
+			} else {
+				next, nextErr = NextState(state, record)
+			}
 			if nextErr != nil {
 				return nil, fmt.Errorf("replay %s at byte %d: %w", path, record.Cursor.Offset, nextErr)
 			}
 			next.LogPath = path
 			state = next
-			result.Patches = append(result.Patches, ReplayPatch{TS: record.Event.TS, Patch: patch})
+			if wantPatches {
+				result.Patches = append(result.Patches, ReplayPatch{TS: record.Event.TS, Patch: patch})
+			}
 		}
 		result.Sessions[id] = state
 		result.Archives[id] = archive
 	}
-	if len(result.Patches) == 0 {
+	if wantPatches && len(result.Patches) == 0 {
 		return nil, fmt.Errorf("replay: provide at least one JSONL path")
 	}
 	sort.SliceStable(result.Patches, func(i, j int) bool {

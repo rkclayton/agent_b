@@ -16,8 +16,15 @@ const chatSurface = [
 let page = location.pathname === "/chat" ? "chat" : "console";
 let shell;
 
+// Item 2gn: the id the operator opened the page with. The first show() runs
+// before any snapshot, when the store holds no selection, so pathFor used to
+// rewrite `/chat?session=<id>` to `/chat` and delete the very id the page was
+// asked for — chat.js then had nothing to honour. It is kept until the store
+// has a selection of its own.
+const openedWith = new URLSearchParams(location.search).get("session") || "";
+
 function pathFor(next) {
-  const sessionID = store.selection.session_id;
+  const sessionID = store.selection.session_id || (store.loaded ? "" : openedWith);
   const suffix = sessionID ? `?session=${encodeURIComponent(sessionID)}` : "";
   return `${next === "chat" ? "/chat" : "/"}${suffix}`;
 }

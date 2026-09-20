@@ -24,7 +24,10 @@ test("shared shell slot order is identical on Chat Console and Plan", () => {
 });
 
 test("each open chat gets an agent tab whose robot eyes expose that chat state", () => {
-  assert.match(shell, /const open = Object\.values\(store\.sessions\)\.filter/);
+  // Item 2gn: the strip also carries the selected CLOSED chat — the one the
+  // operator is looking at — so the filter admits it and spans lines.
+  assert.match(shell, /const open = Object\.values\(store\.sessions\)[\s\S]{0,40}\.filter/);
+  assert.match(shell, /!session\.closed \|\| session\.id === store\.selection\.session_id/);
   assert.match(shell, /for \(const session of rendered\)/);
   assert.match(shell, /wrap\.dataset\.session = session\.id/);
   assert.match(shell, /return "waiting"[\s\S]*return "running"[\s\S]*return "idle"/);

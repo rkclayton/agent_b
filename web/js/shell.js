@@ -164,7 +164,14 @@ export function initShell(options = {}) {
     }
     tabs.replaceChildren();
     // A worker has no chat: role c never appears in the tab strip.
-    const open = Object.values(store.sessions).filter((session) => !session.closed && session.role !== "c").sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
+    // Item 2gn: a closed chat the operator opened by name gets a tab, so the
+    // chat he is looking at is the one the strip shows selected. Without it he
+    // read a transcript with no tab of its own and the strip said he was
+    // somewhere else. Only the selected one appears; the rest of the closed
+    // history stays in the tab menu where it lives.
+    const open = Object.values(store.sessions)
+      .filter((session) => session.role !== "c" && (!session.closed || session.id === store.selection.session_id))
+      .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
     const selectedSession = store.sessions[store.selection.session_id];
     const configured = configuredAgent(selectedSession);
     const hasD = !!String(configured?.d || "").trim();

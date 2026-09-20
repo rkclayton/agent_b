@@ -88,6 +88,9 @@ type Server struct {
 	operatorFiles     *operatorfiles.Manager
 	probeMu           sync.Mutex
 	probeCancels      map[string]*probeRun
+	// Item 2gy: how many inconclusive probes a profile has had in a row, which
+	// is where it stands on the backoff ladder.
+	probeRetries      map[string]int
 	reachabilityMu    sync.Mutex
 	reachability      map[string]*reachabilityRetry
 	reachabilityAfter func(time.Duration, func()) operatorTimer

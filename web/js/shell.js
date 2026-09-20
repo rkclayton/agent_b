@@ -394,7 +394,12 @@ export function initShell(options = {}) {
 
   function render() {
     const session = store.sessions[store.selection.session_id];
-    document.title = session ? sessionTitle(session) : "Agent_b";
+    // Item 2gl (v1.2.6): the window's own title. The overlay could not be made
+    // to activate - measured on Edge 153 under --app= and with no unattended
+    // way to install the app - so the system strip stays, and the least it can
+    // do is say which chat is in the window instead of naming the profile,
+    // which the header beside the tab strip already says.
+    document.title = session ? `Agent_b · ${chatName(session)}` : "Agent_b";
     sessionHeading.hidden = !session;
     sessionHeading.textContent = session ? sessionTitle(session) : "";
     renderTabs();

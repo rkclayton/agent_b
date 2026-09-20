@@ -69,7 +69,10 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   assert.match(shell, /title="\$\{escapeHTML\(agentID\)\}"/);
   assert.match(shell, /button\("×", `Close \$\{name\}`/);
   assert.match(shell, /const agentID = `agent_\$\{session\?\.role === "d" \? "d" : "b"\}`/);
-  assert.match(shell, /document\.title = session \? sessionTitle\(session\) : "Agent_b"/);
+  // Item 2gl (v1.2.6): the window title names the CHAT; the header beside the
+  // tab strip still reads the profile only (2eo).
+  assert.match(shell, /document\.title = session \? `Agent_b · \$\{chatName\(session\)\}` : "Agent_b"/);
+  assert.match(shell, /sessionHeading\.textContent = session \? sessionTitle\(session\)/);
 });
 
 test("plus adds a two-line d choice only for an assigned d profile", () => {

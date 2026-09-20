@@ -92,3 +92,12 @@ func (l *installLog) close() {
 		_ = l.file.Close()
 	}
 }
+
+// writer exposes the log as an io.Writer for the installer's own output, so
+// the installer never writes to a pipe that can die with a window.
+func (l *installLog) writer() *os.File {
+	if l == nil || l.file == nil {
+		return os.Stderr
+	}
+	return l.file
+}

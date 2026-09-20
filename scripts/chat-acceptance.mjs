@@ -1991,7 +1991,11 @@ if (realModel) {
   assert.ok(dSession, JSON.stringify(dState.sessions));
   assert.equal(dSession.server_id, "acceptance");
   assert.equal(dSession.workspace_dir, join(args.data, "scratch", dSession.id));
-  assert.equal(await page.title(), dSession.b_profile || dSession.server_id, "item 2eo: the title is the profile name only");
+  // Item 2gl (v1.2.6): the WINDOW title names the chat, because the overlay
+  // could not be made to activate and the system strip stays. 2eo's rule is
+  // about the header beside the tab strip, which still reads the profile only.
+  assert.equal(await page.title(), "Agent_b · new chat");
+  assert.equal(await page.locator(".shell-session-title").innerText(), dSession.b_profile || dSession.server_id, "item 2eo: the header reads the profile name only");
   await page.screenshot({ path: join(evidenceRun, "d-plan.png") });
   record("d-plus-unbound-scratch-tab-and-title");
   const boundCreated = await json(`http://127.0.0.1:${appPort}/api/sessions`, {

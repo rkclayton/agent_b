@@ -14,8 +14,17 @@ type RunScript struct{ shell *Shell }
 
 func NewRunScript(shell *Shell) *RunScript { return &RunScript{shell: shell} }
 func (*RunScript) Name() string            { return "run_script" }
-func (*RunScript) Description() string {
-	return "Run source from standard input without creating a script file. Use powershell for multi-line PowerShell, python/node for host interpreter source, or bash when the global Docker Sandbox setting is enabled; script files are not created or executed."
+func (t *RunScript) Description() string {
+	// Item 2gb: powershell source runs in the same interpreter the shell tool
+	// resolves, and the description says which. Source is not rewritten: only
+	// the shell tool's one-line command is.
+	dialect := "PowerShell"
+	if t.shell != nil {
+		if host := shellHostFor(t.shell.config()); host.Version != "" {
+			dialect = "PowerShell " + host.Version
+		}
+	}
+	return "Run source from standard input without creating a script file. Use powershell for multi-line " + dialect + " (chain operators are not rewritten in script source; use `if`), python/node for host interpreter source, or bash when the global Docker Sandbox setting is enabled; script files are not created or executed."
 }
 func (*RunScript) Schema() map[string]any {
 	return map[string]any{
@@ -86,7 +95,8 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	var argv []string
 	switch strings.ToLower(strings.TrimSpace(language)) {
 	case "powershell":
-		executable = cfg.Command[0]
+		// Item 2gb: the same interpreter the shell tool resolves.
+		executable = shellHostFor(cfg).Executable
 		argv = []string{"-NoProfile", "-NonInteractive", "-Command", "-"}
 		if reason := forbiddenShellCommand(source, item, t.shell.fileCoordinatorSnapshot()); reason != "" {
 			return CallDetail{Err: fmt.Errorf("source blocked: %s", reason)}

@@ -42,14 +42,8 @@ func NewShell(cfg config.Shell) *Shell {
 func (*Shell) Name() string { return "shell" }
 func (s *Shell) Description() string {
 	cfg, operatorCommands := s.configWithOperatorCommands()
-	dialect := "the configured shell"
-	if len(cfg.Command) > 0 {
-		dialect = shellDialect(cfg.Command[0])
-	}
-	syntax := "Use " + dialect + " syntax."
-	if len(cfg.Command) > 0 && shellCommandName(cfg.Command[0]) == "powershell" {
-		syntax = "Windows PowerShell 5: use `;` to chain commands, not `&&`."
-	}
+	// Item 2gb: the description names the dialect the command actually runs in.
+	syntax := shellHostFor(cfg).Dialect()
 	description := "Run an unconfined inline command from the folder root. Shell has no network in service context (enforced outside the tool layer); use fetch_url for every network operation. Agent-written Windows host scripts cannot be executed; use run_script for multi-line source. " + syntax
 	if cfg.ServiceAccount.Enabled && len(operatorCommands) > 0 {
 		description += " Git and other configured operator commands run as the operator after one decision per run; expect one prompt, not one per call."
@@ -141,7 +135,10 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	if timeout > cfg.MaxTimeoutS {
 		timeout = cfg.MaxTimeoutS
 	}
-	argv := append(append([]string(nil), cfg.Command[1:]...), command)
+	// Item 2gb: PowerShell 7 when the host has it, else 5.1 with the model's
+	// top-level chain operators rewritten, so `a && b` works either way.
+	host := shellHostFor(cfg)
+	argv := append(append([]string(nil), cfg.Command[1:]...), shellCommandForHost(host, command))
 	var output lockedBuffer
 	var process runningShellProcess
 	var usedService bool
@@ -167,7 +164,7 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 		}
 	}
 	if forceOperator {
-		process, err = startHarnessProcess(cfg.Command[0], argv, item.Workspace, &output)
+		process, err = startHarnessProcess(host.Executable, argv, item.Workspace, &output)
 	} else {
 		process, usedService, err = s.start(cfg, item.Workspace, argv, &output)
 	}

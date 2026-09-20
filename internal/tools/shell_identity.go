@@ -135,8 +135,9 @@ func serviceBoundaryReason(operatorCommand, output string) string {
 
 func (s *Shell) start(cfg config.Shell, workspace string, argv []string, output *lockedBuffer) (runningShellProcess, bool, error) {
 	service := cfg.ServiceAccount
+	executable := shellHostFor(cfg).Executable
 	if cfg.OperatorContext || !service.Enabled {
-		process, err := startHarnessProcess(cfg.Command[0], argv, workspace, output)
+		process, err := startHarnessProcess(executable, argv, workspace, output)
 		return process, false, err
 	}
 	reason := ""
@@ -146,7 +147,7 @@ func (s *Shell) start(cfg config.Shell, workspace string, argv []string, output 
 		password, err := s.credential.Read()
 		if err == nil {
 			defer clearBytes(password)
-			process, spawnErr := s.startService(cfg.Command[0], argv, workspace, minimalShellEnvironment(service, workspace), service, password, output)
+			process, spawnErr := s.startService(executable, argv, workspace, minimalShellEnvironment(service, workspace), service, password, output)
 			if spawnErr == nil {
 				s.setIdentity(s.configuredIdentityStatus())
 				return process, true, nil
@@ -228,10 +229,11 @@ func (s *Shell) TestServiceAccount(ctx context.Context) (string, error) {
 		return s.failedServiceTest("service-account credential cannot be decrypted by this Agent_b process identity", err)
 	}
 	defer clearBytes(password)
-	command := shellNoop(cfg.Command[0])
+	executable := shellHostFor(cfg).Executable
+	command := shellNoop(executable)
 	argv := append(append([]string(nil), cfg.Command[1:]...), command)
 	var output lockedBuffer
-	process, err := s.startService(cfg.Command[0], argv, workspace, minimalShellEnvironment(cfg.ServiceAccount, workspace), cfg.ServiceAccount, password, &output)
+	process, err := s.startService(executable, argv, workspace, minimalShellEnvironment(cfg.ServiceAccount, workspace), cfg.ServiceAccount, password, &output)
 	if err != nil {
 		return s.failedServiceTest(serviceSpawnReason(err), err)
 	}

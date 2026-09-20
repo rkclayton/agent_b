@@ -30,7 +30,10 @@ func TestRunScriptCapabilitySuiteUsesStdinAndExactPowerShellContract(t *testing.
 	if detail.Err != nil {
 		t.Fatal(detail.Err)
 	}
-	if executable != cfg.Shell.Command[0] || !reflect.DeepEqual(argv, []string{"-NoProfile", "-NonInteractive", "-Command", "-"}) || string(input) != source {
+	// Item 2gb (v1.0.1): powershell source runs in the interpreter the shell
+	// tool resolves — PowerShell 7 where the host has one — with the same
+	// stdin contract.
+	if executable != shellHostFor(cfg.Shell).Executable || !reflect.DeepEqual(argv, []string{"-NoProfile", "-NonInteractive", "-Command", "-"}) || string(input) != source {
 		t.Fatalf("process=%q argv=%v input=%q", executable, argv, input)
 	}
 	for _, forbidden := range []string{"-File", "-EncodedCommand"} {

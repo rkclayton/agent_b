@@ -108,7 +108,10 @@ func TestSnapshotToolInventoryUsesPublicNames(t *testing.T) {
 		if item["description"] == "" {
 			t.Errorf("tool %q has no description", item["name"])
 		}
-		if item["name"] == "shell" && !strings.HasSuffix(item["description"], "Windows PowerShell 5: use `;` to chain commands, not `&&`.") {
+		// Item 2gb (v1.0.1): the description names the dialect the command runs
+		// in — PowerShell 7 where the host has it, else 5.1 with the two chain
+		// operators rewritten.
+		if item["name"] == "shell" && !strings.Contains(item["description"], "PowerShell 7: `&&` and `||` work.") && !strings.Contains(item["description"], "Windows PowerShell 5.1: `&&` and `||` are rewritten") {
 			t.Errorf("shell description = %q", item["description"])
 		}
 	}

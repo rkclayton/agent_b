@@ -138,7 +138,13 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	// Item 2gb: PowerShell 7 when the host has it, else 5.1 with the model's
 	// top-level chain operators rewritten, so `a && b` works either way.
 	host := shellHostFor(cfg)
-	argv := append(append([]string(nil), cfg.Command[1:]...), shellCommandForHost(host, command))
+	executed := shellCommandForHost(host, command)
+	if executed != command {
+		// The operator's log shows what the interpreter was actually given,
+		// not only what the model wrote (v1.0.1/W4 cold review).
+		log.Printf("shell rewrote the model's chain operators for PowerShell 5.1: as run: %q", executed)
+	}
+	argv := append(append([]string(nil), cfg.Command[1:]...), executed)
 	var output lockedBuffer
 	var process runningShellProcess
 	var usedService bool

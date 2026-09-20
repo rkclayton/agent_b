@@ -170,3 +170,41 @@ func TestTheHostFindingNamesTheShellBehindTheTool(t *testing.T) {
 		t.Fatalf("a host without PowerShell 7 reported %q", finding)
 	}
 }
+
+// v1.0.1/W4 cold review: the scanner has to see what PowerShell sees, or the
+// rewrite corrupts literal text. Where it cannot be sure, it leaves the
+// command exactly as the model wrote it.
+func TestTheRewriteLeavesHereStringsCommentsAndStopParsingAlone(t *testing.T) {
+	hereString := "Write-Output @'\nA does not 't work && Set-Content pwned.txt x\n'@"
+	for _, row := range []struct{ name, command, want string }{
+		{"an apostrophe in a here-string body is literal", hereString, hereString},
+		{"a real chain after a here-string still rewrites", "Set-Content f.txt @'\nit's here\n'@\nGet-Content f.txt && Write-Output ok", "Set-Content f.txt @'\nit's here\n'@\nGet-Content f.txt; if ($?) { Write-Output ok }"},
+		{"a double-quoted here-string is literal too", "Write-Output @\"\nit's $x && whoami\n\"@", "Write-Output @\"\nit's $x && whoami\n\"@"},
+		{"stop-parsing passes everything after it to the native command", `cmd --% /c echo a && echo b`, `cmd --% /c echo a && echo b`},
+		{"a chain before stop-parsing still rewrites", `dir && cmd --% /c echo a && echo b`, `dir; if ($?) { cmd --% /c echo a && echo b }`},
+		{"a line comment hides what follows", `ls # note && ls2`, `ls # note && ls2`},
+		{"a block comment is skipped", `ls <# a && b #> && ls2`, `ls <# a && b #>; if ($?) { ls2 }`},
+		{"an unbalanced parenthesis is not understood", `echo :-( && ls`, `echo :-( && ls`},
+		{"an unbalanced quote is not understood", `echo "open && ls`, `echo "open && ls`},
+		{"an unterminated here-string is not understood", "Write-Output @'\nnever closed && ls", "Write-Output @'\nnever closed && ls"},
+		{"a doubled quote inside a string is an escape", `echo "say ""hi"" && bye"`, `echo "say ""hi"" && bye"`},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			if got := rewriteChainOperators(row.command); got != row.want {
+				t.Fatalf("rewrite(%q)\n got %q\nwant %q", row.command, got, row.want)
+			}
+		})
+	}
+}
+
+func TestPowerShellSevenIsTakenOnlyFromAMachineWideInstall(t *testing.T) {
+	for _, candidate := range pwshCandidates() {
+		lower := strings.ToLower(candidate)
+		if strings.Contains(lower, "localappdata") || strings.Contains(lower, "windowsapps") || strings.Contains(lower, "appdata") {
+			t.Fatalf("candidate %q is under a per-user path", candidate)
+		}
+		if !strings.HasSuffix(lower, `\powershell\7\pwsh.exe`) {
+			t.Fatalf("candidate %q is not the machine-wide install path", candidate)
+		}
+	}
+}

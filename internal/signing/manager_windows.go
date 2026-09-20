@@ -83,7 +83,16 @@ func (m *windowsManager) run(ctx context.Context, action string, request Request
 	if len(lines) == 0 || strings.TrimSpace(lines[len(lines)-1]) == "" {
 		return fmt.Errorf("%s returned no result", action)
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(lines[len(lines)-1])), target); err != nil {
+	last := strings.TrimSpace(lines[len(lines)-1])
+	// Item 2gc: a host the script cannot read an answer from is unsupported,
+	// not an internal error; the caller answers 501 rather than 500.
+	var probe struct {
+		Unsupported string `json:"unsupported"`
+	}
+	if err := json.Unmarshal([]byte(last), &probe); err == nil && probe.Unsupported != "" {
+		return fmt.Errorf("%w: %s", ErrUnsupported, probe.Unsupported)
+	}
+	if err := json.Unmarshal([]byte(last), target); err != nil {
 		return fmt.Errorf("decode %s result: %w: %s", strings.ToLower(action), err, safeOutput(output, nil))
 	}
 	return nil

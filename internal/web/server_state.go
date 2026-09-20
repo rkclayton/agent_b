@@ -77,6 +77,10 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		method(w)
 		return
 	}
+	// Item 17-i's registration decision: the operator is here, so a plan
+	// reflection proposed can be put to them as an ordinary card. This returns
+	// at once unless something is pending (v1.1.1/W3).
+	s.OfferReflectionProposals()
 	writeJSON(w, 200, s.snapshot())
 }
 func (s *Server) sse(w http.ResponseWriter, r *http.Request) {

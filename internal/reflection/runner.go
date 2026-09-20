@@ -328,6 +328,9 @@ func (r *Runner) Pass(ctx context.Context, manual bool) (PassResult, error) {
 		registered = r.Registrar.PlanRegistered
 	}
 	result.PlansProposed = PlanCandidates(summaries, registered)
+	if err := r.RecordProposals(result.PlansProposed); err != nil {
+		result.Skipped = append(result.Skipped, "record proposals: "+err.Error())
+	}
 
 	// One overview per workspace the summaries name, so a plan's own text is
 	// about that plan's work.
@@ -415,4 +418,25 @@ func (r *Runner) Pass(ctx context.Context, manual bool) (PassResult, error) {
 		result.Pruned = pruned
 	}
 	return result, nil
+}
+
+// RecordProposals stores this pass's plan proposals so the operator can be
+// asked through the existing card. Reflection registers nothing itself.
+func (r *Runner) RecordProposals(candidates []PlanCandidate) error {
+	if r.Store == nil {
+		return nil
+	}
+	for _, candidate := range candidates {
+		proposal := Proposal{
+			Root:        candidate.Root,
+			AgentFile:   candidate.AgentFile,
+			Activity:    ActivityLine(candidate),
+			Fingerprint: AgentFileFingerprint(candidate.Root),
+			At:          r.now(),
+		}
+		if err := r.Store.UpsertProposal(proposal); err != nil {
+			return err
+		}
+	}
+	return nil
 }

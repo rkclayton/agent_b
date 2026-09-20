@@ -8,8 +8,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
+. (Join-Path $PSScriptRoot 'windows-tools.ps1')
 . (Join-Path $PSScriptRoot 'agentb-stop.ps1')
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-installer-test-' + [Guid]::NewGuid().ToString('N'))
+# Item 2gd: set at the end of the scenario block; the cleanup below keeps the
+# root when it is still false, so a failing run can be read afterwards.
+$scenariosPassed = $false
 $testApplication = Join-Path $testRoot 'Application\Agent_b'
 $testData = Join-Path $testRoot 'Data\Agent_b'
 $testWorkspace = Join-Path $testRoot 'ProgramData\Agent_b\workspace'
@@ -111,7 +115,7 @@ function Copy-TrackedTree {
 # Item 2eu: the installer never builds. The release step's build runs once
 # here, and every install below takes the exe and manifest it wrote.
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-& powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $repositoryRoot
+& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $repositoryRoot
 if ($LASTEXITCODE -ne 0) { throw "Candidate build exited $LASTEXITCODE." }
 $candidateManifest = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'candidate-final.json') | ConvertFrom-Json
 
@@ -122,7 +126,7 @@ try {
     $whatIfWorkspace = Join-Path $testRoot 'WhatIf\ProgramData\Agent_b\workspace'
     $whatIfRoots = @($whatIfApplication, $whatIfData, $whatIfWorkspace)
     $whatIfBefore = Get-RootFingerprint -Roots $whatIfRoots
-    $whatIfOutput = (& powershell.exe -NoLogo -NoProfile -File $installer -SourceDirectory (Split-Path -Parent $PSScriptRoot) -ApplicationDirectory $whatIfApplication -DataDirectory $whatIfData -WorkspaceDirectory $whatIfWorkspace -StartMenuDirectory (Join-Path $testRoot 'WhatIf\StartMenu') -UninstallRegistryPath ($testRegistry + '-WhatIf') -TestMode -WhatIf | Out-String)
+    $whatIfOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer -SourceDirectory (Split-Path -Parent $PSScriptRoot) -ApplicationDirectory $whatIfApplication -DataDirectory $whatIfData -WorkspaceDirectory $whatIfWorkspace -StartMenuDirectory (Join-Path $testRoot 'WhatIf\StartMenu') -UninstallRegistryPath ($testRegistry + '-WhatIf') -TestMode -WhatIf | Out-String)
     if ($LASTEXITCODE -ne 0) { throw "WhatIf install exited $LASTEXITCODE.`n$whatIfOutput" }
     $whatIfAfter = Get-RootFingerprint -Roots $whatIfRoots
     if ($whatIfAfter -cne $whatIfBefore) { throw "WhatIf changed a target root.`nBEFORE $whatIfBefore`nAFTER $whatIfAfter" }
@@ -134,7 +138,7 @@ try {
         throw "WhatIf transcript was not isolated in the caller's temporary directory.`n$whatIfOutput"
     }
 
-    & powershell.exe -NoLogo -NoProfile -File $installer -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode
     if ($LASTEXITCODE -ne 0) { throw "First install exited $LASTEXITCODE." }
     $installedSha = (Get-FileHash -LiteralPath (Join-Path $testApplication 'Agent_b.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($installedSha -ne $candidateManifest.exe_sha256) { throw "First install did not install the manifest's exe: $installedSha, manifest $($candidateManifest.exe_sha256)." }
@@ -183,7 +187,7 @@ try {
     )) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing installed file: $path" }
     }
-    $checkOutput = (& powershell.exe -NoLogo -NoProfile -File (Join-Path $testApplication 'scripts\launch-Agent_b.ps1') -ApplicationDirectory $testApplication -DataDirectory $testData -ConfigPath $configPath -Check | Out-String)
+    $checkOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $testApplication 'scripts\launch-Agent_b.ps1') -ApplicationDirectory $testApplication -DataDirectory $testData -ConfigPath $configPath -Check | Out-String)
     if ($LASTEXITCODE -ne 0) { throw "Installed launcher check exited $LASTEXITCODE." }
     if ($checkOutput -notmatch [regex]::Escape("API base: http://127.0.0.1:$testPort/") -or
         $checkOutput -notmatch 'Endpoint ready: False') {
@@ -321,7 +325,7 @@ try {
     try {
         $savedErrorAction = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
-        $portFailure = (& powershell.exe -NoLogo -NoProfile -File (Join-Path $testApplication 'scripts\launch-Agent_b.ps1') -ApplicationDirectory $testApplication -DataDirectory $testData -ConfigPath $configPath -Detached -NoBrowser -NoPause -StartupTimeoutSeconds 5 2>&1 | Out-String)
+        $portFailure = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $testApplication 'scripts\launch-Agent_b.ps1') -ApplicationDirectory $testApplication -DataDirectory $testData -ConfigPath $configPath -Detached -NoBrowser -NoPause -StartupTimeoutSeconds 5 2>&1 | Out-String)
         $portFailureExit = $LASTEXITCODE
         $ErrorActionPreference = $savedErrorAction
     } finally {
@@ -349,7 +353,7 @@ try {
 
     $savedErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    & powershell.exe -NoLogo -NoProfile -File $uninstaller -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -ExpectedOperatorSid 'S-1-5-18' -ExpectedOperatorLocalAppData ([Environment]::GetFolderPath('LocalApplicationData')) -Quiet -PurgeData -TestMode 2>$null
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File $uninstaller -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -ExpectedOperatorSid 'S-1-5-18' -ExpectedOperatorLocalAppData ([Environment]::GetFolderPath('LocalApplicationData')) -Quiet -PurgeData -TestMode 2>$null
     $wrongPurgeExit = $LASTEXITCODE
     $ErrorActionPreference = $savedErrorAction
     if ($wrongPurgeExit -eq 0 -or -not (Test-Path -LiteralPath $configPath -PathType Leaf) -or -not (Test-Path -LiteralPath $workspaceMarker -PathType Leaf)) {
@@ -593,7 +597,7 @@ try {
     $afterProcesses[0].WaitForExit(15000) | Out-Null
     if (-not $afterProcesses[0].HasExited) { throw 'Restarted disposable Agent_b did not exit.' }
 
-    & powershell.exe -NoLogo -NoProfile -File $uninstaller -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -ExpectedOperatorSid ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -ExpectedOperatorLocalAppData ([Environment]::GetFolderPath('LocalApplicationData')) -Quiet -TestMode
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File $uninstaller -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -ExpectedOperatorSid ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -ExpectedOperatorLocalAppData ([Environment]::GetFolderPath('LocalApplicationData')) -Quiet -TestMode
     if ($LASTEXITCODE -ne 0) { throw "Preserving uninstall exited $LASTEXITCODE." }
     if (-not (Test-Path -LiteralPath $configPath -PathType Leaf) -or
         -not (Test-Path -LiteralPath $credentialPath -PathType Leaf) -or
@@ -605,13 +609,13 @@ try {
         throw 'Preserving uninstall did not keep only local data.'
     }
 
-    & powershell.exe -NoLogo -NoProfile -File $installer -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode
     if ($LASTEXITCODE -ne 0) { throw "Reinstall exited $LASTEXITCODE." }
     if ((Get-StableConfigFingerprint -Path $configPath) -cne $configFingerprint) {
         throw 'Reinstall changed preserved connection configuration.'
     }
 
-    & powershell.exe -NoLogo -NoProfile -File $uninstaller -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -ExpectedOperatorSid ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -ExpectedOperatorLocalAppData ([Environment]::GetFolderPath('LocalApplicationData')) -Quiet -PurgeData -TestMode
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File $uninstaller -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -ExpectedOperatorSid ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -ExpectedOperatorLocalAppData ([Environment]::GetFolderPath('LocalApplicationData')) -Quiet -PurgeData -TestMode
     if ($LASTEXITCODE -ne 0) { throw "Purging uninstall exited $LASTEXITCODE." }
     if ((Test-Path -LiteralPath $testApplication) -or
         (Test-Path -LiteralPath $testData) -or
@@ -622,6 +626,8 @@ try {
         throw 'Uninstall left a program, shortcut, or registration artifact.'
     }
     Write-Host 'PASS: fresh install omits legacy workspace; upgrade preservation, preserve-data uninstall, reinstall, and owner-checked purge uninstall'
+    # Item 2gd: the disposable root is removed only when the scenarios passed.
+    $scenariosPassed = $true
 } finally {
     if ($whatIfTranscript -and (Test-Path -LiteralPath $whatIfTranscript -PathType Leaf)) {
         $resolvedTranscript = [IO.Path]::GetFullPath($whatIfTranscript)
@@ -639,9 +645,15 @@ try {
         $process.WaitForExit(15000) | Out-Null
         if (-not $process.HasExited) { throw "Disposable Agent_b PID $($process.Id) did not exit during cleanup." }
     }
+    # Item 2gd: a passing run leaves no root behind; a failing one keeps its
+    # root and says where it is, because that root is the failure's evidence.
     if (Test-Path -LiteralPath $testRoot) {
-        Assert-TemporaryTestPath $testRoot
-        Remove-TreeWithinAllowedRoots -Path $testRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'installer-suite disposable-root cleanup'
+        if ($scenariosPassed) {
+            Assert-TemporaryTestPath $testRoot
+            Remove-TreeWithinAllowedRoots -Path $testRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'installer-suite disposable-root cleanup'
+        } else {
+            Write-Host "KEPT for evidence: $testRoot"
+        }
     }
 }
 
@@ -673,14 +685,14 @@ try {
     # The release step builds the candidate (item 2eu); the installer never does.
     # A tree with no .git states its commit explicitly.
     $treeCommit = [string](& $git.Source -C $sourceRoot rev-parse HEAD | Select-Object -First 1)
-    & powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true
     if ($LASTEXITCODE -ne 0) { throw "clean-archive candidate build exited $LASTEXITCODE." }
     $treeManifest = Get-Content -Raw -LiteralPath (Join-Path $tree 'candidate-final.json') | ConvertFrom-Json
 
     # The release step refuses an exe that does not report the tag being released.
     $savedErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    $mismatchOutput = (& powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -ExpectedTag 'v9.9.9' 2>&1 | Out-String)
+    $mismatchOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -ExpectedTag 'v9.9.9' 2>&1 | Out-String)
     $mismatchExit = $LASTEXITCODE
     $ErrorActionPreference = $savedErrorAction
     if ($mismatchExit -eq 0 -or $mismatchOutput -notmatch 'CANDIDATE BUILD REFUSED' -or $mismatchOutput -notmatch 'release is v9\.9\.9' -or
@@ -688,7 +700,7 @@ try {
         throw "The release step did not refuse an exe reporting the wrong tag.`n$mismatchOutput"
     }
     Write-Host "PROOF release step: an exe reporting $($treeManifest.tag) is refused for release v9.9.9 and no manifest is left"
-    & powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true
     if ($LASTEXITCODE -ne 0) { throw "clean-archive candidate rebuild exited $LASTEXITCODE." }
     $treeManifest = Get-Content -Raw -LiteralPath (Join-Path $tree 'candidate-final.json') | ConvertFrom-Json
 
@@ -705,7 +717,7 @@ try {
     $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -and -not (Test-Path -LiteralPath (Join-Path $_ 'go.exe') -PathType Leaf) }) -join ';'
     try {
         if (Get-Command go.exe -ErrorAction SilentlyContinue) { throw 'go.exe is still reachable for the Go-absent install.' }
-        $cloneOutput = (& powershell.exe -NoLogo -NoProfile -File (Join-Path $tree 'scripts\install-Agent_b.ps1') -SourceDirectory $tree -ApplicationDirectory $cloneApplication -DataDirectory $cloneData -WorkspaceDirectory $cloneWorkspace -StartMenuDirectory (Join-Path $cloneRoot 'StartMenu') -UninstallRegistryPath $cloneRegistry -TestMode | Out-String)
+        $cloneOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $tree 'scripts\install-Agent_b.ps1') -SourceDirectory $tree -ApplicationDirectory $cloneApplication -DataDirectory $cloneData -WorkspaceDirectory $cloneWorkspace -StartMenuDirectory (Join-Path $cloneRoot 'StartMenu') -UninstallRegistryPath $cloneRegistry -TestMode | Out-String)
         $cloneExit = $LASTEXITCODE
     } finally { $env:PATH = $savedPath }
     if ($cloneExit -ne 0) { throw "clean-archive install under Windows PowerShell 5.1 exited $cloneExit.`n$cloneOutput" }
@@ -741,7 +753,7 @@ function Invoke-ExitGateProbe {
     param([string]$Body)
     $script = Join-Path $testRoot ('exit-gate-case-' + [Guid]::NewGuid().ToString('N') + '.ps1')
     Set-Content -LiteralPath $script -Value ((". '" + $helperFile + "'"), 'try {', $Body, "} catch { " + '$_.Exception.Message' + ' }') -Encoding UTF8
-    return (& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $script 2>&1 | Out-String)
+    return (& (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File $script 2>&1 | Out-String)
 }
 try {
     $nullProbe = Invoke-ExitGateProbe -Body ("Assert-ScriptExitCode -Purpose 'probe' -Code " + '$null')
@@ -765,5 +777,5 @@ Write-Host 'PASS: the pre-stop gate fails closed on a null exit code, keeps a re
 Assert-TemporaryTestPath $testRoot
 Remove-TreeWithinAllowedRoots -Path $testRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'installer-suite exit-gate probe cleanup'
 
-& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-chat-acceptance.ps1') -SkipBuild
+& (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-chat-acceptance.ps1') -SkipBuild
 if ($LASTEXITCODE -ne 0) { throw "Chat acceptance release gate exited $LASTEXITCODE." }

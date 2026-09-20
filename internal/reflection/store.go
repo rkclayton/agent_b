@@ -129,6 +129,15 @@ func (s *Store) migrate() error {
 			text TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS overviews_plan ON overviews (plan_id, at)`,
+		`CREATE TABLE IF NOT EXISTS proposals (
+			root TEXT PRIMARY KEY,
+			agent_file TEXT NOT NULL,
+			activity TEXT NOT NULL,
+			fingerprint TEXT NOT NULL,
+			state TEXT NOT NULL,
+			at INTEGER NOT NULL,
+			decided_at INTEGER NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS reports (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			at INTEGER NOT NULL,
@@ -323,4 +332,102 @@ func (s *Store) LatestReport() (Report, error) {
 		return report, fmt.Errorf("read report clusters: %w", err)
 	}
 	return report, nil
+}
+
+// Plan proposals (item 17-i's registration decision, v1.1.1/W3). Reflection
+// never registers a plan: it proposes one, the operator answers the existing
+// card, and the answer is remembered. A declined proposal stays declined until
+// the repository's agent files change — the fingerprint below — so the
+// operator is not asked the same question every day.
+type Proposal struct {
+	Root        string    `json:"root"`
+	AgentFile   string    `json:"agent_file"`
+	Activity    string    `json:"activity"`
+	Fingerprint string    `json:"fingerprint"`
+	State       string    `json:"state"`
+	At          time.Time `json:"at"`
+	DecidedAt   time.Time `json:"decided_at,omitempty"`
+}
+
+// Proposal states.
+const (
+	ProposalPending  = "pending"
+	ProposalOffered  = "offered"
+	ProposalApproved = "approved"
+	ProposalDeclined = "declined"
+)
+
+// UpsertProposal records a proposal. A root already approved is left alone; a
+// declined one returns only when its fingerprint changes.
+func (s *Store) UpsertProposal(proposal Proposal) error {
+	if proposal.At.IsZero() {
+		proposal.At = time.Now().UTC()
+	}
+	row := s.db.QueryRow(`SELECT state, fingerprint FROM proposals WHERE root = ?`, proposal.Root)
+	var state, fingerprint string
+	switch err := row.Scan(&state, &fingerprint); {
+	case err == sql.ErrNoRows:
+		_, err := s.db.Exec(`INSERT INTO proposals (root, agent_file, activity, fingerprint, state, at, decided_at) VALUES (?,?,?,?,?,?,0)`,
+			proposal.Root, proposal.AgentFile, proposal.Activity, proposal.Fingerprint, ProposalPending, proposal.At.UTC().UnixMilli())
+		return err
+	case err != nil:
+		return fmt.Errorf("read proposal: %w", err)
+	case state == ProposalApproved:
+		return nil
+	case state == ProposalDeclined && fingerprint == proposal.Fingerprint:
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE proposals SET agent_file = ?, activity = ?, fingerprint = ?, state = ?, at = ? WHERE root = ?`,
+		proposal.AgentFile, proposal.Activity, proposal.Fingerprint, ProposalPending, proposal.At.UTC().UnixMilli(), proposal.Root)
+	return err
+}
+
+// PendingProposals are the ones the operator has not answered.
+func (s *Store) PendingProposals(limit int) ([]Proposal, error) {
+	query := `SELECT root, agent_file, activity, fingerprint, state, at FROM proposals WHERE state = ? ORDER BY at ASC`
+	args := []any{ProposalPending}
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("read proposals: %w", err)
+	}
+	defer rows.Close()
+	proposals := []Proposal{}
+	for rows.Next() {
+		var proposal Proposal
+		var at int64
+		if err := rows.Scan(&proposal.Root, &proposal.AgentFile, &proposal.Activity, &proposal.Fingerprint, &proposal.State, &at); err != nil {
+			return nil, fmt.Errorf("read proposals: %w", err)
+		}
+		proposal.At = time.UnixMilli(at).UTC()
+		proposals = append(proposals, proposal)
+	}
+	return proposals, rows.Err()
+}
+
+// SetProposalState records what happened to a proposal.
+func (s *Store) SetProposalState(root, state string, at time.Time) error {
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	_, err := s.db.Exec(`UPDATE proposals SET state = ?, decided_at = ? WHERE root = ?`, state, at.UTC().UnixMilli(), root)
+	return err
+}
+
+// ProposalFor reads one proposal, or false when the root has none.
+func (s *Store) ProposalFor(root string) (Proposal, bool, error) {
+	row := s.db.QueryRow(`SELECT root, agent_file, activity, fingerprint, state, at FROM proposals WHERE root = ?`, root)
+	var proposal Proposal
+	var at int64
+	switch err := row.Scan(&proposal.Root, &proposal.AgentFile, &proposal.Activity, &proposal.Fingerprint, &proposal.State, &at); {
+	case err == sql.ErrNoRows:
+		return Proposal{}, false, nil
+	case err != nil:
+		return Proposal{}, false, fmt.Errorf("read proposal: %w", err)
+	}
+	proposal.At = time.UnixMilli(at).UTC()
+	return proposal, true, nil
 }

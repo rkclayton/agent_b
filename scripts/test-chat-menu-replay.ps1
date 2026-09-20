@@ -12,6 +12,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
+. (Join-Path $PSScriptRoot 'windows-tools.ps1')
 $sourceRoot = Split-Path -Parent $PSScriptRoot
 $applicationSource = if ([string]::IsNullOrWhiteSpace($SourceDirectory)) { $sourceRoot } else { $SourceDirectory }
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-v0170-menu-' + [Guid]::NewGuid().ToString('N'))
@@ -37,7 +38,7 @@ try {
     }
     # The installer never builds (item 2eu); the release step's build runs here.
     if (-not $SkipBuild) {
-        & powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $applicationSource
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $applicationSource
         if ($LASTEXITCODE -ne 0) { throw "Candidate build failed with exit code $LASTEXITCODE." }
     }
     & (Join-Path $PSScriptRoot 'install-Agent_b.ps1') @installArguments

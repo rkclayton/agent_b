@@ -51,8 +51,12 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	shell.SetFileCoordinator(coordinator)
 	fileIdentity := NewFileIdentity(store)
 	fileIdentity.Configure(cfg)
-	whoami, err := exec.LookPath("whoami.exe")
-	if err != nil {
+	// Item 2gc: Windows' own utilities are resolved by their absolute path.
+	// PATH-resolving this one found Git's POSIX whoami on a host whose PATH
+	// reaches usr/bin first, and its path contains spaces, so the exec:
+	// credential argv below split at the space and the call failed.
+	whoami := filepath.Join(os.Getenv("SystemRoot"), "System32", "whoami.exe")
+	if _, err := os.Stat(whoami); err != nil {
 		t.Fatal(err)
 	}
 	identityOutput, err := exec.Command(whoami).Output()

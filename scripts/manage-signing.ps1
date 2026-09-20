@@ -8,6 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
+. (Join-Path $PSScriptRoot 'windows-tools.ps1')
 Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
 Import-Module (Join-Path $PSHOME 'Modules\PKI\PKI.psd1') -ErrorAction Stop
 $inputText = if ($RequestBase64) { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($RequestBase64)) } else { [Console]::In.ReadToEnd() }
@@ -15,7 +16,27 @@ $request = if ([string]::IsNullOrWhiteSpace($inputText)) { [pscustomobject]@{} }
 $thumbprint = ([string]$request.thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
 
 function Test-CanManage {
-    $groups = (& whoami.exe /groups /fo csv /nh 2>$null) -join "`n"
+    # Item 2gc: System32's whoami, by absolute path, never a bare name — a
+    # shell whose PATH reached Git's POSIX whoami first turned the signing
+    # status into an HTTP 500 (WALK-3).
+    #
+    # The token's .NET Groups list is NOT equivalent here: on a non-elevated
+    # administrator it omits the Administrators SID that whoami reports as
+    # deny-only, which would tell an operator who may manage signing that they
+    # may not. Measured on this host, v1.1.1/W1: whoami True, Groups False.
+    # A host where the check cannot run at all is unsupported, not an internal
+    # error, and the caller is told so.
+    try {
+        $whoami = Get-WindowsTool 'whoami.exe'
+    } catch {
+        ([ordered]@{ unsupported = "the host's group membership could not be read: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
+        exit 0
+    }
+    $groups = (& $whoami /groups /fo csv /nh 2>$null) -join "`n"
+    if ($LASTEXITCODE -ne 0) {
+        ([ordered]@{ unsupported = "the host's group membership could not be read: whoami exited $LASTEXITCODE" } | ConvertTo-Json -Compress)
+        exit 0
+    }
     return $groups -match 'S-1-5-32-544'
 }
 

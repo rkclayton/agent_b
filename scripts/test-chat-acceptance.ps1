@@ -17,6 +17,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
+. (Join-Path $PSScriptRoot 'windows-tools.ps1')
 $sourceRoot = Split-Path -Parent $PSScriptRoot
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-chat-acceptance-' + [Guid]::NewGuid().ToString('N'))
 $application = Join-Path $testRoot 'Application\Agent_b'
@@ -80,7 +81,7 @@ try {
     # step's build runs here; with it, the source must already hold the exe and
     # its candidate-final.json.
     if (-not $SkipBuild) {
-        & powershell.exe -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $sourceRoot
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $sourceRoot
         if ($LASTEXITCODE -ne 0) { throw "Candidate build failed with exit code $LASTEXITCODE." }
     }
     & (Join-Path $PSScriptRoot 'install-Agent_b.ps1') @installArguments

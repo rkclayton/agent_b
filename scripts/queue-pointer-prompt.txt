@@ -1,0 +1,12 @@
+Read CLAUDE.md, then plan/_inflight.md FIRST, then INBOX. Run the FIRST block in
+INBOX and only that block. If it is a PUBLISH THEN EXECUTE block, run the gate dry
+run, prepare a candidate from the current published plan plus that block's order
+body, apply its bookkeeping edit, validate, publish it through
+scripts/plan-publish.mjs, and report the proposal identity; if it is a RESUME, a
+REWRITE or a note, do what it says. Then execute without pausing between steps —
+end processes only by PID, never lock or disconnect the operator's session,
+nothing under C:\alpha, nothing installed to production, operator-only actions
+become cards, only a hard stop halts. HomePC is off-limits unless the block says
+otherwise: send it nothing. Standing rules govern. Append one report to NOTES.md
+at the close, then truncate that block from INBOX and stop. Do not start the next
+block: the queue runner starts a fresh session for it.

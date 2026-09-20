@@ -19,7 +19,12 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
 . (Join-Path $PSScriptRoot 'windows-tools.ps1')
 $sourceRoot = Split-Path -Parent $PSScriptRoot
-$testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-chat-acceptance-' + [Guid]::NewGuid().ToString('N'))
+# v1.2.2/W3: the disposable root's name is read out in the transcript, and a
+# GUID's hex letters are not all one width in IBM Plex Sans - one name wrapped a
+# line where the next did not, and every capture below that line moved. Digits
+# ARE one width in that font, so a digits-only name of fixed length renders the
+# same width in every run while staying unique.
+$testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-chat-acceptance-' + (Get-Date).ToString('yyyyMMddHHmmssfff') + (Get-Random -Minimum 100000 -Maximum 999999))
 $application = Join-Path $testRoot 'Application\Agent_b'
 $data = Join-Path $testRoot 'LocalAppData\Agent_b'
 $workspace = Join-Path $testRoot 'ProgramData\Agent_b\workspace'

@@ -125,7 +125,13 @@ const fakeHandler = async (request, response) => {
   if (user.includes("acceptance: resume after stop")) return stream(response, { content: "Resumed after the stop." });
   if (user.includes("acceptance: stop")) return;
 	if (user.includes("acceptance: inbox stop") && !hasToolAfterLatestUser(body)) {
-		await sleep(500);
+		// v1.2.2/W3: the stop is written as soon as this request arrives, and at
+		// half a second it raced this tool call - the transcript kept a Steps row
+		// in some runs and not in others, which moved every capture taken after
+		// it. Holding the call lets the mailbox stop always land first, which is
+		// what the case is about; if the stop is ever missed, the call still
+		// comes and the case still fails.
+		await sleep(2500);
 		return stream(response, { tool_calls: [{ index: 0, id: "inbox-list", type: "function", function: { name: "list_dir", arguments: JSON.stringify({ path: ".", depth: 1 }) } }] }, "tool_calls");
 	}
 	if (user.includes("acceptance: inbox stop")) return stream(response, { content: "INBOX STOP was missed." });
@@ -146,7 +152,20 @@ const fakeHandler = async (request, response) => {
   }
   if (user.includes("acceptance: menu stream")) {
     const count = toolCountAfterLatestUser(body);
-    await sleep(1000);
+    // v1.2.2/W3: the first two calls read a file that is not there and fail,
+    // and the scenario stops this run by hand somewhere after them. Holding
+    // the third response puts the stop inside a window wide enough that both
+    // failed reads, and only those two, are in every run: two captures of one
+    // build differed by nothing else. The hold ends when the stop closes the
+    // request, so nothing is ever written to a socket that has gone.
+    if (count < 2) await sleep(1000);
+    else {
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 20000);
+        response.on("close", () => { clearTimeout(timer); resolve(); });
+      });
+      if (response.destroyed || response.writableEnded) return;
+    }
     if (count < 8) {
       const path = count < 2 ? "long-tool.txt" : "AGENTS.md";
       return stream(response, { tool_calls: [{ index: 0, id: `menu-stream-${count}`, type: "function", function: { name: "read_file", arguments: JSON.stringify({ path }) } }] }, "tool_calls");
@@ -312,6 +331,36 @@ const state = () => json(`http://127.0.0.1:${appPort}/api/state`);
 async function openStepFoldIfDrawn() {
   const heads = page.locator(".chat-step-summary:visible");
   if (await heads.count()) await heads.first().click();
+}
+
+// v1.2.2/W3: waiting for the transcript to stop moving is not the same as
+// knowing where it stopped. Two runs of one build settled a screenful apart,
+// and the whole-page captures that followed differed everywhere. So the foot
+// is pinned first - where the chat itself stands while a run is live - and
+// only then is stillness waited for. Any capture of a scrolled transcript
+// calls this; a capture of a deliberately scrolled position does not.
+async function pinTranscriptFoot() {
+  await page.evaluate(() => {
+    const log = document.getElementById("chat-log");
+    if (log) log.scrollTop = log.scrollHeight;
+  });
+  await page.evaluate(() => new Promise((resolve) => {
+    const log = document.getElementById("chat-log");
+    if (!log) return resolve();
+    let previous = -1;
+    let steady = 0;
+    const check = () => {
+      log.scrollTop = log.scrollHeight;
+      const now = log.scrollTop;
+      steady = now === previous ? steady + 1 : 0;
+      previous = now;
+      if (steady >= 10) return resolve();
+      requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+    setTimeout(resolve, 5000);
+  }));
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
 async function settleSession(id, what) {
@@ -887,6 +936,11 @@ if (realModel) {
   assert.equal(await toolButtonHandle.getAttribute("aria-expanded"), "false", "collapse arrow must collapse its own tool section");
   await collapseArrow.waitFor({ state: "hidden" });
   record("tool-tick-node-lifecycle-active-run");
+  // Both failing reads are waited for before the stop, so the transcript this
+  // run leaves behind holds two failed calls in every run rather than one or
+  // two by timing. Every later capture reads that transcript, so an extra row
+  // here moved three of them (v1.2.2/W3).
+  await waitProjectedChatText(sessionID, "menu-stream-1", "second projected lifecycle tool");
   await page.locator("#chat-send").click();
   await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > lifecycleRunStarted.seq, "tool-tick lifecycle run stopped");
   await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'send'`, "tool-tick lifecycle stop projected");
@@ -1458,28 +1512,10 @@ if (realModel) {
   // Item 2ga: a capture of a finished run waits until the page shows it
   // finished — Stop idle — and two frames have painted, or it races the run.
   await browser.wait(`document.querySelector('#chat-send')?.dataset.state === 'idle'`, "run idle before the OCR capture");
-  // v1.1.3/W7: "Stop idle plus two frames" is not enough. The transcript is
-  // still settling its scroll, and two runs of ONE build produced a capture
-  // differing across the whole transcript — the scroll race carded since
-  // v1.0.1 and named again as v1.1.2's exact-candidate instability. Wait for
-  // the scroll position to stop moving, then capture; the race was in the
-  // capture, not in the product.
-  await page.evaluate(() => new Promise((resolve) => {
-    const log = document.getElementById("chat-log");
-    if (!log) return resolve();
-    let previous = -1;
-    let steady = 0;
-    const check = () => {
-      const now = log.scrollTop;
-      steady = now === previous ? steady + 1 : 0;
-      previous = now;
-      if (steady >= 10) return resolve();
-      requestAnimationFrame(check);
-    };
-    requestAnimationFrame(check);
-    setTimeout(resolve, 5000);
-  }));
-  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  // v1.1.3/W7 waited for the scroll to stop moving; v1.2.2/W3 pins where it
+  // stops, because stillness alone let two runs of one build settle a
+  // screenful apart. The race was in the capture, not in the product.
+  await pinTranscriptFoot();
   await captureWithMasks(page, join(baselineDirectory, "chat-ocr-sidecar-before-send.png"));
   await setTask("acceptance: attachment OCR");
   await waitProjectedChatText(sessionID, "Attachment received and rendered.", "OCR attachment answer");
@@ -1532,6 +1568,7 @@ if (realModel) {
   assert.equal(unreachableRows.responses, 0, JSON.stringify(unreachableRows));
   assert.equal(unreachableRows.step_folds, 0, JSON.stringify(unreachableRows));
   assert.equal(unreachableRows.flat_notices, 1, JSON.stringify(unreachableRows));
+  await pinTranscriptFoot();
   await captureWithMasks(page, join(args.evidence, "unreachable-no-empty-folds.png"));
   record("model-unreachable-no-empty-fold-groups");
   await browser.wait(`document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')?.classList.contains('offline')`, "offline agent eyes");
@@ -1573,6 +1610,7 @@ if (realModel) {
   // finished — Stop idle — and two frames have painted, or it races the run.
   await browser.wait(`document.querySelector('#chat-send')?.dataset.state === 'idle'`, "run idle before the retry capture");
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await pinTranscriptFoot();
   await captureWithMasks(page, join(args.evidence, "reachable-after-retry.png"));
   record("model-unreachable-retry-release");
 

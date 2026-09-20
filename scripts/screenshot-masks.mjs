@@ -18,13 +18,24 @@ export const LIVE_VALUES = [
   // antialias the composer text box's bottom corners a level or two apart, 2 by 2
   // pixels each. The square masked is 4 by 4 at each bottom corner; the cause
   // is carded, and the rest of the composer is compared exactly.
-  { name: "composer-corner-variance", reason: "the composer's bottom corners antialias a level or two apart between runs of one build", selector: "#chat-task", corners: 4 },
+  // v1.2.2/W3: the variance runs the height of the corner's rounding, not just
+  // the four pixels v1.0.0 measured - two runs of one build differed three
+  // pixels above the square. The square is the radius, 8 by 8, and the rest of
+  // the composer is still compared exactly.
+  { name: "composer-corner-variance", reason: "the composer's bottom corners antialias a level or two apart between runs of one build", selector: "#chat-task", corners: 8 },
   { name: "transcript-scrollbar", reason: "the thumb's length and place follow the transcript's height, which live text wraps change", selector: "#chat-log", scrollbar: true },
   // v1.2.2/W3: the unreachable notice elides the host, so the visible run can
   // be "0.1:58507" with no 127. prefix for the old pattern to match, and that
   // one un-masked run was the whole difference between two captures of one
   // build. Same named live value, matched wherever the host is cut.
   { name: "loopback-port", reason: "the fake model server's port is chosen when it starts", selector: "body", pattern: String.raw`(?:[\d.]*\d\.\d+|localhost):\d{2,5}` },
+  // v1.2.2/W3: a step summary draws its measured duration only when it rounds
+  // to at least a millisecond, so two runs of one build read "2 tool calls · 2
+  // failed" and "2 tool calls · 2 failed · 1 ms". The counts are compared as
+  // they are; only the seat the duration would occupy - from the end of the
+  // last count to the right edge of the line - is masked, and it is masked in
+  // every capture whether a duration sits there or not, so the two agree.
+  { name: "duration-seat", reason: "a duration under half a millisecond is not drawn at all, so the place one would sit differs between runs", selector: ".chat-step-summary, .chat-response-summary, .chat-tool-group-head", pattern: String.raw`\d[\d,]* (?:failed|rows?|thoughts?|answers?|tool calls?)(?=(?: · [\d,.]+ (?:ms|s))?$)`, afterMatch: true },
   { name: "budget-meter", reason: "the chat's budget fill follows measured token counts", selector: ".chat-budget-fill" },
   // v1.0.0/W5: the staged candidate's prompt measured five tokens more than a
   // working-tree build's, so every token readout and the Console rail's
@@ -94,6 +105,15 @@ function liveValueRects(specs) {
           const range = document.createRange();
           range.setStart(text, match.index);
           range.setEnd(text, spec.restOfText ? text.data.length : match.index + match[0].length);
+          // An afterMatch mask covers the seat AFTER its anchor: from the end
+          // of the matched text to the right edge of the element holding it,
+          // on the anchor's own line. The anchor itself stays compared, and
+          // the seat is masked whether anything sits in it or not.
+          if (spec.afterMatch) {
+            const holderRight = holder.getBoundingClientRect().right, box = clipOf(holder);
+            for (const r of range.getClientRects()) { const c = clipped({ left: r.right, top: r.top, right: holderRight, bottom: r.bottom }, box); if (c) rects.push(c); }
+            continue;
+          }
           // A restOfText mask runs from the match to the end of its text, each
           // line to the right edge of the element holding it; any other covers
           // the matched text only.

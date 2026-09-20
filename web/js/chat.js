@@ -337,12 +337,37 @@ function renderEntrySafely(session, entry, index) {
   }
 }
 
+// Item 2gs (v1.2.1/W1): a key that appears twice in one render gets its own
+// row the second time.
+//
+// The transcript was rendering the retained chats out of order — s6 showed
+// m-5, m-9, then went back to m-1, m-3. The cause is not ordering code: the
+// the projector list, the client copy and the entries handed to the renderer
+// are all in journal order. It is that the journal contains the SAME message
+// id more than once (s6 repeats m-1, m-3 and m-7), the view cache is keyed by
+// that id, so the second occurrence was handed the DOM node of the first, and
+// insertBefore MOVES a node it already holds instead of adding one. Eighteen
+// entries collapsed to twelve rows and the survivors ended up in the order
+// they were last moved to.
+//
+// Dropping a repeat would hide part of the record, and renaming keys would
+// change what every gate and the audit compare. So a repeat is drawn as its
+// own row: the transcript shows what the journal holds, in the journal
+// order. The duplicate ids themselves are a separate defect ([[2fm]]).
+function viewKeyFor(entry) {
+  if (!usedEntryViews.has(entry.key)) return entry.key;
+  let suffix = 2;
+  while (usedEntryViews.has(`${entry.key}#${suffix}`)) suffix++;
+  return `${entry.key}#${suffix}`;
+}
+
 function renderEntry(session, entry) {
   if (!entry || typeof entry !== "object") throw new Error("entry is missing or is not an object");
   if (!entry.key) throw new Error("entry key is missing");
   if (entry.type === "notice") return renderNotice(session, entry);
   if (entry.type === "response") return renderResponse(session, entry);
-  let view = entryViews.get(entry.key);
+  const viewKey = viewKeyFor(entry);
+  let view = entryViews.get(viewKey);
   if (!view) {
     const row = document.createElement("section");
     row.tabIndex = 0;
@@ -351,9 +376,9 @@ function renderEntry(session, entry) {
     const author = speaker(entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entryRole(entry)), entry.type !== "user" && entry.type !== "summary");
     row.append(author, content);
     view = { row, author, content, text: "" };
-    entryViews.set(entry.key, view);
+    entryViews.set(viewKey, view);
   }
-  usedEntryViews.add(entry.key);
+  usedEntryViews.add(viewKey);
   view.row.dataset.entryKey = entry.key;
   view.author.lastElementChild.textContent = entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entryRole(entry));
   view.row.className = `chat-entry ${entry.type === "user" ? "chat-user" : entry.type === "summary" ? "chat-summary" : entry.type === "tool" ? "tool-entry" : "chat-agent"}`;
@@ -386,7 +411,8 @@ function renderEntry(session, entry) {
 }
 
 function renderResponse(session, entry) {
-  let view = entryViews.get(entry.key);
+  const viewKey = viewKeyFor(entry);
+  let view = entryViews.get(viewKey);
   if (!view) {
     const row = document.createElement("section");
     row.className = "chat-entry chat-agent chat-response";
@@ -407,9 +433,9 @@ function renderResponse(session, entry) {
     const author = speaker(agentAuthor(session), true);
     row.append(author, content);
     view = { row, author, content, summary, rows, blocks: new Map(), stepKeys: [] };
-    entryViews.set(entry.key, view);
+    entryViews.set(viewKey, view);
   }
-  usedEntryViews.add(entry.key);
+  usedEntryViews.add(viewKey);
   setText(view.author.lastElementChild, agentAuthor(session));
   const totals = responseSummary(entry.items);
   const active = isRunning(session) && entry.items.some((item) => item?.run_id && item.run_id === session.run?.run_id);

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	attachmentfile "harness/internal/attachment"
 	"harness/internal/config"
@@ -38,14 +39,18 @@ func renderedUserTextAt(profile *config.Profile, s *session.Session, message eve
 		switch {
 		case kind == attachmentfile.Office && hasSidecar:
 			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — extracted text: %s — read it with read_file", item.Path, item.Bytes, sidecar))
-		case kind == attachmentfile.PDF && hasSidecar:
-			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — extracted text: %s (untrusted:true) — read it with read_file", item.Path, item.Bytes, sidecar))
+		case kind == attachmentfile.PDF && hasSidecar && !nativeAttachmentAt(profile, kind, item.Bytes):
+			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — route: sidecar — extracted text: %s (untrusted:true) — read it with read_file", item.Path, item.Bytes, sidecar))
 		case kind == attachmentfile.Image && hasSidecar:
 			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — OCR text: %s (untrusted:true; layout not preserved) — read it with read_file", item.Path, item.Bytes, sidecar))
-		case nativeAttachment(profile, kind) && !inline:
+		case nativeAttachmentAt(profile, kind, item.Bytes) && !inline:
 			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — shown in an earlier turn and not re-sent; ask the operator to re-attach it to see it again", item.Path, item.Bytes))
+		// The route is NAMED, for the model as for the operator, so neither has
+		// to infer it from which branch ran.
+		case kind == attachmentfile.PDF && nativeAttachmentAt(profile, kind, item.Bytes):
+			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — route: inline — included inline in this message", item.Path, item.Bytes))
 		case kind == attachmentfile.PDF && profile.NativeDocumentInput():
-			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — included inline in this message", item.Path, item.Bytes))
+			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — route: sidecar — over the %d byte inline limit and no extracted text is available; ask the operator to extract it", item.Path, item.Bytes, inlineDocumentLimit(profile)))
 		case kind == attachmentfile.Image && profile.NativeImageInput():
 			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — included inline in this message", item.Path, item.Bytes))
 		case kind == attachmentfile.Text:
@@ -69,7 +74,7 @@ func requestMessageAt(profile *config.Profile, s *session.Session, message event
 	parts := []any{}
 	for _, item := range message.Attachments {
 		kind := attachmentKind(item)
-		if !inline || item.Outcome != "" || !nativeAttachment(profile, kind) {
+		if !inline || item.Outcome != "" || !nativeAttachmentAt(profile, kind, item.Bytes) {
 			continue
 		}
 		resolved, err := tools.Resolve(s.Workspace, item.Path)
@@ -101,9 +106,47 @@ func requestMessageAt(profile *config.Profile, s *session.Session, message event
 	return converted
 }
 
+// Item 2ch (v1.2.5): an image has no second route - a picture is not
+// chunk-readable, so inline is the only way one reaches a model. A PDF has
+// both, and the operator chose: sidecar by default, inline only under the
+// threshold and only where the profile reads documents natively. The size is
+// the whole of the difference, so it is asked here rather than inferred from
+// branch order anywhere else.
 func nativeAttachment(profile *config.Profile, kind attachmentfile.Kind) bool {
-	return kind == attachmentfile.Image && profile.NativeImageInput() || kind == attachmentfile.PDF && profile.NativeDocumentInput()
+	return nativeAttachmentAt(profile, kind, 0)
 }
+
+func nativeAttachmentAt(profile *config.Profile, kind attachmentfile.Kind, bytes int64) bool {
+	if kind == attachmentfile.Image {
+		return profile.NativeImageInput()
+	}
+	if kind != attachmentfile.PDF || !profile.NativeDocumentInput() {
+		return false
+	}
+	return bytes <= inlineDocumentLimit(profile)
+}
+
+// inlineDocumentLimit is the configured threshold, or the stated default. The
+// profile carries no per-profile value yet; the choice is install-wide.
+func inlineDocumentLimit(_ *config.Profile) int64 {
+	return inlineLimit.Load()
+}
+
+// inlineLimit is set once from the configuration at startup, so the renderer
+// does not need a configuration handle it otherwise has no use for.
+var inlineLimit atomicInt64
+
+type atomicInt64 struct{ value atomic.Int64 }
+
+func (a *atomicInt64) Load() int64 {
+	if value := a.value.Load(); value > 0 {
+		return value
+	}
+	return 2 << 20
+}
+
+// SetInlineDocumentLimit records the operator's threshold for inlining a PDF.
+func SetInlineDocumentLimit(bytes int64) { inlineLimit.value.Store(bytes) }
 
 func attachmentKind(item events.Attachment) attachmentfile.Kind {
 	if item.Kind != "" {
@@ -125,7 +168,7 @@ func prepareNativeAttachmentsWithBudget(profile *config.Profile, attachments []e
 	for index := range prepared {
 		prepared[index].Outcome = ""
 		kind := attachmentKind(prepared[index])
-		if !nativeAttachment(profile, kind) {
+		if !nativeAttachmentAt(profile, kind, prepared[index].Bytes) {
 			continue
 		}
 		encodedBytes := nativeAttachmentEncodedUpperBound(prepared[index])

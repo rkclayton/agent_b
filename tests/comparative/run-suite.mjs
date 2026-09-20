@@ -122,7 +122,7 @@ try {
   if (args.profile === "slumberland") profile.base_url = "https://ai.slumberland.com/vllm/v1";
   profile.probe_mode = args.profile === "slumberland" ? "full" : "off";
   profile.system_prompt_override = EVAL_SYSTEM_PROMPT;
-  const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "find_files"];
+  const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell"];
   const config = {
     config_version: 6, listen: `127.0.0.1:${port}`, workspace: path.join(dataRoot, "scratch"), log_dir: path.join(dataRoot, "logs"),
     servers: [profile], services: {}, agents: [{ name: "Eval", b: profile.id, toolset }], chat: { auto_rename: false },

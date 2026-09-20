@@ -273,17 +273,22 @@ func main() {
 			log.Printf("inspect installed signatures: %v", err)
 		}
 	}()
+	// Item 13 (v1.2.5): eleven tools. search_text and find_files became one
+	// `search` with a target, in the place the first of them held, so the
+	// registration order the contract fixes is otherwise unchanged.
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
 		fileIdentity.Wrap(tools.NewWriteFile(coordinator)),
 		fileIdentity.Wrap(tools.NewEditFile(coordinator)),
-		fileIdentity.Wrap(tools.NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir)),
+		tools.NewSearch(
+			fileIdentity.Wrap(tools.NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir)),
+			fileIdentity.Wrap(tools.NewGlob(cfg.Tools.FindFiles)),
+		),
 		shellTool,
 		tools.NewRemember(memoryManager, bus),
 		tools.NewRecall(memoryManager),
 		tools.NewFetch(cfg.Tools.Fetch),
-		fileIdentity.Wrap(tools.NewGlob(cfg.Tools.FindFiles)),
 		tools.NewRunScript(shellTool),
 		tools.NewCallService(cfg.Services),
 	)

@@ -41,7 +41,7 @@ const model = createServer(async (request, response) => {
 const dataRoot = resolve(args.data);
 const workspace = join(dataRoot, "workspace");
 await mkdir(workspace, { recursive: true });
-const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "find_files", "run_script", "call_service"];
+const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"];
 const profile = {
   id: "seed", label: "Seed", base_url: `http://127.0.0.1:${modelPort}`, extract_url: "", model: "settings-evidence", credential: "", request_timeout_s: 3, probe_mode: "minimal",
   sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 1.5, repeat_penalty: 1 } },

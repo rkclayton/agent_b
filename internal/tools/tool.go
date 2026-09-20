@@ -114,6 +114,20 @@ func (r *Registry) Call(ctx context.Context, s *session.Session, name string, ar
 	return outcome.Content, outcome.OK
 }
 func (r *Registry) CallDetailed(ctx context.Context, s *session.Session, name string, args map[string]any) CallOutcome {
+	// Item 13 (v1.2.5): search_text and find_files are `search` now. A model
+	// that learned the old names, or a saved plan that uses one, still works
+	// for this release and is told the name is going away.
+	aliasNotice := ""
+	if target, ok := searchAliases[name]; ok && r.byName[name] == nil && r.byName["search"] != nil {
+		aliasNotice = fmt.Sprintf(searchAliasNotice, name, target)
+		if args == nil {
+			args = map[string]any{}
+		}
+		if _, given := args["target"]; !given {
+			args["target"] = target
+		}
+		name = "search"
+	}
 	tool := r.byName[name]
 	if tool == nil || !s.ToolEnabled(name) {
 		return CallOutcome{Content: fmt.Sprintf("error: tool %s is not available", name)}
@@ -144,11 +158,11 @@ func (r *Registry) CallDetailed(ctx context.Context, s *session.Session, name st
 	}
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "note:") {
-			return CallOutcome{Content: err.Error(), Category: category, Untrusted: untrusted, Metadata: metadata}
+			return CallOutcome{Content: aliasNotice + err.Error(), Category: category, Untrusted: untrusted, Metadata: metadata}
 		}
-		return CallOutcome{Content: "error: " + err.Error(), Category: category, Untrusted: untrusted, Metadata: metadata}
+		return CallOutcome{Content: aliasNotice + "error: " + err.Error(), Category: category, Untrusted: untrusted, Metadata: metadata}
 	}
-	return CallOutcome{Content: result, OK: true, OperatorOverrideAvailable: overrideReason != "", OperatorOverrideReason: overrideReason, Category: category, Untrusted: untrusted, Metadata: metadata}
+	return CallOutcome{Content: aliasNotice + result, OK: true, OperatorOverrideAvailable: overrideReason != "", OperatorOverrideReason: overrideReason, Category: category, Untrusted: untrusted, Metadata: metadata}
 }
 
 // ResultClassifyingTool declares model-context handling that applies even when

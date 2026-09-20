@@ -7,7 +7,7 @@ import (
 
 func fileGrantTool(name string) bool {
 	switch name {
-	case "read_file", "list_dir", "write_file", "edit_file", "search_text", "find_files":
+	case "read_file", "list_dir", "write_file", "edit_file", "search", "search_text", "find_files":
 		return true
 	default:
 		return false

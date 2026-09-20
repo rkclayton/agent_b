@@ -59,7 +59,7 @@ const tempRoot = await mkdtemp(join(tmpdir(), "Agent_b-navigation-network-"));
 const evidenceRoot = resolve(args.evidence);
 const dataRoot = join(tempRoot, "data");
 const workspace = join(dataRoot, "workspace");
-const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "find_files", "run_script", "call_service"];
+const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"];
 const children = [];
 let model;
 let app;

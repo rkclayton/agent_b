@@ -106,7 +106,7 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	if cfg.FileRoutingGuardEnabled() {
 		refusal, ambiguous := inspectShellFileRouting(command)
 		if refusal != nil {
-			if cfg.ServiceAccount.Enabled && refusal.Replacement.Tool == "find_files" && routingReplacementOutsideWorkspace(item.Workspace, refusal) {
+			if cfg.ServiceAccount.Enabled && refusal.Replacement.Tool == "search" && routingReplacementOutsideWorkspace(item.Workspace, refusal) {
 				refusal.Reason = "direct file discovery path is outside the folder while the service-account split is enabled"
 				refusal.Replacement = nil
 				refusal.Guidance = "paths outside the folder require an operator decision; state the need once and stop rather than retrying paths"

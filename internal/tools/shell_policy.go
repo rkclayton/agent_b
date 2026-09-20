@@ -73,7 +73,9 @@ func inspectShellFileRouting(command string) (*shellRoutingRefusal, bool) {
 	for _, segment := range inspected {
 		switch segment.kind {
 		case shellSegmentDiscovery:
-			return routingRefusal(command, "file discovery", "find_files", discoveryArguments(segment.words)), false
+			// Item 13 (v1.2.5): the guard points at `search` with target=name,
+			// which is where file discovery lives now.
+			return routingRefusal(command, "file discovery", "search", discoveryArguments(segment.words)), false
 		case shellSegmentRead:
 			return routingRefusal(command, "file read", "read_file", readArguments(segment.words)), false
 		}
@@ -466,7 +468,7 @@ func shellWords(segment string) []string {
 func discoveryArguments(words []string) map[string]string {
 	pattern, root := "*", "."
 	if len(words) < 2 {
-		return map[string]string{"pattern": pattern, "path": root}
+		return map[string]string{"pattern": pattern, "path": root, "target": "name"}
 	}
 	name := shellCommandName(words[0])
 	if name == "find" {
@@ -476,7 +478,7 @@ func discoveryArguments(words []string) map[string]string {
 		if value := optionValue(words, "-name", "-iname"); value != "" {
 			pattern = value
 		}
-		return map[string]string{"pattern": pattern, "path": root}
+		return map[string]string{"pattern": pattern, "path": root, "target": "name"}
 	}
 	if name == "get-childitem" || name == "gci" {
 		if value := optionValue(words, "-path", "-literalpath"); value != "" {
@@ -487,7 +489,7 @@ func discoveryArguments(words []string) map[string]string {
 		if value := optionValue(words, "-filter", "-include"); value != "" {
 			pattern = value
 		}
-		return map[string]string{"pattern": pattern, "path": root}
+		return map[string]string{"pattern": pattern, "path": root, "target": "name"}
 	}
 	if name == "fd" {
 		values := positionalValues(words[1:])
@@ -497,7 +499,7 @@ func discoveryArguments(words []string) map[string]string {
 		if len(values) > 1 {
 			root = values[1]
 		}
-		return map[string]string{"pattern": pattern, "path": root}
+		return map[string]string{"pattern": pattern, "path": root, "target": "name"}
 	}
 	if value := firstPositional(words[1:]); value != "" {
 		if strings.ContainsAny(value, "*?[") {
@@ -508,7 +510,7 @@ func discoveryArguments(words []string) map[string]string {
 			root = value
 		}
 	}
-	return map[string]string{"pattern": pattern, "path": root}
+	return map[string]string{"pattern": pattern, "path": root, "target": "name"}
 }
 
 func readArguments(words []string) map[string]string {

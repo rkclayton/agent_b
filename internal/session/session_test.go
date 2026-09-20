@@ -182,7 +182,15 @@ func TestCreateLikeKeepsProfileWorkspaceAndExactToolsetAfterClose(t *testing.T) 
 		t.Fatal(err)
 	}
 	want, got := first.Snapshot(), second.Snapshot()
-	if got.AgentID != "coder" || got.ServerID != want.ServerID || !got.Scratch || got.Workspace == want.Workspace || got.AgentName != "Coder" || got.BProfile != "Coder" || got.Tools[5].Enabled {
+	// By name, not by index: item 13 (v1.2.5) merged two tools into one, and a
+	// position is not what this is about.
+	shellEnabled := false
+	for _, tool := range got.Tools {
+		if tool.Name == "shell" {
+			shellEnabled = tool.Enabled
+		}
+	}
+	if got.AgentID != "coder" || got.ServerID != want.ServerID || !got.Scratch || got.Workspace == want.Workspace || got.AgentName != "Coder" || got.BProfile != "Coder" || shellEnabled {
 		t.Fatalf("cloned session=%+v", got)
 	}
 	if len(registry.List()) != 2 || !registry.List()[0].Snapshot().Closed {

@@ -159,7 +159,7 @@ async function testConnection(kind) {
       b: local && choice !== "hybrid" ? id : current.b || id,
       ...(local && choice === "hybrid" ? { c: id } : current.c ? { c: current.c } : {}),
       ...(current.d ? { d: current.d } : {}),
-      toolset: current.toolset || ["read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "find_files", "run_script", "call_service"],
+      toolset: current.toolset || ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"],
       ...(current.prompt_addendum ? { prompt_addendum: current.prompt_addendum } : {}),
     }];
     snapshot.config = await request("/api/config", { servers, agents });

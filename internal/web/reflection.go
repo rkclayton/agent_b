@@ -150,6 +150,9 @@ func (s *Server) reflectionPass(manual bool) (reflection.PassResult, error) {
 	for _, skipped := range result.Skipped {
 		log.Printf("reflection: skipped %s", skipped)
 	}
+	// A pass may have proposed a plan; the operator meets it as an ordinary
+	// card when they are next here (v1.1.1/W3).
+	s.OfferReflectionProposals()
 	return result, err
 }
 

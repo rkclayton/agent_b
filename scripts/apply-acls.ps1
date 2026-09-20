@@ -16,6 +16,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'windows-tools.ps1')
 $statusMarker = 'AGENTB_ACL_STATUS='
 $script:changed = 0
 $script:unchanged = 0
@@ -146,7 +147,8 @@ function Set-ManagedRule {
             # Set-Acl can trigger a costly inheritance recalculation across a
             # large user-profile tree. icacls adds this non-inheriting ACE to
             # the directory itself without walking its descendants.
-            & icacls.exe $Target.Path /grant:r ("*$($Identity.Value):(X,S)") | Out-Host
+            # Item 2gc: System32's icacls, never a PATH-resolved name.
+            & (Get-WindowsTool 'icacls.exe') $Target.Path /grant:r ("*$($Identity.Value):(X,S)") | Out-Host
             if ($LASTEXITCODE -ne 0) { throw "icacls failed for parent traverse path: $($Target.Path)" }
         } else {
             $acl.SetAccessRule((New-ManagedRule -Identity $Identity -Rights $Target.Rights -Inheritance $Target.Inheritance -Type $Target.Type))

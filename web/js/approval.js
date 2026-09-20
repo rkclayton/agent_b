@@ -37,6 +37,15 @@ export function approvalText(data = {}) {
 		reason: data.args?.reason || "The restricted account cannot complete it.",
 		detail: value,
 	};
+	// Item 17-i's registration decision: reflection proposes a plan, it never
+	// registers one. The card is the ordinary Allow-this card; these two lines
+	// say who proposed it and what activity led to it.
+	if (data.args?.proposed_by === "reflection") return {
+		title: "Allow this",
+		request: "Register this folder as a plan?",
+		reason: data.args?.activity ? `Proposed by reflection — ${data.args.activity}.` : "Proposed by reflection.",
+		detail: value,
+	};
 	return {
 		title: "Allow this",
 		request: `${data.name || "This operation"} is restricted by your approval rules.`,

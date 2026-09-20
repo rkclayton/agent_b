@@ -1,6 +1,7 @@
 package reflection
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -161,4 +162,27 @@ func PlanCandidates(summaries []Summary, registered func(root string) bool) []Pl
 		candidates = append(candidates, PlanCandidate{Root: root, AgentFile: marker, Touched: touched[root], Reasons: reasons})
 	}
 	return candidates
+}
+
+// AgentFileFingerprint identifies the state of a repository's agent files, so
+// a declined proposal can come back when they change and not before.
+func AgentFileFingerprint(root string) string {
+	parts := []string{}
+	for _, name := range agentFiles {
+		info, err := os.Stat(filepath.Join(root, name))
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s:%d:%d", name, info.Size(), info.ModTime().UTC().UnixMilli()))
+	}
+	return strings.Join(parts, "|")
+}
+
+// ActivityLine is what the card says led to the proposal.
+func ActivityLine(candidate PlanCandidate) string {
+	runs := "1 run"
+	if candidate.Touched != 1 {
+		runs = fmt.Sprintf("%d runs", candidate.Touched)
+	}
+	return fmt.Sprintf("%s touched this folder, and %s sits at its root", runs, candidate.AgentFile)
 }

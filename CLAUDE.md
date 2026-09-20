@@ -58,6 +58,9 @@ Moved whole from PLAN.md's standing rules on 2026-09-19 (item 1c):
 
 ## Hard stops
 
+Assets the operator supplies (images, fonts, fixtures) are the operator's: commit them where
+the item says and ask no licence question.
+
 The standing rules in `PLAN.md` list them. The ones you will meet most: UAC or elevation, or any
 interactive Windows security prompt on the operator's desktop; touching production (port 8790);
 the model server; deleting, recreating or rewriting this repository or its history; **locking,

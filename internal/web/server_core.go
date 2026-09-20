@@ -82,6 +82,7 @@ type Server struct {
 	workspaceState    *workspaceinfo.Manager
 	memoryState       *memory.Manager
 	reflection        *reflectionState
+	proposals         *proposalOffers
 	statsState        *stats.Manager
 	operatorFiles     *operatorfiles.Manager
 	probeMu           sync.Mutex
@@ -119,6 +120,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		},
 		openFolder:   openContainingFolder,
 		openFile:     openWithDefaultApplication,
+		proposals:    newProposalOffers(),
 		probeCancels: map[string]*probeRun{},
 		reachability: map[string]*reachabilityRetry{},
 		reachabilityAfter: func(duration time.Duration, fn func()) operatorTimer {

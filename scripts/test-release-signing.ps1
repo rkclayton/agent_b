@@ -2,6 +2,7 @@
 param()
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
+. (Join-Path $PSScriptRoot 'windows-tools.ps1')
 
 # v0.61.0/W6 under r2. Prove scripts/sign-release.ps1 signs, timestamps and
 # produces a chain that validates -- WITHOUT installing any root into the
@@ -32,7 +33,7 @@ try {
         $untouchedBefore = (Get-FileHash (Join-Path $stage 'harness.example.json') -Algorithm SHA256).Hash
 
         $report = Join-Path $stage 'report.json'
-        & powershell.exe -NoLogo -NoProfile -File 'C:\projects\agentb\scripts\sign-release.ps1' -Path $stage -Thumbprint $cert.Thumbprint -ReportPath $report 2>&1 | Out-String | Write-Output
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File 'C:\projects\agentb\scripts\sign-release.ps1' -Path $stage -Thumbprint $cert.Thumbprint -ReportPath $report 2>&1 | Out-String | Write-Output
         Write-Output ("sign-release exit: {0}  (3 = signed and timestamped, chain not trusted by the MACHINE store, which is expected for a disposable anchor)" -f $LASTEXITCODE)
 
         $allSigned = $true

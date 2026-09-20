@@ -1,6 +1,6 @@
 import { api, reduce, setActive, store, subscribe } from "./bus.js";
 import { operatorStatusView } from "./operator-status.js";
-import { navigationSurfaceReady } from "./navigation-telemetry.js";
+import { navigationSurfaceReady, recordViewMount } from "./navigation-telemetry.js";
 import { renderConnectionsPage } from "./settings-connections.js";
 import { renderAboutPage } from "./settings-about.js";
 import { renderContextPage } from "./settings-context.js";
@@ -45,6 +45,9 @@ let settingsSaving = false;
 let settingsSaveMessage = "All changes saved";
 let settingsSaveAlarm = false;
 let activeSection = "servers";
+// The view another document was on when it sent us here; "" when the sheet was
+// opened from inside this one, where it closes onto the chat beneath it.
+let openedFrom = "";
 let hardeningServerID = "";
 let workspaceState = [];
 let operatorFileState = { attachment_files: 0, attachment_bytes: 0, instruction_found: [] };
@@ -65,7 +68,11 @@ const sectionLabels = [
   ["about", "About"],
 ];
 
-export function initSettings() {
+// Item 2hb (v1.2.4): `entry` is what the address asked for, read once by
+// workspace.js before the shell rewrote it. `entry.from` is the view another
+// document was on when its gear was clicked, and closing returns there.
+export function initSettings(entry = {}) {
+  openedFrom = entry.from || "";
   gear = document.querySelector(".shell-settings");
   gear.addEventListener("click", (event) => {
     event.preventDefault();
@@ -124,11 +131,10 @@ export function initSettings() {
 	  refreshOperatorFileState();
     }
   });
-  const requested = location.hash.match(/^#settings(?:\/([a-z-]+))?$/);
-  if (requested) requestAnimationFrame(() => openSettings(requested[1] || "servers"));
 }
 
-function openSettings(section = "") {
+export function openSettings(section = "") {
+  const started = performance.now();
   if (sectionLabels.some(([id]) => id === section)) activeSection = section;
   open = true;
   lastFocus = document.activeElement;
@@ -150,6 +156,7 @@ function openSettings(section = "") {
   refreshWorkspaceState();
   refreshOperatorFileState();
   requestAnimationFrame(() => sheet.querySelector(".settings-nav button.selected")?.focus());
+  recordViewMount("settings", performance.now() - started);
 }
 
 export function closeSettings(surface = "chat") {
@@ -169,6 +176,15 @@ export function closeSettings(surface = "chat") {
   history.replaceState(null, "", `${location.pathname}${location.search}`);
   (lastFocus || gear).focus();
   navigationSurfaceReady(surface, store);
+  // Item 2hb: Settings closes to the view it opened from. From inside this
+  // document that is the chat, which is already beneath it; from Plan it is
+  // another document, so closing goes back rather than leaving the operator
+  // somewhere he never asked for.
+  if (openedFrom === "plan") {
+    const session = new URLSearchParams(location.search).get("session");
+    openedFrom = "";
+    location.assign(`/plan${session ? `?session=${encodeURIComponent(session)}` : ""}`);
+  }
 }
 
 function render() {

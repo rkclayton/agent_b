@@ -216,3 +216,16 @@ export const navigationEventSourceConstructed = () => telemetry?.eventSourceCons
 export const navigationEventSourceOpened = () => telemetry?.eventSourceOpened();
 export const navigationSnapshotStarted = () => telemetry?.snapshotStarted();
 export const navigationSurfaceReady = (surface, state) => telemetry?.surfaceReady(surface, state);
+
+// Item 2hb (v1.2.4): how long it took to put a view up, measured where the work
+// happens and kept where a scenario and the operator can both read it. This is
+// the mount alone - not a document load, which is the browser's time and not
+// this application's to budget.
+export function recordViewMount(view, ms) {
+  if (typeof window === "undefined") return;
+  const rounded = Math.round(ms * 100) / 100;
+  window.__agentbViewMount = { view, ms: rounded, at: Date.now() };
+  const history = (window.__agentbViewMounts = window.__agentbViewMounts || []);
+  history.push({ view, ms: rounded });
+  if (history.length > 50) history.shift();
+}

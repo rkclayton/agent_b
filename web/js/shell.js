@@ -421,7 +421,10 @@ export function initShell(options = {}) {
     const configured = configuredAgent(session);
     const planLink = pages.querySelector('[data-page="plan"]');
     if (planLink) planLink.hidden = !session || (session.role !== "d" && !!String(configured?.d || "").trim());
-    settings.href = `/${suffix}#settings/servers`;
+    // Item 2hb: on a page that is its own document the gear is a LINK, and the
+    // document it opens has no other way to know where it came from. The view
+    // being left is named in the address, so closing can return to it.
+    settings.href = `/${suffix}${suffix ? "&" : "?"}from=${page}#settings/servers`;
     options.syncLocation?.(page);
   }
 

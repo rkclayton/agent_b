@@ -2,7 +2,6 @@ package tools
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -36,7 +35,12 @@ func (h powerShellHost) Dialect() string {
 	}
 }
 
-// pwshCandidates are the standard install paths, tried after PATH.
+// pwshCandidates are the machine-wide install paths, and only those. The
+// v1.0.1/W4 cold review: resolving through PATH or %LOCALAPPDATA%\Microsoft\
+// WindowsApps would let anything a non-admin can write become the interpreter
+// every shell call runs — including the operator-identity path — which is the
+// class operatorOnlyInterpreter already refuses for python and node. A host
+// whose pwsh lives elsewhere keeps Windows PowerShell and the rewrite.
 func pwshCandidates() []string {
 	paths := []string{}
 	for _, root := range []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramW6432"), os.Getenv("ProgramFiles(x86)")} {
@@ -44,17 +48,11 @@ func pwshCandidates() []string {
 			paths = append(paths, filepath.Join(root, "PowerShell", "7", "pwsh.exe"))
 		}
 	}
-	if local := os.Getenv("LOCALAPPDATA"); local != "" {
-		paths = append(paths, filepath.Join(local, "Microsoft", "WindowsApps", "pwsh.exe"))
-	}
 	return paths
 }
 
 // findPowerShell7 is the host lookup, done once per process.
 func findPowerShell7() string {
-	if path, err := exec.LookPath("pwsh"); err == nil {
-		return path
-	}
 	for _, candidate := range pwshCandidates() {
 		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
 			return candidate
@@ -87,11 +85,22 @@ func resolveShellHost(command []string) powerShellHost {
 func shellHostFor(cfg config.Shell) powerShellHost { return resolveShellHost(cfg.Command) }
 
 // chainSplit finds a top-level && or || : not inside single or double quotes,
-// not inside (), {} or [], and not escaped by a backtick. It returns the index
-// and the operator, or -1.
+// a here-string, a comment, a subexpression or a script block, and not escaped
+// by a backtick. It returns the index and the operator, or -1. The second
+// result of scanned() says whether the scan ended cleanly; a command whose
+// quotes or brackets do not balance is not understood, and is never rewritten
+// (v1.0.1/W4 cold review).
 func chainSplit(command string) (int, string) {
+	index, operator, balanced := scanChain(command)
+	if !balanced {
+		return -1, ""
+	}
+	return index, operator
+}
+
+func scanChain(command string) (int, string, bool) {
 	var quote byte
-	depth := 0
+	depth, found, operator := 0, -1, ""
 	for i := 0; i < len(command); i++ {
 		c := command[i]
 		if quote != 0 {
@@ -100,13 +109,40 @@ func chainSplit(command string) (int, string) {
 				continue
 			}
 			if c == quote {
-				// '' inside a single-quoted string is an escaped quote.
-				if c == '\'' && i+1 < len(command) && command[i+1] == '\'' {
+				// '' and "" inside a string of that quote are escapes.
+				if i+1 < len(command) && command[i+1] == c {
 					i++
 					continue
 				}
 				quote = 0
 			}
+			continue
+		}
+		// A here-string runs to a terminator at the start of a line; quotes
+		// and operators inside its body are literal text.
+		if c == '@' && i+1 < len(command) && (command[i+1] == '\'' || command[i+1] == '"') {
+			end := hereStringEnd(command, i)
+			if end < 0 {
+				return -1, "", false
+			}
+			i = end
+			continue
+		}
+		// Comments run to the end of the line; <# … #> to its close.
+		if c == '#' {
+			if i > 0 && command[i-1] == '<' {
+				close := strings.Index(command[i:], "#>")
+				if close < 0 {
+					return -1, "", false
+				}
+				i += close + 1
+				continue
+			}
+			newline := strings.IndexAny(command[i:], "\r\n")
+			if newline < 0 {
+				break
+			}
+			i += newline
 			continue
 		}
 		switch c {
@@ -117,16 +153,37 @@ func chainSplit(command string) (int, string) {
 		case '(', '{', '[':
 			depth++
 		case ')', '}', ']':
-			if depth > 0 {
-				depth--
+			depth--
+			if depth < 0 {
+				return -1, "", false
+			}
+		case '-':
+			// --% stops PowerShell parsing: everything after it is passed to
+			// the native command verbatim, so nothing after it is an operator.
+			if strings.HasPrefix(command[i:], "--%") && (i == 0 || command[i-1] == ' ' || command[i-1] == '\t') {
+				return found, operator, found >= 0 && depth == 0
 			}
 		case '&', '|':
-			if depth == 0 && i+1 < len(command) && command[i+1] == c {
-				return i, command[i : i+2]
+			if depth == 0 && found < 0 && i+1 < len(command) && command[i+1] == c {
+				found, operator = i, command[i:i+2]
 			}
 		}
 	}
-	return -1, ""
+	return found, operator, quote == 0 && depth == 0
+}
+
+// hereStringEnd is the index of the last character of the here-string opening
+// at start, or -1 when it never closes.
+func hereStringEnd(command string, start int) int {
+	terminator := "\n'@"
+	if command[start+1] == '"' {
+		terminator = "\n\"@"
+	}
+	at := strings.Index(command[start+2:], terminator)
+	if at < 0 {
+		return -1
+	}
+	return start + 2 + at + len(terminator) - 1
 }
 
 // rewriteChainOperators turns the model's chains into 5.1 statements, left to

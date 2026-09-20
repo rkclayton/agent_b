@@ -1,50 +1,60 @@
 [CmdletBinding()]
 param()
 
-# Item 2ge (v1.2.2/W1): what this host can actually do for dictation.
+# Item 2ge: what this host can actually do for dictation.
 #
 # The operator asked for Windows' own recogniser -- "can we just somehow hotkey
 # in the Win+H function and not use their GUI" -- so this asks Windows, and the
 # answer it gives is what the microphone's hover text says. There is no browser
 # speech API here and no audio leaves the machine.
 #
-# It starts no recognition session and opens no audio device: it loads types
-# and reads the installed languages, nothing more.
+# v1.2.2 measured that the engine behind Win+H, the WinRT SpeechRecognizer,
+# loads here but cannot be DRIVEN from Windows PowerShell 5.1: it exposes no
+# reachable AsTask overload, so its async calls can never be awaited. v1.2.4
+# therefore asks about System.Speech, the other recogniser Windows ships, which
+# runs entirely in process and can be driven. The WinRT engine is still the
+# better one and is carded for a compiled helper.
+#
+# This opens no audio device and starts no recognition: it constructs the engine
+# to learn its name and culture, and disposes it.
 
 $ErrorActionPreference = 'Continue'
 $result = [ordered]@{ available = $false; offline = $false; reason = ''; languages = @() }
 
 try {
-    $null = [Windows.Media.SpeechRecognition.SpeechRecognizer, Windows.Media, ContentType = WindowsRuntime]
+    Add-Type -AssemblyName System.Speech
 } catch {
-    $result.reason = 'the Windows speech recogniser is not available on this host'
+    $result.reason = 'System.Speech is not available on this host'
     $result | ConvertTo-Json -Compress
     exit 0
 }
 
 try {
-    $grammar = [Windows.Media.SpeechRecognition.SpeechRecognizer]::SupportedGrammarLanguages
-    $result.languages = @($grammar | ForEach-Object { $_.LanguageTag })
-    $result.offline = $result.languages.Count -gt 0
+    $installed = @([System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers())
+    $result.languages = @($installed | ForEach-Object { $_.Culture.Name })
+    if ($installed.Count -eq 0) {
+        $result.reason = 'Windows has no speech recogniser installed'
+        $result | ConvertTo-Json -Compress
+        exit 0
+    }
 } catch {
-    $result.languages = @()
+    $result.reason = 'the installed recognisers could not be read: ' + $_.Exception.Message
+    $result | ConvertTo-Json -Compress
+    exit 0
 }
 
-# The blocker measured in v1.2.2/W1: driving the recogniser needs its async
-# methods, and Windows PowerShell 5.1 has no reachable AsTask overload to await
-# an IAsyncOperation with. The types load and the recogniser constructs; it
-# cannot be RUN from here. A compiled helper is what the item names for this
-# case, and until one ships the honest answer is that dictation is unavailable.
-$asTask = 0
-try { $asTask = @([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' }).Count } catch { $asTask = 0 }
-
-if ($asTask -eq 0) {
-    $result.available = $false
-    $result.reason = 'the Windows recogniser is installed but cannot be driven from Windows PowerShell 5.1 (no awaitable AsTask); a compiled helper is needed'
-} else {
+try {
+    $engine = New-Object System.Speech.Recognition.SpeechRecognitionEngine
+    $null = New-Object System.Speech.Recognition.DictationGrammar
     $result.available = $true
-    $result.reason = if ($result.offline) { 'the Windows recogniser is available offline on this host' } else { 'the Windows recogniser is available through the online path' }
+    # System.Speech recognises in process, against a locally installed engine.
+    # There is no online path in it at all, so this is offline by construction
+    # rather than by a setting that could be different tomorrow.
+    $result.offline = $true
+    $result.reason = 'offline (System.Speech)'
+    $engine.Dispose()
+} catch {
+    $result.reason = 'the speech engine could not be started: ' + $_.Exception.Message
 }
 
 $result | ConvertTo-Json -Compress
-exit 0

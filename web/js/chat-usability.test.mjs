@@ -50,7 +50,10 @@ test("A native attachment context refusal is visible beside its chip", () => {
 // right directly up from where it is now."
 test("the paperclip is in the bar above the chat, and the composer holds the mic and one send/stop", () => {
   // Same control, same menu, same hover text; only its home changed.
-  assert.match(html, /id="chat-budget"[\s\S]{0,500}class="chat-attach-wrap"[\s\S]{0,300}id="chat-attach"[^>]*>📎<\/button>/);
+  // Item 2ha: the three composer controls are one family of line art, so the
+  // paperclip is an SVG in the shared glyph box rather than an emoji drawn by
+  // whatever font the host has.
+  assert.match(html, /id="chat-budget"[\s\S]{0,500}class="chat-attach-wrap"[\s\S]{0,400}id="chat-attach"[\s\S]{0,200}composer-glyph/);
   assert.match(css, /\.chat-budget \.chat-attach-wrap \{ position:absolute; right:4px/);
   assert.match(html, /class="chat-composer-row"/);
   // A mic where the paperclip was, then ONE send/stop control.
@@ -147,7 +150,7 @@ test("Composer is five lines with no placeholder and expands upward", () => {
 	assert.match(css, /\.chat-composer textarea \{[\s\S]*?padding:\s*7px 64px 7px 9px;[\s\S]*?border:\s*0;[\s\S]*?border-radius:\s*8px;/);
 	assert.match(css, /\.chat-input-actions \{[^}]*right:6px;[^}]*bottom:6px;[^}]*flex-direction:column/);
 	assert.match(css, /#chat-expand\s*\{[\s\S]*position:\s*absolute;[\s\S]*top:\s*4px;[\s\S]*right:\s*4px/);
-  assert.match(html, /id="chat-send"[^>]+aria-label="Send"[^>]*>↵<\/button>/);
+  assert.match(html, /id="chat-send"[^>]+aria-label="Send"[^>]*>[\s\S]{0,40}composer-glyph/);
   assert.match(css, /#chat-send \{[\s\S]*?height: 24px;[\s\S]*?min-height: 24px;/);
   assert.match(css, /\.chat-input-actions \.stop-sign \{ width:24px; height:24px;/);
   assert.doesNotMatch(html, />Send<\/button>/);

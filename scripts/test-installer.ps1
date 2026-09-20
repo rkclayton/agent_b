@@ -33,12 +33,34 @@ function Assert-TemporaryTestPath {
     }
 }
 
+# Item 2gu (v1.2.5): production listens on 8790, and a disposable root must
+# never wear it. The operating system hands out a free port; this refuses the
+# one port that is not ours to take even if it were free at that instant.
+$script:ProductionPort = 8790
+
 function Get-FreeTcpPort {
-    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-    try {
-        $listener.Start()
-        return ([Net.IPEndPoint]$listener.LocalEndpoint).Port
-    } finally { $listener.Stop() }
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+        try {
+            $listener.Start()
+            $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
+        } finally { $listener.Stop() }
+        if ($port -ne $script:ProductionPort) { return $port }
+    }
+    throw "could not get a free port that is not production's $script:ProductionPort."
+}
+
+# Assert-DisposableListen is the preflight every disposable root passes before a
+# launch: a configuration that still names production's port fails HERE, with
+# the reason, rather than by colliding with the operator's running Agent_b.
+function Assert-DisposableListen {
+    param([string]$Listen, [string]$Where)
+    if ([string]::IsNullOrWhiteSpace($Listen)) { throw "$Where has no listen address." }
+    $port = ($Listen -split ':')[-1]
+    if ($port -eq [string]$script:ProductionPort) {
+        throw "$Where names production's port $script:ProductionPort; a disposable root must listen elsewhere."
+    }
+    return $port
 }
 
 function Get-AgentBProcessesAtPath {
@@ -101,8 +123,15 @@ function Copy-TrackedTree {
     param([string]$Source, [string]$Destination)
     $git = Get-Command git.exe -ErrorAction SilentlyContinue
     if (-not $git) { throw 'git.exe is required to copy the tracked tree.' }
+    # Item 2gu (v1.2.5): the inventory is the tracked files AND the untracked,
+    # non-ignored ones. A new script is a file this suite should see before it
+    # is staged, not after: v1.1.2, v1.1.3 and v1.2.0 each shipped a scenario
+    # that the clean-archive case could not copy because it was untracked, and
+    # the suite said nothing until the copy was already wrong.
     $tracked = @(& $git.Source -C $Source ls-files)
     if ($LASTEXITCODE -ne 0 -or -not $tracked.Count) { throw "git ls-files produced no tracked files." }
+    $untracked = @(& $git.Source -C $Source ls-files --others --exclude-standard)
+    $tracked = @($tracked) + @($untracked)
     foreach ($relative in $tracked) {
         $from = Join-Path $Source ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
         if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
@@ -154,6 +183,7 @@ try {
 	if (Test-Path -LiteralPath $testWorkspace) { throw 'Fresh install created the removed legacy workspace.' }
     $testPort = Get-FreeTcpPort
     $installedConfig.listen = "127.0.0.1:$testPort"
+    $null = Assert-DisposableListen -Listen $installedConfig.listen -Where 'the installed disposable configuration' 
     $installedConfig.operator_files.log_retention_days = 1
     [IO.File]::WriteAllText($configPath, ($installedConfig | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
     $expiredWorkingLog = Join-Path $testData 'logs\retention-expired-working.jsonl'
@@ -676,6 +706,8 @@ try {
     # catch a regression in the change being made, not in the last commit.
     $tracked = @(& $git.Source -C $sourceRoot ls-files)
     if ($LASTEXITCODE -ne 0 -or -not $tracked.Count) { throw "git ls-files produced no tracked files." }
+    # Item 2gu: untracked, non-ignored files too, for the same reason.
+    $tracked = @($tracked) + @(& $git.Source -C $sourceRoot ls-files --others --exclude-standard)
     foreach ($relative in $tracked) {
         $from = Join-Path $sourceRoot ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
         if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }

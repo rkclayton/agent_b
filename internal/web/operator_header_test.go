@@ -13,14 +13,16 @@ import (
 	"harness/internal/events"
 )
 
-func TestSharedShellIsServedOnAllThreePages(t *testing.T) {
+func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 	webDir := filepath.Join("..", "..", "web")
 	cfg := config.Defaults(t.TempDir())
 	root := t.TempDir()
 	server := New(&cfg, filepath.Join(root, "harness.json"), webDir, RuntimeRoots{Application: webDir, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 
+	// Item 2gk (v1.2.3): both routes of the served document show the chat now;
+	// the page that "/" used to open is dissolved into Settings.
 	for _, item := range []struct{ path, page string }{
-		{"/", "console"}, {"/chat", "console"}, {"/plan", "plan"},
+		{"/", "chat"}, {"/chat", "chat"}, {"/plan", "plan"},
 	} {
 		request := httptest.NewRequest(http.MethodGet, item.path, nil)
 		response := httptest.NewRecorder()

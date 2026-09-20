@@ -147,7 +147,7 @@ try {
   assert.equal(await page.locator("#chat-log").innerText(), transcriptBefore);
   await page.screenshot({ path: join(evidence, "chat-final.png") });
   await page.locator('.agent-tab[data-agent="agent_b"]').click();
-  await page.screenshot({ path: join(evidence, "console-final.png") });
+  await page.screenshot({ path: join(evidence, "panel-final.png") });
   const tape = (await readFile(logPath, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
   const navigation = tape.filter((event) => event.type === "navigation.measured").map((event) => event.data);
   const result = { schema: 1, build: initial.build, direct_entries: ["/chat", "/"], trials, document_requests_after_initial: documents.slice(1), document_marker_survived: true, draft_survived: true, transcript_survived: true, event_source_constructions: 1, subscriber_count_before: subscriptions, subscriber_count_after: subscriptions, navigation, visible_freeze_observed: false, backend_down_view_accessible: true, stderr: appError };

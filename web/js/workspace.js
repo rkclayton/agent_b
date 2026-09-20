@@ -1,19 +1,19 @@
 import { store } from "./bus.js";
 import { initShell } from "./shell.js";
 import { closeSettings, initSettings } from "./settings.js";
-import { mountConsole, unmountConsole } from "./app.js";
-import { mountChat, unmountChat } from "./chat.js";
-import { beginNavigation } from "./navigation-telemetry.js";
+import { mountChat } from "./chat.js";
 
-const consoleSurface = document.getElementById("console-surface");
-const consoleStyles = document.getElementById("console-styles");
-const chatStyles = document.getElementById("chat-styles");
+// Item 2gk (v1.2.3): there is one surface in this document now. The page that
+// stood beside the chat is gone; its six groups are two sections of Settings,
+// and the numbers that describe THIS chat are on the chat itself. So this file
+// no longer switches between two surfaces — it shows the chat, and the only
+// other destination, Plan, is its own document.
 const chatSurface = [
   document.getElementById("chat-budget"),
   document.getElementById("chat-log"),
+  document.getElementById("chat-readout"),
   document.getElementById("chat-composer"),
 ];
-let page = location.pathname === "/chat" ? "chat" : "console";
 let shell;
 
 // Item 2gn: the id the operator opened the page with. The first show() runs
@@ -23,43 +23,34 @@ let shell;
 // has a selection of its own.
 const openedWith = new URLSearchParams(location.search).get("session") || "";
 
-function pathFor(next) {
+function pathFor() {
   const sessionID = store.selection.session_id || (store.loaded ? "" : openedWith);
-  const suffix = sessionID ? `?session=${encodeURIComponent(sessionID)}` : "";
-  return `${next === "chat" ? "/chat" : "/"}${suffix}`;
+  return `/chat${sessionID ? `?session=${encodeURIComponent(sessionID)}` : ""}`;
 }
 
-function show(next, { history = "push", measure = false } = {}) {
-  if (next !== "chat" && next !== "console") return;
-  closeSettings(next);
-  const previous = page;
-  if (measure && previous !== next) beginNavigation({
-    kind: "flip", from: previous, to: next, fullDocument: false,
-    chatID: store.selection.session_id, mutationToken: store.mutation_token,
-  });
-  page = next;
-  document.body.dataset.page = next;
-  document.body.classList.toggle("chat-page", next === "chat");
-  consoleStyles.disabled = next === "chat";
-  chatStyles.disabled = next !== "chat";
-  consoleSurface.hidden = next !== "console";
-  for (const element of chatSurface) element.hidden = next !== "chat";
-  if (next === "chat") { unmountConsole(); mountChat(shell); }
-  else { unmountChat(); mountConsole(); }
-  shell.setPage(next);
-  const path = pathFor(next);
-  if (history === "push" && `${location.pathname}${location.search}` !== path) window.history.pushState({ page: next }, "", path);
-  else if (history === "replace" && `${location.pathname}${location.search}` !== path) window.history.replaceState({ page: next }, "", path);
+// `/` was the route of the page now dissolved. It is still served and it still
+// shows the chat,
+// so a bookmark or a pasted link lands somewhere rather than nowhere.
+function show({ history = "push" } = {}) {
+  closeSettings("chat");
+  document.body.dataset.page = "chat";
+  document.body.classList.add("chat-page");
+  for (const element of chatSurface) if (element) element.hidden = false;
+  mountChat(shell);
+  shell.setPage("chat");
+  const path = pathFor();
+  if (history === "push" && `${location.pathname}${location.search}` !== path) window.history.pushState({ page: "chat" }, "", path);
+  else if (history === "replace" && `${location.pathname}${location.search}` !== path) window.history.replaceState({ page: "chat" }, "", path);
 }
 
 shell = initShell({
-  page,
-  switchView: (next, navigation) => show(next, { measure: navigation?.kind === "flip" }),
-  syncLocation: (current) => {
-    const path = pathFor(current);
-    if (`${location.pathname}${location.search}` !== path) window.history.replaceState({ page: current }, "", path);
+  page: "chat",
+  switchView: () => show({}),
+  syncLocation: () => {
+    const path = pathFor();
+    if (`${location.pathname}${location.search}` !== path) window.history.replaceState({ page: "chat" }, "", path);
   },
 });
 initSettings();
-show(page, { history: "replace" });
-window.addEventListener("popstate", () => show(location.pathname === "/chat" ? "chat" : "console", { history: "none" }));
+show({ history: "replace" });
+window.addEventListener("popstate", () => show({ history: "none" }));

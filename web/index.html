@@ -7,11 +7,15 @@
   <link rel="icon" href="/static/assets/Agent_b.ico" type="image/x-icon">
   <link rel="manifest" href="/static/app.webmanifest">
   <link rel="stylesheet" href="/static/css/tokens.css">
-  <link id="console-styles" rel="stylesheet" href="/static/css/app.css">
+  <!-- Item 2gk: app.css dresses Settings and the two panels it adopted. The
+       chat is dressed by chat.css, which is always on; this one is switched on
+       only while Settings is open, which is the only time anything it styles is
+       on screen. -->
+  <link id="panel-styles" rel="stylesheet" href="/static/css/app.css" disabled>
   <link id="chat-styles" rel="stylesheet" href="/static/css/chat.css">
 </head>
-<body data-page="console">
-  <header id="app-shell" class="app-shell window-titlebar" data-page="console"></header>
+<body data-page="chat" class="chat-page">
+  <header id="app-shell" class="app-shell window-titlebar" data-page="chat"></header>
   <div id="chat-budget" class="chat-budget" aria-label="Context budget" hidden><span class="chat-budget-fill"></span><span class="chat-budget-tip"></span>
     <!-- Item 2ge: "move the attachment icon to the bar above chat on the far
          right directly up from where it is now." Same control, same menu, same
@@ -26,6 +30,14 @@
     </span>
   </div>
   <main id="chat-log" class="chat-log" tabindex="0" aria-live="polite" hidden></main>
+  <!-- Item 2gk: this chat's own readout, collapsed by default. The figures that
+       were only ever readable on a page of their own now sit on the chat they
+       describe: compactions, summaries, tokens, and how the last run ended
+       with the label it was given. -->
+  <details id="chat-readout" class="chat-readout" hidden>
+    <summary id="chat-readout-line"><span id="chat-readout-figures"></span></summary>
+    <div id="chat-readout-detail" class="chat-readout-detail"><span id="chat-readout-stop"></span><span id="chat-readout-label" class="panel-run-label" aria-label="Label this run"></span></div>
+  </details>
   <footer id="chat-composer" class="chat-composer" hidden>
     <div id="chat-proposals" class="chat-proposals" aria-label="Proposed edits" hidden></div>
     <div id="chat-pending-approval" class="pending-approval" hidden></div>
@@ -53,39 +65,50 @@
       </div>
     </div>
   </footer>
-  <main id="console-surface" class="console-surface">
-    <section class="console-group console-agent-group" aria-labelledby="console-agent-title">
-      <header class="panel-caption"><span id="console-agent-title">Agent</span><span>profile bindings and selected chat</span></header>
-      <div class="console-selector"><label for="console-agent">Agent</label><select id="console-agent"></select><label for="console-agent-server">Server</label><select id="console-agent-server"></select><span id="console-agent-vision" class="console-agent-vision" role="img" hidden></span><span id="console-agent-server-state" role="status"></span><button id="console-agent-server-cancel" type="button" hidden>Cancel pending</button><span id="console-agent-binding"></span></div>
+  <!-- Item 2gk (v1.2.3): the six groups that used to be a page of their own.
+       They live here, out of the page, and Settings adopts them into its
+       Agents and Activity sections when one of those is open. The nodes are
+       MOVED, never rebuilt, so every control, listener and renderer app.js
+       already owns keeps working and no number had to be re-implemented to
+       change its address. -->
+  <div id="panel-sources" hidden>
+  <div id="agents-panel" class="panel-surface">
+    <section class="panel-group panel-agent-group" aria-labelledby="panel-agent-title">
+      <header class="panel-caption"><span id="panel-agent-title">Agent</span><span>profile bindings and selected chat</span></header>
+      <div class="panel-selector"><label for="panel-agent">Agent</label><select id="panel-agent"></select><label for="panel-agent-server">Server</label><select id="panel-agent-server"></select><span id="panel-agent-vision" class="panel-agent-vision" role="img" hidden></span><span id="panel-agent-server-state" role="status"></span><button id="panel-agent-server-cancel" type="button" hidden>Cancel pending</button><span id="panel-agent-binding"></span></div>
     </section>
-    <section id="console-tools-panel" class="console-pane console-group" aria-labelledby="console-tools-title"><header class="panel-caption"><span id="console-tools-title">Tools</span><span><a id="console-tools-link" class="console-tools-link" href="#console-tools">0 tools active</a> · toggle · name · calls · fail % · last used</span></header><div id="console-tools" class="console-lines"></div></section>
-    <section id="console-lifetime" class="console-pane console-group console-lifetime-group" aria-labelledby="console-lifetime-title"><header class="panel-caption"><span id="console-lifetime-title">Lifetime</span><span>brief = run until Plan exists</span></header><div id="console-stats" class="console-lines"></div></section>
-    <section id="console-live" class="console-live console-group" aria-labelledby="console-live-title">
-      <header class="panel-caption"><span id="console-live-title">Live run</span><span class="console-live-actions"><span id="console-live-compactions"></span><span id="console-live-state" role="status"></span><button id="console-stop" class="stop-sign" type="button" aria-label="Stop"><span aria-hidden="true"></span></button></span></header>
-      <div id="console-run-result" class="console-run-result" hidden><span id="console-run-stop"></span><span id="console-run-label" class="console-run-label" aria-label="Label this run"></span></div>
-      <p id="console-live-empty" class="console-empty" hidden>No open chat for this agent.</p>
-      <div id="console-live-content" class="console-live-content">
+    <section id="panel-tools-panel" class="panel-pane panel-group" aria-labelledby="panel-tools-title"><header class="panel-caption"><span id="panel-tools-title">Tools</span><span><a id="panel-tools-link" class="panel-tools-link" href="#panel-tools">0 tools active</a> · toggle · name</span></header><div id="panel-tools" class="panel-lines"></div></section>
+  </div>
+  <div id="activity-panel" class="panel-surface">
+    <section id="panel-tool-use" class="panel-pane panel-group" aria-labelledby="panel-tool-use-title"><header class="panel-caption"><span id="panel-tool-use-title">Tool use</span><span>name · calls · fail % · last used</span></header><div id="panel-tool-counters" class="panel-lines"></div></section>
+    <section id="panel-lifetime" class="panel-pane panel-group panel-lifetime-group" aria-labelledby="panel-lifetime-title"><header class="panel-caption"><span id="panel-lifetime-title">Lifetime</span><span>brief = run until Plan exists</span></header><div id="panel-stats" class="panel-lines"></div></section>
+    <section id="panel-live" class="panel-live panel-group" aria-labelledby="panel-live-title">
+      <header class="panel-caption"><span id="panel-live-title">Live run</span><span class="panel-live-actions"><span id="panel-live-compactions"></span><span id="panel-live-state" role="status"></span><button id="panel-stop" class="stop-sign" type="button" aria-label="Stop"><span aria-hidden="true"></span></button></span></header>
+      <div id="panel-run-result" class="panel-run-result" hidden><span id="panel-run-stop"></span><span id="panel-run-label" class="panel-run-label" aria-label="Label this run"></span></div>
+      <p id="panel-live-empty" class="panel-empty" hidden>No open chat for this agent.</p>
+      <div id="panel-live-content" class="panel-live-content">
         <section id="rail" class="rail" aria-label="Context budget"></section>
         <div class="grid">
           <section class="well flow-well"><header class="panel-caption"><span>Activity</span><span id="flow-count"></span></header><div id="flow" class="flow"></div></section>
           <section class="well rack-well"><header class="panel-caption"><span>Tools</span><span id="tool-count"></span></header><div id="rack" class="rack"></div></section>
           <section class="well state-well"><header class="panel-caption"><span>Context</span><span id="state-count"></span></header><div id="state-list" class="panel-scroll"></div></section>
-          <section class="well timeline-well"><header class="panel-caption"><span>History</span><span class="history-controls"><span id="timeline-count"></span><button id="drop-last-message" type="button">Drop last message</button></span></header><div id="timeline-list" class="panel-scroll"></div><div id="console-pending-approval" class="pending-approval" hidden></div></section>
+          <section class="well timeline-well"><header class="panel-caption"><span>History</span><span class="history-controls"><span id="timeline-count"></span><button id="drop-last-message" type="button">Drop last message</button></span></header><div id="timeline-list" class="panel-scroll"></div><div id="panel-pending-approval" class="pending-approval" hidden></div></section>
         </div>
       </div>
     </section>
-    <section class="console-group console-reflection" aria-labelledby="console-reflection-title">
-      <header class="panel-caption"><span id="console-reflection-title">Reflection</span><span id="console-reflection-when">after each run, and daily</span></header>
-      <div class="console-reflection-panes">
-        <pre id="console-reflection-overview" class="console-reflection-text">No reflection pass has run yet.</pre>
-        <pre id="console-reflection-report" class="console-reflection-text"></pre>
+    <section class="panel-group panel-reflection" aria-labelledby="panel-reflection-title">
+      <header class="panel-caption"><span id="panel-reflection-title">Reflection</span><span id="panel-reflection-when">after each run, and daily</span></header>
+      <div class="panel-reflection-panes">
+        <pre id="panel-reflection-overview" class="panel-reflection-text">No reflection pass has run yet.</pre>
+        <pre id="panel-reflection-report" class="panel-reflection-text"></pre>
       </div>
     </section>
-    <section class="console-group console-maintenance" aria-labelledby="console-maintenance-title">
-      <header class="panel-caption"><span id="console-maintenance-title">Maintenance</span><span>selected agent and folder</span></header>
-      <footer class="console-actions"><button id="clear-stats" type="button">Clear all stats</button><button id="flush-memory" type="button">Flush memory</button><span id="console-feedback" role="status"></span></footer>
+    <section class="panel-group panel-maintenance" aria-labelledby="panel-maintenance-title">
+      <header class="panel-caption"><span id="panel-maintenance-title">Maintenance</span><span>selected agent and folder</span></header>
+      <footer class="panel-actions"><button id="clear-stats" type="button">Clear all stats</button><button id="flush-memory" type="button">Flush memory</button><span id="panel-feedback" role="status"></span></footer>
     </section>
-  </main>
+  </div>
+  </div>
   <section id="settings-page" class="settings-page" aria-label="Settings" aria-hidden="true" hidden></section>
   <script type="module" src="/static/js/build-check.js"></script>
   <script type="module" src="/static/js/workspace.js"></script>

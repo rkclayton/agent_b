@@ -6,26 +6,15 @@ import { beginNavigation } from "./navigation-telemetry.js";
 
 const activeRunStates = new Set(["running", "queued", "stopping"]);
 const agentKey = (agent) => String(agent?.name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-const agentSideKey = (agentID) => `agentb.side.${agentID}`;
-
-function rememberedAgentSide(agentID) {
-  try {
-    const value = sessionStorage.getItem(agentSideKey(agentID));
-    if (value === "chat" || value === "console") return value;
-  } catch {}
-  return "chat";
-}
-
-function rememberAgentSide(agentID, side) {
-  if (side !== "chat" && side !== "console") return;
-  try { sessionStorage.setItem(agentSideKey(agentID), side); } catch {}
-}
+// Item 2gk (v1.2.3): a chat had two sides and the shell remembered which one
+// you were last on. There is one side now, so there is nothing to remember and
+// nothing to flip to.
 
 export function initShell(options = {}) {
 	installUIErrorRelay({ token: () => store.mutation_token, sessionID: () => store.active });
   const root = document.getElementById("app-shell");
   if (!root) return null;
-  let page = options.page || root.dataset.page || "console";
+  let page = options.page || root.dataset.page || "chat";
   root.replaceChildren();
 
   const left = node("div", "shell-left");
@@ -88,7 +77,6 @@ export function initShell(options = {}) {
   settings.setAttribute("aria-label", "Settings");
   settings.title = "Settings";
   settings.addEventListener("click", () => {
-    if (page === "chat" && options.switchView) options.switchView("console");
     const closing = settings.getAttribute("aria-expanded") === "true";
     beginNavigation({ kind: "settings", from: closing ? "settings" : page, to: closing ? page : "settings", fullDocument: false, chatID: store.active, mutationToken: store.mutation_token });
   });
@@ -189,7 +177,6 @@ export function initShell(options = {}) {
     newChatButton.setAttribute("aria-label", newChatButton.title);
     newChatButton.disabled = store.replay || !(store.config.agents || []).length;
     newChatButton.onclick = () => hasD ? showRoleMenu(newChatMenu, newChatButton, configured) : void createChat("agent_b");
-    if ((page === "chat" || page === "console") && store.selection.agent_id) rememberAgentSide(store.selection.agent_id, page);
     const rendered = open.length ? open : [null];
     for (const session of rendered) {
       const agentID = `agent_${session?.role === "d" ? "d" : "b"}`;
@@ -201,64 +188,43 @@ export function initShell(options = {}) {
       const chatName = session?.label || agentName(agentID);
       const tab = button("", chatName, `agent-tab ${selected ? "selected" : ""}`);
       const glyphState = session ? chatState(session) : agentState(agentID);
-      const side = selected && (page === "chat" || page === "console") ? page : rememberedAgentSide(agentID);
       tab.dataset.agent = agentID;
       if (session) tab.dataset.session = session.id;
-      tab.dataset.side = side;
-      tab.classList.add(`side-${side}`);
-      wrap.classList.add(`side-${side}`);
-      tab.setAttribute("aria-label", `${agentID} chat · ${chatName} · ${side}`);
+      tab.setAttribute("aria-label", `${agentID} chat · ${chatName}`);
       const robot = agentID.slice(-1);
       tab.innerHTML = `<span class="agent-tab-robot agent-tab-robot-${robot} ${glyphState}" aria-hidden="true"><img src="/static/assets/agent.svg" alt=""><span class="agent-tab-eyes"></span></span><span>${escapeHTML(agentID)}</span>`;
-      // Left click selects the chat and does nothing else on Chat or Console:
-      // clicking the selected tab used to flip between them, which is not a
-      // destination anyone expects from a second click. Console is now an entry
-      // in this tab's right-click menu.
-      //
-      // Selecting from Settings still shows the chat, because that is what
-      // choosing a chat from another surface means; it is not the removed flip.
-      // Item 2gf: from any surface that is NOT this chat, one click on the tab
-      // shows the chat. That is the same principle the Settings branch below
-      // already stated — choosing a chat from another surface means going to
-      // it — applied to every other surface, because the Plan page had no way
-      // back at all: its tab click only changed the selection and the window
-      // stayed on Plan (the W1 capture). It is not the flip 2ak removed: the
-      // flip toggled between the two sides of the chat you were already on,
-      // and repeated clicks here never leave the chat.
+      // Left click selects the chat. From any surface that is NOT this chat -
+      // Settings, Plan, any later page - it also shows it, which is what 2gf
+      // asked for: the Plan page had no way back at all, its tab click only
+      // changed the selection and the window stayed where it was. Repeated
+      // clicks never leave the chat, which is what 2ak objected to in the old
+      // second-click flip. Item 2gk removed the second side the flip went to.
       tab.onclick = () => {
         if (!session) return;
         setSelection(agentID, session.id);
         const settingsOpen = document.querySelector(".shell-settings")?.getAttribute("aria-expanded") === "true";
         if (settingsOpen) {
-          // Opening Settings from Chat switches the surface beneath it to
-          // Console, so closing alone would leave the operator on Console.
-          // Selecting the chat takes them to the side that chat was last on,
-          // which is a destination, not the removed toggle.
-          // Under 2gf this lands on the chat, not on the side the chat was
-          // last on: Settings is not the chat, and the acceptance is that one
-          // click from Settings reaches it. The route back to Console is the
-          // ⚙ toggle, which still closes Settings onto the surface beneath.
+          // Settings is not the chat, and item 2gf asks that one click
+          // from it reaches the chat. The ⚙ toggle still closes Settings onto
+          // the surface beneath.
           document.dispatchEvent(new CustomEvent("settings.close", { detail: { surface: "chat" } }));
           openSide(agentID, session.id, "chat");
           return;
         }
-        // On Chat the tab selects and does nothing else: you are already there.
-        // Everywhere else — Console, Plan, any later page — it shows the chat.
-        // 2gf's acceptance names Console explicitly, and a second click cannot
-        // flip back, which is what 2ak objected to.
+        // On the chat the tab selects and does nothing else: you are already
+        // there. Everywhere else it shows the chat.
         if (page !== "chat") openSide(agentID, session.id, "chat");
       };
       const kept = openMenus.get(session ? session.id : agentID);
       const menu = kept || node("div", "shell-menu agent-chat-menu");
       if (!kept) menu.hidden = true;
-      const flip = session ? { label: side === "console" ? "Chat" : "Console", open: () => openSide(agentID, session.id, side === "console" ? "chat" : "console") } : null;
       tab.oncontextmenu = (event) => {
         event.preventDefault();
         for (const other of tabs.querySelectorAll(".shell-menu")) if (other !== menu) other.hidden = true;
         // Item 2gh: a second right-click on the same tab dismisses it. Measured
         // before the change, it re-rendered and left the menu open.
         if (!menu.hidden) { menu.hidden = true; return; }
-        renderAgentMenu(menu, agentID, flip);
+        renderAgentMenu(menu, agentID);
         revealMenu(menu, tab, { x: event.clientX, y: event.clientY });
       };
       wrap.append(tab);
@@ -276,10 +242,6 @@ export function initShell(options = {}) {
     }
   }
 
-  // The flip the second click used to perform, reached deliberately from the tab
-  // menu. Keyboard access is preserved because the menu entry is a button. The
-  // tab was the only route between the two sides, so the entry names whichever
-  // side you are not on rather than stranding you on Console.
   // Item 2gf: the one way back, used by the Plan toggle and by the stand-in
   // "Chat" route. It must work with the model unreachable, with `/api/plan`
   // failing and with no chat selected yet, so it never reads anything that a
@@ -296,7 +258,6 @@ export function initShell(options = {}) {
   function openSide(agentID, sessionID, next) {
     const navigation = { kind: "flip", from: page, to: next, fullDocument: !options.switchView, chatID: sessionID, mutationToken: store.mutation_token };
     setSelection(agentID, sessionID);
-    rememberAgentSide(agentID, next);
     const suffix = sessionID ? `?session=${encodeURIComponent(sessionID)}` : "";
     if (options.switchView) options.switchView(next, navigation);
     else requestNavigation(navigation, next === "chat" ? `/chat${suffix}` : `/${suffix}`);
@@ -317,14 +278,9 @@ export function initShell(options = {}) {
     revealMenu(menu, anchor);
   }
 
-  function renderAgentMenu(menu, agentID, flip) {
+  function renderAgentMenu(menu, agentID) {
     const sessions = sessionsFor(agentID, true);
     menu.replaceChildren();
-    if (flip) {
-      const entry = button(flip.label, `Open ${flip.label} for ${agentName(agentID)}`, "agent-chat-console");
-      entry.onclick = () => { menu.hidden = true; flip.open(); };
-      menu.append(entry);
-    }
     const openCount = sessions.filter((session) => !session.closed).length;
     const count = node("div", "agent-chat-count");
     count.textContent = `${sessions.length} ${sessions.length === 1 ? "chat" : "chats"} · ${openCount} open · ${sessions.length - openCount} closed`;
@@ -461,7 +417,7 @@ export function initShell(options = {}) {
     const query = new URLSearchParams();
     if (session) query.set("session", session.id);
     const suffix = query.size ? `?${query}` : "";
-    for (const link of pages.children) link.href = link.dataset.page === "console" ? `/${suffix}` : `/${link.dataset.page}${suffix}`;
+    for (const link of pages.children) link.href = `/${link.dataset.page}${suffix}`;
     const configured = configuredAgent(session);
     const planLink = pages.querySelector('[data-page="plan"]');
     if (planLink) planLink.hidden = !session || (session.role !== "d" && !!String(configured?.d || "").trim());

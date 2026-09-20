@@ -5,9 +5,9 @@ import { loadReflection, reflectionLabel, reflectionText } from "./reflection.js
 
 const fakeDocument = () => {
   const elements = new Map([
-    ["console-reflection-overview", { textContent: "" }],
-    ["console-reflection-report", { textContent: "" }],
-    ["console-reflection-when", { textContent: "" }],
+    ["panel-reflection-overview", { textContent: "" }],
+    ["panel-reflection-report", { textContent: "" }],
+    ["panel-reflection-when", { textContent: "" }],
   ]);
   return { getElementById: (id) => elements.get(id) || null, elements };
 };
@@ -29,15 +29,15 @@ test("Console fills both panes from the endpoint and adds no control", async () 
   const answer = { enabled: true, at: "2026-09-20T01:02:03Z", tier: "tier 1 (Go: go list)", overview: "Reflection on p1", report_at: "2026-09-20T01:05:00Z", report: "Tool candidates" };
   const loaded = await loadReflection(async () => ({ ok: true, json: async () => answer }), doc);
   assert.deepEqual(loaded, answer);
-  assert.equal(doc.elements.get("console-reflection-overview").textContent, "Reflection on p1");
-  assert.equal(doc.elements.get("console-reflection-report").textContent, "Tool candidates");
-  assert.match(doc.elements.get("console-reflection-when").textContent, /tier 1/);
+  assert.equal(doc.elements.get("panel-reflection-overview").textContent, "Reflection on p1");
+  assert.equal(doc.elements.get("panel-reflection-report").textContent, "Tool candidates");
+  assert.match(doc.elements.get("panel-reflection-when").textContent, /tier 1/);
 });
 
 test("a failed fetch leaves the section as it was", async () => {
   const doc = fakeDocument();
-  doc.elements.get("console-reflection-overview").textContent = "previous";
+  doc.elements.get("panel-reflection-overview").textContent = "previous";
   assert.equal(await loadReflection(async () => ({ ok: false, status: 500 }), doc), null);
-  assert.equal(doc.elements.get("console-reflection-overview").textContent, "previous");
+  assert.equal(doc.elements.get("panel-reflection-overview").textContent, "previous");
   assert.equal(await loadReflection(async () => { throw new Error("offline"); }, doc), null);
 });

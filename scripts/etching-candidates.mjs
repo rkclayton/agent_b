@@ -53,7 +53,7 @@ const STRENGTHS = { low: 0.05, high: 0.11 };
 // surfaces carry opaque token backgrounds, so a layer underneath is invisible.
 // Each surface keeps its own colour and gains the tile above it at the dialled
 // strength, which is what "a faint etching on the surface" means.
-const NON_SCROLLING = ".app-shell, .settings-page, .console-surface, .chat-composer, .settings-content, .flow-well";
+const NON_SCROLLING = ".app-shell, .settings-page, .panel-surface, .chat-composer, .settings-content, .flow-well";
 function treatment(name, strength) {
   return `
     ${NON_SCROLLING} {

@@ -41,7 +41,7 @@ export const LIVE_VALUES = [
   // working-tree build's, so every token readout and the Console rail's
   // segment widths are live values between builds (2ga's "the meter's numbers").
   { name: "token-count", reason: "token counts follow the measured prompt, which differs between builds of one tree", selector: "body", pattern: String.raw`(?<![\w.,])~?\d[\d,]* (?:/ ~?\d[\d,]*|in · \d[\d,]* out)` },
-  { name: "lifetime-ratio", reason: "the Lifetime panel's ratios and per-brief token cost are computed from measured token counts", selector: "#console-lifetime", pattern: String.raw`(?<![\w.])\d+(?:\.\d+)?%|(?<![\w.,])\d[\d,]* tokens` },
+  { name: "lifetime-ratio", reason: "the Lifetime panel's ratios and per-brief token cost are computed from measured token counts", selector: "#panel-lifetime", pattern: String.raw`(?<![\w.])\d+(?:\.\d+)?%|(?<![\w.,])\d[\d,]* tokens` },
   { name: "context-rail", reason: "the Console rail's segments and numbers follow measured token counts", selector: "#rail .meter, #rail .rail-labels .number, #rail .rail-readout" },
 ];
 

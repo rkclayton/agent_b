@@ -282,17 +282,12 @@ const waitProjectedChatText = async (sessionID, text, label, timeout = 12000) =>
   }
   throw new Error(`projection timeout: ${label}`);
 };
-// Left click on a tab no longer flips between Chat and Console, so a scenario
-// that ends on Console (opening Settings switches the surface beneath it) has to
-// say so rather than rely on the removed toggle. One entry in the tab menu names
-// whichever side you are not on.
+// Item 2gk (v1.2.3): the chat is the surface. The only thing that can be over
+// it is Settings, so getting back to it means closing that.
 const ensureChat = async () => {
   if (await page.locator("#chat-task").isVisible()) return;
-  await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
-  await page.locator('.agent-tab-wrap.selected .agent-chat-menu').waitFor({ state: "visible" });
-  const entry = page.locator('.agent-tab-wrap.selected .agent-chat-console');
-  if ((await entry.innerText()) === "Chat") await entry.click();
-  else await page.keyboard.press("Escape");
+  const sheet = page.locator("#settings-page");
+  if (await sheet.isVisible()) await page.locator(".shell-settings").click();
   await page.locator("#chat-task").waitFor({ state: "visible", timeout: 15000 });
 };
 // Item 2ge: send and stop are one control, so while a run is live that button
@@ -361,6 +356,21 @@ async function pinTranscriptFoot() {
     setTimeout(resolve, 5000);
   }));
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
+
+// Item 2gk (v1.2.3): the six groups are two sections of Settings now, so the
+// suite opens them the way the operator does - the gear, or the deep link the
+// gear writes into the address bar.
+async function openPanel(section, sessionID) {
+  // The gear, which is how the operator gets there. A hash deep link would only
+  // work on a fresh document: adding a hash to the address already open is an
+  // in-page jump, so nothing reloads and the sheet never opens.
+  await page.goto(`http://127.0.0.1:${appPort}/chat?session=${encodeURIComponent(sessionID)}`);
+  await page.locator("#chat-task").waitFor({ state: "visible" });
+  if (!(await page.locator("#settings-page").isVisible())) await page.locator(".shell-settings").click();
+  await browser.wait(`document.querySelector('#settings-page') && !document.querySelector('#settings-page').hidden`, `Settings ${section}`);
+  assert.equal(await clickText(".settings-nav button", section === "agents" ? "Agents" : "Activity"), true);
+  await page.locator(`#${section}-panel`).waitFor({ state: "visible" });
 }
 
 async function settleSession(id, what) {
@@ -637,12 +647,14 @@ if (realModel) {
   assert.equal(await page.locator(".shell-page").getAttribute("title"), "plan");
   assert.equal(await page.locator(".shell-settings").count(), 1);
   assert.equal(await page.locator("#chat-title").count(), 0);
+  // Item 2gk: a tab had a side and was dressed for it. There is one side now,
+  // so what is checked is that the selected tab is still drawn as selected.
   const captureAgentTabStyle = () => page.evaluate(() => {
     const node = document.querySelector('.agent-tab-wrap.selected .agent-tab');
     return { side: node.dataset.side, color: getComputedStyle(node).color, background: getComputedStyle(node.closest(".agent-tab-wrap")).backgroundColor };
   });
   const chatSide = await captureAgentTabStyle();
-  assert.equal(chatSide.side, "chat");
+  assert.equal(chatSide.side, undefined);
   assert.equal(chatSide.color, "rgb(216, 221, 227)");
   const captureShellGeometry = () => page.evaluate(() => Object.fromEntries([
     ["shell", "#app-shell"],
@@ -671,53 +683,55 @@ if (realModel) {
     };
   });
   const chatGeometry = await captureShellGeometry();
-  const chatToConsoleStarted = performance.now();
-  // Left click only selects now; Console is an entry in the tab's right-click menu.
-  await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
-  await page.locator('.agent-tab-wrap.selected .agent-chat-menu').waitFor({ state: "visible" });
-  await Promise.all([
-    page.waitForURL((url) => url.pathname === "/" && url.searchParams.get("session") === sessionID),
-    page.locator('.agent-tab-wrap.selected .agent-chat-console').click()
-  ]);
-  await page.locator("#console-lifetime").waitFor({ state: "visible" });
+  // Item 2gk: the tab menu no longer has a side to flip to. What has to hold is
+  // the route to the numbers and the route back: the gear opens Settings over
+  // the chat, and closing it leaves the chat exactly as it was.
+  const chatToPanelStarted = performance.now();
+  await page.locator(".shell-settings").click();
+  await browser.wait(`document.querySelector('#settings-page') && !document.querySelector('#settings-page').hidden`, "Settings open from the chat");
+  assert.equal(await clickText(".settings-nav button", "Activity"), true);
+  await page.locator("#activity-panel").waitFor({ state: "visible" });
+  await page.locator("#panel-lifetime").waitFor({ state: "visible" });
   // Item 2fl: with runs on record, the lifetime numbers are drawn within a
-  // second of opening Console, without waiting for an unrelated redraw.
-  await browser.wait(`document.querySelector('#console-stats')?.childElementCount > 0 && !document.querySelector('#console-stats')?.innerText.includes('No lifetime activity')`, "lifetime numbers within a second", 1000);
-  await page.waitForFunction(() => window.__agentbLoadTiming?.snapshot !== null);
-  const chatToConsoleMS = performance.now() - chatToConsoleStarted;
+  // second of opening the section, without waiting for an unrelated redraw.
+  await browser.wait(`document.querySelector('#panel-stats')?.childElementCount > 0 && !document.querySelector('#panel-stats')?.innerText.includes('No lifetime activity')`, "lifetime numbers within a second", 1000);
+  const chatToPanelMS = performance.now() - chatToPanelStarted;
   assert.equal(await page.locator('.shell-page[aria-label="plan"] .shell-page-icon').count(), 1);
-  const consoleSide = await captureAgentTabStyle();
-  assert.equal(consoleSide.side, "console");
-  assert.equal(consoleSide.color, "rgb(216, 221, 227)");
-  assert.equal(consoleSide.background, "rgba(216, 221, 227, 0.16)");
-  const consoleGeometry = await captureShellGeometry();
-  const consoleLoadTiming = await captureLoadTiming();
-  assert.deepEqual(consoleGeometry, chatGeometry, JSON.stringify({ chatGeometry, consoleGeometry }));
+  const panelGeometry = await captureShellGeometry();
+  assert.deepEqual(panelGeometry, chatGeometry, JSON.stringify({ chatGeometry, panelGeometry }));
+  // Agents holds the setup half. Both halves of the one table that was split
+  // are drawn: a toggle per tool there, a count per tool on Activity.
+  assert.equal(await clickText(".settings-nav button", "Agents"), true);
+  await page.locator("#agents-panel").waitFor({ state: "visible" });
+  const toolHalves = await page.evaluate(() => ({
+    toggles: document.querySelectorAll('#panel-tools input[type="checkbox"]').length,
+    counts: document.querySelectorAll("#panel-tool-counters .panel-line").length,
+    agent: !!document.querySelector("#panel-agent option"),
+  }));
+  assert.ok(toolHalves.toggles >= 12 && toolHalves.counts === toolHalves.toggles, JSON.stringify(toolHalves));
+  assert.equal(toolHalves.agent, true);
   await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
   const toggleMenu = page.locator('.agent-tab-wrap.selected .agent-chat-menu');
   await toggleMenu.waitFor({ state: "visible" });
+  assert.equal(await toggleMenu.locator(".agent-chat-console").count(), 0);
   assert.ok(await toggleMenu.locator(".agent-chat-row").count() >= 2);
   assert.equal(await toggleMenu.locator(".agent-chat-close").count(), await toggleMenu.locator(".agent-chat-row").count());
   assert.equal(await toggleMenu.locator(".agent-chat-delete").count(), await toggleMenu.locator(".agent-chat-row").count());
-  await page.locator("#console-lifetime").click();
-  const consoleToChatStarted = performance.now();
-  // The same one entry, naming the side you are not on, so the round trip holds.
-  await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
-  await page.locator('.agent-tab-wrap.selected .agent-chat-menu').waitFor({ state: "visible" });
-  assert.equal(await page.locator('.agent-tab-wrap.selected .agent-chat-console').innerText(), "Chat");
-  await Promise.all([
-    page.waitForURL((url) => url.pathname === "/chat" && url.searchParams.get("session") === sessionID),
-    page.locator('.agent-tab-wrap.selected .agent-chat-console').click()
-  ]);
+  // A click outside the shell dismisses an open menu. Escape would dismiss it
+  // AND close Settings, which is not what is being measured here.
+  await page.locator(".settings-head strong").click();
+  await toggleMenu.waitFor({ state: "hidden" });
+  const panelToChatStarted = performance.now();
+  await page.locator(".shell-settings").click();
+  await browser.wait(`document.querySelector('#settings-page')?.hidden`, "Settings closed back onto the chat");
   await page.locator("#chat-task").waitFor({ state: "visible" });
   await page.waitForFunction(() => window.__agentbLoadTiming?.snapshot !== null && document.querySelector(".chat-entry"));
-  const consoleToChatMS = performance.now() - consoleToChatStarted;
-  assert.equal(await page.locator('.agent-tab-wrap.selected .agent-tab').getAttribute("data-side"), "chat");
+  const panelToChatMS = performance.now() - panelToChatStarted;
   const returnedChatGeometry = await captureShellGeometry();
   const chatLoadTiming = await captureLoadTiming();
   assert.deepEqual(returnedChatGeometry, chatGeometry, JSON.stringify({ chatGeometry, returnedChatGeometry }));
-  shellFlipEvidence = { chat: chatGeometry, console: consoleGeometry, returned_chat: returnedChatGeometry, chat_to_console_ms: chatToConsoleMS, console_to_chat_ms: consoleToChatMS, console_load: consoleLoadTiming, chat_load: chatLoadTiming };
-  record("agent-tab-menu-flip-preserves-chat-and-right-menu");
+  shellFlipEvidence = { chat: chatGeometry, panels: panelGeometry, returned_chat: returnedChatGeometry, chat_to_panel_ms: chatToPanelMS, panel_to_chat_ms: panelToChatMS, chat_load: chatLoadTiming, tool_halves: toolHalves };
+  record("settings-panels-preserve-the-chat-and-the-right-menu");
 
   const shellStateDirectory = join(args.evidence, "shell-states");
   await mkdir(shellStateDirectory, { recursive: true });
@@ -749,9 +763,8 @@ if (realModel) {
   };
   const negativeControl = await provePageStyleBoundaryControl(page, "chat.css");
   const chatStyles = await captureRobotStates("chat", "chat.css");
-  await page.goto(`http://127.0.0.1:${appPort}/?session=${sessionID}`);
-  await page.locator("#console-lifetime").waitFor({ state: "visible" });
-  const consoleStyles = await captureRobotStates("console", "app.css");
+  await openPanel("activity", sessionID);
+  const panelStyles = await captureRobotStates("panels", "app.css");
   const emptyStateIllustration = await page.evaluate(() => {
     const flow = document.querySelector(".flow");
     const fixture = document.createElement("div");
@@ -785,8 +798,8 @@ if (realModel) {
   }, { position: "absolute", inset: "0px", display: "grid", image_width: "96px", image_height: "96px", image_margin: "0px" });
   assert.ok(emptyStateIllustration.container_width > 96, JSON.stringify(emptyStateIllustration));
   assert.ok(Math.abs(emptyStateIllustration.image_horizontal_center_delta) <= 0.5, JSON.stringify(emptyStateIllustration));
-  for (const state of agentStates) assert.deepEqual(consoleStyles.robots[state], chatStyles.robots[state], `Console and Chat robot differ in ${state}`);
-  shellStyleBoundaryEvidence = { negative_control: negativeControl, chat: chatStyles, console: consoleStyles, empty_state_illustration: emptyStateIllustration };
+  for (const state of agentStates) assert.deepEqual(panelStyles.robots[state], chatStyles.robots[state], `the robot differs between the sheet and the chat in ${state}`);
+  shellStyleBoundaryEvidence = { negative_control: negativeControl, chat: chatStyles, panels: panelStyles, empty_state_illustration: emptyStateIllustration };
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
   await page.locator("#chat-task").waitFor({ state: "visible" });
   await browser.wait(`document.querySelector('#chat-log')?.innerText.includes('VISIBLE PARTIAL COMPLETE')`, "baseline Chat transcript restored");
@@ -800,10 +813,8 @@ if (realModel) {
   await page.locator('.profile-row:has(.profile-summary[data-id="acceptance"]) [data-action="probe"]').click();
   await browser.wait(`document.querySelector('.profile-summary[data-id="acceptance"] .profile-state')?.textContent.includes('Test passed')`, "Settings Test passed before Chat return");
   assert.match(await profileState.innerText(), /Test passed/);
-  // Item 2gf: from Settings, ONE click on the tab reaches the chat. Opening
-  // Settings still switches the surface beneath it to Console, but the tab no
-  // longer lands the operator there — this step used to need the tab menu's
-  // entry to get back, which is the trap 2gf closed.
+  // Item 2gf: from Settings, ONE click on the tab reaches the chat. This step
+  // used to need the tab menu entry to get back, which is the trap 2gf closed.
   await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click();
   await page.locator("#chat-task").waitFor({ state: "visible" });
   assert.equal(await page.locator("#settings-page").isHidden(), true);
@@ -816,19 +827,18 @@ if (realModel) {
   const initialMenuRows = await page.locator(".agent-chat-row").count();
   assert.match(await page.locator(".agent-chat-count").innerText(), new RegExp(`^${initialMenuRows} chats? · ${initialMenuRows} open · 0 closed$`));
   await captureWithMasks(page, join(baselineDirectory, "tab-menu-open.png"));
-  await page.goto(`http://127.0.0.1:${appPort}/?session=${sessionID}`);
-  await page.locator("#console-lifetime").waitFor({ state: "visible" });
-  await page.locator("#console-run-result").waitFor({ state: "visible" });
-  const runResultText = await page.locator("#console-run-stop").innerText();
+  await openPanel("activity", sessionID);
+  await page.locator("#panel-run-result").waitFor({ state: "visible" });
+  const runResultText = await page.locator("#panel-run-stop").innerText();
   assert.match(runResultText, /^Ended: done/);
   for (const detector of ["novel_action", "result_repetition", "repeated_timeouts", "model_says_stuck", "error_success_ratio", "baseline_deviation"]) assert.match(runResultText, new RegExp(detector));
-  await page.locator('#console-run-label button[data-label="mixed"]').click();
-  await page.locator('#console-run-label button[data-label="mixed"].selected').waitFor({ state: "visible" });
+  await page.locator('#panel-run-label button[data-label="mixed"]').click();
+  await page.locator('#panel-run-label button[data-label="mixed"].selected').waitFor({ state: "visible" });
   assert.equal((await state()).sessions[sessionID].run.result_label, "mixed");
-  record("console-run-result-and-label");
+  record("panel-run-result-and-label");
   // Items 2fu and 2fw, on this direct load: the lifetime numbers arrive with no
   // interaction, and History's count heads the rows it draws, one text per line.
-  await browser.wait(`document.getElementById('console-stats')?.innerText.includes('runs / briefs')`, "lifetime numbers on a direct load", 3000);
+  await browser.wait(`document.getElementById('panel-stats')?.innerText.includes('runs / briefs')`, "lifetime numbers on a direct load", 3000);
   const history = await page.evaluate(() => {
     const box = (node) => { const r = node.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
     const texts = [...document.querySelectorAll("#timeline-list > .timeline-row > .timeline-head *")].filter((node) => node.childElementCount === 0 && node.textContent.trim() && node.offsetParent).map((node) => ({ text: node.textContent.trim().slice(0, 40), ...box(node) }));
@@ -842,10 +852,15 @@ if (realModel) {
   assert.ok(history.turns > 0, "History drew no turn for a chat that ran");
   assert.match(history.count, new RegExp(`^${history.turns} (of [0-9]+ )?turns`), JSON.stringify(history));
   assert.deepEqual(history.overlaps, [], "History draws one text per line");
-  record("console-direct-load-lifetime-and-history-rows");
-  await captureWithMasks(page, join(baselineDirectory, "console.png"));
-  await page.locator(".shell-settings").click();
-  await page.locator("#settings-page").waitFor({ state: "visible" });
+  record("panel-direct-load-lifetime-and-history-rows");
+  // Item 2gk: the page that was captured here is dissolved. Its two new homes
+  // are captured instead, and the chat readout that carries this chat figures.
+  await captureWithMasks(page, join(baselineDirectory, "settings-activity.png"));
+  assert.equal(await clickText(".settings-nav button", "Agents"), true);
+  await page.locator("#agents-panel").waitFor({ state: "visible" });
+  await captureWithMasks(page, join(baselineDirectory, "settings-agents.png"));
+  assert.equal(await clickText(".settings-nav button", "Connections"), true);
+  await browser.wait(`document.querySelector('.settings-content')?.innerText.length > 0`, "Connections drawn");
   await captureWithMasks(page, join(baselineDirectory, "settings.png"));
   await page.goto(`http://127.0.0.1:${appPort}/plan?session=${sessionID}`);
   await page.locator('#app-shell[data-page="plan"]').waitFor({ state: "visible" });
@@ -1321,19 +1336,19 @@ if (realModel) {
   assert.equal(liveToolState.carets, 0, JSON.stringify(liveToolState));
   assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--trace)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
   await captureWithMasks(page, join(baselineDirectory, "chat-live-tool.png"));
-  await page.goto(`http://127.0.0.1:${appPort}/?session=${sessionID}`);
-  await browser.wait(`document.querySelector('#console-live-state')?.innerText.startsWith('tool executing · shell')`, "Console named slow tool activity");
+  await openPanel("activity", sessionID);
+  await browser.wait(`document.querySelector('#panel-live-state')?.innerText.startsWith('tool executing · shell')`, "the live run names the slow tool");
   const compactionState = (await state()).sessions[sessionID];
-  assert.equal(await page.locator("#console-live-compactions").innerText(), `${compactionState.compaction_count || 0} compactions · ${compactionState.compaction_model_calls || 0} summaries`);
+  assert.equal(await page.locator("#panel-live-compactions").innerText(), `${compactionState.compaction_count || 0} compactions · ${compactionState.compaction_model_calls || 0} summaries`);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
-  await captureWithMasks(page, join(baselineDirectory, "console-live-tool.png"));
+  await captureWithMasks(page, join(baselineDirectory, "panel-live-tool.png"));
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
-  await browser.wait(`document.querySelector('#chat-task')`, "Chat restored after live-tool Console proof");
+  await browser.wait(`document.querySelector('#chat-task')`, "chat restored after the live-run proof");
   await waitProjectedChatText(sessionID, "LIVE TOOL COMPLETE", "live-tool final answer");
   record("live-stage-slow-tool-and-stream-caret-lifecycle");
 
-  await page.goto(`http://127.0.0.1:${appPort}/?session=${sessionID}`);
-  await browser.wait(`location.pathname==='/' && document.querySelector('#settings-page') && document.querySelector('.shell-settings')?.getAttribute('href')`, "Console settings control");
+  await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
+  await browser.wait(`location.pathname==='/chat' && document.querySelector('#settings-page') && document.querySelector('.shell-settings')?.getAttribute('href')`, "the settings control on the chat");
   await page.locator(".shell-settings").click();
   await browser.wait(`!document.querySelector('#settings-page').hidden`, "Settings open");
   assert.equal(await clickText(".settings-nav button", "Security"), true);
@@ -1373,16 +1388,13 @@ if (realModel) {
   await page.goto(`http://127.0.0.1:${appPort}/plan?session=${sessionID}`);
   await browser.wait(`document.querySelector('#plan-list') && (document.querySelector('.plan-entry') || !document.querySelector('#plan-list-empty').hidden)`, "the Plan page drew its list");
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
-  await browser.wait(`document.querySelector('#chat-task')`, "chat for the console check");
-  await page.goto(`http://127.0.0.1:${appPort}/?session=${sessionID}`);
-  await page.locator("#console-lifetime").waitFor({ state: "visible" });
-  await page.locator(".shell-settings").click();
-  await page.locator("#settings-page").waitFor({ state: "visible" });
+  await browser.wait(`document.querySelector('#chat-task')`, "chat for the clean-surface check");
+  await openPanel("activity", sessionID);
   await sleep(500);
   assert.deepEqual(consoleErrors, [], "ordinary pages log no console errors");
   const favicon = await fetch(`http://127.0.0.1:${appPort}/favicon.ico`);
   assert.equal(favicon.status, 200, "/favicon.ico serves the icon");
-  record("clean-console-on-ordinary-pages");
+  record("clean-panel-on-ordinary-pages");
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
 	await browser.wait(`document.querySelector('#chat-task')`, "chat restored after settings");
 	events = await sessionEvents(sessionID);
@@ -1672,24 +1684,24 @@ if (realModel) {
   record("compaction-keeps-model-prefix-stable");
 	const compactedSession = (await state()).sessions[sessionID];
 	assert.ok(compactedSession.compaction_count > 0, JSON.stringify(compactedSession));
-	await page.goto(`http://127.0.0.1:${appPort}/?session=${sessionID}`);
-	await browser.wait(`document.querySelector('#console-live-compactions')?.innerText.includes('compactions')`, "compacted chat Console figures");
+	await openPanel("activity", sessionID);
+	await browser.wait(`document.querySelector('#panel-live-compactions')?.innerText.includes('compactions')`, "compacted chat figures");
 	const compactedFigures = `${compactedSession.compaction_count} compactions · ${compactedSession.compaction_model_calls || 0} summaries`;
-	assert.equal(await page.locator("#console-live-compactions").innerText(), compactedFigures);
+	assert.equal(await page.locator("#panel-live-compactions").innerText(), compactedFigures);
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
-	await browser.wait(`document.querySelector('#chat-task')`, "compacted chat restored after Console figures");
+	await browser.wait(`document.querySelector('#chat-task')`, "compacted chat restored after its figures");
 
   await page.locator(".agent-tab-new").click();
   await browser.wait(`new URLSearchParams(location.search).get('session') && new URLSearchParams(location.search).get('session') !== ${JSON.stringify(sessionID)}`, "isolated grant chat selected");
   const scriptSessionID = await browser.evaluate(`new URLSearchParams(location.search).get('session')`);
 	const scriptSessionBeforeRun = (await state()).sessions[scriptSessionID];
-	await page.goto(`http://127.0.0.1:${appPort}/?session=${scriptSessionID}`);
-	await browser.wait(`document.querySelector('#console-live-compactions')?.innerText.includes('compactions')`, "different chat Console figures");
+	await openPanel("activity", scriptSessionID);
+	await browser.wait(`document.querySelector('#panel-live-compactions')?.innerText.includes('compactions')`, "a different chat figures");
 	const scriptFigures = `${scriptSessionBeforeRun.compaction_count || 0} compactions · ${scriptSessionBeforeRun.compaction_model_calls || 0} summaries`;
-	assert.equal(await page.locator("#console-live-compactions").innerText(), scriptFigures);
+	assert.equal(await page.locator("#panel-live-compactions").innerText(), scriptFigures);
 	assert.notEqual(scriptFigures, compactedFigures);
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${scriptSessionID}`);
-	await browser.wait(`document.querySelector('#chat-task')`, "grant chat restored after Console figures");
+	await browser.wait(`document.querySelector('#chat-task')`, "grant chat restored after its figures");
   events = await sessionEvents(scriptSessionID);
   const beforeRunScriptGrant = events.at(-1)?.seq || 0;
   await setTask("acceptance: run-script grant");
@@ -1724,8 +1736,8 @@ if (realModel) {
   await browser.wait(`new URLSearchParams(location.search).get('session') === ${JSON.stringify(sessionID)}`, "main acceptance chat restored after grant scenario");
 
   const screenshot = await page.screenshot();
-	await page.goto(`http://127.0.0.1:${appPort}/?session=${sessionID}`);
-	await browser.wait(`location.pathname==='/' && document.querySelector('#settings-page') && document.querySelector('.shell-settings')?.getAttribute('href')`, "Console settings control before Empty");
+	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
+	await browser.wait(`location.pathname==='/chat' && document.querySelector('#settings-page') && document.querySelector('.shell-settings')?.getAttribute('href')`, "the settings control before Empty");
 	await page.locator(".shell-settings").click();
 	await browser.wait(`document.querySelector('#settings-page') && !document.querySelector('#settings-page').hidden`, "Settings open before Empty");
 	assert.equal(await clickText(".settings-nav button", "Security"), true);

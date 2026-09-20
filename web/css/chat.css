@@ -1,6 +1,7 @@
 .chat-page {
   display: grid;
-  grid-template-rows: 40px 4px minmax(0, 1fr) auto;
+  /* Item 2gk: header, budget bar, transcript, this chat's readout, composer. */
+  grid-template-rows: 40px 4px minmax(0, 1fr) auto auto;
   height: 100dvh;
   overflow: hidden;
   background: var(--bezel);
@@ -648,6 +649,18 @@
 .chat-submit-actions { display:flex; align-items:center; gap:3px; }
 .chat-status-strip { min-height:24px; display:flex; align-items:center; gap:6px; color:var(--mute); font:12px/16px var(--mono); }
 .chat-retry { min-height:22px!important; padding:1px 6px!important; background:transparent!important; }
+/* Item 2gk: this chat's readout. One line at rest, in the same mono the status
+   strip uses, so it reads as an instrument and not as another control. */
+.chat-readout { border-top:1px solid var(--rule); background:var(--bezel); color:var(--mute); font:12px/16px var(--mono); }
+.chat-readout > summary { list-style:none; cursor:pointer; padding:3px 16px; min-height:22px; display:flex; align-items:center; }
+.chat-readout > summary::-webkit-details-marker { display:none; }
+.chat-readout > summary::before { content:"b8"; margin-right:6px; color:var(--rule); }
+.chat-readout[open] > summary::before { content:"be"; }
+.chat-readout > summary:hover { color:var(--ink); }
+.chat-readout-detail { padding:0 16px 6px 28px; display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.chat-readout-detail button { min-height:20px; padding:0 6px; background:transparent; border:1px solid var(--rule); color:var(--mute); font:inherit; }
+.chat-readout-detail button.selected { color:var(--ink); border-color:var(--ink); }
+.chat-readout-detail button:disabled { opacity:.5; }
 @media (prefers-reduced-motion: reduce) {
   :where(
     .chat-page > :not(.app-shell),
@@ -666,7 +679,7 @@
 
 /* Compact application frame shared with Console. */
 .chat-page {
-  grid-template-rows: var(--app-header-height) 4px minmax(0, 1fr) auto;
+  grid-template-rows: var(--app-header-height) 4px minmax(0, 1fr) auto auto;
 }
 .chat-header {
   grid-row: 1;

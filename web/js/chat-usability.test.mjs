@@ -108,11 +108,11 @@ test("No-agent and empty Plan invitations are explicit and Console links to acti
   assert.match(chat, /operator-off-48\.png/);
   // Item 2fc: the Plan page lists plans; with none it says how to add one.
   assert.match(plan, />No plans yet\. \+ adds one for a folder\.<\/p>/);
-  assert.match(consoleHTML, /id="console-tools-link"[^>]*>0 tools active<\/a>/);
+  assert.match(consoleHTML, /id="panel-tools-link"[^>]*>0 tools active<\/a>/);
 });
 
 test("New chat uses the fixed left plus and history uses the agent right-click menu", () => {
-  assert.match(html, /id="app-shell"[^>]+data-page="console"/);
+  assert.match(html, /id="app-shell"[^>]+data-page="chat"/);
   assert.match(shell, /left\.append\(newChatButton, newChatMenu, tabs\)/);
   assert.match(shell, /hasD \? showRoleMenu/);
   assert.match(shell, /: void createChat\("agent_b"\)/);

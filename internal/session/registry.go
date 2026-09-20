@@ -223,10 +223,10 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		id = fmt.Sprintf("s%d", r.next)
 		r.next++
 	}
-	autoLabel := label == ""
-	if label == "" {
-		label = id
-	}
+	// Item 2go (v1.2.5): a chat with no name has NO NAME. It used to be called
+	// after its own id - s14 - which told the operator nothing and was never
+	// something he wrote. The tab reads "new chat" until his first message
+	// names it.
 	planDir, planName, selectedRepo := "", "", ""
 	// d and c both bind to the plan: d to write its text, c to work in the
 	// repository the plan names. Without this the worker lands in scratch and
@@ -263,9 +263,6 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 			}
 			id = fmt.Sprintf("s%d", r.next)
 			r.next++
-			if autoLabel {
-				label = id
-			}
 		}
 		if err := os.MkdirAll(workspace, 0o700); err != nil {
 			return nil, err

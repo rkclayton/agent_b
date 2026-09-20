@@ -683,7 +683,12 @@ if (realModel) {
   assert.equal(await toggleMenu.locator(".agent-chat-console").count(), 0);
   assert.ok(await toggleMenu.locator(".agent-chat-row").count() >= 2);
   assert.equal(await toggleMenu.locator(".agent-chat-close").count(), await toggleMenu.locator(".agent-chat-row").count());
-  assert.equal(await toggleMenu.locator(".agent-chat-delete").count(), await toggleMenu.locator(".agent-chat-row").count());
+  // Item 2gq (v1.2.5): close deletes, so there is no separate permanent-delete
+  // control on the row any more. Item 2go: the row is the date and the name.
+  assert.equal(await toggleMenu.locator(".agent-chat-delete").count(), 0);
+  assert.equal(await toggleMenu.locator(".agent-chat-count").count(), 0);
+  const historyRow = await toggleMenu.locator(".agent-chat-summary").first().innerText();
+  assert.match(historyRow, /^\d{2}:\d{2} · \S/, historyRow);
   // A click outside the shell dismisses an open menu. Escape would dismiss it
   // AND close Settings, which is not what is being measured here.
   await page.locator(".settings-head strong").click();
@@ -789,10 +794,14 @@ if (realModel) {
   assert.deepEqual(await page.screenshot({ animations: "disabled" }), chatIdleScreenshot, "Chat idle changed after Settings → Test → Chat round trip");
   record("settings-test-chat-round-trip");
   await page.locator(".agent-tab").first().click({ button: "right" });
-  await page.locator(".agent-chat-count").waitFor({ state: "visible" });
-  await page.locator(`.agent-chat-row[data-session="${sessionID}"] .agent-chat-open`).waitFor({ state: "visible" });
+  await page.locator(`.agent-chat-row[data-session="${sessionID}"] .agent-chat-summary`).waitFor({ state: "visible" });
   const initialMenuRows = await page.locator(".agent-chat-row").count();
-  assert.match(await page.locator(".agent-chat-count").innerText(), new RegExp(`^${initialMenuRows} chats? · ${initialMenuRows} open · 0 closed$`));
+  // Item 2go: no summary line, and every row is exactly the date and the name.
+  assert.equal(await page.locator(".agent-chat-count").count(), 0);
+  for (const row of await page.locator(".agent-chat-summary").allInnerTexts()) {
+    assert.match(row, /^\d{2}:\d{2} · \S/, row);
+    assert.doesNotMatch(row, /run|closed|·.*·/, row);
+  }
   await captureWithMasks(page, join(baselineDirectory, "tab-menu-open.png"));
   await openPanel("activity", sessionID);
   await page.locator("#panel-run-result").waitFor({ state: "visible" });
@@ -1803,8 +1812,23 @@ if (realModel) {
 	await browser.wait(`document.querySelector('#chat-task')`, "chat restored after empty attachments");
 	const finalState = await state();
 	await json(`http://127.0.0.1:${appPort}/api/sessions/${sessionID}`, { method: "DELETE", headers: { "X-AgentB-Mutation-Token": finalState.mutation_token } });
-	const exported = await waitEvent(sessionID, (event) => event.type === "chat.exported", "chat export");
-	const exportedMarkdown = await readFile(exported.data.path, "utf8");
+	// Item 2gq (v1.2.5): closing deletes the journal, so the chat.exported event
+	// goes with it. The export itself is written BEFORE the delete and is one of
+	// the things that outlives the chat, so the proof is the file on disk.
+	const exportedPath = await (async () => {
+		for (let attempt = 0; attempt < 200; attempt++) {
+			const found = [];
+			const chats = join(args.data, "chats");
+			for (const dir of await readdir(chats).catch(() => [])) {
+				for (const name of await readdir(join(chats, dir)).catch(() => [])) if (name.endsWith(".md")) found.push(join(chats, dir, name));
+			}
+			const newest = found.sort().at(-1);
+			if (newest) return newest;
+			await sleep(50);
+		}
+		throw new Error("no exported chat markdown was written");
+	})();
+	const exportedMarkdown = await readFile(exportedPath, "utf8");
 	assert.ok(exportedMarkdown.includes("## Transcript"));
 	assert.ok(exportedMarkdown.includes("- tool `shell` · ok"));
 	assert.ok(exportedMarkdown.includes("- attachment: `attachments/phone-note.txt`"));
@@ -1814,25 +1838,40 @@ if (realModel) {
   await writeFile(join(evidenceRun, "chat-final.png"), screenshot);
   await page.goto(`http://127.0.0.1:${appPort}/chat`);
   await browser.wait(`document.querySelector('.agent-tab')`, "agent tab after close");
+  // Item 2gq: there is no separate permanent-delete control to arm. This chat
+  // was closed above, which deleted it; what it PRODUCED is still here, which
+  // is the half of the rule worth proving.
   await page.locator(".agent-tab").first().click({ button: "right" });
-  const closedRow = page.locator(`.agent-chat-row[data-session="${sessionID}"]`);
-  await closedRow.waitFor({ state: "visible" });
-  const finalMenuRows = await page.locator(".agent-chat-row").count();
-  assert.match(await page.locator(".agent-chat-count").innerText(), new RegExp(`^${finalMenuRows} chats? · ${finalMenuRows - 1} open · 1 closed$`));
-  const remove = closedRow.locator(".agent-chat-delete");
-  await remove.click();
-  await remove.filter({ hasText: "delete" }).waitFor({ state: "visible" });
-  assert.match(await closedRow.locator(".agent-chat-summary").innerText(), /Delete permanently\? \d+ events · \d+ files · \d+ memory kept/);
-  const dropMemory = closedRow.locator('.agent-chat-drop-memory input[type="checkbox"]');
-  if (await dropMemory.count()) assert.equal(await dropMemory.isChecked(), false);
-  await page.screenshot({ path: join(evidenceRun, "chat-delete-confirm.png") });
-  await remove.click();
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (!(await state()).sessions[sessionID]) break;
-    await sleep(50);
-  }
-  assert.equal((await state()).sessions[sessionID], undefined, "confirmed trash control must remove the session registry entry");
-  record("agent-menu-inline-delete-keeps-memory-default");
+  await page.locator(".agent-chat-summary").first().waitFor({ state: "visible" });
+  assert.equal(await page.locator(".agent-chat-delete").count(), 0, "the permanent-delete control is gone");
+  assert.equal(await page.locator(`.agent-chat-row[data-session="${sessionID}"]`).count(), 0, "a deleted chat leaves no history entry");
+  assert.equal((await state()).sessions[sessionID], undefined, "closing removed the session registry entry");
+  await page.screenshot({ path: join(evidenceRun, "chat-history-after-close.png") });
+  // What the chat produced elsewhere: the exported markdown of what was said,
+  // the memory it noted, and the plan it registered.
+  const anyFileUnder = async (root) => {
+    const found = [];
+    const walk = async (dir, depth) => {
+      if (depth > 3) return;
+      for (const name of await readdir(dir).catch(() => [])) {
+        const path = join(dir, name);
+        if (name.endsWith(".md") || name.endsWith(".jsonl")) found.push(path);
+        else await walk(path, depth + 1);
+      }
+    };
+    await walk(root, 0);
+    return found;
+  };
+  const durable = {
+    export: exportedPath,
+    plans: (await anyFileUnder(join(args.data, "plans"))).length,
+    memory: (await anyFileUnder(join(args.data, "memory"))).length,
+  };
+  // The markdown of what was said, the plans it registered and the memory it
+  // noted all outlived the chat.
+  assert.ok(durable.export, JSON.stringify(durable));
+  assert.ok(durable.plans > 0, JSON.stringify(durable));
+  record("close-deletes-the-chat-and-keeps-what-it-produced");
   await page.setViewportSize({ width: 320, height: 975 });
   for (let index = 0; index < 10; index++) {
     const before = await page.locator(".agent-tab-wrap[data-session]").count();
@@ -1852,16 +1891,43 @@ if (realModel) {
   assert.equal(tabOverflow.plusCount, 1, JSON.stringify(tabOverflow));
   assert.equal(tabOverflow.nestedPlusCount, 0, JSON.stringify(tabOverflow));
   assert.ok(tabOverflow.plusLeft < tabOverflow.stripLeft, JSON.stringify(tabOverflow));
-  const idleCloseID = await page.locator(".agent-tab-wrap[data-session]").last().getAttribute("data-session");
-  let closeDialogs = 0;
-  const closeDialog = async (dialog) => { closeDialogs++; await dialog.dismiss(); };
-  page.on("dialog", closeDialog);
+  // Item 2gq (v1.2.5): close deletes, so it asks first - one line, and it says
+  // what is NOT lost. Dismissing it keeps the chat; confirming removes it from
+  // the registry, not just from the strip.
+  // A chat of its own for this proof, so the scenario does not depend on which
+  // of the suite's chats is still open by the time it runs. The strip is back
+  // at full width first: the narrow case above scrolls tabs out of reach.
+  await page.setViewportSize({ width: 1250, height: 975 });
+  const liveNow = await state();
+  const created = await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": liveNow.mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) });
+  const idleCloseID = created.session?.id || created.id;
+  assert.ok(idleCloseID, JSON.stringify(created));
+  await page.reload();
+  await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"]`).waitFor({ state: "visible" });
+  const dialogs = [];
+  const dismiss = async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); };
+  page.on("dialog", dismiss);
+  await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"] .agent-tab`).click({ button: "right" });
+  await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-close`).click();
+  await sleep(300);
+  page.off("dialog", dismiss);
+  assert.equal(dialogs.length, 1, JSON.stringify(dialogs));
+  assert.equal(dialogs[0], "Delete this chat? Its memory notes, plans and files stay.");
+  assert.ok((await state()).sessions[idleCloseID], "a dismissed confirm must keep the chat");
+  const accept = async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); };
+  page.on("dialog", accept);
+  // The menu from the dismissed attempt is still open over the strip. Escape
+  // puts it away (item 2gh) and Settings is not open here to be closed too.
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => ![...document.querySelectorAll(".agent-chat-menu")].some((menu) => !menu.hidden));
   await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"] .agent-tab`).click({ button: "right" });
   await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-close`).click();
   await page.waitForFunction((id) => !document.querySelector(`.agent-tab-wrap[data-session="${id}"]`), idleCloseID);
-  page.off("dialog", closeDialog);
-  assert.equal(closeDialogs, 0, "idle close must not open a browser confirmation dialog");
-  record("idle-chat-close-without-confirmation");
+  page.off("dialog", accept);
+  for (let attempt = 0; attempt < 100 && (await state()).sessions[idleCloseID]; attempt++) await sleep(50);
+  assert.equal((await state()).sessions[idleCloseID], undefined, "closing a chat must remove it from the registry");
+  assert.equal(await page.locator(`.agent-chat-row[data-session="${idleCloseID}"]`).count(), 0, "a closed chat leaves no history entry");
+  record("close-deletes-the-chat-after-one-line-confirm");
   await page.setViewportSize({ width: 1250, height: 975 });
   record("per-chat-tabs-scroll-without-shrinking-or-page-overflow");
   const retainedStateBeforeRestart = await state();
@@ -1915,7 +1981,11 @@ if (realModel) {
   assert.deepEqual(await roleChoices.allTextContents(), ["agent_b · Acceptance — chat", "agent_d · Acceptance — plan"]);
   await page.screenshot({ path: join(evidenceRun, "d-role-menu.png") });
   await roleChoices.nth(1).click();
-  await browser.wait(`document.querySelector('.agent-tab-wrap.selected .agent-tab')?.innerText.includes('agent_d')`, "unbound d chat identity");
+  // Item 2go: the tab reads the chat's name - "new chat" until the operator
+  // writes one - and the ROLE is on the robot glyph and its hover text.
+  await browser.wait(`document.querySelector('.agent-tab-wrap.selected .agent-tab')?.dataset.agent === 'agent_d'`, "unbound d chat identity");
+  assert.equal(await page.locator(".agent-tab-wrap.selected .agent-tab-name").innerText(), "new chat");
+  assert.equal(await page.locator(".agent-tab-wrap.selected .agent-tab-robot").getAttribute("title"), "agent_d");
   const dState = await state();
   const dSession = Object.values(dState.sessions).find((session) => session.role === "d" && !session.plan_id);
   assert.ok(dSession, JSON.stringify(dState.sessions));

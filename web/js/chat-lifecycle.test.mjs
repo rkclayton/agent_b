@@ -23,8 +23,11 @@ const idle = {
   ],
 };
 
-test("Chat row is relative time · first user line · runs · state glyph", () => {
-  assert.equal(chatRowText(idle, Date.parse("2026-09-07T12:05:00Z")), "5m · Summarize the attached contract · 2 runs · ○");
+// Item 2go (v1.2.5), the operator: "i want it to display like this:
+// MM:DD · Chat name · × , nothing more."
+test("Chat row is the date it was created and the chat name, and nothing else", () => {
+  assert.equal(chatRowText({ ...idle, label: "summarize the attached contract" }), "09:07 · summarize the attached contract");
+  assert.equal(chatRowText(idle), "09:07 · new chat", "a chat with no name yet reads new chat");
 });
 
 test("Open chat list excludes durable closed sessions", () => {

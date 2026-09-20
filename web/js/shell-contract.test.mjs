@@ -57,12 +57,17 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   // The close mark overlays the tab rather than extending the strip.
   assert.match(tokens, /\.agent-tab-close\{position:absolute/);
   assert.match(tokens, /\.agent-tab-wrap \.agent-tab\{padding-right:18px\}/);
-  assert.match(tokens, /\.agent-tab\.side-chat\{color:var\(--ink\)\}/);
-  assert.match(tokens, /\.agent-tab\.side-console\{color:var\(--ink\)\}/);
+  // Item 2gk removed the second side; item 2go put the chat's NAME on the tab,
+  // with a fixed width and an ellipsis for a long one.
+  assert.match(tokens, /\.agent-tab-name\{[^}]*text-overflow:ellipsis/);
+  assert.match(shell, /class="agent-tab-name"/);
   assert.match(tokens, /\.agent-tab-wrap\.selected\.side-console\{background:rgba\(216,221,227,.16\)\}/);
-  assert.match(shell, /button\("", chatName/);
-  assert.match(shell, /<span>\$\{escapeHTML\(agentID\)\}<\/span>/);
-  assert.match(shell, /button\("×", `Close \$\{chatName\}`/);
+  assert.match(shell, /button\("", name, `agent-tab/);
+  // Item 2go: the tab reads the chat name; the role is the robot glyph and its
+  // hover text, which is where it was always readable.
+  assert.match(shell, /class="agent-tab-name">\$\{escapeHTML\(name\)\}<\/span>/);
+  assert.match(shell, /title="\$\{escapeHTML\(agentID\)\}"/);
+  assert.match(shell, /button\("×", `Close \$\{name\}`/);
   assert.match(shell, /const agentID = `agent_\$\{session\?\.role === "d" \? "d" : "b"\}`/);
   assert.match(shell, /document\.title = session \? sessionTitle\(session\) : "Agent_b"/);
 });
@@ -82,20 +87,23 @@ test("Plan is a compact accessible brain icon", () => {
   assert.doesNotMatch(shell, /\[\["plan", "Plan", "\/plan"\]\]/);
 });
 
-test("agent menu is the counted open and closed chat history with glyph controls", () => {
+// Items 2go, 2gx and 2gq (v1.2.5), the operator: the history is the date, the
+// name and the x, nothing more; the row itself switches the tab; and close
+// deletes, so there is no separate permanent-delete control to arm.
+test("agent menu is the chat history as date, name and close", () => {
   assert.match(shell, /sessionsFor\(agentID, true\)/);
   assert.match(shell, /oncontextmenu/);
-  assert.match(shell, /button\("Open"/);
   assert.match(shell, /\/reopen`/);
   assert.match(shell, /button\("×"/);
-  assert.match(shell, /button\("🗑"/);
   assert.match(shell, /button\("Rename"/);
   assert.match(shell, /agent-chat-rename-form/);
   assert.match(shell, /\{ label \}/);
-  assert.match(shell, /openCount[\s\S]*closed/);
-  assert.match(shell, /confirm: false/);
-  assert.match(shell, /delete-confirm/);
-  assert.match(shell, /confirm: true, drop_memory: dropMemory\.checked/);
+  assert.match(shell, /summary\.onclick/);
+  assert.match(shell, /row\.append\(summary, rename, close\)/);
+  assert.doesNotMatch(shell, /button\("Open"/);
+  assert.doesNotMatch(shell, /button\("🗑"/);
+  assert.doesNotMatch(shell, /agent-chat-count/);
+  assert.doesNotMatch(shell, /drop_memory/);
   assert.doesNotMatch(shell, /window\.confirm\([^)]*Delete/);
   assert.doesNotMatch(shell, /window\.confirm\([^)]*closeConfirmText|closeConfirmText/);
   // Item 2gh: the tab menu opens AT THE POINTER, so the reveal carries the

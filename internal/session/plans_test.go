@@ -57,7 +57,9 @@ func TestScratchNeverReusesAnOrphanedChatFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if item.ID == "main" || item.Workspace == orphan || item.Label != item.ID {
+	// Item 2go (v1.2.5): a chat created with no label HAS no label - it is named
+	// by the operator's first message, not after its own id.
+	if item.ID == "main" || item.Workspace == orphan || item.Label != "" {
 		t.Fatalf("scratch reused orphan: id=%q label=%q folder=%q", item.ID, item.Label, item.Workspace)
 	}
 	if got, err := os.ReadFile(filepath.Join(orphan, "retained.txt")); err != nil || string(got) != "keep" {

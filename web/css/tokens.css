@@ -42,9 +42,10 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .agent-overflow-wrap,.shell-add-wrap{position:relative;flex:none}
 .agent-tab,.shell-add,.agent-overflow{height:24px;min-height:24px;padding:1px 2px;background:transparent;font:500 12px/18px var(--sans);white-space:nowrap}
 .app-shell .agent-tab,.app-shell .shell-add,.app-shell .agent-overflow{height:24px;min-height:24px;padding:1px 2px;background:transparent;font:500 12px/18px var(--sans)}
-.agent-tab{flex:1 1 auto;min-width:69px;overflow:hidden}
-.agent-tab.side-chat{color:var(--ink)}
-.agent-tab.side-console{color:var(--ink)}
+/* Item 2go: every tab is the same width and a long name ends in an ellipsis,
+   with the full name on hover. */
+.agent-tab{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:69px;overflow:hidden}
+.agent-tab-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agent-overflow{width:36px;padding:2px 4px;font-family:var(--mono)}
 .agent-overflow-menu{right:0;left:auto;width:min(18rem,calc(100vw - 16px))}
 .agent-tab-wrap.selected{background:var(--well)}
@@ -90,9 +91,12 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .shell-new-menu{width:min(34rem,calc(100vw - 16px))}
 .shell-new-choice{display:block;width:100%;min-height:24px;padding:2px 5px;overflow:hidden;background:transparent;text-align:left;text-overflow:ellipsis;white-space:nowrap;font:12px/20px var(--mono)}
 .agent-chat-count{padding:2px 5px;color:var(--mute);font:12px/20px var(--mono)}
-.agent-chat-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto 22px 28px;align-items:center;min-height:24px}
+/* Item 2go: MM:DD, the name, and the x. Three columns, nothing more. */
+.agent-chat-row{display:grid;grid-template-columns:minmax(0,1fr) auto 22px;align-items:center;min-height:24px}
 .agent-chat-row.closed{color:var(--mute)}
-.agent-chat-summary{min-width:0;padding:2px 5px;overflow:hidden;font:12px/20px var(--mono);text-overflow:ellipsis;white-space:nowrap}
+/* Item 2gx: the row is the control, so it takes the pointer. */
+.agent-chat-summary{min-width:0;padding:2px 5px;overflow:hidden;font:12px/20px var(--mono);text-overflow:ellipsis;white-space:nowrap;cursor:pointer;text-align:left;background:transparent;border:0;color:inherit}
+.agent-chat-summary:hover{color:var(--ink);background:rgba(216,221,227,.06)}
 .agent-chat-row button{min-height:22px;padding:1px 5px;background:transparent;font-size:12px}
 .agent-chat-row.delete-confirm{grid-template-columns:minmax(0,1fr) auto auto;color:var(--alarm)}
 .agent-chat-drop-memory{padding:1px 5px;color:var(--ink);white-space:nowrap;font:12px/20px var(--mono)}

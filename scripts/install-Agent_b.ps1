@@ -15,7 +15,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$displayVersion = '1.2.3'
+$displayVersion = '1.2.4'
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
 . (Join-Path $PSScriptRoot 'agentb-stop.ps1')
 

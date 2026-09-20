@@ -11,11 +11,32 @@ param(
     [string]$SigningThumbprint,
     [switch]$TestMode,
     [switch]$ForcePostStopVerificationFailure,
-    [string]$TranscriptPath
+    [string]$TranscriptPath,
+    # Item 2gl (v1.2.6): the install writes its OWN progress. It used to be
+    # written by the wrapper reading this script's output, so closing the window
+    # the wrapper lived in stopped the readout even though the install carried
+    # on - the operator saw a stalled Setup page for an install that was still
+    # running. The file is the record; whoever is watching reads it.
+    [string]$ProgressFile
 )
 
 $ErrorActionPreference = 'Stop'
 $displayVersion = '1.2.5'
+
+# Write-InstallProgress appends one JSONL line the Setup page can render. It
+# never fails the install: the install is the point, the readout is not.
+function Write-InstallProgress {
+    param([string]$Phase, [string]$Text, [switch]$Done, [switch]$OK)
+    if ([string]::IsNullOrWhiteSpace($ProgressFile)) { return }
+    try {
+        $entry = [ordered]@{ at = (Get-Date).ToUniversalTime().ToString('o'); phase = $Phase; text = $Text }
+        if ($Done) { $entry.done = $true }
+        if ($OK) { $entry.ok = $true }
+        $line = ($entry | ConvertTo-Json -Compress)
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ProgressFile) -ErrorAction SilentlyContinue
+        [IO.File]::AppendAllText($ProgressFile, $line + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    } catch { }
+}
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
 . (Join-Path $PSScriptRoot 'agentb-stop.ps1')
 
@@ -218,6 +239,7 @@ function Stop-InstalledProcesses {
     param([System.Diagnostics.Process[]]$Processes)
     if (-not $Processes.Count) { return }
     foreach ($process in $Processes) {
+        Write-InstallProgress -Phase 'stopping the running application' -Text "STOPPING: Agent_b PID $($process.Id)"
         Write-Host "STOPPING: Agent_b PID $($process.Id)"
         try {
             $channel = Request-AgentbGracefulStop -ProcessId $process.Id
@@ -381,6 +403,7 @@ trap {
     }
     try { Remove-InstallerRollbackRoot -Path $script:rollbackRoot } catch { Write-Host "ROLLBACK CLEANUP FAILED: $($_.Exception.Message)" }
     Write-Host "INSTALLATION FAILED: $reason"
+    Write-InstallProgress -Phase 'failed' -Text "INSTALLATION FAILED: $reason" -Done
     if ($script:installTranscriptPath) { Write-Host "Transcript: $script:installTranscriptPath" }
     Stop-InstallTranscript
     exit 1
@@ -482,7 +505,9 @@ if (-not $currentSid.Value.Equals($OperatorSid, [StringComparison]::OrdinalIgnor
     throw "Installation refused: elevation changed identity from $OperatorSid to $($currentSid.Value). Use same-user UAC; over-the-shoulder administrator credentials would select the wrong LocalAppData and DPAPI owner."
 }
 
+Write-InstallProgress -Phase 'preflight' -Text "Installing Agent_b $displayVersion"
 Write-Host 'Agent_b admin-protected program installation with per-operator registration and data'
+Write-InstallProgress -Phase 'copying the application' -Text "Application: $applicationRoot"
 Write-Host "Application: $applicationRoot"
 Write-Host "Operator data: $dataRoot"
 Write-Host "Legacy workspace (preserved when present): $workspaceRoot"
@@ -706,6 +731,7 @@ $null = New-ItemProperty -Path $UninstallRegistryPath -Name NoModify -Value 1 -P
 $null = New-ItemProperty -Path $UninstallRegistryPath -Name NoRepair -Value 1 -PropertyType DWord -Force
 
 Write-Host ''
+Write-InstallProgress -Phase 'finished' -Text "Agent_b $displayVersion is installed." -Done -OK
 Write-Host 'INSTALLATION COMPLETE'
 Write-Host "Start Menu: $shortcutPath"
 Write-Host "At sign-in: $startupPath"

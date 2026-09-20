@@ -112,6 +112,7 @@ func runInstall(options installOptions, args []string) int {
 	}
 	log := openInstallLog(dataRoot, options.quiet)
 	defer log.close()
+	installDone := make(chan struct{})
 	log.printf("install: starting; data root %s", dataRoot)
 
 	source := options.sourceDir
@@ -139,38 +140,55 @@ func runInstall(options installOptions, args []string) int {
 	appendProgress(dataRoot, installProgress{Phase: "starting", Text: "Installing Agent_b " + marker.Version})
 
 	powershell := windowsPowerShell()
-	scriptArgs := append([]string{"-NoLogo", "-NoProfile", "-File", script}, args...)
+	// Item 2gl (v1.2.6): the installer writes the progress file ITSELF, so the
+	// readout survives this wrapper. Closing the window this process lives in
+	// used to freeze the Setup page for an install that was still running.
+	scriptArgs := append([]string{"-NoLogo", "-NoProfile", "-File", script, "-ProgressFile", installProgressPath(dataRoot)}, args...)
 	command := exec.Command(powershell, scriptArgs...)
 	command.Dir = source
-	output, err := command.StdoutPipe()
-	if err != nil {
-		return log.fail("could not read the installer's output: %v", err)
-	}
-	command.Stderr = command.Stdout
+	// Item 2gl (v1.2.6): THE INSTALLER'S OUTPUT GOES TO A FILE, NOT A PIPE.
+	// Measured before the change: ending this wrapper killed the install. Not
+	// because Windows kills the child - it does not - but because the child was
+	// writing to a pipe whose other end had just died, and a write to a broken
+	// pipe ends a PowerShell whose ErrorActionPreference is Stop. So closing the
+	// window closed the install with it.
+	//
+	// Writing to the log file removes the dependency entirely, and the progress
+	// the Setup page reads is written by the INSTALLER itself, so the readout
+	// survives this process too.
+	command.Stdout = log.writer()
+	command.Stderr = log.writer()
+	detachChild(command)
 	if err := command.Start(); err != nil {
 		return log.fail("could not start the installer: %v", err)
 	}
+	log.printf("install: the installer is running as PID %d; it does not depend on this window", command.Process.Pid)
 
-	scanner := bufio.NewScanner(output)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	// The marker follows the phases the installer reports in its own progress
+	// file, so this wrapper reads the same record the Setup page does.
 	lastPhase := "starting"
-	for scanner.Scan() {
-		line := scanner.Text()
-		// --quiet is the suite's path and the only one that prints to a
-		// console; the operator's path shows the same lines in the window.
-		if options.quiet {
-			fmt.Println(line)
+	followed := make(chan struct{})
+	go func() {
+		defer close(followed)
+		for {
+			entries, err := readInstallProgress(dataRoot)
+			if err == nil && len(entries) > 0 {
+				if phase := entries[len(entries)-1].Phase; phase != "" && phase != lastPhase {
+					lastPhase = phase
+					marker.Phase = phase
+					_ = writeInstallMarker(dataRoot, marker)
+				}
+			}
+			select {
+			case <-time.After(250 * time.Millisecond):
+			case <-installDone:
+				return
+			}
 		}
-		if phase := phaseFor(line); phase != "" && phase != lastPhase {
-			lastPhase = phase
-			marker.Phase = phase
-			_ = writeInstallMarker(dataRoot, marker)
-		}
-		if strings.TrimSpace(line) != "" {
-			appendProgress(dataRoot, installProgress{Phase: lastPhase, Text: line})
-		}
-	}
+	}()
 	waitErr := command.Wait()
+	close(installDone)
+	<-followed
 	code := 0
 	if waitErr != nil {
 		code = 1

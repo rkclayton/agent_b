@@ -194,8 +194,21 @@ func (s *Server) runProbe(ctx context.Context, profile *config.Profile, current 
 		return
 	}
 	s.completeReachabilityProbe(profile.ID, probeSucceeded)
-	if err != nil {
-		caps, findings = failedProbeCapabilities(profile, err)
+	// Item 2gy: only a clear NO downgrades a stored finding. A probe that could
+	// not reach a conclusion - a timeout, a busy slot, an unreachable server -
+	// keeps what was known, says since when nobody has confirmed it, and tries
+	// again on a backoff. A model that could not answer in time is not a model
+	// that cannot call tools.
+	outcome := classifyProbe(err)
+	if outcome == probeInconclusive {
+		caps = profile.Capabilities
+		findings = keepFindingsUnverified(profile.Capabilities.Findings, time.Now(), err.Error())
+		s.scheduleProbeRetry(profile.ID)
+	} else {
+		s.resetProbeRetries(profile.ID)
+		if err != nil {
+			caps, findings = failedProbeCapabilities(profile, err)
+		}
 	}
 	s.mu.Lock()
 	// Item 2gb: the probe's findings name the shell that backs the shell tool
@@ -221,7 +234,7 @@ func (s *Server) runProbe(ctx context.Context, profile *config.Profile, current 
 	if s.registry != nil {
 		s.registry.RefreshRunnable()
 	}
-	s.bus.Publish(events.New(events.ServerProbed, "", "", map[string]any{"server_id": profile.ID, "capabilities": caps, "findings": findings}))
+	s.bus.Publish(events.New(events.ServerProbed, "", "", map[string]any{"server_id": profile.ID, "capabilities": caps, "findings": findings, "outcome": outcome.String()}))
 	if probeSucceeded && s.scheduler != nil {
 		s.scheduler.ReleaseModel(profile.ID)
 	}

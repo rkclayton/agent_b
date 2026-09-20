@@ -215,7 +215,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/events", s.sse)
 	mux.HandleFunc("/api/state", s.state)
 	mux.HandleFunc("/api/local-detection", s.localDetection)
-	mux.HandleFunc("/api/reflection", s.reflectionEndpoint)
+	mux.HandleFunc("/api/reflection", s.replayGuard(s.reflectionEndpoint))
 	mux.HandleFunc("/api/files/", s.file)
 	mux.HandleFunc("/api/open-folder", s.openFileFolder)
 	mux.HandleFunc("/api/open-file", s.openDeliveredFile)

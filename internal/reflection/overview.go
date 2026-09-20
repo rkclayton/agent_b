@@ -21,6 +21,9 @@ type OverviewInput struct {
 	Graph     *Graph
 	Summaries []Summary
 	At        time.Time
+	// Proposals are repositories reflection would register as plans. They are
+	// proposals: registration is the operator's, through the existing card.
+	Proposals []PlanCandidate
 }
 
 // churnOf counts how often each file appears in the summaries, written first.
@@ -137,6 +140,12 @@ func OverviewText(input OverviewInput) string {
 		lines = append(lines, "  (nothing recorded)")
 	} else if changed > 8 {
 		lines = append(lines, fmt.Sprintf("  … and %d more", changed-8))
+	}
+	if len(input.Proposals) > 0 {
+		lines = append(lines, "", "Repositories with agent files and no plan (the operator registers a plan; reflection does not):")
+		for _, candidate := range input.Proposals {
+			lines = append(lines, fmt.Sprintf("  %s · %s · touched by %d run(s)", candidate.Root, candidate.AgentFile, candidate.Touched))
+		}
 	}
 	lines = append(lines, "", "What is open:")
 	open := 0

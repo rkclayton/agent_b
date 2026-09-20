@@ -223,7 +223,9 @@ func Clusters(calls []Call) []Cluster {
 		}
 		sort.Strings(cluster.FailureCauses)
 		cluster.Contrast = contrast(current.successful, current.failing, cluster.Failures, cluster.Count-cluster.Failures)
-		cluster.Representatives = append(append([]string{}, current.failures...), current.successes...)
+		for _, example := range append(append([]string{}, current.failures...), current.successes...) {
+			cluster.Representatives = append(cluster.Representatives, clip(example, 160))
+		}
 		clusters = append(clusters, cluster)
 	}
 	sort.SliceStable(clusters, func(i, j int) bool {
@@ -297,7 +299,7 @@ func contrast(successful, failing map[string]int, failures, successes int) strin
 // nothing is created: tool creation is operator-initiated and is not in this
 // contract.
 func ReportText(clusters []Cluster, limit int) string {
-	lines := []string{"Tool candidates, ranked by frequency × failure rate.", ""}
+	lines := []string{"Tool candidates, ranked by how many calls failed, then by how often the shape is used.", ""}
 	shown := 0
 	for _, cluster := range clusters {
 		if cluster.Failures == 0 {
@@ -337,4 +339,13 @@ func isNumeric(token string) bool {
 		}
 	}
 	return true
+}
+
+// clip cuts a string to at most n runes, never mid-rune.
+func clip(value string, n int) string {
+	runes := []rune(value)
+	if len(runes) <= n {
+		return value
+	}
+	return string(runes[:n-1]) + "…"
 }

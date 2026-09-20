@@ -241,7 +241,7 @@ try {
         throw 'Installed application still contains redundant in-page Agent_b branding.'
     }
     foreach ($page in @(
-        @{ Source = $indexSource; Name = 'console' },
+        @{ Source = $indexSource; Name = 'chat' },
         @{ Source = $planSource; Name = 'plan' }
     )) {
         if ($page.Source -notmatch ('id="app-shell"[^>]+data-page="' + $page.Name + '"')) {
@@ -292,10 +292,10 @@ try {
         throw 'Installed application does not request native Window Controls Overlay.'
     }
     if ($indexSource -match 'id="state-filters"' -or $indexSource -notmatch '>Activity<' -or $indexSource -notmatch '>Context<' -or $indexSource -notmatch '>History<') {
-        throw 'Installed Console is not using the simplified instrument layout.'
+        throw 'Installed instrument panels are not using the simplified layout.'
     }
     if ($indexSource -match 'id="composer"' -or $indexSource -match 'id="task"' -or $indexSource -match '>Send</button>') {
-        throw 'Installed Console still contains the removed task composer.'
+        throw 'Installed instrument panels still contain the removed task composer.'
     }
 
     $shortcutPath = Join-Path $testStart 'Agent_b.lnk'

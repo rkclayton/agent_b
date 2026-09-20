@@ -81,6 +81,7 @@ type Server struct {
 	detectLocal       func(context.Context, string) (any, error)
 	workspaceState    *workspaceinfo.Manager
 	memoryState       *memory.Manager
+	reflection        *reflectionState
 	statsState        *stats.Manager
 	operatorFiles     *operatorfiles.Manager
 	probeMu           sync.Mutex
@@ -214,6 +215,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/events", s.sse)
 	mux.HandleFunc("/api/state", s.state)
 	mux.HandleFunc("/api/local-detection", s.localDetection)
+	mux.HandleFunc("/api/reflection", s.reflectionEndpoint)
 	mux.HandleFunc("/api/files/", s.file)
 	mux.HandleFunc("/api/open-folder", s.openFileFolder)
 	mux.HandleFunc("/api/open-file", s.openDeliveredFile)

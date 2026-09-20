@@ -177,6 +177,10 @@ func main() {
 		log.Printf("apply log retention: %v", err)
 	}
 	web.SetOperatorFiles(operatorFiles)
+	// Item 17-i: reflection runs after a run closes and on a daily tick. It
+	// subscribes to the bus, so it is never in a run's path.
+	web.StartReflection(24 * time.Hour)
+	defer web.StopReflection()
 	operatorContext, cancelOperatorFiles := context.WithCancel(context.Background())
 	defer cancelOperatorFiles()
 	go operatorFiles.RunRetention(operatorContext)

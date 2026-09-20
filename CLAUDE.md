@@ -14,12 +14,22 @@ sentence that says "Codex" applies to you. Everything else here is the same for 
   execute the published `## Current work order` from `PLAN.md`.
 - `REVISE` and `STOP` in `INBOX.md` work exactly as `AGENTS.md` describes. You never write
   instructions into `INBOX.md`; you acknowledge and truncate it.
-- **INBOX takes a queue.** Several `PUBLISH THEN EXECUTE` blocks may be queued, separated by a
-  line that is exactly `==== NEXT ORDER ====`. `node scripts/plan-publish.mjs split-inbox --inbox
-  INBOX.md --out <scratch>` writes each block and its body in order. Publish and execute them in
-  order in one session, each dry-run, validated, published and released on its own; a
-  model-unavailable card in one order is recorded in its report and does not stop the next. Stop
-  only on a hard stop or an empty queue. Truncate `INBOX.md` once every block has been read.
+- **INBOX takes a queue, and you run ONE BLOCK of it.** Several blocks may be queued, separated
+  by a line that is exactly `==== NEXT ORDER ====`. **Run the first block and only the first
+  block**: publish it if it says to, execute it, append its one report to `NOTES.md`, truncate
+  that block from `INBOX.md`, and stop. Do not start the next block — `scripts/run-queue.ps1`
+  starts a fresh session for it, with the pointer prompt checked in beside it at
+  `scripts/queue-pointer-prompt.txt`.
+
+  This is item 2gt, and it exists because of a measured failure: v1.1.2, v1.1.3 and v1.2.0 each
+  closed early with steps not started, in the worker's own words "deliberately — no room to
+  finish", because one session ran the whole queue and its context filled. A block gets a whole
+  session now. Work the block to its end rather than pacing yourself against the ones behind it;
+  there is nothing behind it in this session.
+
+  `node scripts/plan-publish.mjs split-inbox --inbox INBOX.md --out <scratch>` still writes each
+  block and its body in order when you want to read the queue. A hard stop is still a report and
+  an end; the runner records it and starts the next block in a fresh session.
 
 ## INBOX.md — the operator's mailbox
 

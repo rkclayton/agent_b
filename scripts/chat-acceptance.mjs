@@ -328,43 +328,9 @@ async function openStepFoldIfDrawn() {
   if (await heads.count()) await heads.first().click();
 }
 
-// v1.2.2/W3: waiting for the transcript to stop moving is not the same as
-// knowing where it stopped. Two runs of one build settled a screenful apart,
-// and the whole-page captures that followed differed everywhere. So the foot
-// is pinned first - where the chat itself stands while a run is live - and
-// only then is stillness waited for. Any capture of a scrolled transcript
-// calls this; a capture of a deliberately scrolled position does not.
-async function pinTranscriptFoot() {
-  await page.evaluate(() => {
-    const log = document.getElementById("chat-log");
-    if (log) log.scrollTop = log.scrollHeight;
-  });
-  await page.evaluate(() => new Promise((resolve) => {
-    const log = document.getElementById("chat-log");
-    if (!log) return resolve();
-    let previous = -1;
-    let steady = 0;
-    const check = () => {
-      log.scrollTop = log.scrollHeight;
-      const now = log.scrollTop;
-      steady = now === previous ? steady + 1 : 0;
-      previous = now;
-      if (steady >= 10) return resolve();
-      requestAnimationFrame(check);
-    };
-    requestAnimationFrame(check);
-    setTimeout(resolve, 5000);
-  }));
-  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-}
-
 // Item 2gk (v1.2.3): the six groups are two sections of Settings now, so the
-// suite opens them the way the operator does - the gear, or the deep link the
-// gear writes into the address bar.
+// suite opens them the way the operator does - the gear, and then the section.
 async function openPanel(section, sessionID) {
-  // The gear, which is how the operator gets there. A hash deep link would only
-  // work on a fresh document: adding a hash to the address already open is an
-  // in-page jump, so nothing reloads and the sheet never opens.
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${encodeURIComponent(sessionID)}`);
   await page.locator("#chat-task").waitFor({ state: "visible" });
   if (!(await page.locator("#settings-page").isVisible())) await page.locator(".shell-settings").click();
@@ -1527,8 +1493,12 @@ if (realModel) {
   // v1.1.3/W7 waited for the scroll to stop moving; v1.2.2/W3 pins where it
   // stops, because stillness alone let two runs of one build settle a
   // screenful apart. The race was in the capture, not in the product.
-  await pinTranscriptFoot();
-  await captureWithMasks(page, join(baselineDirectory, "chat-ocr-sidecar-before-send.png"));
+  // Item 2gz (v1.2.4): the whole-page transcript photograph is retired. What
+  // it proved is asserted above and below this line; what it ADDED was a
+  // picture of a live transcript, whose rows move with how far a run got and
+  // with measured token counts - the reflow that withheld v1.2.2. The
+  // transcript is photographed from a checked-in journal instead, by
+  // scripts/transcript-fixture-captures.mjs, with no masks at all.
   await setTask("acceptance: attachment OCR");
   await waitProjectedChatText(sessionID, "Attachment received and rendered.", "OCR attachment answer");
   const ocrMessage = await waitEvent(sessionID, (event) => event.type === "message.appended" && event.data.message?.attachments?.some((item) => item.path.endsWith("ocr-acceptance.png")), "OCR attachment retained in JSONL");
@@ -1580,8 +1550,12 @@ if (realModel) {
   assert.equal(unreachableRows.responses, 0, JSON.stringify(unreachableRows));
   assert.equal(unreachableRows.step_folds, 0, JSON.stringify(unreachableRows));
   assert.equal(unreachableRows.flat_notices, 1, JSON.stringify(unreachableRows));
-  await pinTranscriptFoot();
-  await captureWithMasks(page, join(args.evidence, "unreachable-no-empty-folds.png"));
+  // Item 2gz (v1.2.4): the whole-page transcript photograph is retired. What
+  // it proved is asserted above and below this line; what it ADDED was a
+  // picture of a live transcript, whose rows move with how far a run got and
+  // with measured token counts - the reflow that withheld v1.2.2. The
+  // transcript is photographed from a checked-in journal instead, by
+  // scripts/transcript-fixture-captures.mjs, with no masks at all.
   record("model-unreachable-no-empty-fold-groups");
   await browser.wait(`document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')?.classList.contains('offline')`, "offline agent eyes");
   assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--alarm)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
@@ -1622,8 +1596,12 @@ if (realModel) {
   // finished — Stop idle — and two frames have painted, or it races the run.
   await browser.wait(`document.querySelector('#chat-send')?.dataset.state === 'idle'`, "run idle before the retry capture");
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  await pinTranscriptFoot();
-  await captureWithMasks(page, join(args.evidence, "reachable-after-retry.png"));
+  // Item 2gz (v1.2.4): the whole-page transcript photograph is retired. What
+  // it proved is asserted above and below this line; what it ADDED was a
+  // picture of a live transcript, whose rows move with how far a run got and
+  // with measured token counts - the reflow that withheld v1.2.2. The
+  // transcript is photographed from a checked-in journal instead, by
+  // scripts/transcript-fixture-captures.mjs, with no masks at all.
   record("model-unreachable-retry-release");
 
   await stopFake();

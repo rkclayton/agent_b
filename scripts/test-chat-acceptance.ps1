@@ -111,6 +111,20 @@ try {
         }
         & (Get-Command node.exe -ErrorAction Stop).Source @arguments
         if ($LASTEXITCODE -ne 0) { throw "Chat acceptance failed with exit code $LASTEXITCODE." }
+
+        # Item 2gz (v1.2.4): the transcript captures, rendered from checked-in
+        # journals rather than photographed off a live run. They land in the same
+        # evidence directory, so the exact-candidate comparison covers them.
+        $fixtureArguments = @(
+            (Join-Path $PSScriptRoot 'transcript-fixture-captures.mjs'),
+            '--exe', (Join-Path $application 'Agent_b.exe'),
+            '--app-root', $application,
+            '--data', (Join-Path $testRoot 'transcript-fixtures'),
+            '--evidence', $evidence,
+            '--fixtures', (Join-Path $sourceRoot (Join-Path 'tests' (Join-Path 'fixtures' 'transcripts')))
+        )
+        & (Get-Command node.exe -ErrorAction Stop).Source @fixtureArguments
+        if ($LASTEXITCODE -ne 0) { throw "Transcript fixture captures failed with exit code $LASTEXITCODE." }
     }
     if ($ReplayOnly -and [string]::IsNullOrWhiteSpace($ReplayPath)) { throw '-ReplayOnly requires -ReplayPath.' }
     if (-not [string]::IsNullOrWhiteSpace($ReplayPath)) {

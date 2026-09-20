@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -40,8 +41,15 @@ type Runner struct {
 	// AllLogs returns every chat log, for the report.
 	AllLogs func() []string
 	Now     func() time.Time
-	// NoteLimit bounds how many memory notes one summary may produce.
-	NoteLimit int
+	// NoteLimit bounds how many memory notes one summary may produce, and
+	// PassNoteLimit how many one pass may write at all: the per-summary bound
+	// alone does not bound a caller with many runs (v1.1.0/W6 cold review).
+	NoteLimit     int
+	PassNoteLimit int
+	// NoteWritten is called for each note actually written, so the harness can
+	// publish it as a memory write and the operator's existing "drop this
+	// chat's memory" path can revoke it.
+	NoteWritten func(summary Summary, note string)
 }
 
 func (r *Runner) now() time.Time {
@@ -67,6 +75,9 @@ type RunDigest struct {
 	Failures  int
 	Messages  []string
 	Stopped   string
+	// Untrusted is true when the run read content the operator did not write:
+	// a fetched page, or any result the tool layer marked untrusted.
+	Untrusted bool
 }
 
 // Digest reads one run's events out of the session's logs.
@@ -89,11 +100,12 @@ func Digest(paths []string, sessionID, runID string) (RunDigest, error) {
 				RunID     string `json:"run_id"`
 				Type      string `json:"type"`
 				Data      struct {
-					Name    string         `json:"name"`
-					Args    map[string]any `json:"args"`
-					OK      *bool          `json:"ok"`
-					Reason  string         `json:"reason"`
-					Message struct {
+					Name      string         `json:"name"`
+					Args      map[string]any `json:"args"`
+					OK        *bool          `json:"ok"`
+					Untrusted bool           `json:"untrusted"`
+					Reason    string         `json:"reason"`
+					Message   struct {
 						Role    string `json:"role"`
 						Content string `json:"content"`
 					} `json:"message"`
@@ -108,6 +120,9 @@ func Digest(paths []string, sessionID, runID string) (RunDigest, error) {
 			switch row.Type {
 			case "tool.call":
 				digest.Tools++
+				if row.Data.Name == "fetch_url" || row.Data.Name == "call_service" {
+					digest.Untrusted = true
+				}
 				path, _ := row.Data.Args["path"].(string)
 				switch row.Data.Name {
 				case "read_file", "search_text", "find_files", "list_dir":
@@ -122,6 +137,9 @@ func Digest(paths []string, sessionID, runID string) (RunDigest, error) {
 			case "tool.result":
 				if row.Data.OK != nil && !*row.Data.OK {
 					digest.Failures++
+				}
+				if row.Data.Untrusted {
+					digest.Untrusted = true
 				}
 			case "message.appended":
 				content := strings.TrimSpace(row.Data.Message.Content)
@@ -217,7 +235,7 @@ func (r *Runner) SummariseRun(ctx context.Context, sessionID, runID, workspace, 
 	if err != nil {
 		summary.Failed = "read the run's record: " + err.Error()
 	}
-	summary.Read, summary.Written = digest.Read, digest.Written
+	summary.Read, summary.Written, summary.Untrusted = digest.Read, digest.Written, digest.Untrusted
 	switch {
 	case r.Call == nil:
 		summary.Failed = "no model profile for the summary"
@@ -274,16 +292,16 @@ func mergeStrings(current, extra []string) []string {
 
 // PassResult is what one reflection pass produced.
 type PassResult struct {
-	At              time.Time       `json:"at"`
-	Manual          bool            `json:"manual"`
-	Summaries       int             `json:"summaries"`
-	Overviews       []Overview      `json:"overviews"`
-	Diffs           []string        `json:"diffs"`
-	Report          Report          `json:"report"`
-	Notes           []NoteResult    `json:"notes"`
-	PlansRegistered []PlanCandidate `json:"plans_registered"`
-	Pruned          int64           `json:"pruned"`
-	Skipped         []string        `json:"skipped,omitempty"`
+	At            time.Time       `json:"at"`
+	Manual        bool            `json:"manual"`
+	Summaries     int             `json:"summaries"`
+	Overviews     []Overview      `json:"overviews"`
+	Diffs         []string        `json:"diffs"`
+	Report        Report          `json:"report"`
+	Notes         []NoteResult    `json:"notes"`
+	PlansProposed []PlanCandidate `json:"plans_proposed"`
+	Pruned        int64           `json:"pruned"`
+	Skipped       []string        `json:"skipped,omitempty"`
 }
 
 // Pass is the fuller reflection: overviews, the report, the durable outputs,
@@ -303,6 +321,13 @@ func (r *Runner) Pass(ctx context.Context, manual bool) (PassResult, error) {
 		return result, err
 	}
 	result.Summaries = len(summaries)
+
+	// Plan proposals first: each overview names the ones in its own folder.
+	registered := func(string) bool { return false }
+	if r.Registrar != nil {
+		registered = r.Registrar.PlanRegistered
+	}
+	result.PlansProposed = PlanCandidates(summaries, registered)
 
 	// One overview per workspace the summaries name, so a plan's own text is
 	// about that plan's work.
@@ -324,7 +349,13 @@ func (r *Runner) Pass(ctx context.Context, manual bool) (PassResult, error) {
 	sort.Strings(order)
 	for _, key := range order {
 		group := byWorkspace[key]
-		overview, difference, err := r.Store.Overview(ctx, OverviewInput{PlanID: key, Root: group[0].Workspace, Summaries: group, At: result.At})
+		proposals := []PlanCandidate{}
+		for _, candidate := range result.PlansProposed {
+			if candidate.Root == filepath.Clean(group[0].Workspace) {
+				proposals = append(proposals, candidate)
+			}
+		}
+		overview, difference, err := r.Store.Overview(ctx, OverviewInput{PlanID: key, Root: group[0].Workspace, Summaries: group, At: result.At, Proposals: proposals})
 		if err != nil {
 			result.Skipped = append(result.Skipped, "overview for "+key+": "+err.Error())
 			continue
@@ -353,23 +384,33 @@ func (r *Runner) Pass(ctx context.Context, manual bool) (PassResult, error) {
 	}
 
 	// The durable outputs.
-	limit := r.NoteLimit
+	limit, passLimit := r.NoteLimit, r.PassNoteLimit
 	if limit == 0 {
 		limit = 2
 	}
-	for _, summary := range summaries {
-		result.Notes = append(result.Notes, WriteNotes(r.Noter, summary, limit)...)
+	if passLimit == 0 {
+		passLimit = 6
 	}
-	if r.Registrar != nil {
-		for _, candidate := range PlanCandidates(summaries, r.Registrar.PlanRegistered) {
-			if err := r.Registrar.RegisterPlan(candidate.Root); err != nil {
-				candidate.Reasons = append(candidate.Reasons, err.Error())
-				result.Skipped = append(result.Skipped, "register "+candidate.Root+": "+err.Error())
-				continue
+	written := 0
+	for _, summary := range summaries {
+		if written >= passLimit {
+			result.Skipped = append(result.Skipped, fmt.Sprintf("memory notes: the pass stopped at %d", passLimit))
+			break
+		}
+		for _, note := range WriteNotes(r.Noter, summary, limit) {
+			result.Notes = append(result.Notes, note)
+			if note.Written {
+				written++
+				if r.NoteWritten != nil {
+					r.NoteWritten(summary, note.Note)
+				}
 			}
-			result.PlansRegistered = append(result.PlansRegistered, candidate)
 		}
 	}
+	// Plan registration itself is a durable change the operator approves
+	// through the existing card; reflection runs unattended, so it proposes in
+	// the overview and registers nothing (v1.1.0/W6 cold review; the second
+	// walk's step 16 is what a card with nobody present costs).
 	if pruned, err := r.Store.Prune(result.At); err == nil {
 		result.Pruned = pruned
 	}

@@ -42,6 +42,10 @@ type Summary struct {
 	Text     string   `json:"text"`
 	Failed   string   `json:"failed,omitempty"`
 	Duration int64    `json:"duration_ms"`
+	// Untrusted marks a run that read content the operator did not write — a
+	// fetched page, an untrusted tool result. Reflection writes no memory note
+	// from such a run (v1.1.0/W6 cold review).
+	Untrusted bool `json:"untrusted"`
 }
 
 // Overview is one reflection pass's text for one plan, kept so two passes can
@@ -111,9 +115,12 @@ func (s *Store) migrate() error {
 			open TEXT NOT NULL,
 			text TEXT NOT NULL,
 			failed TEXT NOT NULL,
-			duration_ms INTEGER NOT NULL
+			duration_ms INTEGER NOT NULL,
+			untrusted INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS summaries_at ON summaries (at)`,
+		// A store written before v1.1.0/W6 has no untrusted column.
+		`ALTER TABLE summaries ADD COLUMN untrusted INTEGER NOT NULL DEFAULT 0`,
 		`CREATE TABLE IF NOT EXISTS overviews (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			at INTEGER NOT NULL,
@@ -131,6 +138,10 @@ func (s *Store) migrate() error {
 	}
 	for _, statement := range statements {
 		if _, err := s.db.Exec(statement); err != nil {
+			// An ALTER that has already been applied is not a failure.
+			if strings.Contains(err.Error(), "duplicate column name") {
+				continue
+			}
 			return fmt.Errorf("reflection schema: %w", err)
 		}
 	}
@@ -151,10 +162,10 @@ func (s *Store) PutSummary(summary Summary) (int64, error) {
 		summary.At = time.Now().UTC()
 	}
 	result, err := s.db.Exec(
-		`INSERT INTO summaries (at, session_id, run_id, workspace, plan_id, profile, aux, read_files, written_files, changed, open, text, failed, duration_ms)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO summaries (at, session_id, run_id, workspace, plan_id, profile, aux, read_files, written_files, changed, open, text, failed, duration_ms, untrusted)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		summary.At.UTC().UnixMilli(), summary.SessionID, summary.RunID, summary.Workspace, summary.PlanID, summary.Profile,
-		boolToInt(summary.Aux), joined(summary.Read), joined(summary.Written), summary.Changed, summary.Open, summary.Text, summary.Failed, summary.Duration)
+		boolToInt(summary.Aux), joined(summary.Read), joined(summary.Written), summary.Changed, summary.Open, summary.Text, summary.Failed, summary.Duration, boolToInt(summary.Untrusted))
 	if err != nil {
 		return 0, fmt.Errorf("record summary: %w", err)
 	}
@@ -171,7 +182,7 @@ func boolToInt(value bool) int {
 // Summaries returns the summaries at or after since, newest first. A zero
 // since reads them all, which is what a manual reflection pass does.
 func (s *Store) Summaries(since time.Time, limit int) ([]Summary, error) {
-	query := `SELECT id, at, session_id, run_id, workspace, plan_id, profile, aux, read_files, written_files, changed, open, text, failed, duration_ms
+	query := `SELECT id, at, session_id, run_id, workspace, plan_id, profile, aux, read_files, written_files, changed, open, text, failed, duration_ms, untrusted
 		FROM summaries`
 	args := []any{}
 	if !since.IsZero() {
@@ -192,27 +203,46 @@ func (s *Store) Summaries(since time.Time, limit int) ([]Summary, error) {
 	for rows.Next() {
 		var summary Summary
 		var at int64
-		var aux int
+		var aux, untrusted int
 		var read, written string
-		if err := rows.Scan(&summary.ID, &at, &summary.SessionID, &summary.RunID, &summary.Workspace, &summary.PlanID, &summary.Profile, &aux, &read, &written, &summary.Changed, &summary.Open, &summary.Text, &summary.Failed, &summary.Duration); err != nil {
+		if err := rows.Scan(&summary.ID, &at, &summary.SessionID, &summary.RunID, &summary.Workspace, &summary.PlanID, &summary.Profile, &aux, &read, &written, &summary.Changed, &summary.Open, &summary.Text, &summary.Failed, &summary.Duration, &untrusted); err != nil {
 			return nil, fmt.Errorf("read summaries: %w", err)
 		}
 		summary.At = time.UnixMilli(at).UTC()
-		summary.Aux = aux == 1
+		summary.Aux, summary.Untrusted = aux == 1, untrusted == 1
 		summary.Read, summary.Written = split(read), split(written)
 		summaries = append(summaries, summary)
 	}
 	return summaries, rows.Err()
 }
 
-// Prune drops summaries older than the retention window. Overviews and reports
-// are kept: they are the diffable record.
+// KeptOverviews and KeptReports bound the diffable record. Without a bound the
+// store grows with every pass forever (v1.1.0/W6 cold review).
+const (
+	KeptOverviews = 60
+	KeptReports   = 30
+)
+
+// Prune drops summaries older than the retention window, and keeps the newest
+// overviews per plan and the newest reports.
 func (s *Store) Prune(now time.Time) (int64, error) {
 	result, err := s.db.Exec(`DELETE FROM summaries WHERE at < ?`, now.Add(-Retention).UTC().UnixMilli())
 	if err != nil {
 		return 0, fmt.Errorf("prune summaries: %w", err)
 	}
-	return result.RowsAffected()
+	removed, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if _, err := s.db.Exec(`DELETE FROM overviews WHERE id NOT IN (
+			SELECT id FROM overviews o WHERE (SELECT COUNT(*) FROM overviews n WHERE n.plan_id = o.plan_id AND n.id >= o.id) <= ?
+		)`, KeptOverviews); err != nil {
+		return removed, fmt.Errorf("prune overviews: %w", err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM reports WHERE id NOT IN (SELECT id FROM reports ORDER BY id DESC LIMIT ?)`, KeptReports); err != nil {
+		return removed, fmt.Errorf("prune reports: %w", err)
+	}
+	return removed, nil
 }
 
 // PutOverview stores one pass's overview for a plan.

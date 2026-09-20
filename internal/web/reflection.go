@@ -21,10 +21,10 @@ import (
 // anywhere in reflection is logged and dropped.
 
 type reflectionState struct {
-	mu     sync.Mutex
-	runner *reflection.Runner
-	store  *reflection.Store
-	stop   chan struct{}
+	runner   *reflection.Runner
+	store    *reflection.Store
+	stop     chan struct{}
+	inFlight sync.WaitGroup
 }
 
 // StartReflection opens the store and begins the pass. It is called once, from
@@ -44,25 +44,45 @@ func (s *Server) StartReflection(tick time.Duration) {
 	if s.memoryState != nil {
 		runner.Noter = s.memoryState
 	}
+	runner.NoteWritten = func(summary reflection.Summary, note string) {
+		// The note is published like the model's own, so the operator's
+		// existing "delete this chat and drop its memory" path can revoke it
+		// (v1.1.0/W6 cold review).
+		s.bus.Publish(events.New(events.MemoryNoted, summary.SessionID, summary.RunID, map[string]any{"note": note, "path": summary.Workspace, "target": "folder", "source": "reflection"}))
+	}
+	s.mu.Lock()
 	s.reflection = &reflectionState{runner: runner, store: store, stop: make(chan struct{})}
-	go s.reflectionLoop(tick)
+	state := s.reflection
+	s.mu.Unlock()
+	go s.reflectionLoop(tick, state)
 }
 
 // StopReflection ends the pass and closes the store.
 func (s *Server) StopReflection() {
-	if s.reflection == nil {
+	s.mu.Lock()
+	state := s.reflection
+	s.reflection = nil
+	s.mu.Unlock()
+	if state == nil {
 		return
 	}
-	close(s.reflection.stop)
-	if err := s.reflection.store.Close(); err != nil {
+	close(state.stop)
+	// Wait for a summary that is already in flight before closing the store.
+	state.inFlight.Wait()
+	if err := state.store.Close(); err != nil {
 		log.Printf("reflection: closing the store: %v", err)
 	}
-	s.reflection = nil
+}
+
+// reflectionNow is the live state, or nil when reflection is off.
+func (s *Server) reflectionNow() *reflectionState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reflection
 }
 
 // reflectionLoop watches for closed runs and runs the fuller pass on the tick.
-func (s *Server) reflectionLoop(tick time.Duration) {
-	state := s.reflection
+func (s *Server) reflectionLoop(tick time.Duration, state *reflectionState) {
 	channel, unsubscribe := s.bus.Subscribe()
 	defer unsubscribe()
 	if tick <= 0 {
@@ -80,16 +100,24 @@ func (s *Server) reflectionLoop(tick time.Duration) {
 			}
 			data, _ := event.Data.(map[string]any)
 			runID, _ := data["run_id"].(string)
-			go s.reflectOnClosedRun(event.SessionID, runID)
+			state.inFlight.Add(1)
+			go func(sessionID, runID string) {
+				defer state.inFlight.Done()
+				s.reflectOnClosedRun(sessionID, runID)
+			}(event.SessionID, runID)
 		case <-ticker.C:
-			go s.reflectionPass(false)
+			state.inFlight.Add(1)
+			go func() {
+				defer state.inFlight.Done()
+				s.reflectionPass(false)
+			}()
 		}
 	}
 }
 
 // reflectOnClosedRun summarises one finished run.
 func (s *Server) reflectOnClosedRun(sessionID, runID string) {
-	state := s.reflection
+	state := s.reflectionNow()
 	if state == nil || sessionID == "" || runID == "" {
 		return
 	}
@@ -109,7 +137,7 @@ func (s *Server) reflectOnClosedRun(sessionID, runID string) {
 
 // reflectionPass runs the fuller pass.
 func (s *Server) reflectionPass(manual bool) (reflection.PassResult, error) {
-	state := s.reflection
+	state := s.reflectionNow()
 	if state == nil {
 		return reflection.PassResult{}, nil
 	}
@@ -201,7 +229,7 @@ func (s *Server) reflectionEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := reflectionResponse{}
-	if state := s.reflection; state != nil {
+	if state := s.reflectionNow(); state != nil {
 		response.Enabled = true
 		planID := r.URL.Query().Get("plan_id")
 		if overviews, err := state.store.Overviews(planID, 1); err == nil && len(overviews) > 0 {

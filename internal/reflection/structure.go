@@ -69,8 +69,12 @@ type resolver struct {
 
 func resolvers() []resolver {
 	return []resolver{
-		{Language: "Go", Marker: "go.mod", Command: []string{"go", "list", "-deps", "-json", "./..."}, Env: []string{"GOPROXY=off", "GOFLAGS=-mod=readonly", "GOWORK=off"}, Parse: parseGoList},
-		{Language: "Rust", Marker: "Cargo.toml", Command: []string{"cargo", "metadata", "--offline", "--format-version", "1", "--no-deps"}, Parse: parseCargoMetadata},
+		// The environment is pinned, not inherited (v1.1.0/W6 cold review): a
+		// repository names its own toolchain in go.mod or rust-toolchain.toml,
+		// and an inherited GOTOOLCHAIN or RUSTUP_TOOLCHAIN would let it choose
+		// the binary that runs.
+		{Language: "Go", Marker: "go.mod", Command: []string{"go", "list", "-deps", "-json", "./..."}, Env: []string{"GOPROXY=off", "GOFLAGS=-mod=readonly", "GOWORK=off", "GOTOOLCHAIN=local", "GOBIN="}, Parse: parseGoList},
+		{Language: "Rust", Marker: "Cargo.toml", Command: []string{"cargo", "metadata", "--offline", "--format-version", "1", "--no-deps"}, Env: []string{"CARGO_NET_OFFLINE=true", "RUSTUP_TOOLCHAIN=", "RUSTC="}, Parse: parseCargoMetadata},
 	}
 }
 
@@ -185,8 +189,10 @@ func importPatterns() []importPattern {
 }
 
 // maxScannedFiles bounds tier 2 and tier 3: reflection reads a repository, it
-// does not crawl a disk.
+// does not crawl a disk. maxSourceBytes bounds one file: a generated bundle is
+// not worth reading into memory (v1.1.0/W6 cold review).
 const maxScannedFiles = 4000
+const maxSourceBytes = 1 << 20
 
 func skipDirectory(name string) bool {
 	switch name {
@@ -247,7 +253,7 @@ func tierTwo(root string) (*Graph, error) {
 			continue
 		}
 		info, err := os.Stat(file)
-		if err != nil {
+		if err != nil || info.Size() > maxSourceBytes {
 			continue
 		}
 		relative := filepath.ToSlash(mustRel(root, file))

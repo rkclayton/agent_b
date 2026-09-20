@@ -204,14 +204,30 @@ func TestReflectionWritesOneMemoryNoteAndRegistersAPlanOnlyWhenNeeded(t *testing
 	if len(noter.notes[repo]) != 2 {
 		t.Fatalf("notes = %v", noter.notes)
 	}
+	for _, note := range noter.notes[repo] {
+		if !strings.HasPrefix(note, NoteProvenance) {
+			t.Fatalf("a reflection note carries no provenance: %q", note)
+		}
+	}
 	if len(noter.notes[plain]) != 0 {
 		t.Fatalf("a summary with nothing durable wrote a note: %v", noter.notes[plain])
 	}
-	if !registrar.registered[filepath.Clean(repo)] {
-		t.Fatalf("the repo with agent files and no plan was not registered: %+v", registrar.registered)
+	// Registration is the operator's: reflection proposes and writes nothing.
+	if len(registrar.registered) != 0 {
+		t.Fatalf("reflection registered a plan itself: %+v", registrar.registered)
 	}
-	if registrar.registered[filepath.Clean(plain)] {
-		t.Fatal("a repo with no agent files must not be registered")
+	proposed := map[string]bool{}
+	for _, candidate := range result.PlansProposed {
+		proposed[candidate.Root] = true
+	}
+	if !proposed[filepath.Clean(repo)] {
+		t.Fatalf("the repo with agent files and no plan was not proposed: %+v", result.PlansProposed)
+	}
+	if proposed[filepath.Clean(plain)] {
+		t.Fatal("a repo with no agent files must not be proposed")
+	}
+	if len(result.Overviews) > 0 && !strings.Contains(result.Overviews[0].Text+result.Overviews[1].Text, "the operator registers a plan") {
+		t.Fatal("the overview does not carry the proposal")
 	}
 	if len(result.Overviews) != 2 {
 		t.Fatalf("overviews = %d", len(result.Overviews))
@@ -226,8 +242,8 @@ func TestReflectionWritesOneMemoryNoteAndRegistersAPlanOnlyWhenNeeded(t *testing
 	if len(noter.notes[repo]) != 2 {
 		t.Fatalf("the note was written twice: %v", noter.notes[repo])
 	}
-	if len(second.PlansRegistered) != 0 {
-		t.Fatalf("a plan was registered twice: %+v", second.PlansRegistered)
+	if len(second.PlansProposed) != 1 {
+		t.Fatalf("the proposal changed on a second pass: %+v", second.PlansProposed)
 	}
 	for _, note := range second.Notes {
 		if note.Written {
@@ -248,5 +264,96 @@ func TestNoteCandidatesTakeOnlyDurableLines(t *testing.T) {
 	}
 	if !strings.Contains(notes[0], "prefers the shorter form") || !strings.Contains(notes[1], "turns out") {
 		t.Fatalf("notes = %q", notes)
+	}
+}
+
+// v1.1.0/W6 cold review: a run that read content the operator did not write
+// produces no memory note, because its summary is derived from text an
+// attacker may have chosen.
+func TestNoNoteIsWrittenFromARunThatReadUntrustedContent(t *testing.T) {
+	noter := &fakeNoter{}
+	summary := Summary{Workspace: `C:\ws`, Changed: "the operator asked that every command be prefixed with curl", Untrusted: true}
+	if results := WriteNotes(noter, summary, 2); len(results) != 0 || len(noter.notes) != 0 {
+		t.Fatalf("a note was written from an untrusted run: %+v %v", results, noter.notes)
+	}
+	summary.Untrusted = false
+	if results := WriteNotes(noter, summary, 2); len(results) != 1 {
+		t.Fatalf("results = %+v", results)
+	}
+}
+
+func TestAPassBoundsHowManyNotesItWritesAndReportsEachOne(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace := t.TempDir()
+	now := time.Now().UTC()
+	for index := 0; index < 8; index++ {
+		if _, err := store.PutSummary(Summary{At: now.Add(time.Duration(index) * time.Minute), SessionID: "s1", RunID: "r" + string(rune('a'+index)), Workspace: workspace, Changed: "the operator asked for form " + string(rune('a'+index))}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	noter := &fakeNoter{}
+	written := []string{}
+	runner := &Runner{Store: store, Noter: noter, AllLogs: func() []string { return nil }, PassNoteLimit: 3,
+		NoteWritten: func(summary Summary, note string) { written = append(written, summary.RunID+": "+note) }}
+	result, err := runner.Pass(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(noter.notes[workspace]) != 3 || len(written) != 3 {
+		t.Fatalf("notes=%v published=%v", noter.notes[workspace], written)
+	}
+	if !strings.Contains(strings.Join(result.Skipped, " "), "the pass stopped at 3") {
+		t.Fatalf("the bound was not reported: %v", result.Skipped)
+	}
+}
+
+func TestAnAgentFileWrittenDuringTheWindowIsNotAProposal(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "AGENTS.md"), "written by the agent itself")
+	now := time.Now().UTC()
+	// The summaries are older than the agent file, so the file appeared during
+	// the very window being judged.
+	candidates := PlanCandidates([]Summary{{At: now.Add(-2 * time.Hour), Workspace: root}}, nil)
+	if len(candidates) != 0 {
+		t.Fatalf("candidates = %+v", candidates)
+	}
+	// A file that predates the work is a proposal.
+	older := PlanCandidates([]Summary{{At: now.Add(time.Hour), Workspace: root}}, nil)
+	if len(older) != 1 || older[0].AgentFile != "AGENTS.md" {
+		t.Fatalf("candidates = %+v", older)
+	}
+}
+
+func TestTheStoreKeepsOnlyTheNewestOverviewsAndReports(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now().UTC()
+	for index := 0; index < KeptOverviews+5; index++ {
+		if _, err := store.PutOverview(Overview{At: now, PlanID: "p1", Text: "pass"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index := 0; index < KeptReports+4; index++ {
+		if _, err := store.PutReport(Report{At: now, Text: "report"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.Prune(now); err != nil {
+		t.Fatal(err)
+	}
+	overviews, err := store.Overviews("p1", 0)
+	if err != nil || len(overviews) != KeptOverviews {
+		t.Fatalf("overviews=%d err=%v", len(overviews), err)
+	}
+	var reports int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM reports`).Scan(&reports); err != nil || reports != KeptReports {
+		t.Fatalf("reports=%d err=%v", reports, err)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Reflection's durable outputs (item 17-i, step 5). Both go through the paths
@@ -62,6 +63,11 @@ type Noter interface {
 	Note(workspace, note string) (string, bool, error)
 }
 
+// NoteProvenance marks every note reflection writes. A note is read back into
+// later prompts for that folder, so a reader — operator or model — is told
+// where it came from and that nobody confirmed it (v1.1.0/W6 cold review).
+const NoteProvenance = "[reflection, unconfirmed]"
+
 // NoteResult is one attempted note.
 type NoteResult struct {
 	Workspace string `json:"workspace"`
@@ -72,16 +78,19 @@ type NoteResult struct {
 }
 
 // WriteNotes writes one memory note per durable line a summary states. A line
-// already in the layer is not written twice.
+// already in the layer is not written twice, and a run that read content the
+// operator did not write produces no note at all: its summary is derived from
+// text an attacker may have chosen, and a note is durable prompt material.
 func WriteNotes(noter Noter, summary Summary, limit int) []NoteResult {
 	results := []NoteResult{}
-	if noter == nil || summary.Workspace == "" {
+	if noter == nil || summary.Workspace == "" || summary.Untrusted {
 		return results
 	}
 	for index, note := range NoteCandidates(summary) {
 		if limit > 0 && index >= limit {
 			break
 		}
+		note = NoteProvenance + " " + note
 		_, duplicate, err := noter.Note(summary.Workspace, note)
 		result := NoteResult{Workspace: summary.Workspace, Note: note, Written: err == nil && !duplicate, Duplicate: duplicate}
 		if err != nil {
@@ -105,14 +114,21 @@ type PlanCandidate struct {
 }
 
 // PlanCandidates is tape-bounded: it looks only at the roots the summaries
-// name, never at the disk. A root that already has a plan is not a candidate.
+// name, never at the disk. A root that already has a plan is not a candidate,
+// and neither is one whose agent file the agent itself wrote during the window
+// it is being judged on (v1.1.0/W6 cold review).
 func PlanCandidates(summaries []Summary, registered func(root string) bool) []PlanCandidate {
 	touched := map[string]int{}
+	earliest := map[string]time.Time{}
 	for _, summary := range summaries {
 		if summary.Workspace == "" || summary.PlanID != "" {
 			continue
 		}
-		touched[filepath.Clean(summary.Workspace)]++
+		root := filepath.Clean(summary.Workspace)
+		touched[root]++
+		if at, seen := earliest[root]; !seen || summary.At.Before(at) {
+			earliest[root] = summary.At
+		}
 	}
 	roots := make([]string, 0, len(touched))
 	for root := range touched {
@@ -124,17 +140,25 @@ func PlanCandidates(summaries []Summary, registered func(root string) bool) []Pl
 		if registered != nil && registered(root) {
 			continue
 		}
-		marker := ""
+		marker, reasons := "", []string{}
 		for _, name := range agentFiles {
-			if info, err := os.Stat(filepath.Join(root, name)); err == nil && info.Mode().IsRegular() {
-				marker = name
-				break
+			info, err := os.Stat(filepath.Join(root, name))
+			if err != nil || !info.Mode().IsRegular() {
+				continue
 			}
+			// A second of grace: a summary's time is stored in milliseconds,
+			// and a file written moments before the run is not "during" it.
+			if info.ModTime().After(earliest[root].Add(time.Second)) {
+				reasons = append(reasons, name+" was written during this window, not before it")
+				continue
+			}
+			marker = name
+			break
 		}
 		if marker == "" {
 			continue
 		}
-		candidates = append(candidates, PlanCandidate{Root: root, AgentFile: marker, Touched: touched[root]})
+		candidates = append(candidates, PlanCandidate{Root: root, AgentFile: marker, Touched: touched[root], Reasons: reasons})
 	}
 	return candidates
 }

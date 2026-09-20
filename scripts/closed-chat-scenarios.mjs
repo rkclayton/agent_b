@@ -86,18 +86,24 @@ try {
     // order and invent nothing. Comparing the raw entry list against the
     // grouped render — which is what v1.1.2 did — measures the grouping, not
     // the record.
-    // `tool-group:<key>` and `thought:<key>` are rows the renderer derives from
-    // a journal entry; both map back to it.
-    const underlying = (key) => key.replace(/^tool-group:/, "").replace(/^thought:/, "");
+    // Item 2gs: the comparison is over the FULL key list, in order, not the
+    // intersection — v1.1.2 compared intersections and could not see the
+    // transcript rendering runs out of order. `tool-group:<key>` and
+    // `thought:<key>` are rows derived from a journal entry, and `<key>#2` is
+    // the second row for a journal id that genuinely repeats; all map back.
+    // The rendered keys must then be a SUBSEQUENCE of the journal's list,
+    // matched greedily left to right so a repeated id consumes its NEXT
+    // occurrence rather than the first — matching the first is what made a
+    // correct render look unordered.
+    const underlying = (key) => key.replace(/^tool-group:/, "").replace(/^thought:/, "").replace(/#\d+$/, "");
     const distinct = [];
-    for (const key of seen.keys.map(underlying)) if (!distinct.includes(key)) distinct.push(key);
+    for (const key of seen.keys.map(underlying)) if (distinct[distinct.length - 1] !== key) distinct.push(key);
     const extra = distinct.filter((key) => !entries.includes(key));
     let cursor = -1;
     let ordered = true;
     for (const key of distinct) {
-      const at = entries.indexOf(key);
-      if (at < 0) continue;
-      if (at <= cursor) { ordered = false; break; }
+      const at = entries.indexOf(key, cursor + 1);
+      if (at < 0) { ordered = false; break; }
       cursor = at;
     }
     const detail = { id, closed: session.closed, entries: entries.length, rendered: distinct.length, extra: extra.length, extra_keys: extra.slice(0, 5), rendered_head: distinct.slice(0, 12), entry_head: entries.slice(0, 12), ordered, url: seen.url, selected: seen.selected };

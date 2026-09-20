@@ -180,3 +180,31 @@ test("A run stopped mid-tool is a flat transcript line, never folded into Steps 
 	assert.match(chat, /entry\.event\?\.type === "run\.stopped" && entry\.event\?\.data\?\.reason === "aborted_mid_tool"\)[\s\S]*grouped\.push\(entry\);/);
 	assert.match(chat, /data\.reason === "aborted_mid_tool"[\s\S]{0,200}stopped mid-tool/);
 });
+
+// Item 2gs (v1.2.1/W1): a journal id that appears twice gets two rows.
+//
+// The transcript rendered the operator's chats out of order — s6 showed
+// m-5, m-9 and only then m-1, m-3. Nothing in the ordering code was wrong:
+// his journal repeats message ids, the view cache was keyed by the id, so the
+// second occurrence was handed the first one's DOM node, and insertBefore
+// MOVES a node it already holds. Eighteen entries became twelve rows in the
+// order they were last moved to.
+test("a repeated entry key is drawn as its own row, not moved", async () => {
+  const chat = await readFile(new URL("./chat.js", import.meta.url), "utf8");
+  // The per-pass key, and both caches using it rather than the raw key.
+  assert.match(chat, /function viewKeyFor\(entry\) \{/);
+  assert.match(chat, /if \(!usedEntryViews\.has\(entry\.key\)\) return entry\.key;/);
+  assert.match(chat, /entryViews\.set\(viewKey, view\)/);
+  assert.match(chat, /usedEntryViews\.add\(viewKey\)/);
+  // Both renderers that cache a row take the per-pass key.
+  const renderEntry = chat.slice(chat.indexOf("function renderEntry(session, entry)"));
+  assert.match(renderEntry.slice(0, 900), /const viewKey = viewKeyFor\(entry\);/);
+  const renderResponse = chat.slice(chat.indexOf("function renderResponse(session, entry)"));
+  assert.match(renderResponse.slice(0, 300), /const viewKey = viewKeyFor\(entry\);/);
+  // The raw key must no longer be what the cache is keyed by, or the collapse
+  // comes back.
+  assert.doesNotMatch(chat, /entryViews\.set\(entry\.key, view\)/);
+  assert.doesNotMatch(chat, /usedEntryViews\.add\(entry\.key\)/);
+  // A repeat is never dropped: that would hide part of the record.
+  assert.doesNotMatch(chat, /entries\.filter\([^)]*seen[^)]*\)/);
+});

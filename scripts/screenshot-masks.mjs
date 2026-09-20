@@ -20,7 +20,11 @@ export const LIVE_VALUES = [
   // is carded, and the rest of the composer is compared exactly.
   { name: "composer-corner-variance", reason: "the composer's bottom corners antialias a level or two apart between runs of one build", selector: "#chat-task", corners: 4 },
   { name: "transcript-scrollbar", reason: "the thumb's length and place follow the transcript's height, which live text wraps change", selector: "#chat-log", scrollbar: true },
-  { name: "loopback-port", reason: "the fake model server's port is chosen when it starts", selector: "body", pattern: String.raw`(?:127\.0\.0\.1|localhost):\d{2,5}` },
+  // v1.2.2/W3: the unreachable notice elides the host, so the visible run can
+  // be "0.1:58507" with no 127. prefix for the old pattern to match, and that
+  // one un-masked run was the whole difference between two captures of one
+  // build. Same named live value, matched wherever the host is cut.
+  { name: "loopback-port", reason: "the fake model server's port is chosen when it starts", selector: "body", pattern: String.raw`(?:[\d.]*\d\.\d+|localhost):\d{2,5}` },
   { name: "budget-meter", reason: "the chat's budget fill follows measured token counts", selector: ".chat-budget-fill" },
   // v1.0.0/W5: the staged candidate's prompt measured five tokens more than a
   // working-tree build's, so every token readout and the Console rail's

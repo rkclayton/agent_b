@@ -32,7 +32,7 @@ async function capture(name, exe, appRoot, expected) {
   const workspace = resolve(args.data, "workspaces", name, "workspace");
   await mkdir(dataRoot, { recursive: true });
   await mkdir(workspace, { recursive: true });
-  const config = { config_version: 6, listen: `127.0.0.1:${port}`, workspace, log_dir: join(dataRoot, "logs"), servers: [profile], services: {}, agents: [{ name: "Screenshot", b: "local", toolset: ["read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "find_files", "run_script", "call_service"] }] };
+  const config = { config_version: 6, listen: `127.0.0.1:${port}`, workspace, log_dir: join(dataRoot, "logs"), servers: [profile], services: {}, agents: [{ name: "Screenshot", b: "local", toolset: ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"] }] };
   const configPath = join(dataRoot, "harness.json");
   await writeFile(configPath, JSON.stringify(config, null, 2));
   const app = spawn(resolve(exe), ["-config", configPath, "-app-root", resolve(appRoot), "-data-root", dataRoot], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });

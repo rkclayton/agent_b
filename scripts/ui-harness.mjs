@@ -44,7 +44,7 @@ async function stopChild(child) {
   await Promise.race([new Promise((done) => child.once("exit", done)), sleep(3000)]);
 }
 
-const TOOLSET = ["read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "find_files", "run_script", "call_service"];
+const TOOLSET = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"];
 
 function configFor({ appPort, modelPort, data, workspace, agents = [] }) {
   return {

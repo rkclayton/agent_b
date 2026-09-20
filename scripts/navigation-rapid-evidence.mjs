@@ -55,7 +55,7 @@ const appPort = await freePort();
 const dataRoot = resolve(args.data);
 const workspace = join(dataRoot, "workspace");
 await mkdir(workspace, { recursive: true });
-const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "find_files", "run_script", "call_service"];
+const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"];
 const config = {
   config_version: 6, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(dataRoot, "logs"),
   servers: [{ id: "navigation", label: "Navigation", base_url: `http://127.0.0.1:${modelPort}`, model: "navigation-rapid-evidence", credential: "", request_timeout_s: 3, probe_mode: "off",

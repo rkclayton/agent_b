@@ -956,10 +956,31 @@ func TestAttachmentConfigIsAdditiveCurrentSchema(t *testing.T) {
 	}
 }
 
-func TestFullToolsetContractHasTwelveStableTools(t *testing.T) {
-	want := "read_file,list_dir,write_file,edit_file,search_text,shell,remember,recall,fetch_url,find_files,run_script,call_service"
+// Item 13 (v1.2.5): eleven, in a stable order. search_text and find_files are
+// one `search` with a target, in the place the first of them held.
+func TestFullToolsetContractHasElevenStableTools(t *testing.T) {
+	want := "read_file,list_dir,write_file,edit_file,search,shell,remember,recall,fetch_url,run_script,call_service"
 	got := FullToolset()
-	if len(got) != 12 || strings.Join(got, ",") != want {
+	if len(got) != 11 || strings.Join(got, ",") != want {
 		t.Fatalf("full toolset=%v", got)
+	}
+}
+
+// A configuration written before the merge names the two tools it replaced.
+// That meant "this agent may search", so it is read as search rather than
+// refused as unknown, which would have turned searching off silently.
+func TestPreMergeToolsetIsReadAsSearch(t *testing.T) {
+	for _, item := range []struct {
+		toolset []string
+		want    string
+	}{
+		{[]string{"read_file", "search_text", "find_files"}, "read_file,search"},
+		{[]string{"search_text"}, "search"},
+		{[]string{"find_files", "shell"}, "search,shell"},
+		{[]string{"read_file", "shell"}, "read_file,shell"},
+	} {
+		if got := strings.Join(migrateToolset(item.toolset), ","); got != item.want {
+			t.Fatalf("migrateToolset(%v) = %q, want %q", item.toolset, got, item.want)
+		}
 	}
 }

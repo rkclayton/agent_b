@@ -61,8 +61,34 @@ func AgentID(name string) string {
 	return strings.Trim(id, "-")
 }
 
+// Item 13 (v1.2.5): ELEVEN. search_text and find_files became one `search`
+// with a target, in the place the first of them held.
 func FullToolset() []string {
-	return []string{"read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "find_files", "run_script", "call_service"}
+	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"}
+}
+
+// MergedSearchNames are the two tools `search` replaced. A configuration
+// written before v1.2.5 names them, and an agent whose toolset named them meant
+// "this agent may search" - so they are read as `search` rather than rejected
+// as unknown, which would have turned searching off without saying so.
+var MergedSearchNames = map[string]bool{"search_text": true, "find_files": true}
+
+// migrateToolset rewrites a pre-v1.2.5 toolset in place, without changing what
+// the agent is allowed to do.
+func migrateToolset(toolset []string) []string {
+	migrated := make([]string, 0, len(toolset))
+	seen := map[string]bool{}
+	for _, name := range toolset {
+		if MergedSearchNames[name] {
+			name = "search"
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		migrated = append(migrated, name)
+	}
+	return migrated
 }
 
 type Chat struct {
@@ -521,6 +547,12 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	cfg.Shell.OperatorContext = false
 	cfg.Shell.OperatorContextExpiresAt = ""
 	applyDefaults(&cfg)
+	// Item 13 (v1.2.5): a configuration written before the merge names the two
+	// tools that became `search`. It meant "this agent may search", so it is
+	// read that way rather than refused as unknown.
+	for i := range cfg.Agents {
+		cfg.Agents[i].Toolset = migrateToolset(cfg.Agents[i].Toolset)
+	}
 	approvalDefaultCorrected := unstamped && metadata.Approval.Mode == ApprovalModeMutating
 	if approvalDefaultCorrected {
 		cfg.Approval.Mode = ApprovalModeBoundaryOnly

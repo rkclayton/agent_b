@@ -394,7 +394,7 @@ await writeFile(join(bound, "long-tool.txt"), Array.from({ length: 100 }, (_, in
 if (!realModel) await startFake();
 const profileURL = realModel ? args["real-model-url"] : `http://127.0.0.1:${modelPort}`;
 const profileName = realModel ? args["real-model-name"] : "agentb-fake";
-const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "find_files", "run_script", "call_service"];
+const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"];
 const config = {
   config_version: 6, listen: `127.0.0.1:${appPort}`, workspace: args.workspace, log_dir: join(args.data, "logs"),
   servers: [{ id: "acceptance", label: "Acceptance", base_url: profileURL, model: profileName, credential: "", request_timeout_s: 3, probe_mode: "off",

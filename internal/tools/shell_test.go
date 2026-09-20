@@ -139,7 +139,7 @@ func TestShellFileRoutingRefusals(t *testing.T) {
 	for _, test := range []struct {
 		name, tool string
 		commands   []string
-	}{{"discovery", "find_files", discovery}, {"read", "read_file", reads}} {
+	}{{"discovery", "search", discovery}, {"read", "read_file", reads}} {
 		t.Run(test.name, func(t *testing.T) {
 			for _, command := range test.commands {
 				t.Run(strings.Fields(command)[0], func(t *testing.T) {
@@ -549,7 +549,8 @@ func TestServiceBoundaryReasonOffersOverrideOnlyForOperatorVisibleAbsoluteExecut
 
 func TestShellFileRoutingArguments(t *testing.T) {
 	discovery, _ := inspectShellFileRouting(`Get-ChildItem -Path src -Filter "*.go" -Recurse`)
-	if discovery == nil || discovery.Replacement.Tool != "find_files" || discovery.Replacement.Arguments["pattern"] != "*.go" || discovery.Replacement.Arguments["path"] != "src" {
+	// Item 13 (v1.2.5): file discovery is `search` with target=name.
+	if discovery == nil || discovery.Replacement.Tool != "search" || discovery.Replacement.Arguments["pattern"] != "*.go" || discovery.Replacement.Arguments["path"] != "src" || discovery.Replacement.Arguments["target"] != "name" {
 		t.Fatalf("unexpected discovery replacement: %+v", discovery)
 	}
 	read, _ := inspectShellFileRouting(`Get-Content -Path "docs/guide.md"`)

@@ -102,24 +102,30 @@ func windowsPowerShell() string {
 
 // runInstall is `--install`. It returns the exit code.
 func runInstall(options installOptions, args []string) int {
+	// Item 2gv (v1.2.5): THE LOG IS THE FIRST THING. Before the source is
+	// resolved, before the marker, before any check — because a failure before
+	// the log is a failure nobody can read, which is exactly what the operator
+	// met when a double-clicked setup did nothing at all.
+	dataRoot := options.dataRoot
+	if dataRoot == "" {
+		dataRoot = filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b")
+	}
+	log := openInstallLog(dataRoot, options.quiet)
+	defer log.close()
+	log.printf("install: starting; data root %s", dataRoot)
+
 	source := options.sourceDir
 	if source == "" {
 		executable, err := os.Executable()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "install: cannot locate this executable:", err)
-			return 1
+			return log.fail("cannot locate this executable: %v", err)
 		}
 		source = filepath.Dir(executable)
 	}
+	log.printf("install: source %s", source)
 	script := filepath.Join(source, "scripts", "install-Agent_b.ps1")
 	if _, err := os.Stat(script); err != nil {
-		fmt.Fprintf(os.Stderr, "install: %s is missing; run this from the candidate folder\n", script)
-		return 1
-	}
-
-	dataRoot := options.dataRoot
-	if dataRoot == "" {
-		dataRoot = filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b")
+		return log.fail("%s is missing; run this from the candidate folder", script)
 	}
 
 	// The marker goes down BEFORE anything is touched, so a failure from here
@@ -127,8 +133,7 @@ func runInstall(options installOptions, args []string) int {
 	// operator closes.
 	marker := InstallMarker{Phase: "starting", Version: currentDisplayVersion(source), Source: source, Quiet: options.quiet}
 	if err := writeInstallMarker(dataRoot, marker); err != nil {
-		fmt.Fprintln(os.Stderr, "install: could not record that the install began:", err)
-		return 1
+		return log.fail("could not record that the install began: %v", err)
 	}
 	_ = os.Remove(installProgressPath(dataRoot))
 	appendProgress(dataRoot, installProgress{Phase: "starting", Text: "Installing Agent_b " + marker.Version})
@@ -139,13 +144,11 @@ func runInstall(options installOptions, args []string) int {
 	command.Dir = source
 	output, err := command.StdoutPipe()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "install:", err)
-		return 1
+		return log.fail("could not read the installer's output: %v", err)
 	}
 	command.Stderr = command.Stdout
 	if err := command.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, "install: could not start the installer:", err)
-		return 1
+		return log.fail("could not start the installer: %v", err)
 	}
 
 	scanner := bufio.NewScanner(output)
@@ -182,13 +185,20 @@ func runInstall(options installOptions, args []string) int {
 		// The marker is cleared ONLY on success. That is what makes its
 		// presence at the next launch mean something.
 		if err := clearInstallMarker(dataRoot); err != nil {
-			fmt.Fprintln(os.Stderr, "install: the install finished but its marker could not be cleared:", err)
+			log.printf("install: the install finished but its marker could not be cleared: %v", err)
 		}
 		return 0
 	}
 	appendProgress(dataRoot, installProgress{Phase: lastPhase, Text: fmt.Sprintf("The install stopped during %s (exit %d). It is safe to run again.", lastPhase, code), Done: true})
 	marker.Phase = lastPhase
 	_ = writeInstallMarker(dataRoot, marker)
+	// Item 2gv: this exit is logged too. The Setup page shows the same thing
+	// when it is up; from Explorer with no page yet, the box and the log are
+	// the whole of the report.
+	log.printf("install: the installer exited %d during %s", code, lastPhase)
+	if !options.quiet {
+		showInstallFailure("Agent_b install failed", fmt.Sprintf("The install stopped during %s (exit %d). It is safe to run again.\n\nLog: %s", lastPhase, code, log.location()))
+	}
 	return code
 }
 

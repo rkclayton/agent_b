@@ -249,7 +249,10 @@ try {
     } else {
         Write-Host 'Starting Agent_b. Close this window or press Ctrl+C to stop it.'
     }
-    $startupCapture = if ($Detached) { New-AgentBStartupCapture } else { $null }
+    # Item 2gw (v1.2.5): the startup log is written whichever way this is
+    # launched. It used to be created only on the detached path, so a start
+    # that failed in the foreground - or from Explorer - left no reason behind.
+    $startupCapture = New-AgentBStartupCapture
     $configArgument = '-config "' + $configPath.Replace('"', '\"') + '" -app-root "' + $applicationRoot.Replace('"', '\"') + '" -data-root "' + $dataRoot.Replace('"', '\"') + '"'
     if ($startupCapture) {
         $configArgument += ' -startup-log "' + $startupCapture.Replace('"', '\"') + '"'

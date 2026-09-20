@@ -13,6 +13,7 @@ import (
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/probe"
+	"harness/internal/tools"
 )
 
 func (s *Server) shellCredential(w http.ResponseWriter, r *http.Request) {
@@ -197,6 +198,11 @@ func (s *Server) runProbe(ctx context.Context, profile *config.Profile, current 
 		caps, findings = failedProbeCapabilities(profile, err)
 	}
 	s.mu.Lock()
+	// Item 2gb: the probe's findings name the shell that backs the shell tool
+	// on this host, so the operator can see which dialect the model is told to
+	// write. It is a host fact, not the server's, and is recorded either way.
+	findings = append(findings, tools.ShellHostFinding(s.cfg.Shell))
+	caps.Findings = findings
 	for i := range s.cfg.Servers {
 		if s.cfg.Servers[i].ID == profile.ID {
 			s.cfg.Servers[i].Capabilities = caps

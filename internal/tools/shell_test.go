@@ -38,7 +38,13 @@ func (exitedShellProcess) KillTree()            {}
 
 func TestShellDescriptionNamesConfiguredDialect(t *testing.T) {
 	shell := NewShell(config.Shell{Command: []string{`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`}})
-	if got := shell.Description(); !strings.HasSuffix(got, "Windows PowerShell 5: use `;` to chain commands, not `&&`.") {
+	// Item 2gb (v1.0.1): a configured Windows PowerShell resolves to PowerShell 7
+	// where the host has one, and the description names whichever it runs.
+	want := "Windows PowerShell 5.1: `&&` and `||` are rewritten to `; if ($?) { … }` at the top level, so they work; everything else is 5.1 syntax."
+	if powerShell7() != "" {
+		want = "PowerShell 7: `&&` and `||` work."
+	}
+	if got := shell.Description(); !strings.HasSuffix(got, want) {
 		t.Fatalf("PowerShell description = %q", got)
 	}
 

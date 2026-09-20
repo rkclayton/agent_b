@@ -14,6 +14,7 @@ import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, isIdentica
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
 import { renderChatProposals } from "./chat-proposals.js";
+import { installTranscriptCopy } from "./transcript-copy.js";
 
 const budget = document.getElementById("chat-budget");
 const log = document.getElementById("chat-log");
@@ -35,6 +36,9 @@ const stop = document.getElementById("chat-stop");
 const retryModel = document.getElementById("chat-retry-model");
 let requested = new URLSearchParams(location.search).get("session");
 const selectedID = () => store.selection.session_id;
+// Item 2gg: copying the transcript marks the kind of each entry. Installed
+// once, on the document, and inert unless the selection is in the transcript.
+installTranscriptCopy(log);
 const expanded = new Set();
 let follow = true;
 let page = 0;

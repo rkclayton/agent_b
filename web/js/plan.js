@@ -47,14 +47,27 @@ function resolveFromSession() {
   if (!fromSession || !store.loaded || !plansLoaded) return;
   const planID = store.sessions[fromSession]?.plan_id;
   fromSession = "";
-  select(planID && plans.some((plan) => plan.id === planID) ? planID : plans[0]?.id);
+  const target = planID && plans.some((plan) => plan.id === planID) ? planID : plans[0]?.id;
+  // Item 2gi: resolving the session is also a render. Handing a target that
+  // equals the current selection to select() would return before drawing
+  // anything, and with no plans at all the target is undefined — the two
+  // paths that left the page showing neither the list nor its empty state.
+  if (target && target === selected) return void renderList();
+  select(target);
 }
 
 async function loadPlans() {
   try { plans = await api("/api/plans", undefined, "GET"); } catch { plans = []; }
   if (!Array.isArray(plans)) plans = [];
   plansLoaded = true;
-  if (fromSession) { resolveFromSession(); if (fromSession) return; }
+  if (fromSession) {
+    resolveFromSession();
+    // Item 2gi: the selection needs the snapshot, but the list does not. If the
+    // snapshot has not arrived — or never does, because its fetch failed — the
+    // page still draws the list or its empty state rather than waiting blank.
+    if (fromSession) { renderList(); if (!selected) renderEmpty(); return; }
+    return;
+  }
   if (!selected || !plans.some((plan) => plan.id === selected)) selected = plans[0]?.id || "";
   renderList();
   if (selected && loadedFor !== selected) await loadPlan();
@@ -62,7 +75,17 @@ async function loadPlans() {
 }
 
 function select(id) {
-  if (!id || id === selected) return;
+  // Item 2gi: with nothing to select the page still renders — the list or its
+  // empty state on the left, the empty pane on the right. `select(undefined)`
+  // used to return before any render, which is how a Plan page opened from a
+  // chat bound to no plan showed an entirely blank surface.
+  if (!id) {
+    selected = "";
+    renderList();
+    renderEmpty();
+    return;
+  }
+  if (id === selected) return;
   selected = id;
   params.set("plan", id);
   params.delete("session");

@@ -32,7 +32,7 @@ let hardeningStatus = { loaded: false, supported: true, applied: false };
 let hardeningBusy = false;
 let hardeningMessage = "";
 let hardeningAlarm = false;
-let signingStatus = { loaded: false, supported: true, configured: false, can_manage: false, files: [] };
+let signingStatus = { loaded: false, supported: true, configured: false, can_manage: false, admin_state: "unknown", files: [] };
 let signingBusy = false;
 let signingMessage = "";
 let signingAlarm = false;
@@ -600,7 +600,7 @@ async function refreshSigningStatus(preserveMessage = false) {
 		signingStatus = { ...status, loaded: true };
 		if (!preserveMessage) { signingMessage = ""; signingAlarm = false; }
 	} catch (error) {
-		signingStatus = { loaded: true, supported: false, configured: false, can_manage: false, files: [] };
+		signingStatus = { loaded: true, supported: false, configured: false, can_manage: false, admin_state: "unknown", files: [] };
 		signingMessage = error.message;
 		signingAlarm = true;
 	}

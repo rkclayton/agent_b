@@ -4,6 +4,14 @@
 **Never by default:** cream background with serif and terracotta; uniform near-black with an acid accent; newspaper hairline columns; identical rounded cards with the same shadow; tracked-out caps eyebrow labels; middle-dot meta strings; arrows appended to button text; monospace for every small label; gradients.
 
 **Palette — six values, everything else derived with alpha; never add a seventh hex.**
+
+**The one exception, stated by the operator (item 2ge, 2026-09-20).** A seventh value,
+Accent-plan `#5AC8FA`, exists for exactly one element: the Plan toggle’s side-profile brain in
+the header. He asked for it in his own words — “i want a side profile of a brain and it should
+be a faint kind of neon blue” — so it is his exception, not an inference, and it is recorded
+here rather than quietly added to the list above. It is faint at rest (opacity .45), brighter
+on hover (.8) and full while the Plan pane is open (1). Nothing else in the product may use
+`--accent-plan`; a second use is a change to this rule, not a styling decision.
 - Bezel `#2A2E35` — the chassis: page background, header, composer.
 - Well `#15181C` — recessed display surfaces: panel bodies, code, the chat log.
 - Ink `#D8DDE3` — primary text.

@@ -74,7 +74,7 @@ test("plus adds a two-line d choice only for an assigned d profile", () => {
 });
 
 test("Plan is a compact accessible brain icon", () => {
-  assert.match(shell, /class="shell-page-icon"/);
+  assert.match(shell, /class="shell-page-icon shell-page-brain"/);
   assert.match(shell, /setAttribute\("aria-label", "plan"\)/);
   assert.match(shell, /link\.title = "plan"/);
   assert.doesNotMatch(shell, /\[\["plan", "Plan", "\/plan"\]\]/);
@@ -96,7 +96,10 @@ test("agent menu is the counted open and closed chat history with glyph controls
   assert.match(shell, /confirm: true, drop_memory: dropMemory\.checked/);
   assert.doesNotMatch(shell, /window\.confirm\([^)]*Delete/);
   assert.doesNotMatch(shell, /window\.confirm\([^)]*closeConfirmText|closeConfirmText/);
-  assert.match(shell, /revealMenu\(menu, tab\)/);
+  // Item 2gh: the tab menu opens AT THE POINTER, so the reveal carries the
+  // event's coordinates. It used to be revealMenu(menu, tab), which placed it
+  // at the tab and put its left edge 41 px from the pointer (W5's measurement).
+  assert.match(shell, /revealMenu\(menu, tab, \{ x: event\.clientX, y: event\.clientY \}\)/);
   assert.match(tokens, /\.shell-menu\{position:fixed/);
   assert.match(tokens, /max-height:calc\(100vh - 50px\);overflow-x:hidden;overflow-y:auto/);
 });
@@ -125,4 +128,50 @@ test("top bar gives fixed readable tabs a scoped horizontal scroll lane", () => 
 
 test("all shell motion is zero duration under reduced motion", () => {
   assert.match(tokens, /prefers-reduced-motion:reduce[\s\S]*\.app-shell[\s\S]*animation-duration:0ms!important/);
+});
+
+// Item 2gh (v1.1.2/W5): the tab menu, measured and made to feel right. These
+// pin the four defects the measurement found, so none can come back quietly.
+test("the tab menu opens at the pointer, dismisses three ways and takes the arrow keys", () => {
+  // Opens at the pointer, and still clamped inside the window.
+  assert.match(shell, /function revealMenu\(menu, anchor, point = null\)/);
+  assert.match(shell, /const left = point \? point\.x : anchorRect\.left;/);
+  assert.match(shell, /const top = point \? point\.y : anchorRect\.bottom;/);
+  assert.match(shell, /Math\.max\(8, Math\.min\(left, innerWidth - menuRect\.width - 8\)\)/);
+  assert.match(shell, /Math\.max\(8, Math\.min\(top, innerHeight - menuRect\.height - 8\)\)/);
+  // A second right-click on the same tab dismisses it.
+  assert.match(shell, /if \(!menu\.hidden\) \{ menu\.hidden = true; return; \}/);
+  // Escape dismisses, and the arrows move through the entries without the
+  // menu stealing focus when it opens.
+  assert.match(shell, /if \(event\.key !== "Escape" && event\.key !== "ArrowDown" && event\.key !== "ArrowUp"\) return;/);
+  assert.match(shell, /if \(event\.key === "Escape"\) \{\s*\n\s*menu\.hidden = true;/);
+  assert.match(shell, /rows\[next\]\.focus\(\);/);
+  // The entries themselves are unchanged: none added, none removed.
+  assert.doesNotMatch(shell, /menu\.appendChild\(document\.createElement\("hr"\)\)/);
+});
+
+// Item 2ge (v1.1.2/W6): the Plan toggle is a side-profile brain in the
+// operator's accent, and that accent has exactly one use in the product.
+test("the Plan toggle is a brain in the accent, and the accent is used once", async () => {
+  assert.match(shell, /class="shell-page-icon shell-page-brain"/);
+  assert.doesNotMatch(shell, /M9 4\.5A3\.5 3\.5 0 0 0 5\.5 8/); // the mark he did not recognise
+  assert.match(tokens, /--accent-plan:#5AC8FA;/);
+  assert.match(tokens, /\.shell-page-brain\{stroke:var\(--accent-plan\);stroke-width:1\.4;opacity:\.45\}/);
+  assert.match(tokens, /\.shell-page:hover \.shell-page-brain\{opacity:\.8\}/);
+  assert.match(tokens, /\.shell-page\.selected \.shell-page-brain\{opacity:1\}/);
+  // One element, and one only: every var(--accent-plan) in every stylesheet
+  // must be a .shell-page-brain rule.
+  const styles = await Promise.all(["tokens.css", "app.css", "chat.css", "plan.css", "setup.css"]
+    .map(async (name) => [name, await readFile(new URL(`../css/${name}`, import.meta.url), "utf8").catch(() => "")]));
+  const uses = [];
+  for (const [name, css] of styles) {
+    for (const rule of css.split("}")) if (rule.includes("var(--accent-plan)")) uses.push(`${name}: ${rule.split("*/").pop().trim()}`);
+  }
+  assert.equal(uses.length, 1, uses.join(" | "));
+  assert.match(uses[0], /shell-page-brain/);
+  // The palette rule records it as the operator's exception, not as a seventh
+  // colour quietly added to the list.
+  const design = await readFile(new URL("../DESIGN.md", import.meta.url), "utf8");
+  assert.match(design, /The one exception, stated by the operator \(item 2ge/);
+  assert.match(design, /Accent-plan `#5AC8FA`/);
 });

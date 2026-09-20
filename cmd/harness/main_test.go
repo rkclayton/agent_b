@@ -215,7 +215,19 @@ func TestResolveStartupPathsPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if paths.Config != filepath.Join(cwd, "harness.json") || paths.Data != cwd || paths.Application != cwd {
+	// Item 2gw (v1.2.5): the CONFIG and the DATA root still fall back to the
+	// working directory in development - those are the operator's files. The
+	// APPLICATION root does not: the binary's own web, prompts and scripts live
+	// beside the binary, wherever it is run from.
+	executable, execErr := os.Executable()
+	if execErr != nil {
+		t.Fatal(execErr)
+	}
+	wantApplication := filepath.Dir(executable)
+	if resolved, linkErr := filepath.EvalSymlinks(executable); linkErr == nil {
+		wantApplication = filepath.Dir(resolved)
+	}
+	if paths.Config != filepath.Join(cwd, "harness.json") || paths.Data != cwd || paths.Application != wantApplication {
 		t.Fatalf("development paths = %+v", paths)
 	}
 }

@@ -522,9 +522,23 @@ func resolveStartupPaths(configOverride, applicationOverride, dataOverride strin
 	if err != nil {
 		return startupPaths{}, fmt.Errorf("resolve working directory: %w", err)
 	}
+	// Item 2gw (v1.2.5): the binary's OWN files - web, prompts, scripts, the
+	// example config - live beside the binary, not beside whatever directory a
+	// shell happened to be in. Resolving them against the working directory
+	// meant the exe started from C:\ or from Explorer looked for its own assets
+	// in C:\web and found nothing; the launcher worked only because it set the
+	// working directory first. The data root and the workspace are unchanged:
+	// those are the operator's and are config-driven.
 	application := applicationOverride
 	if application == "" {
-		application = cwd
+		if executable, execErr := os.Executable(); execErr == nil {
+			if resolved, linkErr := filepath.EvalSymlinks(executable); linkErr == nil {
+				executable = resolved
+			}
+			application = filepath.Dir(executable)
+		} else {
+			application = cwd
+		}
 	}
 	application, err = filepath.Abs(application)
 	if err != nil {

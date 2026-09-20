@@ -1,5 +1,5 @@
 import { api, reduce, setSelection, store, subscribe } from "./bus.js";
-import { chatRowText, firstUserLine, isRunning, sessionTitle } from "./chat-lifecycle.js";
+import { chatName, chatRowText, isRunning, sessionTitle } from "./chat-lifecycle.js";
 import { installUIErrorRelay } from "./ui-error-relay.js";
 import { requestNavigation } from "./navigation-guard.js";
 import { beginNavigation } from "./navigation-telemetry.js";
@@ -185,14 +185,17 @@ export function initShell(options = {}) {
       if (session) wrap.dataset.session = session.id;
       const selected = !!session && store.selection.session_id === session.id;
       if (selected) wrap.classList.add("selected");
-      const chatName = session?.label || agentName(agentID);
-      const tab = button("", chatName, `agent-tab ${selected ? "selected" : ""}`);
+      // Item 2go: the tab carries the chat's NAME. The role is on the robot
+      // glyph and in its hover text, which is where it was always readable; a
+      // tab that says agent_b tells the operator nothing about the chat.
+      const name = session ? chatName(session) : agentName(agentID);
+      const tab = button("", name, `agent-tab ${selected ? "selected" : ""}`);
       const glyphState = session ? chatState(session) : agentState(agentID);
       tab.dataset.agent = agentID;
       if (session) tab.dataset.session = session.id;
-      tab.setAttribute("aria-label", `${agentID} chat · ${chatName}`);
+      tab.setAttribute("aria-label", `${name} · ${agentID}`);
       const robot = agentID.slice(-1);
-      tab.innerHTML = `<span class="agent-tab-robot agent-tab-robot-${robot} ${glyphState}" aria-hidden="true"><img src="/static/assets/agent.svg" alt=""><span class="agent-tab-eyes"></span></span><span>${escapeHTML(agentID)}</span>`;
+      tab.innerHTML = `<span class="agent-tab-robot agent-tab-robot-${robot} ${glyphState}" aria-hidden="true" title="${escapeHTML(agentID)}"><img src="/static/assets/agent.svg" alt=""><span class="agent-tab-eyes"></span></span><span class="agent-tab-name">${escapeHTML(name)}</span>`;
       // Left click selects the chat. From any surface that is NOT this chat -
       // Settings, Plan, any later page - it also shows it, which is what 2gf
       // asked for: the Plan page had no way back at all, its tab click only
@@ -232,7 +235,7 @@ export function initShell(options = {}) {
         // The close mark overlays the tab's own trailing edge rather than sitting
         // beside it, so the tab's width is its label's width. It stays a sibling
         // of the tab because a button inside a button is not valid HTML.
-        const close = button("×", `Close ${chatName}`, "agent-tab-close");
+        const close = button("×", `Close ${name}`, "agent-tab-close");
         close.disabled = store.replay || isRunning(session);
         close.onclick = (event) => { event.stopPropagation(); void closeChat(session, menu, agentID); };
         wrap.append(close);
@@ -281,10 +284,10 @@ export function initShell(options = {}) {
   function renderAgentMenu(menu, agentID) {
     const sessions = sessionsFor(agentID, true);
     menu.replaceChildren();
-    const openCount = sessions.filter((session) => !session.closed).length;
-    const count = node("div", "agent-chat-count");
-    count.textContent = `${sessions.length} ${sessions.length === 1 ? "chat" : "chats"} · ${openCount} open · ${sessions.length - openCount} closed`;
-    menu.append(count);
+    // Item 2go, the operator: "i want the chat summary removed from the top of
+    // chats... i want it to display like this: MM:DD · Chat name · × , nothing
+    // more." So there is no summary line, and the row below carries nothing
+    // else either.
     if (!sessions.length) {
       const empty = node("span", "shell-menu-empty");
       empty.textContent = "No chats";
@@ -295,62 +298,37 @@ export function initShell(options = {}) {
       const row = node("div", `agent-chat-row ${session.closed ? "closed" : "open"}`);
       row.dataset.session = session.id;
       const summary = node("span", "agent-chat-summary");
-      summary.textContent = `${chatRowText(session)}${session.closed ? " · closed" : ""}`;
-      summary.title = firstUserLine(session);
-      const open = button("Open", `Open ${firstUserLine(session)}`, "agent-chat-open");
-      open.textContent = session.closed ? "Reopen" : "Open";
-      open.onclick = async () => {
+      summary.textContent = chatRowText(session);
+      // The full name on hover, because the row is one line and a long name
+      // ends in an ellipsis (2go).
+      summary.title = chatName(session);
+      // Item 2gx: the row IS the control. One click makes the tab that was
+      // right-clicked show this chat - it does not open a second tab and it
+      // does not change which tab is selected out from under the pointer.
+      summary.onclick = async () => {
         if (session.closed) {
           try {
             await api(`/api/sessions/${encodeURIComponent(session.id)}/reopen`, {});
             reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
           } catch (error) { return report(error.message); }
         }
-        setSelection(agentID, session.id); menu.hidden = true;
+        menu.hidden = true;
+        openSide(agentID, session.id, "chat");
       };
-      const rename = button("Rename", `Rename ${firstUserLine(session)}`, "agent-chat-rename");
+      const rename = button("Rename", `Rename ${chatName(session)}`, "agent-chat-rename");
       rename.onclick = () => showRename(row, session, menu, agentID);
-      const close = button("×", `Close ${firstUserLine(session)}`, "agent-chat-close");
+      const close = button("×", `Close ${chatName(session)}`, "agent-chat-close");
       close.disabled = session.closed || store.replay;
       close.onclick = () => void closeChat(session, menu, agentID);
-      const remove = button("🗑", `Delete ${firstUserLine(session)} permanently`, "agent-chat-delete");
-      remove.disabled = !session.closed || store.replay;
-      if (!session.closed) remove.title = "Close this chat before deleting it permanently";
-      remove.onclick = () => void armDelete(row, session, menu, agentID, summary, remove);
-      row.append(summary, open, rename, close, remove);
+      row.append(summary, rename, close);
       menu.append(row);
     }
-  }
-
-  async function armDelete(row, session, menu, agentID, summary, remove) {
-    try {
-      const preview = await api(`/api/sessions/${encodeURIComponent(session.id)}/delete`, { confirm: false });
-      const inventory = preview.inventory || {};
-      const writes = inventory.memory_writes || [];
-      summary.textContent = `Delete permanently? ${inventory.events || 0} events · ${inventory.jsonl_files || 0} files · ${writes.length} memory kept`;
-      const dropLabel = node("label", "agent-chat-drop-memory");
-      const dropMemory = document.createElement("input");
-      dropMemory.type = "checkbox";
-      dropLabel.append(dropMemory, " drop memory");
-      remove.textContent = "delete";
-      remove.classList.add("armed");
-      remove.setAttribute("aria-label", `Confirm permanent delete of ${firstUserLine(session)}`);
-      remove.onclick = async () => {
-        try {
-          await api(`/api/sessions/${encodeURIComponent(session.id)}/delete`, { confirm: true, drop_memory: dropMemory.checked });
-          reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-          menu.hidden = true;
-        } catch (error) { report(error.message); }
-      };
-      row.classList.add("delete-confirm");
-      row.replaceChildren(summary, ...(writes.length ? [dropLabel] : []), remove);
-    } catch (error) { report(error.message); }
   }
 
   function showRename(row, session, menu, agentID) {
     const editor = node("form", "agent-chat-rename-form");
     const input = document.createElement("input");
-    input.value = session.label || firstUserLine(session);
+    input.value = chatName(session);
     input.setAttribute("aria-label", "Chat name");
     const save = button("Save", "Save chat name", "agent-chat-rename-save");
     save.type = "submit";
@@ -370,8 +348,14 @@ export function initShell(options = {}) {
     input.select();
   }
 
+  // Item 2gq (v1.2.5): close deletes, so it asks first. One line, the same
+  // dialog the removed permanent-delete control used, and it says plainly what
+  // is NOT lost - because what the chat produced elsewhere is not the chat.
+  const closeConfirmText = "Delete this chat? Its memory notes, plans and files stay.";
+
   async function closeChat(session, menu, agentID) {
     if (isRunning(session)) return report("This chat has a running run. Stop it before closing the chat.");
+    if (!window.confirm(closeConfirmText)) return;
     try {
       await api(`/api/sessions/${encodeURIComponent(session.id)}`, undefined, "DELETE");
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });

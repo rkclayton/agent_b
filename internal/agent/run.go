@@ -159,6 +159,9 @@ func (r *Runner) QueueUserAttachments(ctx context.Context, s *session.Session, t
 }
 func (r *Runner) AppendUser(s *session.Session, message events.Message) {
 	s.Append(message)
+	// Item 2go: the chat takes its name from this message if it has none yet.
+	// Once, from the operator's own words, and never again by the harness.
+	r.nameFromFirstMessage(s, message.Content)
 	r.bus.Publish(events.New(events.MessageAppended, s.ID, "", map[string]any{"message": message}))
 }
 
@@ -457,7 +460,6 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		responseEvent.Raw = redactToolCallHeaders(string(response.Raw), toolCalls)
 		s.RecordModelTurn()
 		r.bus.Publish(responseEvent)
-		r.maybeAutoRename(ctx, s)
 		r.maybeAuxProgress(ctx, s, runID, turn)
 		r.stage(s, runID, turn, "parse", func() {})
 		if response.FinishReason == "length" && len(toolCalls) > 0 {

@@ -65,11 +65,25 @@ export function stateGlyph(session) {
   return "○";
 }
 
-export function chatRowText(session, now = Date.now(), limit = 64) {
-  const line = firstUserLine(session);
-  const title = line.length > limit ? `${line.slice(0, Math.max(1, limit - 1))}…` : line;
-  const runs = runCount(session);
-  return `${relativeTime(session?.created_at, now)} · ${title} · ${runs} ${runs === 1 ? "run" : "runs"} · ${stateGlyph(session)}`;
+// Item 2go (v1.2.5): a chat shows its NAME. Before the operator has said
+// anything there is nothing to name it after, so it reads "new chat" - never
+// the role, which the robot glyph and its hover already carry.
+export function chatName(session) {
+  const label = String(session?.label || "").trim();
+  return label || "new chat";
+}
+
+// Item 2go, the operator on the history list: "i want it to display like this:
+// MM:DD · Chat name · ×, nothing more." The row is the date it was created and
+// the name; the × is a control beside it, not text.
+export function chatRowText(session) {
+  return `${chatRowDate(session)} · ${chatName(session)}`;
+}
+
+export function chatRowDate(session, now = new Date()) {
+  const at = session?.created_at ? new Date(session.created_at) : null;
+  const when = at && !Number.isNaN(at.getTime()) ? at : now;
+  return `${String(when.getMonth() + 1).padStart(2, "0")}:${String(when.getDate()).padStart(2, "0")}`;
 }
 
 export function isRunning(session) {

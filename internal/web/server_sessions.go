@@ -331,55 +331,10 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"session_id": id})
 		return
 	}
-	if len(parts) == 2 && parts[1] == "delete" && r.Method == http.MethodPost {
-		if err := s.operatorRequest(r); err != nil {
-			writeError(w, http.StatusForbidden, "full chat deletion requires a verified local operator process", "session_id")
-			return
-		}
-		item, ok := s.registry.Get(id)
-		if !ok {
-			writeError(w, http.StatusNotFound, "session not found", "session_id")
-			return
-		}
-		if !item.IsClosed() {
-			writeError(w, http.StatusConflict, "session must be closed before deletion", "session_id")
-			return
-		}
-		var body struct {
-			Confirm    bool `json:"confirm"`
-			DropMemory bool `json:"drop_memory"`
-		}
-		if !decode(w, r, &body) {
-			return
-		}
-		inventory, err := s.writers.SessionInventory(id)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error(), "session_id")
-			return
-		}
-		if !body.Confirm {
-			writeJSON(w, http.StatusOK, map[string]any{"session_id": id, "inventory": inventory})
-			return
-		}
-		inventory, err = s.registry.Delete(id)
-		if err != nil {
-			writeError(w, http.StatusConflict, err.Error(), "session_id")
-			return
-		}
-		if s.projector != nil {
-			s.projector.Delete(id)
-		}
-		dropped := 0
-		if body.DropMemory && s.memoryState != nil {
-			dropped, err = s.memoryState.DropSessionWrites(inventory.MemoryWrites)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error(), "memory")
-				return
-			}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"session_id": id, "inventory": inventory, "memory_entries_dropped": dropped})
-		return
-	}
+	// Item 2gq (v1.2.5): the separate permanent-delete route is gone. Closing a
+	// chat deletes it, so there is one way to remove a chat and no second,
+	// differently-gated one to keep in step with it. DELETE on the session is
+	// that way, and it is handled below.
 	switch r.Method {
 	case http.MethodPost:
 		var body struct {
@@ -438,8 +393,10 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, map[string]any{"session": item.Snapshot()})
 	case http.MethodDelete:
-		err := s.registry.Close(id)
-		if err != nil {
+		// Item 2gq: a chat closed before this release is still in history and
+		// is still closed; closing it again is what deletes it. So "already
+		// closed" is not an error here - it is the second half of the journey.
+		if err := s.registry.Close(id); err != nil && !strings.Contains(err.Error(), "already closed") {
 			status := 404
 			if strings.Contains(err.Error(), "running") || strings.Contains(err.Error(), "closed") {
 				status = 409
@@ -459,7 +416,21 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		writeJSON(w, 200, map[string]string{"session_id": id})
+		// Item 2gq (v1.2.5): closing a chat IS deleting it. The journal, the
+		// scratch folder, its attachments, its history entry and its tab go;
+		// what the chat produced elsewhere - memory notes, plans, reflection
+		// rows, files written into a repository - is not the chat and stays.
+		// The export above runs first, so the markdown of what was said
+		// survives the chat itself.
+		inventory, err := s.registry.Delete(id)
+		if err != nil {
+			writeError(w, http.StatusConflict, err.Error(), "session")
+			return
+		}
+		if s.projector != nil {
+			s.projector.Delete(id)
+		}
+		writeJSON(w, 200, map[string]any{"session_id": id, "inventory": inventory})
 	default:
 		method(w)
 	}

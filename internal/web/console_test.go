@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -42,7 +41,9 @@ func consoleServer(t *testing.T) (*Server, *session.Registry, *events.Writers, *
 	return server, registry, writers, memories, &cfg, root
 }
 
-func TestClosedChatDeleteRemovesOnlySessionLogsRegistryCacheAndOptedMemory(t *testing.T) {
+// Item 2gq (v1.2.5): closing a chat deletes it. What the chat produced
+// elsewhere is not the chat and stays.
+func TestClosingAChatRemovesItAndKeepsWhatItProduced(t *testing.T) {
 	server, registry, writers, memories, cfg, root := consoleServer(t)
 	defer writers.Close()
 	workspaceFile := filepath.Join(cfg.Workspace, "kept.txt")
@@ -75,13 +76,12 @@ func TestClosedChatDeleteRemovesOnlySessionLogsRegistryCacheAndOptedMemory(t *te
 	if err != nil || projected[item.ID].ID != item.ID {
 		t.Fatalf("projector seed=%+v err=%v", projected, err)
 	}
-	preview := postConsole(t, server, "/api/sessions/main/delete", `{"confirm":false}`)
-	if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), `"events":3`) || !strings.Contains(preview.Body.String(), `"jsonl_files":2`) || !strings.Contains(preview.Body.String(), "drop poisoned preference") {
-		t.Fatalf("preview status=%d body=%s", preview.Code, preview.Body)
-	}
-	result := postConsole(t, server, "/api/sessions/main/delete", `{"confirm":true,"drop_memory":true}`)
+	result := deleteConsole(t, server, "/api/sessions/main")
 	if result.Code != http.StatusOK {
-		t.Fatalf("delete status=%d body=%s", result.Code, result.Body)
+		t.Fatalf("close status=%d body=%s", result.Code, result.Body)
+	}
+	if !strings.Contains(result.Body.String(), `"jsonl_files":2`) {
+		t.Fatalf("close did not report what it removed: %s", result.Body)
 	}
 	if _, ok := registry.Get(item.ID); ok {
 		t.Fatal("registry entry survived")
@@ -92,8 +92,9 @@ func TestClosedChatDeleteRemovesOnlySessionLogsRegistryCacheAndOptedMemory(t *te
 	if projected, err := server.projector.Snapshot(writers.SessionCursors()); err != nil || len(projected) != 0 {
 		t.Fatalf("projector residue=%+v err=%v", projected, err)
 	}
-	if value, _ := memories.ReadAgent("coder"); value != "" {
-		t.Fatalf("agent memory survived=%q", value)
+	// The agent's memory note is one of the things that is NOT the chat.
+	if value, _ := memories.ReadAgent("coder"); !strings.Contains(value, "drop poisoned preference") {
+		t.Fatalf("the agent memory note did not survive the chat: %q", value)
 	}
 	for _, path := range []string{workspaceFile, exchangeFile, evidenceFile} {
 		if _, err := os.Stat(path); err != nil {
@@ -134,7 +135,8 @@ func TestFlushMemoryNamesAndClearsAgentAndWorkspaceLayers(t *testing.T) {
 	}
 }
 
-func TestClosedChatDeleteKeepsMemoryByDefaultAndRequiresVerifiedOperator(t *testing.T) {
+// A chat with a live run still refuses to close, and closing keeps memory.
+func TestClosingKeepsMemoryAndRefusesWhileARunIsLive(t *testing.T) {
 	server, registry, writers, memories, cfg, _ := consoleServer(t)
 	defer writers.Close()
 	item, err := registry.Create("delete me", "coder", cfg.Workspace)
@@ -149,17 +151,26 @@ func TestClosedChatDeleteKeepsMemoryByDefaultAndRequiresVerifiedOperator(t *test
 	if err := registry.Close(item.ID); err != nil {
 		t.Fatal(err)
 	}
-	server.operatorRequest = func(*http.Request) error { return fmt.Errorf("not operator") }
-	if response := postConsole(t, server, "/api/sessions/main/delete", `{"confirm":false}`); response.Code != http.StatusForbidden {
-		t.Fatalf("unverified preview status=%d body=%s", response.Code, response.Body)
+	// The separate permanent-delete route is gone: there is one way to remove a
+	// chat, and this is not it.
+	if response := postConsole(t, server, "/api/sessions/main/delete", `{"confirm":true}`); response.Code == http.StatusOK {
+		t.Fatalf("the removed delete route still answers: %s", response.Body)
 	}
-	server.operatorRequest = func(*http.Request) error { return nil }
-	if response := postConsole(t, server, "/api/sessions/main/delete", `{"confirm":true}`); response.Code != http.StatusOK {
-		t.Fatalf("delete status=%d body=%s", response.Code, response.Body)
+	if response := deleteConsole(t, server, "/api/sessions/main"); response.Code != http.StatusOK {
+		t.Fatalf("close status=%d body=%s", response.Code, response.Body)
 	}
 	if value, _ := memories.Read(cfg.Workspace); !strings.Contains(value, "keep project fact") {
 		t.Fatalf("memory was not kept by default: %q", value)
 	}
+}
+
+func deleteConsole(t *testing.T, server *Server, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodDelete, path, nil)
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	return response
 }
 
 func postConsole(t *testing.T, server *Server, path, body string) *httptest.ResponseRecorder {

@@ -9,7 +9,7 @@ import { callServiceKey, callServiceStatus } from "./call-service-display.js";
 import { attachmentChipFile, attachmentMetadata, exchangeFiles, exchangeUpload, uploadAttachment } from "./attachment-upload.js";
 import { attachmentReadability } from "./attachment-readability.js";
 import { agentAuthor, isRunning, openSessions, sameWorkerPlan, workerApproval } from "./chat-lifecycle.js";
-import { renderStopState } from "./stop-state.js";
+import { renderSendStop } from "./stop-state.js";
 import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, isIdenticalSingleStepFold, itemFailed, responseBlocks, responseSummary } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
@@ -32,7 +32,8 @@ const attachExchange = document.getElementById("chat-attach-exchange");
 const exchangeFileList = document.getElementById("chat-exchange-files");
 const filePicker = document.getElementById("chat-file-picker");
 const pendingFiles = document.getElementById("chat-attachments");
-const stop = document.getElementById("chat-stop");
+// Item 2ge: send and stop are one control, so there is one element for both.
+const mic = document.getElementById("chat-mic");
 const retryModel = document.getElementById("chat-retry-model");
 let requested = new URLSearchParams(location.search).get("session");
 // Item 2gn: the chat the operator asked for by name, so the stale-selection
@@ -165,6 +166,7 @@ function render() {
 export function mountChat(shellController) {
   shell = shellController;
   mounted = true;
+  void loadMicAvailability();
   schedule();
 }
 
@@ -905,6 +907,43 @@ function noticeContent(session, entry, actionable) {
   return content;
 }
 
+// Item 2ge: the microphone. Trace while it listens, Mute at rest, and the
+// hover text says whether the recogniser is running offline on this host or
+// through the online path. The operator asked for the Windows recogniser -
+// the one behind Win+H - so there is no browser speech API here and no audio
+// leaves the machine by any path Windows itself does not take.
+let micState = { listening: false, available: null, offline: null, reason: "" };
+
+function renderMic(session) {
+  if (!mic) return;
+  const usable = !!session && !store.replay && micState.available !== false;
+  mic.disabled = !usable;
+  mic.dataset.state = micState.listening ? "listening" : "idle";
+  mic.classList.toggle("listening", micState.listening);
+  const where = micState.available === false
+    ? (micState.reason || "dictation is unavailable on this host")
+    : micState.offline === false ? "dictation \u00b7 online" : "dictation \u00b7 offline";
+  const label = micState.listening ? "Stop dictating" : "Dictate";
+  mic.setAttribute("aria-label", label);
+  mic.setAttribute("title", label + " \u00b7 " + where);
+}
+
+// The host finding is asked for once, and never blocks the composer: an
+// unreachable route leaves the mic disabled with the reason on hover.
+async function loadMicAvailability() {
+  if (!mic) return;
+  try {
+    const status = await api("/api/speech", undefined, "GET");
+    micState.available = !!status?.available;
+    micState.offline = status?.offline !== false;
+    micState.reason = String(status?.reason || "");
+  } catch (error) {
+    micState.available = false;
+    micState.reason = error.message;
+  }
+  renderMic(store.sessions[selectedID()]);
+}
+
 function renderComposer(session) {
   renderChatProposals(chatProposals, session, input);
 	document.body.classList.toggle("no-open-chats", !session);
@@ -973,7 +1012,8 @@ function renderComposer(session) {
 		replay: store.replay,
 		decide: (callID, decision) => api("/api/approve", { session_id: session.id, call_id: callID, decision }),
 	})] : policyCard ? [policyCard] : []), ...workerCard);
-  renderStopState(stop, session, store.replay);
+  renderSendStop(send, session, store.replay);
+  renderMic(session);
   retryModel.hidden = !unreachable;
   retryModel.disabled = !session || store.replay;
 }
@@ -999,6 +1039,7 @@ async function decidePolicy(session, action) {
 }
 
 async function submit() {
+  if (micState.listening) stopDictation();
   const session = store.sessions[selectedID()];
   if (!session || store.replay) return;
   const text = input.value.trim();
@@ -1088,8 +1129,75 @@ async function queueExchangeFile(item) {
   }
 }
 
-send.onclick = submit;
-stop.onclick = () => {
+// Item 2ge: click to dictate, click again to stop. Recognised text lands in
+// the composer as it arrives, so the operator watches it appear rather than
+// waiting for a block at the end; ten seconds of silence, a second click or a
+// send all end the session. Nothing is sent anywhere: the recogniser runs on
+// this machine through the harness, and the text goes into the textarea the
+// operator is already looking at.
+let micStream = null;
+
+function stopDictation() {
+  if (micStream) {
+    micStream.close();
+    micStream = null;
+  }
+  micState.listening = false;
+  renderMic(store.sessions[selectedID()]);
+  void api("/api/speech/stop", {}).catch(() => {});
+}
+
+function startDictation() {
+  const session = store.sessions[selectedID()];
+  if (!session || store.replay || micState.available === false) return;
+  micState.listening = true;
+  renderMic(session);
+  // The transcript arrives on the existing event stream shape: one line per
+  // partial, the final one marked. A stream that fails leaves the mic idle
+  // with the reason on hover rather than a dialog.
+  let committed = input.value;
+  micStream = new EventSource("/api/speech/stream");
+  micStream.onmessage = (event) => {
+    let payload = null;
+    try { payload = JSON.parse(event.data); } catch { return; }
+    if (payload.error) {
+      micState.available = false;
+      micState.reason = String(payload.error);
+      stopDictation();
+      return;
+    }
+    const heard = String(payload.text || "");
+    if (!heard) return;
+    if (payload.final) {
+      committed = (committed ? committed.replace(/\s*$/, "") + " " : "") + heard;
+      input.value = committed;
+    } else {
+      input.value = (committed ? committed.replace(/\s*$/, "") + " " : "") + heard;
+    }
+    resize();
+    if (payload.done) stopDictation();
+  };
+  micStream.onerror = () => {
+    stopDictation();
+  };
+}
+
+if (mic) {
+  mic.onclick = () => {
+    if (micState.listening) stopDictation();
+    else startDictation();
+  };
+}
+
+send.onclick = () => {
+  const session = store.sessions[selectedID()];
+  // While a run is live this control is Stop; idle, it sends. 2fg hold
+  // rules are untouched: a message typed during a run still queues behind it.
+  if (send.dataset.mode === "stop") return void stopRun();
+  void submit();
+};
+
+function stopRun() {
   const session = store.sessions[selectedID()];
   if (session && !store.replay) api("/api/stop", { session_id: session.id }).catch((error) => { localNotice = error.message; localAlarm = true; renderComposer(session); });
 };

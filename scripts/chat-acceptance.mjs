@@ -276,10 +276,14 @@ const ensureChat = async () => {
   else await page.keyboard.press("Escape");
   await page.locator("#chat-task").waitFor({ state: "visible", timeout: 15000 });
 };
+// Item 2ge: send and stop are one control, so while a run is live that button
+// is Stop and clicking it would cancel rather than queue. Enter is the send
+// path the operator uses and the one the item keeps -- "Enter still sends" --
+// so the suite sends the way he does.
 const setTask = async (text) => {
   await ensureChat();
   await page.locator("#chat-task").fill(text);
-  await page.locator("#chat-send").click();
+  await page.locator("#chat-task").press("Enter");
 };
 const clickText = async (selector, text) => {
   const exact = new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
@@ -883,9 +887,9 @@ if (realModel) {
   assert.equal(await toolButtonHandle.getAttribute("aria-expanded"), "false", "collapse arrow must collapse its own tool section");
   await collapseArrow.waitFor({ state: "hidden" });
   record("tool-tick-node-lifecycle-active-run");
-  await page.locator("#chat-stop").click();
+  await page.locator("#chat-send").click();
   await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > lifecycleRunStarted.seq, "tool-tick lifecycle run stopped");
-  await browser.wait(`document.querySelector('#chat-stop').disabled`, "tool-tick lifecycle stop projected");
+  await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'send'`, "tool-tick lifecycle stop projected");
 
   await settleSession(sessionID, "a transcript fixture");
 
@@ -1220,7 +1224,7 @@ if (realModel) {
   await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('FIRST PROSE BLOCK')`, "prose fixture restored");
 
-  const geometry = await browser.evaluate(`(() => { const textarea=document.querySelector('#chat-task').getBoundingClientRect(); const row=document.querySelector('.chat-composer-row').getBoundingClientRect(); const expand=document.querySelector('#chat-expand').getBoundingClientRect(); const robot=document.querySelector('.agent-tab-wrap.selected .agent-tab-robot').getBoundingClientRect(); const tab=document.querySelector('.agent-tab-wrap.selected').getBoundingClientRect(); const plus=document.querySelector('.shell-left > .agent-tab-new').getBoundingClientRect(); const send=document.querySelector('#chat-send').getBoundingClientRect(); const stop=document.querySelector('#chat-stop').getBoundingClientRect(); return {textarea:textarea.width,row:row.width,rowHeight:row.height,expandTop:expand.top-textarea.top,expandRight:textarea.right-expand.right,robot:robot.width,tab:tab.width,plus:{width:plus.width,height:plus.height},send:{width:send.width,height:send.height},stop:{width:stop.width,height:stop.height}}; })()`);
+  const geometry = await browser.evaluate(`(() => { const textarea=document.querySelector('#chat-task').getBoundingClientRect(); const row=document.querySelector('.chat-composer-row').getBoundingClientRect(); const expand=document.querySelector('#chat-expand').getBoundingClientRect(); const robot=document.querySelector('.agent-tab-wrap.selected .agent-tab-robot').getBoundingClientRect(); const tab=document.querySelector('.agent-tab-wrap.selected').getBoundingClientRect(); const plus=document.querySelector('.shell-left > .agent-tab-new').getBoundingClientRect(); const send=document.querySelector('#chat-send').getBoundingClientRect(); const stop=document.querySelector('#chat-send').getBoundingClientRect(); return {textarea:textarea.width,row:row.width,rowHeight:row.height,expandTop:expand.top-textarea.top,expandRight:textarea.right-expand.right,robot:robot.width,tab:tab.width,plus:{width:plus.width,height:plus.height},send:{width:send.width,height:send.height},stop:{width:stop.width,height:stop.height}}; })()`);
   assert.ok(geometry.textarea >= geometry.row - 50, JSON.stringify(geometry));
   assert.ok(geometry.expandTop >= 0 && geometry.expandTop <= 8 && geometry.expandRight >= 0 && geometry.expandRight <= 8, JSON.stringify(geometry));
   assert.ok(geometry.robot > 0, JSON.stringify(geometry));
@@ -1338,10 +1342,10 @@ if (realModel) {
 	record("ui-error-relay-three-sources-session-location-jsonl");
 
   await setTask("acceptance: stop");
-  await browser.wait(`!document.querySelector('#chat-stop').disabled`, "stop enabled");
+  await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'stop'`, "stop enabled");
   const stopStart = Date.now();
-  await page.locator("#chat-stop").click();
-  await browser.wait(`document.querySelector('#chat-stop').disabled`, "stop completed", 1000);
+  await page.locator("#chat-send").click();
+  await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'send'`, "stop completed", 1000);
   assert.ok(Date.now() - stopStart < 1000, `Stop took ${Date.now() - stopStart} ms`);
   await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.data.reason === "aborted_mid_model", "stopped run");
   record("stop-under-one-second");
@@ -1354,7 +1358,7 @@ if (realModel) {
   const beforeStopMidTool = events.at(-1)?.seq || 0;
   await setTask("acceptance: stop mid tool");
   await waitEvent(sessionID, (event) => event.seq > beforeStopMidTool && event.type === "stage" && event.data?.stage === "execute" && event.data?.state === "enter", "60 s tool executing");
-  await page.locator("#chat-stop").click();
+  await page.locator("#chat-send").click();
   const sentWhileStopping = await page.evaluate(async (sessionID) => {
     const token = (await (await fetch("/api/state")).json()).mutation_token;
     const response = await fetch("/api/message", { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": token }, body: JSON.stringify({ session_id: sessionID, text: "acceptance: sent while stopping" }) });
@@ -1389,7 +1393,7 @@ if (realModel) {
 	const beforeQueueLeader = events.at(-1)?.seq || 0;
 	await setTask("acceptance: queue leader");
 	await waitEvent(sessionID, (event) => event.seq > beforeQueueLeader && event.type === "model.request", "queue leader model request");
-	await browser.wait(`!document.querySelector('#chat-stop').disabled`, "queue leader running");
+	await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'stop'`, "queue leader running");
 	await setTask("acceptance: queued follower");
 	await waitEvent(sessionID, (event) => event.type === "message.queued" && event.data.position === 1, "message.queued");
 	await browser.wait(`document.querySelector('#chat-status-strip')?.innerText.includes('queued (1)')`, "queued count");
@@ -1453,7 +1457,7 @@ if (realModel) {
   assert.doesNotMatch(await ocrAttachment.innerText(), /cannot read images/);
   // Item 2ga: a capture of a finished run waits until the page shows it
   // finished — Stop idle — and two frames have painted, or it races the run.
-  await browser.wait(`document.querySelector('#chat-stop')?.dataset.state === 'idle'`, "run idle before the OCR capture");
+  await browser.wait(`document.querySelector('#chat-send')?.dataset.state === 'idle'`, "run idle before the OCR capture");
   // v1.1.3/W7: "Stop idle plus two frames" is not enough. The transcript is
   // still settling its scroll, and two runs of ONE build produced a capture
   // differing across the whole transcript — the scroll race carded since
@@ -1567,7 +1571,7 @@ if (realModel) {
   assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--mute)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
   // Item 2ga: a capture of a finished run waits until the page shows it
   // finished — Stop idle — and two frames have painted, or it races the run.
-  await browser.wait(`document.querySelector('#chat-stop')?.dataset.state === 'idle'`, "run idle before the retry capture");
+  await browser.wait(`document.querySelector('#chat-send')?.dataset.state === 'idle'`, "run idle before the retry capture");
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await captureWithMasks(page, join(args.evidence, "reachable-after-retry.png"));
   record("model-unreachable-retry-release");

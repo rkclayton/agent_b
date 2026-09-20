@@ -112,9 +112,16 @@
   outline: 1px solid var(--trace);
   outline-offset: 2px;
 }
+/* Item 2ge: the bar above the chat now carries the paperclip at its far right,
+   directly above where it used to sit in the composer, so it is a row rather
+   than a hairline. The meter itself is unchanged: still a 4px line, now along
+   the bottom of that row. */
 .chat-budget {
   position: relative;
   background: var(--well);
+  min-height: 24px;
+  display: flex;
+  align-items: flex-end;
 }
 .chat-budget-fill {
   display: block;
@@ -705,6 +712,27 @@
   pointer-events: none;
   border: 1px solid var(--trace);
 }
+/* Item 2ge: the paperclip lives in the bar above the chat now, at its far
+   right and directly above where it used to sit in the composer. The bar is
+   the budget line, so the wrap is pinned to its right edge and the meter runs
+   under it. */
+.chat-budget { position: relative; }
+.chat-budget .chat-attach-wrap { position:absolute; right:4px; top:50%; transform:translateY(-50%); z-index:2; }
+/* In the bar the menu drops DOWNWARD over the transcript: upward would put
+   it behind the header, which intercepted the click. */
+.chat-budget .chat-attach-menu { right:0; left:auto; bottom:auto; top:26px; z-index:45; }
+
+/* Item 2ge: a microphone where the paperclip was. Mute at rest, Trace while
+   it listens -- the two colours the palette already uses for that. */
+.chat-mic {
+  width:24px; height:24px; min-height:24px; padding:0;
+  display:inline-flex; align-items:center; justify-content:center;
+  color: var(--mute); background: transparent; line-height:1;
+}
+.chat-mic:hover:not(:disabled) { color: var(--ink); }
+.chat-mic.listening { color: var(--trace); }
+.chat-mic:disabled { opacity:.45; }
+
 .chat-attach-wrap { position: relative; display:block; width:24px; height:24px; }
 .chat-attach {
   width: 24px;

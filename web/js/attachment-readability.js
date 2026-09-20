@@ -14,7 +14,20 @@ export function attachmentReadability(session, profiles, attachment) {
     return "This PDF needs extraction before the profile can read it";
   if (attachment?.kind === "pdf" && handling === "auto" && !capabilities.document_input)
     return "This profile cannot read PDFs · probe found no document input";
+  // Item 2ch (v1.2.5): a PDF has two routes and the operator chose - sidecar by
+  // default, inline only under the threshold. The chip NAMES the route rather
+  // than leaving him to infer it from the size and the profile.
+  if (attachment?.kind === "pdf")
+    return attachment.bytes > inlineDocumentLimit(session)
+      ? "This PDF goes by extracted text · over the inline limit"
+      : "This PDF goes inline · under the inline limit";
   if (attachment?.kind === "binary")
     return "This profile cannot read this file type";
   return null;
+}
+
+// The install-wide threshold, as the state reports it, with the stated default.
+export function inlineDocumentLimit(session) {
+  const configured = Number(session?.attachment_inline_max_bytes || 0);
+  return configured > 0 ? configured : 2 * 1024 * 1024;
 }

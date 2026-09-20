@@ -292,6 +292,9 @@ func main() {
 		tools.NewRunScript(shellTool),
 		tools.NewCallService(cfg.Services),
 	)
+	// Item 2ch (v1.2.5): the threshold under which a PDF is sent inline rather
+	// than read from its extracted text.
+	agent.SetInlineDocumentLimit(cfg.Tools.Attachments.InlineDocumentLimit())
 	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Profile, web.ConfigSnapshot)
 	runner.SetSessionRenamer(registry.RenameBy)
 	deliveryManager := delivery.New(bus, web.ConfigSnapshot)

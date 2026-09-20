@@ -1454,6 +1454,27 @@ if (realModel) {
   // Item 2ga: a capture of a finished run waits until the page shows it
   // finished — Stop idle — and two frames have painted, or it races the run.
   await browser.wait(`document.querySelector('#chat-stop')?.dataset.state === 'idle'`, "run idle before the OCR capture");
+  // v1.1.3/W7: "Stop idle plus two frames" is not enough. The transcript is
+  // still settling its scroll, and two runs of ONE build produced a capture
+  // differing across the whole transcript — the scroll race carded since
+  // v1.0.1 and named again as v1.1.2's exact-candidate instability. Wait for
+  // the scroll position to stop moving, then capture; the race was in the
+  // capture, not in the product.
+  await page.evaluate(() => new Promise((resolve) => {
+    const log = document.getElementById("chat-log");
+    if (!log) return resolve();
+    let previous = -1;
+    let steady = 0;
+    const check = () => {
+      const now = log.scrollTop;
+      steady = now === previous ? steady + 1 : 0;
+      previous = now;
+      if (steady >= 10) return resolve();
+      requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+    setTimeout(resolve, 5000);
+  }));
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await captureWithMasks(page, join(baselineDirectory, "chat-ocr-sidecar-before-send.png"));
   await setTask("acceptance: attachment OCR");

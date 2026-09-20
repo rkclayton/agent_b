@@ -21,7 +21,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$displayVersion = '1.2.5'
+$displayVersion = '1.2.6'
 
 # Write-InstallProgress appends one JSONL line the Setup page can render. It
 # never fails the install: the install is the point, the readout is not.

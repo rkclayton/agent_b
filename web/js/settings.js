@@ -10,6 +10,7 @@ import { renderNotificationsPage } from "./settings-notifications.js";
 import { renderRunPage } from "./settings-run.js";
 import { renderSecurityPage } from "./settings-security.js";
 import { renderWorkspacePage } from "./settings-workspace.js";
+import { mountPanels, unmountPanels } from "./app.js";
 
 const sheet = document.getElementById("settings-page");
 let gear;
@@ -49,7 +50,12 @@ let workspaceState = [];
 let operatorFileState = { attachment_files: 0, attachment_bytes: 0, instruction_found: [] };
 const serverProfiles = () => Array.isArray(store.servers) ? store.servers : [];
 
+// Item 2gk: Agents and Activity are where the page that used to stand on its
+// own now lives. They come first because they are what the operator opened
+// that page to read.
 const sectionLabels = [
+  ["agents", "Agents"],
+  ["activity", "Activity"],
   ["servers", "Connections"],
   ["context", "Context"],
   ["run", "Run & approval"],
@@ -67,7 +73,7 @@ export function initSettings() {
   });
   document.addEventListener("settings.open", (event) => openSettings(event.detail?.section));
   // Choosing a chat from the tab strip while Settings is open shows that chat.
-  document.addEventListener("settings.close", (event) => { if (open) closeSettings(event.detail?.surface || "console"); });
+  document.addEventListener("settings.close", (event) => { if (open) closeSettings(event.detail?.surface || "chat"); });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && open) closeSettings();
     if (open && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
@@ -126,6 +132,9 @@ function openSettings(section = "") {
   if (sectionLabels.some(([id]) => id === section)) activeSection = section;
   open = true;
   lastFocus = document.activeElement;
+  // Item 2gk: app.css dresses this sheet and the two panels it adopts, and
+  // nothing else on screen, so it is switched on with the sheet.
+  setSheetStyles(true);
   sheet.hidden = false;
   sheet.setAttribute("aria-hidden", "false");
   gear.setAttribute("aria-expanded", "true");
@@ -143,9 +152,14 @@ function openSettings(section = "") {
   requestAnimationFrame(() => sheet.querySelector(".settings-nav button.selected")?.focus());
 }
 
-export function closeSettings(surface = "console") {
+export function closeSettings(surface = "chat") {
   if (!open) return;
   open = false;
+  // The panels go home before the sheet is hidden, so they are never left
+  // inside a hidden surface where the next render would wipe them.
+  returnAdoptedPanels();
+  unmountPanels();
+  setSheetStyles(false);
   sheet.hidden = true;
   sheet.setAttribute("aria-hidden", "true");
   gear.setAttribute("aria-expanded", "false");
@@ -167,6 +181,10 @@ function render() {
       .filter(([key, value]) => key && value),
   );
   const content = {
+    // The two adopted panels are drawn by app.js, not here: this leaves the
+    // seat and the nodes are moved into it below.
+    agents: () => '<div data-adopt="agents-panel"></div>',
+    activity: () => '<div data-adopt="activity-panel"></div>',
     servers: () => renderConnectionsPage(settingsPageContext(active)),
     sessions: () => renderGeneralPage("sessions", active, settingsPageContext(active)),
     tools: () => renderGeneralPage("tools", active, settingsPageContext(active)),
@@ -181,6 +199,10 @@ function render() {
   };
   const label = sectionLabels.find(([id]) => id === activeSection)?.[1] || "Settings";
   const saveLabel = settingsSaving ? "Saving…" : drafts.size ? `Save (${drafts.size})` : "Saved";
+  // Item 2gk: an adopted panel is put back in its source holder before the
+  // sheet is rewritten. Assigning innerHTML destroys whatever is inside, and
+  // the panels are the only nodes here that cannot be rebuilt from a string.
+  returnAdoptedPanels();
   sheet.innerHTML = `
     <header class="settings-head">
       <div><strong>Settings</strong><span data-save-status class="${settingsSaveAlarm ? "alarm" : ""}">${html(settingsSaveMessage)}</span></div>
@@ -192,6 +214,7 @@ function render() {
       </nav>
       <div class="settings-content" tabindex="-1">${group(label, content[activeSection]())}</div>
     </div>`;
+  adoptPanels();
   const contentNode = sheet.querySelector(".settings-content");
   contentNode.scrollTop = scrollTop;
   for (const input of sheet.querySelectorAll('input[type="password"]')) {
@@ -202,6 +225,35 @@ function render() {
     .find((node) => controlKey(node) === focusKey);
   focusNode?.focus({ preventScroll: true });
   navigationSurfaceReady("settings", store);
+}
+
+// Item 2gk: the two panels are MOVED between their source holder and the open
+// sheet. Moving rather than copying is the whole point — the nodes carry
+// the listeners app.js set, and the renderers write into them by id, so a rebuilt
+// copy would be a second, dead set of controls.
+function setSheetStyles(on) {
+  const styles = document.getElementById("panel-styles");
+  if (styles) styles.disabled = !on;
+}
+
+function returnAdoptedPanels() {
+  const sources = document.getElementById("panel-sources");
+  if (!sources) return;
+  for (const panel of sheet.querySelectorAll("#agents-panel, #activity-panel")) sources.append(panel);
+}
+
+function adoptPanels() {
+  let adopted = false;
+  for (const slot of sheet.querySelectorAll("[data-adopt]")) {
+    const panel = document.getElementById(slot.dataset.adopt);
+    if (!panel) continue;
+    slot.append(panel);
+    adopted = true;
+  }
+  // The renderers run only while a panel is on screen; off it they would draw
+  // into nodes nobody can see, once per event.
+  if (adopted) mountPanels();
+  else unmountPanels();
 }
 
 function settingsPageContext(active) {

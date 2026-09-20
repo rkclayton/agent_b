@@ -12,7 +12,7 @@ const settings = ["settings.js", "settings-connections.js", "settings-general.js
 const timeline = fs.readFileSync(new URL("timeline.js", import.meta.url), "utf8");
 
 test("Console uses the shared shell without retaining a task composer", () => {
-  assert.match(index, /id="app-shell"[^>]+data-page="console"/);
+  assert.match(index, /id="app-shell"[^>]+data-page="chat"/);
   assert.doesNotMatch(index, /id="(?:composer|task)"/);
   assert.doesNotMatch(script, /getElementById\("(?:composer|task)"\)/);
   assert.doesNotMatch(shell, /\["chat", "Chat", "\/chat"\]|\["console", "Console", "\/"\]/);
@@ -38,22 +38,22 @@ test("Console header omits build identity and Settings owns About", () => {
 
 test("Settings navigation remains install-global while agent controls live on Console", () => {
   assert.doesNotMatch(settings, /\["sessions", "Sessions"\]|\["tools", "Tools"\]|\["memory", "Memory"\]|\["session", "Current session"\]/);
-  assert.match(index, /id="console-agent"/);
-  assert.match(index, /id="console-agent-server"/);
-  assert.match(index, /id="console-agent-server-state" role="status"/);
-  assert.match(index, /id="console-agent-server-cancel"[^>]+hidden/);
+  assert.match(index, /id="panel-agent"/);
+  assert.match(index, /id="panel-agent-server"/);
+  assert.match(index, /id="panel-agent-server-state" role="status"/);
+  assert.match(index, /id="panel-agent-server-cancel"[^>]+hidden/);
   assert.match(script, /Applied \$\{agent\.b\} · pending \$\{pending\.to\}/);
-  assert.match(index, /id="console-tools"/);
+  assert.match(index, /id="panel-tools"/);
   assert.match(index, /id="flush-memory"/);
 });
 
 test("Console server controls gain wrapped height before narrow layouts can clip them", () => {
-  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.console-agent-group \{ height:78px; grid-template-rows:22px 56px; \}/);
-  assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.console-agent-group \{ height:110px; grid-template-rows:22px 88px; \}/);
+  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.panel-agent-group \{ height:78px; grid-template-rows:22px 56px; \}/);
+  assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.panel-agent-group \{ height:110px; grid-template-rows:22px 88px; \}/);
 });
 
 test("Console pins the current approval and shows waiting for you in state colour", () => {
-	assert.match(index, /id="console-pending-approval" class="pending-approval" hidden/);
+	assert.match(index, /id="panel-pending-approval" class="pending-approval" hidden/);
 	assert.match(script, /renderPendingApproval\(session\)/);
 	assert.match(styles, /\.pending-approval\[hidden\]\s*\{\s*display:\s*none/);
 	const flow = fs.readFileSync(new URL("flow.js", import.meta.url), "utf8");
@@ -71,9 +71,9 @@ test("Console tool rows show an execution target carried by tool.result", () => 
 });
 
 test("Console adds only the completed-run stop line and optional three-way label", () => {
-  assert.match(index, /id="console-run-result"[^>]+hidden/);
-  assert.match(index, /id="console-run-stop"/);
-  assert.match(index, /id="console-run-label"[^>]+aria-label="Label this run"/);
+  assert.match(index, /id="panel-run-result"[^>]+hidden/);
+  assert.match(index, /id="panel-run-stop"/);
+  assert.match(index, /id="panel-run-label"[^>]+aria-label="Label this run"/);
   assert.match(script, /Ended: \$\{run\.last_stop_reason\}/);
   assert.match(script, /\["productive", "stuck", "mixed"\]/);
   assert.match(script, /\/result-label/);

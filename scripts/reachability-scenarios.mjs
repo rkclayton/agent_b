@@ -75,7 +75,7 @@ try {
     await page.goto(`${harness.base}/?session=${sessionID}`);
     await page.locator('body[data-page="console"]').waitFor();
     result = await reachesChat(page, clickTab);
-    record(`2gf/${label}/console-tab-reaches-chat`, result.ok, result);
+    record(`2gf/${label}/panel-tab-reaches-chat`, result.ok, result);
     await page.close();
 
     // Settings, opened over Console the way the shell opens it.

@@ -225,13 +225,15 @@ try {
   await page.screenshot({ path: join(args.evidence, "real-tape-menu.png") });
   await page.keyboard.press("Escape");
   await tab.click();
-  await page.waitForURL((url) => url.pathname === "/" && url.searchParams.get("session") === sessionID);
-  await page.locator('.agent-tab[data-agent="agent_b"]').waitFor();
-  await page.locator("#console-agent option", { hasText: "Acceptance" }).waitFor({ state: "attached" });
+  // Item 2gk (v1.2.3): the numbers are two sections of Settings now, reached by
+  // the gear. A replayed tape still fills them; that is what is checked here.
+  await page.locator(".shell-settings").click();
+  await page.locator("#settings-page").waitFor({ state: "visible" });
+  await page.locator(".settings-nav button", { hasText: "Activity" }).click();
+  await page.locator("#activity-panel").waitFor({ state: "visible" });
   await page.locator("#flow .activity-row").first().waitFor();
-  assert.equal(await page.locator('.agent-tab[data-agent="agent_b"]').getAttribute("data-side"), "console");
-  const consoleGeometry = await shellGeometry();
-  const consoleCapabilities = await page.evaluate(() => {
+  const panelGeometry = await shellGeometry();
+  const activityCapabilities = await page.evaluate(() => {
     const visible = (selector) => {
       const node = document.querySelector(selector);
       if (!node) return false;
@@ -240,31 +242,48 @@ try {
       return !node.hidden && style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
     };
     return {
-      groups: [...document.querySelectorAll(".console-surface > .console-group > .panel-caption > span:first-child")].map((node) => node.textContent.trim()),
-      visible: Object.fromEntries(["#console-agent", "#console-agent-binding", "#console-tools-panel", "#console-lifetime", "#console-live-content", "#rail", "#flow", ".rack-well", "#state-list", "#timeline-list", "#clear-stats", "#flush-memory"].map((selector) => [selector, visible(selector)])),
+      groups: [...document.querySelectorAll("#activity-panel > .panel-group > .panel-caption > span:first-child")].map((node) => node.textContent.trim()),
+      visible: Object.fromEntries(["#panel-lifetime", "#panel-live-content", "#rail", "#flow", ".rack-well", "#state-list", "#timeline-list", "#clear-stats", "#flush-memory"].map((selector) => [selector, visible(selector)])),
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       fixedHeaderHeight: document.querySelector("#app-shell").getBoundingClientRect().height,
-      selectedAgent: document.querySelector("#console-agent")?.selectedOptions[0]?.textContent || "",
+      toolCounts: document.querySelectorAll("#panel-tool-counters .panel-line").length,
       flowRows: document.querySelectorAll("#flow .activity-row").length,
     };
   });
-  assert.deepEqual(consoleCapabilities.groups, ["Agent", "Tools", "Lifetime", "Live run", "Maintenance"], JSON.stringify(consoleCapabilities));
-  assert.ok(Object.values(consoleCapabilities.visible).every(Boolean), JSON.stringify(consoleCapabilities));
-  assert.ok(consoleCapabilities.pageOverflow <= 0, JSON.stringify(consoleCapabilities));
-  assert.equal(consoleCapabilities.fixedHeaderHeight, chatGeometry.shell.height, JSON.stringify(consoleCapabilities));
-  assert.equal(consoleCapabilities.selectedAgent, "Acceptance", JSON.stringify(consoleCapabilities));
-  assert.ok(consoleCapabilities.flowRows > 0, JSON.stringify(consoleCapabilities));
-  await page.screenshot({ path: join(args.evidence, "real-tape-console.png") });
-  const consoleWidths = [];
+  assert.deepEqual(activityCapabilities.groups, ["Tool use", "Lifetime", "Live run", "Reflection", "Maintenance"], JSON.stringify(activityCapabilities));
+  assert.ok(Object.values(activityCapabilities.visible).every(Boolean), JSON.stringify(activityCapabilities));
+  assert.ok(activityCapabilities.pageOverflow <= 0, JSON.stringify(activityCapabilities));
+  assert.equal(activityCapabilities.fixedHeaderHeight, chatGeometry.shell.height, JSON.stringify(activityCapabilities));
+  assert.ok(activityCapabilities.toolCounts > 0, JSON.stringify(activityCapabilities));
+  // The setup half is on Agents, with the agent this tape was recorded under.
+  await page.locator(".settings-nav button", { hasText: "Agents" }).click();
+  await page.locator("#agents-panel").waitFor({ state: "visible" });
+  await page.locator("#panel-agent option", { hasText: "Acceptance" }).waitFor({ state: "attached" });
+  const agentsCapabilities = await page.evaluate(() => ({
+    groups: [...document.querySelectorAll("#agents-panel > .panel-group > .panel-caption > span:first-child")].map((node) => node.textContent.trim()),
+    selectedAgent: document.querySelector("#panel-agent")?.selectedOptions[0]?.textContent || "",
+    bindingVisible: document.querySelector("#panel-agent-binding").getClientRects().length > 0,
+    toggles: document.querySelectorAll('#panel-tools input[type="checkbox"]').length,
+  }));
+  assert.deepEqual(agentsCapabilities.groups, ["Agent", "Tools"], JSON.stringify(agentsCapabilities));
+  assert.equal(agentsCapabilities.selectedAgent, "Acceptance", JSON.stringify(agentsCapabilities));
+  assert.equal(agentsCapabilities.bindingVisible, true, JSON.stringify(agentsCapabilities));
+  assert.equal(agentsCapabilities.toggles, activityCapabilities.toolCounts, JSON.stringify({ agentsCapabilities, activityCapabilities }));
+  await page.screenshot({ path: join(args.evidence, "real-tape-agents.png") });
+  await page.locator(".settings-nav button", { hasText: "Activity" }).click();
+  await page.locator("#activity-panel").waitFor({ state: "visible" });
+  assert.ok(activityCapabilities.flowRows > 0, JSON.stringify(activityCapabilities));
+  await page.screenshot({ path: join(args.evidence, "real-tape-activity.png") });
+  const panelWidths = [];
   for (const width of [820, 520, 320]) {
     await page.setViewportSize({ width, height: 975 });
     const layout = await page.evaluate(() => ({
       width: document.documentElement.clientWidth,
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      groups: [...document.querySelectorAll(".console-surface > .console-group > .panel-caption > span:first-child")].filter((node) => getComputedStyle(node).display !== "none").map((node) => node.textContent.trim()),
+      groups: [...document.querySelectorAll("#activity-panel > .panel-group > .panel-caption > span:first-child")].filter((node) => getComputedStyle(node).display !== "none").map((node) => node.textContent.trim()),
       stateDisplay: getComputedStyle(document.querySelector(".state-well")).display,
       historyDisplay: getComputedStyle(document.querySelector(".timeline-well")).display,
-      bindingVisible: document.querySelector("#console-agent-binding").getClientRects().length > 0,
+      liveVisible: document.querySelector("#panel-live-content").getClientRects().length > 0,
       historyOverflow: document.querySelector(".timeline-well").scrollWidth - document.querySelector(".timeline-well").clientWidth,
       timelineOverlaps: [...document.querySelectorAll(".timeline-head")].reduce((count, head) => {
         const boxes = [...head.children].map((node) => node.getBoundingClientRect()).filter((box) => box.width > 0 && box.height > 0);
@@ -272,31 +291,31 @@ try {
       }, 0),
     }));
     assert.equal(layout.overflow, 0, JSON.stringify(layout));
-    assert.deepEqual(layout.groups, consoleCapabilities.groups, JSON.stringify(layout));
+    assert.deepEqual(layout.groups, activityCapabilities.groups, JSON.stringify(layout));
     assert.notEqual(layout.stateDisplay, "none", JSON.stringify(layout));
     assert.notEqual(layout.historyDisplay, "none", JSON.stringify(layout));
-    assert.equal(layout.bindingVisible, true, JSON.stringify(layout));
+    assert.equal(layout.liveVisible, true, JSON.stringify(layout));
     assert.ok(layout.historyOverflow <= 0, JSON.stringify(layout));
     assert.equal(layout.timelineOverlaps, 0, JSON.stringify(layout));
-    await page.screenshot({ path: join(args.evidence, `real-tape-console-${width}.png`) });
+    await page.screenshot({ path: join(args.evidence, `real-tape-panel-${width}.png`) });
     const bottom = await page.evaluate(() => {
-      const surface = document.querySelector("#console-surface");
+      const surface = document.querySelector(".settings-content");
       surface.scrollTop = surface.scrollHeight;
-      const box = document.querySelector(".console-maintenance").getBoundingClientRect();
+      const box = document.querySelector(".panel-maintenance").getBoundingClientRect();
       return { scrollTop: surface.scrollTop, scrollHeight: surface.scrollHeight, maintenanceTop: box.top, maintenanceBottom: box.bottom, maintenanceReachable: box.top >= 32 && box.bottom <= innerHeight };
     });
     assert.equal(bottom.maintenanceReachable, true, JSON.stringify(bottom));
-    consoleWidths.push({ ...layout, ...bottom });
-    await page.screenshot({ path: join(args.evidence, `real-tape-console-${width}-bottom.png`) });
-    await page.locator("#console-surface").evaluate((surface) => { surface.scrollTop = 0; });
+    panelWidths.push({ ...layout, ...bottom });
+    await page.screenshot({ path: join(args.evidence, `real-tape-panel-${width}-bottom.png`) });
+    await page.locator(".settings-content").evaluate((surface) => { surface.scrollTop = 0; });
   }
   await page.setViewportSize({ width: 1250, height: 975 });
   await page.locator('.agent-tab[data-agent="agent_b"]').click();
-  await page.waitForURL((url) => url.pathname === "/chat" && url.searchParams.get("session") === sessionID);
+  await page.locator("#settings-page").waitFor({ state: "hidden" });
   await page.locator(".chat-entry").first().waitFor();
   const returnedChatGeometry = await shellGeometry();
   if (args["expect-stable-shell"] === "true") {
-    assert.deepEqual(consoleGeometry, chatGeometry, JSON.stringify({ chatGeometry, consoleGeometry }));
+    assert.deepEqual(panelGeometry, chatGeometry, JSON.stringify({ chatGeometry, panelGeometry }));
     assert.deepEqual(returnedChatGeometry, chatGeometry, JSON.stringify({ chatGeometry, returnedChatGeometry }));
   }
   assert.deepEqual(pageErrors, []);
@@ -305,7 +324,7 @@ try {
   const chatConsoleErrors = [...consoleErrors];
   assert.equal(chatConsoleErrors.length, chatFailedResponses.length, JSON.stringify({ chatConsoleErrors, chatFailedResponses }));
   consoleErrors.length = 0;
-  await page.goto(`http://127.0.0.1:${port}/?session=${encodeURIComponent(sessionID)}#settings/shell`, { waitUntil: "domcontentloaded" });
+  await page.goto(`http://127.0.0.1:${port}/chat?session=${encodeURIComponent(sessionID)}#settings/shell`, { waitUntil: "domcontentloaded" });
   const operatorToggle = page.locator('.settings-operator-status[data-action="operator-context"]');
   await operatorToggle.waitFor();
   assert.match(await operatorToggle.innerText(), /Run everything as me|Stop running everything as me/);
@@ -330,9 +349,9 @@ try {
     settingsFailedResponses,
     chatFailedResponses,
     ui,
-    consoleCapabilities,
-    consoleWidths,
-    shellGeometry: { chat: chatGeometry, console: consoleGeometry, returned_chat: returnedChatGeometry },
+    activityCapabilities,
+    panelWidths,
+    shellGeometry: { chat: chatGeometry, console: panelGeometry, returned_chat: returnedChatGeometry },
     plusUsableHitTarget: chatGeometry.plus.width >= 20 && chatGeometry.plus.height >= 20,
     cursor: result.cursor,
   };

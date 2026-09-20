@@ -7,7 +7,7 @@ import { renderTimeline } from "./timeline.js";
 import { createMessageDropController } from "./message-drop.js";
 import { createApprovalCard } from "./approval.js";
 import { loadReflection } from "./reflection.js";
-import { agentKey, compactionFigures, lifetimeRows, ratio } from "./console-lifetime.js";
+import { agentKey, compactionFigures, lifetimeRows, ratio } from "./panel-lifetime.js";
 import { renderStopState } from "./stop-state.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText } from "./chat-activity.js";
@@ -20,20 +20,20 @@ let ledger = null;
 let ledgerAsked = false;
 let renderFrame = 0;
 let mounted = false;
-const liveContent = document.getElementById("console-live-content");
-const liveEmpty = document.getElementById("console-live-empty");
+const liveContent = document.getElementById("panel-live-content");
+const liveEmpty = document.getElementById("panel-live-empty");
 const dropLastMessage = document.getElementById("drop-last-message");
-const agentSelect = document.getElementById("console-agent");
-const agentServerSelect = document.getElementById("console-agent-server");
-const agentServerVision = document.getElementById("console-agent-vision");
-const agentServerState = document.getElementById("console-agent-server-state");
-const agentServerCancel = document.getElementById("console-agent-server-cancel");
-const feedback = document.getElementById("console-feedback");
-const consoleStop = document.getElementById("console-stop");
-const consoleLiveCompactions = document.getElementById("console-live-compactions");
-const consoleRunResult = document.getElementById("console-run-result");
-const consoleRunStop = document.getElementById("console-run-stop");
-const consoleRunLabel = document.getElementById("console-run-label");
+const agentSelect = document.getElementById("panel-agent");
+const agentServerSelect = document.getElementById("panel-agent-server");
+const agentServerVision = document.getElementById("panel-agent-vision");
+const agentServerState = document.getElementById("panel-agent-server-state");
+const agentServerCancel = document.getElementById("panel-agent-server-cancel");
+const feedback = document.getElementById("panel-feedback");
+const panelStop = document.getElementById("panel-stop");
+const panelLiveCompactions = document.getElementById("panel-live-compactions");
+const panelRunResult = document.getElementById("panel-run-result");
+const panelRunStop = document.getElementById("panel-run-stop");
+const panelRunLabel = document.getElementById("panel-run-label");
 
 const dropControl = createMessageDropController(dropLastMessage, {
   session: () => store.sessions[store.active], interactive: () => !store.replay,
@@ -55,10 +55,10 @@ agentServerSelect.addEventListener("change", () => void changeAgentServer());
 agentServerCancel.addEventListener("click", () => void cancelAgentServerChange());
 document.getElementById("clear-stats").addEventListener("click", () => void clearStats());
 document.getElementById("flush-memory").addEventListener("click", () => void flushMemory());
-document.getElementById("console-tools").addEventListener("change", (event) => void toggleTool(event));
-document.getElementById("console-tools-link").addEventListener("click", (event) => { event.preventDefault(); document.getElementById("console-tools-panel").scrollIntoView({block:"start"}); });
-consoleStop.addEventListener("click", () => { const id=store.selection.session_id; if(id&&!store.replay) void api("/api/stop",{session_id:id}); });
-consoleRunLabel.addEventListener("click", (event) => {
+document.getElementById("panel-tools").addEventListener("change", (event) => void toggleTool(event));
+document.getElementById("panel-tools-link").addEventListener("click", (event) => { event.preventDefault(); document.getElementById("panel-tools-panel").scrollIntoView({block:"start"}); });
+panelStop.addEventListener("click", () => { const id=store.selection.session_id; if(id&&!store.replay) void api("/api/stop",{session_id:id}); });
+panelRunLabel.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-label]");
   const id = store.selection.session_id;
   const runID = store.sessions[id]?.run?.last_run_id;
@@ -87,7 +87,7 @@ subscribe((_state, event) => {
 
 function scheduleRender() {
   if (!mounted) return;
-  if (!renderFrame) renderFrame = requestAnimationFrame(renderConsole);
+  if (!renderFrame) renderFrame = requestAnimationFrame(renderPanels);
 }
 let flowFrame = 0;
 function scheduleFlowRender() {
@@ -114,7 +114,7 @@ async function refreshLedger(render = true) {
   scheduleRender();
 }
 
-function renderConsole() {
+function renderPanels() {
   renderFrame = 0;
   if (!mounted) return;
   const agents = store.config.agents || [];
@@ -122,45 +122,45 @@ function renderConsole() {
   agentSelect.replaceChildren(...agents.map((agent) => option(agentKey(agent), agent.name, agentKey(agent) === selectedAgent)));
   const agent = agents.find((candidate) => agentKey(candidate) === selectedAgent);
   renderAgentServer(agent);
-  document.getElementById("console-agent-binding").textContent = agent ? `${agent.c ? `c ${agent.c}` : ""}${agent.c && agent.d ? " · " : ""}${agent.d ? `d ${agent.d}` : ""}` : store.loaded ? "No configured agents" : "";
+  document.getElementById("panel-agent-binding").textContent = agent ? `${agent.c ? `c ${agent.c}` : ""}${agent.c && agent.d ? " · " : ""}${agent.d ? `d ${agent.d}` : ""}` : store.loaded ? "No configured agents" : "";
   renderTools(agent);
   renderLifetime();
   const session = store.sessions[store.active];
   const hasSelectedChat = !!session && session.agent_id === selectedAgent;
   liveContent.hidden = !hasSelectedChat;
   liveEmpty.hidden = hasSelectedChat || !store.loaded;
-  renderStopState(consoleStop, hasSelectedChat ? session : null, store.replay);
-  consoleLiveCompactions.textContent = hasSelectedChat ? compactionFigures(session) : "";
-  consoleLiveCompactions.hidden = !hasSelectedChat;
-  document.getElementById("console-live-state").textContent = !store.loaded ? "" : !hasSelectedChat ? "no open chat" : session.pending_approval ? "waiting for you" : liveActivityText(session) || session.run?.status || "idle";
+  renderStopState(panelStop, hasSelectedChat ? session : null, store.replay);
+  panelLiveCompactions.textContent = hasSelectedChat ? compactionFigures(session) : "";
+  panelLiveCompactions.hidden = !hasSelectedChat;
+  document.getElementById("panel-live-state").textContent = !store.loaded ? "" : !hasSelectedChat ? "no open chat" : session.pending_approval ? "waiting for you" : liveActivityText(session) || session.run?.status || "idle";
   renderRunResult(hasSelectedChat ? session : null);
   if (hasSelectedChat) {
     renderRail(); renderFlow(); renderRack(); renderState(); renderTimeline(); placeDropLastMessage(); dropControl.render(); renderPendingApproval(session);
   }
-  navigationSurfaceReady("console", store);
+  navigationSurfaceReady("panels", store);
 }
 
 function renderRunResult(session) {
   const run = session?.run;
   const ended = !!run?.last_stop_reason && !["running", "queued", "stopping"].includes(run.status);
-  consoleRunResult.hidden = !ended;
-  if (!ended) { consoleRunStop.textContent = ""; consoleRunLabel.replaceChildren(); return; }
+  panelRunResult.hidden = !ended;
+  if (!ended) { panelRunStop.textContent = ""; panelRunLabel.replaceChildren(); return; }
   const armed = run.armed_detectors?.length ? run.armed_detectors.join(", ") : "none";
-  consoleRunStop.textContent = `Ended: ${run.last_stop_reason}${run.last_stop_detail ? ` — ${run.last_stop_detail}` : ""} · armed: ${armed}`;
-  consoleRunLabel.replaceChildren(...["productive", "stuck", "mixed"].map((label) => {
+  panelRunStop.textContent = `Ended: ${run.last_stop_reason}${run.last_stop_detail ? ` — ${run.last_stop_detail}` : ""} · armed: ${armed}`;
+  panelRunLabel.replaceChildren(...["productive", "stuck", "mixed"].map((label) => {
     const button = node("button", run.result_label === label ? "selected" : "");
     button.type = "button"; button.dataset.label = label; button.textContent = label; button.disabled = store.replay;
     return button;
   }));
 }
 
-export function mountConsole() {
+export function mountPanels() {
   mounted = true;
   void refreshLedger(false);
   scheduleRender();
 }
 
-export function unmountConsole() {
+export function unmountPanels() {
   mounted = false;
   if (renderFrame) cancelAnimationFrame(renderFrame);
   if (flowFrame) cancelAnimationFrame(flowFrame);
@@ -177,7 +177,7 @@ function renderAgentServer(agent) {
   const vision = profile?.capabilities?.vision || "not classified";
   const visionFinding = (profile?.capabilities?.findings || []).find((finding) => finding.startsWith("vision:"));
   agentServerVision.hidden = !profile?.capabilities?.probed_at;
-  agentServerVision.className = `console-agent-vision ${vision === "reads images" ? "reads" : "does-not-read"}`;
+  agentServerVision.className = `panel-agent-vision ${vision === "reads images" ? "reads" : "does-not-read"}`;
   agentServerVision.title = visionFinding || `vision: ${vision}`;
   agentServerVision.setAttribute("aria-label", agentServerVision.title);
   agentServerState.textContent = !agent ? "" : pending ? `Applied ${agent.b} · pending ${pending.to}` : `Applied ${agent.b}`;
@@ -205,27 +205,43 @@ async function cancelAgentServerChange() {
   } catch (error) { showError(error.message); }
 }
 
+// Item 2gk: one table became two, because the two halves answer to different
+// people. Turning a tool on or off is setting the agent up, so it is on Agents;
+// how often a tool ran and how often it failed is the record of what happened,
+// so it is on Activity. Every column that was in the one table is still drawn,
+// and both halves read the one ledger.
 function renderTools(agent) {
-  const root = document.getElementById("console-tools");
-  if (!agent) { root.innerHTML = store.loaded ? '<p class="console-empty">No agent selected.</p>' : ""; return; }
+  const root = document.getElementById("panel-tools");
+  const counts = document.getElementById("panel-tool-counters");
+  if (!agent) {
+    const empty = store.loaded ? '<p class="panel-empty">No agent selected.</p>' : "";
+    root.innerHTML = empty;
+    counts.innerHTML = empty;
+    return;
+  }
   const enabled = new Set(agent.toolset || []);
-  document.getElementById("console-tools-link").textContent = `${enabled.size} tools active`;
+  document.getElementById("panel-tools-link").textContent = `${enabled.size} tools active`;
   const counters = ledger?.agent?.tools || {};
   root.replaceChildren(...(store.tools || []).map((tool) => {
-    const stats = counters[tool.name] || {};
-    const row = node("label", "console-line console-tool-line");
+    const row = node("label", "panel-line panel-tool-line");
     const toggle = document.createElement("input");
     toggle.type = "checkbox"; toggle.checked = enabled.has(tool.name); toggle.dataset.tool = tool.name; toggle.disabled = store.replay;
-    row.append(toggle, text(tool.name), text(stats.calls || 0), text(ratio(stats.failures || 0, stats.calls || 0)), text(stats.last_used || "—"));
+    row.append(toggle, text(tool.name));
+    return row;
+  }));
+  counts.replaceChildren(...(store.tools || []).map((tool) => {
+    const stats = counters[tool.name] || {};
+    const row = node("div", "panel-line panel-tool-line panel-tool-counts");
+    row.append(text(tool.name), text(stats.calls || 0), text(ratio(stats.failures || 0, stats.calls || 0)), text(stats.last_used || "—"));
     return row;
   }));
 }
 
 function renderLifetime() {
-  const root = document.getElementById("console-stats");
-  if (!ledger) { root.innerHTML = store.loaded && ledgerAsked ? '<p class="console-empty">No lifetime activity.</p>' : ""; return; }
+  const root = document.getElementById("panel-stats");
+  if (!ledger) { root.innerHTML = store.loaded && ledgerAsked ? '<p class="panel-empty">No lifetime activity.</p>' : ""; return; }
   const sections = [[selectedAgent, ledger.agent], ...Object.entries(ledger.profiles || {})];
-  root.replaceChildren(...sections.flatMap(([name, counters]) => [text(name, "console-profile-head"), ...lifetimeRows(counters, percentile).map(([label, value]) => line(label, value))]));
+  root.replaceChildren(...sections.flatMap(([name, counters]) => [text(name, "panel-profile-head"), ...lifetimeRows(counters, percentile).map(([label, value]) => line(label, value))]));
 }
 
 async function toggleTool(event) {
@@ -254,10 +270,10 @@ async function flushMemory() {
 
 async function refreshState() { reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); await refreshLedger(); }
 function placeDropLastMessage() { const heads = document.querySelectorAll(".timeline-model > .timeline-head"); const target = heads[heads.length - 1]; dropLastMessage.hidden = !target; if (target) target.append(dropLastMessage); }
-function renderPendingApproval(session) { const root = document.getElementById("console-pending-approval"); root.hidden = !session?.pending_approval; root.replaceChildren(...(session?.pending_approval ? [createApprovalCard(document, session.pending_approval, { replay: store.replay, decide: (callID, decision) => api("/api/approve", { session_id: session.id, call_id: callID, decision }) })] : [])); }
+function renderPendingApproval(session) { const root = document.getElementById("panel-pending-approval"); root.hidden = !session?.pending_approval; root.replaceChildren(...(session?.pending_approval ? [createApprovalCard(document, session.pending_approval, { replay: store.replay, decide: (callID, decision) => api("/api/approve", { session_id: session.id, call_id: callID, decision }) })] : [])); }
 function percentile(values = [], fraction = .5) { if (!values.length) return 0; const copy = [...values].sort((a, b) => a - b); return copy[Math.floor((copy.length - 1) * fraction)]; }
 function patchEndedRun(patch = {}) { return (patch.operations || []).some((operation) => operation.path === "/run" && ["idle", "held"].includes(operation.value?.status)); }
-function line(label, value) { const row = node("div", "console-line"); row.append(text(label), text(String(value))); return row; }
+function line(label, value) { const row = node("div", "panel-line"); row.append(text(label), text(String(value))); return row; }
 function node(tag, className = "") { const value = document.createElement(tag); value.className = className; return value; }
 function text(value, className = "") { const result = node("span", className); result.textContent = String(value); return result; }
 function button(value, title) { const result = node("button"); result.type = "button"; result.textContent = value; result.title = title; return result; }

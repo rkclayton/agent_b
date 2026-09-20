@@ -1,7 +1,7 @@
 export const hintTexts = Object.freeze({
   accepted: "Cubes at the top track progress. Click one to reopen an item.",
   worker: "The worker runs this in a fresh session. You'll be asked only if it needs you.",
-  apiAux: "Side jobs (compaction, naming) run on your API model. A small local Agent C does them for free. Assign one in Console.",
+  apiAux: "Side jobs (compaction, naming) run on your API model. A small local Agent C does them for free. Assign one in Settings under Agents.",
   noPlanner: "No planner assigned; agent_b is planning. Reviews are off.",
 });
 

@@ -11,9 +11,9 @@ const appCSS = await readFile(new URL("../css/app.css", import.meta.url), "utf8"
 const chatCSS = await readFile(new URL("../css/chat.css", import.meta.url), "utf8");
 const pages = await Promise.all(["index.html", "plan.html"].map(async (name) => [name, await readFile(new URL(`../${name}`, import.meta.url), "utf8")]));
 
-test("shared shell slot order is identical on Chat Console and Plan", () => {
+test("shared shell slot order is identical on the chat and Plan", () => {
   for (const [name, html] of pages) {
-    assert.match(html, new RegExp(`id="app-shell"[^>]+data-page="${name === "index.html" ? "console" : "plan"}"`));
+    assert.match(html, new RegExp(`id="app-shell"[^>]+data-page="${name === "index.html" ? "chat" : "plan"}"`));
     assert.doesNotMatch(html, /id="(?:shell-stop|shell-state|shell-operator-status)"/);
   }
   assert.match(shell, /root\.append\(left, right\)/);
@@ -21,6 +21,9 @@ test("shared shell slot order is identical on Chat Console and Plan", () => {
   assert.doesNotMatch(shell, /shell-operator-status|right\.append\(stop/);
   assert.match(shell, /\[\["plan", "\/plan"\]\]/);
   assert.doesNotMatch(shell, /\["chat", "Chat", "\/chat"\]|\["console", "Console", "\/"\]/);
+  // Item 2gk: the page it used to flip to is gone, so the flip is gone with it.
+  assert.doesNotMatch(shell, /Console/);
+  assert.doesNotMatch(shell, /rememberedAgentSide|rememberAgentSide\(|agentb\.side\./);
 });
 
 test("each open chat gets an agent tab whose robot eyes expose that chat state", () => {
@@ -46,18 +49,14 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   assert.match(tokens, /--agent-tab-width:118px/);
   assert.match(tokens, /\.agent-tab-wrap\{[^}]*flex:0 0 var\(--agent-tab-width\)/);
   assert.match(tokens, /\.agent-tab\{[^}]*flex:1 1 auto;[^}]*min-width:69px/);
-  // Left click only selects; Console is an entry in the tab right-click menu.
+  // Left click only selects; there is one side to be on.
   assert.match(shell, /if \(options\.switchView\) options\.switchView\(next, navigation\)/);
-  // One entry, naming the side you are not on: the tab was the only route
-  // between Chat and Console, so a Console-only entry would strand you there.
-  assert.match(shell, /button\(flip\.label, `Open \$\{flip\.label\} for/);
-  assert.match(shell, /label: side === "console" \? "Chat" : "Console"/);
+  assert.doesNotMatch(shell, /flip\.label|flip\.open/);
   assert.match(shell, /tab\.onclick = \(\) => \{[\s\S]{0,400}setSelection\(agentID, session\.id\);/);
   assert.doesNotMatch(shell, /tab\.onclick = \(\) => \{[\s\S]{0,400}switchView/);
   // The close mark overlays the tab rather than extending the strip.
   assert.match(tokens, /\.agent-tab-close\{position:absolute/);
   assert.match(tokens, /\.agent-tab-wrap \.agent-tab\{padding-right:18px\}/);
-  assert.match(shell, /agentb\.side\.\$\{agentID\}/);
   assert.match(tokens, /\.agent-tab\.side-chat\{color:var\(--ink\)\}/);
   assert.match(tokens, /\.agent-tab\.side-console\{color:var\(--ink\)\}/);
   assert.match(tokens, /\.agent-tab-wrap\.selected\.side-console\{background:rgba\(216,221,227,.16\)\}/);

@@ -13,10 +13,15 @@ import { renderSendStop } from "./stop-state.js";
 import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, isIdenticalSingleStepFold, itemFailed, responseBlocks, responseSummary } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
+import { compactionFigures } from "./panel-lifetime.js";
 import { renderChatProposals } from "./chat-proposals.js";
 import { installTranscriptCopy } from "./transcript-copy.js";
 
 const budget = document.getElementById("chat-budget");
+const readout = document.getElementById("chat-readout");
+const readoutFigures = document.getElementById("chat-readout-figures");
+const readoutStop = document.getElementById("chat-readout-stop");
+const readoutLabel = document.getElementById("chat-readout-label");
 const log = document.getElementById("chat-log");
 const input = document.getElementById("chat-task");
 const expandComposer = document.getElementById("chat-expand");
@@ -158,6 +163,7 @@ function render() {
   if (!mounted) return;
   const session = store.sessions[selectedID()];
   renderBudget(session);
+  renderReadout(session);
   renderLog(session);
   renderComposer(session);
   navigationSurfaceReady("chat", store);
@@ -192,6 +198,33 @@ function renderBudget(session) {
   budget.className = `chat-budget ${ratio > 1 ? "over" : ratio > 0.85 ? "warn" : ""}`;
   budget.querySelector(".chat-budget-fill").style.width = `${Math.min(100, ratio * 100)}%`;
   budget.querySelector(".chat-budget-tip").textContent = `${value.estimated ? "estimated · " : ""}${format(used)} / ${format(ceiling)}`;
+}
+
+// Item 2gk: the figures for this chat, collapsed by default, on the chat they
+// describe. Compactions, summaries and tokens are always true of the chat; the
+// stop reason and the label are true of its last run, so they are the body that
+// opens rather than the line that is always read.
+function renderReadout(session) {
+  readout.hidden = !session;
+  if (!session) return;
+  const value = session.budget || {};
+  const used = value.used_measured || value.used_est || 0;
+  const ceiling = value.ceiling || 0;
+  const run = session.run || {};
+  const ended = !!run.last_stop_reason && !["running", "queued", "stopping"].includes(run.status);
+  readoutFigures.textContent = `${compactionFigures(session)} · ${value.estimated ? "estimated " : ""}${format(used)} / ${format(ceiling)} tokens${ended ? ` · ${run.last_stop_reason}` : ""}${ended && run.result_label ? ` · ${run.result_label}` : ""}`;
+  readoutStop.textContent = ended
+    ? `Ended: ${run.last_stop_reason}${run.last_stop_detail ? ` — ${run.last_stop_detail}` : ""} · armed: ${run.armed_detectors?.length ? run.armed_detectors.join(", ") : "none"}`
+    : "No run has ended in this chat yet.";
+  readoutLabel.replaceChildren(...(ended ? ["productive", "stuck", "mixed"].map((label) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = run.result_label === label ? "selected" : "";
+    button.dataset.label = label;
+    button.textContent = label;
+    button.disabled = !!store.replay;
+    return button;
+  }) : []));
 }
 
 function renderLog(session) {
@@ -1188,6 +1221,16 @@ if (mic) {
     else startDictation();
   };
 }
+
+// Item 2gk: labelling the last run moved here with the readout; it is the same
+// call the dissolved page made.
+readoutLabel.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-label]");
+  const session = store.sessions[selectedID()];
+  const runID = session?.run?.last_run_id;
+  if (!button || !session || !runID || store.replay) return;
+  void api(`/api/sessions/${encodeURIComponent(session.id)}/result-label`, { label: button.dataset.label, run_id: runID }).catch((error) => { notice.textContent = error.message; notice.classList.add("alarm"); });
+});
 
 send.onclick = () => {
   const session = store.sessions[selectedID()];

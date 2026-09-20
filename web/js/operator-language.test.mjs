@@ -6,6 +6,11 @@ const root = new URL("../", import.meta.url);
 const standalone = /(^|[^a-z0-9_-])workspace([^a-z0-9_-]|$)/i;
 const protocol = new Set(["workspace", "workspace.conflict", "workspace.bound"]);
 
+// A plain quote in a comment - an apostrophe - opens a run that this scanner
+// reads as a string and that ends at the next apostrophe, swallowing whatever
+// lies between. Such a run crosses lines; a real single- or double-quoted
+// literal cannot. Dropping those is what stops a comment from failing a test
+// about shipped text, which it did in v1.1.2, v1.2.1 and v1.2.2.
 function literals(source) {
   const found = [];
   for (let at = 0; at < source.length; at++) {
@@ -28,6 +33,7 @@ function literals(source) {
       if (source[at] === quote) break;
       value += source[at];
     }
+    if (quote !== "`" && /[\r\n]/.test(value)) continue;
     found.push(value);
   }
   return found;

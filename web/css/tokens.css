@@ -9,7 +9,7 @@ body{height:100dvh;overflow:hidden;background:var(--bezel);color:var(--ink);font
 body::after{content:"";position:fixed;z-index:100;inset:0;pointer-events:none;box-shadow:inset 0 0 0 1px rgba(125,135,148,.28)}
 /* Item 2cz: the etching, one layer over the whole window. The map is built by scripts/build-etching.mjs from the operator's circuit image: white or black at a few percent, so each surface is its own tone lightened on one edge and darkened on the other. --etch-fade is the one dial: .33 low (the default), .66 high, 0 off. Its own compositor layer, fixed, so scrolling moves the content under it without repainting it; nothing animates. */
 body::before{content:"";position:fixed;z-index:2147483647;inset:0;pointer-events:none;background:url("../assets/etching.png") 0 0/3782px 1736px repeat;opacity:var(--etch-fade);will-change:transform}
-#chat-budget[hidden],#chat-log[hidden],#chat-composer[hidden],#console-surface[hidden]{display:none}
+#chat-budget[hidden],#chat-log[hidden],#chat-composer[hidden],#panel-surface[hidden]{display:none}
 button,input{font:inherit;color:inherit}
 button{background:rgba(216,221,227,.08);border:0;border-radius:2px;padding:4px 12px;cursor:pointer}
 button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,221,227,.16)}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible,[role=button]:focus-visible,[tabindex]:focus-visible{outline:1px solid var(--trace);outline-offset:2px}

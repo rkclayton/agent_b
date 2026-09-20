@@ -1,6 +1,7 @@
-// Item 17-i: Console's reflection section. Read-only text — the latest
-// overview and the latest tool-candidate report — fetched when Console opens
-// and again after a run closes. It adds no control.
+// Item 17-i: the reflection section, now on Settings under Activity (2gk).
+// Read-only text - the latest overview and the latest tool-candidate report -
+// fetched when that section opens and again after a run closes. It adds no
+// control.
 
 const stamp = (value) => {
   if (!value) return "";
@@ -25,7 +26,7 @@ export function reflectionText(answer = {}) {
 }
 
 export async function loadReflection(fetcher = fetch, doc = globalThis.document) {
-  const overview = doc?.getElementById("console-reflection-overview");
+  const overview = doc?.getElementById("panel-reflection-overview");
   if (!overview) return null;
   let answer;
   try {
@@ -37,9 +38,9 @@ export async function loadReflection(fetcher = fetch, doc = globalThis.document)
   }
   const text = reflectionText(answer);
   overview.textContent = text.overview;
-  const report = doc.getElementById("console-reflection-report");
+  const report = doc.getElementById("panel-reflection-report");
   if (report) report.textContent = text.report;
-  const when = doc.getElementById("console-reflection-when");
+  const when = doc.getElementById("panel-reflection-when");
   if (when) when.textContent = reflectionLabel(answer);
   return answer;
 }

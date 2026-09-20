@@ -49,6 +49,12 @@ function createView(document, key, expanded, rerender) {
   };
   const body = document.createElement("pre");
   body.className = "thinking-body";
+  // When the browser's find reveals a collapsed thought, the fold's own state
+  // follows it, so the next render does not fold it back under the match.
+  body.addEventListener("beforematch", () => {
+    expanded.add(key);
+    rerender();
+  });
   const collapse = document.createElement("button");
   collapse.type = "button";
   collapse.className = "collapse-arrow";
@@ -79,7 +85,13 @@ function updateView(view, entry, tokens, options) {
       : `${entry.reasoningTokensEstimated || entry.thinkingEstimated ? "~" : ""}${options.format(tokens)} tokens`;
     setText(view.summary, `Thought${elapsed} (${count})`);
   }
-  view.body.hidden = !open;
+  // Item 2gg (v1.1.3/W3): a collapsed thought is real model output, and the
+  // audit found the browser's own find could not reach it — `hidden` removes
+  // it from the find. `until-found` keeps it out of the layout but inside the
+  // search, and the browser reveals it when it matches, which is what 2gg's
+  // "find reaches every kind" asks for without adding a control.
+  if (open) view.body.removeAttribute("hidden");
+  else view.body.setAttribute("hidden", "until-found");
   view.collapse.hidden = !open;
   const body = entry.reasoning || (entry.done
     ? "Reasoning text is unavailable in this recording."

@@ -47,6 +47,9 @@ func main() {
 	if err := startupElevationError(processIsElevated()); err != nil {
 		log.Fatal(err)
 	}
+	// Item 2gm: where the two minutes go, measured on every start.
+	phases := newStartupPhases()
+	startupTimer = phases
 	configOverride := flag.String("config", "", "configuration file (overrides AGENTB_CONFIG and installed/default locations)")
 	applicationOverride := flag.String("app-root", "", "application root containing web, prompts, scripts, and harness.example.json")
 	dataOverride := flag.String("data-root", "", "operator data root containing configuration, credentials, logs, and memory")
@@ -71,6 +74,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	phases.mark("config")
 	cfg, migrated, created, err := config.LoadWithRoots(paths.Config, filepath.Join(paths.Application, "harness.example.json"), paths.Data)
 	if err != nil {
 		log.Fatal(err)
@@ -231,11 +235,18 @@ func main() {
 		filepath.Join(paths.Application, "scripts", "apply-hardening.ps1"),
 	))
 	web.SetSigningManager(signing.New(filepath.Join(paths.Application, "scripts", "manage-signing.ps1")))
-	signingContext, cancelSigning := context.WithTimeout(context.Background(), 15*time.Second)
-	if err := web.RefreshSigningState(signingContext); err != nil {
-		log.Printf("inspect installed signatures: %v", err)
-	}
-	cancelSigning()
+	// Item 2gm: inspecting the installed signatures runs PowerShell and used to
+	// hold the port closed for seconds — on a fresh root with no chats at all
+	// it was most of the 8.1 s before listen. It is not needed to serve a
+	// request: Settings reads the state when it is ready, the same treatment
+	// the probes get. Nothing waits on it, and a failure is still said.
+	go func() {
+		signingContext, cancelSigning := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancelSigning()
+		if err := web.RefreshSigningState(signingContext); err != nil {
+			log.Printf("inspect installed signatures: %v", err)
+		}
+	}()
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
@@ -279,10 +290,12 @@ func main() {
 		} else {
 			log.Printf("startup agent %s not runnable: %s; use Connections > Test", mainAgentID, reason)
 		}
+		phases.mark("before restore")
 		restored, floor, restoreErr := restoreRetainedChats(writers, registry, bus, retainedIDFloor(writers))
 		if restoreErr != nil {
 			log.Fatal(restoreErr)
 		}
+		phases.mark("restore retained chats")
 		runner.ReserveIDs(floor)
 		scheduler.ReserveIDs(floor)
 		open := false
@@ -320,7 +333,9 @@ func retainedIDFloor(writers *events.Writers) int64 {
 	if err != nil || len(paths) == 0 {
 		return 0
 	}
-	replay, err := projection.LoadReplay(paths)
+	startupTimer.mark("list journals")
+	// Item 2gm: the restore wants the sessions, not the patches.
+	replay, err := projection.LoadReplayStates(paths)
 	if err != nil {
 		return 0
 	}
@@ -372,6 +387,7 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 	if err != nil {
 		return nil, floor, fmt.Errorf("load retained chats: %w", err)
 	}
+	startupTimer.mark("parse and project journals")
 	ids := make([]string, 0, len(replay.Sessions))
 	for id := range replay.Sessions {
 		ids = append(ids, id)
@@ -416,6 +432,7 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 		}
 		result = append(result, item)
 	}
+	startupTimer.mark("register restored sessions")
 	return result, floor, nil
 }
 
@@ -554,6 +571,7 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime) error {
 	errors := make(chan error, 1)
 	go func() {
 		log.Printf("Agent_b listening on http://%s", cfg.Listen)
+		startupTimer.report()
 		errors <- httpServer.Serve(listener)
 	}()
 	signals := make(chan os.Signal, 1)

@@ -27,7 +27,19 @@ func ReadFile(path string, through int64) ([]Record, int64, error) {
 	return read(filepath.Base(path), source, through)
 }
 
+// ProjectFileState is ProjectFile without the patches (item 2gm). Computing
+// a patch per record is quadratic in the length of the journal, and a caller
+// that wants only the final state should not pay for it.
+func ProjectFileState(path string, through int64) (Snapshot, error) {
+	state, _, err := projectFile(path, through, false)
+	return state, err
+}
+
 func ProjectFile(path string, through int64) (Snapshot, []Patch, error) {
+	return projectFile(path, through, true)
+}
+
+func projectFile(path string, through int64, wantPatches bool) (Snapshot, []Patch, error) {
 	records, offset, err := ReadFile(path, through)
 	if err != nil {
 		return Snapshot{}, nil, err
@@ -35,20 +47,34 @@ func ProjectFile(path string, through int64) (Snapshot, []Patch, error) {
 	state := Empty(sessionID(records))
 	if predecessor, ok := predecessorCursor(records); ok {
 		previousPath := filepath.Join(filepath.Dir(path), predecessor.Generation)
-		previous, _, previousErr := ProjectFile(previousPath, predecessor.Offset)
+		previous, previousErr := ProjectFileState(previousPath, predecessor.Offset)
 		if previousErr != nil {
 			return Snapshot{}, nil, fmt.Errorf("project predecessor %s at byte %d: %w", previousPath, predecessor.Offset, previousErr)
 		}
 		state = previous
 	}
-	patches := make([]Patch, 0, len(records))
+	var patches []Patch
+	if wantPatches {
+		patches = make([]Patch, 0, len(records))
+	}
 	for _, record := range records {
-		next, patch, nextErr := Next(state, record)
+		var (
+			next    Snapshot
+			patch   Patch
+			nextErr error
+		)
+		if wantPatches {
+			next, patch, nextErr = Next(state, record)
+		} else {
+			next, nextErr = NextState(state, record)
+		}
 		state, err = next, nextErr
 		if err != nil {
 			return Snapshot{}, nil, fmt.Errorf("project %s at byte %d: %w", path, record.Cursor.Offset, err)
 		}
-		patches = append(patches, patch)
+		if wantPatches {
+			patches = append(patches, patch)
+		}
 	}
 	if len(records) == 0 {
 		state.Cursor = Cursor{Generation: filepath.Base(path), Offset: offset}

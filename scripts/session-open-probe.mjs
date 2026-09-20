@@ -5,7 +5,9 @@
 import assert from "node:assert/strict";
 import { mkdir, copyFile, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { start } from "./ui-harness.mjs";
+import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 
 const argv = process.argv.slice(2);
 const args = Object.fromEntries(Array.from({ length: argv.length / 2 }, (_, index) => [argv[index * 2].replace(/^--/, ""), argv[index * 2 + 1]]));
@@ -60,4 +62,7 @@ try {
 }
 await writeFile(join(resolve(args.evidence), "w3-session-open-probe.json"), JSON.stringify({ schema: 1, staged, findings }, null, 2));
 for (const finding of findings) process.stdout.write(`${finding.requested} -> selected=${finding.selected} rows=${finding.rows} url=${finding.url}\n`);
-await rm(dataRoot, { recursive: true, force: true }).catch(() => {});
+// The disposable root goes through the removal guard, never a raw recursive
+// rm: the guard refuses a target outside the allowed roots and refuses to
+// descend through a junction (scripts/removal-guard.mjs).
+try { removeTreeWithinAllowedRoots(dataRoot, [tmpdir()], "v1.1.3 disposable scenario root"); } catch { /* a root already gone is not a failure */ }

@@ -427,6 +427,19 @@
 .thinking-active .thought-glyph {
   color: var(--trace);
 }
+/* Item 2gg (v1.1.3/W3): a collapsed thought is hidden "until-found" so the
+   browser can still find the model text inside it. That keeps the element
+   rendered, unlike display:none, so it is collapsed to nothing here — the
+   fold looks exactly as it did and the text stays searchable. */
+.thinking-body[hidden="until-found"] {
+  height: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+}
+
 .thinking-body,
 .tool-detail {
   margin: 4px 0 0;

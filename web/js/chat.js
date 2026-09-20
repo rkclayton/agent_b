@@ -35,6 +35,9 @@ const pendingFiles = document.getElementById("chat-attachments");
 const stop = document.getElementById("chat-stop");
 const retryModel = document.getElementById("chat-retry-model");
 let requested = new URLSearchParams(location.search).get("session");
+// Item 2gn: the chat the operator asked for by name, so the stale-selection
+// sweep never takes him off a closed chat he opened deliberately.
+let askedFor = "";
 const selectedID = () => store.selection.session_id;
 // Item 2gg: copying the transcript marks the kind of each entry. Installed
 // once, on the document, and inert unless the selection is in the transcript.
@@ -94,10 +97,21 @@ jumpButton.onclick = () => {
 subscribe((_state, event) => {
   if (event.type === "snapshot") {
     const open = newestOpenSessions();
-    if (requested && store.sessions[requested] && !store.sessions[requested].closed) { changeBound(requested); requested = ""; }
+    // Item 2gn: a link that names a chat opens THAT chat, closed or open. The
+    // `!closed` test sent the operator to whatever chat happened to be
+    // selected — five of five ids in the v1.1.2 probe — and nine of his ten
+    // retained chats are closed, so it was his whole history.
+    if (requested && store.sessions[requested]) { askedFor = requested; changeBound(requested); requested = ""; }
     else if (store.selection.agent_id === "agent_b" && (!store.sessions[selectedID()] || store.sessions[selectedID()].closed)) changeBound(open[0]?.id || "");
   }
-  if (store.selection.agent_id === "agent_b" && store.sessions[selectedID()]?.closed) changeBound(newestOpenSessions()[0]?.id || "");
+  // The sweep below exists for a selection that went stale on its own. A chat
+  // the operator asked for by name is not stale, so it is left in front of him
+  // until he chooses another (item 2gn).
+  // `askedFor` is not cleared when the selection moves: the selection is
+  // applied through the bus and does not always equal the id on the very
+  // snapshot that set it, and clearing it there is what made the first attempt
+  // at this bounce straight back off the closed chat.
+  if (!askedFor && store.selection.agent_id === "agent_b" && store.sessions[selectedID()]?.closed) changeBound(newestOpenSessions()[0]?.id || "");
   if (event.session_id && selectedID() && event.session_id !== selectedID()) {
     // The worker has no thread of its own: a change to its pending card is drawn
     // in the design thread of its plan, and at once, because it waits on the operator.
@@ -964,6 +978,10 @@ async function submit() {
   const text = input.value.trim();
   if (!text && !queuedAttachments.length) return;
   try {
+    // Item 2gn: a closed chat opened by name is read-only until the operator
+    // sends. Sending reopens it first, through the route the history list
+    // already uses, so the message lands in a chat that is open.
+    if (session.closed) await api(`/api/sessions/${encodeURIComponent(session.id)}/reopen`, {});
 		await api("/api/message", { session_id: session.id, text, attachments: queuedAttachments.map(attachmentMetadata) });
     input.value = "";
     queuedAttachments = [];

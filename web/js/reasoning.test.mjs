@@ -17,6 +17,14 @@ class FakeElement {
     this.children.push(...children);
   }
 
+  addEventListener(name, handler) {
+    (this.listeners ||= new Map()).set(name, handler);
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
   setAttribute(name, value) {
     this.attributes.set(name, String(value));
   }
@@ -90,6 +98,8 @@ test("thinking renderer preserves its DOM and never opens to an empty body", () 
   renderer.begin();
   renderer.render({ ...active, done: true, thinkingMS: 1200 }, 4);
   renderer.end();
-  assert.equal(body.hidden, true);
+  // Item 2gg: a collapsed thought is hidden "until-found", so the browser's
+  // own find still reaches the model output inside it.
+  assert.equal(body.getAttribute("hidden"), "until-found");
   assert.equal(collapse.hidden, true);
 });

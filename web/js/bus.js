@@ -59,9 +59,17 @@ export function reduce(event) {
     store.loaded = true;
     store.selection = selection;
     const selected = selection.session_id || active;
-    store.active = store.sessions[selected] && !store.sessions[selected].closed && roleAgentID(store.sessions[selected]) === selection.agent_id
-      ? selected : firstOpenSessionID(selection.agent_id, { freshOnly: true });
-    store.selection.session_id = store.active;
+    const chosen = store.sessions[selected];
+    const mine = chosen && roleAgentID(chosen) === selection.agent_id;
+    store.active = mine && !chosen.closed ? selected : firstOpenSessionID(selection.agent_id, { freshOnly: true });
+    // Item 2gn: a CLOSED chat may stay selected. This line used to assign
+    // store.active — always an open chat — over the selection on every
+    // snapshot, so a closed chat could never be the selected one and asking
+    // for one by name silently landed the operator on another chat. That is
+    // the cause the v1.1.2 report could not find: it is here, not in chat.js.
+    // `active` still means the active OPEN chat, so nothing that runs work
+    // gains a closed session; only what the operator is LOOKING at changes.
+    store.selection.session_id = mine && chosen.closed ? selected : store.active;
     persistSelection();
     operatorReconciler.observed();
     notify(event);
@@ -219,9 +227,15 @@ function firstOpenSessionID(agentID = "agent_b", { freshOnly = false } = {}) {
 export function setActive(id) { setSelection(store.selection.agent_id || "agent_b", id); }
 export function setSelection(agentID, sessionID = "") {
   const nextAgent = agentID || "agent_b";
-  const nextSession = sessionID && store.sessions[sessionID] && !store.sessions[sessionID].closed && roleAgentID(store.sessions[sessionID]) === nextAgent ? sessionID : "";
+  // Item 2gn: a closed chat may be selected — the operator asked for it by
+  // name. This refused a closed id outright and left the selection empty,
+  // which is why every attempt to open one of his retained chats landed
+  // somewhere else. `active` still means the active OPEN chat, so nothing
+  // that runs work is handed a closed session.
+  const target = sessionID && store.sessions[sessionID] && roleAgentID(store.sessions[sessionID]) === nextAgent ? sessionID : "";
+  const nextSession = target;
   store.selection = { agent_id: nextAgent, session_id: nextSession };
-  store.active = nextSession;
+  store.active = target && !store.sessions[target].closed ? target : "";
   persistSelection();
   notify({ type: "selection.changed", data: { ...store.selection } });
 }

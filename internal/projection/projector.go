@@ -196,8 +196,26 @@ func Empty(sessionID string) Snapshot {
 }
 
 // Next is pure: it does not mutate previous, record, or package state.
+// Next folds one record into the snapshot AND computes the patch describing
+// the change, for the clients that follow a live stream.
 func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 	before := previous
+	next, err := NextState(previous, record)
+	if err != nil {
+		return previous, Patch{}, err
+	}
+	return next, diff(before, next), nil
+}
+
+// NextState folds one record into the snapshot and computes NO patch.
+//
+// Item 2gm (v1.1.3/W2): diff() runs reflect.DeepEqual over the whole Messages,
+// Chat and Timeline slices, which grow with the chat, so computing a patch for
+// every record is quadratic in the length of the journal. Restoring retained
+// chats at startup never uses those patches — it wants only the final state —
+// and paid 96.6 s of a 101.6 s launch for them on the operator's 19 MB of
+// journals. Anything that only needs the state calls this.
+func NextState(previous Snapshot, record Record) (Snapshot, error) {
 	next := previous
 	next.SchemaVersion = SchemaVersion
 	next.Cursor = record.Cursor
@@ -214,7 +232,7 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 			Chat    []ChatEntry `json:"chat"`
 		}
 		if err := decode(record.Event.Data, &wrapper); err != nil {
-			return previous, Patch{}, err
+			return previous, err
 		}
 		next = wrapper.Session.snapshot(record.Cursor)
 		if record.Event.SessionID != "" {
@@ -416,8 +434,14 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 		next.Activity.Stream = touchStream(next.Activity.Stream, record.Event, data, false)
 	case events.ModelDelta:
 		next.Activity.Stream = touchStream(next.Activity.Stream, record.Event, data, true)
-		next.Chat = cloneChat(next.Chat)
-		if entry := chatTurn(next.Chat, record.Event.RunID, intValue(data["turn"])); entry != nil {
+		// Item 2gm: a delta mutates exactly ONE entry — the turn it belongs to
+		// — so only that entry is copied. Deep-copying the whole transcript
+		// per delta was the rest of the startup cost once the JSON round-trip
+		// was gone. The other entries are shared with the previous snapshot
+		// and are never mutated without being cloned first, so Next stays pure.
+		var entry *ChatEntry
+		next.Chat, entry = chatWithMutableTurn(next.Chat, record.Event.RunID, intValue(data["turn"]))
+		if entry != nil {
 			if stringValue(data["kind"]) == "reasoning" {
 				if entry.ThinkingStartedMS == 0 {
 					entry.ThinkingStartedMS = eventMillis(record.Event)
@@ -495,7 +519,7 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 			Message events.Message `json:"message"`
 		}
 		if err := decode(record.Event.Data, &wrapper); err != nil {
-			return previous, Patch{}, err
+			return previous, err
 		}
 		next.Messages = cloneMessages(next.Messages)
 		if wrapper.Message.Category == "summary" {
@@ -591,7 +615,7 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 	case events.BudgetEvent:
 		var budget events.Budget
 		if err := decode(record.Event.Data, &budget); err != nil {
-			return previous, Patch{}, err
+			return previous, err
 		}
 		next.Budget = budget
 		next.Tools = cloneTools(next.Tools)
@@ -650,7 +674,7 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 	case events.CompactionSummary:
 		var attempt events.CompactionSummaryData
 		if err := decode(record.Event.Data, &attempt); err != nil {
-			return previous, Patch{}, err
+			return previous, err
 		}
 		if attempt.Dispatched {
 			next.CompactionModelCalls++
@@ -700,7 +724,7 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 	}
 
 	next.Cursor = record.Cursor
-	return next, diff(before, next), nil
+	return next, nil
 }
 
 // compactibleCategories are the only ones compaction can shrink. system, project,
@@ -1025,15 +1049,96 @@ func removeAssistantTurn(values []ChatEntry, turn int) []ChatEntry {
 	}
 	return values
 }
+
+// cloneChat copies the transcript so the caller may mutate it without touching
+// the snapshot it came from. Next is pure and live clients depend on that.
+//
+// Item 2gm (v1.1.3/W2): this used to marshal the whole transcript to JSON and
+// unmarshal it back, on EVERY event that touches the chat — and model.delta,
+// which is about 99.6% of the events in a real journal, is one of them. The
+// cost is the length of the transcript so far, per delta, through the JSON
+// encoder: 74 s of a 75 s startup on the operator's 19 MB of journals. The
+// copy below is the same deep copy done directly, which leaves the contract
+// unchanged and the encoder out of it.
 func cloneChat(values []ChatEntry) []ChatEntry {
-	encoded, _ := json.Marshal(values)
-	var result []ChatEntry
-	_ = json.Unmarshal(encoded, &result)
-	if result == nil {
-		result = []ChatEntry{}
+	result := make([]ChatEntry, len(values))
+	copy(result, values)
+	for index := range result {
+		entry := &result[index]
+		if entry.ToolCallIDs != nil {
+			entry.ToolCallIDs = append([]string(nil), entry.ToolCallIDs...)
+		}
+		if entry.Attachments != nil {
+			entry.Attachments = append([]events.Attachment(nil), entry.Attachments...)
+		}
+		if entry.ThinkingMS != nil {
+			value := *entry.ThinkingMS
+			entry.ThinkingMS = &value
+		}
+		if entry.Args != nil {
+			value := cloneAnyMap(*entry.Args)
+			entry.Args = &value
+		}
+		if entry.Result != nil {
+			entry.Result = cloneAnyMap(entry.Result)
+		}
+		if entry.Event != nil {
+			value := *entry.Event
+			value.Data = cloneAny(value.Data)
+			entry.Event = &value
+		}
 	}
 	return result
 }
+
+// cloneAnyMap and cloneAny copy the decoded-JSON shapes the entries carry:
+// maps, slices and scalars. A scalar needs no copy; anything else is rebuilt
+// so a mutation through one snapshot cannot be seen through another.
+func cloneAnyMap(value map[string]any) map[string]any {
+	result := make(map[string]any, len(value))
+	for key, item := range value {
+		result[key] = cloneAny(item)
+	}
+	return result
+}
+
+func cloneAny(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneAnyMap(typed)
+	case []any:
+		result := make([]any, len(typed))
+		for index, item := range typed {
+			result[index] = cloneAny(item)
+		}
+		return result
+	default:
+		return value
+	}
+}
+
+// chatWithMutableTurn returns the transcript with exactly one entry safe to
+// mutate: the newest agent entry for this run and turn. The slice itself is
+// copied so the previous snapshot keeps its own length and ordering, and only
+// the target entry is deep-copied (item 2gm).
+func chatWithMutableTurn(values []ChatEntry, runID string, turn int) ([]ChatEntry, *ChatEntry) {
+	index := -1
+	for at := len(values) - 1; at >= 0; at-- {
+		if values[at].Type == "agent" && values[at].RunID == runID && values[at].Turn == turn {
+			index = at
+			break
+		}
+	}
+	result := make([]ChatEntry, len(values))
+	copy(result, values)
+	if index < 0 {
+		return result, nil
+	}
+	only := cloneChat(result[index : index+1])
+	result[index] = only[0]
+	return result, &result[index]
+}
+
 func chatTurn(values []ChatEntry, runID string, turn int) *ChatEntry {
 	for index := len(values) - 1; index >= 0; index-- {
 		if values[index].Type == "agent" && values[index].RunID == runID && values[index].Turn == turn {

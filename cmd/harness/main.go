@@ -396,7 +396,16 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 		saved.Messages, reminted, floor = contextmgr.RemintDuplicateIDs(saved.Messages, floor)
 		item, restoreErr := registry.RestoreWithTranscript(saved, replay.Sessions[id].Chat)
 		if restoreErr != nil {
-			return nil, floor, restoreErr
+			// Item 2gg (v1.1.2/W4): one chat that cannot be restored is not a
+			// reason to refuse to start. It used to return here and the caller
+			// called log.Fatal, so a single retained chat naming an agent the
+			// operator had since renamed or removed took the whole application
+			// down and every other chat with it. The chat is left on disk
+			// untouched — the journal is the record and nothing deletes it —
+			// and its loss is said out loud rather than swallowed.
+			log.Printf("retained chat %s was not restored and was left on disk: %v", id, restoreErr)
+			bus.Publish(events.New(events.SessionRestoreFailed, id, "", map[string]any{"session_id": id, "error": restoreErr.Error()}))
+			continue
 		}
 		if len(reminted) > 0 {
 			changes := make([]any, 0, len(reminted))

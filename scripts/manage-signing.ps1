@@ -40,6 +40,29 @@ function Test-CanManage {
     return $groups -match 'S-1-5-32-544'
 }
 
+# Item 2gj: an unelevated administrator is still an administrator. The
+# readout has THREE states, not two. The old check asked only "is elevated",
+# which answers false for an administrator running without elevation, and
+# Settings then told him he may not manage signing at all.
+#   elevated     - an elevated token: signing can run now.
+#   not_elevated - an administrator whose token is filtered: signing needs
+#                  the existing elevated run. That is not a refusal.
+#   not_admin    - not an administrator: the refusal, unchanged.
+#   unknown      - membership could not be read; never a refusal, which is
+#                  this item's narrowing consequence.
+function Get-AdminState {
+    if (Test-IsElevated) { return 'elevated' }
+    try {
+        $whoami = Get-WindowsTool 'whoami.exe'
+    } catch {
+        return 'unknown'
+    }
+    $groups = (& $whoami /groups /fo csv /nh 2>$null) -join "`n"
+    if ($LASTEXITCODE -ne 0) { return 'unknown' }
+    if ($groups -match 'S-1-5-32-544') { return 'not_elevated' }
+    return 'not_admin'
+}
+
 function Test-IsElevated {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     return [Security.Principal.WindowsPrincipal]::new($identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -102,6 +125,7 @@ function Get-Verification {
     return [ordered]@{
         supported = $true
         can_manage = Test-CanManage
+        admin_state = Get-AdminState
         configured = $null -ne $certificate
         thumbprint = if ($certificate) { $certificate.Thumbprint } else { $Value }
         subject = if ($certificate) { $certificate.Subject } else { '' }

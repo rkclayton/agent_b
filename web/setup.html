@@ -9,7 +9,9 @@
   <link rel="stylesheet" href="/static/css/setup.css">
 </head>
 <body class="setup-page">
-  <header class="setup-header window-titlebar"><strong>Agent_b</strong><span>Setup</span><span id="setup-step"></span><span id="connection" role="status"></span></header>
+  <!-- Item 2gf: the tab strip is not shown during first-run setup, so a single
+       "Chat" route stands in for it — the one way back this page owes. -->
+  <header class="setup-header window-titlebar"><strong>Agent_b</strong><span>Setup</span><span id="setup-step"></span><span id="connection" role="status"></span><a id="setup-chat" class="setup-chat" href="/chat">Chat</a></header>
   <main id="setup" class="setup-main"></main>
   <script type="module" src="/static/js/build-check.js"></script>
   <script type="module" src="/static/js/setup.js"></script>

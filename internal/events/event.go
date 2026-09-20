@@ -22,6 +22,9 @@ const (
 	SessionReset         = "session.reset"
 	SessionClosed        = "session.closed"
 	SessionReopened      = "session.reopened"
+	// SessionRestoreFailed records a retained chat that did not come back at
+	// startup (item 2gg). Its journal is left on disk untouched.
+	SessionRestoreFailed = "session.restore_failed"
 	ChatExported         = "chat.exported"
 	ServerProbed         = "server.probed"
 	ConfigChanged        = "config.changed"

@@ -104,6 +104,7 @@ function shell(active) {
 	${feedback(protectionFeedback, hardeningAlarm || !!applyBlocker, "Apply protection requests Windows approval, grants folder access, then tests the service identity.")}
 	${subhead("Code signing", "Gives this installation a stable publisher identity and trusted local chain. It does not create Defender cloud reputation.")}
 	${row("certificate", `<span class="account-status"><span class="lamp ${certificateDone ? "live" : ""}"></span>${html(certificateDone ? `${signingStatus.subject} · ${signingStatus.thumbprint}` : "not done")}</span>`, "", "The code-signing certificate Agent_b's files are signed with.")}
+	${row("account", `<span class="account-status"><span class="lamp ${signingStatus.admin_state === "elevated" ? "live" : signingStatus.admin_state === "not_admin" ? "alarm" : ""}"></span>${html(adminStateText(signingStatus.admin_state))}</span>`, "", "Whether this Windows account can manage signing, and whether it needs an elevated run first.")}
 	${row("artifacts", `<span class="account-status"><span class="lamp ${verifyDone ? "live" : signingStatus.loaded ? "alarm" : ""}"></span>${html(verifyDone ? "done · signed, timestamped, chain valid" : "not done")}</span>`, "", "Whether the installed files carry a valid, timestamped signature.")}
 	${signingStatus.can_manage ? `<div class="settings-actions vertical">
 	  <button type="button" data-action="create-signing" title="Create a protected certificate here, or import or select one you already own." ${signingAllowed ? "" : "disabled"}>Create certificate</button>
@@ -155,6 +156,14 @@ function sessionControls(active) {
 }
 
 
+// Item 2gj: three token states, three readouts. An unelevated administrator
+// is told what to do, never refused; only a non-administrator is refused.
+function adminStateText(state) {
+	if (state === "elevated") return "administrator · elevated";
+	if (state === "not_elevated") return "administrator · signing needs an elevated run";
+	if (state === "not_admin") return "standard account · signing cannot be managed here";
+	return "administrator status unknown until elevated";
+}
 export function renderSecurityPage(page, active, context) {
   useSettingsContext(context);
   return page === "session" ? sessionControls(active) : shell(active);

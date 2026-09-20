@@ -275,7 +275,10 @@ try {
         @('settings.js', 'settings-connections.js', 'settings-general.js', 'settings-context.js', 'settings-run.js', 'settings-delivery.js', 'settings-about.js', 'settings-workspace.js', 'settings-security.js') |
             ForEach-Object { Get-Content -Raw -LiteralPath (Join-Path $testApplication "web\js\$_") }
     ))
-    if ($shellSource -notmatch 'link\.onclick = \(event\) => event\.preventDefault\(\);' -or
+    # Item 2gf: the selected Plan link still prevents the default document
+    # navigation, and now also returns to the chat instead of doing nothing —
+    # the operator had no route back from the page that control opened.
+    if ($shellSource -notmatch 'link\.onclick = \(event\) => \{[\s\S]{0,160}event\.preventDefault\(\);[\s\S]{0,80}returnToChat\(\);' -or
         $settingsScript -notmatch 'gear\.addEventListener\("click", \(event\) => \{\s+event\.preventDefault\(\);' -or
         $settingsScript -match 'consoleLaunch') {
         throw 'Installed application does not preserve selected-Plan or Settings in-place navigation.'

@@ -43,13 +43,33 @@ export function initShell(options = {}) {
   for (const [id, path] of [["plan", "/plan"]]) {
     const link = node("a", `shell-page ${page === id ? "selected" : ""}`);
     link.dataset.page = id;
-    link.innerHTML = '<svg class="shell-page-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4.5A3.5 3.5 0 0 0 5.5 8v.5A3.5 3.5 0 0 0 4 15a3 3 0 0 0 3 3h2m6-13.5A3.5 3.5 0 0 1 18.5 8v.5A3.5 3.5 0 0 1 20 15a3 3 0 0 1-3 3h-2M9 4.5V20m6-15.5V20M9 8H7m8 0h2M9 12H6.5m8.5 0h2.5M9 16H7m8 0h2"/></svg>';
+    // Item 2ge: a side profile of a brain, in the operator's words, drawn as
+    // line art in the instrument style at the header's glyph size. The mark it
+    // replaces was a symmetrical two-lobed diagram he did not recognise: "i'm
+    // not exactly sure what it's supposed to be."  The outline faces left, the
+    // folds sit inside it and the stem falls to the lower right, so it reads as
+    // a profile rather than a diagram at 16 px.
+    link.innerHTML = '<svg class="shell-page-icon shell-page-brain" viewBox="0 0 24 24" aria-hidden="true">'
+      + '<path d="M16.5 4.2c-2 0-3.4.9-4.2 2.1-1.6-.6-3.3 0-4.1 1.3-1.6.1-2.9 1.3-2.9 2.9 0 .6.2 1.2.5 1.7-.8.6-1.3 1.5-1.3 2.5 0 1.7 1.4 3.1 3.2 3.1.4 0 .8-.1 1.2-.2.6 1 1.8 1.7 3.1 1.7 1.1 0 2.1-.5 2.8-1.2"/>'
+      + '<path d="M14.8 18.1c.2 1 .3 1.8.3 2.7"/>'
+      + '<path d="M16.5 4.2c2.4 0 4.3 1.9 4.3 4.2 0 1-.3 1.9-.9 2.6.5.6.8 1.3.8 2.1 0 1.9-1.6 3.4-3.5 3.4-.8 0-1.6-.3-2.2-.8"/>'
+      + '<path d="M12.3 6.3c.5.8.6 1.7.3 2.5M9.7 10.1c.9.2 1.7.8 2.1 1.6M11.8 11.7c-.5.9-.5 1.9 0 2.8M15 9.1c-.7.5-1.1 1.2-1.2 2M17.3 13.4c-.8 0-1.5.3-2 .9"/>'
+      + '</svg>';
     link.setAttribute("aria-label", "plan");
     link.title = "plan";
     link.href = path;
     if (page === id) {
+      // Item 2gf: on the Plan page the toggle returns to the chat. It used to
+      // preventDefault, so the operator who reached Plan had no route back
+      // from the control that brought him — the capture in W1 shows the page
+      // he was left on.
       link.setAttribute("aria-current", "page");
-      link.onclick = (event) => event.preventDefault();
+      link.title = "chat";
+      link.setAttribute("aria-label", "chat");
+      link.onclick = (event) => {
+        event.preventDefault();
+        returnToChat();
+      };
     }
     pages.append(link);
   }
@@ -66,6 +86,29 @@ export function initShell(options = {}) {
   root.append(left, right);
   document.addEventListener("click", (event) => {
     if (!root.contains(event.target)) for (const menu of root.querySelectorAll(".shell-menu")) menu.hidden = true;
+  });
+  // Item 2gh: Escape dismisses the open menu and the arrow keys move through
+  // its entries. Measured before the change, Escape did nothing and no key
+  // reached the entries, although each one was already a focusable button.
+  // Focus is not taken when the menu opens — that would move the operator's
+  // focus for a menu he may only be reading — it is taken on the first arrow.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" && event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const menu = [...root.querySelectorAll(".shell-menu")].find((value) => !value.hidden);
+    if (!menu) return;
+    if (event.key === "Escape") {
+      menu.hidden = true;
+      event.preventDefault();
+      return;
+    }
+    const rows = [...menu.querySelectorAll("button, a")].filter((row) => !row.disabled);
+    if (!rows.length) return;
+    const index = rows.indexOf(document.activeElement);
+    const next = event.key === "ArrowDown"
+      ? (index < 0 ? 0 : Math.min(rows.length - 1, index + 1))
+      : (index < 0 ? rows.length - 1 : Math.max(0, index - 1));
+    rows[next].focus();
+    event.preventDefault();
   });
 
   function report(message) {
@@ -157,6 +200,14 @@ export function initShell(options = {}) {
       //
       // Selecting from Settings still shows the chat, because that is what
       // choosing a chat from another surface means; it is not the removed flip.
+      // Item 2gf: from any surface that is NOT this chat, one click on the tab
+      // shows the chat. That is the same principle the Settings branch below
+      // already stated — choosing a chat from another surface means going to
+      // it — applied to every other surface, because the Plan page had no way
+      // back at all: its tab click only changed the selection and the window
+      // stayed on Plan (the W1 capture). It is not the flip 2ak removed: the
+      // flip toggled between the two sides of the chat you were already on,
+      // and repeated clicks here never leave the chat.
       tab.onclick = () => {
         if (!session) return;
         setSelection(agentID, session.id);
@@ -166,9 +217,19 @@ export function initShell(options = {}) {
           // Console, so closing alone would leave the operator on Console.
           // Selecting the chat takes them to the side that chat was last on,
           // which is a destination, not the removed toggle.
-          document.dispatchEvent(new CustomEvent("settings.close", { detail: { surface: side } }));
-          openSide(agentID, session.id, side);
+          // Under 2gf this lands on the chat, not on the side the chat was
+          // last on: Settings is not the chat, and the acceptance is that one
+          // click from Settings reaches it. The route back to Console is the
+          // ⚙ toggle, which still closes Settings onto the surface beneath.
+          document.dispatchEvent(new CustomEvent("settings.close", { detail: { surface: "chat" } }));
+          openSide(agentID, session.id, "chat");
+          return;
         }
+        // On Chat the tab selects and does nothing else: you are already there.
+        // Everywhere else — Console, Plan, any later page — it shows the chat.
+        // 2gf's acceptance names Console explicitly, and a second click cannot
+        // flip back, which is what 2ak objected to.
+        if (page !== "chat") openSide(agentID, session.id, "chat");
       };
       const kept = openMenus.get(session ? session.id : agentID);
       const menu = kept || node("div", "shell-menu agent-chat-menu");
@@ -177,8 +238,11 @@ export function initShell(options = {}) {
       tab.oncontextmenu = (event) => {
         event.preventDefault();
         for (const other of tabs.querySelectorAll(".shell-menu")) if (other !== menu) other.hidden = true;
+        // Item 2gh: a second right-click on the same tab dismisses it. Measured
+        // before the change, it re-rendered and left the menu open.
+        if (!menu.hidden) { menu.hidden = true; return; }
         renderAgentMenu(menu, agentID, flip);
-        revealMenu(menu, tab);
+        revealMenu(menu, tab, { x: event.clientX, y: event.clientY });
       };
       wrap.append(tab);
       if (session) {
@@ -199,6 +263,19 @@ export function initShell(options = {}) {
   // menu. Keyboard access is preserved because the menu entry is a button. The
   // tab was the only route between the two sides, so the entry names whichever
   // side you are not on rather than stranding you on Console.
+  // Item 2gf: the one way back, used by the Plan toggle and by the stand-in
+  // "Chat" route. It must work with the model unreachable, with `/api/plan`
+  // failing and with no chat selected yet, so it never reads anything that a
+  // failed fetch could have left empty: with no chat at all it goes to /chat,
+  // which is the empty launch well.
+  function returnToChat() {
+    const selected = store.sessions?.[store.selection?.session_id];
+    const open = Object.values(store.sessions || {}).filter((session) => !session.closed && session.role !== "c");
+    const session = (selected && !selected.closed && selected.role !== "c") ? selected : open[0];
+    if (!session) return void requestNavigation({ kind: "flip", from: page, to: "chat", fullDocument: true, chatID: "", mutationToken: store.mutation_token }, "/chat");
+    openSide(`agent_${session.role === "d" ? "d" : "b"}`, session.id, "chat");
+  }
+
   function openSide(agentID, sessionID, next) {
     const navigation = { kind: "flip", from: page, to: next, fullDocument: !options.switchView, chatID: sessionID, mutationToken: store.mutation_token };
     setSelection(agentID, sessionID);
@@ -329,13 +406,20 @@ export function initShell(options = {}) {
     } catch (error) { report(error.message); }
   }
 
-  function revealMenu(menu, anchor) {
+  // Item 2gh: the menu opens AT THE POINTER when there is one, and at the
+  // anchor otherwise (the `+` menu has no pointer of its own). Measured before
+  // the change, a right-click 41 px into the tab put the menu's left edge 41 px
+  // to the left of the pointer, because it was placed at the tab. It is still
+  // clamped into the window, which the edge measurement confirms.
+  function revealMenu(menu, anchor, point = null) {
     menu.hidden = false;
     const anchorRect = anchor.getBoundingClientRect();
     const menuRect = menu.getBoundingClientRect();
-    menu.style.left = `${Math.max(8, Math.min(anchorRect.left, innerWidth - menuRect.width - 8))}px`;
+    const left = point ? point.x : anchorRect.left;
+    const top = point ? point.y : anchorRect.bottom;
+    menu.style.left = `${Math.max(8, Math.min(left, innerWidth - menuRect.width - 8))}px`;
     menu.style.right = "auto";
-    menu.style.top = `${Math.max(8, Math.min(anchorRect.bottom, innerHeight - menuRect.height - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(top, innerHeight - menuRect.height - 8))}px`;
   }
 
   async function createChat(agentID = "agent_b", configured = null) {

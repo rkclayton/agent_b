@@ -747,13 +747,11 @@ if (realModel) {
   await page.locator('.profile-row:has(.profile-summary[data-id="acceptance"]) [data-action="probe"]').click();
   await browser.wait(`document.querySelector('.profile-summary[data-id="acceptance"] .profile-state')?.textContent.includes('Test passed')`, "Settings Test passed before Chat return");
   assert.match(await profileState.innerText(), /Test passed/);
-  // Opening Settings switches the surface beneath it to Console, and left click
-  // no longer toggles sides, so Chat is reached the way the product now offers
-  // it: the tab menu's single entry, which names the side you are not on.
+  // Item 2gf: from Settings, ONE click on the tab reaches the chat. Opening
+  // Settings still switches the surface beneath it to Console, but the tab no
+  // longer lands the operator there — this step used to need the tab menu's
+  // entry to get back, which is the trap 2gf closed.
   await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click();
-  await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click({ button: "right" });
-  await page.locator('.agent-tab-wrap.selected .agent-chat-menu').waitFor({ state: "visible" });
-  await page.locator('.agent-tab-wrap.selected .agent-chat-console').click();
   await page.locator("#chat-task").waitFor({ state: "visible" });
   assert.equal(await page.locator("#settings-page").isHidden(), true);
   assert.equal(await page.locator("#settings-page").getAttribute("aria-hidden"), "true");

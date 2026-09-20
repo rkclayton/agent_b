@@ -15,6 +15,9 @@ button:disabled{cursor:default;opacity:.55}
 .setup-header span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mute)}
 .setup-header #connection{margin-left:auto}
 .setup-header #connection.alarm,.setup-feedback.alarm{color:var(--alarm)}
+/* Item 2gf: the stand-in way back while the tab strip is absent. */
+.setup-header .setup-chat{color:var(--mute);text-decoration:none}
+.setup-header .setup-chat:hover,.setup-header .setup-chat:focus-visible{color:var(--ink)}
 .setup-main{min-height:calc(100dvh - var(--app-header-height));display:grid;place-items:center;padding:32px 16px}
 .setup-section{width:min(880px,100%);padding:24px;background:var(--well);box-shadow:inset 0 1px 0 rgba(0,0,0,.6);border-radius:2px}
 h1{margin:4px 0 24px;font-size:18px;line-height:20px;font-weight:500}

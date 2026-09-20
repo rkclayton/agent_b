@@ -56,7 +56,25 @@ func main() {
 	replayPaths := flag.String("replay", "", "comma-separated session JSONL files to replay")
 	startupLog := flag.String("startup-log", "", "optional append-only startup diagnostic log")
 	version := flag.Bool("version", false, "print this build's identity as JSON and exit")
-	flag.Parse()
+	// Item 2gl: install mode. Everything after --install is the installer's,
+	// so it is taken before flag.Parse and passed through untouched — the
+	// PowerShell installer's parameters stay its own and cannot drift from a
+	// second copy of them here.
+	install := flag.Bool("install", false, "install Agent_b from this folder; everything after it is passed to the installer")
+	installQuiet := flag.Bool("quiet", false, "with --install: print the installer's output to this console (the suite's path)")
+	installSource := flag.String("install-source", "", "with --install: the candidate folder to install from (default: this executable's folder)")
+	installData := flag.String("install-data", "", "with --install: the operator data root that carries the marker and progress")
+	passthrough := installPassthrough(os.Args[1:])
+	if err := flag.CommandLine.Parse(installFlagArgs(os.Args[1:])); err != nil {
+		log.Fatal(err)
+	}
+	if *install {
+		os.Exit(runInstall(installOptions{
+			quiet:     *installQuiet,
+			sourceDir: *installSource,
+			dataRoot:  *installData,
+		}, passthrough))
+	}
 	if *version {
 		if err := json.NewEncoder(os.Stdout).Encode(buildinfo.Current()); err != nil {
 			log.Fatal(err)
@@ -73,6 +91,14 @@ func main() {
 	paths, err := resolveStartupPaths(*configOverride, *applicationOverride, *dataOverride)
 	if err != nil {
 		log.Fatal(err)
+	}
+	// Item 2gl: an install that did not finish says so, once, at the next
+	// launch — the operator asked "should i re-run?" and nothing could answer
+	// him. The marker is only ever cleared by an install that completed.
+	if marker, found, markerErr := readInstallMarker(paths.Data); markerErr != nil {
+		log.Printf("install marker: %v", markerErr)
+	} else if found {
+		log.Printf("INTERRUPTED INSTALL: %s", describeInterruptedInstall(marker))
 	}
 	phases.mark("config")
 	cfg, migrated, created, err := config.LoadWithRoots(paths.Config, filepath.Join(paths.Application, "harness.example.json"), paths.Data)

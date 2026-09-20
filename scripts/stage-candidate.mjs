@@ -73,6 +73,17 @@ function stage(tag) {
   }
   run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(target, "scripts", "build-candidate.ps1"),
     "-SourceDirectory", target, "-Commit", sha, "-Dirty", "false", "-ExpectedTag", tag]);
+  // Item 2gl (v1.2.0/W2): the candidate carries a setup executable. It is a
+  // COPY of the build that was just verified against the manifest — the same
+  // bytes under the name the operator double-clicks — so there is nothing
+  // extra to build and nothing that can differ from what was checked.
+  const built = path.join(target, "Agent_b.exe");
+  const setup = path.join(target, "Agent_b-setup.exe");
+  fs.copyFileSync(built, setup);
+  const identical = fs.readFileSync(built).equals(fs.readFileSync(setup));
+  if (!identical) throw new Error("Agent_b-setup.exe is not the verified build");
+  console.log(`SETUP: ${setup} (a copy of the verified Agent_b.exe)`);
+
   for (const name of stagedToRemove(fs.readdirSync(candidates))) {
     removeTreeWithinAllowedRoots(path.join(candidates, name), [candidates], "staged candidate rotation");
     console.log(`ROTATED: removed ${path.join(candidates, name)}`);

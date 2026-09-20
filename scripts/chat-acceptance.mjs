@@ -24,6 +24,7 @@ let browser;
 let edgeContext;
 let page;
 let shellFlipEvidence;
+let composerFamilyEvidence;
 let shellStyleBoundaryEvidence;
 let app;
 let model;
@@ -1268,6 +1269,76 @@ if (realModel) {
   assert.ok(Math.abs(geometry.send.height - 24) < 0.01, JSON.stringify(geometry));
   record("composer-flex-width-expand-robot-tab-plus-equal-controls");
 
+  // Item 2ha: the operator asked for the three composer controls to be one
+  // family - "i want all 3 icons normalized". Measured, not eyeballed: the hit
+  // target, the glyph box and the stroke, at 100% and at 150%.
+  const controlFamily = async () => browser.evaluate(`(() => {
+    const read = (selector) => {
+      const node = document.querySelector(selector);
+      if (!node) return null;
+      const box = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      const glyph = node.querySelector(".composer-glyph");
+      const glyphBox = glyph ? glyph.getBoundingClientRect() : null;
+      const glyphStyle = glyph ? getComputedStyle(glyph) : null;
+      return {
+        target: { width: Math.round(box.width * 100) / 100, height: Math.round(box.height * 100) / 100 },
+        background: style.backgroundColor,
+        glyph: glyphBox ? { width: Math.round(glyphBox.width * 100) / 100, height: Math.round(glyphBox.height * 100) / 100 } : null,
+        stroke: glyphStyle ? glyphStyle.strokeWidth : null,
+        fill: glyphStyle ? glyphStyle.fill : null,
+      };
+    };
+    return { attach: read("#chat-attach"), mic: read("#chat-mic"), send: read("#chat-send") };
+  })()`);
+  const familyAt = {};
+  for (const zoom of [1, 1.5]) {
+    await page.evaluate((value) => { document.body.style.zoom = value === 1 ? "" : String(value); }, zoom);
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    familyAt[zoom] = await controlFamily();
+    const family = familyAt[zoom];
+    for (const name of ["attach", "mic", "send"]) assert.ok(family[name], `${name} is missing at ${zoom}: ${JSON.stringify(family)}`);
+    assert.deepEqual(family.mic.target, family.attach.target, JSON.stringify({ zoom, family }));
+    assert.deepEqual(family.send.target, family.attach.target, JSON.stringify({ zoom, family }));
+    assert.deepEqual(family.mic.glyph, family.attach.glyph, JSON.stringify({ zoom, family }));
+    assert.deepEqual(family.send.glyph, family.attach.glyph, JSON.stringify({ zoom, family }));
+    assert.equal(family.mic.stroke, family.attach.stroke, JSON.stringify({ zoom, family }));
+    assert.equal(family.send.stroke, family.attach.stroke, JSON.stringify({ zoom, family }));
+    assert.equal(family.mic.background, family.attach.background, JSON.stringify({ zoom, family }));
+    assert.equal(family.send.background, family.attach.background, JSON.stringify({ zoom, family }));
+    // Line art, so the three are one weight rather than three fonts.
+    for (const name of ["attach", "mic", "send"]) assert.equal(family[name].fill, "none", JSON.stringify({ zoom, family }));
+  }
+  await page.evaluate(() => { document.body.style.zoom = ""; });
+  // The stop state is the octagon it always was, and it is the same target.
+  const octagon = await browser.evaluate(`(() => {
+    const button = document.querySelector("#chat-send");
+    button.classList.add("stop-sign");
+    if (!button.querySelector(":scope > span[aria-hidden]")) {
+      const mark = document.createElement("span");
+      mark.setAttribute("aria-hidden", "true");
+      button.append(mark);
+    }
+    const style = getComputedStyle(button);
+    const box = button.getBoundingClientRect();
+    const glyph = button.querySelector(".composer-glyph");
+    const result = {
+      clip: style.clipPath,
+      target: { width: Math.round(box.width * 100) / 100, height: Math.round(box.height * 100) / 100 },
+      glyphHidden: glyph ? getComputedStyle(glyph).display === "none" : null,
+      square: !!button.querySelector(":scope > span[aria-hidden]"),
+    };
+    button.classList.remove("stop-sign");
+    button.querySelector(":scope > span[aria-hidden]")?.remove();
+    return result;
+  })()`);
+  assert.match(octagon.clip, /polygon/, JSON.stringify(octagon));
+  assert.deepEqual(octagon.target, familyAt[1].attach.target, JSON.stringify({ octagon, family: familyAt[1] }));
+  assert.equal(octagon.glyphHidden, true, JSON.stringify(octagon));
+  assert.equal(octagon.square, true, JSON.stringify(octagon));
+  composerFamilyEvidence = { at100: familyAt[1], at150: familyAt[1.5], octagon };
+  record("composer-three-controls-are-one-family");
+
   events = await sessionEvents(sessionID);
   const beforePlanRegistration = events.at(-1)?.seq || 0;
   await setTask(`Add ${bound} as a plan`);
@@ -2106,7 +2177,7 @@ if (realModel) {
   record("plan-page-no-horizontal-scrollbar-at-supported-widths");
 
   record("fake-model-script-complete");
-  await writeFile(join(evidenceRun, "result.json"), JSON.stringify({ scenarios, duration_ms: Date.now() - startedAt, session_id: sessionID, shell_flip: shellFlipEvidence, shell_style_boundary: shellStyleBoundaryEvidence }, null, 2));
+  await writeFile(join(evidenceRun, "result.json"), JSON.stringify({ scenarios, duration_ms: Date.now() - startedAt, session_id: sessionID, shell_flip: shellFlipEvidence, shell_style_boundary: shellStyleBoundaryEvidence, composer_family: composerFamilyEvidence }, null, 2));
   const evidenceLogs = join(evidenceRun, "jsonl");
   await mkdir(evidenceLogs, { recursive: true });
   for (const name of (await readdir(join(args.data, "logs"))).filter((item) => item.endsWith(".jsonl"))) {

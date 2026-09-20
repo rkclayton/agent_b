@@ -38,18 +38,19 @@ export function renderSendStop(button, session, replay = false) {
   button.setAttribute("aria-label", state.mode === "stop" ? state.label : "Send");
   button.setAttribute("title", state.label);
   // The glyph IS the state: the enter mark when it sends, and the octagon with
-  // its inner square while a run is live. The square is a child element,
-  // because that is what .stop-sign styles, so it is managed rather than
-  // written over with text.
+  // its inner square while a run is live. Item 2ha: the enter mark is an SVG in
+  // the document, one of the three controls that are now one family, so it is
+  // never written over with text - the square is added beside it and CSS hides
+  // the glyph while the octagon is on.
+  const square = button.querySelector(":scope > span[aria-hidden]");
   if (state.mode === "stop") {
-    if (button.firstElementChild?.tagName !== "SPAN") {
-      button.textContent = "";
-      const square = button.ownerDocument.createElement("span");
-      square.setAttribute("aria-hidden", "true");
-      button.append(square);
+    if (!square) {
+      const mark = button.ownerDocument.createElement("span");
+      mark.setAttribute("aria-hidden", "true");
+      button.append(mark);
     }
-  } else if (button.textContent !== "\u21b5") {
-    button.textContent = "\u21b5";
+  } else if (square) {
+    square.remove();
   }
   return state;
 }

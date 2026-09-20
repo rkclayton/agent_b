@@ -953,9 +953,12 @@ function renderMic(session) {
   mic.disabled = !usable;
   mic.dataset.state = micState.listening ? "listening" : "idle";
   mic.classList.toggle("listening", micState.listening);
+  // Item 2ge: the hover says which engine is listening and whether anything
+  // would leave the machine if it did. The host answers that; this draws the
+  // answer rather than deciding it.
   const where = micState.available === false
     ? (micState.reason || "dictation is unavailable on this host")
-    : micState.offline === false ? "dictation \u00b7 online" : "dictation \u00b7 offline";
+    : (micState.reason || (micState.offline === false ? "online" : "offline"));
   const label = micState.listening ? "Stop dictating" : "Dictate";
   mic.setAttribute("aria-label", label);
   mic.setAttribute("title", label + " \u00b7 " + where);
@@ -1199,13 +1202,16 @@ function startDictation() {
       stopDictation();
       return;
     }
-    const heard = String(payload.text || "");
-    if (!heard) return;
-    if (payload.final) {
-      committed = (committed ? committed.replace(/\s*$/, "") + " " : "") + heard;
-      input.value = committed;
-    } else {
-      input.value = (committed ? committed.replace(/\s*$/, "") + " " : "") + heard;
+    // The helper writes one line per hypothesis and one per utterance. A
+    // hypothesis is shown but not kept, so the words change as they are heard;
+    // an utterance is committed and the next hypothesis builds on it.
+    const partial = typeof payload.partial === "string" ? payload.partial : "";
+    const final = typeof payload.final === "string" ? payload.final : "";
+    const heard = final || partial;
+    if (heard) {
+      const joined = (committed ? committed.replace(/\s*$/, "") + " " : "") + heard;
+      if (final) committed = joined;
+      input.value = joined;
     }
     resize();
     if (payload.done) stopDictation();

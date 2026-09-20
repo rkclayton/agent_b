@@ -737,9 +737,36 @@
 
 /* Item 2ge: a microphone where the paperclip was. Mute at rest, Trace while
    it listens -- the two colours the palette already uses for that. */
+/* Item 2ha (v1.2.4): the operator, on the composer corner - "button
+   consistency needs improvement... i want all 3 icons normalized." They were
+   three different KINDS of mark: two emoji, each drawn by the emoji font at its
+   own weight and colour, and one text arrow. They are one family now: the same
+   24px target, the same 16px glyph box, the same stroke, the same background,
+   and the colour they are told. The stop state keeps the octagon it always had.
+   */
+/* The selector matches the page rule above it, so the three controls are one
+   family by winning on their own terms rather than with !important. */
+.chat-page > :where(:not(.app-shell)) .composer-control,
+.composer-control {
+  width:24px; height:24px; min-width:24px; min-height:24px; padding:0;
+  display:grid; place-items:center;
+  color: var(--mute); background: transparent; line-height:1;
+  border-radius:0;
+}
+.composer-glyph {
+  width:16px; height:16px;
+  fill:none; stroke:currentColor; stroke-width:1.5;
+  stroke-linecap:round; stroke-linejoin:round;
+}
+.chat-page > :where(:not(.app-shell)) .composer-control:hover:not(:disabled),
+.composer-control:hover:not(:disabled) { color: var(--ink); background: transparent; }
+.chat-page > :where(:not(.app-shell)) .composer-control:active,
+.composer-control:active { background: transparent; }
+.composer-control:disabled { opacity:.45; }
+
 .chat-mic {
   width:24px; height:24px; min-height:24px; padding:0;
-  display:inline-flex; align-items:center; justify-content:center;
+  display:grid; place-items:center;
   color: var(--mute); background: transparent; line-height:1;
 }
 .chat-mic:hover:not(:disabled) { color: var(--ink); }
@@ -845,6 +872,9 @@
   align-self: end;
   background: transparent;
 }
+/* While a run is live this button IS the stop sign, so it wears the octagon and
+   its inner square and drops the send glyph. */
+#chat-send.stop-sign .composer-glyph { display:none; }
 .chat-input-actions .stop-sign { width:24px; height:24px; min-height:24px; padding:0; }
 .chat-notice:empty { display: none; }
 .no-open-chats { grid-template-rows: var(--app-header-height) 0 minmax(0, 1fr) 0; }

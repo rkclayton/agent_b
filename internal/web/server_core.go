@@ -83,6 +83,7 @@ type Server struct {
 	memoryState       *memory.Manager
 	reflection        *reflectionState
 	proposals         *proposalOffers
+	speech            speechProbe
 	statsState        *stats.Manager
 	operatorFiles     *operatorfiles.Manager
 	probeMu           sync.Mutex
@@ -250,6 +251,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/signing", s.replayGuard(s.codeSigning))
 	mux.HandleFunc("/api/message", s.replayGuard(s.message))
 	mux.HandleFunc("/api/stop", s.replayGuard(s.stop))
+	// Item 2ge: the composer microphone asks the host what it can do.
+	mux.HandleFunc("/api/speech", s.speechHandler)
+	mux.HandleFunc("/api/speech/stream", s.speechStreamHandler)
+	mux.HandleFunc("/api/speech/stop", s.replayGuard(s.speechStopHandler))
 	mux.HandleFunc("/api/approve", s.replayGuard(s.approve))
 	mux.HandleFunc("/api/tools/", s.replayGuard(s.toggleTool))
 	mux.HandleFunc("/api/stats/", s.replayGuard(s.stats))

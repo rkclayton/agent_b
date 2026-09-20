@@ -43,17 +43,27 @@ export function initShell(options = {}) {
   for (const [id, path] of [["plan", "/plan"]]) {
     const link = node("a", `shell-page ${page === id ? "selected" : ""}`);
     link.dataset.page = id;
-    // Item 2ge: a side profile of a brain, in the operator's words, drawn as
-    // line art in the instrument style at the header's glyph size. The mark it
-    // replaces was a symmetrical two-lobed diagram he did not recognise: "i'm
-    // not exactly sure what it's supposed to be."  The outline faces left, the
-    // folds sit inside it and the stem falls to the lower right, so it reads as
-    // a profile rather than a diagram at 16 px.
+    // Item 2ge: the Plan toggle, traced from the shape the operator supplied
+    // at web/assets/source/brain-source.png -- a cartoon side-profile brain,
+    // bold outline, lobes bunched up and to the left, a long sweep down the
+    // right and a stem hanging off the lower right. The first attempt (v1.1.2)
+    // drew a symmetrical diagram and missed; the asymmetry is most of what
+    // makes it read as a brain rather than a cloud. Line art only: one outline
+    // path, the folds, the stem, stroke with no fill and no highlights, at the
+    // header glyph size in --accent-plan. The source image stays local, as
+    // CLAUDE.md requires since the history rewrite; only this derived path ships.
     link.innerHTML = '<svg class="shell-page-icon shell-page-brain" viewBox="0 0 24 24" aria-hidden="true">'
-      + '<path d="M16.5 4.2c-2 0-3.4.9-4.2 2.1-1.6-.6-3.3 0-4.1 1.3-1.6.1-2.9 1.3-2.9 2.9 0 .6.2 1.2.5 1.7-.8.6-1.3 1.5-1.3 2.5 0 1.7 1.4 3.1 3.2 3.1.4 0 .8-.1 1.2-.2.6 1 1.8 1.7 3.1 1.7 1.1 0 2.1-.5 2.8-1.2"/>'
-      + '<path d="M14.8 18.1c.2 1 .3 1.8.3 2.7"/>'
-      + '<path d="M16.5 4.2c2.4 0 4.3 1.9 4.3 4.2 0 1-.3 1.9-.9 2.6.5.6.8 1.3.8 2.1 0 1.9-1.6 3.4-3.5 3.4-.8 0-1.6-.3-2.2-.8"/>'
-      + '<path d="M12.3 6.3c.5.8.6 1.7.3 2.5M9.7 10.1c.9.2 1.7.8 2.1 1.6M11.8 11.7c-.5.9-.5 1.9 0 2.8M15 9.1c-.7.5-1.1 1.2-1.2 2M17.3 13.4c-.8 0-1.5.3-2 .9"/>'
+      + '<path d="M9.6 4.6 c-1.7-.6-3.6.2-4.3 1.9 c-1.6.1-2.9 1.5-2.8 3.1 c-1.3.8-1.7 2.5-1 3.8 c-.8 1.3-.4 3 .9 3.8 c.1 1.6 1.5 2.8 3.1 2.7 c.8 1.4 2.6 1.9 4 1.1 c1.2 1 3 .9 4.1-.3 c1.7.4 3.4-.6 3.9-2.3 c1.6-.5 2.5-2.2 2.1-3.8 c1.2-1.1 1.3-2.9.3-4.1 c.5-1.6-.3-3.3-1.9-3.9 c-.2-1.6-1.6-2.8-3.2-2.6 c-.9-1.3-2.7-1.7-4.1-.8 Z"/>'
+      + '<path d="M16.9 19.6c.5 1.3.7 2.4.6 3.4m2-4.3c-.7 1.2-1.1 2.4-1.2 3.6"/>'
+      + '<path d="M11.4 4.2c.5 1.4.4 2.8-.3 4.1"/>'
+      + '<path d="M11.1 8.3c-1.3.8-2.9.9-4.3.3"/>'
+      + '<path d="M11.1 8.3c1.6.6 3.4.4 4.8-.6"/>'
+      + '<path d="M5.6 12.1c2 1.2 4.5 1.3 6.6.3"/>'
+      + '<path d="M12.2 12.4c1.9 1.3 4.4 1.4 6.4.2"/>'
+      + '<path d="M7.4 16.1c1.8.9 3.9.9 5.7 0"/>'
+      + '<path d="M5.3 9.6c.7.3 1.2.9 1.4 1.6"/>'
+      + '<path d="M4.6 15.1c.7-.1 1.4.1 1.9.6"/>'
+      + '<path d="M19.4 10.1c-.7.4-1.2 1-1.4 1.8"/>'
       + '</svg>';
     link.setAttribute("aria-label", "plan");
     link.title = "plan";

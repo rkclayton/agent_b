@@ -44,10 +44,18 @@ test("A native attachment context refusal is visible beside its chip", () => {
   assert.match(css, /\.chat-attachment-warning \{ color: var\(--alarm\); \}/);
 });
 
-test("Composer clusters one paperclip above stop and send and pending files occupy no row when empty", () => {
-  assert.match(html, /id="chat-attach"[^>]*>📎<\/button>/);
+// Item 2ge: the operator's three composer controls. "the enter and stop
+// buttons can be combined into one… i want a small microphone in place of the
+// attachment icon… move the attachment icon to the bar above chat on the far
+// right directly up from where it is now."
+test("the paperclip is in the bar above the chat, and the composer holds the mic and one send/stop", () => {
+  // Same control, same menu, same hover text; only its home changed.
+  assert.match(html, /id="chat-budget"[\s\S]{0,500}class="chat-attach-wrap"[\s\S]{0,300}id="chat-attach"[^>]*>📎<\/button>/);
+  assert.match(css, /\.chat-budget \.chat-attach-wrap \{ position:absolute; right:4px/);
   assert.match(html, /class="chat-composer-row"/);
-  assert.match(html, /class="chat-input-actions"[\s\S]*class="chat-attach-wrap"[\s\S]*class="chat-submit-actions"[\s\S]*id="chat-stop"[\s\S]*id="chat-send"/);
+  // A mic where the paperclip was, then ONE send/stop control.
+  assert.match(html, /class="chat-input-actions"[\s\S]*id="chat-mic"[\s\S]*class="chat-submit-actions"[\s\S]*id="chat-send"/);
+  assert.doesNotMatch(html, /id="chat-stop"/);
   assert.match(css, /\.chat-pending-attachments:empty\s*\{\s*display:\s*none/);
 });
 
@@ -61,7 +69,11 @@ test("Pending approval is pinned above the composer with zero idle space", () =>
 
 test("Composer sends during an active run and reports projected queue count", () => {
 	assert.doesNotMatch(chat, /Run in progress|queue_depth/);
-	assert.match(chat, /send\.onclick = submit/);
+	// Item 2ge: the one control routes by the state it is IN. Typing stays
+	// enabled while a run is live and a message sent then still queues behind
+	// the stop — 2fg's hold rules are untouched.
+	assert.match(chat, /if \(send\.dataset\.mode === "stop"\) return void stopRun\(\);/);
+	assert.match(chat, /void submit\(\);/);
 	assert.match(chat, /const queueText = queued \? `queued \(\$\{queued\}\)/);
 });
 

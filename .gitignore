@@ -74,3 +74,6 @@ test-results/
 candidate-final.json
 # Staged release candidates (scripts/stage-candidate.mjs); the last three are kept.
 candidates/
+# Operator-supplied source images (etching, glyphs) stay local; the derived assets the
+# pipeline generates from them are what ships.
+web/assets/source/

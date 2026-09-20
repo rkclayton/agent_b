@@ -58,8 +58,9 @@ Moved whole from PLAN.md's standing rules on 2026-09-19 (item 1c):
 
 ## Hard stops
 
-Assets the operator supplies (images, fonts, fixtures) are the operator's: commit them where
-the item says and ask no licence question.
+Assets the operator supplies (images, fonts, fixtures) are the operator's: use them where the
+item says and ask no licence question. `web/assets/source/` is gitignored — source images stay
+local; only the derived assets the pipeline generates from them are committed.
 
 The standing rules in `PLAN.md` list them. The ones you will meet most: UAC or elevation, or any
 interactive Windows security prompt on the operator's desktop; touching production (port 8790);

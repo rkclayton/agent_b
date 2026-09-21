@@ -36,6 +36,44 @@ function Find-Go {
     throw 'Go 1.24 or newer was not found; the release step builds the candidate and needs it.'
 }
 
+function Add-EmbeddedInstallBundle {
+    param([string]$Root, [string]$Executable)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zipPath = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-bundle-' + [Guid]::NewGuid().ToString('N') + '.zip')
+    try {
+        $zip = [IO.Compression.ZipFile]::Open($zipPath, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            $files = @()
+            foreach ($directory in @('web', 'prompts', 'scripts', 'docs')) {
+                $files += @(Get-ChildItem -LiteralPath (Join-Path $Root $directory) -File -Recurse)
+            }
+            foreach ($name in @('WebView2Loader.dll', 'harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE')) {
+                $files += Get-Item -LiteralPath (Join-Path $Root $name)
+            }
+            foreach ($file in $files) {
+                $relative = $file.FullName.Substring($Root.TrimEnd('\').Length + 1).Replace('\', '/')
+                $entry = $zip.CreateEntry($relative, [IO.Compression.CompressionLevel]::Optimal)
+                $input = [IO.File]::OpenRead($file.FullName)
+                $output = $entry.Open()
+                try { $input.CopyTo($output) } finally { $output.Dispose(); $input.Dispose() }
+            }
+        } finally { $zip.Dispose() }
+        $bundle = [IO.File]::ReadAllBytes($zipPath)
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        try { $bundleHash = $hasher.ComputeHash($bundle) } finally { $hasher.Dispose() }
+        $stream = [IO.File]::Open($Executable, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        try {
+            $stream.Write($bundle, 0, $bundle.Length)
+            $magic = [Text.Encoding]::ASCII.GetBytes('AGENTBUNDLE0001!')
+            $length = [BitConverter]::GetBytes([Int64]$bundle.Length)
+            $stream.Write($magic, 0, $magic.Length)
+            $stream.Write($length, 0, $length.Length)
+            $stream.Write($bundleHash, 0, $bundleHash.Length)
+        } finally { $stream.Dispose() }
+        Write-Host "BUNDLE: embedded $($files.Count) files, $($bundle.Length) compressed bytes"
+    } finally { Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue }
+}
+
 $tagSource = Get-Content -Raw -LiteralPath (Join-Path $sourceRoot 'internal\buildinfo\buildinfo.go')
 $tagMatch = [regex]::Match($tagSource, '(?m)^\s*Tag\s*=\s*"([^"]+)"')
 if (-not $tagMatch.Success) { throw 'internal\buildinfo\buildinfo.go declares no Tag.' }
@@ -84,9 +122,18 @@ if ($UseExistingSignedBinary) {
         throw 'EXISTING TEST CANDIDATE REFUSED: a valid, timestamped disposable-test signature is required.'
     }
 } else {
+    # `go build -o` may leave an existing, newer output in place when the
+    # package cache says no rebuild is needed. That would append a second
+    # bundle (and possibly append it after an old Authenticode certificate),
+    # producing an invalid setup. The binary is generated output owned by this
+    # script, so always begin the build path without it.
+    if (Test-Path -LiteralPath $binary -PathType Leaf) {
+        Remove-Item -LiteralPath $binary -Force
+    }
     Push-Location $sourceRoot
     try { & $go build -ldflags $ldflags -o $binary ./cmd/harness } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw "go build exited $LASTEXITCODE." }
+    Add-EmbeddedInstallBundle -Root $sourceRoot -Executable $binary
 
     # A test build must be signed before anything executes it, including the
     # identity probe below. This ordering is intentional: signing after

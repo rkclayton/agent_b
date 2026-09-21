@@ -73,6 +73,52 @@ func TestTwoEventsProduceTwoHumanPostsWithoutDuplicates(t *testing.T) {
 	}
 }
 
+func TestReleaseGateDeliversRunItemPlanWorkerAndSettingsTestOnceEach(t *testing.T) {
+	var mu sync.Mutex
+	var messages []string
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Content string `json:"content"` }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil { t.Error(err); return }
+		mu.Lock()
+		messages = append(messages, body.Content)
+		mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer receiver.Close()
+
+	bus := events.NewBus()
+	manager := New(bus, func(id string) string { return id }, "http://127.0.0.1:8790")
+	manager.allowLocal = true
+	if err := manager.Configure(receiver.URL); err != nil { t.Fatal(err) }
+	manager.Start(context.Background())
+	defer manager.Close()
+
+	for _, event := range []events.Event{
+		events.New(events.RunStopped, "run-chat", "r1", events.WithHuman(events.RunStopped, map[string]any{"reason": "done"})),
+		events.New(events.ItemDone, "", "", events.WithHuman(events.ItemDone, map[string]any{"item_id": "2hh"})),
+		events.New(events.PlanDone, "", "", events.WithHuman(events.PlanDone, map[string]any{"plan_id": "release"})),
+		events.New(events.WorkerJob, "worker", "", events.WithHuman(events.WorkerJob, map[string]any{"role": "c", "plan_id": "release"})),
+	} {
+		bus.Publish(event)
+	}
+	if err := manager.SendTest(context.Background()); err != nil { t.Fatal(err) }
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock(); count := len(messages); mu.Unlock()
+		if count == 5 { break }
+		time.Sleep(5 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(messages) != 5 { t.Fatalf("posts=%d messages=%q", len(messages), messages) }
+	for _, fragment := range []string{"The run finished.", "item", "plan", "/plan", "Agent_b test notification."} {
+		count := 0
+		for _, message := range messages { if strings.Contains(strings.ToLower(message), strings.ToLower(fragment)) { count++ } }
+		if count == 0 { t.Errorf("no delivery contains %q: %q", fragment, messages) }
+	}
+}
+
 func TestChangingConfigurationCancelsWaitingRetry(t *testing.T) {
 	bus := events.NewBus()
 	manager := New(bus, nil, "http://127.0.0.1:8790")

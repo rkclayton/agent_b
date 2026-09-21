@@ -16,35 +16,24 @@
 </head>
 <body data-page="chat" class="chat-page">
   <header id="app-shell" class="app-shell window-titlebar" data-page="chat"></header>
-  <div id="chat-budget" class="chat-budget" aria-label="Context budget" hidden><span class="chat-budget-fill"></span><span class="chat-budget-tip"></span>
-    <!-- Item 2ge: "move the attachment icon to the bar above chat on the far
-         right directly up from where it is now." Same control, same menu, same
-         hover text; only its home changed. -->
-    <span class="chat-attach-wrap">
-      <button id="chat-attach" class="chat-attach composer-control" type="button" aria-label="Attach" title="Attach"><svg class="composer-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 9.5 10 17a3.5 3.5 0 0 1-5-5l7.8-7.8a2.5 2.5 0 0 1 3.5 3.5l-7.8 7.8a1.5 1.5 0 0 1-2.1-2.1l7.2-7.2"/></svg></button>
-      <span id="chat-attach-menu" class="chat-attach-menu" hidden>
-        <button id="chat-attach-browse" type="button">Browse…</button>
-        <button id="chat-attach-exchange" type="button">From attachments</button>
-        <span id="chat-exchange-files" class="chat-exchange-files"></span>
-      </span>
-    </span>
-  </div>
+  <div id="chat-budget" class="chat-budget" aria-label="Context budget" hidden><span class="chat-budget-fill"></span><span class="chat-budget-tip"></span></div>
   <main id="chat-log" class="chat-log" tabindex="0" aria-live="polite" hidden></main>
   <footer id="chat-composer" class="chat-composer" hidden>
     <div id="chat-proposals" class="chat-proposals" aria-label="Proposed edits" hidden></div>
     <div id="chat-pending-approval" class="pending-approval" hidden></div>
-    <!-- Item 2gk (v1.2.3), moved by 2gk again in v1.3.0: the readout used to
-         be a band of its own above the composer, which put a row of figures
-         between the operator and the transcript. Operator, 2026-09-22: "i want
-         this moved". It now shares the strip with the idle state, on the right,
-         showing only the token meter until the pointer asks for the rest. -->
+    <!-- The top occupancy bar already exposes its exact value on hover. The
+         lower strip therefore spends its right edge on the attachment action. -->
     <div id="chat-status-strip" class="chat-status-strip">
       <span id="chat-notice" class="chat-notice" role="status"></span>
       <button id="chat-retry-model" class="chat-retry" type="button" hidden>Retry</button>
-      <details id="chat-readout" class="chat-readout" hidden>
-        <summary id="chat-readout-line"><span id="chat-readout-meter" class="chat-readout-meter"></span><span id="chat-readout-figures" class="chat-readout-figures"></span></summary>
-        <div id="chat-readout-detail" class="chat-readout-detail"><span id="chat-readout-stop"></span><span id="chat-readout-label" class="panel-run-label" aria-label="Label this run"></span></div>
-      </details>
+      <span class="chat-attach-wrap">
+        <button id="chat-attach" class="chat-attach composer-control" type="button" aria-label="Attach" title="Attach"><svg class="composer-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 9.5 10 17a3.5 3.5 0 0 1-5-5l7.8-7.8a2.5 2.5 0 0 1 3.5 3.5l-7.8 7.8a1.5 1.5 0 0 1-2.1-2.1l7.2-7.2"/></svg></button>
+        <span id="chat-attach-menu" class="chat-attach-menu" hidden>
+          <button id="chat-attach-browse" type="button">Browse…</button>
+          <button id="chat-attach-exchange" type="button">From attachments</button>
+          <span id="chat-exchange-files" class="chat-exchange-files"></span>
+        </span>
+      </span>
     </div>
     <div class="chat-composer-row">
       <input id="chat-file-picker" type="file" multiple hidden>

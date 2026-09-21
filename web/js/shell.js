@@ -40,13 +40,9 @@ export function initShell(options = {}) {
     // simplification. The traced brain it replaces is gone, with its source
     // reference and plan-brain.svg.
     //
-    // It renders at 24 px, its native size, because that is the only size that
-    // keeps it sharp: the geometry is snapped to whole pixels on a 24 grid, so
-    // at the header's old 16 px box every stroke would land on two thirds of a
-    // pixel. 2he's open question was whether the box was whole-pixel; 16 px is
-    // whole-pixel and still wrong, because the box being integral is not the
-    // same as the strokes inside it landing on pixel bounds.
-    link.innerHTML = '<svg class="shell-page-chip" viewBox="0 0 24 24" width="24" height="24"'
+    // The operator halved the displayed chip in v1.5.0; its checked-in geometry
+    // remains unchanged and scales inside the smaller header box.
+    link.innerHTML = '<svg class="shell-page-chip" viewBox="0 0 24 24" width="12" height="12"'
       + ' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"'
       + ' stroke-linejoin="round" aria-hidden="true">'
       + '<rect x="7" y="7" width="10" height="10" rx="2"/>'

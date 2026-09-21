@@ -44,17 +44,18 @@ test("A native attachment context refusal is visible beside its chip", () => {
   assert.match(css, /\.chat-attachment-warning \{ color: var\(--alarm\); \}/);
 });
 
-// Item 2ge: the operator's three composer controls. "the enter and stop
+// The operator's three lower-chat controls. "the enter and stop
 // buttons can be combined into one… i want a small microphone in place of the
 // attachment icon… move the attachment icon to the bar above chat on the far
 // right directly up from where it is now."
-test("the paperclip is in the bar above the chat, and the composer holds the mic and one send/stop", () => {
+test("the paperclip replaces the duplicate token readout, and the composer holds the mic and one send/stop", () => {
   // Same control, same menu, same hover text; only its home changed.
   // Item 2ha: the three composer controls are one family of line art, so the
   // paperclip is an SVG in the shared glyph box rather than an emoji drawn by
   // whatever font the host has.
-  assert.match(html, /id="chat-budget"[\s\S]{0,500}class="chat-attach-wrap"[\s\S]{0,400}id="chat-attach"[\s\S]{0,200}composer-glyph/);
-  assert.match(css, /\.chat-budget \.chat-attach-wrap \{ position:absolute; right:4px/);
+  assert.match(html, /id="chat-status-strip"[\s\S]{0,500}class="chat-attach-wrap"[\s\S]{0,400}id="chat-attach"[\s\S]{0,200}composer-glyph/);
+  assert.match(css, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; \}/);
+  assert.doesNotMatch(html, /id="chat-readout"|id="chat-readout-meter"/);
   assert.match(html, /class="chat-composer-row"/);
   // A mic where the paperclip was, then ONE send/stop control.
   assert.match(html, /class="chat-input-actions"[\s\S]*id="chat-mic"[\s\S]*class="chat-submit-actions"[\s\S]*id="chat-send"/);

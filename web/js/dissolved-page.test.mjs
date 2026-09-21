@@ -91,7 +91,6 @@ test("the page, its route and its tab-menu entry are gone", async () => {
   for (const id of ["panel-tool-counters", "panel-stats", "panel-live", "panel-run-label", "rail", "flow", "rack", "state-list", "timeline-list", "panel-reflection-overview", "panel-reflection-report", "clear-stats", "flush-memory"]) {
     assert.match(html, new RegExp(`id="activity-panel"[\\s\\S]*id="${id}"`), id);
   }
-  assert.match(html, /id="chat-readout"/);
-  assert.match(html, /id="chat-readout-figures"/);
-  assert.match(html, /id="chat-readout-label"/);
+  assert.match(html, /id="chat-status-strip"[\s\S]*id="chat-attach"/);
+  assert.doesNotMatch(html, /id="chat-readout"/);
 });

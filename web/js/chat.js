@@ -20,6 +20,7 @@ import { installTranscriptCopy } from "./transcript-copy.js";
 const budget = document.getElementById("chat-budget");
 const readout = document.getElementById("chat-readout");
 const readoutFigures = document.getElementById("chat-readout-figures");
+const readoutMeter = document.getElementById("chat-readout-meter");
 const readoutStop = document.getElementById("chat-readout-stop");
 const readoutLabel = document.getElementById("chat-readout-label");
 const log = document.getElementById("chat-log");
@@ -212,7 +213,14 @@ function renderReadout(session) {
   const ceiling = value.ceiling || 0;
   const run = session.run || {};
   const ended = !!run.last_stop_reason && !["running", "queued", "stopping"].includes(run.status);
+  // Item 2gk (v1.3.0): two renderings of the same truth. The meter is what the
+  // strip carries at rest -- the one figure worth a permanent place -- and the
+  // full line is what the pointer asks for. Neither is computed twice.
+  readoutMeter.textContent = `${format(used)} / ${format(ceiling)}`;
   readoutFigures.textContent = `${compactionFigures(session)} · ${value.estimated ? "estimated " : ""}${format(used)} / ${format(ceiling)} tokens${ended ? ` · ${run.last_stop_reason}` : ""}${ended && run.result_label ? ` · ${run.result_label}` : ""}`;
+  // The whole line is the title, so the figures are reachable without a hover
+  // at all -- a pointer is not the only way to use this.
+  readout.title = readoutFigures.textContent;
   readoutStop.textContent = ended
     ? `Ended: ${run.last_stop_reason}${run.last_stop_detail ? ` — ${run.last_stop_detail}` : ""} · armed: ${run.armed_detectors?.length ? run.armed_detectors.join(", ") : "none"}`
     : "No run has ended in this chat yet.";

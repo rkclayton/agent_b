@@ -83,8 +83,8 @@ test("plus adds a two-line d choice only for an assigned d profile", () => {
   assert.doesNotMatch(shell, /planRepoEditor|showPlanMenu|plan_id/);
 });
 
-test("Plan is a compact accessible brain icon", () => {
-  assert.match(shell, /class="shell-page-icon shell-page-brain"/);
+test("Plan is a compact accessible chip icon", () => {
+  assert.match(shell, /class="shell-page-chip"/);
   assert.match(shell, /setAttribute\("aria-label", "plan"\)/);
   assert.match(shell, /link\.title = "plan"/);
   assert.doesNotMatch(shell, /\[\["plan", "Plan", "\/plan"\]\]/);
@@ -166,17 +166,19 @@ test("the tab menu opens at the pointer, dismisses three ways and takes the arro
   assert.doesNotMatch(shell, /menu\.appendChild\(document\.createElement\("hr"\)\)/);
 });
 
-// Item 2ge (v1.1.2/W6): the Plan toggle is a side-profile brain in the
-// operator's accent, and that accent has exactly one use in the product.
-test("the Plan toggle is a brain in the accent, and the accent is used once", async () => {
-  assert.match(shell, /class="shell-page-icon shell-page-brain"/);
+// Item 2ge (v1.1.2/W6), glyph replaced by 2he (v1.3.0/W2): the Plan toggle is
+// the processor chip in the operator's accent, and that accent has exactly one
+// use in the product.
+test("the Plan toggle is the chip in the accent, and the accent is used once", async () => {
+  assert.match(shell, /class="shell-page-chip"/);
   assert.doesNotMatch(shell, /M9 4\.5A3\.5 3\.5 0 0 0 5\.5 8/); // the mark he did not recognise
+  assert.doesNotMatch(shell, /shell-page-brain/); // 2he: the traced brain is gone
   assert.match(tokens, /--accent-plan:#5AC8FA;/);
-  assert.match(tokens, /\.shell-page-brain\{stroke:var\(--accent-plan\);stroke-width:1\.4;opacity:\.45\}/);
-  assert.match(tokens, /\.shell-page:hover \.shell-page-brain\{opacity:\.8\}/);
-  assert.match(tokens, /\.shell-page\.selected \.shell-page-brain\{opacity:1\}/);
+  assert.match(tokens, /\.shell-page-chip\{display:block;width:24px;height:24px;stroke:var\(--accent-plan\);opacity:\.45\}/);
+  assert.match(tokens, /\.shell-page:hover \.shell-page-chip\{opacity:\.8\}/);
+  assert.match(tokens, /\.shell-page\.selected \.shell-page-chip\{opacity:1\}/);
   // One element, and one only: every var(--accent-plan) in every stylesheet
-  // must be a .shell-page-brain rule.
+  // must be a .shell-page-chip rule.
   const styles = await Promise.all(["tokens.css", "app.css", "chat.css", "plan.css", "setup.css"]
     .map(async (name) => [name, await readFile(new URL(`../css/${name}`, import.meta.url), "utf8").catch(() => "")]));
   const uses = [];
@@ -184,10 +186,60 @@ test("the Plan toggle is a brain in the accent, and the accent is used once", as
     for (const rule of css.split("}")) if (rule.includes("var(--accent-plan)")) uses.push(`${name}: ${rule.split("*/").pop().trim()}`);
   }
   assert.equal(uses.length, 1, uses.join(" | "));
-  assert.match(uses[0], /shell-page-brain/);
+  assert.match(uses[0], /shell-page-chip/);
   // The palette rule records it as the operator's exception, not as a seventh
   // colour quietly added to the list.
   const design = await readFile(new URL("../DESIGN.md", import.meta.url), "utf8");
   assert.match(design, /The one exception, stated by the operator \(item 2ge/);
   assert.match(design, /Accent-plan `#5AC8FA`/);
+});
+
+// Item 2he (v1.3.0/W2): the toggle renders web/assets/plan-chip.svg VERBATIM.
+// The operator picked this glyph from three candidates and asked for it as
+// drawn, so the test compares the shapes in shell.js against the asset itself
+// rather than against a copy of them written here -- a redraw, a simplification
+// or a "tidied" path all fail, and the asset stays the single source.
+test("the Plan chip is the checked-in asset, not a redraw", async () => {
+  const asset = await readFile(new URL("../assets/plan-chip.svg", import.meta.url), "utf8");
+  const shapes = (text) => [...text.matchAll(/<(rect|path)\b[^>]*\/>/g)].map((match) =>
+    match[0].replace(/\s+/g, " ").trim());
+  const assetShapes = shapes(asset);
+  assert.equal(assetShapes.length, 3, "the asset should be two rects and the pin path");
+  for (const shape of assetShapes) assert.ok(shell.includes(shape), `shell.js is missing ${shape}`);
+  // The stroke width belongs to the asset, so no stylesheet may override it.
+  assert.match(asset, /stroke-width="2"/);
+  assert.match(shell, /stroke-width="2"/);
+  const tokensCss = await readFile(new URL("../css/tokens.css", import.meta.url), "utf8");
+  const chipRule = (tokensCss.split("}").find((rule) => rule.includes(".shell-page-chip{")) ?? "")
+    .replace(/\/\*[\s\S]*?\*\//g, "").split(".shell-page-chip{").pop();
+  assert.doesNotMatch(chipRule, /stroke-width/, "the chip's stroke-width must come from the asset");
+  // 24px native: the geometry is snapped to a 24 grid, so any other box puts
+  // stroke-width 2 on fractional pixels and blurs it.
+  assert.match(chipRule, /width:24px;height:24px/);
+});
+
+// Item 2gk (v1.3.0/W2): the readout joined the strip, and the marker that drew
+// tofu is gone. Operator, 2026-09-22, with a screenshot of the line sitting as
+// a header above the transcript: "i want this moved".
+test("the per-chat readout rides the status strip and spells no tofu", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const strip = html.slice(html.indexOf('id="chat-status-strip"'), html.indexOf("</div>", html.indexOf('id="chat-status-strip"')));
+  assert.ok(strip.includes('id="chat-readout"'), "the readout belongs to the status strip");
+  // It must NOT sit between the transcript and the composer any more.
+  const log = html.indexOf('id="chat-log"');
+  const composer = html.indexOf('id="chat-composer"');
+  const readout = html.indexOf('id="chat-readout"');
+  assert.ok(readout > composer, "the readout must live inside the composer footer, not above it");
+  assert.ok(log < composer, "the transcript still precedes the composer");
+
+  const chatCss = await readFile(new URL("../css/chat.css", import.meta.url), "utf8");
+  // Right-aligned on the strip, and the meter is what rests there.
+  assert.match(chatCss, /\.chat-readout \{[^}]*margin-left:auto/);
+  assert.match(chatCss, /\.chat-readout-figures \{ display:none; \}/);
+  assert.match(chatCss, /\.chat-readout:hover \.chat-readout-figures/);
+  // No control characters anywhere in the stylesheet: the marker was a raw
+  // 0x15 byte, which is how it reached the operator's screen as tofu.
+  const control = [...chatCss].filter((ch) => ch.charCodeAt(0) < 32 && !"\r\n\t".includes(ch));
+  assert.equal(control.length, 0, `stylesheet holds ${control.length} control character(s)`);
+  assert.doesNotMatch(chatCss, /\.chat-readout > summary::before/, "2gk allows the robot glyph or none, never tofu");
 });

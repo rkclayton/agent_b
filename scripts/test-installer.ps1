@@ -767,32 +767,17 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $cloneApplication 'Agent_b.exe'))) { throw 'clean-archive install produced no application binary.' }
     Write-Host 'PASS: clean archive with no .git installs under Windows PowerShell 5.1'
 
-    # Item 2gl: a disposable install must never touch the machine-wide Edge
-    # policy. It is not elevated, the policy is real for every user on the box,
-    # and a test root that outlived itself in the registry would be a mess the
-    # suite made and could not clean up. It prints what it would write instead,
-    # which is what this asserts on.
-    if ($cloneOutput -notmatch 'TESTMODE: the Edge app-window policy is not written') {
-        throw "a disposable install did not say it was leaving the Edge policy alone.`n$cloneOutput"
-    }
-    if ($cloneOutput -match 'REGISTERED: Edge will install the app window') {
-        throw "a disposable install wrote the machine-wide Edge policy.`n$cloneOutput"
-    }
-    $wouldWrite = [regex]::Match($cloneOutput, '"url":"(http://127\.0\.0\.1:\d+/chat)"')
-    if (-not $wouldWrite.Success -or $cloneOutput -notmatch '"default_launch_container":"window"') {
-        throw "a disposable install did not print the loopback entry it would have written.`n$cloneOutput"
-    }
-    # The disposable install runs on a disposable port, so its own url is the
-    # exact string that must NOT appear in the machine-wide policy.
-    if (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebAppInstallForceList') {
-        $forced = Get-Item -LiteralPath 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebAppInstallForceList'
-        foreach ($name in $forced.GetValueNames()) {
-            if ([string]$forced.GetValue($name) -match [regex]::Escape($wouldWrite.Groups[1].Value)) {
-                throw "a disposable install left an Edge policy entry behind at value $name."
-            }
+    # Item 2gl (v1.3.0/W3): the install writes NO Edge policy at all any more.
+    # v1.2.7 wrote one so Edge would install the app silently; the operator
+    # measured the overlay on that installed app and it does not activate, so
+    # the write is gone. This asserts its absence rather than its shape.
+    foreach ($forbidden in @('REGISTERED: Edge will install the app window', 'TESTMODE: the Edge app-window policy')) {
+        if ($cloneOutput -match [regex]::Escape($forbidden)) {
+            throw "the installer still has an Edge policy path: $forbidden`n$cloneOutput"
         }
     }
-    Write-Host 'PASS: a disposable install prints the Edge app-window entry and writes no machine-wide policy'
+    if ($cloneOutput -match 'WebAppInstallForceList') { throw "the installer still names the Edge policy.`n$cloneOutput" }
+    Write-Host 'PASS: a disposable install writes and mentions no Edge policy'
 
     & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-pwa-policy.ps1')
     if ($LASTEXITCODE -ne 0) { throw "The Edge app-window policy suite exited $LASTEXITCODE." }

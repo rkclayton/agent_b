@@ -30,20 +30,21 @@
     </span>
   </div>
   <main id="chat-log" class="chat-log" tabindex="0" aria-live="polite" hidden></main>
-  <!-- Item 2gk: this chat's own readout, collapsed by default. The figures that
-       were only ever readable on a page of their own now sit on the chat they
-       describe: compactions, summaries, tokens, and how the last run ended
-       with the label it was given. -->
-  <details id="chat-readout" class="chat-readout" hidden>
-    <summary id="chat-readout-line"><span id="chat-readout-figures"></span></summary>
-    <div id="chat-readout-detail" class="chat-readout-detail"><span id="chat-readout-stop"></span><span id="chat-readout-label" class="panel-run-label" aria-label="Label this run"></span></div>
-  </details>
   <footer id="chat-composer" class="chat-composer" hidden>
     <div id="chat-proposals" class="chat-proposals" aria-label="Proposed edits" hidden></div>
     <div id="chat-pending-approval" class="pending-approval" hidden></div>
+    <!-- Item 2gk (v1.2.3), moved by 2gk again in v1.3.0: the readout used to
+         be a band of its own above the composer, which put a row of figures
+         between the operator and the transcript. Operator, 2026-09-22: "i want
+         this moved". It now shares the strip with the idle state, on the right,
+         showing only the token meter until the pointer asks for the rest. -->
     <div id="chat-status-strip" class="chat-status-strip">
       <span id="chat-notice" class="chat-notice" role="status"></span>
       <button id="chat-retry-model" class="chat-retry" type="button" hidden>Retry</button>
+      <details id="chat-readout" class="chat-readout" hidden>
+        <summary id="chat-readout-line"><span id="chat-readout-meter" class="chat-readout-meter"></span><span id="chat-readout-figures" class="chat-readout-figures"></span></summary>
+        <div id="chat-readout-detail" class="chat-readout-detail"><span id="chat-readout-stop"></span><span id="chat-readout-label" class="panel-run-label" aria-label="Label this run"></span></div>
+      </details>
     </div>
     <div class="chat-composer-row">
       <input id="chat-file-picker" type="file" multiple hidden>

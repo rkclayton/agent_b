@@ -32,27 +32,26 @@ export function initShell(options = {}) {
   for (const [id, path] of [["plan", "/plan"]]) {
     const link = node("a", `shell-page ${page === id ? "selected" : ""}`);
     link.dataset.page = id;
-    // Item 2ge: the Plan toggle, traced from the shape the operator supplied
-    // at web/assets/source/brain-source.png -- a cartoon side-profile brain,
-    // bold outline, lobes bunched up and to the left, a long sweep down the
-    // right and a stem hanging off the lower right. The first attempt (v1.1.2)
-    // drew a symmetrical diagram and missed; the asymmetry is most of what
-    // makes it read as a brain rather than a cloud. Line art only: one outline
-    // path, the folds, the stem, stroke with no fill and no highlights, at the
-    // header glyph size in --accent-plan. The source image stays local, as
-    // CLAUDE.md requires since the history rewrite; only this derived path ships.
-    link.innerHTML = '<svg class="shell-page-icon shell-page-brain" viewBox="0 0 24 24" aria-hidden="true">'
-      + '<path d="M9.6 4.6 c-1.7-.6-3.6.2-4.3 1.9 c-1.6.1-2.9 1.5-2.8 3.1 c-1.3.8-1.7 2.5-1 3.8 c-.8 1.3-.4 3 .9 3.8 c.1 1.6 1.5 2.8 3.1 2.7 c.8 1.4 2.6 1.9 4 1.1 c1.2 1 3 .9 4.1-.3 c1.7.4 3.4-.6 3.9-2.3 c1.6-.5 2.5-2.2 2.1-3.8 c1.2-1.1 1.3-2.9.3-4.1 c.5-1.6-.3-3.3-1.9-3.9 c-.2-1.6-1.6-2.8-3.2-2.6 c-.9-1.3-2.7-1.7-4.1-.8 Z"/>'
-      + '<path d="M16.9 19.6c.5 1.3.7 2.4.6 3.4m2-4.3c-.7 1.2-1.1 2.4-1.2 3.6"/>'
-      + '<path d="M11.4 4.2c.5 1.4.4 2.8-.3 4.1"/>'
-      + '<path d="M11.1 8.3c-1.3.8-2.9.9-4.3.3"/>'
-      + '<path d="M11.1 8.3c1.6.6 3.4.4 4.8-.6"/>'
-      + '<path d="M5.6 12.1c2 1.2 4.5 1.3 6.6.3"/>'
-      + '<path d="M12.2 12.4c1.9 1.3 4.4 1.4 6.4.2"/>'
-      + '<path d="M7.4 16.1c1.8.9 3.9.9 5.7 0"/>'
-      + '<path d="M5.3 9.6c.7.3 1.2.9 1.4 1.6"/>'
-      + '<path d="M4.6 15.1c.7-.1 1.4.1 1.9.6"/>'
-      + '<path d="M19.4 10.1c-.7.4-1.2 1-1.4 1.8"/>'
+    // Item 2he: the processor, as drawn. The operator asked for "something more
+    // symmetrical that represents planning/thought and is robotic", picked the
+    // chip from three candidates, and it is checked in at
+    // web/assets/plan-chip.svg. This is that file VERBATIM -- same viewBox,
+    // same rects, same pin path, same stroke-width 2 -- not a redraw and not a
+    // simplification. The traced brain it replaces is gone, with its source
+    // reference and plan-brain.svg.
+    //
+    // It renders at 24 px, its native size, because that is the only size that
+    // keeps it sharp: the geometry is snapped to whole pixels on a 24 grid, so
+    // at the header's old 16 px box every stroke would land on two thirds of a
+    // pixel. 2he's open question was whether the box was whole-pixel; 16 px is
+    // whole-pixel and still wrong, because the box being integral is not the
+    // same as the strokes inside it landing on pixel bounds.
+    link.innerHTML = '<svg class="shell-page-chip" viewBox="0 0 24 24" width="24" height="24"'
+      + ' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"'
+      + ' stroke-linejoin="round" aria-hidden="true">'
+      + '<rect x="7" y="7" width="10" height="10" rx="2"/>'
+      + '<rect x="10" y="10" width="4" height="4" rx="0.5"/>'
+      + '<path d="M9 2v5M12 2v5M15 2v5M9 17v5M12 17v5M15 17v5M2 9h5M2 12h5M2 15h5M17 9h5M17 12h5M17 15h5"/>'
       + '</svg>';
     link.setAttribute("aria-label", "plan");
     link.title = "plan";

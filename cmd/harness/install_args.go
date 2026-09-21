@@ -23,6 +23,11 @@ var installModeFlags = map[string]bool{
 	"data-root":      true,
 	"replay":         true,
 	"startup-log":    true,
+	// Item 2hc (v1.3.0/W2): the host window. This map is the only list of
+	// flags the process interprets, so a flag missing here is silently dropped
+	// before flag.Parse ever sees it - which is exactly how -window first
+	// appeared to do nothing at all.
+	"window": true,
 }
 
 // flagName reads the name out of -name, --name or --name=value; it returns ""

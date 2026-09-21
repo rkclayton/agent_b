@@ -36,3 +36,18 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## Microsoft Edge WebView2 loader (`WebView2Loader.dll`)
+
+Agent_b ships one native binary it did not build: `WebView2Loader.dll`, from the
+`Microsoft.Web.WebView2` SDK package (version 1.0.4191.47), beside `Agent_b.exe`. It locates the
+separately-installed Microsoft Edge WebView2 Runtime so Agent_b can host its own window; the browser
+engine itself is that runtime and is not redistributed here.
+
+The file is used unmodified and as-supplied, Authenticode-signed by Microsoft Corporation. Its
+SHA-256 and signature are pinned in `scripts/webview2-loader.json` and verified at build and at
+install. Redistribution follows the Microsoft Software License Terms for the Microsoft Edge WebView2
+SDK, which permit distributing the loader with an application that uses it.
+
+Agent_b does not embed this DLL in its executable and never maps it into memory itself; it is loaded
+by Windows from the application directory. See `SECURITY.md` for why.

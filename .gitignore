@@ -65,6 +65,12 @@ sandbox/*
 *.exe
 # Windows runtime libraries are local serving artifacts.
 *.dll
+# Item 2hc (v1.3.0/W2): the ONE native file Agent_b ships and did not build.
+# It must be tracked, because the candidate is a `git archive` - ignored here,
+# the release would carry no loader and every install would refuse it. Pinned by
+# hash and Authenticode signature in scripts/webview2-loader.json; see
+# SECURITY.md for why it is shipped at all.
+!/WebView2Loader.dll
 # Playwright is a development-only verification dependency. Neither its install tree nor
 # transient reports are distributed with Agent_b.
 node_modules/

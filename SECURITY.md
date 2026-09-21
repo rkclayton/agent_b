@@ -78,6 +78,40 @@ Agent_b has two user-facing prompts. **Allow this** governs a risky action under
 
 When Windows denies a built-in file operation, shell output looks like an OS permission denial, or a requested interpreter exists only for the operator, Agent_b raises **Run as you** in every approval mode. **Just once** reruns only the displayed operation; **Yes, for this chat** sends later file, shell, and interpreter identity needs through the same non-elevated operator identity until the chat closes or the status-strip robot is used to revoke it. The model cannot invoke the operator path directly, the UI shows the exact path or command, and each decision, grant, lapse, and revocation is logged. File-tool denial comes from the impersonated Windows token; shell denial classification remains a text heuristic. Inspect the operation before approving: this escape deliberately bypasses service-account ACL and firewall restrictions and is not a security boundary.
 
+## The one native file Agent_b ships that it did not build
+
+`WebView2Loader.dll` sits beside `Agent_b.exe` so the product can host its own window (item 2hc)
+instead of borrowing one from Edge.
+
+- **What it is.** Microsoft's WebView2 SDK loader. It finds the installed WebView2 runtime and
+  hands back the environment factory; the browser itself is the separately-installed Evergreen
+  runtime, not this file.
+- **Why we ship it at all.** The runtime does **not** provide it. Measured on 2026-09-22: the
+  runtime directory holds `EmbeddedBrowserWebView.dll` and `webview2_integration.dll` and no
+  loader, which is why every WebView2 application on this machine carries its own copy (Office,
+  OneDrive, Citrix). The only entry point the runtime exposes directly is named
+  `CreateWebViewEnvironmentWithOptionsInternal`, and building the product's main window on a
+  symbol Microsoft marks internal is not a trade worth making quietly.
+- **Origin, pinned.** `scripts/webview2-loader.json` records the source package
+  (`Microsoft.Web.WebView2`, its version and the nupkg's own SHA-256), the path inside it, the
+  file's SHA-256, and the Authenticode subject, issuer and thumbprint.
+- **Verified twice before it runs.** The release step refuses to build a candidate whose loader
+  does not match the pin, and **the installer verifies both the SHA-256 and the Authenticode
+  signature before copying it** and refuses the install otherwise. A DLL beside an executable is
+  loaded ahead of anything on the search path, so it is the file an attacker would most want to
+  replace.
+- **Loaded from one place only.** `Agent_b.exe` loads it by absolute path from its own directory.
+  It never calls `LoadLibrary` on a bare name, which would search the working directory and `PATH`
+  and could pick up somebody else's loader.
+- **Absent is an ordinary answer.** No loader, or no runtime, means host mode declines with a
+  logged reason and the browser window is used. The product does not depend on this file to run.
+- **What was refused, and why.** `github.com/jchv/go-webview2` embeds three copies of this DLL and
+  maps one into executable memory with `VirtualAlloc`/`VirtualProtect`. That is reflective DLL
+  loading: unreviewable native code inside a binary we sign, never presented to the OS loader and
+  so never signature-checked, using the technique this repository already bans the command-line
+  forms of (`internal/tools/shell_policy.go` refuses `regsvr32` and `rundll32` by name). The
+  decision and its reasoning are in `NOTES.md`, 2026-09-22.
+
 ## Network exposure
 
 Agent_b has no user authentication and ships with `listen` bound to loopback. Each launch generates an unguessable mutation token delivered through the same-origin state stream; every non-read request requires that token, cross-origin browser mutations are rejected, framing is denied, and a restrictive Content Security Policy is sent. This is a browser/CSRF barrier, not authentication against another process running as the operator. Moving the listener off loopback exposes an endpoint that can run shell commands and requires a real TLS/authentication design.

@@ -12,6 +12,13 @@ It keeps planning and execution distinct. An operator or planner owns the ordere
 2. On Windows, double-click **`Agent_b-setup.exe`** from the candidate folder. That is the deployment package and the normal way the product is installed: one double-click, one UAC prompt, no console window. Progress and the result appear in the product's own Setup page, and the install finishes even if you close the window it started from. Agent_b then appears in Add/Remove Programs, and uninstalling preserves your data by default. `install-Agent_b.cmd` remains beside it as a thin wrapper for anyone with the older habit, and is what the test suite drives; `start-Agent_b.cmd` builds and runs from a checkout.
 3. Open Settings → Connections, add the endpoint and model, Save, then Test. A connection becomes runnable when its context size and required capabilities are known.
 
+Agent_b opens in **its own window**: the tab strip is the window's top edge, with the gear left of
+Windows' own minimise, maximise and close buttons. That window is a mode of `Agent_b.exe` itself -
+one process, one binary - hosting the same page over loopback through the WebView2 runtime. If the
+runtime is not installed, or the pinned `WebView2Loader.dll` is not beside the executable, Agent_b
+says so in `logs\launcher.log` and opens the page in an Edge application window instead; nothing
+else changes.
+
 The installed app opens Chat at `http://127.0.0.1:8790/chat`. Reopening its shortcut focuses the healthy instance instead of starting another one. Replay recorded sessions without a model with:
 
 ```text

@@ -106,3 +106,25 @@ func TestAnUnrecordedEndIsReportedAtTheNextStart(t *testing.T) {
 		t.Fatal("processRunning must match the creation time, not only the PID")
 	}
 }
+
+// Item 2hg (v1.3.0/W6): the guard window exists the moment watchSessionEnd
+// returns. No polling here, deliberately -- the test above waits up to five
+// seconds for the window, and that wait was the defect written down: while the
+// window is merely "coming", the process's only top-level window is the console
+// one a hidden start gives a console application, and a WM_CLOSE that reaches
+// the console becomes CTRL_CLOSE_EVENT and then SIGTERM. Killing at 100, 300,
+// 600 and 1200 ms ended the server 12 times out of 12 before this changed.
+func TestTheSessionEndWindowExistsAsSoonAsTheWatchReturns(t *testing.T) {
+	life := newLifetime(t.TempDir(), time.Now)
+	life.begin()
+	watchSessionEnd(life.stopped, func() {})
+
+	className, err := syscall.UTF16PtrFromString(sessionEndClassName)
+	if err != nil {
+		t.Fatalf("class name: %v", err)
+	}
+	hwnd, _, _ := user32.NewProc("FindWindowW").Call(uintptr(unsafe.Pointer(className)), 0)
+	if hwnd == 0 {
+		t.Fatal("watchSessionEnd returned before the guard window existed; a WM_CLOSE arriving now would reach the console window instead and stop the server")
+	}
+}

@@ -45,7 +45,7 @@ $startMenu = Join-Path $TestRoot 'StartMenu'
 $registry = 'HKCU:\Software\Agent_b-lifetime-repeat'
 
 Write-Host "Building the candidate from the working tree..."
-& (Get-WindowsPowerShellPath) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $repositoryRoot | Out-Null
+& (Get-WindowsPowerShellPath) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $repositoryRoot -SignForTest | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "build-candidate exited $LASTEXITCODE." }
 
 Write-Host "Installing a disposable copy at $application ..."

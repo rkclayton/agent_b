@@ -244,6 +244,7 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 	s.drainLocked()
 	s.repositionLocked()
 	s.mu.Unlock()
+	go s.runner.nameAfterFirstRun(entry.s, entry.runID)
 }
 
 // Item 2fc: runs are admitted per model profile as well as globally. A profile

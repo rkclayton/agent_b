@@ -954,6 +954,8 @@ function noticeContent(session, entry, actionable) {
 // the one behind Win+H - so there is no browser speech API here and no audio
 // leaves the machine by any path Windows itself does not take.
 let micState = { listening: false, available: null, offline: null, reason: "" };
+// Item 2hf: a mic failure belongs on the strip, not only in a hover title.
+let micNotice = "";
 
 function renderMic(session) {
   if (!mic) return;
@@ -1009,7 +1011,7 @@ function renderComposer(session) {
   // the whole line, and the two never appear together; the host is on hover.
   const modelLine = unreachable ? "model unreachable" : busy ? "model busy" : "";
   const primary = session && !session.runnable ? session.not_runnable_reason : modelLine || activity || state;
-  const message = localNotice || (modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil].filter(Boolean).join(" · "));
+  const message = localNotice || micNotice || (modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil].filter(Boolean).join(" · "));
   // Live state, not decoration: the robot runs beside the live line for exactly
   // as long as the run is live, and is absent otherwise. Its eyes take the same
   // state colour the tab robot uses.
@@ -1027,7 +1029,7 @@ function renderComposer(session) {
   text.textContent = message;
   if (modelLine && message === modelLine) text.title = (unreachable || busy)?.host || "";
   notice.append(text);
-  notice.className = `chat-notice ${localAlarm || unreachable || (session && !session.runnable) ? "alarm" : ""}`;
+  notice.className = `chat-notice ${localAlarm || micNotice || unreachable || (session && !session.runnable) ? "alarm" : ""}`;
 	pendingFiles.replaceChildren(...queuedAttachments.map((file) => {
     const row = document.createElement("span");
     row.className = "chat-pending-file";
@@ -1195,6 +1197,7 @@ function startDictation() {
   const session = store.sessions[selectedID()];
   if (!session || store.replay || micState.available === false) return;
   micState.listening = true;
+  micNotice = "";
   renderMic(session);
   // The transcript arrives on the existing event stream shape: one line per
   // partial, the final one marked. A stream that fails leaves the mic idle
@@ -1207,7 +1210,9 @@ function startDictation() {
     if (payload.error) {
       micState.available = false;
       micState.reason = String(payload.error);
+      micNotice = `mic: ${micState.reason}`;
       stopDictation();
+      renderComposer(store.sessions[selectedID()]);
       return;
     }
     // The helper writes one line per hypothesis and one per utterance. A
@@ -1225,7 +1230,9 @@ function startDictation() {
     if (payload.done) stopDictation();
   };
   micStream.onerror = () => {
+    if (micState.listening) micNotice = "mic: connection to the local dictation helper ended";
     stopDictation();
+    renderComposer(store.sessions[selectedID()]);
   };
 }
 

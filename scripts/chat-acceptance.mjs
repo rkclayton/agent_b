@@ -29,6 +29,7 @@ let shellStyleBoundaryEvidence;
 let app;
 let model;
 let modelPort;
+let planningBriefOriginal = "";
 let releaseQueue = null;
 let releaseBusy = null;
 let slowAccountingArmed = false;
@@ -234,6 +235,12 @@ const fakeHandler = async (request, response) => {
     { id: "browser-dismiss", kind: "reword", path: "plan.md", old_text: "# Browser plan", new_text: "# Dismissed plan", item_id: "2t" },
     { id: "browser-quote", kind: "reword", path: "plan.md", old_text: "# Browser plan", new_text: "# Quoted plan", item_id: "2t" },
   ] })}\n\`\`\`` });
+  if (user.includes("<planning-brief>") && user.includes("Acceptance project purpose")) {
+    const newText = `${planningBriefOriginal.trimEnd()}\n\n## Purpose\nAcceptance project purpose\n\n## Done\nMilestone one\nMilestone two\nMilestone three\n\n## Boundaries\nDo not touch billing\n`;
+    return stream(response, { content: `Drafted plan.md from the supplied scope.\n\`\`\`agentb-plan-proposals\n${JSON.stringify({ version: 1, proposals: [
+      { id: "planning-brief-draft", kind: "reword", path: "plan.md", old_text: planningBriefOriginal, new_text: newText, item_id: null },
+    ] })}\n\`\`\`` });
+  }
   return stream(response, { content: "Acceptance response." });
 };
 const startFake = async (port = 0) => {
@@ -2169,6 +2176,39 @@ if (realModel) {
   await writeFile(planPath, markedPlan);
   record("repo-inside-plans-refusal-line-and-go-refused");
 
+  // 2gp: a filled three-question brief enters the planning request as scoped
+  // data, and the fake planner's accepted plan.md draft carries every field.
+  const briefRepo = join(args.data, "..", "brief-repo");
+  await mkdir(briefRepo, { recursive: true });
+  await page.goto(planPageURL);
+  await page.locator("#plan-add").click();
+  await page.locator("#plan-add-path").fill(briefRepo);
+  await page.locator("#plan-add-path").press("Enter");
+  await browser.wait(`document.querySelector('#plan-build') && !document.querySelector('#plan-build').hidden`, "Build plan now for the filled brief");
+  const briefPlan = (await (await fetch(`http://127.0.0.1:${appPort}/api/plans`)).json()).find((plan) => plan.repo && plan.repo.toLowerCase().endsWith("brief-repo"));
+  assert.ok(briefPlan, "the filled-brief plan was not registered");
+  const briefPlanPath = join(args.data, "plans", briefPlan.id, "plan.md");
+  planningBriefOriginal = await readFile(briefPlanPath, "utf8");
+  await page.locator("#plan-build-yes").click();
+  await page.locator("#plan-wizard").waitFor({ state: "visible" });
+  await page.screenshot({ path: join(evidenceRun, "planning-1-purpose.png") });
+  await page.locator("#plan-wizard-value").fill("Acceptance project purpose");
+  await page.locator("#plan-wizard-next").click();
+  await page.screenshot({ path: join(evidenceRun, "planning-2-done.png") });
+  await page.locator("#plan-wizard-value").fill("Milestone one\nMilestone two\nMilestone three");
+  await page.locator("#plan-wizard-next").click();
+  await page.screenshot({ path: join(evidenceRun, "planning-3-do-not-touch.png") });
+  await page.locator("#plan-wizard-value").fill("Do not touch billing");
+  await page.locator("#plan-wizard-next").click();
+  await page.waitForURL((url) => url.pathname === "/chat" && !!url.searchParams.get("session"));
+  await browser.wait(`document.querySelectorAll('#chat-proposals .plan-proposal').length === 1`, "the filled brief's plan.md draft", 20000);
+  const briefProposal = page.locator("#chat-proposals .plan-proposal").first();
+  await briefProposal.getByRole("button", { name: "Accept" }).click();
+  await waitFileContains(briefPlanPath, "Acceptance project purpose");
+  const draftedBriefPlan = await readFile(briefPlanPath, "utf8");
+  for (const text of ["Acceptance project purpose", "Milestone one", "Milestone two", "Milestone three", "Do not touch billing"]) assert.match(draftedBriefPlan, new RegExp(text));
+  record("planning-wizard-three-fields-carried-into-accepted-plan-draft");
+
   // Item 2fc: + asks for a folder, registers its plan from the template, and
   // asks "Build plan now?"; Yes opens the planning chat bound to it with the
   // request in its composer — sent by the operator, never by the harness.
@@ -2187,6 +2227,10 @@ if (realModel) {
   assert.ok(createdPlan, "the plan was not registered");
   await page.screenshot({ path: join(evidenceRun, "plan-build-prompt.png") });
   await page.locator("#plan-build-yes").click();
+  await page.locator("#plan-wizard").waitFor({ state: "visible" });
+  // 2gp keeps an empty/skipped planning wizard identical to the established
+  // Build-plan behavior exercised by this regression scenario.
+  for (let step = 0; step < 3; step += 1) await page.locator("#plan-wizard-skip").click();
   await page.waitForURL((url) => url.pathname === "/chat" && !!url.searchParams.get("session"));
   await page.locator("#chat-task").waitFor({ state: "visible" });
   // v0.70.1 overrule: Yes sends the fixed opening request — one user message,

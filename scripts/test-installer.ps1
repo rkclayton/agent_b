@@ -3,7 +3,11 @@ param(
     # Locks the workstation and disconnects the console session during the
     # session-lifetime scenario (item 2em). Off by default: it locks the
     # operator's screen.
-    [switch]$LockWorkstation
+    [switch]$LockWorkstation,
+    # Defender recovery: reuse the already-verified signed root candidate in
+    # every staged tree instead of recreating unsigned linker output.
+    [switch]$UseExistingSignedCandidate,
+    [string]$EvidenceDirectory
 )
 
 $ErrorActionPreference = 'Stop'
@@ -144,7 +148,11 @@ function Copy-TrackedTree {
 # Item 2eu: the installer never builds. The release step's build runs once
 # here, and every install below takes the exe and manifest it wrote.
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $repositoryRoot
+if ($UseExistingSignedCandidate) {
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $repositoryRoot -SignForTest
+} else {
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $repositoryRoot -SignForTest
+}
 if ($LASTEXITCODE -ne 0) { throw "Candidate build exited $LASTEXITCODE." }
 $candidateManifest = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'candidate-final.json') | ConvertFrom-Json
 
@@ -202,7 +210,9 @@ try {
     $expiredAt = [DateTime]::UtcNow.AddDays(-2)
     foreach ($path in @($expiredWorkingLog, $expiredEvidenceLog, $retainedChatLog)) { [IO.File]::SetLastWriteTimeUtc($path, $expiredAt) }
     $node = (Get-Command node.exe -ErrorAction Stop).Source
-    & $node (Join-Path $PSScriptRoot 'onboarding-acceptance.mjs') --app $testApplication --data $testData --config $configPath --port $testPort
+    $onboardingArguments = @((Join-Path $PSScriptRoot 'onboarding-acceptance.mjs'), '--app', $testApplication, '--data', $testData, '--config', $configPath, '--port', $testPort)
+    if (-not [string]::IsNullOrWhiteSpace($EvidenceDirectory)) { $onboardingArguments += @('--evidence', (Join-Path $EvidenceDirectory 'setup')) }
+    & $node @onboardingArguments
     if ($LASTEXITCODE -ne 0) { throw "First-run onboarding acceptance exited $LASTEXITCODE." }
 
     foreach ($path in @(
@@ -726,14 +736,25 @@ try {
     # The release step builds the candidate (item 2eu); the installer never does.
     # A tree with no .git states its commit explicitly.
     $treeCommit = [string](& $git.Source -C $sourceRoot rev-parse HEAD | Select-Object -First 1)
-    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true
+    if ($UseExistingSignedCandidate) {
+        Copy-Item -LiteralPath (Join-Path $sourceRoot 'Agent_b.exe') -Destination (Join-Path $tree 'Agent_b.exe') -Force
+    }
+    if ($UseExistingSignedCandidate) {
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -SignForTest
+    } else {
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -SignForTest
+    }
     if ($LASTEXITCODE -ne 0) { throw "clean-archive candidate build exited $LASTEXITCODE." }
     $treeManifest = Get-Content -Raw -LiteralPath (Join-Path $tree 'candidate-final.json') | ConvertFrom-Json
 
     # The release step refuses an exe that does not report the tag being released.
     $savedErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    $mismatchOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -ExpectedTag 'v9.9.9' 2>&1 | Out-String)
+    if ($UseExistingSignedCandidate) {
+        $mismatchOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -ExpectedTag 'v9.9.9' -SignForTest 2>&1 | Out-String)
+    } else {
+        $mismatchOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -ExpectedTag 'v9.9.9' -SignForTest 2>&1 | Out-String)
+    }
     $mismatchExit = $LASTEXITCODE
     $ErrorActionPreference = $savedErrorAction
     if ($mismatchExit -eq 0 -or $mismatchOutput -notmatch 'CANDIDATE BUILD REFUSED' -or $mismatchOutput -notmatch 'release is v9\.9\.9' -or
@@ -741,7 +762,11 @@ try {
         throw "The release step did not refuse an exe reporting the wrong tag.`n$mismatchOutput"
     }
     Write-Host "PROOF release step: an exe reporting $($treeManifest.tag) is refused for release v9.9.9 and no manifest is left"
-    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true
+    if ($UseExistingSignedCandidate) {
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -SignForTest
+    } else {
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -SignForTest
+    }
     if ($LASTEXITCODE -ne 0) { throw "clean-archive candidate rebuild exited $LASTEXITCODE." }
     $treeManifest = Get-Content -Raw -LiteralPath (Join-Path $tree 'candidate-final.json') | ConvertFrom-Json
 
@@ -833,5 +858,9 @@ Write-Host 'PASS: the pre-stop gate fails closed on a null exit code, keeps a re
 Assert-TemporaryTestPath $testRoot
 Remove-TreeWithinAllowedRoots -Path $testRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'installer-suite exit-gate probe cleanup'
 
-& (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-chat-acceptance.ps1') -SkipBuild
+if ([string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-chat-acceptance.ps1') -SkipBuild
+} else {
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-chat-acceptance.ps1') -SkipBuild -EvidenceDirectory (Join-Path $EvidenceDirectory 'chat')
+}
 if ($LASTEXITCODE -ne 0) { throw "Chat acceptance release gate exited $LASTEXITCODE." }

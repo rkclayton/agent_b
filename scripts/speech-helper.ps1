@@ -33,6 +33,12 @@ function Write-Line($object) {
     [Console]::Out.Flush()
 }
 
+function Get-FriendlySpeechError([string]$Message) {
+    if ($Message -match 'privacy|access.*denied|0x80070005') { return 'microphone access is off in Windows privacy settings' }
+    if ($Message -match 'audio device|input device|0x8004503A|0x80004005') { return 'no input device' }
+    return $Message
+}
+
 try {
     Add-Type -AssemblyName System.Speech
 } catch {
@@ -46,6 +52,7 @@ try {
     $engine.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
     if ([string]::IsNullOrWhiteSpace($WaveFile)) {
         $engine.SetInputToDefaultAudioDevice()
+        Write-Line @{ stage = 'device'; device = 'Windows default audio input' }
     } elseif (-not (Test-Path -LiteralPath $WaveFile -PathType Leaf)) {
         Write-Line @{ error = "no such wave file: $WaveFile"; done = $true }
         exit 0
@@ -53,7 +60,7 @@ try {
         $engine.SetInputToWaveFile($WaveFile)
     }
 } catch {
-    Write-Line @{ error = $_.Exception.Message; done = $true }
+    Write-Line @{ error = (Get-FriendlySpeechError $_.Exception.Message); done = $true }
     if ($engine) { $engine.Dispose() }
     exit 0
 }

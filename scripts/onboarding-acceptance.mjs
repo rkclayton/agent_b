@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, mkdir, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium } from "playwright";
 
@@ -104,13 +104,21 @@ try {
   page.on("pageerror", (error) => pageErrors.push(String(error.stack || error)));
   await page.goto(`${baseURL}/chat`);
   await page.waitForURL(/\/setup$/);
-  await page.locator(".setup-card").filter({ hasText: "API only" }).click();
+  if (args.evidence) {
+    await mkdir(args.evidence, { recursive: true });
+    await page.screenshot({ path: join(args.evidence, "setup-1-where-is-your-model.png") });
+  }
   await page.locator('[data-field="url"]').fill(`http://127.0.0.1:${fakePort}`);
   await page.locator('[data-field="model"]').fill("onboarding-fake");
   await page.locator('[data-action="test"]').click();
-  await page.locator(".setup-feedback").filter({ hasText: "Test complete." }).waitFor({ timeout: 60000 });
-  await page.locator('[data-action="continue"]').click();
-  await page.locator("h1").filter({ hasText: "Setup is complete" }).waitFor();
+  await page.waitForFunction(() => document.querySelector("h1")?.textContent === "What is it good for?" || document.querySelector(".setup-feedback.alarm"), undefined, { timeout: 60000 });
+  assert.equal(await page.locator("h1").textContent(), "What is it good for?", `connection Test failed: ${await page.locator(".setup-feedback").textContent().catch(() => "no feedback")}`);
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-2-what-is-it-good-for.png") });
+  await page.locator('[data-action="capability-next"]').click();
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-3-who-does-what.png") });
+  await page.locator('[data-action="assign-all"]').click();
+  await page.locator("h1").filter({ hasText: "Done" }).waitFor();
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-4-done.png") });
   await page.locator('[data-action="finish"]').click();
   await page.waitForURL(/\/chat\?session=main$/);
   await page.locator("#chat-task").fill("acceptance: first-run API-only chat");
@@ -118,10 +126,12 @@ try {
   await page.waitForFunction(() => document.querySelector("#chat-log")?.innerText.includes("onboarding fake response"), undefined, { timeout: 15000 });
   const state = await waitJSON(`${baseURL}/api/state`);
   assert.equal(state.config.servers?.length, 1);
-  assert.equal(state.config.agents?.[0]?.b, "setup-api");
+  assert.equal(state.config.agents?.[0]?.b, "setup-model");
+  assert.equal(state.config.agents?.[0]?.c, "setup-model");
+  assert.equal(state.config.agents?.[0]?.d, "setup-model");
   assert.equal(Object.keys(state.sessions || {}).length, 1);
   assert.deepEqual(pageErrors, []);
-  process.stdout.write(`PASS: one-day startup retention preserved evidence/chat and fresh servers:[] install reached a working API-only chat through Setup (${requestCount} fake requests)\n`);
+  process.stdout.write(`PASS: one-day startup retention preserved evidence/chat and fresh servers:[] install reached a working chat with b/c/d through four-screen Setup (${requestCount} fake requests)\n`);
 } finally {
   await browser?.close().catch(() => {});
   await stopChild(app);

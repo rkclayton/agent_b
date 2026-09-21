@@ -108,6 +108,10 @@ foreach ($gpu in $gpus) {
     $available = [Math]::Max([uint64]$gpu.vram_bytes, [uint64]$gpu.unified_memory_bytes)
     if ($available -gt $recommendationMemory) { $recommendationMemory = $available }
 }
+$accelerators = [ordered]@{
+    cuda = [bool]$nvidiaSmi
+    vulkan = [bool](Test-Path -LiteralPath (Join-Path $env:SystemRoot 'System32\vulkan-1.dll') -PathType Leaf)
+}
 
 [ordered]@{
     supported=$true
@@ -115,6 +119,7 @@ foreach ($gpu in $gpus) {
     service_account_found=$serviceAccountFound
     system_memory_bytes=$systemMemory
     recommendation_memory_bytes=$recommendationMemory
+    accelerators=$accelerators
     gpus=@($gpus)
     servers=@($servers)
     interpreters=@($interpreters)

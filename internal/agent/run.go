@@ -51,6 +51,7 @@ type Runner struct {
 	mailboxBoundary    func(context.Context, string, bool) BoundaryAction
 	modelUnreachable   func(string, string)
 	ids                atomic.Int64
+	nameAttempts       sync.Map
 }
 
 type BoundaryAction struct {

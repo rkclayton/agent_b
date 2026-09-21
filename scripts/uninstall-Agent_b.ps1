@@ -199,6 +199,25 @@ if (Test-Path -LiteralPath $startupShortcutPath) {
     $removalPath = Assert-RemovalWithinAllowedRoots -Path $startupShortcutPath -AllowedRoots @($startMenuRoot) -Purpose 'sign-in shortcut cleanup'
     Remove-Item -LiteralPath $removalPath -Force
 }
+# Item 2gl: the Edge app-window policy goes with the application. Read the url
+# out of the uninstall key BEFORE that key is removed, and remove only the
+# policy value holding that url  -  a neighbour's forced install is not ours to
+# delete. A failure is reported and never blocks the uninstall.
+$pwaPolicyUrl = $null
+if (Test-Path -LiteralPath $UninstallRegistryPath) {
+    try { $pwaPolicyUrl = [string](Get-ItemProperty -LiteralPath $UninstallRegistryPath -Name PwaPolicyUrl -ErrorAction Stop).PwaPolicyUrl } catch { $pwaPolicyUrl = $null }
+}
+if ($pwaPolicyUrl) {
+    try {
+        . (Join-Path $PSScriptRoot 'pwa-policy.ps1')
+        $removedName = Remove-AgentBPwaPolicy -Url $pwaPolicyUrl
+        if ($removedName) { Write-Host "REMOVED: the Edge app-window policy (value $removedName)" }
+        else { Write-Host 'REMOVED: the Edge app-window policy was already absent' }
+    } catch {
+        $pwaDetail = ($_.Exception.Message -replace '[\r\n]+', ' ').Trim()
+        Write-Host "SKIPPED: the Edge app-window policy could not be removed ($pwaDetail); remove it by hand if Edge keeps reinstalling the app"
+    }
+}
 if (Test-Path -LiteralPath $UninstallRegistryPath) { Remove-Item -LiteralPath $UninstallRegistryPath -Recurse -Force }
 Set-Location ([IO.Path]::GetTempPath())
 if (Test-Path -LiteralPath $applicationRoot) {

@@ -119,9 +119,25 @@ function Show-AgentBWindow {
     # sharing the process. Nothing is closed: a window left open across an
     # upgrade reloads itself when its event stream reaches the new server.
     $origin = [Uri]::new([Uri]$Url, '/').AbsoluteUri
+
+    # Item 2gl: the app id, looked up fresh, because Edge installs the app on
+    # its own schedule after the policy is written rather than when we ask.
+    # Refused unless the profile's own record carries our url; $null means
+    # --app=, which is what production does today, so doubt costs nothing.
+    $appId = $null
+    try {
+        . (Join-Path $PSScriptRoot 'pwa-policy.ps1')
+        $appId = Find-AgentBPwaAppId -Url (Get-AgentBPwaUrl -Origin $origin)
+    } catch { $appId = $null }
+
     $ownWindows = @{}
     foreach ($candidate in @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe'" -ErrorAction SilentlyContinue)) {
-        if ([string]$candidate.CommandLine -and ([string]$candidate.CommandLine).Contains('--app=' + $origin)) { $ownWindows[[int]$candidate.ProcessId] = $true }
+        $commandLine = [string]$candidate.CommandLine
+        if (-not $commandLine) { continue }
+        # Either shape of our own window counts as ours to bring forward.
+        $mine = $commandLine.Contains('--app=' + $origin)
+        if (-not $mine -and $appId) { $mine = $commandLine.Contains('--app-id=' + $appId) }
+        if ($mine) { $ownWindows[[int]$candidate.ProcessId] = $true }
     }
     $shell = New-Object -ComObject WScript.Shell
     foreach ($name in @('msedge', 'chrome')) {
@@ -143,8 +159,20 @@ function Show-AgentBWindow {
         if ($edgeCommand) { $edge = $edgeCommand.Source }
     }
     if ($edge) {
-        Start-Process -FilePath $edge -ArgumentList "--app=$Url"
-        Write-Host 'OPENED: Agent_b application window'
+        # Item 2gl: the installed app when Edge has one, the flag until it does.
+        # --app-id= opens the app Edge installed from our policy entry, which is
+        # the window the controls overlay needs; --app= opens the same URL in an
+        # app window that is not an installed app. The id is looked up fresh on
+        # every launch because the install happens on Edge's schedule, not ours,
+        # and it is refused unless the profile's own record carries our url.
+        # Anything doubtful falls back to --app=, which is what we ship today.
+        if ($appId) {
+            Start-Process -FilePath $edge -ArgumentList "--app-id=$appId"
+            Write-LauncherRecord "OPENED: Agent_b installed app window (--app-id=$appId)"
+        } else {
+            Start-Process -FilePath $edge -ArgumentList "--app=$Url"
+            Write-LauncherRecord 'OPENED: Agent_b application window (--app=; Edge has not installed the app yet)'
+        }
         return
     }
     Start-Process $Url

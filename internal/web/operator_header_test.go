@@ -40,8 +40,8 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(source)
-	if !strings.Contains(text, "right.append(sessionHeading, pages, settings)") || strings.Contains(text, "folderMenu") || strings.Contains(text, "right.append(stop") || strings.Contains(text, "shell-operator-status") {
-		t.Fatalf("shared shell right slot must contain the role/profile heading, page switch, and Settings")
+	if !strings.Contains(text, "right.append(sessionHeading, pages, settings, windowControls)") || strings.Contains(text, "folderMenu") || strings.Contains(text, "right.append(stop") || strings.Contains(text, "shell-operator-status") {
+		t.Fatalf("shared shell right slot must contain the role/profile heading, page switch, Settings, and native-frame glyphs")
 	}
 }
 

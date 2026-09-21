@@ -17,7 +17,7 @@ test("shared shell slot order is identical on the chat and Plan", () => {
     assert.doesNotMatch(html, /id="(?:shell-stop|shell-state|shell-operator-status)"/);
   }
   assert.match(shell, /root\.append\(left, right\)/);
-  assert.match(shell, /right\.append\(sessionHeading, pages, settings\)/);
+  assert.match(shell, /right\.append\(sessionHeading, pages, settings, windowControls\)/);
   assert.doesNotMatch(shell, /shell-operator-status|right\.append\(stop/);
   assert.match(shell, /\[\["plan", "\/plan"\]\]/);
   assert.doesNotMatch(shell, /\["chat", "Chat", "\/chat"\]|\["console", "Console", "\/"\]/);
@@ -98,6 +98,16 @@ test("Plan is a compact accessible chip icon", () => {
   assert.match(shell, /setAttribute\("aria-label", "plan"\)/);
   assert.match(shell, /link\.title = "plan"/);
   assert.doesNotMatch(shell, /\[\["plan", "Plan", "\/plan"\]\]/);
+  assert.match(shell, /node\("button", `shell-page/);
+  assert.match(shell, /node\("button", "shell-settings"\)/);
+  assert.doesNotMatch(shell, /link\.href|settings\.href/);
+});
+
+test("compact window controls continue the top strip", () => {
+  assert.match(shell, /\["minimize", "maximize", "close"\]/);
+  assert.match(tokens, /\.shell-window-controls\{[^}]*grid-template-columns:repeat\(3,28px\)/);
+  assert.match(tokens, /\.shell-window-control\{[^}]*width:28px/);
+  assert.match(tokens, /\.shell-window-control-glyph\{[^}]*width:9px;height:9px/);
 });
 
 // Items 2go, 2gx and 2gq (v1.2.5), the operator: the history is the date, the

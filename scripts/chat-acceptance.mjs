@@ -1410,7 +1410,7 @@ if (realModel) {
   record("live-stage-slow-tool-and-stream-caret-lifecycle");
 
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
-  await browser.wait(`location.pathname==='/chat' && document.querySelector('#settings-page') && document.querySelector('.shell-settings')?.getAttribute('href')`, "the settings control on the chat");
+	await browser.wait(`location.pathname==='/chat' && document.querySelector('#settings-page') && document.querySelector('.shell-settings')`, "the settings control on the chat");
   await page.locator(".shell-settings").click();
   await browser.wait(`!document.querySelector('#settings-page').hidden`, "Settings open");
   assert.equal(await clickText(".settings-nav button", "Security"), true);
@@ -1811,7 +1811,7 @@ if (realModel) {
 
   const screenshot = await page.screenshot();
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
-	await browser.wait(`location.pathname==='/chat' && document.querySelector('#settings-page') && document.querySelector('.shell-settings')?.getAttribute('href')`, "the settings control before Empty");
+	await browser.wait(`location.pathname==='/chat' && document.querySelector('#settings-page') && document.querySelector('.shell-settings')`, "the settings control before Empty");
 	await page.locator(".shell-settings").click();
 	await browser.wait(`document.querySelector('#settings-page') && !document.querySelector('#settings-page').hidden`, "Settings open before Empty");
 	assert.equal(await clickText(".settings-nav button", "Security"), true);

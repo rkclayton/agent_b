@@ -120,7 +120,7 @@
 .chat-budget {
   position: relative;
   background: var(--well);
-  min-height: 24px;
+  min-height: 4px;
   display: flex;
   align-items: flex-end;
 }
@@ -648,32 +648,8 @@
 .chat-input-actions { position:absolute; right:6px; bottom:6px; display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
 .chat-submit-actions { display:flex; align-items:center; gap:3px; }
 .chat-status-strip { min-height:24px; display:flex; align-items:center; gap:6px; color:var(--mute); font:12px/16px var(--mono); }
+.chat-status-strip .chat-attach-wrap { margin-left:auto; }
 .chat-retry { min-height:22px!important; padding:1px 6px!important; background:transparent!important; }
-/* Item 2gk: this chat's readout. One line at rest, in the same mono the status
-   strip uses, so it reads as an instrument and not as another control. */
-/* Item 2gk (v1.3.0): the readout rides the status strip, hard right, and is
-   the token meter until the pointer asks for more. It is no longer a band of
-   its own above the composer.
-
-   The marker is GONE rather than replaced. Its content string held a raw
-   0x15 control byte where the CSS escape for a disclosure triangle was meant,
-   followed by the two characters that escape should have consumed, so it drew
-   tofu and then stray text - which is what the operator photographed. A
-   disclosure marker we cannot spell is worth less than the space it takes,
-   and 2gk allows none. */
-.chat-readout { position:relative; margin-left:auto; color:var(--mute); font:12px/16px var(--mono); }
-.chat-readout > summary { list-style:none; cursor:pointer; display:flex; align-items:center; gap:6px; padding:0 2px; min-height:20px; }
-.chat-readout > summary::-webkit-details-marker { display:none; }
-.chat-readout > summary:hover, .chat-readout[open] > summary { color:var(--ink); }
-/* At rest the meter; on hover, or while open, the whole line. */
-.chat-readout-figures { display:none; }
-.chat-readout:hover .chat-readout-figures, .chat-readout[open] .chat-readout-figures { display:inline; }
-.chat-readout:hover .chat-readout-meter, .chat-readout[open] .chat-readout-meter { display:none; }
-/* Opening must not shove the composer down: the body floats above the strip. */
-.chat-readout-detail { position:absolute; right:0; bottom:100%; z-index:20; margin-bottom:4px; padding:6px 10px; max-width:min(520px,80vw); background:var(--bezel); border:1px solid var(--rule); display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
-.chat-readout-detail button { min-height:20px; padding:0 6px; background:transparent; border:1px solid var(--rule); color:var(--mute); font:inherit; }
-.chat-readout-detail button.selected { color:var(--ink); border-color:var(--ink); }
-.chat-readout-detail button:disabled { opacity:.5; }
 @media (prefers-reduced-motion: reduce) {
   :where(
     .chat-page > :not(.app-shell),
@@ -743,10 +719,8 @@
    the budget line, so the wrap is pinned to its right edge and the meter runs
    under it. */
 .chat-budget { position: relative; }
-.chat-budget .chat-attach-wrap { position:absolute; right:4px; top:50%; transform:translateY(-50%); z-index:2; }
 /* In the bar the menu drops DOWNWARD over the transcript: upward would put
    it behind the header, which intercepted the click. */
-.chat-budget .chat-attach-menu { right:0; left:auto; bottom:auto; top:26px; z-index:45; }
 
 /* Item 2ge: a microphone where the paperclip was. Mute at rest, Trace while
    it listens -- the two colours the palette already uses for that. */

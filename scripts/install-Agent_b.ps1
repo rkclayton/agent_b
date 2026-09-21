@@ -21,7 +21,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$displayVersion = '1.2.6'
+$displayVersion = '1.2.7'
 
 # Write-InstallProgress appends one JSONL line the Setup page can render. It
 # never fails the install: the install is the point, the readout is not.
@@ -729,6 +729,44 @@ $estimatedKB = [int][Math]::Ceiling(((Get-ChildItem -LiteralPath $applicationRoo
 $null = New-ItemProperty -Path $UninstallRegistryPath -Name EstimatedSize -Value $estimatedKB -PropertyType DWord -Force
 $null = New-ItemProperty -Path $UninstallRegistryPath -Name NoModify -Value 1 -PropertyType DWord -Force
 $null = New-ItemProperty -Path $UninstallRegistryPath -Name NoRepair -Value 1 -PropertyType DWord -Force
+
+# Item 2gl: install the app as a PWA through Edge's policy, so the window is an
+# installed app rather than a flag on an ordinary one. This is the only place
+# that write can happen without a second UAC: SOFTWARE\Policies is ReadKey for
+# the operator and FullControl only for SYSTEM and Administrators (measured in
+# v1.2.7/W1), and this script is already elevated. The entry may point only at
+# our loopback app URL; pwa-policy.ps1 refuses anything else.
+#
+# A failure here is REPORTED AND NOT FATAL. Nothing about the installation
+# depends on it: without the policy the launcher opens --app= exactly as it does
+# today, which is the window production has always had.
+. (Join-Path $PSScriptRoot 'pwa-policy.ps1')
+$pwaUrl = $null
+try {
+    $listenAddress = [string]$config.listen
+    if ($listenAddress) {
+        $pwaPort = $listenAddress.Split(':')[-1]
+        $pwaUrl = Get-AgentBPwaUrl -Origin ("http://127.0.0.1:$pwaPort/")
+    }
+} catch { $pwaUrl = $null }
+if ($pwaUrl -and -not $TestMode) {
+    try {
+        $pwaName = Set-AgentBPwaPolicy -Url $pwaUrl
+        # Recorded beside the uninstall entry so the uninstaller removes exactly
+        # the value this install wrote, and no neighbour's.
+        $null = New-ItemProperty -Path $UninstallRegistryPath -Name PwaPolicyUrl -Value $pwaUrl -PropertyType String -Force
+        $null = New-ItemProperty -Path $UninstallRegistryPath -Name PwaPolicyValue -Value $pwaName -PropertyType String -Force
+        Write-Host "REGISTERED: Edge will install the app window (policy value $pwaName -> $pwaUrl)"
+    } catch {
+        $pwaDetail = ($_.Exception.Message -replace '[\r\n]+', ' ').Trim()
+        Write-Host "SKIPPED: the Edge app-window policy could not be written ($pwaDetail); the launcher opens the ordinary app window instead"
+    }
+} elseif ($TestMode) {
+    # TestMode installs to a disposable root and is not elevated, so it must not
+    # touch a machine-wide policy. The value it WOULD have written is printed so
+    # the installer suite can assert on it without applying it.
+    Write-Host "TESTMODE: the Edge app-window policy is not written; it would be $(if ($pwaUrl) { Get-AgentBPwaEntryJson -Url $pwaUrl } else { '<no listen address>' })"
+}
 
 Write-Host ''
 Write-InstallProgress -Phase 'finished' -Text "Agent_b $displayVersion is installed." -Done -OK

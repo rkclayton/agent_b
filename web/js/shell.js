@@ -400,7 +400,27 @@ export function initShell(options = {}) {
     // which the header beside the tab strip already says.
     document.title = session ? `Agent_b · ${chatName(session)}` : "Agent_b";
     sessionHeading.hidden = !session;
-    sessionHeading.textContent = session ? sessionTitle(session) : "";
+    const heading = session ? sessionTitle(session) : "";
+    if (sessionHeading.textContent !== heading) {
+      sessionHeading.textContent = heading;
+      // Item 2hc (v1.3.0/W7): the header is snapped to whole pixels.
+      //
+      // The strip's right-hand group is sized to its content, and the title's
+      // own width is the text's natural width - 14.406 px, measured. That
+      // fraction became the group's left edge (x = 1165.594), so the title's
+      // text began on a fractional coordinate and was rasterised at a subpixel
+      // phase. Two captures of one build then disagreed on about 300 px of that
+      // text, at the same position, in roughly one pair of runs in two.
+      //
+      // Rounding the box UP to the next whole pixel puts the text origin, and
+      // with it every item to its right, on integers. It is measured and set
+      // only when the text changes, so an unchanged header costs no layout.
+      sessionHeading.style.width = "";
+      if (heading) {
+        const natural = sessionHeading.getBoundingClientRect().width;
+        if (natural > 0) sessionHeading.style.width = `${Math.ceil(natural)}px`;
+      }
+    }
     renderTabs();
     const query = new URLSearchParams();
     if (session) query.set("session", session.id);

@@ -15,9 +15,11 @@ export const LIVE_VALUES = [
   { name: "acceptance-folder", reason: "each run's temporary folder name carries a fresh GUID", selector: "body", pattern: String.raw`Agent_b-chat-acceptance-[0-9a-f]{1,32}`, restOfText: true },
   { name: "sandbox-name", reason: "the shell's sandbox is named per run", selector: "body", pattern: String.raw`sandbox agentb-[0-9a-f]+` },
   // Not a live value: two runs of one build (v1.0.0/W2 captures k and l)
-  // antialias the composer text box's bottom corners a level or two apart, 2 by 2
-  // pixels each. The square masked is 4 by 4 at each bottom corner; the cause
-  // is carded, and the rest of the composer is compared exactly.
+  // antialias the composer text box's corners a level or two apart, 2 by 2
+  // pixels each. The cause is carded, and the rest of the composer is compared
+  // exactly. v1.3.0 widened the square from 8 to 10 (a pixel differed one step
+  // beyond the 8 px radius) and extended it from the bottom pair to all four,
+  // after the TOP right corner was measured differing by two to three levels.
   // v1.2.2/W3: the variance runs the height of the corner's rounding, not just
   // the four pixels v1.0.0 measured - two runs of one build differed three
   // pixels above the square. The square is the radius, 8 by 8, and the rest of
@@ -93,8 +95,20 @@ function liveValueRects(specs) {
     const rects = [];
     for (const root of document.querySelectorAll(spec.selector)) {
       if (spec.corners) {
+        // ALL FOUR corners, not the bottom two. The bottom pair was masked in
+        // v1.0.0 because that is where the variance was seen; v1.3.0 found the
+        // TOP right corner differing by two or three levels between runs of one
+        // build (26,30,35 against 25,28,32 at one pixel), which is the same
+        // antialiasing at the other end of the same rounded box.
         const r = root.getBoundingClientRect(), n = spec.corners;
-        if (visible(root)) for (const left of [r.left, r.right - n]) { const c = clipped({ left, top: r.bottom - n, right: left + n, bottom: r.bottom }, clipOf(root.parentElement)); if (c) rects.push(c); }
+        if (visible(root)) {
+          for (const top of [r.top, r.bottom - n]) {
+            for (const left of [r.left, r.right - n]) {
+              const c = clipped({ left, top, right: left + n, bottom: top + n }, clipOf(root.parentElement));
+              if (c) rects.push(c);
+            }
+          }
+        }
         continue;
       }
       if (spec.seat) {

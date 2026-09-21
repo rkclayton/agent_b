@@ -86,7 +86,7 @@ try {
     # step's build runs here; with it, the source must already hold the exe and
     # its candidate-final.json.
     if (-not $SkipBuild) {
-        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $sourceRoot
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'build-candidate.ps1') -SourceDirectory $sourceRoot -SignForTest
         if ($LASTEXITCODE -ne 0) { throw "Candidate build failed with exit code $LASTEXITCODE." }
     }
     & (Join-Path $PSScriptRoot 'install-Agent_b.ps1') @installArguments

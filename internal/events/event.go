@@ -14,14 +14,15 @@ type Event struct {
 }
 
 const (
-	Snapshot             = "snapshot"
-	ProjectionPatch      = "projection.patch"
-	SessionCreated       = "session.created"
-	SessionRenamed       = "session.renamed"
-	SessionUpdated       = "session.updated"
-	SessionReset         = "session.reset"
-	SessionClosed        = "session.closed"
-	SessionReopened      = "session.reopened"
+	Snapshot        = "snapshot"
+	ProjectionPatch = "projection.patch"
+	SessionCreated  = "session.created"
+	SessionRenamed  = "session.renamed"
+	ChatNamed       = "chat.named"
+	SessionUpdated  = "session.updated"
+	SessionReset    = "session.reset"
+	SessionClosed   = "session.closed"
+	SessionReopened = "session.reopened"
 	// SessionRestoreFailed records a retained chat that did not come back at
 	// startup (item 2gg). Its journal is left on disk untouched.
 	SessionRestoreFailed = "session.restore_failed"
@@ -91,6 +92,7 @@ const (
 	NotificationChanged  = "notification.changed"
 	ProgressShadow       = "progress.shadow"
 	ProgressAux          = "progress.aux"
+	Speech               = "speech"
 )
 
 const (

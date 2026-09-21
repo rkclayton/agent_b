@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"harness/internal/events"
 	"harness/internal/hardening"
 	"harness/internal/memory"
+	"harness/internal/modelinstall"
 	"harness/internal/ocr"
 	"harness/internal/operatorfiles"
 	"harness/internal/projection"
@@ -84,6 +86,10 @@ type Server struct {
 	reflection        *reflectionState
 	proposals         *proposalOffers
 	speech            speechProbe
+	speechCommand     func(context.Context, string, ...string) *exec.Cmd
+	modelInstaller    *modelinstall.Manager
+	measureMu         sync.RWMutex
+	measurements      map[string]measureState
 	statsState        *stats.Manager
 	operatorFiles     *operatorfiles.Manager
 	probeMu           sync.Mutex
@@ -115,7 +121,7 @@ type operatorTimer interface {
 func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *events.Bus) *Server {
 	cfg.Shell.OperatorContext = false
 	cfg.Shell.OperatorContextExpiresAt = ""
-	return &Server{
+	server := &Server{
 		cfg: cfg, configPath: path, webDir: webDir, roots: roots, bus: bus, mutationToken: newMutationToken(),
 		operatorRequest: requireOperatorHTTPClient,
 		operatorNow:     time.Now,
@@ -132,6 +138,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		},
 		navigationIDs: map[string]time.Time{},
 		agentServers:  map[string]pendingAgentServer{},
+		measurements:  map[string]measureState{},
 		extractClient: &http.Client{},
 		ocrExtract:    ocr.Extract,
 		ocrPDF:        ocr.ExtractPDF,
@@ -139,6 +146,8 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 			return detection.Local(ctx, filepath.Join(roots.Application, "scripts", "detect-local-capabilities.ps1"), account)
 		},
 	}
+	server.initModelInstaller()
+	return server
 }
 func (s *Server) SetRegistry(registry *session.Registry) {
 	registry.SetPlansRoot(filepath.Join(s.roots.Data, "plans"))
@@ -258,6 +267,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/speech", s.speechHandler)
 	mux.HandleFunc("/api/speech/stream", s.speechStreamHandler)
 	mux.HandleFunc("/api/speech/stop", s.replayGuard(s.speechStopHandler))
+	mux.HandleFunc("/api/model-install", s.replayGuard(s.modelInstall))
+	mux.HandleFunc("/api/eval/measure", s.replayGuard(s.measureProfile))
 	mux.HandleFunc("/api/approve", s.replayGuard(s.approve))
 	mux.HandleFunc("/api/tools/", s.replayGuard(s.toggleTool))
 	mux.HandleFunc("/api/stats/", s.replayGuard(s.stats))

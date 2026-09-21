@@ -14,6 +14,7 @@ const byID = (id) => document.getElementById(id);
 const roots = {
   search: byID("plan-search"), add: byID("plan-add"), form: byID("plan-add-form"), path: byID("plan-add-path"), addError: byID("plan-add-error"),
   build: byID("plan-build"), buildYes: byID("plan-build-yes"), buildNo: byID("plan-build-no"), list: byID("plan-list"), listEmpty: byID("plan-list-empty"),
+  wizard: byID("plan-wizard"), wizardLabel: byID("plan-wizard-label"), wizardValue: byID("plan-wizard-value"), wizardNext: byID("plan-wizard-next"), wizardSkip: byID("plan-wizard-skip"),
   name: byID("plan-name"), go: byID("plan-go"), lint: byID("plan-lint"), refusal: byID("plan-refusal"), done: byID("plan-done"), raw: byID("plan-raw"), stats: byID("plan-stats"),
 };
 const params = new URLSearchParams(location.search);
@@ -25,6 +26,8 @@ let loadedFor = "";
 let previousText = null;
 let changes = new Map();
 let buildFor = "";
+let wizardStep = 0;
+let planningBrief = { purpose: "", done: "", do_not_touch: "" };
 let goState = { enabled: false, running: false };
 let goTimer = 0;
 let plansLoaded = false;
@@ -273,12 +276,43 @@ roots.form.addEventListener("submit", async (event) => {
   }
 });
 roots.buildNo.addEventListener("click", () => { roots.build.hidden = true; buildFor = ""; });
-roots.buildYes.addEventListener("click", async () => {
+roots.buildYes.addEventListener("click", () => {
   if (!buildFor) return;
+  roots.build.hidden = true;
+  wizardStep = 0;
+  planningBrief = { purpose: "", done: "", do_not_touch: "" };
+  renderWizard();
+});
+roots.wizard.addEventListener("submit", (event) => { event.preventDefault(); advanceWizard(false); });
+roots.wizardSkip.addEventListener("click", () => advanceWizard(true));
+
+function renderWizard() {
+  const fields = [
+    ["purpose", "What is this project for?"],
+    ["done", "What does done look like? Three lines are enough."],
+    ["do_not_touch", "Anything the planner must not touch?"],
+  ];
+  const [field, label] = fields[wizardStep];
+  roots.wizard.hidden = false;
+  roots.wizard.dataset.field = field;
+  roots.wizardLabel.textContent = label;
+  roots.wizardValue.value = planningBrief[field];
+  roots.wizardNext.textContent = wizardStep === fields.length - 1 ? "Start planning" : "Next";
+  roots.wizardValue.focus();
+}
+
+function advanceWizard(skip) {
+  planningBrief[roots.wizard.dataset.field] = skip ? "" : roots.wizardValue.value.trim();
+  if (++wizardStep < 3) return renderWizard();
+  roots.wizard.hidden = true;
+  void startPlanning();
+}
+
+async function startPlanning() {
   roots.buildYes.disabled = true;
   try {
     const agentID = store.sessions[store.selection.session_id]?.agent_id || "";
-    const result = await api("/api/plans/build", { plan_id: buildFor, agent_id: agentID });
+    const result = await api("/api/plans/build", { plan_id: buildFor, agent_id: agentID, brief: planningBrief });
     // v0.70.1 overrule: Yes is the consent, so the server sends the fixed
     // opening request to a new planning chat. A chat already under way is only
     // opened, with the request left in its composer.
@@ -289,7 +323,7 @@ roots.buildYes.addEventListener("click", async () => {
     roots.addError.hidden = false;
     roots.buildYes.disabled = false;
   }
-});
+}
 
 function line(text) { const value = document.createElement("div"); value.textContent = text; return value; }
 function clock(iso) { const date = new Date(iso); return Number.isNaN(date.getTime()) ? String(iso) : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }

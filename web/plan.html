@@ -24,6 +24,11 @@
       <div id="plan-build" class="plan-build" role="group" aria-label="Build plan now?" hidden>
         <span>Build plan now?</span><button id="plan-build-yes" type="button">Yes</button><button id="plan-build-no" type="button">No</button>
       </div>
+      <form id="plan-wizard" class="plan-wizard" hidden>
+        <label id="plan-wizard-label" for="plan-wizard-value"></label>
+        <textarea id="plan-wizard-value" rows="5" maxlength="4000"></textarea>
+        <div><button id="plan-wizard-next" type="submit">Next</button><button id="plan-wizard-skip" type="button">Skip</button></div>
+      </form>
       <ul id="plan-list" class="plan-list"></ul>
       <p id="plan-list-empty" class="plan-list-empty" hidden>No plans yet. + adds one for a folder.</p>
     </nav>

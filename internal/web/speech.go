@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"harness/internal/events"
 )
 
 // Item 2ge (v1.2.2/W1): what the microphone can do on this host, answered by
@@ -103,6 +105,16 @@ func (s *Server) speechHandler(w http.ResponseWriter, r *http.Request) {
 // buffer and writes to a pipe, and this handler writes that pipe to the page
 // that asked for it.
 func (s *Server) speechStreamHandler(w http.ResponseWriter, r *http.Request) {
+	// The event journal is the harness log.  A live microphone attempt used to
+	// leave no trace at all, making a silent helper indistinguishable from a
+	// click that never reached this route.
+	log := func(stage string, data map[string]any) {
+		data["stage"] = stage
+		if s.bus != nil {
+			s.bus.Publish(events.New(events.Speech, "", "", data))
+		}
+	}
+	log("route", map[string]any{"path": r.URL.Path})
 	status := s.speechStatus(r.Context())
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -117,12 +129,14 @@ func (s *Server) speechStreamHandler(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 	if !status.Available {
+		log("unavailable", map[string]any{"reason": status.Reason})
 		send(map[string]any{"error": status.Reason, "done": true})
 		return
 	}
 
 	script := filepath.Join(s.roots.Application, "scripts", "speech-helper.ps1")
 	if _, err := os.Stat(script); err != nil {
+		log("helper_missing", map[string]any{"reason": err.Error()})
 		send(map[string]any{"error": "the dictation helper is not installed", "done": true})
 		return
 	}
@@ -142,20 +156,27 @@ func (s *Server) speechStreamHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	command := exec.CommandContext(ctx, powershell, arguments...)
+	commandFor := s.speechCommand
+	if commandFor == nil {
+		commandFor = exec.CommandContext
+	}
+	command := commandFor(ctx, powershell, arguments...)
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		send(map[string]any{"error": "the dictation helper could not be started", "done": true})
 		return
 	}
 	if err := command.Start(); err != nil {
+		log("helper_start_failed", map[string]any{"reason": err.Error()})
 		send(map[string]any{"error": fmt.Sprintf("the dictation helper could not be started: %v", err), "done": true})
 		return
 	}
+	log("helper_started", map[string]any{"pid": command.Process.Pid})
 	s.speech.mu.Lock()
 	s.speech.listening = command
 	s.speech.stop = cancel
 	s.speech.mu.Unlock()
+	waited := false
 	defer func() {
 		s.speech.mu.Lock()
 		if s.speech.listening == command {
@@ -164,11 +185,14 @@ func (s *Server) speechStreamHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		s.speech.mu.Unlock()
 		cancel()
-		_ = command.Wait()
+		if !waited {
+			_ = command.Wait()
+		}
 	}()
 
 	reader := bufio.NewScanner(stdout)
 	reader.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	hypothesisLogged := false
 	for reader.Scan() {
 		line := strings.TrimSpace(reader.Text())
 		if line == "" || !strings.HasPrefix(line, "{") {
@@ -178,11 +202,36 @@ func (s *Server) speechStreamHandler(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal([]byte(line), &value); err != nil {
 			continue
 		}
+		if stage, _ := value["stage"].(string); stage == "device" {
+			log("device", map[string]any{"device": value["device"]})
+		}
+		if _, ok := value["partial"]; ok && !hypothesisLogged {
+			log("first_hypothesis", map[string]any{})
+			hypothesisLogged = true
+		}
+		if reason, ok := value["error"].(string); ok {
+			log("helper_error", map[string]any{"reason": reason})
+		}
 		send(value)
 		if done, _ := value["done"].(bool); done {
+			reason, _ := value["reason"].(string)
+			log("stopped", map[string]any{"reason": reason})
 			return
 		}
 	}
+	waitErr := command.Wait()
+	waited = true
+	if waitErr != nil {
+		code := -1
+		if exit, ok := waitErr.(*exec.ExitError); ok {
+			code = exit.ExitCode()
+		}
+		reason := fmt.Sprintf("helper exited (%d)", code)
+		log("helper_error", map[string]any{"reason": reason})
+		send(map[string]any{"error": reason, "done": true})
+		return
+	}
+	log("stopped", map[string]any{"reason": "stdout closed"})
 	send(map[string]any{"done": true, "reason": "ended"})
 }
 

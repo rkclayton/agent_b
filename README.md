@@ -8,9 +8,9 @@ It keeps planning and execution distinct. An operator or planner owns the ordere
 
 ## Quickstart
 
-1. Install Go 1.24+ and provide an OpenAI-compatible endpoint. Agent_b can use Ollama, LM Studio, vLLM, llama.cpp, or a hosted API; it does not download or manage models.
+1. Provide an OpenAI-compatible endpoint, or let the Windows setup wizard install one of its pinned GGUF/llama.cpp combinations locally. Agent_b can also use Ollama, LM Studio, vLLM, llama.cpp, or a hosted API. Go 1.24+ is needed only for source development.
 2. On Windows, double-click **`Agent_b-setup.exe`** from the candidate folder. That is the deployment package and the normal way the product is installed: one double-click, one UAC prompt, no console window. Progress and the result appear in the product's own Setup page, and the install finishes even if you close the window it started from. Agent_b then appears in Add/Remove Programs, and uninstalling preserves your data by default. `install-Agent_b.cmd` remains beside it as a thin wrapper for anyone with the older habit, and is what the test suite drives; `start-Agent_b.cmd` builds and runs from a checkout.
-3. Open Settings → Connections, add the endpoint and model, Save, then Test. A connection becomes runnable when its context size and required capabilities are known.
+3. Follow the four setup questions: connect or install locally (or defer), inspect/optionally measure capability, assign the profile to `b`/`c`/`d`, and open Chat. A connection becomes runnable when its context size and required capabilities are known.
 
 Agent_b opens in **its own window**: the tab strip is the window's top edge, with the gear left of
 Windows' own minimise, maximise and close buttons. That window is a mode of `Agent_b.exe` itself -

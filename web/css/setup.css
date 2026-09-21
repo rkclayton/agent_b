@@ -3,11 +3,11 @@
 @font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:400;src:url("/static/assets/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2")}
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%;background:var(--bezel);color:var(--ink)}
-button,input,a{font:inherit}
+button,input,select,a{font:inherit}
 button,.setup-button{min-height:32px;padding:5px 12px;border:0;border-radius:2px;background:rgba(216,221,227,.08);color:var(--ink);cursor:pointer;text-decoration:none}
 button:hover,.setup-button:hover{background:rgba(216,221,227,.12)}
 button:active,.setup-button:active{background:rgba(216,221,227,.16)}
-button:focus-visible,input:focus-visible,a:focus-visible{outline:1px solid var(--trace);outline-offset:2px}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible,summary:focus-visible{outline:1px solid var(--trace);outline-offset:2px}
 button:disabled{cursor:default;opacity:.55}
 .setup-page{font:400 13px/20px var(--sans)}
 .setup-header{display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--bezel)}
@@ -31,7 +31,7 @@ h2{margin:20px 0 8px;font-size:14px;font-weight:500}
 .quiet{color:var(--mute);background:transparent}
 .setup-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;margin-top:20px}
 .setup-fields label{display:grid;gap:4px;color:var(--mute);font-size:12px}
-.setup-fields input{width:100%;height:32px;padding:4px 8px;border:1px solid rgba(125,135,148,.28);border-radius:2px;background:var(--bezel);color:var(--ink);font:12px/20px var(--mono)}
+.setup-fields input,.setup-fields select{width:100%;height:32px;padding:4px 8px;border:1px solid rgba(125,135,148,.28);border-radius:2px;background:var(--bezel);color:var(--ink);font:12px/20px var(--mono)}
 .setup-feedback{min-height:20px;margin:12px 0 0;color:var(--mute)}
 .setup-detection{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0;padding:16px 0;border-top:1px solid rgba(125,135,148,.28);border-bottom:1px solid rgba(125,135,148,.28)}
 .setup-detection strong{font-weight:500}
@@ -41,5 +41,15 @@ code{font:12px/16px var(--mono)}
 .setup-capabilities{margin-top:20px;padding-top:4px;border-top:1px solid rgba(125,135,148,.28)}
 .setup-capabilities>div:not(.setup-actions){display:grid;grid-template-columns:1fr auto;gap:16px;padding:6px 0;border-bottom:1px solid rgba(125,135,148,.28)}
 .setup-capabilities strong{font:400 12px/20px var(--mono)}
+.setup-install{margin-top:20px;padding-top:4px;border-top:1px solid rgba(125,135,148,.28)}
+.setup-install details{margin-top:16px;color:var(--mute)}
+.setup-install summary{cursor:pointer;color:var(--ink)}
+.setup-install pre{max-width:100%;overflow:auto;white-space:pre-wrap;color:var(--mute);font:12px/18px var(--mono)}
+.setup-progress{display:grid;grid-template-columns:minmax(120px,1fr) minmax(0,2fr);align-items:center;gap:12px;margin-top:12px;color:var(--mute)}
+.setup-progress progress{width:100%;height:8px;accent-color:var(--trace)}
+.setup-readout{margin:16px 0;border-top:1px solid rgba(125,135,148,.28)}
+.setup-readout>div{display:grid;grid-template-columns:1fr auto;gap:16px;padding:7px 0;border-bottom:1px solid rgba(125,135,148,.28)}
+.setup-readout strong{font:400 12px/20px var(--mono)}
+.setup-roles{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media(max-width:700px){.setup-cards,.setup-fields,.setup-detection{grid-template-columns:1fr}.setup-main{place-items:start center;padding:8px}.setup-section{padding:16px}}
 @media(prefers-reduced-motion:reduce){.setup-page *,.setup-page *::before,.setup-page *::after{transition-duration:0ms!important;animation-duration:0ms!important}}

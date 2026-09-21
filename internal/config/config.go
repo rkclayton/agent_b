@@ -125,10 +125,25 @@ type Profile struct {
 	Context              Context      `json:"context"`
 	SystemPromptOverride string       `json:"system_prompt_override"`
 	Capabilities         Capabilities `json:"capabilities"`
+	Measurement          *Measurement `json:"measurement,omitempty"`
 	// MaxConcurrent is how many runs this model serves at once (item 2fc);
 	// zero means one. The global run.max_concurrent still caps the total.
 	MaxConcurrent int `json:"max_concurrent,omitempty"`
 	initialized   bool
+}
+
+// Measurement is the optional, bounded setup-wizard capability run. It is
+// descriptive evidence, never a gate: an unmeasured profile remains usable.
+type Measurement struct {
+	Passed        int     `json:"passed"`
+	Total         int     `json:"total"`
+	ToolErrors    int     `json:"tool_errors"`
+	ToolErrorRate float64 `json:"tool_error_rate"`
+	Trials        int     `json:"trials"`
+	Provenance    string  `json:"provenance"`
+	MeasuredAt    string  `json:"measured_at"`
+	DurationMS    int64   `json:"duration_ms"`
+	Capped        bool    `json:"capped"`
 }
 
 type Service struct {

@@ -1,9 +1,13 @@
 package agent
 
 import (
+	"context"
 	"strings"
+	"time"
 	"unicode"
 
+	"harness/internal/events"
+	"harness/internal/llm"
 	"harness/internal/session"
 )
 
@@ -91,4 +95,85 @@ func (r *Runner) nameFromFirstMessage(item *session.Session, text string) {
 		return
 	}
 	_ = r.renameSession(item.ID, name, "c")
+}
+
+// nameAfterFirstRun replaces the temporary mechanical name once, after the
+// first ordinary chat run closes. It is deliberately not a run: no tools,
+// memory, journal messages, retry, or worker session is involved.
+func (r *Runner) nameAfterFirstRun(item *session.Session, runID string) {
+	snapshot := item.Snapshot()
+	if snapshot.Role != "b" || snapshot.NamePinned || r.renameSession == nil {
+		return
+	}
+	var firstUser, firstReply string
+	for _, message := range item.MessagesCopy() {
+		switch message.Role {
+		case "user":
+			if firstUser == "" {
+				firstUser = message.Content
+			}
+		case "assistant":
+			if firstReply == "" && strings.TrimSpace(message.Content) != "" {
+				firstReply = message.Content
+			}
+		}
+	}
+	if firstUser == "" || firstReply == "" {
+		return
+	}
+	if _, loaded := r.nameAttempts.LoadOrStore(item.ID, true); loaded {
+		return
+	}
+	profile, ok := r.profile(snapshot.ServerID)
+	if !ok {
+		r.publishNameAttempt(item.ID, runID, "failed", "profile not found", "")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	response, err := llm.New(profile).Chat(ctx, llm.Request{Messages: []llm.Message{
+		{Role: "system", Content: "Name this chat in five words or fewer. Return plain text only."},
+		{Role: "user", Content: "First message:\n" + firstUser + "\n\nFirst reply:\n" + firstReply},
+	}, MaxTokens: 24})
+	if err != nil {
+		r.publishNameAttempt(item.ID, runID, "failed", err.Error(), "")
+		return
+	}
+	name := modelChatName(response.Content)
+	if name == "" {
+		r.publishNameAttempt(item.ID, runID, "failed", "empty or unusable response", "")
+		return
+	}
+	if item.Snapshot().NamePinned {
+		r.publishNameAttempt(item.ID, runID, "skipped", "operator renamed the chat", "")
+		return
+	}
+	if err := r.renameSession(item.ID, name, "c"); err != nil {
+		r.publishNameAttempt(item.ID, runID, "failed", err.Error(), "")
+		return
+	}
+	r.publishNameAttempt(item.ID, runID, "named", "", name)
+}
+
+func (r *Runner) publishNameAttempt(sessionID, runID, outcome, reason, name string) {
+	r.bus.Publish(events.New(events.ChatNamed, sessionID, runID, map[string]any{"outcome": outcome, "reason": reason, "name": name}))
+}
+
+func modelChatName(value string) string {
+	value = strings.TrimSpace(strings.Trim(value, "`\"'"))
+	if strings.ContainsAny(value, "\r\n") {
+		value = strings.TrimSpace(strings.Split(strings.ReplaceAll(value, "\r", "\n"), "\n")[0])
+	}
+	words := strings.Fields(value)
+	if len(words) == 0 {
+		return ""
+	}
+	if len(words) > 5 {
+		words = words[:5]
+	}
+	value = strings.Join(words, " ")
+	if len([]rune(value)) > 80 {
+		value = strings.TrimSpace(string([]rune(value)[:80]))
+	}
+	return value
 }

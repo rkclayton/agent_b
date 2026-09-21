@@ -8,7 +8,12 @@ param(
     # Required when the tree is not a git checkout (a staged archive).
     [string]$Commit,
     [ValidateSet('', 'true', 'false')]
-    [string]$Dirty = ''
+    [string]$Dirty = '',
+    # Acceptance tests opt in. Release builds keep their existing signing path.
+    [switch]$SignForTest,
+    # Defender recovery only: admit an existing, already-signed test executable
+    # without asking Go to recreate the quarantined unsigned linker output.
+    [switch]$UseExistingSignedBinary
 )
 
 # Item 2eu: the release step builds the exe once, into the candidate, and records
@@ -70,9 +75,26 @@ if ([string]::IsNullOrWhiteSpace($Dirty)) { throw 'Dirty must be true or false f
 $go = Find-Go $sourceRoot
 if (Test-Path -LiteralPath $manifestPath) { Remove-Item -LiteralPath $manifestPath -Force }
 $ldflags = "-X harness/internal/buildinfo.Tag=$sourceTag -X harness/internal/buildinfo.Commit=$Commit -X harness/internal/buildinfo.Dirty=$Dirty"
-Push-Location $sourceRoot
-try { & $go build -ldflags $ldflags -o $binary ./cmd/harness } finally { Pop-Location }
-if ($LASTEXITCODE -ne 0) { throw "go build exited $LASTEXITCODE." }
+if ($UseExistingSignedBinary) {
+    if (-not $SignForTest) { throw '-UseExistingSignedBinary requires -SignForTest.' }
+    if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "Existing signed test candidate not found: $binary" }
+    $existingSignature = Get-AuthenticodeSignature -LiteralPath $binary
+    if ($existingSignature.Status -ne 'Valid' -or -not $existingSignature.TimeStamperCertificate -or
+        $existingSignature.SignerCertificate.Subject -ne 'CN=Agent_b Disposable Test Signing') {
+        throw 'EXISTING TEST CANDIDATE REFUSED: a valid, timestamped disposable-test signature is required.'
+    }
+} else {
+    Push-Location $sourceRoot
+    try { & $go build -ldflags $ldflags -o $binary ./cmd/harness } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { throw "go build exited $LASTEXITCODE." }
+
+    # A test build must be signed before anything executes it, including the
+    # identity probe below. This ordering is intentional: signing after
+    # -version would still expose the raw Go output to real-time protection.
+    if ($SignForTest) {
+        & (Join-Path $sourceRoot 'scripts\sign-test-candidate.ps1') -SourceDirectory $sourceRoot
+    }
+}
 
 $reported = (& $binary -version | Out-String) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw "Agent_b.exe -version exited $LASTEXITCODE." }
@@ -132,6 +154,17 @@ $manifest = [ordered]@{
         sha256     = $loaderSha
         package    = [string]$loaderPin.package + ' ' + [string]$loaderPin.package_version
         thumbprint = [string]$loaderPin.signature.thumbprint
+    }
+}
+if ($SignForTest) {
+    $testSignature = Get-AuthenticodeSignature -LiteralPath $binary
+    if ($testSignature.Status -ne 'Valid' -or -not $testSignature.TimeStamperCertificate) {
+        throw 'SIGNED TEST CANDIDATE REFUSED: Authenticode signature or timestamp no longer verifies.'
+    }
+    $manifest['test_signature'] = [ordered]@{
+        thumbprint = $testSignature.SignerCertificate.Thumbprint
+        subject = $testSignature.SignerCertificate.Subject
+        timestamped = $true
     }
 }
 [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))

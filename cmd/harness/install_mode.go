@@ -1,7 +1,10 @@
 package main
 
 import (
+	"archive/zip"
 	"bufio"
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"harness/internal/buildinfo"
 )
 
 // Item 2gl (v1.2.0/W2): `Agent_b.exe --install` — the app installs itself.
@@ -51,6 +56,10 @@ type installProgress struct {
 }
 
 const installProgressName = "install-progress.jsonl"
+
+var installBundleMagic = []byte("AGENTBUNDLE0001!")
+
+const installBundleFooterSize = 16 + 8 + sha256.Size
 
 func installProgressPath(dataRoot string) string {
 	return filepath.Join(dataRoot, installProgressName)
@@ -116,12 +125,20 @@ func runInstall(options installOptions, args []string) int {
 	log.printf("install: starting; data root %s", dataRoot)
 
 	source := options.sourceDir
+	var removeSource func()
 	if source == "" {
 		executable, err := os.Executable()
 		if err != nil {
 			return log.fail("cannot locate this executable: %v", err)
 		}
 		source = filepath.Dir(executable)
+		if embedded, cleanup, found, extractErr := extractInstallBundle(executable); extractErr != nil {
+			return log.fail("embedded installer payload is invalid: %v", extractErr)
+		} else if found {
+			source, removeSource = embedded, cleanup
+			defer removeSource()
+			log.printf("install: verified and extracted the embedded application payload")
+		}
 	}
 	log.printf("install: source %s", source)
 	script := filepath.Join(source, "scripts", "install-Agent_b.ps1")
@@ -146,6 +163,16 @@ func runInstall(options installOptions, args []string) int {
 	scriptArgs := append([]string{"-NoLogo", "-NoProfile", "-File", script, "-ProgressFile", installProgressPath(dataRoot)}, args...)
 	command := exec.Command(powershell, scriptArgs...)
 	command.Dir = source
+	// A setup launched from PowerShell 7 inherits its PSModulePath. Windows
+	// PowerShell 5.1 can then discover PowerShell 7's modules first and fail to
+	// load its own Microsoft.PowerShell.Security type data. Let 5.1 construct
+	// its native module path, just as it does when setup is launched by Explorer.
+	for _, variable := range os.Environ() {
+		if strings.EqualFold(strings.SplitN(variable, "=", 2)[0], "PSModulePath") {
+			continue
+		}
+		command.Env = append(command.Env, variable)
+	}
 	// Item 2gl (v1.2.6): THE INSTALLER'S OUTPUT GOES TO A FILE, NOT A PIPE.
 	// Measured before the change: ending this wrapper killed the install. Not
 	// because Windows kills the child - it does not - but because the child was
@@ -218,6 +245,158 @@ func runInstall(options installOptions, args []string) int {
 		showInstallFailure("Agent_b install failed", fmt.Sprintf("The install stopped during %s (exit %d). It is safe to run again.\n\nLog: %s", lastPhase, code, log.location()))
 	}
 	return code
+}
+
+func extractInstallBundle(executable string) (string, func(), bool, error) {
+	file, err := os.Open(executable)
+	if err != nil {
+		return "", nil, false, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || info.Size() < installBundleFooterSize {
+		return "", nil, false, err
+	}
+	// Authenticode appends the PE certificate table after the bytes it signs.
+	// An unsigned build therefore ends at our footer while a signed setup has
+	// its certificate after it. Search only a bounded tail for the last footer;
+	// the bundle length and SHA below still authenticate the selected payload.
+	tailSize := info.Size()
+	if tailSize > 4<<20 {
+		tailSize = 4 << 20
+	}
+	tail := make([]byte, tailSize)
+	if _, err := file.ReadAt(tail, info.Size()-tailSize); err != nil {
+		return "", nil, false, err
+	}
+	footerIndex := bytes.LastIndex(tail, installBundleMagic)
+	if footerIndex < 0 || footerIndex+installBundleFooterSize > len(tail) {
+		return "", nil, false, nil
+	}
+	footer := tail[footerIndex : footerIndex+installBundleFooterSize]
+	footerOffset := info.Size() - tailSize + int64(footerIndex)
+	length := int64(0)
+	for index := 0; index < 8; index++ {
+		length |= int64(footer[16+index]) << (8 * index)
+	}
+	if length <= 0 || length > 256<<20 || length > footerOffset {
+		return "", nil, true, errors.New("bundle length is outside the executable")
+	}
+	offset := footerOffset - length
+	section := io.NewSectionReader(file, offset, length)
+	hash := sha256.New()
+	if _, err := io.Copy(hash, section); err != nil {
+		return "", nil, true, err
+	}
+	if !bytesEqual(hash.Sum(nil), footer[24:]) {
+		return "", nil, true, errors.New("bundle SHA-256 does not match its footer")
+	}
+	archive, err := zip.NewReader(io.NewSectionReader(file, offset, length), length)
+	if err != nil {
+		return "", nil, true, err
+	}
+	root, err := os.MkdirTemp("", "Agent_b-setup-")
+	if err != nil {
+		return "", nil, true, err
+	}
+	cleanup := func() { _ = os.RemoveAll(root) }
+	fail := func(err error) (string, func(), bool, error) { cleanup(); return "", nil, true, err }
+	for _, entry := range archive.File {
+		clean := filepath.Clean(filepath.FromSlash(entry.Name))
+		if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+			return fail(errors.New("bundle contains an unsafe path"))
+		}
+		if entry.UncompressedSize64 > 64<<20 {
+			return fail(errors.New("bundle entry is too large"))
+		}
+		target := filepath.Join(root, clean)
+		if entry.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0o700); err != nil {
+				return fail(err)
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return fail(err)
+		}
+		input, err := entry.Open()
+		if err != nil {
+			return fail(err)
+		}
+		output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			input.Close()
+			return fail(err)
+		}
+		_, copyErr := io.Copy(output, io.LimitReader(input, 64<<20))
+		closeErr, inputErr := output.Close(), input.Close()
+		if copyErr != nil {
+			return fail(copyErr)
+		}
+		if closeErr != nil {
+			return fail(closeErr)
+		}
+		if inputErr != nil {
+			return fail(inputErr)
+		}
+	}
+	self := filepath.Join(root, "Agent_b.exe")
+	if err := copyFile(executable, self); err != nil {
+		return fail(err)
+	}
+	identity := buildinfo.Current()
+	selfHash, err := fileSHA256(executable)
+	if err != nil {
+		return fail(err)
+	}
+	manifest := map[string]any{"schema": 1, "tag": identity.Tag, "commit": identity.Commit, "dirty": identity.Dirty, "display": identity.Display, "exe_sha256": selfHash, "exe_bytes": info.Size()}
+	encoded, _ := json.MarshalIndent(manifest, "", "  ")
+	if err := os.WriteFile(filepath.Join(root, "candidate-final.json"), append(encoded, '\n'), 0o600); err != nil {
+		return fail(err)
+	}
+	return root, cleanup, true, nil
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func bytesEqual(left, right []byte) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	var different byte
+	for index := range left {
+		different |= left[index] ^ right[index]
+	}
+	return different == 0
+}
+
+func copyFile(source, destination string) error {
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	output, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(output, input)
+	closeErr := output.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
 }
 
 // currentDisplayVersion reads the version the installer will report, from the

@@ -21,7 +21,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$displayVersion = '1.2.7'
+$displayVersion = '1.3.0'
 
 # Write-InstallProgress appends one JSONL line the Setup page can render. It
 # never fails the install: the install is the point, the readout is not.
@@ -171,6 +171,51 @@ function Get-CandidateExeIdentity {
         Commit = $(if ($commit.Success) { $commit.Groups[1].Value } else { 'no-embedded-commit' })
         Sha256 = $sha
     }
+}
+
+# Item 2hc (v1.3.0/W2): the one native file Agent_b ships that it did not
+# build. The WebView2 runtime does not provide a loader, so every WebView2
+# application carries its own; ours is Microsoft's, from their SDK package, and
+# it is verified by BOTH its SHA-256 and its Authenticode signature BEFORE it is
+# copied. Either check failing refuses the install outright rather than
+# installing something unverified beside the exe - a DLL beside an executable is
+# loaded before anything on the search path, so this is the file an attacker
+# would most want to replace.
+function Assert-WebView2Loader {
+    param([string]$SourceRoot, [switch]$AfterStop)
+    $pinPath = Join-Path $SourceRoot 'scripts\webview2-loader.json'
+    $rule = $(if ($AfterStop) { 'Agent_b was already stopped; the previous version is restored and restarted.' } else { 'Nothing was stopped or changed.' })
+    if (-not (Test-Path -LiteralPath $pinPath -PathType Leaf)) {
+        throw "LOADER REFUSED: scripts\webview2-loader.json is missing, so the WebView2 loader cannot be verified. $rule"
+    }
+    $pin = Get-Content -Raw -LiteralPath $pinPath | ConvertFrom-Json
+    $loader = Join-Path $SourceRoot $pin.file
+    if (-not (Test-Path -LiteralPath $loader -PathType Leaf)) {
+        throw "LOADER REFUSED: $($pin.file) is missing from the candidate. $rule"
+    }
+    # NOT Get-FileHash: under -WhatIf it returns nothing and the .Hash below
+    # would be a method call on null, which is how the WhatIf install first
+    # failed. Get-CandidateExeIdentity reads the bytes itself for the same
+    # reason; this follows it.
+    $loaderBytes = [IO.File]::ReadAllBytes($loader)
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try { $sha = ([BitConverter]::ToString($hasher.ComputeHash($loaderBytes)) -replace '-', '').ToLowerInvariant() } finally { $hasher.Dispose() }
+    if ($sha -ne ([string]$pin.sha256).ToLowerInvariant()) {
+        throw "LOADER REFUSED: $($pin.file) is sha256 $sha; the pin names $($pin.sha256). $rule"
+    }
+    $signature = Get-AuthenticodeSignature -LiteralPath $loader
+    if ($signature.Status -ne 'Valid') {
+        throw "LOADER REFUSED: $($pin.file) Authenticode status is $($signature.Status), expected Valid. $rule"
+    }
+    $thumbprint = [string]$signature.SignerCertificate.Thumbprint
+    if ($thumbprint -ne [string]$pin.signature.thumbprint) {
+        throw "LOADER REFUSED: $($pin.file) is signed by thumbprint $thumbprint; the pin names $($pin.signature.thumbprint). $rule"
+    }
+    if ([string]$signature.SignerCertificate.Subject -ne [string]$pin.signature.subject) {
+        throw "LOADER REFUSED: $($pin.file) signer is $($signature.SignerCertificate.Subject); the pin names $($pin.signature.subject). $rule"
+    }
+    Write-Host "PROOF WebView2 loader: $($pin.file) $($pin.file_version) sha256 $sha, signed by $($pin.signature.subject), matches scripts\webview2-loader.json"
+    return $pin
 }
 
 function Assert-CandidateIdentity {
@@ -470,6 +515,7 @@ foreach ($file in @('harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE', 
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Required program file is missing: $required" }
 }
 Assert-CandidateIdentity -SourceRoot $sourceRoot -Binary $sourceBinary -Version $displayVersion
+$null = Assert-WebView2Loader -SourceRoot $sourceRoot
 $preflightProcesses = @(Get-InstalledProcesses $installedBinary)
 if ($preflightProcesses.Count) {
     Write-Host "PREFLIGHT: running Agent_b PID(s) $(@($preflightProcesses.Id) -join ', ') will be stopped after elevation."
@@ -554,7 +600,11 @@ foreach ($directory in @('web', 'prompts', 'scripts', 'docs')) {
     Copy-ProgramDirectory -Name $directory -Source $sourceRoot -Destination $applicationRoot -AllowedRemovalRoots @($applicationRoot)
 }
 Wait-FileUnlocked -Path $installedBinary
-foreach ($file in @('Agent_b.exe', 'harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE')) {
+# Item 2hc (v1.3.0/W2): WebView2Loader.dll travels with the exe. This list is
+# curated rather than a tree copy, so a file that is not named here simply does
+# not reach the installation - which is how the loader first arrived verified
+# and then went missing from the installed root.
+foreach ($file in @('Agent_b.exe', 'WebView2Loader.dll', 'harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE')) {
     $from = Join-Path $sourceRoot $file
     if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { throw "Required program file is missing: $from" }
     Copy-Item -LiteralPath $from -Destination (Join-Path $applicationRoot $file) -Force
@@ -564,6 +614,7 @@ Copy-Item -LiteralPath (Join-Path $sourceRoot 'scripts\launch-installed.cmd') -D
 # the candidate could have changed between the pre-stop check and the copy.
 # A failure here rolls back and restarts the previous version.
 Assert-CandidateIdentity -SourceRoot $sourceRoot -Binary $installedBinary -Version $displayVersion -AfterStop
+$null = Assert-WebView2Loader -SourceRoot $applicationRoot -AfterStop
 
 $null = New-Item -ItemType Directory -Path $dataRoot -Force
 if ($dataCreated) { Set-PrivateDirectoryAcl -Path $dataRoot -Owner $currentSid }

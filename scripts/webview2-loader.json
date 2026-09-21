@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "Item 2hc (v1.3.0/W2): the pin for the one native file Agent_b ships that it did not build.",
+    "The WebView2 runtime does NOT provide this loader (measured in v1.3.0/W1: the runtime ships",
+    "EmbeddedBrowserWebView.dll only), so every WebView2 application carries its own copy - Office,",
+    "OneDrive and Citrix each have one on this machine. Ours comes from Microsoft's own SDK package",
+    "and is verified by BOTH hash and Authenticode signature before the installer copies it.",
+    "Rejected alternative: github.com/jchv/go-webview2, which embeds three copies of this DLL and",
+    "maps one into executable memory with VirtualAlloc/VirtualProtect. See NOTES.md, 2026-09-22."
+  ],
+  "file": "WebView2Loader.dll",
+  "origin": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.4191.47/microsoft.web.webview2.1.0.4191.47.nupkg",
+  "package": "Microsoft.Web.WebView2",
+  "package_version": "1.0.4191.47",
+  "package_sha256": "f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0",
+  "path_in_package": "runtimes/win-x64/native/WebView2Loader.dll",
+  "architecture": "x64",
+  "file_version": "1.0.4191.47",
+  "sha256": "c66e4a92fdc7a216118e43b7a5024ea2200e8c43f9310bf20d96a0084f82c5bc",
+  "signature": {
+    "subject": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
+    "issuer": "CN=Microsoft Code Signing PCA 2024, O=Microsoft Corporation, C=US",
+    "thumbprint": "4028CAD637509D4744B17EC5B42AED8D7A31E6AF"
+  }
+}

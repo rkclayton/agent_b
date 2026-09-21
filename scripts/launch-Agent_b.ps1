@@ -106,6 +106,34 @@ function Get-AgentBProcesses {
     })
 }
 
+# Item 2hc (v1.3.0/W2): the host window is the default way in when it can be
+# opened, and the browser is the fallback when it cannot. The launcher decides
+# BEFORE starting the server, from the same two facts the server itself checks:
+# the pinned loader beside the exe, and an installed WebView2 runtime. The
+# server re-checks and logs its own reason, so a disagreement degrades to the
+# browser rather than to no window at all.
+function Test-AgentBHostWindow {
+    if ($env:AGENTB_NO_HOST_WINDOW) { return $false }
+    $loader = Join-Path $applicationRoot 'WebView2Loader.dll'
+    if (-not (Test-Path -LiteralPath $loader -PathType Leaf)) {
+        Write-LauncherRecord 'HOST WINDOW: unavailable (WebView2Loader.dll is not beside the executable); opening the browser window instead'
+        return $false
+    }
+    $clients = @(
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+        'HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+        'HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+    )
+    foreach ($client in $clients) {
+        try {
+            $pv = (Get-ItemProperty -LiteralPath $client -Name pv -ErrorAction Stop).pv
+            if ($pv) { return $true }
+        } catch { }
+    }
+    Write-LauncherRecord 'HOST WINDOW: unavailable (the WebView2 runtime is not installed); opening the browser window instead'
+    return $false
+}
+
 function Show-AgentBWindow {
     param([string]$Url)
     if ($NoBrowser -or $env:AGENTB_NO_BROWSER) {
@@ -265,21 +293,66 @@ try {
     # that failed in the foreground - or from Explorer - left no reason behind.
     $startupCapture = New-AgentBStartupCapture
     $configArgument = '-config "' + $configPath.Replace('"', '\"') + '" -app-root "' + $applicationRoot.Replace('"', '\"') + '" -data-root "' + $dataRoot.Replace('"', '\"') + '"'
+    # Item 2hc: our own window, when it can be opened. The server re-checks and
+    # logs its own reason, so this decision is a preference, not a promise.
+    $script:hostWindow = (-not $NoBrowser -and -not $env:AGENTB_NO_BROWSER -and (Test-AgentBHostWindow))
+    if ($script:hostWindow) { $configArgument += ' -window' }
     if ($startupCapture) {
         $configArgument += ' -startup-log "' + $startupCapture.Replace('"', '\"') + '"'
     }
-    $start = @{
-        FilePath = $executable
-        ArgumentList = $configArgument
-        WorkingDirectory = $dataRoot
-        PassThru = $true
-    }
     if ($Detached -or -not $Console) {
-        $start.WindowStyle = 'Hidden'
+        # Item 2hg (v1.3.0/W6): a background server gets NO CONSOLE WINDOW and
+        # INHERITS NO HANDLES. Both halves matter, and each was learned the
+        # hard way.
+        #
+        # No console window, because -WindowStyle Hidden still gives a console
+        # application one; taskkill without /F posts WM_CLOSE to every top-level
+        # window, a WM_CLOSE on a console becomes CTRL_CLOSE_EVENT, and Go
+        # delivers that as SIGTERM - so the server stopped even though item
+        # 2eq's own window ignores WM_CLOSE. Measured: killed before the guard
+        # window existed it died 12 times out of 12.
+        #
+        # No inherited handles, because the first fix used
+        # [Diagnostics.Process]::Start with UseShellExecute=$false, and .NET
+        # then hands the child the parent's stdout. A detached server therefore
+        # held its launcher's output pipe open for as long as it ran, and any
+        # caller capturing the launcher's output - the installer's own upgrade
+        # path does exactly that - blocked until the server exited. The suite
+        # hung there. Start-Process -WindowStyle Hidden never had that problem
+        # because ShellExecute does not inherit; CreateProcess with
+        # bInheritHandles = $false does not either, and unlike ShellExecute it
+        # can also say CREATE_NO_WINDOW.
+        Add-Type -Namespace AgentB -Name Spawn -MemberDefinition @'
+[StructLayout(LayoutKind.Sequential)] public struct STARTUPINFO {
+  public int cb; public string lpReserved, lpDesktop, lpTitle;
+  public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+  public short wShowWindow, cbReserved2; public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+}
+[StructLayout(LayoutKind.Sequential)] public struct PROCESS_INFORMATION {
+  public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId;
+}
+[DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+public static extern bool CreateProcess(string app, string commandLine, IntPtr pa, IntPtr ta,
+  bool inherit, uint flags, IntPtr env, string cwd, ref STARTUPINFO si, out PROCESS_INFORMATION pi);
+[DllImport("kernel32.dll", SetLastError=true)] public static extern bool CloseHandle(IntPtr h);
+'@ -ErrorAction SilentlyContinue
+        $startupInfo = New-Object AgentB.Spawn+STARTUPINFO
+        $startupInfo.cb = [Runtime.InteropServices.Marshal]::SizeOf([type][AgentB.Spawn+STARTUPINFO])
+        $processInfo = New-Object AgentB.Spawn+PROCESS_INFORMATION
+        $commandLine = '"' + $executable + '" ' + $configArgument
+        $CREATE_NO_WINDOW = 0x08000000
+        if (-not [AgentB.Spawn]::CreateProcess($executable, $commandLine, [IntPtr]::Zero, [IntPtr]::Zero,
+                $false, $CREATE_NO_WINDOW, [IntPtr]::Zero, $dataRoot, [ref]$startupInfo, [ref]$processInfo)) {
+            throw "Starting Agent_b failed: CreateProcess reported $([Runtime.InteropServices.Marshal]::GetLastWin32Error())."
+        }
+        $null = [AgentB.Spawn]::CloseHandle($processInfo.hThread)
+        $null = [AgentB.Spawn]::CloseHandle($processInfo.hProcess)
+        $process = Get-Process -Id $processInfo.dwProcessId
     } else {
-        $start.NoNewWindow = $true
+        # The foreground console start is unchanged: its window is the
+        # operator's, and closing it is meant to stop the server.
+        $process = Start-Process -FilePath $executable -ArgumentList $configArgument -WorkingDirectory $dataRoot -NoNewWindow -PassThru
     }
-    $process = Start-Process @start
     $state = Wait-AgentBEndpoint -Url $url -Process $process -Seconds $StartupTimeoutSeconds
     if ($state -eq 'exited') {
         $process.WaitForExit()
@@ -291,7 +364,13 @@ try {
         Write-Host $(if ($Detached) { 'The process is being left running in the background; inspect logs or use -Check to confirm readiness.' } else { 'The process is being left running in this console so delayed startup remains visible.' })
     } else {
         Write-LauncherRecord "Agent_b is ready at $appUrl ($(Get-AgentBListener -Url $url)); started as process $($process.Id)."
-        Show-AgentBWindow -Url $appUrl
+        if ($script:hostWindow) {
+            # The server opened its own window in its own process; opening a
+            # browser too would give the operator two of the same thing.
+            Write-LauncherRecord 'OPENED: Agent_b host window'
+        } else {
+            Show-AgentBWindow -Url $appUrl
+        }
     }
 } finally {
     if ($locked) { $mutex.ReleaseMutex() }

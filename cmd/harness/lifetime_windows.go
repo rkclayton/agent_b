@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -110,9 +112,29 @@ func processRunning(pid int, created int64) bool {
 // were both sent (the way Windows delivers them), never posted. The graceful
 // stop has its own channel instead: a named event in this session that only
 // the operator's account and SYSTEM may signal (stopEventName).
+// Item 2hg (v1.3.0/W6): watchSessionEnd RETURNS ONLY ONCE THE GUARD WINDOW
+// EXISTS. It used to start the goroutine and return immediately, so there was a
+// window of time in which the process was listening but had no window to ignore
+// WM_CLOSE with -- and a console application started hidden owns a
+// ConsoleWindowClass window from birth. taskkill without /F posts WM_CLOSE to
+// every top-level window it finds; reaching the console instead raises
+// CTRL_CLOSE_EVENT, which Go delivers as SIGTERM, and the server stops with
+// "signal terminated" despite 2eq.
+//
+// Measured before the fix: killing at 100, 300, 600 and 1200 ms after start
+// ended the process 12 times out of 12, with ConsoleWindowClass the only
+// top-level window; killing after the window existed left it running 5 of 5.
+// The launcher no longer gives a background server a console window at all,
+// which removes the door; this closes the gap behind it, so that "the listener
+// is up" implies "the guard is up" rather than merely "the guard is coming".
 func watchSessionEnd(record func(string), closeRequested func()) {
 	watchStopEvent(closeRequested)
+	ready := make(chan struct{})
 	go func() {
+		// Whatever happens below -- window created, class refused, creation
+		// failed -- the caller is released exactly once.
+		readyOnce := sync.OnceFunc(func() { close(ready) })
+		defer readyOnce()
 		runtime.LockOSThread()
 		className, _ := syscall.UTF16PtrFromString(sessionEndClassName)
 		instance, _, _ := procGetModuleHandle.Call(0)
@@ -146,6 +168,8 @@ func watchSessionEnd(record func(string), closeRequested func()) {
 		if hwnd == 0 {
 			return
 		}
+		// The window is addressable from here, so the caller may proceed.
+		readyOnce()
 		var message windowMessage
 		for {
 			result, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&message)), 0, 0, 0)
@@ -155,6 +179,12 @@ func watchSessionEnd(record func(string), closeRequested func()) {
 			procDispatchMessage.Call(uintptr(unsafe.Pointer(&message)))
 		}
 	}()
+	// Bounded: a machine that cannot give us a window must still serve. The
+	// wait is for the ordinary case, not a precondition for running.
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+	}
 }
 
 // sentMessage is true while the window procedure handles a message another

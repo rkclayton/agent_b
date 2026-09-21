@@ -22,7 +22,20 @@ export const LIVE_VALUES = [
   // the four pixels v1.0.0 measured - two runs of one build differed three
   // pixels above the square. The square is the radius, 8 by 8, and the rest of
   // the composer is still compared exactly.
-  { name: "composer-corner-variance", reason: "the composer's bottom corners antialias a level or two apart between runs of one build", selector: "#chat-task", corners: 8 },
+  // v1.3.0 (2gk): widened from 8 to 10. The corner square was sized to the 8 px
+  // radius, and a single pixel one step beyond it differed between two runs of
+  // one build - the antialiasing this mask already exists for, reaching one
+  // pixel further than the radius. The rest of the composer is still compared
+  // exactly.
+  { name: "composer-corner-variance", reason: "the composer's bottom corners antialias a level or two apart between runs of one build", selector: "#chat-task", corners: 10 },
+  // v1.3.0 (2gk): the Jump-to-latest pill is sticky at the transcript's bottom
+  // right and appears only while the transcript is scrolled off its latest
+  // line. Whether it is depends on the transcript's HEIGHT, and moving the
+  // readout out of its own band changed that height by about 22 px - enough to
+  // put a capture on the boundary, so two runs of one build disagreed about a
+  // control rather than about a value. Like duration-seat, the SEAT is masked
+  // in every capture whether the pill sits there or not, so the two agree.
+  { name: "jump-seat", reason: "the Jump-to-latest pill shows only while the transcript is scrolled off its latest line, which its height decides and live text wraps change", selector: "#chat-log", seat: { width: 150, height: 44 } },
   { name: "transcript-scrollbar", reason: "the thumb's length and place follow the transcript's height, which live text wraps change", selector: "#chat-log", scrollbar: true },
   // v1.2.2/W3: the unreachable notice elides the host, so the visible run can
   // be "0.1:58507" with no 127. prefix for the old pattern to match, and that
@@ -82,6 +95,20 @@ function liveValueRects(specs) {
       if (spec.corners) {
         const r = root.getBoundingClientRect(), n = spec.corners;
         if (visible(root)) for (const left of [r.left, r.right - n]) { const c = clipped({ left, top: r.bottom - n, right: left + n, bottom: r.bottom }, clipOf(root.parentElement)); if (c) rects.push(c); }
+        continue;
+      }
+      if (spec.seat) {
+        // A fixed seat at the element's bottom right, inside its client box, so
+        // the rectangle exists in every capture even when nothing occupies it.
+        if (visible(root)) {
+          const r = root.getBoundingClientRect(), style = getComputedStyle(root);
+          const [right, top] = [style.borderRightWidth, style.borderTopWidth].map(parseFloat);
+          const bar = root.offsetWidth - root.clientWidth - parseFloat(style.borderLeftWidth) - right;
+          const edge = r.right - right - Math.max(0, bar);
+          const floor = r.top + top + root.clientHeight;
+          const c = clipped({ left: edge - spec.seat.width, top: floor - spec.seat.height, right: edge, bottom: floor }, clipOf(root.parentElement));
+          if (c) rects.push(c);
+        }
         continue;
       }
       if (spec.scrollbar) {

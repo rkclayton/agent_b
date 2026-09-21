@@ -56,6 +56,10 @@ func main() {
 	replayPaths := flag.String("replay", "", "comma-separated session JSONL files to replay")
 	startupLog := flag.String("startup-log", "", "optional append-only startup diagnostic log")
 	version := flag.Bool("version", false, "print this build's identity as JSON and exit")
+	// Item 2hc (v1.3.0/W2): our own window. One process and one binary still:
+	// this is a mode of the server, not a second executable, and the browser
+	// path stays supported for every case where the runtime is absent.
+	window := flag.Bool("window", false, "host the page in Agent_b's own window (Windows, needs the WebView2 runtime)")
 	// Item 2gl: install mode. Everything after --install is the installer's,
 	// so it is taken before flag.Parse and passed through untouched — the
 	// PowerShell installer's parameters stay its own and cannot drift from a
@@ -125,6 +129,21 @@ func main() {
 		log.Printf("debug: SERVING.md missing or partial; skipping /tokenize latency hint")
 	} else if facts.TokenizeBlocksOnSlot == "yes" {
 		log.Printf("tokenize blocks on the generation slot (%d ms measured busy); context.accounting: \"estimated\" avoids it", facts.TokenizeBusyMS)
+	}
+	if *window {
+		hostWindowMode = true
+		// The WebView2 user-data folder holds cache, cookies and crash dumps.
+		// It belongs in the operator's data root: the application directory is
+		// deliberately not writable by the running identity, and the workspace
+		// is reachable by the model. Leaving it unset would default it beside
+		// the executable, which IS the application directory - not neutral,
+		// just the wrong answer chosen by omission.
+		//
+		// Set HERE, before the replay and first-run paths, because both of
+		// them serve and return: setting it beside the last serve call gave a
+		// first-run install no window at all, which is the one case where the
+		// operator has never seen the product before.
+		hostWindowUserData = filepath.Join(paths.Data, "webview2")
 	}
 	if strings.TrimSpace(*replayPaths) != "" {
 		replay, loadErr := projection.LoadReplay(strings.Split(*replayPaths, ","))
@@ -616,6 +635,9 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime) error {
 		})
 		stopped = life.stopped
 	}
+	if hostWindowMode {
+		startHostWindow(cfg.Listen, closeRequests)
+	}
 	errors := make(chan error, 1)
 	go func() {
 		log.Printf("Agent_b listening on http://%s", cfg.Listen)
@@ -685,4 +707,37 @@ func readServingFacts(path string) servingFacts {
 	}
 	facts.Complete = scanner.Err() == nil && idleFound && busyFound && blocksFound
 	return facts
+}
+
+// Item 2hc (v1.3.0/W2): the host window, started beside the server in the same
+// process. It runs on its own OS thread because a window and its message pump
+// belong to one thread, and closing it asks for the same graceful stop the
+// installer's channel uses, so every exit still records its reason.
+//
+// A missing or unusable WebView2 runtime is NOT a failure: the server keeps
+// serving, the reason is logged, and the browser window remains the way in.
+var (
+	hostWindowMode     bool
+	hostWindowUserData string
+)
+
+func startHostWindow(listen string, closeRequests chan struct{}) {
+	go func() {
+		url := "http://" + listen + "/chat"
+		if version, err := hostWindowAvailable(); err != nil {
+			log.Printf("host window: unavailable, using the browser instead (%v)", err)
+			return
+		} else {
+			log.Printf("host window: WebView2 runtime %s", version)
+		}
+		if err := runHostWindow(url, hostWindowUserData, "Agent_b"); err != nil {
+			log.Printf("host window: could not open, using the browser instead (%v)", err)
+			return
+		}
+		log.Printf("host window: closed")
+		select {
+		case closeRequests <- struct{}{}:
+		default:
+		}
+	}()
 }

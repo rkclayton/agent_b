@@ -96,6 +96,27 @@ if (-not $embeddedTag.Success -or $embeddedTag.Groups[1].Value -ne $sourceTag -o
 }
 if ($failures.Count) { throw "CANDIDATE BUILD REFUSED: Agent_b.exe reports $($failures -join '; '). No manifest was written." }
 
+# Item 2hc (v1.3.0/W2): the release step pins the one native file we ship and
+# did not build. A candidate whose loader does not match scripts/webview2-loader
+# .json by BOTH hash and Authenticode signature is refused here, before it can
+# reach an installer - the installer checks again, because the candidate can be
+# copied between machines after this step.
+$loaderPinPath = Join-Path $sourceRoot 'scripts\webview2-loader.json'
+if (-not (Test-Path -LiteralPath $loaderPinPath -PathType Leaf)) { throw 'scripts\webview2-loader.json is missing; the WebView2 loader cannot be pinned.' }
+$loaderPin = Get-Content -Raw -LiteralPath $loaderPinPath | ConvertFrom-Json
+$loaderPath = Join-Path $sourceRoot $loaderPin.file
+if (-not (Test-Path -LiteralPath $loaderPath -PathType Leaf)) { throw "$($loaderPin.file) is missing from $sourceRoot." }
+$loaderSha = (Get-FileHash -LiteralPath $loaderPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($loaderSha -ne ([string]$loaderPin.sha256).ToLowerInvariant()) {
+    throw "LOADER REFUSED: $($loaderPin.file) is sha256 $loaderSha; scripts\webview2-loader.json names $($loaderPin.sha256)."
+}
+$loaderSignature = Get-AuthenticodeSignature -LiteralPath $loaderPath
+if ($loaderSignature.Status -ne 'Valid') { throw "LOADER REFUSED: $($loaderPin.file) Authenticode status is $($loaderSignature.Status), expected Valid." }
+if ([string]$loaderSignature.SignerCertificate.Thumbprint -ne [string]$loaderPin.signature.thumbprint) {
+    throw "LOADER REFUSED: $($loaderPin.file) signer thumbprint is $($loaderSignature.SignerCertificate.Thumbprint); the pin names $($loaderPin.signature.thumbprint)."
+}
+Write-Host "LOADER: $($loaderPin.file) $($loaderPin.file_version) sha256 $loaderSha, $($loaderPin.signature.subject)"
+
 $manifest = [ordered]@{
     schema     = 1
     tag        = $reported.tag
@@ -105,6 +126,13 @@ $manifest = [ordered]@{
     exe_sha256 = $sha
     exe_bytes  = (Get-Item -LiteralPath $binary).Length
     built_at   = (Get-Date).ToUniversalTime().ToString('o')
+    webview2_loader = [ordered]@{
+        file       = [string]$loaderPin.file
+        version    = [string]$loaderPin.file_version
+        sha256     = $loaderSha
+        package    = [string]$loaderPin.package + ' ' + [string]$loaderPin.package_version
+        thumbprint = [string]$loaderPin.signature.thumbprint
+    }
 }
 [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 Write-Host "CANDIDATE: Agent_b.exe $($manifest.tag) $($manifest.display) sha256 $sha"

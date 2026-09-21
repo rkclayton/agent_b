@@ -72,7 +72,17 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   // Item 2gl (v1.2.6): the window title names the CHAT; the header beside the
   // tab strip still reads the profile only (2eo).
   assert.match(shell, /document\.title = session \? `Agent_b · \$\{chatName\(session\)\}` : "Agent_b"/);
-  assert.match(shell, /sessionHeading\.textContent = session \? sessionTitle\(session\)/);
+  // Item 2eo: the header beside the tab strip reads the PROFILE, through
+  // sessionTitle. Item 2hc (v1.3.0/W7) assigns it through a local so the box
+  // can be snapped to a whole pixel when the text changes, so the contract is
+  // checked by what it computes rather than by one spelling of the statement.
+  assert.match(shell, /sessionTitle\(session\)/);
+  assert.match(shell, /sessionHeading\.textContent = heading/);
+  // The snap itself: a fractional title width became the strip's left edge and
+  // the title's text then rasterised at a subpixel phase, which made two
+  // captures of one build disagree. Rounding up puts every item to its right on
+  // whole pixels too.
+  assert.match(shell, /sessionHeading\.style\.width = `\$\{Math\.ceil\(natural\)\}px`/);
 });
 
 test("plus adds a two-line d choice only for an assigned d profile", () => {

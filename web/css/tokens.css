@@ -33,6 +33,7 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .window-titlebar button,.window-titlebar input,.window-titlebar select,.window-titlebar a{-webkit-app-region:no-drag;app-region:no-drag}
 .app-shell{position:relative;z-index:30;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px;height:var(--app-header-height);min-width:0;padding:0 4px;background:var(--bezel)}
 .shell-left,.agent-tabs,.shell-right,.shell-pages{display:flex;align-items:center;min-width:0;gap:2px}
+.shell-right{height:100%}
 .shell-left{overflow:hidden}
 .shell-left{width:100%}
 .shell-session-title{max-width:42vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mute);font:12px/20px var(--mono)}
@@ -80,6 +81,15 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .shell-page:hover,.shell-settings:hover{background:rgba(216,221,227,.12)}
 .shell-page.selected{background:rgba(216,221,227,.16)}
 .shell-settings{width:26px;padding:2px;color:rgba(216,221,227,.6)}
+.shell-window-controls{align-self:stretch;display:grid;grid-template-columns:repeat(3,28px);height:var(--app-header-height);margin-right:-4px;background:var(--bezel);pointer-events:none}
+.shell-window-control{position:relative;display:grid;place-items:center;width:28px;height:var(--app-header-height);color:var(--mute)}
+.shell-window-control:hover{background:rgba(216,221,227,.08);color:var(--ink)}
+.shell-window-control-glyph{position:relative;display:block;width:9px;height:9px}
+.shell-window-control.minimize .shell-window-control-glyph::after{content:"";position:absolute;right:0;bottom:1px;left:0;height:1px;background:currentColor}
+.shell-window-control.maximize .shell-window-control-glyph{border:1px solid currentColor}
+.shell-window-control.close .shell-window-control-glyph::before,.shell-window-control.close .shell-window-control-glyph::after{content:"";position:absolute;top:4px;left:-1px;width:11px;height:1px;background:currentColor}
+.shell-window-control.close .shell-window-control-glyph::before{transform:rotate(45deg)}
+.shell-window-control.close .shell-window-control-glyph::after{transform:rotate(-45deg)}
 /* Item 2ge, glyph replaced by 2he: the Plan chip is the one element drawn in
    --accent-plan, the operator-stated exception to the six-colour palette.
    Faint at rest, brighter on hover and while the Plan pane is open.

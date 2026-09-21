@@ -34,9 +34,8 @@ import (
 
 const (
 	hostStripHeight   = 32 // the page's own strip; W1 measured the native caption at 31 px
-	hostButtonWidth   = 36 // SM_CXSIZE, measured in W1
+	hostButtonWidth   = 28 // compact controls painted by the page in the same top strip
 	hostButtonCount   = 3
-	hostResizeBorder  = 8 // SM_CXFRAME + SM_CXPADDEDBORDER, measured in W1
 	hostDefaultWidth  = 1280
 	hostDefaultHeight = 860
 
@@ -198,19 +197,24 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsaf
 		// measured 31 px of chrome above the page, exactly the title bar the
 		// window was supposed to have lost.
 		//
-		// Leaving the rectangle unmodified makes the client area the whole
-		// window, so the page's 32 px strip IS the top edge.
+		// Preserve Windows' left, right and bottom non-client bands so every
+		// edge and corner keeps the normal OS resize cursor and behavior. Only
+		// the caption band is reclaimed: the page's 32 px strip is the top edge.
 		hostFrameDebug("NCCALCSIZE wParam=%d", wParam)
 		params := (*rect)(lParam)
+		borderX := systemMetric(32) + systemMetric(92) // SM_CXFRAME + SM_CXPADDEDBORDER
+		borderY := systemMetric(33) + systemMetric(92)
 		// A MAXIMISED window is the exception: without insetting by the frame
 		// it spills over the screen edge and the taskbar, which is the classic
 		// borderless-window bug.
 		if isMaximized(hwnd) {
-			border := systemMetric(32) + systemMetric(92) // SM_CXFRAME + SM_CXPADDEDBORDER
-			borderY := systemMetric(33) + systemMetric(92)
-			params.left += border
-			params.right -= border
+			params.left += borderX
+			params.right -= borderX
 			params.top += borderY
+			params.bottom -= borderY
+		} else {
+			params.left += borderX
+			params.right -= borderX
 			params.bottom -= borderY
 		}
 		return 0
@@ -225,51 +229,9 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsaf
 		y := int32(int16((position >> 16) & 0xFFFF))
 		relativeX, relativeY := x-window.left, y-window.top
 		width := window.right - window.left
-
-		if !isMaximized(hwnd) {
-			atTop := relativeY < hostResizeBorder
-			atBottom := y >= window.bottom-hostResizeBorder
-			atLeft := relativeX < hostResizeBorder
-			atRight := x >= window.right-hostResizeBorder
-			switch {
-			case atTop && atLeft:
-				return htTopLeft
-			case atTop && atRight:
-				return htTopRight
-			case atBottom && atLeft:
-				return htBottomLeft
-			case atBottom && atRight:
-				return htBottomRight
-			case atTop:
-				return htTop
-			case atBottom:
-				return htBottom
-			case atLeft:
-				return htLeft
-			case atRight:
-				return htRight
-			}
-		}
-
-		if relativeY < hostStripHeight {
-			buttons := int32(hostButtonWidth * hostButtonCount)
-			if relativeX >= width-buttons {
-				switch (relativeX - (width - buttons)) / hostButtonWidth {
-				case 0:
-					return htMinButton
-				case 1:
-					return htMaxButton
-				default:
-					return htClose
-				}
-			}
-			// Everything else in the strip is the page's. Dragging comes from
-			// the CSS app-region the WebView reports, not from claiming the
-			// whole strip as caption here -- claiming it would take the clicks
-			// away from the tabs and the gear.
-			return htClient
-		}
-		return htClient
+		borderX := systemMetric(32) + systemMetric(92)
+		borderY := systemMetric(33) + systemMetric(92)
+		return hostHitTest(relativeX, relativeY, width, window.bottom-window.top, borderX, borderY, isMaximized(hwnd))
 
 	case wmSize:
 		w.resizeController()
@@ -281,6 +243,51 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsaf
 	}
 	result, _, _ := procDefWindowProc.Call(hwnd, message, wParam, uintptr(lParam))
 	return result
+}
+
+func hostHitTest(x, y, width, height, borderX, borderY int32, maximized bool) uintptr {
+	if !maximized {
+		atTop, atBottom := y < borderY, y >= height-borderY
+		atLeft, atRight := x < borderX, x >= width-borderX
+		switch {
+		case atTop && atLeft:
+			return htTopLeft
+		case atTop && atRight:
+			return htTopRight
+		case atBottom && atLeft:
+			return htBottomLeft
+		case atBottom && atRight:
+			return htBottomRight
+		case atTop:
+			return htTop
+		case atBottom:
+			return htBottom
+		case atLeft:
+			return htLeft
+		case atRight:
+			return htRight
+		}
+	}
+
+	contentTop := int32(0)
+	if maximized {
+		contentTop = borderY
+	}
+	contentRight := width - borderX
+	if y >= contentTop && y < contentTop+hostStripHeight {
+		buttons := int32(hostButtonWidth * hostButtonCount)
+		if x >= contentRight-buttons && x < contentRight {
+			switch (x - (contentRight - buttons)) / hostButtonWidth {
+			case 0:
+				return htMinButton
+			case 1:
+				return htMaxButton
+			default:
+				return htClose
+			}
+		}
+	}
+	return htClient
 }
 
 func (w *hostWindow) resizeController() {

@@ -30,7 +30,8 @@ export function initShell(options = {}) {
   const pages = node("nav", "shell-pages");
   pages.setAttribute("aria-label", "Pages");
   for (const [id, path] of [["plan", "/plan"]]) {
-    const link = node("a", `shell-page ${page === id ? "selected" : ""}`);
+    const link = node("button", `shell-page ${page === id ? "selected" : ""}`);
+    link.type = "button";
     link.dataset.page = id;
     // Item 2he: the processor, as drawn. The operator asked for "something more
     // symmetrical that represents planning/thought and is robotic", picked the
@@ -51,7 +52,6 @@ export function initShell(options = {}) {
       + '</svg>';
     link.setAttribute("aria-label", "plan");
     link.title = "plan";
-    link.href = path;
     if (page === id) {
       // Item 2gf: on the Plan page the toggle returns to the chat. It used to
       // preventDefault, so the operator who reached Plan had no route back
@@ -64,18 +64,35 @@ export function initShell(options = {}) {
         event.preventDefault();
         returnToChat();
       };
+    } else {
+      link.onclick = () => {
+        const sessionID = store.selection.session_id || "";
+        const suffix = sessionID ? `?session=${encodeURIComponent(sessionID)}` : "";
+        requestNavigation({ kind: "flip", from: page, to: id, fullDocument: true, chatID: sessionID, mutationToken: store.mutation_token }, `${path}${suffix}`);
+      };
     }
     pages.append(link);
   }
-  const settings = node("a", "shell-settings");
+  const settings = node("button", "shell-settings");
+  settings.type = "button";
   settings.textContent = "⚙";
   settings.setAttribute("aria-label", "Settings");
   settings.title = "Settings";
   settings.addEventListener("click", () => {
     const closing = settings.getAttribute("aria-expanded") === "true";
-    beginNavigation({ kind: "settings", from: closing ? "settings" : page, to: closing ? page : "settings", fullDocument: false, chatID: store.active, mutationToken: store.mutation_token });
+    const navigation = { kind: "settings", from: closing ? "settings" : page, to: closing ? page : "settings", fullDocument: page !== "chat", chatID: store.active, mutationToken: store.mutation_token };
+    if (page === "chat") beginNavigation(navigation);
+    else requestNavigation(navigation, settings.dataset.target);
   });
-  right.append(sessionHeading, pages, settings);
+  const windowControls = node("div", "shell-window-controls");
+  windowControls.setAttribute("aria-hidden", "true");
+  for (const kind of ["minimize", "maximize", "close"]) {
+    const control = node("span", `shell-window-control ${kind}`);
+    const glyph = node("span", "shell-window-control-glyph");
+    control.append(glyph);
+    windowControls.append(control);
+  }
+  right.append(sessionHeading, pages, settings, windowControls);
   root.append(left, right);
   document.addEventListener("click", (event) => {
     if (!root.contains(event.target)) for (const menu of root.querySelectorAll(".shell-menu")) menu.hidden = true;
@@ -421,14 +438,13 @@ export function initShell(options = {}) {
     const query = new URLSearchParams();
     if (session) query.set("session", session.id);
     const suffix = query.size ? `?${query}` : "";
-    for (const link of pages.children) link.href = `/${link.dataset.page}${suffix}`;
     const configured = configuredAgent(session);
     const planLink = pages.querySelector('[data-page="plan"]');
     if (planLink) planLink.hidden = !session || (session.role !== "d" && !!String(configured?.d || "").trim());
     // Item 2hb: on a page that is its own document the gear is a LINK, and the
     // document it opens has no other way to know where it came from. The view
     // being left is named in the address, so closing can return to it.
-    settings.href = `/${suffix}${suffix ? "&" : "?"}from=${page}#settings/servers`;
+    settings.dataset.target = `/chat${suffix}${suffix ? "&" : "?"}from=${page}#settings/servers`;
     options.syncLocation?.(page);
   }
 

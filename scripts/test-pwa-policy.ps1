@@ -1,12 +1,15 @@
-# Item 2gl, v1.2.7/W2  -  the policy entry and the app-id lookup, proved.
+# Item 2gl, v1.3.0/W3 - the Edge policy REMOVAL, proved.
+#
+# v1.2.7 wrote a WebAppInstallForceList entry and this suite proved the write,
+# the free-index selection and the app-id lookup. The operator measured the
+# overlay on a policy-installed app and it does not activate, so the write is
+# gone and those cases went with it. What is left is the half that must keep
+# working: an uninstall on a machine where a v1.2.7 install wrote an entry has
+# to take that entry away, and take away nothing else.
 #
 # The real policy key cannot be written without elevation (v1.2.7/W1 measured
-# that: PermissionDenied, ACL ReadKey for the operator). So this exercises the
-# same functions against a DISPOSABLE key under HKCU that the operator can
-# write, and against fabricated Edge profiles. What that proves is the logic  - 
-# free-index selection, neighbour safety, loopback-only refusal, and every
-# fail-safe branch of the app-id lookup. What it CANNOT prove is that Edge
-# installs the app, because no unelevated session can make it.
+# that: PermissionDenied, ACL ReadKey for the operator), so this runs against a
+# DISPOSABLE key under HKCU that the operator can write.
 param([switch]$Quiet)
 
 $ErrorActionPreference = 'Stop'
@@ -31,30 +34,18 @@ function Assert-Equal {
 }
 function Assert-Null { param($Value, [string]$What) if ($null -ne $Value -and '' -ne [string]$Value) { throw "$What`: expected nothing, got '$Value'" } }
 
-$root = 'HKCU:\Software\Agent_b\Test\PwaPolicy'
-$scratch = Join-Path ([IO.Path]::GetTempPath()) ("agentb-pwa-" + [Guid]::NewGuid().ToString('N'))
+$registryRoot = 'HKCU:\Software\Agent_b\Test\PwaPolicy'
 $url = 'http://127.0.0.1:8790/chat'
+# Exactly what a v1.2.7 install wrote, so these are the bytes uninstall meets.
+$ours = '{"url":"http://127.0.0.1:8790/chat","default_launch_container":"window","create_desktop_shortcut":false}'
+$neighbour = '{"url":"https://example.com/app","default_launch_container":"window"}'
 
 function Reset-PolicyRoot {
-    if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-    $null = New-Item -Path $root -Force
-}
-
-function New-PreferencesProfile {
-    param([string]$Json)
-    $dir = Join-Path $scratch ([Guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $dir -Force
-    Set-Content -LiteralPath (Join-Path $dir 'Preferences') -Value $Json -Encoding utf8
-    return $dir
+    if (Test-Path -LiteralPath $registryRoot) { Remove-Item -LiteralPath $registryRoot -Recurse -Force }
+    $null = New-Item -Path $registryRoot -Force
 }
 
 try {
-    $null = New-Item -ItemType Directory -Path $scratch -Force
-
-    # ---- the url and the entry -------------------------------------------
-    Test-Case 'the app url is /chat on the configured port' {
-        Assert-Equal $url (Get-AgentBPwaUrl -Origin 'http://127.0.0.1:8790/') 'app url'
-    }
     Test-Case 'only a loopback http /chat url is ours' {
         foreach ($good in @('http://127.0.0.1:8790/chat', 'http://127.0.0.1:8787/chat')) {
             if (-not (Test-AgentBPwaUrl $good)) { throw "refused our own url $good" }
@@ -70,106 +61,67 @@ try {
             if (Test-AgentBPwaUrl $bad) { throw "accepted a url that is not ours: $bad" }
         }
     }
-    Test-Case 'the entry json is the shape Edge takes' {
-        $entry = Get-AgentBPwaEntryJson -Url $url | ConvertFrom-Json
-        Assert-Equal $url $entry.url 'url'
-        Assert-Equal 'window' $entry.default_launch_container 'launch container'
-        if ($entry.create_desktop_shortcut -ne $false) { throw 'create_desktop_shortcut must be false' }
-    }
-    Test-Case 'an entry that is not ours is refused, not written' {
-        $threw = $false
-        try { $null = Get-AgentBPwaEntryJson -Url 'http://evil.example/chat' } catch { $threw = $true }
-        if (-not $threw) { throw 'a foreign url produced an entry' }
+
+    Test-Case "a v1.2.7 install's entry is found and removed" {
+        Reset-PolicyRoot
+        Set-ItemProperty -LiteralPath $registryRoot -Name '1' -Value $ours -Type String
+        Assert-Equal '1' (Find-AgentBPwaPolicyName -Url $url -PolicyRoot $registryRoot) 'found name'
+        Assert-Equal '1' (Remove-AgentBPwaPolicy -Url $url -PolicyRoot $registryRoot) 'removed name'
+        if (Test-Path -LiteralPath $registryRoot) { throw 'an empty key of ours was left behind' }
     }
 
-    # ---- writing, finding, removing --------------------------------------
-    Test-Case 'the first install takes index 1 and can be found again' {
-        Reset-PolicyRoot
-        Assert-Equal '1' (Set-AgentBPwaPolicy -Url $url -PolicyRoot $root) 'value name'
-        Assert-Equal '1' (Find-AgentBPwaPolicyName -Url $url -PolicyRoot $root) 'found name'
-        Assert-Equal (Get-AgentBPwaEntryJson -Url $url) (Get-ItemProperty -LiteralPath $root).'1' 'stored json'
-    }
-    Test-Case 'a reinstall rewrites its own value rather than adding a second' {
-        Reset-PolicyRoot
-        $null = Set-AgentBPwaPolicy -Url $url -PolicyRoot $root
-        Assert-Equal '1' (Set-AgentBPwaPolicy -Url $url -PolicyRoot $root) 'value name on reinstall'
-        Assert-Equal 1 (Get-AgentBPwaPolicyValues -PolicyRoot $root).Count 'value count'
-    }
     Test-Case 'a neighbour keeps its index and its value' {
-        # Somebody else's forced install must survive ours, both ways.
+        # Somebody else's forced install must survive our uninstall.
         Reset-PolicyRoot
-        $neighbour = '{"url":"https://example.com/app","default_launch_container":"window"}'
-        Set-ItemProperty -LiteralPath $root -Name '1' -Value $neighbour -Type String
-        Assert-Equal '2' (Set-AgentBPwaPolicy -Url $url -PolicyRoot $root) 'our value name'
-        Assert-Equal $neighbour (Get-ItemProperty -LiteralPath $root).'1' 'neighbour value after our write'
-        Assert-Equal '2' (Remove-AgentBPwaPolicy -Url $url -PolicyRoot $root) 'removed value name'
-        Assert-Equal $neighbour (Get-ItemProperty -LiteralPath $root).'1' 'neighbour value after our removal'
-        if (-not (Test-Path -LiteralPath $root)) { throw 'the key was deleted while a neighbour still held a value' }
+        Set-ItemProperty -LiteralPath $registryRoot -Name '1' -Value $neighbour -Type String
+        Set-ItemProperty -LiteralPath $registryRoot -Name '2' -Value $ours -Type String
+        Assert-Equal '2' (Remove-AgentBPwaPolicy -Url $url -PolicyRoot $registryRoot) 'removed name'
+        Assert-Equal $neighbour (Get-ItemProperty -LiteralPath $registryRoot).'1' 'neighbour value after our removal'
+        if (-not (Test-Path -LiteralPath $registryRoot)) { throw 'the key was deleted while a neighbour still held a value' }
     }
-    Test-Case 'the last removal takes the empty key with it' {
+
+    Test-Case 'an entry for another port is not ours to remove' {
         Reset-PolicyRoot
-        $null = Set-AgentBPwaPolicy -Url $url -PolicyRoot $root
-        Assert-Equal '1' (Remove-AgentBPwaPolicy -Url $url -PolicyRoot $root) 'removed value name'
-        if (Test-Path -LiteralPath $root) { throw 'an empty key of ours was left behind' }
+        $other = '{"url":"http://127.0.0.1:8787/chat","default_launch_container":"window"}'
+        Set-ItemProperty -LiteralPath $registryRoot -Name '1' -Value $other -Type String
+        Assert-Null (Remove-AgentBPwaPolicy -Url $url -PolicyRoot $registryRoot) 'removal of another installation'
+        Assert-Equal $other (Get-ItemProperty -LiteralPath $registryRoot).'1' 'the other installation survives'
     }
+
     Test-Case 'removing what was never installed is not an error' {
         Reset-PolicyRoot
-        Assert-Null (Remove-AgentBPwaPolicy -Url $url -PolicyRoot $root) 'removal of an absent entry'
-        Remove-Item -LiteralPath $root -Recurse -Force
-        Assert-Null (Remove-AgentBPwaPolicy -Url $url -PolicyRoot $root) 'removal with no key at all'
-    }
-    Test-Case 'two installations on two ports do not collide' {
-        Reset-PolicyRoot
-        $other = 'http://127.0.0.1:8787/chat'
-        Assert-Equal '1' (Set-AgentBPwaPolicy -Url $url -PolicyRoot $root) 'first'
-        Assert-Equal '2' (Set-AgentBPwaPolicy -Url $other -PolicyRoot $root) 'second'
-        $null = Remove-AgentBPwaPolicy -Url $url -PolicyRoot $root
-        Assert-Equal '2' (Find-AgentBPwaPolicyName -Url $other -PolicyRoot $root) 'the survivor'
+        Assert-Null (Remove-AgentBPwaPolicy -Url $url -PolicyRoot $registryRoot) 'removal of an absent entry'
+        Remove-Item -LiteralPath $registryRoot -Recurse -Force
+        Assert-Null (Remove-AgentBPwaPolicy -Url $url -PolicyRoot $registryRoot) 'removal with no key at all'
     }
 
-    # ---- the app-id lookup, which is untrusted input ---------------------
-    $id = 'abcdefghijklmnopabcdefghijklmnop'
-    Test-Case 'the id is returned when the record carries our url' {
-        $dir = New-PreferencesProfile ('{"web_apps":{"web_app_ids":{"' + $id + '":{"start_url":"' + $url + '"}}}}')
-        Assert-Equal $id (Find-AgentBPwaAppId -Url $url -ProfileDirectory $dir) 'app id'
+    Test-Case 'a url that is not ours can never drive a removal' {
+        # The url uninstall uses comes out of the registry, so it is input.
+        Reset-PolicyRoot
+        Set-ItemProperty -LiteralPath $registryRoot -Name '1' -Value $neighbour -Type String
+        Assert-Null (Remove-AgentBPwaPolicy -Url 'https://example.com/app' -PolicyRoot $registryRoot) 'foreign url'
+        Assert-Equal $neighbour (Get-ItemProperty -LiteralPath $registryRoot).'1' 'the neighbour survives a foreign url'
     }
-    Test-Case 'a record for another origin is not ours' {
-        $dir = New-PreferencesProfile ('{"web_apps":{"web_app_ids":{"' + $id + '":{"start_url":"https://evil.example/chat"}}}}')
-        Assert-Null (Find-AgentBPwaAppId -Url $url -ProfileDirectory $dir) 'foreign record'
-    }
-    Test-Case 'an installation on another port is not ours' {
-        $dir = New-PreferencesProfile ('{"web_apps":{"web_app_ids":{"' + $id + '":{"start_url":"http://127.0.0.1:8787/chat"}}}}')
-        Assert-Null (Find-AgentBPwaAppId -Url $url -ProfileDirectory $dir) 'other port'
-    }
-    Test-Case 'an id of the wrong shape is refused even with our url' {
-        # The id goes onto a command line. Only Edge's own alphabet, only its
-        # length, so a crafted key cannot smuggle a second argument in.
-        foreach ($bad in @('short', 'abcdefghijklmnopabcdefghijklmnoq', ($id + 'a'), '--disable-web-security')) {
-            $dir = New-PreferencesProfile ('{"web_apps":{"web_app_ids":{"' + $bad + '":{"start_url":"' + $url + '"}}}}')
-            Assert-Null (Find-AgentBPwaAppId -Url $url -ProfileDirectory $dir) "malformed id '$bad'"
+
+    Test-Case 'the write path is gone, not merely unused' {
+        $module = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'pwa-policy.ps1')
+        foreach ($gone in @('Set-AgentBPwaPolicy', 'Get-AgentBPwaEntryJson', 'Find-AgentBPwaAppId')) {
+            if ($module -match ("function\s+" + [regex]::Escape($gone))) { throw "$gone is still defined" }
         }
-    }
-    Test-Case 'every missing, broken or hostile profile falls back rather than guessing' {
-        Assert-Null (Find-AgentBPwaAppId -Url $url -ProfileDirectory (Join-Path $scratch 'absent')) 'no profile directory'
-        Assert-Null (Find-AgentBPwaAppId -Url $url -ProfileDirectory (New-PreferencesProfile 'not json at all')) 'unparseable Preferences'
-        Assert-Null (Find-AgentBPwaAppId -Url $url -ProfileDirectory (New-PreferencesProfile '{}')) 'Preferences with no web apps'
-        Assert-Null (Find-AgentBPwaAppId -Url $url -ProfileDirectory (New-PreferencesProfile '{"web_apps":{"web_app_ids":{}}}')) 'no installed apps'
-        Assert-Null (Find-AgentBPwaAppId -Url $url -ProfileDirectory (New-PreferencesProfile ('{"web_apps":{"web_app_ids":{"' + $id + '":{}}}}'))) 'a record with no url'
-    }
-    Test-Case 'a lookup for a url that is not ours never returns anything' {
-        $dir = New-PreferencesProfile ('{"web_apps":{"web_app_ids":{"' + $id + '":{"start_url":"https://evil.example/chat"}}}}')
-        Assert-Null (Find-AgentBPwaAppId -Url 'https://evil.example/chat' -ProfileDirectory $dir) 'foreign lookup url'
+        $installer = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'install-Agent_b.ps1')
+        if ($installer -match 'Set-AgentBPwaPolicy') { throw 'the installer still writes the policy' }
+        $launcher = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'launch-Agent_b.ps1')
+        if ($launcher -match '\-\-app-id=') { throw 'the launcher still opens an installed app' }
     }
 } finally {
-    if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
-    $parent = 'HKCU:\Software\Agent_b\Test'
-    if ((Test-Path -LiteralPath $parent) -and -not (Get-ChildItem -LiteralPath $parent -ErrorAction SilentlyContinue)) {
-        Remove-Item -LiteralPath $parent -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $registryRoot) { Remove-Item -LiteralPath $registryRoot -Recurse -Force -ErrorAction SilentlyContinue }
+    $registryParent = 'HKCU:\Software\Agent_b\Test'
+    if ((Test-Path -LiteralPath $registryParent) -and -not (Get-ChildItem -LiteralPath $registryParent -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $registryParent -Recurse -Force -ErrorAction SilentlyContinue
     }
-    if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 Write-Host ''
-Write-Host "PWA POLICY: $script:pass PASS, $script:fail FAIL"
+Write-Host "PWA POLICY REMOVAL: $script:pass PASS, $script:fail FAIL"
 if ($script:fail) { exit 1 }
 exit 0

@@ -610,7 +610,7 @@ if (realModel) {
   await waitProjectedChatText(sessionID, "VISIBLE PARTIAL COMPLETE", "completed prose stream");
   record("mid-stream-prose-visible-without-expansion");
 
-  assert.equal(await page.locator('.shell-page[aria-label="plan"] .shell-page-icon').count(), 1);
+  assert.equal(await page.locator('.shell-page[aria-label="plan"] .shell-page-chip').count(), 1);
   assert.equal(await page.locator(".shell-page").getAttribute("title"), "plan");
   assert.equal(await page.locator(".shell-settings").count(), 1);
   assert.equal(await page.locator("#chat-title").count(), 0);
@@ -663,7 +663,7 @@ if (realModel) {
   // second of opening the section, without waiting for an unrelated redraw.
   await browser.wait(`document.querySelector('#panel-stats')?.childElementCount > 0 && !document.querySelector('#panel-stats')?.innerText.includes('No lifetime activity')`, "lifetime numbers within a second", 1000);
   const chatToPanelMS = performance.now() - chatToPanelStarted;
-  assert.equal(await page.locator('.shell-page[aria-label="plan"] .shell-page-icon').count(), 1);
+  assert.equal(await page.locator('.shell-page[aria-label="plan"] .shell-page-chip').count(), 1);
   const panelGeometry = await captureShellGeometry();
   assert.deepEqual(panelGeometry, chatGeometry, JSON.stringify({ chatGeometry, panelGeometry }));
   // Agents holds the setup half. Both halves of the one table that was split
@@ -918,7 +918,16 @@ if (realModel) {
     return !node || node.hidden || !box || box.bottom < 0 || box.top > innerHeight;
   }, undefined, { timeout: 10000 }).catch(() => {});
   const arrowAfterSection = await collapseArrow.boundingBox();
-  assert.ok(!arrowAfterSection || arrowAfterSection.y < 0 || arrowAfterSection.y > 975, "collapse arrow must leave the viewport with its section");
+  // Item 2gk (v1.3.0): this bound used to be the literal 975, which was the
+  // viewport height of the day minus the band the readout occupied above the
+  // composer. The readout has moved into the status strip, so #chat-log is
+  // taller and 975 is no longer the edge of anything. The check is the same
+  // check -- the arrow left with its section -- measured instead of guessed,
+  // and it is the predicate the waitForFunction above already uses.
+  const viewportHeight = await page.evaluate(() => window.innerHeight);
+  assert.ok(
+    !arrowAfterSection || arrowAfterSection.y + arrowAfterSection.height < 0 || arrowAfterSection.y > viewportHeight,
+    `collapse arrow must leave the viewport with its section: ${JSON.stringify({ arrowAfterSection, viewportHeight })}`);
   await page.evaluate(() => document.querySelector('[data-acceptance-spacer="collapse-arrow"]')?.remove());
   await toolRoot.evaluate((root) => { root.style.minHeight = ""; });
   await toolButton.scrollIntoViewIfNeeded();

@@ -864,3 +864,6 @@ if ([string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
     & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-chat-acceptance.ps1') -SkipBuild -EvidenceDirectory (Join-Path $EvidenceDirectory 'chat')
 }
 if ($LASTEXITCODE -ne 0) { throw "Chat acceptance release gate exited $LASTEXITCODE." }
+
+& (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-install-registration.ps1')
+if ($LASTEXITCODE -ne 0) { throw "The singleton Installed apps registration suite exited $LASTEXITCODE." }

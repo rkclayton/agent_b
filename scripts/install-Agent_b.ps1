@@ -9,6 +9,8 @@ param(
     [string]$OperatorSid,
     [string]$OperatorLocalAppData,
     [string]$SigningThumbprint,
+    # Test-only registry roots used by the singleton-registration scenarios.
+    [string[]]$RegistrationSearchRoots,
     [switch]$TestMode,
     [switch]$ForcePostStopVerificationFailure,
     [string]$TranscriptPath,
@@ -39,6 +41,7 @@ function Write-InstallProgress {
 }
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
 . (Join-Path $PSScriptRoot 'agentb-stop.ps1')
+. (Join-Path $PSScriptRoot 'install-registration.ps1')
 
 function Get-FullPath {
     param([string]$Path)
@@ -476,6 +479,7 @@ Assert-TestPath $applicationRoot
 Assert-TestPath $dataRoot
 Assert-TestPath $workspaceRoot
 if ($ForcePostStopVerificationFailure -and -not $TestMode) { throw 'ForcePostStopVerificationFailure is available only with TestMode.' }
+if ($RegistrationSearchRoots.Count -and -not $TestMode) { throw 'RegistrationSearchRoots is available only with TestMode.' }
 Assert-DisjointRoots @($applicationRoot, $dataRoot, $workspaceRoot)
 if ($sourceRoot.Equals($applicationRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'SourceDirectory and ApplicationDirectory must be different.' }
 if (-not $TestMode) {
@@ -490,6 +494,29 @@ if (-not $TestMode) {
     }
     if (-not $workspaceRoot.Equals($expectedWorkspaceRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw "WorkspaceDirectory must be the machine-scoped ProgramData location: $expectedWorkspaceRoot"
+    }
+}
+
+if (-not $TestMode) {
+    $RegistrationSearchRoots = @(
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    )
+}
+$relatedRegistrations = @(Get-AgentBInstallRegistrations -Roots $RegistrationSearchRoots -CanonicalRegistryPath $UninstallRegistryPath)
+$staleRegistrations = @(Get-AgentBRegistrationPreflight -Registrations $relatedRegistrations)
+$alternateBinaryRoots = if ($TestMode) { @() } else {
+    @(
+        (Join-Path $OperatorLocalAppData 'Programs\Agent_b'),
+        $(if (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} 'Agent_b' })
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+}
+foreach ($alternateRoot in $alternateBinaryRoots) {
+    $alternateBinary = Join-Path $alternateRoot 'Agent_b.exe'
+    if ((-not $alternateRoot.Equals($applicationRoot, [StringComparison]::OrdinalIgnoreCase)) -and
+        (Test-Path -LiteralPath $alternateBinary -PathType Leaf)) {
+        throw "Installation refused: another Agent_b executable exists at $alternateBinary. Remove that installation before installing this copy."
     }
 }
 
@@ -780,6 +807,12 @@ $estimatedKB = [int][Math]::Ceiling(((Get-ChildItem -LiteralPath $applicationRoo
 $null = New-ItemProperty -Path $UninstallRegistryPath -Name EstimatedSize -Value $estimatedKB -PropertyType DWord -Force
 $null = New-ItemProperty -Path $UninstallRegistryPath -Name NoModify -Value 1 -PropertyType DWord -Force
 $null = New-ItemProperty -Path $UninstallRegistryPath -Name NoRepair -Value 1 -PropertyType DWord -Force
+foreach ($staleRegistration in $staleRegistrations) {
+    if ($PSCmdlet.ShouldProcess($staleRegistration.RegistryPath, "Remove stale $($staleRegistration.DisplayName) Installed apps registration")) {
+        Remove-AgentBStaleRegistrations -Registrations @($staleRegistration)
+        Write-Host "Removed stale Installed apps registration: $($staleRegistration.DisplayName) ($($staleRegistration.InstallLocation))"
+    }
+}
 
 # Item 2gl (v1.3.0/W3): THE PWA CLAUSE IS OUT. v1.2.7 wrote an Edge
 # WebAppInstallForceList entry here so Edge would install the app silently and

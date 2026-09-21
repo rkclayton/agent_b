@@ -59,8 +59,10 @@ function Test-PrivateKeyUsable {
 function Get-SignableFiles {
     param([string]$Root)
     $files = @()
-    $binary = Join-Path $Root 'Agent_b.exe'
-    if (Test-Path -LiteralPath $binary -PathType Leaf) { $files += $binary }
+    foreach ($name in @('Agent_b.exe', 'Agent_b-setup.exe')) {
+        $binary = Join-Path $Root $name
+        if (Test-Path -LiteralPath $binary -PathType Leaf) { $files += $binary }
+    }
     $files += @(Get-ChildItem -LiteralPath $Root -Filter '*.ps1' -File -Recurse | ForEach-Object FullName)
     return @($files | Sort-Object -Unique)
 }
@@ -148,6 +150,11 @@ if ((Test-Path -LiteralPath $candidateManifest -PathType Leaf) -and (Test-Path -
     $manifest = Get-Content -Raw -LiteralPath $candidateManifest | ConvertFrom-Json
     $manifest.exe_sha256 = (Get-FileHash -LiteralPath (Join-Path $root 'Agent_b.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
     $manifest.exe_bytes = (Get-Item -LiteralPath (Join-Path $root 'Agent_b.exe')).Length
+    $setup = Join-Path $root 'Agent_b-setup.exe'
+    if (Test-Path -LiteralPath $setup -PathType Leaf) {
+        $manifest | Add-Member -NotePropertyName setup_sha256 -NotePropertyValue ((Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()) -Force
+        $manifest | Add-Member -NotePropertyName setup_bytes -NotePropertyValue ((Get-Item -LiteralPath $setup).Length) -Force
+    }
     [IO.File]::WriteAllText($candidateManifest, ($manifest | ConvertTo-Json) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
     Write-Host "MANIFEST: exe_sha256 updated to the signed Agent_b.exe"
 }

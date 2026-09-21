@@ -82,6 +82,11 @@ function stage(tag) {
   fs.copyFileSync(built, setup);
   const identical = fs.readFileSync(built).equals(fs.readFileSync(setup));
   if (!identical) throw new Error("Agent_b-setup.exe is not the verified build");
+  const manifestPath = path.join(target, "candidate-final.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  manifest.setup_sha256 = manifest.exe_sha256;
+  manifest.setup_bytes = fs.statSync(setup).size;
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`SETUP: ${setup} (a copy of the verified Agent_b.exe)`);
 
   for (const name of stagedToRemove(fs.readdirSync(candidates))) {

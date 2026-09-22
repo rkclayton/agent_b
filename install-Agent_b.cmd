@@ -28,6 +28,12 @@ set "AGENT_B_EXIT=%ERRORLEVEL%"
 echo.
 if not "%AGENT_B_EXIT%"=="0" goto :installation_failed
 
+findstr.exe /c:"AUTOSTART DISABLED: -NoStart" "%AGENT_B_INSTALL_LOG%" >nul 2>&1
+if not errorlevel 1 (
+  echo Agent_b installation is complete; -NoStart skipped launch. Transcript: %AGENT_B_INSTALL_LOG%
+  exit /b 0
+)
+
 powershell.exe -NoLogo -NoProfile -Command "$p=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()); if($p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){exit 0}else{exit 1}" >nul 2>&1
 if not errorlevel 1 (
   echo Agent_b installation is complete, but autostart was skipped because this wrapper is elevated. Open Agent_b from the Start menu. Transcript: %AGENT_B_INSTALL_LOG%

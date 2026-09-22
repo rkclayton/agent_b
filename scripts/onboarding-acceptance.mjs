@@ -46,7 +46,7 @@ const fake = createServer(async (request, response) => {
   requestCount += 1;
   response.setHeader("Content-Type", "application/json");
   if (request.url === "/props") return void response.end(JSON.stringify({ server: "llama.cpp", n_ctx: 32768 }));
-  if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: [{ id: "onboarding-fake" }] }));
+  if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: [{ id: "onboarding-fake" }, { id: "onboarding-fake-second" }] }));
   let raw = "";
   for await (const chunk of request) raw += chunk;
   const body = raw ? JSON.parse(raw) : {};

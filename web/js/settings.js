@@ -464,7 +464,14 @@ async function click(event) {
     try {
       const discovered = await api(`/api/servers/${encodeURIComponent(id)}/probe`);
       const needsModel = discovered.status === "model_required";
-      probeMessages.set(id, { ...discovered, found: discovered.message || "", message: needsModel ? `Test failed — ${discovered.error}` : (discovered.message || "Testing…"), alarm: needsModel });
+      const observed = probeMessages.get(id) || {};
+      const terminal = /^Test (?:passed|failed)/.test(observed.message || "");
+      probeMessages.set(id, {
+        ...discovered,
+        found: discovered.message || "",
+        message: terminal ? observed.message : (needsModel ? `Test failed — ${discovered.error}` : (discovered.message || "Testing…")),
+        alarm: terminal ? !!observed.alarm : needsModel,
+      });
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
       render();
     } catch (error) {

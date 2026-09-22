@@ -74,6 +74,32 @@ function Get-AgentBProcessesAtPath {
     })
 }
 
+function Get-ProcessTokenProof {
+    param([int]$ProcessId)
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class AgentBInstallerToken {
+  [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+  [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+  [DllImport("advapi32.dll", SetLastError=true)] static extern bool GetTokenInformation(IntPtr token, int kind, out int value, int length, out int returned);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+  public static bool IsElevated(int pid) {
+    IntPtr process = OpenProcess(0x1000, false, pid), token;
+    if (process == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+    try {
+      if (!OpenProcessToken(process, 0x0008, out token)) throw new System.ComponentModel.Win32Exception();
+      try { int value, returned; if (!GetTokenInformation(token, 20, out value, 4, out returned)) throw new System.ComponentModel.Win32Exception(); return value != 0; }
+      finally { CloseHandle(token); }
+    } finally { CloseHandle(process); }
+  }
+}
+'@ -ErrorAction SilentlyContinue
+    $cim = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId"
+    $owner = Invoke-CimMethod -InputObject $cim -MethodName GetOwner
+    return [pscustomobject]@{ pid = $ProcessId; identity = "$($owner.Domain)\$($owner.User)"; elevated = [AgentBInstallerToken]::IsElevated($ProcessId) }
+}
+
 function Get-FilePrefixHash {
     param([string]$Path, [long]$Length)
     $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
@@ -179,7 +205,7 @@ try {
 	$savedErrorAction = $ErrorActionPreference
 	$ErrorActionPreference = 'Continue'
 	try {
-		$singleOutput = (& $singleSetup --quiet --install-data (Join-Path $singleRoot 'Data') -ApplicationDirectory (Join-Path $singleRoot 'Application\Agent_b') -DataDirectory (Join-Path $singleRoot 'Data\Agent_b') -WorkspaceDirectory (Join-Path $singleRoot 'ProgramData\Agent_b\workspace') -StartMenuDirectory (Join-Path $singleRoot 'StartMenu') -UninstallRegistryPath ($testRegistry + '-SingleFile') -TestMode -WhatIf 2>&1 | Out-String)
+		$singleOutput = (& $singleSetup --quiet --install-data (Join-Path $singleRoot 'Data') -NoStart -ApplicationDirectory (Join-Path $singleRoot 'Application\Agent_b') -DataDirectory (Join-Path $singleRoot 'Data\Agent_b') -WorkspaceDirectory (Join-Path $singleRoot 'ProgramData\Agent_b\workspace') -StartMenuDirectory (Join-Path $singleRoot 'StartMenu') -UninstallRegistryPath ($testRegistry + '-SingleFile') -TestMode -WhatIf 2>&1 | Out-String)
 		$singleExit = $LASTEXITCODE
 	} finally {
 		$ErrorActionPreference = $savedErrorAction
@@ -188,10 +214,47 @@ try {
 		Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
 	$singleLogText = if ($singleLog) { Get-Content -Raw -LiteralPath $singleLog.FullName } else { '' }
 	$singleAfter = Get-RootFingerprint -Roots $singleTargets
-	if ($singleExit -ne 0 -or $singleBefore -cne $singleAfter -or $singleLogText -notmatch 'PREFLIGHT COMPLETE' -or $singleLogText -notmatch 'Mode: WhatIf') {
+	if ($singleExit -ne 0 -or $singleBefore -cne $singleAfter -or $singleLogText -notmatch 'PREFLIGHT COMPLETE' -or $singleLogText -notmatch 'Mode: WhatIf' -or $singleLogText -notmatch 'AUTOSTART SKIPPED: -NoStart') {
 		throw "Single-file setup did not complete TestMode/WhatIf preflight.`n$singleOutput"
 	}
 	Write-Host 'PROOF single-file setup: browser-renamed Agent_b-setup (1).exe extracted, regenerated its manifest, and completed TestMode/WhatIf preflight'
+
+    # A completed copy followed by a launch failure must end with one useful
+    # line naming the durable log. Holding the disposable listen port produces
+    # the real launcher failure without changing production or another root.
+    $launchFailRoot = Join-Path $testRoot 'LaunchFail'
+    $launchFailApplication = Join-Path $launchFailRoot 'Application\Agent_b'
+    $launchFailData = Join-Path $launchFailRoot 'Data\Agent_b'
+    $launchFailPort = Get-FreeTcpPort
+    $null = New-Item -ItemType Directory -Path $launchFailData -Force
+    $launchFailConfig = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'harness.example.json') | ConvertFrom-Json
+    $launchFailConfig.listen = "127.0.0.1:$launchFailPort"
+    $launchFailConfig.workspace = Join-Path $launchFailData 'scratch'
+    $launchFailConfig.log_dir = Join-Path $launchFailData 'logs'
+    $launchFailConfig.memory.dir = Join-Path $launchFailData 'memory'
+    [IO.File]::WriteAllText((Join-Path $launchFailData 'harness.json'), ($launchFailConfig | ConvertTo-Json -Depth 100), [Text.UTF8Encoding]::new($false))
+    $launchFailLog = Join-Path $launchFailData 'logs\launch-failure.log'
+    $portBlocker = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $launchFailPort)
+    $portBlocker.Start()
+    $savedInstallLog = $env:AGENT_B_INSTALL_LOG
+    $savedNoBrowser = $env:AGENT_B_INSTALL_NO_BROWSER
+    $env:AGENT_B_INSTALL_LOG = $launchFailLog
+    $env:AGENT_B_INSTALL_NO_BROWSER = '1'
+    try {
+        $launchFailOutput = (& $singleSetup --quiet --install-data $launchFailData -ApplicationDirectory $launchFailApplication -DataDirectory $launchFailData -WorkspaceDirectory (Join-Path $launchFailRoot 'ProgramData\Agent_b\workspace') -StartMenuDirectory (Join-Path $launchFailRoot 'StartMenu') -UninstallRegistryPath ($testRegistry + '-LaunchFail') -TestMode 2>&1 | Out-String)
+        $launchFailExit = $LASTEXITCODE
+    } finally {
+        $portBlocker.Stop()
+        $env:AGENT_B_INSTALL_LOG = $savedInstallLog
+        $env:AGENT_B_INSTALL_NO_BROWSER = $savedNoBrowser
+    }
+    $launchFailLines = @(Get-Content -LiteralPath $launchFailLog | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $launchFailLast = $launchFailLines[-1]
+    if ($launchFailExit -eq 0 -or $launchFailLast -notmatch 'install FAILED: Agent_b was installed but failed to start:' -or $launchFailLast -notmatch [regex]::Escape("Log: $launchFailLog")) {
+        throw "Launch failure did not end with its cause and log path.`nLAST: $launchFailLast`nOUTPUT: $launchFailOutput"
+    }
+    Write-Host "PROOF failed autostart last line: $launchFailLast"
+    if (Test-Path -LiteralPath ($testRegistry + '-LaunchFail')) { Remove-Item -LiteralPath ($testRegistry + '-LaunchFail') -Recurse -Force }
 
     $whatIfApplication = Join-Path $testRoot 'WhatIf\Application\Agent_b'
     $whatIfData = Join-Path $testRoot 'WhatIf\Data\Agent_b'
@@ -210,8 +273,35 @@ try {
         throw "WhatIf transcript was not isolated in the caller's temporary directory.`n$whatIfOutput"
     }
 
-    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode
-    if ($LASTEXITCODE -ne 0) { throw "First install exited $LASTEXITCODE." }
+    $testPort = Get-FreeTcpPort
+    $null = New-Item -ItemType Directory -Path $testData -Force
+    $freshConfig = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'harness.example.json') | ConvertFrom-Json
+    $freshConfig.listen = "127.0.0.1:$testPort"
+    $freshConfig.workspace = Join-Path $testData 'scratch'
+    $freshConfig.log_dir = Join-Path $testData 'logs'
+    $freshConfig.memory.dir = Join-Path $testData 'memory'
+    [IO.File]::WriteAllText((Join-Path $testData 'harness.json'), ($freshConfig | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    $freshTranscriptPath = Join-Path $testData 'logs\fresh-single-file-transcript.log'
+    $savedInstallLog = $env:AGENT_B_INSTALL_LOG
+    $env:AGENT_B_INSTALL_LOG = $freshTranscriptPath
+    try {
+        $freshOutput = (& $singleSetup --quiet --install-data $testData -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode 2>&1 | Out-String)
+        $freshExit = $LASTEXITCODE
+    } finally { $env:AGENT_B_INSTALL_LOG = $savedInstallLog }
+    if ($freshExit -ne 0) { throw "First single-file install exited $freshExit.`n$freshOutput" }
+    $freshProcesses = @(Get-AgentBProcessesAtPath -Executable (Join-Path $testApplication 'Agent_b.exe'))
+    if ($freshProcesses.Count -ne 1) { throw "Fresh single-file install did not start exactly one Agent_b: $(@($freshProcesses.Id) -join ', ')" }
+    $freshTokenProof = Get-ProcessTokenProof -ProcessId $freshProcesses[0].Id
+    if ($freshTokenProof.elevated) { throw "Fresh install started elevated PID $($freshTokenProof.pid)." }
+    $freshState = Invoke-RestMethod -Uri "http://127.0.0.1:$testPort/api/state" -TimeoutSec 5
+    $freshTranscript = Get-Content -Raw -LiteralPath $freshTranscriptPath
+    if ($freshTranscript -notmatch 'AUTOSTART COMPLETE:' -or $freshTranscript -notmatch 'OPENED: Agent_b (?:host|browser) window') {
+        throw "Fresh install did not record a ready app and open window.`n$freshTranscript"
+    }
+    Write-Host "PROOF fresh autostart token: PID $($freshTokenProof.pid), identity $($freshTokenProof.identity), elevated=$($freshTokenProof.elevated), commit $($freshState.build.commit)"
+    $null = Request-AgentbGracefulStop -ApplicationRoot $testApplication -ProcessId $freshProcesses[0].Id
+    $freshProcesses[0].WaitForExit(15000) | Out-Null
+    if (-not $freshProcesses[0].HasExited) { throw 'Fresh autostart process did not stop before onboarding acceptance.' }
     $installedSha = (Get-FileHash -LiteralPath (Join-Path $testApplication 'Agent_b.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($installedSha -ne $candidateManifest.exe_sha256) { throw "First install did not install the manifest's exe: $installedSha, manifest $($candidateManifest.exe_sha256)." }
     Write-Host "PROOF candidate identity: installed Agent_b.exe sha256 $installedSha equals candidate-final.json"
@@ -224,7 +314,6 @@ try {
         throw 'Installed configuration does not use data-root scratch, logs, and memory.'
     }
 	if (Test-Path -LiteralPath $testWorkspace) { throw 'Fresh install created the removed legacy workspace.' }
-    $testPort = Get-FreeTcpPort
     $installedConfig.listen = "127.0.0.1:$testPort"
     $null = Assert-DisposableListen -Listen $installedConfig.listen -Where 'the installed disposable configuration' 
     $installedConfig.operator_files.log_retention_days = 1
@@ -495,7 +584,8 @@ try {
         -not $_.FullName.StartsWith((Join-Path $testData 'stats') + '\', [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.Equals($configPath, [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.Equals((Join-Path $testData 'STATE.md'), [StringComparison]::OrdinalIgnoreCase) -and
-        -not $_.FullName.Equals((Join-Path $testData 'agent_b-run.json'), [StringComparison]::OrdinalIgnoreCase)
+        -not $_.FullName.Equals((Join-Path $testData 'agent_b-run.json'), [StringComparison]::OrdinalIgnoreCase) -and
+        -not $_.FullName.Equals((Join-Path $testData 'install-progress.jsonl'), [StringComparison]::OrdinalIgnoreCase)
     } | ForEach-Object {
         [pscustomobject]@{ Path = $_.FullName; Length = $_.Length; PrefixSHA256 = Get-FilePrefixHash -Path $_.FullName -Length $_.Length }
     })
@@ -556,7 +646,7 @@ try {
     $env:AGENT_B_INSTALL_NO_PAUSE = '1'
     $env:AGENT_B_INSTALL_NO_BROWSER = '1'
     try {
-        $upgradeOutput = (& $installerWrapper -SourceDirectory (Split-Path -Parent $PSScriptRoot) -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode 2>&1 | Out-String)
+        $upgradeOutput = (& $singleSetup --quiet --install-data $testData -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode 2>&1 | Out-String)
         $upgradeExit = $LASTEXITCODE
     } finally {
         $env:AGENT_B_INSTALL_LOG = $savedInstallLog
@@ -564,18 +654,17 @@ try {
         $env:AGENT_B_INSTALL_NO_BROWSER = $savedNoBrowser
     }
     if ($upgradeExit -ne 0) { throw "Running-instance wrapper upgrade exited $upgradeExit.`n$upgradeOutput" }
-    if ($upgradeOutput -notmatch 'STOPPING: Agent_b PID' -or $upgradeOutput -notmatch 'STOPPED: Agent_b PID' -or $upgradeOutput -notmatch "Agent_b is ready at http://127\.0\.0\.1:$testPort/chat") {
-        throw "Running-instance upgrade did not report stop and restart lifecycle.`n$upgradeOutput"
-    }
     $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
     $upgradeTranscript = $strictUtf8.GetString([IO.File]::ReadAllBytes($upgradeTranscriptPath))
     if ($upgradeTranscript.Contains([char]0) -or $upgradeTranscript.Contains([char]0xfffd)) {
         throw 'Running-instance transcript is not one continuous UTF-8 encoding.'
     }
-    if ($upgradeTranscript -notmatch 'AUTOSTART COMPLETE: Agent_b started through ' -or
+    if ($upgradeTranscript -notmatch 'STOPPING: Agent_b PID' -or
+        $upgradeTranscript -notmatch 'STOPPED: Agent_b PID' -or
+        $upgradeTranscript -notmatch 'AUTOSTART COMPLETE: Agent_b started through ' -or
         $upgradeTranscript -notmatch "Agent_b is ready at http://127\.0\.0\.1:$testPort/chat" -or
         $upgradeTranscript -match 'Next: open Agent_b from Start' -or
-        $upgradeTranscript -notmatch [regex]::Escape("Transcript: $upgradeTranscriptPath")) {
+        $upgradeTranscript -notmatch [regex]::Escape("Log: $upgradeTranscriptPath")) {
         throw 'Running-instance transcript is missing its UTF-8 autostart record/path or retains contradictory closing guidance.'
     }
     $repairedShortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
@@ -593,6 +682,9 @@ try {
     if ($afterProcesses.Count -ne 1 -or $afterProcesses[0].Id -eq $beforeProcess.Id) {
         throw "Running-instance upgrade did not finish with exactly one restarted instance: $(@($afterProcesses.Id) -join ', ')"
     }
+    $upgradeTokenProof = Get-ProcessTokenProof -ProcessId $afterProcesses[0].Id
+    if ($upgradeTokenProof.elevated) { throw "Upgrade started elevated PID $($upgradeTokenProof.pid)." }
+    Write-Host "PROOF upgrade autostart token: old PID $($beforeProcess.Id) gone; new PID $($upgradeTokenProof.pid), identity $($upgradeTokenProof.identity), elevated=$($upgradeTokenProof.elevated)"
     $afterState = Invoke-RestMethod -Uri "http://127.0.0.1:$testPort/api/state" -TimeoutSec 5
     if ([bool]$afterState.build.dirty -ne [bool]$beforeState.build.dirty -or $afterState.build.commit -ne $beforeState.build.commit) {
         throw 'Restarted Agent_b identity does not match the installed build.'
@@ -642,7 +734,7 @@ try {
     $env:AGENT_B_INSTALL_NO_PAUSE = '1'
     $env:AGENT_B_INSTALL_NO_BROWSER = '1'
     try {
-        $forcedOutput = (& $installerWrapper -SourceDirectory (Split-Path -Parent $PSScriptRoot) -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode -ForcePostStopVerificationFailure 2>&1 | Out-String)
+        $forcedOutput = (& $singleSetup --quiet --install-data $testData -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode -ForcePostStopVerificationFailure 2>&1 | Out-String)
         $forcedExit = $LASTEXITCODE
     } finally {
         $env:AGENT_B_INSTALL_LOG = $savedInstallLog

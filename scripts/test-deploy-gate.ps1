@@ -37,6 +37,9 @@ if ($deploy -notmatch 'Remove-MatchingStagedCandidate' -or $deploy -notmatch 'si
 foreach ($required in @('candidate-final.json', 'Agent_b.exe', 'Agent_b-setup.exe', 'setup_sha256', 'setup_bytes', 'Get-AuthenticodeSignature', 'TimeStamperCertificate', 'DEPLOY REFUSED')) {
     if ($verify -notmatch [regex]::Escape($required)) { throw "Deploy verifier does not require $required." }
 }
+foreach ($required in @('-NoStart', '-TestMode', '-WhatIf', 'AUTOSTART SKIPPED: -NoStart')) {
+    if ($verify -notmatch [regex]::Escape($required)) { throw "Deploy verifier does not run its signed setup preflight with $required." }
+}
 if ($sign -notmatch "@\('Agent_b\.exe', 'Agent_b-setup\.exe'\)") { throw 'Release signing does not include the setup executable.' }
 if ($stage -notmatch 'manifest\.setup_sha256' -or $stage -notmatch 'manifest\.setup_bytes') { throw 'Candidate staging does not record the setup artifact.' }
 foreach ($required in @('windowsPowerShellEnvironment', 'PSModulePath', 'System32", "WindowsPowerShell", "v1.0", "powershell.exe')) {

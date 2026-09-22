@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -36,6 +37,15 @@ type installLog struct {
 // more than a log nowhere.
 func openInstallLog(dataRoot string, quiet bool) *installLog {
 	stamp := time.Now().Format("20060102-150405")
+	if explicit := strings.TrimSpace(os.Getenv("AGENT_B_INSTALL_LOG")); explicit != "" {
+		if err := os.MkdirAll(filepath.Dir(explicit), 0o755); err == nil {
+			if file, err := os.OpenFile(explicit, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+				log := &installLog{path: explicit, file: file, quiet: quiet}
+				log.printf("install: log opened at %s", explicit)
+				return log
+			}
+		}
+	}
 	for _, dir := range []string{filepath.Join(dataRoot, "logs"), os.TempDir()} {
 		if dir == "" {
 			continue
@@ -73,7 +83,7 @@ func (l *installLog) printf(format string, args ...any) {
 // "it just closed" cannot happen again.
 func (l *installLog) fail(format string, args ...any) int {
 	reason := fmt.Sprintf(format, args...)
-	l.printf("install FAILED: %s", reason)
+	l.printf("install FAILED: %s. Log: %s", strings.TrimSuffix(reason, "."), l.location())
 	if !l.quiet {
 		showInstallFailure("Agent_b install failed", reason+"\n\nLog: "+l.location())
 	}

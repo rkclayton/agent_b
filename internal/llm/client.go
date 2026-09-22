@@ -301,7 +301,13 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 	connected := &atomic.Bool{}
 	ctx = context.WithValue(ctx, connectionTraceKey{}, connected)
 	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{GotConn: func(httptrace.GotConnInfo) { connected.Store(true) }})
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.profile.BaseURL, "/")+path, body)
+	base := strings.TrimRight(c.profile.BaseURL, "/")
+	// A discovered OpenAI endpoint may be shown and saved with its /v1 prefix.
+	// Avoid duplicating that prefix when the typed operation already carries it.
+	if strings.HasSuffix(strings.ToLower(base), "/v1") && strings.HasPrefix(path, "/v1/") {
+		path = strings.TrimPrefix(path, "/v1")
+	}
+	req, err := http.NewRequestWithContext(ctx, method, base+path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -406,7 +412,8 @@ func (c *Client) Models(ctx context.Context) ([]string, error) {
 }
 
 func responseShapeError(endpoint string, raw []byte, status int, contentType, finalURL string, cause error) error {
-	prefix := strings.Join(strings.Fields(string(raw)), " ")
+	first := strings.SplitN(string(raw), "\n", 2)[0]
+	prefix := strings.Join(strings.Fields(first), " ")
 	if len(prefix) > 160 {
 		prefix = prefix[:160]
 	}

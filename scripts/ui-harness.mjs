@@ -46,11 +46,11 @@ async function stopChild(child) {
 
 const TOOLSET = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
 
-function configFor({ appPort, modelPort, data, workspace, agents = [] }) {
+function configFor({ appPort, modelPort, data, workspace, agents = [], profileModel = "ui-harness" }) {
   return {
     config_version: 6, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(data, "logs"),
     servers: [{
-      id: "ui", label: "UI", base_url: `http://127.0.0.1:${modelPort}`, model: "ui-harness", credential: "", request_timeout_s: 2, probe_mode: "off",
+      id: "ui", label: "UI", base_url: `http://127.0.0.1:${modelPort}`, model: profileModel, credential: "", request_timeout_s: 2, probe_mode: "off",
       sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
       reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false },
       context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
@@ -72,7 +72,7 @@ function configFor({ appPort, modelPort, data, workspace, agents = [] }) {
 // start brings up the harness. `reachable: false` leaves the model port unbound,
 // which is what the operator had. `routeFailures` is a set of API path prefixes
 // the browser context fails, so a scenario can break `/api/plan` alone.
-export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [] }) {
+export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], profileModel = "ui-harness" }) {
   const dataRoot = resolve(data);
   const workspace = join(dataRoot, "workspace");
   await mkdir(workspace, { recursive: true });
@@ -82,7 +82,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
   if (reachable) {
     model = createServer(async (request, response) => {
       if (request.url === "/props") return void response.end(JSON.stringify({ server: "ui-harness", n_ctx: 32768 }));
-      if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: [{ id: "ui-harness" }] }));
+      if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: modelIDs.map((id) => ({ id })) }));
       if (request.url === "/tokenize") return void response.end(JSON.stringify({ tokens: [1] }));
       if (request.url === "/apply-template") return void response.end(JSON.stringify({ prompt: "ui harness" }));
       for await (const _chunk of request) { /* drain */ }
@@ -96,7 +96,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
 
   const appPort = await freePort();
   const configPath = join(dataRoot, "harness.json");
-  await writeFile(configPath, JSON.stringify(configFor({ appPort, modelPort, data: dataRoot, workspace, agents }), null, 2));
+  await writeFile(configPath, JSON.stringify(configFor({ appPort, modelPort, data: dataRoot, workspace, agents, profileModel }), null, 2));
 
   let stderr = "";
   const app = spawn(resolve(exe), ["-config", configPath, "-app-root", resolve(appRoot), "-data-root", dataRoot], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });

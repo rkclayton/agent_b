@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 
 import { renderAboutPage } from "./settings-about.js";
@@ -70,4 +71,14 @@ test("Connections summary row never renders decoder detail verbatim", () => {
 	const page = renderConnectionsPage(context);
 	assert.match(page, /Test failed — Connection returned a web page, not model API JSON/);
 	assert.doesNotMatch(page, /invalid character/);
+});
+
+test("Connections Test consumes endpoint discovery and renders its model picker", () => {
+  const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
+  const connections = fs.readFileSync(new URL("settings-connections.js", import.meta.url), "utf8");
+  assert.match(controller, /const discovered = await api\(`\/api\/servers\/\$\{encodeURIComponent\(id\)\}\/probe`\)/);
+  assert.match(controller, /discovered\.status === "model_required"/);
+  assert.match(connections, /discovery\?\.models/);
+  assert.match(connections, /<select class="setting-input"/);
+  assert.match(connections, /discovery-note/);
 });

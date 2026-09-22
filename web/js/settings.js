@@ -106,7 +106,7 @@ export function initSettings(entry = {}) {
       const profileID = event.data?.server_id || "";
       const findings = event.data?.capabilities?.findings || event.data?.findings || [];
       const failed = findings.find((value) => String(value).startsWith("probe failed:"));
-      probeMessages.set(profileID, { message: failed ? `Test failed — ${String(failed).slice(13).trim()}` : "Test passed", alarm: !!failed });
+      probeMessages.set(profileID, { ...(probeMessages.get(profileID) || {}), message: failed ? `Test failed — ${String(failed).slice(13).trim()}` : "Test passed", alarm: !!failed });
     }
     if (
       open && (
@@ -462,7 +462,11 @@ async function click(event) {
     probeMessages.set(id, { message: "Testing…", alarm: false });
     render();
     try {
-      await api(`/api/servers/${encodeURIComponent(id)}/probe`);
+      const discovered = await api(`/api/servers/${encodeURIComponent(id)}/probe`);
+      const needsModel = discovered.status === "model_required";
+      probeMessages.set(id, { ...discovered, found: discovered.message || "", message: needsModel ? `Test failed — ${discovered.error}` : (discovered.message || "Testing…"), alarm: needsModel });
+      reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+      render();
     } catch (error) {
       if (profile) profile._probing = false;
       errors.set(`servers.${id}`, error.message);

@@ -354,6 +354,9 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			}()
 		}
 		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
+		if s.updater != nil {
+			s.updater.ConfigChanged(context.Background())
+		}
 		writeJSON(w, 200, masked)
 	default:
 		method(w)

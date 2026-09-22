@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"harness/internal/updater"
 )
 
 func writeBundleFixture(t *testing.T, entries map[string]string) string {
@@ -64,6 +66,26 @@ func TestSingleFileSetupExtractsVerifiedPayloadAndMatchingManifest(t *testing.T)
 	want, _ := fileSHA256(executable)
 	if manifest.ExeSHA != want {
 		t.Fatalf("manifest hash=%s want %s", manifest.ExeSHA, want)
+	}
+}
+
+func TestSetupFilenameSelectsInstallMode(t *testing.T) {
+	if !setupExecutable(`C:\Downloads\Agent_b-setup.exe`) {
+		t.Fatal("the deployable setup filename must install when double-clicked")
+	}
+	if setupExecutable(`C:\Program Files\Agent_b\Agent_b.exe`) {
+		t.Fatal("the installed application filename must start the application")
+	}
+}
+
+func TestUpdateFixtureURLAcceptsOnlyLoopback(t *testing.T) {
+	t.Setenv("AGENTB_UPDATE_FIXTURE_URL", "http://127.0.0.1:4321/latest")
+	if got := updateLatestURL(); got != "http://127.0.0.1:4321/latest" {
+		t.Fatalf("loopback fixture URL=%q", got)
+	}
+	t.Setenv("AGENTB_UPDATE_FIXTURE_URL", "https://example.com/latest")
+	if got := updateLatestURL(); got != updater.LatestReleaseURL {
+		t.Fatalf("public override was accepted: %q", got)
 	}
 }
 

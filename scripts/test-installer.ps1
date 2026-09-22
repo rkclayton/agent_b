@@ -158,6 +158,33 @@ $candidateManifest = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'c
 
 $whatIfTranscript = ''
 try {
+	# Item 2hi: the deployable is one file. Copy only the signed bundled binary
+	# under its setup name, then let that name select install mode without a
+	# candidate folder or an explicit --install flag. WhatIf proves extraction,
+	# regenerated manifest identity and the complete installer preflight while
+	# leaving every target untouched.
+	$singleRoot = Join-Path $testRoot 'SingleFile'
+	$singleDrop = Join-Path $singleRoot 'Download'
+	$singleSetup = Join-Path $singleDrop 'Agent_b-setup.exe'
+	$singleTargets = @(
+		(Join-Path $singleRoot 'Application\Agent_b'),
+		(Join-Path $singleRoot 'Data\Agent_b'),
+		(Join-Path $singleRoot 'ProgramData\Agent_b\workspace')
+	)
+	$null = New-Item -ItemType Directory -Path $singleDrop -Force
+	Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Agent_b.exe') -Destination $singleSetup
+	$singleBefore = Get-RootFingerprint -Roots $singleTargets
+	$singleOutput = (& $singleSetup --quiet --install-data (Join-Path $singleRoot 'Data') -ApplicationDirectory (Join-Path $singleRoot 'Application\Agent_b') -DataDirectory (Join-Path $singleRoot 'Data\Agent_b') -WorkspaceDirectory (Join-Path $singleRoot 'ProgramData\Agent_b\workspace') -StartMenuDirectory (Join-Path $singleRoot 'StartMenu') -UninstallRegistryPath ($testRegistry + '-SingleFile') -TestMode -WhatIf 2>&1 | Out-String)
+	$singleExit = $LASTEXITCODE
+	$singleLog = Get-ChildItem -LiteralPath (Join-Path $singleRoot 'Data\logs') -Filter 'installer-*.log' -File |
+		Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+	$singleLogText = if ($singleLog) { Get-Content -Raw -LiteralPath $singleLog.FullName } else { '' }
+	$singleAfter = Get-RootFingerprint -Roots $singleTargets
+	if ($singleExit -ne 0 -or $singleBefore -cne $singleAfter -or $singleLogText -notmatch 'PREFLIGHT COMPLETE' -or $singleLogText -notmatch 'Mode: WhatIf') {
+		throw "Single-file setup did not complete TestMode/WhatIf preflight.`n$singleOutput"
+	}
+	Write-Host 'PROOF single-file setup: a lone Agent_b-setup.exe extracted, regenerated its manifest, and completed TestMode/WhatIf preflight'
+
     $whatIfApplication = Join-Path $testRoot 'WhatIf\Application\Agent_b'
     $whatIfData = Join-Path $testRoot 'WhatIf\Data\Agent_b'
     $whatIfWorkspace = Join-Path $testRoot 'WhatIf\ProgramData\Agent_b\workspace'
@@ -295,7 +322,7 @@ try {
         }
     }
     if ($shellSource -notmatch 'root\.append\(left, right\)' -or
-        $shellSource -notmatch 'right\.append\(sessionHeading, pages, settings\)' -or
+        $shellSource -notmatch 'right\.append\(sessionHeading, pages, settings, windowControls\)' -or
         $shellSource -match 'shell-operator-status' -or
         $shellSource -match 'all:\s*true') {
         throw 'Installed shared shell does not preserve agent-tabs/right-controls ownership.'

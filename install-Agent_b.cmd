@@ -2,6 +2,13 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 
+rem PowerShell 7 prepends its module directories to PSModulePath. Windows
+rem PowerShell 5.1 then discovers incompatible type data there and can fail
+rem before the installer reaches its stop-safe preflight. With the variable
+rem absent, 5.1 reconstructs its native module path just as it does from
+rem Explorer; this wrapper uses 5.1 exclusively.
+set "PSModulePath="
+
 if not defined AGENT_B_INSTALL_LOG (
   if not exist "%LOCALAPPDATA%\Agent_b\logs" mkdir "%LOCALAPPDATA%\Agent_b\logs"
   for /f %%I in ('powershell.exe -NoLogo -NoProfile -Command "Get-Date -Format yyyyMMdd-HHmmss-fff"') do set "AGENT_B_INSTALL_STAMP=%%I"

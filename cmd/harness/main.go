@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -39,6 +40,7 @@ import (
 	"harness/internal/signing"
 	"harness/internal/stats"
 	"harness/internal/tools"
+	"harness/internal/updater"
 	webserver "harness/internal/web"
 	workspaceinfo "harness/internal/workspace"
 )
@@ -72,7 +74,7 @@ func main() {
 	if err := flag.CommandLine.Parse(installFlagArgs(os.Args[1:])); err != nil {
 		log.Fatal(err)
 	}
-	if *install {
+	if *install || setupExecutable(os.Args[0]) {
 		os.Exit(runInstall(installOptions{
 			quiet:     *installQuiet,
 			sourceDir: *installSource,
@@ -183,6 +185,16 @@ func main() {
 	progressManager.Start()
 	defer progressManager.Close()
 	web := webserver.New(cfg, paths.Config, filepath.Join(paths.Application, "web"), roots, bus)
+	updateManager := updater.New(updater.Options{
+		CurrentVersion: buildinfo.Current().Tag,
+		DataRoot:       paths.Data,
+		LatestURL:      updateLatestURL(),
+		Enabled:        func() bool { return web.ConfigSnapshot().Updates.AutoCheck },
+		Changed:        func(state updater.State) { bus.Publish(events.New(events.UpdateChanged, "", "", state)) },
+	})
+	web.SetUpdater(updateManager)
+	updateManager.Start(context.Background())
+	defer updateManager.Close()
 	web.PublishPlanChanges()
 	web.SetProjection(projector, writers)
 	for _, notice := range cfg.LoadNotices {
@@ -375,6 +387,29 @@ func main() {
 	if err := serve(cfg, web.Handler(), newLifetime(paths.Data, time.Now)); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func setupExecutable(path string) bool {
+	return strings.EqualFold(filepath.Base(path), "Agent_b-setup.exe")
+}
+
+// AGENTB_UPDATE_FIXTURE_URL is an acceptance-only seam. It is deliberately
+// limited to loopback so an inherited environment cannot redirect the product's
+// release trust path to another public host.
+func updateLatestURL() string {
+	raw := strings.TrimSpace(os.Getenv("AGENTB_UPDATE_FIXTURE_URL"))
+	if raw == "" {
+		return updater.LatestReleaseURL
+	}
+	endpoint, err := url.Parse(raw)
+	if err != nil || endpoint.Scheme != "http" || endpoint.User != nil || endpoint.Fragment != "" {
+		return updater.LatestReleaseURL
+	}
+	host := net.ParseIP(endpoint.Hostname())
+	if host == nil || !host.IsLoopback() {
+		return updater.LatestReleaseURL
+	}
+	return endpoint.String()
 }
 
 // retainedIDFloor is the highest numeric id suffix a restored chat holds in a

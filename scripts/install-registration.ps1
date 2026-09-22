@@ -48,6 +48,7 @@ function Remove-AgentBStaleRegistrations {
         if ($registration.IsCanonical -or $registration.HasExecutable) {
             throw "Refusing to remove a non-stale Agent_b registration: $($registration.RegistryPath)"
         }
-        Remove-Item -LiteralPath $registration.RegistryPath -Recurse -Force
+        $staleRegistryPath = [string]$registration.RegistryPath
+        Remove-Item -LiteralPath $staleRegistryPath -Recurse -Force
     }
 }

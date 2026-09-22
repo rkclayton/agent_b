@@ -68,6 +68,14 @@ const toolCountAfterLatestUser = (body) => {
   return messages.slice(index + 1).filter((message) => message.role === "tool").length;
 };
 const fakeHandler = async (request, response) => {
+	if (request.url === "/agentb-release/latest") {
+		const base = `http://${request.headers.host}`;
+		response.setHeader("Content-Type", "application/json");
+		return void response.end(JSON.stringify({ tag_name: "v9.9.9", body: "Fixture distribution release\nLocal only.", draft: false, prerelease: false, assets: [
+			{ name: "release.json", browser_download_url: `${base}/agentb-release/release.json` },
+			{ name: "Agent_b-setup.exe", browser_download_url: `${base}/agentb-release/Agent_b-setup.exe` },
+		] }));
+	}
   if (request.url === "/arm-slow-accounting") {
     slowAccountingArmed = true;
     slowAccountingTrace.push({ action: "armed", at: Date.now() });
@@ -401,6 +409,7 @@ await writeFile(join(bound, "long-tool.txt"), Array.from({ length: 100 }, (_, in
 if (!realModel) await startFake();
 const profileURL = realModel ? args["real-model-url"] : `http://127.0.0.1:${modelPort}`;
 const profileName = realModel ? args["real-model-name"] : "agentb-fake";
+const appEnvironment = realModel ? process.env : { ...process.env, AGENTB_UPDATE_FIXTURE_URL: `http://127.0.0.1:${modelPort}/agentb-release/latest` };
 const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"];
 const config = {
   config_version: 6, listen: `127.0.0.1:${appPort}`, workspace: args.workspace, log_dir: join(args.data, "logs"),
@@ -409,6 +418,7 @@ const config = {
     reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false }, context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
     capabilities: { server: "agentb-fake", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["acceptance fake"] } }],
   services: {}, agents: [{ name: "Acceptance", b: "acceptance", toolset }], chat: { auto_rename: false },
+	updates: { auto_check: !realModel },
   run: { max_turns: 12, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 2, queue_depth: 0 }, approval: { mode: "boundary-only" },
   // The exchange folder is its own tree, as on an install (item 2fo: inside the
   // workspace it made the hardening check refuse, and Settings logged a 500).
@@ -419,7 +429,7 @@ const config = {
   signing: { thumbprint: "", timestamp_url: "http://timestamp.digicert.com" }
 };
 await writeFile(join(args.data, "harness.json"), JSON.stringify(config, null, 2));
-app = spawn(join(args.app, "Agent_b.exe"), ["-config", join(args.data, "harness.json"), "-app-root", args.app, "-data-root", args.data], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+app = spawn(join(args.app, "Agent_b.exe"), ["-config", join(args.data, "harness.json"), "-app-root", args.app, "-data-root", args.data], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: appEnvironment });
 children.push(app);
 app.stdout.on("data", (chunk) => process.stdout.write(chunk));
 app.stderr.on("data", (chunk) => process.stderr.write(chunk));
@@ -492,6 +502,10 @@ browser = {
 await page.goto(`http://127.0.0.1:${appPort}/chat`);
 await browser.wait(`document.querySelector('#chat-task')`, "Chat opened");
 await browser.wait(`document.querySelector('.agent-tab')`, "Agent tab rendered");
+if (!realModel) {
+	await browser.wait(`document.querySelector('#chat-notice')?.innerText.includes('v9.9.9 available')`, "update line rendered from local fixture");
+	record("update-fixture-available-line");
+}
 record("open-chat");
 
 // Item 2ev: a page stamped by another build reloads itself once and then runs
@@ -845,6 +859,13 @@ if (realModel) {
   assert.equal(await clickText(".settings-nav button", "Connections"), true);
   await browser.wait(`document.querySelector('.settings-content')?.innerText.length > 0`, "Connections drawn");
   await captureWithMasks(page, join(baselineDirectory, "settings.png"));
+	if (!realModel) {
+		assert.equal(await clickText(".settings-nav button", "About"), true);
+		await browser.wait(`document.querySelector('.settings-content')?.innerText.includes('v9.9.9 available')`, "About update action drawn");
+		assert.equal(await page.locator('[data-action="install-update"]').innerText(), "Update");
+		await captureWithMasks(page, join(baselineDirectory, "settings-about.png"));
+		record("settings-about-update-action");
+	}
   await page.goto(`http://127.0.0.1:${appPort}/plan?session=${sessionID}`);
   await page.locator('#app-shell[data-page="plan"]').waitFor({ state: "visible" });
   await captureWithMasks(page, join(baselineDirectory, "plan.png"));
@@ -1462,11 +1483,11 @@ if (realModel) {
 	events = await sessionEvents(sessionID);
 	const beforeUIError = events.at(-1)?.seq || 0;
 	await browser.evaluate(`(() => { console.error('acceptance UI relay'); return true; })()`);
+	await waitEvent(sessionID, (event) => event.type === "ui.error" && event.seq > beforeUIError && event.data?.kind === "console.error" && event.data?.message?.includes("acceptance UI relay") && event.data?.location?.includes(`/chat?session=${sessionID}`), "UI error relay: console.error");
 	await browser.evaluate(`(() => { setTimeout(() => { throw new Error('acceptance unhandled exception'); }, 0); return true; })()`);
+	await waitEvent(sessionID, (event) => event.type === "ui.error" && event.seq > beforeUIError && event.data?.kind === "unhandled exception" && event.data?.message?.includes("acceptance unhandled exception") && event.data?.location?.includes(`/chat?session=${sessionID}`), "UI error relay: unhandled exception");
 	await browser.evaluate(`(() => { Promise.reject(new Error('acceptance unhandled rejection')); return true; })()`);
-	for (const [kind, message] of [["console.error", "acceptance UI relay"], ["unhandled exception", "acceptance unhandled exception"], ["unhandled rejection", "acceptance unhandled rejection"]]) {
-		await waitEvent(sessionID, (event) => event.type === "ui.error" && event.seq > beforeUIError && event.data?.kind === kind && event.data?.message?.includes(message) && event.data?.location?.includes(`/chat?session=${sessionID}`), `UI error relay: ${kind}`);
-	}
+	await waitEvent(sessionID, (event) => event.type === "ui.error" && event.seq > beforeUIError && event.data?.kind === "unhandled rejection" && event.data?.message?.includes("acceptance unhandled rejection") && event.data?.location?.includes(`/chat?session=${sessionID}`), "UI error relay: unhandled rejection");
 	record("ui-error-relay-three-sources-session-location-jsonl");
 
   await setTask("acceptance: stop");
@@ -1951,7 +1972,7 @@ if (realModel) {
   const retainedOpenBeforeRestart = Object.values(retainedStateBeforeRestart.sessions).filter((session) => !session.closed).length;
   app.kill();
   await waitForChildExit(app, 5000);
-  app = spawn(join(args.app, "Agent_b.exe"), ["-config", join(args.data, "harness.json"), "-app-root", args.app, "-data-root", args.data], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  app = spawn(join(args.app, "Agent_b.exe"), ["-config", join(args.data, "harness.json"), "-app-root", args.app, "-data-root", args.data], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: appEnvironment });
   children.push(app);
   app.stdout.on("data", (chunk) => process.stdout.write(chunk));
   app.stderr.on("data", (chunk) => process.stderr.write(chunk));

@@ -36,6 +36,7 @@ type Config struct {
 	Deliver       Deliver            `json:"deliver"`
 	OperatorFiles OperatorFiles      `json:"operator_files"`
 	Notifications Notifications      `json:"notifications"`
+	Updates       Updates            `json:"updates"`
 	Signing       Signing            `json:"signing"`
 	LoadNotices   []string           `json:"-"`
 }
@@ -94,6 +95,27 @@ func migrateToolset(toolset []string) []string {
 type Chat struct {
 	AutoRename  bool `json:"auto_rename"`
 	initialized bool
+}
+
+// Updates controls the one passive release check. AutoCheck defaults on even
+// for older configuration files that predate this object; an explicit false is
+// preserved by the custom unmarshaller.
+type Updates struct {
+	AutoCheck   bool `json:"auto_check"`
+	initialized bool
+}
+
+func defaultUpdates() Updates { return Updates{AutoCheck: true, initialized: true} }
+
+func (u *Updates) UnmarshalJSON(data []byte) error {
+	type plain Updates
+	value := plain(defaultUpdates())
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*u = Updates(value)
+	u.initialized = true
+	return nil
 }
 
 func defaultChat() Chat { return Chat{AutoRename: true, initialized: true} }
@@ -482,7 +504,7 @@ func Defaults(workspace string) Config {
 		Servers: []Profile{profile}, Agents: []Agent{{Name: profile.Label, B: "local", Toolset: FullToolset()}}, Chat: defaultChat(),
 		Services: map[string]Service{},
 		Sandbox:  Sandbox{Enabled: true, initialized: true},
-		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"},
+		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(),
 		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, Attachments: AttachmentTool{MaxBytes: 8 << 20, InlineMaxBytes: 2 << 20}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Shell: ShellTool{OperatorCommands: []string{"git"}}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
 		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Account: "agentb-svc", Domain: "."}},
 		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
@@ -1004,6 +1026,9 @@ func applyDefaults(c *Config) {
 	}
 	if !c.Chat.initialized {
 		c.Chat = d.Chat
+	}
+	if !c.Updates.initialized {
+		c.Updates = d.Updates
 	}
 	if !c.Deliver.initialized {
 		c.Deliver = d.Deliver

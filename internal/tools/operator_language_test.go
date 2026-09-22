@@ -15,7 +15,7 @@ func TestToolDescriptionsAndSchemasUseFolderVocabulary(t *testing.T) {
 	items := []Tool{
 		NewReadFile(cfg.Tools.ReadFile), NewListDir(cfg.Tools.ListDir), NewWriteFile(nil), NewEditFile(nil),
 		NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir), NewShell(cfg.Shell), NewRemember(nil, events.NewBus()),
-		NewRecall(nil), NewFetch(cfg.Tools.Fetch), NewGlob(cfg.Tools.FindFiles), NewRunScript(shell), NewCallService(nil),
+		NewRecall(nil), NewFetch(cfg.Tools.Fetch), NewWebSearch(NewFetch(cfg.Tools.Fetch), cfg.Tools.WebSearch), NewGlob(cfg.Tools.FindFiles), NewRunScript(shell), NewCallService(nil),
 	}
 	for _, item := range items {
 		encoded, err := json.Marshal(item.Schema())

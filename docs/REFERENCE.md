@@ -1,6 +1,6 @@
 # Agent_b detailed reference
 
-Agent_b is a small Go coding agent for OpenAI-compatible model servers. It provides observable multi-session runs, eleven governed tools, exact-or-labeled context accounting, compaction, durable workspace notes, and a unified Chat, Console, and Settings interface. The browser remains dependency-free; the backend uses the listed TLS-fingerprinting and HTML parsing modules for `fetch_url`.
+Agent_b is a small Go coding agent for OpenAI-compatible model servers. It provides observable multi-session runs, twelve governed tools, exact-or-labeled context accounting, compaction, durable workspace notes, and a unified Chat, Console, and Settings interface. The browser remains dependency-free; the backend uses the listed TLS-fingerprinting and HTML parsing modules for `fetch_url` and `web_search`.
 
 Choose one serving path before you start.
 

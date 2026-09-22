@@ -62,10 +62,10 @@ func AgentID(name string) string {
 	return strings.Trim(id, "-")
 }
 
-// Item 13 (v1.2.5): ELEVEN. search_text and find_files became one `search`
-// with a target, in the place the first of them held.
+// Item 2ho (v1.6.0): TWELVE. web_search follows fetch_url because both are
+// public-network reads; every older tool keeps its relative position.
 func FullToolset() []string {
-	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"}
+	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"}
 }
 
 // MergedSearchNames are the two tools `search` replaced. A configuration
@@ -342,7 +342,7 @@ func (d *Deliver) UnmarshalJSON(data []byte) error {
 }
 
 const (
-	CurrentConfigVersion     = 6
+	CurrentConfigVersion     = 7
 	DefaultReserveOutput     = 10240
 	ApprovalModeBoundaryOnly = "boundary-only"
 	ApprovalModeMutating     = "mutating"
@@ -376,6 +376,7 @@ type Tools struct {
 	Grep        GrepTool       `json:"grep"`
 	Shell       ShellTool      `json:"shell"`
 	Fetch       FetchTool      `json:"fetch"`
+	WebSearch   WebSearchTool  `json:"web_search"`
 	FindFiles   FindFilesTool  `json:"find_files"`
 }
 
@@ -425,6 +426,25 @@ type FetchTool struct {
 	DenyDomains        []string `json:"deny_domains"`
 	AllowInternalHosts []string `json:"allow_internal_hosts"`
 }
+type WebSearchTool struct {
+	Enabled              bool     `json:"enabled"`
+	Engines              []string `json:"engines"`
+	PerEngineTimeoutS    int      `json:"per_engine_timeout_s"`
+	BenchDurationMinutes int      `json:"bench_duration_minutes"`
+	initialized          bool
+}
+
+func (w *WebSearchTool) UnmarshalJSON(data []byte) error {
+	type plain WebSearchTool
+	var value plain
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*w = WebSearchTool(value)
+	w.initialized = true
+	return nil
+}
+
 type Shell struct {
 	Command            []string `json:"command"`
 	TimeoutS           int      `json:"timeout_s"`
@@ -507,7 +527,7 @@ func Defaults(workspace string) Config {
 		Services: map[string]Service{},
 		Sandbox:  Sandbox{Enabled: true, initialized: true},
 		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(),
-		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, Attachments: AttachmentTool{MaxBytes: 8 << 20, InlineMaxBytes: 2 << 20}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Shell: ShellTool{OperatorCommands: []string{"git"}}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
+		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, Attachments: AttachmentTool{MaxBytes: 8 << 20, InlineMaxBytes: 2 << 20}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Shell: ShellTool{OperatorCommands: []string{"git"}}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, WebSearch: WebSearchTool{Enabled: true, Engines: []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "startpage", "mojeek", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"}, PerEngineTimeoutS: 8, BenchDurationMinutes: 30, initialized: true}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
 		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Account: "agentb-svc", Domain: "."}},
 		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
 	}
@@ -569,7 +589,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		return nil, false, created, fmt.Errorf("run.max_tool_calls: zero is not unlimited; omit it for the default %d or use a positive backstop", DefaultMaxToolCalls)
 	}
 	unstamped := metadata.ConfigVersion == nil
-	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != CurrentConfigVersion {
+	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != 6 && *metadata.ConfigVersion != CurrentConfigVersion {
 		return nil, false, created, fmt.Errorf("config_version: unsupported value %d (current %d)", *metadata.ConfigVersion, CurrentConfigVersion)
 	}
 	migrated, data, err := migrateV1(data)
@@ -593,6 +613,10 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		return nil, false, created, err
 	}
 	agentsMigrated, data, err := migrateAgentObjects(data, version)
+	if err != nil {
+		return nil, false, created, err
+	}
+	webSearchMigrated, data, err := migrateWebSearch(data, version)
 	if err != nil {
 		return nil, false, created, err
 	}
@@ -620,7 +644,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if err := ResolveProfileCredentials(&cfg, dataRoot); err != nil {
 		return nil, false, created, err
 	}
-	if migrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || unstamped {
+	if migrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated || unstamped {
 		if err := cfg.Save(path); err != nil {
 			return nil, false, created, err
 		}
@@ -640,7 +664,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if agentsMigrated && !unstamped {
 		cfg.LoadNotices = append(cfg.LoadNotices, AgentObjectsMigrationNotice)
 	}
-	return &cfg, migrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated, created, nil
+	return &cfg, migrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated, created, nil
 }
 
 func (c Config) Save(path string) error {
@@ -913,6 +937,23 @@ func (c Config) Validate() error {
 	if c.Tools.Fetch.DefaultLimit < 1 || c.Tools.Fetch.MaxLimit < 1 || c.Tools.Fetch.DefaultLimit > c.Tools.Fetch.MaxLimit {
 		return fmt.Errorf("tools.fetch: byte limits must be positive and default_limit no greater than max_limit")
 	}
+	if c.Tools.WebSearch.PerEngineTimeoutS < 1 || c.Tools.WebSearch.PerEngineTimeoutS > 60 {
+		return fmt.Errorf("tools.web_search.per_engine_timeout_s: must be between 1 and 60")
+	}
+	if c.Tools.WebSearch.BenchDurationMinutes < 1 || c.Tools.WebSearch.BenchDurationMinutes > 10080 {
+		return fmt.Errorf("tools.web_search.bench_duration_minutes: must be between 1 and 10080")
+	}
+	knownSearchEngines := map[string]bool{"duckduckgo_html": true, "duckduckgo_lite": true, "bing": true, "brave": true, "startpage": true, "mojeek": true, "wikipedia": true, "github": true, "hacker_news": true, "arxiv": true, "stackexchange": true, "pkg_go_dev": true, "npm": true}
+	seenSearchEngines := map[string]bool{}
+	for _, engine := range c.Tools.WebSearch.Engines {
+		if !knownSearchEngines[engine] {
+			return fmt.Errorf("tools.web_search.engines: unknown engine %q", engine)
+		}
+		if seenSearchEngines[engine] {
+			return fmt.Errorf("tools.web_search.engines: duplicate engine %q", engine)
+		}
+		seenSearchEngines[engine] = true
+	}
 	for _, host := range append(append(append([]string{}, c.Tools.Fetch.AllowDomains...), c.Tools.Fetch.DenyDomains...), c.Tools.Fetch.AllowInternalHosts...) {
 		if !validFetchHost(host) {
 			return fmt.Errorf("tools.fetch: domain-list entries must be hostnames or IP addresses without schemes, ports, paths, or wildcards")
@@ -1051,6 +1092,9 @@ func applyDefaults(c *Config) {
 	}
 	if c.Tools.Fetch.DenyDomains == nil {
 		c.Tools.Fetch.DenyDomains = append([]string(nil), d.Tools.Fetch.DenyDomains...)
+	}
+	if !c.Tools.WebSearch.initialized {
+		c.Tools.WebSearch = d.Tools.WebSearch
 	}
 	if c.Tools.FindFiles.SkipRoots == nil {
 		c.Tools.FindFiles.SkipRoots = append([]string(nil), d.Tools.FindFiles.SkipRoots...)

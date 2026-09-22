@@ -1,6 +1,6 @@
 const root = document.getElementById("setup");
 const connection = document.getElementById("connection");
-const fullTools = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"];
+const fullTools = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
 let snapshot;
 let step = "where";
 let profileID = "";

@@ -329,7 +329,7 @@ func TestFileGrantToolContractNeverIncludesShell(t *testing.T) {
 		"read_file": true, "list_dir": true, "write_file": true, "edit_file": true,
 		"search_text": true, "find_files": true,
 	}
-	for _, name := range []string{"read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "find_files", "run_script", "call_service"} {
+	for _, name := range []string{"read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "web_search", "find_files", "run_script", "call_service"} {
 		if got := fileGrantTool(name); got != want[name] {
 			t.Errorf("fileGrantTool(%q)=%t, want %t", name, got, want[name])
 		}

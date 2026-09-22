@@ -5,6 +5,54 @@ import (
 	"fmt"
 )
 
+func migrateWebSearch(data []byte, version int) (bool, []byte, error) {
+	if version >= 7 {
+		return false, data, nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return false, nil, err
+	}
+	var tools map[string]json.RawMessage
+	if value := raw["tools"]; value != nil {
+		if err := json.Unmarshal(value, &tools); err != nil {
+			return false, nil, fmt.Errorf("migrate web_search tools: %w", err)
+		}
+	} else {
+		tools = map[string]json.RawMessage{}
+	}
+	tools["web_search"], _ = json.Marshal(WebSearchTool{Enabled: true, Engines: []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "startpage", "mojeek", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"}, PerEngineTimeoutS: 8, BenchDurationMinutes: 30})
+	raw["tools"], _ = json.Marshal(tools)
+	var agents []Agent
+	if value := raw["agents"]; value != nil {
+		if err := json.Unmarshal(value, &agents); err != nil {
+			return false, nil, fmt.Errorf("migrate web_search agents: %w", err)
+		}
+	}
+	legacyFull := []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"}
+	for index := range agents {
+		if equalStrings(agents[index].Toolset, legacyFull) {
+			agents[index].Toolset = append(append([]string(nil), legacyFull[:9]...), append([]string{"web_search"}, legacyFull[9:]...)...)
+		}
+	}
+	raw["agents"], _ = json.Marshal(agents)
+	raw["config_version"], _ = json.Marshal(CurrentConfigVersion)
+	out, err := json.Marshal(raw)
+	return true, out, err
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func migrateAgentObjects(data []byte, version int) (bool, []byte, error) {
 	if version >= 6 {
 		return false, data, nil

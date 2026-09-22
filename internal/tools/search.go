@@ -78,7 +78,7 @@ func (s *Search) pick(args map[string]any) Tool {
 // searchAliases are the two names this tool replaced. They are accepted for one
 // release so a model that learned them, or a saved plan that names them, is not
 // broken by the merge; the result says the name is going away. The registry
-// itself counts eleven - an alias is not a tool.
+// itself counts twelve after web_search - an alias is not a tool.
 var searchAliases = map[string]string{
 	"search_text": "content",
 	"find_files":  "name",

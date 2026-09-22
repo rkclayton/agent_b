@@ -52,7 +52,7 @@ const model = createServer(async (request, response) => {
 await new Promise((done) => model.listen(modelPort, "127.0.0.1", done));
 
 const appPort = await freePort();
-const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "run_script", "call_service"];
+const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
 const config = {
   config_version: 6, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(data, "logs"),
   servers: [{ id: "view", label: "View", base_url: `http://127.0.0.1:${modelPort}`, model: "view-switch", credential: "", request_timeout_s: 2, probe_mode: "off",

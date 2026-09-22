@@ -213,7 +213,7 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 			"duckduckgo_html": "golang context cancellation", "duckduckgo_lite": "golang context cancellation",
 			"bing": "golang context cancellation", "brave": "golang context cancellation",
 			"startpage": "golang context cancellation", "mojeek": "golang context cancellation",
-			"wikipedia": "what is Go programming language", "github": "github kubernetes repository",
+			"wikipedia": "Go programming language wikipedia", "github": "github kubernetes repository",
 			"hacker_news": "hacker news golang", "arxiv": "research paper large language models",
 			"stackexchange": "golang context cancellation error", "pkg_go_dev": "golang context package",
 			"npm": "npm react package",

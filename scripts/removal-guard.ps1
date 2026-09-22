@@ -76,7 +76,19 @@ function Remove-EntryWithoutFollowing {
             if (-not ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -and ($file.Attributes -band [IO.FileAttributes]::ReadOnly)) {
                 $file.Attributes = $file.Attributes -band -bnot [IO.FileAttributes]::ReadOnly
             }
-            [IO.File]::Delete($Path)
+            # Real-time scanners can briefly retain a just-copied script after
+            # the owning process exits. Keep the guarded target and link checks
+            # unchanged, but give that transient handle a bounded chance to
+            # close; a persistent failure still stops the removal.
+            for ($attempt = 0; $attempt -lt 20; $attempt++) {
+                try {
+                    [IO.File]::Delete($Path)
+                    break
+                } catch {
+                    if ($attempt -eq 19) { throw }
+                    Start-Sleep -Milliseconds 100
+                }
+            }
         }
         return
     }

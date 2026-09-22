@@ -92,6 +92,7 @@ type Server struct {
 	modelInstaller    *modelinstall.Manager
 	measureMu         sync.RWMutex
 	measurements      map[string]measureState
+	measureCancels    map[string]context.CancelFunc
 	statsState        *stats.Manager
 	operatorFiles     *operatorfiles.Manager
 	probeMu           sync.Mutex
@@ -138,12 +139,13 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		reachabilityAfter: func(duration time.Duration, fn func()) operatorTimer {
 			return time.AfterFunc(duration, fn)
 		},
-		navigationIDs: map[string]time.Time{},
-		agentServers:  map[string]pendingAgentServer{},
-		measurements:  map[string]measureState{},
-		extractClient: &http.Client{},
-		ocrExtract:    ocr.Extract,
-		ocrPDF:        ocr.ExtractPDF,
+		navigationIDs:  map[string]time.Time{},
+		agentServers:   map[string]pendingAgentServer{},
+		measurements:   map[string]measureState{},
+		measureCancels: map[string]context.CancelFunc{},
+		extractClient:  &http.Client{},
+		ocrExtract:     ocr.Extract,
+		ocrPDF:         ocr.ExtractPDF,
 		detectLocal: func(ctx context.Context, account string) (any, error) {
 			return detection.Local(ctx, filepath.Join(roots.Application, "scripts", "detect-local-capabilities.ps1"), account)
 		},

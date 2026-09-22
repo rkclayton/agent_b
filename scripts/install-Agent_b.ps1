@@ -24,7 +24,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
-$displayVersion = '1.5.1'
+$displayVersion = '1.5.2'
 
 # Write-InstallProgress appends one JSONL line the Setup page can render. It
 # never fails the install: the install is the point, the readout is not.

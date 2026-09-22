@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -39,7 +40,15 @@ type Budgeter struct {
 	states         map[string]*budgetState
 	toolCosts      map[string]cachedToolCosts
 	messageWeights map[string]map[string]cachedMessageWeight
+	sentinelCosts  map[string]int
 }
+
+const accountingSentinel = "Agent_b accounting sentinel"
+
+type applyTemplateAccountingError struct{ err error }
+
+func (e *applyTemplateAccountingError) Error() string { return e.err.Error() }
+func (e *applyTemplateAccountingError) Unwrap() error { return e.err }
 
 type cachedToolCosts struct {
 	key      string
@@ -53,7 +62,7 @@ type cachedMessageWeight struct {
 }
 
 func NewBudgeter() *Budgeter {
-	return &Budgeter{states: map[string]*budgetState{}, toolCosts: map[string]cachedToolCosts{}, messageWeights: map[string]map[string]cachedMessageWeight{}}
+	return &Budgeter{states: map[string]*budgetState{}, toolCosts: map[string]cachedToolCosts{}, messageWeights: map[string]map[string]cachedMessageWeight{}, sentinelCosts: map[string]int{}}
 }
 func (b *Budgeter) state(id string) *budgetState {
 	b.mu.Lock()
@@ -133,8 +142,23 @@ func (b *Budgeter) saveMessageWeight(sessionID, messageID, key string, tokens in
 	b.messageWeights[sessionID][messageID] = cachedMessageWeight{key: key, tokens: tokens}
 	b.mu.Unlock()
 }
+func (b *Budgeter) cachedSentinelCost(key string) (int, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	value, ok := b.sentinelCosts[key]
+	return value, ok
+}
+func (b *Budgeter) saveSentinelCost(key string, tokens int) {
+	b.mu.Lock()
+	b.sentinelCosts[key] = tokens
+	b.mu.Unlock()
+}
 func (b *Budgeter) Measure(ctx context.Context, profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool) (events.Budget, error) {
 	result, err := b.measure(ctx, profile, s, global, in, markRequest)
+	var templateErr *applyTemplateAccountingError
+	if errors.As(err, &templateErr) && ctx.Err() == nil && llm.TransportKindOf(err) != llm.TransportDial {
+		return b.estimateWithFindings(profile, s, global, in, markRequest, templateErr)
+	}
 	if err == nil || ctx.Err() != nil || llm.TransportKindOf(err) != llm.TransportConnected {
 		return result, err
 	}
@@ -143,6 +167,10 @@ func (b *Budgeter) Measure(ctx context.Context, profile *config.Profile, s *sess
 
 func (b *Budgeter) MeasureWithBusy(ctx context.Context, profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool, onBusy func(error)) (events.Budget, error) {
 	result, err := b.measure(ctx, profile, s, global, in, markRequest)
+	var templateErr *applyTemplateAccountingError
+	if errors.As(err, &templateErr) && ctx.Err() == nil && llm.TransportKindOf(err) != llm.TransportDial {
+		return b.estimateWithFindings(profile, s, global, in, markRequest, templateErr)
+	}
 	if err == nil || ctx.Err() != nil || llm.TransportKindOf(err) != llm.TransportConnected {
 		return result, err
 	}
@@ -155,6 +183,15 @@ func (b *Budgeter) MeasureWithBusy(ctx context.Context, profile *config.Profile,
 func (b *Budgeter) estimate(profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool) (events.Budget, error) {
 	global.Accounting = "estimated"
 	return b.measure(context.Background(), profile, s, global, in, markRequest)
+}
+
+func (b *Budgeter) estimateWithFindings(profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool, cause error) (events.Budget, error) {
+	budget, err := b.estimate(profile, s, global, in, markRequest)
+	if err == nil {
+		budget.Findings = append(budget.Findings, "apply-template accounting failed; using estimated mode for this request: "+cause.Error())
+		s.SetBudget(budget)
+	}
+	return budget, err
 }
 
 func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool) (events.Budget, error) {
@@ -261,29 +298,58 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 			}
 		}
 	} else {
-		render := func(messages []llm.Message, tools []any) (int, error) {
+		applyTemplate := func(messages []llm.Message, tools []any) (string, error) {
 			prompt, err := client.ApplyTemplate(ctx, messages, tools)
+			return prompt, err
+		}
+		render := func(messages []llm.Message, tools []any) (int, error) {
+			prompt, err := applyTemplate(messages, tools)
 			if err != nil {
 				return 0, err
 			}
 			return client.Tokenize(ctx, prompt, false)
 		}
-		base, err := render([]llm.Message{{Role: "system", Content: in.SystemBase}}, nil)
+		sentinelKey := sentinelCostKey(profile)
+		sentinelCost, sentinelCached := b.cachedSentinelCost(sentinelKey)
+		if !sentinelCached {
+			var err error
+			prompt, err := applyTemplate([]llm.Message{{Role: "user", Content: accountingSentinel}}, nil)
+			if err != nil {
+				return events.Budget{}, &applyTemplateAccountingError{err: err}
+			}
+			sentinelCost, err = client.Tokenize(ctx, prompt, false)
+			if err != nil {
+				return events.Budget{}, err
+			}
+			b.saveSentinelCost(sentinelKey, sentinelCost)
+		}
+		renderSystem := func(system string, tools []any) (int, error) {
+			prompt, err := applyTemplate([]llm.Message{{Role: "system", Content: system}, {Role: "user", Content: accountingSentinel}}, tools)
+			if err != nil {
+				return 0, &applyTemplateAccountingError{err: err}
+			}
+			value, err := client.Tokenize(ctx, prompt, false)
+			if err != nil {
+				return 0, err
+			}
+			return max(0, value-sentinelCost), nil
+		}
+		base, err := renderSystem(in.SystemBase, nil)
 		if err != nil {
 			return events.Budget{}, err
 		}
 		withProject := base
 		if in.SystemProject != in.SystemBase {
-			withProject, err = render([]llm.Message{{Role: "system", Content: in.SystemProject}}, nil)
+			withProject, err = renderSystem(in.SystemProject, nil)
 			if err != nil {
 				return events.Budget{}, err
 			}
 		}
-		withWorkspaceMemory, err := render([]llm.Message{{Role: "system", Content: in.SystemWorkspaceMemory}}, nil)
+		withWorkspaceMemory, err := renderSystem(in.SystemWorkspaceMemory, nil)
 		if err != nil {
 			return events.Budget{}, err
 		}
-		withMemory, err := render([]llm.Message{{Role: "system", Content: in.System}}, nil)
+		withMemory, err := renderSystem(in.System, nil)
 		if err != nil {
 			return events.Budget{}, err
 		}
@@ -293,7 +359,7 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 		activeTools := []any(nil)
 		if profile.Capabilities.ApplyTemplateTools {
 			activeTools = in.Schemas
-			withTools, err := render([]llm.Message{{Role: "system", Content: in.System}}, activeTools)
+			withTools, err := renderSystem(in.System, activeTools)
 			if err != nil {
 				return events.Budget{}, err
 			}
@@ -301,14 +367,14 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 			previous = withTools
 			if !costsCached {
 				for name, schema := range in.AllSchemas {
-					one, err := render([]llm.Message{{Role: "system", Content: in.System}}, []any{schema})
+					one, err := renderSystem(in.System, []any{schema})
 					if err != nil {
 						return events.Budget{}, fmt.Errorf("count schema %s: %w", name, err)
 					}
 					schemaCounts[name] = max(0, one-withMemory)
 				}
 				for name, withoutSystem := range in.WithoutToolSystems {
-					without, err := render([]llm.Message{{Role: "system", Content: withoutSystem}}, schemasWithout(in.Schemas, name))
+					without, err := renderSystem(withoutSystem, schemasWithout(in.Schemas, name))
 					if err != nil {
 						return events.Budget{}, fmt.Errorf("count marginal %s: %w", name, err)
 					}
@@ -334,7 +400,7 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 					schemaCounts[name] = int(math.Ceil(float64(value) * 1.1))
 				}
 				for name, withoutSystem := range in.WithoutToolSystems {
-					withoutBase, err := render([]llm.Message{{Role: "system", Content: withoutSystem}}, nil)
+					withoutBase, err := renderSystem(withoutSystem, nil)
 					if err != nil {
 						return events.Budget{}, fmt.Errorf("count marginal system %s: %w", name, err)
 					}
@@ -447,6 +513,16 @@ func toolCostKey(profile *config.Profile, global config.GlobalContext, cpt float
 		AllSchemas         map[string]any
 		WithoutToolSystems map[string]string
 	}{profile, global.Accounting, cpt, in.System, in.Schemas, in.AllSchemas, in.WithoutToolSystems}
+	data, _ := json.Marshal(value)
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("%x", sum)
+}
+func sentinelCostKey(profile *config.Profile) string {
+	value := struct {
+		ID      string
+		BaseURL string
+		Model   string
+	}{profile.ID, profile.BaseURL, profile.Model}
 	data, _ := json.Marshal(value)
 	sum := sha256.Sum256(data)
 	return fmt.Sprintf("%x", sum)

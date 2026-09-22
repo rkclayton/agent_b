@@ -73,18 +73,18 @@ func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, [
 	caps.Tokenize = err == nil
 	findings = append(findings, "tokenize: "+availability(caps.Tokenize))
 
-	messages := []llm.Message{{Role: "system", Content: "Be concise."}, {Role: "user", Content: "Say OK."}}
+	messages := []llm.Message{{Role: "system", Content: "Agent_b accounting probe"}, {Role: "user", Content: "Agent_b accounting sentinel"}}
 	check, cancel = context.WithTimeout(ctx, 20*time.Second)
 	prompt, err := client.ApplyTemplate(check, messages, nil)
 	cancel()
 	caps.ApplyTemplate = err == nil && prompt != ""
-	findings = append(findings, "apply-template: "+availability(caps.ApplyTemplate))
+	findings = append(findings, applyTemplateFinding("apply-template", caps.ApplyTemplate, prompt, err, ""))
 	dummy := []any{map[string]any{"type": "function", "function": map[string]any{"name": "probe_tool", "description": "Probe.", "parameters": map[string]any{"type": "object", "properties": map[string]any{}}}}}
 	check, cancel = context.WithTimeout(ctx, 20*time.Second)
 	prompt, err = client.ApplyTemplate(check, messages, dummy)
 	cancel()
 	caps.ApplyTemplateTools = err == nil && strings.Contains(prompt, "probe_tool")
-	findings = append(findings, "apply-template tools: "+availability(caps.ApplyTemplateTools))
+	findings = append(findings, applyTemplateFinding("apply-template tools", caps.ApplyTemplateTools, prompt, err, "rendered prompt omitted probe_tool"))
 
 	if profile.ProbeMode == "full" {
 		check, cancel = context.WithTimeout(ctx, 20*time.Second)
@@ -130,6 +130,20 @@ func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, [
 	probeReasoning(ctx, client, profile, &caps, &findings)
 	probeOverflow(ctx, client, profile, &caps, &findings)
 	return finish(caps, findings)
+}
+
+func applyTemplateFinding(name string, available bool, prompt string, err error, missing string) string {
+	finding := name + ": " + availability(available)
+	if err != nil {
+		return finding + ": " + err.Error()
+	}
+	if prompt == "" {
+		return finding + ": server returned an empty prompt"
+	}
+	if !available && missing != "" {
+		return finding + ": " + missing
+	}
+	return finding
 }
 
 type ConnectionError struct {

@@ -70,11 +70,25 @@ func TestSingleFileSetupExtractsVerifiedPayloadAndMatchingManifest(t *testing.T)
 }
 
 func TestSetupFilenameSelectsInstallMode(t *testing.T) {
-	if !setupExecutable(`C:\Downloads\Agent_b-setup.exe`) {
-		t.Fatal("the deployable setup filename must install when double-clicked")
+	for _, path := range []string{
+		`C:\Downloads\Agent_b-setup.exe`,
+		`C:\Downloads\Agent_b-setup (1).exe`,
+		`C:\Downloads\Agent_b-setup (27).EXE`,
+	} {
+		if !setupExecutable(path) {
+			t.Errorf("%q must select install mode", path)
+		}
 	}
-	if setupExecutable(`C:\Program Files\Agent_b\Agent_b.exe`) {
-		t.Fatal("the installed application filename must start the application")
+	for _, path := range []string{
+		`C:\Program Files\Agent_b\Agent_b.exe`,
+		`C:\Downloads\Agent_b-setup ().exe`,
+		`C:\Downloads\Agent_b-setup (copy).exe`,
+		`C:\Downloads\Agent_b-setup (1) copy.exe`,
+		`C:\Downloads\Agent_b-setup-old.exe`,
+	} {
+		if setupExecutable(path) {
+			t.Errorf("%q must not select install mode", path)
+		}
 	}
 }
 

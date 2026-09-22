@@ -3,6 +3,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
+. (Join-Path $PSScriptRoot 'deploy-candidate-state.ps1')
 $deploy = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'deploy-release.ps1')
 $verify = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'verify-deploy-candidate.ps1')
 $sign = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'sign-release.ps1')
@@ -20,9 +21,18 @@ foreach ($required in @('$commitExit', '$headExit', '$statusExit', 'test-signing
 if ($deploy -match 'rev-parse[^\r\n]*\|\s*Select-Object') {
     throw 'Deploy still reads a piped git command through inherited LASTEXITCODE.'
 }
-if (($deploy | Select-String -Pattern '\$windowsPowerShell .*sign-release\.ps1' -AllMatches).Matches.Count -ne 1 -or
-    ($deploy | Select-String -Pattern '\$windowsPowerShell .*verify-deploy-candidate\.ps1' -AllMatches).Matches.Count -ne 1) {
-    throw 'Deploy must run signing and final verification as child processes so their exit codes cannot bypass the remaining gate.'
+if (($deploy | Select-String -Pattern 'Start-Process' -AllMatches).Matches.Count -ne 1 -or
+    $deploy -notmatch 'Start-Process[^\r\n]+-Verb RunAs[^\r\n]+-Wait[^\r\n]+-PassThru' -or
+    $deploy -notmatch '\$signing\.ExitCode') {
+    throw 'Deploy must start exactly one elevated signing child, wait for it, and capture its exit code.'
+}
+$elevationRefusal = $deploy.IndexOf('run deploy-release.ps1 from an ordinary, non-elevated console')
+$stagingCall = $deploy.IndexOf("'scripts\stage-candidate.mjs'")
+if ($elevationRefusal -lt 0 -or $stagingCall -lt 0 -or $elevationRefusal -gt $stagingCall) {
+    throw 'Deploy must refuse an elevated parent before staging.'
+}
+if ($deploy -notmatch 'Remove-MatchingStagedCandidate' -or $deploy -notmatch 'signing-report\.json') {
+    throw 'Deploy does not report/recover a matching stale candidate or relay the signing identity.'
 }
 foreach ($required in @('candidate-final.json', 'Agent_b.exe', 'Agent_b-setup.exe', 'setup_sha256', 'setup_bytes', 'Get-AuthenticodeSignature', 'TimeStamperCertificate', 'DEPLOY REFUSED')) {
     if ($verify -notmatch [regex]::Escape($required)) { throw "Deploy verifier does not require $required." }
@@ -57,7 +67,26 @@ try {
     } catch {
         if ($_.Exception.Message -notmatch 'setup Authenticode status is .*expected Valid.*setup has no Authenticode timestamp') { throw }
     }
+
+    $stale = Join-Path $fixture 'v9.9.9'
+    $null = New-Item -ItemType Directory -Path $stale
+    [IO.File]::WriteAllBytes((Join-Path $stale 'Agent_b.exe'), [byte[]](1, 2, 3))
+    [IO.File]::WriteAllBytes((Join-Path $stale 'Agent_b-setup.exe'), [byte[]](1, 2, 3))
+    [IO.File]::WriteAllText((Join-Path $stale 'candidate-final.json'), '{"tag":"v9.9.9","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}', [Text.UTF8Encoding]::new($false))
+    Remove-MatchingStagedCandidate -Candidate $stale -CandidatesRoot $fixture -ExpectedTag 'v9.9.9'
+    if (Test-Path -LiteralPath $stale) { throw 'A matching stale candidate was not removed for restaging.' }
+
+    $foreign = Join-Path $fixture 'v9.9.8'
+    $null = New-Item -ItemType Directory -Path $foreign
+    [IO.File]::WriteAllText((Join-Path $foreign 'candidate-final.json'), '{"tag":"v9.9.7","commit":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}', [Text.UTF8Encoding]::new($false))
+    try {
+        Remove-MatchingStagedCandidate -Candidate $foreign -CandidatesRoot $fixture -ExpectedTag 'v9.9.8'
+        throw 'A mismatched stale candidate was removed.'
+    } catch {
+        if ($_.Exception.Message -notmatch 'does not identify itself as v9\.9\.8; it was retained') { throw }
+    }
+    if (-not (Test-Path -LiteralPath $foreign)) { throw 'A mismatched stale candidate was not retained.' }
 } finally {
     if (Test-Path -LiteralPath $fixture) { Remove-TreeWithinAllowedRoots -Path $fixture -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'deploy-gate cleanup' }
 }
-Write-Host 'PASS: deploy requires a built, manifested, signed, timestamped Agent_b-setup.exe matching the release tag and commit'
+Write-Host 'PASS: deploy uses one elevated signing child, refuses elevated staging, safely recovers matching stale candidates, and requires a signed setup matching the release tag and commit'

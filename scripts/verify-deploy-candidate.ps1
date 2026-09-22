@@ -6,6 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'removal-guard.ps1')
 $root = [IO.Path]::GetFullPath($CandidateDirectory)
 $manifestPath = Join-Path $root 'candidate-final.json'
 $binary = Join-Path $root 'Agent_b.exe'
@@ -60,7 +61,7 @@ try {
         if (-not $resolved.StartsWith($temporary, [StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $resolved) -notlike 'Agent_b-deploy-verify-*') {
             throw "Refusing deploy verification cleanup outside its disposable root: $resolved"
         }
-        Remove-Item -LiteralPath $resolved -Recurse -Force
+        Remove-TreeWithinAllowedRoots -Path $resolved -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'deploy verification cleanup'
     }
 }
 

@@ -1,12 +1,13 @@
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { start } from "../../scripts/ui-harness.mjs";
+import { removeTreeWithinAllowedRoots } from "../../scripts/removal-guard.mjs";
 
 const run = promisify(execFile);
 const repo = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -28,7 +29,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await harness?.stop();
-  if (root) await rm(root, { recursive: true, force: true });
+  if (root) removeTreeWithinAllowedRoots(root, [tmpdir()], "connection-discovery Playwright cleanup");
 });
 
 test("Setup and Connections share endpoint discovery and the model picker", async () => {

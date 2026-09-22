@@ -391,7 +391,25 @@ func main() {
 }
 
 func setupExecutable(path string) bool {
-	return strings.EqualFold(filepath.Base(path), "Agent_b-setup.exe")
+	name := strings.ToLower(filepath.Base(path))
+	if name == "agent_b-setup.exe" {
+		return true
+	}
+	const prefix = "agent_b-setup ("
+	const suffix = ").exe"
+	if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+		return false
+	}
+	number := name[len(prefix) : len(name)-len(suffix)]
+	if number == "" {
+		return false
+	}
+	for _, digit := range number {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // AGENTB_UPDATE_FIXTURE_URL is an acceptance-only seam. It is deliberately

@@ -8,6 +8,7 @@ let detection;
 let catalog;
 let installState;
 let busy = false;
+let measuring = false;
 let message = "";
 let alarm = false;
 
@@ -28,9 +29,9 @@ async function load() {
 
 function render() {
   if (!snapshot) return;
-  const names = { where: "Where is your model?", capability: "Evaluation Harness", roles: "Who does what?", done: "Done" };
+  const names = { where: "Where is your model?", capability: "Evaluation Harness", done: "Done" };
   document.getElementById("setup-step").textContent = names[step];
-  root.innerHTML = step === "where" ? whereScreen() : step === "capability" ? capabilityScreen() : step === "roles" ? rolesScreen() : doneScreen();
+  root.innerHTML = step === "where" ? whereScreen() : step === "capability" ? capabilityScreen() : doneScreen();
 }
 
 function whereScreen() {
@@ -76,46 +77,31 @@ function capabilityScreen() {
       ${row("Capability number", measurement ? `${measurement.passed}/${measurement.total} briefs · ${percent(measurement.tool_error_rate)} tool errors` : "unmeasured")}
     </div>
     <p class="setup-note">Measure it runs ten briefs once each and stops after five minutes. It is optional.</p>
-    <div class="setup-actions"><button data-action="measure" ${disabled() || !profile ? "disabled" : ""}>Measure it</button><button data-action="capability-next" class="quiet">Skip</button><button data-action="where" class="quiet">Back</button></div>${feedback()}</section>`;
-}
-
-function rolesScreen() {
-  const profiles = snapshot.servers || [];
-  const agent = snapshot.config?.agents?.[0] || {};
-  const options = (selected) => profiles.map((item) => `<option value="${attr(item.id)}" ${item.id === selected ? "selected" : ""}>${html(item.label || item.id)}</option>`).join("");
-  return `<section class="setup-section"><h1>Who does what?</h1>
-    <div class="setup-fields setup-roles">
-      <label>b · chat<select data-role="b">${options(agent.b || profileID)}</select></label>
-      <label>c · worker<select data-role="c"><option value="">unassigned</option>${options(agent.c)}</select></label>
-      <label>d · planner<select data-role="d"><option value="">unassigned</option>${options(agent.d)}</select></label>
-    </div>
-    <div class="setup-actions"><button data-action="assign-all" ${profiles.length ? "" : "disabled"}>Use profile for everything</button><button data-action="save-roles" ${profiles.length ? "" : "disabled"}>Save assignments</button><button data-action="done" class="quiet">Later</button></div>${feedback()}</section>`;
+    <div class="setup-actions">${measurement
+      ? `<button data-action="capability-next">Continue</button>`
+      : `<button data-action="measure" ${!profile ? "disabled" : ""}>${measuring ? "Stop" : "Measure it"}</button><button data-action="capability-next" class="quiet">Skip</button><button data-action="where" class="quiet">Back</button>`}</div>${feedback()}</section>`;
 }
 
 function doneScreen() {
-  return `<section class="setup-section"><h1>Done</h1><p>Your model connection and role assignments are saved.</p><div class="setup-actions"><button data-action="finish">Open Chat</button></div>${feedback()}</section>`;
+  return `<section class="setup-section"><h1>Done</h1><p>Your model connection is saved.</p><div class="setup-actions"><button data-action="finish">Open Chat</button></div>${feedback()}</section>`;
 }
 
 async function click(event) {
   const button = event.target.closest("[data-action]");
-  if (!button || busy) return;
+  if (!button) return;
   const action = button.dataset.action;
+  if (busy && !(action === "measure" && measuring)) return;
   if (action === "show-install") return showInstall();
   if (action === "test") return testConnection();
   if (action === "install") return installModel();
-  if (action === "later") return go("roles");
+  if (action === "later") return go("done");
   if (action === "where") return go("where");
-  if (action === "capability-next") return go("roles");
-  if (action === "measure") return measure();
-  if (action === "assign-all") return assignAll();
-  if (action === "save-roles") return saveRoles();
-  if (action === "done") return go("done");
+  if (action === "capability-next") return go("done");
+  if (action === "measure") return measuring ? stopMeasurement() : measure();
   if (action === "finish") return finish();
 }
 
-function change(event) {
-  if (event.target.matches("[data-role='b']")) profileID = event.target.value;
-}
+function change() {}
 
 async function showInstall() {
   detection = {}; catalog = {}; message = ""; render();
@@ -139,11 +125,11 @@ async function testConnection() {
     if (credential) profile.credential = credential;
     if (apiKey) profile.api_key = apiKey;
     const servers = [...(snapshot.config.servers || []).filter((item) => item.id !== profileID), profile];
-    const existingAgents = snapshot.config.agents || [];
-    const agents = existingAgents.length ? existingAgents : [{ name: "Agent_b", b: profileID, toolset: fullTools }];
+    const agents = snapshot.config.agents || [];
     snapshot.config = await request("/api/config", { servers, agents });
     await request(`/api/servers/${encodeURIComponent(profileID)}/probe`, {});
     await waitForProbe();
+    await assignTestedProfile();
     go("capability");
   } catch (error) { fail(error); } finally { busy = false; render(); }
 }
@@ -162,11 +148,13 @@ async function installModel() {
     profileID = installState.profile_id;
     snapshot = await request("/api/state", undefined, "GET");
     await waitForProbe();
+    await assignTestedProfile();
     go("capability");
   } catch (error) { fail(error); } finally { busy = false; render(); }
 }
 
 async function measure() {
+  measuring = true;
   setBusy("Running ten briefs (five-minute cap)…");
   try {
     await request("/api/eval/measure", { profile_id: profileID });
@@ -177,30 +165,30 @@ async function measure() {
       if (!state.running) {
         if (state.error) throw new Error(state.error);
         snapshot = await request("/api/state", undefined, "GET");
-        message = "Measurement stored on this profile.";
+        measuring = false;
+        busy = false;
+        go("done");
         break;
       }
       render();
     }
-  } catch (error) { fail(error); } finally { busy = false; render(); }
+  } catch (error) { fail(error); } finally { measuring = false; busy = false; render(); }
 }
 
-async function assignAll() {
-  const select = root.querySelector("[data-role='b']");
-  const id = select?.value || profileID || snapshot.servers?.[0]?.id;
-  root.querySelectorAll("[data-role]").forEach((item) => { item.value = id; });
-  await saveRoles();
-}
-
-async function saveRoles() {
-  const current = snapshot.config.agents?.[0] || {};
-  const assignments = { b: role("b"), c: role("c"), d: role("d") };
-  setBusy("Saving role assignments…");
+async function stopMeasurement() {
+  message = "Stopping after the current brief…";
+  render();
   try {
-    const agent = { ...current, name: current.name || "Agent_b", ...assignments, toolset: current.toolset || fullTools };
-    snapshot.config = await request("/api/config", { agents: [agent] });
-    go("done");
-  } catch (error) { fail(error); } finally { busy = false; render(); }
+    await request(`/api/eval/measure?profile_id=${encodeURIComponent(profileID)}`, undefined, "DELETE");
+  } catch (error) { fail(error); }
+}
+
+async function assignTestedProfile() {
+  const current = snapshot.config.agents?.[0] || { name: "Agent_b", toolset: fullTools };
+  const agent = { ...current, name: current.name || "Agent_b", toolset: current.toolset || fullTools };
+  if (!agent.b) agent.b = profileID;
+  else if (agent.b !== profileID && !agent.c) agent.c = profileID;
+  snapshot.config = await request("/api/config", { agents: [agent] });
 }
 
 async function finish() {
@@ -240,7 +228,6 @@ function setBusy(text) { busy = true; message = text; alarm = false; render(); }
 function fail(error) { message = error.message || String(error); alarm = true; render(); }
 function selectedProfile() { return snapshot.servers?.find((item) => item.id === profileID); }
 function field(name) { return root.querySelector(`[data-field="${name}"]`)?.value?.trim() || ""; }
-function role(name) { return root.querySelector(`[data-role="${name}"]`)?.value || ""; }
 function row(label, value) { return `<div><span>${html(label)}</span><strong>${html(value)}</strong></div>`; }
 function feedback() { return message ? `<p class="setup-feedback ${alarm ? "alarm" : ""}" role="status">${html(message)}</p>` : ""; }
 function disabled() { return busy ? "disabled" : ""; }

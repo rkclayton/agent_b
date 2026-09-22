@@ -159,6 +159,7 @@ type Profile struct {
 type Measurement struct {
 	Passed        int     `json:"passed"`
 	Total         int     `json:"total"`
+	BriefsRun     int     `json:"briefs_run"`
 	ToolErrors    int     `json:"tool_errors"`
 	ToolErrorRate float64 `json:"tool_error_rate"`
 	Trials        int     `json:"trials"`
@@ -166,6 +167,7 @@ type Measurement struct {
 	MeasuredAt    string  `json:"measured_at"`
 	DurationMS    int64   `json:"duration_ms"`
 	Capped        bool    `json:"capped"`
+	Stopped       bool    `json:"stopped,omitempty"`
 }
 
 type Service struct {

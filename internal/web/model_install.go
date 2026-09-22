@@ -61,9 +61,6 @@ func (s *Server) installedModelReady(_ context.Context, state modelinstall.State
 	if !replaced {
 		next.Servers = append(next.Servers, profile)
 	}
-	if len(next.Agents) == 0 {
-		next.Agents = []config.Agent{{Name: "Agent_b", B: profile.ID, Toolset: config.FullToolset()}}
-	}
 	config.ApplyDefaults(&next)
 	if err := next.Validate(); err != nil {
 		s.mu.Unlock()

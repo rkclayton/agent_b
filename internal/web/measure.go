@@ -78,25 +78,51 @@ func (s *Server) measureProfile(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "this profile is already being measured", "profile_id")
 			return
 		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		s.measurements[profileID] = measureState{Running: true, Text: "Starting ten briefs"}
+		s.measureCancels[profileID] = cancel
 		s.measureMu.Unlock()
-		go s.runMeasurement(profileID, *profile)
+		go s.runMeasurement(ctx, profileID, *profile)
 		writeJSON(w, http.StatusAccepted, s.measurements[profileID])
+	case http.MethodDelete:
+		if profileID == "" {
+			writeError(w, http.StatusBadRequest, "profile_id is required", "profile_id")
+			return
+		}
+		s.measureMu.Lock()
+		cancel := s.measureCancels[profileID]
+		state := s.measurements[profileID]
+		if cancel != nil && state.Running {
+			state.Text = "Stopping after the current brief"
+			s.measurements[profileID] = state
+			cancel()
+		}
+		s.measureMu.Unlock()
+		if cancel == nil || !state.Running {
+			writeError(w, http.StatusConflict, "this profile is not being measured", "profile_id")
+			return
+		}
+		writeJSON(w, http.StatusAccepted, state)
 	default:
 		method(w)
 	}
 }
 
-func (s *Server) runMeasurement(profileID string, profile config.Profile) {
+func (s *Server) runMeasurement(ctx context.Context, profileID string, profile config.Profile) {
 	started := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	defer func() {
+		s.measureMu.Lock()
+		delete(s.measureCancels, profileID)
+		s.measureMu.Unlock()
+	}()
 	client := llm.New(&profile)
-	passed, toolErrors := 0, 0
+	passed, toolErrors, briefsRun := 0, 0, 0
 	capped := false
+	stopped := false
 	var runErr error
 	for index, brief := range measurementBriefs {
 		s.setMeasurement(profileID, measureState{Running: true, Text: fmt.Sprintf("Brief %d of %d", index+1, len(measurementBriefs))})
+		briefsRun++
 		response, err := client.Chat(ctx, llm.Request{
 			Messages: []llm.Message{
 				{Role: "system", Content: "Call inspect_workspace exactly once. Put the brief in its request argument. Do not answer in prose."},
@@ -106,7 +132,8 @@ func (s *Server) runMeasurement(profileID string, profile config.Profile) {
 		})
 		if err != nil {
 			if ctx.Err() != nil {
-				capped = true
+				capped = ctx.Err() == context.DeadlineExceeded
+				stopped = ctx.Err() == context.Canceled
 				break
 			}
 			runErr = err
@@ -120,19 +147,26 @@ func (s *Server) runMeasurement(profileID string, profile config.Profile) {
 		}
 	}
 	result := &config.Measurement{
-		Passed: passed, Total: len(measurementBriefs), ToolErrors: toolErrors,
-		ToolErrorRate: float64(toolErrors) / float64(len(measurementBriefs)), Trials: 1,
+		Passed: passed, Total: len(measurementBriefs), BriefsRun: briefsRun, ToolErrors: toolErrors,
+		ToolErrorRate: measurementErrorRate(toolErrors, briefsRun), Trials: 1,
 		Provenance: measurementProvenance, MeasuredAt: time.Now().UTC().Format(time.RFC3339),
-		DurationMS: time.Since(started).Milliseconds(), Capped: capped,
+		DurationMS: time.Since(started).Milliseconds(), Capped: capped, Stopped: stopped,
 	}
 	if err := s.storeMeasurement(profileID, result); err != nil {
 		runErr = err
 	}
-	state := measureState{Text: fmt.Sprintf("%d/%d briefs passed", passed, len(measurementBriefs)), Result: result}
+	state := measureState{Text: fmt.Sprintf("%d/%d briefs passed; %d ran", passed, len(measurementBriefs), briefsRun), Result: result}
 	if runErr != nil {
 		state.Error = runErr.Error()
 	}
 	s.setMeasurement(profileID, state)
+}
+
+func measurementErrorRate(toolErrors, briefsRun int) float64 {
+	if briefsRun == 0 {
+		return 0
+	}
+	return float64(toolErrors) / float64(briefsRun)
 }
 
 func validMeasurementCall(calls []llm.ToolCall, brief string) bool {

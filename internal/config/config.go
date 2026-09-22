@@ -497,7 +497,7 @@ func Defaults(workspace string) Config {
 	}
 	abs, _ := filepath.Abs(workspace)
 	profile := defaultProfile()
-	profile.ID, profile.Label, profile.BaseURL = "local", "Local", "http://127.0.0.1:8080"
+	profile.ID, profile.Label, profile.BaseURL, profile.Model = "local", "Local", "http://127.0.0.1:8080", "model"
 	return Config{
 		ConfigVersion: CurrentConfigVersion,
 		Listen:        "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
@@ -966,10 +966,10 @@ func (c Config) Validate() error {
 // making the configuration file itself invalid.
 func ProfileSetupReason(profile *Profile) string {
 	if strings.TrimSpace(profile.BaseURL) == "" {
-		return "base_url is empty; set it in Servers"
+		return "base_url is empty — Settings → Connections → this profile → base_url, or Open setup guide"
 	}
 	if strings.TrimSpace(profile.Model) == "" {
-		return "model is empty; set it in Servers"
+		return "model is empty — Settings → Connections → this profile → model, or Open setup guide"
 	}
 	return ""
 }

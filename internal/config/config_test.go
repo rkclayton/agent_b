@@ -74,8 +74,11 @@ func TestLoadCreatesConfigFromExample(t *testing.T) {
 	if migrated || !created {
 		t.Fatalf("migrated=%v created=%v", migrated, created)
 	}
-	if reason := ProfileSetupReason(&got.Servers[0]); reason != "model is empty; set it in Servers" {
+	if reason := ProfileSetupReason(&got.Servers[0]); reason != "" {
 		t.Fatalf("setup reason = %q", reason)
+	}
+	if got.Servers[0].Model != "model" {
+		t.Fatalf("fresh default model = %q, want model", got.Servers[0].Model)
 	}
 	if got.Run.MaxTurns != DefaultMaxTurns {
 		t.Fatalf("fresh config max_turns=%d, want %d", got.Run.MaxTurns, DefaultMaxTurns)
@@ -94,6 +97,21 @@ func TestLoadCreatesConfigFromExample(t *testing.T) {
 	}
 	if created {
 		t.Fatal("existing config reported as created")
+	}
+}
+
+func TestProfileSetupReasonNamesConnectionsAndSetupGuide(t *testing.T) {
+	profile := defaultProfile()
+	if got, want := ProfileSetupReason(&profile), "base_url is empty — Settings → Connections → this profile → base_url, or Open setup guide"; got != want {
+		t.Fatalf("empty base_url reason = %q, want %q", got, want)
+	}
+	profile.BaseURL = "http://127.0.0.1:8080"
+	if got, want := ProfileSetupReason(&profile), "model is empty — Settings → Connections → this profile → model, or Open setup guide"; got != want {
+		t.Fatalf("empty model reason = %q, want %q", got, want)
+	}
+	profile.Model = "model"
+	if got := ProfileSetupReason(&profile); got != "" {
+		t.Fatalf("complete profile reason = %q, want empty", got)
 	}
 }
 

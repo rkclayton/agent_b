@@ -204,6 +204,41 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		}
 	})
 
+	t.Run("web_search_per_engine_minimums", func(t *testing.T) {
+		fetch := NewFetch(cfg.Tools.Fetch)
+		search := newWebSearch(fetch, cfg.Tools.WebSearch, defaultWebSearchAdapters(), false)
+		client := fetch.client(cfg.Tools.Fetch)
+		defer client.CloseIdleConnections()
+		queries := map[string]string{
+			"duckduckgo_html": "golang context cancellation", "duckduckgo_lite": "golang context cancellation",
+			"bing": "golang context cancellation", "brave": "golang context cancellation",
+			"startpage": "golang context cancellation", "mojeek": "golang context cancellation",
+			"wikipedia": "what is Go programming language", "github": "github kubernetes repository",
+			"hacker_news": "hacker news golang", "arxiv": "research paper large language models",
+			"stackexchange": "golang context cancellation error", "pkg_go_dev": "golang context package",
+			"npm": "npm react package",
+		}
+		for _, adapter := range search.adapters {
+			query := queries[adapter.Name()]
+			rawURL, ok := adapter.URL(query, webSearchWeb, 5)
+			if !ok {
+				t.Fatalf("%s did not route fixed query %q", adapter.Name(), query)
+			}
+			requestCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Tools.WebSearch.PerEngineTimeoutS)*time.Second)
+			hits, searchErr := search.searchOne(requestCtx, client, cfg.Tools.Fetch, adapter, rawURL, 5)
+			cancel()
+			if initiallyBenchedWebSearchEngines[adapter.Name()] {
+				t.Logf("engine=%s state=shipped-benched results=%d error=%v", adapter.Name(), len(hits), searchErr)
+				continue
+			}
+			if searchErr != nil || len(hits) < 1 {
+				t.Errorf("engine=%s state=active results=%d error=%v", adapter.Name(), len(hits), searchErr)
+			} else {
+				t.Logf("engine=%s state=active results=%d", adapter.Name(), len(hits))
+			}
+		}
+	})
+
 	t.Run("internal_service_exec_identity_call_service", func(t *testing.T) {
 		detail := toolRegistry.CallDetailed(context.Background(), item, "call_service", map[string]any{"service": "identity", "method": "GET", "path": "identity"})
 		if !detail.OK || !detail.OperatorContext || !strings.Contains(detail.Content, `"identity_match":true`) || strings.Contains(detail.Content, operatorIdentity) {

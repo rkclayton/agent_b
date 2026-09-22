@@ -101,6 +101,23 @@ func TestWebSearchPerEngineTimeoutDegrades(t *testing.T) {
 	}
 }
 
+func TestWebSearchRefusesRedirectToPrivateAddress(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "http://169.254.169.254/latest/meta-data")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer server.Close()
+	fetchCfg, searchCfg := webSearchTestConfig("redirect")
+	fetch := NewFetch(fetchCfg)
+	tool := newWebSearch(fetch, searchCfg, nil, false)
+	client := fetch.client(fetchCfg)
+	defer client.CloseIdleConnections()
+	_, err := tool.searchOne(context.Background(), client, fetchCfg, fixedSearchAdapter{name: "redirect", url: server.URL}, server.URL, 5)
+	if err == nil || !strings.Contains(err.Error(), "always refuses") {
+		t.Fatalf("private redirect err=%v", err)
+	}
+}
+
 func TestWebSearchNewsFeedFixture(t *testing.T) {
 	feed := webSearchNewsFeed{Outlet: "fixture"}
 	body := []byte(`<?xml version="1.0"?><rss><channel><item><title>Today</title><link>https://news.example/today</link><description><![CDATA[<p>Summary only.</p>]]></description></item></channel></rss>`)

@@ -252,8 +252,18 @@ type Reasoning struct {
 	MaxTokens    int      `json:"max_tokens,omitempty"`
 }
 type Context struct {
-	NCtx          int `json:"n_ctx"`
-	ReserveOutput int `json:"reserve_output"`
+	NCtx          int            `json:"n_ctx"`
+	ReserveOutput int            `json:"reserve_output"`
+	Sizing        *ContextSizing `json:"sizing,omitempty"`
+}
+
+// ContextSizing records the immutable install-time inputs used to choose the
+// context passed to a locally installed llama-server.
+type ContextSizing struct {
+	WeightsBytes    int64  `json:"weights_bytes"`
+	KVBytesPerToken uint64 `json:"kv_bytes_per_token"`
+	AvailableBytes  uint64 `json:"available_bytes"`
+	ReserveBytes    uint64 `json:"reserve_bytes"`
 }
 type Capabilities struct {
 	Server             string   `json:"server"`

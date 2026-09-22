@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -42,18 +43,23 @@ type Runtime struct {
 }
 
 type State struct {
-	Running    bool   `json:"running"`
-	Phase      string `json:"phase"`
-	Text       string `json:"text"`
-	Downloaded int64  `json:"downloaded_bytes"`
-	Total      int64  `json:"total_bytes"`
-	Error      string `json:"error,omitempty"`
-	ProfileID  string `json:"profile_id,omitempty"`
-	BaseURL    string `json:"base_url,omitempty"`
-	Model      string `json:"model,omitempty"`
+	Running    bool           `json:"running"`
+	Phase      string         `json:"phase"`
+	Text       string         `json:"text"`
+	Downloaded int64          `json:"downloaded_bytes"`
+	Total      int64          `json:"total_bytes"`
+	Error      string         `json:"error,omitempty"`
+	ProfileID  string         `json:"profile_id,omitempty"`
+	BaseURL    string         `json:"base_url,omitempty"`
+	Model      string         `json:"model,omitempty"`
+	Context    *ContextSizing `json:"context,omitempty"`
 }
 
-type Request struct{ ModelID, Backend string }
+type Request struct {
+	ModelID        string
+	Backend        string
+	AvailableBytes uint64
+}
 
 type Manager struct {
 	mu           sync.RWMutex
@@ -124,9 +130,14 @@ func (m *Manager) Start(ctx context.Context, request Request) error {
 	for _, asset := range assets {
 		total += asset.Bytes
 	}
+	if request.AvailableBytes == 0 {
+		m.state = State{}
+		m.mu.Unlock()
+		return errors.New("available memory for the selected backend is unknown")
+	}
 	m.state = State{Running: true, Phase: "queued", Text: "Preparing verified downloads", Total: total, Model: model.Label}
 	m.mu.Unlock()
-	go m.run(ctx, model, request.Backend, assets)
+	go m.run(ctx, model, request.Backend, request.AvailableBytes, assets)
 	return nil
 }
 
@@ -139,7 +150,7 @@ func (m *Manager) model(id string) (Model, bool) {
 	return Model{}, false
 }
 
-func (m *Manager) run(ctx context.Context, model Model, backend string, runtimeAssets []Artifact) {
+func (m *Manager) run(ctx context.Context, model Model, backend string, availableBytes uint64, runtimeAssets []Artifact) {
 	fail := func(err error) {
 		m.set(func(s *State) { s.Running = false; s.Phase = "failed"; s.Error = err.Error(); s.Text = err.Error() })
 	}
@@ -170,6 +181,22 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, runtimeA
 		fail(err)
 		return
 	}
+	metadata, err := readGGUFMetadata(modelPath)
+	if err != nil {
+		fail(fmt.Errorf("read model context metadata: %w", err))
+		return
+	}
+	sizing, err := computeContext(model.Artifact.Bytes, availableBytes, metadata)
+	if err != nil {
+		fail(err)
+		return
+	}
+	sizingPath := filepath.Join(modelRoot, "context-sizing.json")
+	sizingJSON, _ := json.MarshalIndent(sizing, "", "  ")
+	if err := os.WriteFile(sizingPath, append(sizingJSON, '\n'), 0o600); err != nil {
+		fail(fmt.Errorf("write context sizing: %w", err))
+		return
+	}
 	serverPath, err := findServer(runtimeRoot)
 	if err != nil {
 		fail(err)
@@ -180,7 +207,7 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, runtimeA
 		fail(err)
 		return
 	}
-	args := []string{"-m", modelPath, "--host", "127.0.0.1", "--port", fmt.Sprint(port)}
+	args := []string{"-m", modelPath, "--host", "127.0.0.1", "--port", fmt.Sprint(port), "--ctx-size", fmt.Sprint(sizing.NCtx)}
 	launcher, err := writeAutostart(m.startupDir, installRoot, serverPath, args)
 	if err != nil {
 		fail(err)
@@ -196,12 +223,13 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, runtimeA
 		s.Phase = "starting"
 		s.Text = fmt.Sprintf("Starting llama-server (PID %d)", pid)
 		s.BaseURL = baseURL
+		s.Context = &sizing
 	})
 	if err := waitHealth(ctx, m.client, baseURL+"/health", 60*time.Second); err != nil {
 		fail(fmt.Errorf("llama-server did not become ready; autostart retained at %s: %w", launcher, err))
 		return
 	}
-	ready := State{Running: false, Phase: "ready", Text: "Model installed and ready", Total: m.Snapshot().Total, Downloaded: m.Snapshot().Downloaded, ProfileID: "installed-local", BaseURL: baseURL, Model: model.Label}
+	ready := State{Running: false, Phase: "ready", Text: "Model installed and ready", Total: m.Snapshot().Total, Downloaded: m.Snapshot().Downloaded, ProfileID: "installed-local", BaseURL: baseURL, Model: model.Label, Context: &sizing}
 	if m.onReady != nil {
 		if err := m.onReady(ctx, ready); err != nil {
 			fail(fmt.Errorf("create local profile: %w", err))

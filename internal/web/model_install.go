@@ -3,9 +3,13 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"harness/internal/config"
 	"harness/internal/events"
@@ -51,6 +55,10 @@ func (s *Server) installedModelReady(_ context.Context, state modelinstall.State
 	next := *s.cfg
 	next.Servers = append([]config.Profile(nil), s.cfg.Servers...)
 	profile := config.Profile{ID: state.ProfileID, Label: "local", BaseURL: state.BaseURL, Model: state.Model, ProbeMode: "full", AttachmentHandling: "auto"}
+	if state.Context != nil {
+		profile.Context.NCtx = state.Context.NCtx
+		profile.Context.Sizing = &config.ContextSizing{WeightsBytes: state.Context.WeightsBytes, KVBytesPerToken: state.Context.KVBytesPerToken, AvailableBytes: state.Context.AvailableBytes, ReserveBytes: state.Context.ReserveBytes}
+	}
 	replaced := false
 	for index := range next.Servers {
 		if next.Servers[index].ID == profile.ID {
@@ -96,7 +104,12 @@ func (s *Server) modelInstall(w http.ResponseWriter, r *http.Request) {
 		if !decode(w, r, &body) {
 			return
 		}
-		if err := s.modelInstaller.Start(context.Background(), modelinstall.Request{ModelID: body.ModelID, Backend: body.Backend}); err != nil {
+		available, err := s.modelInstallMemory(r.Context(), body.Backend)
+		if err != nil {
+			writeError(w, http.StatusConflict, err.Error(), "model_install")
+			return
+		}
+		if err := s.modelInstaller.Start(context.Background(), modelinstall.Request{ModelID: body.ModelID, Backend: body.Backend, AvailableBytes: available}); err != nil {
 			writeError(w, http.StatusConflict, err.Error(), "model_install")
 			return
 		}
@@ -104,6 +117,50 @@ func (s *Server) modelInstall(w http.ResponseWriter, r *http.Request) {
 	default:
 		method(w)
 	}
+}
+
+func (s *Server) modelInstallMemory(parent context.Context, backend string) (uint64, error) {
+	if s.detectLocal == nil {
+		return 0, errors.New("local detection is unavailable")
+	}
+	s.mu.RLock()
+	account := s.cfg.Shell.ServiceAccount.Account
+	s.mu.RUnlock()
+	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
+	defer cancel()
+	value, err := s.detectLocal(ctx, account)
+	if err != nil {
+		return 0, fmt.Errorf("detect memory for model install: %w", err)
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return 0, err
+	}
+	var report struct {
+		SystemMemoryBytes uint64 `json:"system_memory_bytes"`
+		GPUs              []struct {
+			Vendor    string `json:"vendor"`
+			VRAMBytes uint64 `json:"vram_bytes"`
+		} `json:"gpus"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return 0, err
+	}
+	if backend == "cpu" {
+		if report.SystemMemoryBytes == 0 {
+			return 0, errors.New("system memory is unavailable")
+		}
+		return report.SystemMemoryBytes, nil
+	}
+	for _, gpu := range report.GPUs {
+		if backend != "cuda" || strings.EqualFold(gpu.Vendor, "NVIDIA") {
+			if gpu.VRAMBytes == 0 {
+				break
+			}
+			return gpu.VRAMBytes, nil
+		}
+	}
+	return 0, fmt.Errorf("VRAM for selected %s backend is unavailable", backend)
 }
 
 // Marshal compile-time catalog values in one test-friendly form without

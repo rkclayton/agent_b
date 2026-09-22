@@ -324,14 +324,9 @@ func parsePkgGoResults(body []byte, limit int) ([]webSearchHit, error) {
 	base, _ := url.Parse("https://pkg.go.dev/search")
 	hits := []webSearchHit{}
 	for _, container := range findHTMLNodes(document, func(node *xhtml.Node) bool { return hasExactHTMLClass(node, "SearchSnippet") }) {
-		header := firstHTMLNode(container, func(node *xhtml.Node) bool { return hasExactHTMLClass(node, "SearchSnippet-header") })
-		if header == nil {
-			continue
-		}
-		anchor := header
-		if anchor.Data != "a" {
-			anchor = firstHTMLNode(header, func(node *xhtml.Node) bool { return node.Data == "a" && htmlAttr(node, "href") != "" })
-		}
+		anchor := firstHTMLNode(container, func(node *xhtml.Node) bool {
+			return node.Data == "a" && htmlAttr(node, "data-test-id") == "snippet-title" && htmlAttr(node, "href") != ""
+		})
 		if anchor == nil {
 			continue
 		}

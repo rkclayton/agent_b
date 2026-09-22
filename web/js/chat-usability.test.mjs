@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const chat = await readFile(new URL("./chat.js", import.meta.url), "utf8");
+const app = await readFile(new URL("./app.js", import.meta.url), "utf8");
 const css = await readFile(new URL("../css/chat.css", import.meta.url), "utf8");
 const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
 const shell = await readFile(new URL("./shell.js", import.meta.url), "utf8");
@@ -113,6 +114,11 @@ test("No-agent and empty Plan invitations are explicit and Console links to acti
   // Item 2fc: the Plan page lists plans; with none it says how to add one.
   assert.match(plan, />No plans yet\. \+ adds one for a folder\.<\/p>/);
   assert.match(consoleHTML, /id="panel-tools-link"[^>]*>0 tools active<\/a>/);
+});
+
+test("web_search remains file-configured without a new Settings control", () => {
+	assert.match(app, /filter\(\(tool\) => tool\.name !== "web_search"\)/);
+	assert.match(app, /counts\.replaceChildren\(\.\.\.\(store\.tools \|\| \[\]\)\.map/);
 });
 
 test("New chat uses the fixed left plus and history uses the agent right-click menu", () => {

@@ -219,10 +219,14 @@ function renderTools(agent) {
     counts.innerHTML = empty;
     return;
   }
-  const enabled = new Set(agent.toolset || []);
-  document.getElementById("panel-tools-link").textContent = `${enabled.size} tools active`;
-  const counters = ledger?.agent?.tools || {};
-  root.replaceChildren(...(store.tools || []).map((tool) => {
+	const enabled = new Set(agent.toolset || []);
+	// web_search is configured only in harness.json for this release. Keep it
+	// observable in Activity, but do not invent a Settings control for it.
+	const configurable = (store.tools || []).filter((tool) => tool.name !== "web_search");
+	const configurableEnabled = configurable.filter((tool) => enabled.has(tool.name));
+	document.getElementById("panel-tools-link").textContent = `${configurableEnabled.length} tools active`;
+	const counters = ledger?.agent?.tools || {};
+	root.replaceChildren(...configurable.map((tool) => {
     const row = node("label", "panel-line panel-tool-line");
     const toggle = document.createElement("input");
     toggle.type = "checkbox"; toggle.checked = enabled.has(tool.name); toggle.dataset.tool = tool.name; toggle.disabled = store.replay;

@@ -28,6 +28,7 @@ const (
 	SessionRestoreFailed = "session.restore_failed"
 	ChatExported         = "chat.exported"
 	ServerProbed         = "server.probed"
+	ProbeRequest         = "probe.request"
 	ConfigChanged        = "config.changed"
 	ShellIdentity        = "shell.identity"
 	ShellCredential      = "shell.credential"

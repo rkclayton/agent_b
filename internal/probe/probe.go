@@ -13,6 +13,7 @@ import (
 	"image/draw"
 	"image/png"
 	"math/big"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -48,7 +49,7 @@ func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, [
 		models, modelsErr := client.Models(check)
 		cancel()
 		if modelsErr != nil {
-			return profile.Capabilities, nil, connectionProbeError(propsErr, modelsErr)
+			return profile.Capabilities, nil, connectionProbeErrorFor(profile.BaseURL, propsErr, modelsErr)
 		}
 		caps.Server = "openai-compatible"
 		listed := false
@@ -60,7 +61,7 @@ func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, [
 		if listed {
 			findings = append(findings, "models: profile model listed")
 		} else {
-			findings = append(findings, "models: profile model not listed")
+			return profile.Capabilities, nil, &ModelNotListedError{Model: profile.Model, Models: models}
 		}
 	}
 	working := *profile
@@ -155,7 +156,25 @@ func (e *ConnectionError) Error() string           { return e.Friendly }
 func (e *ConnectionError) OperatorMessage() string { return e.Friendly }
 func (e *ConnectionError) Diagnostic() string      { return e.Detail }
 
-func connectionProbeError(propsErr, modelsErr error) error {
+type ModelNotListedError struct {
+	Model  string
+	Models []string
+}
+
+func (e *ModelNotListedError) Error() string      { return e.OperatorMessage() }
+func (e *ModelNotListedError) Diagnostic() string { return "models: " + strings.Join(e.Models, ", ") }
+func (e *ModelNotListedError) OperatorMessage() string {
+	listed := e.Models
+	if len(listed) > 5 {
+		listed = listed[:5]
+	}
+	if len(listed) == 0 {
+		return fmt.Sprintf("Model %q is not served by this server; it returned no model ids.", e.Model)
+	}
+	return fmt.Sprintf("Model %q is not served; this server lists: %s.", e.Model, strings.Join(listed, ", "))
+}
+
+func connectionProbeErrorFor(baseURL string, propsErr, modelsErr error) error {
 	detail := fmt.Sprintf("server identity: props: %v; models: %v", propsErr, modelsErr)
 	var shape *llm.ResponseShapeError
 	if errors.As(modelsErr, &shape) || errors.As(propsErr, &shape) {
@@ -164,14 +183,46 @@ func connectionProbeError(propsErr, modelsErr error) error {
 		lowerPrefix := strings.ToLower(shape.Prefix)
 		switch {
 		case shape.Status == http.StatusUnauthorized || shape.Status == http.StatusForbidden:
-			return &ConnectionError{Friendly: "Connection requires credentials. Add the API credential, then Test again.", Detail: detail}
+			return &ConnectionError{Friendly: fmt.Sprintf("The server returned HTTP %d: %s.", shape.Status, firstLine(shape.Prefix, http.StatusText(shape.Status))), Detail: detail}
+		case shape.Status >= 400:
+			return &ConnectionError{Friendly: fmt.Sprintf("The server returned HTTP %d: %s.", shape.Status, firstLine(shape.Prefix, http.StatusText(shape.Status))), Detail: detail}
 		case strings.Contains(lowerURL, "login") || strings.Contains(lowerURL, "signin") || strings.Contains(lowerPrefix, "sign in") || strings.Contains(lowerPrefix, "log in"):
 			return &ConnectionError{Friendly: "Connection was redirected to a sign-in page. Use the model API URL and configure its credential.", Detail: detail}
 		case strings.Contains(lowerType, "text/html") || strings.Contains(lowerPrefix, "<html") || strings.Contains(lowerPrefix, "<!doctype html"):
 			return &ConnectionError{Friendly: "Connection returned a web page, not model API JSON. Add the API path to base_url.", Detail: detail}
 		}
 	}
-	return &ConnectionError{Friendly: "Connection test failed. Check base_url and the model server.", Detail: detail}
+	trimmed := strings.TrimSpace(baseURL)
+	lowerURL := strings.ToLower(trimmed)
+	if (strings.HasPrefix(lowerURL, "https:/") && !strings.HasPrefix(lowerURL, "https://")) || (strings.HasPrefix(lowerURL, "http:/") && !strings.HasPrefix(lowerURL, "http://")) {
+		return &ConnectionError{Friendly: fmt.Sprintf("base_url %q is malformed: the scheme needs two slashes (for example, https://host).", trimmed), Detail: detail}
+	}
+	for _, candidate := range []error{modelsErr, propsErr} {
+		var dns *net.DNSError
+		if errors.As(candidate, &dns) {
+			return &ConnectionError{Friendly: fmt.Sprintf("The name %q does not resolve.", dns.Name), Detail: detail}
+		}
+		lower := strings.ToLower(candidate.Error())
+		if strings.Contains(lower, "certificate") || strings.Contains(lower, "tls") || strings.Contains(lower, "x509") {
+			return &ConnectionError{Friendly: "TLS failed: " + firstLine(candidate.Error(), "certificate validation failed") + ".", Detail: detail}
+		}
+	}
+	return &ConnectionError{Friendly: fmt.Sprintf("Connection to the server at %s failed: %s.", trimmed, firstLine(modelsErr.Error(), "unknown error")), Detail: detail}
+}
+
+func connectionProbeError(propsErr, modelsErr error) error {
+	return connectionProbeErrorFor("the configured base_url", propsErr, modelsErr)
+}
+
+func firstLine(value, fallback string) string {
+	value = strings.TrimSpace(strings.SplitN(value, "\n", 2)[0])
+	if value == "" {
+		return fallback
+	}
+	if len(value) > 160 {
+		value = value[:160]
+	}
+	return value
 }
 
 func probePDF() []byte {

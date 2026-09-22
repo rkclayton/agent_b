@@ -11,6 +11,8 @@ let busy = false;
 let measuring = false;
 let message = "";
 let alarm = false;
+let discoveredModels = [];
+let discoveryNote = "";
 
 root.addEventListener("click", click);
 root.addEventListener("change", change);
@@ -37,10 +39,14 @@ function render() {
 
 function whereScreen() {
   const profile = selectedProfile();
+  const currentModel = profile?.model || "";
+  const modelField = discoveredModels.length
+    ? `<select data-field="model">${!discoveredModels.includes(currentModel) && currentModel ? `<option value="${attr(currentModel)}" selected>${html(currentModel)} · not served</option>` : ""}${discoveredModels.map((model) => `<option value="${attr(model)}" ${model === currentModel ? "selected" : ""}>${html(model)}</option>`).join("")}</select>`
+    : `<input data-field="model" value="${attr(currentModel)}" placeholder="model name">`;
   return `<section class="setup-section"><h1>Where is your model?</h1>
     <div class="setup-fields">
-      <label>Address<input data-field="url" value="${attr(profile?.base_url || "http://127.0.0.1:8080")}" placeholder="http://host:port"></label>
-      <label>Model<input data-field="model" value="${attr(profile?.model || "")}" placeholder="model name"></label>
+      <label>Address<input data-field="url" value="${attr(profile?.base_url || "http://127.0.0.1:8080")}" placeholder="host or http://host:port">${discoveryNote ? `<span class="setup-note discovery-note">${html(discoveryNote)}</span>` : ""}</label>
+      <label>Model${modelField}</label>
       <label>Saved credential name<input data-field="credential" value="${attr(profile?.credential || "")}" placeholder="optional"></label>
       <label>API key<input data-field="api-key" type="password" autocomplete="off" placeholder="optional"></label>
     </div>
@@ -117,7 +123,7 @@ async function showInstall() {
 
 async function testConnection() {
   const url = field("url"), model = field("model"), credential = field("credential"), apiKey = field("api-key");
-  if (!url || !model) return fail(new Error("Address and model are required before Test."));
+  if (!url) return fail(new Error("Address is required before Test."));
   setBusy("Saving and testing the connection…");
   const previousServers = [...(snapshot.config.servers || [])];
   const previousAgents = [...(snapshot.config.agents || [])];
@@ -132,7 +138,16 @@ async function testConnection() {
     const agents = previousAgents.length ? previousAgents : [{ name: "Agent_b", b: profileID, toolset: fullTools }];
     provisional = !previousAgents.length;
     snapshot.config = await request("/api/config", { servers, agents });
-    await request(`/api/servers/${encodeURIComponent(profileID)}/probe`, {});
+    const discovered = await request(`/api/servers/${encodeURIComponent(profileID)}/probe`, {});
+    discoveredModels = discovered.models || [];
+    discoveryNote = discovered.message || "";
+    snapshot = await request("/api/state", undefined, "GET");
+    render();
+    if (discovered.status === "model_required") {
+      message = `Test failed — ${discovered.error}`;
+      alarm = true;
+      return;
+    }
     await waitForProbe();
     await assignTestedProfile();
     go("capability");

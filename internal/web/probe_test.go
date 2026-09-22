@@ -2,13 +2,17 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"harness/internal/config"
+	"harness/internal/events"
 	"harness/internal/probe"
 )
 
@@ -23,6 +27,65 @@ func TestFailedProbePreservesPreviousTimestamp(t *testing.T) {
 	}
 }
 
+func TestConnectionTestReturnsDiscoveryListAndLogsEveryRequest(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"data":[{"id":"one"},{"id":"two"}]}`)
+	}))
+	defer model.Close()
+
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Servers[0].BaseURL, cfg.Servers[0].Model = model.URL, "model"
+	configPath := filepath.Join(root, "harness.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus()
+	stream, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	server := New(&cfg, configPath, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
+	request := httptest.NewRequest(http.MethodPost, "/api/servers/local/probe", nil)
+	response := httptest.NewRecorder()
+	server.server(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body)
+	}
+	var body struct {
+		Status  string   `json:"status"`
+		BaseURL string   `json:"base_url"`
+		Message string   `json:"message"`
+		Error   string   `json:"error"`
+		Models  []string `json:"models"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "model_required" || body.BaseURL != model.URL || body.Message != "found "+model.URL || fmt.Sprint(body.Models) != "[one two]" || !strings.Contains(body.Error, `Model "model" is not served`) {
+		t.Fatalf("body=%+v", body)
+	}
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case event := <-stream:
+			if event.Type != events.ProbeRequest {
+				continue
+			}
+			data, ok := event.Data.(map[string]any)
+			if !ok || data["guard"] != "operator_typed_host_only" || data["allowed"] != true || data["base_url"] != model.URL {
+				t.Fatalf("probe.request=%#v", event.Data)
+			}
+			return
+		case <-deadline:
+			t.Fatal("probe.request was not published")
+		}
+	}
+}
+
 func TestProbeNonJSONFailuresUseFriendlyRowsAndDiagnosticFindings(t *testing.T) {
 	tests := []struct {
 		name, want string
@@ -32,7 +95,7 @@ func TestProbeNonJSONFailuresUseFriendlyRowsAndDiagnosticFindings(t *testing.T) 
 			w.Header().Set("Content-Type", "text/html")
 			fmt.Fprint(w, "<!doctype html><title>Server home</title>")
 		}},
-		{name: "unauthorized", want: "Connection requires credentials. Add the API credential, then Test again.", handler: func(w http.ResponseWriter, _ *http.Request) {
+		{name: "unauthorized", want: "The server returned HTTP 401: <html>Unauthorized</html>.", handler: func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusUnauthorized)
 			fmt.Fprint(w, "<html>Unauthorized</html>")

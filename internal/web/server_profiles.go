@@ -164,12 +164,64 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "server not found", "server_id")
 		return
 	}
-	if reason := config.ProfileSetupReason(profile); reason != "" {
-		writeError(w, 400, reason, "servers."+id)
+	if strings.TrimSpace(profile.BaseURL) == "" {
+		writeError(w, 400, "base_url is empty", "servers."+id+".base_url")
 		return
 	}
-	s.startProbe(profile)
-	writeJSON(w, 202, map[string]string{"status": "probing", "server_id": id})
+	discoveryContext, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	discovered, discoverErr := probe.DiscoverEndpoint(discoveryContext, profile)
+	for _, attempt := range discovered.Attempts {
+		s.bus.Publish(events.New(events.ProbeRequest, "", "", map[string]any{
+			"server_id": id, "base_url": attempt.BaseURL, "guard": "operator_typed_host_only", "allowed": attempt.Allowed, "result": attempt.Result,
+		}))
+	}
+	if discoverErr != nil {
+		message := discoverErr.Error()
+		if friendly, ok := discoverErr.(interface{ OperatorMessage() string }); ok {
+			message = friendly.OperatorMessage()
+		}
+		writeError(w, http.StatusBadRequest, message, "servers."+id+".base_url")
+		return
+	}
+	updated := *profile
+	updated.BaseURL = discovered.BaseURL
+	listed := false
+	for _, model := range discovered.Models {
+		listed = listed || model == updated.Model
+	}
+	placeholder := strings.TrimSpace(updated.Model) == "" || strings.EqualFold(strings.TrimSpace(updated.Model), "model")
+	if !listed && len(discovered.Models) == 1 && placeholder {
+		updated.Model = discovered.Models[0]
+		listed = true
+	}
+	s.mu.Lock()
+	for index := range s.cfg.Servers {
+		if s.cfg.Servers[index].ID == id {
+			s.cfg.Servers[index].BaseURL = updated.BaseURL
+			s.cfg.Servers[index].Model = updated.Model
+			break
+		}
+	}
+	saveErr := s.cfg.Save(s.configPath)
+	masked := s.cfg.Masked()
+	s.mu.Unlock()
+	if saveErr != nil {
+		writeError(w, http.StatusInternalServerError, saveErr.Error(), "config")
+		return
+	}
+	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
+	if !listed {
+		model := strings.TrimSpace(updated.Model)
+		if model == "" {
+			model = "model"
+		}
+		modelErr := (&probe.ModelNotListedError{Model: model, Models: discovered.Models}).OperatorMessage()
+		writeJSON(w, http.StatusOK, map[string]any{"status": "model_required", "server_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL, "error": modelErr})
+		return
+	}
+	s.startProbe(&updated)
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "probing", "server_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL})
 }
 func (s *Server) startProbe(profile *config.Profile) {
 	s.cancelScheduledReachabilityProbe(profile.ID)

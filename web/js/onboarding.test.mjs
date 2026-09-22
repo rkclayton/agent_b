@@ -22,6 +22,9 @@ test("Fresh template has no servers and setup asks connection, evaluation, then 
 test("Connection Test and capability screen use the existing probe", () => {
   for (const label of ["Context", "Tools", "Images", "Reasoning", "Capability number", "unmeasured"]) assert.match(script, new RegExp(label));
   assert.match(script, /\/api\/servers\/\$\{encodeURIComponent\(profileID\)\}\/probe/);
+  assert.match(script, /discovered\.models/);
+  assert.match(script, /discovered\.status === "model_required"/);
+  assert.match(script, /<select data-field="model">/);
 });
 
 test("Local install chooses accelerator and measurement requests carry only catalog IDs", () => {

@@ -39,7 +39,7 @@ function servers() {
     .join("");
   const editors = profiles.filter((profile) => expanded.has(profile.id)).map((profile) => `<section class="profile-editor" aria-label="${attr(profile.label)} connection settings">
     <div class="profile-editor-head"><div><span class="lamp ${profileReason(profile) && profileReason(profile) !== "context length unknown" ? "alarm" : ""}"></span><h3>${html(profile.label)}</h3><span class="profile-url">${html(profile.base_url)}</span></div><button type="button" data-action="duplicate-server" data-id="${attr(profile.id)}">Duplicate</button></div>
-    <div class="profile-fields">${profileFields(profile, profileReason(profile))}</div>
+    <div class="profile-fields">${profileFields(profile, profileReason(profile), probeMessages.get(profile.id))}</div>
   </section>`).join("");
   return `<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-server">Add connection</button></div><div class="settings-subhead">Profiles</div><div class="profile-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${editors}`;
 }
@@ -61,7 +61,7 @@ function memoryFinding() {
   const suffix = over.length ? ` · ${over.join(" and ")} over budget, oldest notes omitted` : "";
   return [`<li>memory: agent ${agent}/${budget} · folder ${folder}/${budget}${suffix}</li>`];
 }
-function profileFields(profile, reason) {
+function profileFields(profile, reason, discovery) {
   const id = profile.id;
   const p = `servers.${id}`;
   const caps = profile.capabilities || {};
@@ -79,14 +79,18 @@ function profileFields(profile, reason) {
     ["presence_penalty", "presence penalty", "0.1", false],
     ["repeat_penalty", "repeat penalty", "0.1", !llama],
   ].map(([name, label, step, disabled]) => `<div class="sampling-label">${html(label)}</div>${["thinking", "nonthinking"].map((mode) => `<div>${numberControl(`${p}.sampling.${mode}.${name}`, profile.sampling[mode][name], step, disabled)}${disabled ? '<span class="control-note">llama.cpp only</span>' : ""}</div>`).join("")}`).join("");
+	const discoveredModels = discovery?.models || [];
+	const modelControl = discoveredModels.length
+	  ? row("model", `<select class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text">${!discoveredModels.includes(profile.model) && profile.model ? `<option value="${attr(profile.model)}" selected>${html(profile.model)} · not served</option>` : ""}${discoveredModels.map((model) => `<option value="${attr(model)}" ${model === profile.model ? "selected" : ""}>${html(model)}</option>`).join("")}</select>`, "", "Models reported by the discovered endpoint.")
+	  : text(`${p}.model`, "model", profile.model, "text", "The model name sent with each request.");
 	return `<div class="profile-fieldset profile-identity"><h4>Connection</h4>${text(`${p}.label`, "label", profile.label, "text", "The name this connection is shown by.")}
-    ${text(`${p}.base_url`, "base_url", profile.base_url, "text", "The model server's address.")}
+    ${text(`${p}.base_url`, "base_url", profile.base_url, "text", "The server address; Test can discover its API path and port.")}${discovery?.base_url ? `<p class="settings-note discovery-note">${html(discovery.found || `found ${discovery.base_url}`)}</p>` : ""}
 	${text(`${p}.extract_url`, "extract_url", profile.extract_url || "", "text", "An optional service that turns PDFs into text for this connection; it is used before the local reader.")}
 	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], profile.attachment_handling || "auto", "auto follows probed capability; native always sends supported attachment kinds; extract keeps their binary local")}
-    ${text(`${p}.model`, "model", profile.model, "text", "The model name sent with each request.")}
+    ${modelControl}
 	${text(`${p}.credential`, "credential ref", profile.credential || "", "text", "The name the stored API key is kept under; the key itself is never in the configuration.")}
     ${secret(`${p}.api_key`, "api_key", profile.api_key, id, "API keys are stored in user-scoped DPAPI storage; configuration keeps only the credential reference.")}
-    ${number(`${p}.request_timeout_s`, "timeout", profile.request_timeout_s, "1", false, "", false, "number", "Seconds to wait for the model server before a request counts as failed.")}
+	${number(`${p}.request_timeout_s`, "timeout", profile.request_timeout_s, "1", false, "", false, "number", "Seconds to wait for the server before a request counts as failed.")}
     ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], profile.probe_mode, "minimal and off skip checks that spend tokens; assumed values are marked in findings")}</div>
     <div class="profile-fieldset profile-reasoning"><h4>Reasoning &amp; context</h4>
     ${choices(`${p}.reasoning.control`, "control", ["auto", "chat_template_kwargs", "top_level", "server_flag", "none"], profile.reasoning.control, "How the thinking switch is sent to this server; auto uses what the probe found.")}

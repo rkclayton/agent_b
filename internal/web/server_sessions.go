@@ -331,10 +331,25 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"session_id": id})
 		return
 	}
-	// Item 2gq (v1.2.5): the separate permanent-delete route is gone. Closing a
-	// chat deletes it, so there is one way to remove a chat and no second,
-	// differently-gated one to keep in step with it. DELETE on the session is
-	// that way, and it is handled below.
+	// Item 2hq (v1.6.2): close and delete are distinct HTTP acts. Closing keeps
+	// the retained chat and only removes it from the open tab set; reopening is
+	// the existing inverse above. Permanent deletion remains DELETE below and
+	// refuses an open chat.
+	if len(parts) == 2 && parts[1] == "close" && r.Method == http.MethodPost {
+		if err := s.registry.Close(id); err != nil {
+			status := http.StatusConflict
+			if strings.Contains(err.Error(), "not found") {
+				status = http.StatusNotFound
+			}
+			writeError(w, status, err.Error(), "session")
+			return
+		}
+		if s.runner != nil {
+			s.runner.LapseSessionGrants(id)
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"session_id": id})
+		return
+	}
 	switch r.Method {
 	case http.MethodPost:
 		var body struct {
@@ -393,30 +408,26 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, map[string]any{"session": item.Snapshot()})
 	case http.MethodDelete:
-		// Item 2gq: a chat closed before this release is still in history and
-		// is still closed; closing it again is what deletes it. So "already
-		// closed" is not an error here - it is the second half of the journey.
-		if err := s.registry.Close(id); err != nil && !strings.Contains(err.Error(), "already closed") {
-			status := 404
-			if strings.Contains(err.Error(), "running") || strings.Contains(err.Error(), "closed") {
-				status = 409
-			}
-			writeError(w, status, err.Error(), "session")
+		item, ok := s.registry.Get(id)
+		if !ok {
+			writeError(w, http.StatusNotFound, "session not found", "session")
+			return
+		}
+		if !item.Snapshot().Closed {
+			writeError(w, http.StatusConflict, "session must be closed before deletion", "session")
 			return
 		}
 		if s.runner != nil {
 			s.runner.LapseSessionGrants(id)
 		}
 		if s.operatorFiles != nil {
-			if item, ok := s.registry.Get(id); ok {
-				if path, err := s.operatorFiles.ExportChat(item.Snapshot()); err != nil {
-					s.bus.Publish(events.New(events.Error, id, "", map[string]any{"where": "chat_export", "message": err.Error()}))
-				} else {
-					s.bus.Publish(events.New(events.ChatExported, id, "", map[string]any{"path": path}))
-				}
+			if path, err := s.operatorFiles.ExportChat(item.Snapshot()); err != nil {
+				s.bus.Publish(events.New(events.Error, id, "", map[string]any{"where": "chat_export", "message": err.Error()}))
+			} else {
+				s.bus.Publish(events.New(events.ChatExported, id, "", map[string]any{"path": path}))
 			}
 		}
-		// Item 2gq (v1.2.5): closing a chat IS deleting it. The journal, the
+		// Item 2hq: deletion is intentional and can only follow close. The journal, the
 		// scratch folder, its attachments, its history entry and its tab go;
 		// what the chat produced elsewhere - memory notes, plans, reflection
 		// rows, files written into a repository - is not the chat and stays.

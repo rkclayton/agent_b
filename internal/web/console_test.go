@@ -41,9 +41,9 @@ func consoleServer(t *testing.T) (*Server, *session.Registry, *events.Writers, *
 	return server, registry, writers, memories, &cfg, root
 }
 
-// Item 2gq (v1.2.5): closing a chat deletes it. What the chat produced
-// elsewhere is not the chat and stays.
-func TestClosingAChatRemovesItAndKeepsWhatItProduced(t *testing.T) {
+// Item 2hq (v1.6.2): intentional deletion of an already-closed chat removes
+// the chat, while what it produced elsewhere stays.
+func TestDeletingAClosedChatRemovesItAndKeepsWhatItProduced(t *testing.T) {
 	server, registry, writers, memories, cfg, root := consoleServer(t)
 	defer writers.Close()
 	workspaceFile := filepath.Join(cfg.Workspace, "kept.txt")
@@ -78,10 +78,10 @@ func TestClosingAChatRemovesItAndKeepsWhatItProduced(t *testing.T) {
 	}
 	result := deleteConsole(t, server, "/api/sessions/main")
 	if result.Code != http.StatusOK {
-		t.Fatalf("close status=%d body=%s", result.Code, result.Body)
+		t.Fatalf("delete status=%d body=%s", result.Code, result.Body)
 	}
 	if !strings.Contains(result.Body.String(), `"jsonl_files":2`) {
-		t.Fatalf("close did not report what it removed: %s", result.Body)
+		t.Fatalf("delete did not report what it removed: %s", result.Body)
 	}
 	if _, ok := registry.Get(item.ID); ok {
 		t.Fatal("registry entry survived")
@@ -135,8 +135,7 @@ func TestFlushMemoryNamesAndClearsAgentAndWorkspaceLayers(t *testing.T) {
 	}
 }
 
-// A chat with a live run still refuses to close, and closing keeps memory.
-func TestClosingKeepsMemoryAndRefusesWhileARunIsLive(t *testing.T) {
+func TestCloseRetainsChatAndDeleteRefusesAnOpenChat(t *testing.T) {
 	server, registry, writers, memories, cfg, _ := consoleServer(t)
 	defer writers.Close()
 	item, err := registry.Create("delete me", "coder", cfg.Workspace)
@@ -148,19 +147,24 @@ func TestClosingKeepsMemoryAndRefusesWhileARunIsLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	server.bus.Publish(events.New(events.MemoryNoted, item.ID, "", map[string]any{"path": path, "note": "keep project fact", "target": "workspace", "agent_id": "coder"}))
-	if err := registry.Close(item.ID); err != nil {
-		t.Fatal(err)
+	if response := deleteConsole(t, server, "/api/sessions/main"); response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "session must be closed before deletion") {
+		t.Fatalf("open delete status=%d body=%s", response.Code, response.Body)
 	}
-	// The separate permanent-delete route is gone: there is one way to remove a
-	// chat, and this is not it.
-	if response := postConsole(t, server, "/api/sessions/main/delete", `{"confirm":true}`); response.Code == http.StatusOK {
-		t.Fatalf("the removed delete route still answers: %s", response.Body)
+	if _, ok := registry.Get(item.ID); !ok {
+		t.Fatal("refused open delete removed the registry entry")
 	}
-	if response := deleteConsole(t, server, "/api/sessions/main"); response.Code != http.StatusOK {
+	if response := postConsole(t, server, "/api/sessions/main/close", `{}`); response.Code != http.StatusOK {
 		t.Fatalf("close status=%d body=%s", response.Code, response.Body)
 	}
+	retained, ok := registry.Get(item.ID)
+	if !ok || !retained.Snapshot().Closed {
+		t.Fatalf("close did not retain a closed chat: ok=%v snapshot=%+v", ok, retained)
+	}
 	if value, _ := memories.Read(cfg.Workspace); !strings.Contains(value, "keep project fact") {
-		t.Fatalf("memory was not kept by default: %q", value)
+		t.Fatalf("memory was not kept by close: %q", value)
+	}
+	if response := deleteConsole(t, server, "/api/sessions/main"); response.Code != http.StatusOK {
+		t.Fatalf("closed delete status=%d body=%s", response.Code, response.Body)
 	}
 }
 

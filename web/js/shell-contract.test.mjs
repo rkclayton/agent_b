@@ -110,10 +110,9 @@ test("compact window controls continue the top strip", () => {
   assert.match(tokens, /\.shell-window-control-glyph\{[^}]*width:9px;height:9px/);
 });
 
-// Items 2go, 2gx and 2gq (v1.2.5), the operator: the history is the date, the
-// name and the x, nothing more; the row itself switches the tab; and close
-// deletes, so there is no separate permanent-delete control to arm.
-test("agent menu is the chat history as date, name and close", () => {
+// Items 2go, 2gx and 2hq: the row switches/reopens the chat; close retains it;
+// and only a closed row receives the intentional Delete control.
+test("agent menu separates close, reopen and delete", () => {
   assert.match(shell, /sessionsFor\(agentID, true\)/);
   assert.match(shell, /oncontextmenu/);
   assert.match(shell, /\/reopen`/);
@@ -122,15 +121,13 @@ test("agent menu is the chat history as date, name and close", () => {
   assert.match(shell, /agent-chat-rename-form/);
   assert.match(shell, /\{ label \}/);
   assert.match(shell, /summary\.onclick/);
-  assert.match(shell, /row\.append\(summary, rename, close\)/);
+  assert.match(shell, /if \(session\.closed\) row\.append\(remove\)/);
   assert.doesNotMatch(shell, /button\("Open"/);
   assert.doesNotMatch(shell, /button\("🗑"/);
   assert.doesNotMatch(shell, /agent-chat-count/);
   assert.doesNotMatch(shell, /drop_memory/);
-  assert.doesNotMatch(shell, /window\.confirm\([^)]*Delete/);
-  // Item 2gq (v1.2.5): close deletes, so the one-line confirm RETURNS - it is
-  // the dialog the removed permanent-delete control used to own.
-  assert.match(shell, /window\.confirm\(closeConfirmText\)/);
+  assert.match(shell, /await api\(`\/api\/sessions\/\$\{encodeURIComponent\(session\.id\)\}\/close`, \{\}\)/);
+  assert.match(shell, /window\.confirm\(deleteConfirmText\)/);
   assert.match(shell, /Delete this chat\? Its memory notes, plans and files stay\./);
   // Item 2gh: the tab menu opens AT THE POINTER, so the reveal carries the
   // event's coordinates. It used to be revealMenu(menu, tab), which placed it

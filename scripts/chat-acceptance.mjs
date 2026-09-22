@@ -704,9 +704,9 @@ if (realModel) {
   assert.equal(await toggleMenu.locator(".agent-chat-console").count(), 0);
   assert.ok(await toggleMenu.locator(".agent-chat-row").count() >= 2);
   assert.equal(await toggleMenu.locator(".agent-chat-close").count(), await toggleMenu.locator(".agent-chat-row").count());
-  // Item 2gq (v1.2.5): close deletes, so there is no separate permanent-delete
-  // control on the row any more. Item 2go: the row is the date and the name.
-  assert.equal(await toggleMenu.locator(".agent-chat-delete").count(), 0);
+  // Item 2hq: Delete exists on closed rows only. Item 2go: the row remains the
+  // date and the name rather than growing another summary line.
+  assert.equal(await toggleMenu.locator(".agent-chat-delete").count(), await toggleMenu.locator(".agent-chat-row.closed").count());
   assert.equal(await toggleMenu.locator(".agent-chat-count").count(), 0);
   const historyRow = await toggleMenu.locator(".agent-chat-summary").first().innerText();
   assert.match(historyRow, /^\d{2}:\d{2} · \S/, historyRow);
@@ -1860,9 +1860,11 @@ if (realModel) {
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
 	await browser.wait(`document.querySelector('#chat-task')`, "chat restored after empty attachments");
 	const finalState = await state();
+	await json(`http://127.0.0.1:${appPort}/api/sessions/${sessionID}/close`, { method: "POST", headers: { "X-AgentB-Mutation-Token": finalState.mutation_token } });
+	assert.equal((await state()).sessions[sessionID]?.closed, true, "close must retain a closed session");
 	await json(`http://127.0.0.1:${appPort}/api/sessions/${sessionID}`, { method: "DELETE", headers: { "X-AgentB-Mutation-Token": finalState.mutation_token } });
-	// Item 2gq (v1.2.5): closing deletes the journal, so the chat.exported event
-	// goes with it. The export itself is written BEFORE the delete and is one of
+	// Item 2hq (v1.6.2): close retains the journal; intentional delete exports
+	// it first. The export itself is one of
 	// the things that outlives the chat, so the proof is the file on disk.
 	const exportedPath = await (async () => {
 		for (let attempt = 0; attempt < 200; attempt++) {
@@ -1881,20 +1883,18 @@ if (realModel) {
 	assert.ok(exportedMarkdown.includes("## Transcript"));
 	assert.ok(exportedMarkdown.includes("- tool `shell` · ok"));
 	assert.ok(exportedMarkdown.includes("- attachment: `attachments/phone-note.txt`"));
-	record("chat-close-markdown-export");
+	record("chat-delete-markdown-export");
   const evidenceRun = join(args.evidence, `run-${new Date().toISOString().replaceAll(":", "-")}`);
   await mkdir(evidenceRun, { recursive: true });
   await writeFile(join(evidenceRun, "chat-final.png"), screenshot);
   await page.goto(`http://127.0.0.1:${appPort}/chat`);
   await browser.wait(`document.querySelector('.agent-tab')`, "agent tab after close");
-  // Item 2gq: there is no separate permanent-delete control to arm. This chat
-  // was closed above, which deleted it; what it PRODUCED is still here, which
-  // is the half of the rule worth proving.
+  // Item 2hq: this chat was explicitly closed and then deleted; what it
+  // PRODUCED remains even though the retained chat is gone.
   await page.locator(".agent-tab").first().click({ button: "right" });
   await page.locator(".agent-chat-summary").first().waitFor({ state: "visible" });
-  assert.equal(await page.locator(".agent-chat-delete").count(), 0, "the permanent-delete control is gone");
   assert.equal(await page.locator(`.agent-chat-row[data-session="${sessionID}"]`).count(), 0, "a deleted chat leaves no history entry");
-  assert.equal((await state()).sessions[sessionID], undefined, "closing removed the session registry entry");
+  assert.equal((await state()).sessions[sessionID], undefined, "deleting removed the session registry entry");
   await page.screenshot({ path: join(evidenceRun, "chat-history-after-close.png") });
   // What the chat produced elsewhere: the exported markdown of what was said,
   // the memory it noted, and the plan it registered.
@@ -1920,7 +1920,7 @@ if (realModel) {
   // noted all outlived the chat.
   assert.ok(durable.export, JSON.stringify(durable));
   assert.ok(durable.plans > 0, JSON.stringify(durable));
-  record("close-deletes-the-chat-and-keeps-what-it-produced");
+  record("delete-removes-the-chat-and-keeps-what-it-produced");
   await page.setViewportSize({ width: 320, height: 975 });
   for (let index = 0; index < 10; index++) {
     const before = await page.locator(".agent-tab-wrap[data-session]").count();
@@ -1940,9 +1940,9 @@ if (realModel) {
   assert.equal(tabOverflow.plusCount, 1, JSON.stringify(tabOverflow));
   assert.equal(tabOverflow.nestedPlusCount, 0, JSON.stringify(tabOverflow));
   assert.ok(tabOverflow.plusLeft < tabOverflow.stripLeft, JSON.stringify(tabOverflow));
-  // Item 2gq (v1.2.5): close deletes, so it asks first - one line, and it says
-  // what is NOT lost. Dismissing it keeps the chat; confirming removes it from
-  // the registry, not just from the strip.
+  // Item 2hq (v1.6.2): tab and row × close without a dialog and retain the
+  // chat. A closed row reopens on click. Only its Delete button confirms and
+  // permanently removes the retained chat.
   // A chat of its own for this proof, so the scenario does not depend on which
   // of the suite's chats is still open by the time it runs. The strip is back
   // at full width first: the narrow case above scrolls tabs out of reach.
@@ -1954,29 +1954,43 @@ if (realModel) {
   await page.reload();
   await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"]`).waitFor({ state: "visible" });
   const dialogs = [];
-  const dismiss = async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); };
-  page.on("dialog", dismiss);
-  await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"] .agent-tab`).click({ button: "right" });
-  await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-close`).click();
-  await sleep(300);
-  page.off("dialog", dismiss);
-  assert.equal(dialogs.length, 1, JSON.stringify(dialogs));
-  assert.equal(dialogs[0], "Delete this chat? Its memory notes, plans and files stay.");
-  assert.ok((await state()).sessions[idleCloseID], "a dismissed confirm must keep the chat");
-  const accept = async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); };
-  page.on("dialog", accept);
-  // The menu from the dismissed attempt is still open over the strip. Escape
-  // puts it away (item 2gh) and Settings is not open here to be closed too.
-  await page.keyboard.press("Escape");
-  await page.waitForFunction(() => ![...document.querySelectorAll(".agent-chat-menu")].some((menu) => !menu.hidden));
+  const collect = async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); };
+  page.on("dialog", collect);
+  await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"] .agent-tab-close`).click();
+  await page.waitForFunction((id) => !document.querySelector(`.agent-tab-wrap[data-session="${id}"]`), idleCloseID);
+  page.off("dialog", collect);
+  assert.equal(dialogs.length, 0, "tab close must not open a dialog");
+  assert.equal((await state()).sessions[idleCloseID]?.closed, true, "tab close must retain a closed chat");
+  await page.locator(".agent-tab").first().click({ button: "right" });
+  const closedRow = page.locator(`.agent-chat-row[data-session="${idleCloseID}"]`);
+  await closedRow.waitFor({ state: "visible" });
+  assert.equal(await closedRow.locator(".agent-chat-delete").count(), 1, "closed row must expose Delete");
+  await closedRow.locator(".agent-chat-summary").click();
+  await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"]`).waitFor({ state: "visible" });
+  assert.equal((await state()).sessions[idleCloseID]?.closed, false, "closed row click must reopen the chat");
+
   await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"] .agent-tab`).click({ button: "right" });
   await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-close`).click();
   await page.waitForFunction((id) => !document.querySelector(`.agent-tab-wrap[data-session="${id}"]`), idleCloseID);
+  assert.equal((await state()).sessions[idleCloseID]?.closed, true, "row close must retain a closed chat");
+  await page.locator(".agent-tab").first().click({ button: "right" });
+  await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-delete`).waitFor({ state: "visible" });
+  const dismiss = async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); };
+  page.on("dialog", dismiss);
+  await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-delete`).click();
+  await sleep(300);
+  page.off("dialog", dismiss);
+  assert.equal(dialogs.at(-1), "Delete this chat? Its memory notes, plans and files stay.");
+  assert.ok((await state()).sessions[idleCloseID], "a dismissed delete confirm must keep the chat");
+  const accept = async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); };
+  page.on("dialog", accept);
+  await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-delete`).click();
+  await page.waitForFunction((id) => !document.querySelector(`.agent-chat-row[data-session="${id}"]`), idleCloseID);
   page.off("dialog", accept);
   for (let attempt = 0; attempt < 100 && (await state()).sessions[idleCloseID]; attempt++) await sleep(50);
-  assert.equal((await state()).sessions[idleCloseID], undefined, "closing a chat must remove it from the registry");
-  assert.equal(await page.locator(`.agent-chat-row[data-session="${idleCloseID}"]`).count(), 0, "a closed chat leaves no history entry");
-  record("close-deletes-the-chat-after-one-line-confirm");
+  assert.equal((await state()).sessions[idleCloseID], undefined, "delete must remove it from the registry");
+  assert.equal(await page.locator(`.agent-chat-row[data-session="${idleCloseID}"]`).count(), 0, "a deleted chat leaves no history entry");
+  record("close-retains-reopen-restores-delete-confirms-once");
   await page.setViewportSize({ width: 1250, height: 975 });
   record("per-chat-tabs-scroll-without-shrinking-or-page-overflow");
   const retainedStateBeforeRestart = await state();

@@ -329,10 +329,14 @@ export function initShell(options = {}) {
       };
       const rename = button("Rename", `Rename ${chatName(session)}`, "agent-chat-rename");
       rename.onclick = () => showRename(row, session, menu, agentID);
+      const remove = button("Delete", `Delete ${chatName(session)}`, "agent-chat-delete");
+      remove.onclick = () => void deleteChat(session, menu, agentID);
       const close = button("×", `Close ${chatName(session)}`, "agent-chat-close");
       close.disabled = session.closed || store.replay;
       close.onclick = () => void closeChat(session, menu, agentID);
-      row.append(summary, rename, close);
+      row.append(summary, rename);
+      if (session.closed) row.append(remove);
+      row.append(close);
       menu.append(row);
     }
   }
@@ -360,14 +364,22 @@ export function initShell(options = {}) {
     input.select();
   }
 
-  // Item 2gq (v1.2.5): close deletes, so it asks first. One line, the same
-  // dialog the removed permanent-delete control used, and it says plainly what
-  // is NOT lost - because what the chat produced elsewhere is not the chat.
-  const closeConfirmText = "Delete this chat? Its memory notes, plans and files stay.";
+  // Item 2hq (v1.6.2): close only moves the chat out of the open tabs. Delete
+  // is the intentional, confirmed act available on an already-closed row.
+  const deleteConfirmText = "Delete this chat? Its memory notes, plans and files stay.";
 
   async function closeChat(session, menu, agentID) {
     if (isRunning(session)) return report("This chat has a running run. Stop it before closing the chat.");
-    if (!window.confirm(closeConfirmText)) return;
+    try {
+      await api(`/api/sessions/${encodeURIComponent(session.id)}/close`, {});
+      reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+      renderAgentMenu(menu, agentID);
+    } catch (error) { report(error.message); }
+  }
+
+  async function deleteChat(session, menu, agentID) {
+    if (!session.closed) return report("Close this chat before deleting it.");
+    if (!window.confirm(deleteConfirmText)) return;
     try {
       await api(`/api/sessions/${encodeURIComponent(session.id)}`, undefined, "DELETE");
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });

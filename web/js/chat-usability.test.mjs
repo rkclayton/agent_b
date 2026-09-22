@@ -129,10 +129,12 @@ test("New chat uses the fixed left plus and history uses the agent right-click m
   assert.doesNotMatch(shell, /wrap\.append\(newChatButton\)|wrap\.append\(add\)/);
   assert.match(shell, /oncontextmenu/);
   assert.match(shell, /agent-chat-rename/);
-  // Item 2gq (v1.2.5): close deletes, so the separate permanent-delete control
-  // is gone and the history row carries the name, a rename and the x.
-  assert.doesNotMatch(shell, /agent-chat-delete/);
-  assert.match(shell, /row\.append\(summary, rename, close\)/);
+  // Item 2hq (v1.6.2): close is unconfirmed and retained; only a closed row
+  // receives the separately confirmed permanent-delete control.
+  assert.match(shell, /agent-chat-delete/);
+  assert.match(shell, /if \(session\.closed\) row\.append\(remove\)/);
+  assert.match(shell, /\/close`, \{\}\)/);
+  assert.match(shell, /window\.confirm\(deleteConfirmText\)/);
   assert.doesNotMatch(html + css, /chat-list|chat-list-toggle/);
   assert.doesNotMatch(html, /chat-clear-conversation|Clear conversation/);
   assert.match(shell, /source_session_id: source\.id/);

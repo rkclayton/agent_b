@@ -371,8 +371,8 @@ func TestAdjacentAssistantsAreFoldedBeforeMeasurement(t *testing.T) {
 	}
 }
 
-func TestARefusedTemplateIsRetriedOnceThenStopsWithTheReason(t *testing.T) {
-	for name, refusals := range map[string]int32{"first refusal retried": 1, "second refusal stops": 1000} {
+func TestARefusedSystemAccountingTemplateDoesNotStopTheRun(t *testing.T) {
+	for name, refusals := range map[string]int32{"one refusal": 1, "persistent refusal": 1000} {
 		t.Run(name, func(t *testing.T) {
 			server := newTemplateServer(t, func(map[string]any, []map[string]any) map[string]any {
 				return map[string]any{"content": "ok"}
@@ -383,22 +383,16 @@ func TestARefusedTemplateIsRetriedOnceThenStopsWithTheReason(t *testing.T) {
 			}
 			server.refuse.Store(refusals)
 			reason, detail, _ := runner.Run(context.Background(), item, "r1")
-			if refusals == 1 {
-				if reason != "done" || server.refusals.Load() != 1 {
-					t.Fatalf("one refusal must be retried once and succeed: %s %q refusals=%d", reason, detail, server.refusals.Load())
-				}
-				return
-			}
-			// The run assembles twice — the first try and the one retry — and
-			// stops; the post-stop budget publication measures once more.
+			// Accounting failures degrade the affected measurement instead of
+			// consuming the run's malformed-history repair retry.
 			assemblies := 0
 			for _, event := range bus.Recent(item.ID) {
 				if data, ok := event.Data.(map[string]any); ok && event.Type == events.Stage && data["stage"] == "assemble" && data["state"] == "enter" {
 					assemblies++
 				}
 			}
-			if reason != "model_error" || !strings.Contains(detail, "Cannot have 2 or more assistant messages") || assemblies != 2 {
-				t.Fatalf("a second refusal must stop with the reason: %s %q assemblies=%d", reason, detail, assemblies)
+			if reason != "done" || detail != "" || assemblies != 1 || server.refusals.Load() == 0 {
+				t.Fatalf("accounting refusal stopped run: %s %q assemblies=%d refusals=%d", reason, detail, assemblies, server.refusals.Load())
 			}
 		})
 	}

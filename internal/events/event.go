@@ -154,6 +154,7 @@ type Budget struct {
 	Mode                string         `json:"mode"`
 	Estimated           bool           `json:"estimated"`
 	EstimatedCategories []string       `json:"estimated_categories"`
+	Findings            []string       `json:"findings,omitempty"`
 	Categories          map[string]int `json:"categories"`
 	ToolSchemaTokens    map[string]int `json:"tool_schema_tokens"`
 	ToolMarginalTokens  map[string]int `json:"tool_marginal_tokens"`

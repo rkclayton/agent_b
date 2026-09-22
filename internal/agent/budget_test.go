@@ -112,6 +112,89 @@ func TestSlowTokenizeDegradesForOneMeasurementThenReturnsToExact(t *testing.T) {
 	}
 }
 
+func TestApplyTemplateFailureDegradesOneMeasurementAndRecordsFinding(t *testing.T) {
+	var fail atomic.Bool
+	fail.Store(true)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/apply-template":
+			if fail.CompareAndSwap(true, false) {
+				http.Error(w, "No user query found in messages.", http.StatusInternalServerError)
+				return
+			}
+			fmt.Fprint(w, `{"prompt":"rendered"}`)
+		case "/tokenize":
+			fmt.Fprint(w, `{"tokens":[1]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
+	item := &session.Session{ID: "template-retry", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	budgeter := NewBudgeter()
+	input := budgetInput{SystemBase: "system", System: "system"}
+	degraded, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if degraded.Mode != "estimated" || len(degraded.Findings) != 1 || !strings.Contains(degraded.Findings[0], "No user query found in messages.") {
+		t.Fatalf("degraded budget=%+v", degraded)
+	}
+	retried, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retried.Mode != "exact" || len(retried.Findings) != 0 {
+		t.Fatalf("retried budget=%+v", retried)
+	}
+}
+
+func TestSystemAccountingUsesSentinelAndSubtractsItsCost(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/apply-template":
+			var body struct {
+				Messages []llm.Message `json:"messages"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if len(body.Messages) == 1 && body.Messages[0].Role == "system" {
+				http.Error(w, "No user query found in messages.", http.StatusInternalServerError)
+				return
+			}
+			prompt := ""
+			for _, message := range body.Messages {
+				prompt += messageText(message.Content)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"prompt": prompt})
+		case "/tokenize":
+			var body struct {
+				Content string `json:"content"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"tokens": make([]int, len(body.Content))})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
+	item := &session.Session{ID: "sentinel", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	budget, err := NewBudgeter().Measure(context.Background(), &profile, item, config.GlobalContext{}, budgetInput{SystemBase: "direct system", System: "direct system"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := budget.Categories["system"], len("direct system"); got < want-1 || got > want+1 {
+		t.Fatalf("sentinel-differenced system count=%d, direct count=%d", got, want)
+	}
+}
+
 func TestExactSchemaAttributionReturnsTokenizerFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -167,8 +250,10 @@ func TestExactToolCostsAreMarginalAndCached(t *testing.T) {
 				return
 			}
 			messages := body["messages"].([]any)
-			system := messages[0].(map[string]any)["content"].(string)
-			prompt := system
+			prompt := ""
+			for _, raw := range messages {
+				prompt += raw.(map[string]any)["content"].(string)
+			}
 			if tools, present := body["tools"]; present {
 				prompt += "|shared-tool-template|"
 				for _, raw := range tools.([]any) {
@@ -209,8 +294,8 @@ func TestExactToolCostsAreMarginalAndCached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := templateCalls.Load(); got != 8 {
-		t.Fatalf("first template renders=%d, want 8 (4 budget + 2 isolated + 2 marginal)", got)
+	if got := templateCalls.Load(); got != 9 {
+		t.Fatalf("first template renders=%d, want 9 (1 sentinel + 4 budget + 2 isolated + 2 marginal)", got)
 	}
 	if first.ToolMarginalTokens["one"] <= 0 || first.ToolMarginalTokens["two"] <= 0 {
 		t.Fatalf("marginal costs=%v", first.ToolMarginalTokens)
@@ -224,8 +309,8 @@ func TestExactToolCostsAreMarginalAndCached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := templateCalls.Load(); got != 12 {
-		t.Fatalf("cached template renders=%d, want 12 (four regular renders added)", got)
+	if got := templateCalls.Load(); got != 13 {
+		t.Fatalf("cached template renders=%d, want 13 (four regular renders added)", got)
 	}
 	if fmt.Sprint(second.ToolMarginalTokens) != fmt.Sprint(first.ToolMarginalTokens) {
 		t.Fatalf("cached marginals changed: first=%v second=%v", first.ToolMarginalTokens, second.ToolMarginalTokens)
@@ -235,8 +320,8 @@ func TestExactToolCostsAreMarginalAndCached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := templateCalls.Load(); got != 20 {
-		t.Fatalf("one prefix invalidation rendered costs again: calls=%d, want 20", got)
+	if got := templateCalls.Load(); got != 21 {
+		t.Fatalf("one prefix invalidation rendered costs again: calls=%d, want 21", got)
 	}
 
 	input.System = "system tools one"
@@ -246,8 +331,8 @@ func TestExactToolCostsAreMarginalAndCached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := templateCalls.Load(); got != 27 {
-		t.Fatalf("tool-change template renders=%d, want 27 (4 budget + 2 isolated + 1 marginal added)", got)
+	if got := templateCalls.Load(); got != 28 {
+		t.Fatalf("tool-change template renders=%d, want 28 (4 budget + 2 isolated + 1 marginal added)", got)
 	}
 	if _, found := third.ToolMarginalTokens["two"]; found {
 		t.Fatalf("disabled tool acquired a marginal request cost: %v", third.ToolMarginalTokens)

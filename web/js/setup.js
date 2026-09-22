@@ -19,7 +19,8 @@ void load();
 async function load() {
   try {
     snapshot = await request("/api/state", undefined, "GET");
-    profileID = snapshot.config?.agents?.[0]?.b || snapshot.servers?.[0]?.id || "";
+    const addingFromSettings = new URLSearchParams(location.search).get("from") === "settings";
+    profileID = addingFromSettings ? "" : snapshot.config?.agents?.[0]?.b || snapshot.servers?.[0]?.id || "";
     render();
   } catch (error) {
     connection.textContent = error.message;
@@ -118,6 +119,9 @@ async function testConnection() {
   const url = field("url"), model = field("model"), credential = field("credential"), apiKey = field("api-key");
   if (!url || !model) return fail(new Error("Address and model are required before Test."));
   setBusy("Saving and testing the connection…");
+  const previousServers = [...(snapshot.config.servers || [])];
+  const previousAgents = [...(snapshot.config.agents || [])];
+  let provisional = false;
   try {
     if (!profileID || !snapshot.servers?.some((item) => item.id === profileID)) profileID = uniqueID("setup-model");
     const current = selectedProfile() || {};
@@ -125,13 +129,19 @@ async function testConnection() {
     if (credential) profile.credential = credential;
     if (apiKey) profile.api_key = apiKey;
     const servers = [...(snapshot.config.servers || []).filter((item) => item.id !== profileID), profile];
-    const agents = snapshot.config.agents || [];
+    const agents = previousAgents.length ? previousAgents : [{ name: "Agent_b", b: profileID, toolset: fullTools }];
+    provisional = !previousAgents.length;
     snapshot.config = await request("/api/config", { servers, agents });
     await request(`/api/servers/${encodeURIComponent(profileID)}/probe`, {});
     await waitForProbe();
     await assignTestedProfile();
     go("capability");
-  } catch (error) { fail(error); } finally { busy = false; render(); }
+  } catch (error) {
+    if (provisional) {
+      try { snapshot.config = await request("/api/config", { servers: previousServers, agents: previousAgents }); } catch {}
+    }
+    fail(error);
+  } finally { busy = false; render(); }
 }
 
 async function installModel() {

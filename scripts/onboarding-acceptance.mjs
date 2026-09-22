@@ -63,6 +63,11 @@ const fake = createServer(async (request, response) => {
   if (body.tool_choice === "required" && (body.tools || []).some((tool) => tool?.function?.name === "read_file")) {
     return void response.end(JSON.stringify({ choices: [{ message: { content: "", tool_calls: [{ id: "onboarding-probe-read", type: "function", function: { name: "read_file", arguments: "{\"path\":\"main.go\"}" } }] }, finish_reason: "tool_calls" }], usage: { prompt_tokens: 10, completion_tokens: 3 } }));
   }
+  if (body.tool_choice === "required" && (body.tools || []).some((tool) => tool?.function?.name === "inspect_workspace")) {
+    await sleep(2000);
+    const brief = body.messages?.at(-1)?.content || "";
+    return void response.end(JSON.stringify({ choices: [{ message: { content: "", tool_calls: [{ id: "onboarding-measure", type: "function", function: { name: "inspect_workspace", arguments: JSON.stringify({ request: brief }) } }] }, finish_reason: "tool_calls" }], usage: { prompt_tokens: 10, completion_tokens: 3 } }));
+  }
   if (body.stream) {
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
     return void response.end(`data: ${JSON.stringify({ choices: [{ delta: { content: "onboarding fake response" }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 3 } })}\n\ndata: [DONE]\n\n`);
@@ -108,30 +113,51 @@ try {
     await mkdir(args.evidence, { recursive: true });
     await page.screenshot({ path: join(args.evidence, "setup-1-where-is-your-model.png") });
   }
+  await page.locator('[data-action="show-install"]').click();
+  await page.locator('.setup-install select[data-field="install-model"]').waitFor();
+  assert.equal(await page.locator('[data-field="install-backend"]').count(), 0, "backend must be automatic text, not a select");
+  assert.match(await page.locator('.setup-install').innerText(), /Backend\s+(?:cuda|vulkan|cpu)/i);
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-2-installer-auto-backend.png") });
   await page.locator('[data-field="url"]').fill(`http://127.0.0.1:${fakePort}`);
   await page.locator('[data-field="model"]').fill("onboarding-fake");
   await page.locator('[data-action="test"]').click();
-  await page.waitForFunction(() => document.querySelector("h1")?.textContent === "What is it good for?" || document.querySelector(".setup-feedback.alarm"), undefined, { timeout: 60000 });
-  assert.equal(await page.locator("h1").textContent(), "What is it good for?", `connection Test failed: ${await page.locator(".setup-feedback").textContent().catch(() => "no feedback")}`);
-  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-2-what-is-it-good-for.png") });
-  await page.locator('[data-action="capability-next"]').click();
-  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-3-who-does-what.png") });
-  await page.locator('[data-action="assign-all"]').click();
+  await page.waitForFunction(() => document.querySelector("h1")?.textContent === "Evaluation Harness" || document.querySelector(".setup-feedback.alarm"), undefined, { timeout: 60000 });
+  assert.equal(await page.locator("h1").textContent(), "Evaluation Harness", `connection Test failed: ${await page.locator(".setup-feedback").textContent().catch(() => "no feedback")}`);
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-3-evaluation-harness.png") });
+  await page.locator('[data-action="measure"]').click();
+  await page.locator('[data-action="measure"]', { hasText: "Stop" }).click();
   await page.locator("h1").filter({ hasText: "Done" }).waitFor();
-  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-4-done.png") });
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-4-done-after-stop.png") });
+  let state = await waitJSON(`${baseURL}/api/state`);
+  assert.equal(state.config.agents?.[0]?.b, "setup-model");
+  assert.equal(state.config.agents?.[0]?.c || "", "");
+  assert.equal(state.config.agents?.[0]?.d || "", "");
+  assert.equal(state.config.servers?.[0]?.measurement?.stopped, true);
+  assert.equal(state.config.servers?.[0]?.measurement?.briefs_run, 1);
+
+  await page.goto(`${baseURL}/setup?from=settings`);
+  await page.locator('[data-field="url"]').fill(`http://127.0.0.1:${fakePort}`);
+  await page.locator('[data-field="model"]').fill("onboarding-fake-second");
+  await page.locator('[data-action="test"]').click();
+  await page.locator("h1").filter({ hasText: "Evaluation Harness" }).waitFor({ timeout: 60000 });
+  state = await waitJSON(`${baseURL}/api/state`);
+  assert.equal(state.config.agents?.[0]?.b, "setup-model");
+  assert.equal(state.config.agents?.[0]?.c, "setup-model-2");
+  assert.equal(state.config.agents?.[0]?.d || "", "");
+  await page.locator('[data-action="capability-next"]').click();
   await page.locator('[data-action="finish"]').click();
   await page.waitForURL(/\/chat\?session=main$/);
   await page.locator("#chat-task").fill("acceptance: first-run API-only chat");
   await page.locator("#chat-send").click();
   await page.waitForFunction(() => document.querySelector("#chat-log")?.innerText.includes("onboarding fake response"), undefined, { timeout: 15000 });
-  const state = await waitJSON(`${baseURL}/api/state`);
-  assert.equal(state.config.servers?.length, 1);
+  state = await waitJSON(`${baseURL}/api/state`);
+  assert.equal(state.config.servers?.length, 2);
   assert.equal(state.config.agents?.[0]?.b, "setup-model");
-  assert.equal(state.config.agents?.[0]?.c, "setup-model");
-  assert.equal(state.config.agents?.[0]?.d, "setup-model");
+  assert.equal(state.config.agents?.[0]?.c, "setup-model-2");
+  assert.equal(state.config.agents?.[0]?.d || "", "");
   assert.equal(Object.keys(state.sessions || {}).length, 1);
   assert.deepEqual(pageErrors, []);
-  process.stdout.write(`PASS: one-day startup retention preserved evidence/chat and fresh servers:[] install reached a working chat with b/c/d through four-screen Setup (${requestCount} fake requests)\n`);
+  process.stdout.write(`PASS: fresh Setup auto-selected the backend, stopped and stored one measurement brief, assigned tested profiles b then c with d empty, and reached a working chat (${requestCount} fake requests)\n`);
 } finally {
   await browser?.close().catch(() => {});
   await stopChild(app);

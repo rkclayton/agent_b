@@ -50,8 +50,19 @@ try {
     $application = Join-Path $verifyRoot 'Application\Agent_b'
     $data = Join-Path $verifyRoot 'Data\Agent_b'
     $workspace = Join-Path $verifyRoot 'ProgramData\Agent_b\workspace'
-    $output = (& $setup --quiet --install-data (Join-Path $verifyRoot 'Data') -NoStart -ApplicationDirectory $application -DataDirectory $data -WorkspaceDirectory $workspace -StartMenuDirectory (Join-Path $verifyRoot 'StartMenu') -UninstallRegistryPath ('HKCU:\Software\Agent_b-Deploy-Verify-' + [Guid]::NewGuid().ToString('N')) -TestMode -WhatIf 2>&1 | Out-String)
-    if ($LASTEXITCODE -ne 0 -or $output -notmatch 'AUTOSTART SKIPPED: -NoStart') {
+    # Windows PowerShell 5.1 turns any native stderr line into a terminating
+    # NativeCommandError while the script-wide preference is Stop. The setup
+    # intentionally writes its durable-log notice there, so capture both
+    # streams under Continue and judge the native exit code ourselves.
+    $savedErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = (& $setup --quiet --install-data (Join-Path $verifyRoot 'Data') -NoStart -ApplicationDirectory $application -DataDirectory $data -WorkspaceDirectory $workspace -StartMenuDirectory (Join-Path $verifyRoot 'StartMenu') -UninstallRegistryPath ('HKCU:\Software\Agent_b-Deploy-Verify-' + [Guid]::NewGuid().ToString('N')) -TestMode -WhatIf 2>&1 | Out-String)
+        $setupExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
+    if ($setupExit -ne 0 -or $output -notmatch 'AUTOSTART SKIPPED: -NoStart') {
         throw "DEPLOY REFUSED: signed setup did not complete its -NoStart preflight.`n$output"
     }
 } finally {

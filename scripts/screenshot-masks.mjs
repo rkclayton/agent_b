@@ -9,6 +9,11 @@ export const LIVE_VALUES = [
   // "5.2 s"); prose such as "3s" or "1990s" is not one (v1.0.0/W4 cold review).
   { name: "duration", reason: "elapsed and wall times (ms, s) are measured each run", selector: "body", pattern: String.raw`(?<![\w.,])\d[\d,]*(?:\.\d+)? (?:ms|s)\b` },
   { name: "timestamp", reason: "ISO times of last use are the clock's", selector: "body", pattern: String.raw`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z` },
+  // v1.6.2/W0 r2: chat-menu rows carry the session creation date as MM:DD.
+  // Two otherwise identical captures made on adjacent dates differed only in
+  // these glyphs. Mask the exact date text, not its row or the pixels around
+  // it; the separator, chat name, controls and layout remain exact.
+  { name: "chat-row-date", reason: "the chat-menu MM:DD value comes from the session creation clock", selector: ".agent-chat-summary", pattern: String.raw`^\d{2}:\d{2}(?= · )`, unclipped: true },
   // The GUID is set in proportional type, so what follows it reflows with its
   // width, even onto the next line: this mask alone runs from the GUID to the
   // end of its text, each line to the right edge of the element holding it.
@@ -158,7 +163,11 @@ function liveValueRects(specs) {
           // A restOfText mask runs from the match to the end of its text, each
           // line to the right edge of the element holding it; any other covers
           // the matched text only.
-          const box = clipOf(holder), end = spec.restOfText ? holder.getBoundingClientRect().right : -Infinity;
+          // A fixed-position menu escapes the tab strip's overflow clipping.
+          // Its date is visibly painted even though walking its DOM ancestors
+          // says otherwise, so this one exact text mask clips only to viewport.
+          const box = spec.unclipped ? { left: 0, top: 0, right: innerWidth, bottom: innerHeight } : clipOf(holder);
+          const end = spec.restOfText ? holder.getBoundingClientRect().right : -Infinity;
           for (const r of range.getClientRects()) { const c = clipped({ left: r.left, top: r.top, right: Math.max(r.right, end), bottom: r.bottom }, box); if (c) rects.push(c); }
         }
       }

@@ -23,7 +23,7 @@ $hwnd = [AgentB.Probe]::FindWindowW('Agent_b-session-end-__PID__', [IntPtr]::Zer
 "find=$([int64]$hwnd) error=$([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
 $r = [IntPtr]::Zero
 if ($hwnd -eq [IntPtr]::Zero) { 'post-close=no-handle'; 'send-query=no-handle'; 'send-end=no-handle' } else { "post-close=$([AgentB.Probe]::PostMessageW($hwnd, 0x10, [IntPtr]::Zero, [IntPtr]::Zero))"; "send-query=$([int64][AgentB.Probe]::SendMessageTimeoutW($hwnd, 0x11, [IntPtr]::Zero, [IntPtr]0x80000000, 2, 2000, [ref]$r))"; "send-end=$([int64][AgentB.Probe]::SendMessageTimeoutW($hwnd, 0x16, [IntPtr]1, [IntPtr]0x80000000, 2, 2000, [ref]$r))" }
-try { $e = [System.Threading.EventWaitHandle]::OpenExisting('Local\Agent_b-stop-__PID__'); "event=opened set=$($e.Set())" } catch { "event=refused $($_.Exception.GetType().Name)" }
+try { $e = [System.Threading.EventWaitHandle]::OpenExisting('__EVENT__'); "event=opened set=$($e.Set())" } catch { "event=refused $($_.Exception.GetType().Name)" }
 `
 
 // TestServiceAccountToolCannotReachProductionWindow runs the probe as a real
@@ -35,6 +35,10 @@ func TestServiceAccountToolCannotReachProductionWindow(t *testing.T) {
 	pid := os.Getenv("AGENTB_WINDOW_PROBE_PID")
 	if pid == "" {
 		t.Skip("set AGENTB_WINDOW_PROBE_PID with the capability suite's disposable roots")
+	}
+	eventName := os.Getenv("AGENTB_WINDOW_PROBE_EVENT")
+	if eventName == "" {
+		t.Fatal("AGENTB_WINDOW_PROBE_EVENT is required")
 	}
 	workspaceParent, dataRoot := os.Getenv("AGENTB_CAPABILITY_WORKSPACE"), os.Getenv("AGENTB_CAPABILITY_DATA")
 	if workspaceParent == "" || dataRoot == "" {
@@ -60,6 +64,7 @@ func TestServiceAccountToolCannotReachProductionWindow(t *testing.T) {
 	// run_script is how a model runs a multi-line PowerShell body as the service
 	// account; the probe is exactly such a body.
 	script := strings.ReplaceAll(windowProbeScript, "__PID__", pid)
+	script = strings.ReplaceAll(script, "__EVENT__", eventName)
 	find := script[:strings.Index(script, "if ($hwnd")]
 	runner := NewRunScript(shell)
 

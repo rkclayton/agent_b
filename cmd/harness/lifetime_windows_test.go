@@ -14,6 +14,16 @@ import (
 	"unsafe"
 )
 
+func TestStopEventNameIncludesCanonicalApplicationRoot(t *testing.T) {
+	const want = `Local\Agent_b-stop-4000a646ff6e06e3c2c7b712-1234`
+	if got := stopEventName(`C:\Program Files\Agent_b`, 1234); got != want {
+		t.Fatalf("stop event name = %q, want %q", got, want)
+	}
+	if got := stopEventName(`c:\program files\agent_b\.`, 1234); got != want {
+		t.Fatalf("equivalent root name = %q, want %q", got, want)
+	}
+}
+
 func TestSessionEndIsRecordedBeforeWindowsEndsTheProcess(t *testing.T) {
 	root := t.TempDir()
 	life := newLifetime(root, time.Now)
@@ -22,7 +32,7 @@ func TestSessionEndIsRecordedBeforeWindowsEndsTheProcess(t *testing.T) {
 		t.Fatalf("run marker: %v", err)
 	}
 	closes := make(chan struct{}, 1)
-	watchSessionEnd(life.stopped, func() { closes <- struct{}{} })
+	watchSessionEnd(root, life.stopped, func() { closes <- struct{}{} })
 
 	findWindow := user32.NewProc("FindWindowW")
 	sendMessage := user32.NewProc("SendMessageW")
@@ -51,13 +61,37 @@ func TestSessionEndIsRecordedBeforeWindowsEndsTheProcess(t *testing.T) {
 	}
 	// The graceful stop's own channel.
 	openEvent := syscall.NewLazyDLL("kernel32.dll").NewProc("OpenEventW")
-	eventName, _ := syscall.UTF16PtrFromString(stopEventName(os.Getpid()))
+	wrongName, _ := syscall.UTF16PtrFromString(stopEventName(filepath.Join(root, "other-install"), os.Getpid()))
+	wrongEvent, _, _ := openEvent.Call(0x0002 /* EVENT_MODIFY_STATE */, 0, uintptr(unsafe.Pointer(wrongName)))
+	if wrongEvent != 0 {
+		syscall.CloseHandle(syscall.Handle(wrongEvent))
+		t.Fatal("a different application root opened this process's stop event")
+	}
+	eventName, _ := syscall.UTF16PtrFromString(stopEventName(root, os.Getpid()))
 	event, _, openErr := openEvent.Call(0x0002 /* EVENT_MODIFY_STATE */, 0, uintptr(unsafe.Pointer(eventName)))
 	if event == 0 {
 		t.Fatalf("the stop event does not exist: %v", openErr)
 	}
 	defer syscall.CloseHandle(syscall.Handle(event))
-	syscall.NewLazyDLL("kernel32.dll").NewProc("SetEvent").Call(event)
+	stopScript, err := filepath.Abs(filepath.Join("..", "..", "scripts", "agentb-stop.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
+	powershell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+	wrongCommand := ". " + quote(stopScript) + "; Request-AgentbGracefulStop -ApplicationRoot " + quote(filepath.Join(root, "other-install")) + " -ProcessId " + strconv.Itoa(os.Getpid())
+	if output, err := exec.Command(powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", wrongCommand).CombinedOutput(); err == nil {
+		t.Fatalf("a different application root signaled this process: %s", output)
+	}
+	select {
+	case <-closes:
+		t.Fatal("the wrong-root sender delivered a close request")
+	default:
+	}
+	correctCommand := ". " + quote(stopScript) + "; Request-AgentbGracefulStop -ApplicationRoot " + quote(root) + " -ProcessId " + strconv.Itoa(os.Getpid())
+	if output, err := exec.Command(powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", correctCommand).CombinedOutput(); err != nil || !strings.Contains(string(output), "stop event") {
+		t.Fatalf("the matching-root sender did not use the stop event: %v: %s", err, output)
+	}
 	select {
 	case <-closes:
 	case <-time.After(2 * time.Second):
@@ -115,9 +149,10 @@ func TestAnUnrecordedEndIsReportedAtTheNextStart(t *testing.T) {
 // the console becomes CTRL_CLOSE_EVENT and then SIGTERM. Killing at 100, 300,
 // 600 and 1200 ms ended the server 12 times out of 12 before this changed.
 func TestTheSessionEndWindowExistsAsSoonAsTheWatchReturns(t *testing.T) {
-	life := newLifetime(t.TempDir(), time.Now)
+	root := t.TempDir()
+	life := newLifetime(root, time.Now)
 	life.begin()
-	watchSessionEnd(life.stopped, func() {})
+	watchSessionEnd(root, life.stopped, func() {})
 
 	className, err := syscall.UTF16PtrFromString(sessionEndClassName)
 	if err != nil {

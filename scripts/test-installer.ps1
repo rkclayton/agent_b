@@ -677,7 +677,7 @@ try {
     if ($rollbackState.build.commit -ne $afterState.build.commit -or [bool]$rollbackState.build.dirty -ne [bool]$afterState.build.dirty) {
         throw 'Forced-failure restart identity does not match the previously installed build.'
     }
-    $null = Request-AgentbGracefulStop -ProcessId $afterProcesses[0].Id
+    $null = Request-AgentbGracefulStop -ApplicationRoot $testApplication -ProcessId $afterProcesses[0].Id
     $afterProcesses[0].WaitForExit(15000) | Out-Null
     if (-not $afterProcesses[0].HasExited) { throw 'Restarted disposable Agent_b did not exit.' }
 

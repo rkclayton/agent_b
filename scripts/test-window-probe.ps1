@@ -62,6 +62,7 @@ try {
     foreach ($directory in 'workspace', 'data') { $null = New-Item -ItemType Directory -Force (Join-Path $publicRoot $directory) }
     Copy-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Agent_b\.agentb-shell-credential.dpapi') -Destination (Join-Path $publicRoot 'data')
     $env:AGENTB_WINDOW_PROBE_PID = [string]$target.Id
+    $env:AGENTB_WINDOW_PROBE_EVENT = Get-AgentbStopEventName -ApplicationRoot $testApplication -ProcessId $target.Id
     $env:AGENTB_CAPABILITY_WORKSPACE = Join-Path $publicRoot 'workspace'
     $env:AGENTB_CAPABILITY_DATA = Join-Path $publicRoot 'data'
     Push-Location $repository
@@ -78,13 +79,13 @@ try {
     if ($added.Count) { throw "The probe left launcher-log lines: $($added -join ' | ')" }
     Write-Host "PASS: PID $($target.Id) is still running with no new launcher-log line after the service-account probe"
 
-    $channel = Request-AgentbGracefulStop -ProcessId $target.Id
+    $channel = Request-AgentbGracefulStop -ApplicationRoot $testApplication -ProcessId $target.Id
     if (-not $target.WaitForExit(15000)) { throw 'The stop event did not stop the disposable Agent_b.' }
     $stopLine = @(Get-Content -LiteralPath $launcherLog | Select-Object -Skip $before | Where-Object { $_ -match "PID $($target.Id) stopped: asked to close" })
     if ($channel -ne 'stop event' -or -not $stopLine.Count) { throw "The graceful stop was not recorded through the stop event ($channel)." }
     Write-Host "PASS: the operator's stop event still stops it gracefully: $($stopLine[-1].Trim())"
 } finally {
-    Remove-Item Env:\AGENTB_WINDOW_PROBE_PID, Env:\AGENTB_CAPABILITY_WORKSPACE, Env:\AGENTB_CAPABILITY_DATA -ErrorAction SilentlyContinue
+    Remove-Item Env:\AGENTB_WINDOW_PROBE_PID, Env:\AGENTB_WINDOW_PROBE_EVENT, Env:\AGENTB_CAPABILITY_WORKSPACE, Env:\AGENTB_CAPABILITY_DATA -ErrorAction SilentlyContinue
     foreach ($process in @(Get-Running)) {
         & (Join-Path $env:SystemRoot 'System32\taskkill.exe') /PID $process.Id /T /F | Out-Null
         $process.WaitForExit(15000) | Out-Null

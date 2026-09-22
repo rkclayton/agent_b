@@ -160,7 +160,7 @@ func main() {
 			log.Printf("inspect installed signatures: %v", err)
 		}
 		cancelSigning()
-		if err := serve(cfg, web.Handler(), nil); err != nil {
+		if err := serve(cfg, web.Handler(), nil, ""); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -385,7 +385,7 @@ func main() {
 		}
 	}
 	publishPendingSigning(paths.Data, registry, bus)
-	if err := serve(cfg, web.Handler(), newLifetime(paths.Data, time.Now)); err != nil {
+	if err := serve(cfg, web.Handler(), newLifetime(paths.Data, time.Now), paths.Application); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -671,7 +671,7 @@ func startupElevationError(elevated bool) error {
 
 // serve binds, then records the process lifetime (when life is non-nil) from
 // the moment the listener exists until the server stops, whatever stops it.
-func serve(cfg *config.Config, handler http.Handler, life *lifetime) error {
+func serve(cfg *config.Config, handler http.Handler, life *lifetime, applicationRoot string) error {
 	httpServer := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
@@ -681,7 +681,7 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime) error {
 	closeRequests := make(chan struct{}, 1)
 	if life != nil {
 		life.begin()
-		watchSessionEnd(life.stopped, func() {
+		watchSessionEnd(applicationRoot, life.stopped, func() {
 			select {
 			case closeRequests <- struct{}{}:
 			default:

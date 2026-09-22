@@ -90,6 +90,7 @@ const (
 	NavigationSuppressed = "navigation.suppressed"
 	NotificationFailed   = "notification.failed"
 	NotificationChanged  = "notification.changed"
+	UpdateChanged        = "update.changed"
 	ProgressShadow       = "progress.shadow"
 	ProgressAux          = "progress.aux"
 	Speech               = "speech"

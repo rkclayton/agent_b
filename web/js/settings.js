@@ -116,6 +116,7 @@ export function initSettings(entry = {}) {
         "active.changed",
         "config.changed",
 		"notification.changed",
+		"update.changed",
 		"shell.identity",
 		"shell.credential",
         "server.probed",
@@ -519,6 +520,7 @@ async function click(event) {
 	if (action === "save-notification") return notificationAction("save");
 	if (action === "test-notification") return notificationAction("test");
 	if (action === "clear-notification") return notificationAction("clear");
+	if (action === "install-update") return installUpdate();
 	if (action === "remove-hardening") {
 		if (!armed.has("hardening:remove")) {
 			armed.add("hardening:remove");
@@ -660,6 +662,18 @@ async function notificationAction(action) {
 		notificationBusy = false;
 		if (open) render();
 	}
+}
+
+async function installUpdate() {
+	store.update = { ...(store.update || {}), installing: true, error: "" };
+	render();
+	try {
+		const result = await api("/api/update", { action: "install" });
+		store.update = result.update || store.update;
+	} catch (error) {
+		store.update = { ...(store.update || {}), installing: false, error: error.message };
+	}
+	if (open) render();
 }
 
 async function refreshSigningStatus(preserveMessage = false) {

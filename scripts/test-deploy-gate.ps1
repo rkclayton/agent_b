@@ -2,6 +2,7 @@
 param()
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'removal-guard.ps1')
 $deploy = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'deploy-release.ps1')
 $verify = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'verify-deploy-candidate.ps1')
 $sign = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'sign-release.ps1')
@@ -9,6 +10,9 @@ $stage = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'stage-candidate
 
 foreach ($required in @('stage-candidate.mjs', 'sign-release.ps1', 'verify-deploy-candidate.ps1', 'Agent_b-setup.exe', 'DEPLOY COMPLETE')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy entry point does not require $required." }
+}
+foreach ($required in @('release.json', 'setup_sha256', 'webview2_loader', 'gh release create', 'gh release upload', 'rkclayton/agent_b')) {
+    if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy publication does not require $required." }
 }
 if (($deploy | Select-String -Pattern '\$windowsPowerShell .*sign-release\.ps1' -AllMatches).Matches.Count -ne 1 -or
     ($deploy | Select-String -Pattern '\$windowsPowerShell .*verify-deploy-candidate\.ps1' -AllMatches).Matches.Count -ne 1) {
@@ -45,6 +49,6 @@ try {
         if ($_.Exception.Message -notmatch 'setup Authenticode status is .*expected Valid.*setup has no Authenticode timestamp') { throw }
     }
 } finally {
-    Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $fixture) { Remove-TreeWithinAllowedRoots -Path $fixture -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'deploy-gate cleanup' }
 }
 Write-Host 'PASS: deploy requires a built, manifested, signed, timestamped Agent_b-setup.exe matching the release tag and commit'

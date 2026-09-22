@@ -278,6 +278,29 @@ func TestChatAutoRenameDefaultsOnButPersistsOff(t *testing.T) {
 	}
 }
 
+func TestUpdateCheckDefaultsOnButPersistsOff(t *testing.T) {
+	defaults := Defaults(t.TempDir())
+	if !defaults.Updates.AutoCheck {
+		t.Fatal("update checks should default on")
+	}
+	var absent Config
+	if err := json.Unmarshal([]byte(`{"config_version":6}`), &absent); err != nil {
+		t.Fatal(err)
+	}
+	applyDefaults(&absent)
+	if !absent.Updates.AutoCheck {
+		t.Fatal("an absent updates object should default on")
+	}
+	var disabled Config
+	if err := json.Unmarshal([]byte(`{"updates":{"auto_check":false}}`), &disabled); err != nil {
+		t.Fatal(err)
+	}
+	applyDefaults(&disabled)
+	if disabled.Updates.AutoCheck {
+		t.Fatal("an explicit false should be preserved")
+	}
+}
+
 func TestServiceAllowlistValidation(t *testing.T) {
 	valid := Service{BaseURL: "https://broker.example/api", Auth: "exec:entra-token --scope broker", AllowedMethods: []string{"GET", "post"}, TimeoutS: 30, MaxBodyKB: 256, RequireConfirmation: true}
 	cfg := Defaults(t.TempDir())

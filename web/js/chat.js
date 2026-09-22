@@ -15,6 +15,7 @@ import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
 import { renderChatProposals } from "./chat-proposals.js";
 import { installTranscriptCopy } from "./transcript-copy.js";
+import { updateAvailableText } from "./update-display.js";
 
 const budget = document.getElementById("chat-budget");
 const log = document.getElementById("chat-log");
@@ -970,7 +971,8 @@ function renderComposer(session) {
   // the whole line, and the two never appear together; the host is on hover.
   const modelLine = unreachable ? "model unreachable" : busy ? "model busy" : "";
   const primary = session && !session.runnable ? session.not_runnable_reason : modelLine || activity || state;
-  const message = localNotice || micNotice || (modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil].filter(Boolean).join(" · "));
+  const updateLine = updateAvailableText(store.update);
+  const message = localNotice || micNotice || (modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil, updateLine].filter(Boolean).join(" · "));
   // Live state, not decoration: the robot runs beside the live line for exactly
   // as long as the run is live, and is absent otherwise. Its eyes take the same
   // state colour the tab robot uses.

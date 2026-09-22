@@ -38,6 +38,7 @@ function Find-Go {
 
 function Add-EmbeddedInstallBundle {
     param([string]$Root, [string]$Executable)
+    Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zipPath = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-bundle-' + [Guid]::NewGuid().ToString('N') + '.zip')
     try {

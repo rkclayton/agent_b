@@ -3,6 +3,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'install-registration.ps1')
+. (Join-Path $PSScriptRoot 'removal-guard.ps1')
 
 $root = 'HKCU:\Software\Agent_b-Registration-Test-' + [Guid]::NewGuid().ToString('N')
 $canonical = Join-Path $root 'Agent_b'
@@ -39,7 +40,8 @@ try {
         if ($_.Exception.Message -notmatch 'another Agent_b installation') { throw }
     }
 
-    Remove-Item -LiteralPath $conflict -Recurse -Force
+    $conflictRegistryPath = $conflict
+    Remove-Item -LiteralPath $conflictRegistryPath -Recurse -Force
     $registrations = @(Get-AgentBInstallRegistrations -Roots @($root) -CanonicalRegistryPath $canonical)
     $staleResult = @(Get-AgentBRegistrationPreflight -Registrations $registrations)
     if ($staleResult.Count -ne 1 -or $staleResult[0].DisplayName -ne 'Agent_b Alpha') {
@@ -55,6 +57,7 @@ try {
     }
     Write-Host 'PASS: installer registration preflight permits one canonical install, refuses a live alternate, and identifies only stale owned entries for cleanup'
 } finally {
-    Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+    $testRegistryPath = $root
+    Remove-Item -LiteralPath $testRegistryPath -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $temp) { Remove-TreeWithinAllowedRoots -Path $temp -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'registration-test cleanup' }
 }

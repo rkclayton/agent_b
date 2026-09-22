@@ -219,13 +219,13 @@ func TestTheInterruptedInstallLineAnswersTheOperatorsQuestion(t *testing.T) {
 // vocabularies cannot drift.
 func TestInstallArgumentsSplitByWhoOwnsThem(t *testing.T) {
 	arguments := []string{
-		"--install", "--quiet", "--install-data", `C:\data`,
+		"--install", "--quiet", "--install-data", `C:\data`, "-NoStart",
 		"-SourceDirectory", `C:\candidate`, "-TestMode",
 		"-UninstallRegistryPath", `HKCU:\Software\X\Agent_b`,
 	}
 	mine := installFlagArgs(arguments)
 	theirs := installPassthrough(arguments)
-	for _, want := range []string{"--install", "--quiet", "--install-data", `C:\data`} {
+	for _, want := range []string{"--install", "--quiet", "--install-data", `C:\data`, "-NoStart"} {
 		if !contains(mine, want) {
 			t.Fatalf("this mode keeps %q: %v", want, mine)
 		}
@@ -248,6 +248,27 @@ func TestInstallArgumentsSplitByWhoOwnsThem(t *testing.T) {
 	// Order is preserved, because -Name value pairs depend on it.
 	if len(theirs) != 5 || theirs[0] != "-SourceDirectory" || theirs[1] != `C:\candidate` {
 		t.Fatalf("the installer's arguments lost their order: %v", theirs)
+	}
+}
+
+func TestInstallLaunchPathsComeFromInstallerArguments(t *testing.T) {
+	arguments := []string{"-ApplicationDirectory", `C:\Program Files\Agent_b test`, `-DataDirectory=C:\Agent_b data`}
+	if got := installerArgument(arguments, "applicationdirectory", "fallback"); got != `C:\Program Files\Agent_b test` {
+		t.Fatalf("application=%q", got)
+	}
+	if got := installerArgument(arguments, "DataDirectory", "fallback"); got != `C:\Agent_b data` {
+		t.Fatalf("data=%q", got)
+	}
+}
+
+func TestInstallFailureRestartDetailsComeFromTranscript(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "installer.log")
+	if err := os.WriteFile(path, []byte("ROLLBACK: restored files\nRESTART VERSION: v1.6.1\nRESTART REASON: verification failure\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	version, reason, restart := installRestartDetails(path)
+	if !restart || version != "v1.6.1" || reason != "verification failure" {
+		t.Fatalf("version=%q reason=%q restart=%t", version, reason, restart)
 	}
 }
 

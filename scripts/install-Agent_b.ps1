@@ -12,6 +12,7 @@ param(
     # Test-only registry roots used by the singleton-registration scenarios.
     [string[]]$RegistrationSearchRoots,
     [switch]$TestMode,
+    [switch]$NoStart,
     [switch]$ForcePostStopVerificationFailure,
     [string]$TranscriptPath,
     # Item 2gl (v1.2.6): the install writes its OWN progress. It used to be
@@ -564,6 +565,7 @@ if ((-not (Test-IsAdministrator) -or $PSVersionTable.PSEdition -ne 'Desktop') -a
         '-TranscriptPath', $script:installTranscriptPath
 	)
     if ($SigningThumbprint) { $arguments += @('-SigningThumbprint', $SigningThumbprint) }
+    if ($NoStart) { $arguments += '-NoStart' }
     $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     Stop-InstallTranscript
     if (Test-IsAdministrator) {
@@ -825,6 +827,7 @@ foreach ($staleRegistration in $staleRegistrations) {
 #
 # The REMOVAL stays, in uninstall-Agent_b.ps1, because a v1.2.7 install may have
 # written one on this machine and uninstalling must take it away.
+if ($NoStart) { Write-Host 'AUTOSTART DISABLED: -NoStart' }
 Write-Host ''
 Write-InstallProgress -Phase 'finished' -Text "Agent_b $displayVersion is installed." -Done -OK
 Write-Host 'INSTALLATION COMPLETE'

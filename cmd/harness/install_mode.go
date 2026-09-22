@@ -42,6 +42,7 @@ type installOptions struct {
 	quiet      bool
 	sourceDir  string
 	dataRoot   string
+	noStart    bool
 	passThough []string
 }
 
@@ -232,7 +233,26 @@ func runInstall(options installOptions, args []string) int {
 		if err := clearInstallMarker(dataRoot); err != nil {
 			log.printf("install: the install finished but its marker could not be cleared: %v", err)
 		}
+		if options.noStart {
+			log.printf("AUTOSTART SKIPPED: -NoStart was requested. Log: %s", log.location())
+			return 0
+		}
+		applicationRoot := installerArgument(args, "ApplicationDirectory", filepath.Join(os.Getenv("ProgramFiles"), "Agent_b"))
+		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
+		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, log); err != nil {
+			return log.fail("Agent_b was installed but failed to start: %v", err)
+		}
+		log.printf("AUTOSTART COMPLETE: Agent_b started through %s. Log: %s", filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1"), log.location())
 		return 0
+	}
+	if version, reason, restart := installRestartDetails(log.location()); restart {
+		applicationRoot := installerArgument(args, "ApplicationDirectory", filepath.Join(os.Getenv("ProgramFiles"), "Agent_b"))
+		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
+		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, log); err != nil {
+			log.printf("RESTART FAILED: %s after %s: %v", version, reason, err)
+		} else {
+			log.printf("RESTARTED: %s after %s.", version, reason)
+		}
 	}
 	appendProgress(dataRoot, installProgress{Phase: lastPhase, Text: fmt.Sprintf("The install stopped during %s (exit %d). It is safe to run again.", lastPhase, code), Done: true})
 	marker.Phase = lastPhase
@@ -245,6 +265,57 @@ func runInstall(options installOptions, args []string) int {
 		showInstallFailure("Agent_b install failed", fmt.Sprintf("The install stopped during %s (exit %d). It is safe to run again.\n\nLog: %s", lastPhase, code, log.location()))
 	}
 	return code
+}
+
+func installRestartDetails(path string) (string, string, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", false
+	}
+	version, reason := "", ""
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if index := strings.Index(line, "RESTART VERSION: "); index >= 0 {
+			version = strings.TrimSpace(line[index+len("RESTART VERSION: "):])
+		}
+		if index := strings.Index(line, "RESTART REASON: "); index >= 0 {
+			reason = strings.TrimSpace(line[index+len("RESTART REASON: "):])
+		}
+	}
+	return version, reason, version != "" && reason != ""
+}
+
+func installerArgument(arguments []string, name, fallback string) string {
+	for index, argument := range arguments {
+		trimmed := strings.TrimLeft(argument, "-")
+		key, value, hasValue := strings.Cut(trimmed, "=")
+		if !strings.EqualFold(key, name) {
+			continue
+		}
+		if hasValue && strings.TrimSpace(value) != "" {
+			return value
+		}
+		if index+1 < len(arguments) && strings.TrimSpace(arguments[index+1]) != "" {
+			return arguments[index+1]
+		}
+	}
+	return fallback
+}
+
+func launchInstalledAgent(applicationRoot, dataRoot string, log *installLog) error {
+	launcher := filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1")
+	if info, err := os.Stat(launcher); err != nil || info.IsDir() {
+		return fmt.Errorf("installed launcher is missing: %s", launcher)
+	}
+	arguments := []string{"-NoLogo", "-NoProfile", "-File", launcher, "-ApplicationDirectory", applicationRoot, "-DataDirectory", dataRoot, "-Detached", "-NoPause"}
+	if os.Getenv("AGENT_B_INSTALL_NO_BROWSER") != "" {
+		arguments = append(arguments, "-NoBrowser")
+	}
+	command := exec.Command(windowsPowerShell(), arguments...)
+	command.Dir = dataRoot
+	command.Stdout = log.writer()
+	command.Stderr = log.writer()
+	return command.Run()
 }
 
 func extractInstallBundle(executable string) (string, func(), bool, error) {

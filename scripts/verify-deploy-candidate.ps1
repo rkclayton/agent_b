@@ -41,6 +41,29 @@ if ($signature.Status -ne 'Valid') { $problems += "setup Authenticode status is 
 if (-not $signature.TimeStamperCertificate) { $problems += 'setup has no Authenticode timestamp' }
 if ($problems.Count) { throw "DEPLOY REFUSED: $($problems -join '; ')." }
 
+# Execute the signed single-file setup's extraction and preflight without
+# launching the product. TestMode/WhatIf keep every target disposable;
+# -NoStart is the same opt-out automation and the installer suite use.
+$verifyRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-deploy-verify-' + [Guid]::NewGuid().ToString('N'))
+try {
+    $application = Join-Path $verifyRoot 'Application\Agent_b'
+    $data = Join-Path $verifyRoot 'Data\Agent_b'
+    $workspace = Join-Path $verifyRoot 'ProgramData\Agent_b\workspace'
+    $output = (& $setup --quiet --install-data (Join-Path $verifyRoot 'Data') -NoStart -ApplicationDirectory $application -DataDirectory $data -WorkspaceDirectory $workspace -StartMenuDirectory (Join-Path $verifyRoot 'StartMenu') -UninstallRegistryPath ('HKCU:\Software\Agent_b-Deploy-Verify-' + [Guid]::NewGuid().ToString('N')) -TestMode -WhatIf 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $output -notmatch 'AUTOSTART SKIPPED: -NoStart') {
+        throw "DEPLOY REFUSED: signed setup did not complete its -NoStart preflight.`n$output"
+    }
+} finally {
+    if (Test-Path -LiteralPath $verifyRoot) {
+        $resolved = [IO.Path]::GetFullPath($verifyRoot)
+        $temporary = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
+        if (-not $resolved.StartsWith($temporary, [StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $resolved) -notlike 'Agent_b-deploy-verify-*') {
+            throw "Refusing deploy verification cleanup outside its disposable root: $resolved"
+        }
+        Remove-Item -LiteralPath $resolved -Recurse -Force
+    }
+}
+
 Write-Host "DEPLOY READY: $setup"
 Write-Host "IDENTITY: $ExpectedTag $expectedCommitValue sha256 $setupSha"
 exit 0

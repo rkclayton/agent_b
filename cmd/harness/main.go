@@ -70,6 +70,7 @@ func main() {
 	installQuiet := flag.Bool("quiet", false, "with --install: print the installer's output to this console (the suite's path)")
 	installSource := flag.String("install-source", "", "with --install: the candidate folder to install from (default: this executable's folder)")
 	installData := flag.String("install-data", "", "with --install: the operator data root that carries the marker and progress")
+	noStart := flag.Bool("NoStart", false, "with --install: install without starting Agent_b")
 	passthrough := installPassthrough(os.Args[1:])
 	if err := flag.CommandLine.Parse(installFlagArgs(os.Args[1:])); err != nil {
 		log.Fatal(err)
@@ -79,6 +80,7 @@ func main() {
 			quiet:     *installQuiet,
 			sourceDir: *installSource,
 			dataRoot:  *installData,
+			noStart:   *noStart,
 		}, passthrough))
 	}
 	if *version {

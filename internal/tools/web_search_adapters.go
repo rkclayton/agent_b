@@ -154,7 +154,7 @@ func defaultWebSearchAdapters() []webSearchAdapter {
 		}, containerClass: "w-gl__result", anchorClass: "w-gl__result-title", snippetClass: "w-gl__description"},
 		htmlSearchAdapter{name: "mojeek", webURL: func(q string, _ int) string { return query("https://www.mojeek.com/search", "q", q) }, containerTag: "li", containerClass: "result", snippetClass: "s"},
 		structuredSearchAdapter{name: "wikipedia", match: contains("what is", "who is", "wikipedia", "definition", "history of"), url: func(q string, n int) string {
-			values := url.Values{"action": {"opensearch"}, "search": {q}, "limit": {fmt.Sprint(n)}, "namespace": {"0"}, "format": {"json"}}
+			values := url.Values{"action": {"query"}, "list": {"search"}, "srsearch": {q}, "srlimit": {fmt.Sprint(n)}, "format": {"json"}, "utf8": {"1"}}
 			return "https://en.wikipedia.org/w/api.php?" + values.Encode()
 		}, parse: parseWikipediaResults},
 		structuredSearchAdapter{name: "github", match: contains("github", "repository", "repo", "source code"), url: func(q string, n int) string {
@@ -182,26 +182,27 @@ func defaultWebSearchAdapters() []webSearchAdapter {
 }
 
 func parseWikipediaResults(body []byte, limit int) ([]webSearchHit, error) {
-	var data []json.RawMessage
+	var data struct {
+		Query struct {
+			Search []struct {
+				PageID  int    `json:"pageid"`
+				Title   string `json:"title"`
+				Snippet string `json:"snippet"`
+			} `json:"search"`
+		} `json:"query"`
+	}
 	if err := json.Unmarshal(body, &data); err != nil {
 		return nil, err
 	}
-	if len(data) < 4 {
-		return nil, fmt.Errorf("opensearch response has %d fields", len(data))
-	}
-	var titles, descriptions, urls []string
-	if err := json.Unmarshal(data[1], &titles); err != nil {
-		return nil, err
-	}
-	_ = json.Unmarshal(data[2], &descriptions)
-	_ = json.Unmarshal(data[3], &urls)
 	hits := []webSearchHit{}
-	for i := 0; i < len(titles) && i < len(urls) && len(hits) < limit; i++ {
-		snippet := ""
-		if i < len(descriptions) {
-			snippet = descriptions[i]
+	for _, item := range data.Query.Search {
+		if item.PageID <= 0 || item.Title == "" {
+			continue
 		}
-		hits = append(hits, webSearchHit{Title: titles[i], URL: urls[i], Snippet: snippet})
+		hits = append(hits, webSearchHit{Title: item.Title, URL: fmt.Sprintf("https://en.wikipedia.org/?curid=%d", item.PageID), Snippet: stripHTMLText(item.Snippet)})
+		if len(hits) >= limit {
+			break
+		}
 	}
 	return hits, nil
 }
@@ -316,8 +317,38 @@ func parseStackExchangeResults(body []byte, limit int) ([]webSearchHit, error) {
 }
 
 func parsePkgGoResults(body []byte, limit int) ([]webSearchHit, error) {
-	adapter := htmlSearchAdapter{name: "pkg_go_dev", containerClass: "SearchSnippet", anchorClass: "SearchSnippet-header", snippetClass: "SearchSnippet-synopsis"}
-	return adapter.Parse(body, "https://pkg.go.dev/search", limit)
+	document, err := xhtml.Parse(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	base, _ := url.Parse("https://pkg.go.dev/search")
+	hits := []webSearchHit{}
+	for _, container := range findHTMLNodes(document, func(node *xhtml.Node) bool { return hasExactHTMLClass(node, "SearchSnippet") }) {
+		header := firstHTMLNode(container, func(node *xhtml.Node) bool { return hasExactHTMLClass(node, "SearchSnippet-header") })
+		if header == nil {
+			continue
+		}
+		anchor := header
+		if anchor.Data != "a" {
+			anchor = firstHTMLNode(header, func(node *xhtml.Node) bool { return node.Data == "a" && htmlAttr(node, "href") != "" })
+		}
+		if anchor == nil {
+			continue
+		}
+		resolved := resolveSearchURL(base, htmlAttr(anchor, "href"))
+		if resolved == "" {
+			continue
+		}
+		snippet := ""
+		if node := firstHTMLNode(container, func(node *xhtml.Node) bool { return hasExactHTMLClass(node, "SearchSnippet-synopsis") }); node != nil {
+			snippet = htmlNodeText(node)
+		}
+		hits = append(hits, webSearchHit{Title: htmlNodeText(anchor), URL: resolved, Snippet: snippet})
+		if len(hits) >= limit {
+			break
+		}
+	}
+	return hits, nil
 }
 
 func parseNPMResults(body []byte, limit int) ([]webSearchHit, error) {
@@ -383,6 +414,15 @@ func hasHTMLClass(node *xhtml.Node, want string) bool {
 	}
 	for _, class := range strings.Fields(htmlAttr(node, "class")) {
 		if class == want || strings.Contains(class, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasExactHTMLClass(node *xhtml.Node, want string) bool {
+	for _, class := range strings.Fields(htmlAttr(node, "class")) {
+		if class == want {
 			return true
 		}
 	}

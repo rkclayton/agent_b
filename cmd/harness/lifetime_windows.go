@@ -3,9 +3,12 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -24,9 +27,20 @@ const (
 	ismexSend                      = 0x00000001
 )
 
-// stopEventName is the installer's graceful-stop channel for one process, in
-// the session namespace the installer and the process share.
-func stopEventName(pid int) string { return fmt.Sprintf(`Local\Agent_b-stop-%d`, pid) }
+// stopEventName is the installer's graceful-stop channel for one process in
+// one application root. The PID prevents one instance addressing another;
+// the canonical-root digest prevents a disposable installer that was handed a
+// different root from addressing the installed product even if it knows the
+// production PID.
+func stopEventName(applicationRoot string, pid int) string {
+	root, err := filepath.Abs(applicationRoot)
+	if err == nil {
+		applicationRoot = root
+	}
+	canonical := strings.ToUpper(filepath.Clean(applicationRoot))
+	digest := sha256.Sum256([]byte(canonical))
+	return fmt.Sprintf(`Local\Agent_b-stop-%x-%d`, digest[:12], pid)
+}
 
 var (
 	user32                        = syscall.NewLazyDLL("user32.dll")
@@ -127,8 +141,8 @@ func processRunning(pid int, created int64) bool {
 // The launcher no longer gives a background server a console window at all,
 // which removes the door; this closes the gap behind it, so that "the listener
 // is up" implies "the guard is up" rather than merely "the guard is coming".
-func watchSessionEnd(record func(string), closeRequested func()) {
-	watchStopEvent(closeRequested)
+func watchSessionEnd(applicationRoot string, record func(string), closeRequested func()) {
+	watchStopEvent(applicationRoot, closeRequested)
 	ready := make(chan struct{})
 	go func() {
 		// Whatever happens below -- window created, class refused, creation
@@ -199,7 +213,7 @@ func sentMessage() bool {
 // SYSTEM, so a service-account tool process cannot signal it; if the name
 // already exists (someone created it first), the channel is not used, since
 // its creator would control it.
-func watchStopEvent(closeRequested func()) {
+func watchStopEvent(applicationRoot string, closeRequested func()) {
 	token, err := syscall.OpenCurrentProcessToken()
 	if err != nil {
 		return
@@ -220,7 +234,7 @@ func watchStopEvent(closeRequested func()) {
 	}
 	defer syscall.LocalFree(syscall.Handle(descriptor))
 	attributes := syscall.SecurityAttributes{Length: uint32(unsafe.Sizeof(syscall.SecurityAttributes{})), SecurityDescriptor: descriptor}
-	name, _ := syscall.UTF16PtrFromString(stopEventName(os.Getpid()))
+	name, _ := syscall.UTF16PtrFromString(stopEventName(applicationRoot, os.Getpid()))
 	event, _, createErr := procCreateEvent.Call(uintptr(unsafe.Pointer(&attributes)), 1, 0, uintptr(unsafe.Pointer(name)))
 	if event == 0 {
 		return

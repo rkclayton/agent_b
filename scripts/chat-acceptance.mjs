@@ -726,6 +726,18 @@ if (realModel) {
   shellFlipEvidence = { chat: chatGeometry, panels: panelGeometry, returned_chat: returnedChatGeometry, chat_to_panel_ms: chatToPanelMS, panel_to_chat_ms: panelToChatMS, chat_load: chatLoadTiming, tool_halves: toolHalves };
   record("settings-panels-preserve-the-chat-and-the-right-menu");
 
+  // v1.6.2/W0 r3: mountChat asks /api/speech asynchronously. Capturing before
+  // that answer is applied races the mic between ordinary and disabled opacity,
+  // producing 68 unstable pixels in every Chat surface. A screenshot begins
+  // only after the composer carries either the host result or its explicit
+  // failure text (both append the middle-dot readiness detail to the title).
+  await browser.wait(`document.querySelector('#chat-mic')?.title?.includes(' · ')`, "speech readiness before screenshot capture", 25000);
+  const speechReadiness = await page.evaluate(() => {
+    const mic = document.querySelector("#chat-mic");
+    return { ready: !!mic?.title?.includes(" · "), disabled: !!mic?.disabled, state: mic?.dataset?.state || "", title: mic?.title || "" };
+  });
+  await writeFile(join(args.evidence, "speech-readiness.json"), `${JSON.stringify(speechReadiness, null, 2)}\n`);
+
   const shellStateDirectory = join(args.evidence, "shell-states");
   await mkdir(shellStateDirectory, { recursive: true });
   const captureRobotStates = async (pageName, stylesheet) => {

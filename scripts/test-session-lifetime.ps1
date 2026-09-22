@@ -110,7 +110,7 @@ try {
     Start-Sleep -Seconds 3
     if (-not (Get-Running | Where-Object Id -eq $first.Id)) { throw 'Agent_b stopped on a WM_CLOSE from another process.' }
     Write-Host "PASS: PID $($first.Id) ignored WM_CLOSE (taskkill without /F)"
-    $channel = Request-AgentbGracefulStop -ProcessId $first.Id
+    $channel = Request-AgentbGracefulStop -ApplicationRoot $ApplicationDirectory -ProcessId $first.Id
     if ($channel -ne 'stop event') { throw "The graceful stop did not use the stop event: $channel" }
     Wait-Until { -not (Get-Running) } 20 'the graceful stop'
     $reason = @(Get-LogLines | Select-Object -Skip $before | Where-Object { $_ -match "Agent_b PID $($first.Id) stopped: " })
@@ -131,7 +131,7 @@ try {
     Write-Host "PASS: a forced end was recorded at the next start: $($recorded[-1].Trim())"
 } finally {
     foreach ($process in @(Get-Running)) {
-        try { $null = Request-AgentbGracefulStop -ProcessId $process.Id } catch { }
+        try { $null = Request-AgentbGracefulStop -ApplicationRoot $ApplicationDirectory -ProcessId $process.Id } catch { }
         if (-not $process.WaitForExit(15000)) { & $taskkill /PID $process.Id /T /F | Out-Null }
     }
 }

@@ -8,6 +8,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 
 # Sixteen releases reported "No provider was specified for the store or object"
 # for every signable file while Settings signed the same certificate happily.
@@ -89,6 +90,7 @@ foreach ($file in $targets) { $before[$file] = (Get-FileHash -LiteralPath $file 
 
 $resolved = Get-ReleaseCertificate -Value $Thumbprint
 $certificate = $resolved.Certificate
+$null = Assert-SigningKeyNonInteractive -Certificate $certificate -Store $resolved.Store
 $usable = Test-PrivateKeyUsable -Certificate $certificate
 
 $report = [ordered]@{

@@ -39,6 +39,9 @@ func TestPowerShellSigningScriptsUseHostCompatibleCodeSigningEKUCheck(t *testing
 	if strings.Contains(text, "-KeyProtection ProtectHigh") {
 		t.Error("self-created signing keys must be UAC-gated rather than password-prompted per signature")
 	}
+	if strings.Contains(text, "-ProtectPrivateKey") {
+		t.Error("PFX imports must not add Windows strong key protection that prompts on every use")
+	}
 	installer, err := os.ReadFile(filepath.Join(root, "scripts", "install-Agent_b.ps1"))
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +70,40 @@ func TestPowerShellSigningScriptsUseHostCompatibleCodeSigningEKUCheck(t *testing
 	}
 	if strings.Contains(string(installer), "Import-Certificate -FilePath $tempCertificate") {
 		t.Error("installer retains interactive certificate import path")
+	}
+}
+
+func TestEverySigningPathChecksUIPolicyBeforePrivateKeyUse(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	for _, relative := range []string{
+		"scripts/manage-signing.ps1",
+		"scripts/sign-release.ps1",
+		"scripts/sign-test-candidate.ps1",
+		"scripts/new-test-signing-certificate.ps1",
+		"scripts/install-Agent_b.ps1",
+	} {
+		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(body)
+		if !strings.Contains(text, "signing-key-policy.ps1") || !strings.Contains(text, "Assert-SigningKeyNonInteractive") {
+			t.Errorf("%s does not guard private-key use with the silent UI-policy check", relative)
+		}
+	}
+	helper, err := os.ReadFile(filepath.Join(root, "scripts", "signing-key-policy.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"NCRYPT_SILENT_FLAG",
+		"NTE_SILENT_CONTEXT",
+		"SIGNING KEY REFUSED: certificate $Thumbprint in $Store may require interactive private-key UI; no private key was opened.",
+	} {
+		if !strings.Contains(string(helper), required) {
+			t.Errorf("signing-key-policy.ps1 is missing %q", required)
+		}
 	}
 }
 

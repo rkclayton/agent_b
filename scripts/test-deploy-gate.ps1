@@ -14,6 +14,12 @@ foreach ($required in @('stage-candidate.mjs', 'sign-release.ps1', 'verify-deplo
 foreach ($required in @('release.json', 'setup_sha256', 'webview2_loader', 'gh release create', 'gh release upload', 'rkclayton/agent_b')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy publication does not require $required." }
 }
+foreach ($required in @('$commitExit', '$headExit', '$statusExit', 'test-signing-key-policies.ps1')) {
+    if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy entry point does not preserve host repair $required." }
+}
+if ($deploy -match 'rev-parse[^\r\n]*\|\s*Select-Object') {
+    throw 'Deploy still reads a piped git command through inherited LASTEXITCODE.'
+}
 if (($deploy | Select-String -Pattern '\$windowsPowerShell .*sign-release\.ps1' -AllMatches).Matches.Count -ne 1 -or
     ($deploy | Select-String -Pattern '\$windowsPowerShell .*verify-deploy-candidate\.ps1' -AllMatches).Matches.Count -ne 1) {
     throw 'Deploy must run signing and final verification as child processes so their exit codes cannot bypass the remaining gate.'
@@ -23,6 +29,9 @@ foreach ($required in @('candidate-final.json', 'Agent_b.exe', 'Agent_b-setup.ex
 }
 if ($sign -notmatch "@\('Agent_b\.exe', 'Agent_b-setup\.exe'\)") { throw 'Release signing does not include the setup executable.' }
 if ($stage -notmatch 'manifest\.setup_sha256' -or $stage -notmatch 'manifest\.setup_bytes') { throw 'Candidate staging does not record the setup artifact.' }
+foreach ($required in @('windowsPowerShellEnvironment', 'PSModulePath', 'System32", "WindowsPowerShell", "v1.0", "powershell.exe')) {
+    if ($stage -notmatch [regex]::Escape($required)) { throw "Candidate staging does not preserve native Windows PowerShell host repair $required." }
+}
 
 $fixture = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-deploy-gate-' + [Guid]::NewGuid().ToString('N'))
 try {

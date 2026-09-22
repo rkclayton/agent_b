@@ -11,6 +11,7 @@ param(
 # updated to follow the signed bytes. It creates or trusts no certificate and
 # never elevates.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 $root = [IO.Path]::GetFullPath($SourceDirectory)
 $binary = Join-Path $root 'Agent_b.exe'
 $manifestPath = Join-Path $root 'candidate-final.json'
@@ -30,6 +31,7 @@ if (-not $certificate) {
     throw 'No already-trusted CurrentUser Agent_b disposable test-signing certificate with a private key is available. Test candidate was not launched.'
 }
 
+$null = Assert-SigningKeyNonInteractive -Certificate $certificate -Store 'Cert:\CurrentUser\My'
 try {
     $key = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($certificate)
     if (-not $key) { throw 'the certificate exposes no RSA private key handle' }

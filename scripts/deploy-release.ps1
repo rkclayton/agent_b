@@ -8,12 +8,22 @@ $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $candidate = Join-Path (Join-Path $repository 'candidates') $Tag
 $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$commit = [string](& git -C $repository rev-parse "$Tag^{commit}" | Select-Object -First 1)
-if ($LASTEXITCODE -ne 0 -or $commit.Trim() -notmatch '^[0-9a-fA-F]{40}$') { throw "DEPLOY REFUSED: tag $Tag does not resolve to a commit." }
+$commitOutput = @(& git -C $repository rev-parse "$Tag^{commit}" 2>&1)
+$commitExit = $LASTEXITCODE
+$commit = [string]($commitOutput | Select-Object -First 1)
+if ($commitExit -ne 0 -or $commit.Trim() -notmatch '^[0-9a-fA-F]{40}$') { throw "DEPLOY REFUSED: tag $Tag does not resolve to a commit." }
 $commit = $commit.Trim().ToLowerInvariant()
-$head = [string](& git -C $repository rev-parse HEAD | Select-Object -First 1)
-if ($LASTEXITCODE -ne 0 -or $head.Trim().ToLowerInvariant() -cne $commit) { throw "DEPLOY REFUSED: tag $Tag does not point at HEAD." }
-if (@(& git -C $repository status --porcelain --untracked-files=normal).Count) { throw 'DEPLOY REFUSED: the repository is dirty.' }
+$headOutput = @(& git -C $repository rev-parse HEAD 2>&1)
+$headExit = $LASTEXITCODE
+$head = [string]($headOutput | Select-Object -First 1)
+if ($headExit -ne 0 -or $head.Trim().ToLowerInvariant() -cne $commit) { throw "DEPLOY REFUSED: tag $Tag does not point at HEAD." }
+$statusOutput = @(& git -C $repository status --porcelain --untracked-files=normal 2>&1)
+$statusExit = $LASTEXITCODE
+if ($statusExit -ne 0) { throw "DEPLOY REFUSED: git status exited $statusExit." }
+if ($statusOutput.Count) { throw 'DEPLOY REFUSED: the repository is dirty.' }
+
+& $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'scripts\test-signing-key-policies.ps1')
+if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: signing key policy check exited $LASTEXITCODE." }
 
 & node (Join-Path $repository 'scripts\stage-candidate.mjs') --tag $Tag
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate staging exited $LASTEXITCODE." }

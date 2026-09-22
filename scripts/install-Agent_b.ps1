@@ -23,6 +23,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 $displayVersion = '1.5.0'
 
 # Write-InstallProgress appends one JSONL line the Setup page can render. It
@@ -708,6 +709,7 @@ if ($config.signing -and -not [string]::IsNullOrWhiteSpace([string]$config.signi
 	if (-not $certificate.HasPrivateKey -or @($certificate.EnhancedKeyUsageList | Where-Object { ([string]$_.ObjectId) -eq '1.3.6.1.5.5.7.3.3' }).Count -eq 0) {
 		throw "Configured certificate $thumbprint is not a usable LocalMachine or CurrentUser code-signing certificate."
 	}
+	$null = Assert-SigningKeyNonInteractive -Certificate $certificate -Store $signingStore
 	$signTargets = @($installedBinary) + @(Get-ChildItem -LiteralPath $applicationRoot -Filter '*.ps1' -File -Recurse | ForEach-Object FullName)
 	foreach ($target in $signTargets) {
 		$signature = Set-AuthenticodeSignature -LiteralPath $target -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer ([string]$config.signing.timestamp_url)

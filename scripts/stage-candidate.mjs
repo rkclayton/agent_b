@@ -47,6 +47,18 @@ export function workerScratch(order, temp = os.tmpdir()) {
   return path.join(workerScratchRoot(temp), order);
 }
 
+export function windowsPowerShellEnvironment(environment = process.env) {
+  const systemRoot = environment.SystemRoot || environment.SYSTEMROOT || "C:\\Windows";
+  const programFiles = environment.ProgramFiles || "C:\\Program Files";
+  const userProfile = environment.USERPROFILE || "";
+  const paths = [
+    userProfile && path.join(userProfile, "Documents", "WindowsPowerShell", "Modules"),
+    path.join(programFiles, "WindowsPowerShell", "Modules"),
+    path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "Modules"),
+  ].filter(Boolean);
+  return { ...environment, PSModulePath: paths.join(path.delimiter) };
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
   if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} exited ${result.status}`);
@@ -71,8 +83,9 @@ function stage(tag) {
   } finally {
     fs.rmSync(tar, { force: true });
   }
-  run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(target, "scripts", "build-candidate.ps1"),
-    "-SourceDirectory", target, "-Commit", sha, "-Dirty", "false", "-ExpectedTag", tag]);
+  const powershell = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  run(powershell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(target, "scripts", "build-candidate.ps1"),
+    "-SourceDirectory", target, "-Commit", sha, "-Dirty", "false", "-ExpectedTag", tag], { env: windowsPowerShellEnvironment() });
   // Item 2gl (v1.2.0/W2): the candidate carries a setup executable. It is a
   // COPY of the build that was just verified against the manifest — the same
   // bytes under the name the operator double-clicks — so there is nothing

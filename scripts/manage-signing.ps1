@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'removal-guard.ps1')
 . (Join-Path $PSScriptRoot 'windows-tools.ps1')
+. (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
 Import-Module (Join-Path $PSHOME 'Modules\PKI\PKI.psd1') -ErrorAction Stop
 $inputText = if ($RequestBase64) { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($RequestBase64)) } else { [Console]::In.ReadToEnd() }
@@ -80,6 +81,7 @@ function Get-CodeSigningCertificate {
     $codeSigning = @($certificate.EnhancedKeyUsageList | Where-Object { ([string]$_.ObjectId) -eq '1.3.6.1.5.5.7.3.3' }).Count -gt 0
     if (-not $codeSigning) { throw 'selected certificate does not have the code-signing EKU' }
     if ($RequireKey -and -not $certificate.HasPrivateKey) { throw 'selected certificate has no private key' }
+    if ($RequireKey) { $null = Assert-SigningKeyNonInteractive -Certificate $certificate -Store $store }
     return $certificate
 }
 
@@ -188,7 +190,7 @@ switch ($Action) {
         try {
             [IO.File]::WriteAllBytes($temp, $bytes)
             $secure = ConvertTo-SecureString -String $passwordText -AsPlainText -Force
-            $certificate = Import-PfxCertificate -FilePath $temp -CertStoreLocation 'Cert:\CurrentUser\My' -Password $secure -ProtectPrivateKey
+            $certificate = Import-PfxCertificate -FilePath $temp -CertStoreLocation 'Cert:\CurrentUser\My' -Password $secure
             $certificate = Get-CodeSigningCertificate -Value $certificate.Thumbprint -RequireKey
         } finally {
             $passwordText = $null; $secure = $null; [Array]::Clear($bytes, 0, $bytes.Length)

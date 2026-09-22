@@ -6,6 +6,7 @@ param()
 # certificate in this user's Root and TrustedPublisher stores. Production uses
 # the separate administrator-gated LocalMachine identity.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 $subject = 'CN=Agent_b Disposable Test Signing'
 $existing = @(Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Where-Object {
     $_.Subject -eq $subject -and $_.HasPrivateKey -and $_.NotAfter -gt [DateTime]::Now
@@ -33,7 +34,8 @@ try {
         -NotAfter ([DateTime]::Now.AddYears(1))
     $certificatePath = "Cert:\CurrentUser\My\$($certificate.Thumbprint)"
 
-    # Prove the key is usable without an interactive prompt before trusting it.
+    # Prove the key policy is non-interactive before opening it for the signing probe.
+    $null = Assert-SigningKeyNonInteractive -Certificate $certificate -Store 'Cert:\CurrentUser\My'
     $key = [Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($certificate)
     if (-not $key) { throw 'The new certificate exposes no RSA private key.' }
     try {

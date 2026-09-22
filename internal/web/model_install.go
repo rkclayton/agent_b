@@ -50,7 +50,7 @@ func (s *Server) installedModelReady(_ context.Context, state modelinstall.State
 	s.mu.Lock()
 	next := *s.cfg
 	next.Servers = append([]config.Profile(nil), s.cfg.Servers...)
-	profile := config.Profile{ID: state.ProfileID, Label: "Installed local", BaseURL: state.BaseURL, Model: state.Model, ProbeMode: "full", AttachmentHandling: "auto"}
+	profile := config.Profile{ID: state.ProfileID, Label: "local", BaseURL: state.BaseURL, Model: state.Model, ProbeMode: "full", AttachmentHandling: "auto"}
 	replaced := false
 	for index := range next.Servers {
 		if next.Servers[index].ID == profile.ID {

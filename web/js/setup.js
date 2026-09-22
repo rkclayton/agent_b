@@ -28,7 +28,7 @@ async function load() {
 
 function render() {
   if (!snapshot) return;
-  const names = { where: "Where is your model?", capability: "What is it good for?", roles: "Who does what?", done: "Done" };
+  const names = { where: "Where is your model?", capability: "Evaluation Harness", roles: "Who does what?", done: "Done" };
   document.getElementById("setup-step").textContent = names[step];
   root.innerHTML = step === "where" ? whereScreen() : step === "capability" ? capabilityScreen() : step === "roles" ? rolesScreen() : doneScreen();
 }
@@ -51,11 +51,13 @@ function installer() {
   if (!detection || !catalog) return `<div class="setup-install"><p>Reading this computer…</p></div>`;
   const models = catalog.models || [];
   const modelOptions = models.map((item) => `<option value="${attr(item.id)}">${html(item.label)} · ${item.min_gib} GiB minimum</option>`).join("");
-  const backendOptions = (catalog.backends || ["cpu"]).map((item) => `<option value="${attr(item)}">${html(item)}</option>`).join("");
   const progress = installState ? `<div class="setup-progress"><progress max="${installState.total_bytes || 1}" value="${installState.downloaded_bytes || 0}"></progress><span>${html(installState.text || installState.phase || "")}</span></div>` : "";
-  const gpu = (detection.gpus || []).map((item) => `${item.vendor} ${item.name}`).join(", ") || "no GPU reported";
-  return `<div class="setup-install"><h2>Install one here</h2><p>${html(memory(detection.recommendation_memory_bytes))} available for recommendation · ${html(gpu)}</p>
-    <div class="setup-fields"><label>Model<select data-field="install-model">${modelOptions}</select></label><label>Backend<select data-field="install-backend">${backendOptions}</select></label></div>
+  const choice = localBackend(detection);
+  const hardware = choice.gpu
+    ? `${choice.gpu.vendor} ${choice.gpu.name} · ${memory(choice.gpu.vram_bytes, "VRAM")}`
+    : `${memory(detection.system_memory_bytes, "system memory")} · CPU fallback`;
+  return `<div class="setup-install"><h2>Install one here</h2><p>${html(hardware)}</p>
+    <div class="setup-fields"><label>Model<select data-field="install-model">${modelOptions}</select></label><label>Backend<strong class="setup-value">${html(choice.backend)}</strong></label></div>
     <p class="setup-note">Sources: ${link(catalog.runtime_source, `llama.cpp ${catalog.runtime_version}`)} and the selected model's named Hugging Face source. Agent_b verifies the pinned size and SHA-256 before extracting or starting anything.</p>
     <div class="setup-actions"><button data-action="install" ${disabled() || !models.length ? "disabled" : ""}>Install and test</button></div>${progress}
     <details><summary>Model runs on another computer</summary><pre>${html(remoteGuide())}</pre></details></div>`;
@@ -65,7 +67,7 @@ function capabilityScreen() {
   const profile = selectedProfile();
   const caps = profile?.capabilities || {};
   const measurement = profile?.measurement;
-  return `<section class="setup-section"><h1>What is it good for?</h1>
+  return `<section class="setup-section"><h1>Evaluation Harness</h1>
     <div class="setup-readout">
       ${row("Context", caps.n_ctx ? `${Number(caps.n_ctx).toLocaleString()} tokens` : "not reported")}
       ${row("Tools", caps.tool_calls ? "available" : "not available")}
@@ -120,9 +122,8 @@ async function showInstall() {
   try {
     const values = await Promise.all([request("/api/local-detection", undefined, "GET"), request("/api/model-install", undefined, "GET")]);
     detection = values[0]; catalog = values[1].catalog; installState = values[1].state;
-    const available = Math.floor(Number(detection.recommendation_memory_bytes || 0) / 2 ** 30);
+    const available = Math.floor(Number(localRecommendationBytes(detection)) / 2 ** 30);
     catalog.models = (catalog.models || []).filter((item) => !available || available >= item.min_gib);
-    catalog.backends = (catalog.backends || []).filter((item) => item === "cpu" || (item === "cuda" && detection.accelerators?.cuda) || (item === "vulkan" && detection.accelerators?.vulkan));
   } catch (error) { fail(error); }
   render();
 }
@@ -150,7 +151,7 @@ async function testConnection() {
 async function installModel() {
   setBusy("Starting verified downloads…");
   try {
-    await request("/api/model-install", { model_id: field("install-model"), backend: field("install-backend") });
+    await request("/api/model-install", { model_id: field("install-model"), backend: localBackend(detection).backend });
     while (true) {
       await delay(750);
       installState = (await request("/api/model-install", undefined, "GET")).state;
@@ -243,7 +244,14 @@ function role(name) { return root.querySelector(`[data-role="${name}"]`)?.value 
 function row(label, value) { return `<div><span>${html(label)}</span><strong>${html(value)}</strong></div>`; }
 function feedback() { return message ? `<p class="setup-feedback ${alarm ? "alarm" : ""}" role="status">${html(message)}</p>` : ""; }
 function disabled() { return busy ? "disabled" : ""; }
-function memory(bytes) { return `${(Number(bytes || 0) / 2 ** 30).toFixed(1)} GiB memory`; }
+function localBackend(report = {}) {
+  const gpus = report.gpus || [];
+  if (report.accelerators?.cuda) return { backend: "cuda", gpu: gpus.find((item) => item.vendor === "NVIDIA") || gpus[0] };
+  if (report.accelerators?.vulkan) return { backend: "vulkan", gpu: gpus[0] };
+  return { backend: "cpu", gpu: null };
+}
+function localRecommendationBytes(report = {}) { return localBackend(report).gpu?.vram_bytes || report.system_memory_bytes || 0; }
+function memory(bytes, kind) { return `${(Number(bytes || 0) / 2 ** 30).toFixed(1)} GiB ${kind}`; }
 function percent(value) { return `${(Number(value || 0) * 100).toFixed(0)}%`; }
 function uniqueID(base) { let id = base, n = 2; while (snapshot.servers?.some((item) => item.id === id)) id = `${base}-${n++}`; return id; }
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }

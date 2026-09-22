@@ -13,7 +13,7 @@ const template = JSON.parse(fs.readFileSync(new URL("../../harness.example.json"
 test("Fresh template has no servers and setup asks the four setup questions", () => {
   assert.deepEqual(template.servers, []);
   assert.deepEqual(template.agents, []);
-  for (const label of ["Where is your model?", "What is it good for?", "Who does what?", "Done"]) assert.match(script, new RegExp(label.replaceAll("?", "\\?")));
+  for (const label of ["Where is your model?", "Evaluation Harness", "Who does what?", "Done"]) assert.match(script, new RegExp(label.replaceAll("?", "\\?")));
   for (const label of ["Test", "Install one here", "Later", "Measure it", "Use profile for everything"]) assert.match(script, new RegExp(label));
   assert.doesNotMatch(`${html}\n${script}`, /\b(?:PKI|accounting)\b/i);
 });
@@ -23,11 +23,21 @@ test("Connection Test and capability screen use the existing probe", () => {
   assert.match(script, /\/api\/servers\/\$\{encodeURIComponent\(profileID\)\}\/probe/);
 });
 
-test("Local install and measurement requests carry only catalog IDs", () => {
+test("Local install chooses accelerator and measurement requests carry only catalog IDs", () => {
   assert.match(script, /\/api\/model-install/);
-  assert.match(script, /model_id: field\("install-model"\), backend: field\("install-backend"\)/);
+  assert.match(script, /model_id: field\("install-model"\), backend: localBackend\(detection\)\.backend/);
+  assert.match(script, /accelerators\?\.cuda/);
+  assert.match(script, /accelerators\?\.vulkan/);
+  assert.match(script, /gpu\?\.vram_bytes \|\| report\.system_memory_bytes/);
+  assert.doesNotMatch(script, /data-field="install-backend"/);
   assert.doesNotMatch(script, /model_url|runtime_url|sha256:/);
   assert.match(script, /\/api\/eval\/measure/);
+});
+
+test("Setup strip has settings and window controls but no Chat page button", () => {
+  assert.match(html, /class="setup-settings"/);
+  assert.match(html, /class="shell-window-controls"/);
+  assert.doesNotMatch(html, />Chat<|setup-chat/);
 });
 
 test("Role assignment offers one click and per-slot b c d", () => {

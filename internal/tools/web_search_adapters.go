@@ -136,7 +136,7 @@ func defaultWebSearchAdapters() []webSearchAdapter {
 	}
 	return []webSearchAdapter{
 		htmlSearchAdapter{name: "duckduckgo_html", webURL: func(q string, _ int) string { return query("https://html.duckduckgo.com/html/", "q", q) }, containerClass: "result", anchorClass: "result__a", snippetClass: "result__snippet"},
-		htmlSearchAdapter{name: "duckduckgo_lite", webURL: func(q string, _ int) string { return query("https://lite.duckduckgo.com/lite/", "q", q) }, containerClass: "result", anchorClass: "result-link", snippetClass: "result-snippet"},
+		htmlSearchAdapter{name: "duckduckgo_lite", webURL: func(q string, _ int) string { return query("https://lite.duckduckgo.com/lite/", "q", q) }, anchorClass: "result-link", snippetClass: "result-snippet"},
 		htmlSearchAdapter{name: "bing", webURL: func(q string, n int) string {
 			values := url.Values{"q": {q}, "count": {fmt.Sprint(n)}}
 			return "https://www.bing.com/search?" + values.Encode()

@@ -1,13 +1,21 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^v\d+\.\d+\.\d+$')][string]$Tag,
-    [Parameter(Mandatory = $true)][string]$SigningThumbprint
+    [Parameter(Mandatory = $true)][ValidatePattern('^[0-9A-Fa-f ]+$')][string]$SigningThumbprint
 )
 
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $candidate = Join-Path (Join-Path $repository 'candidates') $Tag
 $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+. (Join-Path $PSScriptRoot 'removal-guard.ps1')
+. (Join-Path $PSScriptRoot 'deploy-candidate-state.ps1')
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'DEPLOY REFUSED: run deploy-release.ps1 from an ordinary, non-elevated console; it requests elevation once for signing only.'
+}
+Write-Host "DEPLOY PARENT: identity=$($identity.Name) elevated=false; staging, verification, and publication stay at this token"
 $commitOutput = @(& git -C $repository rev-parse "$Tag^{commit}" 2>&1)
 $commitExit = $LASTEXITCODE
 $commit = [string]($commitOutput | Select-Object -First 1)
@@ -22,14 +30,27 @@ $statusExit = $LASTEXITCODE
 if ($statusExit -ne 0) { throw "DEPLOY REFUSED: git status exited $statusExit." }
 if ($statusOutput.Count) { throw 'DEPLOY REFUSED: the repository is dirty.' }
 
+if (Test-Path -LiteralPath $candidate) {
+    Remove-MatchingStagedCandidate -Candidate $candidate -CandidatesRoot (Join-Path $repository 'candidates') -ExpectedTag $Tag
+}
+
 & $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'scripts\test-signing-key-policies.ps1')
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: signing key policy check exited $LASTEXITCODE." }
 
 & node (Join-Path $repository 'scripts\stage-candidate.mjs') --tag $Tag
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate staging exited $LASTEXITCODE." }
 
-& $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'scripts\sign-release.ps1') -Path $candidate -Thumbprint $SigningThumbprint
-if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: release signing exited $LASTEXITCODE." }
+$signingReport = Join-Path $candidate 'signing-report.json'
+$signingScript = Join-Path $repository 'scripts\sign-release.ps1'
+$signingArguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$signingScript`" -Path `"$candidate`" -Thumbprint $SigningThumbprint -ReportPath `"$signingReport`""
+$signing = Start-Process -FilePath $windowsPowerShell -ArgumentList $signingArguments -Verb RunAs -Wait -PassThru -WindowStyle Hidden
+$signingExit = $signing.ExitCode
+if (Test-Path -LiteralPath $signingReport -PathType Leaf) {
+    $signingResult = Get-Content -Raw -LiteralPath $signingReport | ConvertFrom-Json
+    Write-Host "SIGNING CHILD: identity=$($signingResult.identity) elevated=$($signingResult.elevated) outcome=$($signingResult.outcome) signed=$($signingResult.signed)/$($signingResult.signable)"
+    if ($signingResult.reason) { Write-Host "SIGNING CHILD REASON: $($signingResult.reason)" }
+}
+if ($signingExit -ne 0) { throw "DEPLOY REFUSED: elevated release signing exited $signingExit." }
 
 & $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'scripts\verify-deploy-candidate.ps1') -CandidateDirectory $candidate -ExpectedTag $Tag -ExpectedCommit $commit
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate verification exited $LASTEXITCODE." }

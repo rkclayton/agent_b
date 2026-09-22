@@ -304,9 +304,9 @@ func main() {
 			log.Printf("inspect installed signatures: %v", err)
 		}
 	}()
-	// Item 13 (v1.2.5): eleven tools. search_text and find_files became one
-	// `search` with a target, in the place the first of them held, so the
-	// registration order the contract fixes is otherwise unchanged.
+	// Item 2ho (v1.6.0): web_search follows fetch_url. It shares that tool's
+	// guarded uTLS transport, so the older tools retain their relative order.
+	fetchTool := tools.NewFetch(cfg.Tools.Fetch)
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
@@ -319,7 +319,8 @@ func main() {
 		shellTool,
 		tools.NewRemember(memoryManager, bus),
 		tools.NewRecall(memoryManager),
-		tools.NewFetch(cfg.Tools.Fetch),
+		fetchTool,
+		tools.NewWebSearch(fetchTool, cfg.Tools.WebSearch),
 		tools.NewRunScript(shellTool),
 		tools.NewCallService(cfg.Services),
 	)

@@ -120,7 +120,7 @@ func Digest(paths []string, sessionID, runID string) (RunDigest, error) {
 			switch row.Type {
 			case "tool.call":
 				digest.Tools++
-				if row.Data.Name == "fetch_url" || row.Data.Name == "call_service" {
+				if row.Data.Name == "fetch_url" || row.Data.Name == "web_search" || row.Data.Name == "call_service" {
 					digest.Untrusted = true
 				}
 				path, _ := row.Data.Args["path"].(string)

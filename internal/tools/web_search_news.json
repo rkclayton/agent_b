@@ -1,0 +1,5 @@
+[
+  {"name":"bbc","url":"https://feeds.bbci.co.uk/news/rss.xml"},
+  {"name":"npr","url":"https://feeds.npr.org/1001/rss.xml"},
+  {"name":"guardian","url":"https://www.theguardian.com/world/rss"}
+]

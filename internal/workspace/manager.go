@@ -290,7 +290,7 @@ func ParsePolicy(data []byte) (Policy, error) {
 	if p.ApprovalMode != "" && p.ApprovalMode != "boundary-only" && p.ApprovalMode != "mutating" && p.ApprovalMode != "all" {
 		return Policy{}, fmt.Errorf("repo policy approval_mode: invalid")
 	}
-	knownTools := map[string]bool{"read_file": true, "list_dir": true, "write_file": true, "edit_file": true, "search_text": true, "shell": true, "remember": true, "recall": true, "fetch_url": true, "find_files": true, "run_script": true, "call_service": true}
+	knownTools := map[string]bool{"read_file": true, "list_dir": true, "write_file": true, "edit_file": true, "search_text": true, "shell": true, "remember": true, "recall": true, "fetch_url": true, "web_search": true, "find_files": true, "run_script": true, "call_service": true}
 	for _, name := range p.DefaultToolset {
 		if !knownTools[name] {
 			return Policy{}, fmt.Errorf("repo policy default_toolset: unknown tool %s", name)

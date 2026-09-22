@@ -1,5 +1,5 @@
 {
-  "config_version": 6,
+  "config_version": 7,
   "listen": "127.0.0.1:8790",
   "workspace": "./workspace",
   "log_dir": "logs",
@@ -30,6 +30,12 @@
       "allow_domains": [],
       "deny_domains": ["ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"],
       "allow_internal_hosts": []
+    },
+    "web_search": {
+      "enabled": true,
+      "engines": ["duckduckgo_html", "duckduckgo_lite", "bing", "brave", "startpage", "mojeek", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"],
+      "per_engine_timeout_s": 8,
+      "bench_duration_minutes": 30
     },
     "find_files": {
       "skip_roots": ["Windows", "$Recycle.Bin", "System Volume Information", "ProgramData\\Microsoft\\Windows Defender*", "Program Files\\Windows Defender*"]

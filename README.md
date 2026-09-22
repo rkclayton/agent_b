@@ -29,7 +29,7 @@ go run ./cmd/harness -config harness.json -replay logs/main.jsonl
 
 - Durable open and closed chats, workspace memory, compaction, concurrent scheduling, and model-profile failover for summaries.
 - Exact context accounting when the server exposes `/tokenize` and `/apply-template`; otherwise every estimate is labeled.
-- Eleven tools in stable order: `read_file`, `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `run_script`, and `call_service`.
+- Twelve tools in stable order: `read_file`, `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `web_search`, `run_script`, and `call_service`.
 - A Windows service-account boundary for shell and file tools, with explicit operator-identity decisions when work needs the launching user.
 - Local attachment ingestion, OCR/extraction sidecars, delivered-file links, replay, and append-only event evidence.
 

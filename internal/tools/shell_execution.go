@@ -44,7 +44,7 @@ func (s *Shell) Description() string {
 	cfg, operatorCommands := s.configWithOperatorCommands()
 	// Item 2gb: the description names the dialect the command actually runs in.
 	syntax := shellHostFor(cfg).Dialect()
-	description := "Run an unconfined inline command from the folder root. Shell has no network in service context (enforced outside the tool layer); use fetch_url for every network operation. Agent-written Windows host scripts cannot be executed; use run_script for multi-line source. " + syntax
+	description := "Run an unconfined inline command from the folder root. Shell has no network in service context (enforced outside the tool layer); use web_search or fetch_url for network reads. Agent-written Windows host scripts cannot be executed; use run_script for multi-line source. " + syntax
 	if cfg.ServiceAccount.Enabled && len(operatorCommands) > 0 {
 		description += " Git and other configured operator commands run as the operator after one decision per run; expect one prompt, not one per call."
 	}

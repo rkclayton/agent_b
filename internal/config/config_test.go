@@ -997,13 +997,40 @@ func TestAttachmentConfigIsAdditiveCurrentSchema(t *testing.T) {
 	}
 }
 
-// Item 13 (v1.2.5): eleven, in a stable order. search_text and find_files are
-// one `search` with a target, in the place the first of them held.
-func TestFullToolsetContractHasElevenStableTools(t *testing.T) {
-	want := "read_file,list_dir,write_file,edit_file,search,shell,remember,recall,fetch_url,run_script,call_service"
+// Item 2ho (v1.6.0): twelve, in stable order. web_search follows fetch_url;
+// every older tool retains its relative position.
+func TestFullToolsetContractHasTwelveStableTools(t *testing.T) {
+	want := "read_file,list_dir,write_file,edit_file,search,shell,remember,recall,fetch_url,web_search,run_script,call_service"
 	got := FullToolset()
-	if len(got) != 11 || strings.Join(got, ",") != want {
+	if len(got) != 12 || strings.Join(got, ",") != want {
 		t.Fatalf("full toolset=%v", got)
+	}
+}
+
+func TestVersionSixMigrationAddsWebSearchOnlyToTheFullToolset(t *testing.T) {
+	legacy := `{"config_version":6,"tools":{},"agents":[{"name":"Full","b":"local","toolset":["read_file","list_dir","write_file","edit_file","search","shell","remember","recall","fetch_url","run_script","call_service"]},{"name":"Limited","b":"local","toolset":["read_file","fetch_url"]}]}`
+	migrated, data, err := migrateWebSearch([]byte(legacy), 6)
+	if err != nil || !migrated {
+		t.Fatalf("migrated=%t err=%v", migrated, err)
+	}
+	var raw struct {
+		ConfigVersion int `json:"config_version"`
+		Tools         struct {
+			WebSearch WebSearchTool `json:"web_search"`
+		} `json:"tools"`
+		Agents []Agent `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw.ConfigVersion != 7 || !raw.Tools.WebSearch.Enabled || raw.Tools.WebSearch.PerEngineTimeoutS != 8 {
+		t.Fatalf("migration=%+v", raw)
+	}
+	if got := strings.Join(raw.Agents[0].Toolset, ","); got != "read_file,list_dir,write_file,edit_file,search,shell,remember,recall,fetch_url,web_search,run_script,call_service" {
+		t.Fatalf("full=%s", got)
+	}
+	if got := strings.Join(raw.Agents[1].Toolset, ","); got != "read_file,fetch_url" {
+		t.Fatalf("limited widened=%s", got)
 	}
 }
 

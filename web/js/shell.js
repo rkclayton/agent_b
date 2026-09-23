@@ -26,7 +26,21 @@ export function initShell(options = {}) {
   left.append(newChatButton, newChatMenu, tabs);
 
   const right = node("div", "shell-right");
-  const sessionHeading = node("span", "shell-session-title");
+  const sessionHeading = button("", "Switch model", "shell-session-title");
+  const profileMenu = node("div", "shell-menu shell-profile-menu");
+  profileMenu.hidden = true;
+  sessionHeading.setAttribute("aria-haspopup", "menu");
+  sessionHeading.setAttribute("aria-expanded", "false");
+  sessionHeading.onclick = () => {
+    if (profileMenu.hidden) {
+      renderProfileMenu();
+      revealMenu(profileMenu, sessionHeading);
+      sessionHeading.setAttribute("aria-expanded", "true");
+    } else {
+      profileMenu.hidden = true;
+      sessionHeading.setAttribute("aria-expanded", "false");
+    }
+  };
   const pages = node("nav", "shell-pages");
   pages.setAttribute("aria-label", "Pages");
   for (const [id, path] of [["plan", "/plan"]]) {
@@ -94,7 +108,7 @@ export function initShell(options = {}) {
     control.append(glyph);
     windowControls.append(control);
   }
-  right.append(sessionHeading, pages, settings, windowControls);
+  right.append(sessionHeading, profileMenu, pages, settings, windowControls);
   root.append(left, right);
   document.addEventListener("click", (event) => {
     if (!root.contains(event.target)) for (const menu of root.querySelectorAll(".shell-menu")) menu.hidden = true;
@@ -154,6 +168,41 @@ export function initShell(options = {}) {
     if (sessions.some((item) => item.pending_approval || item.pending_repo_policy || item.run?.status === "paused")) return "waiting";
     if (sessions.some((item) => activeRunStates.has(item.run?.status))) return "running";
     return "idle";
+  }
+
+  function profileState(profile, session) {
+    if (session?.server_id === profile.id && session.model_unreachable) return "offline";
+    if ((profile.capabilities?.findings || []).some((line) => String(line).startsWith("probe failed:"))) return "offline";
+    return profile.capabilities?.probed_at ? "ready" : "not tested";
+  }
+
+  function renderProfileMenu() {
+    const session = store.sessions[store.selection.session_id];
+    const configured = configuredAgent(session);
+    profileMenu.replaceChildren();
+    for (const profile of store.servers || store.config.servers || []) {
+      const row = button("", `Use ${profile.label || profile.id}`, `shell-profile-choice ${configured?.b === profile.id ? "selected" : ""}`);
+      let host = profile.base_url || "";
+      try { host = new URL(host).host || host; } catch {}
+      row.innerHTML = `<span>${escapeHTML(profile.label || profile.id)}</span><span>${escapeHTML(host)}</span><span>${escapeHTML(profileState(profile, session))}</span>`;
+      row.onclick = async () => {
+        const current = store.sessions[store.selection.session_id];
+        if (isRunning(current)) {
+          const refusal = node("span", "shell-menu-empty alarm");
+          refusal.textContent = "stop the run first";
+          profileMenu.append(refusal);
+          return;
+        }
+        try {
+          const agentID = agentKey(configuredAgent(current));
+          await api(`/api/agents/${encodeURIComponent(agentID)}/server`, { action: "set", server_id: profile.id });
+          reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+          profileMenu.hidden = true;
+          sessionHeading.setAttribute("aria-expanded", "false");
+        } catch (error) { report(error.message); }
+      };
+      profileMenu.append(row);
+    }
   }
 
   function chatState(session) {
@@ -427,7 +476,7 @@ export function initShell(options = {}) {
     // which the header beside the tab strip already says.
     document.title = session ? `Agent_b · ${chatName(session)}` : "Agent_b";
     sessionHeading.hidden = !session;
-    const heading = session ? sessionTitle(session) : "";
+    const heading = session ? (session.runnable === false ? session.not_runnable_reason : sessionTitle(session)) : "";
     if (sessionHeading.textContent !== heading) {
       sessionHeading.textContent = heading;
       // Item 2hc (v1.3.0/W7): the header is snapped to whole pixels.

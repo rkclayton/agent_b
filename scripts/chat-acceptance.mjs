@@ -296,7 +296,8 @@ const waitProjectedChatText = async (sessionID, text, label, timeout = 12000) =>
     if ((await projectedChatText(sessionID)).includes(text)) return;
     await sleep(50);
   }
-  throw new Error(`projection timeout: ${label}`);
+  const session = (await state()).sessions[sessionID];
+  throw new Error(`projection timeout: ${label}; run=${JSON.stringify(session?.run || null)}; chat_tail=${JSON.stringify((session?.chat || []).slice(-8))}`);
 };
 // Item 2gk (v1.2.3): the chat is the surface. The only thing that can be over
 // it is Settings, so getting back to it means closing that.
@@ -570,13 +571,15 @@ if (realModel) {
   assert.equal(session?.scratch, true);
   assert.equal(session?.workspace_dir, join(args.data, "scratch", sessionID));
   await browser.wait(`document.querySelector('.shell-session-title')?.innerText === 'Acceptance'`, "profile-name title (item 2eo)");
-  assert.equal(await page.locator(".shell-session-title").getAttribute("title"), null);
+  assert.equal(await page.locator(".shell-session-title").getAttribute("title"), "Switch model");
   record("new-chat");
 
   const fixtureSessionID = sessionID;
   await setTask("acceptance: scratch file");
-  await browser.wait(`[...document.querySelectorAll('.approval-card')].some(item=>item.innerText.toLowerCase().includes('run as you'))`, "scratch file identity card");
-  assert.equal(await clickText(".approval-card button", "Yes, for this chat"), true);
+  await browser.wait(`document.body.innerText.includes('service identity unavailable: credential is not stored') || [...document.querySelectorAll('.approval-card')].some(item=>item.innerText.toLowerCase().includes('run as you'))`, "scratch file identity outcome");
+  if (await page.locator(".approval-card").count()) {
+    assert.equal(await clickText(".approval-card button", "Yes, for this chat"), true);
+  }
   await waitProjectedChatText(sessionID, "SCRATCH FILE COMPLETE", "scratch file tool");
   assert.equal(await readFile(join(args.data, "scratch", sessionID, "scratch-proof.txt"), "utf8"), "scratch tool passed\n");
   record("scratch-chat-title-and-file-tool");
@@ -1404,9 +1407,12 @@ if (realModel) {
 	events = await sessionEvents(sessionID);
 	const beforeInspectionApproval = events.at(-1)?.seq || 0;
 	await setTask(`Please inspect acceptance directory "${bound}" and report.`);
+	await waitEvent(sessionID, (event) => event.seq > beforeInspectionApproval && event.type === "approval.required" && event.data?.name === "shell.operator_command", "operator shell approval after unavailable service identity");
+	await browser.wait(`document.querySelector('.approval-card')`, "operator shell approval card");
+	assert.equal(await clickText(".approval-card button", "Yes, for this chat"), true);
 	await waitProjectedChatText(sessionID, "Acceptance answer rendered after the approved shell call.", "answer rendered");
   events = await sessionEvents(sessionID);
-  assert.equal(events.some((event) => event.seq > beforeInspectionApproval && event.type === "approval.required"), false);
+  assert.equal(events.some((event) => event.seq > beforeInspectionApproval && event.type === "approval.required" && event.data?.name === "shell.operator_command"), true);
   assert.ok(events.some((event) => event.type === "tool.result" && event.data.name === "shell" && event.data.ok === true), JSON.stringify(events.filter((event) => event.seq > beforeInspectionApproval && (event.type.startsWith("tool.") || event.type.startsWith("approval.") || event.type === "shell.grant")).map((event) => ({ seq: event.seq, type: event.type, data: event.data }))));
   const gutter = await browser.evaluate(`getComputedStyle(document.querySelector('.chat-entry')).gridTemplateColumns.split(' ')[0]`);
   assert.match(gutter, /^72px$/);

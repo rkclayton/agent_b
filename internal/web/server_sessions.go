@@ -331,6 +331,38 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"session_id": id})
 		return
 	}
+	if len(parts) == 2 && parts[1] == "rebind" && r.Method == http.MethodPost {
+		item, ok := s.registry.Get(id)
+		if !ok {
+			writeError(w, http.StatusNotFound, "session not found", "session")
+			return
+		}
+		snapshot := item.Snapshot()
+		if _, exists := s.Profile(snapshot.ServerID); exists || snapshot.NotRunnableReason != "profile not found" {
+			writeError(w, http.StatusConflict, "session profile is not missing", "server_id")
+			return
+		}
+		target := ""
+		s.mu.RLock()
+		for _, profile := range s.cfg.Servers {
+			if profile.Label == snapshot.BProfile {
+				target = profile.ID
+				break
+			}
+		}
+		s.mu.RUnlock()
+		if target == "" {
+			writeError(w, http.StatusNotFound, "no profile named "+snapshot.BProfile, "server_id")
+			return
+		}
+		if err := s.registry.SetServer(id, target); err != nil {
+			writeError(w, http.StatusConflict, err.Error(), "server_id")
+			return
+		}
+		updated, _ := s.registry.Get(id)
+		writeJSON(w, http.StatusOK, map[string]any{"session": updated.Snapshot()})
+		return
+	}
 	// Item 2hq (v1.6.2): close and delete are distinct HTTP acts. Closing keeps
 	// the retained chat and only removes it from the open tab set; reopening is
 	// the existing inverse above. Permanent deletion remains DELETE below and

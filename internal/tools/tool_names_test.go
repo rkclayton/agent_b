@@ -51,6 +51,36 @@ func TestSearchTextDoesNotHideReadFailure(t *testing.T) {
 	}
 }
 
+func TestReadFileOnFolderSuggestsListDir(t *testing.T) {
+	workspace := t.TempDir()
+	result, err := NewReadFile(config.Defaults(workspace).Tools.ReadFile).Call(context.Background(), &session.Session{Workspace: workspace, LastSeen: map[string]time.Time{}}, map[string]any{"path": workspace})
+	if err != nil || result != "path is a folder; use list_dir to inspect it." {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+}
+
+func TestSearchOperatorRetryDispatchesToSelectedTarget(t *testing.T) {
+	root := t.TempDir()
+	workspace, external := filepath.Join(root, "workspace"), filepath.Join(root, "external")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(external, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(external, "needle.txt"), []byte("needle"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(workspace)
+	identity := NewFileIdentity(nil)
+	identity.Configure(cfg)
+	search := NewSearch(identity.Wrap(NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir)), identity.Wrap(NewGlob(cfg.Tools.FindFiles)))
+	result, err := search.CallAsOperator(context.Background(), &session.Session{Workspace: workspace, LastSeen: map[string]time.Time{}}, map[string]any{"path": external, "pattern": "needle", "target": "content"})
+	if err != nil || !strings.Contains(result, "needle.txt:1") {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+}
+
 func TestRenamedToolsRegisterExposeSchemasAndExecute(t *testing.T) {
 	workspace := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workspace, "sample.go"), []byte("package sample\n// unique-search-marker\n"), 0o600); err != nil {

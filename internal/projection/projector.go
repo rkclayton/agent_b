@@ -1207,7 +1207,7 @@ func toolCalls(value any) []events.ToolCall {
 }
 func chatNotice(value string) bool {
 	switch value {
-	case events.RunStopping, events.RunStopped, events.RunAborted, events.RunQueued, events.MessageQueued, events.ModelRetry, events.Compaction, events.WorkspaceConflict, events.ApprovalRequired, events.MemoryNoted, events.MemoryCleared, events.ProjectInstructions, events.PolicyApproved, events.PolicyDenied, events.PolicyRevoked, events.OperatorContext, events.SigningApplied, events.FilesDelivered, events.ShellGrant, events.ShellGrantLapsed, events.FileGrant, events.FileGrantLapsed, events.WorkerJob:
+	case events.RunStopping, events.RunStopped, events.RunAborted, events.RunQueued, events.MessageQueued, events.ModelRetry, events.Compaction, events.WorkspaceConflict, events.ApprovalRequired, events.MemoryNoted, events.MemoryCleared, events.ProjectInstructions, events.PolicyApproved, events.PolicyDenied, events.PolicyRevoked, events.OperatorContext, events.SigningApplied, events.FilesDelivered, events.ShellGrant, events.ShellGrantLapsed, events.FileGrant, events.FileGrantLapsed, events.ServiceIdentityUnavailable, events.WorkerJob:
 		return true
 	}
 	return false

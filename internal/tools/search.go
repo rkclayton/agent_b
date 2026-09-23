@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 
 	"harness/internal/session"
 )
@@ -66,6 +67,15 @@ func (s *Search) CallDetailed(ctx context.Context, item *session.Session, args m
 	}
 	content, err := tool.Call(ctx, item, args)
 	return CallDetail{Content: content, Err: err}
+}
+
+func (s *Search) CallAsOperator(ctx context.Context, item *session.Session, args map[string]any) (string, error) {
+	tool := s.pick(args)
+	override, ok := tool.(OperatorOverrideTool)
+	if !ok {
+		return "", fmt.Errorf("search target has no operator-identity override")
+	}
+	return override.CallAsOperator(ctx, item, args)
 }
 
 func (s *Search) pick(args map[string]any) Tool {

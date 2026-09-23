@@ -83,6 +83,47 @@ func TestSessionAgentReassignment(t *testing.T) {
 	}
 }
 
+func TestMissingProfileCanRebindToSameLabel(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	original := runnableTestProfile("removed")
+	original.Label = "My model"
+	cfg.Servers = []config.Profile{original}
+	cfg.Agents = []config.Agent{{Name: "Agent_b", B: "removed", Toolset: config.FullToolset()}}
+	bus := events.NewBus()
+	writers, err := events.NewWriters(filepath.Join(root, "logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = writers.Close() })
+	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
+	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	server.SetRegistry(registry)
+	item, err := registry.Create("kept chat", "agent-b", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := runnableTestProfile("replacement")
+	replacement.Label = "My model"
+	server.mu.Lock()
+	server.cfg.Servers = []config.Profile{replacement}
+	server.mu.Unlock()
+	registry.RefreshRunnable()
+	if got := item.Snapshot(); got.Runnable || got.NotRunnableReason != "profile not found" {
+		t.Fatalf("before=%+v", got)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/"+item.ID+"/rebind", strings.NewReader(`{}`))
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body)
+	}
+	if got := item.Snapshot(); got.ServerID != "replacement" || !got.Runnable {
+		t.Fatalf("after=%+v", got)
+	}
+}
+
 func TestDropLastMessageEndpoint(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)

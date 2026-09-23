@@ -42,6 +42,9 @@ func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string
 	if err != nil {
 		return "", err
 	}
+	if info, statErr := os.Stat(resolved); statErr == nil && info.IsDir() {
+		return "path is a folder; use list_dir to inspect it.", nil
+	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return "", err

@@ -6,6 +6,7 @@ import (
 
 type Bus struct {
 	mu          sync.Mutex
+	publishMu   sync.Mutex
 	seq         int64
 	subscribers map[int]chan Event
 	next        int
@@ -23,9 +24,15 @@ func (b *Bus) SetDurableSink(sink func(Event) (LogCursor, error), appended func(
 	b.mu.Unlock()
 }
 func (b *Bus) Publish(event Event) Event {
-	return b.publish(event, true)
+	b.publishMu.Lock()
+	published, dropped := b.publish(event, true)
+	b.publishMu.Unlock()
+	for _, id := range dropped {
+		b.Publish(New(SubscriberDropped, "", "", map[string]any{"subscriber_id": id, "reason": "overflow", "action": "resubscribe"}))
+	}
+	return published
 }
-func (b *Bus) publish(event Event, writeSink bool) Event {
+func (b *Bus) publish(event Event, writeSink bool) (Event, []int) {
 	b.mu.Lock()
 	b.seq++
 	event.Seq = b.seq
@@ -55,6 +62,7 @@ func (b *Bus) publish(event Event, writeSink bool) Event {
 	} else if sinkErr != nil && appendError != nil {
 		appendError(event, sinkErr)
 	}
+	dropped := make([]int, 0)
 	for _, subscriber := range subscribers {
 		select {
 		case subscriber.ch <- event:
@@ -63,14 +71,16 @@ func (b *Bus) publish(event Event, writeSink bool) Event {
 			if current, ok := b.subscribers[subscriber.id]; ok && current == subscriber.ch {
 				delete(b.subscribers, subscriber.id)
 				close(current)
+				dropped = append(dropped, subscriber.id)
 			}
 			b.mu.Unlock()
 		}
 	}
 	if sinkErr != nil {
-		b.publish(New(Error, event.SessionID, event.RunID, map[string]any{"where": "event_log", "message": sinkErr.Error(), "lost_event_type": event.Type}), false)
+		_, errorDrops := b.publish(New(Error, event.SessionID, event.RunID, map[string]any{"where": "event_log", "message": sinkErr.Error(), "lost_event_type": event.Type}), false)
+		dropped = append(dropped, errorDrops...)
 	}
-	return event
+	return event, dropped
 }
 func (b *Bus) Subscribe() (chan Event, func()) {
 	b.mu.Lock()

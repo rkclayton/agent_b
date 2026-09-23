@@ -29,12 +29,10 @@ func (s schedulerSeam) Stop(sessionID string, all bool) int {
 	return len(s.scheduler.Stop(sessionID, all))
 }
 
-// v0.70.1 overrule, on the real path: a worker with no service identity whose
-// model reads a file outside its folder raises the outside-folder card; with
-// nobody there, the item waits at most its deadline and is marked
-// "waited for approval", and its run is ended — never a silent slip, never a
-// forever wait.
-func TestAnUnattendedOutsideFolderCardExpiresAsWaitedForApproval(t *testing.T) {
+// With the service split disabled, a process-readable outside path stays a
+// plain workspace refusal and never raises the obsolete identity card. The
+// repeating model is eventually held by the ordinary cycle decision.
+func TestUnattendedDisabledSplitDoesNotRaiseIdentityCard(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "notes.txt")
 	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
 		t.Fatal(err)
@@ -118,8 +116,8 @@ func TestAnUnattendedOutsideFolderCardExpiresAsWaitedForApproval(t *testing.T) {
 	}
 	select {
 	case name := <-carded:
-		if name != "read_file.operator_override" {
-			t.Fatalf("the card was %q, want the outside-folder override", name)
+		if name == "read_file.operator_override" {
+			t.Fatalf("disabled split raised an identity card: %q", name)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no card was raised")

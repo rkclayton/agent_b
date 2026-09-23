@@ -3,7 +3,93 @@ package events
 import (
 	"fmt"
 	"testing"
+	"time"
 )
+
+func TestConcurrentPublishDoesNotSendOnOverflowClosedSubscriber(t *testing.T) {
+	bus := NewBus()
+	_, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	bus.SetSink(func(event Event) error {
+		if event.RunID == "blocked" {
+			close(entered)
+			<-release
+		}
+		return nil
+	})
+	panicValue := make(chan any, 1)
+	go func() {
+		defer func() { panicValue <- recover() }()
+		bus.Publish(New(ModelDelta, "main", "blocked", map[string]any{"text": "blocked"}))
+	}()
+	<-entered
+	filled := make(chan struct{})
+	go func() {
+		for index := 0; index < 129; index++ {
+			bus.Publish(New(ModelDelta, "main", "filler", map[string]any{"text": "x"}))
+		}
+		close(filled)
+	}()
+	select {
+	case <-filled:
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	<-filled
+	if recovered := <-panicValue; recovered != nil {
+		t.Fatalf("concurrent publisher panicked after subscriber overflow: %v", recovered)
+	}
+}
+
+func TestConcurrentPublishAppendsInSequenceOrder(t *testing.T) {
+	bus := NewBus()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	appended := make(chan int64, 2)
+	bus.SetSink(func(event Event) error {
+		if event.RunID == "blocked" {
+			close(entered)
+			<-release
+		}
+		appended <- event.Seq
+		return nil
+	})
+	done := make(chan struct{})
+	go func() {
+		bus.Publish(New(ModelDelta, "main", "blocked", map[string]any{"text": "first"}))
+		close(done)
+	}()
+	<-entered
+	secondDone := make(chan struct{})
+	go func() {
+		bus.Publish(New(ModelDelta, "main", "second", map[string]any{"text": "second"}))
+		close(secondDone)
+	}()
+	select {
+	case <-secondDone:
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	<-secondDone
+	first := <-appended
+	second := <-appended
+	<-done
+	if first != 1 || second != 2 {
+		t.Fatalf("sink append order = [%d %d], want [1 2]", first, second)
+	}
+}
+
+func BenchmarkPublish(b *testing.B) {
+	bus := NewBus()
+	bus.SetSink(func(Event) error { return nil })
+	event := New(ModelDelta, "main", "run", map[string]any{"text": "x"})
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		bus.Publish(event)
+	}
+}
 
 func TestSinkReceivesDiagnosticPayloads(t *testing.T) {
 	bus := NewBus()
@@ -39,6 +125,8 @@ func TestSinkFailureBecomesOperationalErrorAndMarksProjectionStale(t *testing.T)
 
 func TestSubscriberOverflowClosesForResync(t *testing.T) {
 	bus := NewBus()
+	var logged []Event
+	bus.SetSink(func(event Event) error { logged = append(logged, event); return nil })
 	stream, _ := bus.Subscribe()
 	for index := 0; index < 130; index++ {
 		bus.Publish(New(ModelDelta, "main", "r1", map[string]any{"turn": 1, "text": "x"}))
@@ -48,6 +136,19 @@ func TestSubscriberOverflowClosesForResync(t *testing.T) {
 	}
 	if _, ok := <-stream; ok {
 		t.Fatal("overflowed subscriber remained open")
+	}
+	var drop Event
+	for _, event := range logged {
+		if event.Type == SubscriberDropped {
+			drop = event
+		}
+	}
+	if drop.Type == "" {
+		t.Fatal("subscriber drop was not journaled")
+	}
+	data, _ := drop.Data.(map[string]any)
+	if data["reason"] != "overflow" || data["action"] != "resubscribe" {
+		t.Fatalf("drop event data = %#v", data)
 	}
 }
 

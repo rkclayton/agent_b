@@ -164,13 +164,27 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "server not found", "server_id")
 		return
 	}
-	if strings.TrimSpace(profile.BaseURL) == "" {
+	var body struct {
+		BaseURL string `json:"base_url"`
+		Model   string `json:"model"`
+	}
+	if r.Body != nil && r.ContentLength != 0 && !decode(w, r, &body) {
+		return
+	}
+	tested := *profile
+	if strings.TrimSpace(body.BaseURL) != "" {
+		tested.BaseURL = strings.TrimSpace(body.BaseURL)
+	}
+	if strings.TrimSpace(body.Model) != "" {
+		tested.Model = strings.TrimSpace(body.Model)
+	}
+	if strings.TrimSpace(tested.BaseURL) == "" {
 		writeError(w, 400, "base_url is empty", "servers."+id+".base_url")
 		return
 	}
 	discoveryContext, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	discovered, discoverErr := probe.DiscoverEndpoint(discoveryContext, profile)
+	discovered, discoverErr := probe.DiscoverEndpoint(discoveryContext, &tested)
 	for _, attempt := range discovered.Attempts {
 		s.bus.Publish(events.New(events.ProbeRequest, "", "", map[string]any{
 			"server_id": id, "base_url": attempt.BaseURL, "guard": "operator_typed_host_only", "allowed": attempt.Allowed, "result": attempt.Result,
@@ -184,33 +198,15 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, message, "servers."+id+".base_url")
 		return
 	}
-	updated := *profile
+	updated := tested
 	updated.BaseURL = discovered.BaseURL
-	listed := false
-	for _, model := range discovered.Models {
-		listed = listed || model == updated.Model
-	}
-	placeholder := strings.TrimSpace(updated.Model) == "" || strings.EqualFold(strings.TrimSpace(updated.Model), "model")
-	if !listed && len(discovered.Models) == 1 && placeholder {
-		updated.Model = discovered.Models[0]
-		listed = true
-	}
-	s.mu.Lock()
-	for index := range s.cfg.Servers {
-		if s.cfg.Servers[index].ID == id {
-			s.cfg.Servers[index].BaseURL = updated.BaseURL
-			s.cfg.Servers[index].Model = updated.Model
-			break
-		}
-	}
-	saveErr := s.cfg.Save(s.configPath)
-	masked := s.cfg.Masked()
-	s.mu.Unlock()
-	if saveErr != nil {
-		writeError(w, http.StatusInternalServerError, saveErr.Error(), "config")
+	listed := modelListed(updated.Model, discovered.Models)
+	changes := map[string]any{}
+	if strings.TrimRight(tested.BaseURL, "/") != strings.TrimRight(discovered.BaseURL, "/") {
+		changes["base_url"] = discovered.BaseURL
+		writeJSON(w, http.StatusOK, map[string]any{"status": "changes_required", "server_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "changes": changes, "message": fmt.Sprintf("changed base_url from %s to %s", tested.BaseURL, discovered.BaseURL)})
 		return
 	}
-	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
 	if !listed {
 		model := strings.TrimSpace(updated.Model)
 		if model == "" {
@@ -220,8 +216,37 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "model_required", "server_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL, "error": modelErr})
 		return
 	}
+	// A ready connection that answers exactly as entered is a read-only test.
+	// In particular, do not rewrite a display-name model to llama-server's GGUF
+	// path and do not alter ProbedAt (which would change the config hash).
+	if profile.Capabilities.ProbedAt != "" && tested.BaseURL == profile.BaseURL && tested.Model == profile.Model {
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "server_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "Test passed"})
+		return
+	}
 	s.startProbe(&updated)
 	writeJSON(w, http.StatusAccepted, map[string]any{"status": "probing", "server_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL})
+}
+
+func modelListed(configured string, listed []string) bool {
+	configured = strings.TrimSpace(configured)
+	if configured == "" {
+		return false
+	}
+	if len(listed) == 1 {
+		return true
+	}
+	wantBase := strings.TrimSuffix(strings.ToLower(filepath.Base(strings.ReplaceAll(configured, "\\", "/"))), filepath.Ext(configured))
+	for _, candidate := range listed {
+		if strings.EqualFold(strings.TrimSpace(candidate), configured) {
+			return true
+		}
+		base := filepath.Base(strings.ReplaceAll(strings.TrimSpace(candidate), "\\", "/"))
+		stem := strings.TrimSuffix(strings.ToLower(base), filepath.Ext(base))
+		if strings.EqualFold(base, filepath.Base(strings.ReplaceAll(configured, "\\", "/"))) || stem == wantBase {
+			return true
+		}
+	}
+	return false
 }
 func (s *Server) startProbe(profile *config.Profile) {
 	s.cancelScheduledReachabilityProbe(profile.ID)
@@ -349,6 +374,10 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.mu.Lock()
+		previousProfiles := make(map[string]config.Profile, len(s.cfg.Servers))
+		for _, profile := range s.cfg.Servers {
+			previousProfiles[profile.ID] = profile
+		}
 		currentBytes, _ := json.Marshal(s.cfg)
 		var current map[string]any
 		_ = json.Unmarshal(currentBytes, &current)
@@ -385,7 +414,17 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		s.cfg = &next
 		s.roots.Workspace = filepath.Clean(workspaceRoot)
 		masked := next.Masked()
+		var reprobe []config.Profile
+		for _, profile := range next.Servers {
+			before, existed := previousProfiles[profile.ID]
+			if existed && (before.BaseURL != profile.BaseURL || before.Model != profile.Model) {
+				reprobe = append(reprobe, profile)
+			}
+		}
 		s.mu.Unlock()
+		for index := range reprobe {
+			s.startProbe(&reprobe[index])
+		}
 		if s.runner != nil {
 			s.runner.Configure(s.ConfigSnapshot())
 		}

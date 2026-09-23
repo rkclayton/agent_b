@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ type FileIdentity struct {
 	mu              sync.RWMutex
 	service         config.ShellServiceAccount
 	operatorContext bool
+	unavailable     string
 	credential      shellCredentialReader
 	run             serviceFileRunner
 }
@@ -40,6 +42,7 @@ func (p *FileIdentity) Configure(cfg config.Config) {
 	p.mu.Lock()
 	p.service = cfg.Shell.ServiceAccount
 	p.operatorContext = cfg.Shell.OperatorContext
+	p.unavailable = ""
 	p.mu.Unlock()
 }
 
@@ -84,11 +87,14 @@ func (t *identityFileTool) Call(ctx context.Context, s *session.Session, args ma
 
 func (t *identityFileTool) CallDetailed(ctx context.Context, s *session.Session, args map[string]any) CallDetail {
 	service, operatorContext, credential, runner := t.identity.snapshot()
+	t.identity.mu.RLock()
+	unavailable := t.identity.unavailable
+	t.identity.mu.RUnlock()
 	if operatorContext {
 		result, err := t.tool.Call(withOSPathPolicy(ctx), s, args)
 		return CallDetail{Content: result, Err: err, OperatorContext: true}
 	}
-	if !service.Enabled {
+	if !service.Enabled || unavailable != "" {
 		result, err := t.tool.Call(ctx, s, args)
 		// Item 2fi: with no service identity the outside-folder refusal offers
 		// the same operator decision the service posture offers, and holds;
@@ -99,6 +105,8 @@ func (t *identityFileTool) CallDetailed(ctx context.Context, s *session.Session,
 			// own view decides here, since there is no service account.
 			if target := outsideTarget(s, t.tool.Name(), args); targetMissing(target) {
 				return missingOutside(t.tool.Name(), target)
+			} else if processCanRead(target) && t.tool.Name() != "write_file" && t.tool.Name() != "edit_file" {
+				return CallDetail{Err: err}
 			}
 			return CallDetail{Content: "file operation was not completed: path is outside the folder", OperatorOverrideReason: "path is outside the folder"}
 		}
@@ -143,6 +151,51 @@ func (t *identityFileTool) CallDetailed(ctx context.Context, s *session.Session,
 		return fileIdentityOverride("bound-directory jail: path is outside the folder")
 	}
 	return CallDetail{Err: err}
+}
+
+func processCanRead(path string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	if info.IsDir() {
+		_, err = file.Readdirnames(1)
+		return err == nil || errors.Is(err, io.EOF)
+	}
+	var one [1]byte
+	_, err = file.Read(one[:])
+	return err == nil || errors.Is(err, io.EOF)
+}
+
+func (t *identityFileTool) PreflightServiceIdentity() error {
+	service, operatorContext, credential, runner := t.identity.snapshot()
+	if !service.Enabled || operatorContext {
+		return nil
+	}
+	if credential == nil {
+		return t.identity.markUnavailable("service-account credential is not configured")
+	}
+	password, err := credential.Read()
+	if err == nil {
+		_, err = runner(service, password, func() (string, error) { return "", nil })
+	}
+	clearBytes(password)
+	if err != nil {
+		return t.identity.markUnavailable(err.Error())
+	}
+	return nil
+}
+
+func (p *FileIdentity) markUnavailable(reason string) error {
+	p.mu.Lock()
+	p.unavailable = reason
+	p.mu.Unlock()
+	return fmt.Errorf("%s", reason)
 }
 
 // CallAsOperator is dispatcher-only. It deliberately bypasses both the

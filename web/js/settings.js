@@ -449,21 +449,21 @@ async function click(event) {
   }
   if (action === "probe") {
     const pendingPrefix = `servers.${id}.`;
-    if ([...drafts.keys()].some((path) => path.startsWith(pendingPrefix))) {
-      probeMessages.set(id, { message: "Saving before Test…", alarm: false });
-      render();
-      if (!await saveSettings(pendingPrefix)) {
-        probeMessages.set(id, { message: "Test not run — save failed", alarm: true });
-        return render();
-      }
-    }
     const profile = serverProfiles().find((x) => x.id === id);
     if (profile) profile._probing = true;
     probeMessages.set(id, { message: "Testing…", alarm: false });
     render();
     try {
-      const discovered = await api(`/api/servers/${encodeURIComponent(id)}/probe`);
+      const discovered = await api(`/api/servers/${encodeURIComponent(id)}/probe`, {
+        base_url: current(`${pendingPrefix}base_url`, profile?.base_url || ""),
+        model: current(`${pendingPrefix}model`, profile?.model || ""),
+      });
       const needsModel = discovered.status === "model_required";
+      if (discovered.changes?.base_url) {
+        drafts.set(`${pendingPrefix}base_url`, discovered.changes.base_url);
+        draftKinds.set(`${pendingPrefix}base_url`, "text");
+        settingsSaveMessage = "Unsaved discovery change";
+      }
       const observed = probeMessages.get(id) || {};
       const terminal = /^Test (?:passed|failed)/.test(observed.message || "");
       probeMessages.set(id, {

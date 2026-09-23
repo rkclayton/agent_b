@@ -313,6 +313,10 @@ func main() {
 			log.Print(notice)
 		}
 	}
+	// The startup credential test can turn the split off. File tools share the
+	// same identity policy and must see that final state, not the preflight
+	// configuration captured above.
+	fileIdentity.Configure(*cfg)
 	shellTool.SetIdentityReporter(func(status tools.ShellIdentityStatus) {
 		bus.Publish(events.New(events.ShellIdentity, "", "", status))
 	})

@@ -492,7 +492,7 @@ try {
         }
     }
     if ($shellSource -notmatch 'root\.append\(left, right\)' -or
-        $shellSource -notmatch 'right\.append\(sessionHeading, pages, settings, windowControls\)' -or
+        $shellSource -notmatch 'right\.append\(sessionHeading, profileMenu, pages, settings, windowControls\)' -or
         $shellSource -match 'shell-operator-status' -or
         $shellSource -match 'all:\s*true') {
         throw 'Installed shared shell does not preserve agent-tabs/right-controls ownership.'

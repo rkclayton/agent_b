@@ -1,11 +1,13 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +17,78 @@ import (
 	"harness/internal/events"
 	"harness/internal/probe"
 )
+
+func TestReadyConnectionTestDoesNotRewriteConfig(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, `{"data":[{"id":"C:\\models\\Friendly.gguf"}]}`)
+	}))
+	defer model.Close()
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	cfg := config.Defaults(root)
+	cfg.Servers[0].BaseURL = model.URL
+	cfg.Servers[0].Model = "Friendly"
+	cfg.Servers[0].Capabilities.ProbedAt = "2026-09-23T10:00:00Z"
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	request := httptest.NewRequest(http.MethodPost, "/api/servers/local/probe", strings.NewReader(`{"base_url":"`+model.URL+`","model":"Friendly"}`))
+	response := httptest.NewRecorder()
+	server.server(response, request)
+	after, _ := os.ReadFile(path)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"ready"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("ready Test changed the config file")
+	}
+}
+
+func TestDiscoveryProposesBaseURLWithoutSaving(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, `{"data":[{"id":"only"}]}`)
+	}))
+	defer model.Close()
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	cfg := config.Defaults(root)
+	cfg.Servers[0].BaseURL = model.URL + "/wrong"
+	cfg.Servers[0].Model = "only"
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	request := httptest.NewRequest(http.MethodPost, "/api/servers/local/probe", nil)
+	response := httptest.NewRecorder()
+	server.server(response, request)
+	after, _ := os.ReadFile(path)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"changes_required"`) || !strings.Contains(response.Body.String(), "changed base_url from") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("discovery saved its proposal")
+	}
+}
+
+func TestModelListedRecognizesLlamaIdentity(t *testing.T) {
+	path := `C:\Users\Randy\models\Friendly.gguf`
+	for _, configured := range []string{"Friendly.gguf", "Friendly", path} {
+		if !modelListed(configured, []string{path}) {
+			t.Fatalf("%q did not match %q", configured, path)
+		}
+	}
+}
 
 func TestFailedProbePreservesPreviousTimestamp(t *testing.T) {
 	profile := &config.Profile{Capabilities: config.Capabilities{ProbedAt: "2026-09-04T12:00:00Z", Server: "llama.cpp"}}
@@ -45,6 +119,10 @@ func TestConnectionTestReturnsDiscoveryListAndLogsEveryRequest(t *testing.T) {
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatal(err)
 	}
+	configBefore, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	bus := events.NewBus()
 	stream, unsubscribe := bus.Subscribe()
 	defer unsubscribe()
@@ -67,6 +145,10 @@ func TestConnectionTestReturnsDiscoveryListAndLogsEveryRequest(t *testing.T) {
 	}
 	if body.Status != "model_required" || body.BaseURL != model.URL || body.Message != "found "+model.URL || fmt.Sprint(body.Models) != "[one two]" || !strings.Contains(body.Error, `Model "model" is not served`) {
 		t.Fatalf("body=%+v", body)
+	}
+	configAfter, err := os.ReadFile(configPath)
+	if err != nil || !bytes.Equal(configBefore, configAfter) {
+		t.Fatalf("connection Test silently changed config: err=%v", err)
 	}
 	deadline := time.After(time.Second)
 	for {

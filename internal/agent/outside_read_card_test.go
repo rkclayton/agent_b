@@ -14,10 +14,9 @@ import (
 	"harness/internal/tools"
 )
 
-// Item 2fi, the walk's step 7 with no service identity: reading a file outside
-// the folder raises the operator's card through read_file, run_script and shell
-// alike; declining continues without the file, approving reads it once.
-func TestAnOutsideReadRaisesTheCardInEveryToolWithNoServiceIdentity(t *testing.T) {
+// With no service split, a readable file-tool target gets the workspace
+// refusal directly; command tools still need the explicit outside-path card.
+func TestOutsideReadIdentityChoiceWithNoServiceIdentity(t *testing.T) {
 	workspace, outsideDir := t.TempDir(), t.TempDir()
 	outside := filepath.Join(outsideDir, "win.ini")
 	if err := os.WriteFile(outside, []byte("; for 16-bit app support\n[fonts]\n"), 0o600); err != nil {
@@ -35,12 +34,15 @@ func TestAnOutsideReadRaisesTheCardInEveryToolWithNoServiceIdentity(t *testing.T
 	runner := &Runner{bus: bus, tools: registry, cfg: func() config.Config { return cfg }}
 	runner.gate = NewGate(bus, runner.cfg)
 	s := &session.Session{ID: "walk", Workspace: workspace, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"read_file": true, "shell": true, "run_script": true}, LastSeen: map[string]time.Time{}}
+	read := runner.executeTool(context.Background(), s, "run", "read", "read_file", map[string]any{"path": outside})
+	if read.OK || read.OperatorOverrideAvailable || !strings.Contains(read.Content, "outside the folder") || strings.Contains(read.Content, "operator-identity") {
+		t.Fatalf("read_file should return the boundary without an identity attempt: %+v", read)
+	}
 
 	calls := []struct {
 		name string
 		args map[string]any
 	}{
-		{"read_file", map[string]any{"path": outside}},
 		{"run_script", map[string]any{"language": "powershell", "source": `[System.IO.File]::ReadAllLines("` + outside + `")[0]`}},
 		{"shell", map[string]any{"command": `[System.IO.File]::ReadAllText('` + outside + `')`}},
 	}

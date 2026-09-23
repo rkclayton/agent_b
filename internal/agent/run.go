@@ -178,6 +178,19 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	defer s.SetRunPin("")
 	r.beginFlight(s.ID, runID)
 	defer r.endFlight(s.ID, runID)
+	if cfg := r.cfg(); !cfg.Shell.ServiceAccount.Enabled {
+		log.Printf("tool identity: process (service split disabled) session=%s run=%s", s.ID, runID)
+	} else if !cfg.Shell.OperatorContext {
+		if err := r.tools.PreflightServiceIdentity(); err != nil {
+			message := "service identity unavailable: " + err.Error() + " — Settings → Security"
+			log.Printf("tool identity: process fallback session=%s run=%s reason=%q", s.ID, runID, err.Error())
+			r.bus.Publish(events.New(events.ServiceIdentityUnavailable, s.ID, runID, map[string]any{"message": message}))
+		} else {
+			log.Printf("tool identity: service session=%s run=%s", s.ID, runID)
+		}
+	} else {
+		log.Printf("tool identity: operator mode session=%s run=%s", s.ID, runID)
+	}
 	runCfg := r.cfg().Run
 	if runCfg.MaxWallClockSeconds <= 0 {
 		runCfg.MaxWallClockSeconds = config.DefaultMaxWallClockSeconds
@@ -222,6 +235,10 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	profile, ok := r.profile(s.ServerID)
 	if !ok {
 		return "profile_not_runnable", "profile not found", 0
+	}
+	profile, windowSource, windowErr := resolveContextWindow(ctx, profile)
+	if windowErr != nil {
+		return "profile_not_runnable", windowErr.Error(), 0
 	}
 	snapshot := s.Snapshot()
 	if !snapshot.Runnable {
@@ -282,6 +299,10 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		profile, ok = r.profile(s.ServerID)
 		if !ok {
 			return "profile_not_runnable", "profile not found", turn - 1
+		}
+		profile, windowSource, windowErr = resolveContextWindow(ctx, profile)
+		if windowErr != nil {
+			return "profile_not_runnable", windowErr.Error(), turn - 1
 		}
 		// An invalid durable tool call is a history-shape problem, not an
 		// accounting endpoint failure. Repair it before any template or tokenizer
@@ -407,9 +428,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				// Everything outside the running turn is already compacted. The
 				// only thing left to cut is the task itself, and answering some
 				// older message instead is what 2eg was filed for.
-				return "context_exhausted", "the task and the work answering it no longer fit the remaining context window; nothing outside it is left to compact" + keptReadsSentence(s), turn - 1
+				return "context_exhausted", fmt.Sprintf("prompt count %d (%s) + output floor %d exceeds context window %d (%s) after compaction; nothing outside it is left to compact%s", guardUsed, budgetCountSource(budget), floor, budget.NCtx, windowSource, keptReadsSentence(s)), turn - 1
 			}
-			return "context_ceiling", fmt.Sprintf("prompt %d tokens leaves less than the %d-token output floor in n_ctx %d after compaction", guardUsed, floor, budget.NCtx), turn - 1
+			return "context_ceiling", fmt.Sprintf("prompt count %d (%s) leaves less than the %d-token output floor in context window %d (%s) after compaction", guardUsed, budgetCountSource(budget), floor, budget.NCtx, windowSource), turn - 1
 		}
 		r.bus.Publish(requestEvent)
 		r.budget.MarkRequest(s.ID, budget.UsedEst)
@@ -1103,6 +1124,11 @@ func (r *Runner) PublishBudget(ctx context.Context, s *session.Session) {
 	if !ok {
 		return
 	}
+	p, _, windowErr := resolveContextWindow(ctx, p)
+	if windowErr != nil {
+		r.operationalError(s, "", "budget", windowErr)
+		return
+	}
 	budget, err := r.measureSession(ctx, p, s, nil, false)
 	if err != nil {
 		r.operationalError(s, "", "budget", err)
@@ -1292,6 +1318,42 @@ func keptReadsSentence(s *session.Session) string {
 		return ""
 	}
 	return "; reads kept verbatim: " + strings.Join(kept, ", ")
+}
+
+func resolveContextWindow(ctx context.Context, profile *config.Profile) (*config.Profile, string, error) {
+	if profile.Context.NCtx > 0 {
+		return profile, "profile context size", nil
+	}
+	resolved := *profile
+	if profile.Capabilities.NCtx > 0 {
+		resolved.Context.NCtx = profile.Capabilities.NCtx
+		return &resolved, "probed n_ctx", nil
+	}
+	check, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	props, err := llm.New(profile).Props(check)
+	if err == nil {
+		if props.DefaultGenerationSettings.NCtx > 0 {
+			resolved.Context.NCtx = props.DefaultGenerationSettings.NCtx
+			return &resolved, "per-slot /props n_ctx", nil
+		}
+		if props.NCtx > 0 {
+			resolved.Context.NCtx = props.NCtx
+			return &resolved, "/props n_ctx", nil
+		}
+	}
+	label := strings.TrimSpace(profile.Label)
+	if label == "" {
+		label = profile.ID
+	}
+	return nil, "", fmt.Errorf("profile %q context size unknown", label)
+}
+
+func budgetCountSource(budget events.Budget) string {
+	if budget.Estimated || budget.Mode == "estimated" {
+		return "estimated accounting"
+	}
+	return "measured accounting"
 }
 
 func guardedPromptTokens(budget events.Budget) int {

@@ -17,7 +17,7 @@ function servers() {
       const testState = profile._probing
         ? "testing"
         : hasPendingChanges
-          ? "unsaved — Test will save first"
+          ? "unsaved"
           : feedback?.message
             ? feedback.message
             : failed
@@ -32,7 +32,7 @@ function servers() {
           <button type="button" class="profile-summary" data-action="profile-toggle" data-id="${attr(profile.id)}">
             <span class="lamp ${lamp}"></span><span>${html(profile.label)}</span><span class="profile-url">${html(profile.base_url)}</span><span class="profile-state">${testState}</span>
           </button>
-          <button type="button" data-action="probe" data-id="${attr(profile.id)}" title="${hasPendingChanges ? "Test will save this connection first." : ""}" ${profile._probing ? "disabled" : ""}>${profile._probing ? "Testing…" : "Test"}</button>
+          <button type="button" data-action="probe" data-id="${attr(profile.id)}" title="${hasPendingChanges ? "Test these unsaved connection values without saving them." : ""}" ${profile._probing ? "disabled" : ""}>${profile._probing ? "Testing…" : "Test"}</button>
           <button type="button" class="profile-remove ${armed.has(removeKey) ? "confirm" : ""}" data-action="remove-server" data-id="${attr(profile.id)}" aria-label="${armed.has(removeKey) ? `Confirm remove ${attr(profile.label)}` : `Remove ${attr(profile.label)}`}" title="${armed.has(removeKey) ? `Confirm remove ${attr(profile.label)}` : `Remove ${attr(profile.label)}`}">${armed.has(removeKey) ? "Confirm ×" : "×"}</button>
       </div>`;
     })
@@ -80,8 +80,9 @@ function profileFields(profile, reason, discovery) {
     ["repeat_penalty", "repeat penalty", "0.1", !llama],
   ].map(([name, label, step, disabled]) => `<div class="sampling-label">${html(label)}</div>${["thinking", "nonthinking"].map((mode) => `<div>${numberControl(`${p}.sampling.${mode}.${name}`, profile.sampling[mode][name], step, disabled)}${disabled ? '<span class="control-note">llama.cpp only</span>' : ""}</div>`).join("")}`).join("");
 	const discoveredModels = discovery?.models || [];
+	const modelName = (model) => String(model).split(/[\\/]/).pop();
 	const modelControl = discoveredModels.length
-	  ? row("model", `<select class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text">${!discoveredModels.includes(profile.model) && profile.model ? `<option value="${attr(profile.model)}" selected>${html(profile.model)} · not served</option>` : ""}${discoveredModels.map((model) => `<option value="${attr(model)}" ${model === profile.model ? "selected" : ""}>${html(model)}</option>`).join("")}</select>`, "", "Models reported by the discovered endpoint.")
+	  ? row("model", `<select class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text">${!discoveredModels.includes(profile.model) && profile.model ? `<option value="${attr(profile.model)}" selected>${html(profile.model)}</option>` : ""}${discoveredModels.map((model) => `<option value="${attr(model)}" title="${attr(model)}" ${model === profile.model ? "selected" : ""}>${html(modelName(model))}</option>`).join("")}</select>`, "", "Models reported by the discovered endpoint; full paths appear as option detail.")
 	  : text(`${p}.model`, "model", profile.model, "text", "The model name sent with each request.");
 	return `<div class="profile-fieldset profile-identity"><h4>Connection</h4>${text(`${p}.label`, "label", profile.label, "text", "The name this connection is shown by.")}
     ${text(`${p}.base_url`, "base_url", profile.base_url, "text", "The server address; Test can discover its API path and port.")}${discovery?.base_url ? `<p class="settings-note discovery-note">${html(discovery.found || `found ${discovery.base_url}`)}</p>` : ""}

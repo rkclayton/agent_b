@@ -17,7 +17,7 @@ test("shared shell slot order is identical on the chat and Plan", () => {
     assert.doesNotMatch(html, /id="(?:shell-stop|shell-state|shell-operator-status)"/);
   }
   assert.match(shell, /root\.append\(left, right\)/);
-  assert.match(shell, /right\.append\(sessionHeading, pages, settings, windowControls\)/);
+  assert.match(shell, /right\.append\(sessionHeading, profileMenu, pages, settings, windowControls\)/);
   assert.doesNotMatch(shell, /shell-operator-status|right\.append\(stop/);
   assert.match(shell, /\[\["plan", "\/plan"\]\]/);
   assert.doesNotMatch(shell, /\["chat", "Chat", "\/chat"\]|\["console", "Console", "\/"\]/);
@@ -157,6 +157,15 @@ test("top bar gives fixed readable tabs a scoped horizontal scroll lane", () => 
   assert.match(tokens, /\.agent-tab-wrap\{[^}]*min-width:var\(--agent-tab-width\)/);
   assert.match(tokens, /\.agent-tab[^\n]*white-space:nowrap/);
   assert.doesNotMatch(shell, /shell-selection/);
+});
+
+test("top-right profile label is the b-role model switcher", () => {
+  assert.match(shell, /button\("", "Switch model", "shell-session-title"\)/);
+  assert.match(shell, /for \(const profile of store\.servers \|\| store\.config\.servers \|\| \[\]\)/);
+  assert.match(shell, /profile\.label \|\| profile\.id[\s\S]*new URL\(host\)\.host[\s\S]*profileState\(profile, session\)/);
+  assert.match(shell, /if \(isRunning\(current\)\)[\s\S]*stop the run first/);
+  assert.match(shell, /api\(`\/api\/agents\/\$\{encodeURIComponent\(agentID\)\}\/server`, \{ action: "set", server_id: profile\.id \}\)/);
+  assert.match(shell, /session\.runnable === false \? session\.not_runnable_reason : sessionTitle\(session\)/);
 });
 
 test("all shell motion is zero duration under reduced motion", () => {

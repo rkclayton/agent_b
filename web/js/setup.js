@@ -139,6 +139,7 @@ async function testConnection() {
   try {
     if (!profileID || !snapshot.servers?.some((item) => item.id === profileID)) profileID = uniqueID("setup-model");
     const current = selectedProfile() || {};
+	const previousProbe = current.capabilities?.probed_at || "";
     const profile = { ...current, id: profileID, label: current.label || "My model", base_url: url, model };
     if (credential) profile.credential = credential;
     if (apiKey) profile.api_key = apiKey;
@@ -146,9 +147,15 @@ async function testConnection() {
     const agents = previousAgents.length ? previousAgents : [{ name: "Agent_b", b: profileID, toolset: fullTools }];
     provisional = !previousAgents.length;
     snapshot.config = await request("/api/config", { servers, agents });
-    const discovered = await request(`/api/servers/${encodeURIComponent(profileID)}/probe`, {});
+    let discovered = await request(`/api/servers/${encodeURIComponent(profileID)}/probe`, {});
     discoveredModels = discovered.models || [];
     discoveryNote = discovered.message || "";
+    if (discovered.status === "changes_required" && discovered.changes?.base_url) {
+      profile.base_url = discovered.changes.base_url;
+      snapshot.config = await request("/api/config", { servers: [...servers.filter((item) => item.id !== profileID), profile] });
+      discovered = await request(`/api/servers/${encodeURIComponent(profileID)}/probe`, {});
+      discoveredModels = discovered.models || discoveredModels;
+    }
     snapshot = await request("/api/state", undefined, "GET");
     render();
     if (discovered.status === "model_required") {
@@ -156,7 +163,7 @@ async function testConnection() {
       alarm = true;
       return;
     }
-    await waitForProbe();
+    await waitForProbe(previousProbe);
     await assignTestedProfile();
     go("capability");
   } catch (error) {
@@ -180,7 +187,7 @@ async function installModel() {
     if (installState.error) throw new Error(installState.error);
     profileID = installState.profile_id;
     snapshot = await request("/api/state", undefined, "GET");
-    await waitForProbe();
+    await waitForProbe("");
     await assignTestedProfile();
     go("capability");
   } catch (error) { fail(error); } finally { busy = false; render(); }
@@ -239,12 +246,12 @@ async function finish() {
   } catch (error) { busy = false; fail(error); }
 }
 
-async function waitForProbe() {
+async function waitForProbe(previousProbe = "") {
   const deadline = Date.now() + 15 * 60 * 1000;
   while (Date.now() < deadline) {
     snapshot = await request("/api/state", undefined, "GET");
     const caps = selectedProfile()?.capabilities || {};
-    if (caps.probed_at) return;
+    if (caps.probed_at && caps.probed_at !== previousProbe) return;
     const failure = (caps.findings || []).find((item) => String(item).startsWith("probe failed:"));
     if (failure) throw new Error(failure);
     await delay(750);

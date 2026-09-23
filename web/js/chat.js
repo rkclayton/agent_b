@@ -236,7 +236,24 @@ function renderLog(session) {
   if (!entries.length) {
     const empty = document.createElement("div");
     empty.className = "chat-empty";
-    empty.textContent = session.runnable ? "Send a task to start the loop." : session.not_runnable_reason;
+    empty.append(session.runnable ? "Send a task to start the loop." : session.not_runnable_reason);
+    const replacement = !session.runnable && session.not_runnable_reason === "profile not found"
+      ? store.servers.find((profile) => profile.label === session.b_profile)
+      : null;
+    if (replacement) {
+      const rebind = document.createElement("button");
+      rebind.type = "button";
+      rebind.textContent = `use ${replacement.label}`;
+      rebind.onclick = async () => {
+        try {
+          const result = await api(`/api/sessions/${encodeURIComponent(session.id)}/rebind`, {});
+          reduce({ type: "session.updated", data: result.session });
+        } catch (error) {
+          localNotice = error.message; localAlarm = true; renderComposer(session);
+        }
+      };
+      empty.append(" ", rebind);
+    }
     finishLogRender([empty]);
     return;
   }
@@ -318,7 +335,7 @@ function groupResponses(entries) {
     // group: an unreachable model, and a question from the worker, are the two
     // things in this thread that nobody can answer without seeing them. Item
     // 2fg: nor is a run stopped mid-tool, so the transcript shows the stop.
-    if (entry.type === "notice" && ((entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "aborted_mid_tool") || entry.event?.type === "c.job")) {
+    if (entry.type === "notice" && ((entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "aborted_mid_tool") || entry.event?.type === "service.identity_unavailable" || entry.event?.type === "c.job")) {
       grouped.push(entry);
       response = null;
       continue;
@@ -899,6 +916,7 @@ function noticeContent(session, entry, actionable) {
 	}
 	else if (event.type === "file.grant") content.textContent = `file-tool grant: operator · for this ${data.scope === "session" ? "chat" : "run"}`;
 	else if (event.type === "file.grant_lapsed") content.textContent = `file-tool grant lapsed: ${data.scope === "session" ? "chat closed" : "run ended"}`;
+	else if (event.type === "service.identity_unavailable") { content.textContent = data.message || "service identity unavailable — Settings → Security"; content.classList.add("alarm"); }
 	else if (event.type === "approval.required") {
 		return createApprovalCard(document, entry, {
 			replay: store.replay,

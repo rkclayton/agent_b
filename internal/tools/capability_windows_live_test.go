@@ -274,6 +274,9 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	})
 
 	t.Run("boundary_file_tool_operator_decision", func(t *testing.T) {
+		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
+			t.Skip(reason)
+		}
 		wrapped := fileIdentity.Wrap(NewReadFile(cfg.Tools.ReadFile)).(DetailedTool)
 		detail := wrapped.CallDetailed(context.Background(), item, map[string]any{"path": filepath.Join(dataRoot, "harness.json")})
 		if detail.OperatorOverrideReason == "" {

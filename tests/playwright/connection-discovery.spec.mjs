@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,7 @@ import { start } from "../../scripts/ui-harness.mjs";
 import { removeTreeWithinAllowedRoots } from "../../scripts/removal-guard.mjs";
 
 const run = promisify(execFile);
+const hash = async (path) => createHash("sha256").update(await readFile(path)).digest("hex");
 const repo = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 let root;
 let harness;
@@ -44,9 +46,11 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   const settings = await harness.context.newPage();
   await settings.goto(`${harness.base}/chat?from=setup#settings/servers`);
   await settings.locator('.profile-summary[data-id="ui"]').click();
+  const before = await hash(join(harness.dataRoot, "harness.json"));
   await settings.locator('.profile-row:has(.profile-summary[data-id="ui"]) [data-action="probe"]').click();
   await expect(settings.locator(".profile-editor .discovery-note")).toHaveText(`found http://127.0.0.1:${harness.modelPort}`);
   await expect(settings.locator('[data-path="servers.ui.model"]')).toHaveJSProperty("tagName", "SELECT");
-  await expect(settings.locator('[data-path="servers.ui.model"] option')).toHaveText(["model · not served", "alpha-model", "beta-model"]);
+  await expect(settings.locator('[data-path="servers.ui.model"] option')).toHaveText(["model", "alpha-model", "beta-model"]);
   await expect(settings.locator('.profile-row:has(.profile-summary[data-id="ui"]) .profile-state')).toContainText('Model "model" is not served');
+  expect(await hash(join(harness.dataRoot, "harness.json"))).toBe(before);
 });

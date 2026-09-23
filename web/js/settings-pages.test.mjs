@@ -83,9 +83,13 @@ test("Connections summary row never renders decoder detail verbatim", () => {
 test("Connections Test consumes endpoint discovery and renders its model picker", () => {
   const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
   const connections = fs.readFileSync(new URL("settings-connections.js", import.meta.url), "utf8");
-  assert.match(controller, /const discovered = await api\(`\/api\/servers\/\$\{encodeURIComponent\(id\)\}\/probe`\)/);
+  assert.match(controller, /const discovered = await api\(`\/api\/servers\/\$\{encodeURIComponent\(id\)\}\/probe`, \{/);
+  assert.match(controller, /base_url: current\(`/);
+  assert.doesNotMatch(controller, /Saving before Test/);
   assert.match(controller, /discovered\.status === "model_required"/);
+	assert.match(controller, /discovered\.changes\?\.base_url/);
   assert.match(connections, /discovery\?\.models/);
   assert.match(connections, /<select class="setting-input"/);
   assert.match(connections, /discovery-note/);
+	assert.match(connections, /split\(\/\[\\\\\/\]\//);
 });

@@ -68,6 +68,7 @@ type Registry struct {
 	byName  map[string]Tool
 }
 type configurable interface{ Configure(config.Config) }
+type serviceIdentityPreflighter interface{ PreflightServiceIdentity() error }
 
 func New(items ...Tool) *Registry {
 	r := &Registry{byName: map[string]Tool{}}
@@ -83,6 +84,14 @@ func (r *Registry) Configure(cfg config.Config) {
 			item.Configure(cfg)
 		}
 	}
+}
+func (r *Registry) PreflightServiceIdentity() error {
+	for _, tool := range r.ordered {
+		if preflight, ok := tool.(serviceIdentityPreflighter); ok {
+			return preflight.PreflightServiceIdentity()
+		}
+	}
+	return nil
 }
 func (r *Registry) Names(enabled map[string]bool) []string {
 	out := []string{}

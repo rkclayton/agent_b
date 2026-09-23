@@ -229,7 +229,9 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 		fail(fmt.Errorf("llama-server did not become ready; autostart retained at %s: %w", launcher, err))
 		return
 	}
-	ready := State{Running: false, Phase: "ready", Text: "Model installed and ready", Total: m.Snapshot().Total, Downloaded: m.Snapshot().Downloaded, ProfileID: "installed-local", BaseURL: baseURL, Model: model.Label, Context: &sizing}
+	// llama-server reports the loaded GGUF path as its model id. Persist that
+	// exact id so the profile created by the wizard agrees with /v1/models.
+	ready := State{Running: false, Phase: "ready", Text: "Model installed and ready", Total: m.Snapshot().Total, Downloaded: m.Snapshot().Downloaded, ProfileID: "installed-local", BaseURL: baseURL, Model: modelPath, Context: &sizing}
 	if m.onReady != nil {
 		if err := m.onReady(ctx, ready); err != nil {
 			fail(fmt.Errorf("create local profile: %w", err))

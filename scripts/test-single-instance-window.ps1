@@ -119,7 +119,7 @@ try {
     # IsZoomed clears before the restored client rectangle and WebView hit-test
     # target have necessarily settled. Re-sampling too early can click the old
     # maximize-layout coordinate instead of Minimize on a loaded host.
-    Start-Sleep -Milliseconds 300
+    Start-Sleep -Milliseconds 750
     Click-Control $window 2
     Wait-Until { [AgentbWindowAcceptance.Win]::IsIconic($window) } 'minimize control did not minimize'
     $result.minimize = $true

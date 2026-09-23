@@ -298,6 +298,21 @@ func main() {
 	shellTool.SetFileCoordinator(coordinator)
 	shellTool.Configure(*cfg)
 	shellTool.SetCredentialStore(credentialStore)
+	if cfg.Shell.ServiceAccount.Enabled {
+		testContext, cancelTest := context.WithTimeout(context.Background(), 30*time.Second)
+		_, testErr := shellTool.TestServiceAccount(testContext)
+		cancelTest()
+		if testErr != nil {
+			cfg.Shell.ServiceAccount.Enabled = false
+			if saveErr := cfg.Save(paths.Config); saveErr != nil {
+				log.Fatalf("turn off broken service split: %v", saveErr)
+			}
+			shellTool.Configure(*cfg)
+			const notice = "service split turned off: credential no longer authenticates"
+			shellTool.SetServiceSplitNotice(notice)
+			log.Print(notice)
+		}
+	}
 	shellTool.SetIdentityReporter(func(status tools.ShellIdentityStatus) {
 		bus.Publish(events.New(events.ShellIdentity, "", "", status))
 	})

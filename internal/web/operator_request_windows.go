@@ -29,8 +29,10 @@ type mibTCPRowOwnerPID struct {
 }
 
 var (
-	iphlpapi                = syscall.NewLazyDLL("iphlpapi.dll")
-	procGetExtendedTCPTable = iphlpapi.NewProc("GetExtendedTcpTable")
+	iphlpapi                 = syscall.NewLazyDLL("iphlpapi.dll")
+	procGetExtendedTCPTable  = iphlpapi.NewProc("GetExtendedTcpTable")
+	kernel32                 = syscall.NewLazyDLL("kernel32.dll")
+	procProcessIDToSessionID = kernel32.NewProc("ProcessIdToSessionId")
 )
 
 func requireOperatorHTTPClient(r *http.Request) error {
@@ -69,10 +71,49 @@ func requireOperatorHTTPClient(r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("read Agent_b process identity: %w", err)
 	}
-	if clientSID != operatorSID {
-		return fmt.Errorf("HTTP client process belongs to %s, not Agent_b operator %s", clientSID, operatorSID)
+	clientSession, err := processSessionID(pid)
+	if err != nil {
+		return fmt.Errorf("read HTTP client interactive session: %w", err)
+	}
+	operatorSession, err := processSessionID(uint32(syscall.Getpid()))
+	if err != nil {
+		return fmt.Errorf("read Agent_b interactive session: %w", err)
+	}
+	if !operatorIdentityAllowed(clientSID, operatorSID, clientSession, operatorSession) {
+		return fmt.Errorf("HTTP client account %s is neither the Agent_b account %s nor in its interactive session %d", accountLabel(clientSID), accountLabel(operatorSID), operatorSession)
 	}
 	return nil
+}
+
+func operatorIdentityAllowed(clientSID, operatorSID string, clientSession, operatorSession uint32) bool {
+	return clientSID == operatorSID || clientSession == operatorSession
+}
+
+func processSessionID(pid uint32) (uint32, error) {
+	var session uint32
+	result, _, callErr := procProcessIDToSessionID.Call(uintptr(pid), uintptr(unsafe.Pointer(&session)))
+	if result == 0 {
+		if callErr == syscall.Errno(0) {
+			callErr = syscall.EINVAL
+		}
+		return 0, callErr
+	}
+	return session, nil
+}
+
+func accountLabel(sidText string) string {
+	sid, err := syscall.StringToSid(sidText)
+	if err != nil {
+		return sidText
+	}
+	account, domain, _, err := sid.LookupAccount("")
+	if err != nil || account == "" {
+		return sidText
+	}
+	if domain != "" {
+		account = domain + `\` + account
+	}
+	return fmt.Sprintf("%s (%s)", account, sidText)
 }
 
 func processDescendsFrom(pid, ancestor uint32) (bool, error) {

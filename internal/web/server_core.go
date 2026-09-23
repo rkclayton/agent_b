@@ -313,8 +313,8 @@ func (s *Server) hardeningRequest(serverID string) (hardening.Request, error) {
 	if strings.EqualFold(host, "localhost") {
 		host = "127.0.0.1"
 	}
-	if net.ParseIP(host) == nil {
-		return hardening.Request{}, fmt.Errorf("hardening requires a numeric loopback or Tailscale model address; profile host %q is not numeric", host)
+	if net.ParseIP(host) == nil && !validModelHostname(host) {
+		return hardening.Request{}, fmt.Errorf("model profile host %q is not a valid hostname or IP address", host)
 	}
 	port := 0
 	if endpoint.Port() != "" {
@@ -337,8 +337,26 @@ func (s *Server) hardeningRequest(serverID string) (hardening.Request, error) {
 		AccountName: cfg.Shell.ServiceAccount.Account, ApplicationDirectory: s.roots.Application,
 		DataDirectory: s.roots.Data, WorkspaceDirectory: s.roots.Workspace, ExchangeDirectory: exchange,
 		ModelAddress: host, ModelPort: port, AllowLocalNetwork: cfg.Shell.AllowLocalNetwork,
-		LocalSubnets: append([]string(nil), cfg.Shell.ConfirmedLocalSubnets...),
+		LocalSubnets:       append([]string(nil), cfg.Shell.ConfirmedLocalSubnets...),
+		AllowedModelRanges: append([]string(nil), cfg.Shell.AllowedModelRanges...),
 	}, nil
+}
+
+func validModelHostname(host string) bool {
+	if len(host) == 0 || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(strings.TrimSuffix(host, "."), ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, ch := range label {
+			if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') && ch != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func newMutationToken() string {

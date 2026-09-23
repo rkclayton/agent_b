@@ -469,6 +469,7 @@ type Shell struct {
 	ServiceAccount                    ShellServiceAccount `json:"service_account"`
 	AllowLocalNetwork                 bool                `json:"allow_local_network"`
 	ConfirmedLocalSubnets             []string            `json:"confirmed_local_subnets"`
+	AllowedModelRanges                []string            `json:"allowed_model_ranges"`
 	Deny                              []string            `json:"deny"`
 }
 
@@ -755,6 +756,12 @@ func (c Config) Validate() error {
 		prefix, err := netip.ParsePrefix(raw)
 		if err != nil || !prefix.Addr().Is4() || !prefix.Masked().Addr().IsPrivate() || prefix.Bits() < 8 || prefix.Bits() > 32 || prefix.String() != prefix.Masked().String() {
 			return fmt.Errorf("shell.confirmed_local_subnets: %q must be a canonical private IPv4 prefix", raw)
+		}
+	}
+	for _, raw := range c.Shell.AllowedModelRanges {
+		prefix, err := netip.ParsePrefix(raw)
+		if err != nil || !prefix.Addr().Is4() || prefix.Bits() < 8 || prefix.Bits() > 32 || prefix.String() != prefix.Masked().String() {
+			return fmt.Errorf("shell.allowed_model_ranges: %q must be a canonical IPv4 prefix between /8 and /32", raw)
 		}
 	}
 	seen := map[string]bool{}

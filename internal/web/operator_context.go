@@ -178,7 +178,7 @@ func protectedShellConfigField(patch map[string]any) string {
 	if !ok {
 		return ""
 	}
-	for _, field := range []string{"operator_context", "operator_context_idle_timeout_minutes", "service_account", "allow_local_network", "confirmed_local_subnets"} {
+	for _, field := range []string{"operator_context", "operator_context_idle_timeout_minutes", "service_account", "allow_local_network", "confirmed_local_subnets", "allowed_model_ranges"} {
 		if _, present := shell[field]; present {
 			return "shell." + field
 		}
@@ -195,7 +195,7 @@ func directNetworkPolicyField(patch map[string]any) string {
 	if !ok {
 		return ""
 	}
-	for _, field := range []string{"allow_local_network", "confirmed_local_subnets"} {
+	for _, field := range []string{"allow_local_network", "confirmed_local_subnets", "allowed_model_ranges"} {
 		if _, present := shell[field]; present {
 			return "shell." + field
 		}
@@ -208,9 +208,17 @@ func (s *Server) requireOperatorConfigRequest(w http.ResponseWriter, r *http.Req
 	if field == "" {
 		return true
 	}
+	if shell, ok := patch["shell"].(map[string]any); ok {
+		if service, ok := shell["service_account"].(map[string]any); ok {
+			if enabled, present := service["enabled"].(bool); present && enabled {
+				writeError(w, http.StatusBadRequest, "turn on the service identity with its Security setup flow so the account and credential are tested first", "shell.service_account.enabled")
+				return false
+			}
+		}
+	}
 	if err := s.operatorRequest(r); err != nil {
 		log.Printf("SECURITY: protected config mutation refused field=%s: %v", field, err)
-		writeError(w, http.StatusForbidden, "security-sensitive shell settings can be changed only by a local process owned by the Windows account that launched Agent_b", field)
+		writeError(w, http.StatusForbidden, "security-sensitive shell settings refused: "+err.Error(), field)
 		return false
 	}
 	return true

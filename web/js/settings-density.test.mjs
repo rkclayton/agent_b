@@ -23,14 +23,16 @@ test("explanatory prose is hover text on a control, its label or its subheading"
   assert.match(source["settings.js"], /class="settings-subhead"\$\{hint \? ` title="\$\{attr\(hint\)\}"` : ""\}/);
 });
 
-test("the descriptor budget: Security keeps exactly one visible line, the dangerous one", () => {
+test("the descriptor budget: Security keeps the dangerous line and the two authorized boundary explanations", () => {
   const security = source["settings-security.js"];
   const prose = [...security.matchAll(/<p class="settings-note">([\s\S]*?)<\/p>/g)].map((m) => m[1]);
-  // One deliberate line, plus the "No active session." empty state, which is a
-  // state readout rather than an explanation.
-  const explanatory = prose.filter((line) => !/No active session/.test(line));
-  assert.equal(explanatory.length, 1, `expected one visible explanation, got:\n${explanatory.join("\n")}`);
-  assert.match(explanatory[0], /defeats the service-account OS boundary/);
+	// Three deliberate lines, plus the "No active session." empty state, which is a
+	// state readout rather than an explanation.
+	const explanatory = prose.filter((line) => !/No active session/.test(line));
+	assert.equal(explanatory.length, 3, `expected three visible explanations, got:\n${explanatory.join("\n")}`);
+	assert.match(explanatory[0], /defeats the service-account OS boundary/);
+	assert.match(explanatory[1], /tests the credential before enabling/);
+	assert.match(explanatory[2], /loopback and the configured model server/);
 });
 
 test("no Settings section carries a paragraph a control could carry instead", () => {

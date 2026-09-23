@@ -2059,10 +2059,10 @@ if (realModel) {
   assert.deepEqual(await roleChoices.allTextContents(), ["agent_b · Acceptance — chat", "agent_d · Acceptance — plan"]);
   await page.screenshot({ path: join(evidenceRun, "d-role-menu.png") });
   await roleChoices.nth(1).click();
-  // Item 2go: the tab reads the chat's name - "new chat" until the operator
+  // Item 2go: the tab reads the chat's name - "New chat" until the operator
   // writes one - and the ROLE is on the robot glyph and its hover text.
   await browser.wait(`document.querySelector('.agent-tab-wrap.selected .agent-tab')?.dataset.agent === 'agent_d'`, "unbound d chat identity");
-  assert.equal(await page.locator(".agent-tab-wrap.selected .agent-tab-name").innerText(), "new chat");
+  assert.equal(await page.locator(".agent-tab-wrap.selected .agent-tab-name").innerText(), "New chat");
   assert.equal(await page.locator(".agent-tab-wrap.selected .agent-tab-robot").getAttribute("title"), "agent_d");
   const dState = await state();
   const dSession = Object.values(dState.sessions).find((session) => session.role === "d" && !session.plan_id);
@@ -2072,7 +2072,7 @@ if (realModel) {
   // Item 2gl (v1.2.6): the WINDOW title names the chat, because the overlay
   // could not be made to activate and the system strip stays. 2eo's rule is
   // about the header beside the tab strip, which still reads the profile only.
-  assert.equal(await page.title(), "Agent_b · new chat");
+  assert.equal(await page.title(), "Agent_b · New chat");
   assert.equal(await page.locator(".shell-session-title").innerText(), dSession.b_profile || dSession.server_id, "item 2eo: the header reads the profile name only");
   await page.screenshot({ path: join(evidenceRun, "d-plan.png") });
   record("d-plus-unbound-scratch-tab-and-title");

@@ -26,3 +26,15 @@ func TestBuildRequestCarriesProfileReasoningCap(t *testing.T) {
 		t.Fatalf("body=%v", body)
 	}
 }
+
+func TestBuildRequestKeepsOnlyLeadingSystemRole(t *testing.T) {
+	body := BuildRequest(&config.Profile{}, Request{Messages: []Message{
+		{Role: "system", Content: "prompt"},
+		{Role: "user", Content: "hello"},
+		{Role: "system", Content: "old abort"},
+	}}, false)
+	messages := body["messages"].([]Message)
+	if messages[0].Role != "system" || messages[2].Role != "assistant" || messages[2].Content != "[harness note]\nold abort" {
+		t.Fatalf("messages=%#v", messages)
+	}
+}

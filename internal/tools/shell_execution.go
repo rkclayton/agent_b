@@ -207,7 +207,7 @@ func waitShellProcess(ctx context.Context, process runningShellProcess, usedServ
 	case <-timer.C:
 		process.KillTree()
 		<-done
-		partial := cutOutput(output.String(), cfg.MaxOutputLinesHead, cfg.MaxOutputLinesTail)
+		partial := cutOutput(cleanConsoleOutput(output.String()), cfg.MaxOutputLinesHead, cfg.MaxOutputLinesTail)
 		if partial != "" {
 			return CallDetail{Err: fmt.Errorf("timed out after %ds; partial output:\n%s", timeout, partial)}
 		}
@@ -216,7 +216,9 @@ func waitShellProcess(ctx context.Context, process runningShellProcess, usedServ
 		if result.err != nil {
 			return CallDetail{Err: result.err}
 		}
-		body := cutOutput(output.String(), cfg.MaxOutputLinesHead, cfg.MaxOutputLinesTail)
+		raw := output.String()
+		body := cutOutput(cleanConsoleOutput(raw), cfg.MaxOutputLinesHead, cfg.MaxOutputLinesTail)
+		metadata := map[string]any{"raw_output": cutOutput(raw, cfg.MaxOutputLinesHead, cfg.MaxOutputLinesTail)}
 		if result.code != 0 {
 			content := fmt.Sprintf("exit=%d", result.code)
 			if body != "" {
@@ -224,16 +226,62 @@ func waitShellProcess(ctx context.Context, process runningShellProcess, usedServ
 			}
 			if usedService {
 				if reason := serviceBoundaryReason(operatorCommand, body); reason != "" {
-					return CallDetail{Content: content, OperatorOverrideReason: reason}
+					return CallDetail{Content: content, OperatorOverrideReason: reason, Metadata: metadata}
 				}
 			}
-			return CallDetail{Err: fmt.Errorf("command failed\n%s", content)}
+			return CallDetail{Err: fmt.Errorf("command failed\n%s", content), Metadata: metadata}
 		}
 		if body == "" {
-			return CallDetail{Content: "exit=0"}
+			return CallDetail{Content: "exit=0", Metadata: metadata}
 		}
-		return CallDetail{Content: "exit=0\n" + body}
+		return CallDetail{Content: "exit=0\n" + body, Metadata: metadata}
 	}
+}
+
+// cleanConsoleOutput removes terminal control sequences and repairs invalid
+// encoding before output enters model context. The unmodified stream is kept
+// separately in tool-result metadata for the durable journal.
+func cleanConsoleOutput(value string) string {
+	value = strings.ToValidUTF8(value, "�")
+	var out strings.Builder
+	for i := 0; i < len(value); {
+		if value[i] != 0x1b {
+			out.WriteByte(value[i])
+			i++
+			continue
+		}
+		i++
+		if i >= len(value) {
+			break
+		}
+		switch value[i] {
+		case '[': // CSI: parameters/intermediates followed by a final byte.
+			i++
+			for i < len(value) {
+				b := value[i]
+				i++
+				if b >= 0x40 && b <= 0x7e {
+					break
+				}
+			}
+		case ']': // OSC: terminated by BEL or ST.
+			i++
+			for i < len(value) {
+				if value[i] == 0x07 {
+					i++
+					break
+				}
+				if value[i] == 0x1b && i+1 < len(value) && value[i+1] == '\\' {
+					i += 2
+					break
+				}
+				i++
+			}
+		default:
+			i++
+		}
+	}
+	return out.String()
 }
 
 type lockedBuffer struct {

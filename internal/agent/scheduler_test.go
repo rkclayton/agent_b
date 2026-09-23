@@ -396,7 +396,7 @@ func TestStopDetachesUncooperativeRunAtBound(t *testing.T) {
 		}
 	}
 	messages := item.MessagesCopy()
-	if len(messages) != 1 || messages[0].Role != "system" || !strings.Contains(messages[0].Content, "HARNESS ABORT RECORD") {
+	if len(messages) != 1 || messages[0].Role != "assistant" || !strings.Contains(messages[0].Content, "HARNESS ABORT RECORD") {
 		t.Fatalf("abort messages=%#v", messages)
 	}
 }

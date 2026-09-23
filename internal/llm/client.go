@@ -57,6 +57,7 @@ func (c *Client) Chat(ctx context.Context, request Request) (Response, error) {
 		return Response{}, err
 	}
 	if status != 200 {
+		logSystemRoleViolation(request.Messages, status)
 		return Response{}, fmt.Errorf("chat HTTP %d: %s", status, raw)
 	}
 	result, err := parseResponse(raw)
@@ -90,6 +91,7 @@ func (c *Client) ChatStreamStatus(ctx context.Context, request Request, onDelta 
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
 		raw, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		logSystemRoleViolation(request.Messages, response.StatusCode)
 		return Response{}, fmt.Errorf("chat stream HTTP %d: %s", response.StatusCode, raw)
 	}
 	result := Response{Usage: Usage{CachedTokens: -1}}

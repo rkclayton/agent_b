@@ -266,27 +266,28 @@ type ContextSizing struct {
 	ReserveBytes    uint64 `json:"reserve_bytes"`
 }
 type Capabilities struct {
-	Server             string   `json:"server"`
-	Props              bool     `json:"props"`
-	NCtx               int      `json:"n_ctx"`
-	Tokenize           bool     `json:"tokenize"`
-	ApplyTemplate      bool     `json:"apply_template"`
-	ApplyTemplateTools bool     `json:"apply_template_tools"`
-	Streaming          bool     `json:"streaming"`
-	ToolCalls          bool     `json:"tool_calls"`
-	GrammarConstrained bool     `json:"grammar_constrained"`
-	CachedTokens       bool     `json:"cached_tokens"`
-	Timings            bool     `json:"timings"`
-	PromptProgress     bool     `json:"prompt_progress"`
-	DocumentInput      bool     `json:"document_input"`
-	ImageInput         bool     `json:"image_input"`
-	Vision             string   `json:"vision"`
-	ReasoningControl   string   `json:"reasoning_control"`
-	ReasoningEmission  string   `json:"reasoning_emission,omitempty"`
-	ValidEfforts       []string `json:"valid_efforts"`
-	OverflowBehavior   string   `json:"overflow_behavior"`
-	ProbedAt           string   `json:"probed_at"`
-	Findings           []string `json:"findings"`
+	Server               string   `json:"server"`
+	Props                bool     `json:"props"`
+	NCtx                 int      `json:"n_ctx"`
+	Tokenize             bool     `json:"tokenize"`
+	ApplyTemplate        bool     `json:"apply_template"`
+	ApplyTemplateTools   bool     `json:"apply_template_tools"`
+	Streaming            bool     `json:"streaming"`
+	ToolCalls            bool     `json:"tool_calls"`
+	GrammarConstrained   bool     `json:"grammar_constrained"`
+	CachedTokens         bool     `json:"cached_tokens"`
+	Timings              bool     `json:"timings"`
+	PromptProgress       bool     `json:"prompt_progress"`
+	DocumentInput        bool     `json:"document_input"`
+	ImageInput           bool     `json:"image_input"`
+	Vision               string   `json:"vision"`
+	ReasoningControl     string   `json:"reasoning_control"`
+	ReasoningEmission    string   `json:"reasoning_emission,omitempty"`
+	ValidEfforts         []string `json:"valid_efforts"`
+	OverflowBehavior     string   `json:"overflow_behavior"`
+	ObservedMessageLimit int      `json:"observed_message_limit,omitempty"`
+	ProbedAt             string   `json:"probed_at"`
+	Findings             []string `json:"findings"`
 }
 
 const (

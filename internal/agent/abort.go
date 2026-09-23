@@ -216,14 +216,14 @@ func (r *Runner) recordAbort(s *session.Session, runID, reason, detail string) s
 	r.bus.Publish(events.New(events.RunAborted, s.ID, runID, data))
 	encoded, _ := json.MarshalIndent(data, "", "  ")
 	content := harnessAbortRecordPrefix + "\n" + string(encoded)
-	message := events.Message{ID: r.id("m"), Role: "system", Content: content, Category: "history", Tokens: int(math.Ceil(float64(len([]rune(content))) / 3.6)), Estimated: true, Turn: state.Turn}
+	message := events.Message{ID: r.id("m"), Role: "assistant", Content: content, Category: "history", Tokens: int(math.Ceil(float64(len([]rune(content))) / 3.6)), Estimated: true, Turn: state.Turn}
 	s.Append(message)
 	r.bus.Publish(events.New(events.MessageAppended, s.ID, runID, map[string]any{"message": message}))
 	return detail
 }
 
 func isHarnessAbortRecord(message events.Message) bool {
-	return message.Role == "system" && message.Category == "history" && strings.HasPrefix(message.Content, harnessAbortRecordPrefix+"\n")
+	return message.Category == "history" && strings.HasPrefix(message.Content, harnessAbortRecordPrefix+"\n")
 }
 
 func (r *Runner) stopped(s *session.Session, runID string, turn int, detail string) (string, string, int) {

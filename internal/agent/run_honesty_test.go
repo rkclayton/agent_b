@@ -284,7 +284,7 @@ func testStopBlockedModelResumesWithAbortRecord(t *testing.T, rejectMidSystem bo
 		if index > 0 && system && historyStarted {
 			t.Fatalf("in-position harness message=%+v", message)
 		}
-		if system && strings.HasPrefix(messageText(message.Content), harnessAbortRecordPrefix+"\n") {
+		if strings.HasPrefix(messageText(message.Content), harnessAbortRecordPrefix+"\n") {
 			sentAbort = message
 		}
 		if !system {
@@ -299,7 +299,7 @@ func testStopBlockedModelResumesWithAbortRecord(t *testing.T, rejectMidSystem bo
 			break
 		}
 	}
-	if rejected.Load() != 0 || len(messages) == 0 || messages[0].Role != "system" || sentAbort.Role != "system" || messageText(sentAbort.Content) != abortRecord.Content || abortRecord.Role != "system" || !strings.Contains(joined, "partial model output") || !strings.Contains(joined, "user:resume") {
+	if rejected.Load() != 0 || len(messages) == 0 || messages[0].Role != "system" || sentAbort.Role != "assistant" || messageText(sentAbort.Content) != abortRecord.Content || abortRecord.Role != "assistant" || !strings.Contains(joined, "partial model output") || !strings.Contains(joined, "user:resume") {
 		t.Fatalf("resuming messages:\n%s", joined)
 	}
 }

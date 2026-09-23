@@ -199,6 +199,7 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 		}
 	}
 	if runner != nil {
+		runner.SetMessageLimitRecorder(s.recordObservedMessageLimit)
 		runner.SetModelUnreachable(func(sessionID, profileID string) {
 			if scheduler != nil {
 				scheduler.HoldModel(sessionID)
@@ -209,6 +210,28 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 			s.touchOperatorContext("idle window reset: tool execution " + phase)
 		})
 	}
+}
+
+func (s *Server) recordObservedMessageLimit(profileID string, limit int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := *s.cfg
+	next.Servers = append([]config.Profile(nil), s.cfg.Servers...)
+	for i := range next.Servers {
+		if next.Servers[i].ID != profileID {
+			continue
+		}
+		if next.Servers[i].Capabilities.ObservedMessageLimit == limit {
+			return nil
+		}
+		next.Servers[i].Capabilities.ObservedMessageLimit = limit
+		if err := next.Save(s.configPath); err != nil {
+			return err
+		}
+		s.cfg = &next
+		return nil
+	}
+	return fmt.Errorf("profile %q not found", profileID)
 }
 func (s *Server) ConfigSnapshot() config.Config {
 	s.mu.RLock()

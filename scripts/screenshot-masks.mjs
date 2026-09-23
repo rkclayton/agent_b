@@ -5,6 +5,10 @@
 // scripts/screenshot-gate.mjs blanks them in both images before comparing and
 // reports every capture whose difference lay only inside them as masked.
 export const LIVE_VALUES = [
+  // v1.6.3/W0: About intentionally changes for every release. Mask the exact
+  // build identity text node so version/tag updates cannot fail a visual gate;
+  // the row, typography, spacing and every surrounding pixel remain exact.
+  { name: "build-text", reason: "the About build identity changes with every release", selector: ".settings-build-text" },
   // The app writes a duration as a number, a space, then ms or s ("67 ms",
   // "5.2 s"); prose such as "3s" or "1990s" is not one (v1.0.0/W4 cold review).
   { name: "duration", reason: "elapsed and wall times (ms, s) are measured each run", selector: "body", pattern: String.raw`(?<![\w.,])\d[\d,]*(?:\.\d+)? (?:ms|s)\b` },

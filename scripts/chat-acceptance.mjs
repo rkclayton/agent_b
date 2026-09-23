@@ -191,7 +191,7 @@ const fakeHandler = async (request, response) => {
   if (user.includes("acceptance: queued behind")) return stream(response, { content: "BEHIND ANSWER" });
   // Item 2fs: a run paused on a card nobody answers, and a chat on the same model.
   if (user.includes("acceptance: card nobody answers")) {
-    if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "unanswered-card", type: "function", function: { name: "run_script", arguments: JSON.stringify({ language: "powershell", source: "Write-Output card-answered" }) } }] }, "tool_calls");
+    if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "unanswered-card", type: "function", function: { name: "read_file", arguments: JSON.stringify({ path: "C:\\Windows\\win.ini" }) } }] }, "tool_calls");
     return stream(response, { content: "CARD RELEASED ANSWER" });
   }
   if (user.includes("acceptance: beside the card")) return stream(response, { content: "BESIDE THE CARD ANSWER" });

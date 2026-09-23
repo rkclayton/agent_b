@@ -1404,12 +1404,10 @@ if (realModel) {
 	events = await sessionEvents(sessionID);
 	const beforeInspectionApproval = events.at(-1)?.seq || 0;
 	await setTask(`Please inspect acceptance directory "${bound}" and report.`);
-	await waitEvent(sessionID, (event) => event.seq > beforeInspectionApproval && event.type === "approval.required" && event.data?.name === "shell.operator_command", "operator shell approval after unavailable service identity");
-	await browser.wait(`document.querySelector('.approval-card')`, "operator shell approval card");
-	assert.equal(await clickText(".approval-card button", "Yes, for this chat"), true);
+	await waitEvent(sessionID, (event) => event.seq > beforeInspectionApproval && event.type === "tool.call" && event.data?.name === "shell", "ordinary shell call after split was turned off");
 	await waitProjectedChatText(sessionID, "Acceptance answer rendered after the approved shell call.", "answer rendered");
   events = await sessionEvents(sessionID);
-  assert.equal(events.some((event) => event.seq > beforeInspectionApproval && event.type === "approval.required" && event.data?.name === "shell.operator_command"), true);
+  assert.equal(events.some((event) => event.seq > beforeInspectionApproval && event.type === "approval.required" && event.data?.name === "shell.operator_command"), false);
   assert.ok(events.some((event) => event.type === "tool.result" && event.data.name === "shell" && event.data.ok === true), JSON.stringify(events.filter((event) => event.seq > beforeInspectionApproval && (event.type.startsWith("tool.") || event.type.startsWith("approval.") || event.type === "shell.grant")).map((event) => ({ seq: event.seq, type: event.type, data: event.data }))));
   const gutter = await browser.evaluate(`getComputedStyle(document.querySelector('.chat-entry')).gridTemplateColumns.split(' ')[0]`);
   assert.match(gutter, /^72px$/);

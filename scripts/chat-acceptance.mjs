@@ -442,7 +442,7 @@ if (args["expected-dirty"]) assert.equal(runtimeState.build?.dirty, args["expect
 await mkdir(args.evidence, { recursive: true });
 await writeFile(join(args.evidence, "runtime-build.json"), JSON.stringify(runtimeState.build, null, 2));
 const loadedConfig = await json(`http://127.0.0.1:${appPort}/api/config`);
-assert.equal(loadedConfig.shell?.service_account?.enabled, true, "disposable install must exercise split identity");
+assert.equal(loadedConfig.shell?.service_account?.enabled, false, "a configured split without an authenticating credential must turn itself off");
 assert.equal(loadedConfig.servers?.[0]?.request_timeout_s, 3, "slow-accounting fixture needs a three-second request timeout");
 assert.equal(loadedConfig.servers?.[0]?.capabilities?.tokenize, true, "slow-accounting fixture needs exact tokenization");
 assert.equal(loadedConfig.context?.accounting, "auto", "slow-accounting fixture needs automatic exact accounting");
@@ -577,10 +577,6 @@ if (realModel) {
 
   const fixtureSessionID = sessionID;
   await setTask("acceptance: scratch file");
-  await browser.wait(`document.body.innerText.includes('service identity unavailable: credential is not stored') || [...document.querySelectorAll('.approval-card')].some(item=>item.innerText.toLowerCase().includes('run as you'))`, "scratch file identity outcome");
-  if (await page.locator(".approval-card").count()) {
-    assert.equal(await clickText(".approval-card button", "Yes, for this chat"), true);
-  }
   await waitProjectedChatText(sessionID, "SCRATCH FILE COMPLETE", "scratch file tool");
   assert.equal(await readFile(join(args.data, "scratch", sessionID, "scratch-proof.txt"), "utf8"), "scratch tool passed\n");
   record("scratch-chat-title-and-file-tool");

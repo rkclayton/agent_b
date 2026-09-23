@@ -19,18 +19,22 @@ import (
 // forced termination, power loss) is recorded at the next start from the run
 // marker the earlier process left behind.
 type lifetime struct {
-	logPath    string
-	markerPath string
-	pid        int
-	created    int64
-	now        func() time.Time
-	once       sync.Once
+	logPath         string
+	markerPath      string
+	pid             int
+	created         int64
+	now             func() time.Time
+	once            sync.Once
+	applicationRoot string
+	listen          string
 }
 
 type runMarker struct {
-	PID     int    `json:"pid"`
-	Created int64  `json:"created"`
-	Started string `json:"started"`
+	PID         int    `json:"pid"`
+	Created     int64  `json:"created"`
+	Started     string `json:"started"`
+	Application string `json:"application,omitempty"`
+	Listen      string `json:"listen,omitempty"`
 }
 
 const launcherLogName = "launcher-errors.log"
@@ -52,7 +56,7 @@ func (l *lifetime) begin() {
 			l.append(fmt.Sprintf("Agent_b PID %d (started %s) ended without recording a reason: the Windows session was logged off or shut down, the process was ended from outside, or the host lost power.", previous.PID, printable(previous.Started)))
 		}
 	}
-	marker, _ := json.Marshal(runMarker{PID: l.pid, Created: l.created, Started: l.stamp()})
+	marker, _ := json.Marshal(runMarker{PID: l.pid, Created: l.created, Started: l.stamp(), Application: l.applicationRoot, Listen: l.listen})
 	temporary := l.markerPath + ".tmp"
 	if os.WriteFile(temporary, marker, 0o600) == nil {
 		_ = os.Rename(temporary, l.markerPath)
@@ -80,6 +84,11 @@ func (l *lifetime) append(message string) {
 	defer file.Close()
 	_, _ = fmt.Fprintf(file, "%s %s\r\n", l.stamp(), message)
 	_ = file.Sync()
+}
+
+func appendLauncherMessage(dataRoot, message string) {
+	life := newLifetime(dataRoot, time.Now)
+	life.append(message)
 }
 
 // readMarker reads at most 4 KiB of the run marker: it is a few fields, and a

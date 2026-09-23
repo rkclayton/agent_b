@@ -108,6 +108,7 @@ type Server struct {
 	agentServerMu     sync.Mutex
 	agentServers      map[string]pendingAgentServer
 	tryAgentIdle      func(string) bool
+	hostWindowAction  func(string) bool
 }
 
 type probeRun struct{ cancel context.CancelFunc }
@@ -178,6 +179,7 @@ func (s *Server) SetUpdater(manager *updater.Manager)                     { s.up
 func (s *Server) SetServiceAccountManager(manager serviceaccount.Manager) { s.account = manager }
 func (s *Server) SetHardeningManager(manager hardening.Manager)           { s.hardening = manager }
 func (s *Server) SetSigningManager(manager signing.Manager)               { s.signing = manager }
+func (s *Server) SetHostWindowAction(action func(string) bool)            { s.hostWindowAction = action }
 func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, prompt *agent.PromptRenderer) {
 	s.scheduler = scheduler
 	s.runner = runner
@@ -269,6 +271,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/signing", s.replayGuard(s.codeSigning))
 	mux.HandleFunc("/api/message", s.replayGuard(s.message))
 	mux.HandleFunc("/api/stop", s.replayGuard(s.stop))
+	mux.HandleFunc("/api/host-window", s.replayGuard(s.hostWindow))
 	// Item 2ge: the composer microphone asks the host what it can do.
 	mux.HandleFunc("/api/speech", s.speechHandler)
 	mux.HandleFunc("/api/speech/stream", s.speechStreamHandler)

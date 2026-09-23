@@ -88,6 +88,8 @@ export function initShell(options = {}) {
   windowControls.setAttribute("aria-hidden", "true");
   for (const kind of ["minimize", "maximize", "close"]) {
     const control = node("span", `shell-window-control ${kind}`);
+    control.dataset.action = kind;
+    control.addEventListener("click", () => { void api("/api/host-window", { action: kind }).catch((error) => report(error.message)); });
     const glyph = node("span", "shell-window-control-glyph");
     control.append(glyph);
     windowControls.append(control);

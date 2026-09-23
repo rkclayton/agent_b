@@ -59,6 +59,28 @@ func (s *Server) stop(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"stopped": s.scheduler.Stop(body.SessionID, body.All)})
 }
 
+func (s *Server) hostWindow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		method(w)
+		return
+	}
+	var body struct {
+		Action string `json:"action"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if body.Action != "minimize" && body.Action != "maximize" && body.Action != "close" {
+		writeError(w, http.StatusBadRequest, "action must be minimize, maximize, or close", "action")
+		return
+	}
+	if s.hostWindowAction == nil || !s.hostWindowAction(body.Action) {
+		writeError(w, http.StatusConflict, "native host window is unavailable", "action")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"action": body.Action})
+}
+
 func (s *Server) cancelProbes(sessionID string, all bool) {
 	s.probeMu.Lock()
 	defer s.probeMu.Unlock()

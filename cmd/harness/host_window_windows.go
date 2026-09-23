@@ -28,6 +28,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -45,6 +46,13 @@ const (
 	wmNCHitTest     = 0x0084
 	wmGetMinMaxInfo = 0x0024
 	swShowNormal    = 1
+	swMinimize      = 6
+	swMaximize      = 3
+	swRestore       = 9
+	wmHostMinimize  = 0x8001
+	wmHostMaximize  = 0x8002
+	wmHostClose     = 0x8003
+	wmHostActivate  = 0x8004
 
 	htClient      = 1
 	htCaption     = 2
@@ -68,18 +76,41 @@ const (
 )
 
 var (
-	procDestroyWindow   = user32.NewProc("DestroyWindow")
-	procPostQuitMessage = user32.NewProc("PostQuitMessage")
-	procShowWindow      = user32.NewProc("ShowWindow")
-	procUpdateWindow    = user32.NewProc("UpdateWindow")
-	procGetClientRect   = user32.NewProc("GetClientRect")
-	procGetWindowRect   = user32.NewProc("GetWindowRect")
-	procScreenToClient  = user32.NewProc("ScreenToClient")
-	procIsZoomed        = user32.NewProc("IsZoomed")
-	procGetSystemMetric = user32.NewProc("GetSystemMetrics")
-	procLoadCursor      = user32.NewProc("LoadCursorW")
-	procSetWindowText   = user32.NewProc("SetWindowTextW")
+	procDestroyWindow       = user32.NewProc("DestroyWindow")
+	procPostQuitMessage     = user32.NewProc("PostQuitMessage")
+	procShowWindow          = user32.NewProc("ShowWindow")
+	procUpdateWindow        = user32.NewProc("UpdateWindow")
+	procGetClientRect       = user32.NewProc("GetClientRect")
+	procGetWindowRect       = user32.NewProc("GetWindowRect")
+	procScreenToClient      = user32.NewProc("ScreenToClient")
+	procIsZoomed            = user32.NewProc("IsZoomed")
+	procGetSystemMetric     = user32.NewProc("GetSystemMetrics")
+	procLoadCursor          = user32.NewProc("LoadCursorW")
+	procSetWindowText       = user32.NewProc("SetWindowTextW")
+	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
+	procSwitchToThisWindow  = user32.NewProc("SwitchToThisWindow")
+	procPostMessage         = user32.NewProc("PostMessageW")
 )
+
+var hostWindowState struct {
+	sync.RWMutex
+	hwnd uintptr
+}
+
+func requestHostWindowAction(action string) bool {
+	message := map[string]uintptr{"minimize": wmHostMinimize, "maximize": wmHostMaximize, "close": wmHostClose}[action]
+	if message == 0 {
+		return false
+	}
+	hostWindowState.RLock()
+	hwnd := hostWindowState.hwnd
+	hostWindowState.RUnlock()
+	if hwnd == 0 {
+		return false
+	}
+	ok, _, _ := procPostMessage.Call(hwnd, message, 0, 0)
+	return ok != 0
+}
 
 type rect struct{ left, top, right, bottom int32 }
 
@@ -237,6 +268,25 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsaf
 		w.resizeController()
 		return 0
 
+	case wmHostMinimize:
+		procShowWindow.Call(hwnd, swMinimize)
+		return 0
+	case wmHostMaximize:
+		if isMaximized(hwnd) {
+			procShowWindow.Call(hwnd, swRestore)
+		} else {
+			procShowWindow.Call(hwnd, swMaximize)
+		}
+		return 0
+	case wmHostClose:
+		procDestroyWindow.Call(hwnd)
+		return 0
+	case wmHostActivate:
+		procShowWindow.Call(hwnd, swRestore)
+		procSetForegroundWindow.Call(hwnd)
+		procSwitchToThisWindow.Call(hwnd, 1)
+		return 0
+
 	case wmDestroy:
 		procPostQuitMessage.Call(0)
 		return 0
@@ -330,7 +380,7 @@ var procClientToScreen = user32.NewProc("ClientToScreen")
 // back to the browser window with the reason logged. The product never loses
 // its way in: the host is an improvement on the window, not a new dependency
 // for running at all.
-func runHostWindow(url, userDataDir, title string) (err error) {
+func runHostWindow(url, userDataDir, title, applicationRoot string) (err error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -348,6 +398,17 @@ func runHostWindow(url, userDataDir, title string) (err error) {
 	if err := window.create(title); err != nil {
 		return err
 	}
+	hostWindowState.Lock()
+	hostWindowState.hwnd = window.hwnd
+	hostWindowState.Unlock()
+	defer func() {
+		hostWindowState.Lock()
+		if hostWindowState.hwnd == window.hwnd {
+			hostWindowState.hwnd = 0
+		}
+		hostWindowState.Unlock()
+	}()
+	watchActivationEvent(applicationRoot, window.hwnd)
 	if err := window.startWebView(); err != nil {
 		return err
 	}
@@ -361,6 +422,26 @@ func runHostWindow(url, userDataDir, title string) (err error) {
 		procTranslateMessage.Call(uintptr(unsafe.Pointer(&message)))
 		procDispatchMessage.Call(uintptr(unsafe.Pointer(&message)))
 	}
+}
+
+func watchActivationEvent(applicationRoot string, hwnd uintptr) {
+	name, _ := syscall.UTF16PtrFromString(activateEventName(applicationRoot, os.Getpid()))
+	event, _, createErr := procCreateEvent.Call(0, 0, 0, uintptr(unsafe.Pointer(name)))
+	if event == 0 || createErr == syscall.ERROR_ALREADY_EXISTS {
+		if event != 0 {
+			syscall.CloseHandle(syscall.Handle(event))
+		}
+		return
+	}
+	go func() {
+		defer syscall.CloseHandle(syscall.Handle(event))
+		for {
+			if wait, _ := syscall.WaitForSingleObject(syscall.Handle(event), syscall.INFINITE); wait != syscall.WAIT_OBJECT_0 {
+				return
+			}
+			procPostMessage.Call(hwnd, wmHostActivate, 0, 0)
+		}
+	}()
 }
 
 var procTranslateMessage = user32.NewProc("TranslateMessage")
@@ -392,6 +473,11 @@ func (w *hostWindow) create(title string) error {
 		return fmt.Errorf("creating the host window failed")
 	}
 	w.hwnd = hwnd
+	// A detached installed launch uses STARTF_USESHOWWINDOW/SW_HIDE to keep its
+	// console out of sight. Windows applies that startup value to the first
+	// ShowWindow call regardless of our argument; the second call is the native
+	// host's own visibility decision.
+	procShowWindow.Call(hwnd, swShowNormal)
 	procShowWindow.Call(hwnd, swShowNormal)
 	procUpdateWindow.Call(hwnd)
 	return nil

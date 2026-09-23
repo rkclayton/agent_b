@@ -4,7 +4,10 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -51,10 +54,78 @@ var (
 	procDispatchMessage           = user32.NewProc("DispatchMessageW")
 	procGetModuleHandle           = syscall.NewLazyDLL("kernel32.dll").NewProc("GetModuleHandleW")
 	procCreateEvent               = syscall.NewLazyDLL("kernel32.dll").NewProc("CreateEventW")
+	procOpenEvent                 = syscall.NewLazyDLL("kernel32.dll").NewProc("OpenEventW")
+	procSetEvent                  = syscall.NewLazyDLL("kernel32.dll").NewProc("SetEvent")
+	procAllowSetForegroundWindow  = user32.NewProc("AllowSetForegroundWindow")
 	procInSendMessageEx           = user32.NewProc("InSendMessageEx")
 	procConvertSecurityDescriptor = syscall.NewLazyDLL("advapi32.dll").NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
 	sessionEndClassName           = fmt.Sprintf("Agent_b-session-end-%d", os.Getpid())
 )
+
+func activateEventName(applicationRoot string, pid int) string {
+	root, err := filepath.Abs(applicationRoot)
+	if err == nil {
+		applicationRoot = root
+	}
+	digest := sha256.Sum256([]byte(strings.ToUpper(filepath.Clean(applicationRoot))))
+	return fmt.Sprintf(`Local\Agent_b-activate-%x-%d`, digest[:12], pid)
+}
+
+// activateExistingInstance trusts neither the marker nor a port by itself.
+// The marker must name this exact install root, the same process incarnation
+// must still be alive, and that process must answer on the recorded loopback
+// port with its PID before its scoped activation event is signalled.
+func activateExistingInstance(dataRoot, applicationRoot string) (int, bool) {
+	data, err := readMarker(filepath.Join(dataRoot, "agent_b-run.json"))
+	if err != nil {
+		return 0, false
+	}
+	var marker runMarker
+	if json.Unmarshal(data, &marker) != nil || marker.PID <= 0 || strings.TrimSpace(marker.Application) == "" || strings.TrimSpace(marker.Listen) == "" {
+		return 0, false
+	}
+	want, wantErr := filepath.Abs(applicationRoot)
+	got, gotErr := filepath.Abs(marker.Application)
+	if wantErr != nil || gotErr != nil || !strings.EqualFold(filepath.Clean(want), filepath.Clean(got)) || !processRunning(marker.PID, marker.Created) {
+		return 0, false
+	}
+	host, _, err := net.SplitHostPort(marker.Listen)
+	if err != nil {
+		return 0, false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return 0, false
+	}
+	client := http.Client{Timeout: time.Second}
+	response, err := client.Get("http://" + marker.Listen + "/api/state")
+	if err != nil {
+		return 0, false
+	}
+	defer response.Body.Close()
+	var state struct {
+		ProcessID int `json:"process_id"`
+	}
+	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&state) != nil || state.ProcessID != marker.PID {
+		return 0, false
+	}
+	name, _ := syscall.UTF16PtrFromString(activateEventName(applicationRoot, marker.PID))
+	const eventModifyState = 0x0002
+	// Let the already-running process take foreground permission inherited by
+	// this user-initiated second launch before it handles the event.
+	procAllowSetForegroundWindow.Call(uintptr(marker.PID))
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		event, _, _ := procOpenEvent.Call(eventModifyState, 0, uintptr(unsafe.Pointer(name)))
+		if event != 0 {
+			ok, _, _ := procSetEvent.Call(event)
+			syscall.CloseHandle(syscall.Handle(event))
+			return marker.PID, ok != 0
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return 0, false
+}
 
 type wndClassEx struct {
 	size       uint32

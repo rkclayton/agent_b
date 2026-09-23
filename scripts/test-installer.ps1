@@ -517,6 +517,12 @@ try {
     if ($LockWorkstation) { $lifetimeArguments.LockWorkstation = $true }
     & (Join-Path $PSScriptRoot 'test-session-lifetime.ps1') @lifetimeArguments
 
+    # Item 2hx: the installed layout owns one native window. A second launch
+    # activates it without touching the run marker, and the painted controls
+    # exercise maximize/restore, minimize and close against that installed EXE.
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'test-single-instance-window.ps1') -Exe (Join-Path $testApplication 'Agent_b.exe') -ApplicationRoot $testApplication -DataRoot $testData
+    if ($LASTEXITCODE -ne 0) { throw "The installed single-instance/window-control acceptance exited $LASTEXITCODE." }
+
     $credentialPath = Join-Path $testData '.agentb-shell-credential.dpapi'
     [IO.File]::WriteAllBytes($credentialPath, [byte[]](1, 2, 3, 4))
     $credentialHash = (Get-FileHash -LiteralPath $credentialPath -Algorithm SHA256).Hash

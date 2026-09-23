@@ -106,14 +106,14 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .shell-new-menu{width:min(34rem,calc(100vw - 16px))}
 .shell-new-choice{display:block;width:100%;min-height:24px;padding:2px 5px;overflow:hidden;background:transparent;text-align:left;text-overflow:ellipsis;white-space:nowrap;font:12px/20px var(--mono)}
 .agent-chat-count{padding:2px 5px;color:var(--mute);font:12px/20px var(--mono)}
-/* Item 2go: MM:DD, the name, and the x. Three columns, nothing more. */
+/* Item 2im: one row; closed chats add Delete without squeezing any action. */
 .agent-chat-row{display:grid;grid-template-columns:minmax(0,1fr) auto 22px;align-items:center;min-height:24px}
-.agent-chat-row.closed{color:var(--mute)}
+.agent-chat-row.closed{grid-template-columns:minmax(0,1fr) auto auto 22px;color:var(--mute)}
 /* Item 2gx: the row is the control, so it takes the pointer. */
 .agent-chat-summary{min-width:0;padding:2px 5px;overflow:hidden;font:12px/20px var(--mono);text-overflow:ellipsis;white-space:nowrap;cursor:pointer;text-align:left;background:transparent;border:0;color:inherit}
 .agent-chat-summary:hover{color:var(--ink);background:rgba(216,221,227,.06)}
-.agent-chat-row button{min-height:22px;padding:1px 5px;background:transparent;font-size:12px}
-.agent-chat-row.delete-confirm{grid-template-columns:minmax(0,1fr) auto auto;color:var(--alarm)}
+.agent-chat-row button{min-height:22px;padding:1px 5px;background:transparent;font-size:12px;white-space:nowrap}
+.agent-chat-row.delete-confirm{color:var(--alarm)}
 .agent-chat-drop-memory{padding:1px 5px;color:var(--ink);white-space:nowrap;font:12px/20px var(--mono)}
 .agent-chat-delete.armed{min-width:48px;color:var(--alarm)}
 .agent-chat-rename-form{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px;padding:2px}

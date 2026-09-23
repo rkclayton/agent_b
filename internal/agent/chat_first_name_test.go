@@ -144,3 +144,9 @@ func TestModelNamingStillUsesFirstPairWhenAnotherMessageWasQueued(t *testing.T) 
 		t.Fatalf("naming request did not isolate the first pair: %+v", request.Messages)
 	}
 }
+
+func TestModelChatNameRejectsLiteralNull(t *testing.T) {
+	if got := modelChatName("null"); got != "" {
+		t.Fatalf("modelChatName(null)=%q", got)
+	}
+}

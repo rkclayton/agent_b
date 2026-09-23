@@ -526,8 +526,21 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			if response.FinishReason == "length" {
 				return "length", "model output was truncated", turn
 			}
+			finalContent := response.Content
+			stopReason, stopDetail := "done", ""
+			if strings.TrimSpace(finalContent) == "" {
+				if reasoning := strings.TrimSpace(response.Reasoning); reasoning != "" {
+					finalContent = reasoning + "\n\n[answer taken from the model's reasoning]"
+					stopReason, stopDetail = "reply_empty_reasoning_shown", "reply empty — reasoning shown"
+				} else {
+					finalContent = "[model returned an empty reply]"
+					stopReason, stopDetail = "reply_empty", "reply empty — no reasoning available"
+				}
+			} else if response.FinishReason == "stop" && announcedActionOnly(finalContent) {
+				stopReason, stopDetail = "announced_action_and_stopped", "announced an action and stopped"
+			}
 			r.stage(s, runID, turn, "append", func() {
-				visible, proposals := planProposalsFor(s, response.Content)
+				visible, proposals := planProposalsFor(s, finalContent)
 				message, _ := r.makeMessage(ctx, profile, "assistant", visible, "history", turn)
 				message.Reasoning = response.Reasoning
 				message.PlanProposals = bindPlanProposalSources(s.MessagesCopy(), proposals, message.ID)
@@ -537,7 +550,10 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			})
 			// Item 2fa: a final message that is exactly the registration sentence
 			// raises the operator's card; the line stays in the transcript above it.
-			finalText, _ := parsePlanProposals(response.Content)
+			finalText, _ := parsePlanProposals(finalContent)
+			if stopReason != "done" {
+				return stopReason, stopDetail, turn
+			}
 			if handled, detail := r.handleModelPlanProposal(ctx, s, runID, finalText); handled {
 				return "done", detail, turn
 			}
@@ -694,6 +710,20 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			r.compactAfterTurnForcing(ctx, s, runID, turn, profile, currentReasoning, refusedTurn == turn)
 		})
 	}
+}
+
+func announcedActionOnly(content string) bool {
+	text := strings.TrimSpace(content)
+	if text == "" || len([]rune(text)) > 400 || strings.ContainsAny(text, "\r\n") {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, prefix := range []string{"i'll ", "i’ll ", "i will ", "i am going to ", "now i'll ", "now i’ll ", "now i will ", "now i am going to ", "let me "} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func turnCeilingDetail(turns int, result delivery.Result) string {

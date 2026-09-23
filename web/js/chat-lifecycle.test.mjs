@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { agentAuthor, chatRowText, openSessions, sessionTitle } from "./chat-lifecycle.js";
+import { agentAuthor, chatName, chatRowText, openSessions, sessionTitle } from "./chat-lifecycle.js";
 
 const idle = {
   id: "s2",
@@ -12,7 +12,7 @@ const idle = {
   run: { status: "idle" },
   timeline: [
     { type: "run.started", run_id: "r1" },
-    { type: "run.stopped", run_id: "r1" },
+    { type: "run.stopped", run_id: "r1", ts: "2026-09-22T16:47:00Z" },
     { type: "run.started", run_id: "r2" },
   ],
   chat: [
@@ -25,9 +25,11 @@ const idle = {
 
 // Item 2go (v1.2.5), the operator: "i want it to display like this:
 // MM:DD · Chat name · × , nothing more."
-test("Chat row is the date it was created and the chat name, and nothing else", () => {
-  assert.equal(chatRowText({ ...idle, label: "summarize the attached contract" }), "09:07 · summarize the attached contract");
-  assert.equal(chatRowText(idle), "09:07 · new chat", "a chat with no name yet reads new chat");
+test("Chat row is the chat's last activity and its truthful name", () => {
+  assert.equal(chatRowText({ ...idle, label: "summarize the attached contract" }), "09:22 · summarize the attached contract");
+  assert.equal(chatRowText(idle), "09:22 · Summarize the attached contract", "an unnamed chat uses its first user line");
+	assert.equal(chatName({ ...idle, label: "null" }), "Summarize the attached contract");
+	assert.equal(chatName({ ...idle, label: null, chat: [] }), "New chat");
 });
 
 test("Open chat list excludes durable closed sessions", () => {

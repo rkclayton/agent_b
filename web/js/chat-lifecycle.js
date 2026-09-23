@@ -69,8 +69,9 @@ export function stateGlyph(session) {
 // anything there is nothing to name it after, so it reads "new chat" - never
 // the role, which the robot glyph and its hover already carry.
 export function chatName(session) {
-  const label = String(session?.label || "").trim();
-  return label || "new chat";
+  const label = session?.label == null ? "" : String(session.label).trim();
+  if (label && label.toLowerCase() !== "null") return label;
+  return firstUserLine(session);
 }
 
 // Item 2go, the operator on the history list: "i want it to display like this:
@@ -81,7 +82,9 @@ export function chatRowText(session) {
 }
 
 export function chatRowDate(session, now = new Date()) {
-  const at = session?.created_at ? new Date(session.created_at) : null;
+	const activity = [...(session?.timeline || [])].reverse().find((entry) => entry?.ts && (entry.type === "message.appended" || entry.type === "run.stopped"));
+  const value = activity?.ts || session?.created_at;
+  const at = value ? new Date(value) : null;
   const when = at && !Number.isNaN(at.getTime()) ? at : now;
   return `${String(when.getMonth() + 1).padStart(2, "0")}:${String(when.getDate()).padStart(2, "0")}`;
 }

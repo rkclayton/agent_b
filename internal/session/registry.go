@@ -554,6 +554,9 @@ func (r *Registry) RenameBy(id, label, by string) error {
 	if label == "" {
 		return fmt.Errorf("label is required")
 	}
+	if strings.EqualFold(label, "null") {
+		return fmt.Errorf("label cannot be null")
+	}
 	if len([]rune(label)) > 80 {
 		label = string([]rune(label)[:80])
 	}

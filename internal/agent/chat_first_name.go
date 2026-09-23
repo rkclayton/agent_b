@@ -161,6 +161,9 @@ func (r *Runner) publishNameAttempt(sessionID, runID, outcome, reason, name stri
 
 func modelChatName(value string) string {
 	value = strings.TrimSpace(strings.Trim(value, "`\"'"))
+	if strings.EqualFold(value, "null") {
+		return ""
+	}
 	if strings.ContainsAny(value, "\r\n") {
 		value = strings.TrimSpace(strings.Split(strings.ReplaceAll(value, "\r", "\n"), "\n")[0])
 	}

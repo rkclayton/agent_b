@@ -867,6 +867,8 @@ function noticeContent(session, entry, actionable) {
 		} else if (data.reason === "aborted_mid_tool") {
 			content.textContent = `stopped mid-tool${data.queue_held ? " · queued messages held" : ""}`;
 			if (data.detail) content.title = data.detail;
+		} else if (data.reason === "reply_empty_reasoning_shown" || data.reason === "reply_empty" || data.reason === "announced_action_and_stopped") {
+			content.textContent = data.detail || reason;
 		} else content.textContent = `stopped: ${reason}${data.detail ? ` · ${data.detail}` : ""}`;
     if (data.reason !== "done") content.classList.add("alarm");
   } else if (event.type === "c.job") {

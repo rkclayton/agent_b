@@ -146,6 +146,9 @@ func TestRenameAuthorsPinUserAndLeaveAuxUnpinned(t *testing.T) {
 	if item.Snapshot().Label != "User title" {
 		t.Fatalf("pin lost: %+v", item.Snapshot())
 	}
+	if err := registry.Rename(item.ID, "null"); err == nil || item.Snapshot().Label != "User title" {
+		t.Fatalf("literal null rename err=%v label=%q", err, item.Snapshot().Label)
+	}
 	if err := registry.Close(item.ID); err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import { basename, join } from "node:path";
 import { chromium } from "playwright";
 import { agentStates, assertPageStyleBoundary, provePageStyleBoundaryControl } from "./page-style-boundary.mjs";
 import { LIVE_VALUES, OTHER_CHAT_STATE, captureWithMasks } from "./screenshot-masks.mjs";
+import { decodePNG } from "./png.mjs";
 
 const args = Object.fromEntries(Array.from({ length: Math.floor(process.argv.slice(2).length / 2) }, (_, index) => {
   const offset = index * 2 + 2;
@@ -1520,6 +1521,12 @@ if (realModel) {
   assert.equal(liveStop.visible, true, JSON.stringify(liveStop));
   assert.equal(liveStop.withinViewport, true, JSON.stringify(liveStop));
   assert.notEqual(liveStop.background, "rgba(0, 0, 0, 0)", JSON.stringify(liveStop));
+	const stopPixels = decodePNG(await page.locator("#chat-send").screenshot({ animations: "disabled" }));
+	let alarmPixels = 0;
+	for (let offset = 0; offset < stopPixels.data.length; offset += 4) {
+		if (stopPixels.data[offset] === 0xE4 && stopPixels.data[offset + 1] === 0x62 && stopPixels.data[offset + 2] === 0x4F && stopPixels.data[offset + 3] === 0xFF) alarmPixels++;
+	}
+	assert.ok(alarmPixels > 200, `live Stop button is not painted alarm red: ${alarmPixels} exact pixels`);
   assert.match(liveStop.status, /(?:prompt|thinking|writing|calling) .*(?:tokens|B|kB|MB)/, JSON.stringify(liveStop));
   const stopStart = Date.now();
   await page.locator("#chat-send").click();
@@ -1988,6 +1995,21 @@ if (realModel) {
   const closedRow = page.locator(`.agent-chat-row[data-session="${idleCloseID}"]`);
   await closedRow.waitFor({ state: "visible" });
   assert.equal(await closedRow.locator(".agent-chat-delete").count(), 1, "closed row must expose Delete");
+	for (const width of [1250, 320]) {
+		await page.setViewportSize({ width, height: 975 });
+		const menuRows = await page.evaluate(() => [...document.querySelectorAll(".agent-chat-row")].map((row) => {
+			const box = row.getBoundingClientRect();
+			const children = [...row.children].map((child) => { const value = child.getBoundingClientRect(); return { top: value.top, bottom: value.bottom, text: child.textContent, clipped: child.scrollWidth > child.clientWidth && !child.classList.contains("agent-chat-summary") }; });
+			return { height: box.height, top: box.top, bottom: box.bottom, text: row.textContent, children };
+		}));
+		assert.ok(menuRows.length > 0, `no chat rows at ${width}`);
+		for (const row of menuRows) {
+			assert.ok(row.height <= 24, JSON.stringify({ width, row }));
+			assert.doesNotMatch(row.text, /(?:^|\s)null(?:\s|$)/i, JSON.stringify({ width, row }));
+			assert.ok(row.children.every((child) => child.top >= row.top && child.bottom <= row.bottom && !child.clipped), JSON.stringify({ width, row }));
+		}
+	}
+	await page.setViewportSize({ width: 1250, height: 975 });
   await closedRow.locator(".agent-chat-summary").click();
   await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"]`).waitFor({ state: "visible" });
   assert.equal((await state()).sessions[idleCloseID]?.closed, false, "closed row click must reopen the chat");

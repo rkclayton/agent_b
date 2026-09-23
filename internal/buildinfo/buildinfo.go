@@ -14,7 +14,7 @@ import (
 var (
 	Commit string
 	Dirty  string
-	Tag    = "v1.6.2"
+	Tag    = "v1.6.3"
 )
 
 type Info struct {

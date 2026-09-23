@@ -10,7 +10,7 @@ import { attachmentChipFile, attachmentMetadata, exchangeFiles, exchangeUpload, 
 import { attachmentReadability } from "./attachment-readability.js";
 import { agentAuthor, isRunning, openSessions, sameWorkerPlan, workerApproval } from "./chat-lifecycle.js";
 import { renderSendStop } from "./stop-state.js";
-import { groupResponseRows, hasVisibleChatContent, itemFailed, responseBlocks, responseHasOnlyThoughts, responseSummary } from "./chat-response-groups.js";
+import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, itemFailed, responseBlocks, responseHasOnlyThoughts, responseSummary } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
 import { renderChatProposals } from "./chat-proposals.js";
@@ -511,7 +511,7 @@ function renderResponseStepFold(session, view, block, active, directThoughts) {
   // Item 2eo: one tool call and one thought are two rows, not a group.
   // Active rows are pinned open, so drawing a disclosure for them would be an
   // inert control. Thought-only rows never need a grouping disclosure either.
-  const headerless = active || directThoughts;
+  const headerless = active || directThoughts || isHeaderlessSteps(block.steps);
   const open = active || headerless || expanded.has(block.key);
   view.head.hidden = headerless;
   view.fold.classList.toggle("headerless", headerless);
@@ -975,8 +975,9 @@ function renderComposer(session) {
   // A reachable open request says what it is doing and how much it has done;
   // the old sticky "model busy" condition is never the whole status line.
   const modelLine = unreachable ? "model unreachable" : "";
-  const busyFallback = busy && !activity ? "prompt 0 tokens processing" : "";
-  const primary = session && !session.runnable ? session.not_runnable_reason : modelLine || activity || busyFallback || state;
+  const measuredActivity = /^(?:prompt|thinking|writing|calling) /.test(activity) ? activity : "";
+  const busyLine = busy ? measuredActivity || "prompt 0 tokens processing" : activity;
+  const primary = modelLine || busyLine || (session && !session.runnable ? session.not_runnable_reason : state);
   const updateLine = updateAvailableText(store.update);
   const message = localNotice || micNotice || (modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil, updateLine].filter(Boolean).join(" · "));
   // Live state, not decoration: the robot runs beside the live line for exactly

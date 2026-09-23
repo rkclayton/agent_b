@@ -94,7 +94,7 @@ test("Degraded accounting is labeled estimated in the Chat occupancy bar", () =>
 test("State strip owns queue operator pending and unreachable state without chat rows", () => {
   assert.match(html, /id="chat-status-strip"[\s\S]*id="chat-notice"[\s\S]*id="chat-retry-model"/);
   assert.doesNotMatch(html + chat, /chat-run-as-you/);
-  assert.match(chat, /const busyFallback = busy && !activity \? "prompt 0 tokens processing" : ""/);
+  assert.match(chat, /const busyLine = busy \? measuredActivity \|\| "prompt 0 tokens processing" : activity/);
 	assert.doesNotMatch(chat, /model busy · \$\{busy\.host/);
 	assert.match(chat, /session\.server_id \|\| session\.b_profile/);
   assert.match(chat, /queued \(\$\{queued\}\).*waiting for model/);

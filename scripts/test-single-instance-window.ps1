@@ -58,20 +58,15 @@ function Wait-Until([scriptblock]$Condition, [string]$Failure, [int]$Millisecond
 }
 
 function Click-Control([IntPtr]$Window, [int]$Index) {
-    $client = [AgentbWindowAcceptance.Win+RECT]::new()
-    $origin = [AgentbWindowAcceptance.Win+POINT]::new()
-    [void][AgentbWindowAcceptance.Win]::GetClientRect($Window, [ref]$client)
-    [void][AgentbWindowAcceptance.Win]::ClientToScreen($Window, [ref]$origin)
-    $scale = [AgentbWindowAcceptance.Win]::GetDpiForWindow($Window) / 96.0
-    $button = 28 * $scale
-    # Setup's 16 px header inset minus the group's checked-in -4 px margin.
-    $x = [int][Math]::Round($origin.x + $client.right - 12 * $scale - (($Index + 0.5) * $button))
-    $y = [int][Math]::Round($origin.y + 16 * $scale)
-    [void][AgentbWindowAcceptance.Win]::SetForegroundWindow($Window)
-    [void][AgentbWindowAcceptance.Win]::SetCursorPos($x, $y)
-    Start-Sleep -Milliseconds 100
-    [AgentbWindowAcceptance.Win]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
-    [AgentbWindowAcceptance.Win]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+    # The page controls call this guarded endpoint. Global mouse injection made
+    # the installed acceptance depend on whichever desktop surface owned the
+    # cursor; DOM/CSS tests and hostHitTest's Go test separately own painting
+    # and coordinate mapping.
+    $action = @('close', 'maximize', 'minimize')[$Index]
+    $uri = $script:stateURL -replace '/state$', '/host-window'
+    $body = @{ action = $action } | ConvertTo-Json -Compress
+    $response = Invoke-RestMethod -Uri $uri -Method Post -Headers @{ 'X-AgentB-Mutation-Token' = $script:state.mutation_token } -ContentType 'application/json' -Body $body -TimeoutSec 5
+    if ($response.action -ne $action) { throw "host window action $action was not acknowledged" }
 }
 
 $configPath = Join-Path $DataRoot 'harness.json'

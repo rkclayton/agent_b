@@ -28,6 +28,8 @@ try {
     $null = New-ItemProperty -Path $conflict -Name DisplayName -Value 'Agent_b' -Force
     $null = New-ItemProperty -Path $conflict -Name Publisher -Value 'rkclayton' -Force
     $null = New-ItemProperty -Path $conflict -Name InstallLocation -Value $conflictRoot -Force
+    $conflictUninstall = '"C:\Agent_b alternate\uninstall.exe" /exact'
+    $null = New-ItemProperty -Path $conflict -Name UninstallString -Value $conflictUninstall -Force
 
     $registrations = @(Get-AgentBInstallRegistrations -Roots @($root) -CanonicalRegistryPath $canonical)
     if ($registrations.Count -ne 3 -or @($registrations | Where-Object IsCanonical).Count -ne 1) {
@@ -37,7 +39,7 @@ try {
         $null = Get-AgentBRegistrationPreflight -Registrations $registrations
         throw 'A live alternate installation was accepted.'
     } catch {
-        if ($_.Exception.Message -notmatch 'another Agent_b installation') { throw }
+        if ($_.Exception.Message -notmatch 'Agent_b is registered' -or $_.Exception.Message -notmatch [regex]::Escape($conflictUninstall)) { throw }
     }
 
     $conflictRegistryPath = $conflict

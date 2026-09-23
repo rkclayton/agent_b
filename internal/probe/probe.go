@@ -86,6 +86,12 @@ func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, [
 	cancel()
 	caps.ApplyTemplateTools = err == nil && strings.Contains(prompt, "probe_tool")
 	findings = append(findings, applyTemplateFinding("apply-template tools", caps.ApplyTemplateTools, prompt, err, "rendered prompt omitted probe_tool"))
+	for _, shape := range accountingApplyTemplateProbeShapes(dummy) {
+		check, cancel = context.WithTimeout(ctx, 20*time.Second)
+		prompt, shapeErr := client.ApplyTemplate(check, shape.messages, shape.tools)
+		cancel()
+		findings = append(findings, applyTemplateFinding("apply-template shape "+shape.name, shapeErr == nil && prompt != "", prompt, shapeErr, ""))
+	}
 
 	if profile.ProbeMode == "full" {
 		check, cancel = context.WithTimeout(ctx, 20*time.Second)
@@ -131,6 +137,25 @@ func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, [
 	probeReasoning(ctx, client, profile, &caps, &findings)
 	probeOverflow(ctx, client, profile, &caps, &findings)
 	return finish(caps, findings)
+}
+
+type applyTemplateProbeShape struct {
+	name     string
+	messages []llm.Message
+	tools    []any
+}
+
+func accountingApplyTemplateProbeShapes(dummy []any) []applyTemplateProbeShape {
+	toolCall := llm.ToolCall{ID: "probe-call", Type: "function", Function: llm.FunctionCall{Name: "probe_tool", Arguments: `{}`}}
+	return []applyTemplateProbeShape{
+		{name: "system", messages: []llm.Message{{Role: "system", Content: "Agent_b accounting probe"}}},
+		{name: "user", messages: []llm.Message{{Role: "user", Content: "Agent_b accounting sentinel"}}},
+		{name: "system,user", messages: []llm.Message{{Role: "system", Content: "Agent_b accounting probe"}, {Role: "user", Content: "Agent_b accounting sentinel"}}},
+		{name: "system,user + tools", messages: []llm.Message{{Role: "system", Content: "Agent_b accounting probe"}, {Role: "user", Content: "Agent_b accounting sentinel"}}, tools: dummy},
+		{name: "system,user,assistant", messages: []llm.Message{{Role: "system", Content: "Agent_b accounting probe"}, {Role: "user", Content: "probe"}, {Role: "assistant", Content: "answer"}}},
+		{name: "system,user,assistant,user", messages: []llm.Message{{Role: "system", Content: "Agent_b accounting probe"}, {Role: "user", Content: "probe"}, {Role: "assistant", Content: "answer"}, {Role: "user", Content: "second turn"}}},
+		{name: "system,user,assistant(tool),tool + tools", messages: []llm.Message{{Role: "system", Content: "Agent_b accounting probe"}, {Role: "user", Content: "probe tool"}, {Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{toolCall}}, {Role: "tool", Content: "probe result", ToolCallID: "probe-call"}}, tools: dummy},
+	}
 }
 
 func applyTemplateFinding(name string, available bool, prompt string, err error, missing string) string {

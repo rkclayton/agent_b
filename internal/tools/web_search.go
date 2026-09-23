@@ -21,7 +21,12 @@ import (
 //go:embed web_search_news.json
 var webSearchNewsJSON []byte
 
-var initiallyBenchedWebSearchEngines = map[string]bool{"startpage": true, "mojeek": true}
+var initiallyBenchedWebSearchEngines = map[string]string{
+	"startpage":       "W0 fixed-query page did not parse",
+	"mojeek":          "W0 fixed-query page did not parse",
+	"duckduckgo_html": "2026-09-23 capability fixed query returned zero results",
+	"duckduckgo_lite": "2026-09-23 capability fixed query returned zero results",
+}
 
 type webSearchHealth struct {
 	ConsecutiveFailures int
@@ -53,8 +58,8 @@ func newWebSearch(fetch *Fetch, cfg config.WebSearchTool, adapters []webSearchAd
 	tool := &WebSearch{cfg: cfg, fetch: fetch, adapters: append([]webSearchAdapter(nil), adapters...), health: map[string]webSearchHealth{}, now: time.Now}
 	if initialBench {
 		until := tool.now().Add(time.Duration(cfg.BenchDurationMinutes) * time.Minute)
-		for name := range initiallyBenchedWebSearchEngines {
-			tool.health[name] = webSearchHealth{ConsecutiveFailures: 3, LastError: "W0 fixed-query page did not parse", BenchedUntil: until}
+		for name, reason := range initiallyBenchedWebSearchEngines {
+			tool.health[name] = webSearchHealth{ConsecutiveFailures: 3, LastError: reason, BenchedUntil: until}
 		}
 	}
 	return tool

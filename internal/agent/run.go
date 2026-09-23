@@ -283,6 +283,15 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		if !ok {
 			return "profile_not_runnable", "profile not found", turn - 1
 		}
+		// An invalid durable tool call is a history-shape problem, not an
+		// accounting endpoint failure. Repair it before any template or tokenizer
+		// request so the one accounting degrade boundary never has to leak an
+		// endpoint error merely to trigger history repair.
+		if !accountingRepairTried && r.repairMalformedToolCall(ctx, s, runID, profile, currentReasoning) {
+			accountingRepairTried = true
+			turn--
+			continue
+		}
 		client := llm.New(profile)
 		state := s.Snapshot().Run
 		state.Turn = turn

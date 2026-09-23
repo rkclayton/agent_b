@@ -11,7 +11,7 @@ import (
 	"harness/internal/tools"
 )
 
-func TestPublishBudgetMarksDialFailureUnreachableAndKeepsBudgetError(t *testing.T) {
+func TestPublishBudgetDialFailurePublishesEstimatedBudget(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ func TestPublishBudgetMarksDialFailureUnreachableAndKeepsBudgetError(t *testing.
 
 	runner.PublishBudget(context.Background(), item)
 
-	var budgetError, unreachable bool
+	var budgetError, unreachable, estimated bool
 	for _, event := range bus.Recent(item.ID) {
 		data, _ := event.Data.(map[string]any)
 		if event.Type == events.Error && data["where"] == "budget" {
@@ -61,11 +61,14 @@ func TestPublishBudgetMarksDialFailureUnreachableAndKeepsBudgetError(t *testing.
 		if event.Type == events.ModelUnreachable && data["host"] == address {
 			unreachable = true
 		}
+		if budget, ok := event.Data.(events.Budget); event.Type == events.BudgetEvent && ok && budget.Estimated && len(budget.Findings) == 1 {
+			estimated = true
+		}
 	}
-	if !budgetError || !unreachable {
-		t.Fatalf("budget_error=%t model_unreachable=%t events=%#v", budgetError, unreachable, bus.Recent(item.ID))
+	if budgetError || unreachable || !estimated {
+		t.Fatalf("budget_error=%t model_unreachable=%t estimated=%t events=%#v", budgetError, unreachable, estimated, bus.Recent(item.ID))
 	}
-	if reportedSession != item.ID || reportedProfile != profile.ID {
+	if reportedSession != "" || reportedProfile != "" {
 		t.Fatalf("reachability callback session=%q profile=%q", reportedSession, reportedProfile)
 	}
 }

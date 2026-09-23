@@ -11,6 +11,10 @@ param(
     [string]$SigningThumbprint,
     # Test-only registry roots used by the singleton-registration scenarios.
     [string[]]$RegistrationSearchRoots,
+    # Test-only alternate roots used by the copy-classification scenarios.
+    [string[]]$AlternateBinaryRoots,
+    # Set only by the verified single-file setup after extracting its payload.
+    [switch]$EmbeddedBundle,
     [switch]$TestMode,
     [switch]$NoStart,
     [switch]$ForcePostStopVerificationFailure,
@@ -26,6 +30,11 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 $displayVersion = '1.6.3'
+
+if (-not $TestMode -and -not $EmbeddedBundle) {
+    Write-Output 'Agent_b installs come from the signed Agent_b-setup.exe on the release page.'
+    exit 1
+}
 
 # Write-InstallProgress appends one JSONL line the Setup page can render. It
 # never fails the install: the install is the point, the readout is not.
@@ -285,6 +294,39 @@ function Get-InstalledProcesses {
     return @($matches)
 }
 
+function Archive-OrphanedAlternateInstall {
+    param([string]$AlternateRoot)
+    $full = Get-FullPath $AlternateRoot
+    $operatorRoot = Get-FullPath $OperatorLocalAppData
+    if (-not (Test-PathInside $full $operatorRoot)) {
+        throw "Installation refused: unregistered Agent_b executable is outside the invoking user's profile at $full."
+    }
+    $links = @(Get-ChildItem -LiteralPath $full -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint })
+    if ((Get-Item -LiteralPath $full -Force).Attributes -band [IO.FileAttributes]::ReparsePoint -or $links.Count) {
+        throw "Installation refused: the orphaned Agent_b copy at $full contains a junction or link and cannot be archived safely."
+    }
+    $archiveParent = Join-Path (Split-Path -Parent $script:installTranscriptPath) 'alternate-install-archive'
+    $null = New-Item -ItemType Directory -Path $archiveParent -Force
+    $archivePath = Join-Path $archiveParent ((Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + [Guid]::NewGuid().ToString('N'))
+    Copy-Item -LiteralPath $full -Destination $archivePath -Recurse -Force
+    $sourceFiles = @(Get-ChildItem -LiteralPath $full -File -Recurse -Force)
+    $archiveFiles = @(Get-ChildItem -LiteralPath $archivePath -File -Recurse -Force)
+    if ($sourceFiles.Count -ne $archiveFiles.Count -or -not (Test-Path -LiteralPath (Join-Path $archivePath 'Agent_b.exe') -PathType Leaf)) {
+        throw "Installation refused: the orphaned Agent_b copy at $full could not be verified in its archive."
+    }
+    foreach ($sourceFile in $sourceFiles) {
+        $relative = $sourceFile.FullName.Substring($full.Length).TrimStart('\')
+        $archivedFile = Join-Path $archivePath $relative
+        if (-not (Test-Path -LiteralPath $archivedFile -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $archivedFile -Algorithm SHA256).Hash) {
+            throw "Installation refused: the orphaned Agent_b copy at $full could not be verified in its archive."
+        }
+    }
+    Remove-TreeWithinAllowedRoots -Path $full -AllowedRoots @($operatorRoot) -Purpose 'orphaned alternate Agent_b cleanup'
+    Write-Host "ARCHIVED ORPHAN: $full -> $archivePath; removed original after archive verification."
+    return $archivePath
+}
+
 function Stop-InstalledProcesses {
     param([System.Diagnostics.Process[]]$Processes)
     if (-not $Processes.Count) { return }
@@ -482,6 +524,7 @@ Assert-TestPath $dataRoot
 Assert-TestPath $workspaceRoot
 if ($ForcePostStopVerificationFailure -and -not $TestMode) { throw 'ForcePostStopVerificationFailure is available only with TestMode.' }
 if ($RegistrationSearchRoots.Count -and -not $TestMode) { throw 'RegistrationSearchRoots is available only with TestMode.' }
+if ($AlternateBinaryRoots.Count -and -not $TestMode) { throw 'AlternateBinaryRoots is available only with TestMode.' }
 Assert-DisjointRoots @($applicationRoot, $dataRoot, $workspaceRoot)
 if ($sourceRoot.Equals($applicationRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'SourceDirectory and ApplicationDirectory must be different.' }
 if (-not $TestMode) {
@@ -508,17 +551,35 @@ if (-not $TestMode) {
 }
 $relatedRegistrations = @(Get-AgentBInstallRegistrations -Roots $RegistrationSearchRoots -CanonicalRegistryPath $UninstallRegistryPath)
 $staleRegistrations = @(Get-AgentBRegistrationPreflight -Registrations $relatedRegistrations)
-$alternateBinaryRoots = if ($TestMode) { @() } else {
+$alternateBinaryRoots = if ($TestMode) { @($AlternateBinaryRoots) } else {
     @(
         (Join-Path $OperatorLocalAppData 'Programs\Agent_b'),
         $(if (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} 'Agent_b' })
     ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 }
 foreach ($alternateRoot in $alternateBinaryRoots) {
+    $alternateRoot = Get-FullPath $alternateRoot
     $alternateBinary = Join-Path $alternateRoot 'Agent_b.exe'
     if ((-not $alternateRoot.Equals($applicationRoot, [StringComparison]::OrdinalIgnoreCase)) -and
         (Test-Path -LiteralPath $alternateBinary -PathType Leaf)) {
-        throw "Installation refused: another Agent_b executable exists at $alternateBinary. Remove that installation before installing this copy."
+        $registration = @($relatedRegistrations | Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_.Executable) -and
+            (Get-FullPath $_.Executable).Equals((Get-FullPath $alternateBinary), [StringComparison]::OrdinalIgnoreCase)
+        } | Select-Object -First 1)
+        if ($registration.Count) {
+            $uninstall = if (-not [string]::IsNullOrWhiteSpace($registration[0].UninstallString)) { $registration[0].UninstallString } else { $registration[0].QuietUninstallString }
+            if ([string]::IsNullOrWhiteSpace($uninstall)) { $uninstall = 'Remove it through Windows Installed apps.' }
+            throw "Installation refused: $($registration[0].DisplayName) is registered at $alternateRoot. Uninstall command: $uninstall"
+        }
+        $alternateProcesses = @(Get-InstalledProcesses $alternateBinary)
+        if ($alternateProcesses.Count) {
+            throw "Installation refused: Agent_b is running from $alternateBinary as PID(s) $(@($alternateProcesses.Id) -join ', ')."
+        }
+        $alternateMarker = Join-Path $alternateRoot 'agent_b-run.json'
+        if (Test-Path -LiteralPath $alternateMarker -PathType Leaf) {
+            throw "Installation refused: the unregistered Agent_b copy at $alternateRoot has a run marker at $alternateMarker."
+        }
+        $null = Archive-OrphanedAlternateInstall -AlternateRoot $alternateRoot
     }
 }
 
@@ -566,6 +627,7 @@ if ((-not (Test-IsAdministrator) -or $PSVersionTable.PSEdition -ne 'Desktop') -a
 	)
     if ($SigningThumbprint) { $arguments += @('-SigningThumbprint', $SigningThumbprint) }
     if ($NoStart) { $arguments += '-NoStart' }
+    $arguments += '-EmbeddedBundle'
     $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     Stop-InstallTranscript
     if (Test-IsAdministrator) {

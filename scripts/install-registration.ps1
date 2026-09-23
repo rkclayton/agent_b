@@ -18,6 +18,8 @@ function Get-AgentBInstallRegistrations {
                 DisplayName = [string]$property.DisplayName
                 InstallLocation = $location
                 Executable = $executable
+                UninstallString = [string]$property.UninstallString
+                QuietUninstallString = [string]$property.QuietUninstallString
                 IsCanonical = $key.PSChildName.Equals($canonicalLeaf, [StringComparison]::OrdinalIgnoreCase) -and
                     $root.Equals((Split-Path -Parent $CanonicalRegistryPath), [StringComparison]::OrdinalIgnoreCase)
                 HasExecutable = -not [string]::IsNullOrWhiteSpace($executable) -and (Test-Path -LiteralPath $executable -PathType Leaf)
@@ -34,7 +36,9 @@ function Get-AgentBRegistrationPreflight {
         if ($registration.IsCanonical) { continue }
         if ($registration.HasExecutable) {
             $location = if ([string]::IsNullOrWhiteSpace($registration.InstallLocation)) { $registration.Executable } else { $registration.InstallLocation }
-            throw "Installation refused: another Agent_b installation is registered at $location. Remove it through Windows Installed apps before installing this copy."
+            $uninstall = if (-not [string]::IsNullOrWhiteSpace($registration.UninstallString)) { $registration.UninstallString } else { $registration.QuietUninstallString }
+            if ([string]::IsNullOrWhiteSpace($uninstall)) { $uninstall = 'Remove it through Windows Installed apps.' }
+            throw "Installation refused: $($registration.DisplayName) is registered at $location. Uninstall command: $uninstall"
         }
         $stale += $registration
     }

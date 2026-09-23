@@ -127,6 +127,7 @@ func runInstall(options installOptions, args []string) int {
 
 	source := options.sourceDir
 	var removeSource func()
+	embeddedBundle := false
 	if source == "" {
 		executable, err := os.Executable()
 		if err != nil {
@@ -137,6 +138,7 @@ func runInstall(options installOptions, args []string) int {
 			return log.fail("embedded installer payload is invalid: %v", extractErr)
 		} else if found {
 			source, removeSource = embedded, cleanup
+			embeddedBundle = true
 			defer removeSource()
 			log.printf("install: verified and extracted the embedded application payload")
 		}
@@ -161,7 +163,11 @@ func runInstall(options installOptions, args []string) int {
 	// Item 2gl (v1.2.6): the installer writes the progress file ITSELF, so the
 	// readout survives this wrapper. Closing the window this process lives in
 	// used to freeze the Setup page for an install that was still running.
-	scriptArgs := append([]string{"-NoLogo", "-NoProfile", "-File", script, "-ProgressFile", installProgressPath(dataRoot)}, args...)
+	scriptArgs := []string{"-NoLogo", "-NoProfile", "-File", script, "-ProgressFile", installProgressPath(dataRoot)}
+	if embeddedBundle {
+		scriptArgs = append(scriptArgs, "-EmbeddedBundle")
+	}
+	scriptArgs = append(scriptArgs, args...)
 	command := exec.Command(powershell, scriptArgs...)
 	command.Dir = source
 	// A setup launched from PowerShell 7 inherits its PSModulePath. Windows

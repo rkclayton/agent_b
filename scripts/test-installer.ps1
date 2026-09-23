@@ -219,6 +219,62 @@ try {
 	}
 	Write-Host 'PROOF single-file setup: browser-renamed Agent_b-setup (1).exe extracted, regenerated its manifest, and completed TestMode/WhatIf preflight'
 
+    $directOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer 2>&1 | Out-String).Trim()
+    $directExit = $LASTEXITCODE
+    $directSentence = 'Agent_b installs come from the signed Agent_b-setup.exe on the release page.'
+    if ($directExit -eq 0 -or $directOutput -cne $directSentence) {
+        throw "Direct source-tree installer did not refuse with its one release-page sentence.`n$directOutput"
+    }
+    Write-Host "PROOF direct source-tree refusal: $directSentence"
+
+    $alternateProfile = Join-Path $testRoot 'AlternateProfile'
+    $registeredRoot = Join-Path $alternateProfile 'Registered\Agent_b'
+    $null = New-Item -ItemType Directory -Path $registeredRoot -Force
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Agent_b.exe') -Destination (Join-Path $registeredRoot 'Agent_b.exe')
+    $registrationRoot = $testRegistry + '-AlternateRoot'
+    $registrationKey = Join-Path $registrationRoot 'Agent_bOther'
+    $exactUninstall = '"C:\Alternate Agent_b\uninstall.exe" /exact-test'
+    $null = New-Item -Path $registrationKey -Force
+    foreach ($entry in ([ordered]@{ Publisher = 'rkclayton'; DisplayName = 'Agent_b Alpha'; InstallLocation = $registeredRoot; UninstallString = $exactUninstall }).GetEnumerator()) {
+        $null = New-ItemProperty -Path $registrationKey -Name $entry.Key -Value $entry.Value -PropertyType String -Force
+    }
+    $savedErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $registeredOutput = (& $singleSetup --quiet --install-data (Join-Path $testRoot 'RegisteredData') -ApplicationDirectory (Join-Path $testRoot 'RegisteredApplication\Agent_b') -DataDirectory (Join-Path $testRoot 'RegisteredData\Agent_b') -WorkspaceDirectory (Join-Path $testRoot 'RegisteredWorkspace\workspace') -StartMenuDirectory (Join-Path $testRoot 'RegisteredStart') -UninstallRegistryPath ($testRegistry + '-RegisteredCanonical') -RegistrationSearchRoots $registrationRoot -AlternateBinaryRoots $registeredRoot -OperatorLocalAppData $alternateProfile -TestMode -WhatIf 2>&1 | Out-String)
+        $registeredExit = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $savedErrorAction }
+    $registeredLog = Get-ChildItem -LiteralPath (Join-Path $testRoot 'RegisteredData\logs') -Filter 'installer-*.log' -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    $registeredRecord = $registeredOutput + [Environment]::NewLine + $(if ($registeredLog) { Get-Content -Raw -LiteralPath $registeredLog.FullName } else { '' })
+    if ($registeredExit -eq 0 -or $registeredRecord -notmatch [regex]::Escape('Agent_b Alpha') -or $registeredRecord -notmatch [regex]::Escape($exactUninstall) -or -not (Test-Path -LiteralPath (Join-Path $registeredRoot 'Agent_b.exe'))) {
+        throw "Registered alternate copy was not refused with its display name and exact uninstall command.`n$registeredOutput"
+    }
+    Write-Host "PROOF registered alternate refusal: Agent_b Alpha; uninstall command $exactUninstall"
+    $testRegistryPath = $registrationRoot
+    Remove-Item -LiteralPath $testRegistryPath -Recurse -Force
+
+    $runningRoot = Join-Path $alternateProfile 'Running\Agent_b'
+    $null = New-Item -ItemType Directory -Path $runningRoot -Force
+    Copy-Item -LiteralPath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -Destination (Join-Path $runningRoot 'Agent_b.exe')
+    $runningAlternate = Start-Process -FilePath (Join-Path $runningRoot 'Agent_b.exe') -ArgumentList '-NoLogo -NoProfile -Command "Start-Sleep -Seconds 60"' -WindowStyle Hidden -PassThru
+    try {
+        $savedErrorAction = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $runningOutput = (& $singleSetup --quiet --install-data (Join-Path $testRoot 'RunningData') -ApplicationDirectory (Join-Path $testRoot 'RunningApplication\Agent_b') -DataDirectory (Join-Path $testRoot 'RunningData\Agent_b') -WorkspaceDirectory (Join-Path $testRoot 'RunningWorkspace\workspace') -StartMenuDirectory (Join-Path $testRoot 'RunningStart') -UninstallRegistryPath ($testRegistry + '-Running') -AlternateBinaryRoots $runningRoot -OperatorLocalAppData $alternateProfile -TestMode -WhatIf 2>&1 | Out-String)
+            $runningExit = $LASTEXITCODE
+        } finally { $ErrorActionPreference = $savedErrorAction }
+        $runningLog = Get-ChildItem -LiteralPath (Join-Path $testRoot 'RunningData\logs') -Filter 'installer-*.log' -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+        $runningRecord = $runningOutput + [Environment]::NewLine + $(if ($runningLog) { Get-Content -Raw -LiteralPath $runningLog.FullName } else { '' })
+        if ($runningExit -eq 0 -or $runningRecord -notmatch [regex]::Escape("PID(s) $($runningAlternate.Id)") -or $runningAlternate.HasExited) {
+            throw "Running alternate copy was not refused with its PID.`n$runningOutput"
+        }
+        Write-Host "PROOF running alternate refusal: PID $($runningAlternate.Id) remained running"
+    } finally {
+        if (-not $runningAlternate.HasExited) { Stop-Process -Id $runningAlternate.Id -Force }
+        $runningAlternate.WaitForExit()
+    }
+
     # A completed copy followed by a launch failure must end with one useful
     # line naming the durable log. Holding the disposable listen port produces
     # the real launcher failure without changing production or another root.
@@ -240,10 +296,13 @@ try {
     $savedNoBrowser = $env:AGENT_B_INSTALL_NO_BROWSER
     $env:AGENT_B_INSTALL_LOG = $launchFailLog
     $env:AGENT_B_INSTALL_NO_BROWSER = '1'
+    $savedErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
         $launchFailOutput = (& $singleSetup --quiet --install-data $launchFailData -ApplicationDirectory $launchFailApplication -DataDirectory $launchFailData -WorkspaceDirectory (Join-Path $launchFailRoot 'ProgramData\Agent_b\workspace') -StartMenuDirectory (Join-Path $launchFailRoot 'StartMenu') -UninstallRegistryPath ($testRegistry + '-LaunchFail') -TestMode 2>&1 | Out-String)
         $launchFailExit = $LASTEXITCODE
     } finally {
+        $ErrorActionPreference = $savedErrorAction
         $portBlocker.Stop()
         $env:AGENT_B_INSTALL_LOG = $savedInstallLog
         $env:AGENT_B_INSTALL_NO_BROWSER = $savedNoBrowser
@@ -282,19 +341,33 @@ try {
     $freshConfig.memory.dir = Join-Path $testData 'memory'
     [IO.File]::WriteAllText((Join-Path $testData 'harness.json'), ($freshConfig | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
     $freshTranscriptPath = Join-Path $testData 'logs\fresh-single-file-transcript.log'
+    $orphanRoot = Join-Path $alternateProfile 'Orphan\Agent_b'
+    $null = New-Item -ItemType Directory -Path $orphanRoot -Force
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Agent_b.exe') -Destination (Join-Path $orphanRoot 'Agent_b.exe')
+    [IO.File]::WriteAllText((Join-Path $orphanRoot 'orphan-proof.txt'), 'preserve me', [Text.UTF8Encoding]::new($false))
     $savedInstallLog = $env:AGENT_B_INSTALL_LOG
     $env:AGENT_B_INSTALL_LOG = $freshTranscriptPath
+    $savedErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
-        $freshOutput = (& $singleSetup --quiet --install-data $testData -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode 2>&1 | Out-String)
+        $freshOutput = (& $singleSetup --quiet --install-data $testData -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -AlternateBinaryRoots $orphanRoot -OperatorLocalAppData $alternateProfile -TestMode 2>&1 | Out-String)
         $freshExit = $LASTEXITCODE
-    } finally { $env:AGENT_B_INSTALL_LOG = $savedInstallLog }
+    } finally {
+        $ErrorActionPreference = $savedErrorAction
+        $env:AGENT_B_INSTALL_LOG = $savedInstallLog
+    }
     if ($freshExit -ne 0) { throw "First single-file install exited $freshExit.`n$freshOutput" }
+    $freshTranscript = Get-Content -Raw -LiteralPath $freshTranscriptPath
+    $archiveMatch = [regex]::Match($freshTranscript, '(?m)^ARCHIVED ORPHAN: .+ -> (.+); removed original after archive verification\.$')
+    if ((Test-Path -LiteralPath $orphanRoot) -or -not $archiveMatch.Success -or -not (Test-Path -LiteralPath (Join-Path $archiveMatch.Groups[1].Value.Trim() 'orphan-proof.txt') -PathType Leaf)) {
+        throw "Orphaned alternate copy was not archived and removed with a transcript path.`n$freshTranscript"
+    }
+    Write-Host "PROOF orphan archive: $($archiveMatch.Groups[1].Value.Trim()); original removed"
     $freshProcesses = @(Get-AgentBProcessesAtPath -Executable (Join-Path $testApplication 'Agent_b.exe'))
     if ($freshProcesses.Count -ne 1) { throw "Fresh single-file install did not start exactly one Agent_b: $(@($freshProcesses.Id) -join ', ')" }
     $freshTokenProof = Get-ProcessTokenProof -ProcessId $freshProcesses[0].Id
     if ($freshTokenProof.elevated) { throw "Fresh install started elevated PID $($freshTokenProof.pid)." }
     $freshState = Invoke-RestMethod -Uri "http://127.0.0.1:$testPort/api/state" -TimeoutSec 5
-    $freshTranscript = Get-Content -Raw -LiteralPath $freshTranscriptPath
     if ($freshTranscript -notmatch 'AUTOSTART COMPLETE:' -or $freshTranscript -notmatch 'OPENED: Agent_b (?:host|browser) window') {
         throw "Fresh install did not record a ready app and open window.`n$freshTranscript"
     }
@@ -651,10 +724,13 @@ try {
     $env:AGENT_B_INSTALL_LOG = $upgradeTranscriptPath
     $env:AGENT_B_INSTALL_NO_PAUSE = '1'
     $env:AGENT_B_INSTALL_NO_BROWSER = '1'
+    $savedErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
         $upgradeOutput = (& $singleSetup --quiet --install-data $testData -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode 2>&1 | Out-String)
         $upgradeExit = $LASTEXITCODE
     } finally {
+        $ErrorActionPreference = $savedErrorAction
         $env:AGENT_B_INSTALL_LOG = $savedInstallLog
         $env:AGENT_B_INSTALL_NO_PAUSE = $savedNoPause
         $env:AGENT_B_INSTALL_NO_BROWSER = $savedNoBrowser
@@ -739,10 +815,13 @@ try {
     $env:AGENT_B_INSTALL_LOG = $forcedTranscriptPath
     $env:AGENT_B_INSTALL_NO_PAUSE = '1'
     $env:AGENT_B_INSTALL_NO_BROWSER = '1'
+    $savedErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
         $forcedOutput = (& $singleSetup --quiet --install-data $testData -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode -ForcePostStopVerificationFailure 2>&1 | Out-String)
         $forcedExit = $LASTEXITCODE
     } finally {
+        $ErrorActionPreference = $savedErrorAction
         $env:AGENT_B_INSTALL_LOG = $savedInstallLog
         $env:AGENT_B_INSTALL_NO_PAUSE = $savedNoPause
         $env:AGENT_B_INSTALL_NO_BROWSER = $savedNoBrowser

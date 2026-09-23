@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"strings"
 	"sync"
@@ -41,14 +42,18 @@ type Budgeter struct {
 	toolCosts      map[string]cachedToolCosts
 	messageWeights map[string]map[string]cachedMessageWeight
 	sentinelCosts  map[string]int
+	loggedShapes   map[string]bool
 }
 
 const accountingSentinel = "Agent_b accounting sentinel"
 
-type applyTemplateAccountingError struct{ err error }
+type accountingEndpointError struct {
+	endpoint string
+	err      error
+}
 
-func (e *applyTemplateAccountingError) Error() string { return e.err.Error() }
-func (e *applyTemplateAccountingError) Unwrap() error { return e.err }
+func (e *accountingEndpointError) Error() string { return e.endpoint + ": " + e.err.Error() }
+func (e *accountingEndpointError) Unwrap() error { return e.err }
 
 type cachedToolCosts struct {
 	key      string
@@ -62,7 +67,7 @@ type cachedMessageWeight struct {
 }
 
 func NewBudgeter() *Budgeter {
-	return &Budgeter{states: map[string]*budgetState{}, toolCosts: map[string]cachedToolCosts{}, messageWeights: map[string]map[string]cachedMessageWeight{}, sentinelCosts: map[string]int{}}
+	return &Budgeter{states: map[string]*budgetState{}, toolCosts: map[string]cachedToolCosts{}, messageWeights: map[string]map[string]cachedMessageWeight{}, sentinelCosts: map[string]int{}, loggedShapes: map[string]bool{}}
 }
 func (b *Budgeter) state(id string) *budgetState {
 	b.mu.Lock()
@@ -154,30 +159,32 @@ func (b *Budgeter) saveSentinelCost(key string, tokens int) {
 	b.mu.Unlock()
 }
 func (b *Budgeter) Measure(ctx context.Context, profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool) (events.Budget, error) {
-	result, err := b.measure(ctx, profile, s, global, in, markRequest)
-	var templateErr *applyTemplateAccountingError
-	if errors.As(err, &templateErr) && ctx.Err() == nil && llm.TransportKindOf(err) != llm.TransportDial {
-		return b.estimateWithFindings(profile, s, global, in, markRequest, templateErr)
-	}
-	if err == nil || ctx.Err() != nil || llm.TransportKindOf(err) != llm.TransportConnected {
-		return result, err
-	}
-	return b.estimate(profile, s, global, in, markRequest)
+	return b.measureOrEstimate(ctx, profile, s, global, in, markRequest, nil)
 }
 
 func (b *Budgeter) MeasureWithBusy(ctx context.Context, profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool, onBusy func(error)) (events.Budget, error) {
+	return b.measureOrEstimate(ctx, profile, s, global, in, markRequest, onBusy)
+}
+
+func (b *Budgeter) measureOrEstimate(ctx context.Context, profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool, onBusy func(error)) (events.Budget, error) {
 	result, err := b.measure(ctx, profile, s, global, in, markRequest)
-	var templateErr *applyTemplateAccountingError
-	if errors.As(err, &templateErr) && ctx.Err() == nil && llm.TransportKindOf(err) != llm.TransportDial {
-		return b.estimateWithFindings(profile, s, global, in, markRequest, templateErr)
+	if err == nil || ctx.Err() != nil {
+		return result, err
 	}
-	if err == nil || ctx.Err() != nil || llm.TransportKindOf(err) != llm.TransportConnected {
+	var endpointErr *accountingEndpointError
+	if errors.As(err, &endpointErr) {
+		if onBusy != nil && llm.TransportKindOf(err) == llm.TransportConnected {
+			onBusy(err)
+		}
+		return b.estimateWithFindings(profile, s, global, in, markRequest, endpointErr)
+	}
+	if llm.TransportKindOf(err) != llm.TransportConnected {
 		return result, err
 	}
 	if onBusy != nil {
 		onBusy(err)
 	}
-	return b.estimate(profile, s, global, in, markRequest)
+	return b.estimateWithFindings(profile, s, global, in, markRequest, err)
 }
 
 func (b *Budgeter) estimate(profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool) (events.Budget, error) {
@@ -188,10 +195,32 @@ func (b *Budgeter) estimate(profile *config.Profile, s *session.Session, global 
 func (b *Budgeter) estimateWithFindings(profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool, cause error) (events.Budget, error) {
 	budget, err := b.estimate(profile, s, global, in, markRequest)
 	if err == nil {
-		budget.Findings = append(budget.Findings, "apply-template accounting failed; using estimated mode for this request: "+cause.Error())
+		budget.Findings = append(budget.Findings, "budget accounting failed; using estimated mode for this request: "+cause.Error())
 		s.SetBudget(budget)
 	}
 	return budget, err
+}
+
+func (b *Budgeter) logAccountingShape(messages []llm.Message, tools []any) {
+	shape := accountingShape(messages, tools)
+	b.mu.Lock()
+	if !b.loggedShapes[shape] {
+		b.loggedShapes[shape] = true
+		log.Printf("budget apply-template shape: %s", shape)
+	}
+	b.mu.Unlock()
+}
+
+func accountingShape(messages []llm.Message, tools []any) string {
+	roles := make([]string, 0, len(messages))
+	for _, message := range messages {
+		role := message.Role
+		if len(message.ToolCalls) > 0 {
+			role += "(tool_calls)"
+		}
+		roles = append(roles, role)
+	}
+	return strings.Join(roles, ",") + fmt.Sprintf(" tools=%t", tools != nil)
 }
 
 func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool) (events.Budget, error) {
@@ -299,15 +328,19 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 		}
 	} else {
 		applyTemplate := func(messages []llm.Message, tools []any) (string, error) {
+			b.logAccountingShape(messages, tools)
 			prompt, err := client.ApplyTemplate(ctx, messages, tools)
-			return prompt, err
-		}
-		render := func(messages []llm.Message, tools []any) (int, error) {
-			prompt, err := applyTemplate(messages, tools)
 			if err != nil {
-				return 0, err
+				return "", &accountingEndpointError{endpoint: "apply-template", err: err}
 			}
-			return client.Tokenize(ctx, prompt, false)
+			return prompt, nil
+		}
+		tokenize := func(prompt string) (int, error) {
+			value, err := client.Tokenize(ctx, prompt, false)
+			if err != nil {
+				return 0, &accountingEndpointError{endpoint: "tokenize", err: err}
+			}
+			return value, nil
 		}
 		sentinelKey := sentinelCostKey(profile)
 		sentinelCost, sentinelCached := b.cachedSentinelCost(sentinelKey)
@@ -315,24 +348,36 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 			var err error
 			prompt, err := applyTemplate([]llm.Message{{Role: "user", Content: accountingSentinel}}, nil)
 			if err != nil {
-				return events.Budget{}, &applyTemplateAccountingError{err: err}
+				return events.Budget{}, err
 			}
-			sentinelCost, err = client.Tokenize(ctx, prompt, false)
+			sentinelCost, err = tokenize(prompt)
 			if err != nil {
 				return events.Budget{}, err
 			}
 			b.saveSentinelCost(sentinelKey, sentinelCost)
 		}
-		renderSystem := func(system string, tools []any) (int, error) {
-			prompt, err := applyTemplate([]llm.Message{{Role: "system", Content: system}, {Role: "user", Content: accountingSentinel}}, tools)
-			if err != nil {
-				return 0, &applyTemplateAccountingError{err: err}
+		render := func(messages []llm.Message, tools []any) (int, error) {
+			prompt, err := applyTemplate(messages, tools)
+			if err == nil {
+				return tokenize(prompt)
 			}
-			value, err := client.Tokenize(ctx, prompt, false)
-			if err != nil {
+			var endpointErr *accountingEndpointError
+			if !errors.As(err, &endpointErr) || endpointErr.endpoint != "apply-template" || !strings.Contains(err.Error(), "No user query found in messages") {
 				return 0, err
 			}
+			repaired := append(append([]llm.Message(nil), messages...), llm.Message{Role: "user", Content: accountingSentinel})
+			prompt, repairErr := applyTemplate(repaired, tools)
+			if repairErr != nil {
+				return 0, fmt.Errorf("shape %s; sentinel repair failed: %w", accountingShape(messages, tools), repairErr)
+			}
+			value, tokenizeErr := tokenize(prompt)
+			if tokenizeErr != nil {
+				return 0, tokenizeErr
+			}
 			return max(0, value-sentinelCost), nil
+		}
+		renderSystem := func(system string, tools []any) (int, error) {
+			return render([]llm.Message{{Role: "system", Content: system}}, tools)
 		}
 		base, err := renderSystem(in.SystemBase, nil)
 		if err != nil {
@@ -384,7 +429,7 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 		} else {
 			estimated = append(estimated, "tools")
 			data, _ := json.Marshal(in.Schemas)
-			value, err := client.Tokenize(ctx, string(data), false)
+			value, err := tokenize(string(data))
 			if err != nil {
 				return events.Budget{}, fmt.Errorf("count tool schemas: %w", err)
 			}
@@ -393,7 +438,7 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 			if !costsCached {
 				for name, schema := range in.AllSchemas {
 					raw, _ := json.Marshal(schema)
-					value, err := client.Tokenize(ctx, string(raw), false)
+					value, err := tokenize(string(raw))
 					if err != nil {
 						return events.Budget{}, fmt.Errorf("count schema %s: %w", name, err)
 					}
@@ -405,7 +450,7 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 						return events.Budget{}, fmt.Errorf("count marginal system %s: %w", name, err)
 					}
 					withoutData, _ := json.Marshal(schemasWithout(in.Schemas, name))
-					value, err := client.Tokenize(ctx, string(withoutData), false)
+					value, err := tokenize(string(withoutData))
 					if err != nil {
 						return events.Budget{}, fmt.Errorf("count marginal schema %s: %w", name, err)
 					}
@@ -428,26 +473,9 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 					return events.Budget{}, fmt.Errorf("incomplete tool-call group")
 				}
 			}
-			renderedPrefix := prefix
-			sentinelAdjusted := len(renderedPrefix) > 1
-			for _, candidate := range renderedPrefix[1:] {
-				if candidate.Role != "system" {
-					sentinelAdjusted = false
-					break
-				}
-			}
-			if sentinelAdjusted {
-				renderedPrefix = append(append([]llm.Message(nil), prefix...), llm.Message{Role: "user", Content: accountingSentinel})
-			}
-			current, err := render(renderedPrefix, activeTools)
+			current, err := render(prefix, activeTools)
 			if err != nil {
-				if sentinelAdjusted {
-					return events.Budget{}, &applyTemplateAccountingError{err: err}
-				}
 				return events.Budget{}, err
-			}
-			if sentinelAdjusted {
-				current = max(0, current-sentinelCost)
 			}
 			if !profile.Capabilities.ApplyTemplateTools {
 				current += categories["tools"]
@@ -461,12 +489,12 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 				weightKey := messageWeightKey(profile, candidate)
 				weight, cached := b.cachedMessageWeight(s.ID, record.ID, weightKey)
 				if !cached {
-					weight, err = client.Tokenize(ctx, messageText(candidate.Content)+candidate.ReasoningContent, false)
+					weight, err = tokenize(messageText(candidate.Content) + candidate.ReasoningContent)
 					if err != nil {
 						return events.Budget{}, fmt.Errorf("weight message %d: %w", index+offset, err)
 					}
 					for _, call := range candidate.ToolCalls {
-						value, err := client.Tokenize(ctx, call.Function.Arguments, false)
+						value, err := tokenize(call.Function.Arguments)
 						if err != nil {
 							return events.Budget{}, fmt.Errorf("weight tool call %s: %w", call.Function.Name, err)
 						}

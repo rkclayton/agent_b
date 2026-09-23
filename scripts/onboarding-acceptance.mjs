@@ -125,6 +125,13 @@ try {
   assert.equal(await page.locator("h1").textContent(), "Evaluation Harness", `connection Test failed: ${await page.locator(".setup-feedback").textContent().catch(() => "no feedback")}`);
   if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-3-evaluation-harness.png") });
   await page.locator('[data-action="measure"]').click();
+  const measurementDeadline = Date.now() + 15000;
+  while (Date.now() < measurementDeadline) {
+    const response = await fetch(`${baseURL}/api/eval/measure?profile_id=setup-model`);
+    if (response.ok && (await response.json()).running) break;
+    await sleep(50);
+  }
+  assert.ok(Date.now() < measurementDeadline, "measurement did not become running before the stop request");
   await page.locator('[data-action="measure"]', { hasText: "Stop" }).click();
   await page.locator("h1").filter({ hasText: "Done" }).waitFor();
   if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-4-done-after-stop.png") });

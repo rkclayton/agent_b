@@ -4,6 +4,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -40,7 +41,23 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		}
 	})
 	cfg := config.Defaults(workspace)
-	cfg.Shell.ServiceAccount.Enabled = true
+	var profile struct {
+		Shell struct {
+			ServiceAccount struct {
+				Enabled bool `json:"enabled"`
+			} `json:"service_account"`
+		} `json:"shell"`
+	}
+	configBytes, err := os.ReadFile(filepath.Join(dataRoot, "harness.json"))
+	if err != nil {
+		t.Fatalf("read gated configuration: %v", err)
+	}
+	if err := json.Unmarshal(configBytes, &profile); err != nil {
+		t.Fatalf("decode gated configuration: %v", err)
+	}
+	serviceSplitEnabled := profile.Shell.ServiceAccount.Enabled
+	cfg.Shell.ServiceAccount.Enabled = serviceSplitEnabled
+	t.Logf("gate configuration: service split enabled=%t", serviceSplitEnabled)
 	guard := false
 	cfg.Shell.FileRoutingGuard = &guard
 	store := credential.New(dataRoot)
@@ -90,6 +107,9 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	item := &session.Session{ID: "capability", Workspace: workspace, LastSeen: map[string]time.Time{}, ToolsEnabled: enabled}
 
 	t.Run("write_and_run_python_node_shell", func(t *testing.T) {
+		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
+			t.Skip(reason)
+		}
 		cases := []struct{ name, file, body, want string }{
 			{"python", "capability.py", "print('python-capability')", "python-capability"},
 			{"node", "capability.js", "console.log('node-capability')", "node-capability"},
@@ -140,6 +160,9 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	})
 
 	t.Run("read_edit_search_find_file_tools", func(t *testing.T) {
+		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
+			t.Skip(reason)
+		}
 		path := filepath.Join(workspace, "capability-text.txt")
 		if err := os.WriteFile(path, []byte("before needle   \r\n"), 0600); err != nil {
 			t.Fatal(err)
@@ -165,6 +188,9 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	})
 
 	t.Run("d_plan_file_boundary_under_service_identity", func(t *testing.T) {
+		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
+			t.Skip(reason)
+		}
 		repositoryFile := filepath.Join(workspace, "d-repository-source.txt")
 		if err := os.WriteFile(repositoryFile, []byte("repository evidence"), 0o600); err != nil {
 			t.Fatal(err)
@@ -227,8 +253,8 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 			requestCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Tools.WebSearch.PerEngineTimeoutS)*time.Second)
 			hits, searchErr := search.searchOne(requestCtx, client, cfg.Tools.Fetch, adapter, rawURL, 5)
 			cancel()
-			if initiallyBenchedWebSearchEngines[adapter.Name()] {
-				t.Logf("engine=%s state=shipped-benched results=%d error=%v", adapter.Name(), len(hits), searchErr)
+			if reason, benched := initiallyBenchedWebSearchEngines[adapter.Name()]; benched {
+				t.Logf("engine=%s state=benched reason=%q results=%d error=%v", adapter.Name(), reason, len(hits), searchErr)
 				continue
 			}
 			if searchErr != nil || len(hits) < 1 {
@@ -256,11 +282,30 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	})
 
 	t.Run("multiline_powershell_run_script", func(t *testing.T) {
+		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
+			t.Skip(reason)
+		}
 		detail := NewRunScript(shell).CallDetailed(context.Background(), item, map[string]any{"language": "powershell", "source": "$sum = 0\n1..4 | ForEach-Object { $sum += $_ }\n\"sum=$sum\""})
 		if detail.Err != nil || detail.OperatorOverrideReason != "" || !strings.Contains(detail.Content, "sum=10") {
 			t.Fatalf("detail=%+v", detail)
 		}
 	})
+}
+
+func capabilityApplicability(feature string, enabled bool) string {
+	if enabled {
+		return ""
+	}
+	return "not applicable — " + feature + " disabled"
+}
+
+func TestCapabilityApplicability(t *testing.T) {
+	if got := capabilityApplicability("service split", false); got != "not applicable — service split disabled" {
+		t.Fatalf("disabled=%q", got)
+	}
+	if got := capabilityApplicability("service split", true); got != "" {
+		t.Fatalf("enabled=%q", got)
+	}
 }
 
 func TestRemoveCapabilityFixture(t *testing.T) {

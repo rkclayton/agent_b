@@ -195,6 +195,7 @@ const fakeHandler = async (request, response) => {
     return stream(response, { content: "CARD RELEASED ANSWER" });
   }
   if (user.includes("acceptance: beside the card")) return stream(response, { content: "BESIDE THE CARD ANSWER" });
+  if (user.includes("acceptance: card released")) return stream(response, { content: "CARD RELEASED ANSWER" });
   if (user.includes("acceptance: live tool")) {
     if (!hasToolAfterLatestUser(body)) {
       await sleep(300);
@@ -2333,7 +2334,12 @@ if (realModel) {
   // lets A take the model back and finish.
   const carded = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
   const beside = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
-  await post(carded.id, "acceptance: card nobody answers");
+	const pausedPlanDir = join(args.data, "paused-card-plan");
+	await mkdir(join(pausedPlanDir, "plan", "items"), { recursive: true });
+	await writeFile(join(pausedPlanDir, "plan.md"), "# Paused card plan\n");
+	await writeFile(join(pausedPlanDir, "NOTES.md"), "");
+	await writeFile(join(pausedPlanDir, "plan.json"), JSON.stringify({ repo: bound }, null, 2));
+  await post(carded.id, `Add ${pausedPlanDir} as a plan`);
   const unanswered = await waitEvent(carded.id, (event) => event.type === "approval.required", "chat A's card");
   await page.goto(chatURL(beside.id));
   await page.locator("#chat-task").waitFor({ state: "visible" });
@@ -2347,6 +2353,7 @@ if (realModel) {
     answering = await waitEvent(carded.id, (event) => event.seq > answering.seq && (event.type === "approval.required" || event.type === "run.stopped"), "chat A's next card or its end", 20000);
     if (answering.type === "run.stopped") answering = null;
   }
+	await post(carded.id, "acceptance: card released");
   await waitProjectedChatText(carded.id, "CARD RELEASED ANSWER", "chat A finished once its card was answered", 20000);
   record("card-nobody-answers-does-not-hold-the-model");
 

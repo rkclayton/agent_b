@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,8 +51,10 @@ type Runner struct {
 	renameSession      func(string, string, string) error
 	mailboxBoundary    func(context.Context, string, bool) BoundaryAction
 	modelUnreachable   func(string, string)
+	recordMessageLimit func(string, int) error
 	ids                atomic.Int64
 	nameAttempts       sync.Map
+	messageLimits      sync.Map
 }
 
 type BoundaryAction struct {
@@ -79,7 +82,8 @@ func (r *Runner) SetSessionRenamer(fn func(string, string, string) error) { r.re
 func (r *Runner) SetMailboxBoundary(fn func(context.Context, string, bool) BoundaryAction) {
 	r.mailboxBoundary = fn
 }
-func (r *Runner) SetModelUnreachable(fn func(string, string)) { r.modelUnreachable = fn }
+func (r *Runner) SetModelUnreachable(fn func(string, string))        { r.modelUnreachable = fn }
+func (r *Runner) SetMessageLimitRecorder(fn func(string, int) error) { r.recordMessageLimit = fn }
 func (r *Runner) AcceptPlanEdit(ctx context.Context, s *session.Session, path, oldText, newText string) tools.CallOutcome {
 	if !s.BeginPlanAccept() {
 		return tools.CallOutcome{Content: "error: plan acceptance is available only on the Plan page"}
@@ -213,7 +217,11 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		return r.stopped(s, runID, turn, fallback)
 	}
 	produced := map[string]delivery.Source{}
+	workspaceBefore := workspaceFileSnapshot(s.Workspace)
 	defer func() {
+		for key, source := range workspaceFileChanges(s.Workspace, workspaceBefore) {
+			produced[key] = source
+		}
 		result := delivery.Result{}
 		r.stage(s, runID, turns, "append", func() {
 			if r.deliver != nil {
@@ -277,6 +285,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	accountingRepairTried := false
 	templateRetryTried := false
 	softLineChecked := false
+	messageLimitRetried := false
 	guards := newRunGuards(runCfg.CycleWindow, runCfg.MaxConsecutiveToolErrors)
 	currentReasoning := map[string]bool{}
 	for {
@@ -303,6 +312,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		profile, windowSource, windowErr = resolveContextWindow(ctx, profile)
 		if windowErr != nil {
 			return "profile_not_runnable", windowErr.Error(), turn - 1
+		}
+		if value, found := r.messageLimits.Load(profile.ID); found {
+			profile.Capabilities.ObservedMessageLimit = value.(int)
 		}
 		// An invalid durable tool call is a history-shape problem, not an
 		// accounting endpoint failure. Repair it before any template or tokenizer
@@ -406,6 +418,12 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			}
 			return "model_error", "budget accounting: " + budgetErr.Error(), turn - 1
 		}
+		if limit := profile.Capabilities.ObservedMessageLimit; limit > 0 && len(request.Messages) >= limit {
+			if r.compactForMessageLimit(ctx, s, runID, profile, limit) {
+				turn--
+				continue
+			}
+		}
 		// Item 2ey: a run's first request gets the projection a later turn gets at
 		// its end, so a restored chat over the soft line compacts before it is
 		// sent instead of after it overflows.
@@ -482,6 +500,23 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		if callErr != nil {
 			if ctx.Err() != nil {
 				return contextStop(turn, "model call canceled")
+			}
+			if limit, sentence, matched := messageLimitError(callErr); matched {
+				r.messageLimits.Store(profile.ID, limit)
+				profile.Capabilities.ObservedMessageLimit = limit
+				if r.recordMessageLimit != nil {
+					if err := r.recordMessageLimit(profile.ID, limit); err != nil {
+						r.operationalError(s, runID, "record_message_limit", err)
+					}
+				}
+				if !messageLimitRetried {
+					messageLimitRetried = true
+					if r.compactForMessageLimit(ctx, s, runID, profile, limit) {
+						turn--
+						continue
+					}
+				}
+				return "model_error", sentence, turn
 			}
 			if r.publishModelUnreachable(s, runID, profile, callErr) {
 				publishFinalBudget = false
@@ -710,6 +745,77 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			r.compactAfterTurnForcing(ctx, s, runID, turn, profile, currentReasoning, refusedTurn == turn)
 		})
 	}
+}
+
+var messageLimitPattern = regexp.MustCompile(`(?i)(conversation too long:\s*\d+ messages\s*\(limit\s*(\d+)\)?|[^\r\n\"]*message[^\r\n\"]*limit[^\r\n\"]*)`)
+
+func messageLimitError(err error) (int, string, bool) {
+	if err == nil || !strings.Contains(err.Error(), "HTTP 400") {
+		return 0, "", false
+	}
+	match := messageLimitPattern.FindStringSubmatch(err.Error())
+	if len(match) == 0 {
+		return 0, "", false
+	}
+	limit := 0
+	if len(match) > 2 {
+		fmt.Sscanf(match[2], "%d", &limit)
+	}
+	if limit <= 1 {
+		return 0, "", false
+	}
+	return limit, strings.TrimSpace(match[1]), true
+}
+
+func (r *Runner) compactForMessageLimit(ctx context.Context, s *session.Session, runID string, profile *config.Profile, limit int) bool {
+	changed := false
+	// One summary replaces an arbitrarily large old span with one message. A
+	// second pass is useful for restored chats containing nested summaries.
+	for attempts := 0; attempts < 2 && len(s.MessagesCopy())+1 >= limit; attempts++ {
+		if !r.summarize(withCompactionTrigger(ctx, "message_limit"), s, runID, profile) {
+			break
+		}
+		changed = true
+	}
+	return changed
+}
+
+type workspaceFileState struct {
+	Path    string
+	Size    int64
+	ModTime int64
+}
+
+func workspaceFileSnapshot(root string) map[string]workspaceFileState {
+	out := map[string]workspaceFileState{}
+	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err == nil {
+			clean := filepath.Clean(rel)
+			out[strings.ToLower(clean)] = workspaceFileState{Path: filepath.ToSlash(clean), Size: info.Size(), ModTime: info.ModTime().UnixNano()}
+		}
+		return nil
+	})
+	return out
+}
+
+func workspaceFileChanges(root string, before map[string]workspaceFileState) map[string]delivery.Source {
+	after := workspaceFileSnapshot(root)
+	out := map[string]delivery.Source{}
+	for key, state := range after {
+		if prior, existed := before[key]; existed && prior == state {
+			continue
+		}
+		out[key] = delivery.Source{Path: state.Path, Bytes: state.Size}
+	}
+	return out
 }
 
 func announcedActionOnly(content string) bool {

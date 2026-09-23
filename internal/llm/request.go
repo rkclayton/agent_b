@@ -1,8 +1,14 @@
 package llm
 
-import "harness/internal/config"
+import (
+	"fmt"
+	"log"
+
+	"harness/internal/config"
+)
 
 func buildRequest(profile *config.Profile, request Request, stream bool) map[string]any {
+	request.Messages = normalizeSystemRoles(request.Messages)
 	sampling := profile.Sampling.Nonthinking
 	if request.Thinking {
 		sampling = profile.Sampling.Thinking
@@ -51,6 +57,34 @@ func buildRequest(profile *config.Profile, request Request, stream bool) map[str
 		}
 	}
 	return body
+}
+
+// normalizeSystemRoles keeps the request contract accepted by strict chat
+// servers: zero or one system message, and when present it is message zero.
+// Durable history is not rewritten; historical harness notes are represented
+// as explicit assistant context only in the outbound request.
+func normalizeSystemRoles(messages []Message) []Message {
+	out := append([]Message(nil), messages...)
+	for i := range out {
+		if out[i].Role != "system" || i == 0 {
+			continue
+		}
+		out[i].Role = "assistant"
+		out[i].Content = fmt.Sprintf("[harness note]\n%v", out[i].Content)
+	}
+	return out
+}
+
+func logSystemRoleViolation(messages []Message, status int) {
+	if status != 400 {
+		return
+	}
+	for i, message := range messages {
+		if message.Role == "system" && i > 0 {
+			log.Printf("chat HTTP 400: system role at offending message index %d", i)
+			return
+		}
+	}
 }
 
 func BuildRequest(profile *config.Profile, request Request, stream bool) map[string]any {

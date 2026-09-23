@@ -885,7 +885,15 @@ function noticeContent(session, entry, actionable) {
       if (copied) parts.push(`${copied} copied to ${data.exchange_folder}`);
       if (identical) parts.push(`${identical} identical skipped`);
       if (failed) parts.push(`${failed} failed`);
-      content.textContent = `delivery: ${parts.join(" · ")}`;
+      const summary = document.createElement("div");
+      summary.textContent = `delivery: ${parts.join(" · ")}`;
+      content.append(summary);
+      for (const item of items) {
+        const path = document.createElement("div");
+        path.className = "mono";
+        path.textContent = `${item.source_path || "file"}${item.delivered_path ? ` → ${item.delivered_path}` : ""}`;
+        content.append(path);
+      }
       if (failed) content.classList.add("alarm");
     }
   } else if (event.type === "run.queued") content.textContent = data.behind ? `waiting for model · behind ${data.behind}` : `waiting for a slot (position ${data.position})`;

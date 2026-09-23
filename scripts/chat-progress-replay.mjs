@@ -34,6 +34,7 @@ async function waitState(base, timeout = 30000) {
 }
 
 const source = (await readFile(resolve(args.replay), "utf8")).split(/\r?\n/).filter(Boolean).map((line) => ({ line, event: JSON.parse(line) }));
+const enrichedToolDeltas = args["enrich-tool-deltas"] === "true" ? enrichLegacyToolDeltas(source) : 0;
 const baseConfig = JSON.parse(await readFile(resolve(args.config), "utf8"));
 const evidence = resolve(args.evidence);
 await mkdir(evidence, { recursive: false });
@@ -41,7 +42,7 @@ const results = [];
 
 for (const [index, at] of samples.entries()) {
   const end = `${at}.999Z`;
-  const selected = source.filter(({ event }) => String(event.ts || "") <= end);
+  const selected = source.filter(({ event }) => String(event.ts || "") <= end).map(({ event }) => ({ event, line: JSON.stringify(event) }));
   assert.ok(selected.length, `no replay events through ${at}`);
   const sampleRoot = resolve(args.data, `sample-${index + 1}`);
   await mkdir(sampleRoot, { recursive: true });
@@ -117,5 +118,36 @@ for (const [index, at] of samples.entries()) {
   }
 }
 
-await writeFile(join(evidence, "result.json"), `${JSON.stringify({ replay: resolve(args.replay), samples: results }, null, 2)}\n`);
+await writeFile(join(evidence, "result.json"), `${JSON.stringify({ replay: resolve(args.replay), enriched_tool_deltas: enrichedToolDeltas, samples: results }, null, 2)}\n`);
 process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
+
+function enrichLegacyToolDeltas(records) {
+  const finalCalls = new Map();
+  for (const { event } of records) {
+    if (event.type !== "run.aborted") continue;
+    for (const call of event.data?.partial_output?.tool_calls || []) finalCalls.set(`${event.run_id}:${Number(call.index || 0)}`, call);
+  }
+  const groups = new Map();
+  for (const record of records) {
+    const event = record.event;
+    if (event.type !== "model.delta" || event.data?.kind !== "tool_call" || Number(event.data?.argument_bytes || 0) > 0) continue;
+    const key = `${event.run_id}:${Number(event.data?.index || 0)}`;
+    if (!finalCalls.has(key)) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(record);
+  }
+  let changed = 0;
+  for (const [key, group] of groups) {
+    const call = finalCalls.get(key);
+    const bytes = Buffer.byteLength(String(call.arguments || ""));
+    const runes = Array.from(String(call.arguments || "")).length;
+    for (const [position, record] of group.entries()) {
+      const fraction = (position + 1) / group.length;
+      record.event.data.name = String(call.name || "");
+      record.event.data.argument_bytes = Math.round(bytes * fraction);
+      record.event.data.argument_tokens = Math.ceil((runes * fraction) / 3.6);
+      changed++;
+    }
+  }
+  return changed;
+}

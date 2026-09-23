@@ -1504,12 +1504,29 @@ if (realModel) {
 
   await setTask("acceptance: stop");
   await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'stop'`, "stop enabled");
+  const liveStop = await browser.evaluate(`(() => {
+    const button = document.querySelector('#chat-send');
+    const box = button.getBoundingClientRect();
+    const style = getComputedStyle(button);
+    return {
+      status: document.querySelector('#chat-status')?.innerText || '',
+      mode: button.dataset.mode,
+      background: style.backgroundColor,
+      visible: style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0,
+      withinViewport: box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight,
+    };
+  })()`);
+  assert.equal(liveStop.mode, "stop", JSON.stringify(liveStop));
+  assert.equal(liveStop.visible, true, JSON.stringify(liveStop));
+  assert.equal(liveStop.withinViewport, true, JSON.stringify(liveStop));
+  assert.notEqual(liveStop.background, "rgba(0, 0, 0, 0)", JSON.stringify(liveStop));
+  assert.match(liveStop.status, /(?:prompt|thinking|writing|calling) .*(?:tokens|B|kB|MB)/, JSON.stringify(liveStop));
   const stopStart = Date.now();
   await page.locator("#chat-send").click();
   await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'send'`, "stop completed", 1000);
   assert.ok(Date.now() - stopStart < 1000, `Stop took ${Date.now() - stopStart} ms`);
   await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.data.reason === "aborted_mid_model", "stopped run");
-  record("stop-under-one-second");
+  record("stop-visible-reachable-and-under-one-second");
 
   // Item 2fg: Stop during a long tool, a message sent while the run is still
   // stopping — the message is held (nothing releases it on a timer or a

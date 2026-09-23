@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
+import { liveActivityText, modelRequestText, showsStreamCaret } from "./chat-activity.js";
 
 const running = (activity) => ({ run: { status: "running" }, activity });
 
-test("live activity names model production and the executing tool without inventing elapsed time", () => {
-  assert.equal(liveActivityText(running({ stage: "call_model", stage_state: "enter", stream: { has_chunk: true } })), "model producing");
+test("live activity gives each model phase a measured status", () => {
+  assert.equal(liveActivityText(running({ stage: "call_model", stage_state: "enter", progress: { processed: 2868 }, stream: {} })), "prompt 2,868 tokens processing");
+  assert.equal(modelRequestText({ stream: { reasoning_chars: 605, total_chars: 605 } }), "thinking · 169 tokens");
+  assert.equal(modelRequestText({ stream: { reasoning_chars: 605, total_chars: 750 } }), "writing · 41 tokens");
+  assert.equal(modelRequestText({ stream: { tool_calls: [{ name: "run_script", argument_bytes: 12400, started_at: 1000, last_chunk_at: 131000 }] } }), "calling run_script · 12 kB · 2m10s");
   assert.equal(liveActivityText(running({ stage: "execute", stage_state: "enter", active_tool: "read_file" })), "tool executing · read_file");
   assert.equal(liveActivityText(running({ stage: "execute", stage_state: "enter" })), "tool executing · unknown");
 });

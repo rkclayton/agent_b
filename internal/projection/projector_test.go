@@ -2,6 +2,7 @@ package projection
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -282,6 +283,34 @@ func TestModelBusyEndsWithTheRequestOrRun(t *testing.T) {
 		if state.ModelBusy != nil {
 			t.Fatalf("%s left model busy projected: %+v", terminal.Type, state.ModelBusy)
 		}
+	}
+}
+
+func TestStreamingToolTelemetryCarriesOnlyCumulativeMeasures(t *testing.T) {
+	state := Empty("main")
+	records := []events.Event{
+		events.New(events.ModelRequest, "main", "r1", map[string]any{"turn": 1}),
+		events.New(events.ModelDelta, "main", "r1", map[string]any{"turn": 1, "kind": "tool_call", "index": 0, "call_id": "call-1", "name": "run_script", "argument_bytes": 12, "argument_tokens": 4, "text": ""}),
+		events.New(events.ModelDelta, "main", "r1", map[string]any{"turn": 1, "kind": "tool_call", "index": 0, "call_id": "call-1", "name": "run_script", "argument_bytes": 2400, "argument_tokens": 667, "text": ""}),
+	}
+	for index, event := range records {
+		event.TS = fmt.Sprintf("2026-09-22T16:47:%02dZ", index+1)
+		var err error
+		state, _, err = Next(state, Record{Cursor: Cursor{Generation: "stream.events", Offset: int64(index + 1)}, Event: event})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(state.Activity.Stream.ToolCalls) != 1 {
+		t.Fatalf("tool telemetry=%+v", state.Activity.Stream)
+	}
+	call := state.Activity.Stream.ToolCalls[0]
+	if call.Name != "run_script" || call.CallID != "call-1" || call.ArgumentBytes != 2400 || call.ArgumentTokens != 667 || call.StartedAt == 0 || call.LastChunkAt <= call.StartedAt {
+		t.Fatalf("tool call=%+v", call)
+	}
+	encoded, _ := json.Marshal(call)
+	if strings.Contains(string(encoded), "arguments") {
+		t.Fatalf("stream telemetry exposed arguments: %s", encoded)
 	}
 }
 

@@ -64,6 +64,11 @@ test("the paperclip replaces the duplicate token readout, and the composer holds
   assert.match(css, /\.chat-pending-attachments:empty\s*\{\s*display:\s*none/);
 });
 
+test("the composer stop state wins the send button's transparent background", () => {
+  assert.match(css, /#chat-send\.stop-sign\.active[\s\S]*?background:var\(--alarm\)/);
+  assert.doesNotMatch(chat, /busy\s*\?\s*["']model busy["']/);
+});
+
 test("Pending approval is pinned above the composer with zero idle space", () => {
 	assert.match(html, /id="chat-pending-approval" class="pending-approval" hidden[\s\S]*class="chat-composer-row"/);
 	assert.match(chat, /session\?\.pending_approval \|\| session\?\.pending_repo_policy \? "waiting for you"/);
@@ -89,8 +94,7 @@ test("Degraded accounting is labeled estimated in the Chat occupancy bar", () =>
 test("State strip owns queue operator pending and unreachable state without chat rows", () => {
   assert.match(html, /id="chat-status-strip"[\s\S]*id="chat-notice"[\s\S]*id="chat-retry-model"/);
   assert.doesNotMatch(html + chat, /chat-run-as-you/);
-  // Item 2eo: a busy or unreachable model is the whole strip line, never both.
-  assert.match(chat, /const modelLine = unreachable \? "model unreachable" : busy \? "model busy" : ""/);
+  assert.match(chat, /const busyFallback = busy && !activity \? "prompt 0 tokens processing" : ""/);
 	assert.doesNotMatch(chat, /model busy · \$\{busy\.host/);
 	assert.match(chat, /session\.server_id \|\| session\.b_profile/);
   assert.match(chat, /queued \(\$\{queued\}\).*waiting for model/);

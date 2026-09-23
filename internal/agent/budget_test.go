@@ -150,6 +150,51 @@ func TestApplyTemplateFailureDegradesOneMeasurementAndRecordsFinding(t *testing.
 	}
 }
 
+func TestSystemOnlyAbortPrefixDegradesInsteadOfRaisingTemplateError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/apply-template":
+			var body struct {
+				Messages []llm.Message `json:"messages"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			encoded, _ := json.Marshal(body.Messages)
+			if strings.Contains(string(encoded), "HARNESS ABORT RECORD") {
+				http.Error(w, "No user query found in messages.", http.StatusInternalServerError)
+				return
+			}
+			for _, message := range body.Messages {
+				if message.Role == "user" {
+					fmt.Fprint(w, `{"prompt":"rendered"}`)
+					return
+				}
+			}
+			http.Error(w, "No user query found in messages.", http.StatusInternalServerError)
+		case "/tokenize":
+			fmt.Fprint(w, `{"tokens":[1]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
+	item := &session.Session{ID: "abort-prefix", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	input := budgetInput{
+		SystemBase: "system", SystemProject: "system", SystemWorkspaceMemory: "system", System: "system",
+		Messages: []llm.Message{{Role: "system", Content: "[HARNESS ABORT RECORD]"}},
+		Records:  []events.Message{{ID: "m-abort", Role: "system", Category: "history", Content: "[HARNESS ABORT RECORD]"}},
+	}
+	budget, err := NewBudgeter().Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if budget.Mode != "estimated" || !budget.Estimated || len(budget.Findings) != 1 || !strings.Contains(budget.Findings[0], "No user query found") {
+		t.Fatalf("abort budget=%+v", budget)
+	}
+}
+
 func TestSystemAccountingUsesSentinelAndSubtractsItsCost(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

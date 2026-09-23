@@ -83,6 +83,34 @@ func TestMutationGuardRequiresLaunchTokenAndSameOrigin(t *testing.T) {
 	}
 }
 
+func TestHostWindowActionsUseTheMutationBoundary(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	var got string
+	server.SetHostWindowAction(func(action string) bool { got = action; return true })
+
+	request := httptest.NewRequest(http.MethodPost, "/api/host-window", strings.NewReader(`{"action":"maximize"}`))
+	authorizeMutation(request, server)
+	request.Host = "example.com"
+	request.Header.Set("Origin", "http://example.com")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || got != "maximize" {
+		t.Fatalf("status=%d action=%q body=%s", response.Code, got, response.Body)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/host-window", strings.NewReader(`{"action":"open"}`))
+	authorizeMutation(request, server)
+	request.Host = "example.com"
+	request.Header.Set("Origin", "http://example.com")
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid action status=%d body=%s", response.Code, response.Body)
+	}
+}
+
 func TestSecurityHeaders(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)

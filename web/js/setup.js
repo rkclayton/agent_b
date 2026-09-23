@@ -16,6 +16,14 @@ let discoveryNote = "";
 
 root.addEventListener("click", click);
 root.addEventListener("change", change);
+document.querySelector(".shell-window-controls")?.addEventListener("click", (event) => {
+  const action = event.target.closest(".shell-window-control")?.dataset.action;
+  if (!action) return;
+  void request("/api/host-window", { action }).catch((error) => {
+    connection.textContent = error.message;
+    connection.className = "alarm";
+  });
+});
 void load();
 
 async function load() {

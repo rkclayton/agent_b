@@ -52,6 +52,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 	}
 	return map[string]any{
 		"sessions": sessions, "servers": masked.Servers, "config": masked, "replay": replay,
+		"process_id":           os.Getpid(),
 		"agent_server_changes": s.agentServerChanges(),
 		"build":                buildinfo.Current(),
 		"update":               updateState,

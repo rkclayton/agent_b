@@ -100,6 +100,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Item 2hx: an installed launch is one application, not a race to bind the
+	// same port. The serving process's marker names its install root and port;
+	// a second window launch validates both, asks that exact process to foreground
+	// its window, writes one launcher line, and exits before config work or a bind.
+	if *window && strings.TrimSpace(*replayPaths) == "" {
+		if pid, activated := activateExistingInstance(paths.Data, paths.Application); activated {
+			message := fmt.Sprintf("Agent_b activated existing PID %d and exited; no new server started.", pid)
+			appendLauncherMessage(paths.Data, message)
+			log.Print(message)
+			return
+		}
+	}
 	// Item 2gl: an install that did not finish says so, once, at the next
 	// launch — the operator asked "should i re-run?" and nothing could answer
 	// him. The marker is only ever cleared by an install that completed.
@@ -187,6 +199,9 @@ func main() {
 	progressManager.Start()
 	defer progressManager.Close()
 	web := webserver.New(cfg, paths.Config, filepath.Join(paths.Application, "web"), roots, bus)
+	if *window {
+		web.SetHostWindowAction(requestHostWindowAction)
+	}
 	updateManager := updater.New(updater.Options{
 		CurrentVersion: buildinfo.Current().Tag,
 		DataRoot:       paths.Data,
@@ -359,7 +374,10 @@ func main() {
 			log.Printf("startup agent %s not runnable: %s; use Connections > Test", mainAgentID, reason)
 		}
 		phases.mark("before restore")
-		restored, floor, restoreErr := restoreRetainedChats(writers, registry, bus, retainedIDFloor(writers))
+		// restoreRetainedChats computes the id floor from the same projection it
+		// restores. Projecting every journal here first used to do the dominant
+		// startup work twice.
+		restored, floor, restoreErr := restoreRetainedChats(writers, registry, bus, 0)
 		if restoreErr != nil {
 			log.Fatal(restoreErr)
 		}
@@ -492,7 +510,7 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 	if len(paths) == 0 {
 		return nil, floor, nil
 	}
-	replay, err := projection.LoadReplay(paths)
+	replay, err := projection.LoadReplayStates(paths)
 	if err != nil {
 		return nil, floor, fmt.Errorf("load retained chats: %w", err)
 	}
@@ -504,6 +522,7 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 	sort.Strings(ids)
 	result := make([]*session.Session, 0, len(ids))
 	for _, id := range ids {
+		floor = snapshotIDFloor(replay.Sessions[id], floor)
 		encoded, marshalErr := json.Marshal(replay.Sessions[id])
 		if marshalErr != nil {
 			return nil, floor, marshalErr
@@ -543,6 +562,31 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 	}
 	startupTimer.mark("register restored sessions")
 	return result, floor, nil
+}
+
+func snapshotIDFloor(snapshot projection.Snapshot, floor int64) int64 {
+	note := func(id string) {
+		end, start := len(id), len(id)
+		for start > 0 && id[start-1] >= '0' && id[start-1] <= '9' {
+			start--
+		}
+		if start == end {
+			return
+		}
+		if value, err := strconv.ParseInt(id[start:end], 10, 64); err == nil && value > floor {
+			floor = value
+		}
+	}
+	for _, message := range snapshot.Messages {
+		note(message.ID)
+	}
+	for _, entry := range snapshot.Chat {
+		note(entry.RunID)
+	}
+	for _, event := range snapshot.Timeline {
+		note(event.RunID)
+	}
+	return floor
 }
 
 // newestRunUserMessage is the user message id of the newest run.started in a
@@ -682,6 +726,8 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime, application
 	stopped := func(string) {}
 	closeRequests := make(chan struct{}, 1)
 	if life != nil {
+		life.applicationRoot = applicationRoot
+		life.listen = cfg.Listen
 		life.begin()
 		watchSessionEnd(applicationRoot, life.stopped, func() {
 			select {
@@ -692,7 +738,7 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime, application
 		stopped = life.stopped
 	}
 	if hostWindowMode {
-		startHostWindow(cfg.Listen, closeRequests)
+		startHostWindow(cfg.Listen, applicationRoot, closeRequests)
 	}
 	errors := make(chan error, 1)
 	go func() {
@@ -777,7 +823,7 @@ var (
 	hostWindowUserData string
 )
 
-func startHostWindow(listen string, closeRequests chan struct{}) {
+func startHostWindow(listen, applicationRoot string, closeRequests chan struct{}) {
 	go func() {
 		url := "http://" + listen + "/chat"
 		if version, err := hostWindowAvailable(); err != nil {
@@ -786,7 +832,7 @@ func startHostWindow(listen string, closeRequests chan struct{}) {
 		} else {
 			log.Printf("host window: WebView2 runtime %s", version)
 		}
-		if err := runHostWindow(url, hostWindowUserData, "Agent_b"); err != nil {
+		if err := runHostWindow(url, hostWindowUserData, "Agent_b", applicationRoot); err != nil {
 			log.Printf("host window: could not open, using the browser instead (%v)", err)
 			return
 		}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { groupResponseRows, hasVisibleChatContent, isIdenticalSingleStepFold, isThinThought, responseBlocks, responseSummary, thinThoughtTokenLimit } from "./chat-response-groups.js";
+import { groupResponseRows, hasVisibleChatContent, isIdenticalSingleStepFold, isThinThought, responseBlocks, responseHasOnlyThoughts, responseSummary, thinThoughtTokenLimit } from "./chat-response-groups.js";
 
 const tool = (key, name, ok = true, ms = 1) => ({ type: "tool", key, name, args: {}, result: { ok, ms } });
 const thought = (key, tokens, text = "") => ({ type: "agent", key, reasoning: "x", reasoningTokens: tokens, text, done: true, thinkingMS: 2 });
@@ -66,6 +66,13 @@ test("tool-only responses create no empty prose region", () => {
   assert.equal(isIdenticalSingleStepFold(items, blocks), true);
 });
 
+test("only agent reasoning and prose qualify for the direct thought layout", () => {
+  assert.equal(responseHasOnlyThoughts([thought("one", 12, "answer")]), true);
+  assert.equal(responseHasOnlyThoughts([thought("one", 12), { type: "agent", key: "answer", text: "done", done: true }]), true);
+  assert.equal(responseHasOnlyThoughts([thought("one", 12), tool("call", "read_file")]), false);
+  assert.equal(responseHasOnlyThoughts([]), false);
+});
+
 test("distinct response and step record sets keep both folds", () => {
   const items = [
     { type: "agent", key: "answer", text: "progress", reasoning: "why", reasoningTokens: 5, done: true },
@@ -87,5 +94,6 @@ test("only completed agent entries with no content are omitted from Chat", () =>
   assert.equal(hasVisibleChatContent({ type: "notice", key: "empty-delivery", event: { type: "files.delivered", data: { items: [] } } }), false);
   assert.equal(hasVisibleChatContent({ type: "notice", key: "delivery", event: { type: "files.delivered", data: { items: [{}] } } }), true);
   assert.equal(hasVisibleChatContent({ type: "notice", key: "malformed-delivery", event: { type: "files.delivered", data: {} } }), true);
+  assert.equal(hasVisibleChatContent({ type: "notice", key: "routine-done", event: { type: "run.stopped", data: { reason: "done" } } }), false);
   assert.equal(hasVisibleChatContent(null), true);
 });

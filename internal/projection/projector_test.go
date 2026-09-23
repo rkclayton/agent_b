@@ -264,6 +264,27 @@ func TestModelAvailabilityAndRunAsYouReconstructFromEvents(t *testing.T) {
 	}
 }
 
+func TestModelBusyEndsWithTheRequestOrRun(t *testing.T) {
+	for _, terminal := range []events.Event{
+		events.New(events.ModelResponse, "main", "r1", map[string]any{"turn": 1, "content": "done"}),
+		events.New(events.RunStopped, "main", "r1", map[string]any{"reason": "done"}),
+	} {
+		state := Empty("main")
+		var err error
+		state, _, err = Next(state, Record{Cursor: Cursor{Generation: "busy.events", Offset: 1}, Event: events.New(events.ModelBusy, "main", "r1", map[string]any{"host": "model.example:8000", "detail": "waiting"})})
+		if err != nil {
+			t.Fatal(err)
+		}
+		state, _, err = Next(state, Record{Cursor: Cursor{Generation: "busy.events", Offset: 2}, Event: terminal})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.ModelBusy != nil {
+			t.Fatalf("%s left model busy projected: %+v", terminal.Type, state.ModelBusy)
+		}
+	}
+}
+
 func TestModelUnreachableChatNoticeIsOneRowPerCondition(t *testing.T) {
 	state := Empty("main")
 	records := []events.Event{

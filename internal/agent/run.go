@@ -407,6 +407,8 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		var response llm.Response
 		var callErr error
 		partial := ""
+		toolArgumentBytes := map[int]int{}
+		toolArgumentRunes := map[int]int{}
 		var streamBusy atomic.Bool
 		requestDone := make(chan struct{})
 		r.stage(s, runID, turn, "call_model", func() {
@@ -420,7 +422,15 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 					partial += delta.Text
 					s.UpdatePartial(partial)
 				}
-				r.bus.Publish(events.New(events.ModelDelta, s.ID, runID, map[string]any{"turn": turn, "kind": delta.Kind, "index": delta.Index, "text": durableModelDeltaText(delta.Kind, delta.Text)}))
+				data := map[string]any{"turn": turn, "kind": delta.Kind, "index": delta.Index, "text": durableModelDeltaText(delta.Kind, delta.Text)}
+				if delta.Kind == "tool_call" {
+					toolArgumentBytes[delta.Index] += len([]byte(delta.Text))
+					toolArgumentRunes[delta.Index] += len([]rune(delta.Text))
+					data["call_id"], data["name"] = delta.CallID, delta.Name
+					data["argument_bytes"] = toolArgumentBytes[delta.Index]
+					data["argument_tokens"] = int(math.Ceil(float64(toolArgumentRunes[delta.Index]) / 3.6))
+				}
+				r.bus.Publish(events.New(events.ModelDelta, s.ID, runID, data))
 			}, func() {
 				go func() {
 					timer := time.NewTimer(2500 * time.Millisecond)

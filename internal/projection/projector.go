@@ -66,18 +66,29 @@ type Activity struct {
 }
 
 type StreamTelemetry struct {
-	Key             string         `json:"key"`
-	StartedAt       int64          `json:"started_at"`
-	LastChunkAt     int64          `json:"last_chunk_at"`
-	HasChunk        bool           `json:"has_chunk"`
-	ReasoningChars  int            `json:"reasoning_chars"`
-	TotalChars      int            `json:"total_chars"`
-	Rate            int            `json:"rate"`
-	RateStartedAt   int64          `json:"rate_started_at"`
-	RateChars       int            `json:"rate_chars"`
-	Done            bool           `json:"done"`
-	ReasoningTokens int            `json:"reasoning_tokens"`
-	Timings         map[string]any `json:"timings,omitempty"`
+	Key             string              `json:"key"`
+	StartedAt       int64               `json:"started_at"`
+	LastChunkAt     int64               `json:"last_chunk_at"`
+	HasChunk        bool                `json:"has_chunk"`
+	ReasoningChars  int                 `json:"reasoning_chars"`
+	TotalChars      int                 `json:"total_chars"`
+	Rate            int                 `json:"rate"`
+	RateStartedAt   int64               `json:"rate_started_at"`
+	RateChars       int                 `json:"rate_chars"`
+	Done            bool                `json:"done"`
+	ReasoningTokens int                 `json:"reasoning_tokens"`
+	Timings         map[string]any      `json:"timings,omitempty"`
+	ToolCalls       []StreamingToolCall `json:"tool_calls,omitempty"`
+}
+
+type StreamingToolCall struct {
+	Index          int    `json:"index"`
+	CallID         string `json:"call_id,omitempty"`
+	Name           string `json:"name,omitempty"`
+	ArgumentBytes  int    `json:"argument_bytes"`
+	ArgumentTokens int    `json:"argument_tokens"`
+	StartedAt      int64  `json:"started_at"`
+	LastChunkAt    int64  `json:"last_chunk_at"`
 }
 
 type ChatEntry struct {
@@ -796,6 +807,30 @@ func touchStream(current *StreamTelemetry, event events.Event, data map[string]a
 		value.RateChars += chars
 		seconds := math.Max(.25, float64(at-value.RateStartedAt)/1000)
 		value.Rate = int(math.Round(float64(value.RateChars) / 3.6 / seconds))
+		if stringValue(data["kind"]) == "tool_call" {
+			index := intValue(data["index"])
+			position := -1
+			for candidate := range value.ToolCalls {
+				if value.ToolCalls[candidate].Index == index {
+					position = candidate
+					break
+				}
+			}
+			if position < 0 {
+				value.ToolCalls = append(value.ToolCalls, StreamingToolCall{Index: index, StartedAt: at})
+				position = len(value.ToolCalls) - 1
+			}
+			call := &value.ToolCalls[position]
+			if id := stringValue(data["call_id"]); id != "" {
+				call.CallID = id
+			}
+			if name := stringValue(data["name"]); name != "" {
+				call.Name = name
+			}
+			call.ArgumentBytes = intValue(data["argument_bytes"])
+			call.ArgumentTokens = intValue(data["argument_tokens"])
+			call.LastChunkAt = at
+		}
 	}
 	return value
 }

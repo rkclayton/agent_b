@@ -862,6 +862,12 @@
 /* While a run is live this button IS the stop sign, so it wears the octagon and
    its inner square and drops the send glyph. */
 #chat-send.stop-sign .composer-glyph { display:none; }
+#chat-send.stop-sign.active,
+#chat-send.stop-sign.active:hover,
+#chat-send.stop-sign.active:active { background:var(--alarm); }
+#chat-send.stop-sign.stopping,
+#chat-send.stop-sign.stopping:hover,
+#chat-send.stop-sign.stopping:active { background:var(--trace); }
 .chat-input-actions .stop-sign { width:24px; height:24px; min-height:24px; padding:0; }
 .chat-notice:empty { display: none; }
 .no-open-chats { grid-template-rows: var(--app-header-height) 0 minmax(0, 1fr) 0; }

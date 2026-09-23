@@ -435,6 +435,14 @@ function renderResponse(session, entry) {
   const totals = responseSummary(entry.items);
   const active = isRunning(session) && entry.items.some((item) => item?.run_id && item.run_id === session.run?.run_id);
   const blocks = responseBlocks(entry.items);
+  const stream = session?.activity?.stream;
+  if (active && !stream?.done && Array.isArray(stream?.tool_calls) && stream.tool_calls.length) {
+    blocks.push({
+      key: `response-block:stream:${stream.key}`,
+      prose: null,
+      steps: stream.tool_calls.map((call) => ({ ...call, type: "streaming-tool", key: `streaming-tool:${stream.key}:${call.index}` })),
+    });
+  }
   const directThoughts = responseHasOnlyThoughts(entry.items);
   view.row.classList.toggle("thought-only-response", directThoughts);
   view.row.classList.toggle("alarm", totals.failed > 0);
@@ -604,7 +612,7 @@ function renderResponseItem(session, view, item, key, forceToolOpen = false) {
   let itemView = view.items.get(key);
     if (!itemView) {
       const step = document.createElement("div");
-      step.className = `chat-response-step ${item.type === "tool" ? "chat-response-tool" : ""}`;
+      step.className = `chat-response-step ${item.type === "tool" || item.type === "streaming-tool" ? "chat-response-tool" : ""}`;
       itemView = { step, answer: null, caret: null, answerText: "" };
       view.items.set(key, itemView);
     }
@@ -629,6 +637,12 @@ function renderResponseItem(session, view, item, key, forceToolOpen = false) {
         }
         stepNodes.push(itemView.caret);
       }
+    } else if (item.type === "streaming-tool") {
+      const tick = document.createElement("div");
+      tick.className = "tool-tick chat-streaming-tool";
+      const elapsed = Math.max(0, Number(item.last_chunk_at || 0) - Number(item.started_at || 0));
+      tick.textContent = `${item.name || "tool call"} · ${formatArgumentBytes(item.argument_bytes)} · ~${format(item.argument_tokens)} tokens · ${formatDuration(elapsed) || "0s"}`;
+      stepNodes.push(tick);
     } else if (item.type === "tool") {
       stepNodes.push(toolTick(item, forceToolOpen));
     } else {
@@ -958,11 +972,11 @@ function renderComposer(session) {
   const operatorUntil = store.shell_identity?.operator_context ? `operator mode · until ${shortTime(store.shell_identity.operator_context_expires_at)}` : "";
   const queueText = queued ? `queued (${queued})${unreachable ? " · waiting for model" : ""}` : "";
   const activity = liveActivityText(session);
-  // Item 2eo: "remove the redundant text above chat that says model busy -
-  // model unavailable. just put 'model busy'". A busy or unreachable model is
-  // the whole line, and the two never appear together; the host is on hover.
-  const modelLine = unreachable ? "model unreachable" : busy ? "model busy" : "";
-  const primary = session && !session.runnable ? session.not_runnable_reason : modelLine || activity || state;
+  // A reachable open request says what it is doing and how much it has done;
+  // the old sticky "model busy" condition is never the whole status line.
+  const modelLine = unreachable ? "model unreachable" : "";
+  const busyFallback = busy && !activity ? "prompt 0 tokens processing" : "";
+  const primary = session && !session.runnable ? session.not_runnable_reason : modelLine || activity || busyFallback || state;
   const updateLine = updateAvailableText(store.update);
   const message = localNotice || micNotice || (modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil, updateLine].filter(Boolean).join(" · "));
   // Live state, not decoration: the robot runs beside the live line for exactly
@@ -980,7 +994,7 @@ function renderComposer(session) {
   const text = document.createElement("span");
   text.className = "chat-notice-text";
   text.textContent = message;
-  if (modelLine && message === modelLine) text.title = (unreachable || busy)?.host || "";
+  if (modelLine && message === modelLine) text.title = unreachable?.host || "";
   notice.append(text);
   notice.className = `chat-notice ${localAlarm || micNotice || unreachable || (session && !session.runnable) ? "alarm" : ""}`;
 	pendingFiles.replaceChildren(...queuedAttachments.map((file) => {
@@ -1303,6 +1317,10 @@ function signed(value) {
 }
 function format(value) {
   return Number(value || 0).toLocaleString("en-US");
+}
+function formatArgumentBytes(value) {
+  const bytes = Math.max(0, Number(value || 0));
+  return bytes < 1000 ? `${bytes} B` : `${(bytes / 1000).toFixed(bytes < 10000 ? 1 : 0)} kB`;
 }
 function shortTime(value) {
   const date = new Date(value || "");

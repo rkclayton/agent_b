@@ -428,9 +428,26 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 					return events.Budget{}, fmt.Errorf("incomplete tool-call group")
 				}
 			}
-			current, err := render(prefix, activeTools)
+			renderedPrefix := prefix
+			sentinelAdjusted := len(renderedPrefix) > 1
+			for _, candidate := range renderedPrefix[1:] {
+				if candidate.Role != "system" {
+					sentinelAdjusted = false
+					break
+				}
+			}
+			if sentinelAdjusted {
+				renderedPrefix = append(append([]llm.Message(nil), prefix...), llm.Message{Role: "user", Content: accountingSentinel})
+			}
+			current, err := render(renderedPrefix, activeTools)
 			if err != nil {
+				if sentinelAdjusted {
+					return events.Budget{}, &applyTemplateAccountingError{err: err}
+				}
 				return events.Budget{}, err
+			}
+			if sentinelAdjusted {
+				current = max(0, current-sentinelCost)
 			}
 			if !profile.Capabilities.ApplyTemplateTools {
 				current += categories["tools"]

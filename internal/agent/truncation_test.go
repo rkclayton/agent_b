@@ -213,8 +213,8 @@ func TestMalformedHistoryRepairPreservesFailureNoteWithoutRestoringFailedAction(
 	if reason != "done" || detail != "" || turns != 1 {
 		t.Fatalf("run=(%q,%q,%d)", reason, detail, turns)
 	}
-	if rejected.Load() != 1 {
-		t.Fatalf("apply-template rejects=%d, want exactly one before repair", rejected.Load())
+	if rejected.Load() != 0 {
+		t.Fatalf("apply-template rejects=%d, malformed history must be repaired before accounting", rejected.Load())
 	}
 	messages := item.MessagesCopy()
 	if len(messages) != 3 || messages[0].ID != "m-bad" || len(messages[0].ToolCalls) != 0 || messages[1].ID != "m-later" {
@@ -234,8 +234,11 @@ func TestMalformedHistoryRepairPreservesFailureNoteWithoutRestoringFailedAction(
 	}
 	foundBody, foundRetry := false, false
 	for _, event := range bus.Recent(item.ID) {
-		if event.Type == events.Error && strings.Contains(event.Data.(map[string]any)["message"].(string), "missing closing quote") {
-			foundBody = true
+		if event.Type == events.Error {
+			data, _ := event.Data.(map[string]any)
+			if data["where"] == "tool_history" {
+				foundBody = true
+			}
 		}
 		if event.Type == events.ModelRetry {
 			foundRetry = true

@@ -23,6 +23,7 @@ func (r *Runner) repairMalformedToolCall(ctx context.Context, s *session.Session
 	records := s.MessagesCopy()
 	badIndex := -1
 	var badCalls []events.ToolCall
+	var badErr error
 	for index := len(records) - 1; index >= 0; index-- {
 		if records[index].Role != "assistant" || len(records[index].ToolCalls) == 0 {
 			continue
@@ -30,6 +31,7 @@ func (r *Runner) repairMalformedToolCall(ctx context.Context, s *session.Session
 		for _, call := range records[index].ToolCalls {
 			if _, err := tools.DecodeArgs(call.Arguments); err != nil {
 				badIndex, badCalls = index, append([]events.ToolCall(nil), records[index].ToolCalls...)
+				badErr = err
 				break
 			}
 		}
@@ -71,6 +73,9 @@ func (r *Runner) repairMalformedToolCall(ctx context.Context, s *session.Session
 	}
 	for _, message := range removed {
 		r.bus.Publish(events.New(events.MessageRemoved, s.ID, runID, map[string]any{"id": message.ID, "reason": "unrenderable_tool_call"}))
+	}
+	if badErr != nil {
+		r.operationalError(s, runID, "tool_history", badErr)
 	}
 	r.bus.Publish(events.New(events.ModelRetry, s.ID, runID, map[string]any{"turn": bad.Turn, "reason": "malformed_tool_history", "tool": firstToolName(badCalls), "attempt": 1, "max_attempts": 1}))
 	return true

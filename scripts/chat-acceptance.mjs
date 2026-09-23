@@ -1840,11 +1840,16 @@ if (realModel) {
   const grantTurn = page.locator(".chat-response").last();
 	const grantTurnSummary = grantTurn.locator(".chat-step-summary");
 	if (await grantTurnSummary.getAttribute("aria-expanded") !== "true") await grantTurnSummary.click();
-	const decidedApproval = grantTurn.locator(".approval-decided").filter({ hasText: /allowed for this chat/ });
+	const decidedApproval = page.locator(".approval-decided").filter({ hasText: /allowed for this chat/ }).last();
+	await decidedApproval.waitFor({ state: "attached" });
+	await decidedApproval.evaluate((decided) => {
+		const summary = decided.closest(".chat-response-block")?.querySelector(".chat-step-summary");
+		if (summary?.getAttribute("aria-expanded") !== "true") summary?.click();
+	});
 	await decidedApproval.waitFor({ state: "visible" });
-	const decidedApprovalShape = await grantTurn.evaluate((root) => {
-		const decided = [...root.querySelectorAll(".approval-decided")].find((item) => item.textContent.includes("allowed for this chat"));
-		return decided ? { text: decided.textContent, height: decided.getBoundingClientRect().height, pending: root.querySelectorAll(".approval-card").length } : null;
+	const decidedApprovalShape = await decidedApproval.evaluate((decided) => {
+		const turn = decided.closest(".chat-response");
+		return { text: decided.textContent, height: decided.getBoundingClientRect().height, pending: turn?.querySelectorAll(".approval-card").length || 0 };
 	});
 	assert.deepEqual(decidedApprovalShape?.text, "Allow this: allowed for this chat");
 	assert.equal(decidedApprovalShape?.pending, 0);

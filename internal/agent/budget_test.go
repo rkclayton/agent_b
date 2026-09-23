@@ -112,13 +112,19 @@ func TestSlowTokenizeDegradesForOneMeasurementThenReturnsToExact(t *testing.T) {
 	}
 }
 
-func TestApplyTemplateFailureDegradesOneMeasurementAndRecordsFinding(t *testing.T) {
+func TestRejectedApplyTemplateShapeUsesSentinelAndStaysExact(t *testing.T) {
 	var fail atomic.Bool
 	fail.Store(true)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/apply-template":
-			if fail.CompareAndSwap(true, false) {
+			var body struct {
+				Messages []llm.Message `json:"messages"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if len(body.Messages) == 1 && body.Messages[0].Role == "system" && fail.CompareAndSwap(true, false) {
 				http.Error(w, "No user query found in messages.", http.StatusInternalServerError)
 				return
 			}
@@ -134,12 +140,12 @@ func TestApplyTemplateFailureDegradesOneMeasurementAndRecordsFinding(t *testing.
 	item := &session.Session{ID: "template-retry", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	budgeter := NewBudgeter()
 	input := budgetInput{SystemBase: "system", System: "system"}
-	degraded, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	repaired, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if degraded.Mode != "estimated" || len(degraded.Findings) != 1 || !strings.Contains(degraded.Findings[0], "No user query found in messages.") {
-		t.Fatalf("degraded budget=%+v", degraded)
+	if repaired.Mode != "exact" || len(repaired.Findings) != 0 {
+		t.Fatalf("repaired budget=%+v", repaired)
 	}
 	retried, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
 	if err != nil {
@@ -147,6 +153,52 @@ func TestApplyTemplateFailureDegradesOneMeasurementAndRecordsFinding(t *testing.
 	}
 	if retried.Mode != "exact" || len(retried.Findings) != 0 {
 		t.Fatalf("retried budget=%+v", retried)
+	}
+}
+
+func TestEveryApplyTemplateFailureLeavesAnEstimatedBudget(t *testing.T) {
+	input := budgetInput{
+		SystemBase: "base", SystemProject: "project", SystemWorkspaceMemory: "workspace", System: "memory",
+		Schemas: []any{testSchema("active")}, AllSchemas: map[string]any{"active": testSchema("active")},
+		WithoutToolSystems: map[string]string{"active": "without active"},
+		Messages:           []llm.Message{{Role: "user", Content: "hello"}, {Role: "assistant", Content: "answer"}},
+		Records:            []events.Message{{ID: "user", Role: "user", Category: "history", Content: "hello"}, {ID: "assistant", Role: "assistant", Category: "history", Content: "answer"}},
+	}
+	run := func(failAt int) (events.Budget, int) {
+		calls := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/apply-template":
+				calls++
+				if calls == failAt {
+					http.Error(w, "injected apply-template failure", http.StatusInternalServerError)
+					return
+				}
+				fmt.Fprint(w, `{"prompt":"rendered"}`)
+			case "/tokenize":
+				fmt.Fprint(w, `{"tokens":[1]}`)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer server.Close()
+		profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true, ApplyTemplateTools: true}}
+		item := &session.Session{ID: fmt.Sprintf("failure-%d", failAt), SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+		budget, err := NewBudgeter().Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+		if err != nil {
+			t.Fatalf("failAt=%d err=%v", failAt, err)
+		}
+		return budget, calls
+	}
+	baseline, callCount := run(0)
+	if baseline.Mode != "exact" || callCount < 2 {
+		t.Fatalf("baseline=%+v calls=%d", baseline, callCount)
+	}
+	for failAt := 1; failAt <= callCount; failAt++ {
+		budget, _ := run(failAt)
+		if budget.Mode != "estimated" || !budget.Estimated || len(budget.Findings) != 1 || !strings.Contains(budget.Findings[0], "injected apply-template failure") {
+			t.Fatalf("failAt=%d budget=%+v", failAt, budget)
+		}
 	}
 }
 
@@ -240,7 +292,7 @@ func TestSystemAccountingUsesSentinelAndSubtractsItsCost(t *testing.T) {
 	}
 }
 
-func TestExactSchemaAttributionReturnsTokenizerFailure(t *testing.T) {
+func TestExactSchemaAttributionTokenizerFailureDegrades(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/apply-template":
@@ -277,9 +329,9 @@ func TestExactSchemaAttributionReturnsTokenizerFailure(t *testing.T) {
 	profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true, ApplyTemplateTools: true}}
 	item := &session.Session{ID: "exact", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	readFile := testSchema("read_file")
-	_, err := NewBudgeter().Measure(context.Background(), &profile, item, config.GlobalContext{}, budgetInput{SystemBase: "system", System: "system", Schemas: []any{testSchema("active")}, AllSchemas: map[string]any{"read_file": readFile}}, false)
-	if err == nil || !strings.Contains(err.Error(), "count schema read_file") {
-		t.Fatalf("schema attribution error=%v", err)
+	budget, err := NewBudgeter().Measure(context.Background(), &profile, item, config.GlobalContext{}, budgetInput{SystemBase: "system", System: "system", Schemas: []any{testSchema("active")}, AllSchemas: map[string]any{"read_file": readFile}}, false)
+	if err != nil || budget.Mode != "estimated" || len(budget.Findings) != 1 || !strings.Contains(budget.Findings[0], "tokenize") {
+		t.Fatalf("budget=%+v error=%v", budget, err)
 	}
 }
 

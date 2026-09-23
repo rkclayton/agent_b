@@ -9,6 +9,7 @@ const argv = process.argv.slice(2);
 const args = Object.fromEntries(Array.from({ length: Math.floor(argv.length / 2) }, (_, index) => [argv[index * 2].replace(/^--/, ""), argv[index * 2 + 1]]));
 for (const key of ["app", "config", "data", "replay", "evidence", "samples"]) assert.ok(args[key], `missing --${key}`);
 const samples = args.samples.split(",").map((value) => value.trim()).filter(Boolean);
+const sessionID = args.session || "s3";
 assert.ok(samples.length, "--samples is empty");
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -57,7 +58,7 @@ for (const [index, at] of samples.entries()) {
   try {
     const base = `http://127.0.0.1:${port}`;
     const state = await waitState(base);
-    assert.ok(state.sessions?.s3, `s3 missing at ${at}: ${stderr}`);
+    assert.ok(state.sessions?.[sessionID], `${sessionID} missing at ${at}: ${stderr}`);
     browser = await chromium.launch({ channel: "msedge", headless: true });
     const context = await browser.newContext({ viewport: { width: 1250, height: 975 }, deviceScaleFactor: 1 });
     await context.addInitScript(() => {
@@ -73,19 +74,21 @@ for (const [index, at] of samples.entries()) {
       };
     });
     const page = await context.newPage();
-    await page.goto(`${base}/chat?session=s3`, { waitUntil: "domcontentloaded" });
-    const finalCursor = state.sessions.s3.cursor;
-    await page.waitForFunction(async (cursor) => {
+    await page.goto(`${base}/chat?session=${encodeURIComponent(sessionID)}`, { waitUntil: "domcontentloaded" });
+    const finalCursor = state.sessions[sessionID].cursor;
+    await page.waitForFunction(async ({ id, cursor }) => {
       const script = document.querySelector("script[src*='/js/build-check.js']");
       if (!script) return false;
       const { store } = await import(new URL("bus.js", script.src).href);
-      const current = store.sessions?.s3?.cursor;
+      const current = store.sessions?.[id]?.cursor;
       return current?.generation === cursor.generation && Number(current?.offset || 0) === Number(cursor.offset || 0);
-    }, finalCursor, { timeout: 30000 });
+    }, { id: sessionID, cursor: finalCursor }, { timeout: 30000 });
     await page.waitForFunction((count) => window.__progressPatchCount >= count, selected.length, { timeout: 30000 });
     await page.waitForFunction(() => document.querySelector("#chat-notice .chat-notice-text")?.textContent?.length > 0);
     await page.waitForTimeout(100);
-    const ui = await page.evaluate(() => {
+    const ui = await page.evaluate(async (id) => {
+      const script = document.querySelector("script[src*='/js/build-check.js']");
+      const { store } = await import(new URL("bus.js", script.src).href);
       const send = document.querySelector("#chat-send");
       const rect = send?.getBoundingClientRect();
       const visible = !!rect && rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight;
@@ -94,10 +97,15 @@ for (const [index, at] of samples.entries()) {
         tool_rows: [...document.querySelectorAll(".chat-response-tool .tool-tick")].map((node) => node.textContent.trim()),
         response_headers: [...document.querySelectorAll(".chat-response-summary")].filter((node) => !node.hidden).map((node) => node.textContent.trim()),
         steps_headers: [...document.querySelectorAll(".chat-step-summary")].filter((node) => !node.hidden).map((node) => node.textContent.trim()),
+        turn_order: [...document.querySelectorAll(".chat-response")].at(-1)?.querySelector(".chat-response-rows")
+          ? [...[...document.querySelectorAll(".chat-response")].at(-1).querySelectorAll(".thinking-line, .chat-response-prose, .chat-step-summary")]
+            .map((node) => node.classList.contains("thinking-line") ? `thought:${node.textContent.trim()}` : node.classList.contains("chat-response-prose") ? `text:${node.textContent.trim()}` : `steps:${node.textContent.trim()}`)
+          : [],
         stop: { mode: send?.dataset.state || "", visible, rect: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null },
         viewport: { width: innerWidth, height: innerHeight },
+        projected_tail: (store.sessions?.[id]?.chat || []).slice(-5).map((entry) => ({ type: entry.type, key: entry.key, event: entry.event?.type || "", text: entry.text || "", reasoning: !!entry.reasoning })),
       };
-    });
+    }, sessionID);
     const last = selected.at(-1).event;
     const result = { at, last_event: { seq: last.seq, ts: last.ts, type: last.type }, ui };
     results.push(result);

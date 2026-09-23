@@ -4,6 +4,7 @@ export const thinThoughtTokenLimit = 64;
 
 export function hasVisibleChatContent(item) {
   if (!item || typeof item !== "object") return true;
+  if (item.type === "notice" && item.event?.type === "run.stopped" && item.event?.data?.reason === "done") return false;
   if (item.type === "notice" && item.event?.type === "files.delivered") {
     const items = item.event.data?.items;
     return !Array.isArray(items) || items.length > 0;
@@ -63,6 +64,10 @@ export function responseBlocks(items = []) {
   return blocks;
 }
 
+export function responseHasOnlyThoughts(items = []) {
+  return items.length > 0 && items.every((item) => item?.type === "agent");
+}
+
 export function responseSummary(items = []) {
   const tools = items.filter((item) => item?.type === "tool").length;
   const thoughts = items.filter((item) => item?.type === "agent" && (thoughtTokens(item) > 0 || !item.done)).length;
@@ -75,14 +80,6 @@ export function responseSummary(items = []) {
 export function isIdenticalSingleStepFold(items = [], blocks = []) {
   if (blocks.length !== 1 || blocks[0].prose || blocks[0].steps.length !== items.length) return false;
   return blocks[0].steps.every((item, index) => item === items[index] || item?.key === items[index]?.key);
-}
-
-// Item 2eo: a header appears only when it groups two or more things. A Steps
-// fold holding at most one tool call and one thought renders those rows with no
-// header; counts are still computed from the rows wherever a header renders.
-export function isHeaderlessSteps(steps = []) {
-  const summary = responseSummary(steps);
-  return steps.length > 0 && steps.length <= 2 && summary.tools <= 1 && summary.thoughts <= 1 && steps.every((item) => item?.type === "tool" || item?.type === "agent");
 }
 
 export function itemFailed(item) {

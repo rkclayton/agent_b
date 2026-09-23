@@ -376,6 +376,7 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 	case events.RunStopping:
 		next.Run.Status = "stopping"
 	case events.RunStopped:
+		next.ModelBusy = nil
 		status := "idle"
 		if boolValue(data["queue_held"]) {
 			status = "held"
@@ -459,6 +460,7 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 			next.Run.Partial += stringValue(data["text"])
 		}
 	case events.ModelResponse:
+		next.ModelBusy = nil
 		next.Run.Partial = ""
 		next.ModelTurns++
 		next.Activity.LastTimings = mapValue(data["timings"])

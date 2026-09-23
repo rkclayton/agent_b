@@ -10,7 +10,7 @@ import { attachmentChipFile, attachmentMetadata, exchangeFiles, exchangeUpload, 
 import { attachmentReadability } from "./attachment-readability.js";
 import { agentAuthor, isRunning, openSessions, sameWorkerPlan, workerApproval } from "./chat-lifecycle.js";
 import { renderSendStop } from "./stop-state.js";
-import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, isIdenticalSingleStepFold, itemFailed, responseBlocks, responseSummary } from "./chat-response-groups.js";
+import { groupResponseRows, hasVisibleChatContent, itemFailed, responseBlocks, responseHasOnlyThoughts, responseSummary } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
 import { renderChatProposals } from "./chat-proposals.js";
@@ -422,20 +422,12 @@ function renderResponse(session, entry) {
     row.tabIndex = 0;
     const content = document.createElement("div");
     content.className = "chat-content chat-response-content";
-    const summary = document.createElement("button");
-    summary.type = "button";
-    summary.className = "chat-response-summary";
-    summary.onclick = () => {
-      const allOpen = view.stepKeys.length > 0 && view.stepKeys.every((key) => expanded.has(key));
-      for (const key of view.stepKeys) allOpen ? expanded.delete(key) : expanded.add(key);
-      render();
-    };
     const rows = document.createElement("div");
     rows.className = "chat-response-rows";
-    content.append(summary, rows);
+    content.append(rows);
     const author = speaker(agentAuthor(session), true);
     row.append(author, content);
-    view = { row, author, content, summary, rows, blocks: new Map(), stepKeys: [] };
+    view = { row, author, content, rows, blocks: new Map() };
     entryViews.set(viewKey, view);
   }
   usedEntryViews.add(viewKey);
@@ -443,13 +435,8 @@ function renderResponse(session, entry) {
   const totals = responseSummary(entry.items);
   const active = isRunning(session) && entry.items.some((item) => item?.run_id && item.run_id === session.run?.run_id);
   const blocks = responseBlocks(entry.items);
-  const singleIdenticalFold = isIdenticalSingleStepFold(entry.items, blocks);
-  view.stepKeys = blocks.filter((block) => block.steps.length).map((block) => block.key);
-  const open = active || (view.stepKeys.length > 0 && view.stepKeys.every((key) => expanded.has(key)));
-  view.summary.hidden = singleIdenticalFold;
-  setAttribute(view.summary, "aria-expanded", String(open));
-  setText(view.summary, `${open ? "▾" : "▸"} Response · ${responseSummaryText(totals, entry.items.length)}`);
-  view.row.classList.toggle("single-step-response", singleIdenticalFold);
+  const directThoughts = responseHasOnlyThoughts(entry.items);
+  view.row.classList.toggle("thought-only-response", directThoughts);
   view.row.classList.toggle("alarm", totals.failed > 0);
   const usedBlocks = new Set(blocks.map((block) => block.key));
   reconcileChildren(view.rows, blocks.map((block) => renderResponseBlock(session, view, block, active)));
@@ -466,8 +453,11 @@ function renderResponseBlock(session, view, block, active) {
     view.blocks.set(block.key, blockView);
   }
   const nodes = [];
+  const directThoughts = responseHasOnlyThoughts(block.steps);
+  // Reasoning is emitted before prose by the model, so its visible row precedes
+  // the answer. A thought-only turn has no intermediate Steps disclosure at all.
+  if (block.steps.length) nodes.push(renderResponseStepFold(session, blockView, block, active, directThoughts));
   if (block.prose) nodes.push(renderResponseProse(blockView, block.prose));
-  if (block.steps.length) nodes.push(renderResponseStepFold(session, blockView, block, active));
   reconcileChildren(blockView.root, nodes);
   return blockView.root;
 }
@@ -494,7 +484,7 @@ function renderResponseProse(view, item) {
   return view.prose;
 }
 
-function renderResponseStepFold(session, view, block, active) {
+function renderResponseStepFold(session, view, block, active, directThoughts) {
   if (!view.fold) {
     view.fold = document.createElement("div");
     view.fold.className = "chat-step-fold";
@@ -511,7 +501,9 @@ function renderResponseStepFold(session, view, block, active) {
   }
   const totals = responseSummary(block.steps);
   // Item 2eo: one tool call and one thought are two rows, not a group.
-  const headerless = !active && isHeaderlessSteps(block.steps);
+  // Active rows are pinned open, so drawing a disclosure for them would be an
+  // inert control. Thought-only rows never need a grouping disclosure either.
+  const headerless = active || directThoughts;
   const open = active || headerless || expanded.has(block.key);
   view.head.hidden = headerless;
   view.fold.classList.toggle("headerless", headerless);

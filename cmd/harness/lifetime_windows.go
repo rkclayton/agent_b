@@ -109,6 +109,13 @@ func activateExistingInstance(dataRoot, applicationRoot string) (int, bool) {
 	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&state) != nil || state.ProcessID != marker.PID {
 		return 0, false
 	}
+	// The verified loopback server owns update policy and the 15-minute gate.
+	// This request is only an attach signal; it returns immediately while any
+	// allowed check runs in the serving process.
+	updateResponse, updateErr := client.Get("http://" + marker.Listen + "/api/update?attach=1")
+	if updateErr == nil {
+		updateResponse.Body.Close()
+	}
 	name, _ := syscall.UTF16PtrFromString(activateEventName(applicationRoot, marker.PID))
 	const eventModifyState = 0x0002
 	// Let the already-running process take foreground permission inherited by

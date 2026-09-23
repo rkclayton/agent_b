@@ -140,3 +140,39 @@ func TestDisabledDuringCheckDiscardsLateRelease(t *testing.T) {
 		t.Fatalf("late release survived disabled switch: %+v", state)
 	}
 }
+
+func TestWindowAttachCheckIsRateLimitedForFifteenMinutes(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v1.4.0"})
+	}))
+	defer server.Close()
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	manager := New(Options{CurrentVersion: "v1.4.0", DataRoot: t.TempDir(), LatestURL: server.URL, Client: server.Client()})
+	manager.now = func() time.Time { return now }
+	if !manager.TriggerIfStale(context.Background(), 15*time.Minute) {
+		t.Fatal("first attach did not start a check")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for manager.State().Checking && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if manager.TriggerIfStale(context.Background(), 15*time.Minute) {
+		t.Fatal("second attach inside 15 minutes started a check")
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("requests=%d, want 1", requests.Load())
+	}
+	now = now.Add(15 * time.Minute)
+	if !manager.TriggerIfStale(context.Background(), 15*time.Minute) {
+		t.Fatal("attach at 15 minutes did not start a check")
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for requests.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("requests=%d, want 2", requests.Load())
+	}
+}

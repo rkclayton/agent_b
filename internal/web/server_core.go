@@ -109,6 +109,7 @@ type Server struct {
 	agentServers      map[string]pendingAgentServer
 	tryAgentIdle      func(string) bool
 	hostWindowAction  func(string) bool
+	startedAt         string
 }
 
 type probeRun struct{ cancel context.CancelFunc }
@@ -127,6 +128,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 	cfg.Shell.OperatorContextExpiresAt = ""
 	server := &Server{
 		cfg: cfg, configPath: path, webDir: webDir, roots: roots, bus: bus, mutationToken: newMutationToken(),
+		startedAt:       time.Now().UTC().Format(time.RFC3339),
 		operatorRequest: requireOperatorHTTPClient,
 		operatorNow:     time.Now,
 		operatorAfter: func(duration time.Duration, fn func()) operatorTimer {

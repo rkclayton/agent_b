@@ -544,6 +544,7 @@ async function click(event) {
 	if (action === "test-notification") return notificationAction("test");
 	if (action === "clear-notification") return notificationAction("clear");
 	if (action === "install-update") return installUpdate();
+	if (action === "check-update") return checkUpdate();
 	if (action === "remove-hardening") {
 		if (!armed.has("hardening:remove")) {
 			armed.add("hardening:remove");
@@ -695,6 +696,17 @@ async function installUpdate() {
 		store.update = result.update || store.update;
 	} catch (error) {
 		store.update = { ...(store.update || {}), installing: false, error: error.message };
+	}
+	if (open) render();
+}
+
+async function checkUpdate() {
+	store.update = { ...(store.update || {}), checking: true, error: "" };
+	render();
+	try {
+		store.update = await api("/api/update", { action: "check" });
+	} catch (error) {
+		store.update = { ...(store.update || {}), checking: false, error: error.message };
 	}
 	if (open) render();
 }

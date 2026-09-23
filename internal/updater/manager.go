@@ -88,6 +88,7 @@ type Manager struct {
 	launch    func(string) error
 	changed   func(State)
 	now       func() time.Time
+	lastCheck time.Time
 	cancel    context.CancelFunc
 }
 
@@ -201,20 +202,53 @@ func (m *Manager) refreshEnabled() {
 }
 
 func (m *Manager) Check(ctx context.Context) error {
+	started, err := m.beginCheck(0)
+	if err != nil || !started {
+		return err
+	}
+	return m.finishCheck(ctx)
+}
+
+// TriggerIfStale starts a passive check without blocking the caller. The
+// timestamp is reserved before the goroutine starts, so simultaneous window
+// attaches cannot both pass the interval gate.
+func (m *Manager) TriggerIfStale(parent context.Context, minimumInterval time.Duration) bool {
+	started, err := m.beginCheck(minimumInterval)
+	if err != nil || !started {
+		return false
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
+		defer cancel()
+		_ = m.finishCheck(ctx)
+	}()
+	return true
+}
+
+func (m *Manager) beginCheck(minimumInterval time.Duration) (bool, error) {
 	if !m.enabled() {
 		m.refreshEnabled()
-		return nil
+		return false, nil
 	}
+	now := m.now()
 	m.mu.Lock()
 	if m.state.Checking {
 		m.mu.Unlock()
-		return errors.New("update check is already running")
+		return false, errors.New("update check is already running")
+	}
+	if minimumInterval > 0 && !m.lastCheck.IsZero() && now.Sub(m.lastCheck) < minimumInterval {
+		m.mu.Unlock()
+		return false, nil
 	}
 	m.state.Enabled, m.state.Checking, m.state.Error = true, true, ""
+	m.lastCheck = now
 	checking := m.state
 	m.mu.Unlock()
 	m.publish(checking)
+	return true, nil
+}
 
+func (m *Manager) finishCheck(ctx context.Context) error {
 	release, err := m.fetchRelease(ctx)
 	m.mu.Lock()
 	// The operator may turn checks off while the one in-flight request is

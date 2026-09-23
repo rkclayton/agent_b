@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -15,6 +16,13 @@ func (s *Server) updateEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
+		if r.URL.Query().Get("attach") == "1" {
+			if s.updater.TriggerIfStale(context.Background(), 15*time.Minute) {
+				log.Printf("update check on window attach: started")
+			} else {
+				log.Printf("update check on window attach: skipped (running or checked within 15 minutes)")
+			}
+		}
 		writeJSON(w, http.StatusOK, s.updater.State())
 	case http.MethodPost:
 		var body struct {

@@ -49,6 +49,13 @@ test("every Settings page renderer accepts the controller context", () => {
   for (const page of pages) assert.equal(typeof page, "string");
 });
 
+test("About exposes only the changing build text to the screenshot mask", () => {
+  const context = pageContext();
+  context.row = (_label, value) => value;
+  const page = renderAboutPage(context);
+  assert.match(page, /<code class="settings-build-text">v0\.49\.0 · abcdef0<\/code>/);
+});
+
 test("Security renders the LAN switch and detected confirmation list", () => {
 	const context = pageContext();
 	context.store.config.shell.allow_local_network = false;

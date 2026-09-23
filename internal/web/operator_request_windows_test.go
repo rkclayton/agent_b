@@ -39,6 +39,25 @@ func TestRequireOperatorHTTPClientRejectsAgentBProcess(t *testing.T) {
 	}
 }
 
+func TestOperatorIdentityAllowsSameAccountOrInteractiveSession(t *testing.T) {
+	for _, test := range []struct {
+		name                           string
+		clientSID, operatorSID         string
+		clientSession, operatorSession uint32
+		want                           bool
+	}{
+		{"same account", "S-1-5-21-1", "S-1-5-21-1", 2, 3, true},
+		{"same session", "S-1-5-21-1", "S-1-5-21-2", 3, 3, true},
+		{"other account and session", "S-1-5-21-1", "S-1-5-21-2", 2, 3, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := operatorIdentityAllowed(test.clientSID, test.operatorSID, test.clientSession, test.operatorSession); got != test.want {
+				t.Fatalf("operatorIdentityAllowed()=%t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestRequireOperatorHTTPClientAcceptsExternalOperatorProcess(t *testing.T) {
 	addressPath := filepath.Join(t.TempDir(), "address")
 	command := exec.Command(os.Args[0], "-test.run=^TestOperatorRequestHelper$")

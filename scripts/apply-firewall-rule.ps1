@@ -13,6 +13,7 @@ param(
     [string]$LANICMPRuleName = 'AgentB-Svc-LAN-ICMP-Allow',
     [switch]$AllowLocalNetwork,
     [string[]]$LocalSubnet = @(),
+    [string[]]$AllowedRange = @(),
     [switch]$Verify,
     [switch]$Remove,
 	[switch]$Inspect,
@@ -21,17 +22,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $LocalSubnet = @(($LocalSubnet -join ',') -split ',' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+$AllowedRange = @(($AllowedRange -join ',') -split ',' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 $ruleName = $RuleName
 $legacyAllowRuleName = $LegacyAllowRuleName
 $statusMarker = 'AGENTB_FIREWALL_STATUS='
-$baseBlockedRanges = @(
-    '0.0.0.0-100.63.255.255',
-    '100.128.0.0-126.255.255.255',
-    '128.0.0.0-255.255.255.255',
-    # NetSecurity canonicalizes the single-address ::/128 form to ::.
-    '::',
-    '::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'
-)
 $metadataAddress = [Net.IPAddress]::Parse('169.254.169.254')
 
 function ConvertTo-IPv4Number {
@@ -65,13 +59,33 @@ function Resolve-LANRange {
     return [pscustomobject]@{ Start = $start; End = $end; Prefix = "$(ConvertFrom-IPv4Number $start)/$bits" }
 }
 
+function Resolve-ConfiguredRange {
+    param([string]$Prefix)
+    if ($Prefix -notmatch '^([^/]+)/([0-9]{1,2})$') { throw "AllowedRange must be an IPv4 CIDR prefix: '$Prefix'" }
+    $address = [Net.IPAddress]::Parse($Matches[1])
+    $bits = [int]$Matches[2]
+    if ($bits -lt 8 -or $bits -gt 32) { throw "AllowedRange prefix length must be between 8 and 32: '$Prefix'" }
+    $value = ConvertTo-IPv4Number $address
+    $size = [math]::Pow(2, 32 - $bits)
+    $start = [uint64]([math]::Floor($value / $size) * $size)
+    $end = [uint64]($start + $size - 1)
+    $metadata = ConvertTo-IPv4Number $metadataAddress
+    if ($start -le $metadata -and $end -ge $metadata) { throw "AllowedRange may not include the metadata address: '$Prefix'" }
+    return [pscustomobject]@{ Start = $start; End = $end; Prefix = "$(ConvertFrom-IPv4Number $start)/$bits" }
+}
+
+function Resolve-ModelAddresses {
+    param([string]$Name)
+    $literal = $null
+    if ([Net.IPAddress]::TryParse($Name, [ref]$literal)) { return @($literal) }
+    try { $addresses = @([Net.Dns]::GetHostAddresses($Name)) } catch { throw "Model host '$Name' could not be resolved: $($_.Exception.Message)" }
+    if ($addresses.Count -eq 0) { throw "Model host '$Name' resolved to no addresses." }
+    return @($addresses | Sort-Object -Property IPAddressToString -Unique)
+}
+
 function Resolve-BlockedRanges {
     param([object[]]$Allowed)
-    $ranges = @(
-        [pscustomobject]@{ Start = [uint64]0; End = [uint64]1681915903 },
-        [pscustomobject]@{ Start = [uint64]1686110208; End = [uint64]2130706431 },
-        [pscustomobject]@{ Start = [uint64]2147483648; End = [uint64]4294967295 }
-    )
+    $ranges = @([pscustomobject]@{ Start = [uint64]0; End = [uint64]4294967295 })
     foreach ($allow in $Allowed) {
         $next = @()
         foreach ($range in $ranges) {
@@ -89,6 +103,20 @@ function Resolve-BlockedRanges {
     return $result + @('::', '::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')
 }
 
+$resolvedModelAddresses = @(Resolve-ModelAddresses -Name $ModelAddress)
+$resolvedIPv4 = @($resolvedModelAddresses | Where-Object { $_.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork })
+$unsupportedIPv6 = @($resolvedModelAddresses | Where-Object { $_.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetworkV6 -and -not $_.Equals([Net.IPAddress]::IPv6Loopback) })
+if ($resolvedIPv4.Count -eq 0 -and $unsupportedIPv6.Count -gt 0) { throw "Model host '$ModelAddress' resolved only to IPv6 addresses; this policy currently requires an IPv4 address or loopback." }
+$resolvedAddressText = @($resolvedModelAddresses | ForEach-Object { $_.IPAddressToString } | Sort-Object -Unique)
+$allowedRanges = @([pscustomobject]@{ Start = [uint64]2130706432; End = [uint64]2147483647; Prefix = '127.0.0.0/8' })
+foreach ($address in $resolvedIPv4) {
+    $number = ConvertTo-IPv4Number $address
+    $allowedRanges += [pscustomobject]@{ Start = $number; End = $number; Prefix = $address.IPAddressToString }
+}
+$configuredRanges = @()
+foreach ($prefix in $AllowedRange) { $configuredRanges += Resolve-ConfiguredRange $prefix }
+$allowedRanges += $configuredRanges
+
 $allowedLANRanges = @()
 if ($AllowLocalNetwork) {
     foreach ($prefix in $LocalSubnet) {
@@ -97,7 +125,10 @@ if ($AllowLocalNetwork) {
     if ($allowedLANRanges.Count -eq 0) { throw 'AllowLocalNetwork requires at least one confirmed LocalSubnet.' }
 }
 $confirmedLANSubnets = @($allowedLANRanges | ForEach-Object { $_.Prefix } | Sort-Object -Unique)
-$blockedRanges = if ($AllowLocalNetwork) { Resolve-BlockedRanges $allowedLANRanges } else { $baseBlockedRanges }
+if ($AllowLocalNetwork) { $allowedRanges += $allowedLANRanges }
+$configuredRangeText = @($configuredRanges | ForEach-Object { $_.Prefix } | Sort-Object -Unique)
+$blockedRanges = Resolve-BlockedRanges $allowedRanges
+$policyDescription = "Agent_b model=$ModelAddress addresses=$($resolvedAddressText -join ',') allowed=$($configuredRangeText -join ',') lan=$($confirmedLANSubnets -join ',')"
 $script:confirmationSuppressed = $NoPrompt -or ($PSBoundParameters.ContainsKey('Confirm') -and -not [bool]$PSBoundParameters['Confirm'])
 if ($NoPrompt) { $ConfirmPreference = 'None' }
 
@@ -160,21 +191,12 @@ function Resolve-LocalUserSid {
     return $user.SID.Value
 }
 
-function Test-AllowedModelAddress {
-    param([string]$Address)
-    try { $ip = [Net.IPAddress]::Parse($Address) } catch { return $false }
-    if ($ip.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetworkV6) {
-        return $ip.Equals([Net.IPAddress]::IPv6Loopback)
-    }
-    $bytes = $ip.GetAddressBytes()
-    return $bytes[0] -eq 127 -or ($bytes[0] -eq 100 -and $bytes[1] -ge 64 -and $bytes[1] -le 127)
-}
-
 function Test-RuleIntent {
     param([string]$LocalUserSddl)
     $rule = Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue
     if (-not $rule) { return $false }
     if ($rule.Direction -ne 'Outbound' -or $rule.Action -ne 'Block' -or $rule.Enabled -ne 'True' -or $rule.Profile -ne 'Any') { return $false }
+    if ($rule.Description -ne $policyDescription) { $script:resolutionChanged = $true; return $false }
     # LocalUser is stored on the associated network-layer security filter,
     # not on the MSFT_NetFirewallRule object returned by Get-NetFirewallRule.
     $security = Get-NetFirewallSecurityFilter -AssociatedNetFirewallRule $rule
@@ -195,15 +217,10 @@ if (($Verify.IsPresent -and $Remove.IsPresent) -or ($Inspect.IsPresent -and ($Ve
     [Console]::Error.WriteLine('Choose only one of -Verify, -Remove, or -Inspect.')
     exit 2
 }
-if (-not (Test-AllowedModelAddress -Address $ModelAddress)) {
-    [Console]::Error.WriteLine("ModelAddress must be an IP inside 127.0.0.0/8, 100.64.0.0/10, or IPv6 loopback. '$ModelAddress' would be blocked by this policy.")
-    exit 2
-}
-
 Write-Host 'Agent_b service-account outbound firewall policy'
 Write-Host "Account: $env:COMPUTERNAME\$AccountName"
-Write-Host "Model endpoint confirmed inside the spared local/Tailscale ranges: $ModelAddress`:$ModelPort"
-Write-Host "Policy: one user-scoped outbound Block rule; spare IPv4 loopback 127.0.0.0/8, Tailscale 100.64.0.0/10, IPv6 loopback ::1$(if ($AllowLocalNetwork) { ", and confirmed LAN $($confirmedLANSubnets -join ', ')" } else { '' })."
+Write-Host "Model endpoint: $ModelAddress`:$ModelPort -> $($resolvedAddressText -join ', ')"
+Write-Host "Policy: one user-scoped outbound Block rule; spare loopback and the configured model server$(if ($configuredRangeText.Count) { ", configured ranges $($configuredRangeText -join ', ')" } else { '' })$(if ($AllowLocalNetwork) { ", and confirmed LAN $($confirmedLANSubnets -join ', ')" } else { '' })."
 Write-Host "$(if ($AllowLocalNetwork) { 'One account-scoped outbound ICMPv4 echo Allow rule is created for the confirmed LAN subnets.' } else { 'No Allow rule is created.' }) Machine-wide DefaultOutboundAction is not changed."
 
 if (-not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $Verify -and -not $Inspect) {
@@ -247,11 +264,13 @@ try { $sid = Resolve-LocalUserSid -Name $AccountName } catch {
     exit 1
 }
 $localUserSddl = "D:(A;;CC;;;$sid)"
+$script:resolutionChanged = $false
 $correct = Test-RuleIntent -LocalUserSddl $localUserSddl
 $legacyPresent = [bool](Get-NetFirewallRule -Name $legacyAllowRuleName -ErrorAction SilentlyContinue)
 
 if ($Inspect) {
-    $status = [ordered]@{ supported = $true; account_exists = $true; applied = ($correct -and -not $legacyPresent); summary = $(if ($correct -and -not $legacyPresent) { 'user-scoped outbound policy verified' } else { 'firewall rule missing or drifted' }) }
+    $summary = if ($correct -and -not $legacyPresent) { 'user-scoped outbound policy verified' } elseif ($script:resolutionChanged) { "model host resolution changed; apply protection again ($ModelAddress -> $($resolvedAddressText -join ', '))" } else { 'firewall rule missing or drifted' }
+    $status = [ordered]@{ supported = $true; account_exists = $true; applied = ($correct -and -not $legacyPresent); summary = $summary; resolved_addresses = $resolvedAddressText; resolution_changed = $script:resolutionChanged }
     Write-Output ($statusMarker + ($status | ConvertTo-Json -Compress))
     exit 0
 }
@@ -272,8 +291,7 @@ if ($correct -and -not $legacyPresent) {
 if (Test-ConfirmationPromptExpected) { Assert-SafeConfirmationInput }
 if ($PSCmdlet.ShouldProcess($ruleName, 'Create or repair Agent_b user-scoped outbound Block rule')) {
     Get-NetFirewallRule -Name $ruleName, $legacyAllowRuleName, $LANICMPRuleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-    $description = if ($AllowLocalNetwork) { "Blocks Agent_b service-account egress except loopback, Tailscale, and confirmed LAN subnets: $($confirmedLANSubnets -join ', ')." } else { 'Blocks Agent_b service-account egress except loopback and Tailscale address ranges.' }
-    $null = New-NetFirewallRule -Name $ruleName -DisplayName $ruleName -Description $description -Direction Outbound -Action Block -Enabled True -Profile Any -LocalUser $localUserSddl -RemoteAddress $blockedRanges
+    $null = New-NetFirewallRule -Name $ruleName -DisplayName $ruleName -Description $policyDescription -Direction Outbound -Action Block -Enabled True -Profile Any -LocalUser $localUserSddl -RemoteAddress $blockedRanges
     if ($AllowLocalNetwork) {
         $null = New-NetFirewallRule -Name $LANICMPRuleName -DisplayName $LANICMPRuleName -Description 'Allows outbound ICMPv4 echo to operator-confirmed LAN subnets for the Agent_b service identity.' -Direction Outbound -Action Allow -Enabled True -Profile Any -LocalUser $localUserSddl -Protocol ICMPv4 -IcmpType 8 -RemoteAddress $confirmedLANSubnets
     }

@@ -124,14 +124,14 @@ func TestHardeningLANWideningRequiresVerifiedOperatorProcess(t *testing.T) {
 	}
 }
 
-func TestHardeningStatusRejectsHostnameEndpoint(t *testing.T) {
+func TestHardeningStatusAcceptsHostnameEndpoint(t *testing.T) {
 	server, _, _ := serviceAccountTestServer(t, &fakeAccountManager{})
 	server.cfg.Servers[0].BaseURL = "https://model.example.invalid/v1"
 	server.SetHardeningManager(&fakeHardeningManager{})
 	request := httptest.NewRequest(http.MethodGet, "/api/hardening?server_id=local", nil)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "numeric") {
+	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}
 }

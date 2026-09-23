@@ -362,7 +362,10 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 }
 
 func NetworkBoundary(settings config.Config) string {
-	reachable := "loopback and Tailscale (100.64.0.0/10)"
+	reachable := "loopback and the configured model server"
+	if len(settings.Shell.AllowedModelRanges) > 0 {
+		reachable += ", plus the operator-configured ranges " + strings.Join(settings.Shell.AllowedModelRanges, ", ")
+	}
 	fetch := "public addresses and exact tools.fetch.allow_internal_hosts entries"
 	if settings.Shell.AllowLocalNetwork && len(settings.Shell.ConfirmedLocalSubnets) > 0 {
 		subnets := strings.Join(settings.Shell.ConfirmedLocalSubnets, ", ")
@@ -896,6 +899,7 @@ func (r *Registry) Delete(id string) (events.SessionInventory, error) {
 	r.mu.Unlock()
 	return inventory, nil
 }
+
 // Item 2gy (v1.2.5): a capability finding gates the FEATURE that needs it, not
 // the chat. A probe that could not get an answer - a busy GPU, a timeout, a 503
 // - used to be recorded as a server that cannot call tools, and that finding

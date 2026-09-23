@@ -1,6 +1,6 @@
 # Windows host hardening
 
-These controls reduce the reach of Agent_b's model-selected OS operations. Shell children and built-in file tools use a dedicated local account. File-tool paths rely on that identity's ACLs; shell is never workspace-confined, and its workspace is only the initial working directory. Absolute paths and `cd ..` therefore remain possible wherever Windows grants the active account access. The managed Agent_b tree grants writes to its workspace and configured exchange folder only, and service-account outbound traffic is limited to IPv4 loopback, Tailscale's `100.64.0.0/10`, and IPv6 loopback. This is blast-radius reduction on a dedicated Windows host, not a sandbox or exploit boundary.
+These controls reduce the reach of Agent_b's model-selected OS operations. Shell children and built-in file tools use a dedicated local account. File-tool paths rely on that identity's ACLs; shell is never workspace-confined, and its workspace is only the initial working directory. Absolute paths and `cd ..` therefore remain possible wherever Windows grants the active account access. The managed Agent_b tree grants writes to its workspace and configured exchange folder only, and service-account outbound traffic is limited to loopback, the configured model server addresses, and any explicit operator-owned ranges. This is blast-radius reduction on a dedicated Windows host, not a sandbox or exploit boundary.
 
 Because ACLs constrain shell reach rather than behavior, `run_script` requires policy confirmation while the service identity is enabled, regardless of `approval.mode`. Ordinary `shell` follows the configured mode: `boundary-only`/`off` are silent until an identity or permission denial raises **Run as you**, while `mutating`/`all` use **Allow this** before service execution. Configured `tools.shell.operator_commands` are resolved from the command's first executable, never run as the service account, and require **Run as you**. **Yes, for this chat** covers every later shell, file, or interpreter identity need in that chat; **Just once** covers only the displayed operation. With the service identity disabled, no posture-specific identity gate applies. In that unrestricted posture, `internal/tools/jail.go` remains the sole workspace constraint for built-in file tools and must not be removed; it does not apply to shell.
 
@@ -53,7 +53,7 @@ A release candidate is built once by the release step, `scripts\build-candidate.
 
 When an installed Agent_b is running, an upgrade applies and verifies the candidate ACL policy before stopping that process. It also copies the existing application tree to a guarded temporary rollback root before the stop. If any later installation or verification step fails, the elevated phase restores those application files and records `RESTART VERSION` / `RESTART REASON`; the original non-elevated installer wrapper then starts that restored version and appends `RESTARTED` to the same transcript. A failed pre-stop policy check never stops Agent_b, and a rollback or restart failure is reported explicitly rather than hidden.
 
-The network rule permits every loopback and Tailscale destination, not only the model server. It prevents ordinary public/LAN egress by this Windows identity; it is not a domain allowlist, protocol inspection, or protection against a kernel-level exploit.
+The network rule permits loopback, the configured model server addresses, and explicit ranges in `shell.allowed_model_ranges`. Hostnames are resolved at apply time and the mapping is recorded; resolution drift is shown on Security until the operator applies protection again. It prevents ordinary public/LAN egress by this Windows identity; it is not a domain allowlist, protocol inspection, or protection against a kernel-level exploit.
 
 ## 4. RBAC demonstration checks
 
@@ -65,7 +65,7 @@ Run these through Agent_b after **Apply protection** succeeds:
 4. Creating a file under the sibling `web` directory reports a permission denial.
 5. Choose **Keep denied** and confirm no operator retry occurs.
 6. Repeat, choose **Just once** on **Run as you**, and confirm the exact operation succeeds only once. Then choose **Yes, for this chat** and confirm a file escape, shell command, and operator-only interpreter all share that one chat grant. This path runs as the account that launched Agent_b and inherits its permissions. Keep Agent_b non-elevated so this override does not acquire Administrator authority.
-7. A connection to the configured loopback or Tailscale model endpoint succeeds.
+7. A connection to the configured model endpoint succeeds.
 8. A direct connection to a public test address fails under the service identity.
 9. A timed-out command loses its complete process tree.
 10. The timeline/log distinguishes the original operation from the mandatory boundary-escape decision and the operator retry result.

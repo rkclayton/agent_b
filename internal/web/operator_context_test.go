@@ -190,7 +190,7 @@ func TestOperatorContextEnableRequiresOperatorOwnedHTTPClient(t *testing.T) {
 	server.operatorRequest = func(*http.Request) error { return errors.New("service identity") }
 
 	response := postOperatorContext(t, server, true)
-	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "local process owned by") {
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "service identity") {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}
 	if server.ConfigSnapshot().Shell.OperatorContext || shell.IdentityStatus().OperatorContext {

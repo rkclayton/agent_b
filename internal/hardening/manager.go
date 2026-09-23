@@ -17,14 +17,17 @@ type Request struct {
 	ModelPort            int
 	AllowLocalNetwork    bool
 	LocalSubnets         []string
+	AllowedModelRanges   []string
 }
 
 type ComponentStatus struct {
-	Supported     bool   `json:"supported"`
-	AccountExists bool   `json:"account_exists"`
-	Applied       bool   `json:"applied"`
-	Drift         int    `json:"drift,omitempty"`
-	Summary       string `json:"summary"`
+	Supported         bool     `json:"supported"`
+	AccountExists     bool     `json:"account_exists"`
+	Applied           bool     `json:"applied"`
+	Drift             int      `json:"drift,omitempty"`
+	Summary           string   `json:"summary"`
+	ResolvedAddresses []string `json:"resolved_addresses,omitempty"`
+	ResolutionChanged bool     `json:"resolution_changed,omitempty"`
 }
 
 type Status struct {
@@ -37,6 +40,7 @@ type Status struct {
 	Applied               bool            `json:"applied"`
 	AllowLocalNetwork     bool            `json:"allow_local_network"`
 	ConfirmedLocalSubnets []string        `json:"confirmed_local_subnets"`
+	AllowedModelRanges    []string        `json:"allowed_model_ranges"`
 	DetectedLocalSubnets  []string        `json:"detected_local_subnets,omitempty"`
 }
 

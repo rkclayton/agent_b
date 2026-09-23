@@ -18,6 +18,7 @@ param(
 	[int]$ModelPort,
 	[switch]$AllowLocalNetwork,
 	[string[]]$LocalSubnet = @(),
+	[string[]]$AllowedRange = @(),
 	# Internal result channel used by the non-elevated web process. The elevated
 	# process cannot return its PowerShell streams through Start-Process reliably.
 	[string]$ResultPath
@@ -25,6 +26,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $LocalSubnet = @(($LocalSubnet -join ',') -split ',' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+$AllowedRange = @(($AllowedRange -join ',') -split ',' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 
 trap {
     $message = $_.Exception.Message
@@ -67,6 +69,7 @@ $aclArguments = @('-AccountName', $AccountName, '-ApplicationDirectory', $Applic
 $firewallArguments = @('-AccountName', $AccountName, '-ModelAddress', $ModelAddress, '-ModelPort', $ModelPort.ToString(), '-NoPrompt')
 if ($AllowLocalNetwork) { $firewallArguments += '-AllowLocalNetwork' }
 if ($LocalSubnet.Count) { $firewallArguments += @('-LocalSubnet', ($LocalSubnet -join ',')) }
+if ($AllowedRange.Count) { $firewallArguments += @('-AllowedRange', ($AllowedRange -join ',')) }
 
 if ($WhatIfPreference) {
     $aclArguments += '-WhatIf'
@@ -99,6 +102,7 @@ if ($Mode -eq 'Apply' -and -not $WhatIfPreference) {
     $firewallVerifyArguments = @('-AccountName', $AccountName, '-ModelAddress', $ModelAddress, '-ModelPort', $ModelPort.ToString(), '-Verify')
     if ($AllowLocalNetwork) { $firewallVerifyArguments += '-AllowLocalNetwork' }
     if ($LocalSubnet.Count) { $firewallVerifyArguments += @('-LocalSubnet', ($LocalSubnet -join ',')) }
+    if ($AllowedRange.Count) { $firewallVerifyArguments += @('-AllowedRange', ($AllowedRange -join ',')) }
     Invoke-HardeningScript -Path $firewallScript -Arguments $firewallVerifyArguments
 }
 

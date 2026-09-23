@@ -74,7 +74,7 @@ func randomTestPassword(t *testing.T) string {
 	return hex.EncodeToString(value)
 }
 
-func TestServiceAccountSetupStoresEnablesWithoutPrematureWorkspaceTest(t *testing.T) {
+func TestServiceAccountSetupStoresTestsAndEnables(t *testing.T) {
 	manager := &fakeAccountManager{
 		status:      serviceaccount.Status{Supported: true, Account: "agentb-svc"},
 		setupResult: serviceaccount.SetupResult{Attempted: true},
@@ -83,7 +83,7 @@ func TestServiceAccountSetupStoresEnablesWithoutPrematureWorkspaceTest(t *testin
 	testCalls := 0
 	server.shellTest = func(context.Context) (string, error) {
 		testCalls++
-		return "workspace is not granted yet", errors.New("premature workspace test")
+		return "service-account shell spawn succeeded", nil
 	}
 	password := randomTestPassword(t)
 	body := `{"action":"create","password":"` + password + `","confirmation":"` + password + `"}`
@@ -99,7 +99,7 @@ func TestServiceAccountSetupStoresEnablesWithoutPrematureWorkspaceTest(t *testin
 	if bytes.Contains(response.Body.Bytes(), []byte(password)) {
 		t.Fatalf("response returned password: %s", response.Body)
 	}
-	if !strings.Contains(response.Body.String(), `"ok":true`) || !strings.Contains(response.Body.String(), "apply host protection") || testCalls != 0 || manager.setupCalls != 1 || manager.setupAccount != "agentb-svc" || manager.setupPath != store.Path() || manager.setupReset {
+	if !strings.Contains(response.Body.String(), `"ok":true`) || !strings.Contains(response.Body.String(), "apply host protection") || testCalls != 1 || manager.setupCalls != 1 || manager.setupAccount != "agentb-svc" || manager.setupPath != store.Path() || manager.setupReset {
 		t.Fatalf("unexpected setup result: calls=%d account=%q path=%q reset=%v body=%s", manager.setupCalls, manager.setupAccount, manager.setupPath, manager.setupReset, response.Body)
 	}
 	stored, err := store.Read()
@@ -116,6 +116,28 @@ func TestServiceAccountSetupStoresEnablesWithoutPrematureWorkspaceTest(t *testin
 	}
 	if !loaded.Shell.ServiceAccount.Enabled || loaded.Shell.ServiceAccount.Account != "agentb-svc" {
 		t.Fatalf("service identity was not enabled: %+v", loaded.Shell.ServiceAccount)
+	}
+}
+
+func TestServiceAccountSetupFailedTestLeavesSplitOff(t *testing.T) {
+	manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Account: "agentb-svc"}, setupResult: serviceaccount.SetupResult{Attempted: true}}
+	server, _, configPath := serviceAccountTestServer(t, manager)
+	server.shellTest = func(context.Context) (string, error) { return "credential rejected", errors.New("bad credential") }
+	password := randomTestPassword(t)
+	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"create","password":"`+password+`","confirmation":"`+password+`"}`))
+	request.Header.Set("Content-Type", "application/json")
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "remains off") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body)
+	}
+	loaded, _, _, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Shell.ServiceAccount.Enabled {
+		t.Fatal("failed credential test left service split enabled")
 	}
 }
 

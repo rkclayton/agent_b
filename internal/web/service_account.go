@@ -144,6 +144,22 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 		return
 	}
 
+	testConfig := s.ConfigSnapshot()
+	testConfig.Shell.ServiceAccount.Account = account
+	testConfig.Shell.ServiceAccount.Domain = "."
+	testConfig.Shell.ServiceAccount.Enabled = false
+	s.shell.Configure(testConfig)
+	testContext, testCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	testMessage, testErr := s.shellTest(testContext)
+	testCancel()
+	if testErr != nil {
+		if _, disableErr := s.disableConfiguredServiceAccount(account); disableErr != nil {
+			testMessage += "; saving the off state also failed: " + disableErr.Error()
+		}
+		writeError(w, http.StatusBadRequest, "service identity remains off: "+testMessage, "shell.service_account")
+		return
+	}
+
 	masked, err := s.enableConfiguredServiceAccount(account)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
@@ -164,13 +180,34 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 	inspectCancel()
 	response := map[string]any{
 		"ok":         true,
-		"message":    "account and credential updated and authenticated; apply host protection to grant folder access, then test identity",
+		"message":    "account and credential updated, tested, and enabled; apply host protection to grant folder access",
 		"account":    currentStatus,
 		"credential": credentialStatus,
 		"identity":   s.shell.IdentityStatus(),
 		"config":     masked,
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) disableConfiguredServiceAccount(account string) (any, error) {
+	s.mu.Lock()
+	previous := *s.cfg
+	s.cfg.Shell.ServiceAccount.Account = account
+	s.cfg.Shell.ServiceAccount.Domain = "."
+	s.cfg.Shell.ServiceAccount.Enabled = false
+	if err := s.cfg.Save(s.configPath); err != nil {
+		*s.cfg = previous
+		s.mu.Unlock()
+		return nil, err
+	}
+	next := *s.cfg
+	masked := s.cfg.Masked()
+	s.mu.Unlock()
+	s.shell.Configure(next)
+	if s.runner != nil {
+		s.runner.Configure(next)
+	}
+	return masked, nil
 }
 
 func (s *Server) configuredServiceAccount() (string, string) {

@@ -26,6 +26,7 @@ type ShellIdentityStatus struct {
 	OperatorContextExpiresAt string `json:"operator_context_expires_at"`
 	Reason                   string `json:"reason"`
 	Since                    string `json:"since"`
+	Notice                   string `json:"notice,omitempty"`
 }
 
 type operatorOverrideRequired struct{ reason string }
@@ -336,6 +337,12 @@ func (s *Shell) Configure(value config.Config) {
 	} else if !value.Shell.ServiceAccount.Enabled || s.IdentityStatus().OperatorContext {
 		s.setIdentity(ShellIdentityStatus{})
 	}
+}
+
+func (s *Shell) SetServiceSplitNotice(notice string) {
+	status := s.IdentityStatus()
+	status.Notice = notice
+	s.setIdentity(status)
 }
 
 func (s *Shell) configuredIdentityStatus() ShellIdentityStatus {

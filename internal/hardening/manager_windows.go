@@ -58,6 +58,9 @@ func (m *windowsManager) Status(ctx context.Context, request Request) (Status, e
 	if len(request.LocalSubnets) > 0 {
 		firewallArguments = append(firewallArguments, "-LocalSubnet", strings.Join(request.LocalSubnets, ","))
 	}
+	if len(request.AllowedModelRanges) > 0 {
+		firewallArguments = append(firewallArguments, "-AllowedRange", strings.Join(request.AllowedModelRanges, ","))
+	}
 	firewallArguments = append(firewallArguments, "-Inspect")
 	firewall, err := inspectComponent(ctx, m.powershell, m.firewallScript, firewallStatusMarker, firewallArguments)
 	if err != nil {
@@ -67,6 +70,7 @@ func (m *windowsManager) Status(ctx context.Context, request Request) (Status, e
 		Supported: true, HarnessElevated: isUserAnAdmin(), ModelAddress: request.ModelAddress, ModelPort: request.ModelPort,
 		ACL: acl, Firewall: firewall, Applied: acl.Applied && firewall.Applied,
 		AllowLocalNetwork: request.AllowLocalNetwork, ConfirmedLocalSubnets: append([]string(nil), request.LocalSubnets...),
+		AllowedModelRanges: append([]string(nil), request.AllowedModelRanges...),
 	}, nil
 }
 
@@ -132,6 +136,9 @@ func (m *windowsManager) Run(ctx context.Context, action string, request Request
 	}
 	if len(request.LocalSubnets) > 0 {
 		arguments = append(arguments, "-LocalSubnet", strings.Join(request.LocalSubnets, ","))
+	}
+	if len(request.AllowedModelRanges) > 0 {
+		arguments = append(arguments, "-AllowedRange", strings.Join(request.AllowedModelRanges, ","))
 	}
 	resultFile, err := os.CreateTemp("", "agentb-hardening-result-*.txt")
 	if err != nil {

@@ -19,9 +19,9 @@ function shell(active) {
 	const setupAction = serviceAccountStatus.exists ? "reset" : "create";
 	const setupLabel = serviceAccountBusy
 		? "Waiting for Windows UAC…"
-		: serviceAccountStatus.exists
-			? "Reset password"
-			: "Create account";
+		: service.enabled
+			? "Reset password and test"
+			: "Turn on and test";
 	const setupDisabled = serviceAccountBusy || !serviceAccountStatus.loaded || !serviceAccountStatus.supported || serviceAccountStatus.administrator;
 	const profile = serverProfiles().find((item) => item.id === selectedHardeningServerID());
 	const protectionReady = hardeningStatus.acl?.applied && hardeningStatus.firewall?.applied;
@@ -82,12 +82,15 @@ function shell(active) {
 	${toggle("sandbox.enabled", "Docker Sandbox", sandboxEnabled, "Install-wide: routes shell and bash through Docker Sandbox.")}
 	${row("status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`, "", "Inert means the setting is on but Docker Sandbox is unavailable; the reason is shown here.")}
 	${subhead("Service identity", "The non-admin Windows account shell and file tools run as. Windows may request approval.")}
+	<p class="settings-note">The service identity limits what tool processes can reach; turning it on asks Windows to provision the account, then tests the credential before enabling it.</p>
+	${store.shell_identity?.notice ? `<p class="settings-feedback alarm" role="status">${html(store.shell_identity.notice)}</p>` : ""}
     ${row("status", `<span class="account-status"><span class="lamp ${serviceAccountStatus.administrator ? "alarm" : serviceAccountStatus.exists ? "live" : ""}"></span>${html(accountState)}</span>`, "", "Whether the low-privilege Windows account Agent_b runs tools as exists, and that it is not an administrator.")}
     ${row("credential", `<span class="account-status">${html(stored)}</span>`, "", "Whether that account's password is stored for Agent_b, encrypted for this Windows user.")}
     ${row("new password", `<input id="service-account-setup-password" type="password" autocomplete="new-password" aria-label="New service-account password" ${setupDisabled ? "disabled" : ""}>`, "", "The password to create the service account with.")}
     ${row("repeat", `<input id="service-account-setup-confirmation" type="password" autocomplete="new-password" aria-label="Repeat new service-account password" ${setupDisabled ? "disabled" : ""}>`, "", "The same password again, to catch a typo.")}
     <div class="settings-actions">
       <button type="button" data-action="setup-service-account" data-setup-action="${setupAction}" ${setupDisabled ? "disabled" : ""}>${setupLabel}</button>
+	  ${service.enabled ? '<button type="button" data-action="disable-service-account">Turn off service identity</button>' : ""}
       <button type="button" data-action="test-shell-credential" title="${protectionReady ? "" : "Apply host protection before testing folder access."}" ${canTestIdentity ? "" : "disabled"}>Test identity</button>
       <button type="button" data-action="refresh-service-account" ${serviceAccountBusy ? "disabled" : ""}>Refresh</button>
     </div>
@@ -96,6 +99,7 @@ function shell(active) {
 	${row("Agent_b", `<span class="account-status ${hardeningStatus.harness_elevated ? "alarm" : ""}">${html(elevationState)}</span>`, "", "Whether Agent_b itself is running elevated; it should not be.")}
 	${row("status", `<span class="account-status"><span class="lamp ${protectionReady ? "live" : hardeningStatus.loaded ? "alarm" : ""}"></span>${html(protectionState)}</span>`, "", "Whether the folder permissions and the outbound firewall rule that confine the service account are in place.")}
 	${row("model route", `<select id="hardening-server" aria-label="Model route for host protections">${hardeningProfiles()}</select>`, "", "The endpoint the firewall rule lets the service account reach.")}
+	<p class="settings-note">The network boundary allows loopback and the configured model server${(store.config.shell?.allowed_model_ranges || []).length ? `, plus configured ranges ${html(store.config.shell.allowed_model_ranges.join(", "))}` : ""}.</p>
 	${row("Allow my local network", `<button type="button" role="switch" aria-checked="${lanEnabled}" aria-label="Allow my local network" class="switch ${lanEnabled ? "on" : ""}" data-action="local-network-toggle"></button><span class="settings-subnets" data-local-subnets>${subnetChoices}</span>`, "", "Select each detected subnet you intend to expose, then Apply protection. Link-local, cloud metadata and Agent_b's own listener remain refused.")}
 	<div class="settings-actions">
 	  <button type="button" data-action="apply-hardening" title="${attr(applyBlocker)}" aria-busy="${hardeningBusy}" ${canApply ? "" : "disabled"}>${hardeningBusy ? "Working…" : drafts.size ? "Save first" : "Apply protection"}</button>
@@ -120,7 +124,6 @@ function shell(active) {
 	${feedback(signingMessage, signingAlarm, "Self-created keys are non-exportable and usable only by the elevated signing helper; imported keys keep their existing protection.")}
     <details class="settings-advanced">
       <summary>Advanced</summary>
-      ${toggle("shell.service_account.enabled", "service identity", service.enabled, "Runs tools as the low-privilege service account instead of as you.")}
       ${text("shell.command", "shell command", (store.config.shell?.command || []).join(" "), "command", "The program and arguments the shell tool runs commands with.")}
       ${text("shell.service_account.account", "account", service.account || "agentb-svc", "text", "The service account's user name.")}
       ${text("shell.service_account.domain", "domain", service.domain || ".", "text", "The service account's domain; a dot means this computer.")}

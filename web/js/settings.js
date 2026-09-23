@@ -524,6 +524,18 @@ async function click(event) {
 	if (action === "test-shell-credential") return shellCredentialAction("test");
 	if (action === "clear-shell-credential") return shellCredentialAction("clear");
 	if (action === "setup-service-account") return setupServiceAccount(button.dataset.setupAction);
+	if (action === "disable-service-account") {
+		try {
+			const result = await api("/api/config", {shell:{service_account:{enabled:false}}});
+			reduce({ type: "config.changed", data: { config: result } });
+			serviceAccountMessage = "service identity turned off";
+			serviceAccountAlarm = false;
+		} catch (error) {
+			serviceAccountMessage = error.message;
+			serviceAccountAlarm = true;
+		}
+		return render();
+	}
 	if (action === "refresh-service-account") return refreshServiceAccountStatus();
 	if (action === "apply-hardening") return hardeningAction("apply");
 	if (action === "verify-hardening") return hardeningAction("verify");

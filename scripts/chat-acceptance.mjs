@@ -620,14 +620,14 @@ if (realModel) {
   await browser.wait(`[...document.querySelectorAll('.chat-response-prose')].at(-1)?.innerText.includes('VISIBLE PARTIAL')`, "partial prose visible without expansion");
   const partialProse = await browser.evaluate(`(() => ({
     text: [...document.querySelectorAll('.chat-response-prose')].at(-1)?.innerText || '',
-    turnExpanded: [...document.querySelectorAll('.chat-response-summary')].at(-1)?.getAttribute('aria-expanded'),
+    responseHeaders: document.querySelectorAll('.chat-response-summary').length,
     caret: [...document.querySelectorAll('.chat-response-prose')].at(-1)?.querySelector('.stream-caret')?.isConnected || false,
     status: document.querySelector('#chat-notice')?.innerText || ''
   }))()`);
   assert.match(partialProse.text, /VISIBLE PARTIAL/);
-  assert.equal(partialProse.turnExpanded, "true");
+  assert.equal(partialProse.responseHeaders, 0);
   assert.equal(partialProse.caret, true);
-  assert.match(partialProse.status, /^model producing(?: ·|$)/);
+  assert.match(partialProse.status, /^writing · \d+ tokens(?: ·|$)/);
   await waitProjectedChatText(sessionID, "VISIBLE PARTIAL COMPLETE", "completed prose stream");
   record("mid-stream-prose-visible-without-expansion");
 
@@ -888,18 +888,10 @@ if (realModel) {
   await page.locator("#chat-send").click();
   const lifecycleRunStarted = await waitEvent(sessionID, (event) => event.type === "run.started", "tool-tick lifecycle run started");
   await waitProjectedChatText(sessionID, "menu-stream-0", "first projected lifecycle tool");
-  const lifecycleTurn = page.locator(".chat-step-summary").last();
-  await lifecycleTurn.waitFor({ state: "visible" });
-  if (await lifecycleTurn.getAttribute("aria-expanded") !== "true") await lifecycleTurn.click();
-  const completedTurnSummary = page.locator(".chat-response-summary").first();
-  await completedTurnSummary.evaluate((node) => {
-    node.__agentbMutationCount = 0;
-    node.__agentbMutationObserver = new MutationObserver((records) => { node.__agentbMutationCount += records.length; });
-    node.__agentbMutationObserver.observe(node, { attributes: true, childList: true, characterData: true, subtree: true });
-  });
   assert.equal(await page.locator(".chat-tool-group-head").count(), 0, "active responses must not regroup live tool nodes");
   const toolButton = page.locator('[data-entry-key*="menu-stream-0"] button.tool-tick');
   await toolButton.waitFor({ state: "visible" });
+  assert.equal(await toolButton.evaluate((node) => node.closest('.chat-response')?.querySelector('.chat-step-summary')?.hidden), true, "the active pinned rows have no inert Steps disclosure");
   await toolButton.hover();
   const toolButtonHandle = await toolButton.elementHandle();
   assert.ok(toolButtonHandle, "tool-tick must have an actionable node");
@@ -913,7 +905,6 @@ if (realModel) {
   const toolButtonAfterBeat = await toolButtonHandle.evaluate((node) => ({ attached: node.isConnected, hovered: node.matches(":hover") }));
   assert.equal(toolButtonAfterBeat.attached, true, "tool-tick node changed during the active event stream");
   assert.equal(toolButtonAfterBeat.hovered, true, "tool-tick lost :hover during the active event stream");
-  assert.equal(await completedTurnSummary.evaluate((node) => node.__agentbMutationCount), 0, "completed collapsed response mutated during the active event stream");
   assert.equal(await toolButtonHandle.evaluate((node) => node.__agentbMutationCount), 0, "expanded tool button mutated during the active event stream");
   await toolButtonHandle.click();
   assert.equal(await toolButtonHandle.getAttribute("aria-expanded"), "true", "tool-tick did not expand from a trusted mid-stream click");
@@ -998,16 +989,16 @@ if (realModel) {
     ];
     bus.setSelection('agent_b', ${JSON.stringify(sessionID)});
     await new Promise(resolve => setTimeout(resolve, 120));
-    const summary = document.querySelector('.chat-response-summary');
+    const summary = document.querySelector('.chat-step-summary');
     return { collapsed: summary?.innerText || '' };
   })()`);
   await openStepFoldIfDrawn();
   await page.waitForFunction(() => document.querySelectorAll('[data-entry-key^="hotfix:"]').length === 3);
   const missingArgsFixture = await page.evaluate(() => {
-    const summary = document.querySelector('.chat-response-summary');
+    const summary = document.querySelector('.chat-step-summary');
     return {
       rows: document.querySelectorAll('[data-entry-key^="hotfix:"]').length,
-      responseAlarm: summary?.closest('.chat-response')?.classList.contains('alarm') || false,
+      responseAlarm: document.querySelector('.chat-response')?.classList.contains('alarm') || false,
       failureAlarm: document.querySelector('.chat-render-failure')?.classList.contains('alarm') || false,
       text: document.querySelector('#chat-log')?.innerText || ''
     };
@@ -1083,8 +1074,8 @@ if (realModel) {
     ];
     bus.setSelection('agent_b', ${JSON.stringify(sessionID)});
     await new Promise(resolve => setTimeout(resolve, 120));
-    const summary = document.querySelector('.chat-response-summary');
-    return { collapsed: summary?.innerText || '', collapsedRows: document.querySelectorAll('.chat-response-rows > *').length };
+    const summary = document.querySelector('.chat-step-summary');
+    return { collapsed: summary?.innerText || '', collapsedRows: document.querySelectorAll('.chat-step-rows > *').length };
   })()`);
   await openStepFoldIfDrawn();
   const groupingOpen = await page.evaluate(() => {
@@ -1100,7 +1091,7 @@ if (realModel) {
       text: document.querySelector('#chat-log')?.innerText || ''
   }));
   assert.match(groupingInitial.collapsed, /3 tool calls · 1 failed · 2 thoughts · 25 ms/);
-  assert.equal(groupingInitial.collapsedRows, 1);
+  assert.equal(groupingInitial.collapsedRows, 0);
   assert.equal(groupingOpen.rows, 3);
   assert.match(groupingOpen.groupText, /read_file ×2 · \+1 thought · 1 failed · 12 ms/);
   assert.equal(groupingFixture.calls, 2);
@@ -1191,6 +1182,7 @@ if (realModel) {
       linkLabel: chip?.querySelector('a')?.getAttribute('aria-label') || '',
       glyph: !!chip?.querySelector('a svg'),
       nameOpenable: !!chip?.querySelector('.file-chip-name.openable'),
+      stepsHeaders: chip?.closest('.chat-response')?.querySelectorAll('.chat-step-summary:not([hidden])').length || 0,
       gap: chip ? getComputedStyle(chip).gap : '',
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
     };
@@ -1208,7 +1200,7 @@ if (realModel) {
   assert.equal(deliveredChip.gap, "8px");
   assert.equal(deliveredChip.horizontalOverflow, false);
   await captureWithMasks(page, join(baselineDirectory, "chat-delivered-folder-link.png"));
-  assert.equal(await page.locator(".chat-step-summary:visible").count(), 0, "one tool call renders its row without a Steps header (item 2eo)");
+  assert.equal(deliveredChip.stepsHeaders, 0, "one tool call renders its row without a Steps header (item 2eo)");
   record("delivered-file-chip-folder-link-only");
   await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('DELIVERY READY')`, "delivery fixture restored");
@@ -1258,7 +1250,7 @@ if (realModel) {
       proseStable: firstProse === response.querySelectorAll('.chat-response-prose')[0] && firstProse.isConnected
     };
   }, firstProseHandle);
-  await page.locator(".chat-response-summary").click();
+  await page.locator(".chat-step-summary").nth(1).click();
   const afterTurnOpen = await page.evaluate(() => {
     const folds = [...document.querySelectorAll('.chat-response .chat-step-summary')];
     return {
@@ -1266,7 +1258,8 @@ if (realModel) {
       keys: folds.map(node => [...node.nextElementSibling.querySelectorAll('[data-entry-key]')].map(row => row.dataset.entryKey))
     };
   });
-  await page.locator(".chat-response-summary").click();
+  await page.locator(".chat-step-summary").first().click();
+  await page.locator(".chat-step-summary").nth(1).click();
   const final = await page.evaluate((firstProse) => {
     const response = document.querySelector('.chat-response');
     const folds = [...response.querySelectorAll('.chat-step-summary')];
@@ -1504,12 +1497,13 @@ if (realModel) {
 
   await setTask("acceptance: stop");
   await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'stop'`, "stop enabled");
+  await browser.wait(`/(?:prompt|thinking|writing|calling) .*(?:tokens|B|kB|MB)/.test(document.querySelector('#chat-notice .chat-notice-text')?.innerText || '')`, "stop request phase and number");
   const liveStop = await browser.evaluate(`(() => {
     const button = document.querySelector('#chat-send');
     const box = button.getBoundingClientRect();
     const style = getComputedStyle(button);
     return {
-      status: document.querySelector('#chat-status')?.innerText || '',
+      status: document.querySelector('#chat-notice .chat-notice-text')?.innerText || '',
       mode: button.dataset.mode,
       background: style.backgroundColor,
       visible: style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0,
@@ -1768,10 +1762,11 @@ if (realModel) {
   events = await sessionEvents(sessionID);
   const beforeBusy = events.at(-1)?.seq || 0;
   await setTask("acceptance: busy");
-  await browser.wait(`document.querySelector('#chat-status-strip')?.innerText.includes('model busy')`, "busy strip", 6000);
+  const busyEvent = await waitEvent(sessionID, (event) => event.seq > beforeBusy && event.type === "model.busy", "model busy event", 6000);
+  await page.waitForTimeout(250);
+  const busyStatus = await page.locator('#chat-notice .chat-notice-text').innerText();
+  assert.match(busyStatus, /^prompt \d+ tokens processing(?: ·|$)/);
   events = await sessionEvents(sessionID);
-  const busyEvent = events.findLast((event) => event.seq > beforeBusy && event.type === "model.busy");
-  assert.ok(busyEvent);
   assert.equal(events.slice(events.indexOf(busyEvent)).some((event) => event.type === "run.stopped"), false);
   releaseBusy?.();
   await waitProjectedChatText(sessionID, "Busy model resumed.", "busy resumed");
@@ -1843,7 +1838,7 @@ if (realModel) {
   assert.equal(scriptApprovals.length, 1, JSON.stringify(scriptApprovals.map((event) => event.data)));
   assert.equal(scriptResults.length, 2, JSON.stringify(scriptResults.map((event) => event.data)));
   const grantTurn = page.locator(".chat-response").last();
-	const grantTurnSummary = grantTurn.locator(".chat-response-summary");
+	const grantTurnSummary = grantTurn.locator(".chat-step-summary");
 	if (await grantTurnSummary.getAttribute("aria-expanded") !== "true") await grantTurnSummary.click();
 	const decidedApproval = grantTurn.locator(".approval-decided").filter({ hasText: /allowed for this chat/ });
 	await decidedApproval.waitFor({ state: "visible" });

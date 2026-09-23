@@ -82,6 +82,11 @@ export function isIdenticalSingleStepFold(items = [], blocks = []) {
   return blocks[0].steps.every((item, index) => item === items[index] || item?.key === items[index]?.key);
 }
 
+export function isHeaderlessSteps(steps = []) {
+  const summary = responseSummary(steps);
+  return steps.length > 0 && steps.length <= 2 && summary.tools <= 1 && summary.thoughts <= 1 && steps.every((item) => item?.type === "tool" || item?.type === "agent");
+}
+
 export function itemFailed(item) {
   return item?.type === "tool" && item.result?.ok === false;
 }

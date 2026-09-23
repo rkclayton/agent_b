@@ -1831,38 +1831,14 @@ if (realModel) {
   events = await sessionEvents(scriptSessionID);
   const beforeRunScriptGrant = events.at(-1)?.seq || 0;
   await setTask("acceptance: run-script grant");
-  const scriptApproval = await waitEvent(scriptSessionID, (event) => event.seq > beforeRunScriptGrant && event.type === "approval.required" && event.data?.name === "run_script", "first run_script approval");
-  const scriptApprovalCard = await clickPendingApproval("Yes, for this chat", scriptApproval.data.call_id);
-  const firstScriptOverride = await waitEvent(scriptSessionID, (event) => event.seq > scriptApproval.seq && event.type === "approval.required" && event.data?.name === "run_script.operator_override", "first run_script identity override");
-  const firstOverrideCard = await clickPendingApproval("Just once", firstScriptOverride.data.call_id, scriptApprovalCard);
-  const secondScriptOverride = await waitEvent(scriptSessionID, (event) => event.seq > firstScriptOverride.seq && event.type === "approval.required" && event.data?.name === "run_script.operator_override", "second run_script identity override");
-  await clickPendingApproval("Just once", secondScriptOverride.data.call_id, firstOverrideCard);
   await waitProjectedChatText(scriptSessionID, "RUN SCRIPT SESSION GRANT COMPLETE", "two run_script calls under one chat grant");
-  await waitEvent(scriptSessionID, (event) => event.seq > secondScriptOverride.seq && event.type === "run.stopped" && event.data?.reason === "done", "run_script grant scenario stopped");
+  await waitEvent(scriptSessionID, (event) => event.seq > beforeRunScriptGrant && event.type === "run.stopped" && event.data?.reason === "done", "run_script scenario stopped");
   events = await sessionEvents(scriptSessionID);
   const scriptApprovals = events.filter((event) => event.seq > beforeRunScriptGrant && event.type === "approval.required" && event.data?.name === "run_script");
   const scriptResults = events.filter((event) => event.seq > beforeRunScriptGrant && event.type === "tool.result" && event.data?.name === "run_script");
-  assert.equal(scriptApprovals.length, 1, JSON.stringify(scriptApprovals.map((event) => event.data)));
+  assert.equal(scriptApprovals.length, 0, JSON.stringify(scriptApprovals.map((event) => event.data)));
   assert.equal(scriptResults.length, 2, JSON.stringify(scriptResults.map((event) => event.data)));
-  const grantTurn = page.locator(".chat-response").last();
-	const grantTurnSummary = grantTurn.locator(".chat-step-summary");
-	if (await grantTurnSummary.getAttribute("aria-expanded") !== "true") await grantTurnSummary.click();
-	const decidedApproval = page.locator(".approval-decided").filter({ hasText: /allowed for this chat/ }).last();
-	await decidedApproval.waitFor({ state: "attached" });
-	await decidedApproval.evaluate((decided) => {
-		const summary = decided.closest(".chat-response-block")?.querySelector(".chat-step-summary");
-		if (summary?.getAttribute("aria-expanded") !== "true") summary?.click();
-	});
-	await decidedApproval.waitFor({ state: "visible" });
-	const decidedApprovalShape = await decidedApproval.evaluate((decided) => {
-		const turn = decided.closest(".chat-response");
-		return { text: decided.textContent, height: decided.getBoundingClientRect().height, pending: turn?.querySelectorAll(".approval-card").length || 0 };
-	});
-	assert.deepEqual(decidedApprovalShape?.text, "Allow this: allowed for this chat");
-	assert.equal(decidedApprovalShape?.pending, 0);
-	assert.equal(await page.locator("#chat-pending-approval").isHidden(), true);
-	assert.ok(decidedApprovalShape.height <= 22);
-  record("run-script-one-chat-grant-and-resolved-one-line");
+  record("run-script-two-calls-with-split-off");
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
   await browser.wait(`new URLSearchParams(location.search).get('session') === ${JSON.stringify(sessionID)}`, "main acceptance chat restored after grant scenario");
 

@@ -693,7 +693,8 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 
 func (c Config) Save(path string) error {
 	persisted := c
-	persisted.Connections = append([]Connection(nil), c.Connections...)
+	persisted.Connections = make([]Connection, len(c.Connections))
+	copy(persisted.Connections, c.Connections)
 	for i := range persisted.Connections {
 		persisted.Connections[i].APIKey = ""
 	}
@@ -1094,6 +1095,12 @@ func applyDefaults(c *Config) {
 	if !c.Sandbox.initialized {
 		c.Sandbox = d.Sandbox
 	}
+	// Setup treats an explicitly empty connection catalog as an array. Keep
+	// that public JSON shape stable even when a PowerShell JSON round trip or
+	// an older config represented the empty list as null.
+	if c.Connections == nil {
+		c.Connections = []Connection{}
+	}
 	if len(c.Connections) == 0 {
 		c.Agents = []Agent{}
 	}
@@ -1256,7 +1263,8 @@ func contains(values []string, v string) bool {
 
 func (c Config) Masked() Config {
 	out := c
-	out.Connections = append([]Connection(nil), c.Connections...)
+	out.Connections = make([]Connection, len(c.Connections))
+	copy(out.Connections, c.Connections)
 	for i := range out.Connections {
 		if out.Connections[i].APIKey != "" {
 			out.Connections[i].APIKey = "•••• set"

@@ -165,7 +165,7 @@ func (s *Server) saveSigningThumbprint(thumbprint string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("save signing certificate: %w", err)
 	}
-	s.cfg = &next
+	*s.cfg = next
 	s.mu.Unlock()
 	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": next.Masked()}))
 	return nil

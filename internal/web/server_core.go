@@ -242,7 +242,7 @@ func (s *Server) recordObservedMessageLimit(connectionID string, limit int) erro
 		if err := next.Save(s.configPath); err != nil {
 			return err
 		}
-		s.cfg = &next
+		*s.cfg = next
 		return nil
 	}
 	return fmt.Errorf("connection %q not found", connectionID)

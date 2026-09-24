@@ -11,11 +11,14 @@ import (
 func TestOpenMigratesProfileDataAndLeavesSharedState(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(t.TempDir())
+	cfg.LogDir = filepath.Join(root, "logs")
+	cfg.Memory.Dir = filepath.Join(root, "memory")
+	cfg.Workspace = filepath.Join(root, "scratch")
 	configPath := filepath.Join(root, "harness.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatal(err)
 	}
-	for _, relative := range []string{"chats/chat.jsonl", "memory/workspace.md", "plans/p1/plan.md", "stats/ledger.json", "attachments/a.txt", "INBOX.md"} {
+	for _, relative := range []string{"chats/chat.jsonl", "logs/bootstrap.log", "memory/workspace.md", "plans/p1/plan.md", "stats/ledger.json", "attachments/a.txt", "INBOX.md"} {
 		path := filepath.Join(root, relative)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
@@ -35,16 +38,22 @@ func TestOpenMigratesProfileDataAndLeavesSharedState(t *testing.T) {
 	if !migrated || manager.Active() == "" {
 		t.Fatalf("migrated=%t active=%q", migrated, manager.Active())
 	}
-	for _, relative := range []string{"chats/chat.jsonl", "memory/workspace.md", "plans/p1/plan.md", "stats/ledger.json", "attachments/a.txt", "INBOX.md", settingsFile} {
+	for _, relative := range []string{"chats/chat.jsonl", "logs/bootstrap.log", "memory/workspace.md", "plans/p1/plan.md", "stats/ledger.json", "attachments/a.txt", "INBOX.md", settingsFile} {
 		if _, err := os.Stat(filepath.Join(manager.Root(manager.Active()), relative)); err != nil {
 			t.Fatalf("profile path %s: %v", relative, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "logs", "bootstrap.log")); err != nil {
+		t.Fatalf("bootstrap logs were not retained at the install root: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "shared-marker.json")); err != nil {
 		t.Fatalf("shared state moved: %v", err)
 	}
 	if cfg.Deliver.ExchangeFolder != filepath.Join(homeDirectory(t), "Agent_b") {
 		t.Fatalf("default exchange moved: %q", cfg.Deliver.ExchangeFolder)
+	}
+	if cfg.Workspace != "scratch" || cfg.LogDir != "logs" || cfg.Memory.Dir != "memory" {
+		t.Fatalf("profile paths were not rebased: workspace=%q log=%q memory=%q", cfg.Workspace, cfg.LogDir, cfg.Memory.Dir)
 	}
 }
 

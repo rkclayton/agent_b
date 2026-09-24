@@ -47,7 +47,7 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   await settings.goto(`${harness.base}/chat?from=setup#settings/connections`);
   await settings.locator('.connection-summary[data-id="ui"]').click();
   const before = await hash(join(harness.dataRoot, "harness.json"));
-  await settings.locator('.connection-row:has(.connection-summary[data-id="ui"]) [data-action="probe"]').click();
+  await settings.locator('.connection-editor [data-action="probe"]').click();
   await expect(settings.locator(".connection-editor .discovery-note")).toHaveText(`found http://127.0.0.1:${harness.modelPort}`);
   await expect(settings.locator('[data-path="connections.ui.model"]')).toHaveJSProperty("tagName", "SELECT");
   await expect(settings.locator('[data-path="connections.ui.model"] option')).toHaveText(["model", "alpha-model", "beta-model"]);

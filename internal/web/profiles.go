@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"harness/internal/events"
@@ -52,6 +53,7 @@ func (s *Server) profileEndpoint(w http.ResponseWriter, r *http.Request) {
 	case "switch":
 		previous := s.profiles.Active()
 		previousRoot := s.roots.Profile
+		previousWorkspace := s.roots.Workspace
 		err = s.profiles.Switch(request.Name)
 		if err == nil && s.profileChanged != nil {
 			s.roots.Profile = s.profiles.Root(s.profiles.Active())
@@ -59,15 +61,22 @@ func (s *Server) profileEndpoint(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				_ = s.profiles.Switch(previous)
 				s.roots.Profile = previousRoot
+				s.roots.Workspace = previousWorkspace
 			}
 		}
 		if err == nil {
 			s.roots.Profile = s.profiles.Root(s.profiles.Active())
+			if !filepath.IsAbs(s.cfg.Workspace) {
+				s.roots.Workspace = filepath.Clean(filepath.Join(s.roots.Profile, s.cfg.Workspace))
+			}
 		}
 	case "rename":
 		err = s.profiles.Rename(request.Name, request.New)
 		if err == nil {
 			s.roots.Profile = s.profiles.Root(s.profiles.Active())
+			if !filepath.IsAbs(s.cfg.Workspace) {
+				s.roots.Workspace = filepath.Clean(filepath.Join(s.roots.Profile, s.cfg.Workspace))
+			}
 		}
 	default:
 		writeError(w, http.StatusBadRequest, "profile action must be create, switch or rename", "profiles")

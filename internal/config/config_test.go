@@ -116,6 +116,42 @@ func TestConnectionSetupReasonNamesConnectionsAndSetupGuide(t *testing.T) {
 	}
 }
 
+func TestApplyDefaultsNormalizesNullConnectionsToEmptyArray(t *testing.T) {
+	cfg := Config{Workspace: t.TempDir(), Connections: nil}
+	ApplyDefaults(&cfg)
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"connections":[]`)) {
+		t.Fatalf("empty connection catalog was not an array: %s", data)
+	}
+}
+
+func TestSaveAndMaskKeepEmptyConnectionsAsArray(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	cfg.Connections = []Connection{}
+	cfg.Agents = []Agent{}
+	path := filepath.Join(t.TempDir(), "harness.json")
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"connections": []`)) {
+		t.Fatalf("saved empty connection catalog was not an array: %s", data)
+	}
+	masked, err := json.Marshal(cfg.Masked())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(masked, []byte(`"connections":[]`)) {
+		t.Fatalf("masked empty connection catalog was not an array: %s", masked)
+	}
+}
+
 func TestLoadRejectsExplicitZeroMaxTurns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "harness.json")
 	cfg := Defaults(t.TempDir())

@@ -135,7 +135,11 @@ func main() {
 		log.Fatal(err)
 	}
 	profileRoot := profileManager.Root(profileManager.Active())
-	workspaceRoot, err := filepath.Abs(cfg.Workspace)
+	workspacePath := cfg.Workspace
+	if !filepath.IsAbs(workspacePath) {
+		workspacePath = filepath.Join(profileRoot, workspacePath)
+	}
+	workspaceRoot, err := filepath.Abs(workspacePath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -414,7 +418,8 @@ func main() {
 		}
 		web.StopReflection()
 		memoryManager.SetBaseDir(nextRoot)
-		if switchErr := registry.SwitchProfile(nextWriters, memoryManager.Load, memoryManager.LoadAgent, workspaceManager, filepath.Join(nextRoot, "plans")); switchErr != nil {
+		nextWorkspaceManager := workspaceinfo.New(memoryManager.Dir(), memoryManager.Path)
+		if switchErr := registry.SwitchProfile(nextWriters, memoryManager.Load, memoryManager.LoadAgent, nextWorkspaceManager, filepath.Join(nextRoot, "plans")); switchErr != nil {
 			_ = nextWriters.Close()
 			web.StartReflection(24 * time.Hour)
 			return switchErr
@@ -426,6 +431,7 @@ func main() {
 			log.Printf("close previous profile event logs: %v", closeErr)
 		}
 		writers, projector = nextWriters, nextProjector
+		workspaceManager = nextWorkspaceManager
 		operatorFiles.SetRoot(nextRoot, nextLogDir)
 		if ensureErr := operatorFiles.Ensure(); ensureErr != nil {
 			return ensureErr
@@ -454,7 +460,7 @@ func main() {
 				runner.PublishBudget(context.Background(), item)
 			}
 		}
-		web.SetWorkspaceState(workspaceManager, memoryManager)
+		web.SetWorkspaceState(nextWorkspaceManager, memoryManager)
 		web.StartReflection(24 * time.Hour)
 		web.PublishPlanChanges()
 		return nil

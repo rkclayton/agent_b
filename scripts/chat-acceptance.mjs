@@ -374,10 +374,10 @@ async function settleSession(id, what) {
   throw new Error(`session ${id} did not settle before ${what}`);
 }
 const sessionEvents = async (sessionID) => {
-  const files = (await readdir(join(args.data, "logs"))).filter((name) => name.endsWith(".jsonl"));
+  const files = (await readdir(join(profileData, "logs"))).filter((name) => name.endsWith(".jsonl"));
   const values = [];
   for (const file of files) {
-    const lines = (await readFile(join(args.data, "logs", file), "utf8")).split(/\r?\n/).filter(Boolean);
+    const lines = (await readFile(join(profileData, "logs", file), "utf8")).split(/\r?\n/).filter(Boolean);
     for (const line of lines) {
       const event = JSON.parse(line);
       if (!sessionID || event.session_id === sessionID) values.push(event);
@@ -396,6 +396,7 @@ const waitEvent = async (sessionID, predicate, label, timeout = 12000) => {
 };
 
 const appPort = await freePort();
+let profileData = args.data;
 const gitPath = spawnSync("where.exe", ["git.exe"], { encoding: "utf8" }).stdout.split(/\r?\n/).find(Boolean);
 assert.ok(gitPath, "Git is required for the Run as you acceptance scenario");
 const bound = join(args.workspace, "..", "acceptance-bound");
@@ -439,6 +440,7 @@ app.stdout.on("data", (chunk) => process.stdout.write(chunk));
 app.stderr.on("data", (chunk) => process.stderr.write(chunk));
 await waitHTTP(`http://127.0.0.1:${appPort}/api/state`);
 const runtimeState = await state();
+profileData = join(args.data, "profiles", runtimeState.profiles?.active || "Randy");
 if (args["expected-commit"]) assert.equal(runtimeState.build?.commit, args["expected-commit"], "running build commit must match the requested source");
 if (args["expected-dirty"]) assert.equal(runtimeState.build?.dirty, args["expected-dirty"] === "true", "running build dirty state must match the requested source");
 await mkdir(args.evidence, { recursive: true });
@@ -572,7 +574,7 @@ if (realModel) {
   const session = snapshot.sessions[sessionID];
   assert.equal(session?.id, sessionID, "selected new chat must exist in the server snapshot");
   assert.equal(session?.scratch, true);
-  assert.equal(session?.workspace_dir, join(args.data, "scratch", sessionID));
+  assert.equal(session?.workspace_dir, join(profileData, "scratch", sessionID));
   await browser.wait(`document.querySelector('.shell-session-title')?.innerText === 'Acceptance'`, "connection-name title (item 2eo)");
   assert.equal(await page.locator(".shell-session-title").getAttribute("title"), "Switch model");
   record("new-chat");
@@ -580,7 +582,7 @@ if (realModel) {
   const fixtureSessionID = sessionID;
   await setTask("acceptance: scratch file");
   await waitProjectedChatText(sessionID, "SCRATCH FILE COMPLETE", "scratch file tool");
-  assert.equal(await readFile(join(args.data, "scratch", sessionID, "scratch-proof.txt"), "utf8"), "scratch tool passed\n");
+  assert.equal(await readFile(join(profileData, "scratch", sessionID, "scratch-proof.txt"), "utf8"), "scratch tool passed\n");
   record("scratch-chat-title-and-file-tool");
   sessionID = fixtureSessionID;
 
@@ -817,7 +819,8 @@ if (realModel) {
   await page.locator(".shell-settings").click();
   await page.locator("#settings-page").waitFor({ state: "visible" });
   const connectionState = page.locator('.connection-summary[data-id="acceptance"] .connection-state');
-  await page.locator('.connection-row:has(.connection-summary[data-id="acceptance"]) [data-action="probe"]').click();
+  await page.locator('.connection-summary[data-id="acceptance"]').click();
+  await page.locator('.connection-editor [data-action="probe"]').click();
   await browser.wait(`document.querySelector('.connection-summary[data-id="acceptance"] .connection-state')?.textContent.includes('Test passed')`, "Settings Test passed before Chat return");
   assert.match(await connectionState.innerText(), /Test passed/);
   // Item 2gf: from Settings, ONE click on the tab reaches the chat. This step
@@ -884,6 +887,9 @@ if (realModel) {
   assert.equal(await clickText(".settings-nav button", "Connections"), true);
   await browser.wait(`document.querySelector('.settings-content')?.innerText.length > 0`, "Connections drawn");
   await captureWithMasks(page, join(baselineDirectory, "settings.png"));
+	assert.equal(await clickText(".settings-nav button", "Profiles"), true);
+	await browser.wait(`document.querySelector('.settings-content')?.innerText.includes('active')`, "Profiles drawn");
+	await captureWithMasks(page, join(baselineDirectory, "settings-profiles.png"));
 	if (!realModel) {
 		assert.equal(await clickText(".settings-nav button", "About"), true);
 		await browser.wait(`document.querySelector('.settings-content')?.innerText.includes('v9.9.9 available')`, "About update action drawn");
@@ -891,6 +897,16 @@ if (realModel) {
 		await captureWithMasks(page, join(baselineDirectory, "settings-about.png"));
 		record("settings-about-update-action");
 	}
+  await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click();
+  await page.locator(".shell-session-title").click();
+  await page.locator(".shell-connection-menu").waitFor({ state: "visible" });
+  await captureWithMasks(page, join(baselineDirectory, "profile-header.png"));
+  await page.locator(".shell-session-title").click();
+  const wizard = await edgeContext.newPage();
+  await wizard.goto(`http://127.0.0.1:${appPort}/setup`);
+  await wizard.locator('[data-action="query-models"]').waitFor({ state: "visible" });
+  await captureWithMasks(wizard, join(baselineDirectory, "setup-connection.png"));
+  await wizard.close();
   await page.goto(`http://127.0.0.1:${appPort}/plan?session=${sessionID}`);
   await page.locator('#app-shell[data-page="plan"]').waitFor({ state: "visible" });
   await captureWithMasks(page, join(baselineDirectory, "plan.png"));
@@ -1409,7 +1425,7 @@ if (realModel) {
 	const planRegistrationApproval = await waitEvent(sessionID, (event) => event.seq > beforePlanRegistration && event.type === "approval.required" && event.data?.name === "plan registration", "plan registration approval.required");
 	await page.reload();
 	await browser.wait(`performance.getEntriesByType('navigation')[0]?.type==='reload' && document.querySelector('#chat-task')`, "pending approval refresh");
-	await waitFileContains(join(args.data, "OUTBOX.md"), "needs you: approval is waiting");
+	await waitFileContains(join(profileData, "OUTBOX.md"), "needs you: approval is waiting");
 	record("outbox-line-on-pause");
 	await browser.wait(`document.querySelector('.approval-card')`, "plan registration approval");
 	assert.equal(await clickText(".approval-card button", "Yes, for this chat"), true);
@@ -1575,10 +1591,10 @@ if (realModel) {
 	const beforeInboxStop = events.at(-1)?.seq || 0;
 	await setTask("acceptance: inbox stop");
 	await waitEvent(sessionID, (event) => event.type === "model.request" && event.seq > beforeInboxStop, "inbox-stop model request");
-	await writeFile(join(args.data, "INBOX.md"), "STOP\n");
+	await writeFile(join(profileData, "INBOX.md"), "STOP\n");
 	await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > beforeInboxStop && event.data.reason === "mailbox_stop", "INBOX STOP", 15000);
-	assert.equal(await readFile(join(args.data, "INBOX.md"), "utf8"), "");
-	await waitFileContains(join(args.data, "OUTBOX.md"), "stopped: STOP read from INBOX.md");
+	assert.equal(await readFile(join(profileData, "INBOX.md"), "utf8"), "");
+	await waitFileContains(join(profileData, "OUTBOX.md"), "stopped: STOP read from INBOX.md");
 	assert.ok((await browserText("#chat-log")).includes("acceptance: inbox stop"));
 	record("inbox-stop-mid-run");
 
@@ -1773,7 +1789,8 @@ if (realModel) {
   await startFake(modelPort);
   await page.locator(".shell-settings").click();
   await page.locator("#settings-page").waitFor({ state: "visible" });
-  await page.locator('.connection-row:has(.connection-summary[data-id="acceptance"]) [data-action="probe"]').click();
+  await page.locator('.connection-summary[data-id="acceptance"]').click();
+  await page.locator('.connection-editor [data-action="probe"]').click();
   await waitEvent(sessionID, (event) => event.seq > testUnreachableAfter && event.type === "model.reachable", "Settings Test model.reachable");
   await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click();
   assert.equal(await page.locator("#settings-page").isHidden(), true);
@@ -1866,10 +1883,10 @@ if (realModel) {
 	assert.equal(await clickText(".settings-content button", "Empty"), true);
 	assert.equal(await clickText(".settings-content button", "Confirm empty"), true);
 	for (let attempt = 0; attempt < 100; attempt++) {
-		if ((await readdir(join(args.data, "attachments"))).length === 0) break;
+		if ((await readdir(join(profileData, "attachments"))).length === 0) break;
 		await sleep(50);
 	}
-	assert.deepEqual(await readdir(join(args.data, "attachments")), []);
+	assert.deepEqual(await readdir(join(profileData, "attachments")), []);
 	record("settings-confirmed-empty-attachments");
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
 	await browser.wait(`document.querySelector('#chat-task')`, "chat restored after empty attachments");
@@ -1883,7 +1900,7 @@ if (realModel) {
 	const exportedPath = await (async () => {
 		for (let attempt = 0; attempt < 200; attempt++) {
 			const found = [];
-			const chats = join(args.data, "chats");
+			const chats = join(profileData, "chats");
 			for (const dir of await readdir(chats).catch(() => [])) {
 				for (const name of await readdir(join(chats, dir)).catch(() => [])) if (name.endsWith(".md")) found.push(join(chats, dir, name));
 			}
@@ -1927,8 +1944,8 @@ if (realModel) {
   };
   const durable = {
     export: exportedPath,
-    plans: (await anyFileUnder(join(args.data, "plans"))).length,
-    memory: (await anyFileUnder(join(args.data, "memory"))).length,
+    plans: (await anyFileUnder(join(profileData, "plans"))).length,
+    memory: (await anyFileUnder(join(profileData, "memory"))).length,
   };
   // The markdown of what was said, the plans it registered and the memory it
   // noted all outlived the chat.
@@ -2037,7 +2054,7 @@ if (realModel) {
   const restartedState = await state();
   assert.equal(Object.keys(restartedState.sessions).length, retainedBeforeRestart);
   assert.ok(restartedState.sessions[scriptSessionID]?.messages?.some((message) => message.content?.includes("acceptance: run-script grant")));
-  assert.ok((await readdir(join(args.data, "chats"))).filter((name) => name.endsWith(".jsonl")).length >= retainedBeforeRestart);
+  assert.ok((await readdir(join(profileData, "chats"))).filter((name) => name.endsWith(".jsonl")).length >= retainedBeforeRestart);
   // Item 2es: a restored chat keeps its visible transcript, and `+` after the
   // restart is a new, selected, empty chat with nothing of the retained ones.
   assert.ok(restartedState.sessions[scriptSessionID]?.chat?.some((entry) => entry.type === "user" && entry.text?.includes("acceptance: run-script grant")), "a restored chat must keep its transcript");
@@ -2055,7 +2072,7 @@ if (realModel) {
   assert.equal(afterPlus.sessions[plusID].budget?.categories?.files || 0, 0, "+ must carry no files");
   record("chats-transcripts-and-names-survive-application-restart");
 
-  const browserPlanDir = join(args.data, "plans", "browser-plan");
+  const browserPlanDir = join(profileData, "plans", "browser-plan");
   await mkdir(join(browserPlanDir, "plan", "items"), { recursive: true });
   await writeFile(join(browserPlanDir, "plan.md"), "# Browser plan\n");
   await writeFile(join(browserPlanDir, "NOTES.md"), "");
@@ -2082,7 +2099,7 @@ if (realModel) {
   const dSession = Object.values(dState.sessions).find((session) => session.role === "d" && !session.plan_id);
   assert.ok(dSession, JSON.stringify(dState.sessions));
   assert.equal(dSession.connection_id, "acceptance");
-  assert.equal(dSession.workspace_dir, join(args.data, "scratch", dSession.id));
+  assert.equal(dSession.workspace_dir, join(profileData, "scratch", dSession.id));
   // Item 2gl (v1.2.6): the WINDOW title names the chat, because the overlay
   // could not be made to activate and the system strip stays. 2eo's rule is
   // about the header beside the tab strip, which still reads the connection only.
@@ -2262,7 +2279,7 @@ if (realModel) {
   await browser.wait(`document.querySelector('#plan-build') && !document.querySelector('#plan-build').hidden`, "Build plan now for the filled brief");
   const briefPlan = (await (await fetch(`http://127.0.0.1:${appPort}/api/plans`)).json()).find((plan) => plan.repo && plan.repo.toLowerCase().endsWith("brief-repo"));
   assert.ok(briefPlan, "the filled-brief plan was not registered");
-  const briefPlanPath = join(args.data, "plans", briefPlan.id, "plan.md");
+  const briefPlanPath = join(profileData, "plans", briefPlan.id, "plan.md");
   planningBriefOriginal = await readFile(briefPlanPath, "utf8");
   await page.locator("#plan-build-yes").click();
   await page.locator("#plan-wizard").waitFor({ state: "visible" });
@@ -2388,8 +2405,8 @@ if (realModel) {
   await writeFile(join(evidenceRun, "result.json"), JSON.stringify({ scenarios, duration_ms: Date.now() - startedAt, session_id: sessionID, shell_flip: shellFlipEvidence, shell_style_boundary: shellStyleBoundaryEvidence, composer_family: composerFamilyEvidence }, null, 2));
   const evidenceLogs = join(evidenceRun, "jsonl");
   await mkdir(evidenceLogs, { recursive: true });
-  for (const name of (await readdir(join(args.data, "logs"))).filter((item) => item.endsWith(".jsonl"))) {
-    await writeFile(join(evidenceLogs, name), await readFile(join(args.data, "logs", name)));
+  for (const name of (await readdir(join(profileData, "logs"))).filter((item) => item.endsWith(".jsonl"))) {
+    await writeFile(join(evidenceLogs, name), await readFile(join(profileData, "logs", name)));
   }
 }
 

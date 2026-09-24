@@ -78,7 +78,7 @@ func (s *Server) installedModelReady(_ context.Context, state modelinstall.State
 		s.mu.Unlock()
 		return err
 	}
-	s.cfg = &next
+	*s.cfg = next
 	masked := next.Masked()
 	s.mu.Unlock()
 	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))

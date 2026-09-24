@@ -18,8 +18,7 @@ sentence that says "Codex" applies to you. Everything else here is the same for 
   by a line that is exactly `==== NEXT ORDER ====`. **Run the first block and only the first
   block**: publish it if it says to, execute it, append its one report to `NOTES.md`, truncate
   that block from `INBOX.md`, and stop. Do not start the next block — `tools/run-queue.ps1`
-  starts a fresh session for it, with the pointer prompt checked in beside it at
-  `scripts/queue-pointer-prompt.txt`.
+  starts a fresh session for it with its embedded, source-tested pointer prompt.
 
   This is item 2gt, and it exists because of a measured failure: v1.1.2, v1.1.3 and v1.2.0 each
   closed early with steps not started, in the worker's own words "deliberately — no room to

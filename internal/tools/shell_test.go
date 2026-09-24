@@ -539,12 +539,16 @@ func TestServiceBoundaryReasonOffersOverrideOnlyForOperatorVisibleAbsoluteExecut
 		t.Fatal(err)
 	}
 	output := "The term '" + executable + "' is not recognized as the name of a \r\n cmdlet"
-	if reason := serviceBoundaryReason("& "+quotePowerShell(executable)+" task.py", output); !strings.Contains(reason, "operator-visible executable") {
+	if reason := serviceBoundaryReason("& "+quotePowerShellTest(executable)+" task.py", output); !strings.Contains(reason, "operator-visible executable") {
 		t.Fatalf("reason=%q", reason)
 	}
 	if reason := serviceBoundaryReason("missing-command task.py", "missing-command is not recognized as the name of a cmdlet"); reason != "" {
 		t.Fatalf("a typo must not offer an operator retry: %q", reason)
 	}
+}
+
+func quotePowerShellTest(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 func TestShellFileRoutingArguments(t *testing.T) {

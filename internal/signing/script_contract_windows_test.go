@@ -13,7 +13,7 @@ import (
 func TestPowerShellSigningScriptsUseHostCompatibleCodeSigningEKUCheck(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	for _, relative := range []string{"scripts/manage-signing.ps1", "scripts/install-Agent_b.ps1"} {
+	for _, relative := range []string{"scripts/manage-signing.ps1"} {
 		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
 		if err != nil {
 			t.Fatal(err)
@@ -46,23 +46,13 @@ func TestPowerShellSigningScriptsUseHostCompatibleCodeSigningEKUCheck(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(installer), "$SigningThumbprint -eq 'auto'") {
-		t.Error("installer does not support first-install certificate bootstrap inside its existing elevation")
-	}
-	if !strings.Contains(string(installer), "-not $TestMode -and -not $SigningThumbprint") {
-		t.Error("isolated TestMode installs must not use or create the production signing key")
-	}
-	for _, required := range []string{
-		"Get-ChildItem -LiteralPath 'Cert:\\LocalMachine\\My'",
-		"REUSED: administrator-gated signing certificate",
-		"Add-CurrentUserCertificate -Certificate $certificate -StoreName TrustedPublisher",
-		"Add-CurrentUserCertificate -Certificate $certificate -StoreName Root",
-		"$PSVersionTable.PSEdition -ne 'Desktop'",
-		"Assert-CandidateIdentity -SourceRoot $sourceRoot -Binary $sourceBinary -Version $displayVersion",
-	} {
+	for _, required := range []string{"Assert-CandidateIdentity -SourceRoot $sourceRoot -Binary $sourceBinary -Version $displayVersion"} {
 		if !strings.Contains(string(installer), required) {
-			t.Errorf("installer does not preserve seamless bootstrap contract %q", required)
+			t.Errorf("installer does not preserve candidate verification contract %q", required)
 		}
+	}
+	if strings.Contains(string(installer), "Assert-SigningKeyNonInteractive") || strings.Contains(string(installer), "GetRSAPrivateKey") {
+		t.Error("the per-user installer must not create or open a signing key")
 	}
 	// Item 2eu: the installer signs what the release step built and never builds.
 	if strings.Contains(string(installer), "go build") || strings.Contains(string(installer), "Find-Go") {
@@ -81,7 +71,6 @@ func TestEverySigningPathChecksUIPolicyBeforePrivateKeyUse(t *testing.T) {
 		"scripts/sign-release.ps1",
 		"scripts/sign-test-candidate.ps1",
 		"scripts/new-test-signing-certificate.ps1",
-		"scripts/install-Agent_b.ps1",
 	} {
 		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
 		if err != nil {

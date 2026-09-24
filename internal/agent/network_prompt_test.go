@@ -35,6 +35,7 @@ func TestFakeModelStatesLANBoundaryFromStableSessionPrompt(t *testing.T) {
 	defer model.Close()
 
 	cfg := config.Defaults(t.TempDir())
+	cfg.Shell.ServiceAccount.Enabled = true
 	cfg.Context.Accounting = "estimated"
 	connection := cfg.Connections[0]
 	connection.BaseURL, connection.Model = model.URL, "fake"

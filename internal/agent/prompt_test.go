@@ -57,6 +57,16 @@ func TestNetworkBoundaryIsSessionStable(t *testing.T) {
 	}
 }
 
+func TestSplitOffPromptContainsNoNetworkBoundaryLine(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	renderer := &PromptRenderer{text: "before\n{{network_boundary}}\nafter"}
+	item := &session.Session{NetworkBoundary: session.NetworkBoundary(cfg), NetworkBoundarySet: true}
+	value := renderer.RenderMemoryParts(&config.Connection{}, item, nil, "", "", "")
+	if strings.Contains(value, "Network boundary") || value != "before\n\nafter" {
+		t.Fatalf("split-off prompt=%q", value)
+	}
+}
+
 func TestPlannerPromptLoadsForDAndPlanPageFallbackAndStaysStable(t *testing.T) {
 	renderer := &PromptRenderer{text: "system", planner: "planner rules"}
 	connection := &config.Connection{}

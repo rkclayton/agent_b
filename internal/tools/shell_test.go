@@ -18,6 +18,19 @@ import (
 	"harness/internal/session"
 )
 
+func TestShellDescriptionOnlyClaimsServiceNetworkBoundaryWhenSplitIsOn(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	off := NewShell(cfg.Shell).Description()
+	if strings.Contains(strings.ToLower(off), "no public network") || strings.Contains(strings.ToLower(off), "service context") {
+		t.Fatalf("split-off description=%q", off)
+	}
+	cfg.Shell.ServiceAccount.Enabled = true
+	on := NewShell(cfg.Shell).Description()
+	if !strings.Contains(on, "no public network in service context") {
+		t.Fatalf("split-on description=%q", on)
+	}
+}
+
 type missingShellCredential struct{}
 
 func (missingShellCredential) Read() ([]byte, error) { return nil, credential.ErrNotStored }
@@ -75,16 +88,16 @@ func TestShellDescriptionOperatorClauseOnlyWhenSplitEnabled(t *testing.T) {
 	shell.Configure(cfg)
 	with := shell.Description()
 	clause := " Git and other configured operator commands run as the operator after one decision per run; expect one prompt, not one per call."
-	if with != without+clause {
-		t.Fatalf("description delta=%q", strings.TrimPrefix(with, without))
-	}
-	if len(with)-len(without) != len(clause) {
-		t.Fatalf("description byte delta=%d, want %d", len(with)-len(without), len(clause))
+	if !strings.HasSuffix(with, clause) || !strings.Contains(with, "no public network in service context") {
+		t.Fatalf("split-on description=%q", with)
 	}
 	cfg.Tools.Shell.OperatorCommands = []string{}
 	shell.Configure(cfg)
-	if got := shell.Description(); got != without {
+	if got := shell.Description(); got != strings.TrimSuffix(with, clause) {
 		t.Fatalf("explicit empty operator list retained clause: %q", got)
+	}
+	if strings.Contains(without, "service context") {
+		t.Fatalf("split-off description retained boundary: %q", without)
 	}
 }
 

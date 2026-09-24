@@ -1890,10 +1890,12 @@ if (realModel) {
   assert.equal(prefix(requests[0]), prefix(requests.at(-1)));
   const summaryEvent = events.findLast((event) => event.type === "message.appended" && event.data?.message?.category === "summary");
   assert.ok(summaryEvent, "compaction did not append a summary message");
-  assert.equal(summaryEvent.data.message.role, "assistant");
+  // Compaction notes are harness-authored in the durable journal. Request
+  // assembly translates that trusted record to the assistant role below.
+  assert.equal(summaryEvent.data.message.role, "harness");
   const requestAfterSummary = requests.find((event) => event.seq > summaryEvent.seq);
   assert.ok(requestAfterSummary, "compaction summary was not followed by a model request");
-  assert.ok(requestAfterSummary.body.messages.some((message) => message.role === "assistant" && message.content === summaryEvent.data.message.content), "model request did not retain the complete assistant summary");
+  assert.ok(requestAfterSummary.body.messages.some((message) => message.role === "assistant" && message.content === `[harness note]\n${summaryEvent.data.message.content}`), "model request did not retain the complete harness-authored summary as assistant context");
   assert.ok((await browserText("#chat-log")).includes("acceptance: compaction"));
   const summaryRow = page.locator(".chat-summary").last();
   await summaryRow.waitFor({ state: "visible" });

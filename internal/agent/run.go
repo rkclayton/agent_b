@@ -171,6 +171,7 @@ func (r *Runner) AppendUser(s *session.Session, message events.Message) {
 }
 
 func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (reason string, detail string, turns int) {
+	s.MarkNetworkBoundaryStale(session.NetworkBoundary(r.cfg()))
 	workspaceOK, workspaceReason, workspaceChanged := s.EnsureWorkspace()
 	if workspaceChanged {
 		snapshot := s.Snapshot()

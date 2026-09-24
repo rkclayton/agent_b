@@ -34,6 +34,34 @@ func TestApplyAgentConfigKeepsEachRoleOnItsOwnConnection(t *testing.T) {
 	}
 }
 
+func TestNetworkBoundaryFollowsTheToolIdentity(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	if got := NetworkBoundary(cfg); got != "" {
+		t.Fatalf("split-off boundary=%q", got)
+	}
+	cfg.Shell.ServiceAccount.Enabled = true
+	got := NetworkBoundary(cfg)
+	if !strings.HasPrefix(got, "Network boundary: service-context shell may reach loopback and the configured model server") {
+		t.Fatalf("split-on boundary=%q", got)
+	}
+}
+
+func TestNetworkBoundaryStaysStableUntilReopen(t *testing.T) {
+	item := &Session{NetworkBoundary: "Network boundary: captured", NetworkBoundarySet: true}
+	if !item.MarkNetworkBoundaryStale("") {
+		t.Fatal("split change did not add a degraded note")
+	}
+	got := item.Snapshot()
+	if got.NetworkBoundary != "Network boundary: captured" || len(got.DegradedNotes) != 1 || got.DegradedNotes[0] != staleNetworkBoundaryNote {
+		t.Fatalf("stale session=%+v", got)
+	}
+	item.ReopenNetworkBoundary("")
+	got = item.Snapshot()
+	if got.NetworkBoundary != "" || !got.NetworkBoundarySet || len(got.DegradedNotes) != 0 {
+		t.Fatalf("reopened session=%+v", got)
+	}
+}
+
 func TestSnapshotCarriesToolCallCounts(t *testing.T) {
 	s := &Session{
 		ToolsEnabled:   map[string]bool{"read_file": true},

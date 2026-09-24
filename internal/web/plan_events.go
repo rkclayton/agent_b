@@ -13,7 +13,7 @@ import (
 // moment it changes, whichever route changed it. No route removes a plan
 // folder today, so plan.removed has no emitter yet.
 func (s *Server) PublishPlanChanges() {
-	root := filepath.Join(s.roots.Data, "plans")
+	root := filepath.Join(s.profileRoot(), "plans")
 	session.PlanChanged = func(kind, planDir string) {
 		id := filepath.Base(planDir)
 		data := map[string]any{"plan_id": id}
@@ -29,7 +29,7 @@ func (s *Server) PublishPlanChanges() {
 }
 
 func (s *Server) planList() []session.Plan {
-	plans, err := session.ListPlans(filepath.Join(s.roots.Data, "plans"))
+	plans, err := session.ListPlans(filepath.Join(s.profileRoot(), "plans"))
 	if err != nil {
 		return []session.Plan{}
 	}

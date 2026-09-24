@@ -18,6 +18,17 @@ import (
 	"harness/internal/probe"
 )
 
+func newProbeServer(t *testing.T) *Server {
+	t.Helper()
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	cfg := config.Defaults(root)
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	return New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+}
+
 func TestReadyConnectionTestDoesNotRewriteConfig(t *testing.T) {
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
@@ -165,6 +176,39 @@ func TestConnectionTestReturnsDiscoveryListAndLogsEveryRequest(t *testing.T) {
 		case <-deadline:
 			t.Fatal("probe.request was not published")
 		}
+	}
+}
+
+func TestQueryModelsUsesUnsavedAddressAndReportsKeyState(t *testing.T) {
+	var authorization string
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, `{"data":[{"id":"one"},{"id":"two"}]}`)
+	}))
+	defer model.Close()
+	server := newProbeServer(t)
+	body := `{"base_url":"` + model.URL + `","api_key":"secret"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/models", strings.NewReader(body))
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || authorization != "Bearer secret" || !strings.Contains(response.Body.String(), `"one"`) || !strings.Contains(response.Body.String(), `"key_sent":true`) {
+		t.Fatalf("status=%d authorization=%q body=%s", response.Code, authorization, response.Body.String())
+	}
+}
+
+func TestQueryModelsRefusesEmptyAddress(t *testing.T) {
+	server := newProbeServer(t)
+	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/models", strings.NewReader(`{"base_url":""}`))
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "Enter base_url before querying models.") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

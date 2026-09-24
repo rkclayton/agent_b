@@ -26,6 +26,7 @@ import (
 	"harness/internal/modelinstall"
 	"harness/internal/ocr"
 	"harness/internal/operatorfiles"
+	"harness/internal/profiles"
 	"harness/internal/projection"
 	"harness/internal/serviceaccount"
 	"harness/internal/session"
@@ -95,6 +96,8 @@ type Server struct {
 	measureCancels    map[string]context.CancelFunc
 	statsState        *stats.Manager
 	operatorFiles     *operatorfiles.Manager
+	profiles          *profiles.Manager
+	profileChanged    func(string) error
 	probeMu           sync.Mutex
 	probeCancels      map[string]*probeRun
 	// Item 2gy: how many inconclusive probes a connection has had in a row, which
@@ -116,6 +119,7 @@ type probeRun struct{ cancel context.CancelFunc }
 type RuntimeRoots struct {
 	Application string
 	Data        string
+	Profile     string
 	Workspace   string
 }
 
@@ -157,8 +161,18 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 	return server
 }
 func (s *Server) SetRegistry(registry *session.Registry) {
-	registry.SetPlansRoot(filepath.Join(s.roots.Data, "plans"))
+	registry.SetPlansRoot(filepath.Join(s.profileRoot(), "plans"))
 	s.registry = registry
+}
+func (s *Server) SetProfiles(manager *profiles.Manager) { s.profiles = manager }
+func (s *Server) SetProfileChanged(change func(string) error) {
+	s.profileChanged = change
+}
+func (s *Server) profileRoot() string {
+	if s.roots.Profile != "" {
+		return s.roots.Profile
+	}
+	return s.roots.Data
 }
 func (s *Server) SetWorkspaceState(manager *workspaceinfo.Manager, memories *memory.Manager) {
 	s.workspaceState, s.memoryState = manager, memories
@@ -287,6 +301,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/workspaces/", s.replayGuard(s.workspaceAction))
 	mux.HandleFunc("/api/connections", s.connections)
 	mux.HandleFunc("/api/connections/", s.replayGuard(s.connection))
+	mux.HandleFunc("/api/profiles", s.replayGuard(s.profileEndpoint))
 	mux.HandleFunc("/api/config", s.replayGuard(s.config))
 	mux.HandleFunc("/api/notifications", s.replayGuard(s.notificationSettings))
 	mux.HandleFunc("/api/update", s.replayGuard(s.updateEndpoint))

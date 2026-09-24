@@ -270,13 +270,13 @@ func (s *Server) planDirFor(item *session.Session) (string, error) {
 	if item.Role == "d" && item.PlanDir != "" {
 		return item.PlanDir, nil
 	}
-	plans, err := session.ListPlans(filepath.Join(s.roots.Data, "plans"))
+	plans, err := session.ListPlans(filepath.Join(s.profileRoot(), "plans"))
 	if err != nil {
 		return "", err
 	}
 	for _, plan := range plans {
 		if plan.Repo != "" && strings.EqualFold(filepath.Clean(plan.Repo), filepath.Clean(item.Workspace)) {
-			return filepath.Join(s.roots.Data, "plans", plan.ID), nil
+			return filepath.Join(s.profileRoot(), "plans", plan.ID), nil
 		}
 	}
 	return "", errNoPlan

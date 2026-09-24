@@ -180,6 +180,9 @@ export function initShell(options = {}) {
     const session = store.sessions[store.selection.session_id];
     const configured = configuredAgent(session);
     connectionMenu.replaceChildren();
+    const profile = node("span", "shell-menu-empty");
+    profile.textContent = `Profile · ${store.profiles?.active || store.config.profiles?.active || "unknown"}`;
+    connectionMenu.append(profile);
     for (const connection of store.connections || store.config.connections || []) {
       const row = button("", `Use ${connection.label || connection.id}`, `shell-connection-choice ${configured?.b === connection.id ? "selected" : ""}`);
       let host = connection.base_url || "";

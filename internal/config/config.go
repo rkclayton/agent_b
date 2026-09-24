@@ -23,6 +23,7 @@ type Config struct {
 	Workspace     string             `json:"workspace"`
 	LogDir        string             `json:"log_dir"`
 	Connections   []Connection       `json:"connections"`
+	Profiles      ProfileCatalog     `json:"profiles"`
 	Services      map[string]Service `json:"services"`
 	Agents        []Agent            `json:"agents"`
 	Chat          Chat               `json:"chat"`
@@ -39,6 +40,13 @@ type Config struct {
 	Updates       Updates            `json:"updates"`
 	Signing       Signing            `json:"signing"`
 	LoadNotices   []string           `json:"-"`
+}
+
+// ProfileCatalog selects the operator-owned namespace. Connections and host
+// settings remain shared; each named entry owns chats, agents and memory.
+type ProfileCatalog struct {
+	Active string   `json:"active"`
+	Names  []string `json:"names"`
 }
 
 type Roles struct {

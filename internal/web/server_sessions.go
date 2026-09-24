@@ -107,7 +107,7 @@ func (s *Server) plans(w http.ResponseWriter, r *http.Request) {
 		method(w)
 		return
 	}
-	root := filepath.Join(s.roots.Data, "plans")
+	root := filepath.Join(s.profileRoot(), "plans")
 	entries, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
 		writeJSON(w, 200, []any{})

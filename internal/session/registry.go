@@ -42,6 +42,27 @@ func (r *Registry) SetAgentMemoryLoader(loader func(context.Context, string, str
 	r.agentMemory = loader
 }
 func (r *Registry) SetWorkspaceManager(manager *workspaceinfo.Manager) { r.workspaces = manager }
+
+// SwitchProfile replaces the idle registry's storage namespace in place. The
+// scheduler and runner retain this registry pointer, so changing profiles does
+// not restart the process or leave either component writing to the old root.
+func (r *Registry) SwitchProfile(writers *events.Writers, memory, agentMemory func(context.Context, string, string) (string, string, error), manager *workspaceinfo.Manager, plansRoot string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, item := range r.sessions {
+		snapshot := item.Snapshot()
+		if snapshot.QueuedMessages > 0 || snapshot.Run.Status == "running" || snapshot.Run.Status == "queued" || snapshot.Run.Status == "paused" || snapshot.Run.Status == "stopping" {
+			return fmt.Errorf("stop the run first")
+		}
+	}
+	r.sessions = map[string]*Session{}
+	r.next = 2
+	r.writers = writers
+	r.memory, r.agentMemory, r.workspaces = memory, agentMemory, manager
+	r.plansRoot = filepath.Clean(plansRoot)
+	r.scratchRoot = filepath.Join(filepath.Dir(r.plansRoot), "scratch")
+	return nil
+}
 func (r *Registry) SetPlansRoot(root string) {
 	r.plansRoot = filepath.Clean(root)
 	r.scratchRoot = filepath.Join(filepath.Dir(r.plansRoot), "scratch")

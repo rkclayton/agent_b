@@ -7,6 +7,7 @@ import { renderContextPage } from "./settings-context.js";
 import { renderDeliveryPage } from "./settings-delivery.js";
 import { renderGeneralPage } from "./settings-general.js";
 import { renderNotificationsPage } from "./settings-notifications.js";
+import { renderProfilesPage } from "./settings-profiles.js";
 import { renderRunPage } from "./settings-run.js";
 import { renderSecurityPage } from "./settings-security.js";
 import { renderWorkspacePage } from "./settings-workspace.js";
@@ -15,6 +16,7 @@ import { mountPanels, unmountPanels } from "./app.js";
 const sheet = document.getElementById("settings-page");
 let gear;
 const expanded = new Set();
+const advancedConnections = new Set();
 const armed = new Set();
 const drafts = new Map();
 const draftKinds = new Map();
@@ -60,6 +62,7 @@ const sectionLabels = [
   ["agents", "Agents"],
   ["activity", "Activity"],
   ["connections", "Connections"],
+  ["profiles", "Profiles"],
   ["context", "Context"],
   ["run", "Run & approval"],
   ["delivery", "Delivery"],
@@ -91,6 +94,10 @@ export function initSettings(entry = {}) {
   sheet.addEventListener("click", click);
   sheet.addEventListener("focusout", blur);
   sheet.addEventListener("change", change);
+  sheet.addEventListener("toggle", (event) => {
+    if (!event.target.matches("details[data-connection-advanced]")) return;
+    event.target.open ? advancedConnections.add(event.target.dataset.connectionAdvanced) : advancedConnections.delete(event.target.dataset.connectionAdvanced);
+  }, true);
   sheet.addEventListener("input", (event) => {
     if (event.target.matches(".setting-input[data-path]")) {
       drafts.set(event.target.dataset.path, event.target.value);
@@ -203,6 +210,7 @@ function render() {
     agents: () => '<div data-adopt="agents-panel"></div>',
     activity: () => '<div data-adopt="activity-panel"></div>',
     connections: () => renderConnectionsPage(settingsPageContext(active)),
+    profiles: () => renderProfilesPage(settingsPageContext(active)),
     sessions: () => renderGeneralPage("sessions", active, settingsPageContext(active)),
     tools: () => renderGeneralPage("tools", active, settingsPageContext(active)),
     memory: () => renderGeneralPage("memory", active, settingsPageContext(active)),
@@ -275,7 +283,7 @@ function adoptPanels() {
 
 function settingsPageContext(active) {
   return {
-    active, store, expanded, armed, drafts, errors, probeMessages, workspaceState, operatorFileState,
+    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, workspaceState, operatorFileState,
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, connectionList,
@@ -425,6 +433,23 @@ async function click(event) {
     return render();
   }
   if (action === "save-settings") return saveSettings();
+  if (action === "create-profile") {
+    const name = sheet.querySelector("#new-profile-name")?.value || "";
+    try { await api("/api/profiles", { action: "create", name }); reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); }
+    catch (error) { errors.set("profiles", error.message); }
+    return render();
+  }
+  if (action === "switch-profile") {
+    try { await api("/api/profiles", { action: "switch", name: id }); reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); }
+    catch (error) { errors.set("profiles", error.message); }
+    return render();
+  }
+  if (action === "rename-profile") {
+    const name = sheet.querySelector(`#rename-profile-${CSS.escape(id)}`)?.value || "";
+    try { await api("/api/profiles", { action: "rename", name: id, new_name: name }); reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); }
+    catch (error) { errors.set("profiles", error.message); }
+    return render();
+  }
   if (action === "operator-context") {
     try { await api("/api/config", {shell:{operator_context:!store.shell_identity?.operator_context}}); }
     catch (error) { errors.set("shell", error.message); render(); }
@@ -481,6 +506,27 @@ async function click(event) {
       render();
     }
     return;
+  }
+  if (action === "query-models") {
+    const prefix = `connections.${id}.`;
+    try {
+      const result = await api(`/api/connections/${encodeURIComponent(id)}/models`, {
+        base_url: current(`${prefix}base_url`, connectionList().find((item) => item.id === id)?.base_url || ""),
+        api_key: current(`${prefix}api_key`, ""),
+      });
+      probeMessages.set(id, { ...(probeMessages.get(id) || {}), models: result.models || [], message: result.message || "Models loaded", alarm: false });
+    } catch (error) { probeMessages.set(id, { ...(probeMessages.get(id) || {}), message: error.message, alarm: true }); }
+    return render();
+  }
+  if (action === "measure-connection") {
+    const currentState = await api(`/api/eval/measure?connection_id=${encodeURIComponent(id)}`, undefined, "GET").catch(() => ({ running: false }));
+    try {
+      if (currentState.running) await api(`/api/eval/measure?connection_id=${encodeURIComponent(id)}`, undefined, "DELETE");
+      else await api("/api/eval/measure", { connection_id: id });
+      probeMessages.set(id, { ...(probeMessages.get(id) || {}), measureRunning: !currentState.running, message: currentState.running ? "Evaluation Harness stopping" : "Evaluation Harness running", alarm: false });
+      if (!currentState.running) void refreshMeasurement(id);
+    } catch (error) { probeMessages.set(id, { ...(probeMessages.get(id) || {}), message: error.message, alarm: true }); }
+    return render();
   }
   if (action === "add-connection") return addConnection();
   if (action === "duplicate-connection") return duplicateConnection(id);
@@ -560,6 +606,18 @@ async function click(event) {
 	if (action === "export-signing") return exportSigning();
   if (action === "copy") {
     if (button.dataset.value) await navigator.clipboard?.writeText(button.dataset.value);
+  }
+}
+
+async function refreshMeasurement(id) {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    const state = await api(`/api/eval/measure?connection_id=${encodeURIComponent(id)}`, undefined, "GET").catch(() => null);
+    if (!state || state.running) continue;
+    probeMessages.set(id, { ...(probeMessages.get(id) || {}), measureRunning: false, message: state.error || state.text || "Evaluation Harness complete", alarm: !!state.error });
+    reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+    if (open && activeSection === "connections") render();
+    return;
   }
 }
 

@@ -22,15 +22,24 @@ type Manager struct {
 	cfg     func() config.Config
 	count   Counter
 	mu      sync.Mutex
+	baseMu  sync.RWMutex
 }
 
 func New(baseDir string, cfg func() config.Config, count Counter) *Manager {
 	return &Manager{baseDir: baseDir, cfg: cfg, count: count}
 }
+func (m *Manager) SetBaseDir(baseDir string) {
+	m.baseMu.Lock()
+	m.baseDir = filepath.Clean(baseDir)
+	m.baseMu.Unlock()
+}
 func (m *Manager) Dir() string {
+	m.baseMu.RLock()
+	baseDir := m.baseDir
+	m.baseMu.RUnlock()
 	dir := m.cfg().Memory.Dir
 	if !filepath.IsAbs(dir) {
-		dir = filepath.Join(m.baseDir, dir)
+		dir = filepath.Join(baseDir, dir)
 	}
 	return filepath.Clean(dir)
 }

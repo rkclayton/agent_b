@@ -39,12 +39,13 @@ import (
 // installOptions is what --install accepts. Everything it does not name is
 // left to the PowerShell installer's own defaults, so the two cannot drift.
 type installOptions struct {
-	quiet      bool
-	sourceDir  string
-	dataRoot   string
-	noStart    bool
-	allUsers   bool
-	passThough []string
+	quiet         bool
+	sourceDir     string
+	dataRoot      string
+	noStart       bool
+	allUsers      bool
+	reopenSession string
+	passThough    []string
 }
 
 // installProgress is one line of the progress file: the Setup page renders
@@ -249,7 +250,7 @@ func runInstall(options installOptions, args []string) int {
 		}
 		applicationRoot := installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers))
 		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
-		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, log); err != nil {
+		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, log); err != nil {
 			return log.fail("Agent_b was installed but failed to start: %v", err)
 		}
 		if err := completeInstallMigration(applicationRoot, operatorDataRoot, installerFlagPresent(args, "TestMode"), log); err != nil {
@@ -261,7 +262,7 @@ func runInstall(options installOptions, args []string) int {
 	if version, reason, restart := installRestartDetails(log.location()); restart {
 		applicationRoot := installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers))
 		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
-		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, log); err != nil {
+		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, log); err != nil {
 			log.printf("RESTART FAILED: %s after %s: %v", version, reason, err)
 		} else {
 			log.printf("RESTARTED: %s after %s.", version, reason)
@@ -351,12 +352,15 @@ func installerArgument(arguments []string, name, fallback string) string {
 	return fallback
 }
 
-func launchInstalledAgent(applicationRoot, dataRoot string, log *installLog) error {
+func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, log *installLog) error {
 	launcher := filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1")
 	if info, err := os.Stat(launcher); err != nil || info.IsDir() {
 		return fmt.Errorf("installed launcher is missing: %s", launcher)
 	}
 	arguments := []string{"-NoLogo", "-NoProfile", "-File", launcher, "-ApplicationDirectory", applicationRoot, "-DataDirectory", dataRoot, "-Detached", "-NoPause"}
+	if sessionID != "" {
+		arguments = append(arguments, "-SessionID", sessionID)
+	}
 	if os.Getenv("AGENT_B_INSTALL_NO_BROWSER") != "" {
 		arguments = append(arguments, "-NoBrowser")
 	}

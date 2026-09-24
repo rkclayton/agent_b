@@ -692,7 +692,7 @@ async function installUpdate() {
 	store.update = { ...(store.update || {}), installing: true, error: "" };
 	render();
 	try {
-		const result = await api("/api/update", { action: "install" });
+		const result = await api("/api/update", { action: "install", session_id: store.selection?.session_id || "" });
 		store.update = result.update || store.update;
 	} catch (error) {
 		store.update = { ...(store.update || {}), installing: false, error: error.message };

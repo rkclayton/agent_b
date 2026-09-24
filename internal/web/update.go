@@ -26,7 +26,8 @@ func (s *Server) updateEndpoint(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.updater.State())
 	case http.MethodPost:
 		var body struct {
-			Action string `json:"action"`
+			Action    string `json:"action"`
+			SessionID string `json:"session_id"`
 		}
 		if !decode(w, r, &body) {
 			return
@@ -41,7 +42,18 @@ func (s *Server) updateEndpoint(w http.ResponseWriter, r *http.Request) {
 			}
 			writeJSON(w, http.StatusOK, s.updater.State())
 		case "install":
-			path, err := s.updater.Install(ctx)
+			if body.SessionID != "" {
+				session, ok := s.registry.Get(body.SessionID)
+				if !ok {
+					writeError(w, http.StatusBadRequest, "the selected chat no longer exists", "session_id")
+					return
+				}
+				if session.IsRunning() {
+					writeError(w, http.StatusConflict, "finish or stop the run first", "session_id")
+					return
+				}
+			}
+			path, err := s.updater.Install(ctx, body.SessionID)
 			if err != nil {
 				writeError(w, http.StatusBadGateway, err.Error(), "update")
 				return

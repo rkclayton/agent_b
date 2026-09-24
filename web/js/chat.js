@@ -15,7 +15,6 @@ import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
 import { renderChatProposals } from "./chat-proposals.js";
 import { installTranscriptCopy } from "./transcript-copy.js";
-import { updateAvailableText } from "./update-display.js";
 
 const budget = document.getElementById("chat-budget");
 const log = document.getElementById("chat-log");
@@ -36,6 +35,12 @@ const pendingFiles = document.getElementById("chat-attachments");
 // Item 2ge: send and stop are one control, so there is one element for both.
 const mic = document.getElementById("chat-mic");
 const retryModel = document.getElementById("chat-retry-model");
+const updateBanner = document.getElementById("chat-update-banner");
+const updateCopy = document.getElementById("chat-update-copy");
+const updateInstall = document.getElementById("chat-update-install");
+const updateDismiss = document.getElementById("chat-update-dismiss");
+let dismissedUpdateVersion = "";
+try { dismissedUpdateVersion = localStorage.getItem("agentb.dismissed-update") || ""; } catch {}
 let requested = new URLSearchParams(location.search).get("session");
 // Item 2gn: the chat the operator asked for by name, so the stale-selection
 // sweep never takes him off a closed chat he opened deliberately.
@@ -984,12 +989,50 @@ async function loadMicAvailability() {
   renderMic(store.sessions[selectedID()]);
 }
 
+function renderUpdateBanner(session) {
+  if (!updateBanner) return;
+  const update = store.update || {};
+  const version = String(update.version || "");
+  const visible = !!session && !store.replay && update.available === true && !!version && version !== dismissedUpdateVersion;
+  updateBanner.hidden = !visible;
+  if (!visible) return;
+  const running = isRunning(session);
+  updateCopy.textContent = running ? `${version} available — finish or stop the run first` : `${version} available —`;
+  updateInstall.hidden = running;
+  updateInstall.disabled = !!update.installing;
+  updateInstall.textContent = update.installing ? "Starting…" : "Install";
+}
+
+updateDismiss?.addEventListener("click", () => {
+  dismissedUpdateVersion = String(store.update?.version || "");
+  try { localStorage.setItem("agentb.dismissed-update", dismissedUpdateVersion); } catch {}
+  renderComposer(store.sessions[selectedID()]);
+});
+
+updateInstall?.addEventListener("click", async () => {
+  const session = store.sessions[selectedID()];
+  if (!session || isRunning(session) || store.replay) return;
+  updateInstall.disabled = true;
+  updateInstall.textContent = "Starting…";
+  try {
+    const result = await api("/api/update", { action: "install", session_id: session.id });
+    if (result?.update) store.update = result.update;
+    localNotice = "Update verified; restarting into this chat…";
+    localAlarm = false;
+  } catch (error) {
+    localNotice = error.message;
+    localAlarm = true;
+  }
+  renderComposer(session);
+});
+
 function renderComposer(session) {
   renderChatProposals(chatProposals, session, input);
 	document.body.classList.toggle("no-open-chats", !session);
   send.disabled = !session || !!store.replay;
   input.disabled = !session || !!store.replay;
   attachButton.disabled = !session || !!store.replay || attachmentsBusy;
+  renderUpdateBanner(session);
   input.removeAttribute("placeholder");
   const queued = session?.queued_messages || 0;
   // Item 2fc: a run queued behind its model profile says whose run it waits on.
@@ -1006,8 +1049,7 @@ function renderComposer(session) {
   const measuredActivity = /^(?:prompt|thinking|writing|calling) /.test(activity) ? activity : "";
   const busyLine = busy ? measuredActivity || "prompt 0 tokens processing" : activity;
   const primary = modelLine || busyLine || (session && !session.runnable ? session.not_runnable_reason : state);
-  const updateLine = updateAvailableText(store.update);
-  const message = localNotice || micNotice || (modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil, updateLine].filter(Boolean).join(" · "));
+  const message = localNotice || micNotice || (modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil].filter(Boolean).join(" · "));
   // Live state, not decoration: the robot runs beside the live line for exactly
   // as long as the run is live, and is absent otherwise. Its eyes take the same
   // state colour the tab robot uses.

@@ -23,7 +23,7 @@ func proposalFixture(t *testing.T) (*Server, *session.Session, *reflection.Store
 	t.Helper()
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	cfg.Servers = []config.Profile{{ID: "fake", Label: "Fake", BaseURL: "http://127.0.0.1:9", Model: "test", RequestTimeoutS: 5}}
+	cfg.Connections = []config.Connection{{ID: "fake", Label: "Fake", BaseURL: "http://127.0.0.1:9", Model: "test", RequestTimeoutS: 5}}
 	cfg.Agents = []config.Agent{{Name: "Tester", B: "fake", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
@@ -35,7 +35,7 @@ func proposalFixture(t *testing.T) (*Server, *session.Session, *reflection.Store
 	projector := projection.NewStore()
 	bus.SetDurableSink(writers.WriteRecord, projector.Apply, projector.MarkStale)
 	server.SetProjection(projector, writers)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	runner := newRunnerForProposals(t, server, bus, registry)
 	server.SetRuntime(nil, runner, nil)
@@ -199,7 +199,7 @@ func newRunnerForProposals(t *testing.T, server *Server, bus *events.Bus, regist
 	}
 	toolset := tools.New()
 	toolset.Configure(cfg)
-	runner := agent.NewRunner(bus, toolset, renderer, server.Profile, server.ConfigSnapshot)
+	runner := agent.NewRunner(bus, toolset, renderer, server.Connection, server.ConfigSnapshot)
 	_ = registry
 	return runner
 }

@@ -120,7 +120,7 @@ func TestAttachmentsPDFExtractionEndpointStoresUntrustedSidecar(t *testing.T) {
 		_, _ = io.WriteString(w, "extracted PDF text")
 	}))
 	defer extractor.Close()
-	server, workspace := attachmentTestServer(t, func(cfg *config.Config) { cfg.Servers[0].ExtractURL = extractor.URL })
+	server, workspace := attachmentTestServer(t, func(cfg *config.Config) { cfg.Connections[0].ExtractURL = extractor.URL })
 	result := postAttachment(t, server, "paper.pdf", []byte("%PDF-1.1\n%%EOF\n"))
 	if result.Tier != "extracted" || !strings.Contains(result.Note, "untrusted") {
 		t.Fatalf("result=%+v", result)
@@ -172,9 +172,9 @@ func TestAttachmentHandlingRoutesImageAgainstProbe(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server, _ := attachmentTestServer(t, func(cfg *config.Config) {
-				cfg.Servers[0].AttachmentHandling = test.handling
-				cfg.Servers[0].Capabilities.ImageInput = test.vision != config.VisionRejected
-				cfg.Servers[0].Capabilities.Vision = test.vision
+				cfg.Connections[0].AttachmentHandling = test.handling
+				cfg.Connections[0].Capabilities.ImageInput = test.vision != config.VisionRejected
+				cfg.Connections[0].Capabilities.Vision = test.vision
 			})
 			server.ocrExtract = func(string) (string, error) { return "words", nil }
 			result := postAttachment(t, server, "screen.png", []byte("image bytes"))
@@ -226,11 +226,11 @@ func attachmentTestServer(t *testing.T, modify func(*config.Config)) (*Server, s
 	t.Helper()
 	workspace := t.TempDir()
 	cfg := config.Defaults(workspace)
-	cfg.Servers[0].Model = "test"
-	cfg.Servers[0].Context.NCtx = 32768
-	cfg.Servers[0].Capabilities.Streaming = true
-	cfg.Servers[0].Capabilities.ToolCalls = true
-	cfg.Servers[0].Capabilities.OverflowBehavior = "error"
+	cfg.Connections[0].Model = "test"
+	cfg.Connections[0].Context.NCtx = 32768
+	cfg.Connections[0].Capabilities.Streaming = true
+	cfg.Connections[0].Capabilities.ToolCalls = true
+	cfg.Connections[0].Capabilities.OverflowBehavior = "error"
 	if modify != nil {
 		modify(&cfg)
 	}
@@ -242,9 +242,9 @@ func attachmentTestServer(t *testing.T, modify func(*config.Config)) (*Server, s
 	t.Cleanup(func() { _ = writers.Close() })
 	bus := events.NewBus()
 	server := New(&cfg, filepath.Join(data, "harness.json"), t.TempDir(), RuntimeRoots{Workspace: workspace}, bus)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
-	if _, err := registry.Create("main", cfg.Servers[0].ID, workspace); err != nil {
+	if _, err := registry.Create("main", cfg.Connections[0].ID, workspace); err != nil {
 		t.Fatal(err)
 	}
 	return server, workspace
@@ -282,7 +282,7 @@ func multipartAttachmentRequest(t *testing.T, server *Server, name string, data 
 	return request
 }
 
-// Item 2fj: on a profile with no document input and no extraction service, a
+// Item 2fj: on a connection with no document input and no extraction service, a
 // PDF's text layer is read locally (the walk's walk-doc.pdf), and a PDF with no
 // text layer is read by OCR page by page; the result names the route.
 func TestAttachmentsPDFTextLayerAndScanAreReadLocally(t *testing.T) {

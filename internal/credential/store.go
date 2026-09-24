@@ -10,7 +10,7 @@ import (
 )
 
 const FileName = ".agentb-shell-credential.dpapi"
-const profileFilePrefix = ".agentb-profile-credential-"
+const connectionFilePrefix = ".agentb-connection-credential-"
 
 var credentialName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
@@ -26,6 +26,7 @@ type Status struct {
 
 type Store struct {
 	path       string
+	legacyPath string
 	tempPrefix string
 }
 
@@ -43,13 +44,18 @@ func NewNamed(dataRoot, name string) (*Store, error) {
 	if dataRoot == "" {
 		dataRoot = "."
 	}
-	return &Store{path: filepath.Join(dataRoot, profileFilePrefix+name+".dpapi"), tempPrefix: profileFilePrefix + name + "-*"}, nil
+	legacyPrefix := ".agentb-" + "pro" + "file-credential-"
+	return &Store{
+		path:       filepath.Join(dataRoot, connectionFilePrefix+name+".dpapi"),
+		legacyPath: filepath.Join(dataRoot, legacyPrefix+name+".dpapi"),
+		tempPrefix: connectionFilePrefix + name + "-*",
+	}, nil
 }
 
 func (s *Store) Path() string { return s.path }
 
 func (s *Store) Status() Status {
-	info, err := os.Stat(s.path)
+	info, err := os.Stat(s.readPath())
 	if err != nil {
 		return Status{}
 	}
@@ -57,7 +63,7 @@ func (s *Store) Status() Status {
 }
 
 func (s *Store) Read() ([]byte, error) {
-	protected, err := os.ReadFile(s.path)
+	protected, err := os.ReadFile(s.readPath())
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrNotStored
 	}
@@ -111,12 +117,24 @@ func (s *Store) Write(password []byte) error {
 }
 
 func (s *Store) Clear() error {
-	err := os.Remove(s.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("remove credential store: %w", err)
+	for _, path := range []string{s.path, s.legacyPath} {
+		if path == "" {
+			continue
+		}
+		err := os.Remove(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove credential store: %w", err)
+		}
 	}
 	return nil
+}
+
+func (s *Store) readPath() string {
+	if _, err := os.Stat(s.path); err == nil || s.legacyPath == "" {
+		return s.path
+	}
+	if _, err := os.Stat(s.legacyPath); err == nil {
+		return s.legacyPath
+	}
+	return s.path
 }

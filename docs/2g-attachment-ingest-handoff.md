@@ -52,7 +52,7 @@ Only `.window-titlebar` is the movable-window drag region. The composer is outsi
 - ZIP files are refused. No PDF dependency, OCR, or image-description implementation was added.
 - `/api/files` was not changed.
 
-Schema remains 5. The additive optional `tools.attachments.max_bytes` defaults to 8 MiB. Profiles gain optional `extract_url` plus probed `document_input` and `image_input` capabilities. The tool registry remains its existing 12 tools.
+Schema remains 5. The additive optional `tools.attachments.max_bytes` defaults to 8 MiB. Connections gain optional `extract_url` plus probed `document_input` and `image_input` capabilities. The tool registry remains its existing 12 tools.
 
 ## Verification evidence
 
@@ -76,7 +76,7 @@ Named sanitizer tests:
 
 Projector pin fixture: `attachment-message` in `internal/projection/testdata/pins/sources/attachment-message.events`.
 
-The disposable split live instance ran at `127.0.0.1:59687`. Observed tiers were text → `text`, binary → `binary`, and DOCX → `office`. The model received the text `read_file` instruction and invoked it successfully as `agentb-svc`; the DOCX sidecar existed and was named in its harness line; binary was explicitly labeled unreadable for the profile. The fixture was removed.
+The disposable split live instance ran at `127.0.0.1:59687`. Observed tiers were text → `text`, binary → `binary`, and DOCX → `office`. The model received the text `read_file` instruction and invoked it successfully as `agentb-svc`; the DOCX sidecar existed and was named in its harness line; binary was explicitly labeled unreadable for the connection. The fixture was removed.
 
 Capability suite per-item result:
 

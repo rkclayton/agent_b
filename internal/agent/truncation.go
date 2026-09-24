@@ -19,7 +19,7 @@ func firstToolName(calls []events.ToolCall) string {
 
 // repairMalformedToolCall removes an assistant tool-call structure that cannot be
 // rendered, retains its prose, and appends the same actionable note used at ingest.
-func (r *Runner) repairMalformedToolCall(ctx context.Context, s *session.Session, runID string, p *config.Profile, currentReasoning map[string]bool) bool {
+func (r *Runner) repairMalformedToolCall(ctx context.Context, s *session.Session, runID string, p *config.Connection, currentReasoning map[string]bool) bool {
 	records := s.MessagesCopy()
 	badIndex := -1
 	var badCalls []events.ToolCall

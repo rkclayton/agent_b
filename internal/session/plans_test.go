@@ -20,18 +20,18 @@ func testPlanRegistry(t *testing.T) (*Registry, string, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { writers.Close() })
-	profile := &config.Profile{ID: "main", Label: "Coder", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
+	connection := &config.Connection{ID: "main", Label: "Coder", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
 	cfg := config.Defaults(root)
-	cfg.Agents = []config.Agent{{Name: "Coder", B: profile.ID, D: profile.ID, Toolset: config.FullToolset()}}
-	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Profile, bool) { return profile, id == profile.ID }, 40, func() config.Config { return cfg })
+	cfg.Agents = []config.Agent{{Name: "Coder", B: connection.ID, D: connection.ID, Toolset: config.FullToolset()}}
+	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
 	registry.SetWorkspaceManager(workspaceinfo.New(data, func(dir string) string { return filepath.Join(data, filepath.Base(dir)+".md") }))
 	registry.SetPlansRoot(filepath.Join(data, "plans"))
 	return registry, data, config.AgentID("Coder")
 }
 
 func TestChatWithoutFolderOwnsScratch(t *testing.T) {
-	registry, data, profile := testPlanRegistry(t)
-	item, err := registry.Create("", profile, "")
+	registry, data, connection := testPlanRegistry(t)
+	item, err := registry.Create("", connection, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestChatWithoutFolderOwnsScratch(t *testing.T) {
 }
 
 func TestScratchNeverReusesAnOrphanedChatFolder(t *testing.T) {
-	registry, data, profile := testPlanRegistry(t)
+	registry, data, connection := testPlanRegistry(t)
 	orphan := filepath.Join(data, "scratch", "main")
 	if err := os.MkdirAll(orphan, 0o700); err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestScratchNeverReusesAnOrphanedChatFolder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(orphan, "retained.txt"), []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	item, err := registry.Create("", profile, "")
+	item, err := registry.Create("", connection, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestScratchNeverReusesAnOrphanedChatFolder(t *testing.T) {
 }
 
 func TestPlanRepoSelectionAndCanonicalDetection(t *testing.T) {
-	registry, _, profile := testPlanRegistry(t)
+	registry, _, connection := testPlanRegistry(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestPlanRepoSelectionAndCanonicalDetection(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("instructions"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	first, err := registry.Create("", profile, repo)
+	first, err := registry.Create("", connection, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,13 +87,13 @@ func TestPlanRepoSelectionAndCanonicalDetection(t *testing.T) {
 	if len(plans) != 1 || !samePath(plans[0].Repo, repo) || plans[0].Name != "repo" {
 		t.Fatalf("plans=%+v", plans)
 	}
-	if _, err := registry.Create("", profile, filepath.Join(repo, ".")); err != nil {
+	if _, err := registry.Create("", connection, filepath.Join(repo, ".")); err != nil {
 		t.Fatal(err)
 	}
 	if got := len(registry.planListLocked()); got != 1 {
 		t.Fatalf("duplicate plans=%d", got)
 	}
-	d, err := registry.CreateRole("", profile, "", "d", plans[0].ID)
+	d, err := registry.CreateRole("", connection, "", "d", plans[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestPlanRepoSelectionAndCanonicalDetection(t *testing.T) {
 	}
 	// The worker binds to the same plan, and to the repository the plan names:
 	// a worker in scratch is a worker whose every path points at nothing.
-	c, err := registry.CreateRole("worker", profile, "", "c", plans[0].ID)
+	c, err := registry.CreateRole("worker", connection, "", "c", plans[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,9 +119,9 @@ func TestPlanRepoSelectionAndCanonicalDetection(t *testing.T) {
 }
 
 func TestRetainedChatRestoresPreviousFolder(t *testing.T) {
-	registry, _, profile := testPlanRegistry(t)
+	registry, _, connection := testPlanRegistry(t)
 	repo := t.TempDir()
-	created, err := registry.Create("", profile, repo)
+	created, err := registry.Create("", connection, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,8 +137,8 @@ func TestRetainedChatRestoresPreviousFolder(t *testing.T) {
 }
 
 func TestEnsurePlanImmediatelyAddsRepoToBSessionUnion(t *testing.T) {
-	registry, _, profile := testPlanRegistry(t)
-	item, err := registry.Create("", profile, "")
+	registry, _, connection := testPlanRegistry(t)
+	item, err := registry.Create("", connection, "")
 	if err != nil {
 		t.Fatal(err)
 	}

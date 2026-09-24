@@ -112,7 +112,7 @@ func resolvePath(workspace, path string, enforceWorkspace bool) (string, error) 
 	// In OS-authorized modes Windows, rather than the workspace jail, is the
 	// boundary. Avoid resolving every ancestor here: EvalSymlinks opens parent
 	// directories for metadata access and can reject an otherwise traversable,
-	// ACL-authorized target under a private user profile.
+	// ACL-authorized target under a private user connection.
 	if !enforceWorkspace {
 		return candidate, nil
 	}

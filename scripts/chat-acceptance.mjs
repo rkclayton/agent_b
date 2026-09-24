@@ -83,7 +83,7 @@ const fakeHandler = async (request, response) => {
     slowAccountingTrace.push({ action: "armed", at: Date.now() });
     return void response.end(JSON.stringify({ armed: true }));
   }
-  if (request.url === "/props") return void response.end(JSON.stringify({ server: "agentb-fake", n_ctx: 32768 }));
+  if (request.url === "/props") return void response.end(JSON.stringify({ connection: "agentb-fake", n_ctx: 32768 }));
   if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: [{ id: "agentb-fake" }] }));
   let raw = "";
   for await (const chunk of request) raw += chunk;
@@ -104,7 +104,7 @@ const fakeHandler = async (request, response) => {
   if (request.url === "/apply-template") {
     if (JSON.stringify(body.messages || []).includes('"image_url"')) {
       response.statusCode = 400;
-      return void response.end("image input is not supported by the acceptance profile");
+      return void response.end("image input is not supported by the acceptance connection");
     }
     let historyStarted = false;
     const invalid = (body.messages || []).findIndex((message, index) => {
@@ -411,16 +411,16 @@ await writeFile(join(args.data, "attachments", "phone-note.txt"), "operator atta
 await writeFile(join(bound, "AGENTS.md"), "Use the acceptance rules.\n");
 await writeFile(join(bound, "long-tool.txt"), Array.from({ length: 100 }, (_, index) => `tool detail line ${index + 1}`).join("\n"));
 if (!realModel) await startFake();
-const profileURL = realModel ? args["real-model-url"] : `http://127.0.0.1:${modelPort}`;
-const profileName = realModel ? args["real-model-name"] : "agentb-fake";
+const connectionURL = realModel ? args["real-model-url"] : `http://127.0.0.1:${modelPort}`;
+const connectionName = realModel ? args["real-model-name"] : "agentb-fake";
 const appEnvironment = realModel ? process.env : { ...process.env, AGENTB_UPDATE_FIXTURE_URL: `http://127.0.0.1:${modelPort}/agentb-release/latest` };
 const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
 const config = {
   config_version: 6, listen: `127.0.0.1:${appPort}`, workspace: args.workspace, log_dir: join(args.data, "logs"),
-  servers: [{ id: "acceptance", label: "Acceptance", base_url: profileURL, model: profileName, credential: "", request_timeout_s: 3, probe_mode: "off",
+  connections: [{ id: "acceptance", label: "Acceptance", base_url: connectionURL, model: connectionName, credential: "", request_timeout_s: 3, probe_mode: "off",
     sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
     reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false }, context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
-    capabilities: { server: "agentb-fake", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["acceptance fake"] } }],
+    capabilities: { connection: "agentb-fake", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["acceptance fake"] } }],
   services: {}, agents: [{ name: "Acceptance", b: "acceptance", toolset }], chat: { auto_rename: false },
 	updates: { auto_check: !realModel },
   run: { max_turns: 12, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 2, queue_depth: 0 }, approval: { mode: "boundary-only" },
@@ -445,12 +445,12 @@ await mkdir(args.evidence, { recursive: true });
 await writeFile(join(args.evidence, "runtime-build.json"), JSON.stringify(runtimeState.build, null, 2));
 const loadedConfig = await json(`http://127.0.0.1:${appPort}/api/config`);
 assert.equal(loadedConfig.shell?.service_account?.enabled, false, "a configured split without an authenticating credential must turn itself off");
-assert.equal(loadedConfig.servers?.[0]?.request_timeout_s, 3, "slow-accounting fixture needs a three-second request timeout");
-assert.equal(loadedConfig.servers?.[0]?.capabilities?.tokenize, true, "slow-accounting fixture needs exact tokenization");
+assert.equal(loadedConfig.connections?.[0]?.request_timeout_s, 3, "slow-accounting fixture needs a three-second request timeout");
+assert.equal(loadedConfig.connections?.[0]?.capabilities?.tokenize, true, "slow-accounting fixture needs exact tokenization");
 assert.equal(loadedConfig.context?.accounting, "auto", "slow-accounting fixture needs automatic exact accounting");
-// Item 2er: the Edge profile lives inside the disposable root, so every run
-// starts with a new profile and none is left behind in %TEMP%.
-edgeContext = await chromium.launchPersistentContext(join(args.data, "..", "..", "edge-profile"), {
+// Item 2er: the Edge connection lives inside the disposable root, so every run
+// starts with a new connection and none is left behind in %TEMP%.
+edgeContext = await chromium.launchPersistentContext(join(args.data, "..", "..", "edge-connection"), {
   channel: "msedge",
   headless,
   // Headless hides scrollbars by default; keep them so captures still show them.
@@ -573,7 +573,7 @@ if (realModel) {
   assert.equal(session?.id, sessionID, "selected new chat must exist in the server snapshot");
   assert.equal(session?.scratch, true);
   assert.equal(session?.workspace_dir, join(args.data, "scratch", sessionID));
-  await browser.wait(`document.querySelector('.shell-session-title')?.innerText === 'Acceptance'`, "profile-name title (item 2eo)");
+  await browser.wait(`document.querySelector('.shell-session-title')?.innerText === 'Acceptance'`, "connection-name title (item 2eo)");
   assert.equal(await page.locator(".shell-session-title").getAttribute("title"), "Switch model");
   record("new-chat");
 
@@ -816,10 +816,10 @@ if (realModel) {
   const chatIdleScreenshot = await captureWithMasks(page, join(baselineDirectory, "chat-idle.png"));
   await page.locator(".shell-settings").click();
   await page.locator("#settings-page").waitFor({ state: "visible" });
-  const profileState = page.locator('.profile-summary[data-id="acceptance"] .profile-state');
-  await page.locator('.profile-row:has(.profile-summary[data-id="acceptance"]) [data-action="probe"]').click();
-  await browser.wait(`document.querySelector('.profile-summary[data-id="acceptance"] .profile-state')?.textContent.includes('Test passed')`, "Settings Test passed before Chat return");
-  assert.match(await profileState.innerText(), /Test passed/);
+  const connectionState = page.locator('.connection-summary[data-id="acceptance"] .connection-state');
+  await page.locator('.connection-row:has(.connection-summary[data-id="acceptance"]) [data-action="probe"]').click();
+  await browser.wait(`document.querySelector('.connection-summary[data-id="acceptance"] .connection-state')?.textContent.includes('Test passed')`, "Settings Test passed before Chat return");
+  assert.match(await connectionState.innerText(), /Test passed/);
   // Item 2gf: from Settings, ONE click on the tab reaches the chat. This step
   // used to need the tab menu entry to get back, which is the trap 2gf closed.
   await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click();
@@ -1616,15 +1616,15 @@ if (realModel) {
   await waitProjectedChatText(sessionID, "Attachment received and rendered.", "SVG attachment answer");
   const svgMessage = await waitEvent(sessionID, (event) => event.seq > beforeSVG && event.type === "message.appended" && event.data.message?.attachments?.some((item) => item.path.endsWith("agent.svg")), "SVG attachment retained");
   assert.equal(svgMessage.data.message.attachments.find((item) => item.path.endsWith("agent.svg"))?.kind, "text");
-  record("svg-attachment-text-on-text-profile");
+  record("svg-attachment-text-on-text-connection");
 
   const afterSettingsTest = await state();
-  const testedProfile = afterSettingsTest.config.servers.find((profile) => profile.id === "acceptance");
+  const testedConnection = afterSettingsTest.config.connections.find((connection) => connection.id === "acceptance");
   await json(`http://127.0.0.1:${appPort}/api/config`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": afterSettingsTest.mutation_token },
-    body: JSON.stringify({ servers: [{ ...testedProfile, probe_mode: "off", capabilities: {
-      ...testedProfile.capabilities, server: "agentb-fake", n_ctx: 32768, tokenize: true,
+    body: JSON.stringify({ connections: [{ ...testedConnection, probe_mode: "off", capabilities: {
+      ...testedConnection.capabilities, connection: "agentb-fake", n_ctx: 32768, tokenize: true,
       apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true,
       document_input: false, image_input: false, vision: "rejected", cached_tokens: true,
       findings: ["acceptance fake"],
@@ -1675,7 +1675,7 @@ if (realModel) {
 
   events = await sessionEvents(sessionID);
   const beforeSlowAccounting = Math.max(0, ...events.map((event) => event.seq || 0));
-  await json(`${profileURL}/arm-slow-accounting`, { method: "POST" });
+  await json(`${connectionURL}/arm-slow-accounting`, { method: "POST" });
   await setTask(`acceptance: slow accounting ${"payload ".repeat(800)}`);
   const slowMessage = await waitEvent(sessionID, (event) => event.seq > beforeSlowAccounting && event.type === "message.appended" && event.data?.message?.content?.startsWith("acceptance: slow accounting"), "slow-accounting message", 12000);
   const slowRun = await waitEvent(sessionID, (event) => event.seq > slowMessage.seq && event.type === "run.started" && event.data?.user_message_id === slowMessage.data.message.id, "slow-accounting run", 12000);
@@ -1773,7 +1773,7 @@ if (realModel) {
   await startFake(modelPort);
   await page.locator(".shell-settings").click();
   await page.locator("#settings-page").waitFor({ state: "visible" });
-  await page.locator('.profile-row:has(.profile-summary[data-id="acceptance"]) [data-action="probe"]').click();
+  await page.locator('.connection-row:has(.connection-summary[data-id="acceptance"]) [data-action="probe"]').click();
   await waitEvent(sessionID, (event) => event.seq > testUnreachableAfter && event.type === "model.reachable", "Settings Test model.reachable");
   await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click();
   assert.equal(await page.locator("#settings-page").isHidden(), true);
@@ -2081,13 +2081,13 @@ if (realModel) {
   const dState = await state();
   const dSession = Object.values(dState.sessions).find((session) => session.role === "d" && !session.plan_id);
   assert.ok(dSession, JSON.stringify(dState.sessions));
-  assert.equal(dSession.server_id, "acceptance");
+  assert.equal(dSession.connection_id, "acceptance");
   assert.equal(dSession.workspace_dir, join(args.data, "scratch", dSession.id));
   // Item 2gl (v1.2.6): the WINDOW title names the chat, because the overlay
   // could not be made to activate and the system strip stays. 2eo's rule is
-  // about the header beside the tab strip, which still reads the profile only.
+  // about the header beside the tab strip, which still reads the connection only.
   assert.equal(await page.title(), "Agent_b · New chat");
-  assert.equal(await page.locator(".shell-session-title").innerText(), dSession.b_profile || dSession.server_id, "item 2eo: the header reads the profile name only");
+  assert.equal(await page.locator(".shell-session-title").innerText(), dSession.b_connection || dSession.connection_id, "item 2eo: the header reads the connection name only");
   await page.screenshot({ path: join(evidenceRun, "d-plan.png") });
   record("d-plus-unbound-scratch-tab-and-title");
   const boundCreated = await json(`http://127.0.0.1:${appPort}/api/sessions`, {
@@ -2317,11 +2317,11 @@ if (realModel) {
   assert.equal(opening.length, 1, "Yes sends exactly one message");
   assert.match(opening[0].content, /draft its plan/);
   assert.equal(await page.locator("#chat-task").inputValue(), "", "the request was sent, not left in the composer");
-  // Its run holds the shared profile; the queue scenario below starts after it.
+  // Its run holds the shared connection; the queue scenario below starts after it.
   await waitEvent(planner.id, (event) => event.type === "run.stopped", "the planning chat's opening run finished", 30000);
   record("plan-flyout-add-folder-build-prompt-yes-sends");
 
-  // Item 2fc: runs queue per model profile. While one chat holds the profile,
+  // Item 2fc: runs queue per model connection. While one chat holds the connection,
   // another waits with the role it is behind, and Go refuses with the reason.
   const holder = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
   const waiter = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
@@ -2338,9 +2338,9 @@ if (realModel) {
   assert.equal(busyGo.enabled, false, JSON.stringify(busyGo));
   assert.match(busyGo.refusal || "", /the model is busy: agent_b is running/, JSON.stringify(busyGo));
   await page.screenshot({ path: join(evidenceRun, "queued-behind.png") });
-  await waitProjectedChatText(waiter.id, "BEHIND ANSWER", "the waiting chat answered once the profile was free", 20000);
+  await waitProjectedChatText(waiter.id, "BEHIND ANSWER", "the waiting chat answered once the connection was free", 20000);
   await writeFile(planPath, markedPlan);
-  record("per-profile-queue-waiting-behind-and-go-refused");
+  record("per-connection-queue-waiting-behind-and-go-refused");
 
   // Item 2fs, the walk's reproduction: chat A pauses on a card nobody answers;
   // chat B on the same model runs to its answer meanwhile; answering A's card

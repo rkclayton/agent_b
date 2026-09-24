@@ -109,19 +109,19 @@ func (s *Server) attachments(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "zip attachments are refused; extract and attach individual files", "file")
 		return
 	}
-	profile, ok := s.Profile(item.ServerID)
+	connection, ok := s.Connection(item.ConnectionID)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "profile not found", "session_id")
+		writeError(w, http.StatusBadRequest, "connection not found", "session_id")
 		return
 	}
-	result, resolved, created, err := storeAttachment(item.Workspace, name, content, profile, kind)
+	result, resolved, created, err := storeAttachment(item.Workspace, name, content, connection, kind)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "file")
 		return
 	}
 	result.Kind = string(kind)
 	reuseNote := result.Note
-	result.Tier, result.Note, result.Sidecar, err = s.extractAttachment(r.Context(), *profile, resolved, result.Path, kind, maxBytes)
+	result.Tier, result.Note, result.Sidecar, err = s.extractAttachment(r.Context(), *connection, resolved, result.Path, kind, maxBytes)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "field": "file", "path": result.Path, "retained": created || result.Reused})
 		return
@@ -132,7 +132,7 @@ func (s *Server) attachments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func storeAttachment(workspace, name string, content []byte, profile *config.Profile, kind attachmentfile.Kind) (attachmentResponse, string, bool, error) {
+func storeAttachment(workspace, name string, content []byte, connection *config.Connection, kind attachmentfile.Kind) (attachmentResponse, string, bool, error) {
 	dir, err := tools.Resolve(workspace, "attachments")
 	if err != nil {
 		return attachmentResponse{}, "", false, err
@@ -143,7 +143,7 @@ func storeAttachment(workspace, name string, content []byte, profile *config.Pro
 	sum := sha256.Sum256(content)
 	digest := hex.EncodeToString(sum[:])
 	stem, extension := strings.TrimSuffix(name, filepath.Ext(name)), filepath.Ext(name)
-	needsSidecar := kind == attachmentfile.Office || (kind == attachmentfile.PDF && !profile.NativeDocumentInput()) || (kind == attachmentfile.Image && !profile.NativeImageInput())
+	needsSidecar := kind == attachmentfile.Office || (kind == attachmentfile.PDF && !connection.NativeDocumentInput()) || (kind == attachmentfile.Image && !connection.NativeImageInput())
 	for index := 1; ; index++ {
 		candidate := name
 		if index > 1 {
@@ -197,7 +197,7 @@ func sidecarFree(workspace, relative string) bool {
 	return os.IsNotExist(err)
 }
 
-func (s *Server) extractAttachment(ctx context.Context, profile config.Profile, resolved, relative string, kind attachmentfile.Kind, maxBytes int64) (tier, note, sidecar string, err error) {
+func (s *Server) extractAttachment(ctx context.Context, connection config.Connection, resolved, relative string, kind attachmentfile.Kind, maxBytes int64) (tier, note, sidecar string, err error) {
 	switch kind {
 	case attachmentfile.Text:
 		return "text", "read with read_file", "", nil
@@ -224,11 +224,11 @@ func (s *Server) extractAttachment(ctx context.Context, profile config.Profile, 
 		}
 		return "office", note, sidecar, nil
 	case attachmentfile.PDF:
-		if profile.NativeDocumentInput() {
+		if connection.NativeDocumentInput() {
 			return "native", "document routed natively", "", nil
 		}
-		if profile.ExtractURL != "" {
-			text, extractErr := s.postExtraction(ctx, profile, resolved)
+		if connection.ExtractURL != "" {
+			text, extractErr := s.postExtraction(ctx, connection, resolved)
 			if extractErr != nil {
 				return "", "", "", extractErr
 			}
@@ -243,7 +243,7 @@ func (s *Server) extractAttachment(ctx context.Context, profile config.Profile, 
 			}
 			return "extracted", "extraction output is untrusted", sidecar, nil
 		}
-		// Item 2fj: on every profile a PDF's text layer is read locally; a PDF
+		// Item 2fj: on every connection a PDF's text layer is read locally; a PDF
 		// with none (a scan) goes to the inbox OCR page by page. The chip says
 		// which route read it.
 		tier, note := "extracted", "text layer read locally; extraction output is untrusted"
@@ -251,7 +251,7 @@ func (s *Server) extractAttachment(ctx context.Context, profile config.Profile, 
 		if errors.Is(extractErr, attachmentfile.ErrNoTextLayer) {
 			ocrText, ocrErr := s.ocrPDF(resolved, pdfOCRPageLimit)
 			if ocrErr != nil {
-				return "binary", "no text layer, and OCR could not read the pages — this profile cannot read it", "", nil
+				return "binary", "no text layer, and OCR could not read the pages — this connection cannot read it", "", nil
 			}
 			if int64(len(ocrText)) > maxBytes {
 				ocrText = ocrText[:maxBytes] + "\n[OCR text truncated]\n"
@@ -274,16 +274,16 @@ func (s *Server) extractAttachment(ctx context.Context, profile config.Profile, 
 		}
 		return tier, note, sidecar, nil
 	case attachmentfile.Image:
-		if profile.NativeImageInput() {
+		if connection.NativeImageInput() {
 			return "native", "image routed natively", "", nil
 		}
 		visionReason := ""
-		if profile.Capabilities.Vision == config.VisionAcceptsUnreadable {
-			visionReason = "; profile accepts images but does not read them"
+		if connection.Capabilities.Vision == config.VisionAcceptsUnreadable {
+			visionReason = "; connection accepts images but does not read them"
 		}
 		text, extractErr := s.ocrExtract(resolved)
 		if errors.Is(extractErr, ocr.ErrNoText) {
-			return "binary", "OCR found no text — this profile cannot read the image" + visionReason, "", nil
+			return "binary", "OCR found no text — this connection cannot read the image" + visionReason, "", nil
 		}
 		if extractErr != nil {
 			return "", "", "", extractErr
@@ -299,11 +299,11 @@ func (s *Server) extractAttachment(ctx context.Context, profile config.Profile, 
 		}
 		return "ocr", "OCR output is untrusted; layout not preserved" + visionReason, sidecar, nil
 	default:
-		return "binary", "binary — this profile cannot read it", "", nil
+		return "binary", "binary — this connection cannot read it", "", nil
 	}
 }
 
-func (s *Server) postExtraction(ctx context.Context, profile config.Profile, path string) ([]byte, error) {
+func (s *Server) postExtraction(ctx context.Context, connection config.Connection, path string) ([]byte, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -321,10 +321,10 @@ func (s *Server) postExtraction(ctx context.Context, profile config.Profile, pat
 	if err := writer.Close(); err != nil {
 		return nil, err
 	}
-	timeout := time.Duration(profile.RequestTimeoutS) * time.Second
+	timeout := time.Duration(connection.RequestTimeoutS) * time.Second
 	check, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(check, http.MethodPost, profile.ExtractURL, &body)
+	request, err := http.NewRequestWithContext(check, http.MethodPost, connection.ExtractURL, &body)
 	if err != nil {
 		return nil, err
 	}

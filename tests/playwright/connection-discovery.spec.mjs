@@ -25,7 +25,7 @@ test.beforeAll(async () => {
     appRoot: repo,
     data: join(root, "data"),
     modelIDs: ["alpha-model", "beta-model"],
-    profileModel: "model",
+    connectionModel: "model",
   });
 });
 
@@ -44,13 +44,13 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   await expect(setup.locator(".setup-feedback")).toContainText('Model "model" is not served');
 
   const settings = await harness.context.newPage();
-  await settings.goto(`${harness.base}/chat?from=setup#settings/servers`);
-  await settings.locator('.profile-summary[data-id="ui"]').click();
+  await settings.goto(`${harness.base}/chat?from=setup#settings/connections`);
+  await settings.locator('.connection-summary[data-id="ui"]').click();
   const before = await hash(join(harness.dataRoot, "harness.json"));
-  await settings.locator('.profile-row:has(.profile-summary[data-id="ui"]) [data-action="probe"]').click();
-  await expect(settings.locator(".profile-editor .discovery-note")).toHaveText(`found http://127.0.0.1:${harness.modelPort}`);
-  await expect(settings.locator('[data-path="servers.ui.model"]')).toHaveJSProperty("tagName", "SELECT");
-  await expect(settings.locator('[data-path="servers.ui.model"] option')).toHaveText(["model", "alpha-model", "beta-model"]);
-  await expect(settings.locator('.profile-row:has(.profile-summary[data-id="ui"]) .profile-state')).toContainText('Model "model" is not served');
+  await settings.locator('.connection-row:has(.connection-summary[data-id="ui"]) [data-action="probe"]').click();
+  await expect(settings.locator(".connection-editor .discovery-note")).toHaveText(`found http://127.0.0.1:${harness.modelPort}`);
+  await expect(settings.locator('[data-path="connections.ui.model"]')).toHaveJSProperty("tagName", "SELECT");
+  await expect(settings.locator('[data-path="connections.ui.model"] option')).toHaveText(["model", "alpha-model", "beta-model"]);
+  await expect(settings.locator('.connection-row:has(.connection-summary[data-id="ui"]) .connection-state')).toContainText('Model "model" is not served');
   expect(await hash(join(harness.dataRoot, "harness.json"))).toBe(before);
 });

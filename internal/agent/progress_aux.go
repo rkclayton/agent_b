@@ -18,7 +18,7 @@ func (r *Runner) maybeAuxProgress(ctx context.Context, item *session.Session, ru
 	if !ok || agentConfig.C == "" {
 		return
 	}
-	profile, ok := cfg.Profile(agentConfig.C)
+	connection, ok := cfg.Connection(agentConfig.C)
 	if !ok {
 		return
 	}
@@ -26,7 +26,7 @@ func (r *Runner) maybeAuxProgress(ctx context.Context, item *session.Session, ru
 	if transcript == "" {
 		return
 	}
-	response, err := llm.New(profile).Chat(ctx, llm.Request{Messages: []llm.Message{
+	response, err := llm.New(connection).Chat(ctx, llm.Request{Messages: []llm.Message{
 		{Role: "system", Content: "Classify whether this tool trajectory is making progress toward its stated goal. Reply with exactly productive, stuck, or mixed."},
 		{Role: "user", Content: transcript},
 	}, MaxTokens: 8, Thinking: false})

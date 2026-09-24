@@ -111,7 +111,7 @@ func operatorTestServer(t *testing.T) (*Server, *tools.Shell, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = writers.Close() })
-	server.SetRegistry(session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot))
+	server.SetRegistry(session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot))
 	shell := tools.NewShell(cfg.Shell)
 	server.SetShellSecurity(nil, shell)
 	return server, shell, path
@@ -371,7 +371,7 @@ func TestOperatorContextPatchMustBeIsolatedAndTimeoutIsProtected(t *testing.T) {
 
 func TestApprovalOperatorModeRequiresVerifiedOperatorAndShellWait(t *testing.T) {
 	server, _, _ := operatorTestServer(t)
-	runner := agent.NewRunner(server.bus, tools.New(), nil, server.Profile, server.ConfigSnapshot)
+	runner := agent.NewRunner(server.bus, tools.New(), nil, server.Connection, server.ConfigSnapshot)
 	server.SetRuntime(nil, runner, nil)
 	s := &session.Session{ID: "session", Run: session.RunState{Status: "running"}}
 	eventCh, unsubscribe := server.bus.Subscribe()
@@ -440,7 +440,7 @@ func TestRunAsYouRevokeRequiresVerifiedOperator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := agent.NewRunner(server.bus, tools.New(), nil, server.Profile, server.ConfigSnapshot)
+	runner := agent.NewRunner(server.bus, tools.New(), nil, server.Connection, server.ConfigSnapshot)
 	server.SetRuntime(nil, runner, nil)
 
 	server.operatorRequest = func(*http.Request) error { return errors.New("not operator") }

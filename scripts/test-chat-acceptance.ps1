@@ -57,7 +57,7 @@ if (Test-Path -LiteralPath $evidence) {
 }
 
 # Item 2er: each run proves it starts from nothing it did not create. The
-# disposable root (and the Edge profile inside it) must not exist yet, and the
+# disposable root (and the Edge connection inside it) must not exist yet, and the
 # host's CPU load is recorded beside the run's evidence for as long as it runs.
 if (Test-Path -LiteralPath $testRoot) { throw "Disposable root already exists: $testRoot" }
 $hostLoadPath = Join-Path $evidence 'host-load.json'
@@ -145,7 +145,7 @@ try {
     if (Test-Path -LiteralPath $registry) { Remove-Item -LiteralPath $registry -Recurse -Force }
     # Item 2er: removal raced the disposable application's exit and left the root
     # behind on a loaded host; wait for every process that holds it to end: those
-    # started from the root, and Edge, whose profile is inside the root.
+    # started from the root, and Edge, whose connection is inside the root.
     $rootPrefix = [IO.Path]::GetFullPath($testRoot) + '\'
     $holders = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
         ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) -or
@@ -162,5 +162,5 @@ try {
         Remove-TreeWithinAllowedRoots -Path $resolvedTest -AllowedRoots @($resolvedTemp) -Purpose 'chat-acceptance disposable-root cleanup'
     }
     if (Test-Path -LiteralPath $testRoot) { Write-Warning "Disposable root was not removed: $testRoot" }
-    elseif (Test-Path -LiteralPath $evidence) { Set-Content -LiteralPath (Join-Path $evidence 'root-freshness.txt') -Value "root $testRoot did not exist before the run and was removed after it, with its Edge profile" }
+    elseif (Test-Path -LiteralPath $evidence) { Set-Content -LiteralPath (Join-Path $evidence 'root-freshness.txt') -Value "root $testRoot did not exist before the run and was removed after it, with its Edge connection" }
 }

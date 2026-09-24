@@ -66,7 +66,7 @@ func TestVerifierPromptLinesArePresentAndStable(t *testing.T) {
 	if err := renderer.LoadPlanner("../../prompts/planner.md"); err != nil {
 		t.Fatal(err)
 	}
-	if got := renderer.Render(&config.Profile{}, &session.Session{Role: "d"}, nil, ""); !strings.Contains(got, plannerLine) {
+	if got := renderer.Render(&config.Connection{}, &session.Session{Role: "d"}, nil, ""); !strings.Contains(got, plannerLine) {
 		t.Fatalf("the planner's session block does not carry the line:\n%s", got)
 	}
 	if err := renderer.LoadWorker("../../prompts/worker.md"); err != nil {

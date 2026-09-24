@@ -154,7 +154,7 @@ func Extract(path string) (string, error) {
 	return recognizeStream(engine, stream)
 }
 
-// newEngine is the OCR engine for the user's profile languages.
+// newEngine is the OCR engine for the user's connection languages.
 func newEngine() (*inspectable, error) {
 	engineFactory, err := activationFactory("Windows.Media.Ocr.OcrEngine", &iidOcrEngineStatics)
 	if err != nil {
@@ -167,7 +167,7 @@ func newEngine() (*inspectable, error) {
 		return nil, fmt.Errorf("create OCR engine for user languages: HRESULT 0x%08x", uint32(hr))
 	}
 	if engine == nil {
-		return nil, fmt.Errorf("no Windows OCR language matches the user profile")
+		return nil, fmt.Errorf("no Windows OCR language matches the user connection")
 	}
 	return engine, nil
 }

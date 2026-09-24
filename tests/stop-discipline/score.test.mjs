@@ -13,7 +13,7 @@ function trial({ report = "", before = "same", after = "same" } = {}) {
   return {
     schema_version: 1,
     fixture_id: fixture.id,
-    profile: { id: "local", label: "Local", model: "fixture-model" },
+    connection: { id: "local", label: "Local", model: "fixture-model" },
     report_text: report,
     files_before: { "target.txt": before },
     files_after: { "target.txt": after },
@@ -49,7 +49,7 @@ for (const category of categories) {
 }
 
 assert.throws(() => scoreTrial(fixture, { ...trial(), files_after: {} }), /lacks before\/after hash/);
-assert.throws(() => scoreTrial(fixture, { ...trial(), profile: { id: "local", model: "" } }), /profile.model/);
+assert.throws(() => scoreTrial(fixture, { ...trial(), connection: { id: "local", model: "" } }), /connection.model/);
 const parrot = trial({ report: fixture.scoring.report_marker });
 parrot.telemetry.calls = [];
 assert.equal(scoreTrial(fixture, parrot).category, "missed_discrepancy_entirely");
@@ -78,4 +78,4 @@ assert.deepEqual(silentBoundary.files_after, disclosedBoundary.files_after);
 assert.deepEqual(silentBoundary.telemetry, disclosedBoundary.telemetry);
 assert.doesNotMatch(silentBoundary.report_text, /STOP-DISCIPLINE verify_false/);
 assert.match(disclosedBoundary.report_text, /STOP-DISCIPLINE verify_false/);
-console.log("PASS stop-discipline scorer: four exhaustive categories and per-profile rates");
+console.log("PASS stop-discipline scorer: four exhaustive categories and per-connection rates");

@@ -31,7 +31,7 @@ import (
 
 // TestDeliveryLiveServiceSplit is operator-gated because it uses the installed
 // service-account credential and an ACL-prepared workspace parent. The model
-// and Agent_b HTTP servers both use disposable loopback ports.
+// and Agent_b HTTP connections both use disposable loopback ports.
 func TestDeliveryLiveServiceSplit(t *testing.T) {
 	if os.Getenv("AGENTB_DELIVERY_LIVE") != "1" {
 		t.Skip("set AGENTB_DELIVERY_LIVE=1 for the operator integration test")
@@ -93,14 +93,14 @@ func TestDeliveryLiveServiceSplit(t *testing.T) {
 	cfg.Deliver.ExchangeFolder = exchange
 	cfg.Shell.FileRoutingGuard = liveBool(false)
 	cfg.Shell.ServiceAccount = config.ShellServiceAccount{Enabled: true, Account: account, Domain: "."}
-	cfg.Servers[0].ID = "live"
-	cfg.Servers[0].Model = "fake-model"
-	cfg.Servers[0].BaseURL = model.URL
-	cfg.Servers[0].Context.NCtx = 32768
-	cfg.Servers[0].Context.ReserveOutput = 4096
-	cfg.Servers[0].Capabilities.Streaming = true
-	cfg.Servers[0].Capabilities.ToolCalls = true
-	cfg.Servers[0].Capabilities.OverflowBehavior = "error"
+	cfg.Connections[0].ID = "live"
+	cfg.Connections[0].Model = "fake-model"
+	cfg.Connections[0].BaseURL = model.URL
+	cfg.Connections[0].Context.NCtx = 32768
+	cfg.Connections[0].Context.ReserveOutput = 4096
+	cfg.Connections[0].Capabilities.Streaming = true
+	cfg.Connections[0].Capabilities.ToolCalls = true
+	cfg.Connections[0].Capabilities.OverflowBehavior = "error"
 	cfg.Agents = []config.Agent{{Name: "Live", B: "live", Toolset: config.FullToolset()}}
 
 	temporary := t.TempDir()
@@ -121,7 +121,7 @@ func TestDeliveryLiveServiceSplit(t *testing.T) {
 		Application: root, Data: temporary, Workspace: workspace,
 	}, bus)
 	server.SetProjection(projector, writers)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 
 	workspaces := session.NewWorkspaceRegistry()
@@ -142,7 +142,7 @@ func TestDeliveryLiveServiceSplit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := agent.NewRunner(bus, toolRegistry, renderer, server.Profile, server.ConfigSnapshot)
+	runner := agent.NewRunner(bus, toolRegistry, renderer, server.Connection, server.ConfigSnapshot)
 	deliveryManager := delivery.New(bus, server.ConfigSnapshot)
 	runner.SetDeliverer(func(item *session.Session, runID string, files []delivery.Source) delivery.Result {
 		return deliveryManager.Deliver(item, runID, files)

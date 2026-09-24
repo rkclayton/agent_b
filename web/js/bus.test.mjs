@@ -14,7 +14,7 @@ const { reduce, setSelection, store, subscribe } = await import("./bus.js");
 let generation = 0;
 function snapshot(session = {}) {
   generation++;
-  reduce({ type: "snapshot", data: { sessions: { main: { id: "main", cursor: { generation: `g${generation}`, offset: 10 }, run: { status: "idle" }, tools: [], messages: [], timeline: [], ...session } }, replay: false, servers: [], config: {} } });
+  reduce({ type: "snapshot", data: { sessions: { main: { id: "main", cursor: { generation: `g${generation}`, offset: 10 }, run: { status: "idle" }, tools: [], messages: [], timeline: [], ...session } }, replay: false, connections: [], config: {} } });
 }
 function patch(offset, operations, previous = offset - 1) {
   reduce({ type: "projection.patch", data: { schema_version: 1, session_id: "main", previous_cursor: { generation: `g${generation}`, offset: previous }, cursor: { generation: `g${generation}`, offset }, operations } });
@@ -114,7 +114,7 @@ test("one agent and chat selection object persists across page loads", () => {
   setSelection("agent_b", "main");
   assert.deepEqual(store.selection, { agent_id: "agent_b", session_id: "main" });
   assert.equal(stored.get("agentb.selection"), JSON.stringify(store.selection));
-  reduce({ type: "snapshot", data: { sessions: store.sessions, replay: false, servers: [], config: {} } });
+  reduce({ type: "snapshot", data: { sessions: store.sessions, replay: false, connections: [], config: {} } });
   assert.deepEqual(store.selection, { agent_id: "agent_b", session_id: "main" });
 });
 
@@ -130,22 +130,22 @@ test("session-scoped UI error evidence never notifies rendering subscribers", ()
   unsubscribe();
 });
 
-test("successful probe projects a discovered context size into the live profile", () => {
-  const profile = { id: "new", reasoning: { valid_efforts: [] }, context: { n_ctx: 0 }, capabilities: {} };
-  reduce({ type: "snapshot", data: { sessions: {}, servers: [profile], config: { servers: [structuredClone(profile)] } } });
-  reduce({ type: "server.probed", data: { server_id: "new", capabilities: { n_ctx: 32768, valid_efforts: ["low"] } } });
-  assert.equal(store.servers[0].context.n_ctx, 32768);
-  assert.equal(store.config.servers[0].context.n_ctx, 32768);
-  assert.deepEqual(store.servers[0].reasoning.valid_efforts, ["low"]);
+test("successful probe projects a discovered context size into the live connection", () => {
+  const connection = { id: "new", reasoning: { valid_efforts: [] }, context: { n_ctx: 0 }, capabilities: {} };
+  reduce({ type: "snapshot", data: { sessions: {}, connections: [connection], config: { connections: [structuredClone(connection)] } } });
+  reduce({ type: "connection.probed", data: { connection_id: "new", capabilities: { n_ctx: 32768, valid_efforts: ["low"] } } });
+  assert.equal(store.connections[0].context.n_ctx, 32768);
+  assert.equal(store.config.connections[0].context.n_ctx, 32768);
+  assert.deepEqual(store.connections[0].reasoning.valid_efforts, ["low"]);
 });
 
-test("pending agent server changes are projected and cleared by terminal events", () => {
+test("pending agent connection changes are projected and cleared by terminal events", () => {
   snapshot();
   const change = { agent_id: "coder", from: "old", to: "new", requested_at: "now" };
-  reduce({ type: "agent.server_change", data: { status: "pending", change } });
-  assert.deepEqual(store.agent_server_changes.coder, change);
-  reduce({ type: "agent.server_change", data: { status: "cancelled", agent_id: "coder" } });
-  assert.equal(store.agent_server_changes.coder, undefined);
+  reduce({ type: "agent.connection_change", data: { status: "pending", change } });
+  assert.deepEqual(store.agent_connection_changes.coder, change);
+  reduce({ type: "agent.connection_change", data: { status: "cancelled", agent_id: "coder" } });
+  assert.equal(store.agent_connection_changes.coder, undefined);
 });
 
 test("a patch the snapshot already holds is skipped, not applied twice and not a resync", () => {
@@ -164,15 +164,15 @@ test("a restored chat with messages is never selected for the operator; an empty
   // Item 2es: after a restart the retained s7 was picked and looked like a new chat.
   setSelection("agent_b", "");
   const base = { cursor: { generation: "g", offset: 10 }, run: { status: "idle" }, tools: [], timeline: [], role: "b" };
-  reduce({ type: "snapshot", data: { sessions: { s7: { ...base, id: "s7", messages: [{ id: "m-1", role: "user", content: "earlier work" }] } }, replay: false, servers: [], config: {} } });
+  reduce({ type: "snapshot", data: { sessions: { s7: { ...base, id: "s7", messages: [{ id: "m-1", role: "user", content: "earlier work" }] } }, replay: false, connections: [], config: {} } });
   assert.equal(store.active, "");
   assert.equal(store.selection.session_id, "");
   reduce({ type: "projection.patch", data: { schema_version: 1, session_id: "s7", previous_cursor: { generation: "g", offset: 10 }, cursor: { generation: "g", offset: 11 }, operations: [{ op: "replace", path: "/model_turns", value: 1 }] } });
   assert.equal(store.active, "", "a patch for a retained chat does not select it");
-  reduce({ type: "snapshot", data: { sessions: { s7: { ...base, id: "s7", messages: [{ id: "m-1", role: "user", content: "earlier work" }] }, s8: { ...base, id: "s8", messages: [] } }, replay: false, servers: [], config: {} } });
+  reduce({ type: "snapshot", data: { sessions: { s7: { ...base, id: "s7", messages: [{ id: "m-1", role: "user", content: "earlier work" }] }, s8: { ...base, id: "s8", messages: [] } }, replay: false, connections: [], config: {} } });
   assert.equal(store.active, "s8");
   setSelection("agent_b", "s7");
-  reduce({ type: "snapshot", data: { sessions: { s7: { ...base, id: "s7", messages: [{ id: "m-1", role: "user", content: "earlier work" }] } }, replay: false, servers: [], config: {} } });
+  reduce({ type: "snapshot", data: { sessions: { s7: { ...base, id: "s7", messages: [{ id: "m-1", role: "user", content: "earlier work" }] } }, replay: false, connections: [], config: {} } });
   assert.equal(store.active, "s7", "the operator's own selection stands");
 });
 
@@ -180,11 +180,11 @@ test("a snapshot older than patches already applied does not move a session back
   // v0.65.0/W8 (2er): the worker's approval card was never drawn because a
   // resync snapshot, fetched while its patches kept arriving, replaced them.
   const base = { run: { status: "running" }, tools: [], timeline: [], messages: [], role: "c", plan_id: "p" };
-  reduce({ type: "snapshot", data: { sessions: { w: { ...base, id: "w", cursor: { generation: "g", offset: 10 } } }, replay: false, servers: [], config: {} } });
+  reduce({ type: "snapshot", data: { sessions: { w: { ...base, id: "w", cursor: { generation: "g", offset: 10 } } }, replay: false, connections: [], config: {} } });
   reduce({ type: "projection.patch", data: { schema_version: 1, session_id: "w", previous_cursor: { generation: "g", offset: 10 }, cursor: { generation: "g", offset: 20 }, operations: [{ op: "replace", path: "/pending_approval", value: { event: { data: { name: "read_file.operator_override" } } } }] } });
-  reduce({ type: "snapshot", data: { sessions: { w: { ...base, id: "w", cursor: { generation: "g", offset: 12 } } }, replay: false, servers: [], config: {} } });
+  reduce({ type: "snapshot", data: { sessions: { w: { ...base, id: "w", cursor: { generation: "g", offset: 12 } } }, replay: false, connections: [], config: {} } });
   assert.equal(store.sessions.w.cursor.offset, 20);
   assert.equal(store.sessions.w.pending_approval?.event?.data?.name, "read_file.operator_override");
-  reduce({ type: "snapshot", data: { sessions: { w: { ...base, id: "w", cursor: { generation: "g", offset: 30 }, pending_approval: null } }, replay: false, servers: [], config: {} } });
+  reduce({ type: "snapshot", data: { sessions: { w: { ...base, id: "w", cursor: { generation: "g", offset: 30 }, pending_approval: null } }, replay: false, connections: [], config: {} } });
   assert.equal(store.sessions.w.cursor.offset, 30, "a newer snapshot still replaces the session");
 });

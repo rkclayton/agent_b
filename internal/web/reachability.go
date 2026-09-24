@@ -16,56 +16,56 @@ var reachabilityBackoff = [...]time.Duration{
 	30 * time.Second,
 }
 
-func (s *Server) scheduleReachabilityProbe(profileID string) {
-	if profileID == "" {
+func (s *Server) scheduleReachabilityProbe(connectionID string) {
+	if connectionID == "" {
 		return
 	}
 	s.reachabilityMu.Lock()
-	state := s.reachability[profileID]
+	state := s.reachability[connectionID]
 	if state == nil {
 		state = &reachabilityRetry{}
-		s.reachability[profileID] = state
+		s.reachability[connectionID] = state
 	}
 	if state.timer == nil {
-		s.scheduleReachabilityProbeLocked(profileID, state)
+		s.scheduleReachabilityProbeLocked(connectionID, state)
 	}
 	s.reachabilityMu.Unlock()
 }
 
-func (s *Server) scheduleReachabilityProbeLocked(profileID string, state *reachabilityRetry) {
+func (s *Server) scheduleReachabilityProbeLocked(connectionID string, state *reachabilityRetry) {
 	index := min(state.attempt, len(reachabilityBackoff)-1)
 	delay := reachabilityBackoff[index]
 	state.attempt++
 	state.timer = s.reachabilityAfter(delay, func() {
 		s.reachabilityMu.Lock()
-		current := s.reachability[profileID]
+		current := s.reachability[connectionID]
 		if current != state {
 			s.reachabilityMu.Unlock()
 			return
 		}
 		state.timer = nil
 		s.reachabilityMu.Unlock()
-		profile, ok := s.Profile(profileID)
+		connection, ok := s.Connection(connectionID)
 		if !ok {
-			s.clearReachabilityProbe(profileID)
+			s.clearReachabilityProbe(connectionID)
 			return
 		}
-		s.startProbe(profile)
+		s.startProbe(connection)
 	})
 }
 
-func (s *Server) cancelScheduledReachabilityProbe(profileID string) {
+func (s *Server) cancelScheduledReachabilityProbe(connectionID string) {
 	s.reachabilityMu.Lock()
-	if state := s.reachability[profileID]; state != nil && state.timer != nil {
+	if state := s.reachability[connectionID]; state != nil && state.timer != nil {
 		state.timer.Stop()
 		state.timer = nil
 	}
 	s.reachabilityMu.Unlock()
 }
 
-func (s *Server) completeReachabilityProbe(profileID string, succeeded bool) {
+func (s *Server) completeReachabilityProbe(connectionID string, succeeded bool) {
 	s.reachabilityMu.Lock()
-	state := s.reachability[profileID]
+	state := s.reachability[connectionID]
 	if state == nil {
 		s.reachabilityMu.Unlock()
 		return
@@ -74,18 +74,18 @@ func (s *Server) completeReachabilityProbe(profileID string, succeeded bool) {
 		if state.timer != nil {
 			state.timer.Stop()
 		}
-		delete(s.reachability, profileID)
+		delete(s.reachability, connectionID)
 	} else if state.timer == nil {
-		s.scheduleReachabilityProbeLocked(profileID, state)
+		s.scheduleReachabilityProbeLocked(connectionID, state)
 	}
 	s.reachabilityMu.Unlock()
 }
 
-func (s *Server) clearReachabilityProbe(profileID string) {
+func (s *Server) clearReachabilityProbe(connectionID string) {
 	s.reachabilityMu.Lock()
-	if state := s.reachability[profileID]; state != nil && state.timer != nil {
+	if state := s.reachability[connectionID]; state != nil && state.timer != nil {
 		state.timer.Stop()
 	}
-	delete(s.reachability, profileID)
+	delete(s.reachability, connectionID)
 	s.reachabilityMu.Unlock()
 }

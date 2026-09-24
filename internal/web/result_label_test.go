@@ -16,7 +16,7 @@ import (
 func TestCompletedRunResultLabelEndpoint(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	cfg.Servers[0] = runnableTestProfile("main")
+	cfg.Connections[0] = runnableTestConnection("main")
 	cfg.Agents = []config.Agent{{Name: "Main", B: "main", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	eventStream, unsubscribe := bus.Subscribe()
@@ -27,7 +27,7 @@ func TestCompletedRunResultLabelEndpoint(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = writers.Close() })
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("main", "main", root)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestCompletedRunResultLabelEndpoint(t *testing.T) {
 func TestRunResultLabelEndpointRejectsActiveAndUnknownLabels(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	cfg.Servers[0] = runnableTestProfile("main")
+	cfg.Connections[0] = runnableTestConnection("main")
 	cfg.Agents = []config.Agent{{Name: "Main", B: "main", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	writers, err := events.NewWriters(filepath.Join(root, "logs"))
@@ -72,7 +72,7 @@ func TestRunResultLabelEndpointRejectsActiveAndUnknownLabels(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = writers.Close() })
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("main", "main", root)
 	if err != nil {

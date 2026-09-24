@@ -124,7 +124,7 @@ function Get-FilePrefixHash {
 function Get-StableConfigFingerprint {
     param([string]$Path)
     $value = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
-    foreach ($server in @($value.servers)) {
+    foreach ($server in @($value.connections)) {
         $server.PSObject.Properties.Remove('capabilities')
     }
     return ($value | ConvertTo-Json -Depth 100 -Compress)
@@ -227,8 +227,8 @@ try {
     }
     Write-Host "PROOF direct source-tree refusal: $directSentence"
 
-    $alternateProfile = Join-Path $testRoot 'AlternateProfile'
-    $registeredRoot = Join-Path $alternateProfile 'Registered\Agent_b'
+    $alternateConnection = Join-Path $testRoot 'AlternateConnection'
+    $registeredRoot = Join-Path $alternateConnection 'Registered\Agent_b'
     $null = New-Item -ItemType Directory -Path $registeredRoot -Force
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Agent_b.exe') -Destination (Join-Path $registeredRoot 'Agent_b.exe')
     $registrationRoot = $testRegistry + '-AlternateRoot'
@@ -241,7 +241,7 @@ try {
     $savedErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $registeredOutput = (& $singleSetup --quiet --install-data (Join-Path $testRoot 'RegisteredData') -ApplicationDirectory (Join-Path $testRoot 'RegisteredApplication\Agent_b') -DataDirectory (Join-Path $testRoot 'RegisteredData\Agent_b') -WorkspaceDirectory (Join-Path $testRoot 'RegisteredWorkspace\workspace') -StartMenuDirectory (Join-Path $testRoot 'RegisteredStart') -UninstallRegistryPath ($testRegistry + '-RegisteredCanonical') -RegistrationSearchRoots $registrationRoot -AlternateBinaryRoots $registeredRoot -OperatorLocalAppData $alternateProfile -TestMode -WhatIf 2>&1 | Out-String)
+        $registeredOutput = (& $singleSetup --quiet --install-data (Join-Path $testRoot 'RegisteredData') -ApplicationDirectory (Join-Path $testRoot 'RegisteredApplication\Agent_b') -DataDirectory (Join-Path $testRoot 'RegisteredData\Agent_b') -WorkspaceDirectory (Join-Path $testRoot 'RegisteredWorkspace\workspace') -StartMenuDirectory (Join-Path $testRoot 'RegisteredStart') -UninstallRegistryPath ($testRegistry + '-RegisteredCanonical') -RegistrationSearchRoots $registrationRoot -AlternateBinaryRoots $registeredRoot -OperatorLocalAppData $alternateConnection -TestMode -WhatIf 2>&1 | Out-String)
         $registeredExit = $LASTEXITCODE
     } finally { $ErrorActionPreference = $savedErrorAction }
     $registeredLog = Get-ChildItem -LiteralPath (Join-Path $testRoot 'RegisteredData\logs') -Filter 'installer-*.log' -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
@@ -253,7 +253,7 @@ try {
     $testRegistryPath = $registrationRoot
     Remove-Item -LiteralPath $testRegistryPath -Recurse -Force
 
-    $runningRoot = Join-Path $alternateProfile 'Running\Agent_b'
+    $runningRoot = Join-Path $alternateConnection 'Running\Agent_b'
     $null = New-Item -ItemType Directory -Path $runningRoot -Force
     Copy-Item -LiteralPath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -Destination (Join-Path $runningRoot 'Agent_b.exe')
     $runningAlternate = Start-Process -FilePath (Join-Path $runningRoot 'Agent_b.exe') -ArgumentList '-NoLogo -NoProfile -Command "Start-Sleep -Seconds 60"' -WindowStyle Hidden -PassThru
@@ -261,7 +261,7 @@ try {
         $savedErrorAction = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
         try {
-            $runningOutput = (& $singleSetup --quiet --install-data (Join-Path $testRoot 'RunningData') -ApplicationDirectory (Join-Path $testRoot 'RunningApplication\Agent_b') -DataDirectory (Join-Path $testRoot 'RunningData\Agent_b') -WorkspaceDirectory (Join-Path $testRoot 'RunningWorkspace\workspace') -StartMenuDirectory (Join-Path $testRoot 'RunningStart') -UninstallRegistryPath ($testRegistry + '-Running') -AlternateBinaryRoots $runningRoot -OperatorLocalAppData $alternateProfile -TestMode -WhatIf 2>&1 | Out-String)
+            $runningOutput = (& $singleSetup --quiet --install-data (Join-Path $testRoot 'RunningData') -ApplicationDirectory (Join-Path $testRoot 'RunningApplication\Agent_b') -DataDirectory (Join-Path $testRoot 'RunningData\Agent_b') -WorkspaceDirectory (Join-Path $testRoot 'RunningWorkspace\workspace') -StartMenuDirectory (Join-Path $testRoot 'RunningStart') -UninstallRegistryPath ($testRegistry + '-Running') -AlternateBinaryRoots $runningRoot -OperatorLocalAppData $alternateConnection -TestMode -WhatIf 2>&1 | Out-String)
             $runningExit = $LASTEXITCODE
         } finally { $ErrorActionPreference = $savedErrorAction }
         $runningLog = Get-ChildItem -LiteralPath (Join-Path $testRoot 'RunningData\logs') -Filter 'installer-*.log' -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
@@ -341,7 +341,7 @@ try {
     $freshConfig.memory.dir = Join-Path $testData 'memory'
     [IO.File]::WriteAllText((Join-Path $testData 'harness.json'), ($freshConfig | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
     $freshTranscriptPath = Join-Path $testData 'logs\fresh-single-file-transcript.log'
-    $orphanRoot = Join-Path $alternateProfile 'Orphan\Agent_b'
+    $orphanRoot = Join-Path $alternateConnection 'Orphan\Agent_b'
     $null = New-Item -ItemType Directory -Path $orphanRoot -Force
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Agent_b.exe') -Destination (Join-Path $orphanRoot 'Agent_b.exe')
     [IO.File]::WriteAllText((Join-Path $orphanRoot 'orphan-proof.txt'), 'preserve me', [Text.UTF8Encoding]::new($false))
@@ -362,7 +362,7 @@ try {
     $savedErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $freshOutput = (& $singleSetup --quiet --install-data $testData -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -RegistrationSearchRoots $migrationRegistryRoot -AlternateBinaryRoots $orphanRoot -LegacyApplicationDirectory $legacyRoot -OperatorLocalAppData $alternateProfile -TestMode 2>&1 | Out-String)
+        $freshOutput = (& $singleSetup --quiet --install-data $testData -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -RegistrationSearchRoots $migrationRegistryRoot -AlternateBinaryRoots $orphanRoot -LegacyApplicationDirectory $legacyRoot -OperatorLocalAppData $alternateConnection -TestMode 2>&1 | Out-String)
         $freshExit = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $savedErrorAction
@@ -421,7 +421,7 @@ try {
     [IO.File]::WriteAllText($expiredEvidenceLog, "{}`n", [Text.UTF8Encoding]::new($false))
     $retainedSeed = [ordered]@{
         seq = 1; ts = '2026-09-01T00:00:00.000Z'; session_id = 'retention-proof'; run_id = ''; type = 'session.created'
-        data = @{ session = [ordered]@{ id = 'retention-proof'; label = 'Retention proof'; agent_id = 'api'; role = 'b'; server_id = 'setup-api'; agent_name = 'API'; main_profile = 'API'; b_profile = 'API'; created_at = '2026-09-01T00:00:00Z'; closed = $true; workspace = $testWorkspace; run = @{ status = 'idle'; max_turns = 10000 }; tools = @(); messages = @(); runnable = $true } }
+        data = @{ session = [ordered]@{ id = 'retention-proof'; label = 'Retention proof'; agent_id = 'api'; role = 'b'; server_id = 'setup-api'; agent_name = 'API'; main_connection = 'API'; b_connection = 'API'; created_at = '2026-09-01T00:00:00Z'; closed = $true; workspace = $testWorkspace; run = @{ status = 'idle'; max_turns = 10000 }; tools = @(); messages = @(); runnable = $true } }
     }
     [IO.File]::WriteAllText($retainedChatLog, ($retainedSeed | ConvertTo-Json -Depth 20 -Compress) + "`n", [Text.UTF8Encoding]::new($false))
     $expiredAt = [DateTime]::UtcNow.AddDays(-2)
@@ -512,7 +512,7 @@ try {
         }
     }
     if ($shellSource -notmatch 'root\.append\(left, right\)' -or
-        $shellSource -notmatch 'right\.append\(sessionHeading, profileMenu, pages, settings, windowControls\)' -or
+        $shellSource -notmatch 'right\.append\(sessionHeading, connectionMenu, pages, settings, windowControls\)' -or
         $shellSource -match 'shell-operator-status' -or
         $shellSource -match 'all:\s*true') {
         throw 'Installed shared shell does not preserve agent-tabs/right-controls ownership.'
@@ -668,9 +668,9 @@ try {
     if (-not $ready) { throw 'Installed Agent_b did not become ready before the running-instance upgrade.' }
     # Item 2fe: on a fresh install the workspace is <data>\scratch, inside the
     # data root by design, and Settings > Security must still load its status.
-    $securityServer = [string]@($beforeState.config.servers)[0].id
+    $securityConnection = [string]@($beforeState.config.connections)[0].id
     try {
-        $security = Invoke-WebRequest -UseBasicParsing -Uri ("http://127.0.0.1:$testPort/api/hardening?server_id=" + [Uri]::EscapeDataString($securityServer)) -TimeoutSec 60
+        $security = Invoke-WebRequest -UseBasicParsing -Uri ("http://127.0.0.1:$testPort/api/hardening?connection_id=" + [Uri]::EscapeDataString($securityConnection)) -TimeoutSec 60
     } catch {
         throw ('Fresh install: Settings > Security did not load: ' + $_.Exception.Message + ' ' + $_.ErrorDetails.Message)
     }

@@ -95,7 +95,7 @@ func newSummaryServer(t *testing.T, content string) *summaryServer {
 func TestCompactionAuxUnsetUsesOneMainCall(t *testing.T) {
 	mainServer := newSummaryServer(t, "short summary")
 	runner, item, bus, _ := compactionRunner(t, mainServer, nil, 32768)
-	if !runner.summarize(context.Background(), item, "run", profileForRunner(runner, "main")) {
+	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
 		t.Fatal("summary was not accepted")
 	}
 	if mainServer.chatCalls.Load() != 1 || mainServer.templateCalls.Load() != 0 {
@@ -108,7 +108,7 @@ func TestCompactionAuxUnsetUsesOneMainCall(t *testing.T) {
 		t.Fatalf("request params=%v", body)
 	}
 	attempt, compact := compactionEvents(t, bus, item.ID)
-	if attempt.Role != "b" || attempt.ProfileID != "main" || attempt.Outcome != "accepted" || compact["profile_id"] != "main" {
+	if attempt.Role != "b" || attempt.ConnectionID != "main" || attempt.Outcome != "accepted" || compact["connection_id"] != "main" {
 		t.Fatalf("attempt=%+v compact=%v", attempt, compact)
 	}
 	snapshot := item.Snapshot()
@@ -125,7 +125,7 @@ func TestCompactionAuxUnsetUsesOneMainCall(t *testing.T) {
 	if summary.Role != "assistant" {
 		t.Fatalf("compaction summary attribution=%+v", snapshot.Messages)
 	}
-	if converted := requestMessage(profileForRunner(runner, "main"), item, summary); converted.Role != "assistant" || converted.Content != summary.Content {
+	if converted := requestMessage(connectionForRunner(runner, "main"), item, summary); converted.Role != "assistant" || converted.Content != summary.Content {
 		t.Fatalf("model request summary=%+v", converted)
 	}
 }
@@ -143,10 +143,10 @@ func TestCompactionSummaryFitsTemplateEndpoints(t *testing.T) {
 			mainServer := newSummaryServer(t, content)
 			mainServer.rejectMidSystem = test.rejectMidSystem
 			runner, item, _, cfg := compactionRunner(t, mainServer, nil, 32768)
-			cfg.Servers[0].Capabilities.ApplyTemplate = true
-			cfg.Servers[0].Capabilities.Tokenize = true
+			cfg.Connections[0].Capabilities.ApplyTemplate = true
+			cfg.Connections[0].Capabilities.Tokenize = true
 
-			if !runner.summarize(context.Background(), item, "run", profileForRunner(runner, "main")) {
+			if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
 				t.Fatal("summary was not accepted")
 			}
 			var storedSummary events.Message
@@ -159,7 +159,7 @@ func TestCompactionSummaryFitsTemplateEndpoints(t *testing.T) {
 			if storedSummary.Content == "" || !strings.Contains(storedSummary.Content, content) {
 				t.Fatalf("stored summary=%+v", storedSummary)
 			}
-			if _, err := runner.measureSession(context.Background(), profileForRunner(runner, "main"), item, nil, false); err != nil {
+			if _, err := runner.measureSession(context.Background(), connectionForRunner(runner, "main"), item, nil, false); err != nil {
 				t.Fatalf("measure compacted session: %v", err)
 			}
 
@@ -183,18 +183,18 @@ func TestCompactionSummaryFitsTemplateEndpoints(t *testing.T) {
 	}
 }
 
-func TestCompactionUsesFittingAuxProfile(t *testing.T) {
+func TestCompactionUsesFittingAuxConnection(t *testing.T) {
 	mainServer := newSummaryServer(t, "main summary")
 	auxServer := newSummaryServer(t, "aux summary")
 	runner, item, bus, _ := compactionRunner(t, mainServer, auxServer, 32768)
-	if !runner.summarize(context.Background(), item, "run", profileForRunner(runner, "main")) {
+	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
 		t.Fatal("aux summary was not accepted")
 	}
 	if auxServer.chatCalls.Load() != 1 || auxServer.templateCalls.Load() != 1 || auxServer.tokenizeCalls.Load() != 1 || mainServer.chatCalls.Load() != 0 {
 		t.Fatalf("aux chat/template/tokenize=%d/%d/%d main chat=%d", auxServer.chatCalls.Load(), auxServer.templateCalls.Load(), auxServer.tokenizeCalls.Load(), mainServer.chatCalls.Load())
 	}
 	attempt, compact := compactionEvents(t, bus, item.ID)
-	if attempt.Role != "c" || attempt.ProfileID != "aux" || attempt.Estimated || compact["profile_id"] != "aux" {
+	if attempt.Role != "c" || attempt.ConnectionID != "aux" || attempt.Estimated || compact["connection_id"] != "aux" {
 		t.Fatalf("attempt=%+v compact=%v", attempt, compact)
 	}
 }
@@ -208,7 +208,7 @@ func TestCompactionSummaryIncludesRetainedToolResultsAndState(t *testing.T) {
 	item.Append(events.Message{ID: "fetch-call", Role: "assistant", Category: "history", Turn: 12, ToolCalls: []events.ToolCall{{ID: "fetch-1", Name: "fetch_url", Arguments: `{"url":"https://example.com/data","offset":101,"limit":100}`}}})
 	item.Append(events.Message{ID: "fetch-result", Role: "tool", Category: "fetched", Turn: 12, ToolCallID: "fetch-1", Name: "fetch_url", OK: &fetchOK, Content: "[BEGIN UNTRUSTED FETCHED CONTENT]\nsource: https://example.com/data\nstatus: 200\ncontent_type: text/plain\nsource_bytes: 250\nsource_truncated: false\nwindow_offset: 101\nwindow_bytes: 100\ntotal_bytes: 250\nmore: true\nnext_offset: 201\n> SECRET FETCH BODY\n[END UNTRUSTED FETCHED CONTENT]"})
 
-	messages := runner.summaryMessages(profileForRunner(runner, "main"), item)
+	messages := runner.summaryMessages(connectionForRunner(runner, "main"), item)
 	request, ok := messages[len(messages)-1].Content.(string)
 	if !ok {
 		t.Fatalf("instruction content=%T", messages[len(messages)-1].Content)
@@ -254,7 +254,7 @@ func TestCompactionSummaryKeepsAbortRecordInLeadingSystemBlock(t *testing.T) {
 	item.Append(events.Message{ID: "abort", Role: "system", Category: "history", Content: abortContent})
 	item.Append(events.Message{ID: "after", Role: "user", Category: "history", Content: "after abort"})
 
-	messages := runner.summaryMessages(profileForRunner(runner, "main"), item)
+	messages := runner.summaryMessages(connectionForRunner(runner, "main"), item)
 	if len(messages) < 4 || messages[0].Role != "system" || messages[1].Role != "system" || messages[1].Content != abortContent {
 		t.Fatalf("abort record is not byte-identical in the leading system block: %+v", messages)
 	}
@@ -319,7 +319,7 @@ func TestCompactionSkipsSmallAuxAndFallsBackToMain(t *testing.T) {
 	mainServer := newSummaryServer(t, "main summary")
 	auxServer := newSummaryServer(t, "aux summary")
 	runner, item, bus, _ := compactionRunner(t, mainServer, auxServer, 100)
-	if !runner.summarize(context.Background(), item, "run", profileForRunner(runner, "main")) {
+	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
 		t.Fatal("main fallback summary was not accepted")
 	}
 	if auxServer.chatCalls.Load() != 0 || mainServer.chatCalls.Load() != 1 {
@@ -334,12 +334,12 @@ func TestCompactionSkipsSmallAuxAndFallsBackToMain(t *testing.T) {
 func TestCompactionAuxErrorFallsBackToMain(t *testing.T) {
 	mainServer := newSummaryServer(t, "main summary")
 	runner, item, bus, cfg := compactionRunner(t, mainServer, nil, 32768)
-	aux := cfg.Servers[0]
+	aux := cfg.Connections[0]
 	aux.ID, aux.Label, aux.BaseURL, aux.Model = "aux", "aux", "http://127.0.0.1:1", "offline"
 	aux.RequestTimeoutS = 1
-	cfg.Servers = append(cfg.Servers, aux)
+	cfg.Connections = append(cfg.Connections, aux)
 	cfg.Agents[0].C = "aux"
-	if !runner.summarize(context.Background(), item, "run", profileForRunner(runner, "main")) {
+	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
 		t.Fatal("main fallback summary was not accepted")
 	}
 	if mainServer.chatCalls.Load() != 1 {
@@ -360,7 +360,7 @@ func TestCompactionAuxFitCheckErrorFallsBackBeforeDispatch(t *testing.T) {
 	auxServer := newSummaryServer(t, "aux summary")
 	runner, item, bus, _ := compactionRunner(t, mainServer, auxServer, 32768)
 	auxServer.server.Close()
-	if !runner.summarize(context.Background(), item, "run", profileForRunner(runner, "main")) {
+	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
 		t.Fatal("main fallback summary was not accepted")
 	}
 	if auxServer.chatCalls.Load() != 0 || mainServer.chatCalls.Load() != 1 {
@@ -383,11 +383,11 @@ func TestCompactionMainFallbackFailureLeavesContextUntouched(t *testing.T) {
 	before := item.MessagesCopy()
 	auxServer.server.Close()
 	mainServer.server.Close()
-	if runner.summarize(context.Background(), item, "run", profileForRunner(runner, "main")) {
+	if runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
 		t.Fatal("failed main fallback reported an accepted summary")
 	}
 	if len(item.MessagesCopy()) != len(before) {
-		t.Fatalf("messages changed after both profiles failed: before=%d after=%d", len(before), len(item.MessagesCopy()))
+		t.Fatalf("messages changed after both connections failed: before=%d after=%d", len(before), len(item.MessagesCopy()))
 	}
 	attempts := summaryAttempts(bus, item.ID)
 	if len(attempts) != 2 || attempts[0].Outcome != "error" || attempts[0].Dispatched || attempts[1].Outcome != "error" || !attempts[1].Dispatched || attempts[1].FallbackReason != "c_fit_error" {
@@ -408,7 +408,7 @@ func TestCompactionRejectedAuxFallsBackToMain(t *testing.T) {
 	mainServer := newSummaryServer(t, "main summary")
 	auxServer := newSummaryServer(t, strings.Repeat("large summary ", 1000))
 	runner, item, bus, _ := compactionRunner(t, mainServer, auxServer, 32768)
-	if !runner.summarize(context.Background(), item, "run", profileForRunner(runner, "main")) {
+	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
 		t.Fatal("main fallback summary was not accepted")
 	}
 	if auxServer.chatCalls.Load() != 1 || mainServer.chatCalls.Load() != 1 {
@@ -452,12 +452,12 @@ func compactionRunner(t *testing.T, mainServer, auxServer *summaryServer, auxNCt
 	t.Helper()
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = "auto"
-	main := cfg.Servers[0]
+	main := cfg.Connections[0]
 	main.ID, main.Label, main.BaseURL, main.Model = "main", "main", mainServer.server.URL, "main-model"
 	main.Context.NCtx = 32768
 	main.RequestTimeoutS = 2
 	main.Capabilities.Tokenize = false
-	cfg.Servers = []config.Profile{main}
+	cfg.Connections = []config.Connection{main}
 	cfg.Agents = []config.Agent{{Name: "Coder", B: "main", Toolset: config.FullToolset()}}
 	if auxServer != nil {
 		aux := main
@@ -465,21 +465,21 @@ func compactionRunner(t *testing.T, mainServer, auxServer *summaryServer, auxNCt
 		aux.Context.NCtx = auxNCtx
 		aux.Capabilities.Tokenize = auxNCtx > 100
 		aux.Capabilities.ApplyTemplate = auxNCtx > 100
-		cfg.Servers = append(cfg.Servers, aux)
+		cfg.Connections = append(cfg.Connections, aux)
 		cfg.Agents[0].C = "aux"
 	}
 	bus := newCapturedBus()
-	runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "system {{workspace}} {{memory}} {{tools}}"}, cfg.Profile, func() config.Config { return cfg })
-	item := &session.Session{ID: "main", AgentID: cfg.DefaultAgentID(), ServerID: "main", Workspace: t.TempDir(), ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "system {{workspace}} {{memory}} {{tools}}"}, cfg.Connection, func() config.Config { return cfg })
+	item := &session.Session{ID: "main", AgentID: cfg.DefaultAgentID(), ConnectionID: "main", Workspace: t.TempDir(), ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	for index := 0; index < 10; index++ {
 		item.Append(events.Message{ID: fmt.Sprintf("m%d", index), Role: "user", Content: strings.Repeat("history ", 20), Category: "history", Tokens: 100})
 	}
 	return runner, item, bus, &cfg
 }
 
-func profileForRunner(runner *Runner, id string) *config.Profile {
-	profile, _ := runner.profile(id)
-	return profile
+func connectionForRunner(runner *Runner, id string) *config.Connection {
+	connection, _ := runner.connection(id)
+	return connection
 }
 
 func summaryAttempts(bus *capturedBus, sessionID string) []events.CompactionSummaryData {

@@ -25,15 +25,15 @@ const Retention = 30 * 24 * time.Hour
 
 // Summary is one run's account of itself.
 type Summary struct {
-	ID        int64     `json:"id"`
-	At        time.Time `json:"at"`
-	SessionID string    `json:"session_id"`
-	RunID     string    `json:"run_id"`
-	Workspace string    `json:"workspace"`
-	PlanID    string    `json:"plan_id"`
-	Profile   string    `json:"profile"`
-	// Aux is false when the summary came from the run's own profile because no
-	// aux profile is configured; the text is marked the same way.
+	ID         int64     `json:"id"`
+	At         time.Time `json:"at"`
+	SessionID  string    `json:"session_id"`
+	RunID      string    `json:"run_id"`
+	Workspace  string    `json:"workspace"`
+	PlanID     string    `json:"plan_id"`
+	Connection string    `json:"connection"`
+	// Aux is false when the summary came from the run's own connection because no
+	// aux connection is configured; the text is marked the same way.
 	Aux      bool     `json:"aux"`
 	Read     []string `json:"read"`
 	Written  []string `json:"written"`
@@ -107,7 +107,7 @@ func (s *Store) migrate() error {
 			run_id TEXT NOT NULL,
 			workspace TEXT NOT NULL,
 			plan_id TEXT NOT NULL,
-			profile TEXT NOT NULL,
+			connection TEXT NOT NULL,
 			aux INTEGER NOT NULL,
 			read_files TEXT NOT NULL,
 			written_files TEXT NOT NULL,
@@ -171,9 +171,9 @@ func (s *Store) PutSummary(summary Summary) (int64, error) {
 		summary.At = time.Now().UTC()
 	}
 	result, err := s.db.Exec(
-		`INSERT INTO summaries (at, session_id, run_id, workspace, plan_id, profile, aux, read_files, written_files, changed, open, text, failed, duration_ms, untrusted)
+		`INSERT INTO summaries (at, session_id, run_id, workspace, plan_id, connection, aux, read_files, written_files, changed, open, text, failed, duration_ms, untrusted)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		summary.At.UTC().UnixMilli(), summary.SessionID, summary.RunID, summary.Workspace, summary.PlanID, summary.Profile,
+		summary.At.UTC().UnixMilli(), summary.SessionID, summary.RunID, summary.Workspace, summary.PlanID, summary.Connection,
 		boolToInt(summary.Aux), joined(summary.Read), joined(summary.Written), summary.Changed, summary.Open, summary.Text, summary.Failed, summary.Duration, boolToInt(summary.Untrusted))
 	if err != nil {
 		return 0, fmt.Errorf("record summary: %w", err)
@@ -191,7 +191,7 @@ func boolToInt(value bool) int {
 // Summaries returns the summaries at or after since, newest first. A zero
 // since reads them all, which is what a manual reflection pass does.
 func (s *Store) Summaries(since time.Time, limit int) ([]Summary, error) {
-	query := `SELECT id, at, session_id, run_id, workspace, plan_id, profile, aux, read_files, written_files, changed, open, text, failed, duration_ms, untrusted
+	query := `SELECT id, at, session_id, run_id, workspace, plan_id, connection, aux, read_files, written_files, changed, open, text, failed, duration_ms, untrusted
 		FROM summaries`
 	args := []any{}
 	if !since.IsZero() {
@@ -214,7 +214,7 @@ func (s *Store) Summaries(since time.Time, limit int) ([]Summary, error) {
 		var at int64
 		var aux, untrusted int
 		var read, written string
-		if err := rows.Scan(&summary.ID, &at, &summary.SessionID, &summary.RunID, &summary.Workspace, &summary.PlanID, &summary.Profile, &aux, &read, &written, &summary.Changed, &summary.Open, &summary.Text, &summary.Failed, &summary.Duration, &untrusted); err != nil {
+		if err := rows.Scan(&summary.ID, &at, &summary.SessionID, &summary.RunID, &summary.Workspace, &summary.PlanID, &summary.Connection, &aux, &read, &written, &summary.Changed, &summary.Open, &summary.Text, &summary.Failed, &summary.Duration, &untrusted); err != nil {
 			return nil, fmt.Errorf("read summaries: %w", err)
 		}
 		summary.At = time.UnixMilli(at).UTC()

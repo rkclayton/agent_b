@@ -69,17 +69,17 @@ func TestS7SegmentCompactsAtTheSoftLineBeforeTheRequest(t *testing.T) {
 	server := newSummaryServer(t, "INTENT: continue the rpg\nNEXT STEP: answer the operator")
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = "auto"
-	main := cfg.Servers[0]
+	main := cfg.Connections[0]
 	main.ID, main.Label, main.BaseURL, main.Model = "main", "main", server.server.URL, "main-model"
 	main.Context.NCtx = 32768
 	main.RequestTimeoutS = 5
 	main.Capabilities.Tokenize = true
 	main.Capabilities.ApplyTemplate = true
-	cfg.Servers = []config.Profile{main}
+	cfg.Connections = []config.Connection{main}
 	cfg.Agents = []config.Agent{{Name: "Coder", B: "main", Toolset: config.FullToolset()}}
 	bus := newCapturedBus()
-	runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "system {{workspace}} {{memory}} {{tools}}"}, cfg.Profile, func() config.Config { return cfg })
-	s := &session.Session{ID: "s7", AgentID: cfg.DefaultAgentID(), ServerID: "main", Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 10}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "system {{workspace}} {{memory}} {{tools}}"}, cfg.Connection, func() config.Config { return cfg })
+	s := &session.Session{ID: "s7", AgentID: cfg.DefaultAgentID(), ConnectionID: "main", Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 10}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	// As restore does (cmd/harness), older results come back as stubs.
 	s.ReplaceMessages(contextmgr.StubOlderResults(loadS7Shape(t), 16384))
 	// As restore does (item 2es): new ids start past every id the chat holds.

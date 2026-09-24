@@ -28,7 +28,7 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Defaults(filepath.Join(root, "default"))
-	cfg.Servers = []config.Profile{{ID: "main", Label: "Main", BaseURL: "http://127.0.0.1:8000", Model: "model", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}}
+	cfg.Connections = []config.Connection{{ID: "main", Label: "Main", BaseURL: "http://127.0.0.1:8000", Model: "model", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}}
 	cfg.Agents = []config.Agent{{Name: "Main", B: "main", D: "main", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	writers, err := events.NewWriters(logs)
@@ -39,7 +39,7 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 	server := New(&cfg, filepath.Join(data, "harness.json"), root, RuntimeRoots{Data: data, Workspace: cfg.Workspace}, bus)
 	memories := memory.New(data, server.ConfigSnapshot, func(context.Context, string, string) (int, error) { return 0, nil })
 	workspaces := workspaceinfo.New(data, memories.Path)
-	registry := session.NewRegistry(bus, writers, server.Profile, 40, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, 40, server.ConfigSnapshot)
 	registry.SetMemoryLoader(memories.Load)
 	registry.SetWorkspaceManager(workspaces)
 	server.SetRegistry(registry)
@@ -57,11 +57,11 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 		server.Handler().ServeHTTP(response, request)
 		return response
 	}
-	legacy := call(http.MethodPost, "/api/sessions", map[string]any{"server_id": "main", "workspace": bound})
+	legacy := call(http.MethodPost, "/api/sessions", map[string]any{"connection_id": "main", "workspace": bound})
 	if legacy.Code != http.StatusBadRequest {
 		t.Fatalf("legacy folder create %d %s", legacy.Code, legacy.Body.String())
 	}
-	created := call(http.MethodPost, "/api/sessions", map[string]any{"server_id": "main"})
+	created := call(http.MethodPost, "/api/sessions", map[string]any{"connection_id": "main"})
 	if created.Code != 201 {
 		t.Fatalf("create %d %s", created.Code, created.Body.String())
 	}
@@ -95,7 +95,7 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 	if err := json.Unmarshal(dCreated.Body.Bytes(), &dResponse); err != nil {
 		t.Fatal(err)
 	}
-	if dResponse.Session.Role != "d" || !dResponse.Session.Scratch || dResponse.Session.PlanID != "" || dResponse.Session.PlanName != "" || dResponse.Session.ServerID != "main" {
+	if dResponse.Session.Role != "d" || !dResponse.Session.Scratch || dResponse.Session.PlanID != "" || dResponse.Session.PlanName != "" || dResponse.Session.ConnectionID != "main" {
 		t.Fatalf("d session=%+v", dResponse.Session)
 	}
 	plans := call(http.MethodGet, "/api/plans", nil)

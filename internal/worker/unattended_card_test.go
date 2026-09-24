@@ -50,15 +50,15 @@ func TestUnattendedDisabledSplitDoesNotRaiseIdentityCard(t *testing.T) {
 	cfg.Context.Accounting = "estimated"
 	cfg.Approval.Mode = config.ApprovalModeBoundaryOnly
 	cfg.Shell.ServiceAccount.Enabled = false
-	profile := cfg.Servers[0]
-	profile.ID, profile.BaseURL, profile.RequestTimeoutS, profile.Model = "fake", model.URL, 5, "fake-model"
-	profile.Context.NCtx, profile.Context.ReserveOutput = 32768, 4096
-	profile.Capabilities.Streaming, profile.Capabilities.ToolCalls = true, true
-	profile.Capabilities.OverflowBehavior, profile.Capabilities.Tokenize = "error", false
-	cfg.Servers = []config.Profile{profile}
+	connection := cfg.Connections[0]
+	connection.ID, connection.BaseURL, connection.RequestTimeoutS, connection.Model = "fake", model.URL, 5, "fake-model"
+	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 4096
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+	connection.Capabilities.OverflowBehavior, connection.Capabilities.Tokenize = "error", false
+	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Worker", B: "fake", Toolset: config.FullToolset()}}
 	current := func() config.Config { return cfg }
-	lookup := func(id string) (*config.Profile, bool) { return &cfg.Servers[0], id == "fake" }
+	lookup := func(id string) (*config.Connection, bool) { return &cfg.Connections[0], id == "fake" }
 	bus := events.NewBus()
 	writers, err := events.NewWriters(filepath.Join(data, "logs"))
 	if err != nil {

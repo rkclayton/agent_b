@@ -37,10 +37,10 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .shell-left{overflow:hidden}
 .shell-left{width:100%}
 .shell-session-title{max-width:42vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;background:transparent;color:var(--mute);font:12px/20px var(--mono)}
-.shell-profile-menu{min-width:280px}
-.shell-profile-choice{display:grid;grid-template-columns:minmax(90px,1fr) minmax(100px,1fr) auto;gap:10px;width:100%;text-align:left;font:12px/18px var(--mono)}
-.shell-profile-choice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.shell-profile-choice.selected{color:var(--trace)}
+.shell-connection-menu{min-width:280px}
+.shell-connection-choice{display:grid;grid-template-columns:minmax(90px,1fr) minmax(100px,1fr) auto;gap:10px;width:100%;text-align:left;font:12px/18px var(--mono)}
+.shell-connection-choice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shell-connection-choice.selected{color:var(--trace)}
 .agent-tabs{flex:1 1 auto;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
 .agent-tabs::-webkit-scrollbar{height:4px}.agent-tabs::-webkit-scrollbar-thumb{background:var(--mute)}
 .agent-tab-wrap{position:relative;display:flex;align-items:center;flex:0 0 var(--agent-tab-width);width:var(--agent-tab-width);min-width:var(--agent-tab-width);max-width:var(--agent-tab-width)}

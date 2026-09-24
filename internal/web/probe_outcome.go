@@ -105,27 +105,27 @@ func keepFindingsUnverified(previous []string, at time.Time, reason string) []st
 	return append(kept, unverifiedFinding(at, reason))
 }
 
-// scheduleProbeRetry books the next attempt for a profile whose probe could not
+// scheduleProbeRetry books the next attempt for a connection whose probe could not
 // reach a conclusion, walking the backoff ladder and stopping at its end. A
 // conclusive probe resets it.
-func (s *Server) scheduleProbeRetry(profileID string) {
+func (s *Server) scheduleProbeRetry(connectionID string) {
 	s.probeMu.Lock()
 	if s.probeRetries == nil {
 		s.probeRetries = map[string]int{}
 	}
-	attempt := s.probeRetries[profileID]
+	attempt := s.probeRetries[connectionID]
 	if attempt >= len(probeBackoff) {
 		s.probeMu.Unlock()
 		return
 	}
 	delay := probeBackoff[attempt]
-	s.probeRetries[profileID] = attempt + 1
+	s.probeRetries[connectionID] = attempt + 1
 	s.probeMu.Unlock()
 	time.AfterFunc(delay, func() {
 		snapshot := s.ConfigSnapshot()
-		for i := range snapshot.Servers {
-			if snapshot.Servers[i].ID == profileID {
-				s.startProbe(&snapshot.Servers[i])
+		for i := range snapshot.Connections {
+			if snapshot.Connections[i].ID == connectionID {
+				s.startProbe(&snapshot.Connections[i])
 				return
 			}
 		}
@@ -134,8 +134,8 @@ func (s *Server) scheduleProbeRetry(profileID string) {
 
 // resetProbeRetries is called when a probe reaches a conclusion, so the next
 // inconclusive run starts at the top of the ladder again.
-func (s *Server) resetProbeRetries(profileID string) {
+func (s *Server) resetProbeRetries(connectionID string) {
 	s.probeMu.Lock()
-	delete(s.probeRetries, profileID)
+	delete(s.probeRetries, connectionID)
 	s.probeMu.Unlock()
 }

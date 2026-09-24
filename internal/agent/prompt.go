@@ -54,19 +54,19 @@ func (r *PromptRenderer) Reload() error {
 	r.mu.Unlock()
 	return nil
 }
-func (r *PromptRenderer) Render(profile *config.Profile, s *session.Session, toolNames []string, memory string) string {
-	return r.RenderMemoryParts(profile, s, toolNames, s.ProjectBlock, memory, s.AgentMemoryBlock)
+func (r *PromptRenderer) Render(connection *config.Connection, s *session.Session, toolNames []string, memory string) string {
+	return r.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, memory, s.AgentMemoryBlock)
 }
-func (r *PromptRenderer) RenderParts(profile *config.Profile, s *session.Session, toolNames []string, project, memory string) string {
-	return r.RenderMemoryParts(profile, s, toolNames, project, memory, "")
+func (r *PromptRenderer) RenderParts(connection *config.Connection, s *session.Session, toolNames []string, project, memory string) string {
+	return r.RenderMemoryParts(connection, s, toolNames, project, memory, "")
 }
-func (r *PromptRenderer) RenderMemoryParts(profile *config.Profile, s *session.Session, toolNames []string, project, workspaceMemory, agentMemory string) string {
+func (r *PromptRenderer) RenderMemoryParts(connection *config.Connection, s *session.Session, toolNames []string, project, workspaceMemory, agentMemory string) string {
 	r.mu.RLock()
 	template := r.text
 	planner := r.planner
 	r.mu.RUnlock()
-	if profile.SystemPromptOverride != "" {
-		template = profile.SystemPromptOverride
+	if connection.SystemPromptOverride != "" {
+		template = connection.SystemPromptOverride
 	}
 	agentBlock := ""
 	if addendum := strings.TrimSpace(s.PromptAddendum); addendum != "" {

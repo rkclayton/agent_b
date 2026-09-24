@@ -136,7 +136,7 @@ func main() {
 	paths.Workspace = filepath.Clean(workspaceRoot)
 	roots := webserver.RuntimeRoots{Application: paths.Application, Data: paths.Data, Workspace: paths.Workspace}
 	if created {
-		log.Printf("created %s from %s - set servers[0].base_url and model", paths.Config, filepath.Join(paths.Application, "harness.example.json"))
+		log.Printf("created %s from %s - set connections[0].base_url and model", paths.Config, filepath.Join(paths.Application, "harness.example.json"))
 	}
 	if migrated {
 		log.Printf("migrated %s to config schema %d", filepath.Base(paths.Config), config.CurrentConfigVersion)
@@ -221,15 +221,15 @@ func main() {
 	for _, notice := range cfg.LoadNotices {
 		bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": cfg.Masked(), "notice": notice}))
 	}
-	memoryManager := memory.New(paths.Data, web.ConfigSnapshot, func(ctx context.Context, serverID, text string) (int, error) {
-		profile, ok := web.Profile(serverID)
-		if !ok || !profile.Capabilities.Tokenize {
+	memoryManager := memory.New(paths.Data, web.ConfigSnapshot, func(ctx context.Context, connectionID, text string) (int, error) {
+		connection, ok := web.Connection(connectionID)
+		if !ok || !connection.Capabilities.Tokenize {
 			return 0, fmt.Errorf("tokenizer unavailable")
 		}
-		return llm.New(profile).Tokenize(ctx, text, false)
+		return llm.New(connection).Tokenize(ctx, text, false)
 	})
 	workspaceManager := workspaceinfo.New(memoryManager.Dir(), memoryManager.Path)
-	registry := session.NewRegistry(bus, writers, web.Profile, cfg.Run.MaxTurns, web.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, web.Connection, cfg.Run.MaxTurns, web.ConfigSnapshot)
 	registry.SetMemoryLoader(memoryManager.Load)
 	registry.SetAgentMemoryLoader(memoryManager.LoadAgent)
 	registry.SetWorkspaceManager(workspaceManager)
@@ -367,7 +367,7 @@ func main() {
 	// Item 2ch (v1.2.5): the threshold under which a PDF is sent inline rather
 	// than read from its extracted text.
 	agent.SetInlineDocumentLimit(cfg.Tools.Attachments.InlineDocumentLimit())
-	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Profile, web.ConfigSnapshot)
+	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Connection, web.ConfigSnapshot)
 	runner.SetSessionRenamer(registry.RenameBy)
 	deliveryManager := delivery.New(bus, web.ConfigSnapshot)
 	runner.SetDeliverer(func(item *session.Session, runID string, files []delivery.Source) delivery.Result {
@@ -387,8 +387,8 @@ func main() {
 		return action.Decision, err
 	})
 	web.SetRuntime(scheduler, runner, renderer)
-	if len(cfg.Servers) == 0 {
-		log.Printf("first-run setup required: no model profiles are configured")
+	if len(cfg.Connections) == 0 {
+		log.Printf("first-run setup required: no model connections are configured")
 	} else {
 		mainAgentID := cfg.DefaultAgentID()
 		if ready, reason := registry.AgentRunnable(mainAgentID); ready {

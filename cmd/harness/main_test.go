@@ -15,8 +15,8 @@ func TestRetainedChatsRestoreWithoutOperationalLogsAndDeleteExplicitly(t *testin
 	root, workspace := t.TempDir(), t.TempDir()
 	logs := filepath.Join(root, "logs")
 	cfg := config.Defaults(workspace)
-	profile := &cfg.Servers[0]
-	profiles := func(id string) (*config.Profile, bool) { return profile, id == profile.ID }
+	connection := &cfg.Connections[0]
+	connections := func(id string) (*config.Connection, bool) { return connection, id == connection.ID }
 
 	firstWriters, err := events.NewWriters(logs)
 	if err != nil {
@@ -24,7 +24,7 @@ func TestRetainedChatsRestoreWithoutOperationalLogsAndDeleteExplicitly(t *testin
 	}
 	firstBus := events.NewBus()
 	firstBus.SetDurableSink(firstWriters.WriteRecord, nil, nil)
-	firstRegistry := session.NewRegistry(firstBus, firstWriters, profiles, 40, func() config.Config { return cfg })
+	firstRegistry := session.NewRegistry(firstBus, firstWriters, connections, 40, func() config.Config { return cfg })
 	firstRegistry.SetPlansRoot(filepath.Join(root, "plans"))
 	item, err := firstRegistry.Create("main", cfg.DefaultAgentID(), workspace)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestRetainedChatsRestoreWithoutOperationalLogsAndDeleteExplicitly(t *testin
 	t.Cleanup(func() { _ = secondWriters.Close() })
 	secondBus := events.NewBus()
 	secondBus.SetDurableSink(secondWriters.WriteRecord, nil, nil)
-	secondRegistry := session.NewRegistry(secondBus, secondWriters, profiles, 40, func() config.Config { return cfg })
+	secondRegistry := session.NewRegistry(secondBus, secondWriters, connections, 40, func() config.Config { return cfg })
 	restored, _, err := restoreRetainedChats(secondWriters, secondRegistry, secondBus, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -93,15 +93,15 @@ func TestRestoreRetainedChatsBootstrapsNewestLegacyOperationalGeneration(t *test
 	root, workspace := t.TempDir(), t.TempDir()
 	logs := filepath.Join(root, "logs")
 	cfg := config.Defaults(workspace)
-	profile := &cfg.Servers[0]
-	profiles := func(id string) (*config.Profile, bool) { return profile, id == profile.ID }
+	connection := &cfg.Connections[0]
+	connections := func(id string) (*config.Connection, bool) { return connection, id == connection.ID }
 	firstWriters, err := events.NewWriters(logs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	firstBus := events.NewBus()
 	firstBus.SetDurableSink(firstWriters.WriteRecord, nil, nil)
-	firstRegistry := session.NewRegistry(firstBus, firstWriters, profiles, 40, func() config.Config { return cfg })
+	firstRegistry := session.NewRegistry(firstBus, firstWriters, connections, 40, func() config.Config { return cfg })
 	item, err := firstRegistry.Create("upgrade chat", cfg.DefaultAgentID(), workspace)
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +123,7 @@ func TestRestoreRetainedChatsBootstrapsNewestLegacyOperationalGeneration(t *test
 	t.Cleanup(func() { _ = secondWriters.Close() })
 	secondBus := events.NewBus()
 	secondBus.SetDurableSink(secondWriters.WriteRecord, nil, nil)
-	secondRegistry := session.NewRegistry(secondBus, secondWriters, profiles, 40, func() config.Config { return cfg })
+	secondRegistry := session.NewRegistry(secondBus, secondWriters, connections, 40, func() config.Config { return cfg })
 	restored, _, err := restoreRetainedChats(secondWriters, secondRegistry, secondBus, 0)
 	if err != nil {
 		t.Fatal(err)

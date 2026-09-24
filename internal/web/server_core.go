@@ -97,7 +97,7 @@ type Server struct {
 	operatorFiles     *operatorfiles.Manager
 	probeMu           sync.Mutex
 	probeCancels      map[string]*probeRun
-	// Item 2gy: how many inconclusive probes a profile has had in a row, which
+	// Item 2gy: how many inconclusive probes a connection has had in a row, which
 	// is where it stands on the backoff ladder.
 	probeRetries      map[string]int
 	reachabilityMu    sync.Mutex
@@ -105,8 +105,8 @@ type Server struct {
 	reachabilityAfter func(time.Duration, func()) operatorTimer
 	navigationMu      sync.Mutex
 	navigationIDs     map[string]time.Time
-	agentServerMu     sync.Mutex
-	agentServers      map[string]pendingAgentServer
+	agentConnectionMu sync.Mutex
+	agentConnections  map[string]pendingAgentConnection
 	tryAgentIdle      func(string) bool
 	hostWindowAction  func(string) bool
 	startedAt         string
@@ -142,13 +142,13 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		reachabilityAfter: func(duration time.Duration, fn func()) operatorTimer {
 			return time.AfterFunc(duration, fn)
 		},
-		navigationIDs:  map[string]time.Time{},
-		agentServers:   map[string]pendingAgentServer{},
-		measurements:   map[string]measureState{},
-		measureCancels: map[string]context.CancelFunc{},
-		extractClient:  &http.Client{},
-		ocrExtract:     ocr.Extract,
-		ocrPDF:         ocr.ExtractPDF,
+		navigationIDs:    map[string]time.Time{},
+		agentConnections: map[string]pendingAgentConnection{},
+		measurements:     map[string]measureState{},
+		measureCancels:   map[string]context.CancelFunc{},
+		extractClient:    &http.Client{},
+		ocrExtract:       ocr.Extract,
+		ocrPDF:           ocr.ExtractPDF,
 		detectLocal: func(ctx context.Context, account string) (any, error) {
 			return detection.Local(ctx, filepath.Join(roots.Application, "scripts", "detect-local-capabilities.ps1"), account)
 		},
@@ -187,7 +187,7 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 	s.runner = runner
 	s.prompt = prompt
 	if scheduler != nil {
-		scheduler.SetAgentIdleCallback(s.applyPendingAgentServer)
+		scheduler.SetAgentIdleCallback(s.applyPendingAgentConnection)
 		s.tryAgentIdle = scheduler.TryAgentIdle
 	}
 	// The worker drives ordinary runs through the same scheduler, so it exists
@@ -200,11 +200,11 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 	}
 	if runner != nil {
 		runner.SetMessageLimitRecorder(s.recordObservedMessageLimit)
-		runner.SetModelUnreachable(func(sessionID, profileID string) {
+		runner.SetModelUnreachable(func(sessionID, connectionID string) {
 			if scheduler != nil {
 				scheduler.HoldModel(sessionID)
 			}
-			s.scheduleReachabilityProbe(profileID)
+			s.scheduleReachabilityProbe(connectionID)
 		})
 		runner.SetToolActivity(func(phase string) {
 			s.touchOperatorContext("idle window reset: tool execution " + phase)
@@ -212,26 +212,26 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 	}
 }
 
-func (s *Server) recordObservedMessageLimit(profileID string, limit int) error {
+func (s *Server) recordObservedMessageLimit(connectionID string, limit int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	next := *s.cfg
-	next.Servers = append([]config.Profile(nil), s.cfg.Servers...)
-	for i := range next.Servers {
-		if next.Servers[i].ID != profileID {
+	next.Connections = append([]config.Connection(nil), s.cfg.Connections...)
+	for i := range next.Connections {
+		if next.Connections[i].ID != connectionID {
 			continue
 		}
-		if next.Servers[i].Capabilities.ObservedMessageLimit == limit {
+		if next.Connections[i].Capabilities.ObservedMessageLimit == limit {
 			return nil
 		}
-		next.Servers[i].Capabilities.ObservedMessageLimit = limit
+		next.Connections[i].Capabilities.ObservedMessageLimit = limit
 		if err := next.Save(s.configPath); err != nil {
 			return err
 		}
 		s.cfg = &next
 		return nil
 	}
-	return fmt.Errorf("profile %q not found", profileID)
+	return fmt.Errorf("connection %q not found", connectionID)
 }
 func (s *Server) ConfigSnapshot() config.Config {
 	s.mu.RLock()
@@ -243,10 +243,10 @@ func (s *Server) ConfigSnapshot() config.Config {
 	s.operatorMu.Unlock()
 	return result
 }
-func (s *Server) Profile(id string) (*config.Profile, bool) {
+func (s *Server) Connection(id string) (*config.Connection, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.cfg.Profile(id)
+	return s.cfg.Connection(id)
 }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -285,8 +285,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/sessions/", s.replayGuard(s.session))
 	mux.HandleFunc("/api/workspaces", s.replayGuard(s.workspaces))
 	mux.HandleFunc("/api/workspaces/", s.replayGuard(s.workspaceAction))
-	mux.HandleFunc("/api/servers", s.servers)
-	mux.HandleFunc("/api/servers/", s.replayGuard(s.server))
+	mux.HandleFunc("/api/connections", s.connections)
+	mux.HandleFunc("/api/connections/", s.replayGuard(s.connection))
 	mux.HandleFunc("/api/config", s.replayGuard(s.config))
 	mux.HandleFunc("/api/notifications", s.replayGuard(s.notificationSettings))
 	mux.HandleFunc("/api/update", s.replayGuard(s.updateEndpoint))
@@ -302,7 +302,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/speech/stream", s.speechStreamHandler)
 	mux.HandleFunc("/api/speech/stop", s.replayGuard(s.speechStopHandler))
 	mux.HandleFunc("/api/model-install", s.replayGuard(s.modelInstall))
-	mux.HandleFunc("/api/eval/measure", s.replayGuard(s.measureProfile))
+	mux.HandleFunc("/api/eval/measure", s.replayGuard(s.measureConnection))
 	mux.HandleFunc("/api/approve", s.replayGuard(s.approve))
 	mux.HandleFunc("/api/tools/", s.replayGuard(s.toggleTool))
 	mux.HandleFunc("/api/stats/", s.replayGuard(s.stats))
@@ -310,41 +310,41 @@ func (s *Server) Handler() http.Handler {
 	return s.securityHeaders(s.mutationGuard(mux))
 }
 
-func (s *Server) hardeningRequest(serverID string) (hardening.Request, error) {
+func (s *Server) hardeningRequest(connectionID string) (hardening.Request, error) {
 	s.mu.RLock()
 	cfg := *s.cfg
 	s.mu.RUnlock()
-	if serverID == "" {
+	if connectionID == "" {
 		if agent, ok := cfg.Agent(cfg.DefaultAgentID()); ok {
-			serverID = agent.B
+			connectionID = agent.B
 		}
 	}
-	var profile *config.Profile
-	for index := range cfg.Servers {
-		if cfg.Servers[index].ID == serverID {
-			value := cfg.Servers[index]
-			profile = &value
+	var connection *config.Connection
+	for index := range cfg.Connections {
+		if cfg.Connections[index].ID == connectionID {
+			value := cfg.Connections[index]
+			connection = &value
 			break
 		}
 	}
-	if profile == nil {
-		return hardening.Request{}, fmt.Errorf("model profile not found")
+	if connection == nil {
+		return hardening.Request{}, fmt.Errorf("model connection not found")
 	}
-	endpoint, err := url.Parse(profile.BaseURL)
+	endpoint, err := url.Parse(connection.BaseURL)
 	if err != nil || endpoint.Hostname() == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
-		return hardening.Request{}, fmt.Errorf("model profile base_url is invalid")
+		return hardening.Request{}, fmt.Errorf("model connection base_url is invalid")
 	}
 	host := endpoint.Hostname()
 	if strings.EqualFold(host, "localhost") {
 		host = "127.0.0.1"
 	}
 	if net.ParseIP(host) == nil && !validModelHostname(host) {
-		return hardening.Request{}, fmt.Errorf("model profile host %q is not a valid hostname or IP address", host)
+		return hardening.Request{}, fmt.Errorf("model connection host %q is not a valid hostname or IP address", host)
 	}
 	port := 0
 	if endpoint.Port() != "" {
 		if _, err := fmt.Sscanf(endpoint.Port(), "%d", &port); err != nil {
-			return hardening.Request{}, fmt.Errorf("model profile port is invalid")
+			return hardening.Request{}, fmt.Errorf("model connection port is invalid")
 		}
 	} else if endpoint.Scheme == "https" {
 		port = 443
@@ -352,7 +352,7 @@ func (s *Server) hardeningRequest(serverID string) (hardening.Request, error) {
 		port = 80
 	}
 	if port < 1 || port > 65535 {
-		return hardening.Request{}, fmt.Errorf("model profile port must be between 1 and 65535")
+		return hardening.Request{}, fmt.Errorf("model connection port must be between 1 and 65535")
 	}
 	exchange, err := cfg.ResolvedExchangeFolder()
 	if err != nil {
@@ -438,7 +438,7 @@ func (s *Server) replayGuard(next http.HandlerFunc) http.HandlerFunc {
 
 func mergeConfig(dst, src map[string]any) {
 	for key, value := range src {
-		if key == "servers" {
+		if key == "connections" {
 			incoming, _ := value.([]any)
 			existing, _ := dst[key].([]any)
 			byID := map[string]map[string]any{}

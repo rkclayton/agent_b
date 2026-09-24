@@ -61,15 +61,15 @@ func (m *Manager) Path(workspace string) string {
 func (m *Manager) AgentPath(agentID string) string {
 	return filepath.Join(m.Dir(), "agent-"+config.AgentID(agentID)+".md")
 }
-func (m *Manager) Load(ctx context.Context, workspace, serverID string) (string, string, error) {
+func (m *Manager) Load(ctx context.Context, workspace, connectionID string) (string, string, error) {
 	path := m.Path(workspace)
-	return m.load(ctx, path, serverID, "Notes from earlier sessions in this folder:")
+	return m.load(ctx, path, connectionID, "Notes from earlier sessions in this folder:")
 }
-func (m *Manager) LoadAgent(ctx context.Context, agentID, serverID string) (string, string, error) {
+func (m *Manager) LoadAgent(ctx context.Context, agentID, connectionID string) (string, string, error) {
 	path := m.AgentPath(agentID)
-	return m.load(ctx, path, serverID, "Notes about how this agent works with the operator:")
+	return m.load(ctx, path, connectionID, "Notes about how this agent works with the operator:")
 }
-func (m *Manager) load(ctx context.Context, path, serverID, heading string) (string, string, error) {
+func (m *Manager) load(ctx context.Context, path, connectionID, heading string) (string, string, error) {
 	if !m.cfg().Memory.Enabled {
 		return "", path, nil
 	}
@@ -102,7 +102,7 @@ func (m *Manager) load(ctx context.Context, path, serverID, heading string) (str
 	dropped := 0
 	for len(lines) > 0 {
 		body := memoryBlock(heading, layerName(heading), lines, dropped)
-		tokens, countErr := m.count(ctx, serverID, body)
+		tokens, countErr := m.count(ctx, connectionID, body)
 		if countErr != nil {
 			tokens = (len([]rune(body)) + 3) / 4
 		}

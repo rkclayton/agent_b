@@ -29,7 +29,7 @@ func (q *queuedSubmitter) Submit(_ context.Context, sessionID, _ string) (string
 
 func (q *queuedSubmitter) Stop(string, bool) int { return 1 }
 
-// v0.69.0/W16 cold review: an item queued behind its model profile (item 2fc)
+// v0.69.0/W16 cold review: an item queued behind its model connection (item 2fc)
 // has not started, so its wall clock does not run while it waits.
 func TestAQueuedItemsClockStartsWhenItsRunStarts(t *testing.T) {
 	bus := events.NewBus()

@@ -8,27 +8,27 @@ import (
 )
 
 // Item 2ch (v1.2.5): the operator chose the route. Sidecar by default; inline
-// only under the threshold and only where the profile reads documents. An
+// only under the threshold and only where the connection reads documents. An
 // image has no second route and is unaffected.
 func TestPDFInlinesOnlyUnderTheThreshold(t *testing.T) {
 	SetInlineDocumentLimit(2 << 20)
-	documentProfile := &config.Profile{AttachmentHandling: "native"}
-	textProfile := &config.Profile{AttachmentHandling: "extract"}
+	documentConnection := &config.Connection{AttachmentHandling: "native"}
+	textConnection := &config.Connection{AttachmentHandling: "extract"}
 
 	for _, item := range []struct {
-		name    string
-		profile *config.Profile
-		kind    attachmentfile.Kind
-		bytes   int64
-		want    bool
+		name       string
+		connection *config.Connection
+		kind       attachmentfile.Kind
+		bytes      int64
+		want       bool
 	}{
-		{"a small PDF on a document profile inlines", documentProfile, attachmentfile.PDF, 1 << 20, true},
-		{"a PDF exactly at the threshold inlines", documentProfile, attachmentfile.PDF, 2 << 20, true},
-		{"a PDF over the threshold does not", documentProfile, attachmentfile.PDF, (2 << 20) + 1, false},
-		{"a small PDF on a text profile does not", textProfile, attachmentfile.PDF, 1 << 10, false},
-		{"an image has no second route and is unaffected by size", documentProfile, attachmentfile.Image, 64 << 20, true},
+		{"a small PDF on a document connection inlines", documentConnection, attachmentfile.PDF, 1 << 20, true},
+		{"a PDF exactly at the threshold inlines", documentConnection, attachmentfile.PDF, 2 << 20, true},
+		{"a PDF over the threshold does not", documentConnection, attachmentfile.PDF, (2 << 20) + 1, false},
+		{"a small PDF on a text connection does not", textConnection, attachmentfile.PDF, 1 << 10, false},
+		{"an image has no second route and is unaffected by size", documentConnection, attachmentfile.Image, 64 << 20, true},
 	} {
-		if got := nativeAttachmentAt(item.profile, item.kind, item.bytes); got != item.want {
+		if got := nativeAttachmentAt(item.connection, item.kind, item.bytes); got != item.want {
 			t.Fatalf("%s: got %v", item.name, got)
 		}
 	}
@@ -38,11 +38,11 @@ func TestPDFInlinesOnlyUnderTheThreshold(t *testing.T) {
 func TestInlineThresholdIsConfigured(t *testing.T) {
 	SetInlineDocumentLimit(4 << 10)
 	defer SetInlineDocumentLimit(2 << 20)
-	profile := &config.Profile{AttachmentHandling: "native"}
-	if !nativeAttachmentAt(profile, attachmentfile.PDF, 4<<10) {
+	connection := &config.Connection{AttachmentHandling: "native"}
+	if !nativeAttachmentAt(connection, attachmentfile.PDF, 4<<10) {
 		t.Fatal("a PDF at the configured threshold must inline")
 	}
-	if nativeAttachmentAt(profile, attachmentfile.PDF, (4<<10)+1) {
+	if nativeAttachmentAt(connection, attachmentfile.PDF, (4<<10)+1) {
 		t.Fatal("a PDF over the configured threshold must not inline")
 	}
 }

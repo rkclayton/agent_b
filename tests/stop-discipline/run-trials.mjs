@@ -104,7 +104,7 @@ function textContent(content) {
   return content.filter((part) => part?.type === "text").map((part) => part.text ?? "").join("");
 }
 
-async function runTrial(fixture, profile, baseURL, ordinal) {
+async function runTrial(fixture, connection, baseURL, ordinal) {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), `agentb-stop-${fixture.id}-`));
   try {
     materializeFixture(fixture, workspace);
@@ -123,7 +123,7 @@ async function runTrial(fixture, profile, baseURL, ordinal) {
         response = await fetch(`${baseURL.replace(/\/$/, "")}/v1/chat/completions`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ model: profile.model, messages, tools: toolDefinitions, tool_choice: "auto", stream: false, temperature: 0.6, max_tokens: 4096 }),
+          body: JSON.stringify({ model: connection.model, messages, tools: toolDefinitions, tool_choice: "auto", stream: false, temperature: 0.6, max_tokens: 4096 }),
           signal: AbortSignal.timeout(requestTimeoutMS),
         });
       } catch (requestError) {
@@ -153,7 +153,7 @@ async function runTrial(fixture, profile, baseURL, ordinal) {
     return {
       schema_version: 1,
       fixture_id: fixture.id,
-      profile,
+      connection,
       ordinal,
       protocol: {
         fixture_sha256: digestText(JSON.stringify(fixture)),
@@ -184,7 +184,7 @@ function parseArgs(argv) {
     result[key] = argv[index + 1];
   }
   result.trials = Number(result.trials);
-  for (const key of ["base_url", "model", "profile_id", "profile_label", "output"]) if (!result[key]) throw new Error(`--${key.replaceAll("_", "-")} is required`);
+  for (const key of ["base_url", "model", "connection_id", "connection_label", "output"]) if (!result[key]) throw new Error(`--${key.replaceAll("_", "-")} is required`);
   if (!Number.isInteger(result.trials) || result.trials < 1) throw new Error("--trials must be a positive integer");
   return result;
 }
@@ -196,26 +196,26 @@ async function main(argv) {
   fs.mkdirSync(output, { recursive: true });
   const fixtureDirectory = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
   const fixtures = loadFixtures(fixtureDirectory);
-  const profile = { id: options.profile_id, label: options.profile_label, model: options.model };
+  const connection = { id: options.connection_id, label: options.connection_label, model: options.model };
   const scores = [];
   let unavailableAttempts = 0;
   for (const fixture of fixtures.values()) {
     for (let ordinal = 1; ordinal <= options.trials; ordinal++) {
-      const trial = await runTrial(fixture, profile, options.base_url, ordinal);
+      const trial = await runTrial(fixture, connection, options.base_url, ordinal);
       const name = `${fixture.id}-${String(ordinal).padStart(2, "0")}.json`;
       if (trial.telemetry.error) {
         unavailableAttempts++;
         fs.writeFileSync(path.join(output, name), `${JSON.stringify({ trial, score: null }, null, 2)}\n`, "utf8");
-        process.stdout.write(`${profile.id} ${fixture.id} ${ordinal}/${options.trials}: endpoint_unavailable error=${trial.telemetry.error}\n`);
+        process.stdout.write(`${connection.id} ${fixture.id} ${ordinal}/${options.trials}: endpoint_unavailable error=${trial.telemetry.error}\n`);
         continue;
       }
       const score = scoreTrial(fixture, trial);
       scores.push(score);
       fs.writeFileSync(path.join(output, name), `${JSON.stringify({ trial, score }, null, 2)}\n`, "utf8");
-      process.stdout.write(`${profile.id} ${fixture.id} ${ordinal}/${options.trials}: ${score.category}\n`);
+      process.stdout.write(`${connection.id} ${fixture.id} ${ordinal}/${options.trials}: ${score.category}\n`);
     }
   }
-  fs.writeFileSync(path.join(output, "summary.json"), `${JSON.stringify({ profile, completed_trials: scores.length, unavailable_attempts: unavailableAttempts, scores, profiles: aggregateScores(scores) }, null, 2)}\n`, "utf8");
+  fs.writeFileSync(path.join(output, "summary.json"), `${JSON.stringify({ connection, completed_trials: scores.length, unavailable_attempts: unavailableAttempts, scores, connections: aggregateScores(scores) }, null, 2)}\n`, "utf8");
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : "";

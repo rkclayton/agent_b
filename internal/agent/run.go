@@ -30,7 +30,7 @@ type Runner struct {
 	bus                *events.Bus
 	tools              *tools.Registry
 	prompt             *PromptRenderer
-	profile            func(string) (*config.Profile, bool)
+	connection         func(string) (*config.Connection, bool)
 	cfg                func() config.Config
 	gate               *Gate
 	budget             *Budgeter
@@ -66,8 +66,8 @@ type BoundaryAction struct {
 
 const minimumOutputFloor = 4096
 
-func NewRunner(bus *events.Bus, registry *tools.Registry, prompt *PromptRenderer, profile func(string) (*config.Profile, bool), cfg func() config.Config) *Runner {
-	return &Runner{bus: bus, tools: registry, prompt: prompt, profile: profile, cfg: cfg, gate: NewGate(bus, cfg), budget: NewBudgeter(), compact: contextmgr.New(bus), flights: newFlightBook()}
+func NewRunner(bus *events.Bus, registry *tools.Registry, prompt *PromptRenderer, connection func(string) (*config.Connection, bool), cfg func() config.Config) *Runner {
+	return &Runner{bus: bus, tools: registry, prompt: prompt, connection: connection, cfg: cfg, gate: NewGate(bus, cfg), budget: NewBudgeter(), compact: contextmgr.New(bus), flights: newFlightBook()}
 }
 func (r *Runner) Configure(cfg config.Config) {
 	r.tools.Configure(cfg)
@@ -111,7 +111,7 @@ func (r *Runner) Verify(ctx context.Context, s *session.Session, command string)
 }
 func (r *Runner) SettlePlanTurns(ctx context.Context, s *session.Session, itemID string, ids []string) bool {
 	pointer := fmt.Sprintf("[settled → plan item %s]", itemID)
-	p, ok := r.profile(s.ServerID)
+	p, ok := r.connection(s.ConnectionID)
 	if !ok {
 		return false
 	}
@@ -146,18 +146,18 @@ func (r *Runner) QueueUser(ctx context.Context, s *session.Session, text string)
 	return r.QueueUserAttachments(ctx, s, text, nil)
 }
 func (r *Runner) QueueUserAttachments(ctx context.Context, s *session.Session, text string, attachments []events.Attachment) (events.Message, error) {
-	profile, ok := r.profile(s.ServerID)
+	connection, ok := r.connection(s.ConnectionID)
 	if !ok {
-		return events.Message{}, fmt.Errorf("profile not found")
+		return events.Message{}, fmt.Errorf("connection not found")
 	}
-	attachments = prepareNativeAttachmentsWithBudget(profile, attachments, remainingNativeAttachmentBudget(profile, s.MessagesCopy()))
+	attachments = prepareNativeAttachmentsWithBudget(connection, attachments, remainingNativeAttachmentBudget(connection, s.MessagesCopy()))
 	message := events.Message{ID: r.id("m"), Role: "user", Content: text, Category: "history", Attachments: append([]events.Attachment(nil), attachments...)}
 	var tokens int
 	var estimated bool
 	if _, requested := requestedPlanPath(text); requested {
-		tokens, estimated = estimatedTokenCount(renderedUserText(profile, s, message)), true
+		tokens, estimated = estimatedTokenCount(renderedUserText(connection, s, message)), true
 	} else {
-		tokens, estimated = r.count(ctx, profile, renderedUserText(profile, s, message))
+		tokens, estimated = r.count(ctx, connection, renderedUserText(connection, s, message))
 	}
 	message.Tokens, message.Estimated = tokens, estimated
 	return message, nil
@@ -240,17 +240,17 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		}
 		return "mailbox_stop", detail, 0
 	}
-	profile, ok := r.profile(s.ServerID)
+	connection, ok := r.connection(s.ConnectionID)
 	if !ok {
-		return "profile_not_runnable", "profile not found", 0
+		return "connection_not_runnable", "connection not found", 0
 	}
-	profile, windowSource, windowErr := resolveContextWindow(ctx, profile)
+	connection, windowSource, windowErr := resolveContextWindow(ctx, connection)
 	if windowErr != nil {
-		return "profile_not_runnable", windowErr.Error(), 0
+		return "connection_not_runnable", windowErr.Error(), 0
 	}
 	snapshot := s.Snapshot()
 	if !snapshot.Runnable {
-		return "profile_not_runnable", snapshot.NotRunnableReason, 0
+		return "connection_not_runnable", snapshot.NotRunnableReason, 0
 	}
 	if handled, registrationDetail := r.handlePlanRegistration(ctx, s, runID); handled {
 		return "done", registrationDetail, 0
@@ -300,32 +300,32 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		}
 		cfg := r.cfg()
 		if agent, found := cfg.Agent(s.Snapshot().AgentID); found {
-			if bound, exists := cfg.Profile(agent.ProfileFor(s.Snapshot().Role)); exists {
+			if bound, exists := cfg.Connection(agent.ConnectionFor(s.Snapshot().Role)); exists {
 				s.ApplyAgentConfig(s.Snapshot().AgentID, *agent, *bound)
 			}
 		}
 		turn++
-		profile, ok = r.profile(s.ServerID)
+		connection, ok = r.connection(s.ConnectionID)
 		if !ok {
-			return "profile_not_runnable", "profile not found", turn - 1
+			return "connection_not_runnable", "connection not found", turn - 1
 		}
-		profile, windowSource, windowErr = resolveContextWindow(ctx, profile)
+		connection, windowSource, windowErr = resolveContextWindow(ctx, connection)
 		if windowErr != nil {
-			return "profile_not_runnable", windowErr.Error(), turn - 1
+			return "connection_not_runnable", windowErr.Error(), turn - 1
 		}
-		if value, found := r.messageLimits.Load(profile.ID); found {
-			profile.Capabilities.ObservedMessageLimit = value.(int)
+		if value, found := r.messageLimits.Load(connection.ID); found {
+			connection.Capabilities.ObservedMessageLimit = value.(int)
 		}
 		// An invalid durable tool call is a history-shape problem, not an
 		// accounting endpoint failure. Repair it before any template or tokenizer
 		// request so the one accounting degrade boundary never has to leak an
 		// endpoint error merely to trigger history repair.
-		if !accountingRepairTried && r.repairMalformedToolCall(ctx, s, runID, profile, currentReasoning) {
+		if !accountingRepairTried && r.repairMalformedToolCall(ctx, s, runID, connection, currentReasoning) {
 			accountingRepairTried = true
 			turn--
 			continue
 		}
-		client := llm.New(profile)
+		client := llm.New(connection)
 		state := s.Snapshot().Run
 		state.Turn = turn
 		s.SetRun(state)
@@ -341,16 +341,16 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		budgetBusy := false
 		r.stage(s, runID, turn, "assemble", func() {
 			records := s.MessagesCopy()
-			systemBase := r.prompt.RenderParts(profile, s, toolNames, "", "")
-			systemProject := r.prompt.RenderParts(profile, s, toolNames, s.ProjectBlock, "")
-			systemWorkspaceMemory := r.prompt.RenderMemoryParts(profile, s, toolNames, s.ProjectBlock, s.MemoryBlock, "")
-			system = r.prompt.RenderMemoryParts(profile, s, toolNames, s.ProjectBlock, s.MemoryBlock, s.AgentMemoryBlock)
+			systemBase := r.prompt.RenderParts(connection, s, toolNames, "", "")
+			systemProject := r.prompt.RenderParts(connection, s, toolNames, s.ProjectBlock, "")
+			systemWorkspaceMemory := r.prompt.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, s.MemoryBlock, "")
+			system = r.prompt.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, s.MemoryBlock, s.AgentMemoryBlock)
 			messages := []llm.Message{{Role: "system", Content: system}}
 			requestRecords := make([]events.Message, 0, len(records))
 			current := runningTurnIDs(records, s.RunPin())
 			for _, message := range records {
 				if isHarnessAbortRecord(message) {
-					messages = append(messages, requestMessageAt(profile, s, message, current[message.ID]))
+					messages = append(messages, requestMessageAt(connection, s, message, current[message.ID]))
 					requestRecords = append(requestRecords, message)
 				}
 			}
@@ -358,8 +358,8 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				if isHarnessAbortRecord(message) {
 					continue
 				}
-				converted := requestMessageAt(profile, s, message, current[message.ID])
-				if profile.Reasoning.Preserve && currentReasoning[message.ID] {
+				converted := requestMessageAt(connection, s, message, current[message.ID])
+				if connection.Reasoning.Preserve && currentReasoning[message.ID] {
 					converted.ReasoningContent = message.Reasoning
 				}
 				messages = append(messages, converted)
@@ -368,38 +368,38 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			// Item 2fd rule 1: the list is checked before it is measured or sent.
 			conversation, repairedRecords, _ := normalizeAdjacentAssistants(messages[1:], requestRecords)
 			messages, requestRecords = append(messages[:1:1], conversation...), repairedRecords
-			request = llm.Request{Messages: messages, Tools: schemas, ToolChoice: "auto", Thinking: profile.Reasoning.Enabled}
+			request = llm.Request{Messages: messages, Tools: schemas, ToolChoice: "auto", Thinking: connection.Reasoning.Enabled}
 			if truncatedToolRetry != "" {
 				request.ToolChoice = map[string]any{"type": "function", "function": map[string]any{"name": truncatedToolRetry}}
 			} else if readCutShort {
 				request.ToolChoice = "none"
 			}
-			budget, budgetErr = r.budget.MeasureWithBusy(ctx, profile, s, r.cfg().Context, budgetInput{SystemBase: systemBase, SystemProject: systemProject, SystemWorkspaceMemory: systemWorkspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(profile, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages[1:], Records: requestRecords}, false, func(err error) {
+			budget, budgetErr = r.budget.MeasureWithBusy(ctx, connection, s, r.cfg().Context, budgetInput{SystemBase: systemBase, SystemProject: systemProject, SystemWorkspaceMemory: systemWorkspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(connection, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages[1:], Records: requestRecords}, false, func(err error) {
 				budgetBusy = true
-				r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(profile), "detail": err.Error()}))
+				r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(connection), "detail": err.Error()}))
 			})
 			if budgetErr != nil {
 				return
 			}
 			guardUsed := guardedPromptTokens(budget)
-			request.MaxTokens = requestTokenLimit(profile, budget, guardUsed)
+			request.MaxTokens = requestTokenLimit(connection, budget, guardUsed)
 			diagnosticRequest := request
 			diagnosticRequest.Messages = diagnosticMessages(request.Messages)
-			body = llm.BuildRequest(profile, diagnosticRequest, true)
+			body = llm.BuildRequest(connection, diagnosticRequest, true)
 			r.bus.Publish(events.New(events.BudgetEvent, s.ID, runID, budget))
-			data := map[string]any{"turn": turn, "message_count": len(messages), "tool_count": len(schemas), "params": requestParams(profile, request.MaxTokens), "est_prompt_tokens": budget.UsedEst, "estimated": budget.Estimated}
+			data := map[string]any{"turn": turn, "message_count": len(messages), "tool_count": len(schemas), "params": requestParams(connection, request.MaxTokens), "est_prompt_tokens": budget.UsedEst, "estimated": budget.Estimated}
 			requestEvent = events.New(events.ModelRequest, s.ID, runID, data)
 			requestEvent.Body = body
 		})
 		if budgetBusy && budgetErr == nil {
-			r.bus.Publish(events.New(events.ModelReachable, s.ID, runID, map[string]any{"server_id": profile.ID}))
+			r.bus.Publish(events.New(events.ModelReachable, s.ID, runID, map[string]any{"connection_id": connection.ID}))
 		}
 		if budgetErr != nil {
 			if ctx.Err() != nil {
 				return contextStop(turn-1, "budget accounting canceled")
 			}
 			r.operationalError(s, runID, "budget", budgetErr)
-			if !accountingRepairTried && r.repairMalformedToolCall(ctx, s, runID, profile, currentReasoning) {
+			if !accountingRepairTried && r.repairMalformedToolCall(ctx, s, runID, connection, currentReasoning) {
 				accountingRepairTried = true
 				turn--
 				continue
@@ -412,14 +412,14 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				turn--
 				continue
 			}
-			if r.publishModelUnreachable(s, runID, profile, budgetErr) {
+			if r.publishModelUnreachable(s, runID, connection, budgetErr) {
 				publishFinalBudget = false
 				return "model_unreachable", budgetErr.Error(), turn - 1
 			}
 			return "model_error", "budget accounting: " + budgetErr.Error(), turn - 1
 		}
-		if limit := profile.Capabilities.ObservedMessageLimit; limit > 0 && len(request.Messages) >= limit {
-			if r.compactForMessageLimit(ctx, s, runID, profile, limit) {
+		if limit := connection.Capabilities.ObservedMessageLimit; limit > 0 && len(request.Messages) >= limit {
+			if r.compactForMessageLimit(ctx, s, runID, connection, limit) {
 				turn--
 				continue
 			}
@@ -429,15 +429,15 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		// sent instead of after it overflows.
 		if !softLineChecked {
 			softLineChecked = true
-			if budget.Ceiling > 0 && budget.UsedEst >= int(float64(budget.Ceiling)*r.cfg().Context.SoftPct) && r.compactAfterTurn(ctx, s, runID, turn-1, profile, currentReasoning) {
+			if budget.Ceiling > 0 && budget.UsedEst >= int(float64(budget.Ceiling)*r.cfg().Context.SoftPct) && r.compactAfterTurn(ctx, s, runID, turn-1, connection, currentReasoning) {
 				turn--
 				continue
 			}
 		}
 		guardUsed := guardedPromptTokens(budget)
-		floor := outputFloor(profile)
+		floor := outputFloor(connection)
 		if guardUsed+floor > budget.NCtx {
-			changed, exhausted := r.compactToFit(ctx, s, runID, profile, currentReasoning, budget)
+			changed, exhausted := r.compactToFit(ctx, s, runID, connection, currentReasoning, budget)
 			if changed {
 				turn--
 				continue
@@ -486,7 +486,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 					select {
 					case <-timer.C:
 						streamBusy.Store(true)
-						r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(profile), "detail": "connected; waiting for model response"}))
+						r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(connection), "detail": "connected; waiting for model response"}))
 					case <-requestDone:
 					}
 				}()
@@ -495,30 +495,30 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			s.UpdatePartial("")
 		})
 		if streamBusy.Load() && callErr == nil {
-			r.bus.Publish(events.New(events.ModelReachable, s.ID, runID, map[string]any{"server_id": profile.ID}))
+			r.bus.Publish(events.New(events.ModelReachable, s.ID, runID, map[string]any{"connection_id": connection.ID}))
 		}
 		if callErr != nil {
 			if ctx.Err() != nil {
 				return contextStop(turn, "model call canceled")
 			}
 			if limit, sentence, matched := messageLimitError(callErr); matched {
-				r.messageLimits.Store(profile.ID, limit)
-				profile.Capabilities.ObservedMessageLimit = limit
+				r.messageLimits.Store(connection.ID, limit)
+				connection.Capabilities.ObservedMessageLimit = limit
 				if r.recordMessageLimit != nil {
-					if err := r.recordMessageLimit(profile.ID, limit); err != nil {
+					if err := r.recordMessageLimit(connection.ID, limit); err != nil {
 						r.operationalError(s, runID, "record_message_limit", err)
 					}
 				}
 				if !messageLimitRetried {
 					messageLimitRetried = true
-					if r.compactForMessageLimit(ctx, s, runID, profile, limit) {
+					if r.compactForMessageLimit(ctx, s, runID, connection, limit) {
 						turn--
 						continue
 					}
 				}
 				return "model_error", sentence, turn
 			}
-			if r.publishModelUnreachable(s, runID, profile, callErr) {
+			if r.publishModelUnreachable(s, runID, connection, callErr) {
 				publishFinalBudget = false
 				return "model_unreachable", callErr.Error(), turn
 			}
@@ -529,7 +529,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		for _, call := range response.ToolCalls {
 			toolCalls = append(toolCalls, events.ToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
 		}
-		reasoningTokens, reasoningTokensEstimated := r.count(ctx, profile, response.Reasoning)
+		reasoningTokens, reasoningTokensEstimated := r.count(ctx, connection, response.Reasoning)
 		durableToolCalls := sanitizedToolCalls(toolCalls)
 		responseData := map[string]any{"turn": turn, "finish_reason": response.FinishReason, "content": response.Content, "reasoning_tokens": reasoningTokens, "reasoning_tokens_estimated": reasoningTokensEstimated, "tool_calls": durableToolCalls, "usage": map[string]any{"prompt_tokens": response.Usage.PromptTokens, "completion_tokens": response.Usage.CompletionTokens, "cached_tokens": nullable(response.Usage.CachedTokens)}, "timings": response.Timings, "duration_ms": response.DurationMS}
 		responseEvent := events.New(events.ModelResponse, s.ID, runID, responseData)
@@ -576,7 +576,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			}
 			r.stage(s, runID, turn, "append", func() {
 				visible, proposals := planProposalsFor(s, finalContent)
-				message, _ := r.makeMessage(ctx, profile, "assistant", visible, "history", turn)
+				message, _ := r.makeMessage(ctx, connection, "assistant", visible, "history", turn)
 				message.Reasoning = response.Reasoning
 				message.PlanProposals = bindPlanProposalSources(s.MessagesCopy(), proposals, message.ID)
 				currentReasoning[message.ID] = true
@@ -595,7 +595,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			return "done", "", turn
 		}
 		visible, proposals := planProposalsFor(s, response.Content)
-		assistant, _ := r.makeMessage(ctx, profile, "assistant", visible, "history", turn)
+		assistant, _ := r.makeMessage(ctx, connection, "assistant", visible, "history", turn)
 		assistant.Reasoning = response.Reasoning
 		assistant.PlanProposals = bindPlanProposalSources(s.MessagesCopy(), proposals, assistant.ID)
 		currentReasoning[assistant.ID] = true
@@ -667,15 +667,15 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 					break
 				}
 				item.ms = time.Since(start).Milliseconds()
-				resultTokens := r.textTokens(ctx, profile, item.content)
+				resultTokens := r.textTokens(ctx, connection, item.content)
 				item.content, item.ok, item.metadata, resultTokens = r.fitWindowResult(
-					ctx, s, profile, item.call.Name, item.args, item.content, item.ok, item.metadata, resultTokens, remainingResultTokens, item.operatorContext,
+					ctx, s, connection, item.call.Name, item.args, item.content, item.ok, item.metadata, resultTokens, remainingResultTokens, item.operatorContext,
 				)
 				if _, batch := item.args["windows"]; item.call.Name == "read_file" && !batch {
 					if tooLarge, _ := item.metadata["result_too_large"].(bool); tooLarge {
 						if refusedTurn >= 0 && refusedTurn == turn-1 {
 							item.content, item.ok, item.metadata = readCutShortResult(item.args, item.metadata)
-							resultTokens = r.textTokens(ctx, profile, item.content)
+							resultTokens = r.textTokens(ctx, connection, item.content)
 							readCutShort = true
 						} else if refusedTurn != turn {
 							refusedTurn = turn
@@ -706,7 +706,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				if item.call.Name == "read_file" && item.category == "" {
 					category = "files"
 				}
-				message, _ := r.makeMessage(ctx, profile, "tool", item.content, category, turn)
+				message, _ := r.makeMessage(ctx, connection, "tool", item.content, category, turn)
 				message.ToolCallID = item.call.ID
 				message.Name = item.call.Name
 				message.OK = boolPointer(item.ok)
@@ -742,7 +742,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		r.stage(s, runID, turn, "compact", func() {
 			// Item 2fv: after a refused window the elide runs even on a cold
 			// prefill, so a second refusal means nothing elidable was left.
-			r.compactAfterTurnForcing(ctx, s, runID, turn, profile, currentReasoning, refusedTurn == turn)
+			r.compactAfterTurnForcing(ctx, s, runID, turn, connection, currentReasoning, refusedTurn == turn)
 		})
 	}
 }
@@ -767,12 +767,12 @@ func messageLimitError(err error) (int, string, bool) {
 	return limit, strings.TrimSpace(match[1]), true
 }
 
-func (r *Runner) compactForMessageLimit(ctx context.Context, s *session.Session, runID string, profile *config.Profile, limit int) bool {
+func (r *Runner) compactForMessageLimit(ctx context.Context, s *session.Session, runID string, connection *config.Connection, limit int) bool {
 	changed := false
 	// One summary replaces an arbitrarily large old span with one message. A
 	// second pass is useful for restored chats containing nested summaries.
 	for attempts := 0; attempts < 2 && len(s.MessagesCopy())+1 >= limit; attempts++ {
-		if !r.summarize(withCompactionTrigger(ctx, "message_limit"), s, runID, profile) {
+		if !r.summarize(withCompactionTrigger(ctx, "message_limit"), s, runID, connection) {
 			break
 		}
 		changed = true
@@ -1200,11 +1200,11 @@ func (r *Runner) stage(s *session.Session, runID string, turn int, name string, 
 	fn()
 	r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": name, "state": "exit", "turn": turn, "ms": time.Since(start).Milliseconds()}))
 }
-func (r *Runner) makeMessage(ctx context.Context, p *config.Profile, role, content, category string, turn int) (events.Message, error) {
+func (r *Runner) makeMessage(ctx context.Context, p *config.Connection, role, content, category string, turn int) (events.Message, error) {
 	tokens, estimated := r.count(ctx, p, content)
 	return events.Message{ID: r.id("m"), Role: role, Content: content, Category: category, Tokens: tokens, Estimated: estimated, Turn: turn}, nil
 }
-func (r *Runner) count(ctx context.Context, p *config.Profile, text string) (int, bool) {
+func (r *Runner) count(ctx context.Context, p *config.Connection, text string) (int, bool) {
 	if p.Capabilities.Tokenize {
 		countCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
 		defer cancel()
@@ -1221,7 +1221,7 @@ func estimatedTokenCount(text string) int {
 	return int(math.Ceil(float64(len([]rune(text))) / 3.6))
 }
 
-func modelUnavailable(profile *config.Profile, err error) (string, bool) {
+func modelUnavailable(connection *config.Connection, err error) (string, bool) {
 	// Item 2fg: a canceled request says nothing about the model.
 	if err == nil || errors.Is(err, context.Canceled) {
 		return "", false
@@ -1229,34 +1229,34 @@ func modelUnavailable(profile *config.Profile, err error) (string, bool) {
 	if llm.TransportKindOf(err) != llm.TransportDial {
 		return "", false
 	}
-	return modelHost(profile), true
+	return modelHost(connection), true
 }
 
-func (r *Runner) publishModelUnreachable(s *session.Session, runID string, profile *config.Profile, err error) bool {
-	host, unavailable := modelUnavailable(profile, err)
+func (r *Runner) publishModelUnreachable(s *session.Session, runID string, connection *config.Connection, err error) bool {
+	host, unavailable := modelUnavailable(connection, err)
 	if !unavailable {
 		return false
 	}
 	r.bus.Publish(events.New(events.ModelUnreachable, s.ID, runID, map[string]any{"host": host, "detail": err.Error()}))
 	if r.modelUnreachable != nil {
-		r.modelUnreachable(s.ID, profile.ID)
+		r.modelUnreachable(s.ID, connection.ID)
 	}
 	return true
 }
 
-func modelHost(profile *config.Profile) string {
-	host := strings.TrimSpace(profile.BaseURL)
+func modelHost(connection *config.Connection) string {
+	host := strings.TrimSpace(connection.BaseURL)
 	if endpoint, parseErr := url.Parse(host); parseErr == nil && endpoint.Host != "" {
 		host = endpoint.Host
 	}
 	return host
 }
-func (r *Runner) textTokens(ctx context.Context, p *config.Profile, text string) int {
+func (r *Runner) textTokens(ctx context.Context, p *config.Connection, text string) int {
 	value, _ := r.count(ctx, p, text)
 	return value
 }
 func (r *Runner) PublishBudget(ctx context.Context, s *session.Session) {
-	p, ok := r.profile(s.ServerID)
+	p, ok := r.connection(s.ConnectionID)
 	if !ok {
 		return
 	}
@@ -1273,7 +1273,7 @@ func (r *Runner) PublishBudget(ctx context.Context, s *session.Session) {
 	}
 	r.bus.Publish(events.New(events.BudgetEvent, s.ID, "", budget))
 }
-func (r *Runner) measureSession(ctx context.Context, p *config.Profile, s *session.Session, currentReasoning map[string]bool, mark bool) (events.Budget, error) {
+func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *session.Session, currentReasoning map[string]bool, mark bool) (events.Budget, error) {
 	enabled := s.EnabledTools()
 	toolNames := r.tools.Names(enabled)
 	schemas := r.tools.Schemas(enabled)
@@ -1308,7 +1308,7 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Profile, s *sessi
 	return r.budget.Measure(ctx, p, s, r.cfg().Context, budgetInput{SystemBase: base, SystemProject: project, SystemWorkspaceMemory: workspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(p, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages, Records: records}, mark)
 }
 
-func (r *Runner) withoutToolSystems(p *config.Profile, s *session.Session, enabled map[string]bool, memory string) map[string]string {
+func (r *Runner) withoutToolSystems(p *config.Connection, s *session.Session, enabled map[string]bool, memory string) map[string]string {
 	out := map[string]string{}
 	for _, name := range r.tools.Names(enabled) {
 		without := make(map[string]bool, len(enabled))
@@ -1324,14 +1324,14 @@ func (r *Runner) withoutToolSystems(p *config.Profile, s *session.Session, enabl
 // compactAfterTurn projects the next request at the end of a turn (item 2ey):
 // at soft_pct it elides one batch toward 60%, at summary_pct it summarizes, so
 // the next request starts under the line. It reports whether anything changed.
-func (r *Runner) compactAfterTurn(ctx context.Context, s *session.Session, runID string, turn int, p *config.Profile, current map[string]bool) bool {
+func (r *Runner) compactAfterTurn(ctx context.Context, s *session.Session, runID string, turn int, p *config.Connection, current map[string]bool) bool {
 	return r.compactAfterTurnForcing(ctx, s, runID, turn, p, current, false)
 }
 
 // compactAfterTurnForcing is compactAfterTurn with the cold-prefill deferral of
 // the batch elide overridden when force is set (item 2fv: a read window was
 // just refused, so waiting a turn for a warm cache would only refuse again).
-func (r *Runner) compactAfterTurnForcing(ctx context.Context, s *session.Session, runID string, turn int, p *config.Profile, current map[string]bool, force bool) bool {
+func (r *Runner) compactAfterTurnForcing(ctx context.Context, s *session.Session, runID string, turn int, p *config.Connection, current map[string]bool, force bool) bool {
 	cfg := r.cfg()
 	readDefaultLimit := min(cfg.Tools.ReadFile.DefaultLimit, cfg.Tools.ReadFile.MaxLimit)
 	changed := r.compact.Supersede(s, runID, turn, readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
@@ -1388,7 +1388,7 @@ func compactionTrigger(ctx context.Context) string {
 
 // compactToFit reports whether it changed anything, and whether the only reason
 // it could not is that the running turn is all that is left.
-func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID string, p *config.Profile, current map[string]bool, budget events.Budget) (bool, bool) {
+func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID string, p *config.Connection, current map[string]bool, budget events.Budget) (bool, bool) {
 	cfg := r.cfg()
 	readDefaultLimit := min(cfg.Tools.ReadFile.DefaultLimit, cfg.Tools.ReadFile.MaxLimit)
 	ctx = withCompactionTrigger(ctx, "overflow")
@@ -1416,7 +1416,7 @@ func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID str
 func (r *Runner) operationalError(s *session.Session, runID, where string, err error) {
 	r.bus.Publish(events.New(events.Error, s.ID, runID, map[string]any{"where": where, "message": err.Error()}))
 }
-func requestParams(p *config.Profile, maxTokens int) map[string]any {
+func requestParams(p *config.Connection, maxTokens int) map[string]any {
 	s := p.Sampling.Nonthinking
 	if p.Reasoning.Enabled {
 		s = p.Sampling.Thinking
@@ -1456,18 +1456,18 @@ func keptReadsSentence(s *session.Session) string {
 	return "; reads kept verbatim: " + strings.Join(kept, ", ")
 }
 
-func resolveContextWindow(ctx context.Context, profile *config.Profile) (*config.Profile, string, error) {
-	if profile.Context.NCtx > 0 {
-		return profile, "profile context size", nil
+func resolveContextWindow(ctx context.Context, connection *config.Connection) (*config.Connection, string, error) {
+	if connection.Context.NCtx > 0 {
+		return connection, "connection context size", nil
 	}
-	resolved := *profile
-	if profile.Capabilities.NCtx > 0 {
-		resolved.Context.NCtx = profile.Capabilities.NCtx
+	resolved := *connection
+	if connection.Capabilities.NCtx > 0 {
+		resolved.Context.NCtx = connection.Capabilities.NCtx
 		return &resolved, "probed n_ctx", nil
 	}
 	check, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	props, err := llm.New(profile).Props(check)
+	props, err := llm.New(connection).Props(check)
 	if err == nil {
 		if props.DefaultGenerationSettings.NCtx > 0 {
 			resolved.Context.NCtx = props.DefaultGenerationSettings.NCtx
@@ -1478,11 +1478,11 @@ func resolveContextWindow(ctx context.Context, profile *config.Profile) (*config
 			return &resolved, "/props n_ctx", nil
 		}
 	}
-	label := strings.TrimSpace(profile.Label)
+	label := strings.TrimSpace(connection.Label)
 	if label == "" {
-		label = profile.ID
+		label = connection.ID
 	}
-	return nil, "", fmt.Errorf("profile %q context size unknown", label)
+	return nil, "", fmt.Errorf("connection %q context size unknown", label)
 }
 
 func budgetCountSource(budget events.Budget) string {
@@ -1500,11 +1500,11 @@ func guardedPromptTokens(budget events.Budget) int {
 	return used
 }
 
-func requestTokenLimit(p *config.Profile, budget events.Budget, promptTokens int) int {
+func requestTokenLimit(p *config.Connection, budget events.Budget, promptTokens int) int {
 	return max(0, min(max(outputFloor(p), p.Context.ReserveOutput), budget.NCtx-promptTokens))
 }
 
-func outputFloor(p *config.Profile) int {
+func outputFloor(p *config.Connection) int {
 	return min(minimumOutputFloor, p.Context.NCtx)
 }
 func roughBodyTokens(body any) int { return int(math.Ceil(float64(jsonSize(body)) / 3.6)) }

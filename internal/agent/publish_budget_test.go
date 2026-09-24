@@ -21,7 +21,7 @@ func TestPublishBudgetDialFailurePublishesEstimatedBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	profile := config.Profile{
+	connection := config.Connection{
 		ID:              "offline",
 		BaseURL:         "http://" + address,
 		Model:           "offline",
@@ -31,18 +31,18 @@ func TestPublishBudgetDialFailurePublishesEstimatedBudget(t *testing.T) {
 	}
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = "exact"
-	cfg.Servers = []config.Profile{profile}
+	cfg.Connections = []config.Connection{connection}
 	bus := newCapturedBus()
-	runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "system"}, func(id string) (*config.Profile, bool) {
-		return &profile, id == profile.ID
+	runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "system"}, func(id string) (*config.Connection, bool) {
+		return &connection, id == connection.ID
 	}, func() config.Config { return cfg })
-	var reportedSession, reportedProfile string
-	runner.SetModelUnreachable(func(sessionID, profileID string) {
-		reportedSession, reportedProfile = sessionID, profileID
+	var reportedSession, reportedConnection string
+	runner.SetModelUnreachable(func(sessionID, connectionID string) {
+		reportedSession, reportedConnection = sessionID, connectionID
 	})
 	item := &session.Session{
 		ID:             "main",
-		ServerID:       profile.ID,
+		ConnectionID:   connection.ID,
 		Workspace:      t.TempDir(),
 		ToolsEnabled:   map[string]bool{},
 		ToolCalls:      map[string]int{},
@@ -68,7 +68,7 @@ func TestPublishBudgetDialFailurePublishesEstimatedBudget(t *testing.T) {
 	if budgetError || unreachable || !estimated {
 		t.Fatalf("budget_error=%t model_unreachable=%t estimated=%t events=%#v", budgetError, unreachable, estimated, bus.Recent(item.ID))
 	}
-	if reportedSession != "" || reportedProfile != "" {
-		t.Fatalf("reachability callback session=%q profile=%q", reportedSession, reportedProfile)
+	if reportedSession != "" || reportedConnection != "" {
+		t.Fatalf("reachability callback session=%q connection=%q", reportedSession, reportedConnection)
 	}
 }

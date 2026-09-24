@@ -96,7 +96,7 @@ test("State strip owns queue operator pending and unreachable state without chat
   assert.doesNotMatch(html + chat, /chat-run-as-you/);
   assert.match(chat, /const busyLine = busy \? measuredActivity \|\| "prompt 0 tokens processing" : activity/);
 	assert.doesNotMatch(chat, /model busy · \$\{busy\.host/);
-	assert.match(chat, /session\.server_id \|\| session\.b_profile/);
+	assert.match(chat, /session\.connection_id \|\| session\.b_connection/);
   assert.match(chat, /queued \(\$\{queued\}\).*waiting for model/);
   assert.match(chat, /operator mode · until/);
   assert.match(chat, /filter\(\(entry\) => !\["operator\.context", "message\.queued", "run\.queued"\]/);
@@ -108,7 +108,7 @@ test("Operator mode lives only in Settings Security and states the defeated boun
   assert.match(settings, /defeats the service-account OS boundary for every tool in every chat/);
   assert.match(settings, /data-action="operator-context"/);
   assert.match(settings, /api\("\/api\/config", \{shell:\{operator_context:!store\.shell_identity\?\.operator_context\}\}\)/);
-  assert.match(settings, /const serverProfiles = \(\) => Array\.isArray\(store\.servers\) \? store\.servers : \[\]/);
+  assert.match(settings, /const connectionList = \(\) => Array\.isArray\(store\.connections\) \? store\.connections : \[\]/);
   assert.doesNotMatch(shell, /shell-operator-status/);
 });
 

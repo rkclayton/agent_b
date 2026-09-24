@@ -62,7 +62,7 @@ try {
     const dataRoot = join(resolve(args.data), name);
     await mkdir(dataRoot, { recursive: true });
     const configPath = join(dataRoot, "harness.json");
-    await writeFile(configPath, `${JSON.stringify({ config_version: 6, listen: `127.0.0.1:${port}`, workspace: dataRoot, log_dir: join(dataRoot, "logs"), servers: [], services: {}, agents: [], chat: { auto_rename: false } }, null, 2)}\n`);
+    await writeFile(configPath, `${JSON.stringify({ config_version: 6, listen: `127.0.0.1:${port}`, workspace: dataRoot, log_dir: join(dataRoot, "logs"), connections: [], services: {}, agents: [], chat: { auto_rename: false } }, null, 2)}\n`);
 
     const app = spawn(resolve(args.exe), ["-config", configPath, "-app-root", resolve(args["app-root"]), "-data-root", dataRoot, "-replay", path], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";

@@ -21,7 +21,7 @@ func TestFirstRunRoutesToSetupAndSkipRemainsAvailable(t *testing.T) {
 		}
 	}
 	cfg := config.Defaults(t.TempDir())
-	cfg.Servers = []config.Profile{}
+	cfg.Connections = []config.Connection{}
 	cfg.Agents = []config.Agent{}
 	server := New(&cfg, filepath.Join(t.TempDir(), "harness.json"), webDir, RuntimeRoots{Application: t.TempDir()}, events.NewBus())
 

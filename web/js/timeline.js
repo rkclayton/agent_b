@@ -305,12 +305,12 @@ function inlineRow(session, event, decisions, state) {
   } else if (event.type === "compaction") {
     const affected = data.affected_ids?.length || "",
       delta = (data.after || 0) - (data.before || 0),
-      served = data.profile_id ? ` · ${friendly(data.role)} ${data.profile_id}${data.model ? `/${data.model}` : ""}` : "",
+      served = data.connection_id ? ` · ${friendly(data.role)} ${data.connection_id}${data.model ? `/${data.model}` : ""}` : "",
       usage = data.usage ? ` · ${formatNumber(data.usage.prompt_tokens)} in/${formatNumber(data.usage.completion_tokens)} out` : "",
       fallback = data.fallback_reason ? ` · fallback ${friendly(data.fallback_reason)}` : "";
     text.textContent = `Compacted · ${friendly(data.kind)} · ${formatNumber(data.before)} → ${formatNumber(data.after)} · ${formatSigned(delta)} tokens${affected ? ` · ${affected} items` : ""}${served}${usage}${fallback}`;
   } else if (event.type === "compaction.summary") {
-    text.textContent = `Summary ${friendly(data.outcome)} · ${friendly(data.role)} ${data.profile_id || "unknown"}${data.model ? `/${data.model}` : ""}${data.reason ? ` · ${data.reason}` : ""}`;
+    text.textContent = `Summary ${friendly(data.outcome)} · ${friendly(data.role)} ${data.connection_id || "unknown"}${data.model ? `/${data.model}` : ""}${data.reason ? ` · ${data.reason}` : ""}`;
     if (data.outcome === "error") row.node.classList.add("fault");
   } else if (event.type === "run.stopped") {
     const label = (data.reason || "").replaceAll("_", " ");

@@ -319,7 +319,7 @@ function Archive-OrphanedAlternateInstall {
     $full = Get-FullPath $AlternateRoot
     $operatorRoot = Get-FullPath $OperatorLocalAppData
     if (-not (Test-PathInside $full $operatorRoot)) {
-        throw "Installation refused: unregistered Agent_b executable is outside the invoking user's profile at $full."
+        throw "Installation refused: unregistered Agent_b executable is outside the invoking user's connection at $full."
     }
     $links = @(Get-ChildItem -LiteralPath $full -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint })
     if ((Get-Item -LiteralPath $full -Force).Attributes -band [IO.FileAttributes]::ReparsePoint -or $links.Count) {

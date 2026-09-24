@@ -1,18 +1,18 @@
-let store, serverProfiles, number, choices, row, html;
+let store, connectionList, number, choices, row, html;
 function useSettingsContext(context) {
-  ({ store, serverProfiles, number, choices, row, html } = context);
+  ({ store, connectionList, number, choices, row, html } = context);
 }
 
 function context(active) {
-  const profile = serverProfiles().find((x) => x.id === active?.server_id);
+  const connection = connectionList().find((x) => x.id === active?.connection_id);
   const choice = store.config.context?.accounting || "auto";
-  let actual = "estimated — no active profile";
-  if (profile) {
+  let actual = "estimated — no active connection";
+  if (connection) {
     actual = choice === "estimated"
       ? "estimated — by choice"
-      : profile.capabilities?.tokenize
+      : connection.capabilities?.tokenize
         ? "exact — /tokenize available"
-        : "estimated — no /tokenize on this profile";
+        : "estimated — no /tokenize on this connection";
   }
   const facts = store.serving_facts || {};
   const blocked = ["yes", "partial"].includes(facts.tokenize_blocks_on_slot);
@@ -21,9 +21,9 @@ function context(active) {
     ${choices("context.accounting", "accounting", ["auto", "exact", "estimated"], choice, "How context use is counted: exact asks the server's tokenizer, estimated counts characters, auto uses exact when the server offers it.")}
     <p class="settings-note">${html(actual)}</p>
     ${blocked ? `<p class="settings-note">/tokenize measured ${html(facts.tokenize_busy_ms || "?")} ms busy and may occupy the generation slot</p>` : ""}
-    ${row("reserve", `<output>${active?.budget?.reserve ?? 0}</output>`, "", "Tokens kept free for the model's answer, from the active profile.")}
-    ${row("ceiling", `<output>${active?.budget?.ceiling ?? 0}</output>`, "", "The most prompt the active profile accepts: its context size minus the reserve.")}
-    <p class="settings-note">from profile ${html(profile?.label || "none")}</p>`;
+    ${row("reserve", `<output>${active?.budget?.reserve ?? 0}</output>`, "", "Tokens kept free for the model's answer, from the active connection.")}
+    ${row("ceiling", `<output>${active?.budget?.ceiling ?? 0}</output>`, "", "The most prompt the active connection accepts: its context size minus the reserve.")}
+    <p class="settings-note">from connection ${html(connection?.label || "none")}</p>`;
 }
 
 

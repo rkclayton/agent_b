@@ -95,7 +95,7 @@ func TestAClosedRunIsSummarisedThroughTheModelClientOnAFakeServer(t *testing.T) 
 	defer fake.Close()
 
 	cfg := config.Defaults(root)
-	cfg.Servers = []config.Profile{{ID: "fake", Label: "Fake", BaseURL: fake.URL, Model: "test", RequestTimeoutS: 30}}
+	cfg.Connections = []config.Connection{{ID: "fake", Label: "Fake", BaseURL: fake.URL, Model: "test", RequestTimeoutS: 30}}
 	cfg.Agents = []config.Agent{{Name: "Tester", B: "fake", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
@@ -106,7 +106,7 @@ func TestAClosedRunIsSummarisedThroughTheModelClientOnAFakeServer(t *testing.T) 
 	projector := projection.NewStore()
 	bus.SetDurableSink(writers.WriteRecord, projector.Apply, projector.MarkStale)
 	server.SetProjection(projector, writers)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("chat", config.AgentID("Tester"), cfg.Workspace)
 	if err != nil {
@@ -139,10 +139,10 @@ func TestAClosedRunIsSummarisedThroughTheModelClientOnAFakeServer(t *testing.T) 
 	if err != nil || len(summaries) != 1 {
 		t.Fatalf("summaries=%+v err=%v", summaries, err)
 	}
-	if summaries[0].Changed != "read the guard" || summaries[0].Profile != "fake" {
+	if summaries[0].Changed != "read the guard" || summaries[0].Connection != "fake" {
 		t.Fatalf("summary = %+v", summaries[0])
 	}
-	if !strings.Contains(summaries[0].Text, "no aux profile is configured") {
+	if !strings.Contains(summaries[0].Text, "no aux connection is configured") {
 		t.Fatalf("summary text = %q", summaries[0].Text)
 	}
 	if after := item.Snapshot().Run; !reflect.DeepEqual(after, before) {
@@ -157,7 +157,7 @@ func TestAFailingSummaryLeavesTheRunsOutcomeAlone(t *testing.T) {
 	}))
 	defer fake.Close()
 	cfg := config.Defaults(root)
-	cfg.Servers = []config.Profile{{ID: "fake", Label: "Fake", BaseURL: fake.URL, Model: "test", RequestTimeoutS: 5}}
+	cfg.Connections = []config.Connection{{ID: "fake", Label: "Fake", BaseURL: fake.URL, Model: "test", RequestTimeoutS: 5}}
 	cfg.Agents = []config.Agent{{Name: "Tester", B: "fake", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
@@ -168,7 +168,7 @@ func TestAFailingSummaryLeavesTheRunsOutcomeAlone(t *testing.T) {
 	projector := projection.NewStore()
 	bus.SetDurableSink(writers.WriteRecord, projector.Apply, projector.MarkStale)
 	server.SetProjection(projector, writers)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("chat", config.AgentID("Tester"), cfg.Workspace)
 	if err != nil {

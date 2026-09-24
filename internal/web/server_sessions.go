@@ -33,7 +33,7 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Label           string `json:"label"`
 			AgentID         string `json:"agent_id"`
-			ServerID        string `json:"server_id"`
+			ConnectionID    string `json:"connection_id"`
 			SourceSessionID string `json:"source_session_id"`
 			Role            string `json:"role"`
 			PlanID          string `json:"plan_id"`
@@ -42,7 +42,7 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if body.SourceSessionID != "" {
-			if body.Label != "" || body.AgentID != "" || body.ServerID != "" || body.Role != "" || body.PlanID != "" {
+			if body.Label != "" || body.AgentID != "" || body.ConnectionID != "" || body.Role != "" || body.PlanID != "" {
 				writeError(w, 400, "source_session_id cannot be combined with overrides", "session")
 				return
 			}
@@ -57,10 +57,10 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 201, map[string]any{"session": item.Snapshot()})
 			return
 		}
-		if body.AgentID == "" && body.ServerID != "" {
+		if body.AgentID == "" && body.ConnectionID != "" {
 			s.mu.RLock()
 			for _, candidate := range s.cfg.Agents {
-				if candidate.B == body.ServerID {
+				if candidate.B == body.ConnectionID {
 					body.AgentID = config.AgentID(candidate.Name)
 					break
 				}
@@ -338,25 +338,25 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		snapshot := item.Snapshot()
-		if _, exists := s.Profile(snapshot.ServerID); exists || snapshot.NotRunnableReason != "profile not found" {
-			writeError(w, http.StatusConflict, "session profile is not missing", "server_id")
+		if _, exists := s.Connection(snapshot.ConnectionID); exists || snapshot.NotRunnableReason != "connection not found" {
+			writeError(w, http.StatusConflict, "session connection is not missing", "connection_id")
 			return
 		}
 		target := ""
 		s.mu.RLock()
-		for _, profile := range s.cfg.Servers {
-			if profile.Label == snapshot.BProfile {
-				target = profile.ID
+		for _, connection := range s.cfg.Connections {
+			if connection.Label == snapshot.BConnection {
+				target = connection.ID
 				break
 			}
 		}
 		s.mu.RUnlock()
 		if target == "" {
-			writeError(w, http.StatusNotFound, "no profile named "+snapshot.BProfile, "server_id")
+			writeError(w, http.StatusNotFound, "no connection named "+snapshot.BConnection, "connection_id")
 			return
 		}
-		if err := s.registry.SetServer(id, target); err != nil {
-			writeError(w, http.StatusConflict, err.Error(), "server_id")
+		if err := s.registry.SetConnection(id, target); err != nil {
+			writeError(w, http.StatusConflict, err.Error(), "connection_id")
 			return
 		}
 		updated, _ := s.registry.Get(id)
@@ -385,21 +385,21 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		var body struct {
-			Label    *string `json:"label"`
-			AgentID  *string `json:"agent_id"`
-			ServerID *string `json:"server_id"`
+			Label        *string `json:"label"`
+			AgentID      *string `json:"agent_id"`
+			ConnectionID *string `json:"connection_id"`
 		}
 		if !decode(w, r, &body) {
 			return
 		}
-		if body.Label == nil && body.AgentID == nil && body.ServerID == nil {
+		if body.Label == nil && body.AgentID == nil && body.ConnectionID == nil {
 			writeError(w, 400, "label or agent_id is required", "session")
 			return
 		}
-		if body.AgentID == nil && body.ServerID != nil {
+		if body.AgentID == nil && body.ConnectionID != nil {
 			s.mu.RLock()
 			for _, candidate := range s.cfg.Agents {
-				if candidate.B == *body.ServerID {
+				if candidate.B == *body.ConnectionID {
 					value := config.AgentID(candidate.Name)
 					body.AgentID = &value
 					break

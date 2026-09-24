@@ -48,7 +48,7 @@ assert.equal(state.build.commit, args["expected-commit"]);
 assert.equal(state.build.dirty, false);
 
 const tempRoot = await mkdtemp(join(tmpdir(), "Agent_b-lifecycle-availability-"));
-const profile = join(tempRoot, "edge-profile");
+const connection = join(tempRoot, "edge-connection");
 const debugPort = await freePort();
 const navigationID = `availability-${Date.now()}`;
 const initialURL = new URL("chat?session=main", base).href;
@@ -57,7 +57,7 @@ const browserArguments = [
   `--app=${initialURL}`,
   `--remote-debugging-port=${debugPort}`,
   "--remote-allow-origins=*",
-  `--user-data-dir=${profile}`,
+  `--user-data-dir=${connection}`,
   "--no-first-run",
   "--no-default-browser-check",
   "--disable-background-mode",
@@ -87,7 +87,7 @@ try {
     schema: 1,
     measured_at: new Date().toISOString(),
     build: state.build,
-    attachment: { method: "connectOverCDP + newCDPSession(page)", browser_arguments: browserArguments.map((value) => value.replace(profile, "<isolated-temp-profile>")) },
+    attachment: { method: "connectOverCDP + newCDPSession(page)", browser_arguments: browserArguments.map((value) => value.replace(connection, "<isolated-temp-connection>")) },
     navigation: { navigation_id: navigationID, target_url: targetURL, frame_id: navigation.frameId, loader_id: navigation.loaderId || "" },
     available: {
       frame_navigated: events.some((event) => event.event === "frameNavigated"),

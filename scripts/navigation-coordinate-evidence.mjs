@@ -40,7 +40,7 @@ const selectedPatterns = args.pattern ? patterns.filter((pattern) => pattern.nam
 assert.ok(selectedPatterns.length, `unknown --pattern ${args.pattern}`);
 
 const model = createServer(async (request, response) => {
-  if (request.url === "/props") return void response.end(JSON.stringify({ server: "navigation-coordinate-evidence", n_ctx: 32768 }));
+  if (request.url === "/props") return void response.end(JSON.stringify({ connection: "navigation-coordinate-evidence", n_ctx: 32768 }));
   if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: [{ id: "navigation-coordinate-evidence" }] }));
   if (request.url === "/tokenize") return void response.end(JSON.stringify({ tokens: [1] }));
   if (request.url === "/apply-template") return void response.end(JSON.stringify({ prompt: "navigation coordinate evidence" }));
@@ -69,10 +69,10 @@ await mkdir(workspace, { recursive: true });
 const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
 const config = {
   config_version: 6, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(dataRoot, "logs"),
-  servers: [{ id: "navigation", label: "Navigation", base_url: `http://127.0.0.1:${modelPort}`, model: "navigation-coordinate-evidence", credential: "", request_timeout_s: 3, probe_mode: "off",
+  connections: [{ id: "navigation", label: "Navigation", base_url: `http://127.0.0.1:${modelPort}`, model: "navigation-coordinate-evidence", credential: "", request_timeout_s: 3, probe_mode: "off",
     sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
     reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false }, context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
-    capabilities: { server: "navigation-coordinate-evidence", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["coordinate navigation evidence fixture"] } }],
+    capabilities: { connection: "navigation-coordinate-evidence", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["coordinate navigation evidence fixture"] } }],
   services: {}, agents: [{ name: "Navigation", b: "navigation", toolset }], chat: { auto_rename: false },
   run: { max_turns: 4, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 1, queue_depth: 0 }, approval: { mode: "boundary-only" },
   deliver: { mode: "chips", exchange_folder: join(dataRoot, "exchange") }, operator_files: { allow_mailbox_approvals: false, log_retention_days: 30 },

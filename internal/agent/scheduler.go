@@ -247,26 +247,26 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 	go s.runner.nameAfterFirstRun(entry.s, entry.runID)
 }
 
-// Item 2fc: runs are admitted per model profile as well as globally. A profile
+// Item 2fc: runs are admitted per model connection as well as globally. A connection
 // serves at most its own max_concurrent runs at once (one when unset), so a
-// planner and a worker on a shared profile never overlap unless the operator
-// has raised that profile's limit.
-func (s *Scheduler) profileLimit(profileID string) int {
-	if profile, ok := s.cfg().Profile(profileID); ok && profile.MaxConcurrent > 0 {
-		return profile.MaxConcurrent
+// planner and a worker on a shared connection never overlap unless the operator
+// has raised that connection's limit.
+func (s *Scheduler) connectionLimit(connectionID string) int {
+	if connection, ok := s.cfg().Connection(connectionID); ok && connection.MaxConcurrent > 0 {
+		return connection.MaxConcurrent
 	}
 	return 1
 }
 
-// profileRunsLocked counts the runs a profile is serving and names the role of
+// connectionRunsLocked counts the runs a connection is serving and names the role of
 // one of them, for "waiting for model · behind <role>".
-func (s *Scheduler) profileRunsLocked(profileID string) (int, string) {
+func (s *Scheduler) connectionRunsLocked(connectionID string) (int, string) {
 	count, role := 0, ""
 	for sessionID := range s.active {
 		if s.paused[sessionID] {
 			continue
 		}
-		if item, ok := s.registry.Get(sessionID); ok && item.ServerID == profileID {
+		if item, ok := s.registry.Get(sessionID); ok && item.ConnectionID == connectionID {
 			count++
 			if role == "" {
 				role = item.Role
@@ -292,12 +292,12 @@ func (s *Scheduler) admitLocked(item *session.Session) bool {
 	if s.runningLocked() >= s.cfg().Run.MaxConcurrent {
 		return false
 	}
-	count, _ := s.profileRunsLocked(item.ServerID)
-	return count < s.profileLimit(item.ServerID)
+	count, _ := s.connectionRunsLocked(item.ConnectionID)
+	return count < s.connectionLimit(item.ConnectionID)
 }
 
 // drainLocked starts every queued run that can be admitted, in queue order; a
-// run waiting on a busy profile does not hold back one for a free profile.
+// run waiting on a busy connection does not hold back one for a free connection.
 func (s *Scheduler) drainLocked() {
 	// An answered run is mid-run: it takes a free slot before any queued run.
 	for index := 0; index < len(s.resuming); {
@@ -323,22 +323,22 @@ func (s *Scheduler) drainLocked() {
 }
 
 // queuedDataLocked is run.queued's payload; behind names the role of the run
-// holding the profile when the profile, not the global limit, is why it waits.
+// holding the connection when the connection, not the global limit, is why it waits.
 func (s *Scheduler) queuedDataLocked(item *session.Session, runID string, position int) map[string]any {
 	data := map[string]any{"run_id": runID, "position": position}
-	if count, role := s.profileRunsLocked(item.ServerID); count >= s.profileLimit(item.ServerID) && role != "" {
+	if count, role := s.connectionRunsLocked(item.ConnectionID); count >= s.connectionLimit(item.ConnectionID) && role != "" {
 		data["behind"] = "agent_" + role
 	}
 	return data
 }
 
-// ProfileBusy reports whether a profile is serving as many runs as it may, and
+// ConnectionBusy reports whether a connection is serving as many runs as it may, and
 // the role of one of them (item 2fc: Go refuses rather than queue behind it).
-func (s *Scheduler) ProfileBusy(profileID string) (bool, string) {
+func (s *Scheduler) ConnectionBusy(connectionID string) (bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	count, role := s.profileRunsLocked(profileID)
-	if count < s.profileLimit(profileID) {
+	count, role := s.connectionRunsLocked(connectionID)
+	if count < s.connectionLimit(connectionID) {
 		return false, ""
 	}
 	return true, "agent_" + role
@@ -365,7 +365,7 @@ func identicalPendingPosition(waiting []queuedRun, text string) int {
 
 // ReleaseModel releases only model-unreachable holds after a successful probe.
 // A manual Stop hold remains in force until the operator explicitly sends again.
-func (s *Scheduler) ReleaseModel(profileID string) {
+func (s *Scheduler) ReleaseModel(connectionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for sessionID, held := range s.unreachable {
@@ -373,11 +373,11 @@ func (s *Scheduler) ReleaseModel(profileID string) {
 			continue
 		}
 		item, ok := s.registry.Get(sessionID)
-		if !ok || item.ServerID != profileID {
+		if !ok || item.ConnectionID != connectionID {
 			continue
 		}
 		delete(s.unreachable, sessionID)
-		s.bus.Publish(events.New(events.ModelReachable, sessionID, "", map[string]any{"server_id": profileID}))
+		s.bus.Publish(events.New(events.ModelReachable, sessionID, "", map[string]any{"connection_id": connectionID}))
 		waiting := s.pending[sessionID]
 		if len(waiting) == 0 || s.held[sessionID] || s.active[sessionID] != nil {
 			continue

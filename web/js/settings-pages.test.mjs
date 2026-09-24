@@ -16,7 +16,7 @@ const blank = () => "";
 function pageContext() {
   return {
     store: {
-      active: "", sessions: {}, servers: [], build: { tag: "v0.49.0", commit: "abcdef0" },
+      active: "", sessions: {}, connections: [], build: { tag: "v0.49.0", commit: "abcdef0" },
       config: { workspace: "C:\\workspace", context: { soft_pct: 0.75, summary_pct: 0.85, accounting: "auto" }, chat: {}, run: {}, approval: {}, deliver: {}, memory: {}, tools: {}, shell: { service_account: {} }, signing: {}, sandbox: {} },
       shell_credential: {}, shell_identity: {}, sandbox: {}, serving_facts: {},
     },
@@ -29,10 +29,10 @@ function pageContext() {
     hardeningBusy: false, hardeningMessage: "", hardeningAlarm: false,
     signingStatus: { loaded: false, supported: true, configured: false, can_manage: false, files: [] },
     signingBusy: false, signingMessage: "", signingAlarm: false,
-    serverProfiles: () => [], row: blank, subhead: blank, field: blank, text: blank, number: blank, numberControl: blank,
+    connectionList: () => [], row: blank, subhead: blank, field: blank, text: blank, number: blank, numberControl: blank,
     textarea: blank, secret: blank, toggle: blank, choices: blank, approvalChoices: blank, copyRow: blank,
-    currentValue: (_path, fallback) => fallback, issue: blank, profileReason: blank,
-    html: String, attr: String, selectedHardeningServerID: blank,
+    currentValue: (_path, fallback) => fallback, issue: blank, connectionReason: blank,
+    html: String, attr: String, selectedHardeningConnectionID: blank,
     operatorStatusView: () => ({ active: false, label: "off", src: "", srcset: "" }),
   };
 }
@@ -74,8 +74,8 @@ test("Security renders the LAN switch and detected confirmation list", () => {
 
 test("Connections summary row never renders decoder detail verbatim", () => {
 	const context = pageContext();
-	const profile = { id: "fake", label: "Fake", base_url: "http://fake/", capabilities: { findings: ["probe failed: Connection returned a web page, not model API JSON. Add the API path to base_url.", "probe detail: invalid character '<' looking for beginning of value"] } };
-	context.serverProfiles = () => [profile];
+	const connection = { id: "fake", label: "Fake", base_url: "http://fake/", capabilities: { findings: ["probe failed: Connection returned a web page, not model API JSON. Add the API path to base_url.", "probe detail: invalid character '<' looking for beginning of value"] } };
+	context.connectionList = () => [connection];
 	context.probeMessages.set("fake", { message: "Test failed — Connection returned a web page, not model API JSON. Add the API path to base_url.", alarm: true });
 	const page = renderConnectionsPage(context);
 	assert.match(page, /Test failed — Connection returned a web page, not model API JSON/);
@@ -85,7 +85,7 @@ test("Connections summary row never renders decoder detail verbatim", () => {
 test("Connections Test consumes endpoint discovery and renders its model picker", () => {
   const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
   const connections = fs.readFileSync(new URL("settings-connections.js", import.meta.url), "utf8");
-  assert.match(controller, /const discovered = await api\(`\/api\/servers\/\$\{encodeURIComponent\(id\)\}\/probe`, \{/);
+  assert.match(controller, /const discovered = await api\(`\/api\/connections\/\$\{encodeURIComponent\(id\)\}\/probe`, \{/);
   assert.match(controller, /base_url: current\(`/);
   assert.doesNotMatch(controller, /Saving before Test/);
   assert.match(controller, /discovered\.status === "model_required"/);

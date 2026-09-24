@@ -37,12 +37,12 @@ func TestProbeReasoningClassifiesEmissionShape(t *testing.T) {
 			}))
 			defer server.Close()
 
-			profile := config.Defaults(t.TempDir()).Servers[0]
-			profile.BaseURL = server.URL
-			profile.Model = "reasoning-fixture"
+			connection := config.Defaults(t.TempDir()).Connections[0]
+			connection.BaseURL = server.URL
+			connection.Model = "reasoning-fixture"
 			caps := config.Capabilities{ReasoningControl: "none"}
 			findings := []string{}
-			probeReasoning(context.Background(), llm.New(&profile), &profile, &caps, &findings)
+			probeReasoning(context.Background(), llm.New(&connection), &connection, &caps, &findings)
 			if caps.ReasoningEmission != shape {
 				t.Fatalf("emission=%q findings=%v", caps.ReasoningEmission, findings)
 			}

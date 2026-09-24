@@ -81,7 +81,7 @@ func TestPlansFolderWriteThroughAJunctionIsRefusedInBothPostures(t *testing.T) {
 func TestTheJailJudgesAJunctionByWhereItLeads(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
-	outside := filepath.Join(root, "profile")
+	outside := filepath.Join(root, "connection")
 	inner := filepath.Join(repo, "src")
 	for _, dir := range []string{repo, outside, inner} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {

@@ -9,7 +9,7 @@ import (
 	"harness/internal/projection"
 )
 
-var profileSnapshot projection.Snapshot
+var connectionSnapshot projection.Snapshot
 
 func BenchmarkProjectionRecursive(b *testing.B) {
 	root, err := RepoRoot(".")
@@ -47,7 +47,7 @@ func BenchmarkProjectionRecursive(b *testing.B) {
 				b.Fatal(err)
 			}
 		}
-		profileSnapshot = state
+		connectionSnapshot = state
 	}
 }
 

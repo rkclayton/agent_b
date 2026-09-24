@@ -28,7 +28,7 @@ func TestOperationalErrorIsPublished(t *testing.T) {
 
 func TestFallbackTokenCountAndPreviewUseUnicodeCharacters(t *testing.T) {
 	runner := &Runner{}
-	count, estimated := runner.count(context.Background(), &config.Profile{}, "🙂🙂🙂🙂")
+	count, estimated := runner.count(context.Background(), &config.Connection{}, "🙂🙂🙂🙂")
 	if count != 2 || !estimated {
 		t.Fatalf("fallback count=%d estimated=%v", count, estimated)
 	}

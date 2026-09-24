@@ -3,7 +3,7 @@ const connection = document.getElementById("connection");
 const fullTools = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
 let snapshot;
 let step = "where";
-let profileID = "";
+let connectionID = "";
 let detection;
 let catalog;
 let installState;
@@ -30,7 +30,7 @@ async function load() {
   try {
     snapshot = await request("/api/state", undefined, "GET");
     const addingFromSettings = new URLSearchParams(location.search).get("from") === "settings";
-    profileID = addingFromSettings ? "" : snapshot.config?.agents?.[0]?.b || snapshot.servers?.[0]?.id || "";
+    connectionID = addingFromSettings ? "" : snapshot.config?.agents?.[0]?.b || snapshot.connections?.[0]?.id || "";
     render();
   } catch (error) {
     connection.textContent = error.message;
@@ -46,16 +46,16 @@ function render() {
 }
 
 function whereScreen() {
-  const profile = selectedProfile();
-  const currentModel = profile?.model || "";
+  const connection = selectedConnection();
+  const currentModel = connection?.model || "";
   const modelField = discoveredModels.length
     ? `<select data-field="model">${!discoveredModels.includes(currentModel) && currentModel ? `<option value="${attr(currentModel)}" selected>${html(currentModel)} · not served</option>` : ""}${discoveredModels.map((model) => `<option value="${attr(model)}" ${model === currentModel ? "selected" : ""}>${html(model)}</option>`).join("")}</select>`
     : `<input data-field="model" value="${attr(currentModel)}" placeholder="model name">`;
   return `<section class="setup-section"><h1>Where is your model?</h1>
     <div class="setup-fields">
-      <label>Address<input data-field="url" value="${attr(profile?.base_url || "http://127.0.0.1:8080")}" placeholder="host or http://host:port">${discoveryNote ? `<span class="setup-note discovery-note">${html(discoveryNote)}</span>` : ""}</label>
+      <label>Address<input data-field="url" value="${attr(connection?.base_url || "http://127.0.0.1:8080")}" placeholder="host or http://host:port">${discoveryNote ? `<span class="setup-note discovery-note">${html(discoveryNote)}</span>` : ""}</label>
       <label>Model${modelField}</label>
-      <label>Saved credential name<input data-field="credential" value="${attr(profile?.credential || "")}" placeholder="optional"></label>
+      <label>Saved credential name<input data-field="credential" value="${attr(connection?.credential || "")}" placeholder="optional"></label>
       <label>API key<input data-field="api-key" type="password" autocomplete="off" placeholder="optional"></label>
     </div>
     <div class="setup-actions"><button data-action="test" ${disabled()}>Test</button><button data-action="show-install" class="quiet">Install one here</button><button data-action="later" class="quiet">Later</button></div>
@@ -80,9 +80,9 @@ function installer() {
 }
 
 function capabilityScreen() {
-  const profile = selectedProfile();
-  const caps = profile?.capabilities || {};
-  const measurement = profile?.measurement;
+  const connection = selectedConnection();
+  const caps = connection?.capabilities || {};
+  const measurement = connection?.measurement;
   return `<section class="setup-section"><h1>Evaluation Harness</h1>
     <div class="setup-readout">
       ${row("Context", caps.n_ctx ? `${Number(caps.n_ctx).toLocaleString()} tokens` : "not reported")}
@@ -94,7 +94,7 @@ function capabilityScreen() {
     <p class="setup-note">Measure it runs ten briefs once each and stops after five minutes. It is optional.</p>
     <div class="setup-actions">${measurement
       ? `<button data-action="capability-next">Continue</button>`
-      : `<button data-action="measure" ${!profile ? "disabled" : ""}>${measuring ? "Stop" : "Measure it"}</button><button data-action="capability-next" class="quiet">Skip</button><button data-action="where" class="quiet">Back</button>`}</div>${feedback()}</section>`;
+      : `<button data-action="measure" ${!connection ? "disabled" : ""}>${measuring ? "Stop" : "Measure it"}</button><button data-action="capability-next" class="quiet">Skip</button><button data-action="where" class="quiet">Back</button>`}</div>${feedback()}</section>`;
 }
 
 function doneScreen() {
@@ -133,27 +133,27 @@ async function testConnection() {
   const url = field("url"), model = field("model"), credential = field("credential"), apiKey = field("api-key");
   if (!url) return fail(new Error("Address is required before Test."));
   setBusy("Saving and testing the connection…");
-  const previousServers = [...(snapshot.config.servers || [])];
+  const previousConnections = [...(snapshot.config.connections || [])];
   const previousAgents = [...(snapshot.config.agents || [])];
   let provisional = false;
   try {
-    if (!profileID || !snapshot.servers?.some((item) => item.id === profileID)) profileID = uniqueID("setup-model");
-    const current = selectedProfile() || {};
+    if (!connectionID || !snapshot.connections?.some((item) => item.id === connectionID)) connectionID = uniqueID("setup-model");
+    const current = selectedConnection() || {};
 	const previousProbe = current.capabilities?.probed_at || "";
-    const profile = { ...current, id: profileID, label: current.label || "My model", base_url: url, model };
-    if (credential) profile.credential = credential;
-    if (apiKey) profile.api_key = apiKey;
-    const servers = [...(snapshot.config.servers || []).filter((item) => item.id !== profileID), profile];
-    const agents = previousAgents.length ? previousAgents : [{ name: "Agent_b", b: profileID, toolset: fullTools }];
+    const connection = { ...current, id: connectionID, label: current.label || "My model", base_url: url, model };
+    if (credential) connection.credential = credential;
+    if (apiKey) connection.api_key = apiKey;
+    const connections = [...(snapshot.config.connections || []).filter((item) => item.id !== connectionID), connection];
+    const agents = previousAgents.length ? previousAgents : [{ name: "Agent_b", b: connectionID, toolset: fullTools }];
     provisional = !previousAgents.length;
-    snapshot.config = await request("/api/config", { servers, agents });
-    let discovered = await request(`/api/servers/${encodeURIComponent(profileID)}/probe`, {});
+    snapshot.config = await request("/api/config", { connections, agents });
+    let discovered = await request(`/api/connections/${encodeURIComponent(connectionID)}/probe`, {});
     discoveredModels = discovered.models || [];
     discoveryNote = discovered.message || "";
     if (discovered.status === "changes_required" && discovered.changes?.base_url) {
-      profile.base_url = discovered.changes.base_url;
-      snapshot.config = await request("/api/config", { servers: [...servers.filter((item) => item.id !== profileID), profile] });
-      discovered = await request(`/api/servers/${encodeURIComponent(profileID)}/probe`, {});
+      connection.base_url = discovered.changes.base_url;
+      snapshot.config = await request("/api/config", { connections: [...connections.filter((item) => item.id !== connectionID), connection] });
+      discovered = await request(`/api/connections/${encodeURIComponent(connectionID)}/probe`, {});
       discoveredModels = discovered.models || discoveredModels;
     }
     snapshot = await request("/api/state", undefined, "GET");
@@ -164,11 +164,11 @@ async function testConnection() {
       return;
     }
     await waitForProbe(previousProbe);
-    await assignTestedProfile();
+    await assignTestedConnection();
     go("capability");
   } catch (error) {
     if (provisional) {
-      try { snapshot.config = await request("/api/config", { servers: previousServers, agents: previousAgents }); } catch {}
+      try { snapshot.config = await request("/api/config", { connections: previousConnections, agents: previousAgents }); } catch {}
     }
     fail(error);
   } finally { busy = false; render(); }
@@ -185,10 +185,10 @@ async function installModel() {
       if (!installState.running) break;
     }
     if (installState.error) throw new Error(installState.error);
-    profileID = installState.profile_id;
+    connectionID = installState.connection_id;
     snapshot = await request("/api/state", undefined, "GET");
     await waitForProbe("");
-    await assignTestedProfile();
+    await assignTestedConnection();
     go("capability");
   } catch (error) { fail(error); } finally { busy = false; render(); }
 }
@@ -197,10 +197,10 @@ async function measure() {
   measuring = true;
   setBusy("Running ten briefs (five-minute cap)…");
   try {
-    await request("/api/eval/measure", { profile_id: profileID });
+    await request("/api/eval/measure", { connection_id: connectionID });
     while (true) {
       await delay(750);
-      const state = await request(`/api/eval/measure?profile_id=${encodeURIComponent(profileID)}`, undefined, "GET");
+      const state = await request(`/api/eval/measure?connection_id=${encodeURIComponent(connectionID)}`, undefined, "GET");
       message = state.text || "Measuring…";
       if (!state.running) {
         if (state.error) throw new Error(state.error);
@@ -219,15 +219,15 @@ async function stopMeasurement() {
   message = "Stopping after the current brief…";
   render();
   try {
-    await request(`/api/eval/measure?profile_id=${encodeURIComponent(profileID)}`, undefined, "DELETE");
+    await request(`/api/eval/measure?connection_id=${encodeURIComponent(connectionID)}`, undefined, "DELETE");
   } catch (error) { fail(error); }
 }
 
-async function assignTestedProfile() {
+async function assignTestedConnection() {
   const current = snapshot.config.agents?.[0] || { name: "Agent_b", toolset: fullTools };
   const agent = { ...current, name: current.name || "Agent_b", toolset: current.toolset || fullTools };
-  if (!agent.b) agent.b = profileID;
-  else if (agent.b !== profileID && !agent.c) agent.c = profileID;
+  if (!agent.b) agent.b = connectionID;
+  else if (agent.b !== connectionID && !agent.c) agent.c = connectionID;
   snapshot.config = await request("/api/config", { agents: [agent] });
 }
 
@@ -250,7 +250,7 @@ async function waitForProbe(previousProbe = "") {
   const deadline = Date.now() + 15 * 60 * 1000;
   while (Date.now() < deadline) {
     snapshot = await request("/api/state", undefined, "GET");
-    const caps = selectedProfile()?.capabilities || {};
+    const caps = selectedConnection()?.capabilities || {};
     if (caps.probed_at && caps.probed_at !== previousProbe) return;
     const failure = (caps.findings || []).find((item) => String(item).startsWith("probe failed:"));
     if (failure) throw new Error(failure);
@@ -266,7 +266,7 @@ function remoteGuide() {
 function go(next) { step = next; message = ""; alarm = false; render(); }
 function setBusy(text) { busy = true; message = text; alarm = false; render(); }
 function fail(error) { message = error.message || String(error); alarm = true; render(); }
-function selectedProfile() { return snapshot.servers?.find((item) => item.id === profileID); }
+function selectedConnection() { return snapshot.connections?.find((item) => item.id === connectionID); }
 function field(name) { return root.querySelector(`[data-field="${name}"]`)?.value?.trim() || ""; }
 function row(label, value) { return `<div><span>${html(label)}</span><strong>${html(value)}</strong></div>`; }
 function feedback() { return message ? `<p class="setup-feedback ${alarm ? "alarm" : ""}" role="status">${html(message)}</p>` : ""; }
@@ -280,7 +280,7 @@ function localBackend(report = {}) {
 function localRecommendationBytes(report = {}) { return localBackend(report).gpu?.vram_bytes || report.system_memory_bytes || 0; }
 function memory(bytes, kind) { return `${(Number(bytes || 0) / 2 ** 30).toFixed(1)} GiB ${kind}`; }
 function percent(value) { return `${(Number(value || 0) * 100).toFixed(0)}%`; }
-function uniqueID(base) { let id = base, n = 2; while (snapshot.servers?.some((item) => item.id === id)) id = `${base}-${n++}`; return id; }
+function uniqueID(base) { let id = base, n = 2; while (snapshot.connections?.some((item) => item.id === id)) id = `${base}-${n++}`; return id; }
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function link(url, label) { return /^https:\/\//.test(url || "") ? `<a href="${attr(url)}" target="_blank" rel="noreferrer">${html(label)}</a>` : html(label); }
 function html(value) { return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }

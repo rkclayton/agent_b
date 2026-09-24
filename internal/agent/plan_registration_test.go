@@ -34,12 +34,12 @@ func TestAddPlanSentenceUsesAllowThisAndApprovalControlsRegistration(t *testing.
 				t.Fatal(err)
 			}
 			cfg := config.Defaults(root)
-			profile := cfg.Servers[0]
-			profile.ID, profile.BaseURL = "main", model.URL
-			profile.Context.NCtx, profile.Context.ReserveOutput = 32768, 8192
-			profile.Capabilities.Tokenize, profile.Capabilities.Streaming, profile.Capabilities.ToolCalls = true, true, true
-			profile.Capabilities.OverflowBehavior = "error"
-			cfg.Servers = []config.Profile{profile}
+			connection := cfg.Connections[0]
+			connection.ID, connection.BaseURL = "main", model.URL
+			connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
+			connection.Capabilities.Tokenize, connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true, true
+			connection.Capabilities.OverflowBehavior = "error"
+			cfg.Connections = []config.Connection{connection}
 			eventCh := make(chan events.Event, 8)
 			bus := events.NewBus()
 			bus.SetSink(func(event events.Event) error {
@@ -51,7 +51,7 @@ func TestAddPlanSentenceUsesAllowThisAndApprovalControlsRegistration(t *testing.
 			repos := []string{}
 			registrations := 0
 			item := &session.Session{
-				ID: "plan-chat", ServerID: profile.ID, Role: "b", Workspace: root, Runnable: true,
+				ID: "plan-chat", ConnectionID: connection.ID, Role: "b", Workspace: root, Runnable: true,
 				Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{},
 				ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{},
 				PlanRepos: func() []string { return append([]string(nil), repos...) },
@@ -61,7 +61,7 @@ func TestAddPlanSentenceUsesAllowThisAndApprovalControlsRegistration(t *testing.
 					return session.Plan{ID: "alpha", Name: "repo", Repo: path}, true, nil
 				},
 			}
-			runner := NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, func(id string) (*config.Profile, bool) { return &profile, id == profile.ID }, func() config.Config { return cfg })
+			runner := NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }, func() config.Config { return cfg })
 			if _, err := runner.AddUser(context.Background(), item, "Add "+repo+" as a plan"); err != nil {
 				t.Fatal(err)
 			}

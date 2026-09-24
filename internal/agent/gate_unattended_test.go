@@ -33,7 +33,9 @@ func TestUnattendedRefusesEveryCardKindAndRecordsIt(t *testing.T) {
 		want string
 	}{
 		{"policy", func() (string, error) { return gate.WaitPolicyDecision(ctx, worker, "r1", "c1", "shell", nil) }, "policy approval"},
-		{"escape", func() (string, error) { return gate.WaitBoundaryDecision(ctx, worker, "r1", "c2", "shell.operator_override", nil) }, "identity escalation"},
+		{"escape", func() (string, error) {
+			return gate.WaitBoundaryDecision(ctx, worker, "r1", "c2", "shell.operator_override", nil)
+		}, "identity escalation"},
 		{"cycle", func() (string, error) { return gate.WaitCycleDecision(ctx, worker, "r1", "c3", nil) }, "cycle decision"},
 		{"registration", func() (string, error) {
 			return gate.WaitPolicyDecision(ctx, worker, "r1", "c4", "plan registration", nil)

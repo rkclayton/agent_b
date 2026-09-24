@@ -381,7 +381,7 @@ func (c *Compactor) Summarize(s *session.Session, runID string, summary events.M
 	s.RecordCompaction(after - before)
 	source.Outcome = "accepted"
 	c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
-	c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "summarize", "trigger": source.Trigger, "before": before, "after": after, "affected_ids": affected, "summary_message_id": summary.ID, "role": source.Role, "profile_id": source.ProfileID, "model": source.Model, "fallback_reason": source.FallbackReason, "usage": source.Usage}))
+	c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "summarize", "trigger": source.Trigger, "before": before, "after": after, "affected_ids": affected, "summary_message_id": summary.ID, "role": source.Role, "connection_id": source.ConnectionID, "model": source.Model, "fallback_reason": source.FallbackReason, "usage": source.Usage}))
 	return true
 }
 

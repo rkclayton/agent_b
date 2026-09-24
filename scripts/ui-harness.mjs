@@ -5,7 +5,7 @@
 // instead of each growing its own copy of it.
 //
 // The model server is a switch, not a fixture: `reachable: false` binds nothing
-// and the profile points at a dead port, which is the operator's condition in
+// and the connection points at a dead port, which is the operator's condition in
 // 2gf ("model is unavailable which may contribute").
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -46,15 +46,15 @@ async function stopChild(child) {
 
 const TOOLSET = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
 
-function configFor({ appPort, modelPort, data, workspace, agents = [], profileModel = "ui-harness" }) {
+function configFor({ appPort, modelPort, data, workspace, agents = [], connectionModel = "ui-harness" }) {
   return {
     config_version: 6, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(data, "logs"),
-    servers: [{
-      id: "ui", label: "UI", base_url: `http://127.0.0.1:${modelPort}`, model: profileModel, credential: "", request_timeout_s: 2, probe_mode: "off",
+    connections: [{
+      id: "ui", label: "UI", base_url: `http://127.0.0.1:${modelPort}`, model: connectionModel, credential: "", request_timeout_s: 2, probe_mode: "off",
       sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
       reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false },
       context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
-      capabilities: { server: "ui-harness", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: [] },
+      capabilities: { connection: "ui-harness", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: [] },
     }],
     services: {}, agents: [{ name: "UI", b: "ui", toolset: TOOLSET }, ...[...new Set(agents)].filter((name) => name.toLowerCase() !== "ui").map((name) => ({ name, b: "ui", toolset: TOOLSET }))], chat: { auto_rename: false },
     run: { max_turns: 4, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 1, queue_depth: 0 },
@@ -72,7 +72,7 @@ function configFor({ appPort, modelPort, data, workspace, agents = [], profileMo
 // start brings up the harness. `reachable: false` leaves the model port unbound,
 // which is what the operator had. `routeFailures` is a set of API path prefixes
 // the browser context fails, so a scenario can break `/api/plan` alone.
-export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], profileModel = "ui-harness" }) {
+export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness" }) {
   const dataRoot = resolve(data);
   const workspace = join(dataRoot, "workspace");
   await mkdir(workspace, { recursive: true });
@@ -81,7 +81,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
   let model = null;
   if (reachable) {
     model = createServer(async (request, response) => {
-      if (request.url === "/props") return void response.end(JSON.stringify({ server: "ui-harness", n_ctx: 32768 }));
+      if (request.url === "/props") return void response.end(JSON.stringify({ connection: "ui-harness", n_ctx: 32768 }));
       if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: modelIDs.map((id) => ({ id })) }));
       if (request.url === "/tokenize") return void response.end(JSON.stringify({ tokens: [1] }));
       if (request.url === "/apply-template") return void response.end(JSON.stringify({ prompt: "ui harness" }));
@@ -96,7 +96,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
 
   const appPort = await freePort();
   const configPath = join(dataRoot, "harness.json");
-  await writeFile(configPath, JSON.stringify(configFor({ appPort, modelPort, data: dataRoot, workspace, agents, profileModel }), null, 2));
+  await writeFile(configPath, JSON.stringify(configFor({ appPort, modelPort, data: dataRoot, workspace, agents, connectionModel }), null, 2));
 
   let stderr = "";
   const app = spawn(resolve(exe), ["-config", configPath, "-app-root", resolve(appRoot), "-data-root", dataRoot], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });

@@ -7,28 +7,28 @@ import (
 )
 
 func TestBuildRequestUsesCanonicalReserveDefault(t *testing.T) {
-	body := BuildRequest(&config.Profile{}, Request{}, false)
+	body := BuildRequest(&config.Connection{}, Request{}, false)
 	if got := body["max_tokens"]; got != config.DefaultReserveOutput {
 		t.Fatalf("max_tokens=%v, want %d", got, config.DefaultReserveOutput)
 	}
 }
 
-func TestBuildRequestCarriesProfileReasoningCap(t *testing.T) {
-	profile := &config.Profile{Reasoning: config.Reasoning{Control: "chat_template_kwargs", Enabled: true, MaxTokens: 1000}}
-	body := BuildRequest(profile, Request{Thinking: true}, false)
+func TestBuildRequestCarriesConnectionReasoningCap(t *testing.T) {
+	connection := &config.Connection{Reasoning: config.Reasoning{Control: "chat_template_kwargs", Enabled: true, MaxTokens: 1000}}
+	body := BuildRequest(connection, Request{Thinking: true}, false)
 	kwargs := body["chat_template_kwargs"].(map[string]any)
 	if kwargs["reasoning_budget"] != 1000 {
 		t.Fatalf("kwargs=%v", kwargs)
 	}
-	profile.Reasoning.Control = "top_level"
-	body = BuildRequest(profile, Request{Thinking: true}, false)
+	connection.Reasoning.Control = "top_level"
+	body = BuildRequest(connection, Request{Thinking: true}, false)
 	if body["reasoning_budget"] != 1000 {
 		t.Fatalf("body=%v", body)
 	}
 }
 
 func TestBuildRequestKeepsOnlyLeadingSystemRole(t *testing.T) {
-	body := BuildRequest(&config.Profile{}, Request{Messages: []Message{
+	body := BuildRequest(&config.Connection{}, Request{Messages: []Message{
 		{Role: "system", Content: "prompt"},
 		{Role: "user", Content: "hello"},
 		{Role: "system", Content: "old abort"},

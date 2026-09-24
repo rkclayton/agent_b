@@ -50,7 +50,7 @@ function syntheticJournal(sessionID, count) {
   // run.started, model.request, model.response, run.stopped.
   push("session.created", {
     session: {
-      id: sessionID, label: "synthetic", agent_id: "ui", server_id: "ui", agent_name: "UI", b_profile: "ui",
+      id: sessionID, label: "synthetic", agent_id: "ui", connection_id: "ui", agent_name: "UI", b_connection: "ui",
       role: "b", created_at: at(0), closed: false, name_pinned: false, workspace: "",
     },
   });

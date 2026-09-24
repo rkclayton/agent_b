@@ -43,16 +43,16 @@ type Runtime struct {
 }
 
 type State struct {
-	Running    bool           `json:"running"`
-	Phase      string         `json:"phase"`
-	Text       string         `json:"text"`
-	Downloaded int64          `json:"downloaded_bytes"`
-	Total      int64          `json:"total_bytes"`
-	Error      string         `json:"error,omitempty"`
-	ProfileID  string         `json:"profile_id,omitempty"`
-	BaseURL    string         `json:"base_url,omitempty"`
-	Model      string         `json:"model,omitempty"`
-	Context    *ContextSizing `json:"context,omitempty"`
+	Running      bool           `json:"running"`
+	Phase        string         `json:"phase"`
+	Text         string         `json:"text"`
+	Downloaded   int64          `json:"downloaded_bytes"`
+	Total        int64          `json:"total_bytes"`
+	Error        string         `json:"error,omitempty"`
+	ConnectionID string         `json:"connection_id,omitempty"`
+	BaseURL      string         `json:"base_url,omitempty"`
+	Model        string         `json:"model,omitempty"`
+	Context      *ContextSizing `json:"context,omitempty"`
 }
 
 type Request struct {
@@ -230,11 +230,11 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 		return
 	}
 	// llama-server reports the loaded GGUF path as its model id. Persist that
-	// exact id so the profile created by the wizard agrees with /v1/models.
-	ready := State{Running: false, Phase: "ready", Text: "Model installed and ready", Total: m.Snapshot().Total, Downloaded: m.Snapshot().Downloaded, ProfileID: "installed-local", BaseURL: baseURL, Model: modelPath, Context: &sizing}
+	// exact id so the connection created by the wizard agrees with /v1/models.
+	ready := State{Running: false, Phase: "ready", Text: "Model installed and ready", Total: m.Snapshot().Total, Downloaded: m.Snapshot().Downloaded, ConnectionID: "installed-local", BaseURL: baseURL, Model: modelPath, Context: &sizing}
 	if m.onReady != nil {
 		if err := m.onReady(ctx, ready); err != nil {
-			fail(fmt.Errorf("create local profile: %w", err))
+			fail(fmt.Errorf("create local connection: %w", err))
 			return
 		}
 	}

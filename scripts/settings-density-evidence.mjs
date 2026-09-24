@@ -42,7 +42,7 @@ function subhead(label, hint = "") {
 function context() {
   return {
     active: "", store: {
-      active: "", sessions: {}, servers: [], build: { tag: "v0.61.0", commit: "abcdef0" },
+      active: "", sessions: {}, connections: [], build: { tag: "v0.61.0", commit: "abcdef0" },
       config: { workspace: "C:\\workspace", context: { soft_pct: 0.75, summary_pct: 0.85, accounting: "auto" }, chat: {}, run: {}, approval: {}, deliver: {}, memory: {}, tools: { read_file: {} }, shell: { service_account: {} }, signing: {}, sandbox: {} },
       shell_credential: {}, shell_identity: {}, sandbox: {}, serving_facts: {},
     },
@@ -56,10 +56,10 @@ function context() {
     signingStatus: { loaded: false, supported: true, configured: false, can_manage: true, files: [], certificates: [] },
     signingBusy: false, signingMessage: "", signingAlarm: false,
     notificationStatus: {}, notificationBusy: false, notificationMessage: "", notificationAlarm: false,
-    serverProfiles: () => [], row, subhead, field: blank, text: blank, number: blank, numberControl: blank,
+    connectionList: () => [], row, subhead, field: blank, text: blank, number: blank, numberControl: blank,
     textarea: blank, secret: blank, toggle: blank, choices: blank, approvalChoices: blank, copyRow: blank,
-    currentValue: (_p, fallback) => fallback, issue: blank, profileReason: blank,
-    html, attr, selectedHardeningServerID: blank,
+    currentValue: (_p, fallback) => fallback, issue: blank, connectionReason: blank,
+    html, attr, selectedHardeningConnectionID: blank,
     operatorStatusView: () => ({ active: false, label: "off", src: "", srcset: "" }),
   };
 }

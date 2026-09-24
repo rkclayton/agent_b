@@ -55,15 +55,15 @@ func TestRegistrationRefusalJudgesTheResolvedFolder(t *testing.T) {
 	}
 }
 
-// v0.69.0/W16 cold review: the profile folder and the system folders are
+// v0.69.0/W16 cold review: the connection folder and the system folders are
 // refused wherever a typed path leads.
-func TestRegistrationRefusesTheProfileAndSystemFolders(t *testing.T) {
+func TestRegistrationRefusesTheConnectionAndSystemFolders(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows folders")
 	}
 	plans := filepath.Join(t.TempDir(), "plans")
-	// A stand-in profile: the junction below never points at the real one.
-	home := filepath.Join(t.TempDir(), "profile")
+	// A stand-in connection: the junction below never points at the real one.
+	home := filepath.Join(t.TempDir(), "connection")
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestRegistrationRefusesTheProfileAndSystemFolders(t *testing.T) {
 	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, home).CombinedOutput(); err != nil {
 		t.Fatalf("junction: %v %s", err, out)
 	}
-	for name, path := range map[string]string{"the profile": home, "a junction to the profile": link, "Windows": os.Getenv("SystemRoot"), "inside Program Files": filepath.Join(os.Getenv("ProgramFiles"), "Common Files")} {
+	for name, path := range map[string]string{"the connection": home, "a junction to the connection": link, "Windows": os.Getenv("SystemRoot"), "inside Program Files": filepath.Join(os.Getenv("ProgramFiles"), "Common Files")} {
 		if _, reason := RegistrationRefusal(plans, path); reason == "" {
 			t.Errorf("%s (%s) was accepted", name, path)
 		}
@@ -82,6 +82,6 @@ func TestRegistrationRefusesTheProfileAndSystemFolders(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, reason := RegistrationRefusal(plans, inside); reason != "" {
-		t.Errorf("a folder inside the profile was refused: %q", reason)
+		t.Errorf("a folder inside the connection was refused: %q", reason)
 	}
 }

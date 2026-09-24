@@ -23,16 +23,16 @@ func TestNewChatAfterRestartCarriesNothingFromARetainedChat(t *testing.T) {
 	logs := filepath.Join(root, "logs")
 	cfg := config.Defaults(filepath.Join(root, "scratch"))
 	cfg.Context.Accounting = "estimated"
-	profile := &cfg.Servers[0]
-	profile.BaseURL = "http://127.0.0.1:1"
-	profile.RequestTimeoutS = 1
-	profile.Context.NCtx = 32768
-	profile.Context.ReserveOutput = 8192
-	profile.Capabilities.Tokenize = false
-	profile.Capabilities.Streaming = true
-	profile.Capabilities.ToolCalls = true
-	profile.Capabilities.OverflowBehavior = "error"
-	profiles := func(id string) (*config.Profile, bool) { return profile, id == profile.ID }
+	connection := &cfg.Connections[0]
+	connection.BaseURL = "http://127.0.0.1:1"
+	connection.RequestTimeoutS = 1
+	connection.Context.NCtx = 32768
+	connection.Context.ReserveOutput = 8192
+	connection.Capabilities.Tokenize = false
+	connection.Capabilities.Streaming = true
+	connection.Capabilities.ToolCalls = true
+	connection.Capabilities.OverflowBehavior = "error"
+	connections := func(id string) (*config.Connection, bool) { return connection, id == connection.ID }
 
 	firstWriters, err := events.NewWriters(logs)
 	if err != nil {
@@ -40,7 +40,7 @@ func TestNewChatAfterRestartCarriesNothingFromARetainedChat(t *testing.T) {
 	}
 	firstBus := events.NewBus()
 	firstBus.SetDurableSink(firstWriters.WriteRecord, nil, nil)
-	firstRegistry := session.NewRegistry(firstBus, firstWriters, profiles, 40, func() config.Config { return cfg })
+	firstRegistry := session.NewRegistry(firstBus, firstWriters, connections, 40, func() config.Config { return cfg })
 	firstRegistry.SetPlansRoot(filepath.Join(root, "plans"))
 	retained, err := firstRegistry.Create("", cfg.DefaultAgentID(), "")
 	if err != nil {
@@ -75,7 +75,7 @@ func TestNewChatAfterRestartCarriesNothingFromARetainedChat(t *testing.T) {
 		}
 		return secondWriters.WriteRecord(record)
 	}, nil, nil)
-	secondRegistry := session.NewRegistry(secondBus, secondWriters, profiles, 40, func() config.Config { return cfg })
+	secondRegistry := session.NewRegistry(secondBus, secondWriters, connections, 40, func() config.Config { return cfg })
 	secondRegistry.SetPlansRoot(filepath.Join(root, "plans"))
 	restored, _, err := restoreRetainedChats(secondWriters, secondRegistry, secondBus, 0)
 	if err != nil || len(restored) != 1 || len(restored[0].Snapshot().Messages) != 3 {
@@ -116,7 +116,7 @@ func TestNewChatAfterRestartCarriesNothingFromARetainedChat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := agent.NewRunner(secondBus, tools.New(), renderer, profiles, func() config.Config { return cfg })
+	runner := agent.NewRunner(secondBus, tools.New(), renderer, connections, func() config.Config { return cfg })
 	runner.ReserveIDs(retainedIDFloor(secondWriters))
 	fresh.Runnable = true
 	fresh.Run = session.RunState{Status: "running", MaxTurns: 40}

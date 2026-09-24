@@ -22,7 +22,7 @@ type Config struct {
 	Listen        string             `json:"listen"`
 	Workspace     string             `json:"workspace"`
 	LogDir        string             `json:"log_dir"`
-	Servers       []Profile          `json:"servers"`
+	Connections   []Connection       `json:"connections"`
 	Services      map[string]Service `json:"services"`
 	Agents        []Agent            `json:"agents"`
 	Chat          Chat               `json:"chat"`
@@ -131,7 +131,7 @@ func (c *Chat) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type Profile struct {
+type Connection struct {
 	ID                   string       `json:"id"`
 	Label                string       `json:"label"`
 	BaseURL              string       `json:"base_url"`
@@ -155,7 +155,7 @@ type Profile struct {
 }
 
 // Measurement is the optional, bounded setup-wizard capability run. It is
-// descriptive evidence, never a gate: an unmeasured profile remains usable.
+// descriptive evidence, never a gate: an unmeasured connection remains usable.
 type Measurement struct {
 	Passed        int     `json:"passed"`
 	Total         int     `json:"total"`
@@ -179,8 +179,8 @@ type Service struct {
 	RequireConfirmation bool     `json:"require_confirmation"`
 }
 
-func defaultProfile() Profile {
-	return Profile{
+func defaultConnection() Connection {
+	return Connection{
 		RequestTimeoutS:    900,
 		ProbeMode:          "full",
 		AttachmentHandling: "auto",
@@ -195,21 +195,21 @@ func defaultProfile() Profile {
 	}
 }
 
-func (p Profile) NativeImageInput() bool {
+func (p Connection) NativeImageInput() bool {
 	return p.AttachmentHandling == "native" || (p.AttachmentHandling == "auto" && p.Capabilities.Vision == VisionReadsImages)
 }
 
-func (p Profile) NativeDocumentInput() bool {
+func (p Connection) NativeDocumentInput() bool {
 	return p.AttachmentHandling == "native" || (p.AttachmentHandling == "auto" && p.Capabilities.DocumentInput)
 }
 
-func (p *Profile) UnmarshalJSON(data []byte) error {
-	type plain Profile
-	value := plain(defaultProfile())
+func (p *Connection) UnmarshalJSON(data []byte) error {
+	type plain Connection
+	value := plain(defaultConnection())
 	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	*p = Profile(value)
+	*p = Connection(value)
 	p.initialized = true
 	return nil
 }
@@ -353,7 +353,7 @@ func (d *Deliver) UnmarshalJSON(data []byte) error {
 }
 
 const (
-	CurrentConfigVersion     = 7
+	CurrentConfigVersion     = 8
 	DefaultReserveOutput     = 10240
 	ApprovalModeBoundaryOnly = "boundary-only"
 	ApprovalModeMutating     = "mutating"
@@ -367,8 +367,8 @@ const (
 const ApprovalDefaultMigrationNotice = "corrected inherited approval default from mutating to boundary-only; mutating can be reselected in Settings > Run & approval"
 const OperatorIdleTimeoutMigrationNotice = "migrated shell.operator_context_timeout_minutes to shell.operator_context_idle_timeout_minutes; operator mode now expires after agent inactivity"
 const ByteWindowMigrationNotice = "migrated read_file and fetch_url limits from line counts to UTF-8 byte windows"
-const ModelRolesMigrationNotice = "migrated model profiles to schema 5 with an explicit main role, optional aux role, and per-profile context size"
-const AgentObjectsMigrationNotice = "migrated profile roles to schema 6 with one named agent, bound b/c profiles, and the full toolset"
+const ModelRolesMigrationNotice = "migrated model connections to schema 5 with an explicit main role, optional aux role, and per-connection context size"
+const AgentObjectsMigrationNotice = "migrated connection roles to schema 6 with one named agent, bound b/c connections, and the full toolset"
 
 type GlobalContext struct {
 	SoftPct    float64 `json:"soft_pct"`
@@ -395,7 +395,7 @@ type AttachmentTool struct {
 	MaxBytes int64 `json:"max_bytes"`
 	// Item 2ch (v1.2.5): a PDF has two routes and the branch order used to
 	// choose. The operator chose: SIDECAR BY DEFAULT, inline only under this
-	// many bytes and only where the profile can read a document natively.
+	// many bytes and only where the connection can read a document natively.
 	// Inline is higher fidelity and unbounded; a sidecar is bounded and lossy,
 	// and the unbounded one is not what should happen by accident.
 	InlineMaxBytes int64 `json:"inline_max_bytes"`
@@ -530,12 +530,12 @@ func Defaults(workspace string) Config {
 		workspace = "./workspace"
 	}
 	abs, _ := filepath.Abs(workspace)
-	profile := defaultProfile()
-	profile.ID, profile.Label, profile.BaseURL, profile.Model = "local", "Local", "http://127.0.0.1:8080", "model"
+	connection := defaultConnection()
+	connection.ID, connection.Label, connection.BaseURL, connection.Model = "local", "Local", "http://127.0.0.1:8080", "model"
 	return Config{
 		ConfigVersion: CurrentConfigVersion,
 		Listen:        "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
-		Servers: []Profile{profile}, Agents: []Agent{{Name: profile.Label, B: "local", Toolset: FullToolset()}}, Chat: defaultChat(),
+		Connections: []Connection{connection}, Agents: []Agent{{Name: connection.Label, B: "local", Toolset: FullToolset()}}, Chat: defaultChat(),
 		Services: map[string]Service{},
 		Sandbox:  Sandbox{Enabled: true, initialized: true},
 		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(),
@@ -555,7 +555,7 @@ func LoadWithTemplate(path, examplePath string) (*Config, bool, bool, error) {
 	return LoadWithRoots(path, examplePath, filepath.Dir(path))
 }
 
-// LoadWithRoots resolves profile credential references against the explicit
+// LoadWithRoots resolves connection credential references against the explicit
 // operator data root rather than deriving their location from the config path.
 func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, error) {
 	data, err := os.ReadFile(path)
@@ -601,7 +601,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		return nil, false, created, fmt.Errorf("run.max_tool_calls: zero is not unlimited; omit it for the default %d or use a positive backstop", DefaultMaxToolCalls)
 	}
 	unstamped := metadata.ConfigVersion == nil
-	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != 6 && *metadata.ConfigVersion != CurrentConfigVersion {
+	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != 6 && *metadata.ConfigVersion != 7 && *metadata.ConfigVersion != CurrentConfigVersion {
 		return nil, false, created, fmt.Errorf("config_version: unsupported value %d (current %d)", *metadata.ConfigVersion, CurrentConfigVersion)
 	}
 	migrated, data, err := migrateV1(data)
@@ -612,6 +612,10 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if metadata.ConfigVersion != nil {
 		version = *metadata.ConfigVersion
 	}
+	connectionKeyMigrated, data, err := migrateConnectionKey(data)
+	if err != nil {
+		return nil, false, created, err
+	}
 	schemaMigrated, idleTimeoutRemapped, data, err := migrateOperatorIdleTimeout(data, version)
 	if err != nil {
 		return nil, false, created, err
@@ -620,7 +624,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if err != nil {
 		return nil, false, created, err
 	}
-	modelRolesMigrated, data, err := migrateModelProfiles(data, version)
+	modelRolesMigrated, data, err := migrateModelConnections(data, version)
 	if err != nil {
 		return nil, false, created, err
 	}
@@ -653,10 +657,10 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if err := cfg.Validate(); err != nil {
 		return nil, false, created, err
 	}
-	if err := ResolveProfileCredentials(&cfg, dataRoot); err != nil {
+	if err := ResolveConnectionCredentials(&cfg, dataRoot); err != nil {
 		return nil, false, created, err
 	}
-	if migrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated || unstamped {
+	if migrated || connectionKeyMigrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated || unstamped {
 		if err := cfg.Save(path); err != nil {
 			return nil, false, created, err
 		}
@@ -676,14 +680,14 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if agentsMigrated && !unstamped {
 		cfg.LoadNotices = append(cfg.LoadNotices, AgentObjectsMigrationNotice)
 	}
-	return &cfg, migrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated, created, nil
+	return &cfg, migrated || connectionKeyMigrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated, created, nil
 }
 
 func (c Config) Save(path string) error {
 	persisted := c
-	persisted.Servers = append([]Profile(nil), c.Servers...)
-	for i := range persisted.Servers {
-		persisted.Servers[i].APIKey = ""
+	persisted.Connections = append([]Connection(nil), c.Connections...)
+	for i := range persisted.Connections {
+		persisted.Connections[i].APIKey = ""
 	}
 	persisted.ConfigVersion = CurrentConfigVersion
 	if err := persisted.Validate(); err != nil {
@@ -699,33 +703,33 @@ func (c Config) Save(path string) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
-func ResolveProfileCredentials(cfg *Config, dataRoot string) error {
-	for i := range cfg.Servers {
-		profile := &cfg.Servers[i]
-		if profile.APIKey == "" && profile.Credential == "" {
+func ResolveConnectionCredentials(cfg *Config, dataRoot string) error {
+	for i := range cfg.Connections {
+		connection := &cfg.Connections[i]
+		if connection.APIKey == "" && connection.Credential == "" {
 			continue
 		}
-		if profile.Credential == "" {
-			profile.Credential = profile.ID
+		if connection.Credential == "" {
+			connection.Credential = connection.ID
 		}
-		store, err := credential.NewNamed(dataRoot, profile.Credential)
+		store, err := credential.NewNamed(dataRoot, connection.Credential)
 		if err != nil {
-			return fmt.Errorf("servers[%d].credential: %w", i, err)
+			return fmt.Errorf("connections[%d].credential: %w", i, err)
 		}
-		if profile.APIKey != "" {
-			if err := store.Write([]byte(profile.APIKey)); err != nil {
-				return fmt.Errorf("store credential %q: %w", profile.Credential, err)
+		if connection.APIKey != "" {
+			if err := store.Write([]byte(connection.APIKey)); err != nil {
+				return fmt.Errorf("store credential %q: %w", connection.Credential, err)
 			}
 			continue
 		}
 		value, err := store.Read()
 		if err != nil {
 			if errors.Is(err, credential.ErrNotStored) {
-				return fmt.Errorf("servers[%d].credential: named credential %q is not stored", i, profile.Credential)
+				return fmt.Errorf("connections[%d].credential: named credential %q is not stored", i, connection.Credential)
 			}
-			return fmt.Errorf("servers[%d].credential: %w", i, err)
+			return fmt.Errorf("connections[%d].credential: %w", i, err)
 		}
-		profile.APIKey = string(value)
+		connection.APIKey = string(value)
 		clearBytes(value)
 	}
 	return nil
@@ -766,8 +770,8 @@ func (c Config) Validate() error {
 		}
 	}
 	seen := map[string]bool{}
-	for i, p := range c.Servers {
-		prefix := fmt.Sprintf("servers[%d]", i)
+	for i, p := range c.Connections {
+		prefix := fmt.Sprintf("connections[%d]", i)
 		if !slug.MatchString(p.ID) {
 			return fmt.Errorf("%s.id: must be a slug", prefix)
 		}
@@ -820,10 +824,10 @@ func (c Config) Validate() error {
 			return fmt.Errorf("%s.context.n_ctx: required when probe_mode is off", prefix)
 		}
 	}
-	if len(c.Servers) == 0 && len(c.Agents) != 0 {
-		return fmt.Errorf("agents: must be empty until a profile is configured")
+	if len(c.Connections) == 0 && len(c.Agents) != 0 {
+		return fmt.Errorf("agents: must be empty until a connection is configured")
 	}
-	if len(c.Servers) > 0 && len(c.Agents) == 0 {
+	if len(c.Connections) > 0 && len(c.Agents) == 0 {
 		return fmt.Errorf("agents: at least one agent is required")
 	}
 	agentIDs := map[string]bool{}
@@ -846,13 +850,13 @@ func (c Config) Validate() error {
 		}
 		agentIDs[id] = true
 		if !seen[agent.B] {
-			return fmt.Errorf("%s.b: must name an existing profile", prefix)
+			return fmt.Errorf("%s.b: must name an existing connection", prefix)
 		}
 		if agent.C != "" && !seen[agent.C] {
-			return fmt.Errorf("%s.c: must be empty or name an existing profile", prefix)
+			return fmt.Errorf("%s.c: must be empty or name an existing connection", prefix)
 		}
 		if agent.D != "" && !seen[agent.D] {
-			return fmt.Errorf("%s.d: must be empty or name an existing profile", prefix)
+			return fmt.Errorf("%s.d: must be empty or name an existing connection", prefix)
 		}
 		toolSeen := map[string]bool{}
 		for _, tool := range agent.Toolset {
@@ -1023,14 +1027,14 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// ProfileSetupReason explains incomplete first-run profile settings without
+// ConnectionSetupReason explains incomplete first-run connection settings without
 // making the configuration file itself invalid.
-func ProfileSetupReason(profile *Profile) string {
-	if strings.TrimSpace(profile.BaseURL) == "" {
-		return "base_url is empty — Settings → Connections → this profile → base_url, or Open setup guide"
+func ConnectionSetupReason(connection *Connection) string {
+	if strings.TrimSpace(connection.BaseURL) == "" {
+		return "base_url is empty — Settings → Connections → this connection → base_url, or Open setup guide"
 	}
-	if strings.TrimSpace(profile.Model) == "" {
-		return "model is empty — Settings → Connections → this profile → model, or Open setup guide"
+	if strings.TrimSpace(connection.Model) == "" {
+		return "model is empty — Settings → Connections → this connection → model, or Open setup guide"
 	}
 	return ""
 }
@@ -1082,7 +1086,7 @@ func applyDefaults(c *Config) {
 	if !c.Sandbox.initialized {
 		c.Sandbox = d.Sandbox
 	}
-	if len(c.Servers) == 0 {
+	if len(c.Connections) == 0 {
 		c.Agents = []Agent{}
 	}
 	if !c.Chat.initialized {
@@ -1138,9 +1142,9 @@ func applyDefaults(c *Config) {
 	if c.Shell.ServiceAccount.Domain == "" {
 		c.Shell.ServiceAccount.Domain = d.Shell.ServiceAccount.Domain
 	}
-	for i := range c.Servers {
-		p := &c.Servers[i]
-		pd := d.Servers[0]
+	for i := range c.Connections {
+		p := &c.Connections[i]
+		pd := d.Connections[0]
 		if !p.initialized {
 			if p.RequestTimeoutS == 0 {
 				p.RequestTimeoutS = pd.RequestTimeoutS
@@ -1244,29 +1248,29 @@ func contains(values []string, v string) bool {
 
 func (c Config) Masked() Config {
 	out := c
-	out.Servers = append([]Profile(nil), c.Servers...)
-	for i := range out.Servers {
-		if out.Servers[i].APIKey != "" {
-			out.Servers[i].APIKey = "•••• set"
+	out.Connections = append([]Connection(nil), c.Connections...)
+	for i := range out.Connections {
+		if out.Connections[i].APIKey != "" {
+			out.Connections[i].APIKey = "•••• set"
 		}
 	}
 	return out
 }
 
-func (c Config) Profile(id string) (*Profile, bool) {
-	for i := range c.Servers {
-		if c.Servers[i].ID == id {
-			profile := c.Servers[i]
-			return &profile, true
+func (c Config) Connection(id string) (*Connection, bool) {
+	for i := range c.Connections {
+		if c.Connections[i].ID == id {
+			connection := c.Connections[i]
+			return &connection, true
 		}
 	}
 	return nil, false
 }
 
-// ProfileFor is the profile a session of this role runs on. c falls back to b so
-// Go works on a single-profile install; d has no fallback, because a planner
-// without a d profile is refused at creation.
-func (a Agent) ProfileFor(role string) string {
+// ConnectionFor is the connection a session of this role runs on. c falls back to b so
+// Go works on a single-connection install; d has no fallback, because a planner
+// without a d connection is refused at creation.
+func (a Agent) ConnectionFor(role string) string {
 	switch role {
 	case "d":
 		return a.D

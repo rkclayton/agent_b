@@ -124,14 +124,14 @@ func (r *Runner) nameAfterFirstRun(item *session.Session, runID string) {
 	if _, loaded := r.nameAttempts.LoadOrStore(item.ID, true); loaded {
 		return
 	}
-	profile, ok := r.profile(snapshot.ServerID)
+	connection, ok := r.connection(snapshot.ConnectionID)
 	if !ok {
-		r.publishNameAttempt(item.ID, runID, "failed", "profile not found", "")
+		r.publishNameAttempt(item.ID, runID, "failed", "connection not found", "")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	response, err := llm.New(profile).Chat(ctx, llm.Request{Messages: []llm.Message{
+	response, err := llm.New(connection).Chat(ctx, llm.Request{Messages: []llm.Message{
 		{Role: "system", Content: "Name this chat in five words or fewer. Return plain text only."},
 		{Role: "user", Content: "First message:\n" + firstUser + "\n\nFirst reply:\n" + firstReply},
 	}, MaxTokens: 24})

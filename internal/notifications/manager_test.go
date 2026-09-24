@@ -77,8 +77,13 @@ func TestReleaseGateDeliversRunItemPlanWorkerAndSettingsTestOnceEach(t *testing.
 	var mu sync.Mutex
 	var messages []string
 	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Content string `json:"content"` }
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil { t.Error(err); return }
+		var body struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
 		mu.Lock()
 		messages = append(messages, body.Content)
 		mu.Unlock()
@@ -89,7 +94,9 @@ func TestReleaseGateDeliversRunItemPlanWorkerAndSettingsTestOnceEach(t *testing.
 	bus := events.NewBus()
 	manager := New(bus, func(id string) string { return id }, "http://127.0.0.1:8790")
 	manager.allowLocal = true
-	if err := manager.Configure(receiver.URL); err != nil { t.Fatal(err) }
+	if err := manager.Configure(receiver.URL); err != nil {
+		t.Fatal(err)
+	}
 	manager.Start(context.Background())
 	defer manager.Close()
 
@@ -101,21 +108,35 @@ func TestReleaseGateDeliversRunItemPlanWorkerAndSettingsTestOnceEach(t *testing.
 	} {
 		bus.Publish(event)
 	}
-	if err := manager.SendTest(context.Background()); err != nil { t.Fatal(err) }
+	if err := manager.SendTest(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		mu.Lock(); count := len(messages); mu.Unlock()
-		if count == 5 { break }
+		mu.Lock()
+		count := len(messages)
+		mu.Unlock()
+		if count == 5 {
+			break
+		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(messages) != 5 { t.Fatalf("posts=%d messages=%q", len(messages), messages) }
+	if len(messages) != 5 {
+		t.Fatalf("posts=%d messages=%q", len(messages), messages)
+	}
 	for _, fragment := range []string{"The run finished.", "item", "plan", "/plan", "Agent_b test notification."} {
 		count := 0
-		for _, message := range messages { if strings.Contains(strings.ToLower(message), strings.ToLower(fragment)) { count++ } }
-		if count == 0 { t.Errorf("no delivery contains %q: %q", fragment, messages) }
+		for _, message := range messages {
+			if strings.Contains(strings.ToLower(message), strings.ToLower(fragment)) {
+				count++
+			}
+		}
+		if count == 0 {
+			t.Errorf("no delivery contains %q: %q", fragment, messages)
+		}
 	}
 }
 

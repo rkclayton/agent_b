@@ -151,7 +151,7 @@ function Stop-UnsafeConfirmation {
     param([string]$Message)
     [Console]::Error.WriteLine("PROMPT REFUSED: $Message")
     [Console]::Error.WriteLine('Run this command alone in an interactive console, or use -Confirm:$false only after reviewing -WhatIf output.')
-    Write-Summary -Changed @() -NotChanged @('firewall rules', 'firewall profile defaults') -Next @('rerun safely after reviewing -WhatIf output')
+    Write-Summary -Changed @() -NotChanged @('firewall rules', 'firewall connection defaults') -Next @('rerun safely after reviewing -WhatIf output')
     exit 2
 }
 
@@ -195,7 +195,7 @@ function Test-RuleIntent {
     param([string]$LocalUserSddl)
     $rule = Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue
     if (-not $rule) { return $false }
-    if ($rule.Direction -ne 'Outbound' -or $rule.Action -ne 'Block' -or $rule.Enabled -ne 'True' -or $rule.Profile -ne 'Any') { return $false }
+    if ($rule.Direction -ne 'Outbound' -or $rule.Action -ne 'Block' -or $rule.Enabled -ne 'True' -or $rule.Connection -ne 'Any') { return $false }
     if ($rule.Description -ne $policyDescription) { $script:resolutionChanged = $true; return $false }
     # LocalUser is stored on the associated network-layer security filter,
     # not on the MSFT_NetFirewallRule object returned by Get-NetFirewallRule.
@@ -206,7 +206,7 @@ function Test-RuleIntent {
     $blockCorrect = ($actual.Count -eq $expected.Count -and -not (Compare-Object -ReferenceObject $expected -DifferenceObject $actual))
     $icmp = Get-NetFirewallRule -Name $LANICMPRuleName -ErrorAction SilentlyContinue
     if (-not $AllowLocalNetwork) { return $blockCorrect -and -not $icmp }
-    if (-not $icmp -or $icmp.Direction -ne 'Outbound' -or $icmp.Action -ne 'Allow' -or $icmp.Enabled -ne 'True' -or $icmp.Profile -ne 'Any') { return $false }
+    if (-not $icmp -or $icmp.Direction -ne 'Outbound' -or $icmp.Action -ne 'Allow' -or $icmp.Enabled -ne 'True' -or $icmp.Connection -ne 'Any') { return $false }
     $icmpSecurity = Get-NetFirewallSecurityFilter -AssociatedNetFirewallRule $icmp
     $icmpPort = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $icmp
     $icmpAddresses = @((Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $icmp).RemoteAddress | Sort-Object)
@@ -225,7 +225,7 @@ Write-Host "$(if ($AllowLocalNetwork) { 'One account-scoped outbound ICMPv4 echo
 
 if (-not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $Verify -and -not $Inspect) {
     [Console]::Error.WriteLine('Administrator elevation is required to apply or remove the firewall rule.')
-    Write-Summary -Changed @() -NotChanged @('firewall rules', 'firewall profile defaults') -Next @('use Agent_b Settings or reopen PowerShell as Administrator')
+    Write-Summary -Changed @() -NotChanged @('firewall rules', 'firewall connection defaults') -Next @('use Agent_b Settings or reopen PowerShell as Administrator')
     exit 1
 }
 
@@ -233,7 +233,7 @@ if ($Remove) {
 $present = @(Get-NetFirewallRule -Name $ruleName, $legacyAllowRuleName, $LANICMPRuleName -ErrorAction SilentlyContinue)
     if ($present.Count -eq 0) {
         Write-Host 'UNCHANGED: Agent_b reserved firewall rules are already absent.'
-        Write-Summary -Changed @() -NotChanged @('firewall rules', 'firewall profile defaults') -Next @('remove ACLs before deleting the service account if rolling back fully')
+        Write-Summary -Changed @() -NotChanged @('firewall rules', 'firewall connection defaults') -Next @('remove ACLs before deleting the service account if rolling back fully')
         exit 0
     }
     if (Test-ConfirmationPromptExpected) { Assert-SafeConfirmationInput }
@@ -241,15 +241,15 @@ $present = @(Get-NetFirewallRule -Name $ruleName, $legacyAllowRuleName, $LANICMP
         $present | Remove-NetFirewallRule
         Write-Host "REMOVED: $($present.Name -join ', ')"
     }
-    Write-Summary -Changed @('reserved Agent_b firewall rules removed') -NotChanged @('firewall profile defaults') -Next @('remove ACLs before deleting the service account if rolling back fully')
+    Write-Summary -Changed @('reserved Agent_b firewall rules removed') -NotChanged @('firewall connection defaults') -Next @('remove ACLs before deleting the service account if rolling back fully')
     exit 0
 }
 
 if ($WhatIfPreference) {
-    Write-Host 'Mode: WhatIf; no firewall rule or profile setting will be changed.'
+    Write-Host 'Mode: WhatIf; no firewall rule or connection setting will be changed.'
     $null = $PSCmdlet.ShouldProcess($ruleName, "Create or repair user-scoped outbound Block over: $($blockedRanges -join ', '); confirmed LAN: $($confirmedLANSubnets -join ', ')")
 	if ($AllowLocalNetwork) { $null = $PSCmdlet.ShouldProcess($LANICMPRuleName, "Create account-scoped outbound ICMPv4 echo Allow for: $($confirmedLANSubnets -join ', ')") }
-    Write-Summary -Changed @() -NotChanged @('firewall rules', 'firewall profile defaults') -Next @('apply from Agent_b Settings, then verify')
+    Write-Summary -Changed @() -NotChanged @('firewall rules', 'firewall connection defaults') -Next @('apply from Agent_b Settings, then verify')
     exit 0
 }
 
@@ -277,25 +277,25 @@ if ($Inspect) {
 if ($Verify) {
     Write-Host "$(if ($correct) { 'PASS' } else { 'DRIFT' }): $ruleName"
     Write-Host "$(if (-not $legacyPresent) { 'PASS' } else { 'DRIFT' }): no conflicting legacy Allow rule"
-    Write-Summary -Changed @() -NotChanged @('firewall rules', 'firewall profile defaults') -Next @($(if ($correct -and -not $legacyPresent) { 'firewall verification complete' } else { 'apply again to repair drift' }))
+    Write-Summary -Changed @() -NotChanged @('firewall rules', 'firewall connection defaults') -Next @($(if ($correct -and -not $legacyPresent) { 'firewall verification complete' } else { 'apply again to repair drift' }))
     if (-not $correct -or $legacyPresent) { exit 1 }
     exit 0
 }
 
 if ($correct -and -not $legacyPresent) {
     Write-Host "UNCHANGED: exact firewall policy already exists :: $ruleName"
-    Write-Summary -Changed @() -NotChanged @('firewall rule', 'firewall profile defaults') -Next @('run the RBAC network check')
+    Write-Summary -Changed @() -NotChanged @('firewall rule', 'firewall connection defaults') -Next @('run the RBAC network check')
     exit 0
 }
 
 if (Test-ConfirmationPromptExpected) { Assert-SafeConfirmationInput }
 if ($PSCmdlet.ShouldProcess($ruleName, 'Create or repair Agent_b user-scoped outbound Block rule')) {
     Get-NetFirewallRule -Name $ruleName, $legacyAllowRuleName, $LANICMPRuleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-    $null = New-NetFirewallRule -Name $ruleName -DisplayName $ruleName -Description $policyDescription -Direction Outbound -Action Block -Enabled True -Profile Any -LocalUser $localUserSddl -RemoteAddress $blockedRanges
+    $null = New-NetFirewallRule -Name $ruleName -DisplayName $ruleName -Description $policyDescription -Direction Outbound -Action Block -Enabled True -Connection Any -LocalUser $localUserSddl -RemoteAddress $blockedRanges
     if ($AllowLocalNetwork) {
-        $null = New-NetFirewallRule -Name $LANICMPRuleName -DisplayName $LANICMPRuleName -Description 'Allows outbound ICMPv4 echo to operator-confirmed LAN subnets for the Agent_b service identity.' -Direction Outbound -Action Allow -Enabled True -Profile Any -LocalUser $localUserSddl -Protocol ICMPv4 -IcmpType 8 -RemoteAddress $confirmedLANSubnets
+        $null = New-NetFirewallRule -Name $LANICMPRuleName -DisplayName $LANICMPRuleName -Description 'Allows outbound ICMPv4 echo to operator-confirmed LAN subnets for the Agent_b service identity.' -Direction Outbound -Action Allow -Enabled True -Connection Any -LocalUser $localUserSddl -Protocol ICMPv4 -IcmpType 8 -RemoteAddress $confirmedLANSubnets
     }
     Write-Host "APPLIED: $ruleName"
 }
-Write-Summary -Changed @('user-scoped outbound Block rule applied') -NotChanged @('firewall profile defaults') -Next @('verify from Settings', 'run the RBAC network check')
+Write-Summary -Changed @('user-scoped outbound Block rule applied') -NotChanged @('firewall connection defaults') -Next @('verify from Settings', 'run the RBAC network check')
 exit 0

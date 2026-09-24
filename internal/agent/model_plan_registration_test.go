@@ -39,12 +39,12 @@ func TestModelProposedPlanRegistrationRaisesTheOperatorsCard(t *testing.T) {
 			defer model.Close()
 			cfg := config.Defaults(root)
 			cfg.Context.Accounting = "estimated"
-			profile := cfg.Servers[0]
-			profile.ID, profile.BaseURL = "main", model.URL
-			profile.Context.NCtx, profile.Context.ReserveOutput = 32768, 8192
-			profile.Capabilities.Streaming, profile.Capabilities.ToolCalls = true, true
-			profile.Capabilities.OverflowBehavior = "error"
-			cfg.Servers = []config.Profile{profile}
+			connection := cfg.Connections[0]
+			connection.ID, connection.BaseURL = "main", model.URL
+			connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
+			connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+			connection.Capabilities.OverflowBehavior = "error"
+			cfg.Connections = []config.Connection{connection}
 			approvals := make(chan events.Event, 8)
 			bus := events.NewBus()
 			bus.SetSink(func(event events.Event) error {
@@ -55,7 +55,7 @@ func TestModelProposedPlanRegistrationRaisesTheOperatorsCard(t *testing.T) {
 			})
 			registrations := 0
 			item := &session.Session{
-				ID: "b-chat", ServerID: profile.ID, Role: "b", Workspace: root, Runnable: true,
+				ID: "b-chat", ConnectionID: connection.ID, Role: "b", Workspace: root, Runnable: true,
 				Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{},
 				ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{},
 				RegisterPlan: func(path string) (session.Plan, bool, error) {
@@ -63,7 +63,7 @@ func TestModelProposedPlanRegistrationRaisesTheOperatorsCard(t *testing.T) {
 					return session.Plan{ID: "p", Name: "repo", Repo: path}, true, nil
 				},
 			}
-			runner := NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, func(id string) (*config.Profile, bool) { return &profile, id == profile.ID }, func() config.Config { return cfg })
+			runner := NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }, func() config.Config { return cfg })
 			if _, err := runner.AddUser(context.Background(), item, "I found the game repo; should it be a plan?"); err != nil {
 				t.Fatal(err)
 			}

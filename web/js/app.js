@@ -24,10 +24,10 @@ const liveContent = document.getElementById("panel-live-content");
 const liveEmpty = document.getElementById("panel-live-empty");
 const dropLastMessage = document.getElementById("drop-last-message");
 const agentSelect = document.getElementById("panel-agent");
-const agentServerSelect = document.getElementById("panel-agent-server");
-const agentServerVision = document.getElementById("panel-agent-vision");
-const agentServerState = document.getElementById("panel-agent-server-state");
-const agentServerCancel = document.getElementById("panel-agent-server-cancel");
+const agentConnectionSelect = document.getElementById("panel-agent-connection");
+const agentConnectionVision = document.getElementById("panel-agent-vision");
+const agentConnectionState = document.getElementById("panel-agent-connection-state");
+const agentConnectionCancel = document.getElementById("panel-agent-connection-cancel");
 const feedback = document.getElementById("panel-feedback");
 const panelStop = document.getElementById("panel-stop");
 const panelLiveCompactions = document.getElementById("panel-live-compactions");
@@ -51,8 +51,8 @@ agentSelect.addEventListener("change", () => {
   }
   void refreshLedger();
 });
-agentServerSelect.addEventListener("change", () => void changeAgentServer());
-agentServerCancel.addEventListener("click", () => void cancelAgentServerChange());
+agentConnectionSelect.addEventListener("change", () => void changeAgentConnection());
+agentConnectionCancel.addEventListener("click", () => void cancelAgentConnectionChange());
 document.getElementById("clear-stats").addEventListener("click", () => void clearStats());
 document.getElementById("flush-memory").addEventListener("click", () => void flushMemory());
 document.getElementById("panel-tools").addEventListener("change", (event) => void toggleTool(event));
@@ -121,7 +121,7 @@ function renderPanels() {
   if (!agents.some((agent) => agentKey(agent) === selectedAgent)) selectedAgent = agentKey(agents[0]);
   agentSelect.replaceChildren(...agents.map((agent) => option(agentKey(agent), agent.name, agentKey(agent) === selectedAgent)));
   const agent = agents.find((candidate) => agentKey(candidate) === selectedAgent);
-  renderAgentServer(agent);
+  renderAgentConnection(agent);
   document.getElementById("panel-agent-binding").textContent = agent ? `${agent.c ? `c ${agent.c}` : ""}${agent.c && agent.d ? " · " : ""}${agent.d ? `d ${agent.d}` : ""}` : store.loaded ? "No configured agents" : "";
   renderTools(agent);
   renderLifetime();
@@ -168,39 +168,39 @@ export function unmountPanels() {
   flowFrame = 0;
 }
 
-function renderAgentServer(agent) {
-  const profiles = store.servers?.length ? store.servers : store.config.servers || [];
-  const pending = store.agent_server_changes?.[selectedAgent];
-  agentServerSelect.replaceChildren(...profiles.map((profile) => option(profile.id, profile.label || profile.id, profile.id === agent?.b)));
-  agentServerSelect.disabled = !agent || store.replay;
-  const profile = profiles.find((candidate) => candidate.id === agent?.b);
-  const vision = profile?.capabilities?.vision || "not classified";
-  const visionFinding = (profile?.capabilities?.findings || []).find((finding) => finding.startsWith("vision:"));
-  agentServerVision.hidden = !profile?.capabilities?.probed_at;
-  agentServerVision.className = `panel-agent-vision ${vision === "reads images" ? "reads" : "does-not-read"}`;
-  agentServerVision.title = visionFinding || `vision: ${vision}`;
-  agentServerVision.setAttribute("aria-label", agentServerVision.title);
-  agentServerState.textContent = !agent ? "" : pending ? `Applied ${agent.b} · pending ${pending.to}` : `Applied ${agent.b}`;
-  agentServerState.className = pending ? "pending" : "";
-  agentServerCancel.hidden = !pending;
-  agentServerCancel.disabled = store.replay;
+function renderAgentConnection(agent) {
+  const connections = store.connections?.length ? store.connections : store.config.connections || [];
+  const pending = store.agent_connection_changes?.[selectedAgent];
+  agentConnectionSelect.replaceChildren(...connections.map((connection) => option(connection.id, connection.label || connection.id, connection.id === agent?.b)));
+  agentConnectionSelect.disabled = !agent || store.replay;
+  const connection = connections.find((candidate) => candidate.id === agent?.b);
+  const vision = connection?.capabilities?.vision || "not classified";
+  const visionFinding = (connection?.capabilities?.findings || []).find((finding) => finding.startsWith("vision:"));
+  agentConnectionVision.hidden = !connection?.capabilities?.probed_at;
+  agentConnectionVision.className = `panel-agent-vision ${vision === "reads images" ? "reads" : "does-not-read"}`;
+  agentConnectionVision.title = visionFinding || `vision: ${vision}`;
+  agentConnectionVision.setAttribute("aria-label", agentConnectionVision.title);
+  agentConnectionState.textContent = !agent ? "" : pending ? `Applied ${agent.b} · pending ${pending.to}` : `Applied ${agent.b}`;
+  agentConnectionState.className = pending ? "pending" : "";
+  agentConnectionCancel.hidden = !pending;
+  agentConnectionCancel.disabled = store.replay;
 }
 
-async function changeAgentServer() {
+async function changeAgentConnection() {
   if (!selectedAgent || store.replay) return;
-  const serverID = agentServerSelect.value;
+  const connectionID = agentConnectionSelect.value;
   try {
-    const result = await api(`/api/agents/${encodeURIComponent(selectedAgent)}/server`, { action: "set", server_id: serverID });
+    const result = await api(`/api/agents/${encodeURIComponent(selectedAgent)}/connection`, { action: "set", connection_id: connectionID });
     showFeedback(result.status === "pending" ? `Server change queued for ${selectedAgent}.` : `Server changed for ${selectedAgent}.`);
     await refreshState();
   } catch (error) { showError(error.message); scheduleRender(); }
 }
 
-async function cancelAgentServerChange() {
+async function cancelAgentConnectionChange() {
   if (!selectedAgent || store.replay) return;
   try {
-    await api(`/api/agents/${encodeURIComponent(selectedAgent)}/server`, { action: "cancel" });
-    showFeedback(`Pending server change cancelled for ${selectedAgent}.`);
+    await api(`/api/agents/${encodeURIComponent(selectedAgent)}/connection`, { action: "cancel" });
+    showFeedback(`Pending connection change cancelled for ${selectedAgent}.`);
     await refreshState();
   } catch (error) { showError(error.message); }
 }
@@ -244,8 +244,8 @@ function renderTools(agent) {
 function renderLifetime() {
   const root = document.getElementById("panel-stats");
   if (!ledger) { root.innerHTML = store.loaded && ledgerAsked ? '<p class="panel-empty">No lifetime activity.</p>' : ""; return; }
-  const sections = [[selectedAgent, ledger.agent], ...Object.entries(ledger.profiles || {})];
-  root.replaceChildren(...sections.flatMap(([name, counters]) => [text(name, "panel-profile-head"), ...lifetimeRows(counters, percentile).map(([label, value]) => line(label, value))]));
+  const sections = [[selectedAgent, ledger.agent], ...Object.entries(ledger.connections || {})];
+  root.replaceChildren(...sections.flatMap(([name, counters]) => [text(name, "panel-connection-head"), ...lifetimeRows(counters, percentile).map(([label, value]) => line(label, value))]));
 }
 
 async function toggleTool(event) {

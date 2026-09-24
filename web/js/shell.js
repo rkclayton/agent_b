@@ -27,17 +27,17 @@ export function initShell(options = {}) {
 
   const right = node("div", "shell-right");
   const sessionHeading = button("", "Switch model", "shell-session-title");
-  const profileMenu = node("div", "shell-menu shell-profile-menu");
-  profileMenu.hidden = true;
+  const connectionMenu = node("div", "shell-menu shell-connection-menu");
+  connectionMenu.hidden = true;
   sessionHeading.setAttribute("aria-haspopup", "menu");
   sessionHeading.setAttribute("aria-expanded", "false");
   sessionHeading.onclick = () => {
-    if (profileMenu.hidden) {
-      renderProfileMenu();
-      revealMenu(profileMenu, sessionHeading);
+    if (connectionMenu.hidden) {
+      renderConnectionMenu();
+      revealMenu(connectionMenu, sessionHeading);
       sessionHeading.setAttribute("aria-expanded", "true");
     } else {
-      profileMenu.hidden = true;
+      connectionMenu.hidden = true;
       sessionHeading.setAttribute("aria-expanded", "false");
     }
   };
@@ -108,7 +108,7 @@ export function initShell(options = {}) {
     control.append(glyph);
     windowControls.append(control);
   }
-  right.append(sessionHeading, profileMenu, pages, settings, windowControls);
+  right.append(sessionHeading, connectionMenu, pages, settings, windowControls);
   root.append(left, right);
   document.addEventListener("click", (event) => {
     if (!root.contains(event.target)) for (const menu of root.querySelectorAll(".shell-menu")) menu.hidden = true;
@@ -157,9 +157,9 @@ export function initShell(options = {}) {
     }
 	const selectedAgentID = selected?.agent_id || agentKey(store.config.agents?.[0]);
 	const configured = (store.config.agents || []).find((agent) => agentKey(agent) === selectedAgentID) || store.config.agents?.[0];
-	const profileID = configured?.[agentID.replace("agent_", "")];
-	const profile = (store.servers || []).find((item) => item.id === profileID);
-    return profile?.label || profileID || agentID;
+	const connectionID = configured?.[agentID.replace("agent_", "")];
+	const connection = (store.connections || []).find((item) => item.id === connectionID);
+    return connection?.label || connectionID || agentID;
   }
 
   function agentState(agentID) {
@@ -170,38 +170,38 @@ export function initShell(options = {}) {
     return "idle";
   }
 
-  function profileState(profile, session) {
-    if (session?.server_id === profile.id && session.model_unreachable) return "offline";
-    if ((profile.capabilities?.findings || []).some((line) => String(line).startsWith("probe failed:"))) return "offline";
-    return profile.capabilities?.probed_at ? "ready" : "not tested";
+  function connectionState(connection, session) {
+    if (session?.connection_id === connection.id && session.model_unreachable) return "offline";
+    if ((connection.capabilities?.findings || []).some((line) => String(line).startsWith("probe failed:"))) return "offline";
+    return connection.capabilities?.probed_at ? "ready" : "not tested";
   }
 
-  function renderProfileMenu() {
+  function renderConnectionMenu() {
     const session = store.sessions[store.selection.session_id];
     const configured = configuredAgent(session);
-    profileMenu.replaceChildren();
-    for (const profile of store.servers || store.config.servers || []) {
-      const row = button("", `Use ${profile.label || profile.id}`, `shell-profile-choice ${configured?.b === profile.id ? "selected" : ""}`);
-      let host = profile.base_url || "";
+    connectionMenu.replaceChildren();
+    for (const connection of store.connections || store.config.connections || []) {
+      const row = button("", `Use ${connection.label || connection.id}`, `shell-connection-choice ${configured?.b === connection.id ? "selected" : ""}`);
+      let host = connection.base_url || "";
       try { host = new URL(host).host || host; } catch {}
-      row.innerHTML = `<span>${escapeHTML(profile.label || profile.id)}</span><span>${escapeHTML(host)}</span><span>${escapeHTML(profileState(profile, session))}</span>`;
+      row.innerHTML = `<span>${escapeHTML(connection.label || connection.id)}</span><span>${escapeHTML(host)}</span><span>${escapeHTML(connectionState(connection, session))}</span>`;
       row.onclick = async () => {
         const current = store.sessions[store.selection.session_id];
         if (isRunning(current)) {
           const refusal = node("span", "shell-menu-empty alarm");
           refusal.textContent = "stop the run first";
-          profileMenu.append(refusal);
+          connectionMenu.append(refusal);
           return;
         }
         try {
           const agentID = agentKey(configuredAgent(current));
-          await api(`/api/agents/${encodeURIComponent(agentID)}/server`, { action: "set", server_id: profile.id });
+          await api(`/api/agents/${encodeURIComponent(agentID)}/connection`, { action: "set", connection_id: connection.id });
           reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-          profileMenu.hidden = true;
+          connectionMenu.hidden = true;
           sessionHeading.setAttribute("aria-expanded", "false");
         } catch (error) { report(error.message); }
       };
-      profileMenu.append(row);
+      connectionMenu.append(row);
     }
   }
 
@@ -472,7 +472,7 @@ export function initShell(options = {}) {
     // Item 2gl (v1.2.6): the window's own title. The overlay could not be made
     // to activate - measured on Edge 153 under --app= and with no unattended
     // way to install the app - so the system strip stays, and the least it can
-    // do is say which chat is in the window instead of naming the profile,
+    // do is say which chat is in the window instead of naming the connection,
     // which the header beside the tab strip already says.
     document.title = session ? `Agent_b · ${chatName(session)}` : "Agent_b";
     sessionHeading.hidden = !session;
@@ -507,7 +507,7 @@ export function initShell(options = {}) {
     // Item 2hb: on a page that is its own document the gear is a LINK, and the
     // document it opens has no other way to know where it came from. The view
     // being left is named in the address, so closing can return to it.
-    settings.dataset.target = `/chat${suffix}${suffix ? "&" : "?"}from=${page}#settings/servers`;
+    settings.dataset.target = `/chat${suffix}${suffix ? "&" : "?"}from=${page}#settings/connections`;
     options.syncLocation?.(page);
   }
 

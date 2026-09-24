@@ -26,34 +26,34 @@ try {
   const page = await browser.newPage({ viewport: { width: 1250, height: 975 } });
   await page.goto(`${args.base}/`);
   await page.locator(".shell-settings").click();
-  const rows = page.locator(".profile-list > .profile-row");
+  const rows = page.locator(".connection-list > .connection-row");
   const rowsBefore = await rows.count();
-  await page.locator('[data-action="profile-toggle"]').first().click();
+  await page.locator('[data-action="connection-toggle"]').first().click();
   const wide = await page.evaluate(() => {
-    const editor = document.querySelector(".profile-fields");
+    const editor = document.querySelector(".connection-fields");
     const group = document.querySelector(".settings-group");
     const content = document.querySelector(".settings-content");
-    const list = document.querySelector(".profile-list");
+    const list = document.querySelector(".connection-list");
     const paths = [...editor.querySelectorAll("[data-path]")].map((node) => node.dataset.path);
     return {
-      profile_fields_height: editor.getBoundingClientRect().height,
+      connection_fields_height: editor.getBoundingClientRect().height,
       settings_group_height: group.scrollHeight,
       list_children: list.children.length,
-      editor_after_list: list.nextElementSibling?.classList.contains("profile-editor") === true,
+      editor_after_list: list.nextElementSibling?.classList.contains("connection-editor") === true,
       path_count: paths.length,
       unique_path_count: new Set(paths).size,
       sampling_labels: [...editor.querySelectorAll(".sampling-label")].map((node) => node.textContent),
       horizontal_overflow: content.scrollWidth - content.clientWidth,
     };
   });
-  const remove = page.locator('[data-action="remove-server"]').first();
+  const remove = page.locator('[data-action="remove-connection"]').first();
   await remove.click();
   const removeFirstClick = { text: await remove.textContent(), class: await remove.getAttribute("class"), rows_before: rowsBefore, rows_after: await rows.count() };
   await page.setViewportSize({ width: 700, height: 800 });
   const narrow = await page.evaluate(() => {
     const content = document.querySelector(".settings-content");
     const sheet = document.querySelector(".settings-page");
-    return { content_overflow: content.scrollWidth - content.clientWidth, page_overflow: sheet.scrollWidth - sheet.clientWidth, profile_fields_height: document.querySelector(".profile-fields").getBoundingClientRect().height };
+    return { content_overflow: content.scrollWidth - content.clientWidth, page_overflow: sheet.scrollWidth - sheet.clientWidth, connection_fields_height: document.querySelector(".connection-fields").getBoundingClientRect().height };
   });
   const output = { schema: 1, measured_at: new Date().toISOString(), build: state.build, wide, remove_first_click: removeFirstClick, narrow };
   assert.equal(wide.editor_after_list, true);

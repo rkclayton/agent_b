@@ -15,7 +15,7 @@ test("the store is not loaded until the first snapshot is applied", () => {
   assert.equal(store.loaded, false);
   reduce({ type: "projection.patch", data: { schema_version: 1, session_id: "x", previous_cursor: { generation: "", offset: 0 }, cursor: { generation: "g", offset: 1 }, operations: [] } });
   assert.equal(store.loaded, false);
-  reduce({ type: "snapshot", data: { sessions: {}, servers: [], config: { agents: [{ name: "a" }] }, replay: false } });
+  reduce({ type: "snapshot", data: { sessions: {}, connections: [], config: { agents: [{ name: "a" }] }, replay: false } });
   assert.equal(store.loaded, true);
 });
 

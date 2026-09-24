@@ -75,14 +75,14 @@ func TestModelNamesFirstChatOnceAndLeavesFailureMechanical(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": tc.content}, "finish_reason": "stop"}}})
 			}))
 			defer server.Close()
-			profile := config.Profile{ID: "p", BaseURL: server.URL, Model: "fake", RequestTimeoutS: 2}
+			connection := config.Connection{ID: "p", BaseURL: server.URL, Model: "fake", RequestTimeoutS: 2}
 			bus := events.NewBus()
 			var journal []events.Event
 			bus.SetSink(func(event events.Event) error { journal = append(journal, event); return nil })
-			runner := NewRunner(bus, tools.New(), &PromptRenderer{}, func(string) (*config.Profile, bool) { return &profile, true }, func() config.Config { return config.Config{} })
+			runner := NewRunner(bus, tools.New(), &PromptRenderer{}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return config.Config{} })
 			var renamed string
 			runner.SetSessionRenamer(func(_ string, label string, _ string) error { renamed = label; return nil })
-			item := &session.Session{ID: "s", Label: "mechanical name", ServerID: "p", Role: "b", Runnable: true, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+			item := &session.Session{ID: "s", Label: "mechanical name", ConnectionID: "p", Role: "b", Runnable: true, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 			item.Append(events.Message{Role: "user", Content: "please fix setup"})
 			item.Append(events.Message{Role: "assistant", Content: "I fixed setup."})
 			runner.nameAfterFirstRun(item, "r1")
@@ -107,11 +107,11 @@ func TestModelNamesFirstChatOnceAndLeavesFailureMechanical(t *testing.T) {
 }
 
 func TestModelNamingDoesNotTouchWorkers(t *testing.T) {
-	profile := config.Profile{ID: "p", BaseURL: "http://127.0.0.1:1", RequestTimeoutS: 1}
-	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{}, func(string) (*config.Profile, bool) { return &profile, true }, func() config.Config { return config.Config{} })
+	connection := config.Connection{ID: "p", BaseURL: "http://127.0.0.1:1", RequestTimeoutS: 1}
+	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return config.Config{} })
 	called := false
 	runner.SetSessionRenamer(func(string, string, string) error { called = true; return nil })
-	item := &session.Session{ID: "c", Label: "work", ServerID: "p", Role: "c"}
+	item := &session.Session{ID: "c", Label: "work", ConnectionID: "p", Role: "c"}
 	item.Append(events.Message{Role: "user", Content: "work"})
 	item.Append(events.Message{Role: "assistant", Content: "done"})
 	runner.nameAfterFirstRun(item, "r1")
@@ -127,11 +127,11 @@ func TestModelNamingStillUsesFirstPairWhenAnotherMessageWasQueued(t *testing.T) 
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "First pair name"}, "finish_reason": "stop"}}})
 	}))
 	defer server.Close()
-	profile := config.Profile{ID: "p", BaseURL: server.URL, Model: "fake", RequestTimeoutS: 2}
-	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{}, func(string) (*config.Profile, bool) { return &profile, true }, func() config.Config { return config.Config{} })
+	connection := config.Connection{ID: "p", BaseURL: server.URL, Model: "fake", RequestTimeoutS: 2}
+	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return config.Config{} })
 	var renamed string
 	runner.SetSessionRenamer(func(_ string, label string, _ string) error { renamed = label; return nil })
-	item := &session.Session{ID: "s", Label: "mechanical", ServerID: "p", Role: "b"}
+	item := &session.Session{ID: "s", Label: "mechanical", ConnectionID: "p", Role: "b"}
 	item.Append(events.Message{Role: "user", Content: "first question"})
 	item.Append(events.Message{Role: "assistant", Content: "first answer"})
 	item.Append(events.Message{Role: "user", Content: "already queued second question"})

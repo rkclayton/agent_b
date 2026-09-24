@@ -31,9 +31,9 @@ func TestBuildPlanYesSendsTheOpeningRequestOnce(t *testing.T) {
 	repo, data := t.TempDir(), t.TempDir()
 	cfg := config.Defaults(repo)
 	cfg.Context.Accounting = "estimated"
-	p := runnableTestProfile("fake")
+	p := runnableTestConnection("fake")
 	p.BaseURL = model.URL
-	cfg.Servers = []config.Profile{p}
+	cfg.Connections = []config.Connection{p}
 	cfg.Agents = []config.Agent{{Name: "Build", B: "fake", D: "fake", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	writers, err := events.NewWriters(filepath.Join(data, "logs"))
@@ -42,7 +42,7 @@ func TestBuildPlanYesSendsTheOpeningRequestOnce(t *testing.T) {
 	}
 	defer writers.Close()
 	server := New(&cfg, filepath.Join(data, "harness.json"), repo, RuntimeRoots{Application: repo, Data: data, Workspace: repo}, bus)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	promptPath := filepath.Join(data, "system.md")
 	if err := os.WriteFile(promptPath, []byte("system"), 0o600); err != nil {
@@ -52,7 +52,7 @@ func TestBuildPlanYesSendsTheOpeningRequestOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := agent.NewRunner(bus, tools.New(), renderer, server.Profile, server.ConfigSnapshot)
+	runner := agent.NewRunner(bus, tools.New(), renderer, server.Connection, server.ConfigSnapshot)
 	scheduler := agent.NewScheduler(runner, registry, bus, server.ConfigSnapshot)
 	server.SetRuntime(scheduler, runner, renderer)
 	plan, _, err := registry.EnsurePlan(repo)

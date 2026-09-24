@@ -51,15 +51,15 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 		updateState = s.updater.State()
 	}
 	return map[string]any{
-		"sessions": sessions, "servers": masked.Servers, "config": masked, "replay": replay,
-		"process_id":           os.Getpid(),
-		"server_started_at":    s.startedAt,
-		"agent_server_changes": s.agentServerChanges(),
-		"build":                buildinfo.Current(),
-		"update":               updateState,
-		"plans":                s.planList(),
-		"signature":            s.signingState(),
-		"mutation_token":       s.mutationToken, "shell_credential": credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,
+		"sessions": sessions, "connections": masked.Connections, "config": masked, "replay": replay,
+		"process_id":               os.Getpid(),
+		"server_started_at":        s.startedAt,
+		"agent_connection_changes": s.agentConnectionChanges(),
+		"build":                    buildinfo.Current(),
+		"update":                   updateState,
+		"plans":                    s.planList(),
+		"signature":                s.signingState(),
+		"mutation_token":           s.mutationToken, "shell_credential": credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,
 		"serving_facts": servingFacts(filepath.Join(s.roots.Application, "SERVING.md")),
 		"flow":          map[string]any{"stages": events.Stages, "edges": [][2]string{{"assemble", "call_model"}, {"call_model", "parse"}, {"parse", "dispatch"}, {"dispatch", "execute"}, {"execute", "append"}, {"append", "assemble"}}},
 		"tools": []map[string]string{
@@ -235,7 +235,7 @@ func (s *Server) pageContent(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path != "/setup" && s.replay == nil && r.URL.Query().Get("setup") != "skip" {
 		s.mu.RLock()
-		firstRun := len(s.cfg.Servers) == 0
+		firstRun := len(s.cfg.Connections) == 0
 		s.mu.RUnlock()
 		if firstRun {
 			http.Redirect(w, r, "/setup", http.StatusTemporaryRedirect)

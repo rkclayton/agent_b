@@ -121,7 +121,7 @@ func RegistrationRefusal(plansRoot, repo string) (string, string) {
 		return "", "a drive or network root cannot be a plan's repository; choose the repository's own folder"
 	}
 	// v0.69.0/W16 cold review: registering a folder adds it to every chat's
-	// writable union, so the operator's whole profile and the system folders
+	// writable union, so the operator's whole connection and the system folders
 	// are refused wherever the typed path led.
 	if reason := protectedRepoFolder(resolved); reason != "" {
 		return "", reason
@@ -155,15 +155,15 @@ func RepoInsidePlans(plansRoot, repo string) string {
 }
 
 // protectedRepoFolder is why a resolved folder may not back a plan: the
-// operator's profile folder itself, or anything in or equal to the Windows or
-// Program Files folders. Folders inside the profile stay usable.
+// operator's connection folder itself, or anything in or equal to the Windows or
+// Program Files folders. Folders inside the connection stay usable.
 func protectedRepoFolder(resolved string) string {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		if real, realErr := finalPath(home); realErr == nil {
 			home = real
 		}
 		if strings.EqualFold(filepath.Clean(home), filepath.Clean(resolved)) {
-			return "your whole profile folder cannot be a plan's repository; choose the repository's own folder"
+			return "your whole connection folder cannot be a plan's repository; choose the repository's own folder"
 		}
 	}
 	for _, name := range []string{"SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"} {

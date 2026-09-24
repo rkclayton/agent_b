@@ -24,14 +24,14 @@ func TestAccountingApplyTemplateShapesLive(t *testing.T) {
 	if baseURL == "" || model == "" {
 		t.Skip("set AGENTB_ACCOUNTING_PROBE_URL and _MODEL for the read-only real-template probe")
 	}
-	profile := config.Profile{
+	connection := config.Connection{
 		BaseURL: baseURL, Model: model, RequestTimeoutS: 120, ProbeMode: "minimal",
 		Context:   config.Context{NCtx: 262144, ReserveOutput: 4096},
 		Reasoning: config.Reasoning{Control: "chat_template_kwargs", Enabled: false},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	_, findings, err := Probe(ctx, &profile)
+	_, findings, err := Probe(ctx, &connection)
 	if err != nil {
 		t.Fatal(err)
 	}

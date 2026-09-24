@@ -93,7 +93,7 @@ func servingFacts(path string) map[string]any {
 	}
 	return out
 }
-func (s *Server) servers(w http.ResponseWriter, r *http.Request) {
+func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		method(w)
 		return
@@ -101,13 +101,13 @@ func (s *Server) servers(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	masked := s.cfg.Masked()
 	s.mu.RUnlock()
-	writeJSON(w, 200, masked.Servers)
+	writeJSON(w, 200, masked.Connections)
 }
-func (s *Server) server(w http.ResponseWriter, r *http.Request) {
-	tail := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/servers/"), "/")
+func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
+	tail := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/connections/"), "/")
 	if r.Method == http.MethodDelete && !strings.Contains(tail, "/") {
-		if sessionID, used := s.registry.ProfileInUse(tail); used {
-			writeError(w, 409, "profile in use by session "+sessionID, "server_id")
+		if sessionID, used := s.registry.ConnectionInUse(tail); used {
+			writeError(w, 409, "connection in use by session "+sessionID, "connection_id")
 			return
 		}
 		s.mu.Lock()
@@ -120,27 +120,27 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 		}
 		if assigned {
 			s.mu.Unlock()
-			writeError(w, 409, "profile is assigned to an agent role", "agents")
+			writeError(w, 409, "connection is assigned to an agent role", "agents")
 			return
 		}
-		if len(s.cfg.Servers) == 1 {
+		if len(s.cfg.Connections) == 1 {
 			s.mu.Unlock()
-			writeError(w, 409, "cannot delete the last profile", "server_id")
+			writeError(w, 409, "cannot delete the last connection", "connection_id")
 			return
 		}
 		found := false
-		kept := s.cfg.Servers[:0]
-		for _, profile := range s.cfg.Servers {
-			if profile.ID == tail {
+		kept := s.cfg.Connections[:0]
+		for _, connection := range s.cfg.Connections {
+			if connection.ID == tail {
 				found = true
 				continue
 			}
-			kept = append(kept, profile)
+			kept = append(kept, connection)
 		}
-		s.cfg.Servers = kept
+		s.cfg.Connections = kept
 		if !found {
 			s.mu.Unlock()
-			writeError(w, 404, "server not found", "server_id")
+			writeError(w, 404, "connection not found", "connection_id")
 			return
 		}
 		err := s.cfg.Save(s.configPath)
@@ -151,7 +151,7 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
-		writeJSON(w, 200, map[string]string{"server_id": tail})
+		writeJSON(w, 200, map[string]string{"connection_id": tail})
 		return
 	}
 	if r.Method != http.MethodPost || !strings.HasSuffix(tail, "/probe") {
@@ -159,9 +159,9 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimSuffix(tail, "/probe")
-	profile, ok := s.Profile(id)
+	connection, ok := s.Connection(id)
 	if !ok {
-		writeError(w, 404, "server not found", "server_id")
+		writeError(w, 404, "connection not found", "connection_id")
 		return
 	}
 	var body struct {
@@ -171,7 +171,7 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil && r.ContentLength != 0 && !decode(w, r, &body) {
 		return
 	}
-	tested := *profile
+	tested := *connection
 	if strings.TrimSpace(body.BaseURL) != "" {
 		tested.BaseURL = strings.TrimSpace(body.BaseURL)
 	}
@@ -179,7 +179,7 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 		tested.Model = strings.TrimSpace(body.Model)
 	}
 	if strings.TrimSpace(tested.BaseURL) == "" {
-		writeError(w, 400, "base_url is empty", "servers."+id+".base_url")
+		writeError(w, 400, "base_url is empty", "connections."+id+".base_url")
 		return
 	}
 	discoveryContext, cancel := context.WithTimeout(r.Context(), 45*time.Second)
@@ -187,7 +187,7 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 	discovered, discoverErr := probe.DiscoverEndpoint(discoveryContext, &tested)
 	for _, attempt := range discovered.Attempts {
 		s.bus.Publish(events.New(events.ProbeRequest, "", "", map[string]any{
-			"server_id": id, "base_url": attempt.BaseURL, "guard": "operator_typed_host_only", "allowed": attempt.Allowed, "result": attempt.Result,
+			"connection_id": id, "base_url": attempt.BaseURL, "guard": "operator_typed_host_only", "allowed": attempt.Allowed, "result": attempt.Result,
 		}))
 	}
 	if discoverErr != nil {
@@ -195,7 +195,7 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 		if friendly, ok := discoverErr.(interface{ OperatorMessage() string }); ok {
 			message = friendly.OperatorMessage()
 		}
-		writeError(w, http.StatusBadRequest, message, "servers."+id+".base_url")
+		writeError(w, http.StatusBadRequest, message, "connections."+id+".base_url")
 		return
 	}
 	updated := tested
@@ -204,7 +204,7 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 	changes := map[string]any{}
 	if strings.TrimRight(tested.BaseURL, "/") != strings.TrimRight(discovered.BaseURL, "/") {
 		changes["base_url"] = discovered.BaseURL
-		writeJSON(w, http.StatusOK, map[string]any{"status": "changes_required", "server_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "changes": changes, "message": fmt.Sprintf("changed base_url from %s to %s", tested.BaseURL, discovered.BaseURL)})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "changes_required", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "changes": changes, "message": fmt.Sprintf("changed base_url from %s to %s", tested.BaseURL, discovered.BaseURL)})
 		return
 	}
 	if !listed {
@@ -213,18 +213,18 @@ func (s *Server) server(w http.ResponseWriter, r *http.Request) {
 			model = "model"
 		}
 		modelErr := (&probe.ModelNotListedError{Model: model, Models: discovered.Models}).OperatorMessage()
-		writeJSON(w, http.StatusOK, map[string]any{"status": "model_required", "server_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL, "error": modelErr})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "model_required", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL, "error": modelErr})
 		return
 	}
 	// A ready connection that answers exactly as entered is a read-only test.
 	// In particular, do not rewrite a display-name model to llama-server's GGUF
 	// path and do not alter ProbedAt (which would change the config hash).
-	if profile.Capabilities.ProbedAt != "" && tested.BaseURL == profile.BaseURL && tested.Model == profile.Model {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "server_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "Test passed"})
+	if connection.Capabilities.ProbedAt != "" && tested.BaseURL == connection.BaseURL && tested.Model == connection.Model {
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "Test passed"})
 		return
 	}
 	s.startProbe(&updated)
-	writeJSON(w, http.StatusAccepted, map[string]any{"status": "probing", "server_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL})
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "probing", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL})
 }
 
 func modelListed(configured string, listed []string) bool {
@@ -248,29 +248,29 @@ func modelListed(configured string, listed []string) bool {
 	}
 	return false
 }
-func (s *Server) startProbe(profile *config.Profile) {
-	s.cancelScheduledReachabilityProbe(profile.ID)
+func (s *Server) startProbe(connection *config.Connection) {
+	s.cancelScheduledReachabilityProbe(connection.ID)
 	s.probeMu.Lock()
-	if prior := s.probeCancels[profile.ID]; prior != nil {
+	if prior := s.probeCancels[connection.ID]; prior != nil {
 		prior.cancel()
 	}
 	probeContext, cancel := context.WithCancel(context.Background())
 	current := &probeRun{cancel: cancel}
-	s.probeCancels[profile.ID] = current
+	s.probeCancels[connection.ID] = current
 	s.probeMu.Unlock()
-	go s.runProbe(probeContext, profile, current)
+	go s.runProbe(probeContext, connection, current)
 }
-func (s *Server) runProbe(ctx context.Context, profile *config.Profile, current *probeRun) {
-	caps, findings, err := probe.Probe(ctx, profile)
+func (s *Server) runProbe(ctx context.Context, connection *config.Connection, current *probeRun) {
+	caps, findings, err := probe.Probe(ctx, connection)
 	probeSucceeded := err == nil
-	wasCurrent := s.clearProbe(profile.ID, current)
+	wasCurrent := s.clearProbe(connection.ID, current)
 	if ctx.Err() != nil {
 		if wasCurrent {
-			s.completeReachabilityProbe(profile.ID, false)
+			s.completeReachabilityProbe(connection.ID, false)
 		}
 		return
 	}
-	s.completeReachabilityProbe(profile.ID, probeSucceeded)
+	s.completeReachabilityProbe(connection.ID, probeSucceeded)
 	// Item 2gy: only a clear NO downgrades a stored finding. A probe that could
 	// not reach a conclusion - a timeout, a busy slot, an unreachable server -
 	// keeps what was known, says since when nobody has confirmed it, and tries
@@ -278,13 +278,13 @@ func (s *Server) runProbe(ctx context.Context, profile *config.Profile, current 
 	// that cannot call tools.
 	outcome := classifyProbe(err)
 	if outcome == probeInconclusive {
-		caps = profile.Capabilities
-		findings = keepFindingsUnverified(profile.Capabilities.Findings, time.Now(), err.Error())
-		s.scheduleProbeRetry(profile.ID)
+		caps = connection.Capabilities
+		findings = keepFindingsUnverified(connection.Capabilities.Findings, time.Now(), err.Error())
+		s.scheduleProbeRetry(connection.ID)
 	} else {
-		s.resetProbeRetries(profile.ID)
+		s.resetProbeRetries(connection.ID)
 		if err != nil {
-			caps, findings = failedProbeCapabilities(profile, err)
+			caps, findings = failedProbeCapabilities(connection, err)
 		}
 	}
 	s.mu.Lock()
@@ -293,12 +293,12 @@ func (s *Server) runProbe(ctx context.Context, profile *config.Profile, current 
 	// write. It is a host fact, not the server's, and is recorded either way.
 	findings = append(findings, tools.ShellHostFinding(s.cfg.Shell))
 	caps.Findings = findings
-	for i := range s.cfg.Servers {
-		if s.cfg.Servers[i].ID == profile.ID {
-			s.cfg.Servers[i].Capabilities = caps
-			s.cfg.Servers[i].Reasoning.ValidEfforts = append([]string(nil), caps.ValidEfforts...)
-			if s.cfg.Servers[i].Context.NCtx == 0 {
-				s.cfg.Servers[i].Context.NCtx = caps.NCtx
+	for i := range s.cfg.Connections {
+		if s.cfg.Connections[i].ID == connection.ID {
+			s.cfg.Connections[i].Capabilities = caps
+			s.cfg.Connections[i].Reasoning.ValidEfforts = append([]string(nil), caps.ValidEfforts...)
+			if s.cfg.Connections[i].Context.NCtx == 0 {
+				s.cfg.Connections[i].Context.NCtx = caps.NCtx
 			}
 		}
 	}
@@ -311,25 +311,25 @@ func (s *Server) runProbe(ctx context.Context, profile *config.Profile, current 
 	if s.registry != nil {
 		s.registry.RefreshRunnable()
 	}
-	s.bus.Publish(events.New(events.ServerProbed, "", "", map[string]any{"server_id": profile.ID, "capabilities": caps, "findings": findings, "outcome": outcome.String()}))
+	s.bus.Publish(events.New(events.ConnectionProbed, "", "", map[string]any{"connection_id": connection.ID, "capabilities": caps, "findings": findings, "outcome": outcome.String()}))
 	if probeSucceeded && s.scheduler != nil {
-		s.scheduler.ReleaseModel(profile.ID)
+		s.scheduler.ReleaseModel(connection.ID)
 	}
 }
 
-func (s *Server) clearProbe(profileID string, current *probeRun) bool {
+func (s *Server) clearProbe(connectionID string, current *probeRun) bool {
 	s.probeMu.Lock()
 	cleared := false
-	if s.probeCancels[profileID] == current {
-		delete(s.probeCancels, profileID)
+	if s.probeCancels[connectionID] == current {
+		delete(s.probeCancels, connectionID)
 		cleared = true
 	}
 	s.probeMu.Unlock()
 	return cleared
 }
 
-func failedProbeCapabilities(profile *config.Profile, err error) (config.Capabilities, []string) {
-	caps := profile.Capabilities
+func failedProbeCapabilities(connection *config.Connection, err error) (config.Capabilities, []string) {
+	caps := connection.Capabilities
 	message := err.Error()
 	detail := ""
 	if friendly, ok := err.(interface {
@@ -374,9 +374,9 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.mu.Lock()
-		previousProfiles := make(map[string]config.Profile, len(s.cfg.Servers))
-		for _, profile := range s.cfg.Servers {
-			previousProfiles[profile.ID] = profile
+		previousConnections := make(map[string]config.Connection, len(s.cfg.Connections))
+		for _, connection := range s.cfg.Connections {
+			previousConnections[connection.ID] = connection
 		}
 		currentBytes, _ := json.Marshal(s.cfg)
 		var current map[string]any
@@ -395,7 +395,7 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err.Error(), configField(err, next))
 			return
 		}
-		if err := config.ResolveProfileCredentials(&next, s.roots.Data); err != nil {
+		if err := config.ResolveConnectionCredentials(&next, s.roots.Data); err != nil {
 			s.mu.Unlock()
 			writeError(w, 400, err.Error(), configField(err, next))
 			return
@@ -414,11 +414,11 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		s.cfg = &next
 		s.roots.Workspace = filepath.Clean(workspaceRoot)
 		masked := next.Masked()
-		var reprobe []config.Profile
-		for _, profile := range next.Servers {
-			before, existed := previousProfiles[profile.ID]
-			if existed && (before.BaseURL != profile.BaseURL || before.Model != profile.Model) {
-				reprobe = append(reprobe, profile)
+		var reprobe []config.Connection
+		for _, connection := range next.Connections {
+			before, existed := previousConnections[connection.ID]
+			if existed && (before.BaseURL != connection.BaseURL || before.Model != connection.Model) {
+				reprobe = append(reprobe, connection)
 			}
 		}
 		s.mu.Unlock()
@@ -456,7 +456,7 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 
 func configField(err error, cfg config.Config) string {
 	field := strings.SplitN(err.Error(), ":", 2)[0]
-	if !strings.HasPrefix(field, "servers[") {
+	if !strings.HasPrefix(field, "connections[") {
 		return field
 	}
 	end := strings.Index(field, "]")
@@ -464,8 +464,8 @@ func configField(err error, cfg config.Config) string {
 		return field
 	}
 	var index int
-	if _, scanErr := fmt.Sscanf(field[:end+1], "servers[%d]", &index); scanErr != nil || index < 0 || index >= len(cfg.Servers) {
+	if _, scanErr := fmt.Sscanf(field[:end+1], "connections[%d]", &index); scanErr != nil || index < 0 || index >= len(cfg.Connections) {
 		return field
 	}
-	return "servers." + cfg.Servers[index].ID + field[end+1:]
+	return "connections." + cfg.Connections[index].ID + field[end+1:]
 }

@@ -41,7 +41,7 @@ type compactionEvidence struct {
 	Excerpt  string `json:"excerpt"`
 }
 
-func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string, main *config.Profile) bool {
+func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string, main *config.Connection) bool {
 	records := s.MessagesCopy()
 	if len(records) <= 7 {
 		return false
@@ -52,9 +52,9 @@ func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string
 		accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "", 0, false)
 		return accepted
 	}
-	worker, ok := cfg.Profile(agent.C)
+	worker, ok := cfg.Connection(agent.C)
 	if !ok {
-		accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "c_profile", 0, false)
+		accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "c_connection", 0, false)
 		return accepted
 	}
 	if worker.ID == main.ID {
@@ -62,11 +62,11 @@ func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string
 		return accepted
 	}
 
-	workerRequestProfile := summaryProfile(worker)
-	workerMessages := r.summaryMessages(&workerRequestProfile, s)
-	promptTokens, estimated, err := compactionPromptTokens(ctx, &workerRequestProfile, workerMessages, cfg.Context.Accounting)
+	workerRequestConnection := summaryConnection(worker)
+	workerMessages := r.summaryMessages(&workerRequestConnection, s)
+	promptTokens, estimated, err := compactionPromptTokens(ctx, &workerRequestConnection, workerMessages, cfg.Context.Accounting)
 	if err != nil {
-		r.publishSummaryAttempt(s, runID, events.CompactionSummaryData{Role: "c", ProfileID: worker.ID, Model: worker.Model, Outcome: "error", Reason: "fit check: " + err.Error(), NCtx: worker.Context.NCtx})
+		r.publishSummaryAttempt(s, runID, events.CompactionSummaryData{Role: "c", ConnectionID: worker.ID, Model: worker.Model, Outcome: "error", Reason: "fit check: " + err.Error(), NCtx: worker.Context.NCtx})
 		accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "c_fit_error", 0, false)
 		return accepted
 	}
@@ -76,7 +76,7 @@ func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string
 	}
 	if worker.Context.NCtx <= 0 || guard+compactionMaxTokens > worker.Context.NCtx {
 		reason := fmt.Sprintf("prompt %d%s + reserve %d exceeds n_ctx %d", promptTokens, estimatedLabel(estimated), compactionMaxTokens, worker.Context.NCtx)
-		r.publishSummaryAttempt(s, runID, events.CompactionSummaryData{Role: "c", ProfileID: worker.ID, Model: worker.Model, Outcome: "skipped", Reason: reason, EstimatedPromptTokens: promptTokens, Estimated: estimated, NCtx: worker.Context.NCtx})
+		r.publishSummaryAttempt(s, runID, events.CompactionSummaryData{Role: "c", ConnectionID: worker.ID, Model: worker.Model, Outcome: "skipped", Reason: reason, EstimatedPromptTokens: promptTokens, Estimated: estimated, NCtx: worker.Context.NCtx})
 		accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "c_context", 0, false)
 		return accepted
 	}
@@ -90,15 +90,15 @@ func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string
 	return accepted
 }
 
-func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID string, sessionProfile, servingProfile *config.Profile, role, fallback string, estimatedPromptTokens int, estimated bool) (bool, string) {
-	profile := summaryProfile(servingProfile)
-	messages := r.summaryMessages(&profile, s)
+func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID string, sessionConnection, servingConnection *config.Connection, role, fallback string, estimatedPromptTokens int, estimated bool) (bool, string) {
+	connection := summaryConnection(servingConnection)
+	messages := r.summaryMessages(&connection, s)
 	started := time.Now()
-	response, err := llm.New(&profile).Chat(ctx, llm.Request{Messages: messages, MaxTokens: compactionMaxTokens, Thinking: profile.Reasoning.Enabled})
+	response, err := llm.New(&connection).Chat(ctx, llm.Request{Messages: messages, MaxTokens: compactionMaxTokens, Thinking: connection.Reasoning.Enabled})
 	duration := time.Since(started).Milliseconds()
 	if err != nil {
 		s.RecordCompactionModel(0, 0)
-		r.publishSummaryAttempt(s, runID, events.CompactionSummaryData{Role: role, ProfileID: profile.ID, Model: profile.Model, Outcome: "error", Reason: err.Error(), FallbackReason: fallback, Dispatched: true, EstimatedPromptTokens: estimatedPromptTokens, Estimated: estimated, NCtx: profile.Context.NCtx, DurationMS: duration})
+		r.publishSummaryAttempt(s, runID, events.CompactionSummaryData{Role: role, ConnectionID: connection.ID, Model: connection.Model, Outcome: "error", Reason: err.Error(), FallbackReason: fallback, Dispatched: true, EstimatedPromptTokens: estimatedPromptTokens, Estimated: estimated, NCtx: connection.Context.NCtx, DurationMS: duration})
 		if role == "b" {
 			r.operationalError(s, runID, "compaction_summary", err)
 		}
@@ -108,13 +108,13 @@ func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID strin
 		response.DurationMS = duration
 	}
 	cached := nullableInt(response.Usage.CachedTokens)
-	source := events.CompactionSummaryData{Role: role, ProfileID: profile.ID, Model: profile.Model, FallbackReason: fallback, Dispatched: true, EstimatedPromptTokens: estimatedPromptTokens, Estimated: estimated, NCtx: profile.Context.NCtx, Usage: events.ModelUsage{PromptTokens: response.Usage.PromptTokens, CompletionTokens: response.Usage.CompletionTokens, CachedTokens: cached}, DurationMS: response.DurationMS, Trigger: compactionTrigger(ctx)}
+	source := events.CompactionSummaryData{Role: role, ConnectionID: connection.ID, Model: connection.Model, FallbackReason: fallback, Dispatched: true, EstimatedPromptTokens: estimatedPromptTokens, Estimated: estimated, NCtx: connection.Context.NCtx, Usage: events.ModelUsage{PromptTokens: response.Usage.PromptTokens, CompletionTokens: response.Usage.CompletionTokens, CachedTokens: cached}, DurationMS: response.DurationMS, Trigger: compactionTrigger(ctx)}
 	s.RecordCompactionModel(response.Usage.PromptTokens, response.Usage.CompletionTokens)
 	summaryContent := compactionNoteHeader(s) + response.Content
 	if evidence := summaryEvidenceAppendix(s.MessagesCopy()); evidence != "" {
 		summaryContent += "\n\n" + evidence
 	}
-	message, _ := r.makeMessage(ctx, sessionProfile, "assistant", summaryContent, "summary", 0)
+	message, _ := r.makeMessage(ctx, sessionConnection, "assistant", summaryContent, "summary", 0)
 	if !r.compact.Summarize(s, runID, message, source) {
 		return false, "rejected"
 	}
@@ -122,8 +122,8 @@ func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID strin
 	return true, ""
 }
 
-func (r *Runner) summaryMessages(profile *config.Profile, s *session.Session) []llm.Message {
-	messages := []llm.Message{{Role: "system", Content: r.prompt.Render(profile, s, r.tools.Names(s.EnabledTools()), s.MemoryBlock)}}
+func (r *Runner) summaryMessages(connection *config.Connection, s *session.Session) []llm.Message {
+	messages := []llm.Message{{Role: "system", Content: r.prompt.Render(connection, s, r.tools.Names(s.EnabledTools()), s.MemoryBlock)}}
 	records := s.MessagesCopy()
 	for _, message := range records {
 		if !message.Elided && isHarnessAbortRecord(message) {
@@ -413,8 +413,8 @@ func summaryResultExcerpt(message events.Message) string {
 	return string(runes)
 }
 
-func summaryProfile(profile *config.Profile) config.Profile {
-	result := *profile
+func summaryConnection(connection *config.Connection) config.Connection {
+	result := *connection
 	result.Sampling.Thinking.Temperature = .3
 	result.Sampling.Nonthinking.Temperature = .3
 	if len(result.Reasoning.ValidEfforts) > 0 {
@@ -423,10 +423,10 @@ func summaryProfile(profile *config.Profile) config.Profile {
 	return result
 }
 
-func compactionPromptTokens(ctx context.Context, profile *config.Profile, messages []llm.Message, accounting string) (int, bool, error) {
-	client := llm.New(profile)
-	if accounting != "estimated" && profile.Capabilities.Tokenize {
-		if profile.Capabilities.ApplyTemplate {
+func compactionPromptTokens(ctx context.Context, connection *config.Connection, messages []llm.Message, accounting string) (int, bool, error) {
+	client := llm.New(connection)
+	if accounting != "estimated" && connection.Capabilities.Tokenize {
+		if connection.Capabilities.ApplyTemplate {
 			prompt, err := client.ApplyTemplate(ctx, messages, nil)
 			if err != nil {
 				return 0, false, err

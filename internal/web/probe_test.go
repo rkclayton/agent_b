@@ -30,17 +30,17 @@ func TestReadyConnectionTestDoesNotRewriteConfig(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "harness.json")
 	cfg := config.Defaults(root)
-	cfg.Servers[0].BaseURL = model.URL
-	cfg.Servers[0].Model = "Friendly"
-	cfg.Servers[0].Capabilities.ProbedAt = "2026-09-23T10:00:00Z"
+	cfg.Connections[0].BaseURL = model.URL
+	cfg.Connections[0].Model = "Friendly"
+	cfg.Connections[0].Capabilities.ProbedAt = "2026-09-23T10:00:00Z"
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(path)
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
-	request := httptest.NewRequest(http.MethodPost, "/api/servers/local/probe", strings.NewReader(`{"base_url":"`+model.URL+`","model":"Friendly"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/probe", strings.NewReader(`{"base_url":"`+model.URL+`","model":"Friendly"}`))
 	response := httptest.NewRecorder()
-	server.server(response, request)
+	server.connection(response, request)
 	after, _ := os.ReadFile(path)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"ready"`) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
@@ -62,16 +62,16 @@ func TestDiscoveryProposesBaseURLWithoutSaving(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "harness.json")
 	cfg := config.Defaults(root)
-	cfg.Servers[0].BaseURL = model.URL + "/wrong"
-	cfg.Servers[0].Model = "only"
+	cfg.Connections[0].BaseURL = model.URL + "/wrong"
+	cfg.Connections[0].Model = "only"
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(path)
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
-	request := httptest.NewRequest(http.MethodPost, "/api/servers/local/probe", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/probe", nil)
 	response := httptest.NewRecorder()
-	server.server(response, request)
+	server.connection(response, request)
 	after, _ := os.ReadFile(path)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"changes_required"`) || !strings.Contains(response.Body.String(), "changed base_url from") {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
@@ -91,9 +91,9 @@ func TestModelListedRecognizesLlamaIdentity(t *testing.T) {
 }
 
 func TestFailedProbePreservesPreviousTimestamp(t *testing.T) {
-	profile := &config.Profile{Capabilities: config.Capabilities{ProbedAt: "2026-09-04T12:00:00Z", Server: "llama.cpp"}}
-	caps, findings := failedProbeCapabilities(profile, fmt.Errorf("connection refused"))
-	if caps.ProbedAt != profile.Capabilities.ProbedAt || caps.Server != "llama.cpp" {
+	connection := &config.Connection{Capabilities: config.Capabilities{ProbedAt: "2026-09-04T12:00:00Z", Server: "llama.cpp"}}
+	caps, findings := failedProbeCapabilities(connection, fmt.Errorf("connection refused"))
+	if caps.ProbedAt != connection.Capabilities.ProbedAt || caps.Server != "llama.cpp" {
 		t.Fatalf("failed probe capabilities=%+v", caps)
 	}
 	if len(findings) != 1 || findings[0] != "probe failed: connection refused" {
@@ -114,7 +114,7 @@ func TestConnectionTestReturnsDiscoveryListAndLogsEveryRequest(t *testing.T) {
 
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	cfg.Servers[0].BaseURL, cfg.Servers[0].Model = model.URL, "model"
+	cfg.Connections[0].BaseURL, cfg.Connections[0].Model = model.URL, "model"
 	configPath := filepath.Join(root, "harness.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatal(err)
@@ -127,9 +127,9 @@ func TestConnectionTestReturnsDiscoveryListAndLogsEveryRequest(t *testing.T) {
 	stream, unsubscribe := bus.Subscribe()
 	defer unsubscribe()
 	server := New(&cfg, configPath, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
-	request := httptest.NewRequest(http.MethodPost, "/api/servers/local/probe", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/probe", nil)
 	response := httptest.NewRecorder()
-	server.server(response, request)
+	server.connection(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}
@@ -195,13 +195,13 @@ func TestProbeNonJSONFailuresUseFriendlyRowsAndDiagnosticFindings(t *testing.T) 
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(test.handler)
 			defer server.Close()
-			profile := config.Defaults(t.TempDir()).Servers[0]
-			profile.BaseURL, profile.Model = server.URL, "fake"
-			_, _, err := probe.Probe(context.Background(), &profile)
+			connection := config.Defaults(t.TempDir()).Connections[0]
+			connection.BaseURL, connection.Model = server.URL, "fake"
+			_, _, err := probe.Probe(context.Background(), &connection)
 			if err == nil {
 				t.Fatal("probe unexpectedly passed")
 			}
-			_, findings := failedProbeCapabilities(&profile, err)
+			_, findings := failedProbeCapabilities(&connection, err)
 			if len(findings) != 2 || findings[0] != "probe failed: "+test.want {
 				t.Fatalf("findings=%v", findings)
 			}

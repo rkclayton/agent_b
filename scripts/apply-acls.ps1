@@ -190,6 +190,15 @@ $application = [IO.Path]::GetFullPath($ApplicationDirectory).TrimEnd('\')
 $data = [IO.Path]::GetFullPath($DataDirectory).TrimEnd('\')
 $plans = Join-Path $data 'plans'
 $scratch = Join-Path $data 'scratch'
+$profileDirectories = @()
+$profilesRoot = Join-Path $data 'profiles'
+if (Test-Path -LiteralPath $profilesRoot -PathType Container) {
+    $profileDirectories = @(Get-ChildItem -LiteralPath $profilesRoot -Directory -Force)
+}
+$planFolders = @($profileDirectories | ForEach-Object { Join-Path $_.FullName 'plans' })
+$scratchFolders = @($profileDirectories | ForEach-Object { Join-Path $_.FullName 'scratch' })
+if ((Test-Path -LiteralPath $plans -PathType Container) -or $planFolders.Count -eq 0) { $planFolders = @($plans) + $planFolders }
+if ((Test-Path -LiteralPath $scratch -PathType Container) -or $scratchFolders.Count -eq 0) { $scratchFolders = @($scratch) + $scratchFolders }
 $workspace = [IO.Path]::GetFullPath($WorkspaceDirectory).TrimEnd('\')
 $exchange = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($ExchangeDirectory)).TrimEnd('\')
 
@@ -207,12 +216,17 @@ function Test-PathInside {
     param([string]$Child, [string]$Parent)
     return $Child.StartsWith($Parent.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
 }
-# Item 2fe: since 2dw a fresh install's workspace is the scratch root inside the
-# data tree. That is by design: scratch is part of the operator-data tree and is
-# granted Modify below as the scratch folder, so it is not a fourth tree and is
-# not granted a second time as a legacy workspace. A legacy workspace (anywhere
-# else) is still a tree of its own and must be disjoint from the others.
-$workspaceIsScratch = $workspace.Equals($scratch, [StringComparison]::OrdinalIgnoreCase) -or (Test-PathInside -Child $workspace -Parent $scratch)
+# Item 2jd: scratch moved below each operator profile. Every existing profile's
+# plans and scratch trees receive the same narrow grants the former data-root
+# children received. The active workspace is not treated as a fourth tree only
+# when it is one of those exact scratch trees (or beneath it).
+$workspaceIsScratch = $false
+foreach ($profileScratch in $scratchFolders) {
+    if ($workspace.Equals($profileScratch, [StringComparison]::OrdinalIgnoreCase) -or (Test-PathInside -Child $workspace -Parent $profileScratch)) {
+        $workspaceIsScratch = $true
+        break
+    }
+}
 $trees = @($application, $data, $exchange)
 if (-not $workspaceIsScratch) { $trees += $workspace }
 for ($left = 0; $left -lt $trees.Count; $left++) {
@@ -251,7 +265,7 @@ $sharedAnchors = @(
     [IO.Path]::GetFullPath($env:ProgramFiles).TrimEnd('\'),
     [IO.Path]::GetFullPath($env:ProgramData).TrimEnd('\')
 )
-foreach ($reachable in @($application, $workspace, $exchange, $plans, $scratch)) {
+foreach ($reachable in @($application, $workspace, $exchange) + $planFolders + $scratchFolders) {
     $parent = [IO.DirectoryInfo]$reachable
     while ($parent.Parent -and $parent.Parent.Parent) {
         $parent = $parent.Parent
@@ -269,25 +283,29 @@ $targets += @(
 	[pscustomobject]@{ Path = $data; Rights = $denyDataRights; Inheritance = $recursive; Type = $deny; Intent = 'deny service identity access to operator data except traversal' }
 )
 
-if (-not (Test-Path -LiteralPath $plans -PathType Container) -and -not $WhatIfPreference) {
-	if ($Verify -or $Inspect -or $Remove) {
-		if ($Verify) { Write-Host "DRIFT: plans directory does not exist :: $plans" }
-	} else {
-		if (Test-ConfirmationPromptExpected) { Assert-SafeConfirmationInput }
-		if ($PSCmdlet.ShouldProcess($plans, 'Create plans directory')) { $null = New-Item -ItemType Directory -Path $plans }
+foreach ($plansPath in $planFolders) {
+	if (-not (Test-Path -LiteralPath $plansPath -PathType Container) -and -not $WhatIfPreference) {
+		if ($Verify -or $Inspect -or $Remove) {
+			if ($Verify) { Write-Host "DRIFT: plans directory does not exist :: $plansPath" }
+		} else {
+			if (Test-ConfirmationPromptExpected) { Assert-SafeConfirmationInput }
+			if ($PSCmdlet.ShouldProcess($plansPath, 'Create plans directory')) { $null = New-Item -ItemType Directory -Path $plansPath }
+		}
 	}
+	$targets += [pscustomobject]@{ Path = $plansPath; Rights = $allowRights; Inheritance = $recursive; Type = $allow; Intent = 'grant plans-folder Modify' }
 }
-$targets += [pscustomobject]@{ Path = $plans; Rights = $allowRights; Inheritance = $recursive; Type = $allow; Intent = 'grant plans-folder Modify' }
 
-if (-not (Test-Path -LiteralPath $scratch -PathType Container) -and -not $WhatIfPreference) {
-	if ($Verify -or $Inspect -or $Remove) {
-		if ($Verify) { Write-Host "DRIFT: scratch directory does not exist :: $scratch" }
-	} else {
-		if (Test-ConfirmationPromptExpected) { Assert-SafeConfirmationInput }
-		if ($PSCmdlet.ShouldProcess($scratch, 'Create scratch directory')) { $null = New-Item -ItemType Directory -Path $scratch }
+foreach ($scratchPath in $scratchFolders) {
+	if (-not (Test-Path -LiteralPath $scratchPath -PathType Container) -and -not $WhatIfPreference) {
+		if ($Verify -or $Inspect -or $Remove) {
+			if ($Verify) { Write-Host "DRIFT: scratch directory does not exist :: $scratchPath" }
+		} else {
+			if (Test-ConfirmationPromptExpected) { Assert-SafeConfirmationInput }
+			if ($PSCmdlet.ShouldProcess($scratchPath, 'Create scratch directory')) { $null = New-Item -ItemType Directory -Path $scratchPath }
+		}
 	}
+	$targets += [pscustomobject]@{ Path = $scratchPath; Rights = $allowRights; Inheritance = $recursive; Type = $allow; Intent = 'grant scratch-folder Modify' }
 }
-$targets += [pscustomobject]@{ Path = $scratch; Rights = $allowRights; Inheritance = $recursive; Type = $allow; Intent = 'grant scratch-folder Modify' }
 
 if ($workspaceIsScratch) {
 	Write-Host "Workspace is the scratch folder; its ACL is the scratch grant: $workspace"
@@ -311,8 +329,8 @@ Write-Host 'Agent_b root, plans, scratch, workspace, and exchange-folder ACL pol
 Write-Host "Identity: $env:COMPUTERNAME\$AccountName"
 Write-Host "Application: $application"
 Write-Host "Operator data: $data"
-Write-Host "Plans folder: $plans"
-Write-Host "Scratch folder: $scratch"
+Write-Host "Plans folders: $($planFolders -join ', ')"
+Write-Host "Scratch folders: $($scratchFolders -join ', ')"
 Write-Host "Service workspace: $workspace"
 Write-Host "Exchange folder: $exchange"
 Write-Host 'The service identity can read/execute but not mutate the application tree, can traverse operator data only to the plans and scratch folders, and can modify only plans, scratch, workspace, and exchange.'

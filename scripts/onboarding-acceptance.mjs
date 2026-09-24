@@ -81,6 +81,7 @@ const baseURL = `http://127.0.0.1:${args.port}`;
 const initial = JSON.parse(await readFile(args.config, "utf8"));
 assert.deepEqual(initial.connections, [], "fresh disposable install must start with connections:[]");
 assert.deepEqual(initial.agents, [], "fresh disposable install must start with agents:[]");
+const profileData = initial.profiles?.active ? join(args.data, "profiles", initial.profiles.active) : args.data;
 
 const app = spawn(join(args.app, "Agent_b.exe"), ["-config", args.config, "-app-root", args.app, "-data-root", args.data], {
   windowsHide: true,
@@ -91,13 +92,13 @@ app.stderr.on("data", (chunk) => process.stderr.write(chunk));
 let browser;
 try {
   await waitJSON(`${baseURL}/api/state`);
-  await assert.rejects(access(join(args.data, "logs", "retention-expired-working.jsonl")), "expired working JSONL must be pruned on startup");
-  await access(join(args.data, "logs", "evidence", "retention-expired-evidence.jsonl"));
-  await access(join(args.data, "chats", "retention-retained-chat.jsonl"));
-  const startupEvents = (await readdir(join(args.data, "logs"))).filter((name) => name.endsWith(".jsonl"));
+  await assert.rejects(access(join(profileData, "logs", "retention-expired-working.jsonl")), "expired working JSONL must be pruned on startup");
+  await access(join(profileData, "logs", "evidence", "retention-expired-evidence.jsonl"));
+  await access(join(profileData, "chats", "retention-retained-chat.jsonl"));
+  const startupEvents = (await readdir(join(profileData, "logs"))).filter((name) => name.endsWith(".jsonl"));
   const retentionEvents = [];
   for (const name of startupEvents) {
-    for (const line of (await readFile(join(args.data, "logs", name), "utf8")).split(/\r?\n/).filter(Boolean)) {
+    for (const line of (await readFile(join(profileData, "logs", name), "utf8")).split(/\r?\n/).filter(Boolean)) {
       const event = JSON.parse(line);
       if (event.type === "log.retention") retentionEvents.push(event);
     }

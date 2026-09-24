@@ -446,18 +446,35 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err.Error(), configField(err, next))
 			return
 		}
-		workspaceRoot, err := filepath.Abs(next.Workspace)
+		workspacePath := next.Workspace
+		if !filepath.IsAbs(workspacePath) {
+			workspacePath = filepath.Join(s.roots.Profile, workspacePath)
+		}
+		workspaceRoot, err := filepath.Abs(workspacePath)
 		if err != nil {
 			s.mu.Unlock()
 			writeError(w, 400, err.Error(), "workspace")
 			return
 		}
+		previous := *s.cfg
+		*s.cfg = next
+		if s.profiles != nil {
+			if err := s.profiles.SaveActive(); err != nil {
+				*s.cfg = previous
+				s.mu.Unlock()
+				writeError(w, 500, err.Error(), "profiles")
+				return
+			}
+		}
 		if err := next.Save(s.configPath); err != nil {
+			*s.cfg = previous
+			if s.profiles != nil {
+				_ = s.profiles.SaveActive()
+			}
 			s.mu.Unlock()
 			writeError(w, 500, err.Error(), "config")
 			return
 		}
-		s.cfg = &next
 		s.roots.Workspace = filepath.Clean(workspaceRoot)
 		masked := next.Masked()
 		var reprobe []config.Connection

@@ -357,6 +357,11 @@ try {
     $null = New-ItemProperty -Path $legacyRegistry -Name InstallLocation -Value $legacyRoot -PropertyType String -Force
     $dataSentinel = Join-Path $testData 'migration-data-proof.txt'
     [IO.File]::WriteAllText($dataSentinel, 'operator data survives migration', [Text.UTF8Encoding]::new($false))
+    $profileChatSentinel = Join-Path $testData 'chats\profile-migration-proof.jsonl'
+    $profileMemorySentinel = Join-Path $testData 'memory\profile-migration-proof.md'
+    foreach ($path in @($profileChatSentinel, $profileMemorySentinel)) { [IO.Directory]::CreateDirectory((Split-Path -Parent $path)) | Out-Null }
+    [IO.File]::WriteAllText($profileChatSentinel, "{}`n", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($profileMemorySentinel, 'profile memory survives migration', [Text.UTF8Encoding]::new($false))
     $savedInstallLog = $env:AGENT_B_INSTALL_LOG
     $env:AGENT_B_INSTALL_LOG = $freshTranscriptPath
     $savedErrorAction = $ErrorActionPreference
@@ -392,6 +397,22 @@ try {
         throw "Fresh install did not record a ready app and open window.`n$freshTranscript"
     }
     Write-Host "PROOF fresh autostart token: PID $($freshTokenProof.pid), identity $($freshTokenProof.identity), elevated=$($freshTokenProof.elevated), commit $($freshState.build.commit)"
+    $activeProfile = [string]$freshState.profiles.active
+    $profileRoot = Join-Path $testData (Join-Path 'profiles' $activeProfile)
+    $profilesUri = "http://127.0.0.1:$testPort/api/profiles"
+    $profileHeaders = @{ 'X-AgentB-Mutation-Token' = [string]$freshState.mutation_token }
+    $null = Invoke-RestMethod -Method Post -Uri $profilesUri -Headers $profileHeaders -ContentType 'application/json' -Body '{"action":"create","name":"Second"}' -TimeoutSec 5
+    $secondState = Invoke-RestMethod -Method Post -Uri $profilesUri -Headers $profileHeaders -ContentType 'application/json' -Body '{"action":"switch","name":"Second"}' -TimeoutSec 5
+    $secondRoot = Join-Path $testData 'profiles\Second'
+    $secondSettings = Get-Content -Raw -LiteralPath (Join-Path $secondRoot 'profile.json') | ConvertFrom-Json
+    if ([string]$secondState.profiles.active -cne 'Second' -or
+        (Test-Path -LiteralPath (Join-Path $secondRoot 'chats\profile-migration-proof.jsonl')) -or
+        (Test-Path -LiteralPath (Join-Path $secondRoot 'memory\profile-migration-proof.md')) -or
+        [string]$secondSettings.deliver.exchange_folder -cne '%USERPROFILE%\Agent_b\Second') {
+        throw 'The second profile did not start isolated with its own exchange folder.'
+    }
+    $null = Invoke-RestMethod -Method Post -Uri $profilesUri -Headers $profileHeaders -ContentType 'application/json' -Body (ConvertTo-Json @{ action = 'switch'; name = $activeProfile } -Compress) -TimeoutSec 5
+    Write-Host "PROOF profiles: existing chat and memory moved into $activeProfile; Second stayed isolated; connections remained shared"
     $null = Request-AgentbGracefulStop -ApplicationRoot $testApplication -ProcessId $freshProcesses[0].Id
     $freshProcesses[0].WaitForExit(15000) | Out-Null
     if (-not $freshProcesses[0].HasExited) { throw 'Fresh autostart process did not stop before onboarding acceptance.' }
@@ -401,19 +422,28 @@ try {
 
     $configPath = Join-Path $testData 'harness.json'
     $installedConfig = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
-    if (-not ([string]$installedConfig.workspace).Equals((Join-Path $testData 'scratch'), [StringComparison]::OrdinalIgnoreCase) -or
-        -not ([string]$installedConfig.log_dir).Equals((Join-Path $testData 'logs'), [StringComparison]::OrdinalIgnoreCase) -or
-        -not ([string]$installedConfig.memory.dir).Equals((Join-Path $testData 'memory'), [StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Installed configuration does not use data-root scratch, logs, and memory.'
+    $activeProfile = [string]$installedConfig.profiles.active
+    $profileRoot = Join-Path $testData (Join-Path 'profiles' $activeProfile)
+    if ([string]::IsNullOrWhiteSpace($activeProfile) -or
+        -not ([string]$installedConfig.workspace).Equals('scratch', [StringComparison]::OrdinalIgnoreCase) -or
+        -not ([string]$installedConfig.log_dir).Equals('logs', [StringComparison]::OrdinalIgnoreCase) -or
+        -not ([string]$installedConfig.memory.dir).Equals('memory', [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath (Join-Path $profileRoot 'profile.json') -PathType Leaf)) {
+        throw 'Installed configuration does not use the active profile for scratch, logs, and memory.'
+    }
+    if ((Test-Path -LiteralPath $profileChatSentinel) -or (Test-Path -LiteralPath $profileMemorySentinel) -or
+        -not (Test-Path -LiteralPath (Join-Path $profileRoot 'chats\profile-migration-proof.jsonl') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $profileRoot 'memory\profile-migration-proof.md') -PathType Leaf)) {
+        throw 'Existing chat and memory data did not migrate into the username profile.'
     }
 	if (Test-Path -LiteralPath $testWorkspace) { throw 'Fresh install created the removed legacy workspace.' }
     $installedConfig.listen = "127.0.0.1:$testPort"
     $null = Assert-DisposableListen -Listen $installedConfig.listen -Where 'the installed disposable configuration' 
     $installedConfig.operator_files.log_retention_days = 1
     [IO.File]::WriteAllText($configPath, ($installedConfig | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
-    $expiredWorkingLog = Join-Path $testData 'logs\retention-expired-working.jsonl'
-    $expiredEvidenceLog = Join-Path $testData 'logs\evidence\retention-expired-evidence.jsonl'
-    $retainedChatLog = Join-Path $testData 'chats\retention-retained-chat.jsonl'
+    $expiredWorkingLog = Join-Path $profileRoot 'logs\retention-expired-working.jsonl'
+    $expiredEvidenceLog = Join-Path $profileRoot 'logs\evidence\retention-expired-evidence.jsonl'
+    $retainedChatLog = Join-Path $profileRoot 'chats\retention-retained-chat.jsonl'
     foreach ($path in @($expiredWorkingLog, $expiredEvidenceLog, $retainedChatLog)) {
         [IO.Directory]::CreateDirectory((Split-Path -Parent $path)) | Out-Null
     }
@@ -666,8 +696,8 @@ try {
         } catch { }
     } while (-not $ready -and -not $beforeProcess.HasExited -and [DateTime]::UtcNow -lt $deadline)
     if (-not $ready) { throw 'Installed Agent_b did not become ready before the running-instance upgrade.' }
-    # Item 2fe: on a fresh install the workspace is <data>\scratch, inside the
-    # data root by design, and Settings > Security must still load its status.
+    # Item 2jd: on a fresh install the workspace is the active profile's
+    # scratch folder, inside the data root, and Security must load its status.
     $securityConnection = [string]@($beforeState.config.connections)[0].id
     try {
         $security = Invoke-WebRequest -UseBasicParsing -Uri ("http://127.0.0.1:$testPort/api/hardening?connection_id=" + [Uri]::EscapeDataString($securityConnection)) -TimeoutSec 60
@@ -675,15 +705,19 @@ try {
         throw ('Fresh install: Settings > Security did not load: ' + $_.Exception.Message + ' ' + $_.ErrorDetails.Message)
     }
     if ($security.StatusCode -ne 200) { throw ('Fresh install: Settings > Security returned ' + $security.StatusCode) }
-    Write-Host 'PASS: fresh install, workspace <data>\scratch: Settings > Security loads its status'
+    Write-Host 'PASS: fresh install, workspace <data>\profiles\<name>\scratch: Settings > Security loads its status'
     $configFingerprint = Get-StableConfigFingerprint -Path $configPath
 
     $dataBefore = @(Get-ChildItem -LiteralPath $testData -File -Recurse | Where-Object {
         -not $_.FullName.StartsWith((Join-Path $testData 'logs') + '\', [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.StartsWith((Join-Path $testData 'stats') + '\', [StringComparison]::OrdinalIgnoreCase) -and
+        -not $_.FullName.StartsWith((Join-Path $profileRoot 'logs') + '\', [StringComparison]::OrdinalIgnoreCase) -and
+        -not $_.FullName.StartsWith((Join-Path $profileRoot 'stats') + '\', [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.Equals($configPath, [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.Equals((Join-Path $testData 'STATE.md'), [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.Equals((Join-Path $testData 'agent_b-run.json'), [StringComparison]::OrdinalIgnoreCase) -and
+        -not $_.FullName.Equals((Join-Path $profileRoot 'STATE.md'), [StringComparison]::OrdinalIgnoreCase) -and
+        -not $_.FullName.Equals((Join-Path $profileRoot 'agent_b-run.json'), [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.Equals((Join-Path $testData 'install-progress.jsonl'), [StringComparison]::OrdinalIgnoreCase)
     } | ForEach-Object {
         [pscustomobject]@{ Path = $_.FullName; Length = $_.Length; PrefixSHA256 = Get-FilePrefixHash -Path $_.FullName -Length $_.Length }
@@ -691,7 +725,7 @@ try {
     $workspaceBefore = @(Get-ChildItem -LiteralPath $testWorkspace -File -Recurse | ForEach-Object {
         [pscustomobject]@{ Path = $_.FullName; SHA256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
     })
-    $logsBefore = @(Get-ChildItem -LiteralPath (Join-Path $testData 'logs') -File -Recurse | ForEach-Object {
+    $logsBefore = @(Get-ChildItem -LiteralPath @((Join-Path $testData 'logs'), (Join-Path $profileRoot 'logs')) -File -Recurse | ForEach-Object {
         [pscustomobject]@{ Path = $_.FullName; Length = $_.Length; PrefixSHA256 = Get-FilePrefixHash -Path $_.FullName -Length $_.Length }
     })
 

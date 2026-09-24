@@ -84,6 +84,48 @@ func TestProfileSwitchRefusesLiveRun(t *testing.T) {
 	}
 }
 
+func TestConfigUpdatePersistsAgentsInActiveProfile(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(t.TempDir())
+	path := filepath.Join(root, "harness.json")
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	manager, _, err := profiles.Open(root, path, &cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := manager.Active()
+	if err := manager.Create("Second"); err != nil {
+		t.Fatal(err)
+	}
+	server := New(&cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, events.NewBus())
+	server.SetProfiles(manager)
+	agents := append([]config.Agent(nil), cfg.Agents...)
+	agents[0].Name = "Persisted agent"
+	body, err := json.Marshal(map[string]any{"agents": agents})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(string(body)))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-AgentB-Mutation-Token", server.mutationToken)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("config update: %d %s", response.Code, response.Body.String())
+	}
+	if got := profileCall(t, server, `{"action":"switch","name":"Second"}`); got.Code != http.StatusOK {
+		t.Fatalf("switch second: %d %s", got.Code, got.Body.String())
+	}
+	if got := profileCall(t, server, `{"action":"switch","name":"`+first+`"}`); got.Code != http.StatusOK {
+		t.Fatalf("switch back: %d %s", got.Code, got.Body.String())
+	}
+	if cfg.Agents[0].Name != "Persisted agent" {
+		t.Fatalf("active profile agent was not persisted: %+v", cfg.Agents)
+	}
+}
+
 func profileCall(t *testing.T, server *Server, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, "/api/profiles", strings.NewReader(body))

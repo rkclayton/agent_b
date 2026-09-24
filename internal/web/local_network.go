@@ -85,7 +85,7 @@ func (s *Server) saveAppliedNetworkPolicy(enabled bool, subnets []string) error 
 		s.mu.Unlock()
 		return err
 	}
-	s.cfg = &next
+	*s.cfg = next
 	masked := next.Masked()
 	s.mu.Unlock()
 	if s.runner != nil {

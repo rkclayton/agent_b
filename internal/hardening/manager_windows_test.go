@@ -120,7 +120,8 @@ func TestStatusAcceptsTheScratchWorkspaceInsideTheDataRoot(t *testing.T) {
 	application := filepath.Join(t.TempDir(), "application")
 	data := filepath.Join(t.TempDir(), "data")
 	exchange := filepath.Join(t.TempDir(), "exchange")
-	for _, path := range []string{application, filepath.Join(data, "scratch"), filepath.Join(data, "other"), exchange} {
+	profileScratch := filepath.Join(data, "profiles", "Operator", "scratch")
+	for _, path := range []string{application, filepath.Join(data, "scratch"), profileScratch, filepath.Join(data, "profiles", "Operator", "other"), exchange} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -136,7 +137,11 @@ func TestStatusAcceptsTheScratchWorkspaceInsideTheDataRoot(t *testing.T) {
 	if status, err := manager.Status(ctx, request); err != nil || !status.Supported {
 		t.Fatalf("a scratch workspace must inspect: %+v %v", status, err)
 	}
-	request.WorkspaceDirectory = filepath.Join(data, "other")
+	request.WorkspaceDirectory = profileScratch
+	if status, err := manager.Status(ctx, request); err != nil || !status.Supported {
+		t.Fatalf("a profile scratch workspace must inspect: %+v %v", status, err)
+	}
+	request.WorkspaceDirectory = filepath.Join(data, "profiles", "Operator", "other")
 	if _, err := manager.Status(ctx, request); err == nil || !strings.Contains(err.Error(), "disjoint") {
 		t.Fatalf("a non-scratch workspace inside the data root must still be refused: %v", err)
 	}

@@ -1,6 +1,6 @@
-let expanded, advancedConnections, armed, drafts, errors, probeMessages, connectionList, row, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store;
+let expanded, advancedConnections, armed, drafts, errors, probeMessages, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store;
 function useSettingsContext(context) {
-  ({ expanded, advancedConnections, armed, drafts, errors, probeMessages, connectionList, row, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store } = context);
+  ({ expanded, advancedConnections, armed, drafts, errors, probeMessages, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store } = context);
 }
 
 function connections() {
@@ -40,7 +40,7 @@ function connections() {
     <div class="connection-editor-head"><div><span class="lamp ${connectionReason(connection) && connectionReason(connection) !== "context length unknown" ? "alarm" : ""}"></span><h3>${html(connection.label)}</h3><span class="connection-url">${html(connection.base_url)}</span></div></div>
     <div class="connection-fields">${connectionFields(connection, connectionReason(connection), probeMessages.get(connection.id))}</div>
   </section>`).join("");
-  return `<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add connection</button></div><div class="settings-subhead">Connections</div><div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${editors}`;
+  return `${row("actions", '<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add connection</button></div>')}${subhead("Connections", "Model endpoints and their current probe state.")}<div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${editors}`;
 }
 
 // One line on the existing findings row: each memory layer's current size

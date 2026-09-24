@@ -3,6 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 
 import { renderAboutPage } from "./settings-about.js";
+import { renderChatsPage } from "./settings-chats.js";
 import { renderConnectionsPage } from "./settings-connections.js";
 import { renderContextPage } from "./settings-context.js";
 import { renderGeneralPage } from "./settings-general.js";
@@ -11,6 +12,8 @@ import { renderSecurityPage } from "./settings-security.js";
 import { renderWorkspacePage } from "./settings-workspace.js";
 
 const blank = () => "";
+const row = (label, control, extra = "") => `<div class="setting-row ${extra}"><label>${label}</label><div>${control}</div></div>`;
+const inputRow = (_path, label) => row(label, "<input>");
 
 function pageContext() {
   return {
@@ -28,8 +31,8 @@ function pageContext() {
     hardeningBusy: false, hardeningMessage: "", hardeningAlarm: false,
     signingStatus: { loaded: false, supported: true, configured: false, can_manage: false, files: [] },
     signingBusy: false, signingMessage: "", signingAlarm: false,
-    connectionList: () => [], row: blank, subhead: blank, field: blank, text: blank, number: blank, numberControl: blank,
-    textarea: blank, secret: blank, toggle: blank, choices: blank, approvalChoices: blank, copyRow: blank,
+    connectionList: () => [], row, subhead: (label, hint = "") => `<div class="settings-subhead">${label}</div>${hint ? `<p class="settings-subhead-note">${hint}</p>` : ""}`, field: blank, text: inputRow, number: inputRow, numberControl: () => "<input>",
+    textarea: inputRow, secret: inputRow, toggle: inputRow, choices: inputRow, approvalChoices: () => row("approval", "<button>boundary-only</button>"), copyRow: row,
     currentValue: (_path, fallback) => fallback, issue: blank, connectionReason: blank,
     html: String, attr: String, selectedHardeningConnectionID: blank,
     operatorStatusView: () => ({ active: false, label: "off", src: "", srcset: "" }),
@@ -39,13 +42,33 @@ function pageContext() {
 test("every Settings page renderer accepts the controller context", () => {
   const context = pageContext();
   const pages = [
-    renderConnectionsPage(context), renderContextPage(null, context), renderRunPage(context),
+    renderConnectionsPage(context), renderContextPage(null, context), renderRunPage(context), renderChatsPage(null, context),
     renderAboutPage(context), renderWorkspacePage(context),
     renderSecurityPage("shell", null, context), renderGeneralPage("sessions", null, context),
     renderGeneralPage("tools", null, context), renderGeneralPage("memory", null, context),
   ];
-  assert.equal(pages.length, 9);
+  assert.equal(pages.length, 10);
   for (const page of pages) assert.equal(typeof page, "string");
+});
+
+test("all rendered Settings rows have one direct label and one control cell", () => {
+  const context = pageContext();
+  const pages = [
+    renderConnectionsPage(context), renderContextPage(null, context), renderRunPage(context), renderChatsPage(null, context),
+    renderAboutPage(context), renderWorkspacePage(context), renderSecurityPage("shell", null, context),
+    renderGeneralPage("sessions", null, context), renderGeneralPage("tools", null, context), renderGeneralPage("memory", null, context),
+  ];
+  for (const page of pages) {
+    const rows = [...page.matchAll(/<div class="setting-row[^\"]*"[^>]*>/g)].length;
+    const grammatical = [...page.matchAll(/<div class="setting-row[^\"]*"[^>]*>\s*<label(?:\s[^>]*)?>[\s\S]*?<\/label>\s*<div>/g)].length;
+    assert.equal(grammatical, rows, page);
+  }
+});
+
+test("Settings navigation has the required eight sections in order", () => {
+  const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
+  const labels = [...controller.matchAll(/\["(?:agents|activity|connections|profiles|chats|notifications|shell|about)", "([^"]+)"\]/g)].map((match) => match[1]);
+  assert.deepEqual(labels, ["Agents", "Activity", "Connections", "Profiles", "Chats", "Notifications", "Security", "About"]);
 });
 
 test("Delivery has no Settings page while file configuration remains supported", () => {

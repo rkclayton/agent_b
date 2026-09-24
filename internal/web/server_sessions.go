@@ -135,7 +135,39 @@ func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, []workspaceinfo.Entry{})
 		return
 	}
-	writeJSON(w, http.StatusOK, s.workspaceState.List())
+	writeJSON(w, http.StatusOK, s.knownFolders())
+}
+
+func (s *Server) knownFolders() []workspaceinfo.Entry {
+	entries := make([]workspaceinfo.Entry, 0)
+	seen := map[string]bool{}
+	scratch := filepath.Clean(filepath.Join(s.profileRoot(), "scratch"))
+	for _, entry := range s.workspaceState.List() {
+		clean := filepath.Clean(entry.Dir)
+		if withinRoot(scratch, clean) || (entry.MemoryCount == 0 && entry.Policy == nil) {
+			continue
+		}
+		key := strings.ToLower(clean)
+		seen[key] = true
+		entries = append(entries, entry)
+	}
+	for _, plan := range s.planList() {
+		if strings.TrimSpace(plan.Repo) == "" {
+			continue
+		}
+		clean := filepath.Clean(plan.Repo)
+		key := strings.ToLower(clean)
+		if !seen[key] {
+			seen[key] = true
+			entries = append(entries, workspaceinfo.Entry{Dir: clean})
+		}
+	}
+	return entries
+}
+
+func withinRoot(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func (s *Server) workspaceAction(w http.ResponseWriter, r *http.Request) {

@@ -1,7 +1,7 @@
-let html, attr, store, errors;
+let html, attr, store, errors, subhead;
 
 export function renderProfilesPage(context) {
-  ({ html, attr, store, errors } = context);
+  ({ html, attr, store, errors, subhead } = context);
   const state = store.profiles || store.config.profiles || { active: "", names: [] };
   const rows = (state.names || []).map((name) => {
     const active = name === state.active;
@@ -15,6 +15,6 @@ export function renderProfilesPage(context) {
     </div>`;
   }).join("");
   return `${errors.get("profiles") ? `<p class="field-error">${html(errors.get("profiles"))}</p>` : ""}${rows || '<p class="settings-note inline">No profiles configured.</p>'}
-    <div class="settings-subhead">Create profile</div>
+    ${subhead("Create profile", "Creates an empty operator profile; connections remain shared.")}
     <div class="setting-row" title="Create an empty operator profile; connections stay shared."><label for="new-profile-name">name</label><div class="settings-actions"><input id="new-profile-name" maxlength="64"><button type="button" data-action="create-profile">Create</button></div></div>`;
 }

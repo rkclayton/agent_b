@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const settings = (await Promise.all([
-  "settings.js", "settings-connections.js", "settings-general.js", "settings-context.js", "settings-run.js",
+  "settings.js", "settings-chats.js", "settings-connections.js", "settings-general.js", "settings-context.js", "settings-run.js",
   "settings-about.js", "settings-workspace.js", "settings-security.js",
 ].map((name) => readFile(new URL(`./${name}`, import.meta.url), "utf8")))).join("\n");
 

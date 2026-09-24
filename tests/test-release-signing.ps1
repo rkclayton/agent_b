@@ -19,7 +19,7 @@ function Remove-Probe {
 }
 
 try {
-    $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Agent_b Disposable Release Signing Probe' -CertStoreLocation 'Cert:\CurrentUser\My' -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -NotAfter ([DateTime]::Now.AddDays(1))
+    $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Agent_b Disposable Release Signing Probe' -CertStoreLocation 'Cert:\CurrentUser\My' -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -NotAfter ([DateTime]::Now.AddDays(60))
     $created += [pscustomobject]@{ Location = 'CurrentUser'; Store = 'My'; Thumbprint = $cert.Thumbprint }
     Write-Output ("CREATED  Cert:\CurrentUser\My  {0}  {1}" -f $cert.Thumbprint, $cert.Subject)
     Write-Output "NO ROOT INSTALLED: neither CurrentUser\Root nor LocalMachine\Root was written"

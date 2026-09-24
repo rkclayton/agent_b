@@ -4,7 +4,6 @@ import { navigationSurfaceReady, recordViewMount } from "./navigation-telemetry.
 import { renderConnectionsPage } from "./settings-connections.js";
 import { renderAboutPage } from "./settings-about.js";
 import { renderContextPage } from "./settings-context.js";
-import { renderDeliveryPage } from "./settings-delivery.js";
 import { renderGeneralPage } from "./settings-general.js";
 import { renderNotificationsPage } from "./settings-notifications.js";
 import { renderProfilesPage } from "./settings-profiles.js";
@@ -35,10 +34,6 @@ let hardeningStatus = { loaded: false, supported: true, applied: false };
 let hardeningBusy = false;
 let hardeningMessage = "";
 let hardeningAlarm = false;
-let signingStatus = { loaded: false, supported: true, configured: false, can_manage: false, admin_state: "unknown", files: [] };
-let signingBusy = false;
-let signingMessage = "";
-let signingAlarm = false;
 let notificationStatus = { configured: false, host: "" };
 let notificationBusy = false;
 let notificationMessage = "";
@@ -65,7 +60,6 @@ const sectionLabels = [
   ["profiles", "Profiles"],
   ["context", "Context"],
   ["run", "Run & approval"],
-  ["delivery", "Delivery"],
   ["notifications", "Notifications"],
   ["shell", "Security"],
   ["about", "About"],
@@ -134,7 +128,6 @@ export function initSettings(entry = {}) {
     if (open && event.type === "snapshot") {
       refreshServiceAccountStatus();
       refreshHardeningStatus();
-	  refreshSigningStatus();
 	  refreshNotificationStatus();
 	  refreshOperatorFileState();
     }
@@ -159,7 +152,6 @@ export function openSettings(section = "") {
   render();
   refreshServiceAccountStatus();
 	refreshHardeningStatus();
-	refreshSigningStatus();
 	refreshNotificationStatus();
   refreshWorkspaceState();
   refreshOperatorFileState();
@@ -216,7 +208,6 @@ function render() {
     memory: () => renderGeneralPage("memory", active, settingsPageContext(active)),
     context: () => renderContextPage(active, settingsPageContext(active)),
     run: () => renderRunPage(settingsPageContext(active)),
-    delivery: () => renderDeliveryPage(settingsPageContext(active)),
     notifications: () => renderNotificationsPage(settingsPageContext(active)),
     shell: () => renderSecurityPage("shell", active, settingsPageContext(active)) + renderWorkspacePage(settingsPageContext(active)),
     about: () => renderAboutPage(settingsPageContext(active)),
@@ -286,7 +277,7 @@ function settingsPageContext(active) {
     active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, workspaceState, operatorFileState,
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
-    hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, connectionList,
+    hardeningAlarm, connectionList,
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm,
     row, subhead, field, text, number, numberControl, textarea, secret, toggle, choices, approvalChoices,
     copyRow, currentValue, issue, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView,
@@ -599,11 +590,6 @@ async function click(event) {
 		armed.delete("hardening:remove");
 		return hardeningAction("remove");
 	}
-	if (action === "create-signing") return signingAction("create");
-	if (action === "import-signing") return importSigning();
-	if (action === "sign-application") return signingAction("sign");
-	if (action === "verify-signing") return refreshSigningStatus();
-	if (action === "export-signing") return exportSigning();
   if (action === "copy") {
     if (button.dataset.value) await navigator.clipboard?.writeText(button.dataset.value);
   }
@@ -766,76 +752,6 @@ async function checkUpdate() {
 	} catch (error) {
 		store.update = { ...(store.update || {}), checking: false, error: error.message };
 	}
-	if (open) render();
-}
-
-async function refreshSigningStatus(preserveMessage = false) {
-	try {
-		const status = await api("/api/signing", undefined, "GET");
-		signingStatus = { ...status, loaded: true };
-		if (!preserveMessage) { signingMessage = ""; signingAlarm = false; }
-	} catch (error) {
-		signingStatus = { loaded: true, supported: false, configured: false, can_manage: false, admin_state: "unknown", files: [] };
-		signingMessage = error.message;
-		signingAlarm = true;
-	}
-	if (open) render();
-}
-
-async function signingAction(action, fields = {}) {
-	signingBusy = true;
-	signingAlarm = false;
-	signingMessage = action === "sign" ? "Approve Windows UAC; Agent_b will restart after verification." : `${action} in progress…`;
-	render();
-	try {
-		const response = await api("/api/signing", { action, ...fields });
-		if (response.config) reduce({ type: "config.changed", data: { config: response.config } });
-		signingMessage = response.result?.message || `${action} complete`;
-		if (action !== "sign") await refreshSigningStatus(true);
-	} catch (error) {
-		signingMessage = error.message;
-		signingAlarm = true;
-	} finally {
-		signingBusy = false;
-		if (open) render();
-	}
-}
-
-async function importSigning() {
-	const file = sheet.querySelector("#signing-pfx")?.files?.[0];
-	const password = sheet.querySelector("#signing-password")?.value || "";
-	const thumbprint = sheet.querySelector("#signing-thumbprint")?.value || "";
-	const passwordInput = sheet.querySelector("#signing-password");
-	if (passwordInput) passwordInput.value = "";
-	if (!file && thumbprint) return signingAction("select", { thumbprint });
-	if (!file || !password) {
-		signingMessage = !file ? "Choose a .pfx file or a stored certificate." : "Enter the PFX password.";
-		signingAlarm = true;
-		return render();
-	}
-	const bytes = new Uint8Array(await file.arrayBuffer());
-	let binary = "";
-	for (const value of bytes) binary += String.fromCharCode(value);
-	bytes.fill(0);
-	return signingAction("import", { pfx_base64: btoa(binary), password });
-}
-
-async function exportSigning() {
-	try {
-		const response = await fetch("/api/signing", {
-			method: "POST",
-			headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": store.mutation_token },
-			body: JSON.stringify({ action: "export" }),
-		});
-		if (!response.ok) throw new Error((await response.json()).error || `HTTP ${response.status}`);
-		const link = document.createElement("a");
-		link.href = URL.createObjectURL(await response.blob());
-		link.download = "Agent_b-code-signing.cer";
-		link.click();
-		URL.revokeObjectURL(link.href);
-		signingMessage = "Public certificate exported.";
-		signingAlarm = false;
-	} catch (error) { signingMessage = error.message; signingAlarm = true; }
 	if (open) render();
 }
 

@@ -125,7 +125,7 @@ try {
   const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell"];
   const config = {
     config_version: 6, listen: `127.0.0.1:${port}`, workspace: path.join(dataRoot, "scratch"), log_dir: path.join(dataRoot, "logs"),
-    connections: [connection], services: {}, agents: [{ name: "Eval", b: connection.id, toolset }], chat: { auto_rename: false },
+    connections: [connection], services: {}, agents: [{ name: "Eval", b: connection.id, toolset }],
     run: { max_turns: 10000, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 1, queue_depth: 0 },
     approval: { mode: "boundary-only" }, deliver: { mode: "chips", exchange_folder: path.join(disposableRoot, "exchange") },
     operator_files: { allow_mailbox_approvals: false, log_retention_days: 30 },

@@ -310,7 +310,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/shell-credential", s.replayGuard(s.shellCredential))
 	mux.HandleFunc("/api/service-account", s.replayGuard(s.serviceAccount))
 	mux.HandleFunc("/api/hardening", s.replayGuard(s.hostHardening))
-	mux.HandleFunc("/api/signing", s.replayGuard(s.codeSigning))
 	mux.HandleFunc("/api/message", s.replayGuard(s.message))
 	mux.HandleFunc("/api/stop", s.replayGuard(s.stop))
 	mux.HandleFunc("/api/host-window", s.replayGuard(s.hostWindow))

@@ -81,3 +81,21 @@ func TestChipsModeLogsRunWithoutCreatingExchangeFolder(t *testing.T) {
 		t.Fatalf("event=%+v", event)
 	}
 }
+
+func TestFileConfiguredFolderOnlyModeStillCopies2k2(t *testing.T) {
+	workspace := t.TempDir()
+	exchange := filepath.Join(t.TempDir(), "exchange")
+	if err := os.WriteFile(filepath.Join(workspace, "result.txt"), []byte("folder only"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(workspace)
+	cfg.Deliver.Mode = config.DeliverModeFolder
+	cfg.Deliver.ExchangeFolder = exchange
+	result := New(nil, func() config.Config { return cfg }).Deliver(&session.Session{ID: "main", Workspace: workspace}, "r1", []Source{{Path: "result.txt"}})
+	if result.Mode != config.DeliverModeFolder || len(result.Items) != 1 || result.Items[0].Status != "copied" {
+		t.Fatalf("folder-only delivery=%+v", result)
+	}
+	if got, err := os.ReadFile(filepath.Join(exchange, "result.txt")); err != nil || string(got) != "folder only" {
+		t.Fatalf("folder-only copy=%q err=%v", got, err)
+	}
+}

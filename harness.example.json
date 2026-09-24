@@ -1,12 +1,11 @@
 {
-  "config_version": 9,
+  "config_version": 10,
   "listen": "127.0.0.1:8790",
   "workspace": "./workspace",
   "log_dir": "logs",
   "connections": [],
   "services": {},
   "agents": [],
-  "chat": { "auto_rename": true },
   "run": { "max_turns": 10000, "max_wall_clock_seconds": 21600, "max_tool_calls": 1000, "cycle_window": 8, "max_consecutive_tool_errors": 3, "max_concurrent": 2, "queue_depth": 0 },
   "approval": { "mode": "boundary-only" },
   "deliver": { "mode": "both", "exchange_folder": "%USERPROFILE%\\Agent_b" },

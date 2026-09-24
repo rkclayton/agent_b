@@ -86,6 +86,7 @@ type Manager struct {
 	dataRoot      string
 	enabled       func() bool
 	launch        func(string, string) error
+	verify        func(context.Context, string) error
 	changed       func(State)
 	now           func() time.Time
 	checkInterval time.Duration
@@ -94,14 +95,15 @@ type Manager struct {
 }
 
 type Options struct {
-	CurrentVersion string
-	DataRoot       string
-	LatestURL      string
-	Client         *http.Client
-	Enabled        func() bool
-	Launch         func(string, string) error
-	Changed        func(State)
-	CheckInterval  time.Duration
+	CurrentVersion  string
+	DataRoot        string
+	LatestURL       string
+	Client          *http.Client
+	Enabled         func() bool
+	Launch          func(string, string) error
+	VerifySignature func(context.Context, string) error
+	Changed         func(State)
+	CheckInterval   time.Duration
 }
 
 func New(options Options) *Manager {
@@ -127,11 +129,15 @@ func New(options Options) *Manager {
 			return exec.Command(path, arguments...).Start()
 		}
 	}
+	verify := options.VerifySignature
+	if verify == nil {
+		verify = verifySetupSignature
+	}
 	interval := options.CheckInterval
 	if interval <= 0 {
 		interval = time.Hour
 	}
-	manager := &Manager{client: client, latestURL: latest, dataRoot: options.DataRoot, enabled: enabled, launch: launch, changed: options.Changed, now: time.Now, checkInterval: interval}
+	manager := &Manager{client: client, latestURL: latest, dataRoot: options.DataRoot, enabled: enabled, launch: launch, verify: verify, changed: options.Changed, now: time.Now, checkInterval: interval}
 	manager.state = State{Enabled: enabled(), CurrentVersion: normalizeVersion(options.CurrentVersion)}
 	return manager
 }
@@ -444,6 +450,10 @@ func (m *Manager) download(ctx context.Context, release availableRelease) (strin
 	if err := os.Rename(part, final); err != nil {
 		_ = os.Remove(part)
 		return "", fmt.Errorf("publish verified setup: %w", err)
+	}
+	if err := m.verify(ctx, final); err != nil {
+		_ = os.Remove(final)
+		return "", fmt.Errorf("setup Authenticode verification: %w", err)
 	}
 	return final, nil
 }

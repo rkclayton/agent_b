@@ -100,10 +100,7 @@ func migrateToolset(toolset []string) []string {
 	return migrated
 }
 
-type Chat struct {
-	AutoRename  bool `json:"auto_rename"`
-	initialized bool
-}
+type Chat struct{}
 
 // Updates controls the one passive release check. AutoCheck defaults on even
 // for older configuration files that predate this object; an explicit false is
@@ -123,19 +120,6 @@ func (u *Updates) UnmarshalJSON(data []byte) error {
 	}
 	*u = Updates(value)
 	u.initialized = true
-	return nil
-}
-
-func defaultChat() Chat { return Chat{AutoRename: true, initialized: true} }
-
-func (c *Chat) UnmarshalJSON(data []byte) error {
-	type plain Chat
-	value := plain(defaultChat())
-	if err := json.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	*c = Chat(value)
-	c.initialized = true
 	return nil
 }
 
@@ -361,7 +345,7 @@ func (d *Deliver) UnmarshalJSON(data []byte) error {
 }
 
 const (
-	CurrentConfigVersion     = 9
+	CurrentConfigVersion     = 10
 	DefaultReserveOutput     = 10240
 	ApprovalModeBoundaryOnly = "boundary-only"
 	ApprovalModeMutating     = "mutating"
@@ -555,7 +539,7 @@ func Defaults(workspace string) Config {
 	return Config{
 		ConfigVersion: CurrentConfigVersion,
 		Listen:        "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
-		Connections: []Connection{connection}, Agents: []Agent{{Name: connection.Label, B: "local", Toolset: FullToolset()}}, Chat: defaultChat(),
+		Connections: []Connection{connection}, Agents: []Agent{{Name: connection.Label, B: "local", Toolset: FullToolset()}},
 		Services: map[string]Service{},
 		Sandbox:  Sandbox{Enabled: true, initialized: true},
 		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(),
@@ -621,7 +605,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		return nil, false, created, fmt.Errorf("run.max_tool_calls: zero is not unlimited; omit it for the default %d or use a positive backstop", DefaultMaxToolCalls)
 	}
 	unstamped := metadata.ConfigVersion == nil
-	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != 6 && *metadata.ConfigVersion != 7 && *metadata.ConfigVersion != 8 && *metadata.ConfigVersion != CurrentConfigVersion {
+	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != 6 && *metadata.ConfigVersion != 7 && *metadata.ConfigVersion != 8 && *metadata.ConfigVersion != 9 && *metadata.ConfigVersion != CurrentConfigVersion {
 		return nil, false, created, fmt.Errorf("config_version: unsupported value %d (current %d)", *metadata.ConfigVersion, CurrentConfigVersion)
 	}
 	migrated, data, err := migrateV1(data)
@@ -1115,9 +1099,6 @@ func applyDefaults(c *Config) {
 	}
 	if len(c.Connections) == 0 {
 		c.Agents = []Agent{}
-	}
-	if !c.Chat.initialized {
-		c.Chat = d.Chat
 	}
 	if !c.Updates.initialized {
 		c.Updates = d.Updates

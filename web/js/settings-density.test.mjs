@@ -5,12 +5,12 @@ import test from "node:test";
 const modules = [
   "settings.js", "settings-security.js", "settings-connections.js", "settings-run.js",
   "settings-general.js", "settings-about.js", "settings-workspace.js",
-  "settings-context.js", "settings-notifications.js",
+  "settings-context.js", "settings-chats.js", "settings-notifications.js",
 ].map((name) => [name, readFileSync(new URL(`./${name}`, import.meta.url), "utf8")]);
 
 const source = Object.fromEntries(modules);
 
-test("explanatory prose is hover text on a control, its label or its subheading", () => {
+test("subhead explanations are visible and row hints remain attached to controls", () => {
   // The helpers that carry it.
   assert.match(source["settings.js"], /function row\(label, control, extra = "", hint = ""\)/);
   assert.match(source["settings.js"], /function subhead\(label, hint = ""\)/);
@@ -18,9 +18,11 @@ test("explanatory prose is hover text on a control, its label or its subheading"
   for (const helper of ["toggle", "text", "number", "secret", "choices", "textarea", "approvalChoices"]) {
     assert.match(source["settings.js"], new RegExp(`function ${helper}\\([^)]*hint = ""\\)`), `${helper} cannot carry hover text`);
   }
-  // row and subhead render it as a title.
-  assert.match(source["settings.js"], /class="setting-row \$\{extra\}"\$\{hint \? ` title="\$\{attr\(hint\)\}"` : ""\}/);
-  assert.match(source["settings.js"], /class="settings-subhead"\$\{hint \? ` title="\$\{attr\(hint\)\}"` : ""\}/);
+  // Row-specific hints stay attached; subsection prose is visible and has no title.
+  assert.match(source["settings.js"], /const hover = hint \|\| `\$\{label\} setting\.`/);
+  assert.match(source["settings.js"], /class="setting-row \$\{extra\}" title="\$\{attr\(hover\)\}"/);
+  assert.match(source["settings.js"], /class="settings-subhead">\$\{html\(label\)\}<\/div>\$\{hint \? `<p class="settings-subhead-note">/);
+  assert.doesNotMatch(source["settings.js"], /class="settings-subhead"[^\n]+title=/);
 });
 
 test("the descriptor budget: Security keeps the dangerous line and the two authorized boundary explanations", () => {

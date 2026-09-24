@@ -81,6 +81,10 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Stable display name\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	manifest, _ := json.Marshal(map[string]any{"repo": bound})
+	if err := os.WriteFile(filepath.Join(planDir, "plan.json"), manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	dLegacy := call(http.MethodPost, "/api/sessions", map[string]any{"agent_id": "main", "workspace": bound, "role": "d", "plan_id": "stable"})
 	if dLegacy.Code != http.StatusBadRequest {
 		t.Fatalf("legacy d folder create %d %s", dLegacy.Code, dLegacy.Body.String())
@@ -107,12 +111,10 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 	if err := json.Unmarshal(listed.Body.Bytes(), &known); err != nil {
 		t.Fatal(err)
 	}
-	if listed.Code != 200 || len(known) != 2 {
+	if listed.Code != 200 || len(known) != 1 || known[0].Dir != filepath.Clean(bound) {
 		t.Fatalf("workspaces %d %s", listed.Code, listed.Body.String())
 	}
-	for _, entry := range known {
-		if entry.Dir == filepath.Clean(bound) || !strings.HasPrefix(entry.Dir, filepath.Join(data, "scratch")) {
-			t.Fatalf("folder input survived in known workspaces: %+v", known)
-		}
+	if strings.HasPrefix(known[0].Dir, filepath.Join(data, "scratch")) {
+		t.Fatalf("scratch folder survived known-folder filter: %+v", known)
 	}
 }

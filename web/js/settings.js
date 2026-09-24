@@ -3,11 +3,10 @@ import { operatorStatusView } from "./operator-status.js";
 import { navigationSurfaceReady, recordViewMount } from "./navigation-telemetry.js";
 import { renderConnectionsPage } from "./settings-connections.js";
 import { renderAboutPage } from "./settings-about.js";
-import { renderContextPage } from "./settings-context.js";
+import { renderChatsPage } from "./settings-chats.js";
 import { renderGeneralPage } from "./settings-general.js";
 import { renderNotificationsPage } from "./settings-notifications.js";
 import { renderProfilesPage } from "./settings-profiles.js";
-import { renderRunPage } from "./settings-run.js";
 import { renderSecurityPage } from "./settings-security.js";
 import { renderWorkspacePage } from "./settings-workspace.js";
 import { mountPanels, unmountPanels } from "./app.js";
@@ -58,8 +57,7 @@ const sectionLabels = [
   ["activity", "Activity"],
   ["connections", "Connections"],
   ["profiles", "Profiles"],
-  ["context", "Context"],
-  ["run", "Run & approval"],
+  ["chats", "Chats"],
   ["notifications", "Notifications"],
   ["shell", "Security"],
   ["about", "About"],
@@ -206,8 +204,7 @@ function render() {
     sessions: () => renderGeneralPage("sessions", active, settingsPageContext(active)),
     tools: () => renderGeneralPage("tools", active, settingsPageContext(active)),
     memory: () => renderGeneralPage("memory", active, settingsPageContext(active)),
-    context: () => renderContextPage(active, settingsPageContext(active)),
-    run: () => renderRunPage(settingsPageContext(active)),
+    chats: () => renderChatsPage(active, settingsPageContext(active)),
     notifications: () => renderNotificationsPage(settingsPageContext(active)),
     shell: () => renderSecurityPage("shell", active, settingsPageContext(active)) + renderWorkspacePage(settingsPageContext(active)),
     about: () => renderAboutPage(settingsPageContext(active)),
@@ -319,12 +316,13 @@ async function refreshOperatorFileState() {
 }
 
 function row(label, control, extra = "", hint = "") {
-  return `<div class="setting-row ${extra}"${hint ? ` title="${attr(hint)}"` : ""}><label>${html(label)}</label><div>${control}</div></div>`;
+  const hover = hint || `${label} setting.`;
+  return `<div class="setting-row ${extra}" title="${attr(hover)}"><label>${html(label)}</label><div>${control}</div></div>`;
 }
 
 // A subsection heading carries the paragraph that used to sit under it.
 function subhead(label, hint = "") {
-  return `<div class="settings-subhead"${hint ? ` title="${attr(hint)}"` : ""}>${html(label)}</div>`;
+  return `<div class="settings-subhead">${html(label)}</div>${hint ? `<p class="settings-subhead-note">${html(hint)}</p>` : ""}`;
 }
 
 function current(path, fallback) {

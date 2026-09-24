@@ -103,19 +103,30 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
   app.stderr.on("data", (chunk) => { stderr += String(chunk); });
 
   const base = `http://127.0.0.1:${appPort}`;
-  const getState = async () => {
-    const response = await fetch(`${base}/api/state`);
+  const getDocument = async () => {
+    const response = await fetch(`${base}/chat`);
     assert.equal(response.status, 200);
-    return response.json();
+    return true;
   };
   // Restoring many retained journals takes longer than a bare start, so the
   // caller can wait longer; the stderr is carried into the failure either way.
-  const initial = await waitFor(getState, "the harness became ready", readyTimeout).catch((error) => {
+  await waitFor(getDocument, "the harness became ready", readyTimeout).catch((error) => {
     throw new Error(`${error.message}; stderr: ${stderr.slice(-800)}`);
   });
 
   const browser = await chromium.launch({ channel: "msedge", headless: true });
   const context = await browser.newContext({ viewport });
+  const bootstrap = await context.newPage();
+  await bootstrap.goto(`${base}/chat`, { waitUntil: "domcontentloaded" });
+  await bootstrap.close();
+  const getState = async () => {
+    const response = await context.request.get(`${base}/api/state`);
+    assert.equal(response.status(), 200);
+    return response.json();
+  };
+  const initial = await waitFor(getState, "the authenticated harness became ready", readyTimeout).catch((error) => {
+    throw new Error(`${error.message}; stderr: ${stderr.slice(-800)}`);
+  });
 
   return {
     base, appPort, modelPort, app, context, browser, initial, getState, dataRoot,

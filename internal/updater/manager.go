@@ -78,18 +78,19 @@ type availableRelease struct {
 }
 
 type Manager struct {
-	mu        sync.RWMutex
-	state     State
-	release   availableRelease
-	client    *http.Client
-	latestURL string
-	dataRoot  string
-	enabled   func() bool
-	launch    func(string) error
-	changed   func(State)
-	now       func() time.Time
-	lastCheck time.Time
-	cancel    context.CancelFunc
+	mu            sync.RWMutex
+	state         State
+	release       availableRelease
+	client        *http.Client
+	latestURL     string
+	dataRoot      string
+	enabled       func() bool
+	launch        func(string, string) error
+	changed       func(State)
+	now           func() time.Time
+	checkInterval time.Duration
+	lastCheck     time.Time
+	cancel        context.CancelFunc
 }
 
 type Options struct {
@@ -98,8 +99,9 @@ type Options struct {
 	LatestURL      string
 	Client         *http.Client
 	Enabled        func() bool
-	Launch         func(string) error
+	Launch         func(string, string) error
 	Changed        func(State)
+	CheckInterval  time.Duration
 }
 
 func New(options Options) *Manager {
@@ -117,9 +119,19 @@ func New(options Options) *Manager {
 	}
 	launch := options.Launch
 	if launch == nil {
-		launch = func(path string) error { return exec.Command(path, "--install", "--quiet").Start() }
+		launch = func(path, sessionID string) error {
+			arguments := []string{"--install", "--quiet"}
+			if sessionID != "" {
+				arguments = append(arguments, "--reopen-session", sessionID)
+			}
+			return exec.Command(path, arguments...).Start()
+		}
 	}
-	manager := &Manager{client: client, latestURL: latest, dataRoot: options.DataRoot, enabled: enabled, launch: launch, changed: options.Changed, now: time.Now}
+	interval := options.CheckInterval
+	if interval <= 0 {
+		interval = time.Hour
+	}
+	manager := &Manager{client: client, latestURL: latest, dataRoot: options.DataRoot, enabled: enabled, launch: launch, changed: options.Changed, now: time.Now, checkInterval: interval}
 	manager.state = State{Enabled: enabled(), CurrentVersion: normalizeVersion(options.CurrentVersion)}
 	return manager
 }
@@ -148,7 +160,7 @@ func (m *Manager) Start(parent context.Context) {
 		if m.enabled() {
 			_ = m.Check(ctx)
 		}
-		ticker := time.NewTicker(24 * time.Hour)
+		ticker := time.NewTicker(m.checkInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -355,7 +367,7 @@ func (m *Manager) validateAssetURL(raw string) error {
 	return nil
 }
 
-func (m *Manager) Install(ctx context.Context) (string, error) {
+func (m *Manager) Install(ctx context.Context, sessionID string) (string, error) {
 	m.mu.Lock()
 	if m.state.Installing {
 		m.mu.Unlock()
@@ -373,7 +385,7 @@ func (m *Manager) Install(ctx context.Context) (string, error) {
 
 	path, err := m.download(ctx, release)
 	if err == nil {
-		err = m.launch(path)
+		err = m.launch(path, sessionID)
 	}
 	m.mu.Lock()
 	m.state.Installing = false

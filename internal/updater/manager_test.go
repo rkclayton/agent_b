@@ -39,20 +39,23 @@ func TestCheckDownloadVerifyAndLaunch(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	var launched string
-	manager := New(Options{CurrentVersion: "v1.4.0", DataRoot: t.TempDir(), LatestURL: server.URL + "/latest", Client: server.Client(), Launch: func(path string) error { launched = path; return nil }})
+	var launched, reopened string
+	manager := New(Options{CurrentVersion: "v1.4.0", DataRoot: t.TempDir(), LatestURL: server.URL + "/latest", Client: server.Client(), Launch: func(path, sessionID string) error { launched, reopened = path, sessionID; return nil }})
 	if err := manager.Check(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if state := manager.State(); !state.Available || state.Version != "v1.5.0" || state.Notes != "First line" {
 		t.Fatalf("unexpected state: %+v", state)
 	}
-	path, err := manager.Install(context.Background())
+	path, err := manager.Install(context.Background(), "same-chat")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if path != launched {
 		t.Fatalf("launched %q, returned %q", launched, path)
+	}
+	if reopened != "same-chat" {
+		t.Fatalf("installer did not receive the selected chat: %q", reopened)
 	}
 	if got, err := os.ReadFile(path); err != nil || string(got) != string(setup) {
 		t.Fatalf("verified setup: %q, %v", got, err)
@@ -79,11 +82,11 @@ func TestTamperedSetupIsRefusedBeforeLaunch(t *testing.T) {
 	}))
 	defer server.Close()
 	launched := false
-	manager := New(Options{CurrentVersion: "v1.4.0", DataRoot: t.TempDir(), LatestURL: server.URL + "/latest", Client: server.Client(), Launch: func(string) error { launched = true; return nil }})
+	manager := New(Options{CurrentVersion: "v1.4.0", DataRoot: t.TempDir(), LatestURL: server.URL + "/latest", Client: server.Client(), Launch: func(string, string) error { launched = true; return nil }})
 	if err := manager.Check(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Install(context.Background()); err == nil || !strings.Contains(err.Error(), "SHA-256 mismatch") {
+	if _, err := manager.Install(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "SHA-256 mismatch") {
 		t.Fatalf("error=%v", err)
 	}
 	if launched {
@@ -174,5 +177,28 @@ func TestWindowAttachCheckIsRateLimitedForFifteenMinutes(t *testing.T) {
 	}
 	if requests.Load() != 2 {
 		t.Fatalf("requests=%d, want 2", requests.Load())
+	}
+}
+
+func TestHourlyLoopRetriesAFailedCheckAtTheNextTick(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) == 1 {
+			http.Error(w, "temporary failure", http.StatusBadGateway)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v1.4.0"})
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	manager := New(Options{CurrentVersion: "v1.4.0", DataRoot: t.TempDir(), LatestURL: server.URL, Client: server.Client(), CheckInterval: 10 * time.Millisecond})
+	manager.Start(ctx)
+	deadline := time.Now().Add(2 * time.Second)
+	for (requests.Load() < 2 || manager.State().Error != "") && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if requests.Load() < 2 || manager.State().Error != "" {
+		t.Fatalf("failed check was not retried and cleared: requests=%d state=%+v", requests.Load(), manager.State())
 	}
 }

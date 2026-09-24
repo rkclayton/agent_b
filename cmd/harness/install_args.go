@@ -18,6 +18,7 @@ var installModeFlags = map[string]bool{
 	"install-source": true,
 	"install-data":   true,
 	"all-users":      true,
+	"reopen-session": true,
 	"NoStart":        true,
 	"version":        true,
 	"config":         true,
@@ -48,7 +49,7 @@ func flagName(argument string) string {
 // takesValue is true for this mode's flags that are followed by a value.
 func takesValue(name string) bool {
 	switch name {
-	case "install-source", "install-data", "config", "app-root", "data-root", "replay", "startup-log":
+	case "install-source", "install-data", "reopen-session", "config", "app-root", "data-root", "replay", "startup-log":
 		return true
 	}
 	return false

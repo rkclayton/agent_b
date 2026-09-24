@@ -1,11 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { updateAvailableText } from "./update-display.js";
+import { readFileSync } from "node:fs";
 import { renderAboutPage } from "./settings-about.js";
 
-test("the strip reports only an available version", () => {
-  assert.equal(updateAvailableText({ available: true, version: "v1.5.0" }), "v1.5.0 available");
-  assert.equal(updateAvailableText({ available: false, version: "v1.5.0" }), "");
+const chat = readFileSync(new URL("./chat.js", import.meta.url), "utf8");
+const htmlSource = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+
+test("the update notice is a dismissible banner beside Attach, not strip text", () => {
+  assert.match(htmlSource, /id="chat-update-banner"[\s\S]*id="chat-update-install"[\s\S]*id="chat-update-dismiss"[\s\S]*class="chat-attach-wrap"/);
+  assert.match(chat, /`\$\{version\} available —`/);
+  assert.match(chat, /finish or stop the run first/);
+  assert.match(chat, /action: "install", session_id: session\.id/);
+  assert.doesNotMatch(chat, /updateAvailableText/);
 });
 
 test("About exposes attach-aware timestamps, release note, and operator actions", () => {

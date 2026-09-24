@@ -4,6 +4,7 @@ param(
     [string]$ApplicationDirectory,
     [string]$DataDirectory,
     [string]$ConfigPath,
+    [string]$SessionID,
     [ValidateRange(5, 300)]
     [int]$StartupTimeoutSeconds = 120,
     [switch]$NoBrowser,
@@ -194,7 +195,8 @@ if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Agent_b executable is missing: $executable"
 }
 $url = Get-AgentBUrl
-$appUrl = [Uri]::new([Uri]$url, 'chat').AbsoluteUri
+$chatPath = if ([string]::IsNullOrWhiteSpace($SessionID)) { 'chat' } else { 'chat?session=' + [Uri]::EscapeDataString($SessionID) }
+$appUrl = [Uri]::new([Uri]$url, $chatPath).AbsoluteUri
 
 if ($Check) {
     Write-Host 'Agent_b launcher check'

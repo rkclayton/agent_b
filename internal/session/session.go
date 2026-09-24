@@ -653,6 +653,48 @@ func (s *Session) SetRunnable(ok bool, reason string) {
 	s.Runnable, s.NotRunnableReason = ok, reason
 	s.mu.Unlock()
 }
+
+// EnsureWorkspace is the last boundary before a run can reach tools. Scratch
+// is disposable and is recreated in place; an operator-selected folder is
+// never invented or redirected when it has disappeared.
+func (s *Session) EnsureWorkspace() (ok bool, reason string, changed bool) {
+	s.mu.Lock()
+	workspace, scratch := s.Workspace, s.Scratch
+	s.mu.Unlock()
+
+	if scratch {
+		if err := os.MkdirAll(workspace, 0o700); err != nil {
+			reason = fmt.Sprintf("scratch folder is unavailable: %s: %v", workspace, err)
+			s.mu.Lock()
+			changed = !s.WorkspaceMissing || s.Runnable || s.NotRunnableReason != reason
+			s.WorkspaceMissing, s.Runnable, s.NotRunnableReason = true, false, reason
+			s.mu.Unlock()
+			return false, reason, changed
+		}
+		s.mu.Lock()
+		changed = s.WorkspaceMissing || !s.Runnable || s.NotRunnableReason != ""
+		s.WorkspaceMissing, s.Runnable, s.NotRunnableReason = false, true, ""
+		s.mu.Unlock()
+		return true, "", changed
+	}
+
+	info, err := os.Stat(workspace)
+	if err == nil && info.IsDir() {
+		s.mu.Lock()
+		if s.WorkspaceMissing {
+			changed = true
+			s.WorkspaceMissing, s.Runnable, s.NotRunnableReason = false, true, ""
+		}
+		s.mu.Unlock()
+		return true, "", changed
+	}
+	reason = fmt.Sprintf("folder is missing: %s", workspace)
+	s.mu.Lock()
+	changed = !s.WorkspaceMissing || s.Runnable || s.NotRunnableReason != reason
+	s.WorkspaceMissing, s.Runnable, s.NotRunnableReason = true, false, reason
+	s.mu.Unlock()
+	return false, reason, changed
+}
 func (s *Session) MessagesCopy() []events.Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -171,6 +171,17 @@ func (r *Runner) AppendUser(s *session.Session, message events.Message) {
 }
 
 func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (reason string, detail string, turns int) {
+	workspaceOK, workspaceReason, workspaceChanged := s.EnsureWorkspace()
+	if workspaceChanged {
+		snapshot := s.Snapshot()
+		r.bus.Publish(events.New(events.SessionUpdated, s.ID, runID, map[string]any{
+			"session_id": s.ID, "workspace_missing": snapshot.WorkspaceMissing,
+			"runnable": snapshot.Runnable, "not_runnable_reason": snapshot.NotRunnableReason,
+		}))
+	}
+	if !workspaceOK {
+		return "workspace_not_runnable", workspaceReason, 0
+	}
 	s.ResetRunTouches()
 	// Item 2fh: a scratch chat's folder memory is the layers of the plan
 	// repositories it has written into; a run boundary is where it may change.

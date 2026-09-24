@@ -651,7 +651,7 @@
 .chat-status-strip .chat-attach-wrap { margin-left:auto; }
 .chat-update-banner { margin-left:auto; display:flex; align-items:center; gap:4px; white-space:nowrap; color:var(--ink); }
 .chat-update-banner[hidden] { display:none; }
-.chat-update-banner + .chat-attach-wrap { margin-left:0; }
+.chat-update-banner:not([hidden]) + .chat-attach-wrap { margin-left:0; }
 .chat-update-install,
 .chat-update-dismiss { min-height:20px!important; padding:0!important; border:0!important; background:transparent!important; color:var(--trace)!important; text-decoration:underline; }
 .chat-update-dismiss { width:18px; color:var(--mute)!important; text-decoration:none; }

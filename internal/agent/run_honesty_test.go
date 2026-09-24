@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,6 +20,49 @@ import (
 	"harness/internal/session"
 	"harness/internal/tools"
 )
+
+func TestRunStartRepairsScratchAndRefusesMissingRepositoryBeforeModel(t *testing.T) {
+	var requests atomic.Int32
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "done"}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 1}})
+	}))
+	defer model.Close()
+
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Context.Accounting = "estimated"
+	connection := cfg.Connections[0]
+	connection.ID, connection.BaseURL, connection.Model = "main", model.URL, "fake"
+	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+	cfg.Connections = []config.Connection{connection}
+	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
+	runner := NewRunner(newCapturedBus().Bus, tools.New(), &PromptRenderer{text: "system"}, lookup, func() config.Config { return cfg })
+
+	scratch := filepath.Join(root, "scratch", "s1")
+	scratchChat := &session.Session{ID: "s1", ConnectionID: "main", Workspace: scratch, WorkspaceMissing: true, Scratch: true, Runnable: false, NotRunnableReason: "scratch folder is unavailable", ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	if reason, detail, _ := runner.Run(context.Background(), scratchChat, "r1"); reason != "done" || detail != "" {
+		t.Fatalf("scratch run=(%q,%q)", reason, detail)
+	}
+	if info, err := os.Stat(scratch); err != nil || !info.IsDir() {
+		t.Fatalf("scratch was not recreated: %v", err)
+	}
+	if got := scratchChat.Snapshot(); got.WorkspaceMissing || !got.Runnable || got.NotRunnableReason != "" {
+		t.Fatalf("scratch state was not repaired: %+v", got)
+	}
+
+	repo := filepath.Join(root, "deleted-repo")
+	repoChat := &session.Session{ID: "s2", ConnectionID: "main", Workspace: repo, Runnable: true, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	before := requests.Load()
+	reason, detail, turns := runner.Run(context.Background(), repoChat, "r2")
+	if reason != "workspace_not_runnable" || !strings.Contains(detail, repo) || turns != 0 || requests.Load() != before {
+		t.Fatalf("repo run=(%q,%q,%d) requests=%d->%d", reason, detail, turns, before, requests.Load())
+	}
+	if got := repoChat.Snapshot(); !got.WorkspaceMissing || got.Runnable || !strings.Contains(got.NotRunnableReason, repo) {
+		t.Fatalf("repo snapshot=%+v", got)
+	}
+}
 
 func TestNearOutputFloorCompactsBeforeGeneration(t *testing.T) {
 	var maxTokens atomic.Int32

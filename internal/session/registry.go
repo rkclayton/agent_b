@@ -149,15 +149,33 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		planDir = filepath.Join(r.plansRoot, planID)
 		planRepo = planRepoForRestore(planDir, saved.PlanRepo)
 	}
+	workspace := firstNonempty(saved.WorkspaceDir, saved.Workspace)
+	workspaceMissing, runnable, notRunnableReason := saved.WorkspaceMissing, saved.Runnable, saved.NotRunnableReason
+	if saved.Scratch {
+		if r.scratchRoot != "" {
+			workspace = filepath.Join(r.scratchRoot, saved.ID)
+		}
+		if err := os.MkdirAll(workspace, 0o700); err != nil {
+			workspaceMissing, runnable = true, false
+			notRunnableReason = fmt.Sprintf("scratch folder is unavailable: %s: %v", workspace, err)
+		} else {
+			workspaceMissing, runnable, notRunnableReason = false, true, ""
+		}
+	} else if info, statErr := os.Stat(workspace); statErr != nil || !info.IsDir() {
+		workspaceMissing, runnable = true, false
+		notRunnableReason = fmt.Sprintf("folder is missing: %s", workspace)
+	} else if workspaceMissing {
+		workspaceMissing, runnable, notRunnableReason = false, true, ""
+	}
 	s := &Session{
 		ID: saved.ID, Label: saved.Label, AgentID: saved.AgentID, ConnectionID: saved.ConnectionID,
 		AgentName: saved.AgentName, BConnection: saved.BConnection, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: saved.NetworkBoundary,
-		Workspace: firstNonempty(saved.WorkspaceDir, saved.Workspace), WorkspaceMissing: saved.WorkspaceMissing, Scratch: saved.Scratch,
+		Workspace: workspace, WorkspaceMissing: workspaceMissing, Scratch: saved.Scratch,
 		ProjectBlock: saved.ProjectContent, ProjectFiles: append([]string(nil), saved.ProjectFiles...), ProjectNotes: append([]string(nil), saved.ProjectNotes...),
 		PendingRepoPolicy: clonePolicyState(saved.PendingRepoPolicy), RepoPolicy: clonePolicyState(saved.RepoPolicy),
 		Run: run, ToolsEnabled: tools, ToolCalls: calls, LastSeen: map[string]time.Time{}, CreatedAt: createdAt,
 		Closed: saved.Closed, NamePinned: saved.NamePinned, Messages: append([]events.Message(nil), saved.Messages...), Budget: saved.Budget,
-		LogPath: logPath, Runnable: saved.Runnable, NotRunnableReason: saved.NotRunnableReason,
+		LogPath: logPath, Runnable: runnable, NotRunnableReason: notRunnableReason,
 		LoadFolderMemory: r.folderLoader(saved.ConnectionID), MemoryBlock: saved.MemoryContent, MemoryPath: saved.MemoryPath, AgentMemoryBlock: saved.AgentMemoryContent, AgentMemoryPath: saved.AgentMemoryPath,
 		SchemaTokens: schemaTokens, MarginalTokens: marginalTokens, queuedMessages: saved.QueuedMessages,
 		modelTurns: saved.ModelTurns, compactionCount: saved.CompactionCount, compactionTokenDelta: saved.CompactionTokenDelta,

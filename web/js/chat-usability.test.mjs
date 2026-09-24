@@ -56,6 +56,7 @@ test("the paperclip replaces the duplicate token readout, and the composer holds
   // whatever font the host has.
   assert.match(html, /id="chat-status-strip"[\s\S]{0,1000}class="chat-attach-wrap"[\s\S]{0,400}id="chat-attach"[\s\S]{0,200}composer-glyph/);
   assert.match(css, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; \}/);
+  assert.match(css, /\.chat-update-banner:not\(\[hidden\]\) \+ \.chat-attach-wrap \{ margin-left:0; \}/);
   assert.doesNotMatch(html, /id="chat-readout"|id="chat-readout-meter"/);
   assert.match(html, /class="chat-composer-row"/);
   // A mic where the paperclip was, then ONE send/stop control.

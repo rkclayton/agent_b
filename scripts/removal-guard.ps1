@@ -96,7 +96,7 @@ function Remove-EntryWithoutFollowing {
         [IO.Directory]::Delete($Path, $false)
         return
     }
-    # Test seam (scripts/test-removal-guard.ps1): something replacing a directory
+    # Test seam (tests/test-removal-guard.ps1): something replacing a directory
     # with a junction just before it is entered.
     if ($global:AgentbRemovalBeforeDescend -is [scriptblock]) { & $global:AgentbRemovalBeforeDescend $Path }
     if (-not $Path.Equals($Root, [StringComparison]::OrdinalIgnoreCase)) { Assert-NoLinkAbove -Path $Path -Root $Root }

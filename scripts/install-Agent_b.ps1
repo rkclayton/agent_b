@@ -32,7 +32,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 . (Join-Path $PSScriptRoot 'install-root-policy.ps1')
-$displayVersion = '1.6.7'
+$displayVersion = '1.7.0'
 
 if (-not $TestMode -and -not $EmbeddedBundle) {
     Write-Output 'Agent_b installs come from the signed Agent_b-setup.exe on the release page.'
@@ -239,7 +239,7 @@ function Assert-CandidateIdentity {
     param([string]$SourceRoot, [string]$Binary, [string]$Version, [switch]$AfterStop)
     $expectedTag = 'v' + $Version
     $manifestPath = Join-Path $SourceRoot 'candidate-final.json'
-    $rule = 'The installer never builds: the release step (scripts\build-candidate.ps1) builds Agent_b.exe and writes candidate-final.json beside it. ' + $(if ($AfterStop) { 'Agent_b was already stopped; the previous version is restored and restarted.' } else { 'Nothing was stopped or changed.' })
+    $rule = 'The installer never builds: the release step (tools\build-candidate.ps1) builds Agent_b.exe and writes candidate-final.json beside it. ' + $(if ($AfterStop) { 'Agent_b was already stopped; the previous version is restored and restarted.' } else { 'Nothing was stopped or changed.' })
     if (-not (Test-Path -LiteralPath $Binary -PathType Leaf)) { throw "CANDIDATE REFUSED: $Binary is missing. $rule" }
     $found = Get-CandidateExeIdentity -Path $Binary
     $foundText = "$($found.Tag) $($found.Commit) sha256 $($found.Sha256)"
@@ -644,6 +644,13 @@ foreach ($directory in @('web', 'prompts', 'scripts', 'docs')) {
 foreach ($file in @('harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE', 'scripts\launch-installed.cmd')) {
     $required = Join-Path $sourceRoot $file
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Required program file is missing: $required" }
+}
+$shipManifestPath = Join-Path $sourceRoot 'runtime-scripts.txt'
+if (-not (Test-Path -LiteralPath $shipManifestPath -PathType Leaf)) { throw "Required ship manifest is missing: $shipManifestPath" }
+$shipList = @(Get-Content -LiteralPath $shipManifestPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Replace('/', '\') } | Sort-Object)
+$sourceScripts = @(Get-ChildItem -LiteralPath (Join-Path $sourceRoot 'scripts') -File | ForEach-Object { 'scripts\' + $_.Name } | Sort-Object)
+if (($shipList -join "`n") -cne ($sourceScripts -join "`n")) {
+    throw "SHIP LIST REFUSED: candidate scripts do not exactly match runtime-scripts.txt. Manifest: $($shipList -join ', '); candidate: $($sourceScripts -join ', ')."
 }
 Assert-CandidateIdentity -SourceRoot $sourceRoot -Binary $sourceBinary -Version $displayVersion
 $null = Assert-WebView2Loader -SourceRoot $sourceRoot

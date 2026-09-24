@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { removeTreeWithinAllowedRoots } from "../../scripts/removal-guard.mjs";
+import { removeTreeWithinAllowedRoots } from "../../tools/removal-guard.mjs";
 
 const suiteRoot = path.dirname(fileURLToPath(import.meta.url));
 const seedRoot = path.join(suiteRoot, "fixture", "seed");

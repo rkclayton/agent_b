@@ -41,7 +41,7 @@
 
 ## Working method
 - Inspect before editing. Make small exact changes.
-- Remove a linked git worktree only through `scripts/remove-worktree.ps1`; `git worktree remove` descends through junctions and empties their targets. Rebuild `node_modules` and `.tools/go` with `scripts/rebuild-tool-folders.ps1`.
+- Remove a linked git worktree only through `tools/remove-worktree.ps1`; `git worktree remove` descends through junctions and empties their targets. Rebuild `node_modules` and `.tools/go` with `tools/rebuild-tool-folders.ps1`.
 - Run the prompt's verification plus relevant Go tests before declaring a phase complete.
 - Report what was verified and what was not. Never claim a path works if it was never executed.
 - Focused commits at verified milestones, pushed to `origin/main`. Never commit keys, model binaries, generated logs, or machine-specific secrets.

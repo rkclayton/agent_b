@@ -29,7 +29,7 @@ try { $e = [System.Threading.EventWaitHandle]::OpenExisting('__EVENT__'); "event
 // TestServiceAccountToolCannotReachProductionWindow runs the probe as a real
 // service-account tool process against a running disposable Agent_b whose PID
 // is AGENTB_WINDOW_PROBE_PID. It is opt-in: it needs the capability suite's
-// disposable roots and a running target. scripts/test-window-probe.ps1 drives it
+// disposable roots and a running target. tests/test-window-probe.ps1 drives it
 // and then checks that the target is still running with nothing in its log.
 func TestServiceAccountToolCannotReachProductionWindow(t *testing.T) {
 	pid := os.Getenv("AGENTB_WINDOW_PROBE_PID")

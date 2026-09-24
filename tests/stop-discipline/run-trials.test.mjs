@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { executeTool, materializeFixture, snapshotPaths } from "./run-trials.mjs";
-import { removeTreeWithinAllowedRoots } from "../../scripts/removal-guard.mjs";
+import { removeTreeWithinAllowedRoots } from "../../tools/removal-guard.mjs";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentb-stop-runner-test-"));
 try {

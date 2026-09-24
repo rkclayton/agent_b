@@ -68,9 +68,9 @@ func TestEverySigningPathChecksUIPolicyBeforePrivateKeyUse(t *testing.T) {
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	for _, relative := range []string{
 		"scripts/manage-signing.ps1",
-		"scripts/sign-release.ps1",
-		"scripts/sign-test-candidate.ps1",
-		"scripts/new-test-signing-certificate.ps1",
+		"tools/sign-release.ps1",
+		"tools/sign-test-candidate.ps1",
+		"tools/new-test-signing-certificate.ps1",
 	} {
 		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
 		if err != nil {

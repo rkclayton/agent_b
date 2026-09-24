@@ -55,9 +55,14 @@ The normal Windows installer separates immutable application files under `%Progr
 
 ```text
 go test ./...
+node tests/run-node-tests.mjs
 npm ci
 npm run test:ui
 ```
+
+Every push and pull request runs the portable Go and Node unit suites on Windows and Ubuntu;
+Windows also runs the Windows-specific packages. Release-only gates and their prerequisites are
+listed in [tests/README.md](tests/README.md).
 
 Node and Playwright are development-only. The shipped browser code has no runtime dependencies, and the application remains one Go process and one binary.
 

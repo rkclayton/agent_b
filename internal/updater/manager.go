@@ -117,7 +117,7 @@ func New(options Options) *Manager {
 	}
 	launch := options.Launch
 	if launch == nil {
-		launch = func(path string) error { return exec.Command(path, "--install").Start() }
+		launch = func(path string) error { return exec.Command(path, "--install", "--quiet").Start() }
 	}
 	manager := &Manager{client: client, latestURL: latest, dataRoot: options.DataRoot, enabled: enabled, launch: launch, changed: options.Changed, now: time.Now}
 	manager.state = State{Enabled: enabled(), CurrentVersion: normalizeVersion(options.CurrentVersion)}

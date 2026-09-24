@@ -43,6 +43,7 @@ type installOptions struct {
 	sourceDir  string
 	dataRoot   string
 	noStart    bool
+	allUsers   bool
 	passThough []string
 }
 
@@ -167,6 +168,9 @@ func runInstall(options installOptions, args []string) int {
 	if embeddedBundle {
 		scriptArgs = append(scriptArgs, "-EmbeddedBundle")
 	}
+	if options.allUsers {
+		scriptArgs = append(scriptArgs, "-AllUsers")
+	}
 	scriptArgs = append(scriptArgs, args...)
 	command := exec.Command(powershell, scriptArgs...)
 	command.Dir = source
@@ -243,16 +247,19 @@ func runInstall(options installOptions, args []string) int {
 			log.printf("AUTOSTART SKIPPED: -NoStart was requested. Log: %s", log.location())
 			return 0
 		}
-		applicationRoot := installerArgument(args, "ApplicationDirectory", filepath.Join(os.Getenv("ProgramFiles"), "Agent_b"))
+		applicationRoot := installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers))
 		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
 		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, log); err != nil {
 			return log.fail("Agent_b was installed but failed to start: %v", err)
+		}
+		if err := completeInstallMigration(applicationRoot, operatorDataRoot, installerFlagPresent(args, "TestMode"), log); err != nil {
+			return log.fail("Agent_b started, but legacy migration cleanup failed: %v", err)
 		}
 		log.printf("AUTOSTART COMPLETE: Agent_b started through %s. Log: %s", filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1"), log.location())
 		return 0
 	}
 	if version, reason, restart := installRestartDetails(log.location()); restart {
-		applicationRoot := installerArgument(args, "ApplicationDirectory", filepath.Join(os.Getenv("ProgramFiles"), "Agent_b"))
+		applicationRoot := installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers))
 		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
 		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, log); err != nil {
 			log.printf("RESTART FAILED: %s after %s: %v", version, reason, err)
@@ -271,6 +278,42 @@ func runInstall(options installOptions, args []string) int {
 		showInstallFailure("Agent_b install failed", fmt.Sprintf("The install stopped during %s (exit %d). It is safe to run again.\n\nLog: %s", lastPhase, code, log.location()))
 	}
 	return code
+}
+
+func defaultInstallRoot(allUsers bool) string {
+	if allUsers {
+		return filepath.Join(os.Getenv("ProgramFiles"), "Agent_b")
+	}
+	return filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "Agent_b")
+}
+
+func installerFlagPresent(arguments []string, wanted string) bool {
+	for _, argument := range arguments {
+		if strings.EqualFold(flagName(argument), wanted) {
+			return true
+		}
+	}
+	return false
+}
+
+func completeInstallMigration(applicationRoot, dataRoot string, testMode bool, log *installLog) error {
+	marker := filepath.Join(dataRoot, "migration-pending.json")
+	if _, err := os.Stat(marker); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	arguments := []string{"-NoLogo", "-NoProfile", "-File", filepath.Join(applicationRoot, "scripts", "complete-install-migration.ps1"), "-DataDirectory", dataRoot}
+	if testMode {
+		arguments = append(arguments, "-TestMode")
+	}
+	command := exec.Command(windowsPowerShell(), arguments...)
+	command.Stdout = log.writer()
+	command.Stderr = log.writer()
+	if err := command.Run(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func installRestartDetails(path string) (string, string, bool) {

@@ -108,11 +108,8 @@ $report = [ordered]@{
 
 if (-not $usable.Usable) {
     $report.outcome = 'unreachable'
-    # One sentence, naming the store and the identity, rather than the raw provider error.
     $report.reason = "The signing key for $($certificate.Thumbprint) is in $($resolved.Store) and cannot be opened as $($identity.Name)$(if (-not $elevated) { ' without elevation' }). Underlying: $($usable.Reason)"
-    Write-Host "SIGNING UNREACHABLE: $($report.reason)"
-    # v0.66.0 (2eu): signing is an install-time step. One sentence says so.
-    Write-Host 'The staged candidate stays unsigned by design: the elevated installer signs every installed artifact with this certificate and records SIGNED: in its transcript.'
+    Write-Host "SIGNING REFUSED: certificate $($certificate.Thumbprint) is not usable without interaction by $($identity.Name); run the recorded one-time key grant first."
     foreach ($file in $targets) {
         $after = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
         if ($after -ne $before[$file]) { throw "a failed signing attempt changed $file" }

@@ -17,6 +17,7 @@ var installModeFlags = map[string]bool{
 	"quiet":          true,
 	"install-source": true,
 	"install-data":   true,
+	"all-users":      true,
 	"NoStart":        true,
 	"version":        true,
 	"config":         true,

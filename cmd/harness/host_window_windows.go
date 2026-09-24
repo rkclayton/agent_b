@@ -24,6 +24,8 @@ package main
 // a browser feature, not a channel we opened.
 
 import (
+	_ "embed"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
@@ -32,6 +34,9 @@ import (
 	"syscall"
 	"unsafe"
 )
+
+//go:embed Agent_b.ico
+var agentBIcon []byte
 
 const (
 	hostStripHeight   = 32 // the page's own strip; W1 measured the native caption at 31 px
@@ -44,6 +49,7 @@ const (
 	wmSize          = 0x0005
 	wmNCCalcSize    = 0x0083
 	wmNCHitTest     = 0x0084
+	wmSetIcon       = 0x0080
 	wmGetMinMaxInfo = 0x0024
 	swShowNormal    = 1
 	swMinimize      = 6
@@ -73,6 +79,10 @@ const (
 
 	smCXScreen = 0
 	smCYScreen = 1
+	smCXIcon   = 11
+	smCYIcon   = 12
+	smCXSmIcon = 49
+	smCYSmIcon = 50
 )
 
 var (
@@ -90,7 +100,54 @@ var (
 	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
 	procSwitchToThisWindow  = user32.NewProc("SwitchToThisWindow")
 	procPostMessage         = user32.NewProc("PostMessageW")
+	procSendMessage         = user32.NewProc("SendMessageW")
+	procCreateIconResource  = user32.NewProc("CreateIconFromResourceEx")
+	procSetAppUserModelID   = syscall.NewLazyDLL("shell32.dll").NewProc("SetCurrentProcessExplicitAppUserModelID")
 )
+
+const agentBAppUserModelID = "Agent_b.Agent_b"
+
+func iconForSize(width, height int32) syscall.Handle {
+	if len(agentBIcon) < 6 || binary.LittleEndian.Uint16(agentBIcon[:2]) != 0 || binary.LittleEndian.Uint16(agentBIcon[2:4]) != 1 {
+		return 0
+	}
+	count := int(binary.LittleEndian.Uint16(agentBIcon[4:6]))
+	bestOffset, bestSize, bestScore := 0, 0, int(^uint(0)>>1)
+	for index := 0; index < count; index++ {
+		entry := 6 + index*16
+		if entry+16 > len(agentBIcon) {
+			break
+		}
+		w, h := int(agentBIcon[entry]), int(agentBIcon[entry+1])
+		if w == 0 {
+			w = 256
+		}
+		if h == 0 {
+			h = 256
+		}
+		size := int(binary.LittleEndian.Uint32(agentBIcon[entry+8 : entry+12]))
+		offset := int(binary.LittleEndian.Uint32(agentBIcon[entry+12 : entry+16]))
+		if size < 1 || offset < 0 || offset+size > len(agentBIcon) {
+			continue
+		}
+		score := absInt(w-int(width)) + absInt(h-int(height))
+		if score < bestScore {
+			bestOffset, bestSize, bestScore = offset, size, score
+		}
+	}
+	if bestSize == 0 {
+		return 0
+	}
+	handle, _, _ := procCreateIconResource.Call(uintptr(unsafe.Pointer(&agentBIcon[bestOffset])), uintptr(bestSize), 1, 0x00030000, uintptr(width), uintptr(height), 0)
+	return syscall.Handle(handle)
+}
+
+func absInt(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
+}
 
 var hostWindowState struct {
 	sync.RWMutex
@@ -447,6 +504,10 @@ func watchActivationEvent(applicationRoot string, hwnd uintptr) {
 var procTranslateMessage = user32.NewProc("TranslateMessage")
 
 func (w *hostWindow) create(title string) error {
+	appID, _ := syscall.UTF16PtrFromString(agentBAppUserModelID)
+	if result, _, _ := procSetAppUserModelID.Call(uintptr(unsafe.Pointer(appID))); int32(result) < 0 {
+		return fmt.Errorf("setting the Agent_b AppUserModelID failed (0x%X)", uint32(result))
+	}
 	className, err := syscall.UTF16PtrFromString("Agent_b-host-window")
 	if err != nil {
 		return err
@@ -457,10 +518,15 @@ func (w *hostWindow) create(title string) error {
 	}
 	instance, _, _ := procGetModuleHandle.Call(0)
 	cursor, _, _ := procLoadCursor.Call(0, 32512) // IDC_ARROW
+	icon := iconForSize(systemMetric(smCXIcon), systemMetric(smCYIcon))
+	iconSmall := iconForSize(systemMetric(smCXSmIcon), systemMetric(smCYSmIcon))
+	if icon == 0 || iconSmall == 0 {
+		return fmt.Errorf("loading the embedded Agent_b icon failed")
+	}
 	w.windowProc = syscall.NewCallback(func(hwnd, message, wParam uintptr, lParam unsafe.Pointer) uintptr {
 		return w.windowProcedure(hwnd, message, wParam, lParam)
 	})
-	class := wndClassEx{wndProc: w.windowProc, instance: syscall.Handle(instance), className: className, cursor: syscall.Handle(cursor)}
+	class := wndClassEx{wndProc: w.windowProc, instance: syscall.Handle(instance), className: className, cursor: syscall.Handle(cursor), icon: icon, iconSm: iconSmall}
 	class.size = uint32(unsafe.Sizeof(class))
 	atom, _, _ := procRegisterClassEx.Call(uintptr(unsafe.Pointer(&class)))
 	if atom == 0 {
@@ -473,6 +539,8 @@ func (w *hostWindow) create(title string) error {
 		return fmt.Errorf("creating the host window failed")
 	}
 	w.hwnd = hwnd
+	procSendMessage.Call(hwnd, wmSetIcon, 1, uintptr(icon))
+	procSendMessage.Call(hwnd, wmSetIcon, 0, uintptr(iconSmall))
 	// A detached installed launch uses STARTF_USESHOWWINDOW/SW_HIDE to keep its
 	// console out of sight. Windows applies that startup value to the first
 	// ShowWindow call regardless of our argument; the second call is the native

@@ -21,10 +21,10 @@ foreach ($required in @('$commitExit', '$headExit', '$statusExit', 'test-signing
 if ($deploy -match 'rev-parse[^\r\n]*\|\s*Select-Object') {
     throw 'Deploy still reads a piped git command through inherited LASTEXITCODE.'
 }
-if (($deploy | Select-String -Pattern 'Start-Process' -AllMatches).Matches.Count -ne 1 -or
-    $deploy -notmatch 'Start-Process[^\r\n]+-Verb RunAs[^\r\n]+-Wait[^\r\n]+-PassThru' -or
-    $deploy -notmatch '\$signing\.ExitCode') {
-    throw 'Deploy must start exactly one elevated signing child, wait for it, and capture its exit code.'
+if ($deploy -match 'Start-Process[^\r\n]+-Verb RunAs' -or
+    $deploy -notmatch '& \$windowsPowerShell[^\r\n]+\$signingScript' -or
+    $deploy -notmatch '\$signingExit = \$LASTEXITCODE') {
+    throw 'Deploy must sign in the ordinary console without raising an elevation child.'
 }
 $elevationRefusal = $deploy.IndexOf('run deploy-release.ps1 from an ordinary, non-elevated console')
 $stagingCall = $deploy.IndexOf("'scripts\stage-candidate.mjs'")
@@ -92,4 +92,4 @@ try {
 } finally {
     if (Test-Path -LiteralPath $fixture) { Remove-TreeWithinAllowedRoots -Path $fixture -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'deploy-gate cleanup' }
 }
-Write-Host 'PASS: deploy uses one elevated signing child, refuses elevated staging, safely recovers matching stale candidates, and requires a signed setup matching the release tag and commit'
+Write-Host 'PASS: deploy signs in the ordinary console, refuses elevated staging, safely recovers matching stale candidates, and requires a signed setup matching the release tag and commit'

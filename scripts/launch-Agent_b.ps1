@@ -141,53 +141,16 @@ function Show-AgentBWindow {
         return
     }
 
-    # Item 2ev: only a window opened on this installation's own URL is reused. A
-    # title match used to bring forward, or close, any "Agent_b" window, which
-    # could be a retired instance on another port or an ordinary browser window
-    # sharing the process. Nothing is closed: a window left open across an
-    # upgrade reloads itself when its event stream reaches the new server.
-    $origin = [Uri]::new([Uri]$Url, '/').AbsoluteUri
-
-    $ownWindows = @{}
-    foreach ($candidate in @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe'" -ErrorAction SilentlyContinue)) {
-        $commandLine = [string]$candidate.CommandLine
-        if (-not $commandLine) { continue }
-        if ($commandLine.Contains('--app=' + $origin)) { $ownWindows[[int]$candidate.ProcessId] = $true }
-    }
-    $shell = New-Object -ComObject WScript.Shell
-    foreach ($name in @('msedge', 'chrome')) {
-        foreach ($browser in Get-Process -Name $name -ErrorAction SilentlyContinue) {
-            if ($ownWindows.ContainsKey($browser.Id) -and $browser.MainWindowHandle -ne [IntPtr]::Zero -and $shell.AppActivate($browser.Id)) {
-                Write-Host 'REUSED: existing Agent_b browser window'
-                return
-            }
-        }
-    }
-
-    $edgeCandidates = @(
-        $(if (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe' }),
-        $(if ($env:ProgramFiles) { Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe' })
-    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }
-    $edge = $edgeCandidates | Select-Object -First 1
-    if (-not $edge) {
-        $edgeCommand = Get-Command msedge.exe -ErrorAction SilentlyContinue
-        if ($edgeCommand) { $edge = $edgeCommand.Source }
-    }
-    if ($edge) {
-        # Item 2gl (v1.3.0/W3): --app= and nothing else. v1.2.7 preferred the
-        # installed-app flag so Edge would open the app it had installed from
-        # our policy entry, because an installed app was the last place the
-        # window controls overlay might have activated. The operator measured it
-        # elevated on 2026-09-21: it does not activate there either. With the
-        # policy gone the app-id lookup could only ever return nothing, so it is
-        # gone too rather than left reading a profile for an answer it cannot
-        # use. test-pwa-policy.ps1 fails if that flag reappears in this file.
-        Start-Process -FilePath $edge -ArgumentList "--app=$Url"
-        Write-LauncherRecord 'OPENED: Agent_b application window'
-        return
-    }
     Start-Process $Url
     Write-Host 'OPENED: Agent_b in the default browser'
+}
+
+function Invoke-AgentBActivation {
+    $running = @(Get-AgentBProcesses | Select-Object -First 1)
+    if (-not $running.Count) { throw 'Agent_b answered but its installed process could not be identified.' }
+    & $executable -window -config $configPath -app-root $applicationRoot -data-root $dataRoot
+    if ($LASTEXITCODE -ne 0) { throw "Agent_b activation handoff exited $LASTEXITCODE." }
+    Write-LauncherRecord "activated existing window (PID $($running[0].ProcessId))"
 }
 
 function Wait-AgentBEndpoint {
@@ -258,7 +221,7 @@ try {
 
     if (Test-AgentBEndpoint -Url $url) {
         Write-LauncherRecord "Agent_b is already running ($(Get-AgentBListener -Url $url)); no new server was started."
-        Show-AgentBWindow -Url $appUrl
+        if ($NoBrowser -or $env:AGENTB_NO_BROWSER) { Write-Host "UI ready: $appUrl" } else { Invoke-AgentBActivation }
         exit 0
     }
 
@@ -267,7 +230,7 @@ try {
         Write-LauncherRecord "Agent_b is already running as process $($existing[0].ProcessId) and not answering yet; waiting for its UI instead of starting another instance."
         $state = Wait-AgentBEndpoint -Url $url -Seconds $StartupTimeoutSeconds
         if ($state -eq 'ready') {
-            Show-AgentBWindow -Url $appUrl
+            if ($NoBrowser -or $env:AGENTB_NO_BROWSER) { Write-Host "UI ready: $appUrl" } else { Invoke-AgentBActivation }
             exit 0
         }
         $existing = Get-AgentBProcesses

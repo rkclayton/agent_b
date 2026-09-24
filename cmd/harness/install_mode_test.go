@@ -219,13 +219,13 @@ func TestTheInterruptedInstallLineAnswersTheOperatorsQuestion(t *testing.T) {
 // vocabularies cannot drift.
 func TestInstallArgumentsSplitByWhoOwnsThem(t *testing.T) {
 	arguments := []string{
-		"--install", "--quiet", "--install-data", `C:\data`, "-NoStart",
+		"--install", "--quiet", "--all-users", "--install-data", `C:\data`, "-NoStart",
 		"-SourceDirectory", `C:\candidate`, "-TestMode",
 		"-UninstallRegistryPath", `HKCU:\Software\X\Agent_b`,
 	}
 	mine := installFlagArgs(arguments)
 	theirs := installPassthrough(arguments)
-	for _, want := range []string{"--install", "--quiet", "--install-data", `C:\data`, "-NoStart"} {
+	for _, want := range []string{"--install", "--quiet", "--all-users", "--install-data", `C:\data`, "-NoStart"} {
 		if !contains(mine, want) {
 			t.Fatalf("this mode keeps %q: %v", want, mine)
 		}

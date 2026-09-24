@@ -68,7 +68,7 @@ func (t *identityFileTool) Description() string {
 	description := t.tool.Description()
 	service, _, _, _ := t.identity.snapshot()
 	if service.Enabled {
-		description += " Try once. If it's outside your folder the operator will be asked; don't retry other paths."
+		description += " It runs under the service identity; if that identity is denied, the operator may allow one retry as them."
 	}
 	return description
 }

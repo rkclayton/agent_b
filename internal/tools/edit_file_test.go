@@ -62,28 +62,31 @@ func TestDSessionFileBoundarySeparatesPlanWritesFromRepositoryReads(t *testing.T
 	if got, err := read.Call(context.Background(), item, map[string]any{"path": "draft.md"}); err != nil || !strings.Contains(got, "plan A") {
 		t.Fatalf("plan read=%q err=%v", got, err)
 	}
-	if _, err := write.Call(context.Background(), item, map[string]any{"path": filepath.Join(repo, "blocked.txt"), "content": "no"}); err == nil {
-		t.Fatal("d write escaped into repository")
+	if _, err := write.Call(context.Background(), item, map[string]any{"path": filepath.Join(repo, "reachable.txt"), "content": "yes"}); err != nil {
+		t.Fatalf("d absolute repository write: %v", err)
 	}
-	if _, err := write.Call(withOSPathPolicy(context.Background()), item, map[string]any{"path": filepath.Join(repo, "operator-blocked.txt"), "content": "no"}); err == nil {
-		t.Fatal("operator identity widened the d plan jail")
+	if _, err := write.Call(withOSPathPolicy(context.Background()), item, map[string]any{"path": filepath.Join(repo, "operator-reachable.txt"), "content": "yes"}); err != nil {
+		t.Fatalf("d operator-context repository write: %v", err)
 	}
 	planB := filepath.Join(plans, "other")
 	if err := os.MkdirAll(planB, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	item.Workspace = root
-	if _, err := read.Call(context.Background(), item, map[string]any{"path": filepath.Join(planB, "plan.md")}); err == nil {
-		t.Fatal("d read reached another plan through an ancestor workspace")
+	if err := os.WriteFile(filepath.Join(planB, "plan.md"), []byte("# Other\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := read.Call(context.Background(), item, map[string]any{"path": filepath.Join(planB, "plan.md")}); err != nil || !strings.Contains(got, "Other") {
+		t.Fatalf("d sibling plan read=%q err=%v", got, err)
 	}
 	if _, err := edit.Call(context.Background(), item, map[string]any{"path": filepath.Join(planB, "plan.md"), "old_string": "x", "new_string": "y"}); err == nil {
 		t.Fatal("d edit reached another plan")
 	}
-	if _, err := os.Stat(filepath.Join(repo, "blocked.txt")); !os.IsNotExist(err) {
-		t.Fatalf("escaped file exists: %v", err)
+	if data, err := os.ReadFile(filepath.Join(repo, "reachable.txt")); err != nil || string(data) != "yes" {
+		t.Fatalf("reachable file=%q err=%v", data, err)
 	}
-	if _, err := os.Stat(filepath.Join(repo, "operator-blocked.txt")); !os.IsNotExist(err) {
-		t.Fatalf("operator escaped file exists: %v", err)
+	if data, err := os.ReadFile(filepath.Join(repo, "operator-reachable.txt")); err != nil || string(data) != "yes" {
+		t.Fatalf("operator reachable file=%q err=%v", data, err)
 	}
 }
 
@@ -402,13 +405,17 @@ func TestEditFile(t *testing.T) {
 			t.Fatalf("got %q, %v", got, err)
 		}
 	})
-	t.Run("outside_workspace", func(t *testing.T) {
+	t.Run("relative_parent_and_absolute_paths_follow_OS_access", func(t *testing.T) {
 		root := t.TempDir()
 		tool, _, _, _ := testTools(root)
 		s := testSession(root, "a", "A")
+		for _, path := range []string{filepath.Join(filepath.Dir(root), "x.go"), filepath.Join(filepath.Dir(root), "other.go")} {
+			if err := os.WriteFile(path, []byte("a"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
 		for _, path := range []string{"../x.go", filepath.Join(filepath.Dir(root), "other.go")} {
-			_, err := edit(t, tool, s, path, "a", "b")
-			if err == nil || !strings.Contains(err.Error(), "path is outside the folder") {
+			if _, err := edit(t, tool, s, path, "a", "b"); err != nil {
 				t.Fatalf("path %q error %v", path, err)
 			}
 		}

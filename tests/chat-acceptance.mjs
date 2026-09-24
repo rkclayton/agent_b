@@ -219,6 +219,10 @@ const fakeHandler = async (request, response) => {
     if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "scratch-write", type: "function", function: { name: "write_file", arguments: JSON.stringify({ path: "scratch-proof.txt", content: "scratch tool passed\n" }) } }] }, "tool_calls");
     return stream(response, { content: "SCRATCH FILE COMPLETE" });
   }
+  if (user.includes("acceptance: absolute list")) {
+    if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "absolute-list", type: "function", function: { name: "list_dir", arguments: JSON.stringify({ path: bound, depth: 1 }) } }] }, "tool_calls");
+    return stream(response, { content: "ABSOLUTE LIST COMPLETE" });
+  }
   if (user.includes("acceptance: menu stream")) {
     const count = toolCountAfterLatestUser(body);
     // v1.2.2/W3: the first two calls read a file that is not there and fail,
@@ -641,6 +645,12 @@ if (realModel) {
   await waitProjectedChatText(sessionID, "SCRATCH FILE COMPLETE", "scratch file tool");
   assert.equal(await readFile(join(profileData, "scratch", sessionID, "scratch-proof.txt"), "utf8"), "scratch tool passed\n");
   record("scratch-chat-title-and-file-tool");
+
+  await setTask("acceptance: absolute list");
+  await waitProjectedChatText(sessionID, "ABSOLUTE LIST COMPLETE", "absolute list outside scratch");
+  const absoluteList = (await state()).sessions[sessionID].messages.find((message) => message.name === "list_dir" && String(message.content || "").includes("AGENTS.md"));
+  assert.ok(absoluteList, "a planless scratch chat did not list the absolute folder outside scratch");
+  record("planless-chat-lists-absolute-folder-2jt");
   sessionID = fixtureSessionID;
 
   // Item 2ew: a reload while the page is loading, and a late /api/state, never

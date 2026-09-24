@@ -28,13 +28,11 @@ func resolveForTool(ctx context.Context, workspace, path string) (string, error)
 }
 
 func resolveForSessionTool(ctx context.Context, s *session.Session, root, path string) (string, error) {
-	// D's plan-write boundary is immutable and operator identity cannot widen it.
-	// Resolve D paths canonically even when an OS-authorized B file-tool mode
-	// would otherwise let Windows ACLs decide.
-	if s.Role == "d" {
-		return resolvePath(root, path, true)
-	}
-	return resolveForTool(ctx, root, path)
+	// Item 2jt: plan registration chooses a working directory; it is not a
+	// filesystem allow-list. Absolute paths are therefore decided by the OS
+	// identity running the tool. Relative paths still start at root. The
+	// plan-tree ownership check remains separately enforced for writes below.
+	return resolvePath(root, path, false)
 }
 
 // resolveForWorkerWrite is the write resolution for every file tool. Plan text
@@ -143,10 +141,21 @@ func refuseRepoPolicyWrite(workspace, path string) error {
 	if !filepath.IsAbs(candidate) {
 		candidate = filepath.Join(root, candidate)
 	}
-	rel, err := filepath.Rel(root, filepath.Clean(candidate))
-	if err == nil {
+	refused := func(root, candidate string) bool {
+		rel, relErr := filepath.Rel(root, filepath.Clean(candidate))
+		if relErr != nil {
+			return false
+		}
 		parts := strings.Split(filepath.ToSlash(rel), "/")
-		if len(parts) > 0 && strings.EqualFold(parts[0], ".agentb") {
+		return len(parts) > 0 && strings.EqualFold(parts[0], ".agentb")
+	}
+	if refused(root, candidate) {
+		return fmt.Errorf("repo-policy immutability rule: model file tools cannot write .agentb/")
+	}
+	// Reach is OS-governed, but repository policy remains immutable even when a
+	// junction or symbolic link gives .agentb a harmless-looking text path.
+	if realRoot, rootErr := session.RealPath(root); rootErr == nil {
+		if realCandidate, candidateErr := session.RealPath(candidate); candidateErr == nil && refused(realRoot, realCandidate) {
 			return fmt.Errorf("repo-policy immutability rule: model file tools cannot write .agentb/")
 		}
 	}

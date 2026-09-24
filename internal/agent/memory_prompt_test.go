@@ -10,10 +10,9 @@ import (
 	"harness/internal/session"
 )
 
-// The two sentences 2eb adds are guidance the model needs every turn, so they
-// have to be in the shipped prompt and they have to be byte-stable across
-// requests within a session.
-func TestShippedPromptCarriesBothMemorySentencesAndIsByteStable(t *testing.T) {
+// Durable-memory and working-directory guidance have to be in the shipped
+// prompt and byte-stable across requests within a session.
+func TestShippedPromptCarriesMemoryAndResolutionGuidanceAndIsByteStable(t *testing.T) {
 	shipped, err := os.ReadFile(filepath.Join("..", "..", "prompts", "system.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -22,20 +21,19 @@ func TestShippedPromptCarriesBothMemorySentencesAndIsByteStable(t *testing.T) {
 
 	for _, want := range []string{
 		"Remember, with remember, only these: a correction the operator gave you, a preference the operator stated, or a repository fact you had to discover; recall first and never write a note that restates one you already have.",
-		"When the operator names a project that is not in the plan list, ask for its path and offer to register it as a plan through the usual approval: the operator sends exactly `Add <absolute-path> as a plan`, or you may reply with exactly that line and nothing else to raise the same card; never search the operator's connection, home directory or drives to find it.",
+		"Rules: relative paths start in this chat's scratch folder; resolve a named plan or repo from the operator's words and work in that repo; ask in chat when more than one plan could match; when nothing points to a repo, work in scratch.",
 	} {
 		if strings.Count(text, want) != 1 {
 			t.Errorf("shipped prompt does not carry this sentence exactly once:\n%s", want)
 		}
 	}
 
-	// Both sentences sit immediately before the memory block, so the model reads
-	// the rule and the notes together.
+	// The working-directory rule precedes durable-memory guidance and notes.
+	resolutionAt := strings.Index(text, "Rules: relative paths start")
 	rememberAt := strings.Index(text, "Remember, with remember, only these:")
-	projectAt := strings.Index(text, "When the operator names a project that is not in the plan list")
 	memoryAt := strings.Index(text, "{{memory}}")
-	if !(rememberAt >= 0 && rememberAt < projectAt && projectAt < memoryAt) {
-		t.Fatalf("sentence order is wrong: remember=%d project=%d memory=%d", rememberAt, projectAt, memoryAt)
+	if !(resolutionAt >= 0 && resolutionAt < rememberAt && rememberAt < memoryAt) {
+		t.Fatalf("sentence order is wrong: resolution=%d remember=%d memory=%d", resolutionAt, rememberAt, memoryAt)
 	}
 
 	root := t.TempDir()
@@ -55,9 +53,14 @@ func TestShippedPromptCarriesBothMemorySentencesAndIsByteStable(t *testing.T) {
 			t.Fatalf("prompt is not byte-stable across requests on attempt %d", attempt+1)
 		}
 	}
-	for _, want := range []string{"Remember, with remember, only these:", "never search the operator's connection, home directory or drives"} {
+	for _, want := range []string{"Remember, with remember, only these:", "relative paths start in this chat's scratch folder"} {
 		if !strings.Contains(first, want) {
 			t.Errorf("rendered prompt lost %q", want)
+		}
+	}
+	for _, removed := range []string{"repository allow-list", "File tools may use scratch and every listed plan repo", "offer to register it as a plan", "never search the operator's connection"} {
+		if strings.Contains(first, removed) {
+			t.Errorf("rendered prompt retained removed reach guidance %q", removed)
 		}
 	}
 }

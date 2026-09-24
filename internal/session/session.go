@@ -277,13 +277,20 @@ func (s *Session) WriteRoot(path string) (string, error) {
 		if err := s.validatePlanDirLocked(); err != nil {
 			return "", err
 		}
-		if filepath.IsAbs(candidate) && !pathWithin(s.PlanDir, candidate) {
-			return "", fmt.Errorf("path is outside the plan")
+		if filepath.IsAbs(candidate) {
+			if pathWithin(s.PlanDir, candidate) {
+				return s.PlanDir, nil
+			}
+			if s.PlanRepo != "" && pathWithin(s.PlanRepo, candidate) {
+				s.touchPlanRepoLocked(s.PlanRepo)
+				return s.PlanRepo, nil
+			}
+			return s.Workspace, nil
 		}
 		return s.PlanDir, nil
 	}
 	if filepath.IsAbs(candidate) {
-		return "", fmt.Errorf("path is outside the plan")
+		return s.Workspace, nil
 	}
 	cleaned := filepath.Clean(filepath.FromSlash(path))
 	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {

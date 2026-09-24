@@ -14,8 +14,8 @@ import (
 	"harness/internal/tools"
 )
 
-// With no service split, a readable file-tool target gets the workspace
-// refusal directly; command tools still need the explicit outside-path card.
+// With no service split, file tools use the operator's OS reach directly;
+// command tools retain their separately governed outside-path card.
 func TestOutsideReadIdentityChoiceWithNoServiceIdentity(t *testing.T) {
 	workspace, outsideDir := t.TempDir(), t.TempDir()
 	outside := filepath.Join(outsideDir, "win.ini")
@@ -35,8 +35,8 @@ func TestOutsideReadIdentityChoiceWithNoServiceIdentity(t *testing.T) {
 	runner.gate = NewGate(bus, runner.cfg)
 	s := &session.Session{ID: "walk", Workspace: workspace, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"read_file": true, "shell": true, "run_script": true}, LastSeen: map[string]time.Time{}}
 	read := runner.executeTool(context.Background(), s, "run", "read", "read_file", map[string]any{"path": outside})
-	if read.OK || read.OperatorOverrideAvailable || !strings.Contains(read.Content, "outside the folder") || strings.Contains(read.Content, "operator-identity") {
-		t.Fatalf("read_file should return the boundary without an identity attempt: %+v", read)
+	if !read.OK || read.OperatorOverrideAvailable || !strings.Contains(read.Content, "16-bit app support") || strings.Contains(read.Content, "operator-identity") {
+		t.Fatalf("read_file should use the running identity directly: %+v", read)
 	}
 
 	calls := []struct {

@@ -12,6 +12,7 @@ import (
 
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/llm"
 	"harness/internal/probe"
 	"harness/internal/tools"
 )
@@ -154,6 +155,10 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]string{"connection_id": tail})
 		return
 	}
+	if r.Method == http.MethodPost && strings.HasSuffix(tail, "/models") {
+		s.queryConnectionModels(w, r, strings.TrimSuffix(tail, "/models"))
+		return
+	}
 	if r.Method != http.MethodPost || !strings.HasSuffix(tail, "/probe") {
 		method(w)
 		return
@@ -225,6 +230,47 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	}
 	s.startProbe(&updated)
 	writeJSON(w, http.StatusAccepted, map[string]any{"status": "probing", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL})
+}
+
+func (s *Server) queryConnectionModels(w http.ResponseWriter, r *http.Request, id string) {
+	connection, ok := s.Connection(id)
+	if !ok {
+		connection = &config.Connection{ID: id, RequestTimeoutS: 30}
+	}
+	var body struct {
+		BaseURL string `json:"base_url"`
+		APIKey  string `json:"api_key"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	tested := *connection
+	tested.BaseURL = strings.TrimSpace(body.BaseURL)
+	if tested.BaseURL == "" {
+		writeError(w, http.StatusBadRequest, "Enter base_url before querying models.", "connections."+id+".base_url")
+		return
+	}
+	if body.APIKey != "" {
+		tested.APIKey = body.APIKey
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(max(5, tested.RequestTimeoutS))*time.Second)
+	defer cancel()
+	models, err := llm.New(&tested).Models(ctx)
+	queried := strings.TrimRight(tested.BaseURL, "/")
+	if strings.HasSuffix(strings.ToLower(queried), "/v1") {
+		queried += "/models"
+	} else {
+		queried += "/v1/models"
+	}
+	keyState := "no key sent"
+	if tested.APIKey != "" {
+		keyState = "key sent"
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Query models failed for %s: %v (%s).", queried, err, keyState), "connections."+id+".model")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models, "url": queried, "key_sent": tested.APIKey != "", "message": fmt.Sprintf("%d model(s) from %s (%s)", len(models), queried, keyState)})
 }
 
 func modelListed(configured string, listed []string) bool {

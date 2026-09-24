@@ -9,17 +9,16 @@ import (
 	"testing"
 )
 
-// The bare word is reserved for the operator-owned namespace introduced after
-// endpoint terminology was made unambiguous. Platform tokens such as
-// USERPROFILE and PowerShell's NoProfile are intentionally not bare words and
-// therefore need no exception.
-func TestEndpointVocabularyReservesProfileWord(t *testing.T) {
+// Endpoint vocabulary must remain unambiguous now that profile names belong to
+// operators. Legacy endpoint-shaped names are read only through deliberately
+// assembled compatibility aliases, never reintroduced as identifiers or UI.
+func TestEndpointVocabularyDoesNotReuseOperatorProfileNames(t *testing.T) {
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("locate vocabulary test")
 	}
 	repository := filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
-	reserved := regexp.MustCompile(`(?i)\bpro` + `files?\b`)
+	reserved := regexp.MustCompile(`(?i)\b(model_?pro` + `files?|pro` + `file_id|b_pro` + `file|main_pro` + `file)\b`)
 	for _, relative := range []string{"internal", filepath.Join("web", "js"), "scripts", "docs"} {
 		root := filepath.Join(repository, relative)
 		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
@@ -27,6 +26,11 @@ func TestEndpointVocabularyReservesProfileWord(t *testing.T) {
 				return err
 			}
 			if entry.IsDir() {
+				return nil
+			}
+			// Checked-in legacy journals prove that the centralized projector
+			// aliases continue to read the pre-connection vocabulary forever.
+			if strings.Contains(filepath.ToSlash(path), "/internal/projection/testdata/") {
 				return nil
 			}
 			data, err := os.ReadFile(path)

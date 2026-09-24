@@ -63,6 +63,12 @@ func New(root, logDir string, cfg func() config.Config) *Manager {
 }
 
 func (m *Manager) SetEventPublisher(publish func(events.Event)) { m.publish = publish }
+func (m *Manager) SetRoot(root, logDir string) {
+	m.mu.Lock()
+	m.root, m.logDir = filepath.Clean(root), filepath.Clean(logDir)
+	m.runStarted = map[string]time.Time{}
+	m.mu.Unlock()
+}
 
 func (m *Manager) Root() string            { return m.root }
 func (m *Manager) InboxPath() string       { return filepath.Join(m.root, "INBOX.md") }

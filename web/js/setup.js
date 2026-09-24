@@ -13,6 +13,7 @@ let message = "";
 let alarm = false;
 let discoveredModels = [];
 let discoveryNote = "";
+let connectionDraft;
 
 root.addEventListener("click", click);
 root.addEventListener("change", change);
@@ -46,19 +47,23 @@ function render() {
 }
 
 function whereScreen() {
-  const connection = selectedConnection();
+  const connection = connectionDraft || selectedConnection();
   const currentModel = connection?.model || "";
   const modelField = discoveredModels.length
     ? `<select data-field="model">${!discoveredModels.includes(currentModel) && currentModel ? `<option value="${attr(currentModel)}" selected>${html(currentModel)} · not served</option>` : ""}${discoveredModels.map((model) => `<option value="${attr(model)}" ${model === currentModel ? "selected" : ""}>${html(model)}</option>`).join("")}</select>`
     : `<input data-field="model" value="${attr(currentModel)}" placeholder="model name">`;
   return `<section class="setup-section"><h1>Where is your model?</h1>
     <div class="setup-fields">
+      <label>Label<input data-field="label" value="${attr(connection?.label || "My model")}"></label>
       <label>Address<input data-field="url" value="${attr(connection?.base_url || "http://127.0.0.1:8080")}" placeholder="host or http://host:port">${discoveryNote ? `<span class="setup-note discovery-note">${html(discoveryNote)}</span>` : ""}</label>
-      <label>Model${modelField}</label>
       <label>Saved credential name<input data-field="credential" value="${attr(connection?.credential || "")}" placeholder="optional"></label>
       <label>API key<input data-field="api-key" type="password" autocomplete="off" placeholder="optional"></label>
+      <label>Model<span class="setup-inline">${modelField}<button data-action="query-models" type="button">Query models</button></span></label>
+      <label>Context size<input data-field="context" type="number" value="${attr(connection?.context?.n_ctx || "")}" placeholder="${attr(connection?.capabilities?.n_ctx || "")}"></label>
+      <label>Reasoning enabled<select data-field="reasoning"><option value="true" ${connection?.reasoning?.enabled !== false ? "selected" : ""}>on</option><option value="false" ${connection?.reasoning?.enabled === false ? "selected" : ""}>off</option></select></label>
+      <label>State<strong class="setup-value">${html(connection?.not_runnable_reason || (connection?.capabilities?.probed_at ? "ready" : "not tested"))}</strong></label>
     </div>
-    <div class="setup-actions"><button data-action="test" ${disabled()}>Test</button><button data-action="show-install" class="quiet">Install one here</button><button data-action="later" class="quiet">Later</button></div>
+    <div class="setup-actions"><button data-action="save" ${disabled()}>Save</button><button data-action="test" ${disabled()}>Test</button><button data-action="show-install" class="quiet">Install one here</button><button data-action="later" class="quiet">Later</button></div>
     ${installer()}${feedback()}</section>`;
 }
 
@@ -107,6 +112,8 @@ async function click(event) {
   const action = button.dataset.action;
   if (busy && !(action === "measure" && measuring)) return;
   if (action === "show-install") return showInstall();
+  if (action === "save") return saveConnection();
+  if (action === "query-models") return queryModels();
   if (action === "test") return testConnection();
   if (action === "install") return installModel();
   if (action === "later") return go("done");
@@ -140,7 +147,7 @@ async function testConnection() {
     if (!connectionID || !snapshot.connections?.some((item) => item.id === connectionID)) connectionID = uniqueID("setup-model");
     const current = selectedConnection() || {};
 	const previousProbe = current.capabilities?.probed_at || "";
-    const connection = { ...current, id: connectionID, label: current.label || "My model", base_url: url, model };
+    const connection = connectionFromFields(current, connectionID, url, model);
     if (credential) connection.credential = credential;
     if (apiKey) connection.api_key = apiKey;
     const connections = [...(snapshot.config.connections || []).filter((item) => item.id !== connectionID), connection];
@@ -151,10 +158,11 @@ async function testConnection() {
     discoveredModels = discovered.models || [];
     discoveryNote = discovered.message || "";
     if (discovered.status === "changes_required" && discovered.changes?.base_url) {
-      connection.base_url = discovered.changes.base_url;
-      snapshot.config = await request("/api/config", { connections: [...connections.filter((item) => item.id !== connectionID), connection] });
-      discovered = await request(`/api/connections/${encodeURIComponent(connectionID)}/probe`, {});
-      discoveredModels = discovered.models || discoveredModels;
+      connectionDraft = { ...connection, base_url: discovered.changes.base_url };
+      discoveryNote = `${discovered.message}; Save this discovery change, then Test again.`;
+      message = "Discovery change is unsaved.";
+      alarm = false;
+      return;
     }
     snapshot = await request("/api/state", undefined, "GET");
     render();
@@ -172,6 +180,51 @@ async function testConnection() {
     }
     fail(error);
   } finally { busy = false; render(); }
+}
+
+function connectionFromFields(current, id, url = field("url"), model = field("model")) {
+  const next = { ...current, id, label: field("label") || current.label || "My model", base_url: url, model };
+  const credential = field("credential"), apiKey = field("api-key"), nctx = Number(field("context") || 0);
+  if (credential) next.credential = credential;
+  if (apiKey) next.api_key = apiKey;
+  next.context = { ...(current.context || {}), n_ctx: nctx };
+  next.reasoning = { ...(current.reasoning || {}), enabled: field("reasoning") !== "false" };
+  return next;
+}
+
+function captureConnectionDraft() {
+  const current = selectedConnection() || {};
+  const id = connectionID || "setup-model";
+  return connectionFromFields(current, id);
+}
+
+async function saveConnection() {
+  const url = field("url");
+  if (!url) return fail(new Error("Address is required before Save."));
+  if (!connectionID || !snapshot.connections?.some((item) => item.id === connectionID)) connectionID = uniqueID("setup-model");
+  const next = connectionFromFields(selectedConnection() || {}, connectionID);
+  setBusy("Saving connection…");
+  try {
+    const connections = [...(snapshot.config.connections || []).filter((item) => item.id !== connectionID), next];
+    snapshot.config = await request("/api/config", { connections });
+    snapshot = await request("/api/state", undefined, "GET");
+    connectionDraft = undefined;
+    message = "Connection saved.";
+    discoveryNote = "";
+  } catch (error) { fail(error); } finally { busy = false; render(); }
+}
+
+async function queryModels() {
+  const url = field("url");
+  if (!url) return fail(new Error("Enter an address before Query models."));
+  const apiKey = field("api-key");
+  connectionDraft = captureConnectionDraft();
+  setBusy("Querying models…");
+  try {
+    const result = await request(`/api/connections/${encodeURIComponent(connectionID || "setup-model")}/models`, { base_url: url, api_key: apiKey });
+    discoveredModels = result.models || [];
+    discoveryNote = result.message || "Models loaded.";
+  } catch (error) { fail(error); } finally { busy = false; render(); }
 }
 
 async function installModel() {

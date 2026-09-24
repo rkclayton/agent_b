@@ -4,7 +4,7 @@ import { navigationEventSourceConstructed, navigationEventSourceOpened, navigati
 
 export const store = {
   sessions: {}, active: "", selection: readSelection(), connections: [], config: {}, flow: { stages: [], edges: [] }, tools: [], serving_facts: {}, plans: [],
-  agent_connection_changes: {},
+  agent_connection_changes: {}, profiles: { active: "", names: [] },
   build: { tag: "", commit: "unknown", dirty: false, known: false, source: "unknown", display: "unknown" }, signature: {},
   update: { enabled: false, checking: false, available: false, installing: false },
   mutation_token: "", shell_credential: { stored: false, stored_at: "" },
@@ -98,7 +98,7 @@ export function reduce(event) {
       }
       break;
     }
-    case "config.changed": store.config = data.config; store.connections = data.config.connections || store.connections; break;
+    case "config.changed": store.config = data.config; store.connections = data.config.connections || store.connections; store.profiles = data.profiles || data.config.profiles || store.profiles; break;
     case "agent.connection_change":
       store.agent_connection_changes ||= {};
       if (data.status === "pending" && data.change?.agent_id) store.agent_connection_changes[data.change.agent_id] = data.change;

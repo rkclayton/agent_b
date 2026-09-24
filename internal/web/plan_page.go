@@ -29,7 +29,7 @@ type planTarget struct {
 
 var errPlanNotFound = errors.New("plan not found")
 
-func (s *Server) plansRoot() string { return filepath.Join(s.roots.Data, "plans") }
+func (s *Server) plansRoot() string { return filepath.Join(s.profileRoot(), "plans") }
 
 // planByID resolves a plan id against the plans folder's own listing, so a
 // request can only name a plan that exists there.

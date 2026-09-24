@@ -30,7 +30,7 @@ type reflectionState struct {
 // StartReflection opens the store and begins the pass. It is called once, from
 // the harness's start-up, and is a no-op when the store cannot be opened.
 func (s *Server) StartReflection(tick time.Duration) {
-	store, err := reflection.Open(s.roots.Data)
+	store, err := reflection.Open(s.profileRoot())
 	if err != nil {
 		log.Printf("reflection: the store could not be opened, reflection is off: %v", err)
 		return

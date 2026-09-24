@@ -33,6 +33,7 @@ import (
 	"harness/internal/memory"
 	"harness/internal/notifications"
 	"harness/internal/operatorfiles"
+	"harness/internal/profiles"
 	"harness/internal/progress"
 	"harness/internal/projection"
 	"harness/internal/serviceaccount"
@@ -129,17 +130,25 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	profileManager, profileMigrated, err := profiles.Open(paths.Data, paths.Config, cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	profileRoot := profileManager.Root(profileManager.Active())
 	workspaceRoot, err := filepath.Abs(cfg.Workspace)
 	if err != nil {
 		log.Fatal(err)
 	}
 	paths.Workspace = filepath.Clean(workspaceRoot)
-	roots := webserver.RuntimeRoots{Application: paths.Application, Data: paths.Data, Workspace: paths.Workspace}
+	roots := webserver.RuntimeRoots{Application: paths.Application, Data: paths.Data, Profile: profileRoot, Workspace: paths.Workspace}
 	if created {
 		log.Printf("created %s from %s - set connections[0].base_url and model", paths.Config, filepath.Join(paths.Application, "harness.example.json"))
 	}
 	if migrated {
 		log.Printf("migrated %s to config schema %d", filepath.Base(paths.Config), config.CurrentConfigVersion)
+	}
+	if profileMigrated {
+		log.Printf("migrated operator data into profile %s", profileManager.Active())
 	}
 	for _, notice := range cfg.LoadNotices {
 		log.Printf("config migration: %s", notice)
@@ -171,6 +180,7 @@ func main() {
 			log.Fatal(loadErr)
 		}
 		web := webserver.New(cfg, paths.Config, filepath.Join(paths.Application, "web"), roots, events.NewBus())
+		web.SetProfiles(profileManager)
 		web.SetReplay(replay)
 		web.SetSigningManager(signing.New(filepath.Join(paths.Application, "scripts", "manage-signing.ps1")))
 		signingContext, cancelSigning := context.WithTimeout(context.Background(), 15*time.Second)
@@ -185,7 +195,7 @@ func main() {
 	}
 	logDir := cfg.LogDir
 	if !filepath.IsAbs(logDir) {
-		logDir = filepath.Join(paths.Data, logDir)
+		logDir = filepath.Join(profileRoot, logDir)
 	}
 	writers, err := events.NewWriters(logDir)
 	if err != nil {
@@ -203,6 +213,7 @@ func main() {
 	progressManager.Start()
 	defer progressManager.Close()
 	web := webserver.New(cfg, paths.Config, filepath.Join(paths.Application, "web"), roots, bus)
+	web.SetProfiles(profileManager)
 	if *window {
 		web.SetHostWindowAction(requestHostWindowAction)
 	}
@@ -221,7 +232,7 @@ func main() {
 	for _, notice := range cfg.LoadNotices {
 		bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": cfg.Masked(), "notice": notice}))
 	}
-	memoryManager := memory.New(paths.Data, web.ConfigSnapshot, func(ctx context.Context, connectionID, text string) (int, error) {
+	memoryManager := memory.New(profileRoot, web.ConfigSnapshot, func(ctx context.Context, connectionID, text string) (int, error) {
 		connection, ok := web.Connection(connectionID)
 		if !ok || !connection.Capabilities.Tokenize {
 			return 0, fmt.Errorf("tokenizer unavailable")
@@ -234,7 +245,7 @@ func main() {
 	registry.SetAgentMemoryLoader(memoryManager.LoadAgent)
 	registry.SetWorkspaceManager(workspaceManager)
 	web.SetRegistry(registry)
-	notificationStore, err := credential.NewNamed(paths.Data, cfg.Notifications.DiscordCredential)
+	notificationStore, err := credential.NewNamed(profileRoot, cfg.Notifications.DiscordCredential)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -250,7 +261,7 @@ func main() {
 	defer notificationManager.Close()
 	web.SetNotifications(notificationManager, notificationStore)
 	web.SetWorkspaceState(workspaceManager, memoryManager)
-	operatorFiles := operatorfiles.New(paths.Data, logDir, web.ConfigSnapshot)
+	operatorFiles := operatorfiles.New(profileRoot, logDir, web.ConfigSnapshot)
 	operatorFiles.SetEventPublisher(func(event events.Event) { bus.Publish(event) })
 	if err := operatorFiles.Ensure(); err != nil {
 		log.Fatal(err)
@@ -278,7 +289,7 @@ func main() {
 			operatorFiles.HandleEvent(event, snapshot)
 		}
 	}()
-	statsManager := stats.New(paths.Data, registry, bus)
+	statsManager := stats.New(profileRoot, registry, bus)
 	web.SetStats(statsManager)
 	renderer, err := agent.LoadTemplate(filepath.Join(paths.Application, "prompts", "system.md"))
 	if err != nil {
@@ -387,6 +398,67 @@ func main() {
 		return action.Decision, err
 	})
 	web.SetRuntime(scheduler, runner, renderer)
+	web.SetProfileChanged(func(nextRoot string) error {
+		nextLogDir := cfg.LogDir
+		if !filepath.IsAbs(nextLogDir) {
+			nextLogDir = filepath.Join(nextRoot, nextLogDir)
+		}
+		nextWriters, openErr := events.NewWriters(nextLogDir)
+		if openErr != nil {
+			return openErr
+		}
+		nextNotificationStore, openErr := credential.NewNamed(nextRoot, cfg.Notifications.DiscordCredential)
+		if openErr != nil {
+			_ = nextWriters.Close()
+			return openErr
+		}
+		web.StopReflection()
+		memoryManager.SetBaseDir(nextRoot)
+		if switchErr := registry.SwitchProfile(nextWriters, memoryManager.Load, memoryManager.LoadAgent, workspaceManager, filepath.Join(nextRoot, "plans")); switchErr != nil {
+			_ = nextWriters.Close()
+			web.StartReflection(24 * time.Hour)
+			return switchErr
+		}
+		nextProjector := projection.NewStore()
+		bus.SetDurableSink(nextWriters.WriteRecord, nextProjector.Apply, nextProjector.MarkStale)
+		web.SetProjection(nextProjector, nextWriters)
+		if closeErr := writers.Close(); closeErr != nil {
+			log.Printf("close previous profile event logs: %v", closeErr)
+		}
+		writers, projector = nextWriters, nextProjector
+		operatorFiles.SetRoot(nextRoot, nextLogDir)
+		if ensureErr := operatorFiles.Ensure(); ensureErr != nil {
+			return ensureErr
+		}
+		statsManager.SetRoot(nextRoot)
+		notificationStore = nextNotificationStore
+		web.SetNotifications(notificationManager, notificationStore)
+		if value, readErr := notificationStore.Read(); readErr == nil {
+			if configureErr := notificationManager.Configure(string(value)); configureErr != nil {
+				return configureErr
+			}
+		} else if errors.Is(readErr, credential.ErrNotStored) {
+			_ = notificationManager.Configure("")
+		} else {
+			return readErr
+		}
+		restored, floor, restoreErr := restoreRetainedChats(writers, registry, bus, 0)
+		if restoreErr != nil {
+			return restoreErr
+		}
+		runner.ReserveIDs(floor)
+		scheduler.ReserveIDs(floor)
+		registry.RefreshRunnable()
+		for _, item := range restored {
+			if !item.IsClosed() {
+				runner.PublishBudget(context.Background(), item)
+			}
+		}
+		web.SetWorkspaceState(workspaceManager, memoryManager)
+		web.StartReflection(24 * time.Hour)
+		web.PublishPlanChanges()
+		return nil
+	})
 	if len(cfg.Connections) == 0 {
 		log.Printf("first-run setup required: no model connections are configured")
 	} else {

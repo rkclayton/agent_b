@@ -79,6 +79,13 @@ func New(dataRoot string, registry *session.Registry, bus *events.Bus) *Manager 
 	}()
 	return m
 }
+func (m *Manager) SetRoot(dataRoot string) {
+	m.mu.Lock()
+	m.dir = filepath.Join(dataRoot, "stats")
+	m.runs = map[string]*run{}
+	m.ledgers = map[string]*Ledger{}
+	m.mu.Unlock()
+}
 func empty(agentID string) *Ledger {
 	return &Ledger{Version: Version, AgentID: agentID, Agent: Counters{Tools: map[string]Tool{}}, Connections: map[string]Counters{}}
 }

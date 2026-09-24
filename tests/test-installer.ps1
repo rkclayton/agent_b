@@ -219,6 +219,105 @@ try {
 	}
 	Write-Host 'PROOF single-file setup: browser-renamed Agent_b-setup (1).exe extracted, regenerated its manifest, and completed TestMode/WhatIf preflight'
 
+    # Item 2jn: exercise the real non-TestMode defaults without installing.
+    # The environment redirects the all-users defaults to this disposable root;
+    # per-user defaults come from the explicit disposable OperatorLocalAppData.
+    $defaultRoot = Join-Path $testRoot 'DefaultRoots'
+    $defaultOperatorLocal = Join-Path $defaultRoot 'LocalAppData'
+    $defaultProgramFiles = Join-Path $defaultRoot 'ProgramFiles'
+    $defaultProgramData = Join-Path $defaultRoot 'ProgramData'
+    $defaultStart = Join-Path $defaultRoot 'StartMenu'
+    $defaultTargets = @(
+        (Join-Path $defaultOperatorLocal 'Programs\Agent_b'),
+        (Join-Path $defaultOperatorLocal 'Agent_b'),
+        (Join-Path $defaultOperatorLocal 'Agent_b-workspace'),
+        (Join-Path $defaultProgramFiles 'Agent_b'),
+        (Join-Path $defaultProgramData 'Agent_b\workspace')
+    )
+    $defaultBefore = Get-RootFingerprint -Roots $defaultTargets
+    $savedProgramFiles = $env:ProgramFiles
+    $savedProgramData = $env:ProgramData
+    $env:ProgramFiles = $defaultProgramFiles
+    $env:ProgramData = $defaultProgramData
+    try {
+        foreach ($mode in @(
+            [pscustomobject]@{ Name = 'per-user'; AllUsers = $false; Registry = 'HKCU:\Software\Agent_b-DefaultRootsTest' },
+            [pscustomobject]@{ Name = 'all-users'; AllUsers = $true; Registry = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b-DefaultRootsTest' }
+        )) {
+            $defaultLogRoot = Join-Path $defaultRoot ('Logs\' + $mode.Name)
+            $arguments = @('--quiet', '--install-data', $defaultLogRoot, '-NoStart',
+                '-OperatorLocalAppData', $defaultOperatorLocal, '-StartMenuDirectory', $defaultStart,
+                '-UninstallRegistryPath', $mode.Registry, '-RootValidationOnly', '-WhatIf')
+            if ($mode.AllUsers) { $arguments = @('--all-users') + $arguments }
+            $savedErrorAction = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                $defaultOutput = (& $singleSetup @arguments 2>&1 | Out-String)
+                $defaultExit = $LASTEXITCODE
+            } finally { $ErrorActionPreference = $savedErrorAction }
+            $defaultLog = Get-ChildItem -LiteralPath (Join-Path $defaultLogRoot 'logs') -Filter 'installer-*.log' -File |
+                Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+            $defaultRecord = if ($defaultLog) { Get-Content -Raw -LiteralPath $defaultLog.FullName } else { '' }
+            if ($defaultExit -ne 0 -or $defaultRecord -notmatch 'ROOT VALIDATION COMPLETE') {
+                throw "Default-root $($mode.Name) non-TestMode/WhatIf preflight failed.`n$defaultOutput"
+            }
+        }
+    } finally {
+        $env:ProgramFiles = $savedProgramFiles
+        $env:ProgramData = $savedProgramData
+    }
+    $defaultAfter = Get-RootFingerprint -Roots $defaultTargets
+    if ($defaultBefore -cne $defaultAfter) { throw 'Default-root non-TestMode/WhatIf preflight changed a target root.' }
+    Write-Host 'PROOF default roots: per-user LocalAppData and all-users ProgramData defaults complete non-TestMode/WhatIf preflight without touching targets'
+
+    $mismatchLogRoot = Join-Path $defaultRoot 'Logs\per-user-mismatch'
+    $savedErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $mismatchOutput = (& $singleSetup --quiet --install-data $mismatchLogRoot -NoStart `
+            -OperatorLocalAppData $defaultOperatorLocal -WorkspaceDirectory (Join-Path $defaultRoot 'Wrong\Agent_b') `
+            -StartMenuDirectory $defaultStart -UninstallRegistryPath 'HKCU:\Software\Agent_b-DefaultRootsMismatch' `
+            -RootValidationOnly -WhatIf 2>&1 | Out-String)
+        $mismatchExit = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $savedErrorAction }
+    $mismatchLog = Get-ChildItem -LiteralPath (Join-Path $mismatchLogRoot 'logs') -Filter 'installer-*.log' -File |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    $mismatchRecord = $mismatchOutput + [Environment]::NewLine + $(if ($mismatchLog) { Get-Content -Raw -LiteralPath $mismatchLog.FullName } else { '' })
+    if ($mismatchExit -eq 0 -or $mismatchRecord -notmatch 'WorkspaceDirectory must be the canonical per-user LocalAppData location') {
+        throw "Per-user workspace mismatch did not name LocalAppData.`n$mismatchRecord"
+    }
+    Write-Host 'PROOF per-user mismatch: WorkspaceDirectory names the canonical per-user LocalAppData location'
+
+    # Item 2jn(d): model the updater's installed per-user layout, but keep the
+    # entire install beneath the disposable suite root. Omit the three roots so
+    # Resolve-AgentBInstallRoots supplies the same defaults the updater uses.
+    $updateLocal = Join-Path $testRoot 'UpdaterDefault\LocalAppData'
+    $updateApplication = Join-Path $updateLocal 'Programs\Agent_b'
+    $updateData = Join-Path $updateLocal 'Agent_b'
+    $updateWorkspace = Join-Path $updateLocal 'Agent_b-workspace'
+    $updateStart = Join-Path $testRoot 'UpdaterDefault\StartMenu'
+    $updateRegistry = $testRegistry + '-UpdaterDefault'
+    $null = New-Item -ItemType Directory -Path $updateApplication -Force
+    $null = New-Item -ItemType Directory -Path (Join-Path $updateData 'chats') -Force
+    $null = New-Item -ItemType Directory -Path $updateWorkspace -Force
+    [IO.File]::WriteAllText((Join-Path $updateApplication 'v1.6.5-layout.txt'), 'installed application layout', [Text.UTF8Encoding]::new($false))
+    $updateSentinel = Join-Path $updateData 'chats\v1.6.5-preserved.jsonl'
+    [IO.File]::WriteAllText($updateSentinel, 'preserve operator chat data', [Text.UTF8Encoding]::new($false))
+    $savedErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $updateOutput = (& $singleSetup --quiet --install-data $updateData -NoStart `
+            -OperatorLocalAppData $updateLocal -StartMenuDirectory $updateStart `
+            -UninstallRegistryPath $updateRegistry -LegacyApplicationDirectory (Join-Path $testRoot 'UpdaterDefault\Legacy\Agent_b') `
+            -TestMode 2>&1 | Out-String)
+        $updateExit = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $savedErrorAction }
+    if ($updateExit -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $updateApplication 'Agent_b.exe') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $updateSentinel -PathType Leaf) -or (Get-Content -Raw -LiteralPath $updateSentinel) -cne 'preserve operator chat data') {
+        throw "Updater-shaped default-root install did not complete on its first attempt or preserve operator data.`n$updateOutput"
+    }
+    Write-Host 'PROOF updater default: a v1.6.5-shaped per-user layout installed on the first attempt with default application/data/workspace roots and preserved chat data'
+
     $directOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer 2>&1 | Out-String).Trim()
     $directExit = $LASTEXITCODE
     $directSentence = 'Agent_b installs come from the signed Agent_b-setup.exe on the release page.'

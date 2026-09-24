@@ -18,6 +18,9 @@ param(
     # Set only by the verified single-file setup after extracting its payload.
     [switch]$EmbeddedBundle,
     [switch]$TestMode,
+    # Test-only proof: run the real non-TestMode root validation, then stop
+    # before registration discovery or any installation action.
+    [switch]$RootValidationOnly,
     [switch]$NoStart,
     [switch]$ForcePostStopVerificationFailure,
     [string]$TranscriptPath,
@@ -32,7 +35,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 . (Join-Path $PSScriptRoot 'install-root-policy.ps1')
-$displayVersion = '1.7.0'
+$displayVersion = '1.7.1'
 
 if (-not $TestMode -and -not $EmbeddedBundle) {
     Write-Output 'Agent_b installs come from the signed Agent_b-setup.exe on the release page.'
@@ -118,7 +121,7 @@ function Assert-SafeAgentBPath {
     param([string]$Path, [string]$Purpose)
     $full = Get-FullPath $Path
     $root = [IO.Path]::GetPathRoot($full).TrimEnd('\')
-    if ($full -eq $root -or (Split-Path -Leaf $full) -notin @('Agent_b', 'workspace')) {
+    if ($full -eq $root -or (Split-Path -Leaf $full) -notin @('Agent_b', 'Agent_b-workspace', 'workspace')) {
         throw "$Purpose must name a dedicated Agent_b or workspace directory: $full"
     }
     return $full
@@ -570,8 +573,14 @@ if (-not $TestMode) {
         throw "DataDirectory must be the launching operator's LocalAppData Agent_b directory: $expectedDataRoot"
     }
     if (-not $workspaceRoot.Equals($expectedWorkspaceRoot, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "WorkspaceDirectory must be the machine-scoped ProgramData location: $expectedWorkspaceRoot"
+        throw "WorkspaceDirectory must be the canonical $(if ($AllUsers) { 'all-users ProgramData' } else { 'per-user LocalAppData' }) location: $expectedWorkspaceRoot"
     }
+}
+if ($RootValidationOnly) {
+    if (-not $WhatIfPreference -or $TestMode) { throw 'RootValidationOnly requires non-TestMode -WhatIf.' }
+    Write-Host 'ROOT VALIDATION COMPLETE: non-TestMode defaults accepted; no registration or installation action ran.'
+    Stop-InstallTranscript
+    exit 0
 }
 
 if (-not $TestMode) {

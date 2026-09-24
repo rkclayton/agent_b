@@ -134,7 +134,12 @@ func firstSSESnapshotOperatorContext(t *testing.T, server *Server) bool {
 	t.Helper()
 	host := httptest.NewServer(server.Handler())
 	defer host.Close()
-	response, err := host.Client().Get(host.URL + "/api/events")
+	request, err := http.NewRequest(http.MethodGet, host.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.AddCookie(&http.Cookie{Name: browserSessionCookie, Value: server.browserSession})
+	response, err := host.Client().Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,6 +338,7 @@ func TestBrowserAndConfigReadsDoNotResetIdleTimeout(t *testing.T) {
 	clock.Advance(19 * time.Minute)
 	for _, path := range []string{"/api/state", "/api/config"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.AddCookie(&http.Cookie{Name: browserSessionCookie, Value: server.browserSession})
 		response := httptest.NewRecorder()
 		server.Handler().ServeHTTP(response, request)
 		if response.Code != http.StatusOK {

@@ -814,11 +814,11 @@ func TestLegacyMigrationRejectsMalformedOptionalSections(t *testing.T) {
 	}
 }
 
-func TestServiceAccountSplitDefaultsOffWithLocalAccountDefaults(t *testing.T) {
+func TestServiceAccountSplitDefaultsOnWithLocalAccountDefaults2jz(t *testing.T) {
 	cfg := Config{Shell: Shell{Command: []string{"unused"}}}
 	ApplyDefaults(&cfg)
-	if cfg.Shell.ServiceAccount.Enabled {
-		t.Fatal("service-account split defaulted on")
+	if !cfg.Shell.ServiceAccount.Enabled {
+		t.Fatal("service-account split defaulted off")
 	}
 	if cfg.Shell.OperatorContext {
 		t.Fatal("operator context defaulted on")

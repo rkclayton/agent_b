@@ -2,15 +2,17 @@ package web
 
 import (
 	"context"
-	"errors"
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"harness/internal/events"
+	"harness/internal/serviceaccount"
 )
 
 var localAccountName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -55,22 +57,16 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 	defer s.accountMu.Unlock()
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	var body struct {
-		Action       string `json:"action"`
-		Password     string `json:"password"`
-		Confirmation string `json:"confirmation"`
+		Action            string   `json:"action"`
+		ConnectionID      string   `json:"connection_id"`
+		AllowLocalNetwork bool     `json:"allow_local_network"`
+		LocalSubnets      []string `json:"local_subnets"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
-	reset := body.Action == "reset"
-	if body.Action != "create" && !reset {
-		body.Password, body.Confirmation = "", ""
-		writeError(w, http.StatusBadRequest, "action must be create or reset", "action")
-		return
-	}
-	if err := validateAccountPassword(body.Password, body.Confirmation); err != nil {
-		body.Password, body.Confirmation = "", ""
-		writeError(w, http.StatusBadRequest, err.Error(), "shell.service_account.setup_password")
+	if body.Action != "provision" {
+		writeError(w, http.StatusBadRequest, "action must be provision", "action")
 		return
 	}
 
@@ -78,40 +74,36 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 	status, err := s.account.Status(ctx, account)
 	cancel()
 	if err != nil {
-		body.Password, body.Confirmation = "", ""
 		writeError(w, http.StatusInternalServerError, err.Error(), "shell.service_account")
 		return
 	}
 	if !status.Supported {
-		body.Password, body.Confirmation = "", ""
 		writeError(w, http.StatusBadRequest, "local service-account setup is supported only on Windows", "shell.service_account")
 		return
 	}
-	if status.Exists && !reset {
-		body.Password, body.Confirmation = "", ""
-		writeError(w, http.StatusConflict, "the local account already exists; use Reset password", "shell.service_account")
-		return
-	}
-	if !status.Exists && reset {
-		body.Password, body.Confirmation = "", ""
-		writeError(w, http.StatusConflict, "the local account does not exist; use Create account", "shell.service_account")
-		return
-	}
 	if status.Administrator {
-		body.Password, body.Confirmation = "", ""
 		writeError(w, http.StatusConflict, "refusing to manage an account that belongs to Administrators", "shell.service_account")
 		return
 	}
+	protectionRequest, err := s.hardeningRequest(body.ConnectionID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), "connection_id")
+		return
+	}
+	protectionRequest.AllowLocalNetwork = body.AllowLocalNetwork
+	protectionRequest.LocalSubnets = append([]string(nil), body.LocalSubnets...)
 
 	previous, hadPrevious, err := s.previousCredential()
 	if err != nil {
-		body.Password, body.Confirmation = "", ""
 		writeError(w, http.StatusInternalServerError, "the existing credential could not be preserved before setup", "shell.service_account.password")
 		return
 	}
 	defer clearSecret(previous)
-	password := []byte(body.Password)
-	body.Password, body.Confirmation = "", ""
+	password, err := generatedServicePassword()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "shell.service_account.password")
+		return
+	}
 	if err := s.credential.Write(password); err != nil {
 		clearSecret(password)
 		writeError(w, http.StatusInternalServerError, err.Error(), "shell.service_account.password")
@@ -122,7 +114,17 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 	// The request is deliberately detached while Windows displays UAC. Closing
 	// the browser must not strand an account operation halfway through.
 	setupContext, setupCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	result, setupErr := s.account.Setup(setupContext, account, s.credential.Path(), reset)
+	result, setupErr := s.account.Setup(setupContext, account, s.credential.Path(), status.Exists, &serviceaccount.Protection{
+		ApplicationDirectory: protectionRequest.ApplicationDirectory,
+		DataDirectory:        protectionRequest.DataDirectory,
+		WorkspaceDirectory:   protectionRequest.WorkspaceDirectory,
+		ExchangeDirectory:    protectionRequest.ExchangeDirectory,
+		ModelAddress:         protectionRequest.ModelAddress,
+		ModelPort:            protectionRequest.ModelPort,
+		AllowLocalNetwork:    protectionRequest.AllowLocalNetwork,
+		LocalSubnets:         protectionRequest.LocalSubnets,
+		AllowedModelRanges:   protectionRequest.AllowedModelRanges,
+	})
 	setupCancel()
 	if setupErr != nil {
 		if !result.Attempted {
@@ -147,20 +149,18 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 	testConfig := s.ConfigSnapshot()
 	testConfig.Shell.ServiceAccount.Account = account
 	testConfig.Shell.ServiceAccount.Domain = "."
-	testConfig.Shell.ServiceAccount.Enabled = false
+	testConfig.Shell.ServiceAccount.Enabled = true
 	s.shell.Configure(testConfig)
 	testContext, testCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	testMessage, testErr := s.shellTest(testContext)
 	testCancel()
 	if testErr != nil {
-		if _, disableErr := s.disableConfiguredServiceAccount(account); disableErr != nil {
-			testMessage += "; saving the off state also failed: " + disableErr.Error()
-		}
-		writeError(w, http.StatusBadRequest, "service identity remains off: "+testMessage, "shell.service_account")
+		s.shell.Configure(s.ConfigSnapshot())
+		writeError(w, http.StatusBadRequest, "service identity not set up: "+testMessage, "shell.service_account")
 		return
 	}
 
-	masked, err := s.enableConfiguredServiceAccount(account)
+	masked, err := s.enableConfiguredServiceAccount(account, body.AllowLocalNetwork, body.LocalSubnets)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
 			"error": "the account and credential were updated, but enabling the identity split failed: " + err.Error(),
@@ -180,7 +180,7 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 	inspectCancel()
 	response := map[string]any{
 		"ok":         true,
-		"message":    "account and credential updated, tested, and enabled; apply host protection to grant folder access",
+		"message":    "service identity set up: account, protections, credential test, and identity split are ready",
 		"account":    currentStatus,
 		"credential": credentialStatus,
 		"identity":   s.shell.IdentityStatus(),
@@ -231,12 +231,14 @@ func (s *Server) restoreCredential(previous []byte, stored bool) error {
 	return s.credential.Write(previous)
 }
 
-func (s *Server) enableConfiguredServiceAccount(account string) (any, error) {
+func (s *Server) enableConfiguredServiceAccount(account string, allowLocalNetwork bool, localSubnets []string) (any, error) {
 	s.mu.Lock()
 	previous := *s.cfg
 	s.cfg.Shell.ServiceAccount.Account = account
 	s.cfg.Shell.ServiceAccount.Domain = "."
 	s.cfg.Shell.ServiceAccount.Enabled = true
+	s.cfg.Shell.AllowLocalNetwork = allowLocalNetwork
+	s.cfg.Shell.ConfirmedLocalSubnets = append([]string(nil), localSubnets...)
 	if err := s.cfg.Save(s.configPath); err != nil {
 		*s.cfg = previous
 		s.mu.Unlock()
@@ -252,26 +254,16 @@ func (s *Server) enableConfiguredServiceAccount(account string) (any, error) {
 	return masked, nil
 }
 
-func validateAccountPassword(password, confirmation string) error {
-	if password == "" {
-		return errors.New("password is required")
+func generatedServicePassword() ([]byte, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		clearSecret(value)
+		return nil, fmt.Errorf("generate service-account password: %w", err)
 	}
-	if strings.ContainsAny(password, "\r\n") || strings.ContainsAny(confirmation, "\r\n") {
-		return errors.New("password cannot contain a line break")
-	}
-	if utf8.RuneCountInString(password) < 14 {
-		return errors.New("password must contain at least 14 characters")
-	}
-	value := strings.ToLower(strings.TrimLeft(password, " \t"))
-	for _, prefix := range []string{"get-", "set-", "new-", `.\`, "cd ", "git "} {
-		if strings.HasPrefix(value, prefix) {
-			return errors.New("the value looks like a pasted command, not a password")
-		}
-	}
-	if password != confirmation {
-		return errors.New("the two password entries do not match")
-	}
-	return nil
+	encoded := make([]byte, base64.RawURLEncoding.EncodedLen(len(value)))
+	base64.RawURLEncoding.Encode(encoded, value)
+	clearSecret(value)
+	return encoded, nil
 }
 
 func clearSecret(value []byte) {

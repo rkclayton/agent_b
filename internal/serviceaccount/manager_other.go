@@ -12,6 +12,6 @@ func (unsupportedManager) Status(context.Context, string) (Status, error) {
 	return Status{Supported: false}, nil
 }
 
-func (unsupportedManager) Setup(context.Context, string, string, bool) (SetupResult, error) {
+func (unsupportedManager) Setup(context.Context, string, string, bool, *Protection) (SetupResult, error) {
 	return SetupResult{}, ErrUnsupported
 }

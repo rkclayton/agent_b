@@ -198,9 +198,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		log.Printf("tool identity: process (service split disabled) session=%s run=%s", s.ID, runID)
 	} else if !cfg.Shell.OperatorContext {
 		if err := r.tools.PreflightServiceIdentity(); err != nil {
-			message := "service identity unavailable: " + err.Error() + " — Settings → Security"
-			log.Printf("tool identity: process fallback session=%s run=%s reason=%q", s.ID, runID, err.Error())
-			r.bus.Publish(events.New(events.ServiceIdentityUnavailable, s.ID, runID, map[string]any{"message": message}))
+			message := "Agent_b sets up its service identity now; Windows will ask once"
+			log.Printf("tool identity: service identity not set up session=%s run=%s reason=%q", s.ID, runID, err.Error())
+			r.bus.Publish(events.New(events.ServiceIdentityUnavailable, s.ID, runID, map[string]any{"message": message, "reason": err.Error(), "action": "provision"}))
 		} else {
 			log.Printf("tool identity: service session=%s run=%s", s.ID, runID)
 		}
@@ -958,6 +958,16 @@ func toolResultEventData(turn int, callID, name, content string, ok, operatorCon
 func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) tools.CallOutcome {
 	cfg := r.cfg()
 	eventArgs := sanitizedToolArguments(name, args)
+	if cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext {
+		if err := r.tools.PreflightServiceIdentity(); err != nil {
+			switch name {
+			case "read_file", "list_dir", "search", "search_text", "find_files":
+				return r.callFileAsOperator(ctx, s, name, args)
+			case "write_file", "edit_file", "shell", "run_script", "call_service":
+				return tools.CallOutcome{Content: "error: service identity not set up"}
+			}
+		}
+	}
 	if cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext && r.hasIdentityChatGrant(s.ID) {
 		if fileGrantTool(name) {
 			return r.callFileAsOperator(ctx, s, name, args)

@@ -288,6 +288,18 @@ func migrateOperatorIdleTimeout(data []byte, version int) (bool, bool, []byte, e
 			delete(shell, "operator_context_timeout_minutes")
 			remapped = true
 		}
+		if version < 9 {
+			var service map[string]json.RawMessage
+			if value := shell["service_account"]; value != nil {
+				if err := json.Unmarshal(value, &service); err != nil {
+					return false, false, nil, err
+				}
+			} else {
+				service = map[string]json.RawMessage{}
+			}
+			service["enabled"], _ = json.Marshal(true)
+			shell["service_account"], _ = json.Marshal(service)
+		}
 		raw["shell"], _ = json.Marshal(shell)
 	}
 	raw["config_version"], _ = json.Marshal(CurrentConfigVersion)

@@ -50,7 +50,7 @@ func (m *windowsManager) Status(ctx context.Context, account string) (Status, er
 	return Status{}, fmt.Errorf("inspect local service account: status was not returned")
 }
 
-func (m *windowsManager) Setup(ctx context.Context, account, credentialPath string, reset bool) (SetupResult, error) {
+func (m *windowsManager) Setup(ctx context.Context, account, credentialPath string, reset bool, protection *Protection) (SetupResult, error) {
 	scriptPath, err := filepath.Abs(m.scriptPath)
 	if err != nil {
 		return SetupResult{}, fmt.Errorf("resolve service-account setup script: %w", err)
@@ -69,6 +69,31 @@ func (m *windowsManager) Setup(ctx context.Context, account, credentialPath stri
 		"-NoLogo", "-NoProfile", "-NonInteractive",
 		"-File", scriptPath, "-AccountName", account, "-CredentialStore", credentialPath,
 		"-NoPrompt",
+	}
+	if protection != nil {
+		scriptPath = filepath.Join(filepath.Dir(scriptPath), "provision-service-identity.ps1")
+		if _, err := os.Stat(scriptPath); err != nil {
+			return SetupResult{}, fmt.Errorf("service-identity provisioning script is unavailable: %w", err)
+		}
+		arguments = []string{
+			"-NoLogo", "-NoProfile", "-NonInteractive", "-File", scriptPath,
+			"-AccountName", account, "-CredentialStore", credentialPath,
+			"-ApplicationDirectory", protection.ApplicationDirectory,
+			"-DataDirectory", protection.DataDirectory,
+			"-WorkspaceDirectory", protection.WorkspaceDirectory,
+			"-ExchangeDirectory", protection.ExchangeDirectory,
+			"-ModelAddress", protection.ModelAddress,
+			"-ModelPort", fmt.Sprint(protection.ModelPort),
+		}
+		if protection.AllowLocalNetwork {
+			arguments = append(arguments, "-AllowLocalNetwork")
+		}
+		if len(protection.LocalSubnets) > 0 {
+			arguments = append(arguments, "-LocalSubnet", strings.Join(protection.LocalSubnets, ","))
+		}
+		if len(protection.AllowedModelRanges) > 0 {
+			arguments = append(arguments, "-AllowedRange", strings.Join(protection.AllowedModelRanges, ","))
+		}
 	}
 	if reset {
 		arguments = append(arguments, "-ResetPassword")

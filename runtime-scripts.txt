@@ -2,6 +2,7 @@ scripts/agentb-stop.ps1
 scripts/apply-acls.ps1
 scripts/apply-firewall-rule.ps1
 scripts/apply-hardening.ps1
+scripts/grant-plan-access.ps1
 scripts/complete-install-migration.ps1
 scripts/detect-local-capabilities.ps1
 scripts/install-Agent_b.ps1
@@ -12,6 +13,7 @@ scripts/launch-hidden.vbs
 scripts/launch-installed.cmd
 scripts/manage-signing.ps1
 scripts/pwa-policy.ps1
+scripts/provision-service-identity.ps1
 scripts/removal-guard.ps1
 scripts/setup-service-account.ps1
 scripts/signing-key-policy.ps1

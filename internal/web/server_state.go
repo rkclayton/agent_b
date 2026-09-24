@@ -1,7 +1,9 @@
 package web
 
 import (
+	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -60,7 +62,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 		"update":                   updateState,
 		"plans":                    s.planList(),
 		"signature":                s.signingState(),
-		"mutation_token":           s.mutationToken, "shell_credential": credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,
+		"shell_credential":         credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,
 		"serving_facts": servingFacts(filepath.Join(s.roots.Application, "SERVING.md")),
 		"flow":          map[string]any{"stages": events.Stages, "edges": [][2]string{{"assemble", "call_model"}, {"call_model", "parse"}, {"parse", "dispatch"}, {"dispatch", "execute"}, {"execute", "append"}, {"append", "assemble"}}},
 		"tools": []map[string]string{
@@ -247,7 +249,18 @@ func (s *Server) pageContent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if data, err := os.ReadFile(path); err == nil {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(stampDocument(data, pageBuildID()))
+		stamped := stampDocument(data, pageBuildID())
+		cookie, cookieErr := r.Cookie(browserSessionCookie)
+		credentialed := cookieErr == nil && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(s.browserSession)) == 1
+		if !credentialed && s.operatorRequest != nil {
+			credentialed = s.operatorRequest(r) == nil
+		}
+		if credentialed {
+			http.SetCookie(w, &http.Cookie{Name: browserSessionCookie, Value: s.browserSession, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+			bootstrap := []byte(`<meta name="agentb-mutation-token" content="` + s.mutationToken + `">`)
+			stamped = bytes.Replace(stamped, []byte("</head>"), append(bootstrap, []byte("</head>")...), 1)
+		}
+		_, _ = w.Write(stamped)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

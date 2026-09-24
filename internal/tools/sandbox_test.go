@@ -74,6 +74,7 @@ func TestSandboxCapabilitySuiteStubRoutesOnlyDeclaredWorkspaceAndBash(t *testing
 func TestBashIsInertWithoutDeclaredReadySandbox(t *testing.T) {
 	workspace := t.TempDir()
 	cfg := config.Defaults(workspace)
+	cfg.Shell.ServiceAccount.Enabled = false
 	cfg.Sandbox.Enabled = false
 	shell := NewShell(cfg.Shell)
 	shell.Configure(cfg)
@@ -86,6 +87,7 @@ func TestBashIsInertWithoutDeclaredReadySandbox(t *testing.T) {
 func TestUnavailableGlobalSandboxIsInertForHostShellAndExplainsBash(t *testing.T) {
 	workspace := t.TempDir()
 	cfg := config.Defaults(workspace)
+	cfg.Shell.ServiceAccount.Enabled = false
 	shell := NewShell(cfg.Shell)
 	shell.Configure(cfg)
 	item := &session.Session{ID: "inert", Workspace: workspace}

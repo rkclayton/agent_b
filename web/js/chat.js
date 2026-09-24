@@ -939,7 +939,30 @@ function noticeContent(session, entry, actionable) {
 	}
 	else if (event.type === "file.grant") content.textContent = `file-tool grant: operator · for this ${data.scope === "session" ? "chat" : "run"}`;
 	else if (event.type === "file.grant_lapsed") content.textContent = `file-tool grant lapsed: ${data.scope === "session" ? "chat closed" : "run ended"}`;
-	else if (event.type === "service.identity_unavailable") { content.textContent = data.message || "service identity unavailable — Settings → Security"; content.classList.add("alarm"); }
+	else if (event.type === "service.identity_unavailable") {
+		content.textContent = data.message || "Agent_b sets up its service identity now; Windows will ask once";
+		content.classList.add("alarm");
+		if (data.action === "provision" && !store.replay) {
+			const action = document.createElement("button");
+			action.type = "button";
+			action.textContent = "Set up service identity";
+			action.onclick = async () => {
+				action.disabled = true;
+				try {
+					const result = await api("/api/service-account", {
+						action: "provision", connection_id: session.connection_id,
+						allow_local_network: !!store.config.shell?.allow_local_network,
+						local_subnets: store.config.shell?.confirmed_local_subnets || [],
+					});
+					content.textContent = result.message || "service identity set up";
+					content.classList.remove("alarm");
+				} catch (error) {
+					content.textContent = `service identity not set up: ${error.message}. Next: open Settings > Security and choose Set up service identity.`;
+				}
+			};
+			content.append(" ", action);
+		}
+	}
 	else if (event.type === "approval.required") {
 		return createApprovalCard(document, entry, {
 			replay: store.replay,

@@ -16,14 +16,11 @@ function shell(active) {
 			: serviceAccountStatus.exists
 				? `${service.account || "agentb-svc"} · ${serviceAccountStatus.enabled ? "enabled" : "disabled"}${serviceAccountStatus.administrator ? " · ADMINISTRATOR — refused" : !serviceAccountStatus.users_member ? " · Users membership missing" : " · non-admin"}`
 				: "not created";
-	const setupAction = serviceAccountStatus.exists ? "reset" : "create";
 	const setupLabel = serviceAccountBusy
 		? "Waiting for Windows UAC…"
-		: service.enabled
-			? "Reset password and test"
-			: "Turn on and test";
-	const setupDisabled = serviceAccountBusy || !serviceAccountStatus.loaded || !serviceAccountStatus.supported || serviceAccountStatus.administrator;
+		: "Set up service identity";
 	const connection = connectionList().find((item) => item.id === selectedHardeningConnectionID());
+	const setupDisabled = serviceAccountBusy || !serviceAccountStatus.loaded || !serviceAccountStatus.supported || serviceAccountStatus.administrator || !connection;
 	const protectionReady = hardeningStatus.acl?.applied && hardeningStatus.firewall?.applied;
 	const elevationState = !hardeningStatus.loaded
 		? "checking process elevation…"
@@ -37,6 +34,8 @@ function shell(active) {
 			: protectionReady
 				? "ACL + outbound policy verified"
 				: `${hardeningStatus.acl?.summary || "ACL not applied"} · ${hardeningStatus.firewall?.summary || "firewall not applied"}`;
+	const driftLines = [...(hardeningStatus.acl?.items || []), ...(hardeningStatus.firewall?.items || [])]
+		.map((item) => `<li>${html(item.path || item.rule || "policy")} · expected ${html(item.expected || "applied")} · found ${html(item.found || "missing")}</li>`).join("");
 	const applyBlocker = drafts.size
 		? "Save pending settings before applying host protections."
 		: serviceAccountBusy
@@ -81,33 +80,20 @@ function shell(active) {
 	${subhead("Docker Sandbox", "Install-wide: routes shell and bash through Docker Sandbox. When Docker Sandbox is unavailable the setting stays on but is inert and reports why.")}
 	${toggle("sandbox.enabled", "Docker Sandbox", sandboxEnabled, "Install-wide: routes shell and bash through Docker Sandbox.")}
 	${row("status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`, "", "Inert means the setting is on but Docker Sandbox is unavailable; the reason is shown here.")}
-	${subhead("Service identity", "The non-admin Windows account shell and file tools run as. Windows may request approval.")}
-	<p class="settings-note">The service identity limits what tool processes can reach; turning it on asks Windows to provision the account, then tests the credential before enabling it.</p>
-	${store.shell_identity?.notice ? `<p class="settings-feedback alarm" role="status">${html(store.shell_identity.notice)}</p>` : ""}
-    ${row("status", `<span class="account-status"><span class="lamp ${serviceAccountStatus.administrator ? "alarm" : serviceAccountStatus.exists ? "live" : ""}"></span>${html(accountState)}</span>`, "", "Whether the low-privilege Windows account Agent_b runs tools as exists, and that it is not an administrator.")}
-    ${row("credential", `<span class="account-status">${html(stored)}</span>`, "", "Whether that account's password is stored for Agent_b, encrypted for this Windows user.")}
-    ${row("new password", `<input id="service-account-setup-password" type="password" autocomplete="new-password" aria-label="New service-account password" ${setupDisabled ? "disabled" : ""}>`, "", "The password to create the service account with.")}
-    ${row("repeat", `<input id="service-account-setup-confirmation" type="password" autocomplete="new-password" aria-label="Repeat new service-account password" ${setupDisabled ? "disabled" : ""}>`, "", "The same password again, to catch a typo.")}
-    <div class="settings-actions">
-      <button type="button" data-action="setup-service-account" data-setup-action="${setupAction}" ${setupDisabled ? "disabled" : ""}>${setupLabel}</button>
-	  ${service.enabled ? '<button type="button" data-action="disable-service-account">Turn off service identity</button>' : ""}
-      <button type="button" data-action="test-shell-credential" title="${protectionReady ? "" : "Apply host protection before testing folder access."}" ${canTestIdentity ? "" : "disabled"}>Test identity</button>
-      <button type="button" data-action="refresh-service-account" ${serviceAccountBusy ? "disabled" : ""}>Refresh</button>
-    </div>
-    ${feedback(serviceAccountMessage, serviceAccountAlarm, "The non-admin Windows account used by shell and file tools. Windows may request approval.")}
-	${subhead("Host protections", "Applies folder access for the service identity and the user-scoped outbound firewall rule. Windows requests approval.")}
-	${row("Agent_b", `<span class="account-status ${hardeningStatus.harness_elevated ? "alarm" : ""}">${html(elevationState)}</span>`, "", "Whether Agent_b itself is running elevated; it should not be.")}
-	${row("status", `<span class="account-status"><span class="lamp ${protectionReady ? "live" : hardeningStatus.loaded ? "alarm" : ""}"></span>${html(protectionState)}</span>`, "", "Whether the folder permissions and the outbound firewall rule that confine the service account are in place.")}
-	${row("model route", `<select id="hardening-connection" aria-label="Model route for host protections">${hardeningConnections()}</select>`, "", "The endpoint the firewall rule lets the service account reach.")}
-	<p class="settings-note">The network boundary allows loopback and the configured model server${(store.config.shell?.allowed_model_ranges || []).length ? `, plus configured ranges ${html(store.config.shell.allowed_model_ranges.join(", "))}` : ""}.</p>
-	${row("Allow my local network", `<button type="button" role="switch" aria-checked="${lanEnabled}" aria-label="Allow my local network" class="switch ${lanEnabled ? "on" : ""}" data-action="local-network-toggle"></button><span class="settings-subnets" data-local-subnets>${subnetChoices}</span>`, "", "Select each detected subnet you intend to expose, then Apply protection. Link-local, cloud metadata and Agent_b's own listener remain refused.")}
-	<div class="settings-actions">
-	  <button type="button" data-action="apply-hardening" title="${attr(applyBlocker)}" aria-busy="${hardeningBusy}" ${canApply ? "" : "disabled"}>${hardeningBusy ? "Working…" : drafts.size ? "Save first" : "Apply protection"}</button>
-	  <button type="button" data-action="verify-hardening" ${canInspect ? "" : "disabled"}>Verify</button>
-	  <button type="button" data-action="refresh-hardening">Refresh</button>
-	  <button type="button" class="${armed.has("hardening:remove") ? "confirm" : ""}" data-action="remove-hardening" ${canInspect ? "" : "disabled"}>${armed.has("hardening:remove") ? "Confirm remove" : "Remove"}</button>
-	</div>
-	${feedback(protectionFeedback, hardeningAlarm || !!applyBlocker, "Apply protection requests Windows approval, grants folder access, then tests the service identity.")}
+	<details class="settings-advanced">
+	  <summary>Set up service identity</summary>
+	  <p class="settings-note">Agent_b generates and stores the password. One Windows approval creates or repairs the account, folder access and outbound policy, then tests the credential before enabling it.</p>
+	  ${store.shell_identity?.notice ? `<p class="settings-feedback alarm" role="status">${html(store.shell_identity.notice)}</p>` : ""}
+	  ${row("account", `<span class="account-status"><span class="lamp ${serviceAccountStatus.administrator ? "alarm" : serviceAccountStatus.exists ? "live" : ""}"></span>${html(accountState)}</span>`)}
+	  ${row("credential", `<span class="account-status">${html(stored)}</span>`)}
+	  ${row("protections", `<span class="account-status"><span class="lamp ${protectionReady ? "live" : hardeningStatus.loaded ? "alarm" : ""}"></span>${html(protectionState)}</span>`)}
+	  ${driftLines ? `<ul class="settings-drift">${driftLines}</ul>` : ""}
+	  ${row("model route", `<select id="hardening-connection" aria-label="Model route for host protections">${hardeningConnections()}</select>`)}
+	  ${row("Allow my local network", `<button type="button" role="switch" aria-checked="${lanEnabled}" aria-label="Allow my local network" class="switch ${lanEnabled ? "on" : ""}" data-action="local-network-toggle"></button><span class="settings-subnets" data-local-subnets>${subnetChoices}</span>`)}
+	  <p class="settings-note">Local access is limited to loopback and the configured model server; link-local, cloud metadata and Agent_b's own listener remain refused.</p>
+	  <div class="settings-actions"><button type="button" data-action="setup-service-account" ${setupDisabled ? "disabled" : ""}>${setupLabel}</button></div>
+	  ${feedback(serviceAccountMessage || hardeningMessage, serviceAccountAlarm || hardeningAlarm, "Windows approval has not been requested.")}
+	</details>
 	${subhead("Code signing", "Gives this installation a stable publisher identity and trusted local chain. It does not create Defender cloud reputation.")}
 	${row("certificate", `<span class="account-status"><span class="lamp ${certificateDone ? "live" : ""}"></span>${html(certificateDone ? `${signingStatus.subject} · ${signingStatus.thumbprint}` : "not done")}</span>`, "", "The code-signing certificate Agent_b's files are signed with.")}
 	${row("account", `<span class="account-status"><span class="lamp ${signingStatus.admin_state === "elevated" ? "live" : signingStatus.admin_state === "not_admin" ? "alarm" : ""}"></span>${html(adminStateText(signingStatus.admin_state))}</span>`, "", "Whether this Windows account can manage signing, and whether it needs an elevated run first.")}
@@ -122,18 +108,7 @@ function shell(active) {
 	  <button type="button" data-action="verify-signing" title="Verify signer, thumbprint, timestamp and certificate chain." ${signingBusy ? "disabled" : ""}>Verify signatures</button>
 	</div>` : `<div class="settings-actions vertical"><button type="button" data-action="verify-signing" title="Standard users can verify signatures but cannot create, import, select, export or sign." ${signingBusy ? "disabled" : ""}>Verify signatures</button></div>`}
 	${feedback(signingMessage, signingAlarm, "Self-created keys are non-exportable and usable only by the elevated signing helper; imported keys keep their existing protection.")}
-    <details class="settings-advanced">
-      <summary>Advanced</summary>
-      ${text("shell.command", "shell command", (store.config.shell?.command || []).join(" "), "command", "The program and arguments the shell tool runs commands with.")}
-      ${text("shell.service_account.account", "account", service.account || "agentb-svc", "text", "The service account's user name.")}
-      ${text("shell.service_account.domain", "domain", service.domain || ".", "text", "The service account's domain; a dot means this computer.")}
-      ${row("store credential", '<input id="shell-service-password" type="password" autocomplete="new-password" aria-label="Service-account credential">', "", "The service account's password, stored encrypted for this Windows user.")}
-      <div class="settings-actions">
-        <button type="button" data-action="store-shell-credential" ${serviceAccountBusy ? "disabled" : ""}>Store credential</button>
-        <button type="button" data-action="clear-shell-credential" ${serviceAccountBusy ? "disabled" : ""}>Clear credential</button>
-      </div>
-      ${feedback(shellCredentialMessage, shellCredentialAlarm, "Credentials are encrypted for this Windows user and never returned to the browser.")}
-    </details>`;
+    `;
 }
 
 function feedback(message, alarm, fallback) {

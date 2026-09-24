@@ -85,7 +85,7 @@ func TestAttachmentsRequiresMutationToken(t *testing.T) {
 	request.Header.Del("X-AgentB-Mutation-Token")
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusForbidden {
+	if response.Code != http.StatusUnauthorized || response.Body.Len() != 0 {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}
 }

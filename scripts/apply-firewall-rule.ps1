@@ -256,7 +256,7 @@ if ($WhatIfPreference) {
 $sid = $null
 try { $sid = Resolve-LocalUserSid -Name $AccountName } catch {
     if ($Inspect) {
-        $status = [ordered]@{ supported = $true; account_exists = $false; applied = $false; summary = $_.Exception.Message }
+        $status = [ordered]@{ supported = $true; account_exists = $false; applied = $false; summary = $_.Exception.Message; items = @([ordered]@{ rule = $ruleName; expected = 'account-scoped outbound Block policy'; found = 'service account missing' }) }
         Write-Output ($statusMarker + ($status | ConvertTo-Json -Compress))
         exit 0
     }
@@ -270,7 +270,10 @@ $legacyPresent = [bool](Get-NetFirewallRule -Name $legacyAllowRuleName -ErrorAct
 
 if ($Inspect) {
     $summary = if ($correct -and -not $legacyPresent) { 'user-scoped outbound policy verified' } elseif ($script:resolutionChanged) { "model host resolution changed; apply protection again ($ModelAddress -> $($resolvedAddressText -join ', '))" } else { 'firewall rule missing or drifted' }
-    $status = [ordered]@{ supported = $true; account_exists = $true; applied = ($correct -and -not $legacyPresent); summary = $summary; resolved_addresses = $resolvedAddressText; resolution_changed = $script:resolutionChanged }
+    $items = @()
+    if (-not $correct) { $items += [ordered]@{ rule = $ruleName; expected = "outbound Block except loopback and $ModelAddress`:$ModelPort"; found = $(if (Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue) { 'rule differs from configured identity or destinations' } else { 'rule missing' }) } }
+    if ($legacyPresent) { $items += [ordered]@{ rule = $legacyAllowRuleName; expected = 'absent'; found = 'conflicting legacy Allow rule present' } }
+    $status = [ordered]@{ supported = $true; account_exists = $true; applied = ($correct -and -not $legacyPresent); summary = $summary; resolved_addresses = $resolvedAddressText; resolution_changed = $script:resolutionChanged; items = $items }
     Write-Output ($statusMarker + ($status | ConvertTo-Json -Compress))
     exit 0
 }

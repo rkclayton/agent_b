@@ -17,6 +17,7 @@ import (
 func TestNonzeroShellExitProducesFailedToolResultEvent(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
+	cfg.Shell.ServiceAccount.Enabled = false
 	command := "printf ui-stderr-marker >&2; exit 9"
 	if runtime.GOOS == "windows" {
 		command = "[Console]::Error.WriteLine('ui-stderr-marker'); exit 9"

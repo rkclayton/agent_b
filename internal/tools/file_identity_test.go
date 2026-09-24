@@ -94,8 +94,10 @@ func TestFileIdentityDisabledUsesOperatorOSReachWithoutIdentityCard(t *testing.T
 		t.Fatal(err)
 	}
 	identity := NewFileIdentity(nil)
-	identity.Configure(config.Defaults(workspace))
-	detail := identity.Wrap(NewListDir(config.Defaults(workspace).Tools.ListDir)).(DetailedTool).CallDetailed(
+	cfg := config.Defaults(workspace)
+	cfg.Shell.ServiceAccount.Enabled = false
+	identity.Configure(cfg)
+	detail := identity.Wrap(NewListDir(cfg.Tools.ListDir)).(DetailedTool).CallDetailed(
 		context.Background(), &session.Session{Workspace: workspace, LastSeen: map[string]time.Time{}}, map[string]any{"path": external},
 	)
 	if detail.Err != nil || detail.OperatorOverrideReason != "" {
@@ -118,6 +120,7 @@ func TestFileIdentityOperatorContextUsesOperatorOSAccessOutsideWorkspace(t *test
 	}
 	identity := NewFileIdentity(nil)
 	cfg := config.Defaults(workspace)
+	cfg.Shell.ServiceAccount.Enabled = false
 	cfg.Shell.OperatorContext = true
 	cfg.Shell.ServiceAccount.Enabled = true
 	identity.Configure(cfg)
@@ -145,6 +148,7 @@ func TestFileToolIdentityDescriptionOnlyWhenServiceSplitEnabled(t *testing.T) {
 	workspace := t.TempDir()
 	identity := NewFileIdentity(nil)
 	cfg := config.Defaults(workspace)
+	cfg.Shell.ServiceAccount.Enabled = false
 	names := []string{"read_file", "list_dir", "write_file", "edit_file", "search_text", "find_files"}
 	items := make([]Tool, 0, len(names))
 	enabled := make(map[string]bool, len(names))
@@ -227,6 +231,7 @@ func TestOutsidePathsFollowTheRunningIdentity(t *testing.T) {
 		}
 	}
 	cfg := config.Defaults(workspace)
+	cfg.Shell.ServiceAccount.Enabled = false
 	disabled := NewFileIdentity(nil)
 	disabled.Configure(cfg)
 	enabled := enabledFileIdentity(t, &fileIdentityTestCredential{password: []byte{1, 2, 3}})

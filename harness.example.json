@@ -1,5 +1,5 @@
 {
-  "config_version": 8,
+  "config_version": 9,
   "listen": "127.0.0.1:8790",
   "workspace": "./workspace",
   "log_dir": "logs",
@@ -52,7 +52,7 @@
     "operator_context_idle_timeout_minutes": 20,
 	"allow_local_network": false,
 	"confirmed_local_subnets": [],
-    "service_account": { "enabled": false, "account": "agentb-svc", "domain": "." },
+    "service_account": { "enabled": true, "account": "agentb-svc", "domain": "." },
     "allowed_model_ranges": [],
     "deny": ["rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"]
   },

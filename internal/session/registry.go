@@ -30,6 +30,7 @@ type Registry struct {
 	workspaces  *workspaceinfo.Manager
 	plansRoot   string
 	scratchRoot string
+	planGrant   func(string) error
 }
 
 func NewRegistry(bus *events.Bus, writers *events.Writers, connections func(string) (*config.Connection, bool), maxTurns int, settings func() config.Config) *Registry {
@@ -67,6 +68,7 @@ func (r *Registry) SetPlansRoot(root string) {
 	r.plansRoot = filepath.Clean(root)
 	r.scratchRoot = filepath.Join(filepath.Dir(r.plansRoot), "scratch")
 }
+func (r *Registry) SetPlanGrant(grant func(string) error) { r.planGrant = grant }
 func (r *Registry) Create(label, agentID, workspace string) (*Session, error) {
 	return r.create(label, agentID, workspace, nil, "b", "")
 }

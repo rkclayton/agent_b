@@ -13,3 +13,5 @@ func (unsupportedManager) Status(context.Context, Request) (Status, error) {
 func (unsupportedManager) Run(context.Context, string, Request) (RunResult, error) {
 	return RunResult{}, ErrUnsupported
 }
+
+func (unsupportedManager) GrantPlan(context.Context, string, string) error { return ErrUnsupported }

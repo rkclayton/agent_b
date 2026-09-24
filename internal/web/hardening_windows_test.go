@@ -32,6 +32,7 @@ func (m *fakeHardeningManager) Run(_ context.Context, action string, request har
 	m.runAction, m.runRequest = action, request
 	return hardening.RunResult{Attempted: true}, m.runErr
 }
+func (m *fakeHardeningManager) GrantPlan(context.Context, string, string) error { return nil }
 
 func TestHardeningEndpointAppliesBeforeTestingWorkspaceIdentity(t *testing.T) {
 	account := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Account: "agentb-svc", Exists: true, Enabled: true}}

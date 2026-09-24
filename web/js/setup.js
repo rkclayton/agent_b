@@ -1,3 +1,5 @@
+import { acquireBrowserSessionToken } from "./browser-session.js";
+
 const root = document.getElementById("setup");
 const connection = document.getElementById("connection");
 const fullTools = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
@@ -14,6 +16,7 @@ let alarm = false;
 let discoveredModels = [];
 let discoveryNote = "";
 let connectionDraft;
+const mutationToken = await acquireBrowserSessionToken();
 
 root.addEventListener("click", click);
 root.addEventListener("change", change);
@@ -341,7 +344,7 @@ function attr(value) { return html(value); }
 
 async function request(path, body, method = "POST") {
   const options = { method, headers: {} };
-  if (method !== "GET" && method !== "HEAD") options.headers["X-AgentB-Mutation-Token"] = snapshot?.mutation_token || "";
+  if (method !== "GET" && method !== "HEAD") options.headers["X-AgentB-Mutation-Token"] = mutationToken;
   if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
   const response = await fetch(path, options);
   const value = await response.json().catch(() => ({}));

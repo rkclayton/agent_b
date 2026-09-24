@@ -338,7 +338,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		snapshot := item.Snapshot()
-		if _, exists := s.Connection(snapshot.ConnectionID); exists || snapshot.NotRunnableReason != "connection not found" {
+		if _, exists := s.Connection(snapshot.ConnectionID); exists {
 			writeError(w, http.StatusConflict, "session connection is not missing", "connection_id")
 			return
 		}

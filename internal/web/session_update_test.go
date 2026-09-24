@@ -109,7 +109,7 @@ func TestMissingConnectionCanRebindToSameLabel(t *testing.T) {
 	server.cfg.Connections = []config.Connection{replacement}
 	server.mu.Unlock()
 	registry.RefreshRunnable()
-	if got := item.Snapshot(); got.Runnable || got.NotRunnableReason != "connection not found" {
+	if got := item.Snapshot(); got.Runnable || got.NotRunnableReason != "connection removed no longer exists" {
 		t.Fatalf("before=%+v", got)
 	}
 	request := httptest.NewRequest(http.MethodPost, "/api/sessions/"+item.ID+"/rebind", strings.NewReader(`{}`))

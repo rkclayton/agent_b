@@ -253,8 +253,13 @@ func runInstall(options installOptions, args []string) int {
 		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, log); err != nil {
 			return log.fail("Agent_b was installed but failed to start: %v", err)
 		}
-		if err := completeInstallMigration(applicationRoot, operatorDataRoot, installerFlagPresent(args, "TestMode"), log); err != nil {
+		leftInPlace, err := completeInstallMigration(applicationRoot, operatorDataRoot, installerFlagPresent(args, "TestMode"), log)
+		if err != nil {
 			return log.fail("Agent_b started, but legacy migration cleanup failed: %v", err)
+		}
+		if leftInPlace != "" {
+			log.printf("%s", leftInPlace)
+			appendProgress(dataRoot, installProgress{Phase: "finished", Text: leftInPlace, Done: true, OK: true})
 		}
 		log.printf("AUTOSTART COMPLETE: Agent_b started through %s. Log: %s", filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1"), log.location())
 		return 0
@@ -297,24 +302,44 @@ func installerFlagPresent(arguments []string, wanted string) bool {
 	return false
 }
 
-func completeInstallMigration(applicationRoot, dataRoot string, testMode bool, log *installLog) error {
+func completeInstallMigration(applicationRoot, dataRoot string, testMode bool, log *installLog) (string, error) {
 	marker := filepath.Join(dataRoot, "migration-pending.json")
 	if _, err := os.Stat(marker); errors.Is(err, os.ErrNotExist) {
-		return nil
+		return "", nil
 	} else if err != nil {
-		return err
+		return "", err
+	}
+	markerBytes, err := os.ReadFile(marker)
+	if err != nil {
+		return "", err
+	}
+	var migration struct {
+		LegacyRoot string `json:"legacy_application_directory"`
+	}
+	if err := json.Unmarshal(markerBytes, &migration); err != nil {
+		return "", err
 	}
 	arguments := []string{"-NoLogo", "-NoProfile", "-File", filepath.Join(applicationRoot, "scripts", "complete-install-migration.ps1"), "-DataDirectory", dataRoot}
 	if testMode {
 		arguments = append(arguments, "-TestMode")
 	}
 	command := exec.Command(windowsPowerShell(), arguments...)
-	command.Stdout = log.writer()
-	command.Stderr = log.writer()
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
 	if err := command.Run(); err != nil {
-		return err
+		text := output.String()
+		lower := strings.ToLower(text)
+		if strings.Contains(text, "UnauthorizedAccessException") ||
+			strings.Contains(lower, "access to the path") && strings.Contains(lower, "denied") ||
+			strings.Contains(text, "FullyQualifiedErrorId : IOException") && strings.Contains(lower, "being used by another process") {
+			return fmt.Sprintf("MIGRATION LEFT IN PLACE: access denied — remove it from an elevated shell: %s; registered shortcuts and Installed apps point to the per-user copy, so no launcher under this legacy tree is used.", migration.LegacyRoot), nil
+		}
+		_, _ = io.WriteString(log.writer(), text)
+		return "", err
 	}
-	return nil
+	_, _ = io.WriteString(log.writer(), output.String())
+	return "", nil
 }
 
 func installRestartDetails(path string) (string, string, bool) {

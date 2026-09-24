@@ -447,6 +447,7 @@ try {
     $legacyRoot = Join-Path $testRoot 'Legacy\Agent_b'
     $null = New-Item -ItemType Directory -Path $legacyRoot -Force
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Agent_b.exe') -Destination (Join-Path $legacyRoot 'Agent_b.exe')
+    [IO.File]::WriteAllText((Join-Path $legacyRoot 'Agent_b.cmd'), '@echo legacy launcher must never run', [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $legacyRoot 'legacy-proof.txt'), 'remove only after the new copy starts', [Text.UTF8Encoding]::new($false))
     $migrationRegistryRoot = $testRegistry + '-MigrationRoot'
     $legacyRegistry = Join-Path $migrationRegistryRoot 'Legacy'
@@ -465,23 +466,38 @@ try {
     $env:AGENT_B_INSTALL_LOG = $freshTranscriptPath
     $savedErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
+    $legacyLock = [IO.File]::Open((Join-Path $legacyRoot 'Agent_b.cmd'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     try {
         $freshOutput = (& $singleSetup --quiet --install-data $testData -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -RegistrationSearchRoots $migrationRegistryRoot -AlternateBinaryRoots $orphanRoot -LegacyApplicationDirectory $legacyRoot -OperatorLocalAppData $alternateConnection -TestMode 2>&1 | Out-String)
         $freshExit = $LASTEXITCODE
     } finally {
+        $legacyLock.Dispose()
         $ErrorActionPreference = $savedErrorAction
         $env:AGENT_B_INSTALL_LOG = $savedInstallLog
     }
     if ($freshExit -ne 0) { throw "First single-file install exited $freshExit.`n$freshOutput" }
     $freshTranscript = Get-Content -Raw -LiteralPath $freshTranscriptPath
     $readyPosition = $freshTranscript.IndexOf("Agent_b is ready at http://127.0.0.1:$testPort/chat")
-    $migrationPosition = $freshTranscript.IndexOf('MIGRATION COMPLETE: new per-user Agent_b started before legacy application and registration cleanup')
-    if ($readyPosition -lt 0 -or $migrationPosition -le $readyPosition -or (Test-Path -LiteralPath $legacyRoot) -or
-        (Test-Path -LiteralPath $legacyRegistry) -or -not (Test-Path -LiteralPath $dataSentinel -PathType Leaf) -or
+    $leftPattern = [regex]::Escape('MIGRATION LEFT IN PLACE: access denied') + '.{1,8}' +
+        [regex]::Escape("remove it from an elevated shell: $legacyRoot; registered shortcuts and Installed apps point to the per-user copy, so no launcher under this legacy tree is used.")
+    $leftMatch = [regex]::Match($freshTranscript, $leftPattern)
+    $migrationPosition = $leftMatch.Index
+    $progressHasLeftLine = @(Get-Content -LiteralPath (Join-Path $testData 'install-progress.jsonl') | ForEach-Object {
+        $_ | ConvertFrom-Json
+    } | Where-Object { [string]$_.text -match $leftPattern }).Count -eq 1
+    if ($readyPosition -lt 0 -or -not $leftMatch.Success -or $migrationPosition -le $readyPosition -or -not (Test-Path -LiteralPath $legacyRoot) -or
+        -not $progressHasLeftLine -or
+        -not (Test-Path -LiteralPath $dataSentinel -PathType Leaf) -or
         (Get-Content -Raw -LiteralPath $dataSentinel) -cne 'operator data survives migration') {
-        throw "Migration did not start the new disposable copy before removing the explicit fake legacy root/registration, or changed operator data.`n$freshTranscript"
+        throw "Denied migration cleanup did not leave and name the explicit fake legacy root after the new copy started, or changed operator data.`n$freshTranscript"
     }
-    Write-Host "PROOF migration: new copy ready before explicit disposable legacy root and registration removal; data sentinel unchanged"
+    Write-Host 'PROOF denied migration: new copy ready and installer exit 0; locked legacy tree retained and named in transcript/progress; per-user launcher owns future starts'
+    $cleanupOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $testApplication 'scripts\complete-install-migration.ps1') -DataDirectory $testData -TestMode 2>&1 | Out-String)
+    $cleanupExit = $LASTEXITCODE
+    if ($cleanupExit -ne 0 -or (Test-Path -LiteralPath $legacyRoot) -or (Test-Path -LiteralPath $legacyRegistry)) {
+        throw "Legacy cleanup did not retain its successful removal path after the lock was released.`n$cleanupOutput"
+    }
+    Write-Host 'PROOF migration cleanup: the same guarded cleanup removes the legacy tree and registration when access is available'
     $archiveMatch = [regex]::Match($freshTranscript, '(?m)^ARCHIVED ORPHAN: .+ -> (.+); removed original after archive verification\.$')
     if ((Test-Path -LiteralPath $orphanRoot) -or -not $archiveMatch.Success -or -not (Test-Path -LiteralPath (Join-Path $archiveMatch.Groups[1].Value.Trim() 'orphan-proof.txt') -PathType Leaf)) {
         throw "Orphaned alternate copy was not archived and removed with a transcript path.`n$freshTranscript"

@@ -3,6 +3,7 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"harness/internal/config"
@@ -133,6 +134,62 @@ func TestRetainedChatRestoresPreviousFolder(t *testing.T) {
 	}
 	if restored.Workspace != repo || restored.Scratch {
 		t.Fatalf("restored folder=%q scratch=%v", restored.Workspace, restored.Scratch)
+	}
+}
+
+func TestRestoreRebasesAndRecreatesMissingScratchAfterProfileMigration(t *testing.T) {
+	registry, _, connection := testPlanRegistry(t)
+	created, err := registry.Create("", connection, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := created.Snapshot()
+	legacyRoot := t.TempDir()
+	saved.Workspace = filepath.Join(legacyRoot, "scratch", saved.ID)
+	saved.WorkspaceDir = saved.Workspace
+	saved.WorkspaceMissing, saved.Runnable, saved.NotRunnableReason = true, false, "scratch folder is unavailable"
+	if err := os.RemoveAll(legacyRoot); err != nil {
+		t.Fatal(err)
+	}
+
+	restoredRegistry, profileRoot, _ := testPlanRegistry(t)
+	restored, err := restoredRegistry.Restore(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(profileRoot, "scratch", saved.ID)
+	got := restored.Snapshot()
+	if got.Workspace != want || got.WorkspaceMissing || !got.Runnable {
+		t.Fatalf("restored scratch=%+v want workspace %q", got, want)
+	}
+	if info, err := os.Stat(want); err != nil || !info.IsDir() {
+		t.Fatalf("restored scratch folder: %v", err)
+	}
+}
+
+func TestRestoreMissingRepositoryIsNotRunnableAndNamesPath(t *testing.T) {
+	registry, _, connection := testPlanRegistry(t)
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	created, err := registry.Create("", connection, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := created.Snapshot()
+	if err := os.RemoveAll(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	restoredRegistry, _, _ := testPlanRegistry(t)
+	restored, err := restoredRegistry.Restore(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := restored.Snapshot()
+	if !got.WorkspaceMissing || got.Runnable || !strings.Contains(got.NotRunnableReason, repo) {
+		t.Fatalf("restored missing repo=%+v", got)
 	}
 }
 

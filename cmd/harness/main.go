@@ -525,7 +525,9 @@ func allUsersInstallRequested(executable string, arguments []string) bool {
 }
 
 func setupExecutable(path string) bool {
-	name := strings.ToLower(filepath.Base(path))
+	// Setup names are a Windows contract even when this pure parser is tested
+	// on a Unix CI runner, where filepath.Base does not recognize backslashes.
+	name := strings.ToLower(filepath.Base(strings.ReplaceAll(path, `\`, "/")))
 	if name == "agent_b-setup.exe" {
 		return true
 	}

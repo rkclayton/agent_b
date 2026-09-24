@@ -64,17 +64,20 @@ func (b *Bus) publish(event Event, writeSink bool) (Event, []int) {
 	}
 	dropped := make([]int, 0)
 	for _, subscriber := range subscribers {
-		select {
-		case subscriber.ch <- event:
-		default:
-			b.mu.Lock()
-			if current, ok := b.subscribers[subscriber.id]; ok && current == subscriber.ch {
-				delete(b.subscribers, subscriber.id)
-				close(current)
-				dropped = append(dropped, subscriber.id)
-			}
+		b.mu.Lock()
+		current, ok := b.subscribers[subscriber.id]
+		if !ok || current != subscriber.ch {
 			b.mu.Unlock()
+			continue
 		}
+		select {
+		case current <- event:
+		default:
+			delete(b.subscribers, subscriber.id)
+			close(current)
+			dropped = append(dropped, subscriber.id)
+		}
+		b.mu.Unlock()
 	}
 	if sinkErr != nil {
 		_, errorDrops := b.publish(New(Error, event.SessionID, event.RunID, map[string]any{"where": "event_log", "message": sinkErr.Error(), "lost_event_type": event.Type}), false)

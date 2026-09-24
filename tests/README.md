@@ -20,7 +20,7 @@ the order's evidence directory and are never committed.
 | Chat acceptance and screenshots | `powershell -File tests/test-chat-acceptance.ps1` | Headless end-to-end chat and the 12 canonical surfaces | Edge; disposable install; no real model unless explicitly requested |
 | Screenshot comparison | `node tests/screenshot-gate.mjs BASELINE CANDIDATE` | Pixels are exact, declared-mask-only, or explained rounding | Two capture directories |
 | Installer matrix | `powershell -File tests/test-installer.ps1` | Candidate identity, single-file install, upgrades, rollback, launch, and exact runtime ship list | Windows; disposable roots; local test-signing identity |
-| Capability acceptance | `go test ./internal/tools -run CapabilityWindowsLive` | Service-account and operator capability routing | Windows host policy and disposable configuration |
+| Capability acceptance | `go test ./internal/tools -run TestCapabilitySuiteLiveServiceSplit` | Service-account and operator capability routing | Windows host policy and disposable configuration |
 | Deploy gate | `powershell -File tests/test-deploy-gate.ps1` | Staging/signing/deploy ordering and manifest refusal | Windows; disposable fixtures, no publication |
 | Release signing | `powershell -File tests/test-release-signing.ps1` | Test certificates and signing policy behave as contracted | Windows certificate stores; disposable test identity |
 | Replay acceptance | `node tests/chat-replay-acceptance.mjs ...` | Recorded sessions render without a model | Disposable app/data roots and a replay tape |

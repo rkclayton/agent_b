@@ -9,6 +9,11 @@ export const LIVE_VALUES = [
   // build identity text node so version/tag updates cannot fail a visual gate;
   // the row, typography, spacing and every surrounding pixel remain exact.
   { name: "build-text", reason: "the About build identity changes with every release", selector: ".settings-build-text" },
+  // Item 2jh: these two values are genuine process/check clocks. Their exact
+  // time glyphs may change while the labels, punctuation, version, controls,
+  // layout, and every surrounding pixel remain under exact comparison.
+  { name: "server-started-clock", reason: "the About server-started value is the current process incarnation's clock", selector: ".settings-server-started" },
+  { name: "update-checked-clock", reason: "the About checked value is the most recent update-check clock", selector: ".settings-update-checked" },
   // The app writes a duration as a number, a space, then ms or s ("67 ms",
   // "5.2 s"); prose such as "3s" or "1990s" is not one (v1.0.0/W4 cold review).
   { name: "duration", reason: "elapsed and wall times (ms, s) are measured each run", selector: "body", pattern: String.raw`(?<![\w.,])\d[\d,]*(?:\.\d+)? (?:ms|s)\b` },
@@ -186,6 +191,16 @@ function liveValueRects(specs) {
 export async function captureWithMasks(target, path, { specs = LIVE_VALUES } = {}) {
   const { writeFile } = await import("node:fs/promises");
   const page = typeof target.page === "function" ? target.page() : target;
+  // Item 2jh: /api/speech describes the host, not this immutable UI build.
+  // A failed host probe disables the same microphone SVG and changes only its
+  // opacity (the formerly reported 68-pixel "close glyph" region was proved
+  // to be this control at x1219..1228/y915..928). Normalize availability for
+  // release captures so the glyph remains compared pixel-for-pixel; speech
+  // behavior itself has separate acceptance coverage and is not masked here.
+  await page.evaluate(() => {
+    const mic = document.querySelector("#chat-mic");
+    if (mic?.title?.includes(" · ")) mic.disabled = false;
+  });
   const box = page === target ? null : await target.boundingBox();
   const [ratio, found] = await Promise.all([page.evaluate(() => devicePixelRatio), page.evaluate(liveValueRects, specs)]);
   // Finite CSS transitions are finished first: a capture taken mid-transition

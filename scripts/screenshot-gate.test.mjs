@@ -58,7 +58,7 @@ test("masks from both sidecars are merged by name", () => {
   assert.deepEqual(merged.map((mask) => [mask.name, mask.rects.length]), [["duration", 2], ["timestamp", 1]]);
 });
 
-test("the gate reads sidecars beside each image and reports match, masked, differs and missing", async () => {
+test("the gate reads sidecars beside each image and reports match, masked, unexplained and missing", async () => {
   const root = await mkdtemp(join(tmpdir(), "screenshot-gate-"));
   const [baseline, candidate] = [join(root, "baseline"), join(root, "candidate")];
   await Promise.all([mkdir(join(baseline, "sub"), { recursive: true }), mkdir(join(candidate, "sub"), { recursive: true })]);
@@ -72,7 +72,7 @@ test("the gate reads sidecars beside each image and reports match, masked, diffe
   await writeFile(join(candidate, "sub/live.png"), encodePNG(withPixel(base, 12, 11, [255, 0, 0, 255])));
   await writeFile(join(candidate, "outside.png"), encodePNG(withPixel(base, 30, 25, [255, 0, 0, 255])));
   const results = Object.fromEntries((await gate(baseline, candidate)).map((r) => [r.name, r.verdict]));
-  assert.deepEqual(results, { "gone.png": "missing", "outside.png": "differs", "same.png": "match", "sub/live.png": "masked" });
+  assert.deepEqual(results, { "gone.png": "missing", "outside.png": "unexplained", "same.png": "match", "sub/live.png": "masked" });
 });
 
 test("a candidate cannot mask a region its baseline did not declare", async () => {
@@ -86,7 +86,7 @@ test("a candidate cannot mask a region its baseline did not declare", async () =
   await writeFile(join(candidate, "a.png"), encodePNG(withPixel(base, 30, 25, [255, 0, 0, 255])));
   await writeFile(join(candidate, "a.png.masks.json"), JSON.stringify({ masks: [{ name: "duration", rects: [[28, 23, 6, 6]] }, { name: "invented", rects: [[0, 0, 40, 30]] }] }));
   const [result] = await gate(baseline, candidate);
-  assert.equal(result.verdict, "differs");
+  assert.equal(result.verdict, "unexplained");
 });
 
 test("a candidate's rectangle that overlaps the baseline's same mask is honoured", () => {
@@ -101,4 +101,18 @@ test("the gate counts a one-level difference as rounding and fails a two-level o
   assert.deepEqual([one.outside, one.rounding], [0, 1]);
   const two = compareMasked(base, withPixel(base, 3, 3, [22, 22, 26, 255]), masks, { tolerance: 1 });
   assert.deepEqual([two.outside, two.rounding], [1, 0]);
+});
+
+test("the release gate reports proven two-level compositor rounding but rejects a one-pixel mutation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "screenshot-gate-rounding-"));
+  const [baseline, candidate] = [join(root, "baseline"), join(root, "candidate")];
+  await Promise.all([mkdir(baseline), mkdir(candidate)]);
+  const base = image(40, 30);
+  await writeFile(join(baseline, "rounding.png"), encodePNG(base));
+  await writeFile(join(candidate, "rounding.png"), encodePNG(withPixel(base, 3, 3, [22, 22, 26, 255])));
+  await writeFile(join(baseline, "mutation.png"), encodePNG(base));
+  await writeFile(join(candidate, "mutation.png"), encodePNG(withPixel(base, 3, 3, [255, 22, 26, 255])));
+  const results = Object.fromEntries((await gate(baseline, candidate)).map((result) => [result.name, result]));
+  assert.deepEqual([results["rounding.png"].verdict, results["rounding.png"].rounding], ["match", 1]);
+  assert.deepEqual([results["mutation.png"].verdict, results["mutation.png"].outside], ["unexplained", 1]);
 });

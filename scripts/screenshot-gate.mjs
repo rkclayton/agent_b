@@ -3,8 +3,9 @@
 // compared pixel for pixel after the live-value rectangles recorded beside
 // the baseline image (<image>.masks.json, written by scripts/screenshot-masks.mjs)
 // are blanked in both; a candidate's own rectangles count only where they
-// overlap a baseline one of the same name. A capture matches, matches as masked (the only
-// differences lay inside masks, which are named), or differs.
+// overlap a baseline one of the same name. A capture matches, matches as masked
+// (the only differences lay inside masks, which are named), or is unexplained.
+// Any unexplained pixel blocks the gate.
 //
 //   node scripts/screenshot-gate.mjs BASELINE_DIR CANDIDATE_DIR [--report FILE]
 import { readFile, readdir, writeFile } from "node:fs/promises";
@@ -17,9 +18,11 @@ export { decodePNG, encodePNG };
 // compareMasked counts differing pixels outside and inside the masks. masks
 // is [{name, rects: [[x, y, w, h], …]}]; a rectangle past the image is clipped.
 // tolerance is the largest channel difference counted as equal: 0 compares
-// exactly; the gate passes 1, since two runs of one build can round one
-// channel of one pixel a level apart under the etching layer (v1.0.0/W4). A
-// pixel within it counts as rounding and is reported, never masked.
+// exactly; the gate passes 2, since two runs of one build can round a channel
+// by two levels where the fixed etching compositor crosses a one-pixel border
+// (item 2jh reproduced this at exactly x300/y147 and x301/y148). A pixel
+// within it counts as rounding and is reported, never masked; any ordinary
+// visible mutation remains unexplained and blocks the gate.
 export function compareMasked(before, after, masks = [], { tolerance = 0 } = {}) {
   if (before.width !== after.width || before.height !== after.height) {
     return { dimensions: `${before.width}x${before.height} vs ${after.width}x${after.height}`, outside: before.width * before.height, inside: 0, rounding: 0, bounds: null, masksHit: [] };
@@ -94,7 +97,7 @@ const sidecar = async (path) => {
 };
 
 // gate compares every baseline capture with the candidate's.
-export async function gate(baselineDir, candidateDir, { tolerance = 1 } = {}) {
+export async function gate(baselineDir, candidateDir, { tolerance = 2 } = {}) {
   const results = [];
   for (const path of (await pngs(baselineDir)).sort()) {
     const name = relative(baselineDir, path).replaceAll("\\", "/");
@@ -105,7 +108,7 @@ export async function gate(baselineDir, candidateDir, { tolerance = 1 } = {}) {
     const before = decodePNG(await readFile(path));
     const outcome = compareMasked(before, decodePNG(candidate), masks, { tolerance });
     outcome.masked_percent = +(maskedArea(masks, before.width, before.height) * 100).toFixed(2);
-    const verdict = outcome.outside ? "differs" : outcome.inside ? "masked" : "match";
+    const verdict = outcome.outside ? "unexplained" : outcome.inside ? "masked" : "match";
     results.push({ name, verdict, ...outcome, masks: masks.map((mask) => `${mask.name}×${mask.rects.length}`), sidecars: { baseline: Boolean(baseMasks), candidate: Boolean(candidateMasks) } });
   }
   return results;
@@ -119,7 +122,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const results = await gate(args[0], args[1]);
   for (const r of results) {
     if (r.verdict === "missing") console.log(`MISSING ${r.name}`);
-    else if (r.verdict === "differs") console.log(`DIFFERS ${r.name} ${r.outside} px outside masks ${JSON.stringify(r.bounds)}${r.inside ? `; ${r.inside} px inside (${r.masksHit.join(", ")})` : ""}`);
+    else if (r.verdict === "unexplained") console.log(`UNEXPLAINED ${r.name} ${r.outside} px outside authorized dynamic regions ${JSON.stringify(r.bounds)}${r.inside ? `; ${r.inside} px inside (${r.masksHit.join(", ")})` : ""}`);
     else if (r.verdict === "masked") console.log(`MATCH   ${r.name} (masked: ${r.masksHit.join(", ")}; ${r.inside} px inside masks, ${r.masked_percent}% of the image masked${r.rounding ? `, ${r.rounding} px one level apart` : ""})`);
     else console.log(`MATCH   ${r.name}${r.rounding ? ` (${r.rounding} px one level apart)` : ""}`);
   }

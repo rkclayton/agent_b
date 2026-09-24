@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 import { agentStates, assertPageStyleBoundary, provePageStyleBoundaryControl } from "./page-style-boundary.mjs";
 import { LIVE_VALUES, OTHER_CHAT_STATE, captureWithMasks } from "./screenshot-masks.mjs";
 import { decodePNG } from "./png.mjs";
+import { compareMasked } from "./screenshot-gate.mjs";
 
 const args = Object.fromEntries(Array.from({ length: Math.floor(process.argv.slice(2).length / 2) }, (_, index) => {
   const offset = index * 2 + 2;
@@ -506,8 +507,8 @@ await page.goto(`http://127.0.0.1:${appPort}/chat`);
 await browser.wait(`document.querySelector('#chat-task')`, "Chat opened");
 await browser.wait(`document.querySelector('.agent-tab')`, "Agent tab rendered");
 if (!realModel) {
-	await browser.wait(`document.querySelector('#chat-notice')?.innerText.includes('v9.9.9 available')`, "update line rendered from local fixture");
-	record("update-fixture-available-line");
+	await browser.wait(`document.querySelector('#chat-update-banner:not([hidden])')?.innerText.includes('v9.9.9 available')`, "update banner rendered from local fixture");
+	record("update-fixture-available-banner");
 }
 record("open-chat");
 
@@ -825,7 +826,18 @@ if (realModel) {
   await page.locator("#chat-task").waitFor({ state: "visible" });
   assert.equal(await page.locator("#settings-page").isHidden(), true);
   assert.equal(await page.locator("#settings-page").getAttribute("aria-hidden"), "true");
-  assert.deepEqual(await page.screenshot({ animations: "disabled" }), chatIdleScreenshot, "Chat idle changed after Settings → Test → Chat round trip");
+  // Match captureWithMasks' host-capability normalization: the Settings
+  // round trip rerenders the microphone from /api/speech before this raw
+  // equality assertion, while the immutable UI pixels under test did not
+  // change.
+  await browser.wait(`document.querySelector('#chat-mic')?.title?.includes(' · ')`, "speech readiness after Settings round trip", 25000);
+  await page.evaluate(() => {
+    const mic = document.querySelector("#chat-mic");
+    if (mic?.title?.includes(" · ")) mic.disabled = false;
+  });
+  const roundTripScreenshot = await page.screenshot({ animations: "disabled" });
+  const roundTripPixels = compareMasked(decodePNG(chatIdleScreenshot), decodePNG(roundTripScreenshot), [], { tolerance: 2 });
+  assert.equal(roundTripPixels.outside, 0, `Chat idle changed after Settings → Test → Chat round trip: ${JSON.stringify(roundTripPixels)}`);
   record("settings-test-chat-round-trip");
   await page.locator(".agent-tab").first().click({ button: "right" });
   await page.locator(`.agent-chat-row[data-session="${sessionID}"] .agent-chat-summary`).waitFor({ state: "visible" });

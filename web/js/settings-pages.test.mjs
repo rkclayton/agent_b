@@ -49,11 +49,13 @@ test("every Settings page renderer accepts the controller context", () => {
   for (const page of pages) assert.equal(typeof page, "string");
 });
 
-test("About exposes only the changing build text to the screenshot mask", () => {
+test("About exposes only build identity and exact clock values to screenshot masks", () => {
   const context = pageContext();
   context.row = (_label, value) => value;
   const page = renderAboutPage(context);
   assert.match(page, /<code class="settings-build-text">v0\.49\.0 · abcdef0<\/code>/);
+  assert.match(page, /server started <time class="settings-server-started">unknown<\/time>, v0\.49\.0/);
+  assert.match(page, /checked <time class="settings-update-checked">never<\/time>/);
 });
 
 test("Security renders the LAN switch and detected confirmation list", () => {

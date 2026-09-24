@@ -1,11 +1,12 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string]$SourceDirectory,
-    [string]$ApplicationDirectory = (Join-Path $env:ProgramFiles 'Agent_b'),
+    [switch]$AllUsers,
+    [string]$ApplicationDirectory,
     [string]$DataDirectory,
-    [string]$WorkspaceDirectory = (Join-Path $env:ProgramData 'Agent_b\workspace'),
-    [string]$StartMenuDirectory = (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs'),
-    [string]$UninstallRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b',
+    [string]$WorkspaceDirectory,
+    [string]$StartMenuDirectory,
+    [string]$UninstallRegistryPath,
     [string]$OperatorSid,
     [string]$OperatorLocalAppData,
     [string]$SigningThumbprint,
@@ -13,6 +14,7 @@ param(
     [string[]]$RegistrationSearchRoots,
     # Test-only alternate roots used by the copy-classification scenarios.
     [string[]]$AlternateBinaryRoots,
+    [string]$LegacyApplicationDirectory,
     # Set only by the verified single-file setup after extracting its payload.
     [switch]$EmbeddedBundle,
     [switch]$TestMode,
@@ -29,6 +31,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
+. (Join-Path $PSScriptRoot 'install-root-policy.ps1')
 $displayVersion = '1.6.5'
 
 if (-not $TestMode -and -not $EmbeddedBundle) {
@@ -124,7 +127,7 @@ function Assert-SafeAgentBPath {
 function Assert-SafeRegistryPath {
     param([string]$Path)
     $normalized = $Path.Replace('/', '\')
-    $requiredPrefix = 'HKCU:\Software\'
+    $requiredPrefix = if ($AllUsers -and -not $TestMode) { 'HKLM:\Software\' } else { 'HKCU:\Software\' }
     $leaf = $normalized.Substring($normalized.LastIndexOf('\') + 1)
     if (-not $normalized.StartsWith($requiredPrefix, [StringComparison]::OrdinalIgnoreCase) -or
         -not $leaf.StartsWith('Agent_b', [StringComparison]::Ordinal)) {
@@ -281,6 +284,23 @@ function Wait-FileUnlocked {
     }
 }
 
+function Copy-FileReplacing {
+    param([string]$Source, [string]$Destination, [int]$Seconds = 20)
+    $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+    $waited = $false
+    while ($true) {
+        try {
+            Copy-Item -LiteralPath $Source -Destination $Destination -Force
+            if ($waited) { Write-Host "COPIED AFTER LOCK CLEARED: $Destination" }
+            return
+        } catch [IO.IOException] {
+            if ([DateTime]::UtcNow -ge $deadline) { throw }
+            if (-not $waited) { Write-Host "WAITING: $Destination was relocked during replacement; waiting up to $Seconds seconds."; $waited = $true }
+            Start-Sleep -Milliseconds 250
+        }
+    }
+}
+
 function Get-InstalledProcesses {
     param([string]$Executable)
     $matches = @()
@@ -328,13 +348,13 @@ function Archive-OrphanedAlternateInstall {
 }
 
 function Stop-InstalledProcesses {
-    param([System.Diagnostics.Process[]]$Processes)
+    param([System.Diagnostics.Process[]]$Processes, [string]$Root = $applicationRoot)
     if (-not $Processes.Count) { return }
     foreach ($process in $Processes) {
         Write-InstallProgress -Phase 'stopping the running application' -Text "STOPPING: Agent_b PID $($process.Id)"
         Write-Host "STOPPING: Agent_b PID $($process.Id)"
         try {
-            $channel = Request-AgentbGracefulStop -ApplicationRoot $applicationRoot -ProcessId $process.Id -AllowLegacy
+            $channel = Request-AgentbGracefulStop -ApplicationRoot $Root -ProcessId $process.Id -AllowLegacy
         } catch {
             throw "Agent_b PID $($process.Id) could not be stopped gracefully ($($_.Exception.Message)). Installation was not changed."
         }
@@ -505,7 +525,18 @@ if ($env:OS -ne 'Windows_NT') { throw 'Agent_b installation is supported only on
 if ([string]::IsNullOrWhiteSpace($SourceDirectory)) { $SourceDirectory = Split-Path -Parent $PSScriptRoot }
 if ([string]::IsNullOrWhiteSpace($OperatorSid)) { $OperatorSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value }
 if ([string]::IsNullOrWhiteSpace($OperatorLocalAppData)) { $OperatorLocalAppData = [Environment]::GetFolderPath('LocalApplicationData') }
-if ([string]::IsNullOrWhiteSpace($DataDirectory)) { $DataDirectory = Join-Path $OperatorLocalAppData 'Agent_b' }
+$resolvedRoots = Resolve-AgentBInstallRoots -AllUsers:$AllUsers -TestMode:$TestMode `
+    -ApplicationDirectory $ApplicationDirectory -DataDirectory $DataDirectory `
+    -WorkspaceDirectory $WorkspaceDirectory -StartMenuDirectory $StartMenuDirectory `
+    -UninstallRegistryPath $UninstallRegistryPath -LegacyApplicationDirectory $LegacyApplicationDirectory `
+    -OperatorLocalAppData $OperatorLocalAppData
+$ApplicationDirectory = $resolvedRoots.ApplicationDirectory
+$DataDirectory = $resolvedRoots.DataDirectory
+$WorkspaceDirectory = $resolvedRoots.WorkspaceDirectory
+$StartMenuDirectory = $resolvedRoots.StartMenuDirectory
+$UninstallRegistryPath = $resolvedRoots.UninstallRegistryPath
+$legacyApplicationOverride = $resolvedRoots.LegacyApplicationExplicit
+$LegacyApplicationDirectory = $resolvedRoots.LegacyApplicationDirectory
 if ($WhatIfPreference) {
     $TranscriptPath = Join-Path ([IO.Path]::GetTempPath()) ("Agent_b-whatif-installer-{0}.log" -f [DateTime]::Now.ToString('yyyyMMdd-HHmmss-fff'))
 } elseif ([string]::IsNullOrWhiteSpace($TranscriptPath)) {
@@ -525,14 +556,15 @@ Assert-TestPath $workspaceRoot
 if ($ForcePostStopVerificationFailure -and -not $TestMode) { throw 'ForcePostStopVerificationFailure is available only with TestMode.' }
 if ($RegistrationSearchRoots.Count -and -not $TestMode) { throw 'RegistrationSearchRoots is available only with TestMode.' }
 if ($AlternateBinaryRoots.Count -and -not $TestMode) { throw 'AlternateBinaryRoots is available only with TestMode.' }
+if ($legacyApplicationOverride -and $TestMode) { Assert-TestPath (Get-FullPath $LegacyApplicationDirectory) }
 Assert-DisjointRoots @($applicationRoot, $dataRoot, $workspaceRoot)
 if ($sourceRoot.Equals($applicationRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'SourceDirectory and ApplicationDirectory must be different.' }
 if (-not $TestMode) {
-	$expectedApplicationRoot = Get-FullPath (Join-Path $env:ProgramFiles 'Agent_b')
+	$expectedApplicationRoot = Get-FullPath $(if ($AllUsers) { Join-Path $env:ProgramFiles 'Agent_b' } else { Join-Path $OperatorLocalAppData 'Programs\Agent_b' })
 	$expectedDataRoot = Get-FullPath (Join-Path $OperatorLocalAppData 'Agent_b')
-	$expectedWorkspaceRoot = Get-FullPath (Join-Path $env:ProgramData 'Agent_b\workspace')
+	$expectedWorkspaceRoot = Get-FullPath $(if ($AllUsers) { Join-Path $env:ProgramData 'Agent_b\workspace' } else { Join-Path $OperatorLocalAppData 'Agent_b-workspace' })
     if (-not $applicationRoot.Equals($expectedApplicationRoot, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "ApplicationDirectory must be the admin-protected Program Files location: $expectedApplicationRoot"
+        throw "ApplicationDirectory must be the canonical $(if ($AllUsers) { 'all-users' } else { 'per-user' }) location: $expectedApplicationRoot"
     }
     if (-not $dataRoot.Equals($expectedDataRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw "DataDirectory must be the launching operator's LocalAppData Agent_b directory: $expectedDataRoot"
@@ -550,10 +582,15 @@ if (-not $TestMode) {
     )
 }
 $relatedRegistrations = @(Get-AgentBInstallRegistrations -Roots $RegistrationSearchRoots -CanonicalRegistryPath $UninstallRegistryPath)
-$staleRegistrations = @(Get-AgentBRegistrationPreflight -Registrations $relatedRegistrations)
+$legacyMigrationRoot = if (-not $AllUsers -and (-not $TestMode -or $legacyApplicationOverride)) { Get-FullPath $LegacyApplicationDirectory } else { $null }
+$nonMigrationRegistrations = @($relatedRegistrations | Where-Object {
+    -not $legacyMigrationRoot -or [string]::IsNullOrWhiteSpace($_.InstallLocation) -or
+    -not (Get-FullPath $_.InstallLocation).Equals($legacyMigrationRoot, [StringComparison]::OrdinalIgnoreCase)
+})
+$staleRegistrations = @(Get-AgentBRegistrationPreflight -Registrations $nonMigrationRegistrations)
 $alternateBinaryRoots = if ($TestMode) { @($AlternateBinaryRoots) } else {
     @(
-        (Join-Path $OperatorLocalAppData 'Programs\Agent_b'),
+        $(if ($AllUsers) { Join-Path $OperatorLocalAppData 'Programs\Agent_b' } else { Join-Path $env:ProgramFiles 'Agent_b' }),
         $(if (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} 'Agent_b' })
     ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 }
@@ -562,6 +599,10 @@ foreach ($alternateRoot in $alternateBinaryRoots) {
     $alternateBinary = Join-Path $alternateRoot 'Agent_b.exe'
     if ((-not $alternateRoot.Equals($applicationRoot, [StringComparison]::OrdinalIgnoreCase)) -and
         (Test-Path -LiteralPath $alternateBinary -PathType Leaf)) {
+        if ($legacyMigrationRoot -and $alternateRoot.Equals($legacyMigrationRoot, [StringComparison]::OrdinalIgnoreCase)) {
+            Write-Host "MIGRATION READY: legacy Program Files installation at $legacyMigrationRoot will be removed after the per-user copy is registered."
+            continue
+        }
         $registration = @($relatedRegistrations | Where-Object {
             -not [string]::IsNullOrWhiteSpace($_.Executable) -and
             (Get-FullPath $_.Executable).Equals((Get-FullPath $alternateBinary), [StringComparison]::OrdinalIgnoreCase)
@@ -612,30 +653,8 @@ if ($preflightProcesses.Count) {
 }
 Write-Host 'PREFLIGHT COMPLETE'
 
-if ((-not (Test-IsAdministrator) -or $PSVersionTable.PSEdition -ne 'Desktop') -and -not $WhatIfPreference -and -not $TestMode) {
-    $arguments = @(
-        '-NoLogo', '-NoProfile', '-File', $PSCommandPath,
-        '-SourceDirectory', $sourceRoot,
-        '-ApplicationDirectory', $applicationRoot,
-        '-DataDirectory', $dataRoot,
-        '-WorkspaceDirectory', $workspaceRoot,
-        '-StartMenuDirectory', $StartMenuDirectory,
-		'-UninstallRegistryPath', $UninstallRegistryPath,
-		'-OperatorSid', $OperatorSid,
-		'-OperatorLocalAppData', $OperatorLocalAppData,
-        '-TranscriptPath', $script:installTranscriptPath
-	)
-    if ($SigningThumbprint) { $arguments += @('-SigningThumbprint', $SigningThumbprint) }
-    if ($NoStart) { $arguments += '-NoStart' }
-    $arguments += '-EmbeddedBundle'
-    $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    Stop-InstallTranscript
-    if (Test-IsAdministrator) {
-        & $windowsPowerShell @arguments
-        exit $LASTEXITCODE
-    }
-    $process = Start-Process -FilePath $windowsPowerShell -ArgumentList (($arguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ') -Verb RunAs -Wait -PassThru
-    exit $process.ExitCode
+if ($AllUsers -and -not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $TestMode) {
+    throw 'ALL-USERS INSTALL REFUSED: reopen an elevated console and run Agent_b-setup.exe --install --all-users.'
 }
 
 $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -644,7 +663,7 @@ if (-not $currentSid.Value.Equals($OperatorSid, [StringComparison]::OrdinalIgnor
 }
 
 Write-InstallProgress -Phase 'preflight' -Text "Installing Agent_b $displayVersion"
-Write-Host 'Agent_b admin-protected program installation with per-operator registration and data'
+Write-Host $(if ($AllUsers) { 'Agent_b all-users installation with per-operator data' } else { 'Agent_b per-user installation with no elevation' })
 Write-InstallProgress -Phase 'copying the application' -Text "Application: $applicationRoot"
 Write-Host "Application: $applicationRoot"
 Write-Host "Operator data: $dataRoot"
@@ -662,6 +681,7 @@ if ($WhatIfPreference) {
 }
 
 $installedProcesses = @(Get-InstalledProcesses $installedBinary)
+$legacyProcesses = if ($legacyMigrationRoot -and -not $legacyMigrationRoot.Equals($applicationRoot, [StringComparison]::OrdinalIgnoreCase)) { @(Get-InstalledProcesses (Join-Path $legacyMigrationRoot 'Agent_b.exe')) } else { @() }
 $preflightAclEnabled = $preflightConfig -and $preflightConfig.shell.service_account -and [bool]$preflightConfig.shell.service_account.enabled
 if ($preflightAclEnabled) {
     $preflightAclAccount = if ($preflightConfig.shell.service_account.account) { [string]$preflightConfig.shell.service_account.account } else { 'agentb-svc' }
@@ -682,6 +702,7 @@ if ($installedProcesses.Count) {
     Write-Host "ROLLBACK READY: preserved $($script:rollbackVersion) application files before stop."
 }
 Stop-InstalledProcesses -Processes $installedProcesses
+Stop-InstalledProcesses -Processes $legacyProcesses -Root $legacyMigrationRoot
 if ($installedProcesses.Count) { $script:stoppedInstalledVersion = $true }
 
 $applicationCreated = -not (Test-Path -LiteralPath $applicationRoot -PathType Container)
@@ -699,7 +720,7 @@ Wait-FileUnlocked -Path $installedBinary
 foreach ($file in @('Agent_b.exe', 'WebView2Loader.dll', 'harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE')) {
     $from = Join-Path $sourceRoot $file
     if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { throw "Required program file is missing: $from" }
-    Copy-Item -LiteralPath $from -Destination (Join-Path $applicationRoot $file) -Force
+    Copy-FileReplacing -Source $from -Destination (Join-Path $applicationRoot $file)
 }
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'scripts\launch-installed.cmd') -Destination (Join-Path $applicationRoot 'Agent_b.cmd') -Force
 # The copy that will run is checked, after the copy and before it is signed:
@@ -733,25 +754,6 @@ if (-not $config.deliver) {
 if ([string]::IsNullOrWhiteSpace([string]$config.deliver.mode)) { $config.deliver.mode = 'both'; $writeConfig = $true }
 if ([string]::IsNullOrWhiteSpace([string]$config.deliver.exchange_folder)) { $config.deliver.exchange_folder = '%USERPROFILE%\Agent_b'; $writeConfig = $true }
 $exchangeRoot = Get-FullPath ([string]$config.deliver.exchange_folder)
-if (-not $TestMode -and -not $SigningThumbprint -and (-not $config.signing -or [string]::IsNullOrWhiteSpace([string]$config.signing.thumbprint))) {
-	$SigningThumbprint = 'auto'
-}
-if ($SigningThumbprint -eq 'auto') {
-	Import-Module PKI -ErrorAction Stop
-	$certificate = Get-ChildItem -LiteralPath 'Cert:\LocalMachine\My' | Where-Object {
-		$_.Subject -eq 'CN=Agent_b Operator Code Signing' -and $_.HasPrivateKey -and $_.NotAfter -gt [DateTime]::Now -and
-		@($_.EnhancedKeyUsageList | Where-Object { ([string]$_.ObjectId) -eq '1.3.6.1.5.5.7.3.3' }).Count -gt 0
-	} | Sort-Object NotAfter -Descending | Select-Object -First 1
-	if ($certificate) {
-		Write-Host "REUSED: administrator-gated signing certificate $($certificate.Thumbprint)"
-	} else {
-		$certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Agent_b Operator Code Signing' -CertStoreLocation 'Cert:\LocalMachine\My' -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyExportPolicy NonExportable -NotAfter ([DateTime]::Now.AddYears(3))
-		Write-Host "CREATED: administrator-gated signing certificate $($certificate.Thumbprint)"
-	}
-	Add-CurrentUserCertificate -Certificate $certificate -StoreName TrustedPublisher
-	Add-CurrentUserCertificate -Certificate $certificate -StoreName Root
-	$SigningThumbprint = $certificate.Thumbprint
-}
 if ($SigningThumbprint) {
 	if (-not $config.signing) { $config | Add-Member -NotePropertyName signing -NotePropertyValue ([pscustomobject]@{ thumbprint = ''; timestamp_url = 'http://timestamp.digicert.com' }) }
 	$config.signing.thumbprint = ($SigningThumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
@@ -760,32 +762,10 @@ if ($SigningThumbprint) {
 if ($writeConfig) {
 	[IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 }
-
-# Re-sign every deployed signable artifact when the operator configured a
-# Store-backed code-signing certificate. The PFX and private key never enter
-# the installer; the certificate is resolved by thumbprint from the machine or user store.
-if ($config.signing -and -not [string]::IsNullOrWhiteSpace([string]$config.signing.thumbprint)) {
-	$thumbprint = ([string]$config.signing.thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
-	$signingStore = 'Cert:\LocalMachine\My'
-	$signingIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
-	$certificate = Get-ChildItem -LiteralPath ("Cert:\LocalMachine\My\{0}" -f $thumbprint) -ErrorAction SilentlyContinue
-	if (-not $certificate) { $signingStore = 'Cert:\CurrentUser\My'; $certificate = Get-ChildItem -LiteralPath ("Cert:\CurrentUser\My\{0}" -f $thumbprint) -ErrorAction Stop }
-	if (-not $certificate.HasPrivateKey -or @($certificate.EnhancedKeyUsageList | Where-Object { ([string]$_.ObjectId) -eq '1.3.6.1.5.5.7.3.3' }).Count -eq 0) {
-		throw "Configured certificate $thumbprint is not a usable LocalMachine or CurrentUser code-signing certificate."
-	}
-	$null = Assert-SigningKeyNonInteractive -Certificate $certificate -Store $signingStore
-	$signTargets = @($installedBinary) + @(Get-ChildItem -LiteralPath $applicationRoot -Filter '*.ps1' -File -Recurse | ForEach-Object FullName)
-	foreach ($target in $signTargets) {
-		$signature = Set-AuthenticodeSignature -LiteralPath $target -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer ([string]$config.signing.timestamp_url)
-		# A raw provider error says nothing actionable. Name the store and the
-		# identity that could not open the key, which is what actually differs
-		# between this context and the elevated one Settings signs from.
-		if (-not $signature.SignerCertificate) {
-			throw "Signing $target with $thumbprint from $signingStore as $($signingIdentity.Name) applied no signature: $($signature.Status) $($signature.StatusMessage). Settings signs this certificate because manage-signing.ps1 elevates first."
-		}
-		if ($signature.Status -ne 'Valid') { Write-Host "SIGNED, CHAIN NOT TRUSTED HERE: $target`: $($signature.Status) $($signature.StatusMessage)" }
-	}
-	Write-Host "SIGNED: Agent_b.exe and $($signTargets.Count - 1) PowerShell scripts with $thumbprint"
+if (-not $TestMode) {
+	$installedSignature = Get-AuthenticodeSignature -LiteralPath $installedBinary
+	if (-not $installedSignature.SignerCertificate) { throw 'Installed Agent_b.exe is not signed; release deployment must sign before installation.' }
+	Write-Host "VERIFIED SIGNATURE: Agent_b.exe signed by $($installedSignature.SignerCertificate.Thumbprint)"
 }
 
 if ($config.shell.service_account -and [bool]$config.shell.service_account.enabled) {
@@ -805,12 +785,10 @@ $null = New-Item -ItemType Directory -Path $StartMenuDirectory -Force
 $shortcutPath = Join-Path $StartMenuDirectory 'Agent_b.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
-$hiddenLauncher = Join-Path $applicationRoot 'scripts\launch-hidden.vbs'
-$batchLauncher = Join-Path $applicationRoot 'Agent_b.cmd'
-$shortcut.Arguments = '//B "' + $hiddenLauncher + '" "' + $batchLauncher + '"'
+$shortcut.TargetPath = Join-Path $applicationRoot 'Agent_b.exe'
+$shortcut.Arguments = '-window -config "' + (Join-Path $dataRoot 'harness.json') + '" -app-root "' + $applicationRoot + '" -data-root "' + $dataRoot + '"'
 $shortcut.WorkingDirectory = $dataRoot
-$shortcut.IconLocation = "$iconPath,0"
+$shortcut.IconLocation = (Join-Path $applicationRoot 'Agent_b.exe') + ',0'
 $shortcut.Description = 'Open Agent_b'
 $shortcut.Save()
 
@@ -822,6 +800,8 @@ $null = New-Item -ItemType Directory -Path $startupDirectory -Force
 $startupPath = Join-Path $startupDirectory 'Agent_b.lnk'
 $startup = $shell.CreateShortcut($startupPath)
 $startup.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
+$hiddenLauncher = Join-Path $applicationRoot 'scripts\launch-hidden.vbs'
+$batchLauncher = Join-Path $applicationRoot 'Agent_b.cmd'
 # v0.65.0/W9: the arguments pass through WScript.Shell.Run and cmd's `call`, and
 # both expand %VAR%. The default data root is the launcher's own default, so it
 # is not passed at all; any other root is passed only when it holds no `%`.
@@ -849,6 +829,7 @@ $uninstallArguments = @(
     '-ExpectedOperatorSid', $OperatorSid,
     '-ExpectedOperatorLocalAppData', $OperatorLocalAppData
 )
+if ($AllUsers) { $uninstallArguments += '-AllUsers' }
 if ($TestMode) { $uninstallArguments += '-TestMode' }
 $uninstallCommand = (Quote-ProcessArgument $powershell) + ' ' + (($uninstallArguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ')
 $null = New-Item -Path $UninstallRegistryPath -Force
@@ -874,10 +855,24 @@ $null = New-ItemProperty -Path $UninstallRegistryPath -Name EstimatedSize -Value
 $null = New-ItemProperty -Path $UninstallRegistryPath -Name NoModify -Value 1 -PropertyType DWord -Force
 $null = New-ItemProperty -Path $UninstallRegistryPath -Name NoRepair -Value 1 -PropertyType DWord -Force
 foreach ($staleRegistration in $staleRegistrations) {
+    if ($legacyMigrationRoot -and -not [string]::IsNullOrWhiteSpace($staleRegistration.InstallLocation) -and
+        (Get-FullPath $staleRegistration.InstallLocation).Equals($legacyMigrationRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        continue
+    }
     if ($PSCmdlet.ShouldProcess($staleRegistration.RegistryPath, "Remove stale $($staleRegistration.DisplayName) Installed apps registration")) {
         Remove-AgentBStaleRegistrations -Registrations @($staleRegistration)
         Write-Host "Removed stale Installed apps registration: $($staleRegistration.DisplayName) ($($staleRegistration.InstallLocation))"
     }
+}
+if ($legacyMigrationRoot -and -not $legacyMigrationRoot.Equals($applicationRoot, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath (Join-Path $legacyMigrationRoot 'Agent_b.exe') -PathType Leaf)) {
+    $migrationMarker = [ordered]@{
+        schema = 1
+        legacy_application_directory = $legacyMigrationRoot
+        current_registry_path = $UninstallRegistryPath
+        registration_search_roots = @($RegistrationSearchRoots)
+    }
+    [IO.File]::WriteAllText((Join-Path $dataRoot 'migration-pending.json'), ($migrationMarker | ConvertTo-Json -Depth 5) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    Write-Host "MIGRATION PENDING: the legacy application at $legacyMigrationRoot remains until the new per-user copy starts."
 }
 
 # Item 2gl (v1.3.0/W3): THE PWA CLAUSE IS OUT. v1.2.7 wrote an Edge
@@ -895,7 +890,7 @@ Write-InstallProgress -Phase 'finished' -Text "Agent_b $displayVersion is instal
 Write-Host 'INSTALLATION COMPLETE'
 Write-Host "Start Menu: $shortcutPath"
 Write-Host "At sign-in: $startupPath"
-Write-Host 'Registration: HKCU and the operator Start Menu, matching the LocalAppData configuration and user-scoped DPAPI owner.'
+Write-Host "Registration: $(if ($AllUsers) { 'HKLM' } else { 'HKCU' }) and the operator Start Menu, matching the LocalAppData configuration and user-scoped DPAPI owner."
 Write-Host 'Settings: created once in LocalAppData and preserved on upgrades'
 Write-Host "Transcript: $script:installTranscriptPath"
 Stop-InstallTranscript

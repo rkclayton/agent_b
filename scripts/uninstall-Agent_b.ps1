@@ -2,11 +2,12 @@
 param(
     [switch]$Quiet,
     [switch]$PurgeData,
+    [switch]$AllUsers,
     [string]$ApplicationDirectory,
     [string]$DataDirectory,
     [string]$WorkspaceDirectory,
     [string]$StartMenuDirectory = (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs'),
-    [string]$UninstallRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b',
+    [string]$UninstallRegistryPath,
     [string]$ExpectedOperatorSid,
     [string]$ExpectedOperatorLocalAppData,
     [switch]$TestMode
@@ -44,7 +45,7 @@ function Assert-SafePath {
 function Assert-SafeRegistryPath {
     param([string]$Path)
     $normalized = $Path.Replace('/', '\')
-    $requiredPrefix = 'HKCU:\Software\'
+    $requiredPrefix = if ($AllUsers -and -not $TestMode) { 'HKLM:\Software\' } else { 'HKCU:\Software\' }
     $leaf = $normalized.Substring($normalized.LastIndexOf('\') + 1)
     if (-not $normalized.StartsWith($requiredPrefix, [StringComparison]::OrdinalIgnoreCase) -or
         -not $leaf.StartsWith('Agent_b', [StringComparison]::Ordinal)) {
@@ -90,11 +91,12 @@ function Test-InstalledProcess {
     return $false
 }
 
-if ([string]::IsNullOrWhiteSpace($ApplicationDirectory)) { $ApplicationDirectory = Split-Path -Parent $PSScriptRoot }
 if ([string]::IsNullOrWhiteSpace($ExpectedOperatorSid)) { $ExpectedOperatorSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value }
 if ([string]::IsNullOrWhiteSpace($ExpectedOperatorLocalAppData)) { $ExpectedOperatorLocalAppData = [Environment]::GetFolderPath('LocalApplicationData') }
 if ([string]::IsNullOrWhiteSpace($DataDirectory)) { $DataDirectory = Join-Path $ExpectedOperatorLocalAppData 'Agent_b' }
-if ([string]::IsNullOrWhiteSpace($WorkspaceDirectory)) { $WorkspaceDirectory = Join-Path $env:ProgramData 'Agent_b\workspace' }
+if ([string]::IsNullOrWhiteSpace($ApplicationDirectory)) { $ApplicationDirectory = if ($AllUsers) { Join-Path $env:ProgramFiles 'Agent_b' } else { Join-Path $ExpectedOperatorLocalAppData 'Programs\Agent_b' } }
+if ([string]::IsNullOrWhiteSpace($WorkspaceDirectory)) { $WorkspaceDirectory = if ($AllUsers) { Join-Path $env:ProgramData 'Agent_b\workspace' } else { Join-Path $ExpectedOperatorLocalAppData 'Agent_b-workspace' } }
+if ([string]::IsNullOrWhiteSpace($UninstallRegistryPath)) { $UninstallRegistryPath = if ($AllUsers) { 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b' } else { 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b' } }
 
 $applicationRoot = Assert-SafePath $ApplicationDirectory @('Agent_b') 'application removal'
 $dataRoot = Assert-SafePath $DataDirectory @('Agent_b') 'operator-data removal'
@@ -112,9 +114,9 @@ if (-not $launchingSid.Equals($ExpectedOperatorSid, [StringComparison]::OrdinalI
     throw "Uninstall refused: this install belongs to operator SID $ExpectedOperatorSid, but the launching identity is $launchingSid. No root was changed."
 }
 if (-not $TestMode) {
-	$expectedApplicationRoot = Get-FullPath (Join-Path $env:ProgramFiles 'Agent_b')
+	$expectedApplicationRoot = Get-FullPath $(if ($AllUsers) { Join-Path $env:ProgramFiles 'Agent_b' } else { Join-Path $ExpectedOperatorLocalAppData 'Programs\Agent_b' })
 	$expectedDataRoot = Get-FullPath (Join-Path $ExpectedOperatorLocalAppData 'Agent_b')
-	$expectedWorkspaceRoot = Get-FullPath (Join-Path $env:ProgramData 'Agent_b\workspace')
+	$expectedWorkspaceRoot = Get-FullPath $(if ($AllUsers) { Join-Path $env:ProgramData 'Agent_b\workspace' } else { Join-Path $ExpectedOperatorLocalAppData 'Agent_b-workspace' })
     if (-not $applicationRoot.Equals($expectedApplicationRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Uninstall refused: application root is not $expectedApplicationRoot."
     }
@@ -126,7 +128,7 @@ if (-not $TestMode) {
     }
 }
 
-if (-not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $TestMode) {
+if ($AllUsers -and -not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $TestMode) {
     $arguments = @(
         '-NoLogo', '-NoProfile', '-File', $PSCommandPath,
         '-ApplicationDirectory', $applicationRoot,
@@ -137,10 +139,10 @@ if (-not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $TestMode)
         '-ExpectedOperatorSid', $ExpectedOperatorSid,
 		'-ExpectedOperatorLocalAppData', $ExpectedOperatorLocalAppData
 	)
+    $arguments += '-AllUsers'
     if ($Quiet) { $arguments += '-Quiet' }
     if ($PurgeData) { $arguments += '-PurgeData' }
-    $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList (($arguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ') -Verb RunAs -Wait -PassThru
-    exit $process.ExitCode
+    throw 'ALL-USERS UNINSTALL REFUSED: reopen an elevated console and run the registered uninstall command.'
 }
 
 $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -241,7 +243,7 @@ if ($purge) {
     Write-Host 'PRESERVED: operator configuration, credential, logs, memory, and service workspace'
 }
 
-Write-Host 'REMOVED: operator Start Menu shortcut and HKCU Installed apps registration'
+Write-Host "REMOVED: operator Start Menu shortcut and $(if ($AllUsers) { 'HKLM' } else { 'HKCU' }) Installed apps registration"
 Write-Host 'UNCHANGED: Windows service account, managed ACLs outside removed trees, and firewall policy; remove Host protections first when no longer needed.'
 Write-Host 'UNINSTALL COMPLETE'
 exit 0

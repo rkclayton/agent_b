@@ -345,12 +345,24 @@ try {
     $null = New-Item -ItemType Directory -Path $orphanRoot -Force
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Agent_b.exe') -Destination (Join-Path $orphanRoot 'Agent_b.exe')
     [IO.File]::WriteAllText((Join-Path $orphanRoot 'orphan-proof.txt'), 'preserve me', [Text.UTF8Encoding]::new($false))
+    $legacyRoot = Join-Path $testRoot 'Legacy\Agent_b'
+    $null = New-Item -ItemType Directory -Path $legacyRoot -Force
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Agent_b.exe') -Destination (Join-Path $legacyRoot 'Agent_b.exe')
+    [IO.File]::WriteAllText((Join-Path $legacyRoot 'legacy-proof.txt'), 'remove only after the new copy starts', [Text.UTF8Encoding]::new($false))
+    $migrationRegistryRoot = $testRegistry + '-MigrationRoot'
+    $legacyRegistry = Join-Path $migrationRegistryRoot 'Legacy'
+    $null = New-Item -Path $legacyRegistry -Force
+    $null = New-ItemProperty -Path $legacyRegistry -Name DisplayName -Value 'Agent_b' -PropertyType String -Force
+    $null = New-ItemProperty -Path $legacyRegistry -Name Publisher -Value 'rkclayton' -PropertyType String -Force
+    $null = New-ItemProperty -Path $legacyRegistry -Name InstallLocation -Value $legacyRoot -PropertyType String -Force
+    $dataSentinel = Join-Path $testData 'migration-data-proof.txt'
+    [IO.File]::WriteAllText($dataSentinel, 'operator data survives migration', [Text.UTF8Encoding]::new($false))
     $savedInstallLog = $env:AGENT_B_INSTALL_LOG
     $env:AGENT_B_INSTALL_LOG = $freshTranscriptPath
     $savedErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $freshOutput = (& $singleSetup --quiet --install-data $testData -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -AlternateBinaryRoots $orphanRoot -OperatorLocalAppData $alternateProfile -TestMode 2>&1 | Out-String)
+        $freshOutput = (& $singleSetup --quiet --install-data $testData -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -RegistrationSearchRoots $migrationRegistryRoot -AlternateBinaryRoots $orphanRoot -LegacyApplicationDirectory $legacyRoot -OperatorLocalAppData $alternateProfile -TestMode 2>&1 | Out-String)
         $freshExit = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $savedErrorAction
@@ -358,6 +370,14 @@ try {
     }
     if ($freshExit -ne 0) { throw "First single-file install exited $freshExit.`n$freshOutput" }
     $freshTranscript = Get-Content -Raw -LiteralPath $freshTranscriptPath
+    $readyPosition = $freshTranscript.IndexOf("Agent_b is ready at http://127.0.0.1:$testPort/chat")
+    $migrationPosition = $freshTranscript.IndexOf('MIGRATION COMPLETE: new per-user Agent_b started before legacy application and registration cleanup')
+    if ($readyPosition -lt 0 -or $migrationPosition -le $readyPosition -or (Test-Path -LiteralPath $legacyRoot) -or
+        (Test-Path -LiteralPath $legacyRegistry) -or -not (Test-Path -LiteralPath $dataSentinel -PathType Leaf) -or
+        (Get-Content -Raw -LiteralPath $dataSentinel) -cne 'operator data survives migration') {
+        throw "Migration did not start the new disposable copy before removing the explicit fake legacy root/registration, or changed operator data.`n$freshTranscript"
+    }
+    Write-Host "PROOF migration: new copy ready before explicit disposable legacy root and registration removal; data sentinel unchanged"
     $archiveMatch = [regex]::Match($freshTranscript, '(?m)^ARCHIVED ORPHAN: .+ -> (.+); removed original after archive verification\.$')
     if ((Test-Path -LiteralPath $orphanRoot) -or -not $archiveMatch.Success -or -not (Test-Path -LiteralPath (Join-Path $archiveMatch.Groups[1].Value.Trim() 'orphan-proof.txt') -PathType Leaf)) {
         throw "Orphaned alternate copy was not archived and removed with a transcript path.`n$freshTranscript"
@@ -543,14 +563,14 @@ try {
 
     $shortcutPath = Join-Path $testStart 'Agent_b.lnk'
     $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
-    $expectedWScript = Join-Path $env:SystemRoot 'System32\wscript.exe'
-    if (-not $shortcut.TargetPath.Equals($expectedWScript, [StringComparison]::OrdinalIgnoreCase) -or
-        $shortcut.Arguments -notmatch [regex]::Escape((Join-Path $testApplication 'scripts\launch-hidden.vbs')) -or
-        $shortcut.Arguments -notmatch [regex]::Escape((Join-Path $testApplication 'Agent_b.cmd'))) {
-        throw 'Shortcut does not enter the installed launcher through the hidden host.'
+    $expectedExe = Join-Path $testApplication 'Agent_b.exe'
+    if (-not $shortcut.TargetPath.Equals($expectedExe, [StringComparison]::OrdinalIgnoreCase) -or
+        $shortcut.Arguments -notmatch '(?:^|\s)-window(?:\s|$)' -or
+        $shortcut.Arguments -notmatch [regex]::Escape($testData)) {
+        throw 'Shortcut does not target the installed Agent_b executable and its data root.'
     }
-    if (-not $shortcut.IconLocation.StartsWith((Join-Path $testApplication 'web\assets\Agent_b.ico'), [StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Shortcut does not use the Agent_b icon.'
+    if (-not $shortcut.IconLocation.StartsWith($expectedExe, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Shortcut does not use the Agent_b executable icon.'
     }
     $wrapperSource = Get-Content -Raw -LiteralPath $installerWrapper
     if ($wrapperSource -match [regex]::Escape("`$launchArgs=@('-Console'") -or
@@ -593,7 +613,7 @@ try {
     # Item 2hx: the installed layout owns one native window. A second launch
     # activates it without touching the run marker, and the painted controls
     # exercise maximize/restore, minimize and close against that installed EXE.
-    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'test-single-instance-window.ps1') -Exe (Join-Path $testApplication 'Agent_b.exe') -ApplicationRoot $testApplication -DataRoot $testData
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'test-single-instance-window.ps1') -Exe (Join-Path $testApplication 'Agent_b.exe') -Shortcut $shortcutPath -ApplicationRoot $testApplication -DataRoot $testData
     if ($LASTEXITCODE -ne 0) { throw "The installed single-instance/window-control acceptance exited $LASTEXITCODE." }
 
     $credentialPath = Join-Path $testData '.agentb-shell-credential.dpapi'
@@ -750,8 +770,9 @@ try {
         throw 'Running-instance transcript is missing its UTF-8 autostart record/path or retains contradictory closing guidance.'
     }
     $repairedShortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
-    if (-not $repairedShortcut.TargetPath.Equals($expectedWScript, [StringComparison]::OrdinalIgnoreCase) -or
-        $repairedShortcut.Arguments -notmatch [regex]::Escape((Join-Path $testApplication 'Agent_b.cmd')) -or
+    if (-not $repairedShortcut.TargetPath.Equals($expectedExe, [StringComparison]::OrdinalIgnoreCase) -or
+        $repairedShortcut.Arguments -notmatch '(?:^|\s)-window(?:\s|$)' -or
+        $repairedShortcut.Arguments -notmatch [regex]::Escape($testData) -or
         $repairedShortcut.Arguments -match 'stale') {
         throw 'Upgrade did not repair the deliberately stale Start Menu launch target.'
     }

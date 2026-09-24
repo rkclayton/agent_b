@@ -167,6 +167,23 @@ func TestStartupElevationGuard(t *testing.T) {
 	}
 }
 
+func TestAllUsersInstallIsTheOnlyElevatedApplicationMode(t *testing.T) {
+	for _, test := range []struct {
+		executable string
+		arguments  []string
+		want       bool
+	}{
+		{`C:\download\Agent_b-setup.exe`, []string{"--all-users"}, true},
+		{`C:\app\Agent_b.exe`, []string{"--install", "--all-users"}, true},
+		{`C:\app\Agent_b.exe`, []string{"--all-users"}, false},
+		{`C:\app\Agent_b.exe`, []string{"--install"}, false},
+	} {
+		if got := allUsersInstallRequested(test.executable, test.arguments); got != test.want {
+			t.Fatalf("allUsersInstallRequested(%q, %v)=%t, want %t", test.executable, test.arguments, got, test.want)
+		}
+	}
+}
+
 func TestResolveStartupPathsPrecedence(t *testing.T) {
 	cwd := t.TempDir()
 	t.Chdir(cwd)

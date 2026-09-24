@@ -46,7 +46,7 @@ import (
 )
 
 func main() {
-	if err := startupElevationError(processIsElevated()); err != nil {
+	if err := startupElevationError(processIsElevated() && !allUsersInstallRequested(os.Args[0], os.Args[1:])); err != nil {
 		log.Fatal(err)
 	}
 	// Item 2gm: where the two minutes go, measured on every start.
@@ -70,6 +70,7 @@ func main() {
 	installQuiet := flag.Bool("quiet", false, "with --install: print the installer's output to this console (the suite's path)")
 	installSource := flag.String("install-source", "", "with --install: the candidate folder to install from (default: this executable's folder)")
 	installData := flag.String("install-data", "", "with --install: the operator data root that carries the marker and progress")
+	installAllUsers := flag.Bool("all-users", false, "with --install: install machine-wide under Program Files (requires elevation)")
 	noStart := flag.Bool("NoStart", false, "with --install: install without starting Agent_b")
 	passthrough := installPassthrough(os.Args[1:])
 	if err := flag.CommandLine.Parse(installFlagArgs(os.Args[1:])); err != nil {
@@ -81,6 +82,7 @@ func main() {
 			sourceDir: *installSource,
 			dataRoot:  *installData,
 			noStart:   *noStart,
+			allUsers:  *installAllUsers,
 		}, passthrough))
 	}
 	if *version {
@@ -427,6 +429,19 @@ func main() {
 	if err := serve(cfg, web.Handler(), newLifetime(paths.Data, time.Now), paths.Application); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func allUsersInstallRequested(executable string, arguments []string) bool {
+	hasInstall, allUsers := setupExecutable(executable), false
+	for _, argument := range arguments {
+		switch flagName(argument) {
+		case "install":
+			hasInstall = true
+		case "all-users":
+			allUsers = true
+		}
+	}
+	return hasInstall && allUsers
 }
 
 func setupExecutable(path string) bool {

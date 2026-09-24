@@ -42,15 +42,14 @@ if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate staging exited $LAST
 
 $signingReport = Join-Path $candidate 'signing-report.json'
 $signingScript = Join-Path $repository 'scripts\sign-release.ps1'
-$signingArguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$signingScript`" -Path `"$candidate`" -Thumbprint $SigningThumbprint -ReportPath `"$signingReport`""
-$signing = Start-Process -FilePath $windowsPowerShell -ArgumentList $signingArguments -Verb RunAs -Wait -PassThru -WindowStyle Hidden
-$signingExit = $signing.ExitCode
+& $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $signingScript -Path $candidate -Thumbprint $SigningThumbprint -ReportPath $signingReport
+$signingExit = $LASTEXITCODE
 if (Test-Path -LiteralPath $signingReport -PathType Leaf) {
     $signingResult = Get-Content -Raw -LiteralPath $signingReport | ConvertFrom-Json
     Write-Host "SIGNING CHILD: identity=$($signingResult.identity) elevated=$($signingResult.elevated) outcome=$($signingResult.outcome) signed=$($signingResult.signed)/$($signingResult.signable)"
     if ($signingResult.reason) { Write-Host "SIGNING CHILD REASON: $($signingResult.reason)" }
 }
-if ($signingExit -ne 0) { throw "DEPLOY REFUSED: elevated release signing exited $signingExit." }
+if ($signingExit -ne 0) { throw "DEPLOY REFUSED: release signing is not available to this ordinary console; run the recorded one-time key grant first." }
 
 & $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'scripts\verify-deploy-candidate.ps1') -CandidateDirectory $candidate -ExpectedTag $Tag -ExpectedCommit $commit
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate verification exited $LASTEXITCODE." }

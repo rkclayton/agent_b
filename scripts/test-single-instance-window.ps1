@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Exe,
+    [Parameter(Mandatory = $true)][string]$Shortcut,
     [Parameter(Mandatory = $true)][string]$ApplicationRoot,
     [Parameter(Mandatory = $true)][string]$DataRoot,
     [int]$WaitSeconds = 45
@@ -73,8 +74,11 @@ $configPath = Join-Path $DataRoot 'harness.json'
 $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
 $stateURL = "http://$($config.listen)/api/state"
 $arguments = @('-config', $configPath, '-data-root', $DataRoot, '-app-root', $ApplicationRoot, '-window')
+$shortcutRecord = (New-Object -ComObject WScript.Shell).CreateShortcut($Shortcut)
+if (-not $shortcutRecord.TargetPath.Equals($Exe, [StringComparison]::OrdinalIgnoreCase)) { throw 'shortcut does not target the supplied executable' }
+$shortcutArguments = $shortcutRecord.Arguments
 $startedAt = [Diagnostics.Stopwatch]::StartNew()
-$first = Start-Process -FilePath $Exe -ArgumentList $arguments -PassThru -WindowStyle Hidden
+$first = Start-Process -FilePath $shortcutRecord.TargetPath -ArgumentList $shortcutArguments -PassThru -WindowStyle Hidden
 $second = $null
 $result = [ordered]@{ dpi = 0; first_pid = $first.Id; ready_ms = 0; second_exit = $null; marker_unchanged = $false; activated_foreground = $false; activated_restored = $false; process_count = 0; top_level_classes = @(); maximize = $false; restore = $false; minimize = $false; close = $false; launcher_line = '' }
 try {
@@ -94,7 +98,7 @@ try {
     $before = (Get-FileHash -Algorithm SHA256 -LiteralPath $marker).Hash
     [void][AgentbWindowAcceptance.Win]::ShowWindow($window, 6)
     Wait-Until { [AgentbWindowAcceptance.Win]::IsIconic($window) } 'pre-activation minimize failed'
-    $second = Start-Process -FilePath $Exe -ArgumentList $arguments -PassThru -WindowStyle Hidden
+    $second = Start-Process -FilePath $shortcutRecord.TargetPath -ArgumentList $shortcutArguments -PassThru -WindowStyle Hidden
     if (-not $second.WaitForExit(10000)) { throw 'second launch did not exit' }
     $result.second_exit = $second.ExitCode
     $after = (Get-FileHash -Algorithm SHA256 -LiteralPath $marker).Hash

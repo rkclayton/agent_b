@@ -24,15 +24,15 @@ import (
 	"harness/internal/llm"
 )
 
-func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, []string, error) {
-	if profile.ProbeMode == "off" {
-		findings := []string{"probe mode off: all capabilities assumed", "server: assumed openai-compatible", "n_ctx: taken from profile context", "tokenize/apply-template/cached tokens/timings/prompt progress: assumed unavailable", "streaming/tool calls/document input/image input: assumed available", "vision: reads images (assumed; probe mode off)", "overflow: assumed unknown"}
-		caps := config.Capabilities{Server: "openai-compatible", NCtx: profile.Context.NCtx, Streaming: true, ToolCalls: true, DocumentInput: true, ImageInput: true, Vision: config.VisionReadsImages, ReasoningControl: "none", ValidEfforts: []string{}, OverflowBehavior: "unknown", Findings: findings, ProbedAt: time.Now().UTC().Format(time.RFC3339)}
+func Probe(ctx context.Context, connection *config.Connection) (config.Capabilities, []string, error) {
+	if connection.ProbeMode == "off" {
+		findings := []string{"probe mode off: all capabilities assumed", "server: assumed openai-compatible", "n_ctx: taken from connection context", "tokenize/apply-template/cached tokens/timings/prompt progress: assumed unavailable", "streaming/tool calls/document input/image input: assumed available", "vision: reads images (assumed; probe mode off)", "overflow: assumed unknown"}
+		caps := config.Capabilities{Server: "openai-compatible", NCtx: connection.Context.NCtx, Streaming: true, ToolCalls: true, DocumentInput: true, ImageInput: true, Vision: config.VisionReadsImages, ReasoningControl: "none", ValidEfforts: []string{}, OverflowBehavior: "unknown", Findings: findings, ProbedAt: time.Now().UTC().Format(time.RFC3339)}
 		return caps, findings, nil
 	}
 	caps := config.Capabilities{Server: "unknown", ReasoningControl: "none", OverflowBehavior: "unknown", ValidEfforts: []string{}}
 	findings := []string{}
-	client := llm.New(profile)
+	client := llm.New(connection)
 
 	check, cancel := context.WithTimeout(ctx, 20*time.Second)
 	props, propsErr := client.Props(check)
@@ -49,22 +49,22 @@ func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, [
 		models, modelsErr := client.Models(check)
 		cancel()
 		if modelsErr != nil {
-			return profile.Capabilities, nil, connectionProbeErrorFor(profile.BaseURL, propsErr, modelsErr)
+			return connection.Capabilities, nil, connectionProbeErrorFor(connection.BaseURL, propsErr, modelsErr)
 		}
 		caps.Server = "openai-compatible"
 		listed := false
 		for _, model := range models {
-			if model == profile.Model {
+			if model == connection.Model {
 				listed = true
 			}
 		}
 		if listed {
-			findings = append(findings, "models: profile model listed")
+			findings = append(findings, "models: connection model listed")
 		} else {
-			return profile.Capabilities, nil, &ModelNotListedError{Model: profile.Model, Models: models}
+			return connection.Capabilities, nil, &ModelNotListedError{Model: connection.Model, Models: models}
 		}
 	}
-	working := *profile
+	working := *connection
 	working.Capabilities.Server = caps.Server
 	client = llm.New(&working)
 
@@ -93,7 +93,7 @@ func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, [
 		findings = append(findings, applyTemplateFinding("apply-template shape "+shape.name, shapeErr == nil && prompt != "", prompt, shapeErr, ""))
 	}
 
-	if profile.ProbeMode == "full" {
+	if connection.ProbeMode == "full" {
 		check, cancel = context.WithTimeout(ctx, 20*time.Second)
 		response, chatErr := client.Chat(check, llm.Request{Messages: []llm.Message{{Role: "user", Content: "Say OK."}}, MaxTokens: 16})
 		cancel()
@@ -113,7 +113,7 @@ func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, [
 	caps.PromptProgress = streamErr == nil && streamed.PromptProgress
 	findings = append(findings, "streaming: "+availability(caps.Streaming), "prompt progress: "+availability(caps.PromptProgress))
 
-	if profile.ProbeMode == "minimal" {
+	if connection.ProbeMode == "minimal" {
 		caps.ToolCalls = true
 		caps.Vision = config.VisionRejected
 		findings = append(findings, "tool calls: not probed in minimal mode; assumed available", "document input: not probed in minimal mode; assumed unavailable", "image input: not probed in minimal mode; assumed unavailable", "vision: rejected (assumed; not probed in minimal mode)", "reasoning control: not probed in minimal mode; assumed none", "valid efforts: not probed in minimal mode; assumed empty", "overflow: not probed in minimal mode; assumed unknown")
@@ -134,8 +134,8 @@ func Probe(ctx context.Context, profile *config.Profile) (config.Capabilities, [
 	caps.Vision, caps.ImageInput = probeVision(ctx, client)
 	findings = append(findings, "document input: "+availability(caps.DocumentInput), "image input: "+availability(caps.ImageInput), "vision: "+caps.Vision)
 
-	probeReasoning(ctx, client, profile, &caps, &findings)
-	probeOverflow(ctx, client, profile, &caps, &findings)
+	probeReasoning(ctx, client, connection, &caps, &findings)
+	probeOverflow(ctx, client, connection, &caps, &findings)
 	return finish(caps, findings)
 }
 
@@ -321,7 +321,7 @@ func probeDigitPNG(digit int) []byte {
 	return encoded.Bytes()
 }
 
-func probeReasoning(ctx context.Context, client *llm.Client, profile *config.Profile, caps *config.Capabilities, findings *[]string) {
+func probeReasoning(ctx context.Context, client *llm.Client, connection *config.Connection, caps *config.Capabilities, findings *[]string) {
 	emission := func(body map[string]any) (string, int) {
 		check, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
@@ -351,7 +351,7 @@ func probeReasoning(ctx context.Context, client *llm.Client, profile *config.Pro
 		}
 		return "none", status
 	}
-	base := map[string]any{"model": profile.Model, "messages": []any{map[string]any{"role": "user", "content": "What is 17×23? Think briefly."}}, "max_tokens": 256, "temperature": .6, "stream": false}
+	base := map[string]any{"model": connection.Model, "messages": []any{map[string]any{"role": "user", "content": "What is 17×23? Think briefly."}}, "max_tokens": 256, "temperature": .6, "stream": false}
 	shape, _ := emission(clone(base))
 	caps.ReasoningEmission = shape
 	disabled := clone(base)
@@ -397,8 +397,8 @@ func probeReasoning(ctx context.Context, client *llm.Client, profile *config.Pro
 	*findings = append(*findings, emissionFinding, "reasoning control: "+caps.ReasoningControl, "valid efforts: "+strings.Join(caps.ValidEfforts, ", "))
 }
 
-func probeOverflow(ctx context.Context, client *llm.Client, profile *config.Profile, caps *config.Capabilities, findings *[]string) {
-	parsed, _ := url.Parse(profile.BaseURL)
+func probeOverflow(ctx context.Context, client *llm.Client, connection *config.Connection, caps *config.Capabilities, findings *[]string) {
+	parsed, _ := url.Parse(connection.BaseURL)
 	loopback := parsed != nil && (parsed.Hostname() == "127.0.0.1" || parsed.Hostname() == "localhost" || parsed.Hostname() == "::1")
 	if caps.NCtx == 0 || (!loopback && !caps.Props) {
 		*findings = append(*findings, "overflow: not probed on a remote endpoint without /props; set capabilities.overflow_behavior by hand if you know it")
@@ -407,7 +407,7 @@ func probeOverflow(ctx context.Context, client *llm.Client, profile *config.Prof
 	text := strings.Repeat("abcd ", caps.NCtx+1024)
 	check, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	raw, status, err := client.DoJSON(check, http.MethodPost, "/v1/chat/completions", map[string]any{"model": profile.Model, "messages": []any{map[string]any{"role": "user", "content": text}}, "max_tokens": 1})
+	raw, status, err := client.DoJSON(check, http.MethodPost, "/v1/chat/completions", map[string]any{"model": connection.Model, "messages": []any{map[string]any{"role": "user", "content": text}}, "max_tokens": 1})
 	lower := strings.ToLower(string(raw))
 	if err == nil && status >= 400 && (strings.Contains(lower, "context") || strings.Contains(lower, "token") || strings.Contains(lower, "length")) {
 		caps.OverflowBehavior = "error"

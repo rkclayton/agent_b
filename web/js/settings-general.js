@@ -1,36 +1,36 @@
-let store, armed, serverProfiles, row, text, number, toggle, copyRow, issue, profileReason, html, attr;
+let store, armed, connectionList, row, text, number, toggle, copyRow, issue, connectionReason, html, attr;
 function useSettingsContext(context) {
-  ({ store, armed, serverProfiles, row, text, number, toggle, copyRow, issue, profileReason, html, attr } = context);
+  ({ store, armed, connectionList, row, text, number, toggle, copyRow, issue, connectionReason, html, attr } = context);
 }
 
 function sessions() {
-  const profiles = serverProfiles().filter((profile) => !profileReason(profile));
+  const connections = connectionList().filter((connection) => !connectionReason(connection));
   const items = Object.values(store.sessions)
     .map((item) => {
       const running = item.run.status !== "idle";
       const key = `session:${item.id}`;
-      const profileOptions = serverProfiles()
+      const connectionOptions = connectionList()
         .map((candidate) => {
-          const problem = profileReason(candidate);
-          return `<option value="${attr(candidate.id)}" ${candidate.id === item.server_id ? "selected" : ""} ${problem ? "disabled" : ""}>${html(candidate.label)}</option>`;
+          const problem = connectionReason(candidate);
+          return `<option value="${attr(candidate.id)}" ${candidate.id === item.connection_id ? "selected" : ""} ${problem ? "disabled" : ""}>${html(candidate.label)}</option>`;
         })
         .join("");
       return `<div class="session-row">
         <input class="session-label" data-session-label="${attr(item.id)}" value="${attr(item.label)}" aria-label="${attr(item.id)} label">
-        <select data-session-server="${attr(item.id)}" aria-label="${attr(item.id)} server" ${running || store.replay ? "disabled" : ""}>${profileOptions}</select><span class="path" title="${attr(item.workspace)}">${html(item.workspace)}</span>
+        <select data-session-connection="${attr(item.id)}" aria-label="${attr(item.id)} server" ${running || store.replay ? "disabled" : ""}>${connectionOptions}</select><span class="path" title="${attr(item.workspace)}">${html(item.workspace)}</span>
         <span>${html(item.run.status)}</span>
         <button type="button" class="${armed.has(key) ? "confirm" : ""}" data-action="close-session" data-id="${attr(item.id)}">${running && armed.has(key) ? "Confirm" : "Close"}</button>
       </div>${issue(`session.${item.id}`) ? `<p class="field-error">${html(issue(`session.${item.id}`))}</p>` : ""}`;
     })
     .join("");
-  const defaultProfile = store.config.agents?.[0]?.b || "";
-  const options = profiles
-    .map((p) => `<option value="${attr(p.id)}" ${p.id === defaultProfile ? "selected" : ""}>${html(p.label)}</option>`)
+  const defaultConnection = store.config.agents?.[0]?.b || "";
+  const options = connections
+    .map((p) => `<option value="${attr(p.id)}" ${p.id === defaultConnection ? "selected" : ""}>${html(p.label)}</option>`)
     .join("");
   return `${items}
     <div class="settings-subhead">New session</div>
     ${row("label", '<input id="new-session-label" value="new session">', "", "The name a new session starts with.")}
-    ${row("profile", `<select id="new-session-profile">${options}</select>`, "", "The model profile a new session runs on.")}
+    ${row("connection", `<select id="new-session-connection">${options}</select>`, "", "The model connection a new session runs on.")}
     <button type="button" class="text-action" data-action="new-session" ${options ? "" : "disabled"}>New session</button>
     ${issue("new-session") ? `<p class="field-error">${html(issue("new-session"))}</p>` : ""}
     ${number("run.max_concurrent", "max concurrent", store.config.run?.max_concurrent, "1", false, "", false, "number", "How many chats may run at the same time; the rest wait in the queue.")}`;

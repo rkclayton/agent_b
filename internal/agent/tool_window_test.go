@@ -18,11 +18,11 @@ import (
 func TestFitWindowResultRequestsSmallerSameOffsetInsteadOfOverflowingContext(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
 	runner := &Runner{cfg: func() config.Config { return cfg }}
-	profile := &cfg.Servers[0]
+	connection := &cfg.Connections[0]
 	metadata := map[string]any{"window_offset": 65537, "next_offset": 131073, "more": true}
 
 	content, ok, gotMetadata, tokens := runner.fitWindowResult(
-		context.Background(), nil, profile, "fetch_url",
+		context.Background(), nil, connection, "fetch_url",
 		map[string]any{"offset": float64(65537), "limit": float64(65536)},
 		strings.Repeat("x", 65536), true, metadata, 34903, 19996, false,
 	)
@@ -53,15 +53,15 @@ func TestFitReadFileClampsToLargestSuccessfulWindow(t *testing.T) {
 	registry := tools.New(tools.NewReadFile(cfg.Tools.ReadFile))
 	item := &session.Session{Workspace: root, ToolsEnabled: map[string]bool{"read_file": true}, LastSeen: map[string]time.Time{}}
 	runner := &Runner{cfg: func() config.Config { return cfg }, tools: registry}
-	profile := &cfg.Servers[0]
+	connection := &cfg.Connections[0]
 	args := map[string]any{"path": "large.txt", "offset": 1, "limit": 40000}
 	original, originalOK := registry.Call(context.Background(), item, "read_file", args)
 	if !originalOK {
 		t.Fatal(original)
 	}
-	originalTokens := runner.textTokens(context.Background(), profile, original)
+	originalTokens := runner.textTokens(context.Background(), connection, original)
 	available := 1000
-	content, ok, metadata, tokens := runner.fitWindowResult(context.Background(), item, profile, "read_file", args, original, true, nil, originalTokens, available, false)
+	content, ok, metadata, tokens := runner.fitWindowResult(context.Background(), item, connection, "read_file", args, original, true, nil, originalTokens, available, false)
 	if !ok || tokens > available || metadata["result_clamped"] != true {
 		t.Fatalf("ok=%t tokens=%d metadata=%#v content=%q", ok, tokens, metadata, content)
 	}
@@ -81,7 +81,7 @@ func TestFitReadFileClampsToLargestSuccessfulWindow(t *testing.T) {
 	remaining := max(0, headerInteger(larger, "total")-returned)
 	next := headerInteger(larger, "next_offset")
 	note := fmt.Sprintf("[context clamp: requested_bytes=40000 returned_bytes=%d remaining_bytes=%d next_offset=%d]\n", returned, remaining, next)
-	if runner.textTokens(context.Background(), profile, note+larger) <= available {
+	if runner.textTokens(context.Background(), connection, note+larger) <= available {
 		t.Fatalf("returned limit %d was not maximal", limit)
 	}
 }
@@ -89,7 +89,7 @@ func TestFitReadFileClampsToLargestSuccessfulWindow(t *testing.T) {
 func TestFitWindowResultLeavesFittingAndNonWindowResultsUnchanged(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
 	runner := &Runner{cfg: func() config.Config { return cfg }}
-	profile := &cfg.Servers[0]
+	connection := &cfg.Connections[0]
 
 	for _, test := range []struct {
 		name      string
@@ -101,7 +101,7 @@ func TestFitWindowResultLeavesFittingAndNonWindowResultsUnchanged(t *testing.T) 
 		{name: "shell", ok: true, available: 10, tokens: 100},
 		{name: "fetch_url", ok: false, available: 10, tokens: 100},
 	} {
-		content, ok, _, tokens := runner.fitWindowResult(context.Background(), nil, profile, test.name, nil, "original", test.ok, nil, test.tokens, test.available, false)
+		content, ok, _, tokens := runner.fitWindowResult(context.Background(), nil, connection, test.name, nil, "original", test.ok, nil, test.tokens, test.available, false)
 		if content != "original" || ok != test.ok || tokens != test.tokens {
 			t.Fatalf("%s changed: content=%q ok=%t tokens=%d", test.name, content, ok, tokens)
 		}
@@ -111,9 +111,9 @@ func TestFitWindowResultLeavesFittingAndNonWindowResultsUnchanged(t *testing.T) 
 func TestFitWindowResultRefusesOversizedReadBatchWithBatchGuidance(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
 	runner := &Runner{cfg: func() config.Config { return cfg }}
-	profile := &cfg.Servers[0]
-	content, ok, metadata, tokens := runner.fitWindowResult(context.Background(), &session.Session{}, profile, "read_file", map[string]any{
-		"path": "large.txt",
+	connection := &cfg.Connections[0]
+	content, ok, metadata, tokens := runner.fitWindowResult(context.Background(), &session.Session{}, connection, "read_file", map[string]any{
+		"path":    "large.txt",
 		"windows": []any{map[string]any{"offset": float64(1), "limit": float64(65536)}},
 	}, strings.Repeat("x", 65536), true, nil, 32000, 1000, false)
 	if ok || tokens < 1 || !strings.Contains(content, "fewer or smaller windows") || strings.Contains(content, "same offset=") {
@@ -136,18 +136,18 @@ func TestFitReadFileWithNoRoomLeftIsNotReturnedWhole(t *testing.T) {
 	registry := tools.New(tools.NewReadFile(cfg.Tools.ReadFile))
 	item := &session.Session{Workspace: root, ToolsEnabled: map[string]bool{"read_file": true}, LastSeen: map[string]time.Time{}}
 	runner := &Runner{cfg: func() config.Config { return cfg }, tools: registry}
-	profile := &cfg.Servers[0]
+	connection := &cfg.Connections[0]
 	args := map[string]any{"path": "index.html", "offset": 9293, "limit": 30000}
 	original, ok := registry.Call(context.Background(), item, "read_file", args)
 	if !ok {
 		t.Fatal(original)
 	}
-	originalTokens := runner.textTokens(context.Background(), profile, original)
-	content, _, metadata, tokens := runner.fitWindowResult(context.Background(), item, profile, "read_file", args, original, true, nil, originalTokens, 0, false)
+	originalTokens := runner.textTokens(context.Background(), connection, original)
+	content, _, metadata, tokens := runner.fitWindowResult(context.Background(), item, connection, "read_file", args, original, true, nil, originalTokens, 0, false)
 	if content == original || tokens >= originalTokens || metadata["result_too_large"] != true {
 		t.Fatalf("a read with no room left came back whole: tokens=%d of %d metadata=%#v", tokens, originalTokens, metadata)
 	}
-	if unknown, _, _, _ := runner.fitWindowResult(context.Background(), item, profile, "read_file", args, original, true, nil, originalTokens, -1, false); unknown != original {
+	if unknown, _, _, _ := runner.fitWindowResult(context.Background(), item, connection, "read_file", args, original, true, nil, originalTokens, -1, false); unknown != original {
 		t.Fatal("an unknown window must pass the result through")
 	}
 }

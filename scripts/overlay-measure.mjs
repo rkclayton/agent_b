@@ -64,21 +64,21 @@ try {
   // is then attached to over the debugging port, so what is measured is the
   // window the operator would actually get.
   const edge = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
-  const profileRoot = join(resolve(args.data), "edge-profiles");
-  await mkdir(profileRoot, { recursive: true });
+  const connectionRoot = join(resolve(args.data), "edge-connections");
+  await mkdir(connectionRoot, { recursive: true });
 
   async function measure(name, extraArgs, { installFirst = "" } = {}) {
     const port = await freePort();
-    const profile = join(profileRoot, name);
-    await mkdir(profile, { recursive: true });
+    const connection = join(connectionRoot, name);
+    await mkdir(connection, { recursive: true });
     if (installFirst) {
       // An install, if this build carries the switch. It exits by itself.
-      const installer = spawn(edge, [`--user-data-dir=${profile}`, "--no-first-run", installFirst], { windowsHide: true, stdio: "ignore" });
+      const installer = spawn(edge, [`--user-data-dir=${connection}`, "--no-first-run", installFirst], { windowsHide: true, stdio: "ignore" });
       children.push(installer);
       await Promise.race([new Promise((done) => installer.once("exit", done)), sleep(20000)]);
     }
     const child = spawn(edge, [
-      `--user-data-dir=${profile}`,
+      `--user-data-dir=${connection}`,
       "--no-first-run",
       "--no-default-browser-check",
       `--remote-debugging-port=${port}`,

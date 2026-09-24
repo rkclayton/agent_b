@@ -29,8 +29,12 @@ func (s *Server) signingState() signing.Status {
 func (s *Server) RefreshSigningState(ctx context.Context) error {
 	cfg := s.ConfigSnapshot()
 	status, err := s.signing.Status(ctx, signing.Request{Thumbprint: cfg.Signing.Thumbprint, TimestampURL: cfg.Signing.TimestampURL, ExpectedHash: buildinfo.Current().ExecutableSHA256, ProcessID: os.Getpid()})
-	if err != nil { return err }
-	s.signingMu.Lock(); s.signingStatus = status; s.signingMu.Unlock()
+	if err != nil {
+		return err
+	}
+	s.signingMu.Lock()
+	s.signingStatus = status
+	s.signingMu.Unlock()
 	return nil
 }
 

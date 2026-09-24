@@ -19,11 +19,11 @@ async function freePort() {
   return port;
 }
 
-const profile = {
+const connection = {
   id: "local", label: "Local model", base_url: "http://127.0.0.1:8000", extract_url: "", model: "example-model", credential: "", request_timeout_s: 900, probe_mode: "full",
   sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 1.5, repeat_penalty: 1 } },
   reasoning: { control: "auto", enabled: true, effort: "medium", valid_efforts: [], preserve: false }, context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
-  capabilities: { server: "llama.cpp", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: true, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "none", valid_efforts: [], overflow_behavior: "error", probed_at: "2026-09-11T12:00:00Z", findings: ["screenshot fixture"] },
+  capabilities: { connection: "llama.cpp", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: true, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "none", valid_efforts: [], overflow_behavior: "error", probed_at: "2026-09-11T12:00:00Z", findings: ["screenshot fixture"] },
 };
 
 async function capture(name, exe, appRoot, expected) {
@@ -32,7 +32,7 @@ async function capture(name, exe, appRoot, expected) {
   const workspace = resolve(args.data, "workspaces", name, "workspace");
   await mkdir(dataRoot, { recursive: true });
   await mkdir(workspace, { recursive: true });
-  const config = { config_version: 7, listen: `127.0.0.1:${port}`, workspace, log_dir: join(dataRoot, "logs"), servers: [profile], services: {}, agents: [{ name: "Screenshot", b: "local", toolset: ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"] }] };
+  const config = { config_version: 7, listen: `127.0.0.1:${port}`, workspace, log_dir: join(dataRoot, "logs"), connections: [connection], services: {}, agents: [{ name: "Screenshot", b: "local", toolset: ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"] }] };
   const configPath = join(dataRoot, "harness.json");
   await writeFile(configPath, JSON.stringify(config, null, 2));
   const app = spawn(resolve(exe), ["-config", configPath, "-app-root", resolve(appRoot), "-data-root", dataRoot], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
@@ -54,8 +54,8 @@ async function capture(name, exe, appRoot, expected) {
     await page.goto(`${base}/`);
     await page.locator(".shell-settings").click();
     await page.locator("#settings-page").waitFor({ state: "visible" });
-    await page.locator('[data-action="profile-toggle"]').first().waitFor({ state: "visible" });
-    await page.locator('[data-action="profile-toggle"]').first().click();
+    await page.locator('[data-action="connection-toggle"]').first().waitFor({ state: "visible" });
+    await page.locator('[data-action="connection-toggle"]').first().click();
     await page.locator('.setting-input[data-path$=".label"]').waitFor({ state: "visible" });
     await page.screenshot({ path: resolve(args.evidence, `${name}-connections.png`) });
     const connections = await page.evaluate(() => ({ content_width: document.querySelector(".settings-content").clientWidth, content_scroll_width: document.querySelector(".settings-content").scrollWidth, group_height: document.querySelector(".settings-group").scrollHeight }));

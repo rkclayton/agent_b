@@ -10,8 +10,8 @@ const styles = fs.readFileSync(new URL("../css/setup.css", import.meta.url), "ut
 const detector = fs.readFileSync(new URL("../../scripts/detect-local-capabilities.ps1", import.meta.url), "utf8");
 const template = JSON.parse(fs.readFileSync(new URL("../../harness.example.json", import.meta.url), "utf8"));
 
-test("Fresh template has no servers and setup asks connection, evaluation, then done", () => {
-  assert.deepEqual(template.servers, []);
+test("Fresh template has no connections and setup asks connection, evaluation, then done", () => {
+  assert.deepEqual(template.connections, []);
   assert.deepEqual(template.agents, []);
   for (const label of ["Where is your model?", "Evaluation Harness", "Done"]) assert.match(script, new RegExp(label.replaceAll("?", "\\?")));
   for (const label of ["Test", "Install one here", "Later", "Measure it"]) assert.match(script, new RegExp(label));
@@ -21,7 +21,7 @@ test("Fresh template has no servers and setup asks connection, evaluation, then 
 
 test("Connection Test and capability screen use the existing probe", () => {
   for (const label of ["Context", "Tools", "Images", "Reasoning", "Capability number", "unmeasured"]) assert.match(script, new RegExp(label));
-  assert.match(script, /\/api\/servers\/\$\{encodeURIComponent\(profileID\)\}\/probe/);
+  assert.match(script, /\/api\/connections\/\$\{encodeURIComponent\(connectionID\)\}\/probe/);
   assert.match(script, /discovered\.models/);
   assert.match(script, /discovered\.status === "model_required"/);
   assert.match(script, /<select data-field="model">/);
@@ -44,9 +44,9 @@ test("Setup strip has settings and window controls but no Chat page button", () 
   assert.doesNotMatch(html, />Chat<|setup-chat/);
 });
 
-test("Test assigns the first passing profile to b, the second to c, and never d", () => {
-  assert.match(script, /if \(!agent\.b\) agent\.b = profileID/);
-  assert.match(script, /else if \(agent\.b !== profileID && !agent\.c\) agent\.c = profileID/);
+test("Test assigns the first passing connection to b, the second to c, and never d", () => {
+  assert.match(script, /if \(!agent\.b\) agent\.b = connectionID/);
+  assert.match(script, /else if \(agent\.b !== connectionID && !agent\.c\) agent\.c = connectionID/);
   assert.doesNotMatch(script, /agent\.d\s*=/);
   assert.match(script, /toolset: current\.toolset \|\| fullTools/);
 });
@@ -66,7 +66,7 @@ test("Versioned recommendation table stays small and memory-class keyed", () => 
   assert.equal(recommendationForBytes(128 * 1024 ** 3).model, "qwen3.5:122b");
 });
 
-test("Local detection is read-only and covers accelerators, servers, and interpreters", () => {
+test("Local detection is read-only and covers accelerators, connections, and interpreters", () => {
   for (const name of ["Ollama", "LM Studio", "llama-server", "python", "node", "go", "dotnet"]) assert.match(detector, new RegExp(`name='${name}'`));
   assert.doesNotMatch(detector, /\$env:Path\s*=|Start-Process|Invoke-WebRequest|Invoke-RestMethod/);
   assert.match(detector, /runs as service/);

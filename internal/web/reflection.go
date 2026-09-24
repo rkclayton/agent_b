@@ -121,15 +121,15 @@ func (s *Server) reflectOnClosedRun(sessionID, runID string) {
 	if state == nil || sessionID == "" || runID == "" {
 		return
 	}
-	workspace, planID, profileID := s.reflectionSessionFacts(sessionID)
-	if profileID == "" {
+	workspace, planID, connectionID := s.reflectionSessionFacts(sessionID)
+	if connectionID == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	// No aux profile exists on this schema: the run's own profile summarises
+	// No aux connection exists on this schema: the run's own connection summarises
 	// and the summary says so (item 17-i's @verify, answered in v1.1.0/W1).
-	summary := state.runner.SummariseRun(ctx, sessionID, runID, workspace, planID, profileID, false)
+	summary := state.runner.SummariseRun(ctx, sessionID, runID, workspace, planID, connectionID, false)
 	if summary.Failed != "" {
 		log.Printf("reflection: the summary for run %s was not written (the run is unaffected): %s", runID, summary.Failed)
 	}
@@ -156,8 +156,8 @@ func (s *Server) reflectionPass(manual bool) (reflection.PassResult, error) {
 	return result, err
 }
 
-// reflectionSessionFacts reads the workspace, plan and profile of a chat.
-func (s *Server) reflectionSessionFacts(sessionID string) (workspace, planID, profileID string) {
+// reflectionSessionFacts reads the workspace, plan and connection of a chat.
+func (s *Server) reflectionSessionFacts(sessionID string) (workspace, planID, connectionID string) {
 	if s.registry == nil {
 		return "", "", ""
 	}
@@ -172,18 +172,18 @@ func (s *Server) reflectionSessionFacts(sessionID string) (workspace, planID, pr
 	if !found {
 		return snapshot.Workspace, snapshot.PlanID, ""
 	}
-	return snapshot.Workspace, snapshot.PlanID, agent.ProfileFor(snapshot.Role)
+	return snapshot.Workspace, snapshot.PlanID, agent.ConnectionFor(snapshot.Role)
 }
 
 // reflectionCall is reflection's one model call.
-func (s *Server) reflectionCall(ctx context.Context, profileID, system, user string) (string, error) {
+func (s *Server) reflectionCall(ctx context.Context, connectionID, system, user string) (string, error) {
 	s.mu.Lock()
-	profile, ok := s.cfg.Profile(profileID)
+	connection, ok := s.cfg.Connection(connectionID)
 	s.mu.Unlock()
 	if !ok {
-		return "", fmt.Errorf("reflection: no profile %q", profileID)
+		return "", fmt.Errorf("reflection: no connection %q", connectionID)
 	}
-	client := llm.New(profile)
+	client := llm.New(connection)
 	response, err := client.Chat(ctx, llm.Request{Messages: []llm.Message{{Role: "system", Content: system}, {Role: "user", Content: user}}, MaxTokens: 700})
 	if err != nil {
 		return "", err

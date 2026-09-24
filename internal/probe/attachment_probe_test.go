@@ -8,9 +8,9 @@ import (
 )
 
 func TestProbeOffReportsAssumedDocumentAndImageInput(t *testing.T) {
-	profile := config.Defaults(t.TempDir()).Servers[0]
-	profile.ProbeMode = "off"
-	capabilities, findings, err := Probe(context.Background(), &profile)
+	connection := config.Defaults(t.TempDir()).Connections[0]
+	connection.ProbeMode = "off"
+	capabilities, findings, err := Probe(context.Background(), &connection)
 	if err != nil {
 		t.Fatal(err)
 	}

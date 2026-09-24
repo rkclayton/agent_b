@@ -1,6 +1,6 @@
 # Agent_b
 
-Agent_b is a small Go coding agent for OpenAI-compatible model servers: one binary, a dependency-free browser interface, durable multi-chat work, and observable tool-using runs.
+Agent_b is a small Go coding agent for OpenAI-compatible model connections: one binary, a dependency-free browser interface, durable multi-chat work, and observable tool-using runs.
 
 It keeps planning and execution distinct. An operator or planner owns the ordered work in `PLAN.md`; the worker executes the current order, records durable findings in append-only `NOTES.md`, and stops at explicit decision boundaries. Chat is for the work itself, Console exposes the live run, and Settings owns connections and host controls.
 
@@ -10,7 +10,7 @@ It keeps planning and execution distinct. An operator or planner owns the ordere
 
 1. Provide an OpenAI-compatible endpoint, or let the Windows setup wizard install one of its pinned GGUF/llama.cpp combinations locally. Agent_b can also use Ollama, LM Studio, vLLM, llama.cpp, or a hosted API. Go 1.24+ is needed only for source development.
 2. On Windows, download [Agent_b-setup.exe from the latest release](https://github.com/rkclayton/agent_b/releases/latest/download/Agent_b-setup.exe) and double-click it. Agent_b installs come from the signed Agent_b-setup.exe on the release page. That single file is the whole deployment package: one double-click, one UAC prompt, no console window. Progress and the result appear in the product's own Setup page, and the install finishes even if you close the window it started from. Setup upgrades the one canonical installation, refuses a live second location, archives and removes a safe orphaned per-user copy, and maintains one Agent_b entry in Add/Remove Programs; uninstalling preserves your data by default. `install-Agent_b.cmd` remains in source and folder candidates as the test/compatibility wrapper; `start-Agent_b.cmd` builds and runs from a checkout.
-3. Follow the four setup questions: connect or install locally (or defer), inspect/optionally measure capability, assign the profile to `b`/`c`/`d`, and open Chat. A connection becomes runnable when its context size and required capabilities are known.
+3. Follow the four setup questions: connect or install locally (or defer), inspect/optionally measure capability, assign the connection to `b`/`c`/`d`, and open Chat. A connection becomes runnable when its context size and required capabilities are known.
 
 Agent_b opens in **its own window**: the tab strip is the window's top edge, with the gear left of
 Windows' own minimise, maximise and close buttons. That window is a mode of `Agent_b.exe` itself -
@@ -27,7 +27,7 @@ go run ./cmd/harness -config harness.json -replay logs/main.jsonl
 
 ## What it provides
 
-- Durable open and closed chats, workspace memory, compaction, concurrent scheduling, and model-profile failover for summaries.
+- Durable open and closed chats, workspace memory, compaction, concurrent scheduling, and model-connection failover for summaries.
 - Exact context accounting when the server exposes `/tokenize` and `/apply-template`; otherwise every estimate is labeled.
 - Twelve tools in stable order: `read_file`, `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `web_search`, `run_script`, and `call_service`.
 - A Windows service-account boundary for shell and file tools, with explicit operator-identity decisions when work needs the launching user.

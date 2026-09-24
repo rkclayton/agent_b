@@ -18,7 +18,7 @@ import (
 	"harness/internal/tools"
 )
 
-type agentServerFixture struct {
+type agentConnectionFixture struct {
 	server    *Server
 	scheduler *agent.Scheduler
 	registry  *session.Registry
@@ -27,7 +27,7 @@ type agentServerFixture struct {
 	newID     string
 }
 
-func TestAgentServerChangeWaitsForIdleThenUsesNewServer(t *testing.T) {
+func TestAgentConnectionChangeWaitsForIdleThenUsesNewServer(t *testing.T) {
 	oldStarted := make(chan struct{})
 	releaseOld := make(chan struct{})
 	var oldCalls atomic.Int64
@@ -57,20 +57,20 @@ func TestAgentServerChangeWaitsForIdleThenUsesNewServer(t *testing.T) {
 		writeModelDone(w)
 	}))
 	defer newModel.Close()
-	fixture := newAgentServerFixture(t, oldModel.URL, newModel.URL)
+	fixture := newAgentConnectionFixture(t, oldModel.URL, newModel.URL)
 
 	if _, err := fixture.scheduler.Submit(context.Background(), fixture.session.ID, "first"); err != nil {
 		t.Fatal(err)
 	}
 	waitSignal(t, oldStarted, "first request did not reach original server")
-	response := postAgentServer(t, fixture.server, fixture.session.AgentID, `{"action":"set","server_id":"new"}`)
+	response := postAgentConnection(t, fixture.server, fixture.session.AgentID, `{"action":"set","connection_id":"new"}`)
 	if response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"status":"pending"`) {
 		t.Fatalf("pending status=%d body=%s", response.Code, response.Body)
 	}
 	if got := fixture.server.ConfigSnapshot().Agents[0].B; got != fixture.oldID {
 		t.Fatalf("binding changed during run: %s", got)
 	}
-	if got := fixture.session.Snapshot().ServerID; got != fixture.oldID {
+	if got := fixture.session.Snapshot().ConnectionID; got != fixture.oldID {
 		t.Fatalf("session changed during run: %s", got)
 	}
 
@@ -78,7 +78,7 @@ func TestAgentServerChangeWaitsForIdleThenUsesNewServer(t *testing.T) {
 	waitFor(t, func() bool {
 		return !fixture.scheduler.Active(fixture.session.ID) && fixture.server.ConfigSnapshot().Agents[0].B == fixture.newID
 	}, "pending binding was not applied at idle")
-	if got := fixture.session.Snapshot().ServerID; got != fixture.newID {
+	if got := fixture.session.Snapshot().ConnectionID; got != fixture.newID {
 		t.Fatalf("session binding=%s, want %s", got, fixture.newID)
 	}
 	if _, err := fixture.scheduler.Submit(context.Background(), fixture.session.ID, "second"); err != nil {
@@ -91,7 +91,7 @@ func TestAgentServerChangeWaitsForIdleThenUsesNewServer(t *testing.T) {
 	}
 }
 
-func TestAgentServerChangeAppliesAfterStop(t *testing.T) {
+func TestAgentConnectionChangeAppliesAfterStop(t *testing.T) {
 	oldStarted := make(chan struct{})
 	releaseOld := make(chan struct{})
 	oldModel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -109,13 +109,13 @@ func TestAgentServerChangeAppliesAfterStop(t *testing.T) {
 	defer oldModel.Close()
 	newModel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeModelDone(w) }))
 	defer newModel.Close()
-	fixture := newAgentServerFixture(t, oldModel.URL, newModel.URL)
+	fixture := newAgentConnectionFixture(t, oldModel.URL, newModel.URL)
 
 	if _, err := fixture.scheduler.Submit(context.Background(), fixture.session.ID, "stop me"); err != nil {
 		t.Fatal(err)
 	}
 	waitSignal(t, oldStarted, "request did not reach original server")
-	if response := postAgentServer(t, fixture.server, fixture.session.AgentID, `{"action":"set","server_id":"new"}`); response.Code != http.StatusAccepted {
+	if response := postAgentConnection(t, fixture.server, fixture.session.AgentID, `{"action":"set","connection_id":"new"}`); response.Code != http.StatusAccepted {
 		t.Fatalf("pending status=%d body=%s", response.Code, response.Body)
 	}
 	eventStream, unsubscribe := fixture.server.bus.Subscribe()
@@ -131,7 +131,7 @@ func TestAgentServerChangeAppliesAfterStop(t *testing.T) {
 	waitFor(t, func() bool { return fixture.server.ConfigSnapshot().Agents[0].B == fixture.newID }, "STOP did not apply pending binding")
 }
 
-func TestAgentServerChangeCanBeCancelled(t *testing.T) {
+func TestAgentConnectionChangeCanBeCancelled(t *testing.T) {
 	oldStarted := make(chan struct{})
 	releaseOld := make(chan struct{})
 	oldModel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -149,19 +149,19 @@ func TestAgentServerChangeCanBeCancelled(t *testing.T) {
 	defer oldModel.Close()
 	newModel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeModelDone(w) }))
 	defer newModel.Close()
-	fixture := newAgentServerFixture(t, oldModel.URL, newModel.URL)
+	fixture := newAgentConnectionFixture(t, oldModel.URL, newModel.URL)
 
 	if _, err := fixture.scheduler.Submit(context.Background(), fixture.session.ID, "keep old"); err != nil {
 		t.Fatal(err)
 	}
 	waitSignal(t, oldStarted, "request did not reach original server")
-	if response := postAgentServer(t, fixture.server, fixture.session.AgentID, `{"action":"set","server_id":"new"}`); response.Code != http.StatusAccepted {
+	if response := postAgentConnection(t, fixture.server, fixture.session.AgentID, `{"action":"set","connection_id":"new"}`); response.Code != http.StatusAccepted {
 		t.Fatalf("pending status=%d body=%s", response.Code, response.Body)
 	}
-	if response := postAgentServer(t, fixture.server, fixture.session.AgentID, `{"action":"set","server_id":"old"}`); response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"status":"pending"`) {
+	if response := postAgentConnection(t, fixture.server, fixture.session.AgentID, `{"action":"set","connection_id":"old"}`); response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"status":"pending"`) {
 		t.Fatalf("current selection must preserve pending change: status=%d body=%s", response.Code, response.Body)
 	}
-	if response := postAgentServer(t, fixture.server, fixture.session.AgentID, `{"action":"cancel"}`); response.Code != http.StatusOK {
+	if response := postAgentConnection(t, fixture.server, fixture.session.AgentID, `{"action":"cancel"}`); response.Code != http.StatusOK {
 		t.Fatalf("cancel status=%d body=%s", response.Code, response.Body)
 	}
 	close(releaseOld)
@@ -171,7 +171,7 @@ func TestAgentServerChangeCanBeCancelled(t *testing.T) {
 	}
 }
 
-func newAgentServerFixture(t *testing.T, oldURL, newURL string) agentServerFixture {
+func newAgentConnectionFixture(t *testing.T, oldURL, newURL string) agentConnectionFixture {
 	t.Helper()
 	root := t.TempDir()
 	if evidenceRoot := os.Getenv("AGENTB_W4_EVIDENCE"); evidenceRoot != "" {
@@ -183,12 +183,12 @@ func newAgentServerFixture(t *testing.T, oldURL, newURL string) agentServerFixtu
 	cfg := config.Defaults(root)
 	cfg.Context.Accounting = "estimated"
 	cfg.Run.MaxConcurrent = 1
-	oldProfile := runnableTestProfile("old")
-	oldProfile.BaseURL, oldProfile.RequestTimeoutS = oldURL, 30
-	newProfile := runnableTestProfile("new")
-	newProfile.BaseURL, newProfile.RequestTimeoutS = newURL, 30
-	cfg.Servers = []config.Profile{oldProfile, newProfile}
-	cfg.Agents = []config.Agent{{Name: "Coder", B: oldProfile.ID, Toolset: config.FullToolset()}}
+	oldConnection := runnableTestConnection("old")
+	oldConnection.BaseURL, oldConnection.RequestTimeoutS = oldURL, 30
+	newConnection := runnableTestConnection("new")
+	newConnection.BaseURL, newConnection.RequestTimeoutS = newURL, 30
+	cfg.Connections = []config.Connection{oldConnection, newConnection}
+	cfg.Agents = []config.Agent{{Name: "Coder", B: oldConnection.ID, Toolset: config.FullToolset()}}
 	configPath := filepath.Join(root, "harness.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatal(err)
@@ -201,7 +201,7 @@ func newAgentServerFixture(t *testing.T, oldURL, newURL string) agentServerFixtu
 	bus.SetSink(writers.Write)
 	t.Cleanup(func() { _ = writers.Close() })
 	server := New(&cfg, configPath, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("main", "coder", root)
 	if err != nil {
@@ -217,15 +217,15 @@ func newAgentServerFixture(t *testing.T, oldURL, newURL string) agentServerFixtu
 	}
 	toolset := tools.New()
 	toolset.Configure(cfg)
-	runner := agent.NewRunner(bus, toolset, renderer, server.Profile, server.ConfigSnapshot)
+	runner := agent.NewRunner(bus, toolset, renderer, server.Connection, server.ConfigSnapshot)
 	scheduler := agent.NewScheduler(runner, registry, bus, server.ConfigSnapshot)
 	server.SetRuntime(scheduler, runner, renderer)
-	return agentServerFixture{server: server, scheduler: scheduler, registry: registry, session: item, oldID: oldProfile.ID, newID: newProfile.ID}
+	return agentConnectionFixture{server: server, scheduler: scheduler, registry: registry, session: item, oldID: oldConnection.ID, newID: newConnection.ID}
 }
 
-func postAgentServer(t *testing.T, server *Server, agentID, body string) *httptest.ResponseRecorder {
+func postAgentConnection(t *testing.T, server *Server, agentID, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, "/api/agents/"+agentID+"/server", strings.NewReader(body))
+	request := httptest.NewRequest(http.MethodPost, "/api/agents/"+agentID+"/connection", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()

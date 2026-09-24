@@ -3,8 +3,8 @@ import { createOperatorReconciler } from "./operator-reconcile.js";
 import { navigationEventSourceConstructed, navigationEventSourceOpened, navigationSnapshotStarted, navigationStateFetchEnded, navigationStateFetchStarted } from "./navigation-telemetry.js";
 
 export const store = {
-  sessions: {}, active: "", selection: readSelection(), servers: [], config: {}, flow: { stages: [], edges: [] }, tools: [], serving_facts: {}, plans: [],
-  agent_server_changes: {},
+  sessions: {}, active: "", selection: readSelection(), connections: [], config: {}, flow: { stages: [], edges: [] }, tools: [], serving_facts: {}, plans: [],
+  agent_connection_changes: {},
   build: { tag: "", commit: "unknown", dirty: false, known: false, source: "unknown", display: "unknown" }, signature: {},
   update: { enabled: false, checking: false, available: false, installing: false },
   mutation_token: "", shell_credential: { stored: false, stored_at: "" },
@@ -82,15 +82,15 @@ export function reduce(event) {
     return;
   }
   switch (event.type) {
-    case "server.probed": {
-      const profile = store.servers.find((value) => value.id === data.server_id);
-      if (profile) {
-        profile.capabilities = data.capabilities;
-        profile.reasoning.valid_efforts = data.capabilities?.valid_efforts || [];
-        if (!profile.context.n_ctx && data.capabilities?.n_ctx) profile.context.n_ctx = data.capabilities.n_ctx;
-        profile._probing = false;
+    case "connection.probed": {
+      const connection = store.connections.find((value) => value.id === data.connection_id);
+      if (connection) {
+        connection.capabilities = data.capabilities;
+        connection.reasoning.valid_efforts = data.capabilities?.valid_efforts || [];
+        if (!connection.context.n_ctx && data.capabilities?.n_ctx) connection.context.n_ctx = data.capabilities.n_ctx;
+        connection._probing = false;
       }
-      const configured = store.config.servers?.find((value) => value.id === data.server_id);
+      const configured = store.config.connections?.find((value) => value.id === data.connection_id);
       if (configured) {
         configured.capabilities = data.capabilities;
         configured.reasoning.valid_efforts = data.capabilities?.valid_efforts || [];
@@ -98,11 +98,11 @@ export function reduce(event) {
       }
       break;
     }
-    case "config.changed": store.config = data.config; store.servers = data.config.servers || store.servers; break;
-    case "agent.server_change":
-      store.agent_server_changes ||= {};
-      if (data.status === "pending" && data.change?.agent_id) store.agent_server_changes[data.change.agent_id] = data.change;
-      else if (data.agent_id) delete store.agent_server_changes[data.agent_id];
+    case "config.changed": store.config = data.config; store.connections = data.config.connections || store.connections; break;
+    case "agent.connection_change":
+      store.agent_connection_changes ||= {};
+      if (data.status === "pending" && data.change?.agent_id) store.agent_connection_changes[data.change.agent_id] = data.change;
+      else if (data.agent_id) delete store.agent_connection_changes[data.agent_id];
       break;
     case "shell.identity": store.shell_identity = data; operatorReconciler.observed(); break;
     case "shell.credential": store.shell_credential = data; break;
@@ -297,7 +297,7 @@ export function applyServerEvent(event) {
   }
 }
 source.onmessage = applyServerEvent;
-for (const type of ["snapshot", "projection.patch", "server.probed", "config.changed", "agent.server_change", "shell.identity", "shell.credential", "operator.context", "plan.created", "plan.updated", "plan.removed"])
+for (const type of ["snapshot", "projection.patch", "connection.probed", "config.changed", "agent.connection_change", "shell.identity", "shell.credential", "operator.context", "plan.created", "plan.updated", "plan.removed"])
   source.addEventListener(type, applyServerEvent);
 function reconcileVisibleClient() { if (!document.hidden) void operatorReconciler.reconcile().catch(() => {}); }
 document.addEventListener("visibilitychange", reconcileVisibleClient);

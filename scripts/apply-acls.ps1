@@ -145,7 +145,7 @@ function Set-ManagedRule {
     if ($PSCmdlet.ShouldProcess($Target.Path, $Target.Intent)) {
         if ($Target.NativeTraverse) {
             # Set-Acl can trigger a costly inheritance recalculation across a
-            # large user-profile tree. icacls adds this non-inheriting ACE to
+            # large user-connection tree. icacls adds this non-inheriting ACE to
             # the directory itself without walking its descendants.
             # Item 2gc: System32's icacls, never a PATH-resolved name.
             & (Get-WindowsTool 'icacls.exe') $Target.Path /grant:r ("*$($Identity.Value):(X,S)") | Out-Host

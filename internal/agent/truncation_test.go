@@ -250,9 +250,9 @@ func TestMalformedHistoryRepairPreservesFailureNoteWithoutRestoringFailedAction(
 }
 
 func TestRequestTokenLimitUsesRemainingContextAfterReserve(t *testing.T) {
-	profile := &config.Profile{Context: config.Context{NCtx: 32768, ReserveOutput: 10240}}
+	connection := &config.Connection{Context: config.Context{NCtx: 32768, ReserveOutput: 10240}}
 	budget := events.Budget{NCtx: 32768, Reserve: 10240, UsedEst: 8451, Mode: "exact"}
-	if got := requestTokenLimit(profile, budget, guardedPromptTokens(budget)); got != 10240 {
+	if got := requestTokenLimit(connection, budget, guardedPromptTokens(budget)); got != 10240 {
 		t.Fatalf("max_tokens=%d, want 10240", got)
 	}
 	budget.Mode = "estimated"
@@ -260,12 +260,12 @@ func TestRequestTokenLimitUsesRemainingContextAfterReserve(t *testing.T) {
 		t.Fatalf("guarded prompt=%d, want 9297", got)
 	}
 	budget.UsedEst = 30000
-	if got := requestTokenLimit(profile, budget, guardedPromptTokens(budget)); got != 0 {
+	if got := requestTokenLimit(connection, budget, guardedPromptTokens(budget)); got != 0 {
 		t.Fatalf("estimated exhausted max_tokens=%d, want 0 before compaction", got)
 	}
-	profile.Context.ReserveOutput = 1024
+	connection.Context.ReserveOutput = 1024
 	budget.Mode, budget.UsedEst = "exact", 20000
-	if got := requestTokenLimit(profile, budget, guardedPromptTokens(budget)); got != minimumOutputFloor {
+	if got := requestTokenLimit(connection, budget, guardedPromptTokens(budget)); got != minimumOutputFloor {
 		t.Fatalf("configured-low max_tokens=%d, want floor %d", got, minimumOutputFloor)
 	}
 }
@@ -274,27 +274,27 @@ func truncationRunner(t *testing.T, baseURL, accounting string) (*Runner, *sessi
 	t.Helper()
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = accounting
-	profile := cfg.Servers[0]
-	profile.ID, profile.Label, profile.BaseURL, profile.Model = "main", "main", baseURL, "test-model"
-	profile.RequestTimeoutS = 5
-	profile.Context.NCtx = 32768
-	profile.Context.ReserveOutput = 10240
-	profile.Capabilities.NCtx = 32768
-	profile.Capabilities.Streaming = true
-	profile.Capabilities.ToolCalls = true
-	profile.Capabilities.OverflowBehavior = "error"
-	profile.Capabilities.Tokenize = accounting == "exact"
-	profile.Capabilities.ApplyTemplate = accounting == "exact"
-	profile.Capabilities.ApplyTemplateTools = accounting == "exact"
-	cfg.Servers = []config.Profile{profile}
+	connection := cfg.Connections[0]
+	connection.ID, connection.Label, connection.BaseURL, connection.Model = "main", "main", baseURL, "test-model"
+	connection.RequestTimeoutS = 5
+	connection.Context.NCtx = 32768
+	connection.Context.ReserveOutput = 10240
+	connection.Capabilities.NCtx = 32768
+	connection.Capabilities.Streaming = true
+	connection.Capabilities.ToolCalls = true
+	connection.Capabilities.OverflowBehavior = "error"
+	connection.Capabilities.Tokenize = accounting == "exact"
+	connection.Capabilities.ApplyTemplate = accounting == "exact"
+	connection.Capabilities.ApplyTemplateTools = accounting == "exact"
+	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Main", B: "main", Toolset: config.FullToolset()}}
 	bus := newCapturedBus()
-	runner := NewRunner(bus.Bus, tools.New(&retryWriteTool{}), &PromptRenderer{text: "system {{workspace}} {{memory}} {{tools}}"}, cfg.Profile, func() config.Config { return cfg })
+	runner := NewRunner(bus.Bus, tools.New(&retryWriteTool{}), &PromptRenderer{text: "system {{workspace}} {{memory}} {{tools}}"}, cfg.Connection, func() config.Config { return cfg })
 	enabled := map[string]bool{}
 	for _, name := range config.FullToolset() {
 		enabled[name] = true
 	}
-	item := &session.Session{ID: "main", ServerID: "main", Workspace: t.TempDir(), Run: session.RunState{Status: "running", MaxTurns: cfg.Run.MaxTurns}, Runnable: true, ToolsEnabled: enabled, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 10240}}
+	item := &session.Session{ID: "main", ConnectionID: "main", Workspace: t.TempDir(), Run: session.RunState{Status: "running", MaxTurns: cfg.Run.MaxTurns}, Runnable: true, ToolsEnabled: enabled, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 10240}}
 	return runner, item, bus
 }
 

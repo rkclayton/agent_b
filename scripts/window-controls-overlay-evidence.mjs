@@ -33,7 +33,7 @@ async function freePort() {
 const title = `Agent_b WCO Probe ${Date.now()}`;
 const httpPort = await freePort();
 const debugPort = await freePort();
-const profile = join(tmpdir(), `Agent_b-wco-${process.pid}-${Date.now()}`);
+const connection = join(tmpdir(), `Agent_b-wco-${process.pid}-${Date.now()}`);
 const manifest = {
   name: "Agent_b WCO Probe",
   short_name: "WCO Probe",
@@ -62,7 +62,7 @@ try {
     `--app=http://127.0.0.1:${httpPort}/`,
     `--remote-debugging-port=${debugPort}`,
     "--remote-allow-origins=*",
-    `--user-data-dir=${profile}`,
+    `--user-data-dir=${connection}`,
     "--no-first-run",
     "--no-default-browser-check",
     "--disable-background-mode",
@@ -96,7 +96,7 @@ try {
     schema: 1,
     measured_at: new Date().toISOString(),
     edge,
-    launch: { mode: "--app=<loopback-url>", installed_pwa: false, isolated_profile: true },
+    launch: { mode: "--app=<loopback-url>", installed_pwa: false, isolated_connection: true },
     manifest,
     web,
     system_strip: { height_px: web.outer_minus_inner_height_px, method: "window.outerHeight - window.innerHeight in app mode; app mode has no navigation/status rows below the document" },
@@ -113,8 +113,8 @@ try {
   }
   server.closeAllConnections?.();
   await new Promise((done) => server.close(done)).catch(() => {});
-  if (profile.startsWith(join(tmpdir(), "Agent_b-wco-"))) {
-    try { removeTreeWithinAllowedRoots(profile, [tmpdir()], "window-controls-overlay-evidence cleanup"); }
+  if (connection.startsWith(join(tmpdir(), "Agent_b-wco-"))) {
+    try { removeTreeWithinAllowedRoots(connection, [tmpdir()], "window-controls-overlay-evidence cleanup"); }
     catch (error) { process.stderr.write(`cleanup warning: ${error.message}\n`); }
   }
 }

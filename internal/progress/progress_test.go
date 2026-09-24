@@ -49,7 +49,7 @@ func TestManagerWritesSevenShadowRecordsWithoutStopping(t *testing.T) {
 		t.Fatal("reasoning-off signal must be absent")
 	}
 	if records[AuxProgress].Armed || records[AuxProgress].Available {
-		t.Fatal("aux signal must be absent without an aux profile")
+		t.Fatal("aux signal must be absent without an aux connection")
 	}
 	for name, record := range records {
 		if record.WouldFire {

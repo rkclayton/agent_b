@@ -48,12 +48,12 @@ var measurementTool = map[string]any{
 	},
 }
 
-func (s *Server) measureProfile(w http.ResponseWriter, r *http.Request) {
-	profileID := strings.TrimSpace(r.URL.Query().Get("profile_id"))
+func (s *Server) measureConnection(w http.ResponseWriter, r *http.Request) {
+	connectionID := strings.TrimSpace(r.URL.Query().Get("connection_id"))
 	switch r.Method {
 	case http.MethodGet:
 		s.measureMu.RLock()
-		state, ok := s.measurements[profileID]
+		state, ok := s.measurements[connectionID]
 		s.measureMu.RUnlock()
 		if !ok {
 			state = measureState{Text: "unmeasured"}
@@ -61,45 +61,45 @@ func (s *Server) measureProfile(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, state)
 	case http.MethodPost:
 		var body struct {
-			ProfileID string `json:"profile_id"`
+			ConnectionID string `json:"connection_id"`
 		}
 		if !decode(w, r, &body) {
 			return
 		}
-		profileID = strings.TrimSpace(body.ProfileID)
-		profile, ok := s.Profile(profileID)
+		connectionID = strings.TrimSpace(body.ConnectionID)
+		connection, ok := s.Connection(connectionID)
 		if !ok {
-			writeError(w, http.StatusNotFound, "profile not found", "profile_id")
+			writeError(w, http.StatusNotFound, "connection not found", "connection_id")
 			return
 		}
 		s.measureMu.Lock()
-		if s.measurements[profileID].Running {
+		if s.measurements[connectionID].Running {
 			s.measureMu.Unlock()
-			writeError(w, http.StatusConflict, "this profile is already being measured", "profile_id")
+			writeError(w, http.StatusConflict, "this connection is already being measured", "connection_id")
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		s.measurements[profileID] = measureState{Running: true, Text: "Starting ten briefs"}
-		s.measureCancels[profileID] = cancel
+		s.measurements[connectionID] = measureState{Running: true, Text: "Starting ten briefs"}
+		s.measureCancels[connectionID] = cancel
 		s.measureMu.Unlock()
-		go s.runMeasurement(ctx, profileID, *profile)
-		writeJSON(w, http.StatusAccepted, s.measurements[profileID])
+		go s.runMeasurement(ctx, connectionID, *connection)
+		writeJSON(w, http.StatusAccepted, s.measurements[connectionID])
 	case http.MethodDelete:
-		if profileID == "" {
-			writeError(w, http.StatusBadRequest, "profile_id is required", "profile_id")
+		if connectionID == "" {
+			writeError(w, http.StatusBadRequest, "connection_id is required", "connection_id")
 			return
 		}
 		s.measureMu.Lock()
-		cancel := s.measureCancels[profileID]
-		state := s.measurements[profileID]
+		cancel := s.measureCancels[connectionID]
+		state := s.measurements[connectionID]
 		if cancel != nil && state.Running {
 			state.Text = "Stopping after the current brief"
-			s.measurements[profileID] = state
+			s.measurements[connectionID] = state
 			cancel()
 		}
 		s.measureMu.Unlock()
 		if cancel == nil || !state.Running {
-			writeError(w, http.StatusConflict, "this profile is not being measured", "profile_id")
+			writeError(w, http.StatusConflict, "this connection is not being measured", "connection_id")
 			return
 		}
 		writeJSON(w, http.StatusAccepted, state)
@@ -108,20 +108,20 @@ func (s *Server) measureProfile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) runMeasurement(ctx context.Context, profileID string, profile config.Profile) {
+func (s *Server) runMeasurement(ctx context.Context, connectionID string, connection config.Connection) {
 	started := time.Now()
 	defer func() {
 		s.measureMu.Lock()
-		delete(s.measureCancels, profileID)
+		delete(s.measureCancels, connectionID)
 		s.measureMu.Unlock()
 	}()
-	client := llm.New(&profile)
+	client := llm.New(&connection)
 	passed, toolErrors, briefsRun := 0, 0, 0
 	capped := false
 	stopped := false
 	var runErr error
 	for index, brief := range measurementBriefs {
-		s.setMeasurement(profileID, measureState{Running: true, Text: fmt.Sprintf("Brief %d of %d", index+1, len(measurementBriefs))})
+		s.setMeasurement(connectionID, measureState{Running: true, Text: fmt.Sprintf("Brief %d of %d", index+1, len(measurementBriefs))})
 		briefsRun++
 		response, err := client.Chat(ctx, llm.Request{
 			Messages: []llm.Message{
@@ -152,14 +152,14 @@ func (s *Server) runMeasurement(ctx context.Context, profileID string, profile c
 		Provenance: measurementProvenance, MeasuredAt: time.Now().UTC().Format(time.RFC3339),
 		DurationMS: time.Since(started).Milliseconds(), Capped: capped, Stopped: stopped,
 	}
-	if err := s.storeMeasurement(profileID, result); err != nil {
+	if err := s.storeMeasurement(connectionID, result); err != nil {
 		runErr = err
 	}
 	state := measureState{Text: fmt.Sprintf("%d/%d briefs passed; %d ran", passed, len(measurementBriefs), briefsRun), Result: result}
 	if runErr != nil {
 		state.Error = runErr.Error()
 	}
-	s.setMeasurement(profileID, state)
+	s.setMeasurement(connectionID, state)
 }
 
 func measurementErrorRate(toolErrors, briefsRun int) float64 {
@@ -179,25 +179,25 @@ func validMeasurementCall(calls []llm.ToolCall, brief string) bool {
 	return json.Unmarshal([]byte(calls[0].Function.Arguments), &args) == nil && strings.TrimSpace(args.Request) == brief
 }
 
-func (s *Server) setMeasurement(profileID string, state measureState) {
+func (s *Server) setMeasurement(connectionID string, state measureState) {
 	s.measureMu.Lock()
-	s.measurements[profileID] = state
+	s.measurements[connectionID] = state
 	s.measureMu.Unlock()
 }
 
-func (s *Server) storeMeasurement(profileID string, result *config.Measurement) error {
+func (s *Server) storeMeasurement(connectionID string, result *config.Measurement) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for index := range s.cfg.Servers {
-		if s.cfg.Servers[index].ID != profileID {
+	for index := range s.cfg.Connections {
+		if s.cfg.Connections[index].ID != connectionID {
 			continue
 		}
-		s.cfg.Servers[index].Measurement = result
+		s.cfg.Connections[index].Measurement = result
 		if err := s.cfg.Save(s.configPath); err != nil {
 			return err
 		}
 		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": s.cfg.Masked()}))
 		return nil
 	}
-	return fmt.Errorf("profile %q disappeared during measurement", profileID)
+	return fmt.Errorf("connection %q disappeared during measurement", connectionID)
 }

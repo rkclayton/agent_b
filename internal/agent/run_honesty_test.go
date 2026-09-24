@@ -38,15 +38,15 @@ func TestNearOutputFloorCompactsBeforeGeneration(t *testing.T) {
 
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = "estimated"
-	profile := cfg.Servers[0]
-	profile.ID, profile.BaseURL, profile.Model = "main", model.URL, "fake"
-	profile.Context.NCtx, profile.Context.ReserveOutput = 12500, 4096
-	profile.Capabilities.Streaming, profile.Capabilities.ToolCalls = true, true
-	cfg.Servers = []config.Profile{profile}
-	lookup := func(id string) (*config.Profile, bool) { return &profile, id == profile.ID }
+	connection := cfg.Connections[0]
+	connection.ID, connection.BaseURL, connection.Model = "main", model.URL, "fake"
+	connection.Context.NCtx, connection.Context.ReserveOutput = 12500, 4096
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+	cfg.Connections = []config.Connection{connection}
+	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
 	bus := newCapturedBus()
 	runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "system"}, lookup, func() config.Config { return cfg })
-	item := &session.Session{ID: "main", ServerID: "main", Workspace: t.TempDir(), Runnable: true, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	item := &session.Session{ID: "main", ConnectionID: "main", Workspace: t.TempDir(), Runnable: true, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	for index := 0; index < 8; index++ {
 		callID := fmt.Sprintf("call-old-%d", index)
 		item.Append(events.Message{ID: fmt.Sprintf("a-old-%d", index), Role: "assistant", Category: "history", Turn: index + 1, ToolCalls: []events.ToolCall{{ID: callID, Name: "read_file", Arguments: fmt.Sprintf(`{"path":"old-%d.txt"}`, index)}}})
@@ -124,14 +124,14 @@ func TestTruncatedToolRetryIsBoundedVisibleAndNeverWritesHarnessUserJSONL(t *tes
 	})
 	cfg := config.Defaults(root)
 	cfg.Context.Accounting = "estimated"
-	profile := cfg.Servers[0]
-	profile.ID, profile.BaseURL, profile.Model = "main", model.URL, "fake"
-	profile.Context.NCtx, profile.Context.ReserveOutput = 32768, 10240
-	profile.Capabilities.Streaming, profile.Capabilities.ToolCalls = true, true
-	cfg.Servers = []config.Profile{profile}
-	lookup := func(id string) (*config.Profile, bool) { return &profile, id == profile.ID }
+	connection := cfg.Connections[0]
+	connection.ID, connection.BaseURL, connection.Model = "main", model.URL, "fake"
+	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 10240
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+	cfg.Connections = []config.Connection{connection}
+	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
 	runner := NewRunner(bus.Bus, tools.New(&retryWriteTool{}), &PromptRenderer{text: "system {{tools}}"}, lookup, func() config.Config { return cfg })
-	item := &session.Session{ID: "main", ServerID: "main", Workspace: root, Runnable: true, ToolsEnabled: map[string]bool{"write_file": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	item := &session.Session{ID: "main", ConnectionID: "main", Workspace: root, Runnable: true, ToolsEnabled: map[string]bool{"write_file": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if _, err := runner.AddUser(context.Background(), item, "operator text"); err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func testStopBlockedModelResumesWithAbortRecord(t *testing.T, rejectMidSystem bo
 func TestAbortRecordKeepsWriteEvidenceAndRedactsPartialServiceHeaders(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
 	bus := newCapturedBus()
-	runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "system"}, cfg.Profile, func() config.Config { return cfg })
+	runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "system"}, cfg.Connection, func() config.Config { return cfg })
 	item := &session.Session{ID: "main", Workspace: t.TempDir()}
 	runner.beginFlight(item.ID, "r-write")
 	runner.setFlightTool(item.ID, "r-write", 4, events.ToolCall{ID: "write", Name: "write_file", Arguments: `{"path":"out.txt","content":"partial"}`}, map[string]any{"path": "out.txt", "content": "partial"})

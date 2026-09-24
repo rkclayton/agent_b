@@ -1,9 +1,9 @@
 {
-  "config_version": 7,
+  "config_version": 8,
   "listen": "127.0.0.1:8790",
   "workspace": "./workspace",
   "log_dir": "logs",
-  "servers": [],
+  "connections": [],
   "services": {},
   "agents": [],
   "chat": { "auto_rename": true },

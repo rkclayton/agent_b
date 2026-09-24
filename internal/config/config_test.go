@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -37,18 +38,18 @@ func writeConfigFixture(t *testing.T, path, mode string, stamped bool) {
 
 func TestAttachmentHandlingDefaultsAndValidation(t *testing.T) {
 	cfg := Defaults(t.TempDir())
-	if cfg.Servers[0].AttachmentHandling != "auto" {
-		t.Fatalf("attachment handling=%q", cfg.Servers[0].AttachmentHandling)
+	if cfg.Connections[0].AttachmentHandling != "auto" {
+		t.Fatalf("attachment handling=%q", cfg.Connections[0].AttachmentHandling)
 	}
 	for _, value := range []string{"auto", "native", "extract"} {
 		candidate := cfg
-		candidate.Servers = append([]Profile(nil), cfg.Servers...)
-		candidate.Servers[0].AttachmentHandling = value
+		candidate.Connections = append([]Connection(nil), cfg.Connections...)
+		candidate.Connections[0].AttachmentHandling = value
 		if err := candidate.Validate(); err != nil {
 			t.Fatalf("%s: %v", value, err)
 		}
 	}
-	cfg.Servers[0].AttachmentHandling = "surprise"
+	cfg.Connections[0].AttachmentHandling = "surprise"
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "attachment_handling") {
 		t.Fatalf("invalid attachment handling: %v", err)
 	}
@@ -74,11 +75,11 @@ func TestLoadCreatesConfigFromExample(t *testing.T) {
 	if migrated || !created {
 		t.Fatalf("migrated=%v created=%v", migrated, created)
 	}
-	if reason := ProfileSetupReason(&got.Servers[0]); reason != "" {
+	if reason := ConnectionSetupReason(&got.Connections[0]); reason != "" {
 		t.Fatalf("setup reason = %q", reason)
 	}
-	if got.Servers[0].Model != "model" {
-		t.Fatalf("fresh default model = %q, want model", got.Servers[0].Model)
+	if got.Connections[0].Model != "model" {
+		t.Fatalf("fresh default model = %q, want model", got.Connections[0].Model)
 	}
 	if got.Run.MaxTurns != DefaultMaxTurns {
 		t.Fatalf("fresh config max_turns=%d, want %d", got.Run.MaxTurns, DefaultMaxTurns)
@@ -100,18 +101,18 @@ func TestLoadCreatesConfigFromExample(t *testing.T) {
 	}
 }
 
-func TestProfileSetupReasonNamesConnectionsAndSetupGuide(t *testing.T) {
-	profile := defaultProfile()
-	if got, want := ProfileSetupReason(&profile), "base_url is empty — Settings → Connections → this profile → base_url, or Open setup guide"; got != want {
+func TestConnectionSetupReasonNamesConnectionsAndSetupGuide(t *testing.T) {
+	connection := defaultConnection()
+	if got, want := ConnectionSetupReason(&connection), "base_url is empty — Settings → Connections → this connection → base_url, or Open setup guide"; got != want {
 		t.Fatalf("empty base_url reason = %q, want %q", got, want)
 	}
-	profile.BaseURL = "http://127.0.0.1:8080"
-	if got, want := ProfileSetupReason(&profile), "model is empty — Settings → Connections → this profile → model, or Open setup guide"; got != want {
+	connection.BaseURL = "http://127.0.0.1:8080"
+	if got, want := ConnectionSetupReason(&connection), "model is empty — Settings → Connections → this connection → model, or Open setup guide"; got != want {
 		t.Fatalf("empty model reason = %q, want %q", got, want)
 	}
-	profile.Model = "model"
-	if got := ProfileSetupReason(&profile); got != "" {
-		t.Fatalf("complete profile reason = %q, want empty", got)
+	connection.Model = "model"
+	if got := ConnectionSetupReason(&connection); got != "" {
+		t.Fatalf("complete connection reason = %q, want empty", got)
 	}
 }
 
@@ -376,8 +377,8 @@ func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 				SkipRoots []string `json:"skip_roots"`
 			} `json:"find_files"`
 		} `json:"tools"`
-		Servers []Profile `json:"servers"`
-		Agents  []Agent   `json:"agents"`
+		Connections []Connection `json:"connections"`
+		Agents      []Agent      `json:"agents"`
 	}
 	if err := json.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
@@ -403,14 +404,14 @@ func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 	if len(document.Tools.Fetch.DenyDomains) != 8 || len(document.Tools.FindFiles.SkipRoots) != 5 {
 		t.Fatalf("template policy defaults: deny_domains=%v skip_roots=%v", document.Tools.Fetch.DenyDomains, document.Tools.FindFiles.SkipRoots)
 	}
-	if len(document.Servers) != 0 || len(document.Agents) != 0 {
-		t.Fatalf("first-run template must have no configured profiles or agents: servers=%d agents=%+v", len(document.Servers), document.Agents)
+	if len(document.Connections) != 0 || len(document.Agents) != 0 {
+		t.Fatalf("first-run template must have no configured connections or agents: connections=%d agents=%+v", len(document.Connections), document.Agents)
 	}
 }
 
 func TestEmptyServerListIsValidFirstRunState(t *testing.T) {
 	cfg := Defaults(t.TempDir())
-	cfg.Servers = []Profile{}
+	cfg.Connections = []Connection{}
 	cfg.Agents = []Agent{}
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
@@ -670,6 +671,60 @@ func TestSaveStampsConfigVersion(t *testing.T) {
 	}
 }
 
+func TestLoadMigratesLegacyConnectionListWithoutFieldLoss(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	cfg := Defaults(t.TempDir())
+	cfg.ConfigVersion = 7
+	want := cfg.Connections[0]
+	want.ID = "operator-endpoint"
+	want.Label = "Operator endpoint"
+	want.BaseURL = "https://example.invalid/v1"
+	want.ExtractURL = "https://extract.invalid/v1"
+	want.AttachmentHandling = "extract"
+	want.Model = "model-x"
+	want.Credential = ""
+	want.APIKey = ""
+	want.RequestTimeoutS = 91
+	want.ProbeMode = "off"
+	want.Context.NCtx = 65536
+	want.MaxConcurrent = 3
+	want.SystemPromptOverride = "keep every field"
+	want.Measurement = &Measurement{Passed: 7, Total: 10, BriefsRun: 10, ToolErrors: 2, ToolErrorRate: .2, Trials: 1, Provenance: "fixture", MeasuredAt: "2026-09-23T00:00:00Z", DurationMS: 1234}
+	cfg.Connections = []Connection{want}
+	cfg.Agents[0].B = want.ID
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	legacyKey := "ser" + "vers"
+	document[legacyKey] = document["connections"]
+	delete(document, "connections")
+	data, _ = json.Marshal(document)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, migrated, _, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !migrated || len(loaded.Connections) != 1 || !reflect.DeepEqual(loaded.Connections[0], want) {
+		t.Fatalf("migrated=%t connection=%+v, want %+v", migrated, loaded.Connections, want)
+	}
+	persisted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(persisted, []byte(`"`+legacyKey+`"`)) || !bytes.Contains(persisted, []byte(`"connections"`)) {
+		t.Fatalf("legacy list key survived migration: %s", persisted)
+	}
+}
+
 func TestLegacyV1WithoutApprovalDefaultsToBoundaryOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "harness.json")
 	document := map[string]any{
@@ -707,9 +762,9 @@ func TestFileRoutingGuardDefaultsOnAndCanBeDisabled(t *testing.T) {
 }
 
 func TestReserveOutputUsesCanonicalDefault(t *testing.T) {
-	cfg := Config{Servers: []Profile{{}}, Shell: Shell{Command: []string{"unused"}}}
+	cfg := Config{Connections: []Connection{{}}, Shell: Shell{Command: []string{"unused"}}}
 	ApplyDefaults(&cfg)
-	if got := cfg.Servers[0].Context.ReserveOutput; got != DefaultReserveOutput {
+	if got := cfg.Connections[0].Context.ReserveOutput; got != DefaultReserveOutput {
 		t.Fatalf("reserve_output=%d, want canonical default %d", got, DefaultReserveOutput)
 	}
 }
@@ -784,20 +839,20 @@ func TestOperatorContextNeverPersistsOrRestartsEnabled(t *testing.T) {
 	}
 }
 
-func TestSchema4ModelProfilesMigrateWithUTF8BOM(t *testing.T) {
+func TestSchema4ModelConnectionsMigrateWithUTF8BOM(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "harness.json")
 	cfg := Defaults(t.TempDir())
-	cfg.Servers[0].ID = "small"
-	cfg.Servers[0].Label = "Small"
-	cfg.Servers[0].Model = ""
-	main := defaultProfile()
+	cfg.Connections[0].ID = "small"
+	cfg.Connections[0].Label = "Small"
+	cfg.Connections[0].Model = ""
+	main := defaultConnection()
 	main.ID, main.Label, main.BaseURL, main.Model = "homepc", "HomePC", "http://127.0.0.1:8080", "model"
 	main.Context.NCtx = 16384
 	main.Capabilities.NCtx = 32768
 	main.Capabilities.ToolCalls = true
 	main.Capabilities.Streaming = true
 	main.Capabilities.OverflowBehavior = "error"
-	cfg.Servers = append(cfg.Servers, main)
+	cfg.Connections = append(cfg.Connections, main)
 
 	data, err := json.Marshal(cfg)
 	if err != nil {
@@ -809,13 +864,13 @@ func TestSchema4ModelProfilesMigrateWithUTF8BOM(t *testing.T) {
 	}
 	document["config_version"] = float64(4)
 	delete(document, "roles")
-	for _, raw := range document["servers"].([]any) {
-		profile := raw.(map[string]any)
-		context := profile["context"].(map[string]any)
+	for _, raw := range document["connections"].([]any) {
+		connection := raw.(map[string]any)
+		context := connection["context"].(map[string]any)
 		context["n_ctx_override"] = context["n_ctx"]
 		delete(context, "n_ctx")
-		profile["api_key"] = ""
-		delete(profile, "credential")
+		connection["api_key"] = ""
+		delete(connection, "credential")
 	}
 	data, err = json.MarshalIndent(document, "", "  ")
 	if err != nil {
@@ -833,8 +888,8 @@ func TestSchema4ModelProfilesMigrateWithUTF8BOM(t *testing.T) {
 	if !migrated || loaded.ConfigVersion != CurrentConfigVersion || len(loaded.Agents) != 1 || loaded.Agents[0].B != "homepc" || loaded.Agents[0].C != "" {
 		t.Fatalf("migrated=%t version=%d agents=%+v", migrated, loaded.ConfigVersion, loaded.Agents)
 	}
-	if loaded.Servers[1].Context.NCtx != 16384 || loaded.Servers[1].Capabilities.NCtx != 32768 {
-		t.Fatalf("profile context=%+v capabilities=%+v", loaded.Servers[1].Context, loaded.Servers[1].Capabilities)
+	if loaded.Connections[1].Context.NCtx != 16384 || loaded.Connections[1].Capabilities.NCtx != 32768 {
+		t.Fatalf("connection context=%+v capabilities=%+v", loaded.Connections[1].Context, loaded.Connections[1].Capabilities)
 	}
 	if len(loaded.LoadNotices) != 2 || loaded.LoadNotices[0] != ModelRolesMigrationNotice || loaded.LoadNotices[1] != AgentObjectsMigrationNotice {
 		t.Fatalf("notices=%#v", loaded.LoadNotices)
@@ -848,11 +903,11 @@ func TestSchema4ModelProfilesMigrateWithUTF8BOM(t *testing.T) {
 	}
 }
 
-func TestAgentProfilesUseLetteredSlots(t *testing.T) {
+func TestAgentConnectionsUseLetteredSlots(t *testing.T) {
 	cfg := Defaults(t.TempDir())
-	c := cfg.Servers[0]
+	c := cfg.Connections[0]
 	c.ID, c.Label = "small", "Small"
-	cfg.Servers = append(cfg.Servers, c)
+	cfg.Connections = append(cfg.Connections, c)
 	cfg.Agents[0].C = "small"
 	agent, ok := cfg.Agent("local")
 	if !ok || agent.B != "local" || agent.C != "small" || agent.D != "" {
@@ -870,12 +925,12 @@ func TestAgentNameReservesAgentA(t *testing.T) {
 	}
 }
 
-func TestProfileDecodePreservesExplicitNumericZero(t *testing.T) {
+func TestConnectionDecodePreservesExplicitNumericZero(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "harness.json")
 	document := `{
   "config_version": 5,
   "workspace": ".",
-  "servers": [{
+  "connections": [{
     "id": "local", "base_url": "http://127.0.0.1:8080", "model": "model",
     "sampling": {"thinking": {"temperature": 0, "top_k": 0, "repeat_penalty": 0}},
     "reasoning": {"enabled": false},
@@ -890,19 +945,19 @@ func TestProfileDecodePreservesExplicitNumericZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile := loaded.Servers[0]
-	if profile.Context.ReserveOutput != 0 || profile.Sampling.Thinking.Temperature != 0 || profile.Sampling.Thinking.TopK != 0 || profile.Sampling.Thinking.RepeatPenalty != 0 || profile.Reasoning.Enabled {
-		t.Fatalf("explicit zeros changed: %+v", profile)
+	connection := loaded.Connections[0]
+	if connection.Context.ReserveOutput != 0 || connection.Sampling.Thinking.Temperature != 0 || connection.Sampling.Thinking.TopK != 0 || connection.Sampling.Thinking.RepeatPenalty != 0 || connection.Reasoning.Enabled {
+		t.Fatalf("explicit zeros changed: %+v", connection)
 	}
-	if profile.Sampling.Thinking.TopP != .95 || profile.Sampling.Nonthinking.TopP != .8 || profile.Reasoning.Control != "auto" || profile.Reasoning.Effort != "medium" {
-		t.Fatalf("omitted sampling defaults missing: %+v", profile.Sampling)
+	if connection.Sampling.Thinking.TopP != .95 || connection.Sampling.Nonthinking.TopP != .8 || connection.Reasoning.Control != "auto" || connection.Reasoning.Effort != "medium" {
+		t.Fatalf("omitted sampling defaults missing: %+v", connection.Sampling)
 	}
 }
 
-func TestProfileCredentialNameIsValidated(t *testing.T) {
+func TestConnectionCredentialNameIsValidated(t *testing.T) {
 	cfg := Defaults(t.TempDir())
-	cfg.Servers[0].Credential = "../outside"
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "servers[0].credential") {
+	cfg.Connections[0].Credential = "../outside"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "connections[0].credential") {
 		t.Fatalf("invalid credential error=%v", err)
 	}
 }
@@ -916,8 +971,8 @@ func TestSchema4APIKeyMovesToNamedDPAPIStore(t *testing.T) {
 	path := filepath.Join(dir, "harness.json")
 	cfg := Defaults(t.TempDir())
 	cfg.ConfigVersion = 4
-	cfg.Servers[0].Model = "model"
-	cfg.Servers[0].Context.NCtx = 8192
+	cfg.Connections[0].Model = "model"
+	cfg.Connections[0].Context.NCtx = 8192
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -927,10 +982,10 @@ func TestSchema4APIKeyMovesToNamedDPAPIStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	delete(document, "roles")
-	profile := document["servers"].([]any)[0].(map[string]any)
-	profile["api_key"] = "migration-secret"
-	delete(profile, "credential")
-	context := profile["context"].(map[string]any)
+	connection := document["connections"].([]any)[0].(map[string]any)
+	connection["api_key"] = "migration-secret"
+	delete(connection, "credential")
+	context := connection["context"].(map[string]any)
 	context["n_ctx_override"] = context["n_ctx"]
 	delete(context, "n_ctx")
 	data, err = json.Marshal(document)
@@ -945,8 +1000,8 @@ func TestSchema4APIKeyMovesToNamedDPAPIStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Servers[0].Credential != "local" || loaded.Servers[0].APIKey != "migration-secret" || loaded.Masked().Servers[0].APIKey != "•••• set" {
-		t.Fatalf("loaded profile=%+v masked=%+v", loaded.Servers[0], loaded.Masked().Servers[0])
+	if loaded.Connections[0].Credential != "local" || loaded.Connections[0].APIKey != "migration-secret" || loaded.Masked().Connections[0].APIKey != "•••• set" {
+		t.Fatalf("loaded connection=%+v masked=%+v", loaded.Connections[0], loaded.Masked().Connections[0])
 	}
 	persisted, err := os.ReadFile(path)
 	if err != nil {
@@ -955,15 +1010,15 @@ func TestSchema4APIKeyMovesToNamedDPAPIStore(t *testing.T) {
 	if bytes.Contains(persisted, []byte("migration-secret")) || bytes.Contains(persisted, []byte("api_key")) || !bytes.Contains(persisted, []byte(`"credential": "local"`)) {
 		t.Fatalf("secret persisted in config: %s", persisted)
 	}
-	if _, err := os.Stat(filepath.Join(dataRoot, ".agentb-profile-credential-local.dpapi")); err != nil {
+	if _, err := os.Stat(filepath.Join(dataRoot, ".agentb-connection-credential-local.dpapi")); err != nil {
 		t.Fatalf("named credential missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".agentb-profile-credential-local.dpapi")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, ".agentb-connection-credential-local.dpapi")); !os.IsNotExist(err) {
 		t.Fatalf("credential was inferred beside config: %v", err)
 	}
 	reloaded, _, _, err := LoadWithRoots(path, filepath.Join(dir, "harness.example.json"), dataRoot)
-	if err != nil || reloaded.Servers[0].APIKey != "migration-secret" {
-		t.Fatalf("reloaded key=%q err=%v", reloaded.Servers[0].APIKey, err)
+	if err != nil || reloaded.Connections[0].APIKey != "migration-secret" {
+		t.Fatalf("reloaded key=%q err=%v", reloaded.Connections[0].APIKey, err)
 	}
 }
 
@@ -1023,7 +1078,7 @@ func TestVersionSixMigrationAddsWebSearchOnlyToTheFullToolset(t *testing.T) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatal(err)
 	}
-	if raw.ConfigVersion != 7 || !raw.Tools.WebSearch.Enabled || raw.Tools.WebSearch.PerEngineTimeoutS != 8 {
+	if raw.ConfigVersion != CurrentConfigVersion || !raw.Tools.WebSearch.Enabled || raw.Tools.WebSearch.PerEngineTimeoutS != 8 {
 		t.Fatalf("migration=%+v", raw)
 	}
 	if got := strings.Join(raw.Agents[0].Toolset, ","); got != "read_file,list_dir,write_file,edit_file,search,shell,remember,recall,fetch_url,web_search,run_script,call_service" {

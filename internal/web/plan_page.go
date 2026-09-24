@@ -216,7 +216,7 @@ func (b planningBrief) opening() (string, error) {
 
 // buildPlan answers POST /api/plans/build {plan_id, agent_id}: the planning
 // chat for the plan — an open d chat bound to it, or a new one — on the
-// agent's d profile, or b when none is assigned.
+// agent's d connection, or b when none is assigned.
 // buildPlanMu serialises "Build plan now?": two requests for one plan find or
 // create one planning chat and send its opening request once (v0.70.1 cold
 // review).
@@ -251,11 +251,11 @@ func (s *Server) buildPlan(w http.ResponseWriter, r *http.Request) {
 	if agentID == "" {
 		agentID = target.AgentID
 	}
-	// With no d profile the planner is a b chat in the plan's repository, the
+	// With no d connection the planner is a b chat in the plan's repository, the
 	// fallback the Plan page already names (2t-i): b plans, reviews are off.
 	s.mu.RLock()
 	agent, known := s.cfg.Agent(agentID)
-	hasPlanner := known && agent.ProfileFor("d") != ""
+	hasPlanner := known && agent.ConnectionFor("d") != ""
 	s.mu.RUnlock()
 	if !hasPlanner {
 		if target.Repo == "" {
@@ -315,28 +315,28 @@ func (s *Server) buildPlanRoute(w http.ResponseWriter, r *http.Request) {
 	s.buildPlan(w, r)
 }
 
-// workerProfileBusy is why Go cannot start now, or "": the profile the worker
+// workerConnectionBusy is why Go cannot start now, or "": the connection the worker
 // would run on is serving as many runs as it may (item 2fc).
-func (s *Server) workerProfileBusy(agentID string) string {
+func (s *Server) workerConnectionBusy(agentID string) string {
 	if s.scheduler == nil {
 		return ""
 	}
 	s.mu.RLock()
 	agent, ok := s.cfg.Agent(agentID)
-	var profileID, label string
+	var connectionID, label string
 	if ok {
-		profileID = agent.ProfileFor("c")
-		if profile, found := s.cfg.Profile(profileID); found {
-			label = profile.Label
+		connectionID = agent.ConnectionFor("c")
+		if connection, found := s.cfg.Connection(connectionID); found {
+			label = connection.Label
 		}
 	}
 	s.mu.RUnlock()
-	if profileID == "" {
+	if connectionID == "" {
 		return ""
 	}
-	if busy, role := s.scheduler.ProfileBusy(profileID); busy {
+	if busy, role := s.scheduler.ConnectionBusy(connectionID); busy {
 		if label == "" {
-			label = profileID
+			label = connectionID
 		}
 		return fmt.Sprintf("the model is busy: %s is running on %s; Go waits for it to finish", role, label)
 	}

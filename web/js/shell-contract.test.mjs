@@ -17,7 +17,7 @@ test("shared shell slot order is identical on the chat and Plan", () => {
     assert.doesNotMatch(html, /id="(?:shell-stop|shell-state|shell-operator-status)"/);
   }
   assert.match(shell, /root\.append\(left, right\)/);
-  assert.match(shell, /right\.append\(sessionHeading, profileMenu, pages, settings, windowControls\)/);
+  assert.match(shell, /right\.append\(sessionHeading, connectionMenu, pages, settings, windowControls\)/);
   assert.doesNotMatch(shell, /shell-operator-status|right\.append\(stop/);
   assert.match(shell, /\[\["plan", "\/plan"\]\]/);
   assert.doesNotMatch(shell, /\["chat", "Chat", "\/chat"\]|\["console", "Console", "\/"\]/);
@@ -41,7 +41,7 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   assert.match(tokens, /\.agent-tab-robot\.offline\{color:var\(--alarm\)\}/);
   assert.match(tokens, /\.agent-tab-robot\.waiting\{color:var\(--alarm\)\}/);
   assert.match(shell, /session\?\.model_unreachable\) return "offline"/);
-  assert.match(shell, /\(store\.servers \|\| \[\]\)\.find/);
+  assert.match(shell, /\(store\.connections \|\| \[\]\)\.find/);
   assert.match(shell, /left\.append\(newChatButton, newChatMenu, tabs\)/);
   assert.match(shell, /newChatButton\.onclick = \(\) => hasD \? showRoleMenu/);
   assert.doesNotMatch(shell, /wrap\.append\([^\n]*(?:agent-tab-new|newChatButton)/);
@@ -70,9 +70,9 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   assert.match(shell, /button\("×", `Close \$\{name\}`/);
   assert.match(shell, /const agentID = `agent_\$\{session\?\.role === "d" \? "d" : "b"\}`/);
   // Item 2gl (v1.2.6): the window title names the CHAT; the header beside the
-  // tab strip still reads the profile only (2eo).
+  // tab strip still reads the connection only (2eo).
   assert.match(shell, /document\.title = session \? `Agent_b · \$\{chatName\(session\)\}` : "Agent_b"/);
-  // Item 2eo: the header beside the tab strip reads the PROFILE, through
+  // Item 2eo: the header beside the tab strip reads the CONNECTION, through
   // sessionTitle. Item 2hc (v1.3.0/W7) assigns it through a local so the box
   // can be snapped to a whole pixel when the text changes, so the contract is
   // checked by what it computes rather than by one spelling of the statement.
@@ -85,7 +85,7 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   assert.match(shell, /sessionHeading\.style\.width = `\$\{Math\.ceil\(natural\)\}px`/);
 });
 
-test("plus adds a two-line d choice only for an assigned d profile", () => {
+test("plus adds a two-line d choice only for an assigned d connection", () => {
   assert.match(shell, /const hasD = !!String\(configured\?\.d \|\| ""\)\.trim\(\)/);
   assert.match(shell, /agent_b · \$\{name\} — chat/);
   assert.match(shell, /agent_d · \$\{name\} — plan/);
@@ -159,12 +159,12 @@ test("top bar gives fixed readable tabs a scoped horizontal scroll lane", () => 
   assert.doesNotMatch(shell, /shell-selection/);
 });
 
-test("top-right profile label is the b-role model switcher", () => {
+test("top-right connection label is the b-role model switcher", () => {
   assert.match(shell, /button\("", "Switch model", "shell-session-title"\)/);
-  assert.match(shell, /for \(const profile of store\.servers \|\| store\.config\.servers \|\| \[\]\)/);
-  assert.match(shell, /profile\.label \|\| profile\.id[\s\S]*new URL\(host\)\.host[\s\S]*profileState\(profile, session\)/);
+  assert.match(shell, /for \(const connection of store\.connections \|\| store\.config\.connections \|\| \[\]\)/);
+  assert.match(shell, /connection\.label \|\| connection\.id[\s\S]*new URL\(host\)\.host[\s\S]*connectionState\(connection, session\)/);
   assert.match(shell, /if \(isRunning\(current\)\)[\s\S]*stop the run first/);
-  assert.match(shell, /api\(`\/api\/agents\/\$\{encodeURIComponent\(agentID\)\}\/server`, \{ action: "set", server_id: profile\.id \}\)/);
+  assert.match(shell, /api\(`\/api\/agents\/\$\{encodeURIComponent\(agentID\)\}\/connection`, \{ action: "set", connection_id: connection\.id \}\)/);
   assert.match(shell, /session\.runnable === false \? session\.not_runnable_reason : sessionTitle\(session\)/);
 });
 

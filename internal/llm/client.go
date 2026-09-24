@@ -18,8 +18,8 @@ import (
 )
 
 type Client struct {
-	profile *config.Profile
-	http    *http.Client
+	connection *config.Connection
+	http       *http.Client
 }
 
 type ResponseShapeError struct {
@@ -45,12 +45,12 @@ var sharedTransport = func() *http.Transport {
 	return transport
 }()
 
-func New(profile *config.Profile) *Client {
-	return &Client{profile: profile, http: &http.Client{Timeout: time.Duration(profile.RequestTimeoutS) * time.Second, Transport: sharedTransport}}
+func New(connection *config.Connection) *Client {
+	return &Client{connection: connection, http: &http.Client{Timeout: time.Duration(connection.RequestTimeoutS) * time.Second, Transport: sharedTransport}}
 }
 
 func (c *Client) Chat(ctx context.Context, request Request) (Response, error) {
-	body := buildRequest(c.profile, request, false)
+	body := buildRequest(c.connection, request, false)
 	start := time.Now()
 	raw, status, err := c.DoJSON(ctx, http.MethodPost, "/v1/chat/completions", body)
 	if err != nil {
@@ -70,7 +70,7 @@ func (c *Client) ChatStream(ctx context.Context, request Request, onDelta func(D
 }
 
 func (c *Client) ChatStreamStatus(ctx context.Context, request Request, onDelta func(Delta), onConnected func()) (Response, error) {
-	body := buildRequest(c.profile, request, true)
+	body := buildRequest(c.connection, request, true)
 	encoded, _ := json.Marshal(body)
 	req, err := c.newRequest(ctx, http.MethodPost, "/v1/chat/completions", bytes.NewReader(encoded))
 	if err != nil {
@@ -303,7 +303,7 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 	connected := &atomic.Bool{}
 	ctx = context.WithValue(ctx, connectionTraceKey{}, connected)
 	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{GotConn: func(httptrace.GotConnInfo) { connected.Store(true) }})
-	base := strings.TrimRight(c.profile.BaseURL, "/")
+	base := strings.TrimRight(c.connection.BaseURL, "/")
 	// A discovered OpenAI endpoint may be shown and saved with its /v1 prefix.
 	// Avoid duplicating that prefix when the typed operation already carries it.
 	if strings.HasSuffix(strings.ToLower(base), "/v1") && strings.HasPrefix(path, "/v1/") {
@@ -316,8 +316,8 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.profile.APIKey != "" {
-		value := c.profile.APIKey
+	if c.connection.APIKey != "" {
+		value := c.connection.APIKey
 		if !strings.HasPrefix(value, "Bearer ") {
 			value = "Bearer " + value
 		}
@@ -347,17 +347,17 @@ func (c *Client) ApplyTemplate(ctx context.Context, messages []Message, tools []
 	if tools != nil {
 		body["tools"] = tools
 	}
-	control := c.profile.Reasoning.Control
+	control := c.connection.Reasoning.Control
 	if control == "auto" {
-		control = c.profile.Capabilities.ReasoningControl
+		control = c.connection.Capabilities.ReasoningControl
 	}
 	if control == "chat_template_kwargs" {
-		kwargs := map[string]any{"enable_thinking": c.profile.Reasoning.Enabled, "preserve_thinking": c.profile.Reasoning.Preserve}
-		if contains(c.profile.Reasoning.ValidEfforts, c.profile.Reasoning.Effort) {
-			kwargs["reasoning_effort"] = c.profile.Reasoning.Effort
+		kwargs := map[string]any{"enable_thinking": c.connection.Reasoning.Enabled, "preserve_thinking": c.connection.Reasoning.Preserve}
+		if contains(c.connection.Reasoning.ValidEfforts, c.connection.Reasoning.Effort) {
+			kwargs["reasoning_effort"] = c.connection.Reasoning.Effort
 		}
-		if c.profile.Reasoning.MaxTokens > 0 {
-			kwargs["reasoning_budget"] = c.profile.Reasoning.MaxTokens
+		if c.connection.Reasoning.MaxTokens > 0 {
+			kwargs["reasoning_budget"] = c.connection.Reasoning.MaxTokens
 		}
 		body["chat_template_kwargs"] = kwargs
 	}

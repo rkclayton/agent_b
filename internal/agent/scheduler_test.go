@@ -31,16 +31,16 @@ func TestActiveRunMessagesQueueAtZeroDepthAndDispatchInOrderAfterRunEnd(t *testi
 	cfg.Context.Accounting = "estimated"
 	cfg.Run.QueueDepth = 0
 	cfg.Run.MaxConcurrent = 1
-	profile := cfg.Servers[0]
-	profile.BaseURL = model.URL
-	profile.RequestTimeoutS = 2
-	profile.Context.NCtx = 32768
-	profile.Context.ReserveOutput = 8192
-	profile.Capabilities.Streaming = true
-	profile.Capabilities.ToolCalls = true
-	profile.Capabilities.OverflowBehavior = "error"
-	profile.Capabilities.Tokenize = false
-	cfg.Servers[0] = profile
+	connection := cfg.Connections[0]
+	connection.BaseURL = model.URL
+	connection.RequestTimeoutS = 2
+	connection.Context.NCtx = 32768
+	connection.Context.ReserveOutput = 8192
+	connection.Capabilities.Streaming = true
+	connection.Capabilities.ToolCalls = true
+	connection.Capabilities.OverflowBehavior = "error"
+	connection.Capabilities.Tokenize = false
+	cfg.Connections[0] = connection
 	bus := events.NewBus()
 	var eventMu sync.Mutex
 	var recorded []events.Event
@@ -55,13 +55,13 @@ func TestActiveRunMessagesQueueAtZeroDepthAndDispatchInOrderAfterRunEnd(t *testi
 		t.Fatal(err)
 	}
 	defer writers.Close()
-	profileLookup := func(id string) (*config.Profile, bool) { return &profile, id == profile.ID }
-	registry := session.NewRegistry(bus, writers, profileLookup, cfg.Run.MaxTurns, func() config.Config { return cfg })
-	item, err := registry.Create("main", profile.ID, workspace)
+	connectionLookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
+	registry := session.NewRegistry(bus, writers, connectionLookup, cfg.Run.MaxTurns, func() config.Config { return cfg })
+	item, err := registry.Create("main", connection.ID, workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, profileLookup, func() config.Config { return cfg })
+	runner := NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, connectionLookup, func() config.Config { return cfg })
 	scheduler := NewScheduler(runner, registry, bus, func() config.Config { return cfg })
 	item.SetRun(session.RunState{Status: "running", RunID: "r0", MaxTurns: cfg.Run.MaxTurns})
 	scheduler.active[item.ID] = &activeRun{}
@@ -110,7 +110,7 @@ func TestStopHoldsQueuedMessagesUntilNextExplicitSubmit(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n"))
 	}))
 	defer model.Close()
-	cfg, profile, item, scheduler := schedulerFixture(t, model.URL)
+	cfg, connection, item, scheduler := schedulerFixture(t, model.URL)
 	item.SetRun(session.RunState{Status: "running", RunID: "r0", MaxTurns: cfg.Run.MaxTurns})
 	done := make(chan struct{})
 	close(done)
@@ -143,7 +143,7 @@ func TestStopHoldsQueuedMessagesUntilNextExplicitSubmit(t *testing.T) {
 		}
 	}
 	if len(users) != 3 || users[0] != "first queued" || users[1] != "second queued" || users[2] != "resume queue" {
-		t.Fatalf("dispatch order=%v profile=%s", users, profile.ID)
+		t.Fatalf("dispatch order=%v connection=%s", users, connection.ID)
 	}
 }
 
@@ -153,7 +153,7 @@ func TestModelUnreachableHoldsQueueDeduplicatesAndProbeReleases(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n"))
 	}))
 	defer model.Close()
-	cfg, profile, item, scheduler := schedulerFixture(t, model.URL)
+	cfg, connection, item, scheduler := schedulerFixture(t, model.URL)
 	item.SetRun(session.RunState{Status: "running", RunID: "r0", MaxTurns: cfg.Run.MaxTurns})
 	scheduler.active[item.ID] = &activeRun{}
 	first, err := scheduler.Submit(context.Background(), item.ID, "same pending bytes")
@@ -171,7 +171,7 @@ func TestModelUnreachableHoldsQueueDeduplicatesAndProbeReleases(t *testing.T) {
 	if scheduler.Active(item.ID) {
 		t.Fatal("unreachable queue dispatched before probe")
 	}
-	scheduler.ReleaseModel(profile.ID)
+	scheduler.ReleaseModel(connection.ID)
 	deadline := time.Now().Add(3 * time.Second)
 	for (scheduler.Active(item.ID) || item.Snapshot().QueuedMessages != 0) && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
@@ -227,16 +227,16 @@ func TestLongRunSlowAccountingCompletesEstimatedAndCompacts(t *testing.T) {
 		}
 	}))
 	defer model.Close()
-	_, profile, item, scheduler := schedulerFixture(t, model.URL)
-	profile.RequestTimeoutS = 3
-	profile.Context.NCtx, profile.Context.ReserveOutput = 9216, 1024
-	profile.Capabilities.Tokenize = true
-	profile.Capabilities.ApplyTemplate = true
-	profile.Capabilities.ApplyTemplateTools = true
+	_, connection, item, scheduler := schedulerFixture(t, model.URL)
+	connection.RequestTimeoutS = 3
+	connection.Context.NCtx, connection.Context.ReserveOutput = 9216, 1024
+	connection.Capabilities.Tokenize = true
+	connection.Capabilities.ApplyTemplate = true
+	connection.Capabilities.ApplyTemplateTools = true
 	scheduler.runner.cfg = func() config.Config {
 		cfg := config.Defaults(item.Workspace)
 		cfg.Context.Accounting = "exact"
-		cfg.Servers[0] = *profile
+		cfg.Connections[0] = *connection
 		return cfg
 	}
 	for index := 0; index < 8; index++ {
@@ -289,14 +289,14 @@ func TestAccountingDialFailureFastStopsAsModelUnreachable(t *testing.T) {
 	}
 	address := listener.Addr().String()
 	_ = listener.Close()
-	_, profile, item, scheduler := schedulerFixture(t, "http://"+address)
-	profile.Capabilities.Tokenize = true
-	profile.Capabilities.ApplyTemplate = true
-	profile.Capabilities.ApplyTemplateTools = true
+	_, connection, item, scheduler := schedulerFixture(t, "http://"+address)
+	connection.Capabilities.Tokenize = true
+	connection.Capabilities.ApplyTemplate = true
+	connection.Capabilities.ApplyTemplateTools = true
 	scheduler.runner.cfg = func() config.Config {
 		cfg := config.Defaults(item.Workspace)
 		cfg.Context.Accounting = "exact"
-		cfg.Servers[0] = *profile
+		cfg.Connections[0] = *connection
 		return cfg
 	}
 	start := time.Now()
@@ -337,14 +337,14 @@ func TestStopCancelsBlackholedApplyTemplateInUnderOneSecond(t *testing.T) {
 	}))
 	defer blackhole.Close()
 	defer close(release)
-	_, profile, item, scheduler := schedulerFixture(t, blackhole.URL)
-	profile.Capabilities.Tokenize = true
-	profile.Capabilities.ApplyTemplate = true
-	profile.Capabilities.ApplyTemplateTools = true
+	_, connection, item, scheduler := schedulerFixture(t, blackhole.URL)
+	connection.Capabilities.Tokenize = true
+	connection.Capabilities.ApplyTemplate = true
+	connection.Capabilities.ApplyTemplateTools = true
 	scheduler.runner.cfg = func() config.Config {
 		cfg := config.Defaults(item.Workspace)
 		cfg.Context.Accounting = "exact"
-		cfg.Servers[0] = *profile
+		cfg.Connections[0] = *connection
 		return cfg
 	}
 	if _, err := scheduler.Submit(context.Background(), item.ID, "blocked request"); err != nil {
@@ -401,38 +401,38 @@ func TestStopDetachesUncooperativeRunAtBound(t *testing.T) {
 	}
 }
 
-func schedulerFixture(t *testing.T, modelURL string) (config.Config, *config.Profile, *session.Session, *Scheduler) {
+func schedulerFixture(t *testing.T, modelURL string) (config.Config, *config.Connection, *session.Session, *Scheduler) {
 	return schedulerFixtureAccounting(t, modelURL, "estimated")
 }
 
-func schedulerFixtureAccounting(t *testing.T, modelURL, accounting string) (config.Config, *config.Profile, *session.Session, *Scheduler) {
+func schedulerFixtureAccounting(t *testing.T, modelURL, accounting string) (config.Config, *config.Connection, *session.Session, *Scheduler) {
 	t.Helper()
 	workspace := t.TempDir()
 	cfg := config.Defaults(workspace)
 	cfg.Context.Accounting = accounting
 	cfg.Run.MaxConcurrent = 1
-	profile := cfg.Servers[0]
-	profile.BaseURL, profile.Model, profile.RequestTimeoutS = modelURL, "model", 30
-	profile.Context.NCtx, profile.Context.ReserveOutput = 32768, 8192
-	profile.Capabilities.Streaming, profile.Capabilities.ToolCalls, profile.Capabilities.OverflowBehavior = true, true, "error"
-	profile.Capabilities.Tokenize = accounting == "exact"
-	profile.Capabilities.ApplyTemplate = accounting == "exact"
-	profile.Capabilities.ApplyTemplateTools = accounting == "exact"
-	cfg.Servers[0] = profile
+	connection := cfg.Connections[0]
+	connection.BaseURL, connection.Model, connection.RequestTimeoutS = modelURL, "model", 30
+	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls, connection.Capabilities.OverflowBehavior = true, true, "error"
+	connection.Capabilities.Tokenize = accounting == "exact"
+	connection.Capabilities.ApplyTemplate = accounting == "exact"
+	connection.Capabilities.ApplyTemplateTools = accounting == "exact"
+	cfg.Connections[0] = connection
 	bus := events.NewBus()
 	writers, err := events.NewWriters(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = writers.Close() })
-	lookup := func(id string) (*config.Profile, bool) { return &profile, id == profile.ID }
+	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
 	registry := session.NewRegistry(bus, writers, lookup, cfg.Run.MaxTurns, func() config.Config { return cfg })
-	item, err := registry.Create("main", profile.ID, workspace)
+	item, err := registry.Create("main", connection.ID, workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
 	runner := NewRunner(bus, tools.New(), &PromptRenderer{text: "system {{tools}} {{memory}}"}, lookup, func() config.Config { return cfg })
-	return cfg, &profile, item, NewScheduler(runner, registry, bus, func() config.Config { return cfg })
+	return cfg, &connection, item, NewScheduler(runner, registry, bus, func() config.Config { return cfg })
 }
 
 // Item 2fg (the walk's step 3): a message sent while a stopped run is still
@@ -444,7 +444,7 @@ func TestAMessageSentWhileStoppingIsHeldUntilTheOperatorSendsAgain(t *testing.T)
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n"))
 	}))
 	defer model.Close()
-	cfg, profile, item, scheduler := schedulerFixture(t, model.URL)
+	cfg, connection, item, scheduler := schedulerFixture(t, model.URL)
 	item.SetRun(session.RunState{Status: "running", RunID: "r0", MaxTurns: cfg.Run.MaxTurns})
 	done := make(chan struct{})
 	close(done)
@@ -457,7 +457,7 @@ func TestAMessageSentWhileStoppingIsHeldUntilTheOperatorSendsAgain(t *testing.T)
 	if snapshot := item.Snapshot(); snapshot.Run.Status != "held" || snapshot.QueuedMessages != 1 {
 		t.Fatalf("the message sent while stopping must be held: %+v", snapshot.Run)
 	}
-	scheduler.ReleaseModel(profile.ID)
+	scheduler.ReleaseModel(connection.ID)
 	time.Sleep(50 * time.Millisecond)
 	if scheduler.Active(item.ID) || len(item.MessagesCopy()) != 0 {
 		t.Fatalf("a reachability release started the held message: %+v", item.MessagesCopy())
@@ -496,27 +496,27 @@ func TestAMessageSentWhileStoppingIsHeldUntilTheOperatorSendsAgain(t *testing.T)
 	}
 }
 
-// Item 2fc: runs are admitted per model profile. A profile serves one run at a
-// time unless its max_concurrent is raised; a run waiting on a busy profile
-// names the role ahead of it, and another profile's run is not held back.
-func TestRunsAreAdmittedPerProfileAndNameTheRoleAhead(t *testing.T) {
+// Item 2fc: runs are admitted per model connection. A connection serves one run at a
+// time unless its max_concurrent is raised; a run waiting on a busy connection
+// names the role ahead of it, and another connection's run is not held back.
+func TestRunsAreAdmittedPerConnectionAndNameTheRoleAhead(t *testing.T) {
 	workspace := t.TempDir()
 	cfg := config.Defaults(workspace)
 	cfg.Run.MaxConcurrent = 4
-	first := cfg.Servers[0]
+	first := cfg.Connections[0]
 	second := first
 	second.ID, second.Label = "second", "second"
-	cfg.Servers = []config.Profile{first, second}
+	cfg.Connections = []config.Connection{first, second}
 	bus := events.NewBus()
 	writers, err := events.NewWriters(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer writers.Close()
-	lookup := func(id string) (*config.Profile, bool) {
-		for index := range cfg.Servers {
-			if cfg.Servers[index].ID == id {
-				return &cfg.Servers[index], true
+	lookup := func(id string) (*config.Connection, bool) {
+		for index := range cfg.Connections {
+			if cfg.Connections[index].ID == id {
+				return &cfg.Connections[index], true
 			}
 		}
 		return nil, false
@@ -533,24 +533,24 @@ func TestRunsAreAdmittedPerProfileAndNameTheRoleAhead(t *testing.T) {
 	scheduler.active[planner.ID] = &activeRun{}
 
 	scheduler.mu.Lock()
-	sameProfile, otherProfile := scheduler.admitLocked(chat), scheduler.admitLocked(other)
+	sameConnection, otherConnection := scheduler.admitLocked(chat), scheduler.admitLocked(other)
 	data := scheduler.queuedDataLocked(chat, "r9", 1)
 	scheduler.mu.Unlock()
-	if sameProfile || !otherProfile {
-		t.Fatalf("admission: same profile=%t other profile=%t", sameProfile, otherProfile)
+	if sameConnection || !otherConnection {
+		t.Fatalf("admission: same connection=%t other connection=%t", sameConnection, otherConnection)
 	}
 	if data["behind"] != "agent_d" {
 		t.Fatalf("run.queued data = %v, want behind agent_d", data)
 	}
-	if busy, role := scheduler.ProfileBusy(first.ID); !busy || role != "agent_d" {
-		t.Fatalf("ProfileBusy = %t %q", busy, role)
+	if busy, role := scheduler.ConnectionBusy(first.ID); !busy || role != "agent_d" {
+		t.Fatalf("ConnectionBusy = %t %q", busy, role)
 	}
-	cfg.Servers[0].MaxConcurrent = 2
+	cfg.Connections[0].MaxConcurrent = 2
 	scheduler.mu.Lock()
 	raised := scheduler.admitLocked(chat)
 	scheduler.mu.Unlock()
 	if !raised {
-		t.Fatal("a raised profile limit still refused the second run")
+		t.Fatal("a raised connection limit still refused the second run")
 	}
 	cfg.Run.MaxConcurrent = 1
 	scheduler.mu.Lock()

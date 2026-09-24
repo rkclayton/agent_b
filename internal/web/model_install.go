@@ -53,21 +53,21 @@ func (s *Server) initModelInstaller() {
 func (s *Server) installedModelReady(_ context.Context, state modelinstall.State) error {
 	s.mu.Lock()
 	next := *s.cfg
-	next.Servers = append([]config.Profile(nil), s.cfg.Servers...)
-	profile := config.Profile{ID: state.ProfileID, Label: "local", BaseURL: state.BaseURL, Model: state.Model, ProbeMode: "full", AttachmentHandling: "auto"}
+	next.Connections = append([]config.Connection(nil), s.cfg.Connections...)
+	connection := config.Connection{ID: state.ConnectionID, Label: "local", BaseURL: state.BaseURL, Model: state.Model, ProbeMode: "full", AttachmentHandling: "auto"}
 	if state.Context != nil {
-		profile.Context.NCtx = state.Context.NCtx
-		profile.Context.Sizing = &config.ContextSizing{WeightsBytes: state.Context.WeightsBytes, KVBytesPerToken: state.Context.KVBytesPerToken, AvailableBytes: state.Context.AvailableBytes, ReserveBytes: state.Context.ReserveBytes}
+		connection.Context.NCtx = state.Context.NCtx
+		connection.Context.Sizing = &config.ContextSizing{WeightsBytes: state.Context.WeightsBytes, KVBytesPerToken: state.Context.KVBytesPerToken, AvailableBytes: state.Context.AvailableBytes, ReserveBytes: state.Context.ReserveBytes}
 	}
 	replaced := false
-	for index := range next.Servers {
-		if next.Servers[index].ID == profile.ID {
-			next.Servers[index] = profile
+	for index := range next.Connections {
+		if next.Connections[index].ID == connection.ID {
+			next.Connections[index] = connection
 			replaced = true
 		}
 	}
 	if !replaced {
-		next.Servers = append(next.Servers, profile)
+		next.Connections = append(next.Connections, connection)
 	}
 	config.ApplyDefaults(&next)
 	if err := next.Validate(); err != nil {
@@ -82,7 +82,7 @@ func (s *Server) installedModelReady(_ context.Context, state modelinstall.State
 	masked := next.Masked()
 	s.mu.Unlock()
 	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
-	if saved, ok := s.Profile(profile.ID); ok {
+	if saved, ok := s.Connection(connection.ID); ok {
 		s.startProbe(saved)
 	}
 	return nil

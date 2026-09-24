@@ -39,13 +39,13 @@ func TestMeasurementRunsTenBriefsAndPersistsProvenance(t *testing.T) {
 	defer model.CloseClientConnections()
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	profile := runnableTestProfile("measured")
-	profile.Label, profile.BaseURL, profile.Model, profile.RequestTimeoutS = "Measured", model.URL, "fake", 2
-	cfg.Servers = []config.Profile{profile}
+	connection := runnableTestConnection("measured")
+	connection.Label, connection.BaseURL, connection.Model, connection.RequestTimeoutS = "Measured", model.URL, "fake", 2
+	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Measured", B: "measured", Toolset: config.FullToolset()}}
 	path := filepath.Join(root, "harness.json")
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
-	server.runMeasurement(context.Background(), "measured", cfg.Servers[0])
+	server.runMeasurement(context.Background(), "measured", cfg.Connections[0])
 	state := server.measurements["measured"]
 	if state.Error != "" || state.Result == nil || state.Result.Passed != 10 || state.Result.Total != 10 || state.Result.BriefsRun != 10 || state.Result.Provenance != measurementProvenance || state.Result.Trials != 1 {
 		t.Fatalf("state=%+v", state)
@@ -73,23 +73,23 @@ func TestStoppingMeasurementCancelsCurrentBriefAndStoresPartialCount(t *testing.
 	defer model.CloseClientConnections()
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	profile := runnableTestProfile("measured")
-	profile.Label, profile.BaseURL, profile.Model, profile.RequestTimeoutS = "Measured", model.URL, "fake", 60
-	cfg.Servers = []config.Profile{profile}
+	connection := runnableTestConnection("measured")
+	connection.Label, connection.BaseURL, connection.Model, connection.RequestTimeoutS = "Measured", model.URL, "fake", 60
+	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Measured", B: "measured", Toolset: config.FullToolset()}}
 	path := filepath.Join(root, "harness.json")
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	server.measurements[profile.ID] = measureState{Running: true, Text: "Starting ten briefs"}
-	server.measureCancels[profile.ID] = cancel
-	go server.runMeasurement(ctx, profile.ID, profile)
+	server.measurements[connection.ID] = measureState{Running: true, Text: "Starting ten briefs"}
+	server.measureCancels[connection.ID] = cancel
+	go server.runMeasurement(ctx, connection.ID, connection)
 	select {
 	case <-reached:
 	case <-time.After(2 * time.Second):
 		t.Fatal("measurement did not begin its first brief")
 	}
 	response := httptest.NewRecorder()
-	server.measureProfile(response, httptest.NewRequest(http.MethodDelete, "/api/eval/measure?profile_id=measured", nil))
+	server.measureConnection(response, httptest.NewRequest(http.MethodDelete, "/api/eval/measure?connection_id=measured", nil))
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("stop status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -97,7 +97,7 @@ func TestStoppingMeasurementCancelsCurrentBriefAndStoresPartialCount(t *testing.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		server.measureMu.RLock()
-		state := server.measurements[profile.ID]
+		state := server.measurements[connection.ID]
 		server.measureMu.RUnlock()
 		if !state.Running {
 			if state.Error != "" || state.Result == nil || !state.Result.Stopped || state.Result.BriefsRun != 1 || state.Result.Total != 10 {

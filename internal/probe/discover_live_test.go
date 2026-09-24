@@ -14,11 +14,11 @@ func TestLiveDiscoverOperatorTypedHost(t *testing.T) {
 	if host == "" {
 		t.Skip("AGENTB_DISCOVERY_LIVE_HOST is not set")
 	}
-	profile := config.Defaults(t.TempDir()).Servers[0]
-	profile.BaseURL = host
+	connection := config.Defaults(t.TempDir()).Connections[0]
+	connection.BaseURL = host
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	result, err := DiscoverEndpoint(ctx, &profile)
+	result, err := DiscoverEndpoint(ctx, &connection)
 	for _, attempt := range result.Attempts {
 		t.Logf("probe.request guard=operator_typed_host_only allowed=%t base_url=%s result=%s", attempt.Allowed, attempt.BaseURL, attempt.Result)
 	}

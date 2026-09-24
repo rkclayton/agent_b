@@ -41,7 +41,7 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		}
 	})
 	cfg := config.Defaults(workspace)
-	var profile struct {
+	var connection struct {
 		Shell struct {
 			ServiceAccount struct {
 				Enabled bool `json:"enabled"`
@@ -52,10 +52,10 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read gated configuration: %v", err)
 	}
-	if err := json.Unmarshal(configBytes, &profile); err != nil {
+	if err := json.Unmarshal(configBytes, &connection); err != nil {
 		t.Fatalf("decode gated configuration: %v", err)
 	}
-	serviceSplitEnabled := profile.Shell.ServiceAccount.Enabled
+	serviceSplitEnabled := connection.Shell.ServiceAccount.Enabled
 	cfg.Shell.ServiceAccount.Enabled = serviceSplitEnabled
 	t.Logf("gate configuration: service split enabled=%t", serviceSplitEnabled)
 	guard := false

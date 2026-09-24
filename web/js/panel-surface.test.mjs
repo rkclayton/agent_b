@@ -39,9 +39,9 @@ test("Console header omits build identity and Settings owns About", () => {
 test("Settings navigation remains install-global while agent controls live on Console", () => {
   assert.doesNotMatch(settings, /\["sessions", "Sessions"\]|\["tools", "Tools"\]|\["memory", "Memory"\]|\["session", "Current session"\]/);
   assert.match(index, /id="panel-agent"/);
-  assert.match(index, /id="panel-agent-server"/);
-  assert.match(index, /id="panel-agent-server-state" role="status"/);
-  assert.match(index, /id="panel-agent-server-cancel"[^>]+hidden/);
+  assert.match(index, /id="panel-agent-connection"/);
+  assert.match(index, /id="panel-agent-connection-state" role="status"/);
+  assert.match(index, /id="panel-agent-connection-cancel"[^>]+hidden/);
   assert.match(script, /Applied \$\{agent\.b\} · pending \$\{pending\.to\}/);
   assert.match(index, /id="panel-tools"/);
   assert.match(index, /id="flush-memory"/);

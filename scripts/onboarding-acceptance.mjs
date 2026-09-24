@@ -45,7 +45,7 @@ let requestCount = 0;
 const fake = createServer(async (request, response) => {
   requestCount += 1;
   response.setHeader("Content-Type", "application/json");
-  if (request.url === "/props") return void response.end(JSON.stringify({ server: "llama.cpp", n_ctx: 32768 }));
+  if (request.url === "/props") return void response.end(JSON.stringify({ connection: "llama.cpp", n_ctx: 32768 }));
   if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: [{ id: "onboarding-fake" }, { id: "onboarding-fake-second" }] }));
   let raw = "";
   for await (const chunk of request) raw += chunk;
@@ -79,7 +79,7 @@ const fakePort = fake.address().port;
 const baseURL = `http://127.0.0.1:${args.port}`;
 
 const initial = JSON.parse(await readFile(args.config, "utf8"));
-assert.deepEqual(initial.servers, [], "fresh disposable install must start with servers:[]");
+assert.deepEqual(initial.connections, [], "fresh disposable install must start with connections:[]");
 assert.deepEqual(initial.agents, [], "fresh disposable install must start with agents:[]");
 
 const app = spawn(join(args.app, "Agent_b.exe"), ["-config", args.config, "-app-root", args.app, "-data-root", args.data], {
@@ -127,7 +127,7 @@ try {
   await page.locator('[data-action="measure"]').click();
   const measurementDeadline = Date.now() + 15000;
   while (Date.now() < measurementDeadline) {
-    const response = await fetch(`${baseURL}/api/eval/measure?profile_id=setup-model`);
+    const response = await fetch(`${baseURL}/api/eval/measure?connection_id=setup-model`);
     if (response.ok && (await response.json()).running) break;
     await sleep(50);
   }
@@ -139,8 +139,8 @@ try {
   assert.equal(state.config.agents?.[0]?.b, "setup-model");
   assert.equal(state.config.agents?.[0]?.c || "", "");
   assert.equal(state.config.agents?.[0]?.d || "", "");
-  assert.equal(state.config.servers?.[0]?.measurement?.stopped, true);
-  assert.equal(state.config.servers?.[0]?.measurement?.briefs_run, 1);
+  assert.equal(state.config.connections?.[0]?.measurement?.stopped, true);
+  assert.equal(state.config.connections?.[0]?.measurement?.briefs_run, 1);
 
   await page.goto(`${baseURL}/setup?from=settings`);
   await page.locator('[data-field="url"]').fill(`http://127.0.0.1:${fakePort}`);
@@ -158,13 +158,13 @@ try {
   await page.locator("#chat-send").click();
   await page.waitForFunction(() => document.querySelector("#chat-log")?.innerText.includes("onboarding fake response"), undefined, { timeout: 15000 });
   state = await waitJSON(`${baseURL}/api/state`);
-  assert.equal(state.config.servers?.length, 2);
+  assert.equal(state.config.connections?.length, 2);
   assert.equal(state.config.agents?.[0]?.b, "setup-model");
   assert.equal(state.config.agents?.[0]?.c, "setup-model-2");
   assert.equal(state.config.agents?.[0]?.d || "", "");
   assert.equal(Object.keys(state.sessions || {}).length, 1);
   assert.deepEqual(pageErrors, []);
-  process.stdout.write(`PASS: fresh Setup auto-selected the backend, stopped and stored one measurement brief, assigned tested profiles b then c with d empty, and reached a working chat (${requestCount} fake requests)\n`);
+  process.stdout.write(`PASS: fresh Setup auto-selected the backend, stopped and stored one measurement brief, assigned tested connections b then c with d empty, and reached a working chat (${requestCount} fake requests)\n`);
 } finally {
   await browser?.close().catch(() => {});
   await stopChild(app);

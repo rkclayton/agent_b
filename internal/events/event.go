@@ -27,7 +27,7 @@ const (
 	// startup (item 2gg). Its journal is left on disk untouched.
 	SessionRestoreFailed       = "session.restore_failed"
 	ChatExported               = "chat.exported"
-	ServerProbed               = "server.probed"
+	ConnectionProbed           = "connection.probed"
 	ProbeRequest               = "probe.request"
 	ConfigChanged              = "config.changed"
 	ShellIdentity              = "shell.identity"
@@ -102,11 +102,11 @@ const (
 const (
 	NavigationDocumentStarted   = "navigation.document_started"
 	NavigationDocumentCompleted = "navigation.document_completed"
-	AgentServerChange           = "agent.server_change"
+	AgentConnectionChange       = "agent.connection_change"
 )
 
 var Stages = []string{"assemble", "call_model", "parse", "dispatch", "execute", "append", "compact", "wait_user"}
-var StopReasons = []string{"done", "reply_empty_reasoning_shown", "reply_empty", "announced_action_and_stopped", "aborted_mid_model", "aborted_mid_tool", "aborted_mid_run", "mailbox_stop", "turn_ceiling", "wall_clock", "tool_budget", "cycle", "tool_errors", "context_ceiling", "context_exhausted", "length", "model_error", "model_unreachable", "profile_not_runnable"}
+var StopReasons = []string{"done", "reply_empty_reasoning_shown", "reply_empty", "announced_action_and_stopped", "aborted_mid_model", "aborted_mid_tool", "aborted_mid_run", "mailbox_stop", "turn_ceiling", "wall_clock", "tool_budget", "cycle", "tool_errors", "context_ceiling", "context_exhausted", "length", "model_error", "model_unreachable", "connection_not_runnable"}
 
 type ToolCall struct {
 	ID        string `json:"id"`
@@ -171,7 +171,7 @@ type ModelUsage struct {
 
 type CompactionSummaryData struct {
 	Role                  string     `json:"role"`
-	ProfileID             string     `json:"profile_id"`
+	ConnectionID          string     `json:"connection_id"`
 	Model                 string     `json:"model"`
 	Outcome               string     `json:"outcome"`
 	Reason                string     `json:"reason,omitempty"`

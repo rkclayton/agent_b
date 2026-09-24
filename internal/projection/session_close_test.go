@@ -16,7 +16,7 @@ func TestSessionClosePinReconstructsClosedStateChatAndRoleLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !snapshot.Complete || !snapshot.Closed || snapshot.AgentName != "Coder" || snapshot.BProfile != "Home API" || snapshot.CreatedAt == "" {
+	if !snapshot.Complete || !snapshot.Closed || snapshot.AgentName != "Coder" || snapshot.BConnection != "Home API" || snapshot.CreatedAt == "" {
 		t.Fatalf("lifecycle fields=%+v", snapshot)
 	}
 	if len(snapshot.Chat) < 3 || snapshot.Chat[0].Type != "user" || snapshot.Chat[1].AgentRole != "b" {

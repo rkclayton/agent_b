@@ -57,9 +57,9 @@ func TestPlanDogfoodFakeServerProposesThenAcceptsExactPlanDiff(t *testing.T) {
 	cfg := config.Defaults(repo)
 	cfg.Context.Accounting = "estimated"
 	cfg.Run.MaxConcurrent = 1
-	p := runnableTestProfile("fake")
+	p := runnableTestConnection("fake")
 	p.BaseURL = model.URL
-	cfg.Servers = []config.Profile{p}
+	cfg.Connections = []config.Connection{p}
 	cfg.Agents = []config.Agent{{Name: "Dogfood", B: "fake", D: "fake", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	writers, err := events.NewWriters(logs)
@@ -69,7 +69,7 @@ func TestPlanDogfoodFakeServerProposesThenAcceptsExactPlanDiff(t *testing.T) {
 	defer writers.Close()
 	bus.SetSink(writers.Write)
 	server := New(&cfg, filepath.Join(data, "harness.json"), repo, RuntimeRoots{Application: repo, Data: data, Workspace: repo}, bus)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	plan, _, err := registry.EnsurePlan(repo)
 	if err != nil {
@@ -90,7 +90,7 @@ func TestPlanDogfoodFakeServerProposesThenAcceptsExactPlanDiff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := agent.NewRunner(bus, toolset, renderer, server.Profile, server.ConfigSnapshot)
+	runner := agent.NewRunner(bus, toolset, renderer, server.Connection, server.ConfigSnapshot)
 	scheduler := agent.NewScheduler(runner, registry, bus, server.ConfigSnapshot)
 	server.SetRuntime(scheduler, runner, renderer)
 	if _, err := scheduler.Submit(context.Background(), item.ID, "Propose one plan edit."); err != nil {

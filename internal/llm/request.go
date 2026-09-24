@@ -7,13 +7,13 @@ import (
 	"harness/internal/config"
 )
 
-func buildRequest(profile *config.Profile, request Request, stream bool) map[string]any {
+func buildRequest(connection *config.Connection, request Request, stream bool) map[string]any {
 	request.Messages = normalizeSystemRoles(request.Messages)
-	sampling := profile.Sampling.Nonthinking
+	sampling := connection.Sampling.Nonthinking
 	if request.Thinking {
-		sampling = profile.Sampling.Thinking
+		sampling = connection.Sampling.Thinking
 	}
-	body := map[string]any{"model": profile.Model, "messages": request.Messages, "temperature": sampling.Temperature, "top_p": sampling.TopP, "presence_penalty": sampling.PresencePenalty, "max_tokens": request.MaxTokens, "stream": stream}
+	body := map[string]any{"model": connection.Model, "messages": request.Messages, "temperature": sampling.Temperature, "top_p": sampling.TopP, "presence_penalty": sampling.PresencePenalty, "max_tokens": request.MaxTokens, "stream": stream}
 	if request.MaxTokens == 0 {
 		body["max_tokens"] = config.DefaultReserveOutput
 	}
@@ -26,41 +26,41 @@ func buildRequest(profile *config.Profile, request Request, stream bool) map[str
 	if stream {
 		body["stream_options"] = map[string]any{"include_usage": true}
 	}
-	if profile.Capabilities.Server == "llama.cpp" {
+	if connection.Capabilities.Server == "llama.cpp" {
 		body["top_k"] = sampling.TopK
 		body["min_p"] = sampling.MinP
 		body["repeat_penalty"] = sampling.RepeatPenalty
 		body["cache_prompt"] = true
 		body["return_progress"] = true
 	}
-	control := profile.Reasoning.Control
+	control := connection.Reasoning.Control
 	if control == "auto" {
-		control = profile.Capabilities.ReasoningControl
+		control = connection.Capabilities.ReasoningControl
 	}
-	effortAllowed := len(profile.Reasoning.ValidEfforts) > 0 && contains(profile.Reasoning.ValidEfforts, profile.Reasoning.Effort)
+	effortAllowed := len(connection.Reasoning.ValidEfforts) > 0 && contains(connection.Reasoning.ValidEfforts, connection.Reasoning.Effort)
 	switch control {
 	case "chat_template_kwargs":
-		kwargs := map[string]any{"enable_thinking": profile.Reasoning.Enabled, "preserve_thinking": profile.Reasoning.Preserve}
+		kwargs := map[string]any{"enable_thinking": connection.Reasoning.Enabled, "preserve_thinking": connection.Reasoning.Preserve}
 		if effortAllowed {
-			kwargs["reasoning_effort"] = profile.Reasoning.Effort
+			kwargs["reasoning_effort"] = connection.Reasoning.Effort
 		}
-		if profile.Reasoning.MaxTokens > 0 {
-			kwargs["reasoning_budget"] = profile.Reasoning.MaxTokens
+		if connection.Reasoning.MaxTokens > 0 {
+			kwargs["reasoning_budget"] = connection.Reasoning.MaxTokens
 		}
 		body["chat_template_kwargs"] = kwargs
 	case "top_level":
 		if effortAllowed {
-			body["reasoning_effort"] = profile.Reasoning.Effort
+			body["reasoning_effort"] = connection.Reasoning.Effort
 		}
-		if profile.Reasoning.MaxTokens > 0 {
-			body["reasoning_budget"] = profile.Reasoning.MaxTokens
+		if connection.Reasoning.MaxTokens > 0 {
+			body["reasoning_budget"] = connection.Reasoning.MaxTokens
 		}
 	}
 	return body
 }
 
 // normalizeSystemRoles keeps the request contract accepted by strict chat
-// servers: zero or one system message, and when present it is message zero.
+// connections: zero or one system message, and when present it is message zero.
 // Durable history is not rewritten; historical harness notes are represented
 // as explicit assistant context only in the outbound request.
 func normalizeSystemRoles(messages []Message) []Message {
@@ -87,8 +87,8 @@ func logSystemRoleViolation(messages []Message, status int) {
 	}
 }
 
-func BuildRequest(profile *config.Profile, request Request, stream bool) map[string]any {
-	return buildRequest(profile, request, stream)
+func BuildRequest(connection *config.Connection, request Request, stream bool) map[string]any {
+	return buildRequest(connection, request, stream)
 }
 func contains(values []string, want string) bool {
 	for _, v := range values {

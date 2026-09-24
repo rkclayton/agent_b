@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	logonWithProfile         = 0x00000001
+	logonWithConnection      = 0x00000001
 	createSuspended          = 0x00000004
 	createNewProcessGroup    = 0x00000200
 	createUnicodeEnvironment = 0x00000400
@@ -162,7 +162,7 @@ func startServiceAccountProcessWithInput(executable string, argv []string, works
 	startup := syscall.StartupInfo{Cb: uint32(unsafe.Sizeof(syscall.StartupInfo{})), Flags: startfUseStdHandles, StdInput: stdinRead, StdOutput: outputWrite, StdErr: outputWrite}
 	var process syscall.ProcessInformation
 	result, _, callErr := procCreateProcessWithLogonW.Call(
-		uintptr(unsafe.Pointer(userPtr)), uintptr(unsafe.Pointer(domainPtr)), uintptr(unsafe.Pointer(&passwordUTF16[0])), logonWithProfile,
+		uintptr(unsafe.Pointer(userPtr)), uintptr(unsafe.Pointer(domainPtr)), uintptr(unsafe.Pointer(&passwordUTF16[0])), logonWithConnection,
 		uintptr(unsafe.Pointer(applicationPtr)), uintptr(unsafe.Pointer(&commandLine[0])),
 		createSuspended|createNewProcessGroup|createUnicodeEnvironment|createNoWindow,
 		uintptr(unsafe.Pointer(&environmentBlock[0])), uintptr(unsafe.Pointer(directoryPtr)),

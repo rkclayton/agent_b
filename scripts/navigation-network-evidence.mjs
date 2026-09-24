@@ -76,7 +76,7 @@ try {
   await mkdir(evidenceRoot, { recursive: false });
   const modelPort = await freePort();
   model = createServer(async (request, response) => {
-    if (request.url === "/props") return void response.end(JSON.stringify({ server: "navigation-network-evidence", n_ctx: 32768 }));
+    if (request.url === "/props") return void response.end(JSON.stringify({ connection: "navigation-network-evidence", n_ctx: 32768 }));
     if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: [{ id: "navigation-network-evidence" }] }));
     if (request.url === "/tokenize") return void response.end(JSON.stringify({ tokens: [1] }));
     if (request.url === "/apply-template") return void response.end(JSON.stringify({ prompt: "navigation network evidence" }));
@@ -89,10 +89,10 @@ try {
   const appPort = await freePort();
   const config = {
     config_version: 6, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(dataRoot, "logs"),
-    servers: [{ id: "navigation", label: "Navigation", base_url: `http://127.0.0.1:${modelPort}`, model: "navigation-network-evidence", credential: "", request_timeout_s: 3, probe_mode: "off",
+    connections: [{ id: "navigation", label: "Navigation", base_url: `http://127.0.0.1:${modelPort}`, model: "navigation-network-evidence", credential: "", request_timeout_s: 3, probe_mode: "off",
       sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
       reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false }, context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
-      capabilities: { server: "navigation-network-evidence", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["navigation network evidence fixture"] } }],
+      capabilities: { connection: "navigation-network-evidence", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["navigation network evidence fixture"] } }],
     services: {}, agents: [{ name: "Navigation", b: "navigation", toolset }], chat: { auto_rename: false },
     run: { max_turns: 4, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 1, queue_depth: 0 }, approval: { mode: "boundary-only" },
     deliver: { mode: "chips", exchange_folder: join(dataRoot, "exchange") }, operator_files: { allow_mailbox_approvals: false, log_retention_days: 30 },
@@ -124,10 +124,10 @@ try {
   for (let trial = 1; trial <= trials; trial += 1) {
     const before = await readTape();
     const debugPort = await freePort();
-    const profile = join(tempRoot, `edge-${trial}`);
+    const connection = join(tempRoot, `edge-${trial}`);
     const ready = join(tempRoot, `collector-${trial}.ready`);
     const initialURL = `${base}/chat?session=main`;
-    const driverProcess = spawnPowerShell(["-Url", initialURL, "-OffsetsJson", JSON.stringify(offsets), "-RemoteDebuggingPort", String(debugPort), "-UserDataDirectory", profile, "-CollectorReadyPath", ready, "-PostCadenceSeconds", String(postCadenceSeconds)]);
+    const driverProcess = spawnPowerShell(["-Url", initialURL, "-OffsetsJson", JSON.stringify(offsets), "-RemoteDebuggingPort", String(debugPort), "-UserDataDirectory", connection, "-CollectorReadyPath", ready, "-PostCadenceSeconds", String(postCadenceSeconds)]);
     children.push(driverProcess);
     const driverPromise = collectProcess(driverProcess);
     const endpoint = `http://127.0.0.1:${debugPort}`;
@@ -200,10 +200,10 @@ try {
     build: initial.build,
     fidelity: {
       production_browser_arguments: ["--app=<url>"],
-      evidence_browser_arguments: ["--app=<disposable-url>", "--remote-debugging-port=<port>", "--remote-allow-origins=*", "--user-data-dir=<isolated-temp-profile>", "--no-first-run", "--no-default-browser-check", "--disable-background-mode"],
+      evidence_browser_arguments: ["--app=<disposable-url>", "--remote-debugging-port=<port>", "--remote-allow-origins=*", "--user-data-dir=<isolated-temp-connection>", "--no-first-run", "--no-default-browser-check", "--disable-background-mode"],
       same_coordinate_driver_logic: true,
       original_coordinate_harness_unchanged: true,
-      differences: ["remote debugging and its required isolated profile", "disposable Agent_b server, data root, model endpoint, and URL/port", "window moved after launch to make a stable physical coordinate"],
+      differences: ["remote debugging and its required isolated connection", "disposable Agent_b server, data root, model endpoint, and URL/port", "window moved after launch to make a stable physical coordinate"],
     },
     w1_reproduction_from_app_tape: { ...reproduction, reproduced: reproduction.trials_with_incomplete > 0 },
     runs,

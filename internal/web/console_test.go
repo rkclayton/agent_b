@@ -21,7 +21,7 @@ func consoleServer(t *testing.T) (*Server, *session.Registry, *events.Writers, *
 	root := t.TempDir()
 	cfg := config.Defaults(filepath.Join(root, "workspace"))
 	cfg.Memory.Dir = filepath.Join(root, "memory")
-	cfg.Servers[0] = runnableTestProfile("local")
+	cfg.Connections[0] = runnableTestConnection("local")
 	cfg.Agents = []config.Agent{{Name: "Coder", B: "local", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	writers, err := events.NewWriters(filepath.Join(root, "logs"))
@@ -30,7 +30,7 @@ func consoleServer(t *testing.T) (*Server, *session.Registry, *events.Writers, *
 	}
 	bus.SetSink(writers.Write)
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
-	registry := session.NewRegistry(bus, writers, server.Profile, 40, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, 40, server.ConfigSnapshot)
 	memories := memory.New(root, server.ConfigSnapshot, func(context.Context, string, string) (int, error) { return 0, nil })
 	registry.SetMemoryLoader(memories.Load)
 	registry.SetAgentMemoryLoader(memories.LoadAgent)

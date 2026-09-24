@@ -61,7 +61,7 @@ func TestAttachmentIngestLiveServiceSplit(t *testing.T) {
 		attempt := requests.Add(1)
 		if attempt == 1 {
 			text := string(encoded)
-			sawLabels.Store(strings.Contains(text, "attached: attachments/note.txt") && strings.Contains(text, "attachments/brief.docx.txt") && strings.Contains(text, "binary — this profile cannot read it"))
+			sawLabels.Store(strings.Contains(text, "attached: attachments/note.txt") && strings.Contains(text, "attachments/brief.docx.txt") && strings.Contains(text, "binary — this connection cannot read it"))
 			writeLiveModelChunk(w, map[string]any{
 				"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "call-read", "type": "function", "function": map[string]any{"name": "read_file", "arguments": `{"path":"attachments/note.txt"}`}}}}, "finish_reason": "tool_calls"}},
 				"usage":   map[string]any{"prompt_tokens": 60, "completion_tokens": 10},
@@ -78,13 +78,13 @@ func TestAttachmentIngestLiveServiceSplit(t *testing.T) {
 	cfg := config.Defaults(workspace)
 	cfg.Context.Accounting = "estimated"
 	cfg.Shell.ServiceAccount = config.ShellServiceAccount{Enabled: true, Account: account, Domain: "."}
-	cfg.Servers[0].ID = "live"
-	cfg.Servers[0].Model = "fake-model"
-	cfg.Servers[0].BaseURL = model.URL
-	cfg.Servers[0].Context.NCtx = 32768
-	cfg.Servers[0].Capabilities.Streaming = true
-	cfg.Servers[0].Capabilities.ToolCalls = true
-	cfg.Servers[0].Capabilities.OverflowBehavior = "error"
+	cfg.Connections[0].ID = "live"
+	cfg.Connections[0].Model = "fake-model"
+	cfg.Connections[0].BaseURL = model.URL
+	cfg.Connections[0].Context.NCtx = 32768
+	cfg.Connections[0].Capabilities.Streaming = true
+	cfg.Connections[0].Capabilities.ToolCalls = true
+	cfg.Connections[0].Capabilities.OverflowBehavior = "error"
 	cfg.Agents = []config.Agent{{Name: "Live", B: "live", Toolset: config.FullToolset()}}
 
 	temporary := t.TempDir()
@@ -99,7 +99,7 @@ func TestAttachmentIngestLiveServiceSplit(t *testing.T) {
 	root, _ := filepath.Abs(filepath.Join("..", ".."))
 	server := New(&cfg, filepath.Join(temporary, "harness.json"), filepath.Join(root, "web"), RuntimeRoots{Application: root, Data: temporary, Workspace: workspace}, bus)
 	server.SetProjection(projector, writers)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	credentialStore := credential.New(dataRoot)
 	fileIdentity := tools.NewFileIdentity(credentialStore)
@@ -109,7 +109,7 @@ func TestAttachmentIngestLiveServiceSplit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := agent.NewRunner(bus, toolRegistry, renderer, server.Profile, server.ConfigSnapshot)
+	runner := agent.NewRunner(bus, toolRegistry, renderer, server.Connection, server.ConfigSnapshot)
 	scheduler := agent.NewScheduler(runner, registry, bus, server.ConfigSnapshot)
 	server.SetRuntime(scheduler, runner, renderer)
 	item, err := registry.Create("main", "live", workspace)

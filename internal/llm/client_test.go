@@ -18,7 +18,7 @@ func TestChatStreamRejectsMalformedChunk(t *testing.T) {
 		_, _ = w.Write([]byte("data: {not-json}\n\ndata: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	client := New(&config.Profile{BaseURL: server.URL, RequestTimeoutS: 5})
+	client := New(&config.Connection{BaseURL: server.URL, RequestTimeoutS: 5})
 	if _, err := client.ChatStream(context.Background(), Request{}, func(Delta) {}); err == nil || !strings.Contains(err.Error(), "decode chat stream chunk") {
 		t.Fatalf("malformed stream error=%v", err)
 	}
@@ -31,7 +31,7 @@ func TestTransportErrorsDistinguishDialFromConnectedDeadline(t *testing.T) {
 	}
 	address := listener.Addr().String()
 	_ = listener.Close()
-	dialClient := New(&config.Profile{BaseURL: "http://" + address, RequestTimeoutS: 1})
+	dialClient := New(&config.Connection{BaseURL: "http://" + address, RequestTimeoutS: 1})
 	if _, _, err := dialClient.DoJSON(context.Background(), http.MethodGet, "/props", nil); TransportKindOf(err) != TransportDial {
 		t.Fatalf("dial error kind=%q err=%v", TransportKindOf(err), err)
 	}
@@ -40,7 +40,7 @@ func TestTransportErrorsDistinguishDialFromConnectedDeadline(t *testing.T) {
 		<-request.Context().Done()
 	}))
 	defer connected.Close()
-	connectedClient := New(&config.Profile{BaseURL: connected.URL, RequestTimeoutS: 1})
+	connectedClient := New(&config.Connection{BaseURL: connected.URL, RequestTimeoutS: 1})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	if _, _, err := connectedClient.DoJSON(ctx, http.MethodGet, "/props", nil); TransportKindOf(err) != TransportConnected {
@@ -54,7 +54,7 @@ func TestChatStreamRejectsEmptyStream(t *testing.T) {
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	client := New(&config.Profile{BaseURL: server.URL, RequestTimeoutS: 5})
+	client := New(&config.Connection{BaseURL: server.URL, RequestTimeoutS: 5})
 	if _, err := client.ChatStream(context.Background(), Request{}, func(Delta) {}); err == nil || !strings.Contains(err.Error(), "no decodable chunks") {
 		t.Fatalf("empty stream error=%v", err)
 	}

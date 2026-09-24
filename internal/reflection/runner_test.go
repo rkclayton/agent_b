@@ -80,7 +80,7 @@ func TestARunIsSummarisedAndRecorded(t *testing.T) {
 	runner := &Runner{
 		Store:       store,
 		SessionLogs: func(string) []string { return []string{path} },
-		Call: func(_ context.Context, profile, system, user string) (string, error) {
+		Call: func(_ context.Context, connection, system, user string) (string, error) {
 			sawSystem, sawUser = system, user
 			return "```json\n{\"files_read\":[\"guard.go\"],\"files_written\":[\"guard.go\"],\"changed\":\"tightened the routing guard\",\"open\":\"the eval is carded\",\"text\":\"Read and rewrote the guard.\"}\n```", nil
 		},
@@ -95,8 +95,8 @@ func TestARunIsSummarisedAndRecorded(t *testing.T) {
 	if len(summary.Written) != 1 || summary.Written[0] != "guard.go" {
 		t.Fatalf("written = %v", summary.Written)
 	}
-	if !strings.Contains(summary.Text, "no aux profile is configured") {
-		t.Fatalf("a summary from the run's own profile must say so: %q", summary.Text)
+	if !strings.Contains(summary.Text, "no aux connection is configured") {
+		t.Fatalf("a summary from the run's own connection must say so: %q", summary.Text)
 	}
 	if !strings.Contains(sawSystem, "JSON only") || !strings.Contains(sawUser, "fix the guard") || strings.Contains(sawUser, "elsewhere.go") {
 		t.Fatalf("prompt did not carry this run only:\n%s", sawUser)

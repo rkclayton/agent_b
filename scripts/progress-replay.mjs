@@ -63,7 +63,7 @@ export function markdown(report) {
     "|---|---:|---:|---:|---:|---:|",
     ...report.detector_table.map((row) => `| ${row.detector} | ${row.available} | ${row.passed_fires} | ${row.failed_fires} | ${row.total_fires} | ${percent(row.implied_precision)} |`),
     "",
-    "Aux progress is unavailable because the tapes contain no aux-profile verdict. Precision treats a failed run as the positive class; these guessed thresholds are descriptive tuning evidence, not an enforcement decision.",
+    "Aux progress is unavailable because the tapes contain no aux-connection verdict. Precision treats a failed run as the positive class; these guessed thresholds are descriptive tuning evidence, not an enforcement decision.",
     "",
     `## Tool-error stops (${report.tool_error_stops.length})`,
     "",

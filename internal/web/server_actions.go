@@ -91,7 +91,7 @@ func (s *Server) cancelProbes(sessionID string, all bool) {
 		return
 	}
 	if item, ok := s.registry.Get(sessionID); ok {
-		if probe := s.probeCancels[item.ServerID]; probe != nil {
+		if probe := s.probeCancels[item.ConnectionID]; probe != nil {
 			probe.cancel()
 		}
 	}
@@ -269,8 +269,8 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) agentAction(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/agents/"), "/"), "/")
-	if len(parts) == 2 && parts[1] == "server" {
-		s.agentServer(w, r, parts[0])
+	if len(parts) == 2 && parts[1] == "connection" {
+		s.agentConnection(w, r, parts[0])
 		return
 	}
 	if len(parts) != 3 || parts[1] != "memory" || parts[2] != "flush" || r.Method != http.MethodPost {

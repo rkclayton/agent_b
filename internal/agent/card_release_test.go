@@ -16,7 +16,7 @@ import (
 	"harness/internal/tools"
 )
 
-// cardRig is two chats on one model profile (limit one) whose every run asks
+// cardRig is two chats on one model connection (limit one) whose every run asks
 // for list_dir under approval mode "all", so each run pauses on a card.
 type cardRig struct {
 	t         *testing.T
@@ -57,12 +57,12 @@ func newCardRig(t *testing.T) *cardRig {
 	cfg.Context.Accounting = "estimated"
 	cfg.Approval.Mode = config.ApprovalModeAll
 	cfg.Run.MaxConcurrent = 2
-	profile := cfg.Servers[0]
-	profile.ID, profile.BaseURL, profile.Model = "main", model.URL, "fake"
-	profile.Context.NCtx, profile.Context.ReserveOutput = 32768, 8192
-	profile.Capabilities.Streaming, profile.Capabilities.ToolCalls = true, true
-	profile.Capabilities.OverflowBehavior = "error"
-	cfg.Servers = []config.Profile{profile}
+	connection := cfg.Connections[0]
+	connection.ID, connection.BaseURL, connection.Model = "main", model.URL, "fake"
+	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+	connection.Capabilities.OverflowBehavior = "error"
+	cfg.Connections = []config.Connection{connection}
 	rig := &cardRig{t: t, cards: map[string]string{}, stopped: map[string]int{}, queuedFor: map[string]map[string]any{}, changed: make(chan struct{}, 64)}
 	bus := events.NewBus()
 	bus.SetSink(func(event events.Event) error {
@@ -90,11 +90,11 @@ func newCardRig(t *testing.T) *cardRig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { writers.Close() })
-	lookup := func(id string) (*config.Profile, bool) { return &profile, id == profile.ID }
+	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
 	current := func() config.Config { return cfg }
 	registry := session.NewRegistry(bus, writers, lookup, cfg.Run.MaxTurns, current)
-	rig.a, _ = registry.Create("a", profile.ID, workspace)
-	rig.b, _ = registry.Create("b", profile.ID, workspace)
+	rig.a, _ = registry.Create("a", connection.ID, workspace)
+	rig.b, _ = registry.Create("b", connection.ID, workspace)
 	if rig.a == nil || rig.b == nil {
 		t.Fatal("sessions were not created")
 	}
@@ -134,7 +134,7 @@ func (rig *cardRig) answer(item *session.Session) {
 }
 
 // Item 2fs: a run paused on an unanswered card holds no model slot, so another
-// chat on the same profile runs; answering re-acquires the slot. The v0.70.2/W1
+// chat on the same connection runs; answering re-acquires the slot. The v0.70.2/W1
 // question — can re-acquiring deadlock with a queued run that raises its own
 // card? — is answered by driving exactly that: B is admitted while A waits,
 // B pauses on its own card, and the two are answered in both orders.
@@ -207,20 +207,20 @@ func TestAnAnsweredRunIsNotHeldBehindAWaiterForAnotherModel(t *testing.T) {
 	workspace := t.TempDir()
 	cfg := config.Defaults(workspace)
 	cfg.Run.MaxConcurrent = 4
-	first := cfg.Servers[0]
+	first := cfg.Connections[0]
 	second := first
 	second.ID, second.Label = "second", "second"
-	cfg.Servers = []config.Profile{first, second}
+	cfg.Connections = []config.Connection{first, second}
 	bus := events.NewBus()
 	writers, err := events.NewWriters(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer writers.Close()
-	lookup := func(id string) (*config.Profile, bool) {
-		for index := range cfg.Servers {
-			if cfg.Servers[index].ID == id {
-				return &cfg.Servers[index], true
+	lookup := func(id string) (*config.Connection, bool) {
+		for index := range cfg.Connections {
+			if cfg.Connections[index].ID == id {
+				return &cfg.Connections[index], true
 			}
 		}
 		return nil, false

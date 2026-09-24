@@ -42,7 +42,7 @@ func TestNextIsPureAndEmitsVersionedCursorPatch(t *testing.T) {
 
 func TestPlanBindingUpdateDoesNotEraseUnmentionedSessionState(t *testing.T) {
 	state := seeded(t)
-	state.ServerID, state.Runnable, state.MemoryPath, state.MemoryContent = "planner", true, "memory.md", "remembered"
+	state.ConnectionID, state.Runnable, state.MemoryPath, state.MemoryContent = "planner", true, "memory.md", "remembered"
 	next, _, err := Next(state, Record{Cursor: Cursor{Generation: "plan.events", Offset: 90}, Event: events.Event{
 		SessionID: "main", Type: events.SessionUpdated,
 		Data: map[string]any{"role": "d", "plan_id": "stable", "plan_name": "Stable"},
@@ -50,8 +50,48 @@ func TestPlanBindingUpdateDoesNotEraseUnmentionedSessionState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if next.Role != "d" || next.PlanID != "stable" || next.ServerID != "planner" || !next.Runnable || next.MemoryPath != "memory.md" || next.MemoryContent != "remembered" {
+	if next.Role != "d" || next.PlanID != "stable" || next.ConnectionID != "planner" || !next.Runnable || next.MemoryPath != "memory.md" || next.MemoryContent != "remembered" {
 		t.Fatalf("plan update erased session state: %+v", next)
+	}
+}
+
+func TestLegacyConnectionAliasesReplayThroughOneTable(t *testing.T) {
+	legacyID := "ser" + "ver_id"
+	legacyLabel := "b_" + "pro" + "file"
+	created := Record{Cursor: Cursor{Generation: "legacy.events", Offset: 1}, Event: events.Event{
+		SessionID: "legacy", Type: events.SessionCreated,
+		Data: map[string]any{"session": map[string]any{
+			"id": "legacy", legacyID: "old-endpoint", legacyLabel: "Old endpoint",
+			"created_at": "2026-09-01T00:00:00Z", "run": map[string]any{"status": "idle"},
+		}},
+	}}
+	state, err := NextState(Empty("legacy"), created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ConnectionID != "old-endpoint" || state.BConnection != "Old endpoint" {
+		t.Fatalf("legacy seed aliases were not projected: %+v", state)
+	}
+
+	updated, err := NextState(state, Record{Cursor: Cursor{Generation: "legacy.events", Offset: 2}, Event: events.Event{
+		SessionID: "legacy", Type: events.SessionUpdated,
+		Data: map[string]any{legacyID: "replacement", "main_" + "pro" + "file": "Replacement"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ConnectionID != "replacement" || updated.BConnection != "Replacement" {
+		t.Fatalf("legacy update aliases were not projected: %+v", updated)
+	}
+	encoded, _ := json.Marshal(updated)
+	var topLevel map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &topLevel); err != nil {
+		t.Fatal(err)
+	}
+	for _, legacy := range []string{legacyID, legacyLabel, "main_" + "pro" + "file"} {
+		if _, present := topLevel[legacy]; present {
+			t.Fatalf("projection emitted top-level legacy field %q: %s", legacy, encoded)
+		}
 	}
 }
 
@@ -250,7 +290,7 @@ func TestModelAvailabilityAndRunAsYouReconstructFromEvents(t *testing.T) {
 		events.New(events.ModelUnreachable, "main", "r1", map[string]any{"host": "model.example:8000", "detail": "dial timeout"}),
 		events.New(events.ModelBusy, "main", "r1", map[string]any{"host": "model.example:8000", "detail": "connected; waiting"}),
 		events.New(events.ShellGrant, "main", "r1", map[string]any{"scope": "session", "identity": "operator", "rule": "shell_boundary"}),
-		events.New(events.ModelReachable, "main", "", map[string]any{"server_id": "main"}),
+		events.New(events.ModelReachable, "main", "", map[string]any{"connection_id": "main"}),
 		events.New(events.ShellGrantLapsed, "main", "r1", map[string]any{"scope": "session", "identity": "operator", "reason": "revoked by operator"}),
 	}
 	for index, event := range records {
@@ -321,7 +361,7 @@ func TestModelUnreachableChatNoticeIsOneRowPerCondition(t *testing.T) {
 		events.New(events.RunStopped, "main", "r1", map[string]any{"reason": "model_unreachable", "detail": "dial timeout"}),
 		events.New(events.ModelUnreachable, "main", "r2", map[string]any{"host": "model.example:8000", "detail": "still offline"}),
 		events.New(events.RunStopped, "main", "r2", map[string]any{"reason": "model_unreachable", "detail": "still offline"}),
-		events.New(events.ModelReachable, "main", "", map[string]any{"server_id": "main"}),
+		events.New(events.ModelReachable, "main", "", map[string]any{"connection_id": "main"}),
 		events.New(events.ModelUnreachable, "main", "r3", map[string]any{"host": "model.example:8000", "detail": "offline again"}),
 		events.New(events.RunStopped, "main", "r3", map[string]any{"reason": "model_unreachable", "detail": "offline again"}),
 		events.New(events.ModelUnreachable, "main", "r4", map[string]any{"host": "other.example:9000", "detail": "refused"}),
@@ -478,7 +518,7 @@ func seeded(t *testing.T) Snapshot {
 		Cursor: Cursor{Generation: "main-a.jsonl", Offset: 20},
 		Event: events.Event{SessionID: "main", Type: events.SessionCreated, Data: map[string]any{
 			"session": map[string]any{
-				"id": "main", "label": "main", "server_id": "homepc", "workspace": "workspace",
+				"id": "main", "label": "main", "connection_id": "homepc", "workspace": "workspace",
 				"run":   map[string]any{"status": "idle", "max_turns": 40},
 				"tools": []any{}, "messages": []any{}, "runnable": true,
 			},

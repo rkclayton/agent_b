@@ -44,14 +44,14 @@ let notificationAlarm = false;
 let settingsSaving = false;
 let settingsSaveMessage = "All changes saved";
 let settingsSaveAlarm = false;
-let activeSection = "servers";
+let activeSection = "connections";
 // The view another document was on when it sent us here; "" when the sheet was
 // opened from inside this one, where it closes onto the chat beneath it.
 let openedFrom = "";
-let hardeningServerID = "";
+let hardeningConnectionID = "";
 let workspaceState = [];
 let operatorFileState = { attachment_files: 0, attachment_bytes: 0, instruction_found: [] };
-const serverProfiles = () => Array.isArray(store.servers) ? store.servers : [];
+const connectionList = () => Array.isArray(store.connections) ? store.connections : [];
 
 // Item 2gk: Agents and Activity are where the page that used to stand on its
 // own now lives. They come first because they are what the operator opened
@@ -59,7 +59,7 @@ const serverProfiles = () => Array.isArray(store.servers) ? store.servers : [];
 const sectionLabels = [
   ["agents", "Agents"],
   ["activity", "Activity"],
-  ["servers", "Connections"],
+  ["connections", "Connections"],
   ["context", "Context"],
   ["run", "Run & approval"],
   ["delivery", "Delivery"],
@@ -102,11 +102,11 @@ export function initSettings(entry = {}) {
   });
   subscribe((_state, event) => {
 	if (event.type === "notification.changed") notificationStatus = event.data || notificationStatus;
-    if (event.type === "server.probed") {
-      const profileID = event.data?.server_id || "";
+    if (event.type === "connection.probed") {
+      const connectionID = event.data?.connection_id || "";
       const findings = event.data?.capabilities?.findings || event.data?.findings || [];
       const failed = findings.find((value) => String(value).startsWith("probe failed:"));
-      probeMessages.set(profileID, { ...(probeMessages.get(profileID) || {}), message: failed ? `Test failed — ${String(failed).slice(13).trim()}` : "Test passed", alarm: !!failed });
+      probeMessages.set(connectionID, { ...(probeMessages.get(connectionID) || {}), message: failed ? `Test failed — ${String(failed).slice(13).trim()}` : "Test passed", alarm: !!failed });
     }
     if (
       open && (
@@ -119,9 +119,9 @@ export function initSettings(entry = {}) {
 		"update.changed",
 		"shell.identity",
 		"shell.credential",
-        "server.probed",
+        "connection.probed",
       ].includes(event.type) || (event.type === "projection.patch" && (event.data?.operations || []).some((operation) =>
-        ["/label", "/agent_id", "/server_id", "/agent_name", "/b_profile", "/role", "/plan_id", "/plan_name", "/runnable", "/not_runnable_reason", "/tools", "/memory_path", "/memory_content", "/agent_memory_path", "/agent_memory_content", "/budget", "/closed"].includes(operation.path))))
+        ["/label", "/agent_id", "/connection_id", "/agent_name", "/b_connection", "/role", "/plan_id", "/plan_name", "/runnable", "/not_runnable_reason", "/tools", "/memory_path", "/memory_content", "/agent_memory_path", "/agent_memory_content", "/budget", "/closed"].includes(operation.path))))
     )
       render();
     if (open && event.type === "snapshot") {
@@ -202,7 +202,7 @@ function render() {
     // seat and the nodes are moved into it below.
     agents: () => '<div data-adopt="agents-panel"></div>',
     activity: () => '<div data-adopt="activity-panel"></div>',
-    servers: () => renderConnectionsPage(settingsPageContext(active)),
+    connections: () => renderConnectionsPage(settingsPageContext(active)),
     sessions: () => renderGeneralPage("sessions", active, settingsPageContext(active)),
     tools: () => renderGeneralPage("tools", active, settingsPageContext(active)),
     memory: () => renderGeneralPage("memory", active, settingsPageContext(active)),
@@ -278,10 +278,10 @@ function settingsPageContext(active) {
     active, store, expanded, armed, drafts, errors, probeMessages, workspaceState, operatorFileState,
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
-    hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, serverProfiles,
+    hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, connectionList,
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm,
     row, subhead, field, text, number, numberControl, textarea, secret, toggle, choices, approvalChoices,
-    copyRow, currentValue, issue, profileReason, html, attr, selectedHardeningServerID, operatorStatusView,
+    copyRow, currentValue, issue, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView,
   };
 }
 
@@ -414,7 +414,7 @@ async function click(event) {
     history.replaceState(null, "", `#settings/${activeSection}`);
     return render();
   }
-  if (action === "profile-toggle") {
+  if (action === "connection-toggle") {
     const wasOpen = expanded.has(id);
     expanded.clear();
     if (!wasOpen) expanded.add(id);
@@ -448,15 +448,15 @@ async function click(event) {
     return render();
   }
   if (action === "probe") {
-    const pendingPrefix = `servers.${id}.`;
-    const profile = serverProfiles().find((x) => x.id === id);
-    if (profile) profile._probing = true;
+    const pendingPrefix = `connections.${id}.`;
+    const connection = connectionList().find((x) => x.id === id);
+    if (connection) connection._probing = true;
     probeMessages.set(id, { message: "Testing…", alarm: false });
     render();
     try {
-      const discovered = await api(`/api/servers/${encodeURIComponent(id)}/probe`, {
-        base_url: current(`${pendingPrefix}base_url`, profile?.base_url || ""),
-        model: current(`${pendingPrefix}model`, profile?.model || ""),
+      const discovered = await api(`/api/connections/${encodeURIComponent(id)}/probe`, {
+        base_url: current(`${pendingPrefix}base_url`, connection?.base_url || ""),
+        model: current(`${pendingPrefix}model`, connection?.model || ""),
       });
       const needsModel = discovered.status === "model_required";
       if (discovered.changes?.base_url) {
@@ -475,16 +475,16 @@ async function click(event) {
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
       render();
     } catch (error) {
-      if (profile) profile._probing = false;
-      errors.set(`servers.${id}`, error.message);
+      if (connection) connection._probing = false;
+      errors.set(`connections.${id}`, error.message);
       probeMessages.set(id, { message: `Test failed — ${error.message}`, alarm: true });
       render();
     }
     return;
   }
-  if (action === "add-server") return addServer();
-  if (action === "duplicate-server") return duplicateServer(id);
-  if (action === "remove-server") return removeServer(id);
+  if (action === "add-connection") return addConnection();
+  if (action === "duplicate-connection") return duplicateConnection(id);
+  if (action === "remove-connection") return removeConnection(id);
   if (action === "new-session") return newSession();
   if (action === "close-session") return closeSession(id);
   if (action === "reset-session") return resetSession(id);
@@ -579,25 +579,25 @@ async function refreshServiceAccountStatus(preserveMessage = false) {
 	if (open) render();
 }
 
-function selectedHardeningServerID() {
-	const ready = serverProfiles().filter((profile) => !profileReason(profile));
-	if (ready.some((profile) => profile.id === hardeningServerID)) return hardeningServerID;
-	const activeID = store.sessions[store.active]?.server_id;
-	hardeningServerID = ready.some((profile) => profile.id === activeID) ? activeID : ready[0]?.id || "";
-	return hardeningServerID;
+function selectedHardeningConnectionID() {
+	const ready = connectionList().filter((connection) => !connectionReason(connection));
+	if (ready.some((connection) => connection.id === hardeningConnectionID)) return hardeningConnectionID;
+	const activeID = store.sessions[store.active]?.connection_id;
+	hardeningConnectionID = ready.some((connection) => connection.id === activeID) ? activeID : ready[0]?.id || "";
+	return hardeningConnectionID;
 }
 
 async function refreshHardeningStatus(preserveMessage = false) {
-	const serverID = selectedHardeningServerID();
-	if (!serverID) {
+	const connectionID = selectedHardeningConnectionID();
+	if (!connectionID) {
 		hardeningStatus = { loaded: true, supported: true, applied: false };
-		hardeningMessage = "select a model profile before applying host protections";
+		hardeningMessage = "select a model connection before applying host protections";
 		hardeningAlarm = true;
 		if (open) render();
 		return;
 	}
 	try {
-		const status = await api(`/api/hardening?server_id=${encodeURIComponent(serverID)}`, undefined, "GET");
+		const status = await api(`/api/hardening?connection_id=${encodeURIComponent(connectionID)}`, undefined, "GET");
 		hardeningStatus = { ...status, loaded: true };
 		const operation = status.operation || {};
 		hardeningBusy = operation.state === "running";
@@ -617,8 +617,8 @@ async function refreshHardeningStatus(preserveMessage = false) {
 }
 
 async function hardeningAction(action) {
-	const serverID = selectedHardeningServerID();
-	if (!serverID) {
+	const connectionID = selectedHardeningConnectionID();
+	if (!connectionID) {
 		hardeningMessage = "Test and select a runnable model connection before changing host protections.";
 		hardeningAlarm = true;
 		return render();
@@ -637,7 +637,7 @@ async function hardeningAction(action) {
 		const localSubnets = action === "apply" && allowLocalNetwork
 			? [...sheet.querySelectorAll("[data-local-subnet]:checked")].map((input) => input.value)
 			: store.config.shell?.confirmed_local_subnets || [];
-		const result = await api("/api/hardening", { action, server_id: serverID, allow_local_network: allowLocalNetwork, local_subnets: localSubnets });
+		const result = await api("/api/hardening", { action, connection_id: connectionID, allow_local_network: allowLocalNetwork, local_subnets: localSubnets });
 		hardeningStatus = { ...(result.status || hardeningStatus), loaded: true };
 		if (action === "apply" && result.ok !== false) {
 			store.config.shell.allow_local_network = allowLocalNetwork;
@@ -884,19 +884,19 @@ async function blur(event) {
 }
 
 async function change(event) {
-  if (event.target.matches("#hardening-server")) {
-    hardeningServerID = event.target.value;
+  if (event.target.matches("#hardening-connection")) {
+    hardeningConnectionID = event.target.value;
     hardeningStatus = { loaded: false, supported: true, applied: false };
     hardeningMessage = "";
     render();
     await refreshHardeningStatus();
     return;
   }
-  const select = event.target.closest("[data-session-server]");
+  const select = event.target.closest("[data-session-connection]");
   if (!select) return;
   const id = select.dataset.sessionServer;
   try {
-    await api(`/api/sessions/${encodeURIComponent(id)}`, { server_id: select.value });
+    await api(`/api/sessions/${encodeURIComponent(id)}`, { connection_id: select.value });
     errors.delete(`session.${id}`);
     reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
     setActive(id);
@@ -917,17 +917,17 @@ function draftValue(raw, kind = "text") {
 
 function combinedPatch(entries) {
   const result = {};
-  const servers = new Map();
+  const connections = new Map();
   for (const [path, raw] of entries) {
     const parts = path.split(".");
     const value = draftValue(raw, draftKinds.get(path));
-    if (parts[0] === "servers") {
-      const item = servers.get(parts[1]) || { id: parts[1] };
+    if (parts[0] === "connections") {
+      const item = connections.get(parts[1]) || { id: parts[1] };
       assign(item, parts.slice(2), value);
-      servers.set(parts[1], item);
+      connections.set(parts[1], item);
     } else assign(result, parts, value);
   }
-  if (servers.size) result.servers = [...servers.values()];
+  if (connections.size) result.connections = [...connections.values()];
   return result;
 }
 
@@ -971,25 +971,25 @@ function assign(target, parts, value) {
   });
 }
 
-async function addServer() {
+async function addConnection() {
   const id = uniqueID("server");
   expanded.clear();
   expanded.add(id);
   try {
-    const result = await api("/api/config", { servers: [{ id, label: id, base_url: "http://127.0.0.1:8000", model: "model" }] });
+    const result = await api("/api/config", { connections: [{ id, label: id, base_url: "http://127.0.0.1:8000", model: "model" }] });
     probeMessages.set(id, { message: "Added and saved — edit, then Test", alarm: false });
     reduce({ type: "config.changed", data: { config: result } });
   } catch (error) {
     expanded.delete(id);
-    errors.set("servers", error.message);
+    errors.set("connections", error.message);
     settingsSaveMessage = `Add failed: ${error.message}`;
     settingsSaveAlarm = true;
     render();
   }
 }
 
-async function duplicateServer(id) {
-  const source = serverProfiles().find((x) => x.id === id);
+async function duplicateConnection(id) {
+  const source = connectionList().find((x) => x.id === id);
   if (!source) return;
   const copy = structuredClone(source);
   delete copy._probing;
@@ -1001,28 +1001,28 @@ async function duplicateServer(id) {
   }
   expanded.clear();
   expanded.add(copy.id);
-  const result = await api("/api/config", { servers: [copy] });
+  const result = await api("/api/config", { connections: [copy] });
   reduce({ type: "config.changed", data: { config: result } });
 }
 
 function uniqueID(base) {
   let id = base;
   let suffix = 2;
-  while (serverProfiles().some((profile) => profile.id === id)) id = `${base}-${suffix++}`;
+  while (connectionList().some((connection) => connection.id === id)) id = `${base}-${suffix++}`;
   return id;
 }
 
-async function removeServer(id) {
-  const key = `server:${id}`;
+async function removeConnection(id) {
+  const key = `connection:${id}`;
   if (!armed.has(key)) {
     armed.add(key);
     return render();
   }
   try {
-    await api(`/api/servers/${encodeURIComponent(id)}`, undefined, "DELETE");
+    await api(`/api/connections/${encodeURIComponent(id)}`, undefined, "DELETE");
     armed.delete(key);
   } catch (error) {
-    errors.set(`servers.${id}`, error.message);
+    errors.set(`connections.${id}`, error.message);
     armed.delete(key);
     render();
   }
@@ -1031,7 +1031,7 @@ async function removeServer(id) {
 async function newSession() {
   const body = {
     label: sheet.querySelector("#new-session-label").value,
-    server_id: sheet.querySelector("#new-session-profile").value,
+    connection_id: sheet.querySelector("#new-session-connection").value,
   };
   try {
     const result = await api("/api/sessions", body);
@@ -1074,9 +1074,9 @@ async function resetSession(id) {
   }
 }
 
-function profileReason(profile) {
-  const caps = profile.capabilities || {};
-  const nctx = profile.context?.n_ctx;
+function connectionReason(connection) {
+  const caps = connection.capabilities || {};
+  const nctx = connection.context?.n_ctx;
   if (!nctx) return "context length unknown";
   if (!caps.tool_calls) return "tool calling unavailable";
   if (caps.overflow_behavior === "truncate") return "server truncates context";

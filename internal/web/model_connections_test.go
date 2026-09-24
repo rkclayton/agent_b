@@ -17,14 +17,14 @@ import (
 	"harness/internal/session"
 )
 
-func TestConfigPOSTAssignsProfilesToLetteredAgentRoles(t *testing.T) {
+func TestConfigPOSTAssignsConnectionsToLetteredAgentRoles(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "harness.json")
 	cfg := config.Defaults(root)
-	cfg.Servers[0] = runnableTestProfile("local")
-	small := cfg.Servers[0]
+	cfg.Connections[0] = runnableTestConnection("local")
+	small := cfg.Connections[0]
 	small.ID, small.Label = "small", "Small"
-	cfg.Servers = append(cfg.Servers, small)
+	cfg.Connections = append(cfg.Connections, small)
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestConfigPOSTAssignsProfilesToLetteredAgentRoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = writers.Close() })
-	server.SetRegistry(session.NewRegistry(events.NewBus(), writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot))
+	server.SetRegistry(session.NewRegistry(events.NewBus(), writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot))
 
 	response := postConfigPatch(t, server, `{"agents":[{"name":"Coder","b":"small","c":"local","toolset":[]}]}`)
 	if response.Code != http.StatusOK {
@@ -50,12 +50,12 @@ func TestConfigPOSTAssignsProfilesToLetteredAgentRoles(t *testing.T) {
 
 	response = postConfigPatch(t, server, `{"agents":[{"name":"Coder","b":"small","c":"small","toolset":[]}]}`)
 	if response.Code != http.StatusOK {
-		t.Fatalf("same-profile status=%d body=%s", response.Code, response.Body)
+		t.Fatalf("same-connection status=%d body=%s", response.Code, response.Body)
 	}
 	if got, _ := server.ConfigSnapshot().Agent("coder"); got.C != "small" {
-		t.Fatalf("c profile=%q", got.C)
+		t.Fatalf("c connection=%q", got.C)
 	}
-	request := httptest.NewRequest(http.MethodDelete, "/api/servers/small", nil)
+	request := httptest.NewRequest(http.MethodDelete, "/api/connections/small", nil)
 	authorizeMutation(request, server)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
@@ -68,12 +68,12 @@ func TestConfigPOSTAssignsProfilesToLetteredAgentRoles(t *testing.T) {
 	authorizeMutation(request, server)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusCreated || !bytes.Contains(response.Body.Bytes(), []byte(`"server_id":"small"`)) {
+	if response.Code != http.StatusCreated || !bytes.Contains(response.Body.Bytes(), []byte(`"connection_id":"small"`)) {
 		t.Fatalf("new session status=%d body=%s", response.Code, response.Body)
 	}
 }
 
-func TestConfigPOSTStoresProfileSecretOutsideJSON(t *testing.T) {
+func TestConfigPOSTStoresConnectionSecretOutsideJSON(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("DPAPI is Windows-only")
 	}
@@ -87,9 +87,9 @@ func TestConfigPOSTStoresProfileSecretOutsideJSON(t *testing.T) {
 	eventStream, unsubscribe := bus.Subscribe()
 	defer unsubscribe()
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
-	const secret = "profile-test-secret"
+	const secret = "connection-test-secret"
 
-	response := postConfigPatch(t, server, `{"servers":[{"id":"local","credential":"homepc","api_key":"`+secret+`"}]}`)
+	response := postConfigPatch(t, server, `{"connections":[{"id":"local","credential":"homepc","api_key":"`+secret+`"}]}`)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}

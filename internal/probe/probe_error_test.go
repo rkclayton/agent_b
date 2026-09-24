@@ -13,9 +13,9 @@ import (
 )
 
 func TestProbeFailureNamesMalformedBaseURL(t *testing.T) {
-	profile := config.Defaults(t.TempDir()).Servers[0]
-	profile.BaseURL = "https:/host"
-	_, _, err := Probe(context.Background(), &profile)
+	connection := config.Defaults(t.TempDir()).Connections[0]
+	connection.BaseURL = "https:/host"
+	_, _, err := Probe(context.Background(), &connection)
 	if err == nil || !strings.Contains(err.Error(), `base_url "https:/host" is malformed`) || !strings.Contains(err.Error(), "two slashes") {
 		t.Fatalf("error=%v", err)
 	}
@@ -31,9 +31,9 @@ func TestConnectionFailureNamesDNSName(t *testing.T) {
 func TestProbeFailureNamesCertificateReason(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer server.Close()
-	profile := config.Defaults(t.TempDir()).Servers[0]
-	profile.BaseURL = server.URL
-	_, _, err := Probe(context.Background(), &profile)
+	connection := config.Defaults(t.TempDir()).Connections[0]
+	connection.BaseURL = server.URL
+	_, _, err := Probe(context.Background(), &connection)
 	if err == nil || !strings.Contains(err.Error(), "TLS failed:") || !strings.Contains(strings.ToLower(err.Error()), "certificate") {
 		t.Fatalf("error=%v", err)
 	}
@@ -47,9 +47,9 @@ func TestProbeFailureNamesHTTPStatusAndFirstLine(t *testing.T) {
 				fmt.Fprint(w, "endpoint says no\nsecond line")
 			}))
 			defer server.Close()
-			profile := config.Defaults(t.TempDir()).Servers[0]
-			profile.BaseURL = server.URL
-			_, _, err := Probe(context.Background(), &profile)
+			connection := config.Defaults(t.TempDir()).Connections[0]
+			connection.BaseURL = server.URL
+			_, _, err := Probe(context.Background(), &connection)
 			want := fmt.Sprintf("HTTP %d: endpoint says no", status)
 			if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "second line") {
 				t.Fatalf("error=%v, want %q only", err, want)
@@ -68,9 +68,9 @@ func TestProbeFailureNamesUnservedModelAndListedModels(t *testing.T) {
 		fmt.Fprint(w, `{"data":[{"id":"zeta"},{"id":"alpha"},{"id":"beta"},{"id":"gamma"},{"id":"delta"},{"id":"epsilon"}]}`)
 	}))
 	defer server.Close()
-	profile := config.Defaults(t.TempDir()).Servers[0]
-	profile.BaseURL, profile.Model = server.URL, "model"
-	_, _, err := Probe(context.Background(), &profile)
+	connection := config.Defaults(t.TempDir()).Connections[0]
+	connection.BaseURL, connection.Model = server.URL, "model"
+	_, _, err := Probe(context.Background(), &connection)
 	if err == nil || !strings.Contains(err.Error(), `Model "model" is not served; this server lists:`) {
 		t.Fatalf("error=%v", err)
 	}

@@ -82,7 +82,7 @@ $serverSpecs = @(
     [ordered]@{ name='LM Studio'; processes=@('LM Studio','lmstudio','llmster'); install_url='https://lmstudio.ai/download'; default_url='http://127.0.0.1:1234/v1' },
     [ordered]@{ name='llama-server'; processes=@('llama-server'); install_url='https://github.com/ggml-org/llama.cpp/releases'; default_url='http://127.0.0.1:8080' }
 )
-$servers = foreach ($spec in $serverSpecs) {
+$connections = foreach ($spec in $serverSpecs) {
     $running = $false
     foreach ($processName in $spec.processes) { if (Get-Process -Name $processName -ErrorAction SilentlyContinue) { $running = $true } }
     [ordered]@{ name=$spec.name; running=$running; install_url=$spec.install_url; default_url=$spec.default_url }
@@ -121,6 +121,6 @@ $accelerators = [ordered]@{
     recommendation_memory_bytes=$recommendationMemory
     accelerators=$accelerators
     gpus=@($gpus)
-    servers=@($servers)
+    connections=@($connections)
     interpreters=@($interpreters)
 } | ConvertTo-Json -Depth 8 -Compress

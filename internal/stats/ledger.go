@@ -48,16 +48,16 @@ type Counters struct {
 	Reliability       Reliability     `json:"worker_reliability"`
 }
 type Ledger struct {
-	Version  int                 `json:"version"`
-	AgentID  string              `json:"agent_id"`
-	Agent    Counters            `json:"agent"`
-	Profiles map[string]Counters `json:"profiles"`
+	Version     int                 `json:"version"`
+	AgentID     string              `json:"agent_id"`
+	Agent       Counters            `json:"agent"`
+	Connections map[string]Counters `json:"connections"`
 }
 type run struct {
-	started  time.Time
-	evidence bool
-	profile  string
-	wallMS   int64
+	started    time.Time
+	evidence   bool
+	connection string
+	wallMS     int64
 }
 
 type Manager struct {
@@ -80,7 +80,7 @@ func New(dataRoot string, registry *session.Registry, bus *events.Bus) *Manager 
 	return m
 }
 func empty(agentID string) *Ledger {
-	return &Ledger{Version: Version, AgentID: agentID, Agent: Counters{Tools: map[string]Tool{}}, Profiles: map[string]Counters{}}
+	return &Ledger{Version: Version, AgentID: agentID, Agent: Counters{Tools: map[string]Tool{}}, Connections: map[string]Counters{}}
 }
 func (m *Manager) path(id string) string { return filepath.Join(m.dir, id+".json") }
 func (m *Manager) load(id string) *Ledger {
@@ -94,8 +94,8 @@ func (m *Manager) load(id string) *Ledger {
 	if value.Agent.Tools == nil {
 		value.Agent.Tools = map[string]Tool{}
 	}
-	if value.Profiles == nil {
-		value.Profiles = map[string]Counters{}
+	if value.Connections == nil {
+		value.Connections = map[string]Counters{}
 	}
 	m.ledgers[id] = value
 	return value
@@ -139,7 +139,7 @@ func (m *Manager) identity(sessionID string) (string, string, bool) {
 		return "", "", false
 	}
 	s := item.Snapshot()
-	return s.AgentID, s.ServerID, true
+	return s.AgentID, s.ConnectionID, true
 }
 func touch(c *Counters, at string) {
 	if c.Tools == nil {
@@ -205,7 +205,7 @@ func add(c *Counters, event events.Event, r *run) {
 			}
 		} else if reason == "model_error" || reason == "model_unreachable" || reason == "length" {
 			c.Reliability.ModelFailures++
-		} else if reason == "tool_errors" || reason == "profile_not_runnable" || reason == "context_ceiling" || reason == "context_exhausted" {
+		} else if reason == "tool_errors" || reason == "connection_not_runnable" || reason == "context_ceiling" || reason == "context_exhausted" {
 			c.Reliability.HarnessFailures++
 		} else if reason == "turn_ceiling" {
 			c.Reliability.BriefFailures++
@@ -218,7 +218,7 @@ func add(c *Counters, event events.Event, r *run) {
 	}
 }
 func (m *Manager) record(event events.Event) {
-	agentID, profile, ok := m.identity(event.SessionID)
+	agentID, connection, ok := m.identity(event.SessionID)
 	if !ok {
 		return
 	}
@@ -227,16 +227,16 @@ func (m *Manager) record(event events.Event) {
 	ledger := m.load(agentID)
 	r := m.runs[key(event)]
 	if event.Type == events.RunStarted {
-		r = &run{started: time.Now(), profile: profile}
+		r = &run{started: time.Now(), connection: connection}
 		m.runs[key(event)] = r
 	}
 	if event.Type == events.RunStopped && r != nil {
 		r.wallMS = time.Since(r.started).Milliseconds()
 	}
 	add(&ledger.Agent, event, r)
-	p := ledger.Profiles[profile]
+	p := ledger.Connections[connection]
 	add(&p, event, r)
-	ledger.Profiles[profile] = p
+	ledger.Connections[connection] = p
 	if event.Type == events.RunStopped {
 		delete(m.runs, key(event))
 	}

@@ -57,9 +57,9 @@ func (s *Server) planGoState(w http.ResponseWriter, r *http.Request) {
 		refusal = worker.Refusal(diagnostics)
 	}
 	// Item 2fc: Go refuses while the worker's model is at its limit, rather
-	// than queueing the worker behind a planner or a chat on that profile.
+	// than queueing the worker behind a planner or a chat on that connection.
 	if refusal == "" && !running {
-		refusal = s.workerProfileBusy(target.AgentID)
+		refusal = s.workerConnectionBusy(target.AgentID)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"waiting":     worker.RemainingIn(items, planDir),
@@ -130,7 +130,7 @@ func (s *Server) planGoStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, refusal, "plan")
 		return
 	}
-	if refusal := s.workerProfileBusy(target.AgentID); refusal != "" {
+	if refusal := s.workerConnectionBusy(target.AgentID); refusal != "" {
 		writeError(w, http.StatusConflict, refusal, "worker")
 		return
 	}

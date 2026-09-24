@@ -17,10 +17,10 @@ func TestTheStoreKeepsSummariesOverviewsAndReports(t *testing.T) {
 	}
 	defer store.Close()
 	now := time.Now().UTC()
-	if _, err := store.PutSummary(Summary{At: now, SessionID: "s1", RunID: "r1", Workspace: `C:\ws`, PlanID: "p1", Profile: "homepc", Read: []string{"a.go", "b.go"}, Written: []string{"a.go"}, Changed: "tightened the guard", Open: "the eval is carded", Text: "one run"}); err != nil {
+	if _, err := store.PutSummary(Summary{At: now, SessionID: "s1", RunID: "r1", Workspace: `C:\ws`, PlanID: "p1", Connection: "homepc", Read: []string{"a.go", "b.go"}, Written: []string{"a.go"}, Changed: "tightened the guard", Open: "the eval is carded", Text: "one run"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.PutSummary(Summary{At: now.Add(-40 * 24 * time.Hour), SessionID: "s0", RunID: "r0", Profile: "homepc", Text: "old"}); err != nil {
+	if _, err := store.PutSummary(Summary{At: now.Add(-40 * 24 * time.Hour), SessionID: "s0", RunID: "r0", Connection: "homepc", Text: "old"}); err != nil {
 		t.Fatal(err)
 	}
 	all, err := store.Summaries(time.Time{}, 0)

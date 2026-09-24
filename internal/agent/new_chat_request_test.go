@@ -15,15 +15,15 @@ import (
 func TestNewChatFirstRequestContainsExactlyStartupContextAndNewUser(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = "estimated"
-	profile := cfg.Servers[0]
-	profile.BaseURL = "http://127.0.0.1:1"
-	profile.RequestTimeoutS = 1
-	profile.Context.NCtx = 32768
-	profile.Context.ReserveOutput = 8192
-	profile.Capabilities.Tokenize = false
-	profile.Capabilities.Streaming = true
-	profile.Capabilities.ToolCalls = true
-	profile.Capabilities.OverflowBehavior = "error"
+	connection := cfg.Connections[0]
+	connection.BaseURL = "http://127.0.0.1:1"
+	connection.RequestTimeoutS = 1
+	connection.Context.NCtx = 32768
+	connection.Context.ReserveOutput = 8192
+	connection.Capabilities.Tokenize = false
+	connection.Capabilities.Streaming = true
+	connection.Capabilities.ToolCalls = true
+	connection.Capabilities.OverflowBehavior = "error"
 	bus := events.NewBus()
 	var request events.Event
 	bus.SetSink(func(event events.Event) error {
@@ -33,8 +33,8 @@ func TestNewChatFirstRequestContainsExactlyStartupContextAndNewUser(t *testing.T
 		return nil
 	})
 	toolset := tools.New(&runScriptPolicyTool{})
-	runner := NewRunner(bus, toolset, &PromptRenderer{text: "system\nmemory={{memory}}\ntools={{tools}}"}, func(id string) (*config.Profile, bool) { return &profile, id == profile.ID }, func() config.Config { return cfg })
-	item := &session.Session{ID: "new-chat", ServerID: profile.ID, Workspace: t.TempDir(), Runnable: true, MemoryBlock: "remembered fact", Run: session.RunState{Status: "running", MaxTurns: 40}, ToolsEnabled: map[string]bool{"run_script": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 8192}}
+	runner := NewRunner(bus, toolset, &PromptRenderer{text: "system\nmemory={{memory}}\ntools={{tools}}"}, func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }, func() config.Config { return cfg })
+	item := &session.Session{ID: "new-chat", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, MemoryBlock: "remembered fact", Run: session.RunState{Status: "running", MaxTurns: 40}, ToolsEnabled: map[string]bool{"run_script": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 8192}}
 	if _, err := runner.AddUser(context.Background(), item, "new request"); err != nil {
 		t.Fatal(err)
 	}

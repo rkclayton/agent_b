@@ -28,21 +28,21 @@ type DiscoveryResult struct {
 // DiscoverEndpoint tries only shapes derived from the host the operator typed.
 // Each candidate gets a short bound; the ordinary full probe runs only after a
 // model-list endpoint has answered.
-func DiscoverEndpoint(ctx context.Context, profile *config.Profile) (DiscoveryResult, error) {
-	candidates, host, parseErr := discoveryCandidates(profile.BaseURL)
+func DiscoverEndpoint(ctx context.Context, connection *config.Connection) (DiscoveryResult, error) {
+	candidates, host, parseErr := discoveryCandidates(connection.BaseURL)
 	result := DiscoveryResult{}
 	if parseErr != nil {
-		result.Attempts = append(result.Attempts, DiscoveryAttempt{BaseURL: strings.TrimSpace(profile.BaseURL), Allowed: false, Result: parseErr.Error()})
+		result.Attempts = append(result.Attempts, DiscoveryAttempt{BaseURL: strings.TrimSpace(connection.BaseURL), Allowed: false, Result: parseErr.Error()})
 	}
 	if host == "" {
 		reason := "no host was found"
 		if parseErr != nil {
 			reason = parseErr.Error()
 		}
-		return result, &ConnectionError{Friendly: fmt.Sprintf("base_url %q is malformed: %s.", strings.TrimSpace(profile.BaseURL), firstLine(reason, "no host was found")), Detail: "discovery refused: no operator-typed host"}
+		return result, &ConnectionError{Friendly: fmt.Sprintf("base_url %q is malformed: %s.", strings.TrimSpace(connection.BaseURL), firstLine(reason, "no host was found")), Detail: "discovery refused: no operator-typed host"}
 	}
 	for _, baseURL := range candidates {
-		candidate := *profile
+		candidate := *connection
 		candidate.BaseURL = baseURL
 		if candidate.RequestTimeoutS == 0 || candidate.RequestTimeoutS > 2 {
 			candidate.RequestTimeoutS = 2

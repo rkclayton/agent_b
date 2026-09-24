@@ -36,13 +36,13 @@ func TestFakeModelStatesLANBoundaryFromStableSessionPrompt(t *testing.T) {
 
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = "estimated"
-	profile := cfg.Servers[0]
-	profile.BaseURL, profile.Model = model.URL, "fake"
-	profile.Context.NCtx, profile.Context.ReserveOutput = 32768, 8192
-	profile.Capabilities.Streaming, profile.Capabilities.ToolCalls = true, true
-	profile.Capabilities.OverflowBehavior = "error"
-	lookup := func(id string) (*config.Profile, bool) { return &profile, id == profile.ID }
-	item := &session.Session{ID: "network", ServerID: profile.ID, Workspace: t.TempDir(), NetworkBoundary: session.NetworkBoundary(cfg), Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 8192}}
+	connection := cfg.Connections[0]
+	connection.BaseURL, connection.Model = model.URL, "fake"
+	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+	connection.Capabilities.OverflowBehavior = "error"
+	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
+	item := &session.Session{ID: "network", ConnectionID: connection.ID, Workspace: t.TempDir(), NetworkBoundary: session.NetworkBoundary(cfg), Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 8192}}
 	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{text: "{{network_boundary}}"}, lookup, func() config.Config { return cfg })
 	for _, request := range []string{"Ping 192.168.50.10.", "Repeat the network answer."} {
 		if _, err := runner.AddUser(context.Background(), item, request); err != nil {

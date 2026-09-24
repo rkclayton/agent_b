@@ -15,6 +15,6 @@ export function connectionSummary(status, contentType) {
   return "Connection ready.";
 }
 
-export function chatHeader(role, profile, folder) {
-  return `${role} · ${profile} · ${folder}`;
+export function chatHeader(role, connection, folder) {
+  return `${role} · ${connection} · ${folder}`;
 }

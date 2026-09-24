@@ -77,6 +77,6 @@ test("every control that carried a paragraph still exists", () => {
     assert.ok(security.includes(control), `Security lost ${control}`);
   }
   assert.match(source["settings-run.js"], /approvalChoices\(cfg\.approval\?\.mode, "With the service identity enabled/);
-  assert.match(source["settings-connections.js"], /probe_mode.{0,40}\["full", "minimal", "off"\], profile\.probe_mode, "minimal and off skip checks/);
+  assert.match(source["settings-connections.js"], /probe_mode.{0,40}\["full", "minimal", "off"\], connection\.probe_mode, "minimal and off skip checks/);
   assert.match(source["settings-delivery.js"], /deliver\.exchange_folder[\s\S]{0,120}The folder is created on first delivery/);
 });

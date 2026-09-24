@@ -22,8 +22,8 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 	root, repo := t.TempDir(), t.TempDir()
 	data := filepath.Join(root, "data")
 	cfg := config.Defaults(filepath.Join(data, "scratch"))
-	profile := &cfg.Servers[0]
-	profiles := func(id string) (*config.Profile, bool) { return profile, id == profile.ID }
+	connection := &cfg.Connections[0]
+	connections := func(id string) (*config.Connection, bool) { return connection, id == connection.ID }
 	writers, err := events.NewWriters(filepath.Join(data, "logs"))
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +31,7 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 	t.Cleanup(func() { _ = writers.Close() })
 	bus := events.NewBus()
 	bus.SetDurableSink(writers.WriteRecord, nil, nil)
-	registry := session.NewRegistry(bus, writers, profiles, 40, func() config.Config { return cfg })
+	registry := session.NewRegistry(bus, writers, connections, 40, func() config.Config { return cfg })
 	registry.SetPlansRoot(filepath.Join(data, "plans"))
 	manager := memory.New(data, func() config.Config { return cfg }, func(_ context.Context, _, text string) (int, error) { return len(text) / 4, nil })
 	registry.SetMemoryLoader(manager.Load)

@@ -73,8 +73,8 @@ const thinkingRenderer = createThinkingRenderer({
   formatDuration: formatThoughtSeconds,
   uncounted: () => {
     const session = store.sessions[selectedID()];
-    const profile = store.servers.find((value) => value.id === (session?.server_id || session?.b_profile));
-    return profile?.capabilities?.reasoning_emission === "inline";
+    const connection = store.connections.find((value) => value.id === (session?.connection_id || session?.b_connection));
+    return connection?.capabilities?.reasoning_emission === "inline";
   },
 });
 const entryViews = new Map();
@@ -221,7 +221,7 @@ function renderLog(session) {
     const line = document.createElement("span");
     if (noAgent) {
       line.append("No agent connected — add one in ");
-      const settings = document.createElement("a"); settings.textContent = "Settings"; settings.href = "/#settings/servers";
+      const settings = document.createElement("a"); settings.textContent = "Settings"; settings.href = "/#settings/connections";
       line.append(settings);
     } else {
       const launch = document.createElement("button"); launch.type = "button"; launch.textContent = "New chat"; launch.onclick = () => shell?.newChat();
@@ -242,8 +242,8 @@ function renderLog(session) {
     const empty = document.createElement("div");
     empty.className = "chat-empty";
     empty.append(session.runnable ? "Send a task to start the loop." : session.not_runnable_reason);
-    const replacement = !session.runnable && session.not_runnable_reason === "profile not found"
-      ? store.servers.find((profile) => profile.label === session.b_profile)
+    const replacement = !session.runnable && session.not_runnable_reason === "connection not found"
+      ? store.connections.find((connection) => connection.label === session.b_connection)
       : null;
     if (replacement) {
       const rebind = document.createElement("button");
@@ -911,7 +911,7 @@ function noticeContent(session, entry, actionable) {
   else if (event.type === "model.retry") content.textContent = data.reason === "truncated_tool_call"
     ? `harness: retrying truncated ${data.tool || "tool"} call (${data.attempt || 1}/${data.max_attempts || 1})`
     : `harness: repaired malformed ${data.tool || "tool"} history and retried`;
-  else if (event.type === "compaction") content.textContent = `compacted ${signed((data.after || 0) - (data.before || 0))} tokens${data.profile_id ? ` via ${data.profile_id}` : ""}`;
+  else if (event.type === "compaction") content.textContent = `compacted ${signed((data.after || 0) - (data.before || 0))} tokens${data.connection_id ? ` via ${data.connection_id}` : ""}`;
   else if (event.type === "workspace.conflict") {
     content.textContent = `conflict: ${data.path} written by ${data.other_label} ${data.age_s} s ago`;
     content.classList.add("alarm");
@@ -1035,7 +1035,7 @@ function renderComposer(session) {
   renderUpdateBanner(session);
   input.removeAttribute("placeholder");
   const queued = session?.queued_messages || 0;
-  // Item 2fc: a run queued behind its model profile says whose run it waits on.
+  // Item 2fc: a run queued behind its model connection says whose run it waits on.
   const queuedBehind = session?.run?.status === "queued" && session.run.waiting_behind ? `waiting for model · behind ${session.run.waiting_behind}` : "";
   const state = session?.pending_approval || session?.pending_repo_policy ? "waiting for you" : queuedBehind || session?.run?.status || "idle";
   const unreachable = session?.model_unreachable;
@@ -1075,7 +1075,7 @@ function renderComposer(session) {
     const sidecar = file.sidecar ? ` · ${file.tier === "ocr" ? "OCR" : "extracted"}: ${file.sidecar.split("/").pop()}` : "";
     label.textContent = `${file.path.split("/").pop()} · ${format(file.bytes)} B${file.reused ? " · reused" : ""}${sidecar}`;
     row.append(label);
-    const warning = attachmentReadability(session, store.servers, file);
+    const warning = attachmentReadability(session, store.connections, file);
     if (warning) {
       const reason = document.createElement("span");
       reason.className = "chat-attachment-warning";
@@ -1296,7 +1296,7 @@ function stopRun() {
 retryModel.onclick = async () => {
   const session = store.sessions[selectedID()];
   if (!session || store.replay) return;
-  try { await api(`/api/servers/${encodeURIComponent(session.server_id || session.b_profile)}/probe`, { session_id: session.id, retry: true }); }
+  try { await api(`/api/connections/${encodeURIComponent(session.connection_id || session.b_connection)}/probe`, { session_id: session.id, retry: true }); }
   catch (error) { localNotice = error.message; localAlarm = true; renderComposer(session); }
 };
 attachButton.onclick = () => { attachMenu.hidden = !attachMenu.hidden; };

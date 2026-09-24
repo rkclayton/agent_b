@@ -36,7 +36,7 @@ await mkdir(evidence, { recursive: true });
 const modelPort = await freePort();
 let stream = false;
 const model = createServer(async (request, response) => {
-  if (request.url === "/props") return void response.end(JSON.stringify({ server: "view-switch", n_ctx: 32768 }));
+  if (request.url === "/props") return void response.end(JSON.stringify({ connection: "view-switch", n_ctx: 32768 }));
   if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: [{ id: "view-switch" }] }));
   if (request.url === "/tokenize") return void response.end(JSON.stringify({ tokens: [1] }));
   if (request.url === "/apply-template") return void response.end(JSON.stringify({ prompt: "view switch" }));
@@ -55,10 +55,10 @@ const appPort = await freePort();
 const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
 const config = {
   config_version: 6, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(data, "logs"),
-  servers: [{ id: "view", label: "View", base_url: `http://127.0.0.1:${modelPort}`, model: "view-switch", credential: "", request_timeout_s: 2, probe_mode: "off",
+  connections: [{ id: "view", label: "View", base_url: `http://127.0.0.1:${modelPort}`, model: "view-switch", credential: "", request_timeout_s: 2, probe_mode: "off",
     sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
     reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false }, context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
-    capabilities: { server: "view-switch", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: [] } }],
+    capabilities: { connection: "view-switch", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: [] } }],
   services: {}, agents: [{ name: "View", b: "view", toolset }], chat: { auto_rename: false }, run: { max_turns: 4, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 1, queue_depth: 0 }, approval: { mode: "boundary-only" },
   deliver: { mode: "chips", exchange_folder: join(data, "exchange") }, operator_files: { allow_mailbox_approvals: false, log_retention_days: 30 }, context: { soft_pct: .75, summary_pct: .95, accounting: "estimated" }, memory: { enabled: false, dir: join(data, "memory"), max_tokens: 1500 },
   tools: { read_file: { default_limit: 16384, max_limit: 65536 }, attachments: { max_bytes: 8388608 }, list_dir: { max_entries: 300, ignore: [".git"] }, grep: { max_matches: 50, max_line_chars: 200 }, shell: { operator_commands: [] }, fetch: { timeout_s: 20, max_bytes: 2097152, max_redirects: 5, default_limit: 16384, max_limit: 65536, allow_domains: [], deny_domains: [], allow_internal_hosts: [] }, find_files: { skip_roots: [] } },

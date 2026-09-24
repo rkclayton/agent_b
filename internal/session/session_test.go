@@ -13,24 +13,24 @@ import (
 )
 
 // The run loop re-binds a session to its agent on every turn. It must re-bind
-// to the profile that role runs on: a worker created on the c profile was
+// to the connection that role runs on: a worker created on the c connection was
 // switched to b on its first turn, so the real Go ran on the wrong model.
-func TestApplyAgentConfigKeepsEachRoleOnItsOwnProfile(t *testing.T) {
+func TestApplyAgentConfigKeepsEachRoleOnItsOwnConnection(t *testing.T) {
 	agent := config.Agent{Name: "Worker", B: "fast", C: "strong", D: "planner", Toolset: []string{"read_file"}}
 	for _, row := range []struct{ role, want string }{{"b", "fast"}, {"c", "strong"}, {"d", "planner"}} {
 		item := &Session{ID: "s1", Role: row.role, ToolsEnabled: map[string]bool{}, LastSeen: map[string]time.Time{}}
-		item.ApplyAgentConfig("worker", agent, config.Profile{ID: row.want, Label: row.want})
-		if got := item.Snapshot().ServerID; got != row.want {
+		item.ApplyAgentConfig("worker", agent, config.Connection{ID: row.want, Label: row.want})
+		if got := item.Snapshot().ConnectionID; got != row.want {
 			t.Errorf("role %q bound to %q, want %q", row.role, got, row.want)
 		}
 	}
-	// Without a c profile the worker falls back to b, so Go works on a
-	// single-profile install.
+	// Without a c connection the worker falls back to b, so Go works on a
+	// single-connection install.
 	single := config.Agent{Name: "Solo", B: "fast", Toolset: []string{"read_file"}}
 	item := &Session{ID: "s2", Role: "c", ToolsEnabled: map[string]bool{}, LastSeen: map[string]time.Time{}}
-	item.ApplyAgentConfig("solo", single, config.Profile{ID: "fast", Label: "fast"})
-	if got := item.Snapshot().ServerID; got != "fast" {
-		t.Errorf("a worker with no c profile bound to %q, want the b profile", got)
+	item.ApplyAgentConfig("solo", single, config.Connection{ID: "fast", Label: "fast"})
+	if got := item.Snapshot().ConnectionID; got != "fast" {
+		t.Errorf("a worker with no c connection bound to %q, want the b connection", got)
 	}
 }
 
@@ -57,13 +57,13 @@ func TestCreateLikePreservesToolsetButCreatesFreshScratch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer writers.Close()
-	profile := &config.Profile{ID: "main", Label: "Coder", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
+	connection := &config.Connection{ID: "main", Label: "Coder", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
 	cfg := config.Defaults(source)
-	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Profile, bool) { return profile, id == profile.ID }, 40, func() config.Config { return cfg })
+	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
 	registry.SetPlansRoot(filepath.Join(data, "plans"))
 	manager := workspaceinfo.New(data, func(dir string) string { return filepath.Join(data, filepath.Base(dir)+".md") })
 	registry.SetWorkspaceManager(manager)
-	first, err := registry.Create("", profile.ID, source)
+	first, err := registry.Create("", connection.ID, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,11 +116,11 @@ func TestRenameAuthorsPinUserAndLeaveAuxUnpinned(t *testing.T) {
 	}
 	defer writers.Close()
 	bus := events.NewBus()
-	profile := &config.Profile{ID: "main", Label: "Coder", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
+	connection := &config.Connection{ID: "main", Label: "Coder", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
 	cfg := config.Defaults(t.TempDir())
-	registry := NewRegistry(bus, writers, func(id string) (*config.Profile, bool) { return profile, id == profile.ID }, 40, func() config.Config { return cfg })
+	registry := NewRegistry(bus, writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
 	registry.SetPlansRoot(filepath.Join(t.TempDir(), "plans"))
-	item, err := registry.Create("main", profile.ID, t.TempDir())
+	item, err := registry.Create("main", connection.ID, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestRenameAuthorsPinUserAndLeaveAuxUnpinned(t *testing.T) {
 	}
 }
 
-func TestCreateLikeKeepsProfileWorkspaceAndExactToolsetAfterClose(t *testing.T) {
+func TestCreateLikeKeepsConnectionWorkspaceAndExactToolsetAfterClose(t *testing.T) {
 	logs := t.TempDir()
 	writers, err := events.NewWriters(logs)
 	if err != nil {
@@ -168,11 +168,11 @@ func TestCreateLikeKeepsProfileWorkspaceAndExactToolsetAfterClose(t *testing.T) 
 	}
 	defer writers.Close()
 	bus := events.NewBus()
-	profile := &config.Profile{ID: "main", Label: "Coder", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
+	connection := &config.Connection{ID: "main", Label: "Coder", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
 	cfg := config.Config{Context: config.GlobalContext{Accounting: "estimated"}}
-	registry := NewRegistry(bus, writers, func(id string) (*config.Profile, bool) { return profile, id == profile.ID }, 40, func() config.Config { return cfg })
+	registry := NewRegistry(bus, writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
 	registry.SetPlansRoot(filepath.Join(t.TempDir(), "plans"))
-	first, err := registry.Create("", profile.ID, t.TempDir())
+	first, err := registry.Create("", connection.ID, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestCreateLikeKeepsProfileWorkspaceAndExactToolsetAfterClose(t *testing.T) 
 			shellEnabled = tool.Enabled
 		}
 	}
-	if got.AgentID != "coder" || got.ServerID != want.ServerID || !got.Scratch || got.Workspace == want.Workspace || got.AgentName != "Coder" || got.BProfile != "Coder" || shellEnabled {
+	if got.AgentID != "coder" || got.ConnectionID != want.ConnectionID || !got.Scratch || got.Workspace == want.Workspace || got.AgentName != "Coder" || got.BConnection != "Coder" || shellEnabled {
 		t.Fatalf("cloned session=%+v", got)
 	}
 	if len(registry.List()) != 2 || !registry.List()[0].Snapshot().Closed {
@@ -208,9 +208,9 @@ func TestRoleAndPlanSnapshotRestoreWithoutLegacyMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer writers.Close()
-	profile := &config.Profile{ID: "planner", Label: "Planner", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
+	connection := &config.Connection{ID: "planner", Label: "Planner", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
 	cfg := config.Config{Context: config.GlobalContext{Accounting: "estimated"}, Agents: []config.Agent{{Name: "Agent", B: "planner", D: "planner", Toolset: config.FullToolset()}}}
-	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Profile, bool) { return profile, id == profile.ID }, 40, func() config.Config { return cfg })
+	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
 	plans := t.TempDir()
 	registry.SetPlansRoot(plans)
 	legacy, err := registry.Create("legacy", "agent", t.TempDir())
@@ -252,8 +252,8 @@ func TestRoleAndPlanSnapshotRestoreWithoutLegacyMigration(t *testing.T) {
 		t.Fatal("d session enabled shell outside its file jail")
 	}
 	d.ToolsEnabled["shell"] = true
-	d.ApplyAgentConfig("agent", cfg.Agents[0], *profile)
-	if d.ServerID != cfg.Agents[0].D || d.ToolEnabled("shell") || d.ToolEnabled("run_script") {
+	d.ApplyAgentConfig("agent", cfg.Agents[0], *connection)
+	if d.ConnectionID != cfg.Agents[0].D || d.ToolEnabled("shell") || d.ToolEnabled("run_script") {
 		t.Fatalf("agent rebind widened d session: %+v", d.Snapshot())
 	}
 }

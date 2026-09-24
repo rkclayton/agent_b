@@ -6,7 +6,7 @@ import { agentAuthor, chatName, chatRowText, openSessions, sessionTitle } from "
 const idle = {
   id: "s2",
   agent_name: "Coder",
-  b_profile: "Home API",
+  b_connection: "Home API",
   created_at: "2026-09-07T12:00:00Z",
   closed: false,
   run: { status: "idle" },
@@ -36,9 +36,9 @@ test("Open chat list excludes durable closed sessions", () => {
   assert.deepEqual(openSessions({ s2: idle, s3: { ...idle, id: "s3", closed: true } }).map((session) => session.id), ["s2"]);
 });
 
-test("Assistant labels use only role and the header carries only role and profile", () => {
+test("Assistant labels use only role and the header carries only role and connection", () => {
   assert.equal(agentAuthor(idle), "agent_b");
   assert.equal(agentAuthor(idle, "c"), "agent_c");
-  assert.equal(sessionTitle(idle), "Home API", "item 2eo: the header reads the profile name only");
+  assert.equal(sessionTitle(idle), "Home API", "item 2eo: the header reads the connection name only");
   assert.equal(sessionTitle({ ...idle, role: "d", plan_name: "Release map", workspace: "C:\\code\\vesper" }), "Home API");
 });

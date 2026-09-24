@@ -53,10 +53,10 @@ func TestProbeVisionClassifiesAllResponseShapes(t *testing.T) {
 			}))
 			defer server.Close()
 
-			profile := config.Defaults(t.TempDir()).Servers[0]
-			profile.BaseURL = server.URL
-			profile.Model = "vision-fixture"
-			vision, accepted := probeVision(context.Background(), llm.New(&profile))
+			connection := config.Defaults(t.TempDir()).Connections[0]
+			connection.BaseURL = server.URL
+			connection.Model = "vision-fixture"
+			vision, accepted := probeVision(context.Background(), llm.New(&connection))
 			if vision != shape {
 				t.Fatalf("vision=%q want=%q", vision, shape)
 			}
@@ -72,9 +72,9 @@ func TestLiveVisionProbe(t *testing.T) {
 	if baseURL == "" {
 		t.Skip("set AGENTB_VISION_LIVE_URL and AGENTB_VISION_LIVE_MODEL for an authorized live classification")
 	}
-	profile := config.Defaults(t.TempDir()).Servers[0]
-	profile.BaseURL = baseURL
-	profile.Model = os.Getenv("AGENTB_VISION_LIVE_MODEL")
-	vision, accepted := probeVision(context.Background(), llm.New(&profile))
-	t.Logf("LIVE_VISION_CLASSIFICATION url=%s model=%s vision=%q accepted=%t", baseURL, profile.Model, vision, accepted)
+	connection := config.Defaults(t.TempDir()).Connections[0]
+	connection.BaseURL = baseURL
+	connection.Model = os.Getenv("AGENTB_VISION_LIVE_MODEL")
+	vision, accepted := probeVision(context.Background(), llm.New(&connection))
+	t.Logf("LIVE_VISION_CLASSIFICATION url=%s model=%s vision=%q accepted=%t", baseURL, connection.Model, vision, accepted)
 }

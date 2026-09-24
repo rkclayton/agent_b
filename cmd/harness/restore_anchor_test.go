@@ -17,8 +17,8 @@ func TestRestoreAnchorsOnTheJournalAndRemintsDuplicatesOnce(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
 	logs := filepath.Join(root, "logs")
 	cfg := config.Defaults(workspace)
-	profile := &cfg.Servers[0]
-	profiles := func(id string) (*config.Profile, bool) { return profile, id == profile.ID }
+	connection := &cfg.Connections[0]
+	connections := func(id string) (*config.Connection, bool) { return connection, id == connection.ID }
 
 	writers, err := events.NewWriters(logs)
 	if err != nil {
@@ -26,7 +26,7 @@ func TestRestoreAnchorsOnTheJournalAndRemintsDuplicatesOnce(t *testing.T) {
 	}
 	bus := events.NewBus()
 	bus.SetDurableSink(writers.WriteRecord, nil, nil)
-	registry := session.NewRegistry(bus, writers, profiles, 40, func() config.Config { return cfg })
+	registry := session.NewRegistry(bus, writers, connections, 40, func() config.Config { return cfg })
 	item, err := registry.Create("anchor", cfg.DefaultAgentID(), workspace)
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func TestRestoreAnchorsOnTheJournalAndRemintsDuplicatesOnce(t *testing.T) {
 			published = append(published, record)
 			return next.WriteRecord(record)
 		}, nil, nil)
-		nextRegistry := session.NewRegistry(nextBus, next, profiles, 40, func() config.Config { return cfg })
+		nextRegistry := session.NewRegistry(nextBus, next, connections, 40, func() config.Config { return cfg })
 		restored, floor, err := restoreRetainedChats(next, nextRegistry, nextBus, retainedIDFloor(next))
 		if err != nil {
 			t.Fatal(err)

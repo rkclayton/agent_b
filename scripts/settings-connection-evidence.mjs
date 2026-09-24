@@ -23,7 +23,7 @@ const modelPort = await freePort();
 const failedPort = await freePort();
 const appPort = await freePort();
 const model = createServer(async (request, response) => {
-  if (request.url === "/props") return void response.end(JSON.stringify({ server: "settings-evidence", n_ctx: 32768 }));
+  if (request.url === "/props") return void response.end(JSON.stringify({ connection: "settings-evidence", n_ctx: 32768 }));
   if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: [{ id: "settings-evidence" }] }));
   if (request.url === "/tokenize") return void response.end(JSON.stringify({ tokens: [1, 2] }));
   if (request.url === "/apply-template") return void response.end(JSON.stringify({ prompt: "probe_tool" }));
@@ -42,14 +42,14 @@ const dataRoot = resolve(args.data);
 const workspace = join(dataRoot, "workspace");
 await mkdir(workspace, { recursive: true });
 const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
-const profile = {
+const connection = {
   id: "seed", label: "Seed", base_url: `http://127.0.0.1:${modelPort}`, extract_url: "", model: "settings-evidence", credential: "", request_timeout_s: 3, probe_mode: "minimal",
   sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 1.5, repeat_penalty: 1 } },
   reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false }, context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
-  capabilities: { server: "llama.cpp", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: false, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "none", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["seed fixture"] },
+  capabilities: { connection: "llama.cpp", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: false, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "none", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["seed fixture"] },
 };
 const config = {
-  config_version: 6, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(dataRoot, "logs"), servers: [profile], services: {}, agents: [{ name: "Settings evidence", b: "seed", toolset }], chat: { auto_rename: false },
+  config_version: 6, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(dataRoot, "logs"), connections: [connection], services: {}, agents: [{ name: "Settings evidence", b: "seed", toolset }], chat: { auto_rename: false },
   run: { max_turns: 4, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 1, queue_depth: 0 }, approval: { mode: "boundary-only" }, deliver: { mode: "chips", exchange_folder: join(dataRoot, "exchange") }, operator_files: { allow_mailbox_approvals: false, log_retention_days: 30 },
   context: { soft_pct: .75, summary_pct: .95, accounting: "estimated" }, memory: { enabled: false, dir: join(dataRoot, "memory"), max_tokens: 1500 },
   tools: { read_file: { default_limit: 16384, max_limit: 65536 }, attachments: { max_bytes: 8388608 }, list_dir: { max_entries: 300, ignore: [".git"] }, grep: { max_matches: 50, max_line_chars: 200 }, shell: { operator_commands: [] }, fetch: { timeout_s: 20, max_bytes: 2097152, max_redirects: 5, default_limit: 16384, max_limit: 65536, allow_domains: [], deny_domains: [], allow_internal_hosts: [] }, find_files: { skip_roots: [] } },
@@ -87,33 +87,33 @@ try {
   const page = await browser.newPage({ viewport: { width: 1250, height: 975 } });
   await page.goto(`${base}/`);
   await page.locator(".shell-settings").click();
-  await page.locator('.profile-summary[data-id="seed"]').click();
-  assert.equal(await page.locator(".profile-editor").count(), 1);
+  await page.locator('.connection-summary[data-id="seed"]').click();
+  assert.equal(await page.locator(".connection-editor").count(), 1);
   await page.getByRole("button", { name: "Add connection" }).click();
-  await page.locator('.profile-summary[data-id="server"]').waitFor();
-  assert.equal(await page.locator(".profile-editor").count(), 1);
-  assert.equal(await page.locator('.profile-editor[aria-label="server connection settings"]').count(), 1);
-  const persistedAfterAdd = (await state()).config.servers.find((item) => item.id === "server");
-  assert.ok(persistedAfterAdd, "Add connection did not persist the new profile");
-  const baseInput = page.locator('[data-path="servers.server.base_url"]');
+  await page.locator('.connection-summary[data-id="server"]').waitFor();
+  assert.equal(await page.locator(".connection-editor").count(), 1);
+  assert.equal(await page.locator('.connection-editor[aria-label="connection settings"]').count(), 1);
+  const persistedAfterAdd = (await state()).config.connections.find((item) => item.id === "server");
+  assert.ok(persistedAfterAdd, "Add connection did not persist the new connection");
+  const baseInput = page.locator('[data-path="connections.server.base_url"]');
   await baseInput.fill(`http://127.0.0.1:${modelPort}`);
-  await page.locator('[data-path="servers.server.model"]').fill("settings-evidence");
-  await page.locator('[data-action="config-choice"][data-path="servers.server.probe_mode"][data-value="minimal"]').click();
-  const rowState = page.locator('.profile-summary[data-id="server"] .profile-state');
+  await page.locator('[data-path="connections.server.model"]').fill("settings-evidence");
+  await page.locator('[data-action="config-choice"][data-path="connections.server.probe_mode"][data-value="minimal"]').click();
+  const rowState = page.locator('.connection-summary[data-id="server"] .connection-state');
   const unsaved = await rowState.textContent();
   assert.match(unsaved, /unsaved.*Test will save first/i);
-  const testButton = page.locator('.profile-row:has(.profile-summary[data-id="server"]) [data-action="probe"]');
+  const testButton = page.locator('.connection-row:has(.connection-summary[data-id="server"]) [data-action="probe"]');
   assert.equal(await testButton.isEnabled(), true);
   await testButton.click();
   await waitFor(async () => /Test passed/.test(await rowState.textContent()), "successful visible Test result");
   const successState = await rowState.textContent();
   const contextValue = await waitFor(async () => {
-    const value = await page.locator('[data-path="servers.server.context.n_ctx"]').inputValue();
+    const value = await page.locator('[data-path="connections.server.context.n_ctx"]').inputValue();
     return value === "32768" ? value : null;
   }, "probed context size in editor");
   assert.equal(contextValue, "32768");
   assert.equal(await page.getByText("context length unknown", { exact: true }).count(), 0);
-  const savedByTest = (await state()).config.servers.find((item) => item.id === "server");
+  const savedByTest = (await state()).config.connections.find((item) => item.id === "server");
   assert.equal(savedByTest.base_url, `http://127.0.0.1:${modelPort}`);
   assert.equal(savedByTest.context.n_ctx, 32768);
 
@@ -126,20 +126,20 @@ try {
   await baseInput.fill(`http://127.0.0.1:${modelPort}`);
   await testButton.click();
   await waitFor(async () => /Test passed/.test(await rowState.textContent()), "restored successful Test result");
-  await page.locator('[data-path="servers.server.label"]').fill("Evidence connection");
+  await page.locator('[data-path="connections.server.label"]').fill("Evidence connection");
   await page.locator('[data-action="save-settings"]').click();
-  await waitFor(async () => (await state()).config.servers.find((item) => item.id === "server")?.label === "Evidence connection", "explicit Save persistence");
+  await waitFor(async () => (await state()).config.connections.find((item) => item.id === "server")?.label === "Evidence connection", "explicit Save persistence");
 
   await page.locator('.settings-head [data-action="close"]').click();
   const fixtureAgents = (await state()).config.agents.map((agent) => ({ ...agent, b: "server" }));
   await configure({ agents: fixtureAgents });
-  await waitFor(async () => (await state()).config.agents[0]?.b === "server", "test-fixture profile binding");
+  await waitFor(async () => (await state()).config.agents[0]?.b === "server", "test-fixture connection binding");
   const beforeSessions = Object.keys((await state()).sessions);
   await page.locator(".agent-tab-new").click();
   await page.locator(".shell-new-choice").first().click();
   const used = await waitFor(async () => {
     const current = await state();
-    return Object.values(current.sessions).find((session) => !beforeSessions.includes(session.id) && session.server_id === "server") || null;
+    return Object.values(current.sessions).find((session) => !beforeSessions.includes(session.id) && session.connection_id === "server") || null;
   }, "new chat using added connection");
   const persistedDocument = JSON.parse(await readFile(configPath, "utf8"));
   const output = {
@@ -148,8 +148,8 @@ try {
     unsaved_test: { visible_state: unsaved, button_enabled: true, saved_before_probe: savedByTest.base_url === `http://127.0.0.1:${modelPort}` },
     test_success: { visible_state: successState, context_size: Number(contextValue) },
     test_failure: { visible_state: failureState },
-    explicit_save: { persisted_label: persistedDocument.servers.find((item) => item.id === "server")?.label },
-    use: { binding_setup: "test fixture via existing config API; item 2av remains excluded", agent_profile: persistedDocument.agents[0]?.b, new_session_id: used.id, new_session_profile: used.server_id },
+    explicit_save: { persisted_label: persistedDocument.connections.find((item) => item.id === "server")?.label },
+    use: { binding_setup: "test fixture via existing config API; item 2av remains excluded", agent_connection: persistedDocument.agents[0]?.b, new_session_id: used.id, new_session_connection: used.connection_id },
   };
   await mkdir(resolve(args.evidence), { recursive: true });
   await writeFile(resolve(args.evidence, "connection-flow.json"), JSON.stringify(output, null, 2));

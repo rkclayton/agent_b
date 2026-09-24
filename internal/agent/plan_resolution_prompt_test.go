@@ -64,19 +64,19 @@ func TestFakeModelResolvesNamedPlanAndAsksWhenAmbiguousFromStablePrompt(t *testi
 
 	cfg := config.Defaults(scratch)
 	cfg.Context.Accounting = "estimated"
-	profile := cfg.Servers[0]
-	profile.BaseURL, profile.Model = model.URL, "fake"
-	profile.Context.NCtx, profile.Context.ReserveOutput = 32768, 8192
-	profile.Capabilities.Streaming, profile.Capabilities.ToolCalls = true, true
-	profile.Capabilities.OverflowBehavior = "error"
+	connection := cfg.Connections[0]
+	connection.BaseURL, connection.Model = model.URL, "fake"
+	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+	connection.Capabilities.OverflowBehavior = "error"
 	renderer, err := LoadTemplate(filepath.Join("..", "..", "prompts", "system.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	coordinator := tools.NewFileCoordinator(session.NewWorkspaceRegistry(), func(id string) string { return id }, events.NewBus())
 	toolset := tools.New(tools.NewWriteFile(coordinator))
-	lookup := func(id string) (*config.Profile, bool) { return &profile, id == profile.ID }
-	item := &session.Session{ID: "resolution", ServerID: profile.ID, Role: "b", Workspace: scratch, PlansRoot: plans, PlanRepos: func() []string { return []string{repo} }, Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{"write_file": true}, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 8192}}
+	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
+	item := &session.Session{ID: "resolution", ConnectionID: connection.ID, Role: "b", Workspace: scratch, PlansRoot: plans, PlanRepos: func() []string { return []string{repo} }, Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{"write_file": true}, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 8192}}
 	runner := NewRunner(events.NewBus(), toolset, renderer, lookup, func() config.Config { return cfg })
 	for _, brief := range []string{"Fix resolved.txt in the Alpha plan.", "Fix the shared configuration."} {
 		if _, err := runner.AddUser(context.Background(), item, brief); err != nil {

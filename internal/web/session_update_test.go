@@ -16,10 +16,10 @@ import (
 func TestSessionAgentReassignment(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	cfg.Servers[0] = runnableTestProfile("first")
-	second := runnableTestProfile("second")
+	cfg.Connections[0] = runnableTestConnection("first")
+	second := runnableTestConnection("second")
 	second.Context.ReserveOutput = 2048
-	cfg.Servers = append(cfg.Servers, second, config.Profile{ID: "incomplete", Label: "Incomplete"})
+	cfg.Connections = append(cfg.Connections, second, config.Connection{ID: "incomplete", Label: "Incomplete"})
 	cfg.Agents = []config.Agent{{Name: "First", B: "first", Toolset: config.FullToolset()}, {Name: "Second", B: "second", Toolset: config.FullToolset()}, {Name: "Incomplete", B: "incomplete", Toolset: config.FullToolset()}}
 
 	bus := events.NewBus()
@@ -32,7 +32,7 @@ func TestSessionAgentReassignment(t *testing.T) {
 	t.Cleanup(func() { _ = writers.Close() })
 
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("main", "first", root)
 	if err != nil {
@@ -50,7 +50,7 @@ func TestSessionAgentReassignment(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Session.ServerID != "second" || !body.Session.Runnable {
+	if body.Session.ConnectionID != "second" || !body.Session.Runnable {
 		t.Fatalf("unexpected session: %+v", body.Session)
 	}
 	if len(body.Session.Messages) != 1 || body.Session.Messages[0].Content != "keep me" {
@@ -60,7 +60,7 @@ func TestSessionAgentReassignment(t *testing.T) {
 		t.Fatalf("workspace changed: %q", body.Session.Workspace)
 	}
 	if body.Session.Budget.NCtx != 32768 || body.Session.Budget.Reserve != 2048 {
-		t.Fatalf("budget was not reset for selected profile: %+v", body.Session.Budget)
+		t.Fatalf("budget was not reset for selected connection: %+v", body.Session.Budget)
 	}
 	recent := drainTestEvents(eventStream, item.ID)
 	if recent[len(recent)-1].Type != events.SessionUpdated {
@@ -72,8 +72,8 @@ func TestSessionAgentReassignment(t *testing.T) {
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "session is running") {
 		t.Fatalf("running status=%d body=%s", response.Code, response.Body)
 	}
-	if snapshot := item.Snapshot(); snapshot.ServerID != "second" {
-		t.Fatalf("running update changed server to %q", snapshot.ServerID)
+	if snapshot := item.Snapshot(); snapshot.ConnectionID != "second" {
+		t.Fatalf("running update changed server to %q", snapshot.ConnectionID)
 	}
 
 	item.SetRun(session.RunState{Status: "idle"})
@@ -83,12 +83,12 @@ func TestSessionAgentReassignment(t *testing.T) {
 	}
 }
 
-func TestMissingProfileCanRebindToSameLabel(t *testing.T) {
+func TestMissingConnectionCanRebindToSameLabel(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	original := runnableTestProfile("removed")
+	original := runnableTestConnection("removed")
 	original.Label = "My model"
-	cfg.Servers = []config.Profile{original}
+	cfg.Connections = []config.Connection{original}
 	cfg.Agents = []config.Agent{{Name: "Agent_b", B: "removed", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	writers, err := events.NewWriters(filepath.Join(root, "logs"))
@@ -97,19 +97,19 @@ func TestMissingProfileCanRebindToSameLabel(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = writers.Close() })
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("kept chat", "agent-b", root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	replacement := runnableTestProfile("replacement")
+	replacement := runnableTestConnection("replacement")
 	replacement.Label = "My model"
 	server.mu.Lock()
-	server.cfg.Servers = []config.Profile{replacement}
+	server.cfg.Connections = []config.Connection{replacement}
 	server.mu.Unlock()
 	registry.RefreshRunnable()
-	if got := item.Snapshot(); got.Runnable || got.NotRunnableReason != "profile not found" {
+	if got := item.Snapshot(); got.Runnable || got.NotRunnableReason != "connection not found" {
 		t.Fatalf("before=%+v", got)
 	}
 	request := httptest.NewRequest(http.MethodPost, "/api/sessions/"+item.ID+"/rebind", strings.NewReader(`{}`))
@@ -119,7 +119,7 @@ func TestMissingProfileCanRebindToSameLabel(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}
-	if got := item.Snapshot(); got.ServerID != "replacement" || !got.Runnable {
+	if got := item.Snapshot(); got.ConnectionID != "replacement" || !got.Runnable {
 		t.Fatalf("after=%+v", got)
 	}
 }
@@ -127,7 +127,7 @@ func TestMissingProfileCanRebindToSameLabel(t *testing.T) {
 func TestDropLastMessageEndpoint(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	cfg.Servers[0] = runnableTestProfile("main")
+	cfg.Connections[0] = runnableTestConnection("main")
 	cfg.Agents = []config.Agent{{Name: "Main", B: "main", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	writers, err := events.NewWriters(filepath.Join(root, "logs"))
@@ -136,7 +136,7 @@ func TestDropLastMessageEndpoint(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = writers.Close() })
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("main", "main", root)
 	if err != nil {
@@ -166,15 +166,15 @@ func TestDropLastMessageEndpoint(t *testing.T) {
 	}
 }
 
-func runnableTestProfile(id string) config.Profile {
-	profile := config.Defaults(".").Servers[0]
-	profile.ID, profile.Label, profile.Model = id, id, "model"
-	profile.Capabilities.NCtx = 32768
-	profile.Context.NCtx = 32768
-	profile.Capabilities.ToolCalls = true
-	profile.Capabilities.Streaming = true
-	profile.Capabilities.OverflowBehavior = "error"
-	return profile
+func runnableTestConnection(id string) config.Connection {
+	connection := config.Defaults(".").Connections[0]
+	connection.ID, connection.Label, connection.Model = id, id, "model"
+	connection.Capabilities.NCtx = 32768
+	connection.Context.NCtx = 32768
+	connection.Capabilities.ToolCalls = true
+	connection.Capabilities.Streaming = true
+	connection.Capabilities.OverflowBehavior = "error"
+	return connection
 }
 
 func postSessionUpdate(t *testing.T, server *Server, body string) *httptest.ResponseRecorder {

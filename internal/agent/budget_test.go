@@ -22,11 +22,11 @@ import (
 
 func TestBudgetAccountsFetchedResultsSeparately(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
-	profile := cfg.Servers[0]
+	connection := cfg.Connections[0]
 	item := &session.Session{ID: "fetch-budget", SchemaTokens: map[string]int{}}
 	message := llm.Message{Role: "tool", Content: "untrusted fetched text"}
 	record := events.Message{ID: "m-fetch", Role: "tool", Content: "untrusted fetched text", Category: "fetched"}
-	budget, err := NewBudgeter().Measure(context.Background(), &profile, item, config.GlobalContext{Accounting: "estimated"}, budgetInput{SystemBase: "system", System: "system", Messages: []llm.Message{message}, Records: []events.Message{record}}, false)
+	budget, err := NewBudgeter().Measure(context.Background(), &connection, item, config.GlobalContext{Accounting: "estimated"}, budgetInput{SystemBase: "system", System: "system", Messages: []llm.Message{message}, Records: []events.Message{record}}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestColdPrefillSuppressesImmediateCompaction(t *testing.T) {
 	}
 }
 
-func TestExactAccountingUsesProfileTimeoutAfterConnect(t *testing.T) {
+func TestExactAccountingUsesConnectionTimeoutAfterConnect(t *testing.T) {
 	var slow sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -64,10 +64,10 @@ func TestExactAccountingUsesProfileTimeoutAfterConnect(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true, ApplyTemplateTools: true}}
+	connection := config.Connection{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true, ApplyTemplateTools: true}}
 	item := &session.Session{ID: "normal-timeout", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	started := time.Now()
-	if _, err := NewBudgeter().Measure(context.Background(), &profile, item, config.GlobalContext{}, budgetInput{SystemBase: "system", System: "system"}, false); err != nil {
+	if _, err := NewBudgeter().Measure(context.Background(), &connection, item, config.GlobalContext{}, budgetInput{SystemBase: "system", System: "system"}, false); err != nil {
 		t.Fatal(err)
 	}
 	if elapsed := time.Since(started); elapsed < 2500*time.Millisecond {
@@ -92,18 +92,18 @@ func TestSlowTokenizeDegradesForOneMeasurementThenReturnsToExact(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 1, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true, ApplyTemplateTools: true}}
+	connection := config.Connection{BaseURL: server.URL, RequestTimeoutS: 1, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true, ApplyTemplateTools: true}}
 	item := &session.Session{ID: "degraded", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	input := budgetInput{SystemBase: "system", System: "system"}
 	budgeter := NewBudgeter()
-	degraded, err := budgeter.MeasureWithBusy(context.Background(), &profile, item, config.GlobalContext{}, input, false, nil)
+	degraded, err := budgeter.MeasureWithBusy(context.Background(), &connection, item, config.GlobalContext{}, input, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if degraded.Mode != "estimated" || !degraded.Estimated {
 		t.Fatalf("degraded budget=%+v", degraded)
 	}
-	exact, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	exact, err := budgeter.Measure(context.Background(), &connection, item, config.GlobalContext{}, input, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,18 +136,18 @@ func TestRejectedApplyTemplateShapeUsesSentinelAndStaysExact(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
+	connection := config.Connection{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
 	item := &session.Session{ID: "template-retry", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	budgeter := NewBudgeter()
 	input := budgetInput{SystemBase: "system", System: "system"}
-	repaired, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	repaired, err := budgeter.Measure(context.Background(), &connection, item, config.GlobalContext{}, input, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if repaired.Mode != "exact" || len(repaired.Findings) != 0 {
 		t.Fatalf("repaired budget=%+v", repaired)
 	}
-	retried, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	retried, err := budgeter.Measure(context.Background(), &connection, item, config.GlobalContext{}, input, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,9 +182,9 @@ func TestEveryApplyTemplateFailureLeavesAnEstimatedBudget(t *testing.T) {
 			}
 		}))
 		defer server.Close()
-		profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true, ApplyTemplateTools: true}}
+		connection := config.Connection{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true, ApplyTemplateTools: true}}
 		item := &session.Session{ID: fmt.Sprintf("failure-%d", failAt), SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
-		budget, err := NewBudgeter().Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+		budget, err := NewBudgeter().Measure(context.Background(), &connection, item, config.GlobalContext{}, input, false)
 		if err != nil {
 			t.Fatalf("failAt=%d err=%v", failAt, err)
 		}
@@ -231,14 +231,14 @@ func TestSystemOnlyAbortPrefixDegradesInsteadOfRaisingTemplateError(t *testing.T
 		}
 	}))
 	defer server.Close()
-	profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
+	connection := config.Connection{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
 	item := &session.Session{ID: "abort-prefix", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	input := budgetInput{
 		SystemBase: "system", SystemProject: "system", SystemWorkspaceMemory: "system", System: "system",
 		Messages: []llm.Message{{Role: "system", Content: "[HARNESS ABORT RECORD]"}},
 		Records:  []events.Message{{ID: "m-abort", Role: "system", Category: "history", Content: "[HARNESS ABORT RECORD]"}},
 	}
-	budget, err := NewBudgeter().Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	budget, err := NewBudgeter().Measure(context.Background(), &connection, item, config.GlobalContext{}, input, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,9 +281,9 @@ func TestSystemAccountingUsesSentinelAndSubtractsItsCost(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
+	connection := config.Connection{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
 	item := &session.Session{ID: "sentinel", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
-	budget, err := NewBudgeter().Measure(context.Background(), &profile, item, config.GlobalContext{}, budgetInput{SystemBase: "direct system", System: "direct system"}, false)
+	budget, err := NewBudgeter().Measure(context.Background(), &connection, item, config.GlobalContext{}, budgetInput{SystemBase: "direct system", System: "direct system"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,10 +326,10 @@ func TestExactSchemaAttributionTokenizerFailureDegrades(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true, ApplyTemplateTools: true}}
+	connection := config.Connection{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true, ApplyTemplateTools: true}}
 	item := &session.Session{ID: "exact", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	readFile := testSchema("read_file")
-	budget, err := NewBudgeter().Measure(context.Background(), &profile, item, config.GlobalContext{}, budgetInput{SystemBase: "system", System: "system", Schemas: []any{testSchema("active")}, AllSchemas: map[string]any{"read_file": readFile}}, false)
+	budget, err := NewBudgeter().Measure(context.Background(), &connection, item, config.GlobalContext{}, budgetInput{SystemBase: "system", System: "system", Schemas: []any{testSchema("active")}, AllSchemas: map[string]any{"read_file": readFile}}, false)
 	if err != nil || budget.Mode != "estimated" || len(budget.Findings) != 1 || !strings.Contains(budget.Findings[0], "tokenize") {
 		t.Fatalf("budget=%+v error=%v", budget, err)
 	}
@@ -376,7 +376,7 @@ func TestExactToolCostsAreMarginalAndCached(t *testing.T) {
 	}))
 	defer server.Close()
 
-	profile := config.Profile{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true, ApplyTemplateTools: true}}
+	connection := config.Connection{BaseURL: server.URL, RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true, ApplyTemplateTools: true}}
 	item := &session.Session{ID: "cache", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	one, two := testSchema("one"), testSchema("two")
 	input := budgetInput{
@@ -387,7 +387,7 @@ func TestExactToolCostsAreMarginalAndCached(t *testing.T) {
 		AllSchemas:         map[string]any{"one": one, "two": two},
 	}
 	budgeter := NewBudgeter()
-	first, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	first, err := budgeter.Measure(context.Background(), &connection, item, config.GlobalContext{}, input, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +402,7 @@ func TestExactToolCostsAreMarginalAndCached(t *testing.T) {
 	}
 	budgeter.MarkRequest(item.ID, first.UsedEst)
 	budgeter.RecordUsage(item.ID, first.UsedEst+5, -1)
-	second, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	second, err := budgeter.Measure(context.Background(), &connection, item, config.GlobalContext{}, input, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +413,7 @@ func TestExactToolCostsAreMarginalAndCached(t *testing.T) {
 		t.Fatalf("cached marginals changed: first=%v second=%v", first.ToolMarginalTokens, second.ToolMarginalTokens)
 	}
 	budgeter.InvalidateToolCosts()
-	_, err = budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	_, err = budgeter.Measure(context.Background(), &connection, item, config.GlobalContext{}, input, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,7 @@ func TestExactToolCostsAreMarginalAndCached(t *testing.T) {
 	input.System = "system tools one"
 	input.WithoutToolSystems = map[string]string{"one": "system tools "}
 	input.Schemas = []any{one}
-	third, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	third, err := budgeter.Measure(context.Background(), &connection, item, config.GlobalContext{}, input, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +470,7 @@ func TestMessageWeightsCacheByIDAndInvalidateOnContentChange(t *testing.T) {
 	}))
 	defer server.Close()
 
-	profile := config.Profile{BaseURL: server.URL, Model: "model", RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
+	connection := config.Connection{BaseURL: server.URL, Model: "model", RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
 	item := &session.Session{ID: "message-cache", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	input := budgetInput{SystemBase: "system", System: "system"}
 	for index := 0; index < 19; index++ {
@@ -481,7 +481,7 @@ func TestMessageWeightsCacheByIDAndInvalidateOnContentChange(t *testing.T) {
 	budgeter := NewBudgeter()
 	measure := func() {
 		t.Helper()
-		if _, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false); err != nil {
+		if _, err := budgeter.Measure(context.Background(), &connection, item, config.GlobalContext{}, input, false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -542,19 +542,19 @@ func TestOperatorR5TapeReplaysThroughResilientAccounting(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	profile := config.Profile{BaseURL: server.URL, Model: "r5-replay", RequestTimeoutS: 1, Context: config.Context{NCtx: 32768, ReserveOutput: 10240}, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
+	connection := config.Connection{BaseURL: server.URL, Model: "r5-replay", RequestTimeoutS: 1, Context: config.Context{NCtx: 32768, ReserveOutput: 10240}, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
 	item := &session.Session{ID: "r5-replay", Messages: append([]events.Message(nil), snapshot.Messages...), SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	messages := make([]llm.Message, 0, len(snapshot.Messages))
 	for _, message := range snapshot.Messages {
-		messages = append(messages, requestMessage(&profile, item, message))
+		messages = append(messages, requestMessage(&connection, item, message))
 	}
 	input := budgetInput{SystemBase: "system", System: "system", Messages: messages, Records: snapshot.Messages}
 	budgeter := NewBudgeter()
-	degraded, err := budgeter.MeasureWithBusy(context.Background(), &profile, item, config.GlobalContext{}, input, false, nil)
+	degraded, err := budgeter.MeasureWithBusy(context.Background(), &connection, item, config.GlobalContext{}, input, false, nil)
 	if err != nil || degraded.Mode != "estimated" {
 		t.Fatalf("degraded=%+v err=%v", degraded, err)
 	}
-	exact, err := budgeter.Measure(context.Background(), &profile, item, config.GlobalContext{}, input, false)
+	exact, err := budgeter.Measure(context.Background(), &connection, item, config.GlobalContext{}, input, false)
 	if err != nil || exact.Mode != "exact" {
 		t.Fatalf("exact=%+v err=%v", exact, err)
 	}

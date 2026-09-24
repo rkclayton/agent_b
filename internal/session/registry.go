@@ -20,7 +20,7 @@ type Registry struct {
 	mu          sync.Mutex
 	sessions    map[string]*Session
 	next        int
-	profiles    func(string) (*config.Profile, bool)
+	connections func(string) (*config.Connection, bool)
 	bus         *events.Bus
 	writers     *events.Writers
 	maxTurns    int
@@ -32,8 +32,8 @@ type Registry struct {
 	scratchRoot string
 }
 
-func NewRegistry(bus *events.Bus, writers *events.Writers, profiles func(string) (*config.Profile, bool), maxTurns int, settings func() config.Config) *Registry {
-	return &Registry{sessions: map[string]*Session{}, next: 2, profiles: profiles, bus: bus, writers: writers, maxTurns: maxTurns, config: settings}
+func NewRegistry(bus *events.Bus, writers *events.Writers, connections func(string) (*config.Connection, bool), maxTurns int, settings func() config.Config) *Registry {
+	return &Registry{sessions: map[string]*Session{}, next: 2, connections: connections, bus: bus, writers: writers, maxTurns: maxTurns, config: settings}
 }
 func (r *Registry) SetMemoryLoader(loader func(context.Context, string, string) (string, string, error)) {
 	r.memory = loader
@@ -67,7 +67,7 @@ func (r *Registry) createLike(sourceID string) (*Session, error) {
 	}
 	agentID := snapshot.AgentID
 	if _, found := r.resolveAgent(agentID); agentID == "" || !found {
-		agentID = snapshot.ServerID
+		agentID = snapshot.ConnectionID
 	}
 	return r.create("", agentID, "", enabled, "b", "")
 }
@@ -129,15 +129,15 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		planRepo = planRepoForRestore(planDir, saved.PlanRepo)
 	}
 	s := &Session{
-		ID: saved.ID, Label: saved.Label, AgentID: saved.AgentID, ServerID: saved.ServerID,
-		AgentName: saved.AgentName, BProfile: saved.BProfile, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: saved.NetworkBoundary,
+		ID: saved.ID, Label: saved.Label, AgentID: saved.AgentID, ConnectionID: saved.ConnectionID,
+		AgentName: saved.AgentName, BConnection: saved.BConnection, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: saved.NetworkBoundary,
 		Workspace: firstNonempty(saved.WorkspaceDir, saved.Workspace), WorkspaceMissing: saved.WorkspaceMissing, Scratch: saved.Scratch,
 		ProjectBlock: saved.ProjectContent, ProjectFiles: append([]string(nil), saved.ProjectFiles...), ProjectNotes: append([]string(nil), saved.ProjectNotes...),
 		PendingRepoPolicy: clonePolicyState(saved.PendingRepoPolicy), RepoPolicy: clonePolicyState(saved.RepoPolicy),
 		Run: run, ToolsEnabled: tools, ToolCalls: calls, LastSeen: map[string]time.Time{}, CreatedAt: createdAt,
 		Closed: saved.Closed, NamePinned: saved.NamePinned, Messages: append([]events.Message(nil), saved.Messages...), Budget: saved.Budget,
 		LogPath: logPath, Runnable: saved.Runnable, NotRunnableReason: saved.NotRunnableReason,
-		LoadFolderMemory: r.folderLoader(saved.ServerID), MemoryBlock: saved.MemoryContent, MemoryPath: saved.MemoryPath, AgentMemoryBlock: saved.AgentMemoryContent, AgentMemoryPath: saved.AgentMemoryPath,
+		LoadFolderMemory: r.folderLoader(saved.ConnectionID), MemoryBlock: saved.MemoryContent, MemoryPath: saved.MemoryPath, AgentMemoryBlock: saved.AgentMemoryContent, AgentMemoryPath: saved.AgentMemoryPath,
 		SchemaTokens: schemaTokens, MarginalTokens: marginalTokens, queuedMessages: saved.QueuedMessages,
 		modelTurns: saved.ModelTurns, compactionCount: saved.CompactionCount, compactionTokenDelta: saved.CompactionTokenDelta,
 		compactionModelCalls: saved.CompactionModelCalls, compactionPrompt: saved.CompactionPrompt, compactionCompletion: saved.CompactionCompletion,
@@ -208,15 +208,15 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	if role != "b" && role != "d" && role != "c" {
 		return nil, fmt.Errorf("role must be b, c or d")
 	}
-	// The worker runs on the c profile when one is assigned and falls back to b,
-	// so Go works on a single-profile install rather than refusing to start.
-	profileID := agent.ProfileFor(role)
-	if role == "d" && profileID == "" {
+	// The worker runs on the c connection when one is assigned and falls back to b,
+	// so Go works on a single-connection install rather than refusing to start.
+	connectionID := agent.ConnectionFor(role)
+	if role == "d" && connectionID == "" {
 		return nil, fmt.Errorf("agent_d is not assigned")
 	}
-	profile, ok := r.profiles(profileID)
+	connection, ok := r.connections(connectionID)
 	if !ok {
-		return nil, fmt.Errorf("agent_id: %s profile %s was not found", role, profileID)
+		return nil, fmt.Errorf("agent_id: %s connection %s was not found", role, connectionID)
 	}
 	id := "main"
 	if len(r.sessions) > 0 {
@@ -289,7 +289,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	if err != nil {
 		return nil, err
 	}
-	runnable, reason := runnable(profile, r.config().Context.Accounting)
+	runnable, reason := runnable(connection, r.config().Context.Accounting)
 	tools := enabled
 	if tools == nil {
 		tools = map[string]bool{}
@@ -346,13 +346,13 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 	}
 	settings := r.config()
-	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ServerID: profileID, AgentName: agent.Name, BProfile: profile.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: time.Now().UTC(), LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(profile, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: time.Now().UTC(), LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		session.ProjectTouch = r.projectTouch(session)
 	}
 	session.EnsurePlan = r.ensurePlanHook(session)
 	session.Messages = []events.Message{}
-	session.Budget = initialBudget(profile)
+	session.Budget = initialBudget(connection)
 	r.sessions[id] = session
 	r.bus.Publish(events.New(events.SessionCreated, id, "", map[string]any{"workspace_dir": abs, "session": session.Snapshot()}))
 	if len(setup.Instructions.Files) > 0 {
@@ -484,20 +484,20 @@ func (r *Registry) Label(id string) string {
 	}
 	return id
 }
-func (r *Registry) ProfileInUse(serverID string) (string, bool) {
+func (r *Registry) ConnectionInUse(connectionID string) (string, bool) {
 	for _, item := range r.List() {
-		if item.ServerID == serverID {
+		if item.ConnectionID == connectionID {
 			return item.ID, true
 		}
 	}
 	return "", false
 }
-func (r *Registry) ProfileRunnable(serverID string) (bool, string) {
-	profile, ok := r.profiles(serverID)
+func (r *Registry) ConnectionRunnable(connectionID string) (bool, string) {
+	connection, ok := r.connections(connectionID)
 	if !ok {
-		return false, "unknown profile " + serverID
+		return false, "unknown connection " + connectionID
 	}
-	return runnable(profile, r.config().Context.Accounting)
+	return runnable(connection, r.config().Context.Accounting)
 }
 func (r *Registry) AgentRunnable(agentID string) (bool, string) {
 	return r.AgentRoleRunnable(agentID, "b")
@@ -507,11 +507,11 @@ func (r *Registry) AgentRoleRunnable(agentID, role string) (bool, string) {
 	if !ok {
 		return false, "unknown agent " + agentID
 	}
-	profileID := agent.ProfileFor(role)
-	if role == "d" && profileID == "" {
+	connectionID := agent.ConnectionFor(role)
+	if role == "d" && connectionID == "" {
 		return false, "agent_d is not assigned"
 	}
-	return r.ProfileRunnable(profileID)
+	return r.ConnectionRunnable(connectionID)
 }
 func (r *Registry) resolveAgent(id string) (*config.Agent, bool) {
 	cfg := r.config()
@@ -524,13 +524,13 @@ func (r *Registry) resolveAgent(id string) (*config.Agent, bool) {
 			return &agent, true
 		}
 	}
-	for _, candidate := range cfg.Servers {
+	for _, candidate := range cfg.Connections {
 		if config.AgentID(candidate.Label) == id {
 			return &config.Agent{Name: candidate.Label, B: candidate.ID, Toolset: config.FullToolset()}, true
 		}
 	}
-	if profile, ok := r.profiles(id); ok {
-		return &config.Agent{Name: profile.Label, B: profile.ID, Toolset: config.FullToolset()}, true
+	if connection, ok := r.connections(id); ok {
+		return &config.Agent{Name: connection.Label, B: connection.ID, Toolset: config.FullToolset()}, true
 	}
 	return nil, false
 }
@@ -579,18 +579,18 @@ func (r *Registry) RenameBy(id, label, by string) error {
 	r.bus.Publish(events.New(events.SessionRenamed, id, "", map[string]any{"session_id": id, "label": label, "by": by}))
 	return nil
 }
-func (r *Registry) SetServer(id, serverID string) error {
+func (r *Registry) SetConnection(id, connectionID string) error {
 	s, ok := r.Get(id)
 	if !ok {
 		return fmt.Errorf("session not found")
 	}
-	profile, ok := r.profiles(serverID)
+	connection, ok := r.connections(connectionID)
 	if !ok {
-		return fmt.Errorf("server_id: unknown profile %s", serverID)
+		return fmt.Errorf("connection_id: unknown connection %s", connectionID)
 	}
-	runnable, reason := runnable(profile, r.config().Context.Accounting)
+	runnable, reason := runnable(connection, r.config().Context.Accounting)
 	if !runnable {
-		return fmt.Errorf("server_id: %s", reason)
+		return fmt.Errorf("connection_id: %s", reason)
 	}
 
 	s.mu.Lock()
@@ -608,7 +608,7 @@ func (r *Registry) SetServer(id, serverID string) error {
 
 	if r.memory != nil {
 		var err error
-		memoryBlock, memoryPath, err = r.folderMemory(scratch, workspace, serverID)
+		memoryBlock, memoryPath, err = r.folderMemory(scratch, workspace, connectionID)
 		if err != nil {
 			return err
 		}
@@ -623,18 +623,18 @@ func (r *Registry) SetServer(id, serverID string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("session is running")
 	}
-	s.ServerID = serverID
-	s.AgentName, s.BProfile = profile.Label, profile.Label
+	s.ConnectionID = connectionID
+	s.AgentName, s.BConnection = connection.Label, connection.Label
 	s.Runnable, s.NotRunnableReason = true, ""
 	s.MemoryBlock, s.MemoryPath = memoryBlock, memoryPath
-	s.Budget = initialBudget(profile)
+	s.Budget = initialBudget(connection)
 	s.mu.Unlock()
 
 	r.bus.Publish(events.New(events.SessionUpdated, id, "", map[string]any{
 		"session_id":          id,
-		"server_id":           serverID,
-		"agent_name":          profile.Label,
-		"b_profile":           profile.Label,
+		"connection_id":       connectionID,
+		"agent_name":          connection.Label,
+		"b_connection":        connection.Label,
 		"runnable":            true,
 		"not_runnable_reason": "",
 		"memory_path":         memoryPath,
@@ -653,16 +653,16 @@ func (r *Registry) SetAgent(id, agentID string) error {
 		return fmt.Errorf("agent_id: unknown agent %s", agentID)
 	}
 	snapshot := s.Snapshot()
-	profileID := agent.ProfileFor(snapshot.Role)
-	if snapshot.Role == "d" && profileID == "" {
+	connectionID := agent.ConnectionFor(snapshot.Role)
+	if snapshot.Role == "d" && connectionID == "" {
 		return fmt.Errorf("agent_id: agent_d is not assigned")
 	}
-	profile, ok := r.profiles(profileID)
+	connection, ok := r.connections(connectionID)
 	if !ok {
-		return fmt.Errorf("agent_id: %s profile %s was not found", snapshot.Role, profileID)
+		return fmt.Errorf("agent_id: %s connection %s was not found", snapshot.Role, connectionID)
 	}
 	agentID = config.AgentID(agent.Name)
-	runnable, reason := runnable(profile, r.config().Context.Accounting)
+	runnable, reason := runnable(connection, r.config().Context.Accounting)
 	if !runnable {
 		return fmt.Errorf("agent_id: %s", reason)
 	}
@@ -680,7 +680,7 @@ func (r *Registry) SetAgent(id, agentID string) error {
 	memoryBlock, memoryPath := "", ""
 	if r.memory != nil {
 		var err error
-		memoryBlock, memoryPath, err = r.folderMemory(scratch, workspace, profileID)
+		memoryBlock, memoryPath, err = r.folderMemory(scratch, workspace, connectionID)
 		if err != nil {
 			return err
 		}
@@ -688,7 +688,7 @@ func (r *Registry) SetAgent(id, agentID string) error {
 	agentMemoryBlock, agentMemoryPath := "", ""
 	if r.agentMemory != nil {
 		var err error
-		agentMemoryBlock, agentMemoryPath, err = r.agentMemory(context.Background(), agentID, profileID)
+		agentMemoryBlock, agentMemoryPath, err = r.agentMemory(context.Background(), agentID, connectionID)
 		if err != nil {
 			return err
 		}
@@ -705,12 +705,12 @@ func (r *Registry) SetAgent(id, agentID string) error {
 		enabled["run_script"] = false
 	}
 	s.mu.Lock()
-	s.AgentID, s.ServerID, s.AgentName, s.BProfile = agentID, profileID, agent.Name, profile.Label
+	s.AgentID, s.ConnectionID, s.AgentName, s.BConnection = agentID, connectionID, agent.Name, connection.Label
 	s.PromptAddendum, s.ToolsEnabled = agent.PromptAddendum, enabled
 	s.Runnable, s.NotRunnableReason = true, ""
-	s.MemoryBlock, s.MemoryPath, s.AgentMemoryBlock, s.AgentMemoryPath, s.Budget = memoryBlock, memoryPath, agentMemoryBlock, agentMemoryPath, initialBudget(profile)
+	s.MemoryBlock, s.MemoryPath, s.AgentMemoryBlock, s.AgentMemoryPath, s.Budget = memoryBlock, memoryPath, agentMemoryBlock, agentMemoryPath, initialBudget(connection)
 	s.mu.Unlock()
-	r.bus.Publish(events.New(events.SessionUpdated, id, "", map[string]any{"session_id": id, "agent_id": agentID, "server_id": profileID, "agent_name": agent.Name, "b_profile": profile.Label, "runnable": true, "not_runnable_reason": "", "memory_path": memoryPath, "memory_content": memoryBlock}))
+	r.bus.Publish(events.New(events.SessionUpdated, id, "", map[string]any{"session_id": id, "agent_id": agentID, "connection_id": connectionID, "agent_name": agent.Name, "b_connection": connection.Label, "runnable": true, "not_runnable_reason": "", "memory_path": memoryPath, "memory_content": memoryBlock}))
 	return nil
 }
 
@@ -727,18 +727,18 @@ func (r *Registry) ApplyAgentBinding(agentID string) error {
 		if snapshot.Run.Status == "running" || snapshot.Run.Status == "stopping" {
 			return fmt.Errorf("agent_id: session %s is running", snapshot.ID)
 		}
-		profileID := agent.ProfileFor(snapshot.Role)
-		profile, ok := r.profiles(profileID)
+		connectionID := agent.ConnectionFor(snapshot.Role)
+		connection, ok := r.connections(connectionID)
 		if !ok {
-			return fmt.Errorf("agent_id: %s profile %s was not found", snapshot.Role, profileID)
+			return fmt.Errorf("agent_id: %s connection %s was not found", snapshot.Role, connectionID)
 		}
-		if runnable, reason := runnable(profile, r.config().Context.Accounting); !runnable {
+		if runnable, reason := runnable(connection, r.config().Context.Accounting); !runnable {
 			return fmt.Errorf("agent_id: %s", reason)
 		}
 		memoryBlock, memoryPath := snapshot.MemoryContent, snapshot.MemoryPath
 		if r.memory != nil {
 			var err error
-			memoryBlock, memoryPath, err = r.folderMemory(snapshot.Scratch, snapshot.Workspace, profileID)
+			memoryBlock, memoryPath, err = r.folderMemory(snapshot.Scratch, snapshot.Workspace, connectionID)
 			if err != nil {
 				return err
 			}
@@ -746,20 +746,20 @@ func (r *Registry) ApplyAgentBinding(agentID string) error {
 		agentMemoryBlock, agentMemoryPath := snapshot.AgentMemoryContent, snapshot.AgentMemoryPath
 		if r.agentMemory != nil {
 			var err error
-			agentMemoryBlock, agentMemoryPath, err = r.agentMemory(context.Background(), agentID, profileID)
+			agentMemoryBlock, agentMemoryPath, err = r.agentMemory(context.Background(), agentID, connectionID)
 			if err != nil {
 				return err
 			}
 		}
-		item.ApplyAgentConfig(agentID, *agent, *profile)
+		item.ApplyAgentConfig(agentID, *agent, *connection)
 		item.mu.Lock()
 		item.MemoryBlock, item.MemoryPath = memoryBlock, memoryPath
 		item.AgentMemoryBlock, item.AgentMemoryPath = agentMemoryBlock, agentMemoryPath
-		item.Budget = initialBudget(profile)
+		item.Budget = initialBudget(connection)
 		item.mu.Unlock()
 		r.bus.Publish(events.New(events.SessionUpdated, item.ID, "", map[string]any{
-			"session_id": item.ID, "agent_id": agentID, "server_id": profileID,
-			"agent_name": agent.Name, "b_profile": profile.Label, "runnable": true,
+			"session_id": item.ID, "agent_id": agentID, "connection_id": connectionID,
+			"agent_name": agent.Name, "b_connection": connection.Label, "runnable": true,
 			"not_runnable_reason": "", "memory_path": memoryPath, "memory_content": memoryBlock,
 			"agent_memory_path": agentMemoryPath, "agent_memory_content": agentMemoryBlock,
 		}))
@@ -805,7 +805,7 @@ func (r *Registry) Reset(id string) (string, error) {
 	s.LogPath = path
 	s.Run = RunState{Status: "idle", MaxTurns: r.maxTurns}
 	if r.memory != nil {
-		block, memoryPath, loadErr := r.folderMemory(s.Scratch, s.Workspace, s.ServerID)
+		block, memoryPath, loadErr := r.folderMemory(s.Scratch, s.Workspace, s.ConnectionID)
 		if loadErr != nil {
 			s.mu.Unlock()
 			return "", loadErr
@@ -813,7 +813,7 @@ func (r *Registry) Reset(id string) (string, error) {
 		s.MemoryBlock, s.MemoryPath = block, memoryPath
 	}
 	if r.agentMemory != nil {
-		block, path, loadErr := r.agentMemory(context.Background(), s.AgentID, s.ServerID)
+		block, path, loadErr := r.agentMemory(context.Background(), s.AgentID, s.ConnectionID)
 		if loadErr != nil {
 			s.mu.Unlock()
 			return "", loadErr
@@ -906,7 +906,7 @@ func (r *Registry) Delete(id string) (events.SessionInventory, error) {
 // Item 2gy (v1.2.5): a capability finding gates the FEATURE that needs it, not
 // the chat. A probe that could not get an answer - a busy GPU, a timeout, a 503
 // - used to be recorded as a server that cannot call tools, and that finding
-// then stopped every run with "profile not runnable". A chat the operator can
+// then stopped every run with "connection not runnable". A chat the operator can
 // still talk in is not unrunnable because one capability is missing.
 //
 // "Not runnable" now means exactly what it says: there is no endpoint or no
@@ -914,23 +914,23 @@ func (r *Registry) Delete(id string) (events.SessionInventory, error) {
 // tool calling, no streaming, a truncating server, no /tokenize for exact
 // accounting - degrades the feature and says so, which is what the honest
 // degradation rule has always asked for.
-func runnable(profile *config.Profile, accounting string) (bool, string) {
-	if reason := config.ProfileSetupReason(profile); reason != "" {
+func runnable(connection *config.Connection, accounting string) (bool, string) {
+	if reason := config.ConnectionSetupReason(connection); reason != "" {
 		return false, reason
 	}
 	return true, ""
 }
 
-// degradedFeatures lists what this profile cannot do, for the strip to say once
+// degradedFeatures lists what this connection cannot do, for the strip to say once
 // rather than for the run to refuse.
-func degradedFeatures(profile *config.Profile, accounting string) []string {
-	c := profile.Capabilities
+func degradedFeatures(connection *config.Connection, accounting string) []string {
+	c := connection.Capabilities
 	var notes []string
-	if profile.Context.NCtx == 0 {
+	if connection.Context.NCtx == 0 {
 		notes = append(notes, "context length unknown")
 	}
 	if !c.ToolCalls {
-		notes = append(notes, "tools off · profile reports no tool calling")
+		notes = append(notes, "tools off · connection reports no tool calling")
 	}
 	if c.OverflowBehavior == "truncate" {
 		notes = append(notes, "server truncates context")
@@ -944,14 +944,14 @@ func degradedFeatures(profile *config.Profile, accounting string) []string {
 	return notes
 }
 
-func initialBudget(profile *config.Profile) events.Budget {
-	nctx := profile.Context.NCtx
-	ceiling := nctx - profile.Context.ReserveOutput
+func initialBudget(connection *config.Connection) events.Budget {
+	nctx := connection.Context.NCtx
+	ceiling := nctx - connection.Context.ReserveOutput
 	if ceiling < 0 {
 		ceiling = 0
 	}
 	return events.Budget{
-		NCtx: nctx, Reserve: profile.Context.ReserveOutput, Ceiling: ceiling,
+		NCtx: nctx, Reserve: connection.Context.ReserveOutput, Ceiling: ceiling,
 		Mode: "estimated", Estimated: true, EstimatedCategories: []string{},
 		Categories:       map[string]int{"system": 0, "project": 0, "workspace_memory": 0, "agent_memory": 0, "tools": 0, "history": 0, "files": 0, "results": 0, "fetched": 0, "summary": 0},
 		ToolSchemaTokens: map[string]int{}, ToolMarginalTokens: map[string]int{},
@@ -960,12 +960,12 @@ func initialBudget(profile *config.Profile) events.Budget {
 
 func (r *Registry) RefreshRunnable() {
 	for _, item := range r.List() {
-		profile, ok := r.profiles(item.ServerID)
+		connection, ok := r.connections(item.ConnectionID)
 		if !ok {
-			item.SetRunnable(false, "profile not found")
+			item.SetRunnable(false, "connection not found")
 			continue
 		}
-		ok, reason := runnable(profile, r.config().Context.Accounting)
+		ok, reason := runnable(connection, r.config().Context.Accounting)
 		item.SetRunnable(ok, reason)
 	}
 }
@@ -973,19 +973,19 @@ func (r *Registry) RefreshRunnable() {
 // folderMemory loads a chat's folder memory layer. A scratch folder has no
 // layer of its own (item 2fh): a scratch chat's folder memory is the layers of
 // the plan repositories it writes into, loaded at run start.
-func (r *Registry) folderMemory(scratch bool, workspace, profileID string) (string, string, error) {
+func (r *Registry) folderMemory(scratch bool, workspace, connectionID string) (string, string, error) {
 	if scratch || r.memory == nil {
 		return "", "", nil
 	}
-	return r.memory(context.Background(), workspace, profileID)
+	return r.memory(context.Background(), workspace, connectionID)
 }
 
-// folderLoader loads one folder's layer for a chat on profileID.
-func (r *Registry) folderLoader(profileID string) func(string) (string, string, error) {
+// folderLoader loads one folder's layer for a chat on connectionID.
+func (r *Registry) folderLoader(connectionID string) func(string) (string, string, error) {
 	return func(folder string) (string, string, error) {
 		if r.memory == nil {
 			return "", "", nil
 		}
-		return r.memory(context.Background(), folder, profileID)
+		return r.memory(context.Background(), folder, connectionID)
 	}
 }

@@ -419,7 +419,7 @@ func safeString(key, value string) bool {
 		"history": true, "files": true, "fetched": true, "results": true, "summary": true, "memory": true,
 		"idle": true, "queued": true, "running": true, "paused": true, "stopping": true,
 		"enter": true, "exit": true, "assemble": true, "call_model": true, "parse": true, "dispatch": true, "execute": true, "append": true, "compact": true, "wait_user": true,
-		"done": true, "user_stop": true, "turn_ceiling": true, "cycle": true, "tool_errors": true, "context_ceiling": true, "context_exhausted": true, "length": true, "model_error": true, "profile_not_runnable": true,
+		"done": true, "user_stop": true, "turn_ceiling": true, "cycle": true, "tool_errors": true, "context_ceiling": true, "context_exhausted": true, "length": true, "model_error": true, "connection_not_runnable": true,
 		"reasoning": true, "content": true, "exact": true, "estimated": true, "approve": true, "deny": true, "summarize": true, "elide": true,
 	}
 	return safe[value]

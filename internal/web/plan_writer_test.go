@@ -38,7 +38,7 @@ func newPlanWriterFixture(t *testing.T) planWriterFixture {
 	data := t.TempDir()
 	cfg := config.Defaults(repo)
 	cfg.Context.Accounting = "estimated"
-	cfg.Servers = []config.Profile{runnableTestProfile("fake")}
+	cfg.Connections = []config.Connection{runnableTestConnection("fake")}
 	cfg.Agents = []config.Agent{{Name: "Writer", B: "fake", D: "fake", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	writers, err := events.NewWriters(filepath.Join(data, "logs"))
@@ -48,7 +48,7 @@ func newPlanWriterFixture(t *testing.T) planWriterFixture {
 	t.Cleanup(func() { _ = writers.Close() })
 	bus.SetSink(writers.Write)
 	server := New(&cfg, filepath.Join(data, "harness.json"), repo, RuntimeRoots{Application: repo, Data: data, Workspace: repo}, bus)
-	registry := session.NewRegistry(bus, writers, server.Profile, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	plan, _, err := registry.EnsurePlan(repo)
 	if err != nil {
@@ -60,7 +60,7 @@ func newPlanWriterFixture(t *testing.T) planWriterFixture {
 	}
 	toolset := tools.New(tools.NewEditFile(tools.NewFileCoordinator(session.NewWorkspaceRegistry(), registry.Label, bus)))
 	toolset.Configure(cfg)
-	runner := agent.NewRunner(bus, toolset, &agent.PromptRenderer{}, server.Profile, server.ConfigSnapshot)
+	runner := agent.NewRunner(bus, toolset, &agent.PromptRenderer{}, server.Connection, server.ConfigSnapshot)
 	server.SetRuntime(nil, runner, nil)
 	return planWriterFixture{server: server, registry: registry, runner: runner, design: design, planDir: design.PlanDir, data: data}
 }

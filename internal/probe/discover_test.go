@@ -41,9 +41,9 @@ func TestDiscoverEndpointUsesExactURLAndListsModels(t *testing.T) {
 		fmt.Fprint(w, `{"data":[{"id":"second"},{"id":"first"}]}`)
 	}))
 	defer server.Close()
-	profile := config.Defaults(t.TempDir()).Servers[0]
-	profile.BaseURL = server.URL
-	result, err := DiscoverEndpoint(context.Background(), &profile)
+	connection := config.Defaults(t.TempDir()).Connections[0]
+	connection.BaseURL = server.URL
+	result, err := DiscoverEndpoint(context.Background(), &connection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,9 +56,9 @@ func TestDiscoverEndpointUsesExactURLAndListsModels(t *testing.T) {
 }
 
 func TestDiscoverEndpointRefusesMalformedSchemeBeforeRequests(t *testing.T) {
-	profile := config.Defaults(t.TempDir()).Servers[0]
-	profile.BaseURL = "https:/host"
-	result, err := DiscoverEndpoint(context.Background(), &profile)
+	connection := config.Defaults(t.TempDir()).Connections[0]
+	connection.BaseURL = "https:/host"
+	result, err := DiscoverEndpoint(context.Background(), &connection)
 	if err == nil || !strings.Contains(err.Error(), "two slashes") {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}

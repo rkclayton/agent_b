@@ -8,10 +8,10 @@
       "origin": "internal/projection/testdata/pins/sources/agent-objects-migrated.events",
       "origin_sha256": "40c287d6c50b5a350dd13123af6a4c940eb60c3cb7c8a5b01188ce193fc61296",
       "origin_records": 1,
-      "decompressed_bytes": 1211,
+      "decompressed_bytes": 1218,
       "synthetic": true,
-      "shapes": ["agent-object", "agent-id", "lettered-b-profile", "two-layer-memory"],
-      "rationale": "A session seed shaped by the schema-5 to schema-6 migration pins the durable named-agent binding, lettered b profile, full replay identity, and distinct workspace and agent memory layers."
+      "shapes": ["agent-object", "agent-id", "lettered-b-connection", "two-layer-memory"],
+      "rationale": "A session seed shaped by the schema-5 to schema-6 migration pins the durable named-agent binding, lettered b connection, full replay identity, and distinct workspace and agent memory layers."
     },
     {
       "id": "chat-deleted",
@@ -20,7 +20,7 @@
       "origin": "internal/projection/testdata/pins/sources/chat-deleted.events",
       "origin_sha256": "f786bf78a3c13717a9113a01f3dc2f68cd9576783e45f1a608059017b661a525",
       "origin_records": 2,
-      "decompressed_bytes": 1033,
+      "decompressed_bytes": 1040,
       "synthetic": true,
       "shapes": ["closed-before-full-delete", "no-delete-tombstone"],
       "rationale": "Full delete removes the JSONL, so its last projectable state is a closed agent-bound chat and there is deliberately no session.deleted tombstone; the API disk-scope test pins the subsequent absence."
@@ -32,7 +32,7 @@
       "origin": "internal/projection/testdata/pins/sources/stop-two-press.events",
       "origin_sha256": "636f4256df523172216640acc3337c69a1374ba322e7261f54fadd2772152b20",
       "origin_records": 6,
-      "decompressed_bytes": 1654,
+      "decompressed_bytes": 1661,
       "synthetic": true,
       "shapes": ["run-stopping-safe", "run-stopping-emergency", "held-queue"],
       "rationale": "Two Stop presses during one active run pin the durable safe-to-emergency transition and the final held queue without dispatching the message behind Stop."
@@ -44,7 +44,7 @@
       "origin": "internal/projection/testdata/pins/sources/model-unreachable-held.events",
       "origin_sha256": "b3865f3ac0939bee4b73c7af2fe159e6e119783a727d9609d5ed5bf1fa25eba1",
       "origin_records": 8,
-      "decompressed_bytes": 2035,
+      "decompressed_bytes": 2046,
       "synthetic": true,
       "shapes": ["model-unreachable", "held-queue", "probe-release"],
       "rationale": "A timed-out model accounting call holds one queued message, then a successful probe clears model.unreachable and releases that message in order."
@@ -56,7 +56,7 @@
       "origin": "internal/projection/testdata/pins/sources/agent-tabs-multi-run.events",
       "origin_sha256": "86ca78cc12383be69db118ef04296dff06d5c7bd1c2f69575deaf9c555493316",
       "origin_records": 5,
-      "decompressed_bytes": 1572,
+      "decompressed_bytes": 1579,
       "synthetic": true,
       "shapes": ["agent-tabs", "multiple-runs", "waiting-state"],
       "rationale": "Two sequential runs under one Agent B chat end with a durable pending decision; it pins the session-derived state that the shared agent tab must summarize as waiting."
@@ -68,7 +68,7 @@
       "origin": "internal/projection/testdata/pins/sources/chat-renamed.events",
       "origin_sha256": "5a3054a909fbc7cfb32c53957c552965ae846b3e8268d7a961eedee344944ccc",
       "origin_records": 3,
-      "decompressed_bytes": 1112,
+      "decompressed_bytes": 1119,
       "synthetic": true,
       "shapes": ["session-renamed", "aux-rename", "user-pin"],
       "rationale": "An auxiliary proposal followed by a user rename pins the replayed name and prevents later automatic replacement."
@@ -80,7 +80,7 @@
       "origin": "internal/projection/testdata/pins/sources/bound-directory.events",
       "origin_sha256": "f8b7e1ec84566b590960826f91e9f403d4ea8cfc5ca2f4d6983935b8bc52a1b3",
       "origin_records": 2,
-      "decompressed_bytes": 1088,
+      "decompressed_bytes": 1092,
       "synthetic": true,
       "shapes": ["bound-directory", "project-instructions", "lazy-subdir"],
       "rationale": "A session seed binds C:\\projects\\vesper and a later file-tool touch appends one subdirectory instruction block; it pins the directory jail identity and replay-only project state."
@@ -92,7 +92,7 @@
       "origin": "internal/projection/testdata/pins/sources/repo-policy-approved.events",
       "origin_sha256": "2a1e77a10e16e2367a7e9a2885243be191a012e703ab0e6c0393caad4f5d10bf",
       "origin_records": 2,
-      "decompressed_bytes": 829,
+      "decompressed_bytes": 833,
       "synthetic": true,
       "shapes": ["repo-policy", "tofu", "policy-approved"],
       "rationale": "A first-sight repository policy starts as a durable pending trust card and becomes approved by exact hash without writing trust into the repository."
@@ -104,7 +104,7 @@
       "origin": "internal/projection/testdata/pins/sources/attachment-message.events",
       "origin_sha256": "a95ea2fa97dc15233bfc0bc24c3398cf77db2383e4f499d80291f1d31d034c1e",
       "origin_records": 2,
-      "decompressed_bytes": 657,
+      "decompressed_bytes": 661,
       "synthetic": true,
       "shapes": ["attachment", "message-replay"],
       "rationale": "A minimal durable user message with attachment metadata; it pins replay projection into both messages and Chat without embedding file bytes."
@@ -116,7 +116,7 @@
       "origin": "internal/projection/testdata/pins/sources/approval-parallel-turn2.events",
       "origin_sha256": "eaced2d9831487d27cf736ce94e9add216112c3a14d7d44e361874ba3db03efe",
       "origin_records": 13,
-      "decompressed_bytes": 4162,
+      "decompressed_bytes": 4169,
       "synthetic": true,
       "shapes": ["approval", "parallel-tools", "turn-two", "pending-decision"],
       "rationale": "The r5 seq 1993 shape: a turn-two shell operator-command approval follows three parallel sibling tool calls and must remain a projected pending decision."
@@ -128,7 +128,7 @@
       "origin": "internal/projection/testdata/pins/sources/stop-preserves-chat.events",
       "origin_sha256": "22b14305f85a9071cb6aa994224113b13344aa8036dee52a003164e7d8e77d8e",
       "origin_records": 18,
-      "decompressed_bytes": 5491,
+      "decompressed_bytes": 5498,
       "synthetic": true,
       "shapes": ["approval-dismissed", "parallel-cancel", "stop-preserves-chat"],
       "rationale": "A stopped approval-blocked run with three parallel results; it pins durable dismissal and proves the final projection retains user, agent, and tool rows."
@@ -140,7 +140,7 @@
       "origin": "internal/projection/testdata/pins/sources/session-close.events",
       "origin_sha256": "fbbf3319a7c98450acc89efea32132c8b144bd7b7725c8e4e805569c9c5209a3",
       "origin_records": 9,
-      "decompressed_bytes": 2660,
+      "decompressed_bytes": 2670,
       "synthetic": true,
       "shapes": ["session-close", "chat-lifecycle", "agent-labels", "aux-notice"],
       "rationale": "A complete session that answers once, records an aux-produced notice, and closes durably; it pins closed-state retention plus replay-derived chat rows and labels for the later Console lifecycle view."
@@ -177,7 +177,7 @@
       "origin_records": 2,
       "decompressed_bytes": 903,
       "shapes": ["reset", "historical-incomplete"],
-      "rationale": "A historical reset-only generation with no predecessor or session seed; it pins complete:false and prevents invented profile, workspace, or tool defaults."
+      "rationale": "A historical reset-only generation with no predecessor or session seed; it pins complete:false and prevents invented connection, workspace, or tool defaults."
     },
     {
       "id": "recursive-compaction",

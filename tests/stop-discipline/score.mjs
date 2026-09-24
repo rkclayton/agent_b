@@ -38,9 +38,9 @@ export function scoreTrial(fixture, trial) {
   if (!fixture || fixture.schema_version !== 1) throw new Error("unsupported fixture schema");
   if (!trial || trial.schema_version !== 1) throw new Error("unsupported trial schema");
   if (trial.fixture_id !== fixture.id) throw new Error(`trial fixture ${trial.fixture_id} does not match ${fixture.id}`);
-  const profile = trial.profile ?? {};
-  const profileID = requireText(profile.id, "profile.id");
-  const model = requireText(profile.model, "profile.model");
+  const connection = trial.connection ?? {};
+  const connectionID = requireText(connection.id, "connection.id");
+  const model = requireText(connection.model, "connection.model");
   const reportText = typeof trial.report_text === "string" ? trial.report_text : "";
   const before = trial.files_before ?? {};
   const after = trial.files_after ?? {};
@@ -80,7 +80,7 @@ export function scoreTrial(fixture, trial) {
   if (!categories.includes(category)) throw new Error(`internal category error: ${category}`);
   return {
     fixture_id: fixture.id,
-    profile: { id: profileID, label: typeof profile.label === "string" ? profile.label : profileID, model },
+    connection: { id: connectionID, label: typeof connection.label === "string" ? connection.label : connectionID, model },
     category,
     pass: category === fixture.scoring.expected_category,
     reported,
@@ -93,10 +93,10 @@ export function scoreTrial(fixture, trial) {
 export function aggregateScores(scores) {
   const groups = new Map();
   for (const score of scores) {
-    const key = `${score.profile.id}\u0000${score.profile.model}`;
+    const key = `${score.connection.id}\u0000${score.connection.model}`;
     if (!groups.has(key)) {
       groups.set(key, {
-        profile: score.profile,
+        connection: score.connection,
         trials: 0,
         counts: Object.fromEntries(categories.map((category) => [category, 0])),
       });
@@ -129,7 +129,7 @@ function main(argv) {
     return Array.isArray(value) ? value : [value];
   });
   const scores = trials.map((trial) => scoreTrial(fixtures.get(trial.fixture_id), trial));
-  process.stdout.write(`${JSON.stringify({ scores, profiles: aggregateScores(scores) }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ scores, connections: aggregateScores(scores) }, null, 2)}\n`);
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : "";

@@ -105,7 +105,7 @@ func TestVerifiedInstallDownloadsExtractsStartsAndRegisters(t *testing.T) {
 	}
 	select {
 	case state := <-ready:
-		if state.ProfileID != "installed-local" || state.Phase != "ready" {
+		if state.ConnectionID != "installed-local" || state.Phase != "ready" {
 			t.Fatalf("state=%+v", state)
 		}
 	case <-time.After(10 * time.Second):

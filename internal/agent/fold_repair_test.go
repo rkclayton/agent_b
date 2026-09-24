@@ -168,31 +168,31 @@ func loadShape(t *testing.T, name string) []events.Message {
 	return messages
 }
 
-// templateRunner is truncationRunner's exact-accounting profile with the real
+// templateRunner is truncationRunner's exact-accounting connection with the real
 // read_file and find_files tools, so a replayed read returns real bytes.
 func templateRunner(t *testing.T, server *templateServer) (*Runner, *session.Session, *capturedBus) {
 	t.Helper()
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = "exact"
-	profile := cfg.Servers[0]
-	profile.ID, profile.Label, profile.BaseURL, profile.Model = "main", "main", server.server.URL, "test-model"
-	profile.RequestTimeoutS = 5
-	profile.Context.NCtx = 32768
-	profile.Context.ReserveOutput = 10240
-	profile.Capabilities.NCtx = 32768
-	profile.Capabilities.Streaming = true
-	profile.Capabilities.ToolCalls = true
-	profile.Capabilities.OverflowBehavior = "error"
-	profile.Capabilities.Tokenize = true
-	profile.Capabilities.ApplyTemplate = true
-	profile.Capabilities.ApplyTemplateTools = true
-	cfg.Servers = []config.Profile{profile}
+	connection := cfg.Connections[0]
+	connection.ID, connection.Label, connection.BaseURL, connection.Model = "main", "main", server.server.URL, "test-model"
+	connection.RequestTimeoutS = 5
+	connection.Context.NCtx = 32768
+	connection.Context.ReserveOutput = 10240
+	connection.Capabilities.NCtx = 32768
+	connection.Capabilities.Streaming = true
+	connection.Capabilities.ToolCalls = true
+	connection.Capabilities.OverflowBehavior = "error"
+	connection.Capabilities.Tokenize = true
+	connection.Capabilities.ApplyTemplate = true
+	connection.Capabilities.ApplyTemplateTools = true
+	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Main", B: "main", Toolset: config.FullToolset()}}
 	bus := newCapturedBus()
 	registry := tools.New(tools.NewReadFile(cfg.Tools.ReadFile), tools.NewGlob(cfg.Tools.FindFiles))
-	runner := NewRunner(bus.Bus, registry, &PromptRenderer{text: "system {{workspace}} {{memory}} {{tools}}"}, cfg.Profile, func() config.Config { return cfg })
+	runner := NewRunner(bus.Bus, registry, &PromptRenderer{text: "system {{workspace}} {{memory}} {{tools}}"}, cfg.Connection, func() config.Config { return cfg })
 	enabled := map[string]bool{"read_file": true, "find_files": true}
-	item := &session.Session{ID: "main", ServerID: "main", Workspace: t.TempDir(), Run: session.RunState{Status: "running", MaxTurns: cfg.Run.MaxTurns}, Runnable: true, ToolsEnabled: enabled, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, LastSeen: map[string]time.Time{}, Budget: events.Budget{NCtx: 32768, Reserve: 10240}}
+	item := &session.Session{ID: "main", ConnectionID: "main", Workspace: t.TempDir(), Run: session.RunState{Status: "running", MaxTurns: cfg.Run.MaxTurns}, Runnable: true, ToolsEnabled: enabled, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, LastSeen: map[string]time.Time{}, Budget: events.Budget{NCtx: 32768, Reserve: 10240}}
 	return runner, item, bus
 }
 
@@ -405,13 +405,13 @@ func TestANativeImageIsAStubAfterItsTurn(t *testing.T) {
 		return map[string]any{"content": "seen"}
 	})
 	runner, item, _ := templateRunner(t, server)
-	profile, _ := runner.profile(item.ServerID)
-	profile.Capabilities.ImageInput = true
-	profile.Capabilities.Vision = config.VisionReadsImages
+	connection, _ := runner.connection(item.ConnectionID)
+	connection.Capabilities.ImageInput = true
+	connection.Capabilities.Vision = config.VisionReadsImages
 	cfg := runner.cfg()
-	for index := range cfg.Servers {
-		if cfg.Servers[index].ID == profile.ID {
-			cfg.Servers[index] = *profile
+	for index := range cfg.Connections {
+		if cfg.Connections[index].ID == connection.ID {
+			cfg.Connections[index] = *connection
 		}
 	}
 	if err := os.MkdirAll(filepath.Join(item.Workspace, "attachments"), 0o700); err != nil {
@@ -436,7 +436,7 @@ func TestANativeImageIsAStubAfterItsTurn(t *testing.T) {
 		requests = append(requests, server.lastRequest())
 	}
 	if !strings.Contains(requests[0], "image_url") {
-		t.Skipf("this profile did not send the image natively in its own turn: %.300s", requests[0])
+		t.Skipf("this connection did not send the image natively in its own turn: %.300s", requests[0])
 	}
 	if strings.Contains(requests[2], "image_url") || !strings.Contains(requests[2], "shown in an earlier turn and not re-sent") {
 		t.Fatalf("turn 3's request must carry a stub for turn 1's image: %.600s", requests[2])
@@ -538,8 +538,8 @@ func contextmgrIDNumber(id string) (int64, bool) {
 // in the walk it did, and the false outage is what released the held queue.
 func TestAStopIsNotAnOutage(t *testing.T) {
 	canceled := &url.Error{Op: "Post", URL: "http://127.0.0.1:8080/apply-template", Err: context.Canceled}
-	profile := &config.Profile{BaseURL: "http://127.0.0.1:8080"}
-	if _, unavailable := modelUnavailable(profile, canceled); unavailable {
+	connection := &config.Connection{BaseURL: "http://127.0.0.1:8080"}
+	if _, unavailable := modelUnavailable(connection, canceled); unavailable {
 		t.Fatal("a canceled request was read as an unreachable model")
 	}
 	server := newTemplateServer(t, func(map[string]any, []map[string]any) map[string]any { return map[string]any{"content": "ok"} })
@@ -571,11 +571,11 @@ func TestAStopIsNotAnOutage(t *testing.T) {
 func TestTheAbortRecordLeadsEveryMeasurement(t *testing.T) {
 	server := newTemplateServer(t, func(map[string]any, []map[string]any) map[string]any { return map[string]any{"content": "ok"} })
 	runner, item, bus := templateRunner(t, server)
-	profile, _ := runner.profile(item.ServerID)
+	connection, _ := runner.connection(item.ConnectionID)
 	item.Append(events.Message{ID: "start", Role: "user", Category: "history", Content: "start"})
 	item.Append(events.Message{ID: "abort", Role: "system", Category: "history", Content: harnessAbortRecordPrefix + "\nshell Start-Sleep was canceled"})
 	item.Append(events.Message{ID: "after", Role: "user", Category: "history", Content: "You were stopped. Now just say CONTINUED."})
-	if _, err := runner.measureSession(context.Background(), profile, item, nil, false); err != nil {
+	if _, err := runner.measureSession(context.Background(), connection, item, nil, false); err != nil {
 		t.Fatalf("a measurement with the abort record mid-history was refused: %v", err)
 	}
 	for _, event := range bus.Recent(item.ID) {

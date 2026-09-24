@@ -2,7 +2,7 @@
   "schema_version": 1,
   "fixture_id": "missing-section",
   "evidence_mode": "known_case",
-  "profile": {
+  "connection": {
     "id": "codex-historical",
     "label": "Codex historical worker",
     "model": "not recorded"

@@ -1318,10 +1318,10 @@
 .settings-advanced[open] summary {
   color: var(--ink);
 }
-.profile-list {
+.connection-list {
   border-top: 1px solid rgba(125, 135, 148, 0.28);
 }
-.profile-row {
+.connection-row {
   height: 36px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -1329,10 +1329,10 @@
   align-items: center;
   border-bottom: 1px solid rgba(125, 135, 148, 0.28);
 }
-.profile-row.selected {
+.connection-row.selected {
   background: var(--well);
 }
-.profile-summary {
+.connection-summary {
   min-width: 0;
   padding: 0;
   background: transparent;
@@ -1342,11 +1342,11 @@
   align-items: center;
   text-align: left;
 }
-.profile-state {
+.connection-state {
   color: var(--mute);
   font-size: 12px;
 }
-.profile-url {
+.connection-url {
   overflow: hidden;
   color: var(--mute);
   text-overflow: ellipsis;
@@ -1356,64 +1356,64 @@
 .settings-page .lamp.alarm {
   background: var(--alarm);
 }
-.profile-remove {
+.connection-remove {
   min-width: 28px;
   color: var(--alarm);
 }
-.profile-remove.confirm {
+.connection-remove.confirm {
   min-width: 74px;
 }
-.profile-editor {
+.connection-editor {
   margin-top: 22px;
   padding-top: 12px;
   border-top: 1px solid rgba(125, 135, 148, 0.28);
 }
-.profile-editor-head,
-.profile-editor-head > div {
+.connection-editor-head,
+.connection-editor-head > div {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
-.profile-editor-head {
+.connection-editor-head {
   justify-content: space-between;
   margin-bottom: 10px;
 }
-.profile-editor-head h3 {
+.connection-editor-head h3 {
   margin: 0;
   font-size: 14px;
   font-weight: 500;
 }
-.profile-editor-head .profile-url {
+.connection-editor-head .connection-url {
   max-width: 42ch;
 }
-.profile-fields {
+.connection-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px 24px;
 }
-.profile-fieldset {
+.connection-fieldset {
   min-width: 0;
 }
-.profile-fieldset h4 {
+.connection-fieldset h4 {
   margin: 0 0 5px;
   color: var(--trace);
   font-size: 12px;
   font-weight: 500;
 }
-.profile-fields .setting-row {
+.connection-fields .setting-row {
   grid-template-columns: 116px minmax(0, 1fr);
   gap: 8px;
 }
-.profile-fields .setting-row > div {
+.connection-fields .setting-row > div {
   justify-content: flex-start;
 }
-.profile-fields .settings-note,
-.profile-fields .field-error {
+.connection-fields .settings-note,
+.connection-fields .field-error {
   margin-left: 124px;
 }
-.profile-sampling,
-.profile-capabilities {
+.connection-sampling,
+.connection-capabilities {
   grid-column: 1 / -1;
 }
 .sampling-grid {
@@ -1459,7 +1459,7 @@
 .choice-row button,
 .settings-actions button,
 .text-button,
-.settings-page button:not(.switch):not(.profile-summary):not(.settings-head button):not(.settings-nav button) {
+.settings-page button:not(.switch):not(.connection-summary):not(.settings-head button):not(.settings-nav button) {
   min-height: 24px;
   padding: 2px 7px;
   background: rgba(216, 221, 227, 0.08);
@@ -1467,7 +1467,7 @@
 .choice-row button:hover,
 .settings-actions button:hover,
 .text-button:hover,
-.settings-page button:not(.switch):not(.profile-summary):not(.settings-head button):not(.settings-nav button):hover {
+.settings-page button:not(.switch):not(.connection-summary):not(.settings-head button):not(.settings-nav button):hover {
   background: rgba(216, 221, 227, 0.12);
 }
 .choice-row button.selected {
@@ -1654,27 +1654,27 @@
   .setting-row > div {
     justify-content: flex-start;
   }
-  .profile-row {
+  .connection-row {
     grid-template-columns: minmax(0, 1fr) auto auto;
   }
-  .profile-summary {
+  .connection-summary {
     grid-template-columns: 8px minmax(56px, auto) minmax(0, 1fr);
   }
-  .profile-summary .profile-state {
+  .connection-summary .connection-state {
     display: none;
   }
-  .profile-fields {
+  .connection-fields {
     grid-template-columns: 1fr;
   }
-  .profile-sampling,
-  .profile-capabilities {
+  .connection-sampling,
+  .connection-capabilities {
     grid-column: auto;
   }
-  .profile-fields .setting-row {
+  .connection-fields .setting-row {
     grid-template-columns: 104px minmax(0, 1fr);
   }
-  .profile-fields .settings-note,
-  .profile-fields .field-error {
+  .connection-fields .settings-note,
+  .connection-fields .field-error {
     margin-left: 112px;
   }
   .sampling-grid {
@@ -1908,7 +1908,7 @@
 .panel-tool-line { grid-template-columns: 30px minmax(130px, 1fr) 64px 64px minmax(100px, auto); }
 .panel-tool-line > :last-child { color: var(--mute); }
 .panel-empty { padding: 10px; color: var(--mute); }
-.panel-profile-head { padding: 8px 10px 4px; color: var(--trace); font: 12px/16px var(--mono); }
+.panel-connection-head { padding: 8px 10px 4px; color: var(--trace); font: 12px/16px var(--mono); }
 .panel-lifetime-group { grid-column: 2; }
 .panel-actions button { min-height: 26px; }
 .panel-feedback.alarm { color: var(--alarm); }

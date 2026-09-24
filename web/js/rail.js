@@ -17,7 +17,7 @@ export function renderRail() {
     used = occupancy.occupied,
     ratio = used / Math.max(1, b.ceiling || 1),
     // Item 1b (proposed DESIGN line P2): with no known ceiling — an unprobed
-    // profile — the rail draws occupied tokens only: no percentages, no fill
+    // connection — the rail draws occupied tokens only: no percentages, no fill
     // against a ceiling, no Alarm.
     known = (occupancy.nctx || 0) > 0 && (b.ceiling || 0) > 0;
   const serial = Number(s.activity?.compaction_serial || 0);
@@ -68,9 +68,9 @@ export function renderRail() {
     drift.textContent = ` ${signed(b.drift || 0)}`;
     readout.append(drift);
   }
-  const profile = store.servers.find((x) => x.id === s.server_id);
+  const connection = store.connections.find((x) => x.id === s.connection_id);
   if (
-    profile?.capabilities?.cached_tokens &&
+    connection?.capabilities?.cached_tokens &&
     b.cached_last !== null &&
     b.cached_last !== undefined
   )

@@ -21,7 +21,7 @@ func TestSummaryPromptIsStructuredAndCarriesSpanUserMessagesVerbatim(t *testing.
 	item.Append(events.Message{ID: "task", Role: "user", Category: "history", Turn: 7, Content: "the real task"})
 	item.SetRunPin("task")
 
-	messages := runner.summaryMessages(profileForRunner(runner, "main"), item)
+	messages := runner.summaryMessages(connectionForRunner(runner, "main"), item)
 	instruction, _ := messages[len(messages)-1].Content.(string)
 
 	for _, heading := range []string{"INTENT:", "USER MESSAGES:", "FILES:", "ERRORS AND FIXES:", "PENDING:", "NEXT STEP:"} {

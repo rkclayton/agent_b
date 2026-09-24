@@ -37,7 +37,7 @@ func TestHardeningEndpointAppliesBeforeTestingWorkspaceIdentity(t *testing.T) {
 	account := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Account: "agentb-svc", Exists: true, Enabled: true}}
 	server, store, _ := serviceAccountTestServer(t, account)
 	server.roots = RuntimeRoots{Application: `C:\Program Files\Agent_b`, Data: `C:\Users\operator\AppData\Local\Agent_b`, Workspace: `C:\ProgramData\Agent_b\workspace`}
-	server.cfg.Servers[0].BaseURL = "http://198.51.100.10:8080/v1"
+	server.cfg.Connections[0].BaseURL = "http://198.51.100.10:8080/v1"
 	server.cfg.Shell.ServiceAccount.Enabled = true
 	server.registry = &session.Registry{}
 	if err := store.Write([]byte(randomTestPassword(t))); err != nil {
@@ -54,7 +54,7 @@ func TestHardeningEndpointAppliesBeforeTestingWorkspaceIdentity(t *testing.T) {
 		return "service-account shell spawn succeeded", nil
 	}
 
-	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"apply","server_id":"local"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"apply","connection_id":"local"}`))
 	request.Header.Set("Content-Type", "application/json")
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
@@ -71,7 +71,7 @@ func TestHardeningEndpointAppliesBeforeTestingWorkspaceIdentity(t *testing.T) {
 func TestHardeningReportsWorkspaceTestFailureAfterApplyingPolicy(t *testing.T) {
 	account := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Account: "agentb-svc", Exists: true, Enabled: true}}
 	server, store, _ := serviceAccountTestServer(t, account)
-	server.cfg.Servers[0].BaseURL = "http://127.0.0.1:8080"
+	server.cfg.Connections[0].BaseURL = "http://127.0.0.1:8080"
 	server.cfg.Shell.ServiceAccount.Enabled = true
 	server.registry = &session.Registry{}
 	if err := store.Write([]byte(randomTestPassword(t))); err != nil {
@@ -83,7 +83,7 @@ func TestHardeningReportsWorkspaceTestFailureAfterApplyingPolicy(t *testing.T) {
 		return "service account cannot access the configured workspace", errors.New("directory unavailable")
 	}
 
-	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"apply","server_id":"local"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"apply","connection_id":"local"}`))
 	request.Header.Set("Content-Type", "application/json")
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
@@ -96,12 +96,12 @@ func TestHardeningReportsWorkspaceTestFailureAfterApplyingPolicy(t *testing.T) {
 func TestHardeningEndpointRejectsUnconfiguredIdentity(t *testing.T) {
 	account := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Account: "agentb-svc", Exists: true, Enabled: true}}
 	server, _, _ := serviceAccountTestServer(t, account)
-	server.cfg.Servers[0].BaseURL = "http://127.0.0.1:8080"
+	server.cfg.Connections[0].BaseURL = "http://127.0.0.1:8080"
 	server.registry = &session.Registry{}
 	manager := &fakeHardeningManager{}
 	server.SetHardeningManager(manager)
 
-	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"apply","server_id":"local"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"apply","connection_id":"local"}`))
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
@@ -115,7 +115,7 @@ func TestHardeningLANWideningRequiresVerifiedOperatorProcess(t *testing.T) {
 	manager := &fakeHardeningManager{}
 	server.SetHardeningManager(manager)
 	server.operatorRequest = func(*http.Request) error { return errors.New("service child") }
-	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"apply","server_id":"local","allow_local_network":true,"local_subnets":["192.168.50.0/24"]}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"apply","connection_id":"local","allow_local_network":true,"local_subnets":["192.168.50.0/24"]}`))
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
@@ -126,9 +126,9 @@ func TestHardeningLANWideningRequiresVerifiedOperatorProcess(t *testing.T) {
 
 func TestHardeningStatusAcceptsHostnameEndpoint(t *testing.T) {
 	server, _, _ := serviceAccountTestServer(t, &fakeAccountManager{})
-	server.cfg.Servers[0].BaseURL = "https://model.example.invalid/v1"
+	server.cfg.Connections[0].BaseURL = "https://model.example.invalid/v1"
 	server.SetHardeningManager(&fakeHardeningManager{})
-	request := httptest.NewRequest(http.MethodGet, "/api/hardening?server_id=local", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/hardening?connection_id=local", nil)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -139,7 +139,7 @@ func TestHardeningStatusAcceptsHostnameEndpoint(t *testing.T) {
 func TestHardeningOperationSurvivesStatusRefresh(t *testing.T) {
 	account := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Account: "agentb-svc", Exists: true, Enabled: true}}
 	server, store, _ := serviceAccountTestServer(t, account)
-	server.cfg.Servers[0].BaseURL = "http://127.0.0.1:8080"
+	server.cfg.Connections[0].BaseURL = "http://127.0.0.1:8080"
 	server.cfg.Shell.ServiceAccount.Enabled = true
 	server.registry = &session.Registry{}
 	if err := store.Write([]byte(randomTestPassword(t))); err != nil {
@@ -148,7 +148,7 @@ func TestHardeningOperationSurvivesStatusRefresh(t *testing.T) {
 	manager := &fakeHardeningManager{runErr: errors.New("test elevation failure")}
 	server.SetHardeningManager(manager)
 
-	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"apply","server_id":"local"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"apply","connection_id":"local"}`))
 	request.Header.Set("Content-Type", "application/json")
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
@@ -157,7 +157,7 @@ func TestHardeningOperationSurvivesStatusRefresh(t *testing.T) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}
 
-	request = httptest.NewRequest(http.MethodGet, "/api/hardening?server_id=local", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/hardening?connection_id=local", nil)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	var body struct {
@@ -173,7 +173,7 @@ func TestHardeningOperationSurvivesStatusRefresh(t *testing.T) {
 
 func TestHardeningVerifyReportsDriftAsFailure(t *testing.T) {
 	server, _, _ := serviceAccountTestServer(t, &fakeAccountManager{})
-	server.cfg.Servers[0].BaseURL = "http://127.0.0.1:8080"
+	server.cfg.Connections[0].BaseURL = "http://127.0.0.1:8080"
 	server.registry = &session.Registry{}
 	manager := &fakeHardeningManager{status: hardening.Status{
 		Supported: true,
@@ -182,7 +182,7 @@ func TestHardeningVerifyReportsDriftAsFailure(t *testing.T) {
 	}}
 	server.SetHardeningManager(manager)
 
-	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"verify","server_id":"local"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"verify","connection_id":"local"}`))
 	request.Header.Set("Content-Type", "application/json")
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()

@@ -13,7 +13,7 @@ import (
 	"harness/internal/tools"
 )
 
-func TestFreshNinetyKProfileAnswersHelloLive(t *testing.T) {
+func TestFreshNinetyKConnectionAnswersHelloLive(t *testing.T) {
 	baseURL := os.Getenv("AGENTB_REAL_MODEL_URL")
 	model := os.Getenv("AGENTB_REAL_MODEL_NAME")
 	if baseURL == "" || model == "" {
@@ -21,22 +21,22 @@ func TestFreshNinetyKProfileAnswersHelloLive(t *testing.T) {
 	}
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = "auto"
-	profile := cfg.Servers[0]
-	profile.ID, profile.Label, profile.BaseURL, profile.Model = "fresh-90k", "Fresh 90k", baseURL, model
-	profile.Context.NCtx, profile.Context.ReserveOutput = 0, 10240
-	profile.RequestTimeoutS = 120
-	profile.Reasoning.Enabled = false
-	profile.Capabilities.NCtx = 90000
-	profile.Capabilities.Server = "llama.cpp"
-	profile.Capabilities.Tokenize = true
-	profile.Capabilities.ApplyTemplate = true
-	profile.Capabilities.ApplyTemplateTools = true
-	profile.Capabilities.Streaming = true
-	cfg.Servers = []config.Profile{profile}
-	lookup := func(id string) (*config.Profile, bool) { return &profile, id == profile.ID }
+	connection := cfg.Connections[0]
+	connection.ID, connection.Label, connection.BaseURL, connection.Model = "fresh-90k", "Fresh 90k", baseURL, model
+	connection.Context.NCtx, connection.Context.ReserveOutput = 0, 10240
+	connection.RequestTimeoutS = 120
+	connection.Reasoning.Enabled = false
+	connection.Capabilities.NCtx = 90000
+	connection.Capabilities.Server = "llama.cpp"
+	connection.Capabilities.Tokenize = true
+	connection.Capabilities.ApplyTemplate = true
+	connection.Capabilities.ApplyTemplateTools = true
+	connection.Capabilities.Streaming = true
+	cfg.Connections = []config.Connection{connection}
+	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
 	bus := newCapturedBus()
 	runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "Answer briefly."}, lookup, func() config.Config { return cfg })
-	item := &session.Session{ID: "fresh", ServerID: profile.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	item := &session.Session{ID: "fresh", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	item.Append(events.Message{ID: "hello", Role: "user", Content: "hello", Category: "history", Tokens: 1})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

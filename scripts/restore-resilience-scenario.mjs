@@ -24,7 +24,7 @@ await mkdir(chats, { recursive: true });
 function journal(sessionID, agentID) {
   const at = new Date(Date.UTC(2026, 8, 20)).toISOString();
   const lines = [
-    { seq: 1, at, session_id: sessionID, run_id: "", type: "session.created", data: { session: { id: sessionID, label: sessionID, agent_id: agentID, server_id: "ui", agent_name: agentID, b_profile: "ui", role: "b", created_at: at, closed: false, name_pinned: false, workspace: "" } } },
+    { seq: 1, at, session_id: sessionID, run_id: "", type: "session.created", data: { session: { id: sessionID, label: sessionID, agent_id: agentID, connection_id: "ui", agent_name: agentID, b_connection: "ui", role: "b", created_at: at, closed: false, name_pinned: false, workspace: "" } } },
     { seq: 2, at, session_id: sessionID, run_id: "r1", type: "message.appended", data: { message: { id: "m-1", role: "user", content: `a message in ${sessionID}` } } },
     { seq: 3, at, session_id: sessionID, run_id: "r1", type: "run.started", data: { run_id: "r1", user_message_id: "m-1" } },
     { seq: 4, at, session_id: sessionID, run_id: "r1", type: "model.response", data: { content: `an answer in ${sessionID}`, finish_reason: "stop", duration_ms: 1 } },

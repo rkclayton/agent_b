@@ -30,8 +30,8 @@ const { renderRail } = await import("./rail.js");
 const { renderTimeline } = await import("./timeline.js");
 const { renderState } = await import("./state.js");
 
-reduce({ type: "snapshot", data: { replay: false, servers: [], config: {}, flow: { stages: ["assemble", "call_model"], edges: [] }, sessions: { main: {
-  schema_version: 1, cursor: { generation: "main.jsonl", offset: 100 }, complete: true, id: "main", label: "main", server_id: "homepc",
+reduce({ type: "snapshot", data: { replay: false, connections: [], config: {}, flow: { stages: ["assemble", "call_model"], edges: [] }, sessions: { main: {
+  schema_version: 1, cursor: { generation: "main.jsonl", offset: 100 }, complete: true, id: "main", label: "main", connection_id: "homepc",
   run: { status: "idle", turn: 0, max_turns: 40, last_stop_reason: "" }, activity: { stage: "wait_user", completed_stages: ["assemble"] },
   tools: [{ name: "read_file", calls: 2, enabled: true }], messages: [], timeline: [], chat: [],
   budget: { n_ctx: 32768, ceiling: 24576, reserve: 8192, used_est: 1511, categories: { system: 290, tools: 1221 }, estimated: false },

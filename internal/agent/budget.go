@@ -158,16 +158,16 @@ func (b *Budgeter) saveSentinelCost(key string, tokens int) {
 	b.sentinelCosts[key] = tokens
 	b.mu.Unlock()
 }
-func (b *Budgeter) Measure(ctx context.Context, profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool) (events.Budget, error) {
-	return b.measureOrEstimate(ctx, profile, s, global, in, markRequest, nil)
+func (b *Budgeter) Measure(ctx context.Context, connection *config.Connection, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool) (events.Budget, error) {
+	return b.measureOrEstimate(ctx, connection, s, global, in, markRequest, nil)
 }
 
-func (b *Budgeter) MeasureWithBusy(ctx context.Context, profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool, onBusy func(error)) (events.Budget, error) {
-	return b.measureOrEstimate(ctx, profile, s, global, in, markRequest, onBusy)
+func (b *Budgeter) MeasureWithBusy(ctx context.Context, connection *config.Connection, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool, onBusy func(error)) (events.Budget, error) {
+	return b.measureOrEstimate(ctx, connection, s, global, in, markRequest, onBusy)
 }
 
-func (b *Budgeter) measureOrEstimate(ctx context.Context, profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool, onBusy func(error)) (events.Budget, error) {
-	result, err := b.measure(ctx, profile, s, global, in, markRequest)
+func (b *Budgeter) measureOrEstimate(ctx context.Context, connection *config.Connection, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool, onBusy func(error)) (events.Budget, error) {
+	result, err := b.measure(ctx, connection, s, global, in, markRequest)
 	if err == nil || ctx.Err() != nil {
 		return result, err
 	}
@@ -176,7 +176,7 @@ func (b *Budgeter) measureOrEstimate(ctx context.Context, profile *config.Profil
 		if onBusy != nil && llm.TransportKindOf(err) == llm.TransportConnected {
 			onBusy(err)
 		}
-		return b.estimateWithFindings(profile, s, global, in, markRequest, endpointErr)
+		return b.estimateWithFindings(connection, s, global, in, markRequest, endpointErr)
 	}
 	if llm.TransportKindOf(err) != llm.TransportConnected {
 		return result, err
@@ -184,16 +184,16 @@ func (b *Budgeter) measureOrEstimate(ctx context.Context, profile *config.Profil
 	if onBusy != nil {
 		onBusy(err)
 	}
-	return b.estimateWithFindings(profile, s, global, in, markRequest, err)
+	return b.estimateWithFindings(connection, s, global, in, markRequest, err)
 }
 
-func (b *Budgeter) estimate(profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool) (events.Budget, error) {
+func (b *Budgeter) estimate(connection *config.Connection, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool) (events.Budget, error) {
 	global.Accounting = "estimated"
-	return b.measure(context.Background(), profile, s, global, in, markRequest)
+	return b.measure(context.Background(), connection, s, global, in, markRequest)
 }
 
-func (b *Budgeter) estimateWithFindings(profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool, cause error) (events.Budget, error) {
-	budget, err := b.estimate(profile, s, global, in, markRequest)
+func (b *Budgeter) estimateWithFindings(connection *config.Connection, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool, cause error) (events.Budget, error) {
+	budget, err := b.estimate(connection, s, global, in, markRequest)
 	if err == nil {
 		budget.Findings = append(budget.Findings, "budget accounting failed; using estimated mode for this request: "+cause.Error())
 		s.SetBudget(budget)
@@ -223,7 +223,7 @@ func accountingShape(messages []llm.Message, tools []any) string {
 	return strings.Join(roles, ",") + fmt.Sprintf(" tools=%t", tools != nil)
 }
 
-func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool) (events.Budget, error) {
+func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s *session.Session, global config.GlobalContext, in budgetInput, markRequest bool) (events.Budget, error) {
 	if in.SystemProject == "" {
 		in.SystemProject = in.SystemBase
 	}
@@ -234,19 +234,19 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 	categories := map[string]int{"system": 0, "project": 0, "workspace_memory": 0, "agent_memory": 0, "tools": 0, "history": 0, "files": 0, "results": 0, "fetched": 0, "summary": 0}
 	estimated := []string{}
 	messageCounts := map[string]session.MessageCount{}
-	forceEstimate := global.Accounting == "estimated" || !profile.Capabilities.Tokenize
+	forceEstimate := global.Accounting == "estimated" || !connection.Capabilities.Tokenize
 	cacheCPT := 0.0
 	if forceEstimate {
 		cacheCPT = state.cpt
 	}
-	cacheKey := toolCostKey(profile, global, cacheCPT, in)
+	cacheKey := toolCostKey(connection, global, cacheCPT, in)
 	schemaCounts, marginalCounts, costsCached := b.cachedCosts(s.ID, cacheKey)
 	if !costsCached {
 		schemaCounts, marginalCounts = map[string]int{}, map[string]int{}
 	}
 	mode := "exact"
 	var effectiveChars float64
-	client := llm.New(profile)
+	client := llm.New(connection)
 	if forceEstimate {
 		mode = "estimated"
 		estimated = []string{"system", "project", "workspace_memory", "agent_memory", "tools", "history", "files", "results", "fetched", "summary"}
@@ -286,7 +286,7 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 				marginalCounts[name] = max(0, fullPrefix-estimateChars(withoutChars, cpt))
 			}
 		}
-	} else if !profile.Capabilities.ApplyTemplate {
+	} else if !connection.Capabilities.ApplyTemplate {
 		estimated = []string{"system", "project", "workspace_memory", "agent_memory", "tools", "history", "files", "results", "fetched", "summary"}
 		count := func(text string) int {
 			value, err := client.Tokenize(ctx, text, false)
@@ -342,7 +342,7 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 			}
 			return value, nil
 		}
-		sentinelKey := sentinelCostKey(profile)
+		sentinelKey := sentinelCostKey(connection)
 		sentinelCost, sentinelCached := b.cachedSentinelCost(sentinelKey)
 		if !sentinelCached {
 			var err error
@@ -402,7 +402,7 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 		categories["workspace_memory"], categories["agent_memory"] = max(0, withWorkspaceMemory-withProject), max(0, withMemory-withWorkspaceMemory)
 		previous := withMemory
 		activeTools := []any(nil)
-		if profile.Capabilities.ApplyTemplateTools {
+		if connection.Capabilities.ApplyTemplateTools {
 			activeTools = in.Schemas
 			withTools, err := renderSystem(in.System, activeTools)
 			if err != nil {
@@ -477,7 +477,7 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 			if err != nil {
 				return events.Budget{}, err
 			}
-			if !profile.Capabilities.ApplyTemplateTools {
+			if !connection.Capabilities.ApplyTemplateTools {
 				current += categories["tools"]
 			}
 			groupTokens := max(0, current-previous)
@@ -486,7 +486,7 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 			for offset := range weights {
 				candidate := in.Messages[index+offset]
 				record := in.Records[index+offset]
-				weightKey := messageWeightKey(profile, candidate)
+				weightKey := messageWeightKey(connection, candidate)
 				weight, cached := b.cachedMessageWeight(s.ID, record.ID, weightKey)
 				if !cached {
 					weight, err = tokenize(messageText(candidate.Content) + candidate.ReasoningContent)
@@ -528,13 +528,13 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 	for _, value := range categories {
 		used += value
 	}
-	nctx := profile.Context.NCtx
-	budget := events.Budget{NCtx: nctx, Reserve: profile.Context.ReserveOutput, Ceiling: max(0, nctx-profile.Context.ReserveOutput), UsedEst: used, Mode: mode, Estimated: len(estimated) > 0, EstimatedCategories: estimated, Categories: categories, ToolSchemaTokens: cloneCounts(schemaCounts), ToolMarginalTokens: cloneCounts(marginalCounts)}
+	nctx := connection.Context.NCtx
+	budget := events.Budget{NCtx: nctx, Reserve: connection.Context.ReserveOutput, Ceiling: max(0, nctx-connection.Context.ReserveOutput), UsedEst: used, Mode: mode, Estimated: len(estimated) > 0, EstimatedCategories: estimated, Categories: categories, ToolSchemaTokens: cloneCounts(schemaCounts), ToolMarginalTokens: cloneCounts(marginalCounts)}
 	if state.hasMeasured {
 		budget.UsedMeasured = state.measured
 		budget.Drift = state.measured - state.requestEstimate
 	}
-	if profile.Capabilities.CachedTokens && state.hasCached {
+	if connection.Capabilities.CachedTokens && state.hasCached {
 		value := state.cached
 		budget.CachedLast = &value
 	}
@@ -548,36 +548,36 @@ func (b *Budgeter) measure(ctx context.Context, profile *config.Profile, s *sess
 	s.SetBudget(budget)
 	return budget, nil
 }
-func toolCostKey(profile *config.Profile, global config.GlobalContext, cpt float64, in budgetInput) string {
+func toolCostKey(connection *config.Connection, global config.GlobalContext, cpt float64, in budgetInput) string {
 	value := struct {
-		Profile            *config.Profile
+		Connection         *config.Connection
 		Accounting         string
 		CharactersPerToken float64
 		System             string
 		Schemas            []any
 		AllSchemas         map[string]any
 		WithoutToolSystems map[string]string
-	}{profile, global.Accounting, cpt, in.System, in.Schemas, in.AllSchemas, in.WithoutToolSystems}
+	}{connection, global.Accounting, cpt, in.System, in.Schemas, in.AllSchemas, in.WithoutToolSystems}
 	data, _ := json.Marshal(value)
 	sum := sha256.Sum256(data)
 	return fmt.Sprintf("%x", sum)
 }
-func sentinelCostKey(profile *config.Profile) string {
+func sentinelCostKey(connection *config.Connection) string {
 	value := struct {
 		ID      string
 		BaseURL string
 		Model   string
-	}{profile.ID, profile.BaseURL, profile.Model}
+	}{connection.ID, connection.BaseURL, connection.Model}
 	data, _ := json.Marshal(value)
 	sum := sha256.Sum256(data)
 	return fmt.Sprintf("%x", sum)
 }
-func messageWeightKey(profile *config.Profile, message llm.Message) string {
+func messageWeightKey(connection *config.Connection, message llm.Message) string {
 	value := struct {
 		BaseURL string
 		Model   string
 		Message llm.Message
-	}{profile.BaseURL, profile.Model, message}
+	}{connection.BaseURL, connection.Model, message}
 	data, _ := json.Marshal(value)
 	sum := sha256.Sum256(data)
 	return fmt.Sprintf("%x", sum)

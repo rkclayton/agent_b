@@ -14,11 +14,11 @@ func (s *Server) hostHardening(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "host-hardening runtime is unavailable", "shell.service_account")
 		return
 	}
-	serverID := r.URL.Query().Get("server_id")
+	connectionID := r.URL.Query().Get("connection_id")
 	if r.Method == http.MethodGet {
-		request, err := s.hardeningRequest(serverID)
+		request, err := s.hardeningRequest(connectionID)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error(), "servers")
+			writeError(w, http.StatusBadRequest, err.Error(), "connections")
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -43,7 +43,7 @@ func (s *Server) hostHardening(w http.ResponseWriter, r *http.Request) {
 	defer s.accountMu.Unlock()
 	var body struct {
 		Action            string   `json:"action"`
-		ServerID          string   `json:"server_id"`
+		ConnectionID      string   `json:"connection_id"`
 		AllowLocalNetwork bool     `json:"allow_local_network"`
 		LocalSubnets      []string `json:"local_subnets"`
 	}
@@ -70,9 +70,9 @@ func (s *Server) hostHardening(w http.ResponseWriter, r *http.Request) {
 		s.finishHardening("failed", message)
 		writeError(w, status, message, field)
 	}
-	request, err := s.hardeningRequest(body.ServerID)
+	request, err := s.hardeningRequest(body.ConnectionID)
 	if err != nil {
-		fail(http.StatusBadRequest, err.Error(), "servers")
+		fail(http.StatusBadRequest, err.Error(), "connections")
 		return
 	}
 	if body.Action == "apply" {

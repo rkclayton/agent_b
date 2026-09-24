@@ -20,7 +20,7 @@ import (
 
 // ModelCall is the one model call reflection makes. Everything else in this
 // package is deterministic.
-type ModelCall func(ctx context.Context, profileID, system, user string) (string, error)
+type ModelCall func(ctx context.Context, connectionID, system, user string) (string, error)
 
 // Registrar registers a plan for a repository (2dr's path). Reflection never
 // writes plan text; it only asks for the repository to be registered.
@@ -224,9 +224,9 @@ func parseSummary(answer string) (files, written []string, changed, open, text s
 
 // SummariseRun is the call at a run's close. It never returns an error to its
 // caller's run: a failure is recorded on the summary row and nothing else.
-func (r *Runner) SummariseRun(ctx context.Context, sessionID, runID, workspace, planID, profileID string, aux bool) Summary {
+func (r *Runner) SummariseRun(ctx context.Context, sessionID, runID, workspace, planID, connectionID string, aux bool) Summary {
 	started := r.now()
-	summary := Summary{At: started, SessionID: sessionID, RunID: runID, Workspace: workspace, PlanID: planID, Profile: profileID, Aux: aux}
+	summary := Summary{At: started, SessionID: sessionID, RunID: runID, Workspace: workspace, PlanID: planID, Connection: connectionID, Aux: aux}
 	paths := []string{}
 	if r.SessionLogs != nil {
 		paths = r.SessionLogs(sessionID)
@@ -238,9 +238,9 @@ func (r *Runner) SummariseRun(ctx context.Context, sessionID, runID, workspace, 
 	summary.Read, summary.Written, summary.Untrusted = digest.Read, digest.Written, digest.Untrusted
 	switch {
 	case r.Call == nil:
-		summary.Failed = "no model profile for the summary"
+		summary.Failed = "no model connection for the summary"
 	case summary.Failed == "":
-		answer, callErr := r.Call(ctx, profileID, summarySystemPrompt, digest.Prompt())
+		answer, callErr := r.Call(ctx, connectionID, summarySystemPrompt, digest.Prompt())
 		if callErr != nil {
 			summary.Failed = "summary call: " + callErr.Error()
 		} else {
@@ -255,9 +255,9 @@ func (r *Runner) SummariseRun(ctx context.Context, sessionID, runID, workspace, 
 		}
 	}
 	if !aux {
-		// The item asks that a summary from the run's own profile say so.
+		// The item asks that a summary from the run's own connection say so.
 		summary.Text = strings.TrimSpace(summary.Text)
-		marker := "[summarised by the run's own profile; no aux profile is configured]"
+		marker := "[summarised by the run's own connection; no aux connection is configured]"
 		if summary.Text == "" {
 			summary.Text = marker
 		} else {

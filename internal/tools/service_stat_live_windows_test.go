@@ -33,16 +33,16 @@ func TestServiceAccountStatTellsDeniedFromMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer clearBytes(password)
-	profile := os.Getenv("USERPROFILE")
+	userHome := os.Getenv("USERPROFILE")
 	cases := []struct {
 		label, path string
 	}{
 		{"missing, public root", `C:\definitely\not\here-2fy.txt`},
 		{"missing, invented eval folder", `C:\Users\Public\Documents\GitHub\eval-20260310-110411-1120\logic\logic.go`},
-		{"missing, under the operator's profile", filepath.Join(profile, "definitely-missing-2fy.txt")},
-		{"missing, deep under the operator's profile", filepath.Join(profile, "AppData", "Local", "definitely-missing-2fy", "x.txt")},
+		{"missing, under the operator's home", filepath.Join(userHome, "definitely-missing-2fy.txt")},
+		{"missing, deep under the operator's home", filepath.Join(userHome, "AppData", "Local", "definitely-missing-2fy", "x.txt")},
 		{"exists, readable to all", `C:\Windows\win.ini`},
-		{"exists, the operator's own file", filepath.Join(profile, "NTUSER.DAT")},
+		{"exists, the operator's own file", filepath.Join(userHome, "NTUSER.DAT")},
 	}
 	for _, c := range cases {
 		var statErr error

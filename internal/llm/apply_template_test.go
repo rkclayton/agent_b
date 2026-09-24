@@ -17,8 +17,8 @@ func TestApplyTemplateErrorIncludesResponseBody(t *testing.T) {
 		fmt.Fprint(w, `{"error":{"message":"missing closing quote at column 25065"}}`)
 	}))
 	defer server.Close()
-	profile := &config.Profile{BaseURL: server.URL, RequestTimeoutS: 5}
-	_, err := New(profile).ApplyTemplate(context.Background(), []Message{{Role: "user", Content: "hello"}}, nil)
+	connection := &config.Connection{BaseURL: server.URL, RequestTimeoutS: 5}
+	_, err := New(connection).ApplyTemplate(context.Background(), []Message{{Role: "user", Content: "hello"}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "apply-template HTTP 500") || !strings.Contains(err.Error(), "column 25065") {
 		t.Fatalf("error=%v", err)
 	}

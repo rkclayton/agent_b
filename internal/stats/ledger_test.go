@@ -19,11 +19,11 @@ func TestLedgerAggregatesAtRunEndAndSurvivesSessionDeletion(t *testing.T) {
 	}
 	defer writers.Close()
 	cfg := config.Defaults(root)
-	profile := cfg.Servers[0]
-	profile.BaseURL, profile.Model, profile.Context.NCtx = "http://127.0.0.1:1", "model", 32768
-	profile.Capabilities.Streaming, profile.Capabilities.ToolCalls, profile.Capabilities.OverflowBehavior = true, true, "error"
-	cfg.Servers[0] = profile
-	registry := session.NewRegistry(bus, writers, func(string) (*config.Profile, bool) { return &profile, true }, 40, func() config.Config { return cfg })
+	connection := cfg.Connections[0]
+	connection.BaseURL, connection.Model, connection.Context.NCtx = "http://127.0.0.1:1", "model", 32768
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls, connection.Capabilities.OverflowBehavior = true, true, "error"
+	cfg.Connections[0] = connection
+	registry := session.NewRegistry(bus, writers, func(string) (*config.Connection, bool) { return &connection, true }, 40, func() config.Config { return cfg })
 	manager := New(root, registry, bus)
 	item, err := registry.Create("main", cfg.DefaultAgentID(), root)
 	if err != nil {
@@ -48,8 +48,8 @@ func TestLedgerAggregatesAtRunEndAndSurvivesSessionDeletion(t *testing.T) {
 	if ledger.Version != Version || ledger.Agent.Chats != 1 || ledger.Agent.Runs != 1 || ledger.Agent.Turns != 1 || ledger.Agent.Tools["read_file"].Failures != 1 || ledger.Agent.Reliability.Completed != 1 || ledger.Agent.Reliability.Interventions != 1 {
 		t.Fatalf("ledger=%+v", ledger)
 	}
-	if ledger.Agent.PromptTokens != 100 || ledger.Agent.CompletionTokens != 20 || ledger.Agent.CachedTokens != 40 || len(ledger.Profiles["local"].ModelResponseMS) != 1 {
-		t.Fatalf("tokens/profile=%+v", ledger)
+	if ledger.Agent.PromptTokens != 100 || ledger.Agent.CompletionTokens != 20 || ledger.Agent.CachedTokens != 40 || len(ledger.Connections["local"].ModelResponseMS) != 1 {
+		t.Fatalf("tokens/connection=%+v", ledger)
 	}
 	before := manager.Snapshot(cfg.DefaultAgentID())
 	if err := registry.Close(item.ID); err != nil {
@@ -67,7 +67,7 @@ func TestLedgerAggregatesAtRunEndAndSurvivesSessionDeletion(t *testing.T) {
 func TestReliabilityAttributionCountsKnownFailuresWithoutCallingStopsFailures(t *testing.T) {
 	counters := Counters{Tools: map[string]Tool{}}
 	add(&counters, events.New(events.ApprovalDecided, "main", "r1", map[string]any{"decision": "session"}), nil)
-	for _, reason := range []string{"model_error", "length", "tool_errors", "profile_not_runnable", "context_ceiling", "turn_ceiling", "safe", "emergency", "user_stop"} {
+	for _, reason := range []string{"model_error", "length", "tool_errors", "connection_not_runnable", "context_ceiling", "turn_ceiling", "safe", "emergency", "user_stop"} {
 		add(&counters, events.New(events.RunStopped, "main", "r1", map[string]any{"reason": reason}), nil)
 	}
 	if counters.ApprovalsApproved != 1 {

@@ -36,7 +36,7 @@ const entry = (() => {
   const requested = location.hash.match(/^#settings(?:\/([a-z-]+))?$/);
   const from = search.get("from");
   return {
-    settings: requested ? (requested[1] || "servers") : "",
+    settings: requested ? (requested[1] || "connections") : "",
     // The view to return to when Settings closes. Only another document can
     // ask for this; inside this one, Settings closes onto the chat beneath it.
     from: from === "plan" ? "plan" : "",

@@ -17,7 +17,7 @@ const toolResultContextMargin = 1024
 func (r *Runner) fitWindowResult(
 	ctx context.Context,
 	s *session.Session,
-	profile *config.Profile,
+	connection *config.Connection,
 	name string,
 	args map[string]any,
 	content string,
@@ -38,9 +38,9 @@ func (r *Runner) fitWindowResult(
 			boundedMetadata["original_result_tokens"] = resultTokens
 			boundedMetadata["result_token_limit"] = availableTokens
 			boundedMetadata["retry_windows"] = "fewer_or_smaller"
-			return bounded, false, boundedMetadata, r.textTokens(ctx, profile, bounded)
+			return bounded, false, boundedMetadata, r.textTokens(ctx, connection, bounded)
 		}
-		if clamped, clampedMetadata, clampedTokens, found := r.clampReadFileResult(ctx, s, profile, args, metadata, availableTokens, operatorContext); found {
+		if clamped, clampedMetadata, clampedTokens, found := r.clampReadFileResult(ctx, s, connection, args, metadata, availableTokens, operatorContext); found {
 			return clamped, true, clampedMetadata, clampedTokens
 		}
 	}
@@ -69,7 +69,7 @@ func (r *Runner) fitWindowResult(
 		"error: %s returned a window too large for the current model context (%d tokens; %d available before the output reserve). Retry %s with the same offset=%d and limit no greater than %d. Do not advance to next_offset until this window is read.",
 		name, resultTokens, availableTokens, name, offset, retryLimit,
 	)
-	boundedTokens := r.textTokens(ctx, profile, bounded)
+	boundedTokens := r.textTokens(ctx, connection, bounded)
 	boundedMetadata := cloneMetadata(metadata)
 	boundedMetadata["result_too_large"] = true
 	boundedMetadata["original_result_tokens"] = resultTokens
@@ -101,7 +101,7 @@ func readCutShortResult(args, metadata map[string]any) (string, bool, map[string
 	return content, true, cut
 }
 
-func (r *Runner) clampReadFileResult(ctx context.Context, s *session.Session, profile *config.Profile, args, metadata map[string]any, availableTokens int, operatorContext bool) (string, map[string]any, int, bool) {
+func (r *Runner) clampReadFileResult(ctx context.Context, s *session.Session, connection *config.Connection, args, metadata map[string]any, availableTokens int, operatorContext bool) (string, map[string]any, int, bool) {
 	cfg := r.cfg().Tools.ReadFile
 	field, unit, cursor := "limit", "bytes", "next_offset"
 	requested := integerArgument(args[field], cfg.DefaultLimit)
@@ -143,7 +143,7 @@ func (r *Runner) clampReadFileResult(ctx context.Context, s *session.Session, pr
 		}
 		note += "]\n"
 		candidate = note + candidate
-		tokens := r.textTokens(ctx, profile, candidate)
+		tokens := r.textTokens(ctx, connection, candidate)
 		if tokens <= availableTokens {
 			bestContent, bestTokens, bestLimit = candidate, tokens, limit
 			bestRemaining, bestNext = remaining, next

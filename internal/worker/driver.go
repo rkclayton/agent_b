@@ -266,7 +266,7 @@ func (d *Driver) runItem(ctx context.Context, s *session.Session, item Item) Out
 		return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "could not start: " + err.Error()}
 	}
 	// v0.69.0/W16 cold review: the item's time starts when its run starts. A
-	// run queued behind its model profile (item 2fc) has not begun, and time
+	// run queued behind its model connection (item 2fc) has not begun, and time
 	// spent waiting there is not the item's.
 	var deadline *time.Timer
 	var expired <-chan time.Time

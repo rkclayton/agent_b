@@ -19,15 +19,15 @@ func backstopFixture(t *testing.T, handler http.HandlerFunc, configure func(*con
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = "estimated"
 	configure(&cfg)
-	profile := cfg.Servers[0]
-	profile.ID, profile.BaseURL, profile.Model = "main", server.URL, "fake"
-	profile.Context.NCtx, profile.Context.ReserveOutput = 32768, 8192
-	profile.Capabilities.Streaming, profile.Capabilities.ToolCalls = true, true
-	profile.Capabilities.OverflowBehavior = "error"
-	cfg.Servers = []config.Profile{profile}
-	lookup := func(id string) (*config.Profile, bool) { return &profile, id == profile.ID }
+	connection := cfg.Connections[0]
+	connection.ID, connection.BaseURL, connection.Model = "main", server.URL, "fake"
+	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+	connection.Capabilities.OverflowBehavior = "error"
+	cfg.Connections = []config.Connection{connection}
+	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
 	runner := NewRunner(events.NewBus(), tools.New(&retryWriteTool{}), &PromptRenderer{text: "system"}, lookup, func() config.Config { return cfg })
-	item := &session.Session{ID: "main", ServerID: profile.ID, Workspace: t.TempDir(), Runnable: true, ToolsEnabled: map[string]bool{"write_file": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	item := &session.Session{ID: "main", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, ToolsEnabled: map[string]bool{"write_file": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	item.Append(events.Message{ID: "u1", Role: "user", Category: "history", Content: "work"})
 	return runner, item, server.Close
 }

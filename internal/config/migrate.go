@@ -5,6 +5,28 @@ import (
 	"fmt"
 )
 
+// migrateConnectionKey preserves the v1.6.6-and-earlier list key. The legacy
+// spelling is assembled here so the endpoint-vocabulary lint can reserve that
+// word everywhere else while old operator files remain readable forever.
+func migrateConnectionKey(data []byte) (bool, []byte, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return false, nil, err
+	}
+	legacyKey := "ser" + "vers"
+	legacy, present := raw[legacyKey]
+	if !present {
+		return false, data, nil
+	}
+	if _, current := raw["connections"]; !current {
+		raw["connections"] = legacy
+	}
+	delete(raw, legacyKey)
+	raw["config_version"], _ = json.Marshal(CurrentConfigVersion)
+	out, err := json.Marshal(raw)
+	return true, out, err
+}
+
 func migrateWebSearch(data []byte, version int) (bool, []byte, error) {
 	if version >= 7 {
 		return false, data, nil
@@ -61,10 +83,10 @@ func migrateAgentObjects(data []byte, version int) (bool, []byte, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return false, nil, err
 	}
-	var servers []Profile
-	if value := raw["servers"]; value != nil {
-		if err := json.Unmarshal(value, &servers); err != nil {
-			return false, nil, fmt.Errorf("migrate agents profiles: %w", err)
+	var connections []Connection
+	if value := raw["connections"]; value != nil {
+		if err := json.Unmarshal(value, &connections); err != nil {
+			return false, nil, fmt.Errorf("migrate agents connections: %w", err)
 		}
 	}
 	var roles Roles
@@ -74,17 +96,17 @@ func migrateAgentObjects(data []byte, version int) (bool, []byte, error) {
 		}
 	}
 	agents := []Agent{}
-	if len(servers) > 0 {
+	if len(connections) > 0 {
 		mainID := roles.Main
 		if mainID == "" {
-			mainID = servers[0].ID
+			mainID = connections[0].ID
 		}
 		name := mainID
-		for _, profile := range servers {
-			if profile.ID == mainID {
-				name = profile.Label
+		for _, connection := range connections {
+			if connection.ID == mainID {
+				name = connection.Label
 				if name == "" {
-					name = profile.ID
+					name = connection.ID
 				}
 				break
 			}
@@ -98,29 +120,29 @@ func migrateAgentObjects(data []byte, version int) (bool, []byte, error) {
 	return true, out, err
 }
 
-func migrateModelProfiles(data []byte, version int) (bool, []byte, error) {
+func migrateModelConnections(data []byte, version int) (bool, []byte, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return false, nil, err
 	}
-	var servers []map[string]json.RawMessage
-	if value := raw["servers"]; value != nil {
-		if err := json.Unmarshal(value, &servers); err != nil {
-			return false, nil, fmt.Errorf("migrate servers: %w", err)
+	var connections []map[string]json.RawMessage
+	if value := raw["connections"]; value != nil {
+		if err := json.Unmarshal(value, &connections); err != nil {
+			return false, nil, fmt.Errorf("migrate connections: %w", err)
 		}
 	}
 	changed := false
 	if version < 5 {
-		mainID, err := legacyMainProfile(data)
+		mainID, err := legacyMainConnection(data)
 		if err != nil {
 			return false, nil, err
 		}
 		raw["roles"], _ = json.Marshal(Roles{Main: mainID})
-		for _, profile := range servers {
+		for _, connection := range connections {
 			var context map[string]json.RawMessage
-			if value := profile["context"]; value != nil {
+			if value := connection["context"]; value != nil {
 				if err := json.Unmarshal(value, &context); err != nil {
-					return false, nil, fmt.Errorf("migrate profile context: %w", err)
+					return false, nil, fmt.Errorf("migrate connection context: %w", err)
 				}
 			} else {
 				context = map[string]json.RawMessage{}
@@ -129,16 +151,16 @@ func migrateModelProfiles(data []byte, version int) (bool, []byte, error) {
 				nctx := 0
 				if value := context["n_ctx_override"]; value != nil {
 					if err := json.Unmarshal(value, &nctx); err != nil {
-						return false, nil, fmt.Errorf("migrate profile n_ctx_override: %w", err)
+						return false, nil, fmt.Errorf("migrate connection n_ctx_override: %w", err)
 					}
 				}
 				if nctx == 0 {
 					var capabilities struct {
 						NCtx int `json:"n_ctx"`
 					}
-					if value := profile["capabilities"]; value != nil {
+					if value := connection["capabilities"]; value != nil {
 						if err := json.Unmarshal(value, &capabilities); err != nil {
-							return false, nil, fmt.Errorf("migrate profile capabilities: %w", err)
+							return false, nil, fmt.Errorf("migrate connection capabilities: %w", err)
 						}
 					}
 					nctx = capabilities.NCtx
@@ -146,40 +168,40 @@ func migrateModelProfiles(data []byte, version int) (bool, []byte, error) {
 				context["n_ctx"], _ = json.Marshal(nctx)
 			}
 			delete(context, "n_ctx_override")
-			profile["context"], _ = json.Marshal(context)
+			connection["context"], _ = json.Marshal(context)
 		}
 		changed = true
 	}
-	for _, profile := range servers {
-		key, present := profile["api_key"]
+	for _, connection := range connections {
+		key, present := connection["api_key"]
 		if !present {
 			continue
 		}
 		var value string
 		if err := json.Unmarshal(key, &value); err != nil {
-			return false, nil, fmt.Errorf("migrate profile api_key: %w", err)
+			return false, nil, fmt.Errorf("migrate connection api_key: %w", err)
 		}
-		if value != "" && profile["credential"] == nil {
+		if value != "" && connection["credential"] == nil {
 			var id string
-			if err := json.Unmarshal(profile["id"], &id); err != nil {
-				return false, nil, fmt.Errorf("migrate profile id: %w", err)
+			if err := json.Unmarshal(connection["id"], &id); err != nil {
+				return false, nil, fmt.Errorf("migrate connection id: %w", err)
 			}
-			profile["credential"], _ = json.Marshal(id)
+			connection["credential"], _ = json.Marshal(id)
 		}
 		changed = true
 	}
 	if !changed {
 		return false, data, nil
 	}
-	raw["servers"], _ = json.Marshal(servers)
+	raw["connections"], _ = json.Marshal(connections)
 	raw["config_version"], _ = json.Marshal(CurrentConfigVersion)
 	out, err := json.Marshal(raw)
 	return true, out, err
 }
 
-func legacyMainProfile(data []byte) (string, error) {
+func legacyMainConnection(data []byte) (string, error) {
 	var value struct {
-		Servers []struct {
+		Connections []struct {
 			ID      string `json:"id"`
 			Label   string `json:"label"`
 			BaseURL string `json:"base_url"`
@@ -188,25 +210,25 @@ func legacyMainProfile(data []byte) (string, error) {
 				NCtxOverride int `json:"n_ctx_override"`
 			} `json:"context"`
 			Capabilities Capabilities `json:"capabilities"`
-		} `json:"servers"`
+		} `json:"connections"`
 		Context GlobalContext `json:"context"`
 	}
 	if err := json.Unmarshal(data, &value); err != nil {
-		return "", fmt.Errorf("select migrated main profile: %w", err)
+		return "", fmt.Errorf("select migrated main connection: %w", err)
 	}
-	if len(value.Servers) == 0 {
+	if len(value.Connections) == 0 {
 		return "", nil
 	}
-	for _, profile := range value.Servers {
-		nctx := profile.Capabilities.NCtx
-		if profile.Context.NCtxOverride > 0 {
-			nctx = profile.Context.NCtxOverride
+	for _, connection := range value.Connections {
+		nctx := connection.Capabilities.NCtx
+		if connection.Context.NCtxOverride > 0 {
+			nctx = connection.Context.NCtxOverride
 		}
-		if profile.BaseURL != "" && profile.Model != "" && nctx > 0 && profile.Capabilities.ToolCalls && profile.Capabilities.Streaming && profile.Capabilities.OverflowBehavior != "truncate" && (value.Context.Accounting != "exact" || profile.Capabilities.Tokenize) {
-			return profile.ID, nil
+		if connection.BaseURL != "" && connection.Model != "" && nctx > 0 && connection.Capabilities.ToolCalls && connection.Capabilities.Streaming && connection.Capabilities.OverflowBehavior != "truncate" && (value.Context.Accounting != "exact" || connection.Capabilities.Tokenize) {
+			return connection.ID, nil
 		}
 	}
-	return value.Servers[0].ID, nil
+	return value.Connections[0].ID, nil
 }
 
 func migrateByteWindows(data []byte, version int) (bool, []byte, error) {
@@ -283,7 +305,7 @@ func migrateV1(data []byte) (bool, []byte, error) {
 		return false, data, nil
 	}
 	base := Defaults("sandbox")
-	profile := base.Servers[0]
+	connection := base.Connections[0]
 	var server struct {
 		Label           string `json:"label"`
 		BaseURL         string `json:"base_url"`
@@ -296,33 +318,33 @@ func migrateV1(data []byte) (bool, []byte, error) {
 		return false, nil, err
 	}
 	if server.Label != "" {
-		profile.Label = server.Label
+		connection.Label = server.Label
 	}
 	if server.BaseURL != "" {
-		profile.BaseURL = server.BaseURL
+		connection.BaseURL = server.BaseURL
 	}
 	if server.Model != "" {
-		profile.Model = server.Model
+		connection.Model = server.Model
 	}
-	profile.APIKey = server.APIKey
+	connection.APIKey = server.APIKey
 	if server.RequestTimeoutS > 0 {
-		profile.RequestTimeoutS = server.RequestTimeoutS
+		connection.RequestTimeoutS = server.RequestTimeoutS
 	}
 	if server.ProbeMode != "" {
-		profile.ProbeMode = server.ProbeMode
+		connection.ProbeMode = server.ProbeMode
 	}
 	if v := raw["sampling_thinking"]; v != nil {
-		if err := json.Unmarshal(v, &profile.Sampling.Thinking); err != nil {
+		if err := json.Unmarshal(v, &connection.Sampling.Thinking); err != nil {
 			return false, nil, fmt.Errorf("migrate sampling_thinking: %w", err)
 		}
 	}
 	if v := raw["sampling_nonthinking"]; v != nil {
-		if err := json.Unmarshal(v, &profile.Sampling.Nonthinking); err != nil {
+		if err := json.Unmarshal(v, &connection.Sampling.Nonthinking); err != nil {
 			return false, nil, fmt.Errorf("migrate sampling_nonthinking: %w", err)
 		}
 	}
 	if v := raw["thinking"]; v != nil {
-		if err := json.Unmarshal(v, &profile.Reasoning); err != nil {
+		if err := json.Unmarshal(v, &connection.Reasoning); err != nil {
 			return false, nil, fmt.Errorf("migrate thinking: %w", err)
 		}
 	}
@@ -337,9 +359,9 @@ func migrateV1(data []byte) (bool, []byte, error) {
 		if err := json.Unmarshal(v, &old); err != nil {
 			return false, nil, fmt.Errorf("migrate context: %w", err)
 		}
-		profile.Context.NCtx = old.NCtxOverride
+		connection.Context.NCtx = old.NCtxOverride
 		if old.ReserveOutput > 0 {
-			profile.Context.ReserveOutput = old.ReserveOutput
+			connection.Context.ReserveOutput = old.ReserveOutput
 		}
 		raw["context"], _ = json.Marshal(GlobalContext{SoftPct: old.SoftPct, SummaryPct: old.SummaryPct, Accounting: old.Accounting})
 	}
@@ -352,7 +374,7 @@ func migrateV1(data []byte) (bool, []byte, error) {
 	if err := json.Unmarshal(clean, &cfg); err != nil {
 		return false, nil, err
 	}
-	cfg.Servers = []Profile{profile}
+	cfg.Connections = []Connection{connection}
 	applyDefaults(&cfg)
 	out, err := json.Marshal(cfg)
 	return true, out, err

@@ -1,6 +1,6 @@
-let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, serverProfiles, row, subhead, text, toggle, copyRow, profileReason, html, attr, selectedHardeningServerID, operatorStatusView;
+let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
 function useSettingsContext(context) {
-  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, serverProfiles, row, subhead, text, toggle, copyRow, profileReason, html, attr, selectedHardeningServerID, operatorStatusView } = context);
+  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
 }
 
 function shell(active) {
@@ -23,7 +23,7 @@ function shell(active) {
 			? "Reset password and test"
 			: "Turn on and test";
 	const setupDisabled = serviceAccountBusy || !serviceAccountStatus.loaded || !serviceAccountStatus.supported || serviceAccountStatus.administrator;
-	const profile = serverProfiles().find((item) => item.id === selectedHardeningServerID());
+	const connection = connectionList().find((item) => item.id === selectedHardeningConnectionID());
 	const protectionReady = hardeningStatus.acl?.applied && hardeningStatus.firewall?.applied;
 	const elevationState = !hardeningStatus.loaded
 		? "checking process elevation…"
@@ -49,7 +49,7 @@ function shell(active) {
 						? "Create the service account first."
 						: serviceAccountStatus.administrator
 							? "The service account is an Administrator and cannot be used."
-							: !profile
+							: !connection
 								? "Test and select a runnable model connection first."
 								: "";
 	const canApply = !hardeningBusy && !applyBlocker;
@@ -98,7 +98,7 @@ function shell(active) {
 	${subhead("Host protections", "Applies folder access for the service identity and the user-scoped outbound firewall rule. Windows requests approval.")}
 	${row("Agent_b", `<span class="account-status ${hardeningStatus.harness_elevated ? "alarm" : ""}">${html(elevationState)}</span>`, "", "Whether Agent_b itself is running elevated; it should not be.")}
 	${row("status", `<span class="account-status"><span class="lamp ${protectionReady ? "live" : hardeningStatus.loaded ? "alarm" : ""}"></span>${html(protectionState)}</span>`, "", "Whether the folder permissions and the outbound firewall rule that confine the service account are in place.")}
-	${row("model route", `<select id="hardening-server" aria-label="Model route for host protections">${hardeningProfiles()}</select>`, "", "The endpoint the firewall rule lets the service account reach.")}
+	${row("model route", `<select id="hardening-connection" aria-label="Model route for host protections">${hardeningConnections()}</select>`, "", "The endpoint the firewall rule lets the service account reach.")}
 	<p class="settings-note">The network boundary allows loopback and the configured model server${(store.config.shell?.allowed_model_ranges || []).length ? `, plus configured ranges ${html(store.config.shell.allowed_model_ranges.join(", "))}` : ""}.</p>
 	${row("Allow my local network", `<button type="button" role="switch" aria-checked="${lanEnabled}" aria-label="Allow my local network" class="switch ${lanEnabled ? "on" : ""}" data-action="local-network-toggle"></button><span class="settings-subnets" data-local-subnets>${subnetChoices}</span>`, "", "Select each detected subnet you intend to expose, then Apply protection. Link-local, cloud metadata and Agent_b's own listener remain refused.")}
 	<div class="settings-actions">
@@ -141,11 +141,11 @@ function feedback(message, alarm, fallback) {
 	return `<p class="settings-feedback ${alarm ? "alarm" : ""}" role="status" title="${attr(value)}">${html(value)}</p>`;
 }
 
-function hardeningProfiles() {
-	const selected = selectedHardeningServerID();
-	const options = serverProfiles()
-		.filter((profile) => !profileReason(profile))
-		.map((profile) => `<option value="${attr(profile.id)}" ${profile.id === selected ? "selected" : ""}>${html(profile.label)} · ${html(profile.base_url)}</option>`)
+function hardeningConnections() {
+	const selected = selectedHardeningConnectionID();
+	const options = connectionList()
+		.filter((connection) => !connectionReason(connection))
+		.map((connection) => `<option value="${attr(connection.id)}" ${connection.id === selected ? "selected" : ""}>${html(connection.label)} · ${html(connection.base_url)}</option>`)
 		.join("");
 	return options || '<option value="">No ready connection</option>';
 }

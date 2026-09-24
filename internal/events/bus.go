@@ -80,7 +80,11 @@ func (b *Bus) publish(event Event, writeSink bool) (Event, []int) {
 		b.mu.Unlock()
 	}
 	if sinkErr != nil {
-		_, errorDrops := b.publish(New(Error, event.SessionID, event.RunID, map[string]any{"where": "event_log", "message": sinkErr.Error(), "lost_event_type": event.Type}), false)
+		message := sinkErr.Error()
+		if event.Type == RunStopped {
+			message = "outcome not saved: " + message
+		}
+		_, errorDrops := b.publish(New(Error, event.SessionID, event.RunID, map[string]any{"where": "event_log", "message": message, "lost_event_type": event.Type}), false)
 		dropped = append(dropped, errorDrops...)
 	}
 	return event, dropped

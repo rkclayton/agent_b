@@ -253,7 +253,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	}
 	connection, ok := r.connection(s.ConnectionID)
 	if !ok {
-		return "connection_not_runnable", "connection not found", 0
+		return "connection_not_runnable", "connection " + s.ConnectionID + " no longer exists", 0
 	}
 	connection, windowSource, windowErr := resolveContextWindow(ctx, connection)
 	if windowErr != nil {
@@ -309,16 +309,10 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			}
 			return "mailbox_stop", detail, turn
 		}
-		cfg := r.cfg()
-		if agent, found := cfg.Agent(s.Snapshot().AgentID); found {
-			if bound, exists := cfg.Connection(agent.ConnectionFor(s.Snapshot().Role)); exists {
-				s.ApplyAgentConfig(s.Snapshot().AgentID, *agent, *bound)
-			}
-		}
 		turn++
 		connection, ok = r.connection(s.ConnectionID)
 		if !ok {
-			return "connection_not_runnable", "connection not found", turn - 1
+			return "connection_not_runnable", "connection " + s.ConnectionID + " no longer exists", turn - 1
 		}
 		connection, windowSource, windowErr = resolveContextWindow(ctx, connection)
 		if windowErr != nil {
@@ -356,7 +350,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			systemProject := r.prompt.RenderParts(connection, s, toolNames, s.ProjectBlock, "")
 			systemWorkspaceMemory := r.prompt.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, s.MemoryBlock, "")
 			system = r.prompt.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, s.MemoryBlock, s.AgentMemoryBlock)
-			messages := []llm.Message{{Role: "system", Content: system}}
+			messages := []llm.Message{}
 			requestRecords := make([]events.Message, 0, len(records))
 			current := runningTurnIDs(records, s.RunPin())
 			for _, message := range records {
@@ -377,8 +371,22 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				requestRecords = append(requestRecords, message)
 			}
 			// Item 2fd rule 1: the list is checked before it is measured or sent.
-			conversation, repairedRecords, _ := normalizeAdjacentAssistants(messages[1:], requestRecords)
-			messages, requestRecords = append(messages[:1:1], conversation...), repairedRecords
+			conversation, repairedRecords, _ := normalizeAdjacentAssistants(messages, requestRecords)
+			hadUser := false
+			for _, message := range conversation {
+				if message.Role == llm.RoleUser {
+					hadUser = true
+					break
+				}
+			}
+			messages, budgetErr = llm.BuildMessageList(system, conversation)
+			requestRecords = repairedRecords
+			if budgetErr != nil {
+				return
+			}
+			if !hadUser {
+				requestRecords = append(requestRecords, events.Message{Role: llm.RoleHarness, Category: "history", Content: "Continue from the recorded context."})
+			}
 			request = llm.Request{Messages: messages, Tools: schemas, ToolChoice: "auto", Thinking: connection.Reasoning.Enabled}
 			if truncatedToolRetry != "" {
 				request.ToolChoice = map[string]any{"type": "function", "function": map[string]any{"name": truncatedToolRetry}}

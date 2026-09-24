@@ -3,6 +3,31 @@
 An order adds a gate only by naming it here with what it proves. One-off measurements run from
 the order's evidence directory and are never committed.
 
+## Change to gate map
+
+At W0, match changed paths to this table. `always` rows run for every order; a release order runs
+every row. A skipped row is reported as `skipped by map`, never silently omitted. The evidence
+column names the recent order in which that path class exercised or failed the gate; where no
+path-specific failure exists, the gate remains `always`.
+
+| Gate | Trigger paths | Evidence |
+| --- | --- | --- |
+| Plan lint and reconciliation | `always`; `PLAN.md`, `plan/**`, `tools/plan-*` | rel-1.7.2 plan reconciliation; catalogue failures are otherwise easy to defer |
+| Go vet | `always` | rel-1.7.2; no path-specific failure history, so always-run |
+| Production-incarnation guard | `always`, around every non-installer suite | build-1.8a/2ix W0 inventory |
+| Go unit/build-tag suites | CI on every push; local only when `*.go`, `go.mod`, `go.sum`, or Go test inputs change, or CI is unavailable | rel-1.7.1 caught release-identity inconsistency; rel-1.7.2 exercised run-loop restore |
+| Node unit suites | CI on every push; local only when `web/**`, `tests/**/*.mjs`, `tools/*.mjs`, or workflow inputs change, or CI is unavailable | v1.7.0b caught capture determinism; rel-1.7.2 exercised composer layout |
+| Playwright | `web/**`, browser-facing `internal/web/**`, onboarding or connection browser flows | rel-1.7.2 paperclip geometry; v1.7.0b setup capture |
+| Chat acceptance and screenshots | `web/**`, `internal/agent/**`, `internal/session/**`, `internal/projection/**`, `internal/web/**` | rel-1.7.2 restore and chat smoke; v1.7.0b capture determinism |
+| Screenshot comparison | captured surfaces under `web/**`, capture harness, masks, or release identity shown in captures | v1.7.0b stable identity difference; rel-1.7.2 chat rebaseline |
+| Installer matrix | `scripts/install-*`, `scripts/uninstall-*`, updater, launcher, staging, signing, or runtime ship-list paths | rel-1.7.0 and rel-1.7.1 installer failures; rel-1.7.2 cleanup fix |
+| Capability acceptance | `internal/tools/**`, tool schemas/order, `internal/agent/**` run routing, shell policy, ACL/firewall, or `prompts/system.md` | v1.7.0b and rel-1.7.2 capability runs |
+| Deploy gate and release signing | deploy/stage/signing paths, or every release order | rel-1.7.0 signing and publication |
+| Replay acceptance | `internal/projection/**`, journal/event shapes, replay runners | build-1.8a/2jk and 2iw contract locators |
+| Connection replay | connection aliases, session restore/binding, configuration migration | build-1.8a/2jk s13/s15 replay |
+| Onboarding | setup flow or initial local connection selection | maintained gate; no recent path-specific failure, so setup-path trigger remains |
+| Real-template accounting | message-list builder, accounting, template probing; model arm may be `not exercised: prerequisite` | build-1.8a/2it contract; earlier 2cw/2df/2dg/2ir failures |
+
 ## CI suites
 
 | Gate | Entry point | Proves | Needs |

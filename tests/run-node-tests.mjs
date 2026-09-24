@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { gateArm, summarizeGate } from "./gate-result.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const roots = [path.join(root, "web", "js"), path.join(root, "tools"), path.join(root, "tests")];
@@ -18,4 +19,6 @@ function collect(directory) {
 for (const directory of roots) collect(directory);
 files.sort();
 const result = spawnSync(process.execPath, ["--test", ...files], { cwd: root, stdio: "inherit" });
-process.exit(result.status ?? 1);
+const status = result.status ?? 1;
+process.stdout.write(`${JSON.stringify(summarizeGate([gateArm("node", status === 0 ? "pass" : "product", `exit ${status}`)]))}\n`);
+process.exit(status);

@@ -257,3 +257,49 @@ func TestRoleAndPlanSnapshotRestoreWithoutLegacyMigration(t *testing.T) {
 		t.Fatalf("agent rebind widened d session: %+v", d.Snapshot())
 	}
 }
+
+func TestRestoreKeepsThreeChatBindingsAndFallsBackOnlyWhenEmpty(t *testing.T) {
+	logs := t.TempDir()
+	writers, err := events.NewWriters(logs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writers.Close()
+	connections := map[string]*config.Connection{
+		"server": {ID: "server", Label: "Slumberland", Model: "main", Context: config.Context{NCtx: 32768}},
+		"local":  {ID: "local", Label: "Local", Model: "local", Context: config.Context{NCtx: 32768}},
+	}
+	cfg := config.Config{Context: config.GlobalContext{Accounting: "estimated"}, Agents: []config.Agent{{Name: "Agent", B: "server", Toolset: config.FullToolset()}}}
+	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Connection, bool) { value, ok := connections[id]; return value, ok }, 40, func() config.Config { return cfg })
+	created := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, row := range []struct{ id, saved, want string }{{"s13", "server", "server"}, {"s15", "local", "local"}, {"s16", "", "server"}} {
+		saved := Snapshot{ID: row.id, AgentID: "agent", ConnectionID: row.saved, Role: "b", CreatedAt: created, Workspace: t.TempDir(), Runnable: true, Run: RunState{Status: "idle"}}
+		restored, restoreErr := registry.Restore(saved)
+		if restoreErr != nil {
+			t.Fatalf("restore %s: %v", row.id, restoreErr)
+		}
+		got := restored.Snapshot()
+		if got.ConnectionID != row.want || !got.Runnable || got.NotRunnableReason != "" {
+			t.Fatalf("restore %s = connection %q runnable=%v reason=%q", row.id, got.ConnectionID, got.Runnable, got.NotRunnableReason)
+		}
+	}
+}
+
+func TestRestoreUnknownConnectionIsNeverRunnable(t *testing.T) {
+	writers, err := events.NewWriters(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writers.Close()
+	cfg := config.Config{Context: config.GlobalContext{Accounting: "estimated"}, Agents: []config.Agent{{Name: "Agent", B: "server", Toolset: config.FullToolset()}}}
+	registry := NewRegistry(events.NewBus(), writers, func(string) (*config.Connection, bool) { return nil, false }, 40, func() config.Config { return cfg })
+	saved := Snapshot{ID: "missing", AgentID: "agent", ConnectionID: "retired", Role: "b", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Workspace: t.TempDir(), Runnable: true, Run: RunState{Status: "idle"}}
+	restored, err := registry.Restore(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := restored.Snapshot()
+	if got.Runnable || got.NotRunnableReason != "connection retired no longer exists" {
+		t.Fatalf("unknown connection restore = runnable=%v reason=%q", got.Runnable, got.NotRunnableReason)
+	}
+}

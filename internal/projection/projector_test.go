@@ -95,6 +95,23 @@ func TestLegacyConnectionAliasesReplayThroughOneTable(t *testing.T) {
 	}
 }
 
+func TestS13LegacyCreationRecordRestoresServerBinding(t *testing.T) {
+	record := Record{Cursor: Cursor{Generation: "s13-20260924T132321.jsonl", Offset: 1}, Event: events.Event{
+		SessionID: "s13", Type: events.SessionCreated,
+		Data: map[string]any{"session": map[string]any{
+			"id": "s13", "agent_id": "agent-b", "server_id": "server", "b_profile": "Slumberland",
+			"created_at": "2026-09-23T21:21:00.033258Z", "run": map[string]any{"status": "idle"}, "runnable": true,
+		}},
+	}}
+	state, err := NextState(Empty("s13"), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ConnectionID != "server" || state.BConnection != "Slumberland" || !state.Runnable {
+		t.Fatalf("s13 replay = %+v", state)
+	}
+}
+
 func TestMessageAttachmentProjectsIntoChatEntry(t *testing.T) {
 	state := seeded(t)
 	attachment := events.Attachment{Path: "attachments/spec.txt", Bytes: 12, SHA256: strings.Repeat("a", 64)}

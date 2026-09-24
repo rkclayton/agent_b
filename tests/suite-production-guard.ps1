@@ -39,7 +39,7 @@ function Get-AgentBProductionIncarnation {
     param(
         [string]$ApplicationDirectory,
         [string]$DataDirectory = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Agent_b'),
-        [string]$StateUri = 'http://127.0.0.1:3210/api/state'
+        [string]$StateUri = 'http://127.0.0.1:8790/api/state'
     )
     if ([string]::IsNullOrWhiteSpace($ApplicationDirectory)) {
         $perUser = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\Agent_b'
@@ -56,19 +56,27 @@ function Get-AgentBProductionIncarnation {
         })
     }
     $commit = $null
+    $serverStartedAt = $null
+    $activeProfile = $null
     try {
         $state = Invoke-RestMethod -Uri $StateUri -TimeoutSec 2
         foreach ($candidate in @($state.build.commit, $state.commit, $state.build_commit)) {
             if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) { $commit = [string]$candidate; break }
         }
+        $serverStartedAt = [string]$state.server_started_at
+        $activeProfile = [string]$state.profiles.active
     } catch { }
+    $legacyChats = Join-Path $DataDirectory 'chats'
+    $profileChats = if ([string]::IsNullOrWhiteSpace($activeProfile)) { $legacyChats } else { Join-Path (Join-Path (Join-Path $DataDirectory 'profiles') $activeProfile) 'chats' }
+    $chatsDirectory = if (Test-Path -LiteralPath $profileChats -PathType Container) { $profileChats } else { $legacyChats }
     return [ordered]@{
         application_directory = [IO.Path]::GetFullPath($ApplicationDirectory).TrimEnd('\')
         processes = $processes
         api_commit = $commit
+        server_started_at = $serverStartedAt
         executable = Get-AgentBGuardFileIdentity -Path $executable
         config = Get-AgentBGuardFileIdentity -Path (Join-Path $DataDirectory 'harness.json')
-        session_registry = Get-AgentBSessionRegistryIdentity -ChatsDirectory (Join-Path $DataDirectory 'chats')
+        session_registry = Get-AgentBSessionRegistryIdentity -ChatsDirectory $chatsDirectory
     }
 }
 
@@ -76,7 +84,7 @@ function Assert-AgentBProductionIncarnationUnchanged {
     [CmdletBinding()]
     param($Before, $After, [string]$Suite = 'suite')
     $deltas = [Collections.Generic.List[string]]::new()
-    foreach ($name in @('application_directory', 'processes', 'api_commit', 'executable', 'config', 'session_registry')) {
+    foreach ($name in @('application_directory', 'processes', 'api_commit', 'server_started_at', 'executable', 'config', 'session_registry')) {
         $left = $Before[$name] | ConvertTo-Json -Compress -Depth 8
         $right = $After[$name] | ConvertTo-Json -Compress -Depth 8
         if ($left -cne $right) { $deltas.Add($name) }

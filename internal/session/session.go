@@ -79,6 +79,7 @@ type Snapshot struct {
 	AgentMemoryOverBudget bool     `json:"agent_memory_over_budget"`
 	PromptAddendum        string   `json:"-"`
 	NetworkBoundary       string   `json:"network_boundary"`
+	NetworkBoundarySet    bool     `json:"network_boundary_set,omitempty"`
 	LogPath               string   `json:"log_path"`
 	ModelTurns            int      `json:"model_turns"`
 	CompactionCount       int      `json:"compaction_count"`
@@ -130,6 +131,7 @@ type Session struct {
 	MemoryMaxTokens      int
 	PromptAddendum       string
 	NetworkBoundary      string
+	NetworkBoundarySet   bool
 	SchemaTokens         map[string]int
 	MarginalTokens       map[string]int
 	queuedMessages       int
@@ -184,7 +186,43 @@ func (s *Session) SnapshotUnlocked() Snapshot {
 			tools = append(tools, ToolState{Name: name, Enabled: enabled, Calls: s.ToolCalls[name], SchemaTokens: s.SchemaTokens[name], MarginalTokens: s.MarginalTokens[name]})
 		}
 	}
-	return Snapshot{ID: s.ID, Label: s.Label, AgentID: s.AgentID, ConnectionID: s.ConnectionID, AgentName: s.AgentName, BConnection: s.BConnection, Role: s.Role, PlanID: s.PlanID, PlanName: s.PlanName, PlanDir: s.PlanDir, PlanRepo: s.PlanRepo, CreatedAt: s.CreatedAt.Format(time.RFC3339Nano), Closed: s.Closed, NamePinned: s.NamePinned, Workspace: s.Workspace, WorkspaceDir: s.Workspace, WorkspaceMissing: s.WorkspaceMissing, Scratch: s.Scratch, ProjectContent: s.ProjectBlock, ProjectFiles: append([]string(nil), s.ProjectFiles...), ProjectNotes: append([]string(nil), s.ProjectNotes...), PendingRepoPolicy: clonePolicyState(s.PendingRepoPolicy), RepoPolicy: clonePolicyState(s.RepoPolicy), Run: s.Run, Tools: tools, Messages: append([]events.Message{}, s.Messages...), Budget: s.Budget, QueuedMessages: s.queuedMessages, Runnable: s.Runnable, NotRunnableReason: s.NotRunnableReason, DegradedNotes: append([]string(nil), s.DegradedNotes...), MemoryPath: s.MemoryPath, MemoryContent: s.MemoryBlock, AgentMemoryPath: s.AgentMemoryPath, AgentMemoryContent: s.AgentMemoryBlock, MemoryTokens: estimateMemoryTokens(s.MemoryBlock), AgentMemoryTokens: estimateMemoryTokens(s.AgentMemoryBlock), MemoryMaxTokens: s.MemoryMaxTokens, MemoryOverBudget: overBudget(s.MemoryBlock), AgentMemoryOverBudget: overBudget(s.AgentMemoryBlock), PromptAddendum: s.PromptAddendum, NetworkBoundary: s.NetworkBoundary, LogPath: s.LogPath, ModelTurns: s.modelTurns, CompactionCount: s.compactionCount, CompactionTokenDelta: s.compactionTokenDelta, CompactionModelCalls: s.compactionModelCalls, CompactionPrompt: s.compactionPrompt, CompactionCompletion: s.compactionCompletion}
+	return Snapshot{ID: s.ID, Label: s.Label, AgentID: s.AgentID, ConnectionID: s.ConnectionID, AgentName: s.AgentName, BConnection: s.BConnection, Role: s.Role, PlanID: s.PlanID, PlanName: s.PlanName, PlanDir: s.PlanDir, PlanRepo: s.PlanRepo, CreatedAt: s.CreatedAt.Format(time.RFC3339Nano), Closed: s.Closed, NamePinned: s.NamePinned, Workspace: s.Workspace, WorkspaceDir: s.Workspace, WorkspaceMissing: s.WorkspaceMissing, Scratch: s.Scratch, ProjectContent: s.ProjectBlock, ProjectFiles: append([]string(nil), s.ProjectFiles...), ProjectNotes: append([]string(nil), s.ProjectNotes...), PendingRepoPolicy: clonePolicyState(s.PendingRepoPolicy), RepoPolicy: clonePolicyState(s.RepoPolicy), Run: s.Run, Tools: tools, Messages: append([]events.Message{}, s.Messages...), Budget: s.Budget, QueuedMessages: s.queuedMessages, Runnable: s.Runnable, NotRunnableReason: s.NotRunnableReason, DegradedNotes: append([]string(nil), s.DegradedNotes...), MemoryPath: s.MemoryPath, MemoryContent: s.MemoryBlock, AgentMemoryPath: s.AgentMemoryPath, AgentMemoryContent: s.AgentMemoryBlock, MemoryTokens: estimateMemoryTokens(s.MemoryBlock), AgentMemoryTokens: estimateMemoryTokens(s.AgentMemoryBlock), MemoryMaxTokens: s.MemoryMaxTokens, MemoryOverBudget: overBudget(s.MemoryBlock), AgentMemoryOverBudget: overBudget(s.AgentMemoryBlock), PromptAddendum: s.PromptAddendum, NetworkBoundary: s.NetworkBoundary, NetworkBoundarySet: s.NetworkBoundarySet, LogPath: s.LogPath, ModelTurns: s.modelTurns, CompactionCount: s.compactionCount, CompactionTokenDelta: s.compactionTokenDelta, CompactionModelCalls: s.compactionModelCalls, CompactionPrompt: s.compactionPrompt, CompactionCompletion: s.compactionCompletion}
+}
+
+const staleNetworkBoundaryNote = "network boundary text is stale until reopened"
+
+// MarkNetworkBoundaryStale compares the prompt policy captured when this chat
+// was opened with the identity tools would use now. It never mutates the
+// captured prompt: a run cannot silently change its system prefix.
+func (s *Session) MarkNetworkBoundaryStale(current string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stale := s.NetworkBoundary != current
+	notes := s.DegradedNotes[:0]
+	for _, note := range s.DegradedNotes {
+		if note != staleNetworkBoundaryNote {
+			notes = append(notes, note)
+		}
+	}
+	if stale {
+		notes = append(notes, staleNetworkBoundaryNote)
+	}
+	changed := len(notes) != len(s.DegradedNotes)
+	s.DegradedNotes = notes
+	return changed
+}
+
+func (s *Session) ReopenNetworkBoundary(current string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.NetworkBoundary, s.NetworkBoundarySet = current, true
+	notes := s.DegradedNotes[:0]
+	for _, note := range s.DegradedNotes {
+		if note != staleNetworkBoundaryNote {
+			notes = append(notes, note)
+		}
+	}
+	s.DegradedNotes = notes
 }
 
 func (s *Session) ReadRoot(path string) (string, error) {

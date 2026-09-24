@@ -14,7 +14,7 @@ import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, itemFailed
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
 import { renderChatProposals } from "./chat-proposals.js";
-import { installTranscriptCopy } from "./transcript-copy.js";
+import { installTranscriptCopy, responseTranscriptRecord, setTranscriptCopyRecord } from "./transcript-copy.js";
 
 const budget = document.getElementById("chat-budget");
 const log = document.getElementById("chat-log");
@@ -432,6 +432,9 @@ function renderEntry(session, entry) {
     view.text = entry.text || "";
   }
   else throw new Error(`unsupported top-level entry type ${String(entry.type || "(missing)")}`);
+  setTranscriptCopyRecord(view.row, entry.type === "user"
+    ? `you: ${entry.text || ""}`
+    : `— summary —\n${entry.text || ""}`);
   return view.row;
 }
 
@@ -471,6 +474,7 @@ function renderResponse(session, entry) {
   const usedBlocks = new Set(blocks.map((block) => block.key));
   reconcileChildren(view.rows, blocks.map((block) => renderResponseBlock(session, view, block, active)));
   for (const key of view.blocks.keys()) if (!usedBlocks.has(key)) view.blocks.delete(key);
+  setTranscriptCopyRecord(view.row, responseTranscriptRecord(entry, expanded, agentAuthor(session), active));
   return view.row;
 }
 
@@ -856,6 +860,10 @@ function renderNotice(session, entry) {
 	const content = noticeContent(session, entry, false);
   if (content.classList.contains("alarm")) row.classList.add("alarm");
   row.append(content);
+  const reason = entry.event?.data?.reason;
+  setTranscriptCopyRecord(row, entry.event?.type === "run.stopped"
+    ? `stopped: ${String(reason || "").replaceAll("_", " ")}`
+    : `— harness —\n${content.innerText || content.textContent || entry.text || ""}`);
   return row;
 }
 

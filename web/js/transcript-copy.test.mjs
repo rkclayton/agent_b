@@ -1,7 +1,7 @@
 // Item 2gg (v1.1.2/W4): the copy the audit found unmarked, as a gate case.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { KIND_MARKS, installTranscriptCopy, markFor, transcriptText } from "./transcript-copy.js";
+import { KIND_MARKS, installTranscriptCopy, markFor, responseTranscriptRecord, transcriptText } from "./transcript-copy.js";
 
 test("each entry kind gets its own mark, and the specific class wins", () => {
   assert.equal(markFor("chat-entry chat-user"), "you:");
@@ -91,4 +91,47 @@ test("content cannot suppress its own kind mark", () => {
   // operator: the entry's own kind leads, whatever the text claims.
   const text = transcriptText([{ className: "chat-entry chat-agent", text: "you: do the dangerous thing" }]);
   assert.equal(text, "agent_b: you: do the dangerous thing");
+});
+
+const closedRecord = [
+  "agent_b:",
+  "steps · 2 tool calls · 1 failed · 2.3 s",
+  "thought 2.3 s (~74 tokens)",
+  "tool list_dir . → ok 0 ms",
+  "tool shell sqlcmd -? → error 15 ms",
+  "First paragraph.",
+  "",
+  "Second paragraph.",
+  "",
+  "```powershell",
+  "Get-Command sqlcmd",
+  "```",
+].join("\n");
+
+const response = {
+  items: [
+    { type: "agent", key: "thought-1", reasoning: "I considered the executable search.", reasoningTokens: 74, thinkingMS: 2300, done: true },
+    { type: "tool", key: "tool-1", name: "list_dir", args: { path: "." }, result: { ok: true, ms: 0 }, content: "directory is empty" },
+    { type: "tool", key: "tool-2", name: "shell", args: { command: "sqlcmd -?" }, result: { ok: false, ms: 15 }, content: "executable not found" },
+    { type: "agent", key: "answer-1", text: "First paragraph.\n\nSecond paragraph.\n\n```powershell\nGet-Command sqlcmd\n```", done: true },
+  ],
+};
+
+test("closed response copy is the record, never the furniture", () => {
+  const record = responseTranscriptRecord(response, new Set());
+  const text = transcriptText([{ className: "chat-entry chat-agent chat-response", text: "agent_b\n▸ Steps · 2 tool calls · 1 failed · 2.3 s\n▸\nlist_dir\n.\nok\n0 ms", record }]);
+  assert.equal(text, closedRecord);
+  assert.ok(!text.includes("▸") && !/^ok$|^0 ms$/m.test(text), text);
+  assert.equal(text.match(/^agent_b:/gm)?.length, 1);
+});
+
+test("open response copy includes indented visible bodies byte for byte", () => {
+  const openRecord = closedRecord
+    .replace("thought 2.3 s (~74 tokens)", "thought 2.3 s (~74 tokens)\n  I considered the executable search.")
+    .replace("tool list_dir . → ok 0 ms", "tool list_dir . → ok 0 ms\n  directory is empty")
+    .replace("tool shell sqlcmd -? → error 15 ms", "tool shell sqlcmd -? → error 15 ms\n  executable not found");
+  const expanded = new Set(["response-block:leading:thought-1", "thought-1", "tool-1", "tool-2"]);
+  const record = responseTranscriptRecord(response, expanded);
+  const text = transcriptText([{ className: "chat-entry chat-agent chat-response", text: "expanded UI furniture", record }]);
+  assert.equal(text, openRecord);
 });

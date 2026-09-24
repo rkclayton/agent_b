@@ -79,8 +79,8 @@ function Get-FirstBlockHeader {
     return ''
 }
 
-# The pointer prompt is checked in beside this script, so the operator is never
-# asked to retype it and the runner cannot drift from what the worker expects.
+# The pointer prompt is kept here and pinned by the runner's source test, so the
+# operator is never asked to retype it or keep its wording synchronized.
 $pointerPrompt = 'Read plan/_inflight.md, then INBOX.md; publish the order via tools/plan-publish.mjs prepare/publish; execute it; append the report to NOTES.md.'
 
 Write-Runner "QUEUE START: $Inbox"

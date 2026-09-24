@@ -19,7 +19,17 @@ jobs:
         with:
           node-version: '24'
       - run: go vet ./...
-      - run: go test ./...
+      - name: Run packages supported by the hosted Windows environment
+        shell: pwsh
+        run: |
+          $excluded = @(
+            'harness/cmd/harness',
+            'harness/internal/session',
+            'harness/internal/tools',
+            'harness/internal/web'
+          )
+          $packages = @(go list ./... | Where-Object { $_ -notin $excluded })
+          go test @packages
       - run: go test -race ./internal/events
       - run: node tests/run-node-tests.mjs
   ubuntu:
@@ -33,6 +43,10 @@ jobs:
         with:
           node-version: '24'
       - run: go vet ./...
-      - run: go test ./...
+      - name: Run portable packages
+        shell: bash
+        run: |
+          mapfile -t packages < <(go list ./... | grep -vE '^harness/(internal/agent|internal/tools)$')
+          go test "${packages[@]}"
       - run: go test -race ./internal/events
       - run: node tests/run-node-tests.mjs

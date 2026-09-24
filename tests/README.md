@@ -7,7 +7,7 @@ the order's evidence directory and are never committed.
 
 | Gate | Entry point | Proves | Needs |
 | --- | --- | --- | --- |
-| Go unit and build-tag suites | `go test ./...` | Product packages compile and unit contracts hold | Go 1.24+; Windows runs Windows-tagged tests |
+| Go unit and build-tag suites | Workflow package lists in `.github/workflows/ci.yml` | Runner-compatible product packages compile and unit contracts hold | Go 1.24+; see exclusions below |
 | Go vet | `go vet ./...` | Standard static checks pass | Go 1.24+ |
 | Event race gate | `go test -race ./internal/events` | Event publication and subscriber shutdown are race-safe | Race-capable Go runner |
 | Node unit suites | `node tests/run-node-tests.mjs` | Browser, plan-tool, helper, and workflow contracts hold | Node 24; no model or network |
@@ -33,3 +33,10 @@ Kept source-text convention tests include `internal/signing/script_contract_wind
 contracts under `web/js/*.test.mjs`, `tests/disposable-port.test.mjs`, and
 `tests/ci-workflow.test.mjs`. They pin runtime filenames, the stable tool/product vocabulary,
 production-port refusal, and the no-secrets CI boundary.
+
+Hosted Windows excludes `cmd/harness`, `internal/session`, `internal/tools`, and `internal/web`:
+their full package suites require local Windows temp-path identity, ACL behavior, or an adjacent
+WebView2 loader that the hosted runner does not provide. Ubuntu excludes `internal/agent` and
+`internal/tools`, whose tests exercise Windows command and service-identity semantics. The full
+`go test ./...` remains an operator release gate on the target Windows host; CI never reports an
+excluded package as passed.

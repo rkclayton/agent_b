@@ -962,6 +962,13 @@ if (realModel) {
   const wizard = await edgeContext.newPage();
   await wizard.goto(`http://127.0.0.1:${appPort}/setup`);
   await wizard.locator('[data-action="query-models"]').waitFor({ state: "visible" });
+  // v1.7.0b/W1: the wizard selects the acceptance connection, whose fake
+  // server listens on a fresh port each run. The address field itself is under
+  // exact comparison, so render the documented local default for the capture;
+  // connection persistence and discovery are exercised separately above.
+  await wizard.locator('[data-field="url"]').fill("http://127.0.0.1:8080");
+  assert.equal(await wizard.locator('[data-field="url"]').inputValue(), "http://127.0.0.1:8080");
+  await wizard.locator('[data-field="url"]').evaluate((node) => node.blur());
   await captureWithMasks(wizard, join(baselineDirectory, "setup-connection.png"));
   await wizard.close();
   await page.goto(`http://127.0.0.1:${appPort}/plan?session=${sessionID}`);

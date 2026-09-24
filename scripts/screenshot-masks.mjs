@@ -1,3 +1,6 @@
+import { decodePNG } from "./png.mjs";
+import { compareMasked } from "./screenshot-gate.mjs";
+
 // Item 2ga (v1.0.0/W2): the live values a chat-acceptance capture shows. Each
 // is found by a selector and, where it is text, a pattern inside that
 // selector's text, so the mask follows the value when layout moves it. A
@@ -28,22 +31,6 @@ export const LIVE_VALUES = [
   // end of its text, each line to the right edge of the element holding it.
   { name: "acceptance-folder", reason: "each run's temporary folder name carries a fresh GUID", selector: "body", pattern: String.raw`Agent_b-chat-acceptance-[0-9a-f]{1,32}`, restOfText: true },
   { name: "sandbox-name", reason: "the shell's sandbox is named per run", selector: "body", pattern: String.raw`sandbox agentb-[0-9a-f]+` },
-  // Not a live value: two runs of one build (v1.0.0/W2 captures k and l)
-  // antialias the composer text box's corners a level or two apart, 2 by 2
-  // pixels each. The cause is carded, and the rest of the composer is compared
-  // exactly. v1.3.0 widened the square from 8 to 10 (a pixel differed one step
-  // beyond the 8 px radius) and extended it from the bottom pair to all four,
-  // after the TOP right corner was measured differing by two to three levels.
-  // v1.2.2/W3: the variance runs the height of the corner's rounding, not just
-  // the four pixels v1.0.0 measured - two runs of one build differed three
-  // pixels above the square. The square is the radius, 8 by 8, and the rest of
-  // the composer is still compared exactly.
-  // v1.3.0 (2gk): widened from 8 to 10. The corner square was sized to the 8 px
-  // radius, and a single pixel one step beyond it differed between two runs of
-  // one build - the antialiasing this mask already exists for, reaching one
-  // pixel further than the radius. The rest of the composer is still compared
-  // exactly.
-  { name: "composer-corner-variance", reason: "the composer's bottom corners antialias a level or two apart between runs of one build", selector: "#chat-task", corners: 10 },
   // v1.3.0 (2gk): the Jump-to-latest pill is sticky at the transcript's bottom
   // right and appears only while the transcript is scrolled off its latest
   // line. Whether it is depends on the transcript's HEIGHT, and moving the
@@ -197,15 +184,59 @@ export async function captureWithMasks(target, path, { specs = LIVE_VALUES } = {
   // to be this control at x1219..1228/y915..928). Normalize availability for
   // release captures so the glyph remains compared pixel-for-pixel; speech
   // behavior itself has separate acceptance coverage and is not masked here.
-  await page.evaluate(() => {
+  const stabilizeHostValues = () => page.evaluate(() => {
     const mic = document.querySelector("#chat-mic");
     if (mic?.title?.includes(" · ")) mic.disabled = false;
   });
-  const box = page === target ? null : await target.boundingBox();
-  const [ratio, found] = await Promise.all([page.evaluate(() => devicePixelRatio), page.evaluate(liveValueRects, specs)]);
-  // Finite CSS transitions are finished first: a capture taken mid-transition
-  // differs from the next by a level or two on an edge.
-  const image = await target.screenshot({ path, animations: "disabled" });
+  // W5's deterministic gate asks each surface for ten consecutive encoded
+  // captures without moving state forward. This is deliberately byte-level:
+  // masks are not involved, so capture timing or compositor variance cannot
+  // be mistaken for an authorized live value.
+  const requestedRepetitions = Math.max(1, Number.parseInt(process.env.AGENTB_SCREENSHOT_STABILITY || "1", 10) || 1);
+  const repetitions = /(?:^|[\\/])baseline-initial(?:[\\/])/.test(path) ? requestedRepetitions : 1;
+  // Freeze the page-wide wall clock while its one-second telemetry repaint is
+  // active. performance.now remains native, so capture/paint waits still run.
+  // Waiting one tick makes the already-mounted view consume the fixed clock.
+  await page.evaluate(() => {
+    window.__agentbCaptureDateNow ??= Date.now;
+    Date.now = () => 946684800000;
+  });
+  let image, box, ratio, found;
+  try {
+    // Put pointer hover on the known blank lower-center capture seat. A prior
+    // click can otherwise leave a button's translucent hover rectangle live
+    // until Edge processes its next pointer frame mid-series.
+    await page.mouse.move(625, 400);
+    await page.waitForTimeout(1100);
+    await stabilizeHostValues();
+    box = page === target ? null : await target.boundingBox();
+    [ratio, found] = await Promise.all([page.evaluate(() => devicePixelRatio), page.evaluate(liveValueRects, specs)]);
+    // Finite CSS transitions are finished first: a capture taken mid-transition
+    // differs from the next by a level or two on an edge. Prime Edge's software
+    // compositor once, then wait through a paint boundary.
+    await target.screenshot({ animations: "disabled" });
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    image = await target.screenshot({ path, animations: "disabled" });
+    const stability = { requested: repetitions, byte_identical: 1, rounding_pixels: 0, unexplained_pixels: 0 };
+    for (let attempt = 2; attempt <= repetitions; attempt++) {
+      await stabilizeHostValues();
+      const repeated = await target.screenshot({ animations: "disabled" });
+      if (image.equals(repeated)) { stability.byte_identical++; continue; }
+      const outcome = compareMasked(decodePNG(image), decodePNG(repeated), [], { tolerance: 2 });
+      stability.rounding_pixels += outcome.rounding;
+      stability.unexplained_pixels += outcome.outside;
+      if (outcome.outside) {
+        await writeFile(`${path}.stability-${attempt}.png`, repeated);
+        throw new Error(`screenshot stability failed for ${path}: capture ${attempt} of ${repetitions} has ${outcome.outside} unexplained pixels`);
+      }
+    }
+    await writeFile(`${path}.stability.json`, `${JSON.stringify(stability, null, 1)}\n`);
+  } finally {
+    await page.evaluate(() => {
+      if (window.__agentbCaptureDateNow) Date.now = window.__agentbCaptureDateNow;
+      delete window.__agentbCaptureDateNow;
+    });
+  }
   const origin = box ? [box.x, box.y] : [0, 0];
   const masks = found.map(({ name, reason, rects }) => ({
     name,

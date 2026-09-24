@@ -835,7 +835,7 @@ if (realModel) {
     const mic = document.querySelector("#chat-mic");
     if (mic?.title?.includes(" · ")) mic.disabled = false;
   });
-  const roundTripScreenshot = await page.screenshot({ animations: "disabled" });
+  const roundTripScreenshot = await captureWithMasks(page, join(args.evidence, "chat-idle-round-trip.png"));
   const roundTripPixels = compareMasked(decodePNG(chatIdleScreenshot), decodePNG(roundTripScreenshot), [], { tolerance: 2 });
   assert.equal(roundTripPixels.outside, 0, `Chat idle changed after Settings → Test → Chat round trip: ${JSON.stringify(roundTripPixels)}`);
   record("settings-test-chat-round-trip");
@@ -975,9 +975,9 @@ if (realModel) {
   await page.evaluate(() => document.querySelector('[data-acceptance-spacer="collapse-arrow"]')?.remove());
   await toolRoot.evaluate((root) => { root.style.minHeight = ""; });
   await toolButton.scrollIntoViewIfNeeded();
-  await collapseArrow.click();
-  await page.waitForFunction((node) => node.getAttribute("aria-expanded") === "false", toolButtonHandle, { timeout: 10000 }).catch(() => {});
-  assert.equal(await toolButtonHandle.getAttribute("aria-expanded"), "false", "collapse arrow must collapse its own tool section");
+  await collapseArrow.evaluate((node) => node.click());
+  await page.waitForFunction(() => document.querySelector('[data-entry-key*="menu-stream-0"] button.tool-tick')?.getAttribute("aria-expanded") === "false", undefined, { timeout: 10000 });
+  assert.equal(await toolButton.getAttribute("aria-expanded"), "false", "collapse arrow must collapse its own tool section");
   await collapseArrow.waitFor({ state: "hidden" });
   record("tool-tick-node-lifecycle-active-run");
   // Both failing reads are waited for before the stop, so the transcript this
@@ -1499,6 +1499,7 @@ if (realModel) {
   record("clean-panel-on-ordinary-pages");
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
 	await browser.wait(`document.querySelector('#chat-task')`, "chat restored after settings");
+	await browser.wait(`document.querySelector('.agent-tab-wrap.selected')?.dataset.session === ${JSON.stringify(sessionID)} && document.querySelector('#chat-task') && !document.querySelector('#chat-task').disabled`, "UI error relay session projection ready");
 	events = await sessionEvents(sessionID);
 	const beforeUIError = events.at(-1)?.seq || 0;
 	await browser.evaluate(`(() => { console.error('acceptance UI relay'); return true; })()`);

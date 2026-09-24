@@ -85,6 +85,11 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		t.Fatalf("operator identity evidence is not distinct from service account: %q", operatorIdentity)
 	}
 	serviceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/direct" && r.Header.Get("Authorization") == "" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"direct":true}`))
+			return
+		}
 		if r.URL.Path != "/api/identity" || r.Header.Get("Authorization") != "Bearer "+operatorIdentity {
 			http.Error(w, `{"title":"identity mismatch"}`, http.StatusUnauthorized)
 			return
@@ -105,6 +110,29 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	)
 	enabled := map[string]bool{"read_file": true, "list_dir": true, "write_file": true, "edit_file": true, "search_text": true, "fetch_url": true, "find_files": true, "call_service": true}
 	item := &session.Session{ID: "capability", Workspace: workspace, LastSeen: map[string]time.Time{}, ToolsEnabled: enabled}
+
+	t.Run("absolute_file_tool_reach_2jt", func(t *testing.T) {
+		outside, err := os.MkdirTemp(workspaceParent, "agentb-capability-outside-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := removeCapabilityFixture(outside); err != nil {
+				t.Errorf("remove outside capability fixture: %v", err)
+			}
+		}()
+		path := filepath.Join(outside, "reachable.txt")
+		if err := os.WriteFile(path, []byte("absolute reach"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if result := toolRegistry.CallDetailed(context.Background(), item, "read_file", map[string]any{"path": path}); !result.OK || !strings.Contains(result.Content, "absolute reach") {
+			t.Fatalf("absolute read=%+v", result)
+		}
+		if result := toolRegistry.CallDetailed(context.Background(), item, "list_dir", map[string]any{"path": outside}); !result.OK || !strings.Contains(result.Content, "reachable.txt") {
+			t.Fatalf("absolute list=%+v", result)
+		}
+		t.Log("contract=changed-by-2jt: file tools reach an absolute folder outside scratch and registered plans")
+	})
 
 	t.Run("write_and_run_python_node_shell", func(t *testing.T) {
 		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
@@ -205,10 +233,8 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		if result := toolRegistry.CallDetailed(context.Background(), d, "read_file", map[string]any{"path": repositoryFile}); !result.OK || !strings.Contains(result.Content, "repository evidence") {
 			t.Fatalf("d repository read=%+v", result)
 		}
-		if result := toolRegistry.CallDetailed(context.Background(), d, "write_file", map[string]any{"path": filepath.Join(workspace, "d-escape.txt"), "content": "escape"}); result.OK || !strings.Contains(result.Content, "outside the plan") || result.OperatorOverrideReason != "" {
-			t.Fatalf("d repository write did not match the direct plan-jail refusal: %+v", result)
-		} else if _, ok := toolRegistry.CallAsOperator(context.Background(), d, "write_file", map[string]any{"path": filepath.Join(workspace, "d-escape.txt"), "content": "escape"}); ok {
-			t.Fatal("operator identity widened the d repository-write jail")
+		if result := toolRegistry.CallDetailed(context.Background(), d, "write_file", map[string]any{"path": filepath.Join(workspace, "d-reach.txt"), "content": "reachable"}); !result.OK {
+			t.Fatalf("d ordinary absolute write=%+v", result)
 		}
 		sibling := filepath.Join(d.PlansRoot, "sibling")
 		if err := os.MkdirAll(sibling, 0o700); err != nil {
@@ -221,6 +247,10 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		if result := toolRegistry.CallDetailed(context.Background(), d, "read_file", map[string]any{"path": siblingPlan}); !result.OK || !strings.Contains(result.Content, "Sibling plan") {
 			t.Fatalf("d plan-tree read did not use the union jail: %+v", result)
 		}
+		if result := toolRegistry.CallDetailed(context.Background(), d, "write_file", map[string]any{"path": siblingPlan, "content": "changed"}); result.OK || result.OperatorOverrideReason != "" {
+			t.Fatalf("d wrote a sibling plan: %+v", result)
+		}
+		t.Log("contract=changed-by-2jt: ordinary absolute writes are reachable; sibling plan ownership remains enforced")
 	})
 
 	t.Run("fetch_public_text_fetch_url", func(t *testing.T) {
@@ -271,6 +301,22 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 			t.Fatalf("detail=%+v", detail)
 		}
 		t.Logf("call_service exec child identity: %s (service account: %s); contract=new/pass", operatorIdentity, cfg.Shell.ServiceAccount.Account)
+	})
+
+	t.Run("internal_service_direct_url_2ju", func(t *testing.T) {
+		detail := toolRegistry.CallDetailed(context.Background(), item, "call_service", map[string]any{"service": serviceServer.URL + "/api/direct", "method": "GET"})
+		if !detail.OK || detail.OperatorContext || !strings.Contains(detail.Content, `"direct":true`) {
+			t.Fatalf("detail=%+v", detail)
+		}
+		t.Log("contract=changed-by-2ju: unregistered absolute URL called without a credential")
+	})
+
+	t.Run("internal_service_credential_host_mismatch_2ju", func(t *testing.T) {
+		detail := toolRegistry.CallDetailed(context.Background(), item, "call_service", map[string]any{"service": "identity", "method": "GET", "path": "http://foreign.invalid/never"})
+		if detail.OK || detail.OperatorContext || !strings.Contains(detail.Content, "credential host mismatch") {
+			t.Fatalf("detail=%+v", detail)
+		}
+		t.Log("contract=changed-by-2ju: a registered service refuses a foreign credential host")
 	})
 
 	t.Run("boundary_file_tool_operator_decision", func(t *testing.T) {

@@ -13,9 +13,8 @@ import (
 	"harness/internal/tools"
 )
 
-// Item 2fy, v0.71.0/W1. read_file on a path outside the folder that does not
-// exist answers with a tool error naming the boundary and raises no card; the
-// run goes on. The eval's two miss tapes (v0.70.2/W10) were shell commands
+// Item 2jt: read_file on a missing absolute path returns the OS error and no
+// card; the run goes on. The eval's two miss tapes (v0.70.2/W10) were shell commands
 // changing directory to invented paths; since item 2fz they raise no card.
 func TestAMissingOutsideReadRaisesNoCardAndNeitherDoTheTapes(t *testing.T) {
 	workspace := t.TempDir()
@@ -52,7 +51,7 @@ func TestAMissingOutsideReadRaisesNoCardAndNeitherDoTheTapes(t *testing.T) {
 		}
 	}
 	missing := filepath.Join(t.TempDir(), "definitely", "not", "here.txt")
-	if carded, content := cardFor("read-missing", "read_file", map[string]any{"path": missing}); carded || !strings.Contains(content, "no such file or directory") || !strings.Contains(content, "outside the folder") {
+	if carded, content := cardFor("read-missing", "read_file", map[string]any{"path": missing}); carded || (!strings.Contains(strings.ToLower(content), "cannot find") && !strings.Contains(strings.ToLower(content), "no such file")) || strings.Contains(content, "outside the folder") {
 		t.Fatalf("a missing outside read: card=%t content=%q", carded, content)
 	}
 	for _, tape := range []string{

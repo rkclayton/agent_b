@@ -17,7 +17,7 @@ import (
 	"harness/internal/session"
 )
 
-func TestCallServiceAllowlistMethodPathAndHeaderEnforcement(t *testing.T) {
+func TestCallServiceRegisteredMethodPathAndHeaderEnforcement(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/redirect" {
 			http.Redirect(w, r, "/outside", http.StatusFound)
@@ -36,13 +36,12 @@ func TestCallServiceAllowlistMethodPathAndHeaderEnforcement(t *testing.T) {
 	}{
 		{"unknown", map[string]any{"service": "missing", "method": "GET", "path": "ok"}, "unknown service"},
 		{"method", map[string]any{"service": "known", "method": "DELETE", "path": "ok"}, "not allowed"},
-		{"absolute_url", map[string]any{"service": "known", "method": "GET", "path": "https://example.com/steal"}, "relative"},
+		{"foreign_absolute_url", map[string]any{"service": "known", "method": "GET", "path": "https://example.com/steal"}, "credential host mismatch"},
 		{"absolute_path", map[string]any{"service": "known", "method": "GET", "path": "/outside"}, "relative"},
 		{"dot_escape", map[string]any{"service": "known", "method": "GET", "path": "../outside"}, "escape"},
 		{"encoded_escape", map[string]any{"service": "known", "method": "GET", "path": "..%2Foutside"}, "escape"},
 		{"header", map[string]any{"service": "known", "method": "GET", "path": "ok", "headers": map[string]any{"X-Admin": "yes"}}, "not allowed"},
 		{"authorization", map[string]any{"service": "known", "method": "GET", "path": "ok", "headers": map[string]any{"Authorization": "Bearer caller-secret"}}, "always configured"},
-		{"redirect_escape", map[string]any{"service": "known", "method": "GET", "path": "redirect"}, "configured base_url"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -51,6 +50,42 @@ func TestCallServiceAllowlistMethodPathAndHeaderEnforcement(t *testing.T) {
 				t.Fatalf("error=%v, want %q", err, test.want)
 			}
 		})
+	}
+	if detail := tool.CallDetailed(context.Background(), item, map[string]any{"service": "known", "method": "GET", "path": "redirect"}); detail.Err != nil {
+		t.Fatalf("same-host redirect outside the configured base path: %+v", detail)
+	}
+}
+
+func TestCallServiceDirectURLHasNoCredentialAndRegisteredCredentialStaysOnItsHost(t *testing.T) {
+	t.Setenv("AGENTB_TEST_SERVICE_TOKEN", "registered-secret")
+	var directAuthorization, registeredAuthorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/direct":
+			directAuthorization = r.Header.Get("Authorization")
+		case "/registered":
+			registeredAuthorization = r.Header.Get("Authorization")
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	service := testService(server.URL+"/api", "static_bearer:AGENTB_TEST_SERVICE_TOKEN")
+	tool := NewCallService(map[string]config.Service{"registered": service})
+
+	direct := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"service": server.URL + "/direct", "method": "PATCH"})
+	if direct.Err != nil || directAuthorization != "" || direct.OperatorContext {
+		t.Fatalf("direct=%+v authorization=%q", direct, directAuthorization)
+	}
+	matching := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"service": "registered", "method": "GET", "path": server.URL + "/registered"})
+	if matching.Err != nil || registeredAuthorization != "Bearer registered-secret" {
+		t.Fatalf("matching=%+v authorization=%q", matching, registeredAuthorization)
+	}
+	foreign := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"service": "registered", "method": "GET", "path": "http://foreign.invalid/never"})
+	if foreign.Err == nil || foreign.Err.Error() != `service "registered" credential host mismatch: registered host "`+strings.TrimPrefix(server.URL, "http://")+`", requested host "foreign.invalid"` {
+		t.Fatalf("foreign=%+v", foreign)
 	}
 }
 
@@ -314,7 +349,7 @@ func TestCallServiceToolsBlockByteDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const wantDelta = 1182
+	const wantDelta = 1134
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("call_service tools-block byte delta=%d, want %d", delta, wantDelta)
 	}

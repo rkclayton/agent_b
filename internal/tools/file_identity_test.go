@@ -58,7 +58,7 @@ func enabledFileIdentity(t *testing.T, credential *fileIdentityTestCredential) *
 	return identity
 }
 
-func TestFileIdentityKeepsBoundDirectoryJailUnderServiceIdentity(t *testing.T) {
+func TestFileIdentityUsesOSReachUnderServiceIdentity(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	external := filepath.Join(root, "external")
@@ -75,7 +75,7 @@ func TestFileIdentityKeepsBoundDirectoryJailUnderServiceIdentity(t *testing.T) {
 	identity := enabledFileIdentity(t, credential)
 	tool := identity.Wrap(NewListDir(config.Defaults(workspace).Tools.ListDir))
 	result, err := tool.Call(context.Background(), &session.Session{Workspace: workspace, LastSeen: map[string]time.Time{}}, map[string]any{"path": external})
-	if err != nil || !strings.Contains(result, "bound-directory jail") {
+	if err != nil || !strings.Contains(result, "visible.txt") {
 		t.Fatalf("result=%q err=%v", result, err)
 	}
 	if strings.Trim(string(credential.password), "\x00") != "" {
@@ -83,10 +83,7 @@ func TestFileIdentityKeepsBoundDirectoryJailUnderServiceIdentity(t *testing.T) {
 	}
 }
 
-// Item 2fi: with no service identity the boundary still holds — nothing is
-// listed — and the refusal offers the operator's decision, as the service
-// posture does.
-func TestFileIdentityDisabledKeepsWorkspaceBoundaryWithoutIdentityCardForReadablePath(t *testing.T) {
+func TestFileIdentityDisabledUsesOperatorOSReachWithoutIdentityCard(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	external := filepath.Join(root, "external")
@@ -99,9 +96,9 @@ func TestFileIdentityDisabledKeepsWorkspaceBoundaryWithoutIdentityCardForReadabl
 	identity := NewFileIdentity(nil)
 	identity.Configure(config.Defaults(workspace))
 	detail := identity.Wrap(NewListDir(config.Defaults(workspace).Tools.ListDir)).(DetailedTool).CallDetailed(
-		context.Background(), &session.Session{Workspace: workspace}, map[string]any{"path": external},
+		context.Background(), &session.Session{Workspace: workspace, LastSeen: map[string]time.Time{}}, map[string]any{"path": external},
 	)
-	if detail.Err == nil || detail.OperatorOverrideReason != "" || !strings.Contains(detail.Err.Error(), "outside the folder") {
+	if detail.Err != nil || detail.OperatorOverrideReason != "" {
 		t.Fatalf("detail=%+v", detail)
 	}
 }
@@ -144,7 +141,7 @@ func TestFileIdentityPermissionDenialOffersOperatorOverride(t *testing.T) {
 	}
 }
 
-func TestFileToolJailDescriptionOnlyWhenServiceSplitEnabled(t *testing.T) {
+func TestFileToolIdentityDescriptionOnlyWhenServiceSplitEnabled(t *testing.T) {
 	workspace := t.TempDir()
 	identity := NewFileIdentity(nil)
 	cfg := config.Defaults(workspace)
@@ -161,7 +158,7 @@ func TestFileToolJailDescriptionOnlyWhenServiceSplitEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(off), "Try once. If it's outside your folder") {
+	if strings.Contains(string(off), "It runs under the service identity") {
 		t.Fatalf("disabled split changed description: %s", off)
 	}
 	cfg.Shell.ServiceAccount.Enabled = true
@@ -170,7 +167,7 @@ func TestFileToolJailDescriptionOnlyWhenServiceSplitEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "Try once. If it's outside your folder the operator will be asked; don't retry other paths."
+	want := "It runs under the service identity; if that identity is denied, the operator may allow one retry as them."
 	if strings.Count(string(on), want) != len(names) || string(on) == string(off) {
 		t.Fatalf("enabled split schema=%s", on)
 	}
@@ -220,11 +217,7 @@ func TestBadServiceIdentityPreflightFallsBackToProcessIdentity(t *testing.T) {
 	}
 }
 
-// Item 2fy: a path outside the folder that does not exist is a plain tool
-// error naming the boundary — no card — in both postures; one that exists
-// raises the card as before; a write to a nonexistent outside path is refused
-// without a card.
-func TestAMissingOutsidePathIsAToolErrorNotACard(t *testing.T) {
+func TestOutsidePathsFollowTheRunningIdentity(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	external := filepath.Join(root, "external")
@@ -233,11 +226,6 @@ func TestAMissingOutsidePathIsAToolErrorNotACard(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	existing := filepath.Join(external, "exists.txt")
-	if err := os.WriteFile(existing, []byte("real"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	missing := filepath.Join(external, "invented", "missing.txt")
 	cfg := config.Defaults(workspace)
 	disabled := NewFileIdentity(nil)
 	disabled.Configure(cfg)
@@ -246,26 +234,32 @@ func TestAMissingOutsidePathIsAToolErrorNotACard(t *testing.T) {
 		name     string
 		identity *FileIdentity
 	}{{"no service account", disabled}, {"service account", enabled}} {
+		suffix := strings.ReplaceAll(posture.name, " ", "-")
+		existing := filepath.Join(external, suffix+"-exists.txt")
+		missing := filepath.Join(external, suffix+"-invented", "missing.txt")
+		if err := os.WriteFile(existing, []byte("real"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		call := func(tool Tool, args map[string]any) CallDetail {
 			return posture.identity.Wrap(tool).(DetailedTool).CallDetailed(context.Background(), &session.Session{Workspace: workspace, LastSeen: map[string]time.Time{}}, args)
 		}
 		read := call(NewReadFile(cfg.Tools.ReadFile), map[string]any{"path": missing})
-		if read.OperatorOverrideReason != "" || read.Err == nil || !strings.Contains(read.Err.Error(), "no such file or directory") || !strings.Contains(read.Err.Error(), "outside the folder") {
+		if read.OperatorOverrideReason != "" || read.Err == nil || !errors.Is(read.Err, os.ErrNotExist) {
 			t.Fatalf("%s: a missing outside read = %+v", posture.name, read)
 		}
-		if detail := call(NewReadFile(cfg.Tools.ReadFile), map[string]any{"path": existing}); (posture.name == "service account") != (detail.OperatorOverrideReason != "") {
+		if detail := call(NewReadFile(cfg.Tools.ReadFile), map[string]any{"path": existing}); detail.Err != nil || detail.OperatorOverrideReason != "" || !strings.Contains(detail.Content, "real") {
 			t.Fatalf("%s: existing outside read identity decision: %+v", posture.name, detail)
 		}
 		coordinator := NewFileCoordinator(session.NewWorkspaceRegistry(), func(string) string { return "test" }, nil)
 		write := call(NewWriteFile(coordinator), map[string]any{"path": missing, "content": "x"})
-		if write.OperatorOverrideReason != "" || write.Err == nil || !strings.Contains(write.Err.Error(), "a write outside the folder is refused") {
+		if write.OperatorOverrideReason != "" || write.Err != nil {
 			t.Fatalf("%s: a write to a missing outside path = %+v", posture.name, write)
 		}
-		if _, err := os.Stat(missing); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("%s: the refused write created the file", posture.name)
+		if data, err := os.ReadFile(missing); err != nil || string(data) != "x" {
+			t.Fatalf("%s: outside write=%q err=%v", posture.name, data, err)
 		}
-		if detail := call(NewWriteFile(coordinator), map[string]any{"path": existing, "content": "x"}); detail.OperatorOverrideReason == "" {
-			t.Fatalf("%s: a write to an existing outside file raised no card: %+v", posture.name, detail)
+		if detail := call(NewWriteFile(coordinator), map[string]any{"path": existing, "content": "x"}); detail.Err != nil || detail.OperatorOverrideReason != "" {
+			t.Fatalf("%s: a write to an existing outside file = %+v", posture.name, detail)
 		}
 	}
 }

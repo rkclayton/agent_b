@@ -15,7 +15,7 @@ import (
 	"harness/internal/session"
 )
 
-func TestFileToolsUseScratchPlusEveryPlanRepoAndKeepPlanFilesBound(t *testing.T) {
+func TestFileToolsReachAbsolutePathsAndKeepPlanFilesBound(t *testing.T) {
 	root := t.TempDir()
 	scratch := filepath.Join(root, "scratch")
 	plans := filepath.Join(root, "plans")
@@ -53,8 +53,12 @@ func TestFileToolsUseScratchPlusEveryPlanRepoAndKeepPlanFilesBound(t *testing.T)
 			t.Fatalf("b write plan repo %q: %v", target, err)
 		}
 	}
-	if _, err := writer.Call(context.Background(), b, map[string]any{"path": filepath.Join(outside, "no.txt"), "content": "no\n"}); err == nil || !strings.Contains(err.Error(), "path is outside the folder") {
-		t.Fatalf("outside-union write err=%v", err)
+	outsideFile := filepath.Join(outside, "yes.txt")
+	if _, err := writer.Call(context.Background(), b, map[string]any{"path": outsideFile, "content": "yes\n"}); err != nil {
+		t.Fatalf("absolute write outside registered repos: %v", err)
+	}
+	if data, err := os.ReadFile(outsideFile); err != nil || string(data) != "yes\n" {
+		t.Fatalf("outside file=%q err=%v", data, err)
 	}
 	ownFile := filepath.Join(own, "plan.md")
 	if _, err := writer.Call(context.Background(), d, map[string]any{"path": ownFile, "content": "# Mine\n"}); err != nil {
@@ -88,7 +92,7 @@ func TestWritingRootAgentFileTriggersPlanDetection(t *testing.T) {
 	}
 }
 
-func TestDUnionRootsRejectSymlinkEscapes(t *testing.T) {
+func TestDReadsAbsoluteTargetsButPlanWritesStayBound(t *testing.T) {
 	root := t.TempDir()
 	plans := filepath.Join(root, "plans")
 	own := filepath.Join(plans, "own")
@@ -109,11 +113,9 @@ func TestDUnionRootsRejectSymlinkEscapes(t *testing.T) {
 	}
 	item := &session.Session{ID: "d", Role: "d", Workspace: repo, PlansRoot: plans, PlanDir: own, PlanRepo: repo, PlanRepos: func() []string { return []string{repo} }, LastSeen: map[string]time.Time{}, ToolsEnabled: map[string]bool{"read_file": true}}
 	reader := NewReadFile(config.ReadFileTool{DefaultLimit: 4096, MaxLimit: 8192})
-	for _, ctx := range []context.Context{context.Background(), withOSPathPolicy(context.Background())} {
-		for _, target := range []string{filepath.Join(repo, "escape", "secret.txt"), filepath.Join(own, "escape", "secret.txt")} {
-			if result, err := reader.Call(ctx, item, map[string]any{"path": target}); err == nil || result != "" {
-				t.Fatalf("symlink escape %q result=%q err=%v", target, result, err)
-			}
+	for _, target := range []string{filepath.Join(repo, "escape", "secret.txt"), filepath.Join(own, "escape", "secret.txt")} {
+		if result, err := reader.Call(context.Background(), item, map[string]any{"path": target}); err != nil || !strings.Contains(result, "outside") {
+			t.Fatalf("absolute read through link %q result=%q err=%v", target, result, err)
 		}
 	}
 }

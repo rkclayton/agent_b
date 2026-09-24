@@ -55,23 +55,23 @@ func NewCallService(services map[string]config.Service) *CallService {
 func (*CallService) Name() string { return "call_service" }
 
 func (*CallService) Description() string {
-	return "Call one configured internal service with its configured identity. Use only a relative path and an allowed method/header. Responses use UTF-8 byte windows; when cursor.more is true, repeat the same request with cursor.next_offset as offset. Never supply Authorization."
+	return "Call a registered service name or an absolute URL; unregistered URLs carry no credential, and a registered credential is sent only to its registered host."
 }
 
 func (*CallService) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"service": map[string]any{"type": "string", "description": "Configured service name"},
+			"service": map[string]any{"type": "string", "description": "Registered service name or absolute HTTP(S) URL"},
 			"method":  map[string]any{"type": "string", "description": "HTTP method allowed by the service"},
-			"path":    map[string]any{"type": "string", "description": "Relative path within the configured base_url"},
+			"path":    map[string]any{"type": "string", "description": "Relative path for a registered service, or an absolute URL whose host must match that service"},
 			"query":   map[string]any{"type": "object", "description": "Query parameters", "additionalProperties": true},
 			"body":    map[string]any{"description": "JSON request body"},
 			"headers": map[string]any{"type": "object", "description": "Optional Accept, Content-Type, If-Match, If-None-Match, or Idempotency-Key values", "additionalProperties": map[string]any{"type": "string"}},
 			"offset":  map[string]any{"type": "integer", "description": "One-based response-body byte offset for a repeated request", "default": 1},
 			"limit":   map[string]any{"type": "integer", "description": "Maximum response-body bytes, capped by the configured service maximum"},
 		},
-		"required": []string{"service", "method", "path"},
+		"required": []string{"service", "method"},
 	}
 }
 
@@ -116,25 +116,57 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 		return detail
 	}
 	method = strings.ToUpper(method)
-	requestedPath, ok := args["path"].(string)
-	if !ok {
-		detail.Err = fmt.Errorf("path is required")
-		return detail
-	}
+	requestedPath, _ := args["path"].(string)
+	requestedPath = strings.TrimSpace(requestedPath)
 
-	service, found := c.service(serviceName)
-	if !found {
-		detail.Err = fmt.Errorf("unknown service %q", serviceName)
-		return detail
-	}
-	if !methodAllowed(method, service.AllowedMethods) {
-		detail.Err = fmt.Errorf("method %s is not allowed for service %q", method, serviceName)
-		return detail
-	}
-	target, err := resolveServiceTarget(service.BaseURL, requestedPath)
-	if err != nil {
-		detail.Err = err
-		return detail
+	service, registered := c.service(serviceName)
+	var target *url.URL
+	credentialHost := ""
+	if registered {
+		if !methodAllowed(method, service.AllowedMethods) {
+			detail.Err = fmt.Errorf("method %s is not allowed for service %q", method, serviceName)
+			return detail
+		}
+		if requestedPath == "" {
+			detail.Err = fmt.Errorf("path is required for registered service %q", serviceName)
+			return detail
+		}
+		base, baseErr := parseServiceURL(service.BaseURL)
+		if baseErr != nil {
+			detail.Err = fmt.Errorf("configured service base_url is invalid")
+			return detail
+		}
+		credentialHost = base.Host
+		requestedURL, absolute, parseErr := parseOptionalAbsoluteServiceURL(requestedPath)
+		if parseErr != nil {
+			detail.Err = parseErr
+			return detail
+		}
+		if absolute {
+			if !strings.EqualFold(requestedURL.Host, credentialHost) {
+				detail.Err = credentialHostMismatch(serviceName, credentialHost, requestedURL.Host)
+				return detail
+			}
+			target = requestedURL
+		} else {
+			target, detail.Err = resolveServiceTarget(service.BaseURL, requestedPath)
+			if detail.Err != nil {
+				return detail
+			}
+		}
+	} else {
+		var parseErr error
+		target, parseErr = parseServiceURL(serviceName)
+		if parseErr != nil {
+			detail.Err = fmt.Errorf("unknown service %q; use a registered name or an absolute HTTP(S) URL", serviceName)
+			return detail
+		}
+		if requestedPath != "" {
+			detail.Err = fmt.Errorf("path must be omitted when service is an absolute URL")
+			return detail
+		}
+		service = config.Service{BaseURL: serviceName, Auth: "none", TimeoutS: 60, MaxBodyKB: 64}
+		requestedPath = serviceName
 	}
 	if err := addServiceQuery(target, args["query"]); err != nil {
 		detail.Err = err
@@ -170,10 +202,14 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 		}
 	}
 
-	authorization, token, operatorContext, err := c.authorization(ctx, serviceName, service)
-	if err != nil {
-		detail.Err = err
-		return detail
+	authorization, token, operatorContext := "", "", false
+	if registered {
+		var err error
+		authorization, token, operatorContext, err = c.authorization(ctx, serviceName, service)
+		if err != nil {
+			detail.Err = err
+			return detail
+		}
 	}
 	detail.OperatorContext = operatorContext
 	request, err := http.NewRequestWithContext(ctx, method, target.String(), body)
@@ -187,7 +223,7 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 	}
 
 	started := c.now()
-	client := serviceHTTPClient(service)
+	client := serviceHTTPClient(service, credentialHost)
 	response, err := client.Do(request)
 	duration := c.now().Sub(started).Milliseconds()
 	if err != nil {
@@ -370,7 +406,7 @@ func splitServiceArgv(value string) ([]string, error) {
 }
 
 func resolveServiceTarget(baseURL, requested string) (*url.URL, error) {
-	base, err := url.Parse(strings.TrimSpace(baseURL))
+	base, err := parseServiceURL(baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("configured service base_url is invalid")
 	}
@@ -399,6 +435,30 @@ func resolveServiceTarget(baseURL, requested string) (*url.URL, error) {
 		return nil, err
 	}
 	return target, nil
+}
+
+func parseServiceURL(raw string) (*url.URL, error) {
+	value, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || value == nil || !value.IsAbs() || value.Host == "" || (value.Scheme != "http" && value.Scheme != "https") || value.User != nil {
+		return nil, fmt.Errorf("absolute HTTP(S) URL without embedded credentials is required")
+	}
+	return value, nil
+}
+
+func parseOptionalAbsoluteServiceURL(raw string) (*url.URL, bool, error) {
+	value, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return nil, false, fmt.Errorf("path is invalid")
+	}
+	if !value.IsAbs() {
+		return nil, false, nil
+	}
+	value, err = parseServiceURL(raw)
+	return value, true, err
+}
+
+func credentialHostMismatch(serviceName, registeredHost, requestedHost string) error {
+	return fmt.Errorf("service %q credential host mismatch: registered host %q, requested host %q", serviceName, registeredHost, requestedHost)
 }
 
 func validateResolvedServiceTarget(base, target *url.URL) error {
@@ -480,19 +540,21 @@ func parseServiceHeaders(raw any) (http.Header, error) {
 	return headers, nil
 }
 
-func serviceHTTPClient(service config.Service) *http.Client {
-	base, _ := url.Parse(service.BaseURL)
+func serviceHTTPClient(service config.Service, credentialHost string) *http.Client {
 	transport := &http.Transport{Proxy: nil, DisableKeepAlives: true}
-	return &http.Client{
+	client := &http.Client{
 		Transport: transport,
 		Timeout:   time.Duration(service.TimeoutS) * time.Second,
-		CheckRedirect: func(request *http.Request, via []*http.Request) error {
-			root := *base
-			root.Path = strings.TrimSuffix(root.Path, "/") + "/"
-			root.RawPath = ""
-			return validateResolvedServiceTarget(&root, request.URL)
-		},
 	}
+	if credentialHost != "" {
+		client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+			if !strings.EqualFold(request.URL.Host, credentialHost) {
+				return credentialHostMismatch("redirect", credentialHost, request.URL.Host)
+			}
+			return nil
+		}
+	}
+	return client
 }
 
 func readServiceWindow(body io.Reader, offset, limit int) (byteWindow, error) {

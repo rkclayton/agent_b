@@ -47,10 +47,10 @@ func TestGlob(t *testing.T) {
 		}
 	})
 
-	t.Run("boundary_escape", func(t *testing.T) {
+	t.Run("relative_parent_uses_OS_reach", func(t *testing.T) {
 		root := t.TempDir()
 		_, err := NewGlob(config.Defaults(root).Tools.FindFiles).Call(context.Background(), &session.Session{Workspace: root}, map[string]any{"pattern": "*", "path": ".."})
-		if err == nil || !strings.Contains(err.Error(), "outside the folder") {
+		if err != nil {
 			t.Fatalf("error %v", err)
 		}
 	})

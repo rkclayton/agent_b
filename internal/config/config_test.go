@@ -300,11 +300,8 @@ func TestServicesAdditiveCurrentSchemaDefaultsEmpty(t *testing.T) {
 	}
 }
 
-func TestChatAutoRenameDefaultsOnButPersistsOff(t *testing.T) {
+func TestChatAutoRenameIsDroppedSilentlyDuringMigration(t *testing.T) {
 	cfg := Defaults(t.TempDir())
-	if !cfg.Chat.AutoRename {
-		t.Fatal("default auto rename is off")
-	}
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -313,23 +310,23 @@ func TestChatAutoRenameDefaultsOnButPersistsOff(t *testing.T) {
 	if err := json.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
 	}
-	delete(document, "chat")
+	document["config_version"] = float64(9)
+	document["chat"] = map[string]any{"auto_rename": false}
 	data, _ = json.Marshal(document)
-	var absent Config
-	if err := json.Unmarshal(data, &absent); err != nil {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ApplyDefaults(&absent)
-	if !absent.Chat.AutoRename {
-		t.Fatal("absent chat config did not default on")
+	loaded, migrated, _, err := Load(path)
+	if err != nil || !migrated || len(loaded.LoadNotices) != 0 {
+		t.Fatalf("loaded=%+v migrated=%t err=%v", loaded, migrated, err)
 	}
-	data, _ = json.Marshal(map[string]any{"auto_rename": false})
-	var disabled Chat
-	if err := json.Unmarshal(data, &disabled); err != nil {
+	persisted, err := os.ReadFile(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if disabled.AutoRename {
-		t.Fatal("explicit off was not preserved")
+	if bytes.Contains(persisted, []byte("auto_rename")) {
+		t.Fatalf("retired auto_rename key survived migration: %s", persisted)
 	}
 }
 

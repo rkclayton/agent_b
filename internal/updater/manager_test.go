@@ -40,7 +40,11 @@ func TestCheckDownloadVerifyAndLaunch(t *testing.T) {
 	}))
 	defer server.Close()
 	var launched, reopened string
-	manager := New(Options{CurrentVersion: "v1.4.0", DataRoot: t.TempDir(), LatestURL: server.URL + "/latest", Client: server.Client(), Launch: func(path, sessionID string) error { launched, reopened = path, sessionID; return nil }})
+	expired := time.Now().Add(-24 * time.Hour)
+	stampedWhileValid := expired.Add(-24 * time.Hour)
+	manager := New(Options{CurrentVersion: "v1.4.0", DataRoot: t.TempDir(), LatestURL: server.URL + "/latest", Client: server.Client(), VerifySignature: func(context.Context, string) error {
+		return acceptAuthenticode(authenticodeEvidence{Status: "Valid", Signer: true, Timestamped: true, SignerNotAfter: expired, TimestampTime: stampedWhileValid})
+	}, Launch: func(path, sessionID string) error { launched, reopened = path, sessionID; return nil }})
 	if err := manager.Check(context.Background()); err != nil {
 		t.Fatal(err)
 	}

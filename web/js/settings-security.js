@@ -1,6 +1,6 @@
-let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
+let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
 function useSettingsContext(context) {
-  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, signingStatus, signingBusy, signingMessage, signingAlarm, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
+  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
 }
 
 function shell(active) {
@@ -57,11 +57,6 @@ function shell(active) {
 	const protectionFeedback = applyBlocker
 		? `Apply unavailable: ${applyBlocker}${hardeningMessage ? ` Last result: ${hardeningMessage}` : ""}`
 		: hardeningMessage;
-	const signedFiles = signingStatus.files || [];
-	const signaturesValid = signedFiles.length > 0 && signedFiles.every((file) => file.status === "Valid" && file.thumbprint === signingStatus.thumbprint && file.timestamped);
-	const certificateDone = signingStatus.configured && signingStatus.has_private_key && signingStatus.code_signing_eku;
-	const verifyDone = certificateDone && signingStatus.chain_valid && signaturesValid;
-	const signingAllowed = signingStatus.can_manage && !signingBusy;
 	const operatorView = operatorStatusView(store.shell_identity);
 	const lanEnabled = !!store.config.shell?.allow_local_network;
 	const sandboxEnabled = store.config.sandbox?.enabled !== false;
@@ -94,20 +89,6 @@ function shell(active) {
 	  <div class="settings-actions"><button type="button" data-action="setup-service-account" ${setupDisabled ? "disabled" : ""}>${setupLabel}</button></div>
 	  ${feedback(serviceAccountMessage || hardeningMessage, serviceAccountAlarm || hardeningAlarm, "Windows approval has not been requested.")}
 	</details>
-	${subhead("Code signing", "Gives this installation a stable publisher identity and trusted local chain. It does not create Defender cloud reputation.")}
-	${row("certificate", `<span class="account-status"><span class="lamp ${certificateDone ? "live" : ""}"></span>${html(certificateDone ? `${signingStatus.subject} · ${signingStatus.thumbprint}` : "not done")}</span>`, "", "The code-signing certificate Agent_b's files are signed with.")}
-	${row("account", `<span class="account-status"><span class="lamp ${signingStatus.admin_state === "elevated" ? "live" : signingStatus.admin_state === "not_admin" ? "alarm" : ""}"></span>${html(adminStateText(signingStatus.admin_state))}</span>`, "", "Whether this Windows account can manage signing, and whether it needs an elevated run first.")}
-	${row("artifacts", `<span class="account-status"><span class="lamp ${verifyDone ? "live" : signingStatus.loaded ? "alarm" : ""}"></span>${html(verifyDone ? "done · signed, timestamped, chain valid" : "not done")}</span>`, "", "Whether the installed files carry a valid, timestamped signature.")}
-	${signingStatus.can_manage ? `<div class="settings-actions vertical">
-	  <button type="button" data-action="create-signing" title="Create a protected certificate here, or import or select one you already own." ${signingAllowed ? "" : "disabled"}>Create certificate</button>
-	  ${row("PFX", '<input id="signing-pfx" type="file" accept=".pfx,application/x-pkcs12">', "", "A certificate file with its private key, to import for signing.")}
-	  ${row("password", '<input id="signing-password" type="password" autocomplete="off">', "", "The PFX file's password.")}
-	  ${row("stored certificate", `<select id="signing-thumbprint"><option value="">Select code-signing certificate</option>${(signingStatus.certificates || []).filter((certificate) => certificate.has_private_key).map((certificate) => `<option value="${attr(certificate.thumbprint)}" ${certificate.thumbprint === store.config.signing?.thumbprint ? "selected" : ""}>${html(certificate.subject)} · ${html(certificate.thumbprint)}</option>`).join("")}</select>`, "", "A code-signing certificate already in the Windows store, to sign with.")}
-	  <div class="settings-actions"><button type="button" data-action="import-signing" ${signingAllowed ? "" : "disabled"}>Import certificate</button><button type="button" data-action="export-signing" ${certificateDone && signingAllowed ? "" : "disabled"}>Export .cer</button></div>
-	  <button type="button" data-action="sign-application" title="Sign Agent_b.exe and the PowerShell scripts, then restart Agent_b." ${certificateDone && signingAllowed ? "" : "disabled"}>Sign application</button>
-	  <button type="button" data-action="verify-signing" title="Verify signer, thumbprint, timestamp and certificate chain." ${signingBusy ? "disabled" : ""}>Verify signatures</button>
-	</div>` : `<div class="settings-actions vertical"><button type="button" data-action="verify-signing" title="Standard users can verify signatures but cannot create, import, select, export or sign." ${signingBusy ? "disabled" : ""}>Verify signatures</button></div>`}
-	${feedback(signingMessage, signingAlarm, "Self-created keys are non-exportable and usable only by the elevated signing helper; imported keys keep their existing protection.")}
     `;
 }
 
@@ -136,14 +117,6 @@ function sessionControls(active) {
 }
 
 
-// Item 2gj: three token states, three readouts. An unelevated administrator
-// is told what to do, never refused; only a non-administrator is refused.
-function adminStateText(state) {
-	if (state === "elevated") return "administrator · elevated";
-	if (state === "not_elevated") return "administrator · signing needs an elevated run";
-	if (state === "not_admin") return "standard account · signing cannot be managed here";
-	return "administrator status unknown until elevated";
-}
 export function renderSecurityPage(page, active, context) {
   useSettingsContext(context);
   return page === "session" ? sessionControls(active) : shell(active);

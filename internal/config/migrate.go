@@ -302,6 +302,20 @@ func migrateOperatorIdleTimeout(data []byte, version int) (bool, bool, []byte, e
 		}
 		raw["shell"], _ = json.Marshal(shell)
 	}
+	if version < 10 {
+		if chatValue := raw["chat"]; chatValue != nil {
+			var chat map[string]json.RawMessage
+			if err := json.Unmarshal(chatValue, &chat); err != nil {
+				return false, false, nil, err
+			}
+			delete(chat, "auto_rename")
+			if len(chat) == 0 {
+				delete(raw, "chat")
+			} else {
+				raw["chat"], _ = json.Marshal(chat)
+			}
+		}
+	}
 	raw["config_version"], _ = json.Marshal(CurrentConfigVersion)
 	out, err := json.Marshal(raw)
 	return true, remapped, out, err

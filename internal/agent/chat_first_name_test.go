@@ -55,7 +55,7 @@ func TestFirstMessageNameIsBounded(t *testing.T) {
 	}
 }
 
-func TestModelNamesFirstChatOnceAndLeavesFailureMechanical(t *testing.T) {
+func TestModelNamesFirstChatOnceEvenPastTwentyTurns2jv(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
 		status        int
@@ -86,6 +86,10 @@ func TestModelNamesFirstChatOnceAndLeavesFailureMechanical(t *testing.T) {
 			item.Append(events.Message{Role: "user", Content: "please fix setup"})
 			item.Append(events.Message{Role: "assistant", Content: "I fixed setup."})
 			runner.nameAfterFirstRun(item, "r1")
+			for turn := 2; turn <= 21; turn++ {
+				item.Append(events.Message{Role: "user", Content: "follow up"})
+				item.Append(events.Message{Role: "assistant", Content: "answer"})
+			}
 			runner.nameAfterFirstRun(item, "r2")
 			if renamed != tc.want {
 				t.Fatalf("renamed=%q want=%q", renamed, tc.want)

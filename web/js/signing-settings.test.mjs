@@ -2,17 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const source = (await Promise.all([
-  "settings.js", "settings-connections.js", "settings-general.js", "settings-context.js", "settings-run.js",
-  "settings-delivery.js", "settings-about.js", "settings-workspace.js", "settings-security.js",
-].map((name) => readFile(new URL(`./${name}`, import.meta.url), "utf8")))).join("\n");
+const settings = await readFile(new URL("./settings.js", import.meta.url), "utf8");
+const security = await readFile(new URL("./settings-security.js", import.meta.url), "utf8");
+const about = await readFile(new URL("./settings-about.js", import.meta.url), "utf8");
 
-test("Security signing onboarding is gated and standard users see Verify only", () => {
-  assert.match(source, /Create certificate/);
-  assert.match(source, /Import certificate/);
-  assert.match(source, /Sign application/);
-  assert.match(source, /Verify signatures/);
-  assert.match(source, /signingStatus\.can_manage/);
-  assert.match(source, /Standard users can verify signatures but cannot create/);
-  assert.match(source, /stable publisher identity and trusted local chain/);
+test("Settings exposes signature status but no signing controls or API", () => {
+  const source = settings + security;
+  assert.doesNotMatch(source, /\/api\/signing|Create certificate|Import certificate|Sign application|Verify signatures|signing-pfx|signing-password/);
+  assert.match(about, /signatureWord/);
+  assert.match(about, /"signed" : "unsigned"/);
 });

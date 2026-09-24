@@ -483,7 +483,7 @@ const config = {
     sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
     reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false }, context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
     capabilities: { connection: "agentb-fake", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["acceptance fake"] } }],
-  services: {}, agents: [{ name: "Acceptance", b: "acceptance", toolset }], chat: { auto_rename: false },
+  services: {}, agents: [{ name: "Acceptance", b: "acceptance", toolset }],
 	updates: { auto_check: !realModel },
   run: { max_turns: 12, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 2, queue_depth: 0 }, approval: { mode: "boundary-only" },
   // The exchange folder is its own tree, as on an install (item 2fo: inside the

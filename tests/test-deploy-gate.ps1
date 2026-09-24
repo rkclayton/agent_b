@@ -7,6 +7,9 @@ $ErrorActionPreference = 'Stop'
 $deploy = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-release.ps1')
 $verify = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\verify-deploy-candidate.ps1')
 $sign = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\sign-release.ps1')
+if ($sign -notmatch 'NotAfter -le \[DateTime\]::Now\.AddDays\(30\)' -or $sign -notmatch 'SIGNING REFUSED:.+more than 30 days remaining') {
+    throw 'release signing no longer refuses a publisher key within 30 days of expiry'
+}
 $stage = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\stage-candidate.mjs')
 
 foreach ($required in @('stage-candidate.mjs', 'sign-release.ps1', 'verify-deploy-candidate.ps1', 'Agent_b-setup.exe', 'DEPLOY COMPLETE')) {

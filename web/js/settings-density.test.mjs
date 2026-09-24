@@ -4,7 +4,7 @@ import test from "node:test";
 
 const modules = [
   "settings.js", "settings-security.js", "settings-connections.js", "settings-run.js",
-  "settings-delivery.js", "settings-general.js", "settings-about.js", "settings-workspace.js",
+  "settings-general.js", "settings-about.js", "settings-workspace.js",
   "settings-context.js", "settings-notifications.js",
 ].map((name) => [name, readFileSync(new URL(`./${name}`, import.meta.url), "utf8")]);
 
@@ -69,14 +69,11 @@ test("every control that carried a paragraph still exists", () => {
     'data-action="operator-context"',
     'toggle("sandbox.enabled", "Docker Sandbox"',
     'data-action="local-network-toggle"',
-    'data-action="create-signing"',
-    'data-action="sign-application"',
-    'data-action="verify-signing"',
     'data-local-subnet',
   ]) {
     assert.ok(security.includes(control), `Security lost ${control}`);
   }
   assert.match(source["settings-run.js"], /approvalChoices\(cfg\.approval\?\.mode, "With the service identity enabled/);
   assert.match(source["settings-connections.js"], /probe_mode.{0,40}\["full", "minimal", "off"\], connection\.probe_mode, "minimal and off skip checks/);
-  assert.match(source["settings-delivery.js"], /deliver\.exchange_folder[\s\S]{0,120}The folder is created on first delivery/);
+  assert.doesNotMatch(source["settings.js"], /settings-delivery|renderDeliveryPage/);
 });

@@ -90,6 +90,10 @@ foreach ($file in $targets) { $before[$file] = (Get-FileHash -LiteralPath $file 
 
 $resolved = Get-ReleaseCertificate -Value $Thumbprint
 $certificate = $resolved.Certificate
+if ($certificate.NotAfter -le [DateTime]::Now.AddDays(30)) {
+    Write-Host "SIGNING REFUSED: certificate $($certificate.Thumbprint) expires $($certificate.NotAfter.ToString('yyyy-MM-dd')); publisher keys must have more than 30 days remaining."
+    exit 4
+}
 $null = Assert-SigningKeyNonInteractive -Certificate $certificate -Store $resolved.Store
 $usable = Test-PrivateKeyUsable -Certificate $certificate
 

@@ -56,7 +56,7 @@ function configFor({ appPort, modelPort, data, workspace, agents = [], connectio
       context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
       capabilities: { connection: "ui-harness", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: [] },
     }],
-    services: {}, agents: [{ name: "UI", b: "ui", toolset: TOOLSET }, ...[...new Set(agents)].filter((name) => name.toLowerCase() !== "ui").map((name) => ({ name, b: "ui", toolset: TOOLSET }))], chat: { auto_rename: false },
+    services: {}, agents: [{ name: "UI", b: "ui", toolset: TOOLSET }, ...[...new Set(agents)].filter((name) => name.toLowerCase() !== "ui").map((name) => ({ name, b: "ui", toolset: TOOLSET }))],
     run: { max_turns: 4, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 1, queue_depth: 0 },
     approval: { mode: "boundary-only" },
     deliver: { mode: "chips", exchange_folder: join(data, "exchange") },

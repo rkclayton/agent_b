@@ -377,7 +377,7 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 			return max(0, value-sentinelCost), nil
 		}
 		renderSystem := func(system string, tools []any) (int, error) {
-			return render([]llm.Message{{Role: "system", Content: system}}, tools)
+			return render([]llm.Message{{Role: llm.RoleSystem, Content: system}}, tools)
 		}
 		base, err := renderSystem(in.SystemBase, nil)
 		if err != nil {
@@ -459,7 +459,7 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 				}
 			}
 		}
-		prefix := []llm.Message{{Role: "system", Content: in.System}}
+		prefix := []llm.Message{{Role: llm.RoleSystem, Content: in.System}}
 		for index := 0; index < len(in.Messages); index++ {
 			message := in.Messages[index]
 			groupEnd := index

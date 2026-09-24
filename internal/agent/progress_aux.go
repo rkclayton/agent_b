@@ -27,7 +27,7 @@ func (r *Runner) maybeAuxProgress(ctx context.Context, item *session.Session, ru
 		return
 	}
 	response, err := llm.New(connection).Chat(ctx, llm.Request{Messages: []llm.Message{
-		{Role: "system", Content: "Classify whether this tool trajectory is making progress toward its stated goal. Reply with exactly productive, stuck, or mixed."},
+		{Role: llm.RoleSystem, Content: "Classify whether this tool trajectory is making progress toward its stated goal. Reply with exactly productive, stuck, or mixed."},
 		{Role: "user", Content: transcript},
 	}, MaxTokens: 8, Thinking: false})
 	data := map[string]any{"turn": turn, "available": err == nil}

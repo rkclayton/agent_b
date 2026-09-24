@@ -140,6 +140,12 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 	if role == "" {
 		role = "b"
 	}
+	connectionID := saved.ConnectionID
+	if connectionID == "" {
+		connectionID = agent.ConnectionFor(role)
+	}
+	connection, connectionFound := r.connections(connectionID)
+	connectionRunnable, connectionReason := restoredConnectionRunnable(connectionID, connectionFound, saved.Runnable, saved.NotRunnableReason)
 	planID, planDir, planRepo := "", "", ""
 	if (role == "d" || role == "c") && saved.PlanID != "" {
 		planID, err = normalizePlanID(saved.PlanID)
@@ -150,7 +156,7 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		planRepo = planRepoForRestore(planDir, saved.PlanRepo)
 	}
 	workspace := firstNonempty(saved.WorkspaceDir, saved.Workspace)
-	workspaceMissing, runnable, notRunnableReason := saved.WorkspaceMissing, saved.Runnable, saved.NotRunnableReason
+	workspaceMissing, runnable, notRunnableReason := saved.WorkspaceMissing, connectionRunnable, connectionReason
 	if saved.Scratch {
 		if r.scratchRoot != "" {
 			workspace = filepath.Join(r.scratchRoot, saved.ID)
@@ -159,24 +165,31 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 			workspaceMissing, runnable = true, false
 			notRunnableReason = fmt.Sprintf("scratch folder is unavailable: %s: %v", workspace, err)
 		} else {
-			workspaceMissing, runnable, notRunnableReason = false, true, ""
+			workspaceMissing = false
+			if connectionFound {
+				runnable, notRunnableReason = true, ""
+			}
 		}
 	} else if info, statErr := os.Stat(workspace); statErr != nil || !info.IsDir() {
 		workspaceMissing, runnable = true, false
 		notRunnableReason = fmt.Sprintf("folder is missing: %s", workspace)
 	} else if workspaceMissing {
-		workspaceMissing, runnable, notRunnableReason = false, true, ""
+		workspaceMissing, runnable, notRunnableReason = false, connectionRunnable, connectionReason
+	}
+	connectionLabel := saved.BConnection
+	if connectionFound {
+		connectionLabel = connection.Label
 	}
 	s := &Session{
-		ID: saved.ID, Label: saved.Label, AgentID: saved.AgentID, ConnectionID: saved.ConnectionID,
-		AgentName: saved.AgentName, BConnection: saved.BConnection, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: saved.NetworkBoundary,
+		ID: saved.ID, Label: saved.Label, AgentID: saved.AgentID, ConnectionID: connectionID,
+		AgentName: saved.AgentName, BConnection: connectionLabel, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: saved.NetworkBoundary,
 		Workspace: workspace, WorkspaceMissing: workspaceMissing, Scratch: saved.Scratch,
 		ProjectBlock: saved.ProjectContent, ProjectFiles: append([]string(nil), saved.ProjectFiles...), ProjectNotes: append([]string(nil), saved.ProjectNotes...),
 		PendingRepoPolicy: clonePolicyState(saved.PendingRepoPolicy), RepoPolicy: clonePolicyState(saved.RepoPolicy),
 		Run: run, ToolsEnabled: tools, ToolCalls: calls, LastSeen: map[string]time.Time{}, CreatedAt: createdAt,
 		Closed: saved.Closed, NamePinned: saved.NamePinned, Messages: append([]events.Message(nil), saved.Messages...), Budget: saved.Budget,
 		LogPath: logPath, Runnable: runnable, NotRunnableReason: notRunnableReason,
-		LoadFolderMemory: r.folderLoader(saved.ConnectionID), MemoryBlock: saved.MemoryContent, MemoryPath: saved.MemoryPath, AgentMemoryBlock: saved.AgentMemoryContent, AgentMemoryPath: saved.AgentMemoryPath,
+		LoadFolderMemory: r.folderLoader(connectionID), MemoryBlock: saved.MemoryContent, MemoryPath: saved.MemoryPath, AgentMemoryBlock: saved.AgentMemoryContent, AgentMemoryPath: saved.AgentMemoryPath,
 		SchemaTokens: schemaTokens, MarginalTokens: marginalTokens, queuedMessages: saved.QueuedMessages,
 		modelTurns: saved.ModelTurns, compactionCount: saved.CompactionCount, compactionTokenDelta: saved.CompactionTokenDelta,
 		compactionModelCalls: saved.CompactionModelCalls, compactionPrompt: saved.CompactionPrompt, compactionCompletion: saved.CompactionCompletion,
@@ -532,9 +545,12 @@ func (r *Registry) ConnectionInUse(connectionID string) (string, bool) {
 	return "", false
 }
 func (r *Registry) ConnectionRunnable(connectionID string) (bool, string) {
+	if connectionID == "" {
+		return false, "this chat has no connection"
+	}
 	connection, ok := r.connections(connectionID)
 	if !ok {
-		return false, "unknown connection " + connectionID
+		return false, "connection " + connectionID + " no longer exists"
 	}
 	return runnable(connection, r.config().Context.Accounting)
 }
@@ -999,14 +1015,19 @@ func initialBudget(connection *config.Connection) events.Budget {
 
 func (r *Registry) RefreshRunnable() {
 	for _, item := range r.List() {
-		connection, ok := r.connections(item.ConnectionID)
-		if !ok {
-			item.SetRunnable(false, "connection not found")
-			continue
-		}
-		ok, reason := runnable(connection, r.config().Context.Accounting)
+		ok, reason := r.ConnectionRunnable(item.ConnectionID)
 		item.SetRunnable(ok, reason)
 	}
+}
+
+func restoredConnectionRunnable(connectionID string, found, savedRunnable bool, savedReason string) (bool, string) {
+	if connectionID == "" {
+		return false, "this chat has no connection"
+	}
+	if !found {
+		return false, "connection " + connectionID + " no longer exists"
+	}
+	return savedRunnable, savedReason
 }
 
 // folderMemory loads a chat's folder memory layer. A scratch folder has no

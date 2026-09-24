@@ -43,6 +43,25 @@ func TestConcurrentPublishDoesNotSendOnOverflowClosedSubscriber(t *testing.T) {
 	}
 }
 
+func TestRunStoppedWriteFailurePublishesOutcomeNotSaved(t *testing.T) {
+	bus := NewBus()
+	stream, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	bus.SetSink(func(event Event) error {
+		if event.Type == RunStopped {
+			return fmt.Errorf("disk refused write")
+		}
+		return nil
+	})
+	bus.Publish(New(RunStopped, "s1", "r1", map[string]any{"reason": "done"}))
+	<-stream
+	failure := <-stream
+	data, ok := failure.Data.(map[string]any)
+	if !ok || failure.Type != Error || data["message"] != "outcome not saved: disk refused write" {
+		t.Fatalf("failure event=%+v", failure)
+	}
+}
+
 func TestConcurrentPublishAppendsInSequenceOrder(t *testing.T) {
 	bus := NewBus()
 	entered := make(chan struct{})

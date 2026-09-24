@@ -47,6 +47,7 @@ type Scheduler struct {
 	pending     map[string][]queuedRun
 	held        map[string]bool
 	unreachable map[string]bool
+	stoppedRuns map[string]bool
 	// Item 2fs: a run paused on a card holds no model slot. paused marks it;
 	// resuming lists answered runs waiting to take a slot back, served before
 	// the queue.
@@ -60,7 +61,7 @@ type Scheduler struct {
 func (s *Scheduler) ReserveIDs(floor int64) { reserveCounter(&s.ids, floor) }
 
 func NewScheduler(runner *Runner, registry *session.Registry, bus *events.Bus, cfg func() config.Config) *Scheduler {
-	s := &Scheduler{runner: runner, registry: registry, bus: bus, cfg: cfg, active: map[string]*activeRun{}, pending: map[string][]queuedRun{}, held: map[string]bool{}, unreachable: map[string]bool{}, paused: map[string]bool{}}
+	s := &Scheduler{runner: runner, registry: registry, bus: bus, cfg: cfg, active: map[string]*activeRun{}, pending: map[string][]queuedRun{}, held: map[string]bool{}, unreachable: map[string]bool{}, stoppedRuns: map[string]bool{}, paused: map[string]bool{}}
 	if runner != nil && runner.gate != nil {
 		runner.gate.setModelHooks(s.releaseForCard, s.reacquireAfterCard)
 	}
@@ -239,7 +240,7 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 		state.QueuePosition = len(s.pending[entry.s.ID])
 	}
 	entry.s.SetRun(state)
-	s.bus.Publish(events.New(events.RunStopped, entry.s.ID, entry.runID, events.WithHuman(events.RunStopped, map[string]any{"run_id": entry.runID, "reason": reason, "detail": detail, "turns": turns, "queue_held": queueHeld, "armed_detectors": state.ArmedDetectors})))
+	s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, detail, turns, queueHeld, state.ArmedDetectors)
 	s.notifyAgentIdleLocked(entry.s.Snapshot().AgentID)
 	s.drainLocked()
 	s.repositionLocked()
@@ -455,7 +456,7 @@ func (s *Scheduler) Stop(sessionID string, all bool) []string {
 			}
 			armed := append([]string(nil), entry.s.Snapshot().Run.ArmedDetectors...)
 			entry.s.SetRun(session.RunState{Status: status, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.pending[entry.s.ID]), LastStopReason: "done", LastStopDetail: "stopped before dispatch", LastRunID: entry.runID, ArmedDetectors: armed})
-			s.bus.Publish(events.New(events.RunStopped, entry.s.ID, entry.runID, events.WithHuman(events.RunStopped, map[string]any{"run_id": entry.runID, "reason": "done", "detail": "stopped before dispatch", "turns": 0, "queue_held": s.held[entry.s.ID], "armed_detectors": armed})))
+			s.publishRunStoppedLocked(entry.s.ID, entry.runID, "done", "stopped before dispatch", 0, s.held[entry.s.ID], armed)
 			stopped = append(stopped, entry.s.ID)
 		} else {
 			kept = append(kept, entry)
@@ -504,10 +505,42 @@ func (s *Scheduler) forceFinish(sessionID string, expected *activeRun, detail st
 		state.Status, state.QueuePosition = "held", len(s.pending[sessionID])
 	}
 	item.SetRun(state)
-	s.bus.Publish(events.New(events.RunStopped, sessionID, active.runID, events.WithHuman(events.RunStopped, map[string]any{"run_id": active.runID, "reason": active.stopReason, "detail": detail, "turns": turn, "queue_held": queueHeld, "armed_detectors": state.ArmedDetectors})))
+	s.publishRunStoppedLocked(sessionID, active.runID, active.stopReason, detail, turn, queueHeld, state.ArmedDetectors)
 	s.notifyAgentIdleLocked(item.Snapshot().AgentID)
 	s.drainLocked()
 	s.repositionLocked()
+}
+
+func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail string, turns int, queueHeld bool, armed []string) bool {
+	key := sessionID + "\x00" + runID
+	if s.stoppedRuns[key] {
+		return false
+	}
+	s.stoppedRuns[key] = true
+	data := map[string]any{"run_id": runID, "reason": reason, "terminal_reason": canonicalTerminalReason(reason), "detail": detail, "turns": turns, "queue_held": queueHeld, "armed_detectors": armed}
+	s.bus.Publish(events.New(events.RunStopped, sessionID, runID, events.WithHuman(events.RunStopped, data)))
+	return true
+}
+
+func canonicalTerminalReason(reason string) string {
+	switch reason {
+	case "done":
+		return "done"
+	case "reply_empty_reasoning_shown":
+		return "reply-empty-reasoning-shown"
+	case "announced_action_and_stopped":
+		return "announced-action-and-stopped"
+	case "aborted_mid_run", "aborted_mid_tool", "aborted_mid_model", "user_stop", "cancellation_requested":
+		return "cancelled-by-operator"
+	case "wall_clock", "turn_ceiling", "tool_budget", "context_exhausted", "context_ceiling":
+		return "limit"
+	case "model_error", "model_unreachable", "length":
+		return "model-error"
+	case "tool_errors":
+		return "tool-errors"
+	default:
+		return "harness-error"
+	}
 }
 
 // releaseForCard is called when a run pauses on a card: the run keeps its place

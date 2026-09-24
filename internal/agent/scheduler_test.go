@@ -104,6 +104,19 @@ func TestActiveRunMessagesQueueAtZeroDepthAndDispatchInOrderAfterRunEnd(t *testi
 	}
 }
 
+func TestCanonicalTerminalReasonsAreClosed(t *testing.T) {
+	want := map[string]string{
+		"done": "done", "reply_empty_reasoning_shown": "reply-empty-reasoning-shown",
+		"announced_action_and_stopped": "announced-action-and-stopped", "aborted_mid_model": "cancelled-by-operator",
+		"turn_ceiling": "limit", "model_error": "model-error", "tool_errors": "tool-errors", "cycle": "harness-error",
+	}
+	for input, expected := range want {
+		if got := canonicalTerminalReason(input); got != expected {
+			t.Errorf("canonicalTerminalReason(%q)=%q want %q", input, got, expected)
+		}
+	}
+}
+
 func TestStopHoldsQueuedMessagesUntilNextExplicitSubmit(t *testing.T) {
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

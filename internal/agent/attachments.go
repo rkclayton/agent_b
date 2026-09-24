@@ -99,7 +99,12 @@ func requestMessageAt(connection *config.Connection, s *session.Session, message
 	if len(parts) > 0 {
 		content = parts
 	}
-	converted := llm.Message{Role: message.Role, Content: content, ToolCallID: message.ToolCallID, Name: message.Name}
+	role := message.Role
+	if role == llm.RoleHarness {
+		role = llm.RoleAssistant
+		content = "[harness note]\n" + fmt.Sprint(content)
+	}
+	converted := llm.Message{Role: role, Content: content, ToolCallID: message.ToolCallID, Name: message.Name}
 	for _, call := range message.ToolCalls {
 		converted.ToolCalls = append(converted.ToolCalls, llm.ToolCall{ID: call.ID, Type: "function", Function: llm.FunctionCall{Name: call.Name, Arguments: call.Arguments}})
 	}

@@ -109,7 +109,7 @@ func TestConfigUpdatePersistsAgentsInActiveProfile(t *testing.T) {
 	}
 	request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(string(body)))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-AgentB-Mutation-Token", server.mutationToken)
+	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -130,7 +130,7 @@ func profileCall(t *testing.T, server *Server, body string) *httptest.ResponseRe
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, "/api/profiles", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-AgentB-Mutation-Token", server.mutationToken)
+	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code == http.StatusOK {

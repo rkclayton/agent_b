@@ -2,8 +2,10 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -16,6 +18,7 @@ import (
 
 func authorizeMutation(request *http.Request, server *Server) {
 	request.Header.Set("X-AgentB-Mutation-Token", server.mutationToken)
+	request.AddCookie(&http.Cookie{Name: browserSessionCookie, Value: server.browserSession})
 }
 
 func TestConfigPOSTRetainsSchemaStamp(t *testing.T) {
@@ -57,9 +60,10 @@ func TestMutationGuardRequiresLaunchTokenAndSameOrigin(t *testing.T) {
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 
 	request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(`{"approval":{"mode":"all"}}`))
+	request.AddCookie(&http.Cookie{Name: browserSessionCookie, Value: server.browserSession})
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "mutation token") {
+	if response.Code != http.StatusUnauthorized || response.Body.Len() != 0 {
 		t.Fatalf("missing token status=%d body=%s", response.Code, response.Body)
 	}
 
@@ -68,7 +72,7 @@ func TestMutationGuardRequiresLaunchTokenAndSameOrigin(t *testing.T) {
 	request.Header.Set("Origin", "https://example.invalid")
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "cross-origin") {
+	if response.Code != http.StatusUnauthorized || response.Body.Len() != 0 {
 		t.Fatalf("cross-origin status=%d body=%s", response.Code, response.Body)
 	}
 
@@ -80,6 +84,63 @@ func TestMutationGuardRequiresLaunchTokenAndSameOrigin(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("same-origin status=%d body=%s", response.Code, response.Body)
+	}
+}
+
+func TestControlPlaneRequiresBrowserSession2jy(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+
+	for _, target := range []string{"/api/state", "/api/events"} {
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("bare GET %s status=%d body=%s", target, response.Code, response.Body)
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(`{"approval":{"mode":"all"}}`))
+	request.Header.Set("X-AgentB-Mutation-Token", server.mutationToken)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("token without browser cookie status=%d body=%s", response.Code, response.Body)
+	}
+	if _, exposed := server.snapshotWithSessions(map[string]any{}, false)["mutation_token"]; exposed {
+		t.Fatal("/api/state snapshot still exposes mutation_token")
+	}
+}
+
+func TestBrowserCredentialBootstrapIsNotIssuedToToolDescendants2jy(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<!doctype html><html><head></head><body></body></html>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(root)
+	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server.operatorRequest = func(*http.Request) error { return errors.New("Agent_b descendant") }
+
+	page := httptest.NewRecorder()
+	server.Handler().ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/?setup=skip", nil))
+	if strings.Contains(page.Body.String(), server.mutationToken) || len(page.Result().Cookies()) != 0 {
+		t.Fatalf("untrusted page received browser credentials: headers=%v body=%s", page.Header(), page.Body)
+	}
+
+	bootstrap := httptest.NewRequest(http.MethodPost, "/api/browser-session", nil)
+	bootstrap.Header.Set("X-AgentB-Mutation-Token", server.mutationToken)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, bootstrap)
+	if response.Code != http.StatusNoContent || len(response.Result().Cookies()) != 1 || !response.Result().Cookies()[0].HttpOnly {
+		t.Fatalf("native bootstrap status=%d cookies=%+v", response.Code, response.Result().Cookies())
+	}
+
+	server.operatorRequest = func(*http.Request) error { return nil }
+	page = httptest.NewRecorder()
+	server.Handler().ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/?setup=skip", nil))
+	if !strings.Contains(page.Body.String(), server.mutationToken) || len(page.Result().Cookies()) != 1 || !page.Result().Cookies()[0].HttpOnly {
+		t.Fatalf("verified browser did not receive credentials: headers=%v body=%s", page.Header(), page.Body)
 	}
 }
 

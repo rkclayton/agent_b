@@ -131,6 +131,7 @@ func TestTheSeventeenChainTapesNoLongerDieOnTheOperator(t *testing.T) {
 	for version, command := range hosts {
 		workspace := t.TempDir()
 		cfg := config.Defaults(workspace)
+		cfg.Shell.ServiceAccount.Enabled = false
 		cfg.Shell.Command = command
 		cfg.Shell.TimeoutS = 30
 		guard := false

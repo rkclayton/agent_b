@@ -24,7 +24,19 @@ type SetupResult struct {
 	Attempted bool
 }
 
+type Protection struct {
+	ApplicationDirectory string
+	DataDirectory        string
+	WorkspaceDirectory   string
+	ExchangeDirectory    string
+	ModelAddress         string
+	ModelPort            int
+	AllowLocalNetwork    bool
+	LocalSubnets         []string
+	AllowedModelRanges   []string
+}
+
 type Manager interface {
 	Status(context.Context, string) (Status, error)
-	Setup(context.Context, string, string, bool) (SetupResult, error)
+	Setup(context.Context, string, string, bool, *Protection) (SetupResult, error)
 }

@@ -351,7 +351,7 @@ if ($WhatIfPreference) {
 $serviceSid = $null
 try { $serviceSid = Resolve-ServiceIdentity -Name $AccountName } catch {
     if ($Inspect) {
-        $status = [ordered]@{ supported = $true; account_exists = $false; applied = $false; drift = $targets.Count; summary = $_.Exception.Message }
+        $status = [ordered]@{ supported = $true; account_exists = $false; applied = $false; drift = $targets.Count; summary = $_.Exception.Message; items = @([ordered]@{ path = $AccountName; expected = 'dedicated non-administrator local account'; found = 'account missing' }) }
         Write-Output ($statusMarker + ($status | ConvertTo-Json -Compress))
         exit 0
     }
@@ -361,19 +361,24 @@ try { $serviceSid = Resolve-ServiceIdentity -Name $AccountName } catch {
 
 if ($Verify -or $Inspect) {
     $drift = 0
+    $driftItems = @()
     foreach ($target in $targets) {
         if (-not (Test-Path -LiteralPath $target.Path)) {
             if ($Verify) { Write-Host "DRIFT: missing path :: $($target.Path)" }
             $drift++
+            $driftItems += [ordered]@{ path = $target.Path; expected = $target.Intent; found = 'path missing' }
             continue
         }
         $acl = Get-Acl -LiteralPath $target.Path
         $present = Test-ManagedRule -Acl $acl -Identity $serviceSid -Rights $target.Rights -Inheritance $target.Inheritance -Type $target.Type
-        if (-not $present) { $drift++ }
+        if (-not $present) {
+            $drift++
+            $driftItems += [ordered]@{ path = $target.Path; expected = $target.Intent; found = 'managed rule missing or different' }
+        }
         if ($Verify) { Write-Host "$(if ($present) { 'PASS' } else { 'DRIFT' }): $($target.Intent) :: $($target.Path)" }
     }
     if ($Inspect) {
-        $status = [ordered]@{ supported = $true; account_exists = $true; applied = ($drift -eq 0); drift = $drift; summary = $(if ($drift -eq 0) { 'root, plans, scratch, workspace, and exchange-folder ACL policy verified' } else { "$drift ACL drift item(s)" }) }
+        $status = [ordered]@{ supported = $true; account_exists = $true; applied = ($drift -eq 0); drift = $drift; summary = $(if ($drift -eq 0) { 'root, plans, scratch, workspace, and exchange-folder ACL policy verified' } else { "$drift ACL drift item(s)" }); items = $driftItems }
         Write-Output ($statusMarker + ($status | ConvertTo-Json -Compress))
         exit 0
     }

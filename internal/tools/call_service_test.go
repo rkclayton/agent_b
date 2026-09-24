@@ -89,6 +89,27 @@ func TestCallServiceDirectURLHasNoCredentialAndRegisteredCredentialStaysOnItsHos
 	}
 }
 
+func TestCallServiceRefusesConfiguredAgentBListener2jy(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := config.Defaults(t.TempDir())
+	cfg.Listen = strings.TrimPrefix(server.URL, "http://")
+	tool := NewCallService(nil)
+	tool.Configure(cfg)
+	detail := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"service": server.URL + "/api/state", "method": "GET"})
+	if detail.Err == nil || !strings.Contains(detail.Err.Error(), "refused the Agent_b listener") {
+		t.Fatalf("detail=%+v", detail)
+	}
+	if called {
+		t.Fatal("refused listener request reached the server")
+	}
+}
+
 func TestCallServiceRequestShapeAndFourXXAreResults(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/jobs/create" || r.URL.Query().Get("dry_run") != "true" || r.Header.Get("If-Match") != "v1" {

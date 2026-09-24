@@ -52,7 +52,7 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 		}
 		request := httptest.NewRequest(method, path, bytes.NewReader(raw))
 		request.Header.Set("Content-Type", "application/json")
-		request.Header.Set("X-AgentB-Mutation-Token", server.mutationToken)
+		authorizeMutation(request, server)
 		response := httptest.NewRecorder()
 		server.Handler().ServeHTTP(response, request)
 		return response

@@ -107,6 +107,11 @@ func (r *Registry) ensurePlanLocked(repo string) (Plan, bool, error) {
 		return Plan{}, false, fmt.Errorf("%s", reason)
 	}
 	canonical = resolved
+	if r.planGrant != nil {
+		if err := r.planGrant(canonical); err != nil {
+			return Plan{}, false, err
+		}
+	}
 	planID, planDir, err := allocatePlanDir(r.plansRoot)
 	if err != nil {
 		return Plan{}, false, err

@@ -59,6 +59,7 @@ func TestNetworkBoundaryIsSessionStable(t *testing.T) {
 
 func TestSplitOffPromptContainsNoNetworkBoundaryLine(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
+	cfg.Shell.ServiceAccount.Enabled = false
 	renderer := &PromptRenderer{text: "before\n{{network_boundary}}\nafter"}
 	item := &session.Session{NetworkBoundary: session.NetworkBoundary(cfg), NetworkBoundarySet: true}
 	value := renderer.RenderMemoryParts(&config.Connection{}, item, nil, "", "", "")

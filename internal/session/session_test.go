@@ -36,6 +36,7 @@ func TestApplyAgentConfigKeepsEachRoleOnItsOwnConnection(t *testing.T) {
 
 func TestNetworkBoundaryFollowsTheToolIdentity(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
+	cfg.Shell.ServiceAccount.Enabled = false
 	if got := NetworkBoundary(cfg); got != "" {
 		t.Fatalf("split-off boundary=%q", got)
 	}

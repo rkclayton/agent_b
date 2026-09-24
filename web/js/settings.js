@@ -569,7 +569,7 @@ async function click(event) {
 	if (action === "store-shell-credential") return storeShellCredential();
 	if (action === "test-shell-credential") return shellCredentialAction("test");
 	if (action === "clear-shell-credential") return shellCredentialAction("clear");
-	if (action === "setup-service-account") return setupServiceAccount(button.dataset.setupAction);
+	if (action === "setup-service-account") return setupServiceAccount();
 	if (action === "disable-service-account") {
 		try {
 			const result = await api("/api/config", {shell:{service_account:{enabled:false}}});
@@ -839,28 +839,22 @@ async function exportSigning() {
 	if (open) render();
 }
 
-async function setupServiceAccount(action) {
-	const passwordInput = sheet.querySelector("#service-account-setup-password");
-	const confirmationInput = sheet.querySelector("#service-account-setup-confirmation");
-	const password = passwordInput?.value || "";
-	const confirmation = confirmationInput?.value || "";
-	if (passwordInput) passwordInput.value = "";
-	if (confirmationInput) confirmationInput.value = "";
-	if (!password || password.length < 14 || password !== confirmation) {
-		serviceAccountMessage = !password
-			? "password is required"
-			: password.length < 14
-				? "password must contain at least 14 characters"
-				: "the two password entries do not match";
+async function setupServiceAccount() {
+	const connectionID = selectedHardeningConnectionID();
+	if (!connectionID) {
+		serviceAccountMessage = "Test and select a runnable model connection first.";
 		serviceAccountAlarm = true;
 		return render();
 	}
 	serviceAccountBusy = true;
 	serviceAccountAlarm = false;
-	serviceAccountMessage = "Approve the Windows UAC prompt to run the account setup script.";
+	serviceAccountMessage = "Agent_b sets up its service identity now; Windows will ask once";
 	render();
 	try {
-		const result = await api("/api/service-account", { action, password, confirmation });
+		const lanSwitch = sheet.querySelector('[data-action="local-network-toggle"]');
+		const allowLocalNetwork = lanSwitch?.getAttribute("aria-checked") === "true";
+		const localSubnets = allowLocalNetwork ? [...sheet.querySelectorAll("[data-local-subnet]:checked")].map((input) => input.value) : [];
+		const result = await api("/api/service-account", { action: "provision", connection_id: connectionID, allow_local_network: allowLocalNetwork, local_subnets: localSubnets });
 		serviceAccountStatus = { ...(result.account || serviceAccountStatus), loaded: true };
 		store.shell_credential = result.credential || store.shell_credential;
 		store.shell_identity = result.identity || store.shell_identity;

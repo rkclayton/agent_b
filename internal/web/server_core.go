@@ -78,6 +78,7 @@ type Server struct {
 	operatorRequest   func(*http.Request) error
 	operatorNow       func() time.Time
 	operatorAfter     func(time.Duration, func()) operatorTimer
+	browserSession    string
 	openFolder        func(string) error
 	openFile          func(string) error
 	extractClient     *http.Client
@@ -131,7 +132,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 	cfg.Shell.OperatorContext = false
 	cfg.Shell.OperatorContextExpiresAt = ""
 	server := &Server{
-		cfg: cfg, configPath: path, webDir: webDir, roots: roots, bus: bus, mutationToken: newMutationToken(),
+		cfg: cfg, configPath: path, webDir: webDir, roots: roots, bus: bus, mutationToken: newMutationToken(), browserSession: newMutationToken(),
 		startedAt:       time.Now().UTC().Format(time.RFC3339),
 		operatorRequest: requireOperatorHTTPClient,
 		operatorNow:     time.Now,
@@ -275,6 +276,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/static/", revalidateStatic(http.StripPrefix("/static/", http.FileServer(http.Dir(s.webDir)))))
 	mux.HandleFunc("/api/events", s.sse)
 	mux.HandleFunc("/api/state", s.state)
+	mux.HandleFunc("/api/browser-session", s.browserSessionEndpoint)
 	mux.HandleFunc("/api/local-detection", s.localDetection)
 	mux.HandleFunc("/api/reflection", s.replayGuard(s.reflectionEndpoint))
 	mux.HandleFunc("/api/files/", s.file)
@@ -322,7 +324,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tools/", s.replayGuard(s.toggleTool))
 	mux.HandleFunc("/api/stats/", s.replayGuard(s.stats))
 	mux.HandleFunc("/api/agents/", s.replayGuard(s.agentAction))
-	return s.securityHeaders(s.mutationGuard(mux))
+	return s.securityHeaders(s.browserSessionGuard(s.mutationGuard(mux)))
 }
 
 func (s *Server) hardeningRequest(connectionID string) (hardening.Request, error) {
@@ -409,22 +411,61 @@ func newMutationToken() string {
 
 func (s *Server) mutationGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions || r.URL.Path == "/api/browser-session" {
 			next.ServeHTTP(w, r)
 			return
 		}
 		provided := r.Header.Get("X-AgentB-Mutation-Token")
 		if subtle.ConstantTimeCompare([]byte(provided), []byte(s.mutationToken)) != 1 {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "missing or invalid Agent_b mutation token"})
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		if origin := r.Header.Get("Origin"); origin != "" && !sameRequestOrigin(origin, r.Host) {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-origin mutation refused"})
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
+
+const browserSessionCookie = "agentb_browser"
+
+func (s *Server) browserSessionGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		protectedRead := r.Method == http.MethodGet && (r.URL.Path == "/api/state" || r.URL.Path == "/api/events")
+		mutation := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
+		if (protectedRead || mutation) && r.URL.Path != "/api/browser-session" {
+			cookie, err := r.Cookie(browserSessionCookie)
+			if err != nil || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(s.browserSession)) != 1 {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) browserSessionEndpoint(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		method(w)
+		return
+	}
+	provided := r.Header.Get("X-AgentB-Mutation-Token")
+	if subtle.ConstantTimeCompare([]byte(provided), []byte(s.mutationToken)) != 1 {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	if origin := r.Header.Get("Origin"); origin != "" && !sameRequestOrigin(origin, r.Host) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: browserSessionCookie, Value: s.browserSession, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// BrowserBootstrapToken is carried only in the native host's URL fragment.
+// Fragments are not included in HTTP requests, logs, or Referer headers.
+func (s *Server) BrowserBootstrapToken() string { return s.mutationToken }
 
 func sameRequestOrigin(origin, requestHost string) bool {
 	parsed, err := url.Parse(origin)

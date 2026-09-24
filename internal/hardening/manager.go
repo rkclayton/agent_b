@@ -21,13 +21,21 @@ type Request struct {
 }
 
 type ComponentStatus struct {
-	Supported         bool     `json:"supported"`
-	AccountExists     bool     `json:"account_exists"`
-	Applied           bool     `json:"applied"`
-	Drift             int      `json:"drift,omitempty"`
-	Summary           string   `json:"summary"`
-	ResolvedAddresses []string `json:"resolved_addresses,omitempty"`
-	ResolutionChanged bool     `json:"resolution_changed,omitempty"`
+	Supported         bool        `json:"supported"`
+	AccountExists     bool        `json:"account_exists"`
+	Applied           bool        `json:"applied"`
+	Drift             int         `json:"drift,omitempty"`
+	Summary           string      `json:"summary"`
+	ResolvedAddresses []string    `json:"resolved_addresses,omitempty"`
+	ResolutionChanged bool        `json:"resolution_changed,omitempty"`
+	Items             []DriftItem `json:"items,omitempty"`
+}
+
+type DriftItem struct {
+	Path     string `json:"path,omitempty"`
+	Rule     string `json:"rule,omitempty"`
+	Expected string `json:"expected"`
+	Found    string `json:"found"`
 }
 
 type Status struct {
@@ -51,4 +59,5 @@ type RunResult struct {
 type Manager interface {
 	Status(context.Context, Request) (Status, error)
 	Run(context.Context, string, Request) (RunResult, error)
+	GrantPlan(context.Context, string, string) error
 }

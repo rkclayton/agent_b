@@ -20,6 +20,7 @@ import (
 
 func TestShellDescriptionOnlyClaimsServiceNetworkBoundaryWhenSplitIsOn(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
+	cfg.Shell.ServiceAccount.Enabled = false
 	off := NewShell(cfg.Shell).Description()
 	if strings.Contains(strings.ToLower(off), "no public network") || strings.Contains(strings.ToLower(off), "service context") {
 		t.Fatalf("split-off description=%q", off)
@@ -81,6 +82,7 @@ func TestOperatorOnlyInterpreterReturnsRunAsYouReason(t *testing.T) {
 
 func TestShellDescriptionOperatorClauseOnlyWhenSplitEnabled(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
+	cfg.Shell.ServiceAccount.Enabled = false
 	shell := NewShell(cfg.Shell)
 	shell.Configure(cfg)
 	without := shell.Description()
@@ -341,6 +343,7 @@ func TestShellScriptHostRuleIsNarrowAndSigningGuardIsUnconditional(t *testing.T)
 func TestShellServiceAccountDisabledDoesNotRaiseIdentityAlarm(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root).Shell
+	cfg.ServiceAccount.Enabled = false
 	shell := NewShell(cfg)
 	called := false
 	shell.SetIdentityReporter(func(status ShellIdentityStatus) { called = true })
@@ -360,6 +363,7 @@ func TestShellServiceAccountDisabledDoesNotRaiseIdentityAlarm(t *testing.T) {
 func TestShellNonzeroExitIsFailureAndIncludesStderr(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root).Shell
+	cfg.ServiceAccount.Enabled = false
 	command := "printf stderr-marker >&2; exit 7"
 	if runtime.GOOS == "windows" {
 		command = "[Console]::Error.WriteLine('stderr-marker'); exit 7"
@@ -622,6 +626,7 @@ func TestShellFileRoutingDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Defaults(root).Shell
+	cfg.ServiceAccount.Enabled = false
 	disabled := false
 	cfg.FileRoutingGuard = &disabled
 	command := "cat route.txt"

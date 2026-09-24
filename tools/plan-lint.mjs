@@ -87,7 +87,7 @@ export function exactInputIdentity(text) {
 
 function issueDetail(message) {
   const metadata = message.match(/(?:metadata field |metadata |unresolved |invalid )([a-z][a-z-]*)/i)?.[1];
-  const reference = message.match(/(?:reference |item )((?:\[\[)?[0-9]+[a-z]*(?:\]\])?)/i)?.[1];
+  const reference = message.match(/(?:reference |item )((?:\[\[)?[0-9]+[a-z0-9]*(?:\]\])?)/i)?.[1];
   const field = metadata ?? (message.includes("frontmatter") ? "frontmatter"
     : message.includes("heading") ? "heading"
       : message.includes("item id") || message.includes("item IDs") ? "item-id"
@@ -304,7 +304,7 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
     const authorization = metadata.get("authorization");
     if (authorization && authorization !== "unknown" && !validAuthorizations.has(authorization)) errors.push(`${relative}: invalid authorization ${JSON.stringify(authorization)}`);
     for (const field of ["milestone", "kind", "surfaces", "evidence", "acceptance"]) if (metadata.get(field) === "unknown") warnings.push(`${relative}: unresolved metadata ${field}`);
-    const heading = body.match(/^# ([0-9]+[a-z]*) — ([^\n]+)$/m);
+    const heading = body.match(/^# ([0-9]+[a-z0-9]*) — ([^\n]+)$/m);
     if (!heading) {
       errors.push(`${relative}: missing top-level item heading`);
       continue;
@@ -330,7 +330,7 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
   }
 
   for (const { relative, text } of sourceTexts) {
-    for (const match of text.matchAll(/\[\[([0-9]+[a-z]*)\]\]/g)) if (!items.has(match[1])) errors.push(`${relative}: unresolved item reference [[${match[1]}]]`);
+    for (const match of text.matchAll(/\[\[([0-9]+[a-z0-9]*)\]\]/g)) if (!items.has(match[1])) errors.push(`${relative}: unresolved item reference [[${match[1]}]]`);
   }
   const sortedItems = [...items.values()].sort((a, b) => a.state.localeCompare(b.state) || a.milestone.localeCompare(b.milestone, "en", { numeric: true }) || a.id.localeCompare(b.id, "en", { numeric: true }));
   const indexSection = [
@@ -342,7 +342,7 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
 
   const effectivePlan = replaceCurrentOrderBody(String(planText ?? ""), orderBody);
   if (!inputErrors.includes("missing PLAN.md")) {
-  for (const match of effectivePlan.matchAll(/\[\[([0-9]+[a-z]*)\]\]/g)) if (!items.has(match[1])) errors.push(`PLAN.md: unresolved item reference [[${match[1]}]]`);
+  for (const match of effectivePlan.matchAll(/\[\[([0-9]+[a-z0-9]*)\]\]/g)) if (!items.has(match[1])) errors.push(`PLAN.md: unresolved item reference [[${match[1]}]]`);
   const indexMatch = effectivePlan.match(/^## Index\s*$[\s\S]*$/m);
   if (!indexMatch) errors.push("PLAN.md: missing ## Index");
   else if (indexMatch[0].replaceAll("\r\n", "\n").replace(/\s+$/, "") !== indexSection.replace(/\s+$/, "")) errors.push("PLAN.md index: stale or malformed; run node tools/plan-lint.mjs --write-index --structural");
@@ -370,11 +370,11 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
       admission.errors.push(...release.errors);
       warnings.push(...release.warnings);
     }
-    const workItems = [...currentText.matchAll(/^- (W\d+)\s+\*\*(?:item\s+)?([0-9]+[a-z]*)\b([^\n]*)/gmi)];
+    const workItems = [...currentText.matchAll(/^- (W\d+)\s+\*\*(?:item\s+)?([0-9]+[a-z0-9]*)\b([^\n]*)/gmi)];
     // A lettered W heading (W2b, W3c) does not match the pattern above, so its
     // item silently rides the order ungated. That is how 0b reached REPO-MOVE
     // with three unresolved frontmatter fields. Name it rather than skip it.
-    for (const lettered of currentText.matchAll(/^- (W\d+[a-z]+)\s+\*\*(?:item\s+)?([0-9]+[a-z]*)\b/gmi)) {
+    for (const lettered of currentText.matchAll(/^- (W\d+[a-z]+)\s+\*\*(?:item\s+)?([0-9]+[a-z0-9]*)\b/gmi)) {
       const message = `ORDER GATE: W headings must be plain W<number>; ${lettered[1]} names item ${lettered[2].toLowerCase()} and would never be gated`;
       errors.push(message);
       admission.errors.push(message);
@@ -486,7 +486,7 @@ function currentOrderRecord(planText, itemContents = []) {
   const orderId = text.match(/^Order ID:\s*`([^`]+)`/m)?.[1] ?? match[1].match(/\b(v\d+\.\d+\.\d+|[A-Z][A-Z0-9-]+)\b/)?.[1] ?? null;
   const revision = text.match(/^\*\*Revision(?::)?\s+(r[0-9]+)\b/im)?.[1].toLowerCase() ?? null;
   const inFlight = markerText(planText, itemContents);
-  const work = [...text.matchAll(/^- (W\d+)\s+\*\*(?:item\s+)?([0-9]+[a-z]*)\b/gmi)].map((entry) => ({ workId: entry[1].toUpperCase(), itemId: entry[2].toLowerCase() }));
+  const work = [...text.matchAll(/^- (W\d+)\s+\*\*(?:item\s+)?([0-9]+[a-z0-9]*)\b/gmi)].map((entry) => ({ workId: entry[1].toUpperCase(), itemId: entry[2].toLowerCase() }));
   const completedWork = orderId ? [...inFlight.matchAll(new RegExp(`^(?:-\\s*)?${orderId.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}/(W\\d+) completed\\b`, "gmi"))].map((entry) => entry[1].toUpperCase()) : [];
   return { orderId, revision, text, work, completedWork };
 }

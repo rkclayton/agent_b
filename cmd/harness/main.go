@@ -192,7 +192,7 @@ func main() {
 			log.Printf("inspect installed signatures: %v", err)
 		}
 		cancelSigning()
-		if err := serve(cfg, web.Handler(), nil, ""); err != nil {
+		if err := serve(cfg, web.Handler(), nil, "", web.BrowserBootstrapToken()); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -322,30 +322,31 @@ func main() {
 		_, testErr := shellTool.TestServiceAccount(testContext)
 		cancelTest()
 		if testErr != nil {
-			cfg.Shell.ServiceAccount.Enabled = false
-			if saveErr := cfg.Save(paths.Config); saveErr != nil {
-				log.Fatalf("turn off broken service split: %v", saveErr)
-			}
-			shellTool.Configure(*cfg)
-			const notice = "service split turned off: credential no longer authenticates"
+			const notice = "service identity not set up"
 			shellTool.SetServiceSplitNotice(notice)
 			log.Print(notice)
 		}
 	}
-	// The startup credential test can turn the split off. File tools share the
-	// same identity policy and must see that final state, not the preflight
-	// configuration captured above.
 	fileIdentity.Configure(*cfg)
 	shellTool.SetIdentityReporter(func(status tools.ShellIdentityStatus) {
 		bus.Publish(events.New(events.ShellIdentity, "", "", status))
 	})
 	web.SetShellSecurity(credentialStore, shellTool)
 	web.SetServiceAccountManager(serviceaccount.New(filepath.Join(paths.Application, "scripts", "setup-service-account.ps1")))
-	web.SetHardeningManager(hardening.New(
+	hardeningManager := hardening.New(
 		filepath.Join(paths.Application, "scripts", "apply-acls.ps1"),
 		filepath.Join(paths.Application, "scripts", "apply-firewall-rule.ps1"),
 		filepath.Join(paths.Application, "scripts", "apply-hardening.ps1"),
-	))
+	)
+	web.SetHardeningManager(hardeningManager)
+	registry.SetPlanGrant(func(repository string) error {
+		if !web.ConfigSnapshot().Shell.ServiceAccount.Enabled {
+			return nil
+		}
+		grantContext, cancelGrant := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelGrant()
+		return hardeningManager.GrantPlan(grantContext, web.ConfigSnapshot().Shell.ServiceAccount.Account, repository)
+	})
 	web.SetSigningManager(signing.New(filepath.Join(paths.Application, "scripts", "manage-signing.ps1")))
 	// Item 2gm: inspecting the installed signatures runs PowerShell and used to
 	// hold the port closed for seconds — on a fresh root with no chats at all
@@ -506,7 +507,7 @@ func main() {
 		}
 	}
 	publishPendingSigning(paths.Data, registry, bus)
-	if err := serve(cfg, web.Handler(), newLifetime(paths.Data, time.Now), paths.Application); err != nil {
+	if err := serve(cfg, web.Handler(), newLifetime(paths.Data, time.Now), paths.Application, web.BrowserBootstrapToken()); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -833,7 +834,7 @@ func startupElevationError(elevated bool) error {
 
 // serve binds, then records the process lifetime (when life is non-nil) from
 // the moment the listener exists until the server stops, whatever stops it.
-func serve(cfg *config.Config, handler http.Handler, life *lifetime, applicationRoot string) error {
+func serve(cfg *config.Config, handler http.Handler, life *lifetime, applicationRoot, browserBootstrap string) error {
 	httpServer := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
@@ -854,7 +855,7 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime, application
 		stopped = life.stopped
 	}
 	if hostWindowMode {
-		startHostWindow(cfg.Listen, applicationRoot, closeRequests)
+		startHostWindow(cfg.Listen, applicationRoot, browserBootstrap, closeRequests)
 	}
 	errors := make(chan error, 1)
 	go func() {
@@ -939,9 +940,9 @@ var (
 	hostWindowUserData string
 )
 
-func startHostWindow(listen, applicationRoot string, closeRequests chan struct{}) {
+func startHostWindow(listen, applicationRoot, browserBootstrap string, closeRequests chan struct{}) {
 	go func() {
-		url := "http://" + listen + "/chat"
+		url := "http://" + listen + "/chat#agentb-bootstrap=" + browserBootstrap
 		if version, err := hostWindowAvailable(); err != nil {
 			log.Printf("host window: unavailable, using the browser instead (%v)", err)
 			return

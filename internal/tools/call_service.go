@@ -44,6 +44,7 @@ type CallService struct {
 	services map[string]config.Service
 	cache    map[string]cachedServiceCredential
 	now      func() time.Time
+	listener string
 }
 
 func NewCallService(services map[string]config.Service) *CallService {
@@ -78,6 +79,7 @@ func (*CallService) Schema() map[string]any {
 func (c *CallService) Configure(cfg config.Config) {
 	c.mu.Lock()
 	c.setServicesLocked(cfg.Services)
+	c.listener = cfg.Listen
 	c.cache = map[string]cachedServiceCredential{}
 	c.mu.Unlock()
 }
@@ -170,6 +172,13 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 	}
 	if err := addServiceQuery(target, args["query"]); err != nil {
 		detail.Err = err
+		return detail
+	}
+	c.mu.Lock()
+	listener := c.listener
+	c.mu.Unlock()
+	if listener != "" && sameListenerTarget(target, listener) {
+		detail.Err = fmt.Errorf("call_service refused the Agent_b listener %s", target.Host)
 		return detail
 	}
 	headers, err := parseServiceHeaders(args["headers"])

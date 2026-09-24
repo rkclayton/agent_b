@@ -476,6 +476,9 @@ try {
         $env:AGENT_B_INSTALL_LOG = $savedInstallLog
     }
     if ($freshExit -ne 0) { throw "First single-file install exited $freshExit.`n$freshOutput" }
+    if ($freshOutput -notmatch 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval') {
+        throw "Per-user install did not preserve the first-launch provisioning arm.`n$freshOutput"
+    }
     $freshTranscript = Get-Content -Raw -LiteralPath $freshTranscriptPath
     $readyPosition = $freshTranscript.IndexOf("Agent_b is ready at http://127.0.0.1:$testPort/chat")
     $leftPattern = [regex]::Escape('MIGRATION LEFT IN PLACE: access denied') + '.{1,8}' +
@@ -631,6 +634,12 @@ try {
         $installedInstallerSource -notmatch '& \$installedAclScript[^\r\n]+-Verify' -or
         $installedInstallerSource -notmatch 'PASS: installed root, plans/scratch exceptions, workspace, and exchange-folder ACL policy') {
 		throw 'Installed elevated installer does not self-verify the plans/scratch host-policy exceptions.'
+    }
+    if ($installedInstallerSource -notmatch '\$AllUsers -and -not \$TestMode' -or
+        $installedInstallerSource -notmatch 'provision-service-identity\.ps1' -or
+        $installedInstallerSource -notmatch 'PASS: service identity provisioned during elevated install' -or
+        $installedInstallerSource -notmatch 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval') {
+        throw 'Installer matrix lost its elevated provisioning or per-user first-launch arm.'
     }
     $preStopPolicyPosition = $installedInstallerSource.IndexOf("Write-Host 'PRESTOP POLICY: applying and verifying host policy before stopping Agent_b.'")
     $stopCallPosition = $installedInstallerSource.LastIndexOf('Stop-InstalledProcesses -Processes $installedProcesses')
@@ -1230,7 +1239,7 @@ try {
     if ($zeroProbe -notmatch 'gate-ok') { throw "the gate rejects a successful exit code: $zeroProbe" }
     $twoProbe = Invoke-ExitGateProbe -Body "Assert-ScriptExitCode -Purpose 'probe' -Code 2"
     if ($twoProbe -notmatch 'exit code 2') { throw "the gate loses the real exit code: $twoProbe" }
-    foreach ($required in @('apply-acls.ps1', 'install-Agent_b.ps1', 'uninstall-Agent_b.ps1', 'apply-firewall-rule.ps1')) {
+    foreach ($required in @('apply-acls.ps1', 'install-Agent_b.ps1', 'uninstall-Agent_b.ps1', 'apply-firewall-rule.ps1', 'provision-service-identity.ps1', 'grant-plan-access.ps1')) {
         $text = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot (Join-Path 'scripts' $required))
         if ($text.TrimEnd() -notmatch 'exit 0$') { throw "$required no longer ends with an explicit exit code." }
     }

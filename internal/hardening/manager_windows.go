@@ -173,6 +173,17 @@ func (m *windowsManager) Run(ctx context.Context, action string, request Request
 	return RunResult{Attempted: true}, nil
 }
 
+func (m *windowsManager) GrantPlan(ctx context.Context, account, repository string) error {
+	script := filepath.Join(filepath.Dir(m.aclScript), "grant-plan-access.ps1")
+	command := exec.CommandContext(ctx, m.powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", script, "-AccountName", account, "-Repository", repository)
+	command.Env = systemPowerShellEnvironment(os.Environ(), m.powershell)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("grant service identity access to plan repo: %s", safeError(output, err))
+	}
+	return nil
+}
+
 func hardeningResult(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) == 0 {

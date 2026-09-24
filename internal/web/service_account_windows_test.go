@@ -28,6 +28,7 @@ type fakeAccountManager struct {
 	setupAccount string
 	setupPath    string
 	setupReset   bool
+	protection   *serviceaccount.Protection
 }
 
 func (m *fakeAccountManager) Status(context.Context, string) (serviceaccount.Status, error) {
@@ -38,9 +39,10 @@ func (m *fakeAccountManager) Status(context.Context, string) (serviceaccount.Sta
 	return status, nil
 }
 
-func (m *fakeAccountManager) Setup(_ context.Context, account, path string, reset bool) (serviceaccount.SetupResult, error) {
+func (m *fakeAccountManager) Setup(_ context.Context, account, path string, reset bool, protection *serviceaccount.Protection) (serviceaccount.SetupResult, error) {
 	m.setupCalls++
 	m.setupAccount, m.setupPath, m.setupReset = account, path, reset
+	m.protection = protection
 	return m.setupResult, m.setupErr
 }
 
@@ -85,8 +87,7 @@ func TestServiceAccountSetupStoresTestsAndEnables(t *testing.T) {
 		testCalls++
 		return "service-account shell spawn succeeded", nil
 	}
-	password := randomTestPassword(t)
-	body := `{"action":"create","password":"` + password + `","confirmation":"` + password + `"}`
+	body := `{"action":"provision","connection_id":"local"}`
 	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	authorizeMutation(request, server)
@@ -96,18 +97,15 @@ func TestServiceAccountSetupStoresTestsAndEnables(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}
-	if bytes.Contains(response.Body.Bytes(), []byte(password)) {
-		t.Fatalf("response returned password: %s", response.Body)
-	}
-	if !strings.Contains(response.Body.String(), `"ok":true`) || !strings.Contains(response.Body.String(), "apply host protection") || testCalls != 1 || manager.setupCalls != 1 || manager.setupAccount != "agentb-svc" || manager.setupPath != store.Path() || manager.setupReset {
+	if !strings.Contains(response.Body.String(), `"ok":true`) || !strings.Contains(response.Body.String(), "protections") || testCalls != 1 || manager.setupCalls != 1 || manager.setupAccount != "agentb-svc" || manager.setupPath != store.Path() || manager.setupReset || manager.protection == nil {
 		t.Fatalf("unexpected setup result: calls=%d account=%q path=%q reset=%v body=%s", manager.setupCalls, manager.setupAccount, manager.setupPath, manager.setupReset, response.Body)
 	}
 	stored, err := store.Read()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(stored) != password {
-		t.Fatal("stored credential does not match submitted credential")
+	if len(stored) < 40 {
+		t.Fatal("generated credential is unexpectedly short")
 	}
 	clearSecret(stored)
 	loaded, _, _, err := config.Load(configPath)
@@ -119,33 +117,31 @@ func TestServiceAccountSetupStoresTestsAndEnables(t *testing.T) {
 	}
 }
 
-func TestServiceAccountSetupFailedTestLeavesSplitOff(t *testing.T) {
+func TestServiceAccountSetupFailedTestLeavesSplitOnAndBlocked(t *testing.T) {
 	manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Account: "agentb-svc"}, setupResult: serviceaccount.SetupResult{Attempted: true}}
 	server, _, configPath := serviceAccountTestServer(t, manager)
 	server.shellTest = func(context.Context) (string, error) { return "credential rejected", errors.New("bad credential") }
-	password := randomTestPassword(t)
-	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"create","password":"`+password+`","confirmation":"`+password+`"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"provision","connection_id":"local"}`))
 	request.Header.Set("Content-Type", "application/json")
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "remains off") {
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "not set up") {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}
 	loaded, _, _, err := config.Load(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Shell.ServiceAccount.Enabled {
-		t.Fatal("failed credential test left service split enabled")
+	if !loaded.Shell.ServiceAccount.Enabled {
+		t.Fatal("failed credential test silently disabled the service split")
 	}
 }
 
-func TestServiceAccountSetupRejectsMismatchBeforeMutation(t *testing.T) {
+func TestServiceAccountSetupRejectsLegacyPasswordActionBeforeMutation(t *testing.T) {
 	manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Account: "agentb-svc"}}
 	server, store, _ := serviceAccountTestServer(t, manager)
-	password := randomTestPassword(t)
-	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"create","password":"`+password+`","confirmation":"different"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"create","password":"must-not-be-used"}`))
 	request.Header.Set("Content-Type", "application/json")
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
@@ -153,9 +149,6 @@ func TestServiceAccountSetupRejectsMismatchBeforeMutation(t *testing.T) {
 
 	if response.Code != http.StatusBadRequest || manager.setupCalls != 0 || store.Status().Stored {
 		t.Fatalf("mismatch mutated state: status=%d calls=%d stored=%v body=%s", response.Code, manager.setupCalls, store.Status().Stored, response.Body)
-	}
-	if bytes.Contains(response.Body.Bytes(), []byte(password)) {
-		t.Fatal("mismatch response returned password")
 	}
 }
 
@@ -170,8 +163,7 @@ func TestServiceAccountCanceledElevationRestoresCredential(t *testing.T) {
 	if err := store.Write([]byte(previous)); err != nil {
 		t.Fatal(err)
 	}
-	password := randomTestPassword(t)
-	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"create","password":"`+password+`","confirmation":"`+password+`"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"provision","connection_id":"local"}`))
 	request.Header.Set("Content-Type", "application/json")
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
@@ -188,7 +180,7 @@ func TestServiceAccountCanceledElevationRestoresCredential(t *testing.T) {
 	if string(stored) != previous {
 		t.Fatal("prior credential was not restored after canceled elevation")
 	}
-	if bytes.Contains(response.Body.Bytes(), []byte(password)) || bytes.Contains(response.Body.Bytes(), []byte(previous)) {
+	if bytes.Contains(response.Body.Bytes(), []byte(previous)) {
 		t.Fatal("cancellation response returned a credential")
 	}
 }
@@ -200,8 +192,7 @@ func TestServiceAccountAttemptedFailureRetainsSubmittedCredentialAndWarns(t *tes
 		setupErr:    errors.New("setup validation failed"),
 	}
 	server, store, _ := serviceAccountTestServer(t, manager)
-	password := randomTestPassword(t)
-	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"create","password":"`+password+`","confirmation":"`+password+`"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"provision","connection_id":"local"}`))
 	request.Header.Set("Content-Type", "application/json")
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
@@ -215,37 +206,24 @@ func TestServiceAccountAttemptedFailureRetainsSubmittedCredentialAndWarns(t *tes
 		t.Fatal(err)
 	}
 	defer clearSecret(stored)
-	if string(stored) != password {
-		t.Fatal("submitted credential was not retained after a potentially partial password change")
-	}
-	if bytes.Contains(response.Body.Bytes(), []byte(password)) {
-		t.Fatal("partial failure response returned the password")
+	if len(stored) < 40 {
+		t.Fatal("generated credential was not retained after a potentially partial password change")
 	}
 }
 
-func TestServiceAccountPasswordValidation(t *testing.T) {
-	valid := randomTestPassword(t)
-	tests := []struct {
-		name         string
-		password     string
-		confirmation string
-		message      string
-	}{
-		{name: "empty", message: "required"},
-		{name: "short", password: "short", confirmation: "short", message: "14"},
-		{name: "line break", password: valid + "\n", confirmation: valid + "\n", message: "line break"},
-		{name: "command", password: "Get-" + valid, confirmation: "Get-" + valid, message: "pasted command"},
-		{name: "mismatch", password: valid, confirmation: valid + "x", message: "do not match"},
+func TestGeneratedServicePasswordIsLongAndRandom(t *testing.T) {
+	first, err := generatedServicePassword()
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := validateAccountPassword(test.password, test.confirmation)
-			if err == nil || !strings.Contains(err.Error(), test.message) {
-				t.Fatalf("error=%v, want message containing %q", err, test.message)
-			}
-		})
+	second, err := generatedServicePassword()
+	if err != nil {
+		clearSecret(first)
+		t.Fatal(err)
 	}
-	if err := validateAccountPassword(valid, valid); err != nil {
-		t.Fatalf("valid password rejected: %v", err)
+	defer clearSecret(first)
+	defer clearSecret(second)
+	if len(first) < 40 || bytes.Equal(first, second) || bytes.Contains(first, []byte("\r")) || bytes.Contains(first, []byte("\n")) {
+		t.Fatalf("generated credentials did not meet the noninteractive contract")
 	}
 }

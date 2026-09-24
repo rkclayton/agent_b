@@ -1,13 +1,16 @@
 import { compareWithServer } from "./build-check.js";
 import { createOperatorReconciler } from "./operator-reconcile.js";
 import { navigationEventSourceConstructed, navigationEventSourceOpened, navigationSnapshotStarted, navigationStateFetchEnded, navigationStateFetchStarted } from "./navigation-telemetry.js";
+import { acquireBrowserSessionToken } from "./browser-session.js";
+
+const browserMutationToken = await acquireBrowserSessionToken();
 
 export const store = {
   sessions: {}, active: "", selection: readSelection(), connections: [], config: {}, flow: { stages: [], edges: [] }, tools: [], serving_facts: {}, plans: [],
   agent_connection_changes: {}, profiles: { active: "", names: [] },
   build: { tag: "", commit: "unknown", dirty: false, known: false, source: "unknown", display: "unknown" }, signature: {},
   update: { enabled: false, checking: false, available: false, installing: false },
-  mutation_token: "", shell_credential: { stored: false, stored_at: "" },
+  mutation_token: browserMutationToken, shell_credential: { stored: false, stored_at: "" },
   shell_identity: { fallback: false, operator_approval_required: false, operator_context: false, reason: "", since: "" }, replay: false,
   // Item 2ew: false until the first full snapshot is applied. Empty-state text
   // (no agent, an empty transcript, no activity) waits for it, so a reload or a

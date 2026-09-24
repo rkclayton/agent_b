@@ -103,6 +103,7 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		AllowedMethods: []string{"GET"}, TimeoutS: 10, MaxBodyKB: 16,
 	}}
 	callService := NewCallService(cfg.Services)
+	callService.Configure(cfg)
 	toolRegistry := New(
 		fileIdentity.Wrap(NewReadFile(cfg.Tools.ReadFile)), fileIdentity.Wrap(NewListDir(cfg.Tools.ListDir)),
 		fileIdentity.Wrap(NewWriteFile(coordinator)), fileIdentity.Wrap(NewEditFile(coordinator)),
@@ -253,6 +254,40 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		t.Log("contract=changed-by-2jt: ordinary absolute writes are reachable; sibling plan ownership remains enforced")
 	})
 
+	t.Run("service_identity_denies_operator_data_and_install_writes_2jz", func(t *testing.T) {
+		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
+			t.Skip(reason)
+		}
+		targets := []string{filepath.Join(dataRoot, "harness.json"), filepath.Join(appRoot, "capability-denied.txt")}
+		if source := os.Getenv("AGENTB_CAPABILITY_SOURCE"); source != "" {
+			targets = append(targets, filepath.Join(source, "capability-denied.txt"))
+		}
+		for _, target := range targets {
+			command := `Set-Content -LiteralPath ` + quotePowerShell(target) + ` -Value refused`
+			detail := shell.CallDetailed(context.Background(), item, map[string]any{"command": command})
+			if detail.OperatorOverrideReason == "" || !strings.Contains(strings.ToLower(detail.Content+" "+detail.OperatorOverrideReason), "denied") {
+				t.Fatalf("target=%s detail=%+v", target, detail)
+			}
+		}
+		t.Log("contract=changed-by-2jz: service shell cannot mutate harness.json, the installed application, or the source repository")
+	})
+
+	t.Run("service_identity_writes_inside_plan_repo_2jz", func(t *testing.T) {
+		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
+			t.Skip(reason)
+		}
+		target := filepath.Join(workspace, "service-plan-write.txt")
+		detail := shell.CallDetailed(context.Background(), item, map[string]any{"command": `Set-Content -LiteralPath ` + quotePowerShell(target) + ` -Value reachable`})
+		if detail.Err != nil || detail.OperatorOverrideReason != "" {
+			t.Fatalf("detail=%+v", detail)
+		}
+		data, err := os.ReadFile(target)
+		if err != nil || !strings.Contains(string(data), "reachable") {
+			t.Fatalf("plan repo write=%q err=%v", data, err)
+		}
+		t.Log("contract=changed-by-2jz: service shell writes inside an ACL-granted plan repository")
+	})
+
 	t.Run("fetch_public_text_fetch_url", func(t *testing.T) {
 		value, err := NewFetch(cfg.Tools.Fetch).Call(context.Background(), item, map[string]any{"url": "https://example.com"})
 		if err != nil || !strings.Contains(value, "Example Domain") {
@@ -317,6 +352,49 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 			t.Fatalf("detail=%+v", detail)
 		}
 		t.Log("contract=changed-by-2ju: a registered service refuses a foreign credential host")
+	})
+
+	t.Run("control_plane_shell_get_and_post_refused_2jy", func(t *testing.T) {
+		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
+			t.Skip(reason)
+		}
+		base := "http://" + cfg.Listen
+		for _, tc := range []struct{ name, command string }{
+			{"state", `curl.exe -s -o NUL -w "%{http_code}" ` + quotePowerShell(base+"/api/state")},
+			{"config", `curl.exe -s -o NUL -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "{}" ` + quotePowerShell(base+"/api/config")},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				detail := shell.CallDetailed(context.Background(), item, map[string]any{"command": tc.command})
+				if detail.Err != nil || strings.TrimSpace(detail.Content) != "401" {
+					t.Fatalf("detail=%+v", detail)
+				}
+			})
+		}
+		t.Log("contract=changed-by-2jy: shell receives 401 for control-plane state and mutation")
+	})
+
+	t.Run("control_plane_run_script_refused_2jy", func(t *testing.T) {
+		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
+			t.Skip(reason)
+		}
+		source := `$base = ` + quotePowerShell("http://"+cfg.Listen) + "\n" +
+			`curl.exe -s -o NUL -w "%{http_code}" "$base/api/state"` + "\n" +
+			`Write-Output ""` + "\n" +
+			`curl.exe -s -o NUL -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "{}" "$base/api/config"`
+		detail := NewRunScript(shell).CallDetailed(context.Background(), item, map[string]any{"language": "powershell", "source": source})
+		statuses := strings.Fields(detail.Content)
+		if detail.Err != nil || len(statuses) != 2 || statuses[0] != "401" || statuses[1] != "401" {
+			t.Fatalf("detail=%+v", detail)
+		}
+		t.Log("contract=changed-by-2jy: run_script receives 401 for control-plane state and mutation")
+	})
+
+	t.Run("control_plane_call_service_refused_2jy", func(t *testing.T) {
+		detail := toolRegistry.CallDetailed(context.Background(), item, "call_service", map[string]any{"service": "http://" + cfg.Listen + "/api/state", "method": "GET"})
+		if detail.OK || !strings.Contains(detail.Content, "refused the Agent_b listener") {
+			t.Fatalf("detail=%+v", detail)
+		}
+		t.Log("contract=changed-by-2jy: call_service refuses the Agent_b listener before dialing")
 	})
 
 	t.Run("boundary_file_tool_operator_decision", func(t *testing.T) {

@@ -60,7 +60,7 @@ func TestSigningAPIRequiresVerifiedManageCapableOperatorAndPersistsThumbprint(t 
 	server.operatorRequest = func(*http.Request) error { return nil }
 	handler := server.Handler()
 	request := httptest.NewRequest(http.MethodPost, "/api/signing", strings.NewReader(`{"action":"select","thumbprint":"ab c123"}`))
-	request.Header.Set("X-AgentB-Mutation-Token", server.mutationToken)
+	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || manager.called != "select" || server.ConfigSnapshot().Signing.Thumbprint != "ABC123" {
@@ -86,7 +86,7 @@ func TestSigningAPIStandardUserCanVerifyOnly(t *testing.T) {
 		t.Fatalf("verify code=%d body=%s", get.Code, get.Body.String())
 	}
 	postRequest := httptest.NewRequest(http.MethodPost, "/api/signing", strings.NewReader(`{"action":"create"}`))
-	postRequest.Header.Set("X-AgentB-Mutation-Token", server.mutationToken)
+	authorizeMutation(postRequest, server)
 	post := httptest.NewRecorder()
 	server.Handler().ServeHTTP(post, postRequest)
 	if post.Code != http.StatusForbidden || manager.called != "" {

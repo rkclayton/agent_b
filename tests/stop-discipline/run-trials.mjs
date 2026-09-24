@@ -5,7 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { loadFixtures, scoreTrial, aggregateScores } from "./score.mjs";
-import { removeTreeWithinAllowedRoots } from "../../scripts/removal-guard.mjs";
+import { removeTreeWithinAllowedRoots } from "../../tools/removal-guard.mjs";
 
 const requestTimeoutMS = 300_000;
 const maxTurns = 12;

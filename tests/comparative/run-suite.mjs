@@ -5,7 +5,7 @@ import path from "node:path";
 import { createServer } from "node:http";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { extractRun, readJSONL, selectRun } from "../../scripts/jsonl-extract.mjs";
+import { extractRun, readJSONL, selectRun } from "../jsonl-extract.mjs";
 import { EVAL_SYSTEM_PROMPT } from "./eval-system-prompt.mjs";
 
 const suiteRoot = path.dirname(fileURLToPath(import.meta.url));

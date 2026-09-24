@@ -9,7 +9,7 @@ sentence that says "Codex" applies to you. Everything else here is the same for 
 
 - The planner (Fable) writes items under `plan/items/`, drops the order body into the repo-root
   `INBOX.md` under a `PUBLISH THEN EXECUTE` header, and the operator sends you a one-line
-  pointer. You publish the order through `scripts/plan-publish.mjs prepare` / `publish`
+  pointer. You publish the order through `tools/plan-publish.mjs prepare` / `publish`
   (validate first; a failed validation is a stop with the diagnostic, not a workaround), then
   execute the published `## Current work order` from `PLAN.md`.
 - `REVISE` and `STOP` in `INBOX.md` work exactly as `AGENTS.md` describes. You never write
@@ -17,7 +17,7 @@ sentence that says "Codex" applies to you. Everything else here is the same for 
 - **INBOX takes a queue, and you run ONE BLOCK of it.** Several blocks may be queued, separated
   by a line that is exactly `==== NEXT ORDER ====`. **Run the first block and only the first
   block**: publish it if it says to, execute it, append its one report to `NOTES.md`, truncate
-  that block from `INBOX.md`, and stop. Do not start the next block — `scripts/run-queue.ps1`
+  that block from `INBOX.md`, and stop. Do not start the next block — `tools/run-queue.ps1`
   starts a fresh session for it, with the pointer prompt checked in beside it at
   `scripts/queue-pointer-prompt.txt`.
 
@@ -27,7 +27,7 @@ sentence that says "Codex" applies to you. Everything else here is the same for 
   session now. Work the block to its end rather than pacing yourself against the ones behind it;
   there is nothing behind it in this session.
 
-  `node scripts/plan-publish.mjs split-inbox --inbox INBOX.md --out <scratch>` still writes each
+  `node tools/plan-publish.mjs split-inbox --inbox INBOX.md --out <scratch>` still writes each
   block and its body in order when you want to read the queue. A hard stop is still a report and
   an end; the runner records it and starts the next block in a fresh session.
 

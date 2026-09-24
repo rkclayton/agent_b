@@ -7,8 +7,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { start } from "../../scripts/ui-harness.mjs";
-import { removeTreeWithinAllowedRoots } from "../../scripts/removal-guard.mjs";
+import { start } from "../ui-harness.mjs";
+import { removeTreeWithinAllowedRoots } from "../../tools/removal-guard.mjs";
 
 const run = promisify(execFile);
 const hash = async (path) => createHash("sha256").update(await readFile(path)).digest("hex");

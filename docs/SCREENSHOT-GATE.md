@@ -1,11 +1,11 @@
 # Screenshot release gate
 
-`scripts/chat-acceptance.mjs` captures the twelve release surfaces with a
+`tests/chat-acceptance.mjs` captures the twelve release surfaces with a
 1250×975 headless Edge viewport and software rendering. Compare two independent
 captures with:
 
 ```text
-node scripts/screenshot-gate.mjs BASELINE/baseline-initial CANDIDATE/baseline-initial
+node tests/screenshot-gate.mjs BASELINE/baseline-initial CANDIDATE/baseline-initial
 ```
 
 Stable UI is compared pixel-for-pixel. Differences of at most two channel

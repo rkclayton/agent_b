@@ -122,10 +122,10 @@ func TestCompactionAuxUnsetUsesOneMainCall(t *testing.T) {
 			break
 		}
 	}
-	if summary.Role != "assistant" {
+	if summary.Role != llm.RoleHarness {
 		t.Fatalf("compaction summary attribution=%+v", snapshot.Messages)
 	}
-	if converted := requestMessage(connectionForRunner(runner, "main"), item, summary); converted.Role != "assistant" || converted.Content != summary.Content {
+	if converted := requestMessage(connectionForRunner(runner, "main"), item, summary); converted.Role != llm.RoleAssistant || converted.Content != "[harness note]\n"+summary.Content {
 		t.Fatalf("model request summary=%+v", converted)
 	}
 }
@@ -172,11 +172,11 @@ func TestCompactionSummaryFitsTemplateEndpoints(t *testing.T) {
 			measured := templates[len(templates)-1]
 			var summaries []llm.Message
 			for _, message := range measured {
-				if message.Content == storedSummary.Content {
+				if message.Content == "[harness note]\n"+storedSummary.Content {
 					summaries = append(summaries, message)
 				}
 			}
-			if len(summaries) != 1 || summaries[0].Role != "assistant" {
+			if len(summaries) != 1 || summaries[0].Role != llm.RoleAssistant {
 				t.Fatalf("measured summary=%+v messages=%+v", summaries, measured)
 			}
 		})

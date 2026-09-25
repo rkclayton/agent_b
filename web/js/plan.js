@@ -15,7 +15,7 @@ const roots = {
   search: byID("plan-search"), add: byID("plan-add"), form: byID("plan-add-form"), path: byID("plan-add-path"), addError: byID("plan-add-error"),
   build: byID("plan-build"), buildYes: byID("plan-build-yes"), buildNo: byID("plan-build-no"), list: byID("plan-list"), listEmpty: byID("plan-list-empty"),
   wizard: byID("plan-wizard"), wizardLabel: byID("plan-wizard-label"), wizardValue: byID("plan-wizard-value"), wizardNext: byID("plan-wizard-next"), wizardSkip: byID("plan-wizard-skip"),
-  name: byID("plan-name"), go: byID("plan-go"), lint: byID("plan-lint"), refusal: byID("plan-refusal"), done: byID("plan-done"), raw: byID("plan-raw"), stats: byID("plan-stats"),
+  name: byID("plan-name"), go: byID("plan-go"), auto: byID("plan-auto"), lint: byID("plan-lint"), refusal: byID("plan-refusal"), done: byID("plan-done"), raw: byID("plan-raw"), stats: byID("plan-stats"),
 };
 const params = new URLSearchParams(location.search);
 let plans = [];
@@ -31,6 +31,7 @@ let planningBrief = { purpose: "", done: "", do_not_touch: "" };
 let goState = { enabled: false, running: false };
 let goTimer = 0;
 let plansLoaded = false;
+let autoArmed = "";
 
 void loadPlans();
 setInterval(renderRaw, 30000);
@@ -90,6 +91,7 @@ function select(id) {
   }
   if (id === selected) return;
   selected = id;
+  loadAuto();
   params.set("plan", id);
   params.delete("session");
   history.replaceState(null, "", `/plan?${params}`);
@@ -109,6 +111,7 @@ async function loadPlan() {
   previousText = data.plan || "";
   loaded = data;
   loadedFor = id;
+  loadAuto();
   renderList();
   renderPlan();
   void renderGo();
@@ -199,7 +202,12 @@ async function renderGo() {
   roots.go.textContent = goState.running ? "Stop" : "Go";
   roots.go.classList.toggle("running", !!goState.running);
   roots.go.disabled = !goState.running && !goState.enabled;
+  roots.auto.disabled = !!goState.running;
   roots.go.title = goState.running ? "Stop the worker" : goState.enabled ? "Run the accepted items in plan order" : goState.refusal || "No item is waiting";
+  if (goState.running) roots.auto.value = goState.auto_continue || roots.auto.value;
+  if (autoArmed === selected && !goState.running && goState.auto_continue === "off") {
+    roots.auto.value = "off"; rememberAuto(); autoArmed = "";
+  }
   renderLint(goState.diagnostics);
   await renderDone();
 }
@@ -223,10 +231,15 @@ function renderLint(diagnostics) {
 roots.go.addEventListener("click", async () => {
   if (!selected) return;
   roots.go.disabled = true;
-  try { await api("/api/plan/go", { plan_id: selected, stop: !!goState.running }); }
+  try { autoArmed = selected; await api("/api/plan/go", { plan_id: selected, stop: !!goState.running, auto_continue: roots.auto.value }); }
   catch (error) { roots.done.hidden = false; roots.done.textContent = error.message; }
   finally { void renderGo(); }
 });
+roots.auto.addEventListener("change", rememberAuto);
+
+function autoKey() { return `agentb.plan.auto.${selected}`; }
+function rememberAuto() { if (selected) try { localStorage.setItem(autoKey(), roots.auto.value); } catch {} }
+function loadAuto() { try { roots.auto.value = localStorage.getItem(autoKey()) || "off"; } catch { roots.auto.value = "off"; } }
 
 // The done card: what finished, what is stuck and why. Nothing else.
 async function renderDone() {

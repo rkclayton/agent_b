@@ -24,6 +24,12 @@ If you cannot write the block, write `Proposals:` on its own line, then numbered
 `3. reorder: item 4 => after: item 1`, `4. drop: item 2`.
 Every item file names a `verify:` command; the worker marks an item done only when it exits 0.
 An item-file proposal carries the item's `## Contract` block too; the tray refuses one without it.
+Auto-continue may order only already-approved feature or defect items whose surfaces are code
+(run-loop, tools, llm, session, events, tests, scripts). Stop for UI, settings, security, install,
+prompt, release, production, identity, credential, destructive, new-scope, or new-item work, and
+never edit a running step. Every auto action appends one `planner:` line to NOTES.md. A newly
+drafted item is proposed, never auto-ordered, and must carry `@budget` plus one `@health` line
+naming the health number and expected movement.
 
 ## Authoring reference
 

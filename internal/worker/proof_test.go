@@ -128,6 +128,32 @@ func verified(driver *Driver) *Driver {
 	return driver
 }
 
+func TestAutoContinueCapsCodeOrdersAndStopsBeforeUIScope(t *testing.T) {
+	for _, test := range []struct {
+		name, secondSurfaces string
+		limit, wantRuns      int
+		wantStopped          bool
+	}{{"cap", "run-loop, tests", 2, 2, false}, {"scope", "ui, tests", -1, 1, true}} {
+		t.Run(test.name, func(t *testing.T) {
+			plan := newProofPlan(t)
+			_ = os.WriteFile(filepath.Join(plan.Dir, "plan.md"), []byte("# P\n\n- [ ] [[2aa]] first\n- [ ] [[2ab]] second\n"), 0o600)
+			writeItem(t, plan.Dir, "2aa", "kind: feature\nverify: pass\nsurfaces: run-loop, tests")
+			writeItem(t, plan.Dir, "2ab", "kind: defect\nverify: pass\nsurfaces: "+test.secondSurfaces)
+			worker := &session.Session{ID: "c", Role: "c", PlanID: "p"}
+			fake := newFake(events.NewBus(), worker)
+			driver := verified(New(fake.bus, fake, func() []*session.Session { return nil }))
+			summary, err := driver.GoAuto(context.Background(), worker, plan, `C:\repo`, test.limit)
+			if err != nil || len(fake.order) != test.wantRuns || summary.Stopped != test.wantStopped {
+				t.Fatalf("runs=%d summary=%+v err=%v", len(fake.order), summary, err)
+			}
+			notes, _ := os.ReadFile(filepath.Join(plan.Dir, "NOTES.md"))
+			if strings.Count(string(notes), "planner:") < test.wantRuns*2 {
+				t.Fatalf("planner notes=%q", notes)
+			}
+		})
+	}
+}
+
 // The whole loop, on a three-item plan with a seeded stuck item and a seeded
 // question: order, markers, events, the thread post, both routings, the done
 // card's numbers, and the plan-text refusal.

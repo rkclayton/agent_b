@@ -15,9 +15,10 @@ $stage = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptR
 foreach ($required in @('stage-candidate.mjs', 'sign-release.ps1', 'verify-deploy-candidate.ps1', 'Agent_b-setup.exe', 'DEPLOY COMPLETE')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy entry point does not require $required." }
 }
-foreach ($required in @('release.json', 'setup_sha256', 'webview2_loader', 'gh release create', 'gh release upload', 'rkclayton/agent_b')) {
+foreach ($required in @('release.json', 'setup_sha256', 'webview2_loader', 'release-notes', '--notes-file', 'release notes are missing', 'gh release create', 'gh release upload', 'rkclayton/agent_b')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy publication does not require $required." }
 }
+if ($deploy -match '--notes\s+"Agent_b') { throw 'Deploy still publishes a placeholder release body.' }
 foreach ($required in @('$commitExit', '$headExit', '$statusExit', 'test-signing-key-policies.ps1')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy entry point does not preserve host repair $required." }
 }

@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $candidate = Join-Path (Join-Path $repository 'candidates') $Tag
+$notesPath = Join-Path (Join-Path $repository 'release-notes') "$Tag.md"
 $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 . (Join-Path $repository 'scripts\removal-guard.ps1')
 . (Join-Path $PSScriptRoot 'deploy-candidate-state.ps1')
@@ -16,6 +17,9 @@ if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
     throw 'DEPLOY REFUSED: run deploy-release.ps1 from an ordinary, non-elevated console; it requests elevation once for signing only.'
 }
 Write-Host "DEPLOY PARENT: identity=$($identity.Name) elevated=false; staging, verification, and publication stay at this token"
+if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) {
+    throw "DEPLOY REFUSED: release notes are missing: $notesPath"
+}
 $commitOutput = @(& git -C $repository rev-parse "$Tag^{commit}" 2>&1)
 $commitExit = $LASTEXITCODE
 $commit = [string]($commitOutput | Select-Object -First 1)
@@ -85,7 +89,7 @@ $releaseManifestPath = Join-Path $candidate 'release.json'
 
 $repositoryName = 'rkclayton/agent_b'
 $setupPath = Join-Path $candidate 'Agent_b-setup.exe'
-$createLine = "gh release create $Tag --repo $repositoryName --verify-tag --title `"Agent_b $Tag`" --notes `"Agent_b $Tag`""
+$createLine = "gh release create $Tag --repo $repositoryName --verify-tag --title `"Agent_b $Tag`" --notes-file `"$notesPath`""
 $uploadLine = "gh release upload $Tag `"$setupPath`" `"$releaseManifestPath`" --repo $repositoryName --clobber"
 $gh = Get-Command gh.exe -ErrorAction SilentlyContinue
 if (-not $gh) {
@@ -93,7 +97,7 @@ if (-not $gh) {
     Write-Host "PUBLISH CARD: $uploadLine"
     throw 'DEPLOY REFUSED: GitHub CLI is unavailable; the release assets remain staged locally.'
 }
-& $gh.Source release create $Tag --repo $repositoryName --verify-tag --title "Agent_b $Tag" --notes "Agent_b $Tag"
+& $gh.Source release create $Tag --repo $repositoryName --verify-tag --title "Agent_b $Tag" --notes-file $notesPath
 if ($LASTEXITCODE -ne 0) {
     Write-Host "PUBLISH CARD: $createLine"
     Write-Host "PUBLISH CARD: $uploadLine"

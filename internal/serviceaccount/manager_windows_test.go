@@ -23,7 +23,11 @@ func TestStatusUsesReadOnlyScriptInspection(t *testing.T) {
 	}
 	account := "agentb-inspect-" + hex.EncodeToString(bytes)
 	manager := New(filepath.Join("..", "..", "scripts", "setup-service-account.ps1"))
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// A cold hosted Windows runner can spend most of ten seconds starting
+	// Windows PowerShell before this read-only inspection runs. Keep the test
+	// bounded, but use the same cold-start allowance as the hardening status
+	// inspection so concurrent CI jobs do not inherit a timing lottery.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	status, err := manager.Status(ctx, account)
 	if err != nil {

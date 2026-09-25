@@ -279,11 +279,14 @@ func (s *Server) agentMemoryRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err.Error(), "memory")
 		return
 	}
+	// A retained session can still project a note after another session already
+	// removed its durable line. Removal is idempotent: reconcile every live
+	// projection even when the file is already clean.
+	s.registry.RemoveAgentMemoryNote(body.AgentID, body.Note)
 	if !removed {
-		writeError(w, http.StatusNotFound, "agent memory entry not found", "memory")
+		writeJSON(w, 200, map[string]any{"removed": false, "already_absent": true})
 		return
 	}
-	s.registry.RemoveAgentMemoryNote(body.AgentID, body.Note)
 	writeJSON(w, 200, map[string]any{"removed": true})
 }
 

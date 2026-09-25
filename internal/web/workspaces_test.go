@@ -41,6 +41,7 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 	workspaces := workspaceinfo.New(data, memories.Path)
 	registry := session.NewRegistry(bus, writers, server.Connection, 40, server.ConfigSnapshot)
 	registry.SetMemoryLoader(memories.Load)
+	registry.SetAgentMemoryLoader(memories.LoadAgent)
 	registry.SetWorkspaceManager(workspaces)
 	server.SetRegistry(registry)
 	server.SetWorkspaceState(workspaces, memories)
@@ -120,12 +121,26 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 	if _, _, err := memories.NoteAgent("main", "transient ping output"); err != nil {
 		t.Fatal(err)
 	}
+	withMemory := call(http.MethodPost, "/api/sessions", map[string]any{"agent_id": "main"})
+	if withMemory.Code != http.StatusCreated || !bytes.Contains(withMemory.Body.Bytes(), []byte("transient ping output")) {
+		t.Fatalf("session did not load agent memory: %d %s", withMemory.Code, withMemory.Body.String())
+	}
+	// Reproduce production: the durable line is gone while an older session
+	// still projects it. The browser request must reconcile that stale view,
+	// not turn the already-completed deletion into a bare 404.
+	if removed, err := memories.RemoveAgent("main", "transient ping output"); err != nil || !removed {
+		t.Fatalf("fixture remove=%t err=%v", removed, err)
+	}
 	removed := call(http.MethodPost, "/api/agent-memory/remove", map[string]any{"agent_id": "main", "note": "transient ping output", "confirm": true})
-	if removed.Code != http.StatusOK {
+	if removed.Code != http.StatusOK || !bytes.Contains(removed.Body.Bytes(), []byte(`"already_absent":true`)) {
 		t.Fatalf("agent memory remove %d %s", removed.Code, removed.Body.String())
 	}
 	remaining, err := memories.ReadAgent("main")
 	if err != nil || strings.Contains(remaining, "transient ping output") {
 		t.Fatalf("remaining=%q err=%v", remaining, err)
+	}
+	fresh := call(http.MethodPost, "/api/sessions", map[string]any{"agent_id": "main"})
+	if fresh.Code != http.StatusCreated || bytes.Contains(fresh.Body.Bytes(), []byte("transient ping output")) {
+		t.Fatalf("fresh session retained removed agent memory: %d %s", fresh.Code, fresh.Body.String())
 	}
 }

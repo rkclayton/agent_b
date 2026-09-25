@@ -710,6 +710,9 @@ func (c Config) Save(path string) error {
 		return err
 	}
 	data = append(data, '\n')
+	if current, readErr := os.ReadFile(path); readErr == nil && bytes.Equal(current, data) {
+		return nil
+	}
 	return os.WriteFile(path, data, 0o600)
 }
 

@@ -67,10 +67,27 @@ async function eventCounts(directory, sessionIDs) {
   return result;
 }
 
+// Item 2l3: readiness is projected chat rows, never text. The empty state is a
+// .chat-empty div INSIDE #chat-log carrying its own words, so a page that has
+// projected nothing yet already satisfies "innerText is non-empty" -- which is
+// how this gate captured one side's empty state and called it a mismatch. Rows
+// arrive in batches and tool entries collapse, so the settled count is the
+// signal rather than a target number: wait until it stops moving.
+async function projectedRows(page, expectedRows) {
+  if (expectedRows <= 0) return page.waitForFunction(() => document.querySelector("#chat-log .chat-empty") !== null);
+  await page.waitForFunction(() => document.querySelectorAll("#chat-log .chat-entry").length > 0 && !document.querySelector("#chat-log .chat-empty"));
+  return page.waitForFunction(() => {
+    const count = document.querySelectorAll("#chat-log .chat-entry").length;
+    const settled = window.__agentbReplayRows === count;
+    window.__agentbReplayRows = count;
+    return settled;
+  }, null, { polling: 150 });
+}
+
 async function capture(page, base, id, path, expectedRows) {
   await page.goto(`${base}/chat?session=${encodeURIComponent(id)}&instant=1`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#chat-log");
-  if (expectedRows > 0) await page.waitForFunction(() => document.querySelector("#chat-log")?.innerText?.trim().length > 0);
+  await projectedRows(page, expectedRows);
   await page.waitForTimeout(250);
   const log = page.locator("#chat-log");
   await log.screenshot({ path });

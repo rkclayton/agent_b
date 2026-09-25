@@ -89,11 +89,14 @@ function Assert-AgentBProductionIncarnationUnchanged {
     [CmdletBinding()]
     param($Before, $After, [string]$Suite = 'suite')
     $deltas = [Collections.Generic.List[string]]::new()
-    foreach ($name in @('application_directory', 'processes', 'api_commit', 'server_started_at', 'executable', 'config', 'session_registry')) {
+    foreach ($name in @('application_directory', 'processes', 'api_commit', 'server_started_at', 'executable', 'session_registry')) {
         $left = $Before[$name] | ConvertTo-Json -Compress -Depth 8
         $right = $After[$name] | ConvertTo-Json -Compress -Depth 8
         if ($left -cne $right) { $deltas.Add($name) }
     }
+    $leftConfig = [ordered]@{ path = $Before.config.path; exists = $Before.config.exists; sha256 = $Before.config.sha256 }
+    $rightConfig = [ordered]@{ path = $After.config.path; exists = $After.config.exists; sha256 = $After.config.sha256 }
+    if (($leftConfig | ConvertTo-Json -Compress) -cne ($rightConfig | ConvertTo-Json -Compress)) { $deltas.Add('config') }
     if ($deltas.Count) { throw "PRODUCTION INCARNATION CHANGED during $Suite`: $($deltas -join ', ')" }
 }
 

@@ -317,12 +317,14 @@ func main() {
 	shellTool.SetFileCoordinator(coordinator)
 	shellTool.Configure(*cfg)
 	shellTool.SetCredentialStore(credentialStore)
+	inviteServiceSetup := false
 	if cfg.Shell.ServiceAccount.Enabled {
 		testContext, cancelTest := context.WithTimeout(context.Background(), 30*time.Second)
 		_, testErr := shellTool.TestServiceAccount(testContext)
 		cancelTest()
 		if testErr != nil {
 			const notice = "service identity not set up"
+			inviteServiceSetup = true
 			shellTool.SetServiceSplitNotice(notice)
 			log.Print(notice)
 		}
@@ -506,10 +508,33 @@ func main() {
 			}
 		}
 	}
+	if inviteServiceSetup {
+		publishServiceSetupInvitation(registry, bus)
+	}
 	publishPendingSigning(paths.Data, registry, bus)
 	if err := serve(cfg, web.Handler(), newLifetime(paths.Data, time.Now), paths.Application, web.BrowserBootstrapToken()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func publishServiceSetupInvitation(registry *session.Registry, bus *events.Bus) {
+	var newest *session.Session
+	for _, item := range registry.List() {
+		if item.IsClosed() || item.Role == "c" {
+			continue
+		}
+		if newest == nil || item.CreatedAt.After(newest.CreatedAt) || (item.CreatedAt.Equal(newest.CreatedAt) && item.ID > newest.ID) {
+			newest = item
+		}
+	}
+	if newest == nil {
+		return
+	}
+	bus.Publish(events.New(events.ServiceIdentityUnavailable, newest.ID, "", map[string]any{
+		"message": "Agent_b sets up its service identity now; Windows will ask once",
+		"action":  "provision",
+		"launch":  true,
+	}))
 }
 
 func allUsersInstallRequested(executable string, arguments []string) bool {

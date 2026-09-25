@@ -22,7 +22,7 @@ process.on("exit", () => {
 });
 
 function item(id) {
-  return ["state: live", "milestone: 0.2", "kind: feature", "surfaces: plan", "authorization: operator", "evidence: Fixture.", "acceptance: Fixture.", "", `# ${id} — fixture`, "", "## Unresolved", "", "(none)", ""].join("\n");
+  return ["state: live", "milestone: 0.2", "kind: feature", "surfaces: plan", "authorization: operator", "evidence: Fixture.", "acceptance: Fixture.", "", `# ${id} — fixture`, "", "## Contract", "", "@budget net LOC ≤ +10, new files 0, new deps 0, new config keys 0", "", "## Unresolved", "", "(none)", ""].join("\n");
 }
 
 function plan(orderID, work, release = "RELEASE: none") {

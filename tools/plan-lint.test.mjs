@@ -112,6 +112,18 @@ function prepare(root) {
 }
 
 {
+  const drafted = item("2a", { state: "proposed" })
+    .replace("evidence: Operator-authorized fixture scope.", "evidence: Planner draft from an auto-continue stop.")
+    .replace("Fixture body.", "## Contract\n\n@health LOC -20\n@budget net LOC ≤ +10, new files 0, new deps 0, new config keys 0\n\nFixture body.");
+  const root = makeFixture("\nNo product changes.", [{ id: "2a", where: "items", text: drafted }]);
+  prepare(root);
+  const missing = validateProposal({ ...loadPublishedProposal(root), itemContents: loadPublishedProposal(root).itemContents.map((entry) => entry.relative === "plan/items/2a.md" ? { ...entry, text: drafted.replace(/^@health.*\n/m, "") } : entry) });
+  assert.match(missing.errors.join("\n"), /planner draft needs one @health line/);
+  const complete = validateProposal(loadPublishedProposal(root));
+  assert.doesNotMatch(complete.errors.join("\n"), /planner draft/);
+}
+
+{
   const root = makeFixture("\nRequired reading: archived [[2b]] for context only.\n\n- W1 **2a executable work.**", [
     { id: "2a", where: "items", text: item("2a") },
     { id: "2b", where: "archive", text: item("2b", { state: "shipped" }).replace("evidence: Operator-authorized fixture scope.", "shipped: v0.1.0 abcdef0\nevidence: Recorded release evidence.") },

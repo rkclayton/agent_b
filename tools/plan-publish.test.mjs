@@ -31,7 +31,7 @@ function item(id, { state = "live", authorization = "operator", acceptance = "Fi
     "",
     `# ${id} — fixture item`,
     "",
-    "Fixture body.",
+    "## Contract", "", "@budget net LOC ≤ +10, new files 0, new deps 0, new config keys 0", "", "Fixture body.",
     "",
     "## Unresolved",
     "",
@@ -81,6 +81,12 @@ function expectPrepareFailure(root, candidate, pattern) {
   const before = activeBytes(root);
   assert.throws(() => preparePublication({ root, candidate }), pattern);
   assert.deepEqual(activeBytes(root), before, "failed preparation must leave active state byte-unchanged");
+}
+
+{
+  const root = makeRoot();
+  const withoutBudget = item("2b").replace(/^@budget.*\n/m, "");
+  expectPrepareFailure(root, makeCandidate(root, "- W1 **2b missing budget.**", [{ id: "2b", text: withoutBudget }]), /PUBLICATION BUDGET: ordered item 2b/);
 }
 
 {

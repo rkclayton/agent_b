@@ -95,9 +95,22 @@ function mergedProposal(root, candidateFiles) {
   };
 }
 
-function publicationErrors(planText) {
+function publicationErrors(planText, itemContents = []) {
   const count = [...String(planText).matchAll(/^## Current work order\b/gm)].length;
-  return count === 1 ? [] : [`PUBLICATION: found ${count} Current work order bodies; expected exactly one`];
+  const errors = count === 1 ? [] : [`PUBLICATION: found ${count} Current work order bodies; expected exactly one`];
+  const current = String(planText).match(/^## Current work order[^\n]*\n([\s\S]*?)(?=^## (?:Next work order|In flight|Index)|(?![\s\S]))/m)?.[1] ?? "";
+  const ids = new Set();
+  for (const block of current.matchAll(/^- W\d+\b[\s\S]*?(?=^- W\d+\b|$(?![\s\S]))/gm)) {
+    for (const match of block[0].matchAll(/\*\*(?:item\s+)?([0-9]+[a-z0-9]*)\b/gi)) ids.add(match[1].toLowerCase());
+  }
+  const items = new Map(itemContents.map(({ relative, text }) => [path.posix.basename(normalize(relative), ".md").toLowerCase(), text]));
+  for (const id of ids) {
+    const text = items.get(id) ?? "";
+    if (!/^@budget\s+net LOC\s*(?:≤|<=)\s*\+?\d+\s*,\s*new files?\s*(?:≤|<=)?\s*\+?\d+\s*,\s*new deps?\s*(?:≤|<=)?\s*\+?\d+\s*,\s*new config keys?\s*(?:≤|<=)?\s*\+?\d+/mi.test(text)) {
+      errors.push(`PUBLICATION BUDGET: ordered item ${id} needs a complete @budget line`);
+    }
+  }
+  return errors;
 }
 
 function indexedPlan(planText, indexSection, map = null) {
@@ -153,12 +166,12 @@ export function dryRunPublication({ root = defaultRoot, body }) {
     planText = replaceCurrentOrderBody(planText, orderBody);
   }
   const proposed = { planText, itemContents: published.itemContents, inputErrors: published.inputErrors };
-  const structural = validateProposal({ ...proposed, structuralOnly: true, inputErrors: [...proposed.inputErrors, ...publicationErrors(planText)], packageMap: published.packageMap });
+  const structural = validateProposal({ ...proposed, structuralOnly: true, inputErrors: [...proposed.inputErrors, ...publicationErrors(planText, proposed.itemContents)], packageMap: published.packageMap });
   // prepare regenerates the index before the admission pass, so a stale index is
   // not a finding here either; everything else is reported exactly as it would be.
   const regenerate = structural.errors.includes(staleIndexError) || structural.errors.includes(packageMapStaleError);
   const indexed = regenerate ? indexedPlan(planText, structural.indexSection, published.packageMap) : planText;
-  const result = validateProposal({ planText: indexed, itemContents: published.itemContents, inputErrors: [...published.inputErrors, ...publicationErrors(indexed)], packageMap: published.packageMap, releaseTags: published.releaseTags });
+  const result = validateProposal({ planText: indexed, itemContents: published.itemContents, inputErrors: [...published.inputErrors, ...publicationErrors(indexed, published.itemContents)], packageMap: published.packageMap, releaseTags: published.releaseTags });
   const reported = result.errors.filter((message) => message !== staleIndexError && message !== packageMapStaleError);
   // A body for the NEXT order names a different order id while this order's
   // markers are still live, so the marker-ownership check fires every time a
@@ -185,7 +198,7 @@ export function preparePublication({ root = defaultRoot, candidate }) {
   if (root === candidate) throw new Error("candidate must be outside active plan state");
   const candidateFiles = archiveOnSeal(root, readCandidate(candidate));
   const proposed = mergedProposal(root, candidateFiles);
-  const extraErrors = publicationErrors(proposed.planText);
+  const extraErrors = publicationErrors(proposed.planText, proposed.itemContents);
   const first = validateProposal({ ...proposed, structuralOnly: true, inputErrors: [...proposed.inputErrors, ...extraErrors] });
   const nonIndexErrors = first.errors.filter((message) => message !== staleIndexError && message !== packageMapStaleError);
   if (nonIndexErrors.length) throw validationFailure(nonIndexErrors);
@@ -193,7 +206,7 @@ export function preparePublication({ root = defaultRoot, candidate }) {
   const generatedPlan = indexedPlan(proposed.planText, first.indexSection, proposed.packageMap);
   const generatedFiles = candidateFiles.map((entry) => entry.relative === "PLAN.md" ? { ...entry, text: generatedPlan } : entry);
   const combined = mergedProposal(root, generatedFiles);
-  const result = validateProposal({ ...combined, inputErrors: [...combined.inputErrors, ...publicationErrors(generatedPlan)] });
+  const result = validateProposal({ ...combined, inputErrors: [...combined.inputErrors, ...publicationErrors(generatedPlan, combined.itemContents)] });
   if (result.errors.length) throw validationFailure(result.errors);
 
   writeExact(path.join(candidate, "PLAN.md"), generatedPlan);
@@ -263,7 +276,7 @@ export function publishPublication({ root = defaultRoot, candidate }) {
 
   const files = readSealedCandidate(candidate, manifest);
   const combined = mergedProposal(root, files);
-  const result = validateProposal({ ...combined, inputErrors: [...combined.inputErrors, ...publicationErrors(combined.planText)] });
+  const result = validateProposal({ ...combined, inputErrors: [...combined.inputErrors, ...publicationErrors(combined.planText, combined.itemContents)] });
   if (result.errors.length) throw validationFailure(result.errors);
   if (result.proposalId !== manifest.proposal_id) throw new Error("publication refused: validated proposal identity does not match the seal");
   publishTransaction(root, files);

@@ -321,6 +321,9 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
     if (lines > 100) warnings.push(`${relative}: long item (${lines} lines)`);
     const unresolvedText = unresolved ? unresolved[1].trim() : null;
     const contract = body.match(/^## Contract\s*$\n([\s\S]*?)(?=^## |$(?![\s\S]))/mi)?.[1] ?? "";
+	const plannerDraft = state === "proposed" && /planner draft/i.test(metadata.get("evidence") ?? "");
+	if (plannerDraft && !/^@budget\s+net LOC\s*(?:≤|<=)\s*\+?\d+/mi.test(contract)) errors.push(`${relative}: planner draft needs a complete @budget line`);
+	if (plannerDraft && !/^@health\s+(?:warnings|tests|LOC|files|deps|config keys|tokens this order)\s+[+-]\d+\s*$/mi.test(contract)) errors.push(`${relative}: planner draft needs one @health line naming a health number and signed movement`);
     const causalClaim = /\[causal\]/i.test(contract);
     const repairScope = kind === "defect" && /^@change\b/im.test(contract);
     if (repairScope && causalClaim && !namesDistinguishingMeasurement(body)) {

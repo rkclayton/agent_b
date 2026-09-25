@@ -59,6 +59,7 @@ const (
 	ModelProgress              = "model.progress"
 	ModelDelta                 = "model.delta"
 	ModelResponse              = "model.response"
+	DelegatedUsage             = "delegate.usage"
 	ModelRetry                 = "model.retry"
 	ModelUnreachable           = "model.unreachable"
 	ModelBusy                  = "model.busy"

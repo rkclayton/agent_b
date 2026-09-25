@@ -70,10 +70,10 @@ func AgentID(name string) string {
 	return strings.Trim(id, "-")
 }
 
-// Item 2ho (v1.6.0): TWELVE. web_search follows fetch_url because both are
-// public-network reads; every older tool keeps its relative position.
+// Item 2ka: delegate follows the twelve established tools; every older tool
+// keeps its relative position.
 func FullToolset() []string {
-	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"}
+	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate"}
 }
 
 // MergedSearchNames are the two tools `search` replaced. A configuration
@@ -1050,6 +1050,12 @@ func ConnectionSetupReason(connection *Connection) string {
 
 func applyDefaults(c *Config) {
 	d := Defaults(c.Workspace)
+	legacyFull := FullToolset()[:12]
+	for index := range c.Agents {
+		if equalStrings(c.Agents[index].Toolset, legacyFull) {
+			c.Agents[index].Toolset = append(append([]string(nil), legacyFull...), "delegate")
+		}
+	}
 	if c.ConfigVersion == 0 {
 		c.ConfigVersion = CurrentConfigVersion
 	}

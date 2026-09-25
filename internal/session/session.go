@@ -91,6 +91,7 @@ type Snapshot struct {
 type Session struct {
 	ID, Label, AgentID, ConnectionID, Workspace          string
 	Role, PlanID, PlanName, PlanDir, PlanRepo, PlansRoot string
+	ParentSessionID                                      string
 	// Item 5f (v1.2.5): cards refused while unattended, for this run.
 	boundaryHits           []string
 	WorkspaceMissing       bool
@@ -180,7 +181,7 @@ func (s *Session) Snapshot() Snapshot {
 // SnapshotUnlocked is for registry mutations that already hold the session lock.
 func (s *Session) SnapshotUnlocked() Snapshot {
 	tools := make([]ToolState, 0, len(s.ToolsEnabled))
-	for _, name := range []string{"read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "web_search", "find_files", "run_script", "call_service"} {
+	for _, name := range []string{"read_file", "list_dir", "write_file", "edit_file", "search_text", "shell", "remember", "recall", "fetch_url", "web_search", "find_files", "run_script", "call_service", "delegate"} {
 		enabled, ok := s.ToolsEnabled[name]
 		if ok {
 			tools = append(tools, ToolState{Name: name, Enabled: enabled, Calls: s.ToolCalls[name], SchemaTokens: s.SchemaTokens[name], MarginalTokens: s.MarginalTokens[name]})
@@ -245,7 +246,7 @@ func (s *Session) ReadRoot(path string) (string, error) {
 		}
 	}
 	// c reads its bound repo the way b reads any registered one.
-	if (s.Role == "b" || s.Role == "c") && filepath.IsAbs(candidate) {
+	if (s.Role == "b" || s.Role == "c" || s.Role == "e") && filepath.IsAbs(candidate) {
 		if root := s.planRepoRootLocked(candidate); root != "" {
 			s.touchPlanRepoLocked(root)
 			return root, nil

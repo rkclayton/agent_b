@@ -100,6 +100,22 @@ test("Security renders the LAN switch and detected confirmation list", () => {
 	// The subnets ride the switch's own row rather than a block beneath it.
 });
 
+test("Security names each service identity state and offers only Set up or Repair", () => {
+	const cases = [
+		[{ state: "missing", exists: false, action: "Set up" }, /account not created[\s\S]*>Set up</],
+		[{ state: "missing_credential", exists: true, action: "Repair" }, /account exists · credential missing[\s\S]*>Repair</],
+		[{ state: "invalid_credential", exists: true, action: "Repair" }, /account exists · credential rejected[\s\S]*>Repair</],
+		[{ state: "ready", exists: true, action: "" }, /account and credential ready/],
+	];
+	for (const [status, expected] of cases) {
+		const context = pageContext();
+		context.serviceAccountStatus = { loaded: true, supported: true, administrator: false, ...status };
+		context.connectionList = () => [{ id: "local", label: "Local", base_url: "http://127.0.0.1:8080" }];
+		context.selectedHardeningConnectionID = () => "local";
+		assert.match(renderSecurityPage("shell", null, context), expected);
+	}
+});
+
 test("Connections summary row never renders decoder detail verbatim", () => {
 	const context = pageContext();
 	const connection = { id: "fake", label: "Fake", base_url: "http://fake/", capabilities: { findings: ["probe failed: Connection returned a web page, not model API JSON. Add the API path to base_url.", "probe detail: invalid character '<' looking for beginning of value"] } };

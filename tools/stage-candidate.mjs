@@ -59,6 +59,12 @@ export function windowsPowerShellEnvironment(environment = process.env) {
   return { ...environment, PSModulePath: paths.join(path.win32.delimiter) };
 }
 
+export function requireProductIcon(root) {
+  const icon = path.join(root, "web", "assets", "Agent_b.ico");
+  if (!fs.existsSync(icon) || !fs.statSync(icon).isFile()) throw new Error(`staged product icon is missing: ${icon}`);
+  return icon;
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
   if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} exited ${result.status}`);
@@ -83,6 +89,7 @@ function stage(tag) {
   } finally {
     fs.rmSync(tar, { force: true });
   }
+  requireProductIcon(target);
   const powershell = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
   run(powershell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(target, "tools", "build-candidate.ps1"),
     "-SourceDirectory", target, "-Commit", sha, "-Dirty", "false", "-ExpectedTag", tag], { env: windowsPowerShellEnvironment() });

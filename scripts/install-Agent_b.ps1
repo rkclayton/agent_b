@@ -35,7 +35,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 . (Join-Path $PSScriptRoot 'install-root-policy.ps1')
-$displayVersion = '1.10.0'
+$displayVersion = '1.11.0'
 
 if (-not $TestMode -and -not $EmbeddedBundle) {
     Write-Output 'Agent_b installs come from the signed Agent_b-setup.exe on the release page.'
@@ -850,7 +850,7 @@ $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = Join-Path $applicationRoot 'Agent_b.exe'
 $shortcut.Arguments = '-window -config "' + (Join-Path $dataRoot 'harness.json') + '" -app-root "' + $applicationRoot + '" -data-root "' + $dataRoot + '"'
 $shortcut.WorkingDirectory = $dataRoot
-$shortcut.IconLocation = (Join-Path $applicationRoot 'Agent_b.exe') + ',0'
+$shortcut.IconLocation = "$iconPath,0"
 $shortcut.Description = 'Open Agent_b'
 $shortcut.Save()
 

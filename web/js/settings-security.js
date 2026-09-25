@@ -13,12 +13,18 @@ function shell(active) {
 		? "checking local account…"
 		: !serviceAccountStatus.supported
 			? "local account setup is available only on Windows"
-			: serviceAccountStatus.exists
-				? `${service.account || "agentb-svc"} · ${serviceAccountStatus.enabled ? "enabled" : "disabled"}${serviceAccountStatus.administrator ? " · ADMINISTRATOR — refused" : !serviceAccountStatus.users_member ? " · Users membership missing" : " · non-admin"}`
-				: "not created";
+			: serviceAccountStatus.state === "ready"
+				? "agentb-svc · account and credential ready"
+				: serviceAccountStatus.state === "missing_credential"
+					? "agentb-svc · account exists · credential missing"
+					: serviceAccountStatus.state === "invalid_credential"
+						? "agentb-svc · account exists · credential rejected"
+						: serviceAccountStatus.state === "administrator"
+							? "agentb-svc · ADMINISTRATOR — refused"
+							: "agentb-svc · account not created";
 	const setupLabel = serviceAccountBusy
 		? "Waiting for Windows UAC…"
-		: "Set up service identity";
+		: serviceAccountStatus.action || (serviceAccountStatus.exists ? "Repair" : "Set up");
 	const connection = connectionList().find((item) => item.id === selectedHardeningConnectionID());
 	const setupDisabled = serviceAccountBusy || !serviceAccountStatus.loaded || !serviceAccountStatus.supported || serviceAccountStatus.administrator || !connection;
 	const protectionReady = hardeningStatus.acl?.applied && hardeningStatus.firewall?.applied;
@@ -67,7 +73,7 @@ function shell(active) {
 	const subnetChoices = detectedSubnets.length
 		? detectedSubnets.map((subnet) => `<label class="settings-chip"><input type="checkbox" data-local-subnet value="${attr(subnet)}" ${confirmedSubnets.has(subnet) ? "checked" : ""} ${lanEnabled ? "" : "disabled"}> ${html(subnet)}</label>`).join("")
 		: '<span class="settings-chip-empty">none detected</span>';
-	const setupOpen = !(service.enabled && serviceAccountStatus.exists && credential.stored);
+	const setupOpen = serviceAccountStatus.state !== "ready";
   return `${subhead("Operator mode", "Run everything as you for 20 minutes. This is the one line that stays visible because misreading it is dangerous.")}
 	${row("identity", `<button type="button" class="settings-operator-status" data-action="operator-context" aria-pressed="${operatorView.active}" aria-label="${attr(operatorView.label)}"><img src="${operatorView.src}" srcset="${operatorView.srcset}" width="24" height="24" alt=""><span>${operatorView.active ? "Stop running everything as me" : "Run everything as me for 20 minutes"}</span></button>`, "", "Runs every tool as you, without the service account's limits, for 20 minutes or until you stop it.")}
 	<p class="settings-note">This defeats the service-account OS boundary for every tool in every chat until it expires.</p>
@@ -80,7 +86,7 @@ function shell(active) {
 	  <summary>Set up service identity</summary>
 	  <p class="settings-note">Agent_b generates and stores the password. One Windows approval creates or repairs the account, folder access and outbound policy, then tests the credential before enabling it.</p>
 	  ${store.shell_identity?.notice ? `<p class="settings-feedback alarm" role="status">${html(store.shell_identity.notice)}</p>` : ""}
-	  ${row("account", `<span class="account-status"><span class="lamp ${serviceAccountStatus.administrator ? "alarm" : serviceAccountStatus.exists ? "live" : ""}"></span>${html(accountState)}</span>`)}
+	  ${row("account", `<span class="account-status"><span class="lamp ${serviceAccountStatus.state === "ready" ? "live" : serviceAccountStatus.loaded ? "alarm" : ""}"></span>${html(accountState)}</span>`)}
 	  ${row("credential", `<span class="account-status">${html(stored)}</span>`)}
 	  ${subhead("Host protections", "Folder access and outbound policy applied to the service identity.")}
 	  ${row("protections", `<span class="account-status"><span class="lamp ${protectionReady ? "live" : hardeningStatus.loaded ? "alarm" : ""}"></span>${html(protectionState)}</span>`)}

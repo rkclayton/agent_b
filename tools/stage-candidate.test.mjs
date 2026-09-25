@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { stagedToRemove, windowsPowerShellEnvironment, workerScratch, workerScratchRoot } from "./stage-candidate.mjs";
+import { requireProductIcon, stagedToRemove, windowsPowerShellEnvironment, workerScratch, workerScratchRoot } from "./stage-candidate.mjs";
 
 test("only the three newest staged versions are kept, by version and not by name", () => {
   const names = ["v0.69.0", "v0.70.0", "v0.69.1", "v0.9.0", "v0.10.0", "notes", "v1.0"];
@@ -28,4 +30,13 @@ test("Windows PowerShell staging receives only native module roots", () => {
     "C:\\Program Files\\WindowsPowerShell\\Modules",
     "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules",
   ].join(path.win32.delimiter));
+});
+
+test("staging refuses a candidate without the product icon", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentb-icon-test-"));
+  try {
+    assert.throws(() => requireProductIcon(root), /staged product icon is missing/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

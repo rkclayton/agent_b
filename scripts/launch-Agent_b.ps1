@@ -16,6 +16,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$portConflictExitCode = 73
 if ([string]::IsNullOrWhiteSpace($ApplicationDirectory)) {
     $ApplicationDirectory = Split-Path -Parent $PSScriptRoot
 }
@@ -350,6 +351,10 @@ public static extern bool CreateProcess(string app, string commandLine, IntPtr p
     if ($state -eq 'exited') {
         $process.WaitForExit()
         $detail = Get-AgentBStartupFailure -StartupLogPath $startupCapture -Port ([Uri]$url).Port
+		if ($detail -match '^listen port \d+ is already in use:') {
+			[Console]::Error.WriteLine("Agent_b failed to start: $detail (exit code $($process.ExitCode)). Diagnostics: $startupCapture")
+			exit $portConflictExitCode
+		}
         throw "Agent_b failed to start: $detail (exit code $($process.ExitCode)). Diagnostics: $startupCapture"
     }
     if ($state -eq 'timeout') {

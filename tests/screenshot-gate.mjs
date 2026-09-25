@@ -99,19 +99,28 @@ const sidecar = async (path) => {
 // gate compares every baseline capture with the candidate's.
 export async function gate(baselineDir, candidateDir, { tolerance = 2 } = {}) {
   const results = [];
-  for (const path of (await pngs(baselineDir)).sort()) {
+  const paths = (await pngs(baselineDir)).sort();
+  const sidecars = [];
+  for (const path of paths) {
+    const name = relative(baselineDir, path).replaceAll("\\", "/");
+    sidecars.push(...await Promise.all([sidecar(path), sidecar(join(candidateDir, name))]));
+  }
+  const present = new Set(sidecars.flatMap((value) => (value?.masks ?? []).filter((mask) => mask.rects?.length).map((mask) => mask.name)));
+  for (const path of paths) {
     const name = relative(baselineDir, path).replaceAll("\\", "/");
     let candidate;
     try { candidate = await readFile(join(candidateDir, name)); } catch { results.push({ name, verdict: "missing" }); continue; }
     const [baseMasks, candidateMasks] = await Promise.all([sidecar(path), sidecar(join(candidateDir, name))]);
-    const stale = [...(baseMasks?.masks ?? []), ...(candidateMasks?.masks ?? [])].filter((mask) => mask.missing).map((mask) => `${mask.name}: ${mask.reason || "selector matched no element"}`);
+    const declared = [...(baseMasks?.masks ?? []), ...(candidateMasks?.masks ?? [])];
+    const stale = [...new Set(declared.filter((mask) => mask.missing && !present.has(mask.name)).map((mask) => `${mask.name}: ${mask.reason || "selector matched no element"}`))];
     if (stale.length) { results.push({ name, verdict: "stale-mask", mask_errors: stale }); continue; }
+    const skipped_masks = [...new Set(declared.filter((mask) => mask.missing && present.has(mask.name)).map((mask) => mask.name))].sort();
     const masks = trustedMasks(baseMasks, candidateMasks);
     const before = decodePNG(await readFile(path));
     const outcome = compareMasked(before, decodePNG(candidate), masks, { tolerance });
     outcome.masked_percent = +(maskedArea(masks, before.width, before.height) * 100).toFixed(2);
     const verdict = outcome.outside ? "unexplained" : outcome.inside ? "masked" : "match";
-    results.push({ name, verdict, ...outcome, masks: masks.map((mask) => `${mask.name}×${mask.rects.length}`), sidecars: { baseline: Boolean(baseMasks), candidate: Boolean(candidateMasks) } });
+    results.push({ name, verdict, ...outcome, masks: masks.map((mask) => `${mask.name}×${mask.rects.length}`), skipped_masks, sidecars: { baseline: Boolean(baseMasks), candidate: Boolean(candidateMasks) } });
   }
   return results;
 }
@@ -123,6 +132,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   if (args.length !== 2) { console.error("usage: node tests/screenshot-gate.mjs BASELINE_DIR CANDIDATE_DIR [--report FILE]"); process.exit(2); }
   const results = await gate(args[0], args[1]);
   for (const r of results) {
+    if (r.skipped_masks?.length) console.log(`SKIP MASK ${r.name}: ${r.skipped_masks.join(", ")} (element absent from this capture)`);
     if (r.verdict === "missing") console.log(`MISSING ${r.name}`);
     else if (r.verdict === "stale-mask") console.log(`STALE MASK ${r.name}: ${r.mask_errors.join("; ")}`);
     else if (r.verdict === "unexplained") console.log(`UNEXPLAINED ${r.name} ${r.outside} px outside authorized dynamic regions ${JSON.stringify(r.bounds)}${r.inside ? `; ${r.inside} px inside (${r.masksHit.join(", ")})` : ""}`);

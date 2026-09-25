@@ -258,6 +258,7 @@ if ($Inspect) {
             Where-Object { $_.SID -eq $inspected.SID })
         $isUser = [bool](Get-LocalGroupMember -Group $users -ErrorAction SilentlyContinue |
             Where-Object { $_.SID -eq $inspected.SID })
+		$lockedOut = [bool](Get-CimInstance Win32_UserAccount -Filter "LocalAccount=True AND Name='$($AccountName.Replace("'", "''"))'" -ErrorAction SilentlyContinue).Lockout
     }
     $status = [ordered]@{
         supported = $true
@@ -266,6 +267,7 @@ if ($Inspect) {
         enabled = [bool]($inspected -and $inspected.Enabled)
         administrator = $isAdministrator
         users_member = $isUser
+		locked_out = $lockedOut
         harness_elevated = (Test-IsAdministrator)
     }
     Write-Output "AGENTB_ACCOUNT_STATUS=$($status | ConvertTo-Json -Compress)"

@@ -29,6 +29,7 @@ try {
     try {
         Copy-Item 'C:\projects\agentb\scripts\removal-guard.ps1' (Join-Path $stage 'a.ps1')
         Copy-Item 'C:\projects\agentb\tools\build-icon.ps1' (Join-Path $stage 'b.ps1')
+        [IO.File]::WriteAllText((Join-Path $stage 'runtime-scripts.txt'), "a.ps1`nb.ps1`nscripts/launch-hidden.vbs`nscripts/launch-installed.cmd`nscripts/webview2-loader.json`n", [Text.UTF8Encoding]::new($false))
         Copy-Item 'C:\projects\agentb\harness.example.json' (Join-Path $stage 'harness.example.json')
         $untouchedBefore = (Get-FileHash (Join-Path $stage 'harness.example.json') -Algorithm SHA256).Hash
 

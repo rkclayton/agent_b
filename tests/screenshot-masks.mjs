@@ -15,7 +15,7 @@ export const LIVE_VALUES = [
   // Item 2jh: these two values are genuine process/check clocks. Their exact
   // time glyphs may change while the labels, punctuation, version, controls,
   // layout, and every surrounding pixel remain under exact comparison.
-  { name: "server-started-clock", reason: "the About server-started value is the current process incarnation's clock", selector: ".settings-server-started", requiredWithin: ".settings-build-text, .settings-server-started, .settings-update-checked" },
+  { name: "server-started-clock", reason: "the About server-started value and release suffix change with the process", selector: ".settings-server-value", requiredWithin: ".settings-build-text, .settings-server-value, .settings-update-checked" },
   { name: "update-checked-clock", reason: "the About checked value is the most recent update-check clock", selector: ".settings-update-checked", requiredWithin: ".settings-build-text, .settings-server-started, .settings-update-checked" },
   // The app writes a duration as a number, a space, then ms or s ("67 ms",
   // "5.2 s"); prose such as "3s" or "1990s" is not one (v1.0.0/W4 cold review).

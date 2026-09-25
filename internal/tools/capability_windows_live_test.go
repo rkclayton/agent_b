@@ -60,6 +60,10 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		t.Fatalf("decode gated configuration: %v", err)
 	}
 	serviceSplitEnabled := connection.Shell.ServiceAccount.Enabled
+	if serviceSplitEnabled && os.Getenv("AGENTB_CAPABILITY_OWNS_SERVICE_ACCOUNT") != "1" {
+		t.Log("not exercised: prerequisite — service split fixture does not own a disposable account and credential")
+		serviceSplitEnabled = false
+	}
 	cfg.Shell.ServiceAccount.Enabled = serviceSplitEnabled
 	t.Logf("gate configuration: service split enabled=%t", serviceSplitEnabled)
 	guard := false

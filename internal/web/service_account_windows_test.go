@@ -160,11 +160,12 @@ func TestServiceAccountStatusNamesFourProvisioningStates(t *testing.T) {
 		{name: "missing account", state: "missing", action: "Set up"},
 		{name: "existing account missing credential", exists: true, state: "missing_credential", action: "Repair"},
 		{name: "existing account valid credential", exists: true, stored: true, works: true, state: "ready"},
-		{name: "existing account invalid credential", exists: true, stored: true, state: "invalid_credential", action: "Repair"},
+		{name: "existing account invalid credential", exists: true, stored: true, state: "credential_check_failed", action: "Repair"},
+		{name: "locked account", exists: true, stored: true, state: "locked_out", action: "Repair"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Exists: tt.exists, Enabled: true}}
+			manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Exists: tt.exists, Enabled: true, LockedOut: tt.state == "locked_out"}}
 			server, store, _ := serviceAccountTestServer(t, manager)
 			if tt.stored {
 				if err := store.Write([]byte(randomTestPassword(t))); err != nil {
@@ -184,6 +185,44 @@ func TestServiceAccountStatusNamesFourProvisioningStates(t *testing.T) {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body)
 			}
 		})
+	}
+}
+
+func TestRejectedCredentialIsPresentedOnceAndTransientFailureRetries(t *testing.T) {
+	manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Exists: true, Enabled: true}}
+	server, store, _ := serviceAccountTestServer(t, manager)
+	if err := store.Write([]byte(randomTestPassword(t))); err != nil {
+		t.Fatal(err)
+	}
+	attempts := 0
+	server.shellTest = func(context.Context) (string, error) {
+		attempts++
+		return "credential rejected", tools.ErrServiceCredentialRejected
+	}
+	for range 2 {
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/service-account", nil))
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"invalid_credential"`) {
+			t.Fatalf("body=%s", response.Body)
+		}
+	}
+	if attempts != 1 || store.Status().Stored {
+		t.Fatalf("attempts=%d stored=%v", attempts, store.Status().Stored)
+	}
+
+	server.credentialRejected = false
+	if err := store.Write([]byte(randomTestPassword(t))); err != nil {
+		t.Fatal(err)
+	}
+	server.shellTest = func(context.Context) (string, error) {
+		attempts++
+		return "temporary failure", errors.New("temporary failure")
+	}
+	for range 2 {
+		server.Handler().ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/service-account", nil))
+	}
+	if attempts != 3 || !store.Status().Stored {
+		t.Fatalf("transient attempts=%d stored=%v", attempts, store.Status().Stored)
 	}
 }
 

@@ -40,70 +40,71 @@ import (
 )
 
 type Server struct {
-	mu                sync.RWMutex
-	cfg               *config.Config
-	configPath        string
-	roots             RuntimeRoots
-	bus               *events.Bus
-	registry          *session.Registry
-	webDir            string
-	worker            *worker.Driver
-	workerStates      map[string]workerState
-	scheduler         *agent.Scheduler
-	runner            *agent.Runner
-	prompt            *agent.PromptRenderer
-	replay            *projection.Replay
-	projector         *projection.Store
-	writers           *events.Writers
-	credential        *credential.Store
-	notifications     notificationManager
-	notificationStore *credential.Store
-	updater           *updater.Manager
-	shell             *tools.Shell
-	account           serviceaccount.Manager
-	hardening         hardening.Manager
-	hardeningMu       sync.RWMutex
-	hardeningOp       hardeningOperation
-	signing           signing.Manager
-	signingMu         sync.Mutex
-	signingStatus     signing.Status
-	shellTest         func(context.Context) (string, error)
-	accountMu         sync.Mutex
-	mutationToken     string
-	operatorChangeMu  sync.Mutex
-	operatorMu        sync.Mutex
-	operatorEnabled   bool
-	operatorExpires   string
-	operatorTimer     operatorTimer
-	operatorEpoch     uint64
-	operatorRequest   func(*http.Request) error
-	operatorNow       func() time.Time
-	operatorAfter     func(time.Duration, func()) operatorTimer
-	browserSession    string
-	phoneDevices      *phoneDevices
-	push              *push.Manager
-	openFolder        func(string) error
-	openFile          func(string) error
-	extractClient     *http.Client
-	ocrExtract        func(string) (string, error)
-	ocrPDF            func(string, int) (string, error)
-	detectLocal       func(context.Context, string) (any, error)
-	workspaceState    *workspaceinfo.Manager
-	memoryState       *memory.Manager
-	reflection        *reflectionState
-	proposals         *proposalOffers
-	speech            speechProbe
-	speechCommand     func(context.Context, string, ...string) *exec.Cmd
-	modelInstaller    *modelinstall.Manager
-	measureMu         sync.RWMutex
-	measurements      map[string]measureState
-	measureCancels    map[string]context.CancelFunc
-	statsState        *stats.Manager
-	operatorFiles     *operatorfiles.Manager
-	profiles          *profiles.Manager
-	profileChanged    func(string) error
-	probeMu           sync.Mutex
-	probeCancels      map[string]*probeRun
+	mu                 sync.RWMutex
+	cfg                *config.Config
+	configPath         string
+	roots              RuntimeRoots
+	bus                *events.Bus
+	registry           *session.Registry
+	webDir             string
+	worker             *worker.Driver
+	workerStates       map[string]workerState
+	scheduler          *agent.Scheduler
+	runner             *agent.Runner
+	prompt             *agent.PromptRenderer
+	replay             *projection.Replay
+	projector          *projection.Store
+	writers            *events.Writers
+	credential         *credential.Store
+	notifications      notificationManager
+	notificationStore  *credential.Store
+	updater            *updater.Manager
+	shell              *tools.Shell
+	account            serviceaccount.Manager
+	hardening          hardening.Manager
+	hardeningMu        sync.RWMutex
+	hardeningOp        hardeningOperation
+	signing            signing.Manager
+	signingMu          sync.Mutex
+	signingStatus      signing.Status
+	shellTest          func(context.Context) (string, error)
+	accountMu          sync.Mutex
+	credentialRejected bool
+	mutationToken      string
+	operatorChangeMu   sync.Mutex
+	operatorMu         sync.Mutex
+	operatorEnabled    bool
+	operatorExpires    string
+	operatorTimer      operatorTimer
+	operatorEpoch      uint64
+	operatorRequest    func(*http.Request) error
+	operatorNow        func() time.Time
+	operatorAfter      func(time.Duration, func()) operatorTimer
+	browserSession     string
+	phoneDevices       *phoneDevices
+	push               *push.Manager
+	openFolder         func(string) error
+	openFile           func(string) error
+	extractClient      *http.Client
+	ocrExtract         func(string) (string, error)
+	ocrPDF             func(string, int) (string, error)
+	detectLocal        func(context.Context, string) (any, error)
+	workspaceState     *workspaceinfo.Manager
+	memoryState        *memory.Manager
+	reflection         *reflectionState
+	proposals          *proposalOffers
+	speech             speechProbe
+	speechCommand      func(context.Context, string, ...string) *exec.Cmd
+	modelInstaller     *modelinstall.Manager
+	measureMu          sync.RWMutex
+	measurements       map[string]measureState
+	measureCancels     map[string]context.CancelFunc
+	statsState         *stats.Manager
+	operatorFiles      *operatorfiles.Manager
+	profiles           *profiles.Manager
+	profileChanged     func(string) error
+	probeMu            sync.Mutex
+	probeCancels       map[string]*probeRun
 	// Item 2gy: how many inconclusive probes a connection has had in a row, which
 	// is where it stands on the backoff ladder.
 	probeRetries      map[string]int

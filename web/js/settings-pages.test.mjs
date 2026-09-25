@@ -82,7 +82,7 @@ test("About exposes only build identity and exact clock values to screenshot mas
   context.row = (_label, value) => value;
   const page = renderAboutPage(context);
   assert.match(page, /<code class="settings-build-text">v0\.49\.0 · abcdef0 · signed<\/code>/);
-  assert.match(page, /server started <time class="settings-server-started">unknown<\/time>, v0\.49\.0/);
+	assert.match(page, /class="settings-server-value">server started <time class="settings-server-started">unknown<\/time>, v0\.49\.0/);
   assert.match(page, /checked <time class="settings-update-checked">never<\/time>/);
 });
 

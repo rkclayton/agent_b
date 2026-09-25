@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$CandidateDirectory,
     [Parameter(Mandatory = $true)][string]$ExpectedTag,
-    [Parameter(Mandatory = $true)][string]$ExpectedCommit
+    [Parameter(Mandatory = $true)][string]$ExpectedCommit,
+    [switch]$TestUnsignedInstalledFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,10 +44,11 @@ if ($signature.Status -ne 'Valid') { $problems += "setup Authenticode status is 
 if (-not $signature.TimeStamperCertificate) { $problems += 'setup has no Authenticode timestamp' }
 if ($problems.Count) { throw "DEPLOY REFUSED: $($problems -join '; ')." }
 
-# Execute the signed single-file setup's extraction and preflight without
-# launching the product. TestMode/WhatIf keep every target disposable;
-# -NoStart is the same opt-out automation and the installer suite use.
+# Install the signed single-file setup without launching the product. TestMode
+# pins every target below the disposable root; -NoStart prevents a listener.
 $verifyRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-deploy-verify-' + [Guid]::NewGuid().ToString('N'))
+$registryPath = 'HKCU:\Software\Agent_b-Deploy-Verify-' + [Guid]::NewGuid().ToString('N')
+$verificationPassed = $false
 try {
     $application = Join-Path $verifyRoot 'Application\Agent_b'
     $data = Join-Path $verifyRoot 'Data\Agent_b'
@@ -58,30 +60,38 @@ try {
     $savedErrorActionPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
-        $output = (& $setup --quiet --install-data (Join-Path $verifyRoot 'Data') -NoStart -ApplicationDirectory $application -DataDirectory $data -WorkspaceDirectory $workspace -StartMenuDirectory (Join-Path $verifyRoot 'StartMenu') -UninstallRegistryPath ('HKCU:\Software\Agent_b-Deploy-Verify-' + [Guid]::NewGuid().ToString('N')) -TestMode -WhatIf 2>&1 | Out-String)
+        $output = (& $setup --quiet --install-data (Join-Path $verifyRoot 'Data') -NoStart -ApplicationDirectory $application -DataDirectory $data -WorkspaceDirectory $workspace -StartMenuDirectory (Join-Path $verifyRoot 'StartMenu') -UninstallRegistryPath $registryPath -TestMode 2>&1 | Out-String)
         $setupExit = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $savedErrorActionPreference
     }
-    if ($setupExit -ne 0 -or $output -notmatch 'AUTOSTART SKIPPED: -NoStart') {
-        throw "DEPLOY REFUSED: signed setup did not complete its -NoStart preflight.`n$output"
+    if ($setupExit -ne 0 -or $output -notmatch 'AUTOSTART (?:DISABLED|SKIPPED): -NoStart') {
+        throw "DEPLOY REFUSED: signed setup did not complete its disposable -NoStart install.`n$output"
     }
     # 2ki: verify the installed bytes against the central signing policy.
     $installedSignables = @((Join-Path $application 'Agent_b.exe'))
     foreach ($relative in @(Get-AgentBRuntimeSigningPolicy -Root $root).Signable) { $installedSignables += Join-Path $application ($relative.Replace('/', '\')) }
+    if ($TestUnsignedInstalledFile) {
+        $replace = $installedSignables | Where-Object { $_ -ne (Join-Path $application 'Agent_b.exe') } | Select-Object -First 1
+        [IO.File]::WriteAllText($replace, 'unsigned replacement', [Text.UTF8Encoding]::new($false))
+    }
     foreach ($installed in $installedSignables) {
         $installedSignature = Get-AuthenticodeSignature -LiteralPath $installed
         if ($installedSignature.Status -ne 'Valid' -or -not $installedSignature.TimeStamperCertificate) { throw "DEPLOY REFUSED: installed signable $installed is $($installedSignature.Status) or lacks a timestamp." }
     }
     Write-Host "INSTALLED SIGNATURES: $($installedSignables.Count)/$($installedSignables.Count) Valid and timestamped"
+    $verificationPassed = $true
 } finally {
-    if (Test-Path -LiteralPath $verifyRoot) {
+    if (Test-Path -LiteralPath $registryPath) { Remove-Item -LiteralPath $registryPath -Recurse -Force }
+    if ($verificationPassed -and (Test-Path -LiteralPath $verifyRoot)) {
         $resolved = [IO.Path]::GetFullPath($verifyRoot)
         $temporary = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
         if (-not $resolved.StartsWith($temporary, [StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $resolved) -notlike 'Agent_b-deploy-verify-*') {
             throw "Refusing deploy verification cleanup outside its disposable root: $resolved"
         }
         Remove-TreeWithinAllowedRoots -Path $resolved -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'deploy verification cleanup'
+    } elseif (Test-Path -LiteralPath $verifyRoot) {
+        Write-Warning "DEPLOY EVIDENCE RETAINED: $verifyRoot"
     }
 }
 

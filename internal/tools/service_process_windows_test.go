@@ -3,6 +3,7 @@
 package tools
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -28,6 +29,7 @@ func TestServiceSpawnFailureClassification(t *testing.T) {
 		want string
 	}{
 		{syscall.Errno(1326), "authentication failed"},
+		{syscall.Errno(1909), "locked out"},
 		{syscall.Errno(1385), "logon right"},
 		{syscall.Errno(267), "cannot access the configured folder"},
 		{syscall.Errno(5), "CreateProcessWithLogonW failed"},
@@ -35,6 +37,9 @@ func TestServiceSpawnFailureClassification(t *testing.T) {
 		if got := serviceSpawnReason(classifyLogonFailure(test.err)); !strings.Contains(got, test.want) {
 			t.Fatalf("classification for %v = %q, want %q", test.err, got, test.want)
 		}
+	}
+	if !errors.Is(classifyLogonFailure(syscall.Errno(1326)), ErrServiceCredentialRejected) || !errors.Is(classifyLogonFailure(syscall.Errno(1909)), ErrServiceAccountLocked) {
+		t.Fatal("terminal logon statuses lost their typed classification")
 	}
 }
 

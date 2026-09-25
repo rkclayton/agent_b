@@ -196,8 +196,28 @@ function Show-AgentBWindow {
 function Invoke-AgentBActivation {
 	$running = @(Assert-AgentBEndpointOwner -Url $url)
 	& $executable -window -config $configPath -app-root $applicationRoot -data-root $dataRoot
-    if ($LASTEXITCODE -ne 0) { throw "Agent_b activation handoff exited $LASTEXITCODE." }
+    if ($LASTEXITCODE -ne 0) {
+        throw "Agent_b is running at $appUrl, but its host window could not be activated (handoff exited $LASTEXITCODE). Open $appUrl in a browser."
+    }
     Write-LauncherRecord "activated existing window (PID $($running[0].ProcessId))"
+}
+
+function Wait-AgentBHostWindow {
+    param([string]$StartupLogPath, [Diagnostics.Process]$Process, [int]$Seconds = 15)
+    $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $lines = if (Test-Path -LiteralPath $StartupLogPath -PathType Leaf) { @(Get-Content -LiteralPath $StartupLogPath -ErrorAction SilentlyContinue) } else { @() }
+        if ($lines -match 'host window: opened') { return }
+        $failure = @($lines | Where-Object { $_ -match 'host window: (?:could not open|unavailable)' } | Select-Object -Last 1)
+        if ($failure.Count) {
+            throw "Agent_b is running at $appUrl, but its host window did not open: $($failure[0]). Open $appUrl in a browser."
+        }
+        if ($Process.HasExited) {
+            throw "Agent_b reached $appUrl, but exited before its host window opened. Open $appUrl in a browser if the server is still running."
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    throw "Agent_b is running at $appUrl, but its host window did not report opening within $Seconds seconds. Open $appUrl in a browser."
 }
 
 function Wait-AgentBEndpoint {
@@ -383,6 +403,7 @@ public static extern bool CreateProcess(string app, string commandLine, IntPtr p
         if ($script:hostWindow) {
             # The server opened its own window in its own process; opening a
             # browser too would give the operator two of the same thing.
+            Wait-AgentBHostWindow -StartupLogPath $startupCapture -Process $process
             Write-LauncherRecord 'OPENED: Agent_b host window'
         } else {
             Show-AgentBWindow -Url $appUrl

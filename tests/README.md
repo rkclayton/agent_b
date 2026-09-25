@@ -49,7 +49,7 @@ path-specific failure exists, the gate remains `always`.
 | Deploy gate | `powershell -File tests/test-deploy-gate.ps1` | Staging/signing/deploy ordering and manifest refusal | Windows; disposable fixtures, no publication |
 | Release signing | `powershell -File tests/test-release-signing.ps1` | Test certificates and signing policy behave as contracted | Windows certificate stores; disposable test identity |
 | Replay acceptance | `node tests/chat-replay-acceptance.mjs ...` | Recorded sessions render without a model | Disposable app/data roots and a replay tape |
-| Connection replay | `node tests/connection-replay-acceptance.mjs ...` | Legacy connection data projects without loss | Disposable app/data roots and fixture data |
+| Connection replay | `node tests/connection-replay-fixture.mjs --app CANDIDATE` (add `--negative-control` for the altered-projection proof, `--chats DIR` for the production-sized arm) | Legacy connection data projects without loss, on a bounded fixture the gate owns | A candidate application root; no copy of the operator's profile |
 | Onboarding | `node tests/onboarding-acceptance.mjs ...` | Setup sequence and local capability choices | Running disposable harness and Edge |
 | Real-template accounting | `node tests/accounting-real-template-acceptance.mjs ...` | Exact template/token accounting against a live model | Explicit model endpoint and network |
 

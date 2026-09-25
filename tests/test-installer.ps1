@@ -787,6 +787,46 @@ try {
         throw 'Installed launcher does not classify configuration and permission startup failures.'
     }
 
+    # Item 2ky: HTTP readiness is not window readiness. Force the native host's
+    # own failure seam after the disposable server starts and require the
+    # launcher to fail visibly, persist the reason, and name the usable URL.
+    $windowFailRoot = Join-Path $testRoot 'WindowFail'
+    $windowFailData = Join-Path $windowFailRoot 'Data'
+    $windowFailPort = Get-FreeTcpPort
+    $null = New-Item -ItemType Directory -Path $windowFailData -Force
+    $windowFailConfig = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'harness.example.json') | ConvertFrom-Json
+    $windowFailConfig.listen = "127.0.0.1:$windowFailPort"
+    $windowFailConfig.workspace = Join-Path $windowFailData 'scratch'
+    $windowFailConfig.log_dir = Join-Path $windowFailData 'logs'
+    $windowFailConfig.memory.dir = Join-Path $windowFailData 'memory'
+    $windowFailConfigPath = Join-Path $windowFailData 'harness.json'
+    [IO.File]::WriteAllText($windowFailConfigPath, ($windowFailConfig | ConvertTo-Json -Depth 100), [Text.UTF8Encoding]::new($false))
+    $windowFailPID = 0
+    $savedHostFailure = $env:AGENTB_TEST_HOST_WINDOW_FAILURE
+    $env:AGENTB_TEST_HOST_WINDOW_FAILURE = 'fixture could not present WebView2'
+    $savedErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $windowFailOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $testApplication 'scripts\launch-Agent_b.ps1') -ApplicationDirectory $testApplication -DataDirectory $windowFailData -ConfigPath $windowFailConfigPath -Detached -NoPause -StartupTimeoutSeconds 30 2>&1 | Out-String)
+        $windowFailExit = $LASTEXITCODE
+        $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $windowFailPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if ($listener.Count) { $windowFailPID = $listener[0].OwningProcess }
+    } finally {
+        $ErrorActionPreference = $savedErrorAction
+        $env:AGENTB_TEST_HOST_WINDOW_FAILURE = $savedHostFailure
+    }
+    try {
+        $windowFailErrors = Get-Content -Raw -LiteralPath (Join-Path $windowFailData 'logs\launcher-errors.log')
+        if ($windowFailExit -eq 0 -or $windowFailOutput -notmatch 'fixture could not present WebView2' -or
+            $windowFailOutput -notmatch [regex]::Escape("http://127.0.0.1:$windowFailPort/chat") -or
+            $windowFailErrors -notmatch 'fixture could not present WebView2' -or $windowFailErrors -notmatch [regex]::Escape("http://127.0.0.1:$windowFailPort/chat")) {
+            throw "Failed host-window fixture did not return and persist its reason plus fallback URL.`n$windowFailOutput`n$windowFailErrors"
+        }
+        Write-Host "PROOF host-window failure: reason and http://127.0.0.1:$windowFailPort/chat were visible and durable"
+    } finally {
+        if ($windowFailPID) { Stop-Process -Id $windowFailPID -Force -ErrorAction SilentlyContinue }
+    }
+
     $lifetimeArguments = @{ ApplicationDirectory = $testApplication; DataDirectory = $testData; StartMenuDirectory = $testStart; Port = $testPort }
     if ($LockWorkstation) { $lifetimeArguments.LockWorkstation = $true }
     & (Join-Path $PSScriptRoot 'test-session-lifetime.ps1') @lifetimeArguments

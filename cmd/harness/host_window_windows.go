@@ -30,6 +30,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -441,6 +442,9 @@ func runHostWindow(url, userDataDir, title, applicationRoot string) (err error) 
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	if detail := strings.TrimSpace(os.Getenv("AGENTB_TEST_HOST_WINDOW_FAILURE")); detail != "" {
+		return fmt.Errorf("test host-window failure: %s", detail)
+	}
 	if _, probeErr := hostWindowAvailable(); probeErr != nil {
 		return probeErr
 	}
@@ -474,10 +478,25 @@ func runHostWindow(url, userDataDir, title, applicationRoot string) (err error) 
 	for {
 		result, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&message)), 0, 0, 0)
 		if int32(result) <= 0 {
+			select {
+			case readyErr := <-window.ready:
+				if readyErr != nil {
+					return readyErr
+				}
+			default:
+			}
 			return nil
 		}
 		procTranslateMessage.Call(uintptr(unsafe.Pointer(&message)))
 		procDispatchMessage.Call(uintptr(unsafe.Pointer(&message)))
+		select {
+		case readyErr := <-window.ready:
+			if readyErr != nil {
+				return readyErr
+			}
+			log.Printf("host window: opened")
+		default:
+		}
 	}
 }
 

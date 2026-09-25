@@ -10,7 +10,35 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestSaveSkipsByteIdenticalConfig2l0(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	cfg := Defaults(t.TempDir())
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Unix(946684800, 0)
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := os.Stat(path)
+	if err != nil || !unchanged.ModTime().Equal(stamp) {
+		t.Fatalf("identical save changed mtime: %v err=%v", unchanged.ModTime(), err)
+	}
+	cfg.Listen = "127.0.0.1:8791"
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := os.Stat(path)
+	if err != nil || changed.ModTime().Equal(stamp) {
+		t.Fatalf("content change did not write config: %v err=%v", changed.ModTime(), err)
+	}
+}
 
 func writeConfigFixture(t *testing.T, path, mode string, stamped bool) {
 	t.Helper()

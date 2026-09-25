@@ -122,6 +122,14 @@ func TestSnapshotCarriesRunAggregates(t *testing.T) {
 	}
 }
 
+func TestToolsetFreezesAfterFirstModelTurn(t *testing.T) {
+	s := &Session{ToolsEnabled: map[string]bool{"shell": false}}
+	s.RecordModelTurn()
+	if s.ToggleTool("shell", true) || s.ToolEnabled("shell") {
+		t.Fatal("an established chat changed its tool schema")
+	}
+}
+
 func TestCloseIsDurableMetadataAndNeverStopsARun(t *testing.T) {
 	running := &Session{Run: RunState{Status: "running"}}
 	if err := running.Close(); err == nil || !strings.Contains(err.Error(), "stop the run before closing") || running.IsClosed() {

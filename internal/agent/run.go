@@ -192,9 +192,6 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		return "workspace_not_runnable", workspaceReason, 0
 	}
 	s.ResetRunTouches()
-	// Item 2fh: a scratch chat's folder memory is the layers of the plan
-	// repositories it has written into; a run boundary is where it may change.
-	s.RefreshScratchMemory()
 	// Pin the message this run is answering before anything can compact. From
 	// here to the end of the history is the task, and it is never summarised,
 	// elided or superseded away.
@@ -767,6 +764,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				message.OK = boolPointer(item.ok)
 				s.Append(message)
 				r.bus.Publish(events.New(events.MessageAppended, s.ID, runID, map[string]any{"message": message}))
+				if item.ok && item.call.Name == "remember" {
+					r.appendHarnessLine(ctx, connection, s, runID, turn, "Memory was saved for new chats; this chat's system prompt remains unchanged.")
+				}
 			}
 		})
 		for _, item := range results {

@@ -75,12 +75,13 @@ function writeExclusive(target, content) {
 
 const args = argumentsOf(process.argv.slice(2));
 assert.ok(["homepc", "slumberland"].includes(args.connection), "--connection must be homepc or slumberland");
+const cacheProbeOnly = args["cache-probe-only"] === "true";
 const trials = Number(args.trials || 0);
-assert.ok(Number.isInteger(trials) && trials > 0, "--trials must be a positive integer");
+assert.ok(cacheProbeOnly || (Number.isInteger(trials) && trials > 0), "--trials must be a positive integer");
 // Each trial may take this long, a wait on a card included (v0.70.1 overrule).
 const trialTimeoutMS = Number(args["trial-timeout-ms"] || 1_200_000);
 const forms = args.form === "both" ? ["terse", "prose"] : [args.form];
-assert.ok(forms.every((form) => ["terse", "prose"].includes(form)), "--form must be terse, prose, or both");
+assert.ok(cacheProbeOnly || forms.every((form) => ["terse", "prose"].includes(form)), "--form must be terse, prose, or both");
 const evidenceRoot = path.resolve(args.evidence || "");
 assert.ok(args.evidence, "--evidence is required");
 fs.mkdirSync(evidenceRoot, { recursive: true });
@@ -90,6 +91,27 @@ const sourceConnection = args.connection === "homepc"
   ? sourceConfig.connections.find((connection) => connection.id === "homepc")
   : sourceConfig.connections.find((connection) => connection.label === "Slumberland" || connection.id === "slumberland" || connection.id === "server");
 assert.ok(sourceConnection, `${args.connection} connection is missing from ${sourceConfigPath}`);
+if (cacheProbeOnly) {
+  const credentialPath = path.join(path.dirname(sourceConfigPath), `.agentb-connection-credential-${sourceConnection.credential}.dpapi`);
+  const decrypt = `[Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($args[0]), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))`;
+  const secret = sourceConnection.credential ? mustRun("powershell.exe", ["-NoLogo", "-NoProfile", "-Command", decrypt, credentialPath]).stdout.trim() : "";
+  const baseURL = (args.connection === "slumberland" ? "https://ai.slumberland.com/vllm/v1" : sourceConnection.base_url).replace(/\/$/, "");
+  const endpoint = `${baseURL}${baseURL.endsWith("/v1") ? "" : "/v1"}/chat/completions`;
+  const prompt = `Agent_b cache-state probe. Reply with only OK.\n${"stable-prefix ".repeat(1024)}`;
+  const request = { model: sourceConnection.model, messages: [{ role: "user", content: prompt }], temperature: 0, max_tokens: 8, chat_template_kwargs: { enable_thinking: false } };
+  const headers = { "Content-Type": "application/json", ...(secret ? { Authorization: `Bearer ${secret}` } : {}) };
+  const replies = [];
+  for (let index = 0; index < 2; index++) replies.push(await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(request) }).then(async (response) => {
+    const value = await response.json();
+    if (!response.ok) throw new Error(`cache probe HTTP ${response.status}: ${JSON.stringify(value)}`);
+    return value;
+  }));
+  const cachedTokens = Number(replies[1].usage?.prompt_tokens_details?.cached_tokens || replies[1].usage?.cached_tokens || 0);
+  const outputsEqual = JSON.stringify(replies[0].choices?.[0]?.message) === JSON.stringify(replies[1].choices?.[0]?.message);
+  const finding = cachedTokens === 0 ? "cache miss: state comparison inconclusive" : outputsEqual ? "cache state consistent" : "cache hit changed output: possible GB10 Mamba-state bug";
+  fs.writeFileSync(path.join(evidenceRoot, "cache-probe.json"), `${JSON.stringify({ cached_tokens: cachedTokens, outputs_equal: outputsEqual, finding }, null, 2)}\n`);
+  process.stdout.write(`CACHE cached_tokens=${cachedTokens} outputs_equal=${outputsEqual} finding=${finding}\n`);
+} else {
 const selectedTasks = args.task ? manifest.filter((task) => task.id === args.task) : manifest;
 assert.ok(selectedTasks.length, `unknown --task ${args.task}`);
 const sid = mustRun("whoami.exe", ["/user", "/fo", "csv", "/nh"]).stdout.match(/S-(?:\d+-)*\d+/)?.[0];
@@ -249,4 +271,5 @@ try {
   } else {
     process.stderr.write(`Disposable roots retained for diagnosis: ${disposableRoot}\n`);
   }
+}
 }

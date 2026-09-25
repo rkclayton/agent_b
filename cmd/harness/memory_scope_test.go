@@ -82,7 +82,7 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 		t.Fatal("the project fact leaked into the agent layer")
 	}
 
-	// A later chat on the same plan loads that layer at its next run boundary.
+	// An existing chat's prompt head stays fixed even after it enters that plan.
 	chatE, err := registry.Create("e", agentID, "")
 	if err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 	if _, err := chatE.WriteRoot(filepath.Join(repo, "more.txt")); err != nil {
 		t.Fatal(err)
 	}
-	if !chatE.RefreshScratchMemory() || !strings.Contains(chatE.MemoryBlock, "the build uses make") {
-		t.Fatalf("a chat working in the plan must carry its layer: %q", chatE.MemoryBlock)
+	if chatE.RefreshScratchMemory() || strings.Contains(chatE.MemoryBlock, "the build uses make") {
+		t.Fatalf("an existing chat changed its memory block: %q", chatE.MemoryBlock)
 	}
 }

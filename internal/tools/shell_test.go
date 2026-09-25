@@ -27,7 +27,7 @@ func TestShellDescriptionOnlyClaimsServiceNetworkBoundaryWhenSplitIsOn(t *testin
 	}
 	cfg.Shell.ServiceAccount.Enabled = true
 	on := NewShell(cfg.Shell).Description()
-	if !strings.Contains(on, "no public network in service context") {
+	if !strings.Contains(on, "no public network (enforced outside the tool layer)") || strings.Contains(on, "service context") {
 		t.Fatalf("split-on description=%q", on)
 	}
 }
@@ -89,8 +89,8 @@ func TestShellDescriptionOperatorClauseOnlyWhenSplitEnabled(t *testing.T) {
 	cfg.Shell.ServiceAccount.Enabled = true
 	shell.Configure(cfg)
 	with := shell.Description()
-	clause := " Git and other configured operator commands run as the operator after one decision per run; expect one prompt, not one per call."
-	if !strings.HasSuffix(with, clause) || !strings.Contains(with, "no public network in service context") {
+	clause := " Git and other configured commands need one decision per run; expect one prompt, not one per call."
+	if !strings.HasSuffix(with, clause) || !strings.Contains(with, "no public network (enforced outside the tool layer)") || strings.Contains(with, "service context") {
 		t.Fatalf("split-on description=%q", with)
 	}
 	cfg.Tools.Shell.OperatorCommands = []string{}

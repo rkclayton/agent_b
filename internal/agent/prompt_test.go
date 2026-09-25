@@ -57,6 +57,16 @@ func TestNetworkBoundaryIsSessionStable(t *testing.T) {
 	}
 }
 
+func TestMediaCapabilitiesAreSessionStable(t *testing.T) {
+	renderer := &PromptRenderer{text: "{{media_capabilities}}\n{{date}}"}
+	item := &session.Session{MediaCapabilities: "Image capabilities: exact session claims.", MediaCapabilitiesSet: true}
+	before := renderer.RenderMemoryParts(&config.Connection{}, item, nil, "", "", "")
+	after := renderer.RenderMemoryParts(&config.Connection{AttachmentHandling: "native"}, item, []string{"run_script"}, "", "", "")
+	if before != after || strings.Contains(before, "{{media_capabilities}}") || !strings.Contains(before, "exact session claims") {
+		t.Fatalf("session prompt changed: before=%q after=%q", before, after)
+	}
+}
+
 func TestSplitOffPromptContainsNoNetworkBoundaryLine(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
 	cfg.Shell.ServiceAccount.Enabled = false

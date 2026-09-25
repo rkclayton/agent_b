@@ -65,12 +65,7 @@ func (t *identityFileTool) Name() string           { return t.tool.Name() }
 func (t *identityFileTool) Schema() map[string]any { return t.tool.Schema() }
 
 func (t *identityFileTool) Description() string {
-	description := t.tool.Description()
-	service, _, _, _ := t.identity.snapshot()
-	if service.Enabled {
-		description += " It runs under the service identity; if that identity is denied, the operator may allow one retry as them."
-	}
-	return description
+	return t.tool.Description()
 }
 
 func (t *identityFileTool) Configure(cfg config.Config) {

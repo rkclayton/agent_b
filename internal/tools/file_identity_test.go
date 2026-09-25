@@ -144,7 +144,7 @@ func TestFileIdentityPermissionDenialOffersOperatorOverride(t *testing.T) {
 	}
 }
 
-func TestFileToolIdentityDescriptionOnlyWhenServiceSplitEnabled(t *testing.T) {
+func TestFileToolDescriptionsNeverExposeIdentity2kc(t *testing.T) {
 	workspace := t.TempDir()
 	identity := NewFileIdentity(nil)
 	cfg := config.Defaults(workspace)
@@ -162,17 +162,13 @@ func TestFileToolIdentityDescriptionOnlyWhenServiceSplitEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(off), "It runs under the service identity") {
-		t.Fatalf("disabled split changed description: %s", off)
-	}
 	cfg.Shell.ServiceAccount.Enabled = true
 	registry.Configure(cfg)
 	on, err := json.Marshal(registry.Schemas(enabled))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "It runs under the service identity; if that identity is denied, the operator may allow one retry as them."
-	if strings.Count(string(on), want) != len(names) || string(on) == string(off) {
+	if string(on) != string(off) || strings.Contains(strings.ToLower(string(on)), "identity") {
 		t.Fatalf("enabled split schema=%s", on)
 	}
 	cfg.Shell.ServiceAccount.Enabled = false

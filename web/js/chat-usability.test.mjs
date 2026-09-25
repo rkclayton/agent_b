@@ -113,6 +113,12 @@ test("Operator mode lives only in Settings Security and states the defeated boun
   assert.doesNotMatch(shell, /shell-operator-status/);
 });
 
+test("an unprovisioned refusal offers setup or the timed operator window", () => {
+  assert.match(chat, /Set up now \(one Windows prompt\)/);
+  assert.match(chat, /Run as you for 20 minutes/);
+  assert.match(chat, /api\("\/api\/config", \{ shell: \{ operator_context: true \} \}\)/);
+});
+
 test("No-agent and empty Plan invitations are explicit and Console links to active tools", () => {
   assert.match(chat, /No agent connected — add one in/);
   assert.match(chat, /operator-off-48\.png/);

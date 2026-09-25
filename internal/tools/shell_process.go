@@ -2,10 +2,16 @@ package tools
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os/exec"
 
 	"harness/internal/config"
+)
+
+var (
+	ErrServiceCredentialRejected = errors.New("service-account credential rejected")
+	ErrServiceAccountLocked      = errors.New("service account locked out")
 )
 
 type runningShellProcess interface {
@@ -60,6 +66,8 @@ func (e *serviceSpawnError) Error() string {
 	}
 	return fmt.Sprintf("%s: %v", e.kind, e.err)
 }
+
+func (e *serviceSpawnError) Unwrap() error { return e.err }
 
 func serviceSpawnReason(err error) string {
 	if typed, ok := err.(*serviceSpawnError); ok {

@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"harness/internal/events"
 	"harness/internal/serviceaccount"
+	"harness/internal/tools"
 )
 
 const managedServiceAccount = "agentb-svc"
@@ -30,7 +32,9 @@ func (s *Server) serviceAccount(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error(), "shell.service_account")
 			return
 		}
+		s.accountMu.Lock()
 		status = s.serviceAccountState(r.Context(), status)
+		s.accountMu.Unlock()
 		writeJSON(w, http.StatusOK, status)
 	case http.MethodPost:
 		s.setupServiceAccount(w, r, account)
@@ -221,16 +225,31 @@ func (s *Server) serviceAccountState(ctx context.Context, status serviceaccount.
 		status.State, status.Action = "unsupported", ""
 	case status.Administrator:
 		status.State, status.Action = "administrator", "Repair"
+	case status.LockedOut:
+		status.State, status.Action = "locked_out", "Repair"
 	case !status.Exists:
 		status.State, status.Action = "missing", "Set up"
 	case !status.CredentialStored:
-		status.State, status.Action = "missing_credential", "Repair"
+		if s.credentialRejected {
+			status.State = "invalid_credential"
+		} else {
+			status.State = "missing_credential"
+		}
+		status.Action = "Repair"
 	default:
 		testContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		if _, err := s.shellTest(testContext); err != nil {
+		if _, err := s.shellTest(testContext); errors.Is(err, tools.ErrServiceCredentialRejected) {
+			_ = s.credential.Clear()
+			s.credentialRejected = true
 			status.State, status.Action = "invalid_credential", "Repair"
+		} else if errors.Is(err, tools.ErrServiceAccountLocked) {
+			status.LockedOut = true
+			status.State, status.Action = "locked_out", "Repair"
+		} else if err != nil {
+			status.State, status.Action = "credential_check_failed", "Repair"
 		} else {
+			s.credentialRejected = false
 			status.State, status.Action = "ready", ""
 		}
 	}

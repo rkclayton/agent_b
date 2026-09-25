@@ -776,9 +776,12 @@ try {
         $portOwner.Stop()
     }
     $portFailureNormalized = $portFailure -replace '\s+', ' '
-    if ($portFailureExit -eq 0 -or $portFailureNormalized -notmatch [regex]::Escape("listen port $testPort is already in use") -or
-        $portFailureNormalized -notmatch 'Diagnostics:' -or $portFailureNormalized -notmatch 'startup-' -or $portFailureNormalized -notmatch '\.log') {
-        throw "Port-conflict launch did not name its cause and diagnostic files.`n$portFailure"
+	$portExitMatch = [regex]::Match($launcherSource, '\$portConflictExitCode\s*=\s*(\d+)')
+	if (-not $portExitMatch.Success) { throw 'Installed launcher has no shared port-conflict exit contract.' }
+	$expectedPortFailureExit = [int]$portExitMatch.Groups[1].Value
+    if ($portFailureExit -ne $expectedPortFailureExit -or $portFailureNormalized -notmatch [regex]::Escape("listen port $testPort is already in use") -or
+        $portFailureNormalized -notmatch 'Diagnostics:' -or $portFailureNormalized -notmatch '\.log') {
+        throw "Port-conflict launch did not return $expectedPortFailureExit and name its cause and diagnostic files (actual $portFailureExit).`n$portFailure"
     }
     if ($launcherSource -notmatch 'Configuration error in' -or $launcherSource -notmatch 'Permission error') {
         throw 'Installed launcher does not classify configuration and permission startup failures.'

@@ -6,7 +6,7 @@ param(
     [ValidateRange(1, 65535)]
     [int]$Port = 8080,
     [string]$TaskName = 'AgentB llama-server',
-    [string]$FirewallRule = 'AgentB llama-server (Tailscale)',
+    [string]$FirewallRule = 'AgentB llama-server (restricted)',
     [string]$RepoRoot,
     [string]$LogFile
 )

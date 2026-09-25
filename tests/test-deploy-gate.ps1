@@ -40,9 +40,10 @@ if ($deploy -notmatch 'Remove-MatchingStagedCandidate' -or $deploy -notmatch 'si
 foreach ($required in @('candidate-final.json', 'Agent_b.exe', 'Agent_b-setup.exe', 'setup_sha256', 'setup_bytes', 'Get-AuthenticodeSignature', 'TimeStamperCertificate', 'DEPLOY REFUSED')) {
     if ($verify -notmatch [regex]::Escape($required)) { throw "Deploy verifier does not require $required." }
 }
-foreach ($required in @('-NoStart', '-TestMode', '-WhatIf', 'AUTOSTART SKIPPED: -NoStart')) {
+foreach ($required in @('-NoStart', '-TestMode', 'AUTOSTART (?:DISABLED|SKIPPED): -NoStart', '$verificationPassed', 'DEPLOY EVIDENCE RETAINED', '$TestUnsignedInstalledFile')) {
     if ($verify -notmatch [regex]::Escape($required)) { throw "Deploy verifier does not run its signed setup preflight with $required." }
 }
+if ($verify -match '\-TestMode\s+\-WhatIf') { throw 'Deploy verifier still makes its installed-file assertion impossible with -WhatIf.' }
 foreach ($required in @('Agent_b.exe', 'Agent_b-setup.exe', 'Get-AgentBRuntimeSigningPolicy', 'PayloadOnly', 'BinaryOnly')) {
     if ($sign -notmatch [regex]::Escape($required)) { throw "Release signing policy does not include $required." }
 }

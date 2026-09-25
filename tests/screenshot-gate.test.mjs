@@ -101,14 +101,29 @@ test("an element-bound mask follows the About clock across different text widths
   assert.equal(compareMasked(base, changed, bound).outside, 0);
 });
 
-test("a stale element-bound selector fails the gate by mask name and reason", async () => {
+test("a mask absent from every capture fails by name and reason", async () => {
   const root = await mkdtemp(join(tmpdir(), "screenshot-gate-stale-")), baseline = join(root, "baseline"), candidate = join(root, "candidate");
   await Promise.all([mkdir(baseline), mkdir(candidate)]);
   for (const dir of [baseline, candidate]) await writeFile(join(dir, "about.png"), encodePNG(image(20, 10)));
-  await writeFile(join(baseline, "about.png.masks.json"), JSON.stringify({ masks: [{ name: "server-started-clock", reason: "live clock", rects: [[1, 1, 5, 5]] }] }));
+  await writeFile(join(baseline, "about.png.masks.json"), JSON.stringify({ masks: [{ name: "server-started-clock", reason: "live clock", rects: [], missing: true }] }));
   await writeFile(join(candidate, "about.png.masks.json"), JSON.stringify({ masks: [{ name: "server-started-clock", reason: "live clock", rects: [], missing: true }] }));
   const [result] = await gate(baseline, candidate);
   assert.deepEqual([result.verdict, result.mask_errors], ["stale-mask", ["server-started-clock: live clock"]]);
+});
+
+test("a mask absent from one capture is named and skipped when another capture has it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "screenshot-gate-skip-")), baseline = join(root, "baseline"), candidate = join(root, "candidate");
+  await Promise.all([mkdir(baseline), mkdir(candidate)]);
+  for (const name of ["about.png", "profile.png"]) for (const dir of [baseline, candidate]) await writeFile(join(dir, name), encodePNG(image(20, 10)));
+  const present = { masks: [{ name: "build-text", reason: "release", rects: [[1, 1, 5, 5]] }] };
+  const absent = { masks: [{ name: "build-text", reason: "release", rects: [], missing: true }] };
+  for (const dir of [baseline, candidate]) {
+    await writeFile(join(dir, "about.png.masks.json"), JSON.stringify(present));
+    await writeFile(join(dir, "profile.png.masks.json"), JSON.stringify(absent));
+  }
+  const results = Object.fromEntries((await gate(baseline, candidate)).map((result) => [result.name, result]));
+  assert.deepEqual(results["profile.png"].skipped_masks, ["build-text"]);
+  assert.equal(results["profile.png"].verdict, "match");
 });
 
 test("the gate counts a one-level difference as rounding and fails a two-level one", () => {

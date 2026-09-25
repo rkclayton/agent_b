@@ -31,6 +31,7 @@ const (
 	infinite                 = 0xffffffff
 	stillActive              = 259
 	errorLogonFailure        = syscall.Errno(1326)
+	errorAccountLockedOut    = syscall.Errno(1909)
 	errorLogonTypeNotGranted = syscall.Errno(1385)
 	errorDirectory           = syscall.Errno(267)
 
@@ -326,7 +327,9 @@ func classifyLogonFailure(err error) error {
 	if errno, ok := err.(syscall.Errno); ok {
 		switch errno {
 		case errorLogonFailure:
-			return &serviceSpawnError{kind: "service-account authentication failed", err: errno}
+			return &serviceSpawnError{kind: "service-account authentication failed", err: fmt.Errorf("%w: %v", ErrServiceCredentialRejected, errno)}
+		case errorAccountLockedOut:
+			return &serviceSpawnError{kind: "service account is locked out", err: fmt.Errorf("%w: %v", ErrServiceAccountLocked, errno)}
 		case errorLogonTypeNotGranted:
 			return &serviceSpawnError{kind: "service account lacks the required logon right", err: errno}
 		case errorDirectory:

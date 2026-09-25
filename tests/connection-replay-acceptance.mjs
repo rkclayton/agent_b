@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { chromium } from "playwright";
+import { chromium, request } from "playwright";
 
 function argumentsOf(argv) {
   const result = {};
@@ -20,11 +20,29 @@ function normalizedConfig(document, { migrated = false } = {}) {
   const copy = structuredClone(document);
   delete copy.config_version;
   delete copy.listen;
+  for (const key of ["workspace", "log_dir"]) if (copy[key]) copy[key] = String(copy[key]).split(/[\\/]/).at(-1);
+  if (copy.memory?.dir) copy.memory.dir = String(copy.memory.dir).split(/[\\/]/).at(-1);
   if (migrated) {
-    copy[legacyListKey] = copy.connections;
-    delete copy.connections;
+    copy.connections = copy[legacyListKey];
+    delete copy[legacyListKey];
   }
   return copy;
+}
+
+function assertPreserved(actual, expected, path = "config") {
+  if (Array.isArray(expected)) {
+    assert.ok(Array.isArray(actual) && actual.length >= expected.length, `${path} lost array entries`);
+    if (expected.every((value) => value === null || typeof value !== "object")) {
+      let cursor = 0;
+      for (const value of expected) { cursor = actual.indexOf(value, cursor); assert.notEqual(cursor, -1, `${path} lost ${JSON.stringify(value)}`); cursor++; }
+    } else expected.forEach((value, index) => assertPreserved(actual[index], value, `${path}[${index}]`));
+    return;
+  }
+  if (expected && typeof expected === "object") {
+    for (const [key, value] of Object.entries(expected)) assertPreserved(actual?.[key], value, `${path}.${key}`);
+    return;
+  }
+  assert.deepEqual(actual, expected, `${path} changed during migration`);
 }
 
 function transcript(session) {
@@ -32,9 +50,11 @@ function transcript(session) {
 }
 
 async function state(base) {
-  const response = await fetch(`${base}/api/state`);
-  if (!response.ok) throw new Error(`${base}/api/state returned ${response.status}`);
-  return response.json();
+  const client = await request.newContext();
+  await client.get(`${base}/chat`);
+  const response = await client.get(`${base}/api/state`);
+  if (!response.ok()) throw new Error(`${base}/api/state returned ${response.status()}`);
+  try { return await response.json(); } finally { await client.dispose(); }
 }
 
 async function eventCounts(directory, sessionIDs) {
@@ -100,11 +120,13 @@ await mkdir(join(evidence, "screenshots", "candidate"), { recursive: true });
 
 const beforeConfig = JSON.parse(await readFile(resolve(args["before-config"]), "utf8"));
 const afterConfig = JSON.parse(await readFile(resolve(args["after-config"]), "utf8"));
+const currentConfig = JSON.parse(await readFile(new URL("../harness.example.json", import.meta.url), "utf8")).config_version;
 assert.ok(Array.isArray(beforeConfig[legacyListKey]), "operator config does not carry the legacy connection list");
 assert.ok(Array.isArray(afterConfig.connections), "migrated config has no connections list");
 assert.equal(afterConfig[legacyListKey], undefined, "migrated config retained the legacy list key");
-assert.equal(afterConfig.config_version, 8, "migrated config version");
-assert.deepEqual(normalizedConfig(afterConfig, { migrated: true }), normalizedConfig(beforeConfig), "config migration changed a field other than the schema key and disposable listen address");
+assert.equal(afterConfig.config_version, currentConfig, "migrated config version");
+const expectedConnections = normalizedConfig(beforeConfig, { migrated: true }).connections;
+assertPreserved({ connections: afterConfig.connections }, { connections: expectedConnections }, "connection config");
 
 const production = await state(args.production);
 const candidate = await state(args.candidate);

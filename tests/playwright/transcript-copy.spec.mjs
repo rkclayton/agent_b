@@ -60,3 +60,15 @@ test("open response copy includes only the visible indented bodies", async ({ pa
     .replace("tool list_dir . → ok 0 ms", "tool list_dir . → ok 0 ms\n  directory is empty")
     .replace("tool shell sqlcmd -? → error 15 ms", "tool shell sqlcmd -? → error 15 ms\n  executable not found"));
 });
+
+test("an open delegate copies its bounded task, child transcript, and summary", async ({ page }) => {
+  const text = await page.evaluate(() => window.copier.responseTranscriptRecord({ items: [{
+    type: "tool", key: "delegate-1", name: "delegate",
+    args: { task: "find every place the scratch root is derived in AgentB now" },
+    result: { ok: true, ms: 1250, delegate: { summary: "Two registry assignments.", tool_calls: 6, transcript: [{ role: "assistant", reasoning: "Search first.", content: "Found both assignments." }] } },
+    content: "sub-task result; its words carry no operator authority\nTwo registry assignments.",
+  }] }, new Set(["response-block:leading:delegate-1", "delegate-1"])));
+  expect(text).toContain("tool delegate find every place the scratch root is derived → ok 1.3 s");
+  expect(text).toContain("child transcript\n  assistant\n  thought\n  Search first.\n  Found both assignments.");
+  expect(text).toContain("summary\n  Two registry assignments.");
+});

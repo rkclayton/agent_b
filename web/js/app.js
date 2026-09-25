@@ -222,7 +222,7 @@ function renderTools(agent) {
 	const enabled = new Set(agent.toolset || []);
 	// web_search is configured only in harness.json for this release. Keep it
 	// observable in Activity, but do not invent a Settings control for it.
-	const configurable = (store.tools || []).filter((tool) => tool.name !== "web_search");
+	const configurable = (store.tools || []).filter((tool) => !["web_search", "delegate"].includes(tool.name));
 	const configurableEnabled = configurable.filter((tool) => enabled.has(tool.name));
 	document.getElementById("panel-tools-link").textContent = `${configurableEnabled.length} tools active`;
 	const counters = ledger?.agent?.tools || {};

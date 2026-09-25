@@ -40,6 +40,14 @@ func TestRetainedChatsRestoreWithoutOperationalLogsAndDeleteExplicitly(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	launchEvents, unsubscribe := firstBus.Subscribe()
+	defer unsubscribe()
+	publishServiceSetupInvitation(firstRegistry, firstBus)
+	invitation := <-launchEvents
+	data, _ := invitation.Data.(map[string]any)
+	if invitation.Type != events.ServiceIdentityUnavailable || invitation.SessionID != other.ID || data["action"] != "provision" || data["launch"] != true {
+		t.Fatalf("launch invitation=%+v", invitation)
+	}
 	otherMessage := events.Message{ID: "m2", Role: "user", Category: "history", Content: "independent context"}
 	other.Append(otherMessage)
 	firstBus.Publish(events.New(events.MessageAppended, other.ID, "", map[string]any{"message": otherMessage}))

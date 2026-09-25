@@ -38,6 +38,19 @@ test("guard is unconditional even when a legacy caller passes enabled false", ()
   assert.equal(fake.calls[1][1], "/chat?navigation_id=nav-1");
 });
 
+test("a completed task releases a navigation claim when the document stays alive", async () => {
+	const assigned = [];
+	const guard = createNavigationGuard({
+		begin: () => "n", decorate: (target) => target, assign: (target) => { assigned.push(target); },
+		defer: (callback) => queueMicrotask(callback), suppress: () => {}, onPageShow: () => {},
+	});
+	assert.equal(guard.request({}, "/plan"), true);
+	assert.equal(guard.request({}, "/chat"), false);
+	await Promise.resolve();
+	assert.equal(guard.request({}, "/chat"), true);
+	assert.deepEqual(assigned, ["/plan", "/chat"]);
+});
+
 test("guard resets after a back-forward cache restore", () => {
   const fake = runtime();
   const guard = createNavigationGuard(fake.value);

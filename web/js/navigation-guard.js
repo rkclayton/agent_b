@@ -18,6 +18,7 @@ export function createNavigationGuard(runtime) {
       try {
         const result = runtime.assign(destination);
         if (result === false) claimed = false;
+        else runtime.defer?.(() => { claimed = false; });
         return result !== false;
       } catch (error) {
         claimed = false;
@@ -32,6 +33,7 @@ function browserRuntime() {
   return {
     begin: beginNavigation,
     assign: (target) => location.assign(target),
+	defer: (callback) => setTimeout(callback, 0),
     decorate(target, navigationID) {
       const url = new URL(target, location.href);
       if (navigationID) url.searchParams.set("navigation_id", navigationID);

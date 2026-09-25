@@ -71,13 +71,15 @@ export function initSettings(entry = {}) {
   gear = document.querySelector(".shell-settings");
   gear.addEventListener("click", (event) => {
     event.preventDefault();
-    open ? closeSettings() : openSettings();
+		open ? void leaveSettingsForChat() : openSettings();
   });
   document.addEventListener("settings.open", (event) => openSettings(event.detail?.section));
   // Choosing a chat from the tab strip while Settings is open shows that chat.
-  document.addEventListener("settings.close", (event) => { if (open) closeSettings(event.detail?.surface || "chat"); });
+  document.addEventListener("settings.close", (event) => {
+		if (open) void leaveSettingsForChat().finally(() => event.detail?.after?.());
+	});
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && open) closeSettings();
+		if (event.key === "Escape" && open) void leaveSettingsForChat();
     if (open && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
       saveSettings();
@@ -183,6 +185,17 @@ export function closeSettings(surface = "chat") {
     openedFrom = "";
     location.assign(`/plan${session ? `?session=${encodeURIComponent(session)}` : ""}`);
   }
+}
+
+async function leaveSettingsForChat() {
+	// The question is save-or-discard, not stay-or-leave: either answer honors
+	// the requested Chat navigation. A failed save is already rendered by the
+	// settings save path and does not trap the operator on this surface.
+	if (drafts.size && (globalThis.confirm?.("Save unsaved settings before returning to Chat?") ?? false)) {
+		await saveSettings();
+	}
+	openedFrom = "";
+	closeSettings("chat");
 }
 
 function render() {
@@ -405,7 +418,7 @@ async function click(event) {
   if (!button) return;
   const action = button.dataset.action;
   const id = button.dataset.id;
-  if (action === "close") return closeSettings();
+	if (action === "close") return void leaveSettingsForChat();
   if (action === "settings-section") {
     activeSection = id;
     history.replaceState(null, "", `#settings/${activeSection}`);

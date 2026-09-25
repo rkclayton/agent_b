@@ -121,7 +121,13 @@ export function initShell(options = {}) {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" && event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     const menu = [...root.querySelectorAll(".shell-menu")].find((value) => !value.hidden);
-    if (!menu) return;
+    if (!menu) {
+		if (event.key === "Escape" && page !== "chat") {
+			event.preventDefault();
+			returnToChat();
+		}
+		return;
+	}
     if (event.key === "Escape") {
       menu.hidden = true;
       event.preventDefault();
@@ -276,8 +282,9 @@ export function initShell(options = {}) {
           // Settings is not the chat, and item 2gf asks that one click
           // from it reaches the chat. The ⚙ toggle still closes Settings onto
           // the surface beneath.
-          document.dispatchEvent(new CustomEvent("settings.close", { detail: { surface: "chat" } }));
-          openSide(agentID, session.id, "chat");
+			document.dispatchEvent(new CustomEvent("settings.close", { detail: {
+				surface: "chat", after: () => openSide(agentID, session.id, "chat"),
+			} }));
           return;
         }
         // On the chat the tab selects and does nothing else: you are already

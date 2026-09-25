@@ -119,6 +119,13 @@ test("an unprovisioned refusal offers setup or the timed operator window", () =>
   assert.match(chat, /api\("\/api\/config", \{ shell: \{ operator_context: true \} \}\)/);
 });
 
+test("Chat navigation owns Plan Escape and the Settings save-or-discard guard", () => {
+	assert.match(shell, /event\.key === "Escape" && page !== "chat"/);
+	assert.match(settings, /Save unsaved settings before returning to Chat\?/);
+	assert.match(settings, /openedFrom = "";\s*closeSettings\("chat"\)/);
+	assert.match(shell, /after: \(\) => openSide\(agentID, session\.id, "chat"\)/);
+});
+
 test("No-agent and empty Plan invitations are explicit and Console links to active tools", () => {
   assert.match(chat, /No agent connected — add one in/);
   assert.match(chat, /operator-off-48\.png/);

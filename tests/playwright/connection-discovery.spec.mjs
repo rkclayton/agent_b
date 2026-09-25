@@ -54,3 +54,36 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   await expect(settings.locator('.connection-row:has(.connection-summary[data-id="ui"]) .connection-state')).toContainText('Model "model" is not served');
   expect(await hash(join(harness.dataRoot, "harness.json"))).toBe(before);
 });
+
+test("the active chat tab returns from Plan and three Settings depths", async () => {
+	const page = await harness.context.newPage();
+	await page.goto(`${harness.base}/chat`);
+	await expect(page.locator("#chat-log")).toBeVisible();
+	const session = await page.locator(".agent-tab[data-session]").first().getAttribute("data-session");
+
+	await page.goto(`${harness.base}/plan?session=${encodeURIComponent(session)}`);
+	await page.locator(`.agent-tab[data-session="${session}"]`).click();
+	await expect(page).toHaveURL(/\/chat/);
+	await expect(page.locator("#chat-log")).toBeVisible();
+
+	for (const section of ["connections", "profiles", "shell"]) {
+		await page.locator(".shell-settings").click();
+		await expect(page.locator("#settings-page")).toBeVisible();
+		await page.locator(`.settings-nav [data-id="${section}"]`).click();
+		await page.locator(`.agent-tab[data-session="${session}"]`).click();
+		await expect(page.locator("#settings-page")).toBeHidden();
+		await expect(page.locator("#chat-log")).toBeVisible();
+	}
+
+	for (const save of [false, true]) {
+		await page.locator(".shell-settings").click();
+		await page.locator('.settings-nav [data-id="connections"]').click();
+		if (!await page.locator(".connection-editor").count()) await page.locator('.connection-summary[data-id="ui"]').click();
+		await expect(page.locator(".connection-editor")).toBeVisible();
+		await page.locator('.connection-editor [data-path$=".label"]').fill(`UI ${save ? "saved" : "discarded"}`);
+		page.once("dialog", (dialog) => save ? dialog.accept() : dialog.dismiss());
+		await page.locator(`.agent-tab[data-session="${session}"]`).click();
+		await expect(page.locator("#settings-page")).toBeHidden();
+		await expect(page.locator("#chat-log")).toBeVisible();
+	}
+});

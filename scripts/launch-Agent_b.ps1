@@ -136,6 +136,24 @@ function Get-AgentBProcesses {
     })
 }
 
+function Assert-AgentBEndpointOwner {
+    param([string]$Url)
+    $port = ([Uri]$Url).Port
+    $listener = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if (-not $listener.Count) { throw "Agent_b endpoint answered on port $port but its listener could not be identified." }
+    $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener[0].OwningProcess)" -ErrorAction SilentlyContinue
+    $expectedExe = [IO.Path]::GetFullPath($executable)
+    $actualExe = if ($owner -and $owner.ExecutablePath) { [IO.Path]::GetFullPath([string]$owner.ExecutablePath) } else { '' }
+    $commandLine = [string]$owner.CommandLine
+    if (-not $actualExe.Equals($expectedExe, [StringComparison]::OrdinalIgnoreCase) -or
+        $commandLine.IndexOf($configPath, [StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+        $commandLine.IndexOf($applicationRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+        $commandLine.IndexOf($dataRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw "Foreign instance refused: PID $($listener[0].OwningProcess) owns port $port but does not match this install path and data root. Nothing was opened or started."
+    }
+    return $owner
+}
+
 # Item 2hc (v1.3.0/W2): the host window is the default way in when it can be
 # opened, and the browser is the fallback when it cannot. The launcher decides
 # BEFORE starting the server, from the same two facts the server itself checks:
@@ -176,9 +194,8 @@ function Show-AgentBWindow {
 }
 
 function Invoke-AgentBActivation {
-    $running = @(Get-AgentBProcesses | Select-Object -First 1)
-    if (-not $running.Count) { throw 'Agent_b answered but its installed process could not be identified.' }
-    & $executable -window -config $configPath -app-root $applicationRoot -data-root $dataRoot
+	$running = @(Assert-AgentBEndpointOwner -Url $url)
+	& $executable -window -config $configPath -app-root $applicationRoot -data-root $dataRoot
     if ($LASTEXITCODE -ne 0) { throw "Agent_b activation handoff exited $LASTEXITCODE." }
     Write-LauncherRecord "activated existing window (PID $($running[0].ProcessId))"
 }
@@ -251,6 +268,7 @@ try {
     }
 
     if (Test-AgentBEndpoint -Url $url) {
+		$null = Assert-AgentBEndpointOwner -Url $url
         Write-LauncherRecord "Agent_b is already running ($(Get-AgentBListener -Url $url)); no new server was started."
         if ($NoBrowser -or $env:AGENTB_NO_BROWSER) { Write-Host "UI ready: $appUrl" } else { Invoke-AgentBActivation }
         exit 0

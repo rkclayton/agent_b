@@ -257,6 +257,36 @@ func (s *Server) workspaceAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) agentMemoryRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || s.memoryState == nil {
+		method(w)
+		return
+	}
+	var body struct {
+		AgentID string `json:"agent_id"`
+		Note    string `json:"note"`
+		Confirm bool   `json:"confirm"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if !body.Confirm || strings.TrimSpace(body.AgentID) == "" || strings.TrimSpace(body.Note) == "" {
+		writeError(w, http.StatusBadRequest, "agent memory removal requires agent_id, note and confirmation", "memory")
+		return
+	}
+	removed, err := s.memoryState.RemoveAgent(body.AgentID, body.Note)
+	if err != nil {
+		writeError(w, 500, err.Error(), "memory")
+		return
+	}
+	if !removed {
+		writeError(w, http.StatusNotFound, "agent memory entry not found", "memory")
+		return
+	}
+	s.registry.RemoveAgentMemoryNote(body.AgentID, body.Note)
+	writeJSON(w, 200, map[string]any{"removed": true})
+}
+
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	tail := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
 	parts := strings.Split(strings.Trim(tail, "/"), "/")

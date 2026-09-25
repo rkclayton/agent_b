@@ -9,7 +9,7 @@ export function shellGrantApproval(data = {}) {
 
 export function approvalChoices(data = {}) {
 	if (data.kind === "cycle" || data.name === "run.cycle") return [["continue", "Continue"], ["stop", "Stop"]];
-	return [["session", "Yes, for this chat"], ["once", "Just once"], ["deny", "No"]];
+	return [...(data.standing_grant ? [["approve", "Always allow this exact scope"]] : []), ["session", "Yes, for this chat"], ["once", "Just once"], ["deny", "No"]];
 }
 
 export function approvalText(data = {}) {
@@ -17,8 +17,8 @@ export function approvalText(data = {}) {
 	if (human?.happened && human?.harness_action) return {
 		title: data.kind === "cycle" || data.name === "run.cycle" ? "Loop check" : (data.boundary_escape ? "Run as you" : "Allow this"),
 		request: human.happened,
-		reason: human.harness_action,
-		question: human.question || "",
+		reason: `${human.harness_action} If declined, the action will not run.`,
+		question: data.standing_grant ? `Affected ${data.standing_grant.kind}: ${data.standing_grant.subject}` : (human.question || ""),
 		detail: data.args?.path ?? data.args?.command ?? data.args?.source ?? data.args?.pattern ?? "",
 	};
 	const boundary = typeof data.boundary_escape === "boolean"

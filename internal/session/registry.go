@@ -530,6 +530,23 @@ func (r *Registry) ClearAgentMemory(agentID string) {
 		}
 	}
 }
+func (r *Registry) RemoveAgentMemoryNote(agentID, note string) {
+	for _, s := range r.List() {
+		if s.AgentID != agentID {
+			continue
+		}
+		s.mu.Lock()
+		lines := strings.Split(s.AgentMemoryBlock, "\n")
+		kept := lines[:0]
+		for _, line := range lines {
+			if strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- ")) != strings.TrimSpace(note) {
+				kept = append(kept, line)
+			}
+		}
+		s.AgentMemoryBlock = strings.Join(kept, "\n")
+		s.mu.Unlock()
+	}
+}
 func (r *Registry) Get(id string) (*Session, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

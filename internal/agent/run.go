@@ -55,6 +55,7 @@ type Runner struct {
 	ids                atomic.Int64
 	nameAttempts       sync.Map
 	messageLimits      sync.Map
+	identityInvitation atomic.Bool
 }
 
 type BoundaryAction struct {
@@ -272,7 +273,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	} else if !cfg.Shell.OperatorContext {
 		if err := r.tools.PreflightServiceIdentity(); err != nil {
 			log.Printf("tool identity: service identity not set up session=%s run=%s reason=%q", s.ID, runID, err.Error())
-			r.bus.Publish(events.New(events.ServiceIdentityUnavailable, s.ID, runID, serviceIdentityUnavailableData(err.Error())))
+			if r.identityInvitation.CompareAndSwap(false, true) {
+				r.bus.Publish(events.New(events.ServiceIdentityUnavailable, s.ID, runID, serviceIdentityUnavailableData(err.Error())))
+			}
 		} else {
 			log.Printf("tool identity: service session=%s run=%s", s.ID, runID)
 		}
@@ -835,7 +838,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				message.OK = boolPointer(item.ok)
 				s.Append(message)
 				r.bus.Publish(events.New(events.MessageAppended, s.ID, runID, map[string]any{"message": message}))
-				if item.ok && item.call.Name == "remember" {
+				if item.ok && item.call.Name == "remember" && strings.HasPrefix(item.content, "ok: noted;") {
 					r.appendHarnessLine(ctx, connection, s, runID, turn, "Memory was saved for new chats; this chat's system prompt remains unchanged.")
 				}
 			}
@@ -1066,6 +1069,9 @@ func toolResultEventData(turn int, callID, name, content string, ok, operatorCon
 }
 
 func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) tools.CallOutcome {
+	if name == "remember" && rememberEchoesPreviousTool(s, args) {
+		return tools.CallOutcome{Content: "error: remember refused: this restates the immediately preceding tool result; the chat already records it"}
+	}
 	cfg := r.cfg()
 	eventArgs := sanitizedToolArguments(name, args)
 	if cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext {
@@ -1243,6 +1249,34 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	outcome.Metadata = withHarnessNote(outcome.Metadata, "operator-identity override was attempted but failed")
 	outcome.Content = withModelNote(outcome.Content, "operator-identity override was attempted but failed")
 	return outcome
+}
+
+func rememberEchoesPreviousTool(s *session.Session, args map[string]any) bool {
+	note, _ := args["note"].(string)
+	messages := s.MessagesCopy()
+	if strings.TrimSpace(note) == "" || len(messages) == 0 || messages[len(messages)-1].Role != "tool" {
+		return false
+	}
+	words := func(value string) map[string]bool {
+		out := map[string]bool{}
+		for _, word := range regexp.MustCompile(`[\pL\pN]+`).FindAllString(strings.ToLower(value), -1) {
+			if len([]rune(word)) > 1 {
+				out[word] = true
+			}
+		}
+		return out
+	}
+	noteWords, resultWords := words(note), words(messages[len(messages)-1].Content)
+	if len(noteWords) == 0 {
+		return false
+	}
+	shared := 0
+	for word := range noteWords {
+		if resultWords[word] {
+			shared++
+		}
+	}
+	return strings.Contains(strings.ToLower(messages[len(messages)-1].Content), strings.ToLower(strings.TrimSpace(note))) || shared*5 >= len(noteWords)*3
 }
 
 func malformedToolTurnAction(finish string, calls int, retried bool) (bool, bool) {

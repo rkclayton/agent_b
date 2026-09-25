@@ -105,11 +105,13 @@ const waitForChildExit = (child, timeout = 5000) => child?.exitCode !== null
   : Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(timeout)]);
 const record = (name) => { scenarios.push(name); process.stdout.write(`PASS ${name}\n`); };
 const freePort = async () => {
-  const probe = createServer();
-  await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
-  const port = probe.address().port;
-  await new Promise((resolve) => probe.close(resolve));
-  return port;
+  for (;;) {
+    const probe = createServer();
+    await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
+    const port = probe.address().port;
+    await new Promise((resolve) => probe.close(resolve));
+    if (port !== 8790) return port;
+  }
 };
 const stream = (response, delta, finish = "stop") => {
   response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });

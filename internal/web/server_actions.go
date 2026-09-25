@@ -131,6 +131,28 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"session_id": body.SessionID, "call_id": body.CallID, "decision": body.Decision})
 }
+func (s *Server) standingGrants(w http.ResponseWriter, r *http.Request) {
+	if s.runner == nil {
+		writeError(w, http.StatusConflict, "runtime unavailable", "runtime")
+		return
+	}
+	switch r.Method {
+	case http.MethodPost:
+		var body struct {
+			ID string `json:"id"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		if err := s.runner.Gate().RevokeStandingGrant(body.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "id")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"revoked": body.ID})
+	default:
+		method(w)
+	}
+}
 func (s *Server) toggleTool(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		method(w)

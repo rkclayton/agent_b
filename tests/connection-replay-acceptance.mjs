@@ -51,7 +51,7 @@ function transcript(session) {
 
 async function state(base) {
   const client = await request.newContext();
-  await client.get(`${base}/chat`);
+  await client.get(`${base}/chat?session=s2`);
   const response = await client.get(`${base}/api/state`);
   if (!response.ok()) throw new Error(`${base}/api/state returned ${response.status()}`);
   try { return await response.json(); } finally { await client.dispose(); }
@@ -130,12 +130,17 @@ assertPreserved({ connections: afterConfig.connections }, { connections: expecte
 
 const production = await state(args.production);
 const candidate = await state(args.candidate);
-const productionIDs = Object.keys(production.sessions || {}).sort();
-const candidateIDs = Object.keys(candidate.sessions || {}).sort();
-assert.deepEqual(candidateIDs, productionIDs, "candidate replay session inventory differs");
+const replayCursors = JSON.parse(await readFile(resolve(args["replay-cursors"]), "utf8"));
+const productionInventory = Object.keys(production.sessions || {}).sort();
+const candidateInventory = Object.keys(candidate.sessions || {}).sort();
+assert.deepEqual(candidateInventory, productionInventory, "candidate replay session inventory differs");
+const productionIDs = replayCursors.map((row) => row.id).sort();
+for (const id of productionIDs) {
+  assert.ok(production.sessions?.[id], `${id}: production replay session missing`);
+  assert.ok(candidate.sessions?.[id], `${id}: candidate replay session missing`);
+}
 
 const countsBefore = await eventCounts(resolve(args.chats), productionIDs);
-const replayCursors = JSON.parse(await readFile(resolve(args["replay-cursors"]), "utf8"));
 assert.equal(replayCursors.length, productionIDs.length, "replay cursor inventory differs");
 for (const row of replayCursors) {
   assert.equal(row.events, countsBefore[row.id], `${row.id}: replay event count differs`);

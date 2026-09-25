@@ -117,4 +117,15 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 	if strings.HasPrefix(known[0].Dir, filepath.Join(data, "scratch")) {
 		t.Fatalf("scratch folder survived known-folder filter: %+v", known)
 	}
+	if _, _, err := memories.NoteAgent("main", "transient ping output"); err != nil {
+		t.Fatal(err)
+	}
+	removed := call(http.MethodPost, "/api/agent-memory/remove", map[string]any{"agent_id": "main", "note": "transient ping output", "confirm": true})
+	if removed.Code != http.StatusOK {
+		t.Fatalf("agent memory remove %d %s", removed.Code, removed.Body.String())
+	}
+	remaining, err := memories.ReadAgent("main")
+	if err != nil || strings.Contains(remaining, "transient ping output") {
+		t.Fatalf("remaining=%q err=%v", remaining, err)
+	}
 }

@@ -320,6 +320,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/sessions/", s.replayGuard(s.session))
 	mux.HandleFunc("/api/workspaces", s.replayGuard(s.workspaces))
 	mux.HandleFunc("/api/workspaces/", s.replayGuard(s.workspaceAction))
+	mux.HandleFunc("/api/agent-memory/remove", s.replayGuard(s.agentMemoryRemove))
+	mux.HandleFunc("/api/standing-grants", s.replayGuard(s.standingGrants))
 	mux.HandleFunc("/api/connections", s.connections)
 	mux.HandleFunc("/api/connections/", s.replayGuard(s.connection))
 	mux.HandleFunc("/api/profiles", s.replayGuard(s.profileEndpoint))

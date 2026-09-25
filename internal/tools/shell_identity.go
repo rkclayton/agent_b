@@ -305,6 +305,11 @@ func (s *Shell) IdentityStatus() ShellIdentityStatus {
 }
 
 func (s *Shell) setIdentity(status ShellIdentityStatus) {
+	// A disabled split means there is no service identity to repair or escape.
+	// Suppress stale failures from an earlier enabled state or a late probe.
+	if !s.config().ServiceAccount.Enabled {
+		status = ShellIdentityStatus{}
+	}
 	s.identityMu.Lock()
 	if (status.Fallback || status.OperatorApprovalRequired) &&
 		(s.identity.Fallback || s.identity.OperatorApprovalRequired) &&

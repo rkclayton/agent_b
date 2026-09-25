@@ -70,3 +70,18 @@ func TestAbsentBaselineRecoveryStaysOneShotAndEvidenceFirst(t *testing.T) {
 		}
 	}
 }
+
+func TestInstalledLauncherRefusesForeignEndpoint2kr(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	body, err := os.ReadFile(filepath.Join(root, "scripts", "launch-Agent_b.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, value := range []string{"Assert-AgentBEndpointOwner", "Get-NetTCPConnection -LocalPort", "$owner.ExecutablePath", "$commandLine.IndexOf($configPath", "$commandLine.IndexOf($applicationRoot", "$commandLine.IndexOf($dataRoot", "Foreign instance refused"} {
+		if !strings.Contains(text, value) {
+			t.Errorf("launcher does not preserve %q", value)
+		}
+	}
+}

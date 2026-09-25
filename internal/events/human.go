@@ -46,7 +46,7 @@ func HumanNoticeFor(eventType string, data map[string]any) HumanNotice {
 		}
 		return HumanNotice{
 			Happened:      happened,
-			HarnessAction: "The harness paused before running the action.",
+			HarnessAction: "The harness paused before running the action; declining leaves the affected resource unchanged.",
 			Question:      "Allow this action?",
 			Actions:       []string{"Yes, for this chat", "Just once", "No"},
 		}

@@ -219,6 +219,8 @@ func TestPolicyApprovalEventIsNotBoundaryEscape(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
 	cfg.Approval.Mode = config.ApprovalModeMutating
 	gate := NewGate(bus, func() config.Config { return cfg })
+	store := cfg.Workspace + "/standing-grants.json"
+	gate.SetStandingGrantStore(store)
 	s := &session.Session{ID: "session", Run: session.RunState{Status: "running"}}
 	done := make(chan bool, 1)
 	go func() {
@@ -228,7 +230,7 @@ func TestPolicyApprovalEventIsNotBoundaryEscape(t *testing.T) {
 	select {
 	case event := <-eventCh:
 		data, ok := event.Data.(map[string]any)
-		if event.Type != events.ApprovalRequired || !ok || data["boundary_escape"] != false {
+		if event.Type != events.ApprovalRequired || !ok || data["boundary_escape"] != false || data["standing_grant"] == nil {
 			t.Fatalf("policy event=%#v", event)
 		}
 	case <-time.After(2 * time.Second):
@@ -245,6 +247,39 @@ func TestPolicyApprovalEventIsNotBoundaryEscape(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for policy decision")
 	}
+	<-eventCh
+	for i := 0; i < 3; i++ {
+		if decision, _ := gate.WaitPolicyDecision(context.Background(), s, "run", "reuse", "write_file", map[string]any{"path": "file.txt"}); decision != "approve" {
+			t.Fatal("standing grant did not answer reuse")
+		}
+	}
+	gate = NewGate(bus, func() config.Config { return cfg })
+	gate.SetStandingGrantStore(store)
+	if decision, _ := gate.WaitPolicyDecision(context.Background(), &session.Session{ID: "new"}, "run", "restart", "write_file", map[string]any{"path": "file.txt"}); decision != "approve" {
+		t.Fatal("grant did not survive restart and new chat")
+	}
+	ask := func(call, path string) {
+		result := make(chan string, 1)
+		go func() {
+			decision, _ := gate.WaitPolicyDecision(context.Background(), s, "run", call, "write_file", map[string]any{"path": path})
+			result <- decision
+		}()
+		if event := <-eventCh; event.Type != events.ApprovalRequired {
+			t.Fatal("approval not raised")
+		}
+		if err := gate.Decide(s.ID, call, "deny"); err != nil {
+			t.Fatal(err)
+		}
+		if <-result != "deny" {
+			t.Fatal("denial lost")
+		}
+		<-eventCh
+	}
+	ask("adjacent", "sibling.txt")
+	if err := gate.RevokeStandingGrant("folder:file.txt"); err != nil {
+		t.Fatal(err)
+	}
+	ask("revoked", "file.txt")
 }
 
 func TestNonShellPolicyAcceptsChatScopeButNotRunOrOperatorMode(t *testing.T) {

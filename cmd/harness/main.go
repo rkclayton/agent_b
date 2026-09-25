@@ -392,6 +392,7 @@ func main() {
 	// than read from its extracted text.
 	agent.SetInlineDocumentLimit(cfg.Tools.Attachments.InlineDocumentLimit())
 	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Connection, web.ConfigSnapshot)
+	runner.Gate().SetStandingGrantStore(filepath.Join(paths.Data, "standing-grants.json"))
 	callServiceTool.SetConnectorWriter(web.ApplyConnector)
 	runner.BindDelegate(delegateTool)
 	runner.SetSessionRenamer(registry.RenameBy)

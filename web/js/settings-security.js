@@ -1,6 +1,6 @@
-let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
+let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
 function useSettingsContext(context) {
-  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
+  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess = { devices: [] }, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
 }
 
 function shell(active) {
@@ -95,9 +95,19 @@ function shell(active) {
 	  ${row("Allow my local network", `<button type="button" role="switch" aria-checked="${lanEnabled}" aria-label="Allow my local network" class="switch ${lanEnabled ? "on" : ""}" data-action="local-network-toggle"></button><span class="settings-subnets" data-local-subnets>${subnetChoices}</span>`)}
 	  <p class="settings-note">Local access is limited to loopback and the configured model server; link-local, cloud metadata and Agent_b's own listener remain refused.</p>
 	  ${row("actions", `<div class="settings-actions"><button type="button" data-action="setup-service-account" ${setupDisabled ? "disabled" : ""}>${setupLabel}</button></div>`)}
-	  ${feedback(serviceAccountMessage || hardeningMessage, serviceAccountAlarm || hardeningAlarm)}
+	${feedback(serviceAccountMessage || hardeningMessage, serviceAccountAlarm || hardeningAlarm)}
 	</details>
+	${subhead("Phone access", "One-time enrolment and revocable phone sessions. The phone uses the same chat endpoints as this page.")}
+	${row("enrolment", `<span class="account-status mono">${phoneAccess.code ? html(phoneAccess.code) : "no active code"}</span><button type="button" data-action="phone-enrol">New code</button>`, "", phoneAccess.expires_at ? `Expires ${phoneAccess.expires_at}` : "The code expires in five minutes and works once.")}
+	${row("devices", phoneDevices())}
+	${row("push", `<button type="button" role="switch" aria-checked="${!!phoneAccess.push_enabled}" class="switch ${phoneAccess.push_enabled ? "on" : ""}" data-action="phone-push-toggle"></button><span class="account-status">${phoneAccess.push_enabled ? "enabled" : "off"}</span>`, "", "Push carries only the notice line and chat name.")}
     `;
+}
+
+function phoneDevices() {
+	const devices = phoneAccess.devices || [];
+	if (!devices.length) return '<span class="account-status">none enrolled</span>';
+	return `<span class="settings-actions vertical">${devices.map((device) => `<span>${html(device.name)} · ${html(device.last_seen || "never")} <button type="button" data-action="phone-revoke" data-id="${attr(device.id)}">Revoke</button></span>`).join("")}<button type="button" data-action="phone-revoke-all">Revoke all</button></span>`;
 }
 
 function feedback(message, alarm, fallback) {

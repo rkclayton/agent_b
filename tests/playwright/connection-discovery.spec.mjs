@@ -87,3 +87,24 @@ test("the active chat tab returns from Plan and three Settings depths", async ()
 		await expect(page.locator("#chat-log")).toBeVisible();
 	}
 });
+
+test("the phone viewport enrols into the shared chat surface without horizontal overflow", async () => {
+	const desktop = await harness.context.newPage();
+	await desktop.goto(`${harness.base}/chat`);
+	const token = await desktop.locator('meta[name="agentb-mutation-token"]').getAttribute("content");
+	const offer = await desktop.evaluate(async (mutationToken) => {
+		const response = await fetch("/api/phone/enrolment", { method: "POST", headers: { "X-AgentB-Mutation-Token": mutationToken } });
+		return response.json();
+	}, token);
+	const phoneContext = await harness.browser.newContext({ viewport: { width: 390, height: 844 } });
+	const phone = await phoneContext.newPage();
+	await phone.goto(`${harness.base}/phone`);
+	await expect(phone.locator("#phone-enrol")).toBeVisible();
+	await phone.locator("#phone-name").fill("Playwright phone");
+	await phone.locator("#phone-code").fill(offer.code);
+	await phone.locator("#phone-enrol-form button").click();
+	await expect(phone.locator("#phone-chat")).toBeVisible();
+	await expect(phone.locator("#phone-composer")).toBeVisible();
+	expect(await phone.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+	await phoneContext.close();
+});

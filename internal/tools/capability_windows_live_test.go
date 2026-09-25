@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -101,9 +102,17 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		_, _ = w.Write([]byte(`{"identity_match":true}`))
 	}))
 	defer serviceServer.Close()
+	_, phonePort, err := net.SplitHostPort(cfg.Listen)
+	if err != nil {
+		t.Fatalf("capability listen %q: %v", cfg.Listen, err)
+	}
+	t.Setenv("AGENTB_CAPABILITY_FAKE_DEVICE", "not-a-device-credential")
 	cfg.Services = map[string]config.Service{"identity": {
 		BaseURL: serviceServer.URL + "/api", Auth: "exec:" + whoami,
 		AllowedMethods: []string{"GET"}, TimeoutS: 10, MaxBodyKB: 16,
+	}, "phone-control": {
+		BaseURL: "http://localhost:" + phonePort + "/api", Auth: "static_bearer:AGENTB_CAPABILITY_FAKE_DEVICE",
+		AllowedMethods: []string{"GET", "POST"}, TimeoutS: 10, MaxBodyKB: 16,
 	}}
 	callService := NewCallService(cfg.Services)
 	callService.Configure(cfg)
@@ -398,6 +407,46 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 			t.Fatalf("detail=%+v", detail)
 		}
 		t.Log("contract=changed-by-2jy: call_service refuses the Agent_b listener before dialing")
+	})
+
+	t.Run("phone_control_plane_shell_refused_2kl", func(t *testing.T) {
+		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
+			t.Skip(reason)
+		}
+		base := "http://" + cfg.Listen
+		for _, command := range []string{`curl.exe -s -o NUL -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "{\"name\":\"tool\"}" ` + quotePowerShell(base+"/api/phone/enrolment/redeem"), `curl.exe -s -o NUL -w "%{http_code}" -H "Authorization: Bearer not-a-device-credential" ` + quotePowerShell(base+"/api/state")} {
+			detail := shell.CallDetailed(context.Background(), item, map[string]any{"command": command})
+			if detail.Err != nil || strings.TrimSpace(detail.Content) != "401" {
+				t.Fatalf("detail=%+v", detail)
+			}
+		}
+		t.Log("contract=unchanged-by-2kl: shell gets 401 at enrolment and device-authenticated state")
+	})
+
+	t.Run("phone_control_plane_run_script_refused_2kl", func(t *testing.T) {
+		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
+			t.Skip(reason)
+		}
+		base := "http://" + cfg.Listen
+		source := `curl.exe -s -o NUL -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "{\"name\":\"tool\"}" ` + quotePowerShell(base+"/api/phone/enrolment/redeem") + "\n" +
+			`Write-Output ""` + "\n" +
+			`curl.exe -s -o NUL -w "%{http_code}" -H "Authorization: Bearer not-a-device-credential" ` + quotePowerShell(base+"/api/state")
+		detail := NewRunScript(shell).CallDetailed(context.Background(), item, map[string]any{"language": "powershell", "source": source})
+		statuses := strings.Fields(detail.Content)
+		if detail.Err != nil || len(statuses) != 2 || statuses[0] != "401" || statuses[1] != "401" {
+			t.Fatalf("detail=%+v", detail)
+		}
+		t.Log("contract=unchanged-by-2kl: run_script gets 401 at enrolment and device-authenticated state")
+	})
+
+	t.Run("phone_control_plane_call_service_refused_2kl", func(t *testing.T) {
+		for _, args := range []map[string]any{{"service": "phone-control", "method": "POST", "path": "phone/enrolment/redeem", "body": map[string]any{"name": "tool"}}, {"service": "phone-control", "method": "GET", "path": "state"}} {
+			detail := toolRegistry.CallDetailed(context.Background(), item, "call_service", args)
+			if !detail.OK || detail.Metadata["status"] != http.StatusUnauthorized || !strings.Contains(detail.Content, `"status":401`) {
+				t.Fatalf("detail=%+v", detail)
+			}
+		}
+		t.Log("contract=unchanged-by-2kl: call_service gets 401 at enrolment and device-authenticated state through a localhost alias; the exact-listener pre-dial refusal remains")
 	})
 
 	t.Run("boundary_file_tool_operator_decision", func(t *testing.T) {

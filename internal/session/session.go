@@ -365,35 +365,10 @@ func (s *Session) MemoryFolder() string {
 	return s.WrittenPlanRepos[len(s.WrittenPlanRepos)-1]
 }
 
-// RefreshScratchMemory rebuilds a scratch chat's folder memory from the layers
-// of the plan repositories it has written into (item 2fh). The runner calls it
-// at a run's start, so the prompt changes only at a run boundary and only
-// when a new repository joined. It reports whether the block changed.
+// RefreshScratchMemory is retained for callers compiled against 2fh. Memory is
+// now a creation-time snapshot: an established chat's prompt head never moves.
 func (s *Session) RefreshScratchMemory() bool {
-	s.mu.Lock()
-	if !s.Scratch || s.LoadFolderMemory == nil {
-		s.mu.Unlock()
-		return false
-	}
-	repos := append([]string(nil), s.WrittenPlanRepos...)
-	load := s.LoadFolderMemory
-	s.mu.Unlock()
-	blocks, path := []string{}, ""
-	for _, repo := range repos {
-		block, blockPath, err := load(repo)
-		if err != nil || block == "" {
-			continue
-		}
-		blocks, path = append(blocks, block), blockPath
-	}
-	block := strings.Join(blocks, "\n\n")
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if block == s.MemoryBlock {
-		return false
-	}
-	s.MemoryBlock, s.MemoryPath = block, path
-	return true
+	return false
 }
 
 func (s *Session) ResetRunTouches() {
@@ -596,7 +571,7 @@ func (s *Session) ToolEnabled(name string) bool {
 func (s *Session) ToggleTool(name string, enabled bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.Closed {
+	if s.Closed || s.modelTurns > 0 {
 		return false
 	}
 	if _, ok := s.ToolsEnabled[name]; !ok {
@@ -661,7 +636,10 @@ func (s *Session) ApplyAgentConfig(agentID string, agent config.Agent, connectio
 		}
 	}
 	s.AgentID, s.ConnectionID, s.AgentName, s.BConnection = agentID, connectionID, agent.Name, connection.Label
-	s.PromptAddendum, s.ToolsEnabled = agent.PromptAddendum, enabled
+	s.PromptAddendum = agent.PromptAddendum
+	if s.modelTurns == 0 {
+		s.ToolsEnabled = enabled
+	}
 	return changed
 }
 func (s *Session) Append(message events.Message) {

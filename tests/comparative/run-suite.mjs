@@ -76,12 +76,14 @@ function writeExclusive(target, content) {
 const args = argumentsOf(process.argv.slice(2));
 assert.ok(["homepc", "slumberland"].includes(args.connection), "--connection must be homepc or slumberland");
 const cacheProbeOnly = args["cache-probe-only"] === "true";
+const plannerReplayOnly = args["planner-replay-only"] === "true";
+const directProbeOnly = cacheProbeOnly || plannerReplayOnly;
 const trials = Number(args.trials || 0);
-assert.ok(cacheProbeOnly || (Number.isInteger(trials) && trials > 0), "--trials must be a positive integer");
+assert.ok(directProbeOnly || (Number.isInteger(trials) && trials > 0), "--trials must be a positive integer");
 // Each trial may take this long, a wait on a card included (v0.70.1 overrule).
 const trialTimeoutMS = Number(args["trial-timeout-ms"] || 1_200_000);
 const forms = args.form === "both" ? ["terse", "prose"] : [args.form];
-assert.ok(cacheProbeOnly || forms.every((form) => ["terse", "prose"].includes(form)), "--form must be terse, prose, or both");
+assert.ok(directProbeOnly || forms.every((form) => ["terse", "prose"].includes(form)), "--form must be terse, prose, or both");
 const evidenceRoot = path.resolve(args.evidence || "");
 assert.ok(args.evidence, "--evidence is required");
 fs.mkdirSync(evidenceRoot, { recursive: true });
@@ -91,15 +93,26 @@ const sourceConnection = args.connection === "homepc"
   ? sourceConfig.connections.find((connection) => connection.id === "homepc")
   : sourceConfig.connections.find((connection) => connection.label === "Slumberland" || connection.id === "slumberland" || connection.id === "server");
 assert.ok(sourceConnection, `${args.connection} connection is missing from ${sourceConfigPath}`);
-if (cacheProbeOnly) {
+if (directProbeOnly) {
   const credentialPath = path.join(path.dirname(sourceConfigPath), `.agentb-connection-credential-${sourceConnection.credential}.dpapi`);
   const decrypt = `[Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($args[0]), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))`;
   const secret = sourceConnection.credential ? mustRun("powershell.exe", ["-NoLogo", "-NoProfile", "-Command", decrypt, credentialPath]).stdout.trim() : "";
   const baseURL = (args.connection === "slumberland" ? "https://ai.slumberland.com/vllm/v1" : sourceConnection.base_url).replace(/\/$/, "");
   const endpoint = `${baseURL}${baseURL.endsWith("/v1") ? "" : "/v1"}/chat/completions`;
+  const headers = { "Content-Type": "application/json", ...(secret ? { Authorization: `Bearer ${secret}` } : {}) };
+  if (plannerReplayOnly) {
+    const planner = fs.readFileSync(path.join(repoRoot, "prompts", "planner.md"), "utf8").split("## Authoring reference")[0];
+    const notes = fs.readFileSync(path.join(repoRoot, "NOTES.md"), "utf8").match(/### W1 results([\s\S]*?)### W2 results/)?.[1] || "";
+    const prompt = `${notes}\nApproved sequence: 2kb feature surfaces settings,chat,tests; 2k9 defect surfaces scripts,run-loop,tests. The recorded next order began 2kb. Under auto-continue, reply only with the next item id or STOP.`;
+    const request = { model: sourceConnection.model, messages: [{ role: "system", content: planner }, { role: "user", content: prompt }], temperature: 0, max_tokens: 32, chat_template_kwargs: { enable_thinking: false } };
+    const reply = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(request) }).then(async (response) => { const value = await response.json(); if (!response.ok) throw new Error(`planner replay HTTP ${response.status}`); return value; });
+    const output = String(reply.choices?.[0]?.message?.content || "").trim();
+    const result = { recorded_order: "2kb", replay_order: output, exact_match: output === "2kb" };
+    fs.writeFileSync(path.join(evidenceRoot, "planner-replay.json"), `${JSON.stringify(result, null, 2)}\n`);
+    process.stdout.write(`PLANNER recorded=2kb replay=${JSON.stringify(output)} exact_match=${result.exact_match}\n`);
+  } else {
   const prompt = `Agent_b cache-state probe. Reply with only OK.\n${"stable-prefix ".repeat(1024)}`;
   const request = { model: sourceConnection.model, messages: [{ role: "user", content: prompt }], temperature: 0, max_tokens: 8, chat_template_kwargs: { enable_thinking: false } };
-  const headers = { "Content-Type": "application/json", ...(secret ? { Authorization: `Bearer ${secret}` } : {}) };
   const replies = [];
   for (let index = 0; index < 2; index++) replies.push(await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(request) }).then(async (response) => {
     const value = await response.json();
@@ -111,6 +124,7 @@ if (cacheProbeOnly) {
   const finding = cachedTokens === 0 ? "cache miss: state comparison inconclusive" : outputsEqual ? "cache state consistent" : "cache hit changed output: possible GB10 Mamba-state bug";
   fs.writeFileSync(path.join(evidenceRoot, "cache-probe.json"), `${JSON.stringify({ cached_tokens: cachedTokens, outputs_equal: outputsEqual, finding }, null, 2)}\n`);
   process.stdout.write(`CACHE cached_tokens=${cachedTokens} outputs_equal=${outputsEqual} finding=${finding}\n`);
+  }
 } else {
 const selectedTasks = args.task ? manifest.filter((task) => task.id === args.task) : manifest;
 assert.ok(selectedTasks.length, `unknown --task ${args.task}`);

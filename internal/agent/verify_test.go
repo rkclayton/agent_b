@@ -69,6 +69,9 @@ func TestVerifierPromptLinesArePresentAndStable(t *testing.T) {
 	if got := renderer.Render(&config.Connection{}, &session.Session{Role: "d"}, nil, ""); !strings.Contains(got, plannerLine) {
 		t.Fatalf("the planner's session block does not carry the line:\n%s", got)
 	}
+	if got := renderer.Render(&config.Connection{}, &session.Session{Role: "d"}, nil, ""); !strings.Contains(got, "@budget") || !strings.Contains(got, "@health") || !strings.Contains(got, "never auto-ordered") {
+		t.Fatalf("the planner lacks auto-continue draft boundaries:\n%s", got)
+	}
 	if err := renderer.LoadWorker("../../prompts/worker.md"); err != nil {
 		t.Fatal(err)
 	}

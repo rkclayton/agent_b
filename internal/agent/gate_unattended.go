@@ -40,7 +40,7 @@ func (g *Gate) unattended(s *session.Session) bool {
 	if !g.cfg().Approval.Unattended {
 		return false
 	}
-	return s.Role == "c"
+	return s.Role == "c" || s.Role == "e"
 }
 
 // refuseUnattended records the boundary hit and returns the decision the gate

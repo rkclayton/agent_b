@@ -1085,13 +1085,25 @@ func TestAttachmentConfigIsAdditiveCurrentSchema(t *testing.T) {
 	}
 }
 
-// Item 2ho (v1.6.0): twelve, in stable order. web_search follows fetch_url;
-// every older tool retains its relative position.
-func TestFullToolsetContractHasTwelveStableTools(t *testing.T) {
-	want := "read_file,list_dir,write_file,edit_file,search,shell,remember,recall,fetch_url,web_search,run_script,call_service"
+// Item 2ka: delegate follows the twelve established tools.
+func TestFullToolsetContractKeepsTwelveStableThenDelegate(t *testing.T) {
+	want := "read_file,list_dir,write_file,edit_file,search,shell,remember,recall,fetch_url,web_search,run_script,call_service,delegate"
 	got := FullToolset()
-	if len(got) != 12 || strings.Join(got, ",") != want {
+	if len(got) != 13 || strings.Join(got, ",") != want {
 		t.Fatalf("full toolset=%v", got)
+	}
+}
+
+func TestApplyDefaultsAddsDelegateOnlyToThePreviousFullToolset(t *testing.T) {
+	legacyFull := FullToolset()[:12]
+	cfg := Defaults(t.TempDir())
+	cfg.Agents = []Agent{{Name: "Full", B: cfg.Connections[0].ID, Toolset: append([]string(nil), legacyFull...)}, {Name: "Limited", B: cfg.Connections[0].ID, Toolset: []string{"read_file"}}}
+	ApplyDefaults(&cfg)
+	if got := strings.Join(cfg.Agents[0].Toolset, ","); got != strings.Join(FullToolset(), ",") {
+		t.Fatalf("full toolset=%s", got)
+	}
+	if got := strings.Join(cfg.Agents[1].Toolset, ","); got != "read_file" {
+		t.Fatalf("limited toolset widened=%s", got)
 	}
 }
 

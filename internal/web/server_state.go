@@ -79,6 +79,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 			{"name": "find_files", "description": "Find local files under path whose names or relative paths match pattern. Unlike search_text, it does not inspect file contents."},
 			{"name": "run_script", "description": tools.NewRunScript(tools.NewShell(masked.Shell)).Description()},
 			{"name": "call_service", "description": tools.NewCallService(masked.Services).Description()},
+			{"name": "delegate", "description": (&tools.Delegate{}).Description()},
 		},
 	}
 }

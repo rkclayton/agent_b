@@ -16,6 +16,18 @@ type PromptRenderer struct {
 	path, text string
 	planner    string
 	worker     string
+	delegate   string
+}
+
+func (r *PromptRenderer) LoadDelegate(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("delegate prompt %s: %w", path, err)
+	}
+	r.mu.Lock()
+	r.delegate = strings.TrimSpace(string(data))
+	r.mu.Unlock()
+	return nil
 }
 
 func (r *PromptRenderer) LoadPlanner(path string) error {
@@ -64,8 +76,12 @@ func (r *PromptRenderer) RenderMemoryParts(connection *config.Connection, s *ses
 	r.mu.RLock()
 	template := r.text
 	planner := r.planner
+	delegate := r.delegate
 	r.mu.RUnlock()
-	if connection.SystemPromptOverride != "" {
+	if s.Role == "e" && delegate != "" {
+		template, planner = delegate, ""
+	}
+	if connection.SystemPromptOverride != "" && s.Role != "e" {
 		template = connection.SystemPromptOverride
 	}
 	agentBlock := ""

@@ -308,6 +308,9 @@ func main() {
 	if err := renderer.LoadWorker(filepath.Join(paths.Application, "prompts", "worker.md")); err != nil {
 		log.Printf("debug: %v", err)
 	}
+	if err := renderer.LoadDelegate(filepath.Join(paths.Application, "prompts", "delegate.md")); err != nil {
+		log.Printf("debug: %v", err)
+	}
 	workspaces := session.NewWorkspaceRegistry()
 	coordinator := tools.NewFileCoordinator(workspaces, registry.Label, bus)
 	credentialStore := credential.New(paths.Data)
@@ -365,6 +368,7 @@ func main() {
 	// Item 2ho (v1.6.0): web_search follows fetch_url. It shares that tool's
 	// guarded uTLS transport, so the older tools retain their relative order.
 	fetchTool := tools.NewFetch(cfg.Tools.Fetch)
+	delegateTool := tools.NewDelegate()
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
@@ -381,11 +385,13 @@ func main() {
 		tools.NewWebSearch(fetchTool, cfg.Tools.WebSearch),
 		tools.NewRunScript(shellTool),
 		tools.NewCallService(cfg.Services),
+		delegateTool,
 	)
 	// Item 2ch (v1.2.5): the threshold under which a PDF is sent inline rather
 	// than read from its extracted text.
 	agent.SetInlineDocumentLimit(cfg.Tools.Attachments.InlineDocumentLimit())
 	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Connection, web.ConfigSnapshot)
+	runner.BindDelegate(delegateTool)
 	runner.SetSessionRenamer(registry.RenameBy)
 	deliveryManager := delivery.New(bus, web.ConfigSnapshot)
 	runner.SetDeliverer(func(item *session.Session, runID string, files []delivery.Source) delivery.Result {

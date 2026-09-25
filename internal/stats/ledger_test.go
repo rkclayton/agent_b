@@ -33,6 +33,7 @@ func TestLedgerAggregatesAtRunEndAndSurvivesSessionDeletion(t *testing.T) {
 	bus.Publish(events.New(events.RunStarted, item.ID, runID, map[string]any{"run_id": runID}))
 	bus.Publish(events.New(events.ModelRequest, item.ID, runID, map[string]any{"turn": 1}))
 	bus.Publish(events.New(events.ModelResponse, item.ID, runID, map[string]any{"content": "done", "duration_ms": 12, "usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 20, "cached_tokens": 40}}))
+	bus.Publish(events.New(events.DelegatedUsage, item.ID, runID, map[string]any{"usage": map[string]any{"prompt_tokens": 30, "completion_tokens": 7, "cached_tokens": 5}, "tool_calls": []any{map[string]any{"name": "read_file"}}}))
 	bus.Publish(events.New(events.ToolResult, item.ID, runID, map[string]any{"name": "read_file", "ok": false}))
 	bus.Publish(events.New(events.ApprovalRequired, item.ID, runID, map[string]any{"call_id": "c1"}))
 	bus.Publish(events.New(events.RunStopped, item.ID, runID, map[string]any{"reason": "done"}))
@@ -48,7 +49,7 @@ func TestLedgerAggregatesAtRunEndAndSurvivesSessionDeletion(t *testing.T) {
 	if ledger.Version != Version || ledger.Agent.Chats != 1 || ledger.Agent.Runs != 1 || ledger.Agent.Turns != 1 || ledger.Agent.Tools["read_file"].Failures != 1 || ledger.Agent.Reliability.Completed != 1 || ledger.Agent.Reliability.Interventions != 1 {
 		t.Fatalf("ledger=%+v", ledger)
 	}
-	if ledger.Agent.PromptTokens != 100 || ledger.Agent.CompletionTokens != 20 || ledger.Agent.CachedTokens != 40 || len(ledger.Connections["local"].ModelResponseMS) != 1 {
+	if ledger.Agent.PromptTokens != 130 || ledger.Agent.CompletionTokens != 27 || ledger.Agent.CachedTokens != 45 || ledger.Agent.DelegatedPromptTokens != 30 || ledger.Agent.DelegatedToolCalls != 1 || len(ledger.Connections["local"].ModelResponseMS) != 1 {
 		t.Fatalf("tokens/connection=%+v", ledger)
 	}
 	before := manager.Snapshot(cfg.DefaultAgentID())

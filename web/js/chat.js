@@ -819,14 +819,16 @@ function toolTick(entry, forceOpen = false) {
   const open = forceOpen || expanded.has(entry.key);
   setAttribute(view.button, "aria-expanded", String(open));
   const state = entry.result && typeof entry.result.ok === "boolean" ? (entry.result.ok ? "ok" : "error") : "";
+  const delegated = entry.name === "delegate" ? entry.result?.delegate : null;
+  const stateText = delegated ? `${entry.result?.delegate_status || state} · ${Number(delegated.tool_calls || 0)} tool calls` : callServiceStatus(entry.name, entry.result) || state;
   setText(view.button.children[0], `${open ? "▾" : "▸"} ${entry.name}`);
   setText(view.button.children[1], keyArgument(entry.args));
-  setText(view.button.children[2], callServiceStatus(entry.name, entry.result) || state);
+  setText(view.button.children[2], stateText);
   setAttribute(view.button.children[2], "class", `tool-state ${state === "error" ? "error" : ""}`);
   setText(view.button.children[3], formatDuration(entry.result?.ms));
   if (open) {
     if (!view.pre.textContent || view.args !== entry.args || view.result !== entry.result || view.content !== entry.content) {
-      view.pre.textContent = `arguments\n${JSON.stringify(entry.args, null, 2)}\n\nresult\n${capResult(entry.content)}`;
+      view.pre.textContent = delegated ? delegateDetail(entry.args, delegated) : `arguments\n${JSON.stringify(entry.args, null, 2)}\n\nresult\n${capResult(entry.content)}`;
     }
     if (!view.collapse.isConnected) view.root.append(view.collapse);
     if (!view.pre.isConnected) view.root.append(view.pre);
@@ -1424,9 +1426,20 @@ function keyArgument(args) {
   if (!args || typeof args !== "object" || Array.isArray(args)) return "";
   const service = callServiceKey(args);
   if (service) return service;
+  if (args.task) return String(args.task).trim().split(/\s+/).slice(0, 8).join(" ");
   for (const key of ["path", "command", "pattern", "note"]) if (args[key] !== undefined) return String(args[key]);
   const first = Object.values(args)[0];
   return first === undefined ? "" : typeof first === "string" ? first : JSON.stringify(first);
+}
+function delegateDetail(args, delegated) {
+  const transcript = Array.isArray(delegated.transcript) ? delegated.transcript.map((message) => {
+    const parts = [`${message.role || "message"}${message.name ? ` ${message.name}` : ""}`];
+    if (message.reasoning) parts.push(`thought\n${message.reasoning}`);
+    if (message.tool_calls?.length) parts.push(`calls\n${JSON.stringify(message.tool_calls, null, 2)}`);
+    if (message.content) parts.push(String(message.content));
+    return parts.join("\n");
+  }).join("\n\n") : "";
+  return `arguments\n${JSON.stringify(args, null, 2)}\n\nchild transcript\n${transcript}\n\nsummary\n${delegated.summary || ""}`;
 }
 function capResult(value) {
   const lines = String(value || "").split("\n");

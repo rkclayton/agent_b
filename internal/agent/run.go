@@ -84,6 +84,7 @@ func (r *Runner) SetMailboxBoundary(fn func(context.Context, string, bool) Bound
 }
 func (r *Runner) SetModelUnreachable(fn func(string, string))        { r.modelUnreachable = fn }
 func (r *Runner) SetMessageLimitRecorder(fn func(string, int) error) { r.recordMessageLimit = fn }
+func (r *Runner) BindDelegate(tool *tools.Delegate)                  { tool.SetRunner(r.runDelegate) }
 func (r *Runner) AcceptPlanEdit(ctx context.Context, s *session.Session, path, oldText, newText string) tools.CallOutcome {
 	if !s.BeginPlanAccept() {
 		return tools.CallOutcome{Content: "error: plan acceptance is available only on the Plan page"}
@@ -118,6 +119,61 @@ func (r *Runner) SettlePlanTurns(ctx context.Context, s *session.Session, itemID
 	return r.compact.Settle(s, "", pointer, ids, func(text string) (int, bool) { return r.count(ctx, p, text) })
 }
 func (r *Runner) id(prefix string) string { return fmt.Sprintf("%s-%d", prefix, r.ids.Add(1)) }
+
+func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, task, thoroughness string) (tools.DelegateResult, error) {
+	started := time.Now()
+	turns := 8
+	if thoroughness == "thorough" {
+		turns = 20
+	}
+	parentState := parent.Snapshot()
+	child := &session.Session{
+		ID: parent.ID + "-delegate-" + r.id("e"), Label: "delegate", Role: "e", AgentID: parentState.AgentID,
+		ParentSessionID: parent.ID,
+		ConnectionID:    parentState.ConnectionID, Workspace: parentState.WorkspaceDir, PlanID: parentState.PlanID,
+		PlanDir: parent.PlanDir, PlanRepo: parent.PlanRepo, PlansRoot: parent.PlansRoot, PlanRepos: parent.PlanRepos,
+		NetworkBoundary: parentState.NetworkBoundary, NetworkBoundarySet: true, Runnable: true,
+		Run: session.RunState{Status: "idle", MaxTurns: turns}, ToolsEnabled: map[string]bool{
+			"read_file": true, "list_dir": true, "search": true, "fetch_url": true, "recall": true,
+		}, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{},
+	}
+	connection, ok := r.connection(child.ConnectionID)
+	if !ok {
+		return tools.DelegateResult{}, fmt.Errorf("delegate connection %s is unavailable", child.ConnectionID)
+	}
+	message, _ := r.makeMessage(ctx, connection, "user", task, "history", 0)
+	child.Append(message)
+	r.bus.Publish(events.New(events.MessageAppended, child.ID, "", map[string]any{"message": message, "parent_session_id": parent.ID}))
+	reason, detail, _ := r.Run(ctx, child, r.id("delegate"))
+	if ctx.Err() != nil {
+		return tools.DelegateResult{}, ctx.Err()
+	}
+	partial := reason == "turn_ceiling"
+	if reason != "done" && !partial {
+		return tools.DelegateResult{}, fmt.Errorf("delegate stopped: %s: %s", reason, detail)
+	}
+	transcript, summary := child.MessagesCopy(), ""
+	for index := len(transcript) - 1; index >= 0; index-- {
+		if transcript[index].Role == "assistant" && strings.TrimSpace(transcript[index].Content) != "" {
+			summary = strings.TrimSpace(transcript[index].Content)
+			break
+		}
+	}
+	if summary == "" {
+		summary = "No summary was produced before the child stopped."
+		partial = true
+	}
+	if tokens, _ := r.count(ctx, connection, summary); tokens > 2000 {
+		runes := []rune(summary)
+		runes = runes[:max(1, len(runes)*2000/tokens)]
+		summary, partial = strings.TrimSpace(string(runes))+"\n[summary capped at 2,000 tokens]", true
+	}
+	toolCalls := 0
+	for _, tool := range child.Snapshot().Tools {
+		toolCalls += tool.Calls
+	}
+	return tools.DelegateResult{Summary: summary, Partial: partial, DurationMS: time.Since(started).Milliseconds(), ToolCalls: toolCalls, Transcript: transcript}, nil
+}
 
 // ReserveIDs moves the id counter past floor, so ids minted after a restart
 // never repeat one a restored chat already holds (item 2es).
@@ -586,6 +642,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		responseEvent := events.New(events.ModelResponse, s.ID, runID, responseData)
 		responseEvent.Raw = redactToolCallHeaders(string(response.Raw), rawToolCalls)
 		r.bus.Publish(responseEvent)
+		if s.Role == "e" && s.ParentSessionID != "" {
+			r.bus.Publish(events.New(events.DelegatedUsage, s.ParentSessionID, runID, map[string]any{"usage": responseData["usage"], "tool_calls": durableToolCalls}))
+		}
 		r.maybeAuxProgress(ctx, s, runID, turn)
 		r.stage(s, runID, turn, "parse", func() {})
 		if response.FinishReason == "length" && len(toolCalls) > 0 {
@@ -791,7 +850,11 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				return reason, detail, turn
 			}
 		}
-		if turn >= r.cfg().Run.MaxTurns {
+		maxTurns := r.cfg().Run.MaxTurns
+		if configured := s.Snapshot().Run.MaxTurns; configured > 0 {
+			maxTurns = configured
+		}
+		if turn >= maxTurns {
 			return "turn_ceiling", "maximum turns reached", turn
 		}
 		r.stage(s, runID, turn, "compact", func() {
@@ -904,7 +967,7 @@ func turnCeilingDetail(turns int, result delivery.Result) string {
 }
 
 func (r *Runner) applyMailboxBoundary(ctx context.Context, s *session.Session, runID string, approvalPending bool) (bool, string) {
-	if r.mailboxBoundary == nil {
+	if r.mailboxBoundary == nil || s.Role == "e" {
 		return false, ""
 	}
 	action := r.mailboxBoundary(ctx, s.ID, approvalPending)
@@ -995,6 +1058,9 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	eventArgs := sanitizedToolArguments(name, args)
 	if cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext {
 		if err := r.tools.PreflightServiceIdentity(); err != nil {
+			if s.Role == "e" {
+				return r.tools.CallDetailed(ctx, s, name, args)
+			}
 			switch name {
 			case "read_file", "list_dir", "search", "search_text", "find_files":
 				return r.callFileAsOperator(ctx, s, name, args)

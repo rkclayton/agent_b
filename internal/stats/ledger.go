@@ -30,22 +30,26 @@ type Reliability struct {
 	BriefFailures   int64 `json:"brief_failures"`
 }
 type Counters struct {
-	Chats             int64           `json:"chats"`
-	Runs              int64           `json:"runs"`
-	Turns             int64           `json:"turns"`
-	Tools             map[string]Tool `json:"tools"`
-	ApprovalsRaised   int64           `json:"approvals_raised"`
-	ApprovalsApproved int64           `json:"approvals_approved"`
-	OperatorGrants    int64           `json:"operator_grants"`
-	Compactions       int64           `json:"compactions"`
-	PromptTokens      int64           `json:"prompt_tokens"`
-	CompletionTokens  int64           `json:"completion_tokens"`
-	CachedTokens      int64           `json:"cached_tokens"`
-	WallMS            int64           `json:"wall_ms"`
-	ModelResponseMS   []int64         `json:"model_response_ms"`
-	FirstUse          string          `json:"first_use,omitempty"`
-	LastUse           string          `json:"last_use,omitempty"`
-	Reliability       Reliability     `json:"worker_reliability"`
+	Chats                     int64           `json:"chats"`
+	Runs                      int64           `json:"runs"`
+	Turns                     int64           `json:"turns"`
+	Tools                     map[string]Tool `json:"tools"`
+	ApprovalsRaised           int64           `json:"approvals_raised"`
+	ApprovalsApproved         int64           `json:"approvals_approved"`
+	OperatorGrants            int64           `json:"operator_grants"`
+	Compactions               int64           `json:"compactions"`
+	PromptTokens              int64           `json:"prompt_tokens"`
+	CompletionTokens          int64           `json:"completion_tokens"`
+	CachedTokens              int64           `json:"cached_tokens"`
+	DelegatedPromptTokens     int64           `json:"delegated_prompt_tokens,omitempty"`
+	DelegatedCompletionTokens int64           `json:"delegated_completion_tokens,omitempty"`
+	DelegatedCachedTokens     int64           `json:"delegated_cached_tokens,omitempty"`
+	DelegatedToolCalls        int64           `json:"delegated_tool_calls,omitempty"`
+	WallMS                    int64           `json:"wall_ms"`
+	ModelResponseMS           []int64         `json:"model_response_ms"`
+	FirstUse                  string          `json:"first_use,omitempty"`
+	LastUse                   string          `json:"last_use,omitempty"`
+	Reliability               Reliability     `json:"worker_reliability"`
 }
 type Ledger struct {
 	Version     int                 `json:"version"`
@@ -180,6 +184,15 @@ func add(c *Counters, event events.Event, r *run) {
 		if len(calls) == 0 && d["content"] != "" && r != nil {
 			r.evidence = true
 		}
+	case events.DelegatedUsage:
+		usage := eventData(d["usage"])
+		prompt, completion, cached := int64Value(usage["prompt_tokens"]), int64Value(usage["completion_tokens"]), int64Value(usage["cached_tokens"])
+		c.PromptTokens, c.CompletionTokens, c.CachedTokens = c.PromptTokens+prompt, c.CompletionTokens+completion, c.CachedTokens+cached
+		c.DelegatedPromptTokens += prompt
+		c.DelegatedCompletionTokens += completion
+		c.DelegatedCachedTokens += cached
+		calls, _ := d["tool_calls"].([]any)
+		c.DelegatedToolCalls += int64(len(calls))
 	case events.ToolResult:
 		name, _ := d["name"].(string)
 		tool := c.Tools[name]

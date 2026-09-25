@@ -30,7 +30,10 @@ func TestStatusReportsAbsentAccountWithoutMutation(t *testing.T) {
 		filepath.Join(root, "scripts", "apply-firewall-rule.ps1"),
 		filepath.Join(root, "scripts", "apply-hardening.ps1"),
 	)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// Hosted Windows runners can spend most of 15 seconds starting the two
+	// read-only Windows PowerShell inspections. Keep the assertion bounded while
+	// allowing the absent-account result to be observed on a cold runner.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	status, err := manager.Status(ctx, Request{AccountName: "agentb-test-account-that-does-not-exist", ApplicationDirectory: application, DataDirectory: data, WorkspaceDirectory: workspace, ExchangeDirectory: exchange, ModelAddress: "127.0.0.1", ModelPort: 8080})
 	if err != nil {

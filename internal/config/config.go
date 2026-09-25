@@ -163,6 +163,7 @@ type Measurement struct {
 }
 
 type Service struct {
+	Kind                string   `json:"kind,omitempty"`
 	BaseURL             string   `json:"base_url"`
 	Auth                string   `json:"auth"`
 	AllowedMethods      []string `json:"allowed_methods"`
@@ -887,10 +888,13 @@ func (c Config) Validate() error {
 		if err != nil || endpoint == nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Hostname() == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
 			return fmt.Errorf("%s.base_url: must be an absolute HTTP(S) URL without user information, query, or fragment", prefix)
 		}
-		if err := validateServiceAuth(service.Auth); err != nil {
+		if service.Kind != "" && service.Kind != "http" && service.Kind != "mcp" {
+			return fmt.Errorf("%s.kind: must be http or mcp", prefix)
+		}
+		if err := ValidateServiceAuth(service.Auth); err != nil {
 			return fmt.Errorf("%s.auth: %w", prefix, err)
 		}
-		if len(service.AllowedMethods) == 0 {
+		if service.Kind != "mcp" && len(service.AllowedMethods) == 0 {
 			return fmt.Errorf("%s.allowed_methods: at least one method is required", prefix)
 		}
 		for _, method := range service.AllowedMethods {
@@ -1234,7 +1238,7 @@ func validFetchHost(value string) bool {
 	return value != "" && !strings.ContainsAny(value, `/\\:*?`) && !strings.Contains(value, "..")
 }
 
-func validateServiceAuth(value string) error {
+func ValidateServiceAuth(value string) error {
 	value = strings.TrimSpace(value)
 	if value == "none" {
 		return nil

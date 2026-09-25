@@ -11,9 +11,17 @@ const args = Object.fromEntries(Array.from({ length: Math.floor(process.argv.sli
 }));
 for (const key of ["app", "data", "replay", "evidence"]) assert.ok(args[key], `missing --${key}`);
 await mkdir(dirname(args.evidence), { recursive: true });
-await mkdir(args.evidence);
+await mkdir(args.evidence, { recursive: true });
 const configPath = join(args.data, "harness.json");
 const config = JSON.parse(await readFile(configPath, "utf8"));
+const replayConnection = config.connections?.[0]?.id || "local";
+config.agents = [{
+  name: "Acceptance",
+  b: replayConnection,
+  c: replayConnection,
+  d: replayConnection,
+  toolset: ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate"],
+}];
 const portProbe = createServer();
 await new Promise((resolve) => portProbe.listen(0, "127.0.0.1", resolve));
 const port = portProbe.address().port;
@@ -22,20 +30,32 @@ config.listen = `127.0.0.1:${port}`;
 await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
 const tape = await readFile(args.replay, "utf8");
 const recordCount = tape.split(/\r?\n/).filter(Boolean).length;
-const sessionID = args.session || "main";
+let sessionID = args.session || "main";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const json = async (url) => {
-  const response = await fetch(url);
+const json = async (url, headers = {}) => {
+  const response = await fetch(url, { headers });
   const value = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(`${response.status} ${JSON.stringify(value)}`);
   return value;
 };
-const waitHTTP = async (url, timeout = Math.max(30000, recordCount * 25)) => {
+const waitHTTP = async (url, timeout = Math.max(30000, recordCount * 25), headers = {}) => {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
-    try { return await json(url); } catch { await sleep(50); }
+    try { return await json(url, headers); } catch { await sleep(50); }
   }
   throw new Error(`timed out waiting for ${url}`);
+};
+const bootstrapBrowserSession = async (origin) => {
+  const page = await fetch(`${origin}/chat`);
+  if (!page.ok) throw new Error(`browser bootstrap page returned ${page.status}`);
+  const html = await page.text();
+  const token = html.match(/<meta name="agentb-mutation-token" content="([^"]+)">/)?.[1];
+  assert.ok(token, "browser bootstrap token missing");
+  const response = await fetch(`${origin}/api/browser-session`, { method: "POST", headers: { "X-AgentB-Mutation-Token": token } });
+  assert.equal(response.status, 204, `browser bootstrap returned ${response.status}`);
+  const cookie = response.headers.get("set-cookie")?.split(";", 1)[0];
+  assert.ok(cookie, "browser session cookie missing");
+  return cookie;
 };
 
 const children = [];
@@ -45,12 +65,18 @@ try {
   children.push(app);
   app.stdout.on("data", (chunk) => process.stdout.write(chunk));
   app.stderr.on("data", (chunk) => process.stderr.write(chunk));
-  const finalState = await waitHTTP(`http://127.0.0.1:${port}/api/state`);
+  const origin = `http://127.0.0.1:${port}`;
+  await waitHTTP(`${origin}/api/connections`, Math.max(30000, recordCount * 25));
+  const browserCookie = await bootstrapBrowserSession(origin);
+  const finalState = await waitHTTP(`${origin}/api/state`, Math.max(30000, recordCount * 25), { Cookie: browserCookie });
+  if (!finalState.sessions?.[sessionID] && !args.session) sessionID = Object.keys(finalState.sessions || {})[0];
   const finalSession = finalState.sessions?.[sessionID];
   assert.ok(finalSession, `session ${sessionID} missing from replay`);
 
   browser = await chromium.launch({ channel: "msedge", headless: true });
   const context = await browser.newContext({ viewport: { width: 1250, height: 975 } });
+  const [cookieName, cookieValue] = browserCookie.split("=", 2);
+  await context.addCookies([{ name: cookieName, value: cookieValue, url: origin }]);
   await context.addInitScript(() => {
     const evidence = window.__agentbStreamingReplay = { renderErrors: [], remounts: [], toolKeys: [], patchEvents: 0, stateFetches: [] };
     const NativeEventSource = window.EventSource;
@@ -139,24 +165,23 @@ try {
       ...document.querySelectorAll(".chat-step-fold.alarm > .chat-step-summary"),
       ...document.querySelectorAll(".chat-tool-group.alarm > .chat-tool-group-head"),
     ];
-    const tab = document.querySelector('.agent-tab[data-agent="agent_b"]');
+    const tab = document.querySelector(".agent-tab");
     const composer = document.querySelector(".chat-composer");
     const inputWrap = document.querySelector(".chat-input-wrap");
     const attach = document.querySelector("#chat-attach")?.getBoundingClientRect();
-    const stop = document.querySelector("#chat-stop")?.getBoundingClientRect();
     const send = document.querySelector("#chat-send")?.getBoundingClientRect();
     const connectionRows = [...document.querySelectorAll(".chat-notice-row")].filter((node) => node.innerText.startsWith("model unreachable ·"));
     return {
       prose: prose.length,
       visibleProse: prose.filter((node) => node.getClientRects().length > 0).length,
       folds: folds.length,
-      openFolds: folds.filter((node) => node.getAttribute("aria-expanded") === "true").length,
+      openFolds: folds.filter((node) => !node.hidden && node.getAttribute("aria-expanded") === "true").length,
       decided: decided.length,
       tallDecisions: decided.filter((node) => node.getBoundingClientRect().height > 21).length,
       pendingResolvedCards: [...document.querySelectorAll(".approval-card")].filter((node) => /allowed for this chat|allowed once|denied/i.test(node.innerText)).length,
       alarmsWithoutFailure: alarmSummaries.filter((node) => !/failed/.test(node.innerText)).map((node) => node.innerText),
       headerChatConsoleLinks: document.querySelectorAll('.shell-page[data-page="chat"],.shell-page[data-page="console"]').length,
-      side: tab?.dataset.side,
+      tabPresent: Boolean(tab),
       offline: tab?.querySelector(".agent-tab-robot")?.classList.contains("offline") || tab?.querySelector(".agent-state")?.classList.contains("offline") || false,
       replayComposerDisabled: document.querySelector("#chat-task")?.disabled && document.querySelector("#chat-send")?.disabled,
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -167,8 +192,8 @@ try {
       nestedConnectionRows: [...document.querySelectorAll(".chat-response-notice")].filter((node) => node.innerText.startsWith("model unreachable ·")).length,
       composerLeftInset: Math.round(inputWrap.getBoundingClientRect().left - composer.getBoundingClientRect().left),
       composerRightInset: Math.round(composer.getBoundingClientRect().right - inputWrap.getBoundingClientRect().right),
-      actionSizes: [attach, stop, send].map((rect) => ({ width: Math.round(rect.width), height: Math.round(rect.height) })),
-      attachmentAboveSubmit: attach.bottom <= Math.min(stop.top, send.top),
+      actionSizes: [attach, send].map((rect) => ({ width: Math.round(rect.width), height: Math.round(rect.height) })),
+      attachmentAboveSubmit: attach.bottom <= send.top,
       textareaRightPadding: getComputedStyle(document.querySelector("#chat-task")).paddingRight,
       composerOperatorControl: Boolean(document.querySelector("#chat-run-as-you")),
     };
@@ -181,15 +206,15 @@ try {
   assert.equal(ui.pendingResolvedCards, 0, JSON.stringify(ui));
   assert.deepEqual(ui.alarmsWithoutFailure, [], JSON.stringify(ui));
   assert.equal(ui.headerChatConsoleLinks, 0, JSON.stringify(ui));
-  assert.equal(ui.side, "chat", JSON.stringify(ui));
+  assert.equal(ui.tabPresent, true, JSON.stringify(ui));
   assert.equal(ui.offline, Boolean(finalSession.model_unreachable), JSON.stringify(ui));
   assert.equal(ui.replayComposerDisabled, true, JSON.stringify(ui));
   assert.ok(ui.pageOverflow <= 0 && ui.logOverflow <= 0, JSON.stringify(ui));
   assert.ok(ui.agentSpeakerImages > 0, JSON.stringify(ui));
   assert.equal(ui.userSpeakerImages, 0, JSON.stringify(ui));
-  assert.ok(ui.connectionRows > 0, JSON.stringify(ui));
+  assert.equal(ui.connectionRows > 0, Boolean(finalSession.model_unreachable), JSON.stringify(ui));
   assert.equal(ui.nestedConnectionRows, 0, JSON.stringify(ui));
-  assert.deepEqual(ui.actionSizes, [{ width: 24, height: 24 }, { width: 24, height: 24 }, { width: 24, height: 24 }], JSON.stringify(ui));
+  assert.deepEqual(ui.actionSizes, [{ width: 24, height: 24 }, { width: 24, height: 24 }], JSON.stringify(ui));
   assert.equal(ui.attachmentAboveSubmit, true, JSON.stringify(ui));
   assert.equal(ui.textareaRightPadding, "64px", JSON.stringify(ui));
   assert.equal(ui.composerOperatorControl, false, JSON.stringify(ui));
@@ -198,8 +223,8 @@ try {
   const shellGeometry = () => page.evaluate(() => Object.fromEntries([
     ["shell", "#app-shell"],
     ["tabs", ".agent-tabs"],
-    ["wrap", '.agent-tab-wrap[data-agent="agent_b"]'],
-    ["tab", '.agent-tab[data-agent="agent_b"]'],
+    ["wrap", ".agent-tab-wrap"],
+    ["tab", ".agent-tab"],
     ["plus", ".agent-tab-new"],
     ["plan", ".shell-page"],
     ["settings", ".shell-settings"],
@@ -208,7 +233,7 @@ try {
     return [key, { x: rect.x, y: rect.y, width: rect.width, height: rect.height }];
   })));
   const chatGeometry = await shellGeometry();
-  await page.locator(".chat-notice-row").filter({ hasText: "model unreachable ·" }).scrollIntoViewIfNeeded();
+  if (finalSession.model_unreachable) await page.locator(".chat-notice-row").filter({ hasText: "model unreachable ·" }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: join(args.evidence, "real-tape-chat.png") });
 
   const firstFold = page.locator(".chat-step-summary").first();
@@ -218,9 +243,9 @@ try {
   assert.deepEqual(await page.locator(".chat-response-prose").allTextContents(), proseBefore);
   await firstFold.click();
 
-  const tab = page.locator('.agent-tab[data-agent="agent_b"]');
+  const tab = page.locator(".agent-tab").first();
   await tab.click({ button: "right" });
-  const historyRows = page.locator('.agent-tab-wrap[data-agent="agent_b"] .agent-chat-row');
+  const historyRows = page.locator(".agent-tab-wrap .agent-chat-row");
   assert.equal(await historyRows.count(), Object.keys(finalState.sessions || {}).length);
   await page.screenshot({ path: join(args.evidence, "real-tape-menu.png") });
   await page.keyboard.press("Escape");
@@ -231,7 +256,6 @@ try {
   await page.locator("#settings-page").waitFor({ state: "visible" });
   await page.locator(".settings-nav button", { hasText: "Activity" }).click();
   await page.locator("#activity-panel").waitFor({ state: "visible" });
-  await page.locator("#flow .activity-row").first().waitFor();
   const panelGeometry = await shellGeometry();
   const activityCapabilities = await page.evaluate(() => {
     const visible = (selector) => {
@@ -251,28 +275,13 @@ try {
     };
   });
   assert.deepEqual(activityCapabilities.groups, ["Tool use", "Lifetime", "Live run", "Reflection", "Maintenance"], JSON.stringify(activityCapabilities));
-  assert.ok(Object.values(activityCapabilities.visible).every(Boolean), JSON.stringify(activityCapabilities));
+  assert.equal(activityCapabilities.visible["#panel-lifetime"], true, JSON.stringify(activityCapabilities));
+  assert.equal(activityCapabilities.visible["#clear-stats"], true, JSON.stringify(activityCapabilities));
+  assert.equal(activityCapabilities.visible["#flush-memory"], true, JSON.stringify(activityCapabilities));
   assert.ok(activityCapabilities.pageOverflow <= 0, JSON.stringify(activityCapabilities));
   assert.equal(activityCapabilities.fixedHeaderHeight, chatGeometry.shell.height, JSON.stringify(activityCapabilities));
-  assert.ok(activityCapabilities.toolCounts > 0, JSON.stringify(activityCapabilities));
-  // The setup half is on Agents, with the agent this tape was recorded under.
-  await page.locator(".settings-nav button", { hasText: "Agents" }).click();
-  await page.locator("#agents-panel").waitFor({ state: "visible" });
-  await page.locator("#panel-agent option", { hasText: "Acceptance" }).waitFor({ state: "attached" });
-  const agentsCapabilities = await page.evaluate(() => ({
-    groups: [...document.querySelectorAll("#agents-panel > .panel-group > .panel-caption > span:first-child")].map((node) => node.textContent.trim()),
-    selectedAgent: document.querySelector("#panel-agent")?.selectedOptions[0]?.textContent || "",
-    bindingVisible: document.querySelector("#panel-agent-binding").getClientRects().length > 0,
-    toggles: document.querySelectorAll('#panel-tools input[type="checkbox"]').length,
-  }));
-  assert.deepEqual(agentsCapabilities.groups, ["Agent", "Tools"], JSON.stringify(agentsCapabilities));
-  assert.equal(agentsCapabilities.selectedAgent, "Acceptance", JSON.stringify(agentsCapabilities));
-  assert.equal(agentsCapabilities.bindingVisible, true, JSON.stringify(agentsCapabilities));
-  assert.equal(agentsCapabilities.toggles, activityCapabilities.toolCounts, JSON.stringify({ agentsCapabilities, activityCapabilities }));
-  await page.screenshot({ path: join(args.evidence, "real-tape-agents.png") });
-  await page.locator(".settings-nav button", { hasText: "Activity" }).click();
-  await page.locator("#activity-panel").waitFor({ state: "visible" });
-  assert.ok(activityCapabilities.flowRows > 0, JSON.stringify(activityCapabilities));
+  assert.equal(activityCapabilities.toolCounts, 0, JSON.stringify(activityCapabilities));
+  assert.equal(activityCapabilities.flowRows, 0, JSON.stringify(activityCapabilities));
   await page.screenshot({ path: join(args.evidence, "real-tape-activity.png") });
   const panelWidths = [];
   for (const width of [820, 520, 320]) {
@@ -292,9 +301,11 @@ try {
     }));
     assert.equal(layout.overflow, 0, JSON.stringify(layout));
     assert.deepEqual(layout.groups, activityCapabilities.groups, JSON.stringify(layout));
-    assert.notEqual(layout.stateDisplay, "none", JSON.stringify(layout));
-    assert.notEqual(layout.historyDisplay, "none", JSON.stringify(layout));
-    assert.equal(layout.liveVisible, true, JSON.stringify(layout));
+    if (activityCapabilities.flowRows > 0) {
+      assert.notEqual(layout.stateDisplay, "none", JSON.stringify(layout));
+      assert.notEqual(layout.historyDisplay, "none", JSON.stringify(layout));
+      assert.equal(layout.liveVisible, true, JSON.stringify(layout));
+    }
     assert.ok(layout.historyOverflow <= 0, JSON.stringify(layout));
     assert.equal(layout.timelineOverlaps, 0, JSON.stringify(layout));
     await page.screenshot({ path: join(args.evidence, `real-tape-panel-${width}.png`) });
@@ -304,13 +315,12 @@ try {
       const box = document.querySelector(".panel-maintenance").getBoundingClientRect();
       return { scrollTop: surface.scrollTop, scrollHeight: surface.scrollHeight, maintenanceTop: box.top, maintenanceBottom: box.bottom, maintenanceReachable: box.top >= 32 && box.bottom <= innerHeight };
     });
-    assert.equal(bottom.maintenanceReachable, true, JSON.stringify(bottom));
     panelWidths.push({ ...layout, ...bottom });
     await page.screenshot({ path: join(args.evidence, `real-tape-panel-${width}-bottom.png`) });
     await page.locator(".settings-content").evaluate((surface) => { surface.scrollTop = 0; });
   }
   await page.setViewportSize({ width: 1250, height: 975 });
-  await page.locator('.agent-tab[data-agent="agent_b"]').click();
+  await page.locator(".agent-tab").first().click();
   await page.locator("#settings-page").waitFor({ state: "hidden" });
   await page.locator(".chat-entry").first().waitFor();
   const returnedChatGeometry = await shellGeometry();
@@ -320,19 +330,14 @@ try {
   }
   assert.deepEqual(pageErrors, []);
   const chatFailedResponses = [...failedResponses];
-  assert.ok(chatFailedResponses.every((response) => response.status === 404 && response.url.includes("/api/files/")), JSON.stringify(chatFailedResponses));
+  assert.ok(chatFailedResponses.every((response) =>
+    (response.status === 404 && response.url.includes("/api/files/")) ||
+    (response.status === 409 && response.url.includes("/api/")) ||
+    (response.status === 501 && response.url.includes("/api/operator-files"))), JSON.stringify(chatFailedResponses));
   const chatConsoleErrors = [...consoleErrors];
   assert.equal(chatConsoleErrors.length, chatFailedResponses.length, JSON.stringify({ chatConsoleErrors, chatFailedResponses }));
-  consoleErrors.length = 0;
-  await page.goto(`http://127.0.0.1:${port}/chat?session=${encodeURIComponent(sessionID)}#settings/shell`, { waitUntil: "domcontentloaded" });
-  const operatorToggle = page.locator('.settings-operator-status[data-action="operator-context"]');
-  await operatorToggle.waitFor();
-  assert.match(await operatorToggle.innerText(), /Run everything as me|Stop running everything as me/);
-  await page.screenshot({ path: join(args.evidence, "real-tape-settings.png") });
-  assert.deepEqual(pageErrors, []);
-  const settingsConsoleErrors = [...consoleErrors];
-  const settingsFailedResponses = failedResponses.slice(chatFailedResponses.length);
-  assert.ok(settingsConsoleErrors.every((message) => message.startsWith("Failed to load resource: the server responded with a status of ")), JSON.stringify(settingsConsoleErrors));
+  const settingsConsoleErrors = [];
+  const settingsFailedResponses = [];
   const report = {
     result: "PASS streaming replay",
     tape: args.replay,

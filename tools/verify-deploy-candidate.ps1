@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
+. (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\signing-key-policy.ps1')
 $root = [IO.Path]::GetFullPath($CandidateDirectory)
 $manifestPath = Join-Path $root 'candidate-final.json'
 $binary = Join-Path $root 'Agent_b.exe'
@@ -65,6 +66,14 @@ try {
     if ($setupExit -ne 0 -or $output -notmatch 'AUTOSTART SKIPPED: -NoStart') {
         throw "DEPLOY REFUSED: signed setup did not complete its -NoStart preflight.`n$output"
     }
+    # 2ki: verify the installed bytes against the central signing policy.
+    $installedSignables = @((Join-Path $application 'Agent_b.exe'))
+    foreach ($relative in @(Get-AgentBRuntimeSigningPolicy -Root $root).Signable) { $installedSignables += Join-Path $application ($relative.Replace('/', '\')) }
+    foreach ($installed in $installedSignables) {
+        $installedSignature = Get-AuthenticodeSignature -LiteralPath $installed
+        if ($installedSignature.Status -ne 'Valid' -or -not $installedSignature.TimeStamperCertificate) { throw "DEPLOY REFUSED: installed signable $installed is $($installedSignature.Status) or lacks a timestamp." }
+    }
+    Write-Host "INSTALLED SIGNATURES: $($installedSignables.Count)/$($installedSignables.Count) Valid and timestamped"
 } finally {
     if (Test-Path -LiteralPath $verifyRoot) {
         $resolved = [IO.Path]::GetFullPath($verifyRoot)

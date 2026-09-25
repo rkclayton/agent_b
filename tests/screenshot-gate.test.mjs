@@ -95,6 +95,22 @@ test("a candidate's rectangle that overlaps the baseline's same mask is honoured
   assert.equal(maskedArea(trusted, 40, 30), 56 / 1200);
 });
 
+test("an element-bound mask follows the About clock across different text widths", () => {
+  const base = image(60, 20), changed = image(60, 20, (x, y) => x >= 10 && x < 46 && y >= 5 && y < 13 ? [255, 0, 0, 255] : [20, 22, 26, 255]);
+  const bound = trustedMasks({ masks: [{ name: "server-started-clock", rects: [[10, 5, 30, 8]] }] }, { masks: [{ name: "server-started-clock", rects: [[10, 5, 36, 8]] }] });
+  assert.equal(compareMasked(base, changed, bound).outside, 0);
+});
+
+test("a stale element-bound selector fails the gate by mask name and reason", async () => {
+  const root = await mkdtemp(join(tmpdir(), "screenshot-gate-stale-")), baseline = join(root, "baseline"), candidate = join(root, "candidate");
+  await Promise.all([mkdir(baseline), mkdir(candidate)]);
+  for (const dir of [baseline, candidate]) await writeFile(join(dir, "about.png"), encodePNG(image(20, 10)));
+  await writeFile(join(baseline, "about.png.masks.json"), JSON.stringify({ masks: [{ name: "server-started-clock", reason: "live clock", rects: [[1, 1, 5, 5]] }] }));
+  await writeFile(join(candidate, "about.png.masks.json"), JSON.stringify({ masks: [{ name: "server-started-clock", reason: "live clock", rects: [], missing: true }] }));
+  const [result] = await gate(baseline, candidate);
+  assert.deepEqual([result.verdict, result.mask_errors], ["stale-mask", ["server-started-clock: live clock"]]);
+});
+
 test("the gate counts a one-level difference as rounding and fails a two-level one", () => {
   const base = image(40, 30);
   const one = compareMasked(base, withPixel(base, 3, 3, [21, 22, 26, 255]), masks, { tolerance: 1 });

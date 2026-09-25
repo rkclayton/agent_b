@@ -104,6 +104,8 @@ export async function gate(baselineDir, candidateDir, { tolerance = 2 } = {}) {
     let candidate;
     try { candidate = await readFile(join(candidateDir, name)); } catch { results.push({ name, verdict: "missing" }); continue; }
     const [baseMasks, candidateMasks] = await Promise.all([sidecar(path), sidecar(join(candidateDir, name))]);
+    const stale = [...(baseMasks?.masks ?? []), ...(candidateMasks?.masks ?? [])].filter((mask) => mask.missing).map((mask) => `${mask.name}: ${mask.reason || "selector matched no element"}`);
+    if (stale.length) { results.push({ name, verdict: "stale-mask", mask_errors: stale }); continue; }
     const masks = trustedMasks(baseMasks, candidateMasks);
     const before = decodePNG(await readFile(path));
     const outcome = compareMasked(before, decodePNG(candidate), masks, { tolerance });
@@ -122,6 +124,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const results = await gate(args[0], args[1]);
   for (const r of results) {
     if (r.verdict === "missing") console.log(`MISSING ${r.name}`);
+    else if (r.verdict === "stale-mask") console.log(`STALE MASK ${r.name}: ${r.mask_errors.join("; ")}`);
     else if (r.verdict === "unexplained") console.log(`UNEXPLAINED ${r.name} ${r.outside} px outside authorized dynamic regions ${JSON.stringify(r.bounds)}${r.inside ? `; ${r.inside} px inside (${r.masksHit.join(", ")})` : ""}`);
     else if (r.verdict === "masked") console.log(`MATCH   ${r.name} (masked: ${r.masksHit.join(", ")}; ${r.inside} px inside masks, ${r.masked_percent}% of the image masked${r.rounding ? `, ${r.rounding} px one level apart` : ""})`);
     else console.log(`MATCH   ${r.name}${r.rounding ? ` (${r.rounding} px one level apart)` : ""}`);

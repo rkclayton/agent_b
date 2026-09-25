@@ -2,12 +2,14 @@
 param(
     [Parameter(Mandatory=$true)][string]$SourceDirectory,
     [string]$Thumbprint,
-    [string]$TimestampUrl = 'http://timestamp.digicert.com'
+    [string]$TimestampUrl = 'http://timestamp.digicert.com',
+    [switch]$PayloadOnly,
+    [switch]$BinaryOnly
 )
 
 # Disposable executable tests must not launch the raw, reputationless Go
-# output. This signs only Agent_b.exe (never the source scripts) with an
-# already trusted CurrentUser certificate. If a manifest already exists it is
+# output. This signs the runtime payload before bundle capture and Agent_b.exe
+# afterward with an already trusted CurrentUser certificate. If a manifest already exists it is
 # updated to follow the signed bytes. It creates or trusts no certificate and
 # never elevates.
 $ErrorActionPreference = 'Stop'
@@ -15,7 +17,7 @@ $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath($SourceDirectory)
 $binary = Join-Path $root 'Agent_b.exe'
 $manifestPath = Join-Path $root 'candidate-final.json'
-if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "test candidate not found: $binary" }
+if ($PayloadOnly -and $BinaryOnly) { throw 'PayloadOnly and BinaryOnly are mutually exclusive.' }
 
 $certificates = @(Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Where-Object {
     $_.HasPrivateKey -and $_.Subject -eq 'CN=Agent_b Disposable Test Signing' -and
@@ -40,16 +42,24 @@ try {
     throw "The CurrentUser signing key $($certificate.Thumbprint) is not usable without interaction: $($_.Exception.Message)"
 }
 
-$signature = Set-AuthenticodeSignature -LiteralPath $binary -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer $TimestampUrl
-if (-not $signature.SignerCertificate -or $signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) {
-    throw "Test candidate signing failed: $($signature.Status) $($signature.StatusMessage)"
+$targets = @()
+if (-not $BinaryOnly) {
+    foreach ($relative in @(Get-AgentBRuntimeSigningPolicy -Root $root).Signable) {
+        $targets += Join-Path $root ($relative.Replace('/', '\'))
+    }
 }
-$verified = Get-AuthenticodeSignature -LiteralPath $binary
-if ($verified.Status -ne 'Valid' -or $verified.SignerCertificate.Thumbprint -ne $certificate.Thumbprint -or -not $verified.TimeStamperCertificate) {
-    throw 'Test candidate signature did not verify after signing.'
+if (-not $PayloadOnly) {
+    if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "test candidate not found: $binary" }
+    $targets += $binary
+}
+foreach ($target in $targets) {
+    $signature = Set-AuthenticodeSignature -LiteralPath $target -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer $TimestampUrl
+    if (-not $signature.SignerCertificate -or $signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw "Test candidate signing failed for ${target}: $($signature.Status) $($signature.StatusMessage)" }
+    $verified = Get-AuthenticodeSignature -LiteralPath $target
+    if ($verified.Status -ne 'Valid' -or $verified.SignerCertificate.Thumbprint -ne $certificate.Thumbprint -or -not $verified.TimeStamperCertificate) { throw "Test candidate signature did not verify after signing: $target" }
 }
 
-if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+if ((-not $PayloadOnly) -and (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
     $manifest.exe_sha256 = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
     $manifest.exe_bytes = (Get-Item -LiteralPath $binary).Length
@@ -60,5 +70,5 @@ if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
     })
     [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 }
-Write-Host "SIGNED TEST CANDIDATE: Agent_b.exe with $($certificate.Thumbprint), timestamped"
+Write-Host "SIGNED TEST CANDIDATE: $($targets.Count) file(s) with $($certificate.Thumbprint), timestamped"
 exit 0

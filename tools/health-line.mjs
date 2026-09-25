@@ -47,7 +47,7 @@ function testCount(files, read) {
 export function repositoryMetrics({ ref = "", warnings = 0 } = {}) {
   const listed = run("git", ref ? ["ls-tree", "-r", "--name-only", ref] : ["ls-files"]);
   if (listed.status !== 0) throw new Error(listed.stderr.trim() || "git file listing failed");
-  const files = listed.stdout.split(/\r?\n/).filter(Boolean);
+  const files = listed.stdout.split(/\r?\n/).filter(Boolean).filter((file) => ref || fs.existsSync(path.join(root, file)));
   const read = (relative) => gitText(ref, relative);
   const textFiles = files.filter((file) => textExtensions.has(path.extname(file).toLowerCase()));
   const loc = textFiles.reduce((total, file) => total + read(file).split(/\r?\n/).length - 1, 0);

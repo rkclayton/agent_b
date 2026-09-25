@@ -53,16 +53,23 @@ type Tool struct {
 }
 
 type Activity struct {
-	Stage            string           `json:"stage"`
-	StageState       string           `json:"stage_state"`
-	CompletedStages  []string         `json:"completed_stages"`
-	ActiveTool       string           `json:"active_tool"`
-	AlarmTool        string           `json:"alarm_tool"`
-	DispatchAlarm    bool             `json:"dispatch_alarm"`
-	Progress         map[string]any   `json:"progress,omitempty"`
-	LastTimings      map[string]any   `json:"last_timings,omitempty"`
-	Stream           *StreamTelemetry `json:"stream,omitempty"`
-	CompactionSerial int              `json:"compaction_serial"`
+	Stage            string            `json:"stage"`
+	StageState       string            `json:"stage_state"`
+	CompletedStages  []string          `json:"completed_stages"`
+	ActiveTool       string            `json:"active_tool"`
+	AlarmTool        string            `json:"alarm_tool"`
+	DispatchAlarm    bool              `json:"dispatch_alarm"`
+	Progress         map[string]any    `json:"progress,omitempty"`
+	LastTimings      map[string]any    `json:"last_timings,omitempty"`
+	Stream           *StreamTelemetry  `json:"stream,omitempty"`
+	CompactionSerial int               `json:"compaction_serial"`
+	Delegate         *DelegateActivity `json:"delegate,omitempty"`
+}
+
+type DelegateActivity struct {
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	ToolCalls int    `json:"tool_calls"`
 }
 
 type StreamTelemetry struct {
@@ -441,6 +448,13 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 	case events.ShellGrantLapsed, events.FileGrantLapsed:
 		if stringValue(data["scope"]) == "session" && stringValue(data["identity"]) == "operator" {
 			next.RunAsYou = false
+		}
+	case events.DelegatedUsage:
+		if status := stringValue(data["status"]); status != "" {
+			next.Activity.Delegate = &DelegateActivity{ID: stringValue(data["child_id"]), Status: status, ToolCalls: intValue(data["tool_calls"])}
+		} else if next.Activity.Delegate != nil {
+			calls, _ := data["tool_calls"].([]any)
+			next.Activity.Delegate = &DelegateActivity{ID: next.Activity.Delegate.ID, Status: next.Activity.Delegate.Status, ToolCalls: next.Activity.Delegate.ToolCalls + len(calls)}
 		}
 	case events.Stage:
 		stage, state := stringValue(data["stage"]), stringValue(data["state"])

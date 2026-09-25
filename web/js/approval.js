@@ -25,6 +25,12 @@ export function approvalText(data = {}) {
 		? data.boundary_escape
 		: data.name?.endsWith(".operator_override");
 	const value = data.args?.path ?? data.args?.command ?? data.args?.pattern ?? "";
+	if (data.name === "call_service" && data.args?.connector) return {
+		title: "Allow this",
+		request: `${data.args.connector.operation || "change"} connector configuration?`,
+		reason: data.args.validation_error || "Agent_b will validate, save, and hot-reload this entry.",
+		detail: JSON.stringify(data.args.connector, null, 2),
+	};
 	if (data.kind === "cycle" || data.name === "run.cycle") return {
 		title: "Loop check",
 		request: "You’re repeating — continue or stop?",

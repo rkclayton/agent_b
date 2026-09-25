@@ -4,7 +4,9 @@ param(
     [string]$Path,
     [string]$Thumbprint,
     [string]$TimestampUrl = 'http://timestamp.digicert.com',
-    [string]$ReportPath
+    [string]$ReportPath,
+    [switch]$PayloadOnly,
+    [switch]$BinaryOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -59,12 +61,19 @@ function Test-PrivateKeyUsable {
 
 function Get-SignableFiles {
     param([string]$Root)
+    if ($PayloadOnly -and $BinaryOnly) { throw 'PayloadOnly and BinaryOnly are mutually exclusive.' }
     $files = @()
-    foreach ($name in @('Agent_b.exe', 'Agent_b-setup.exe')) {
-        $binary = Join-Path $Root $name
-        if (Test-Path -LiteralPath $binary -PathType Leaf) { $files += $binary }
+    if (-not $PayloadOnly) {
+        foreach ($name in @('Agent_b.exe', 'Agent_b-setup.exe')) {
+            $binary = Join-Path $Root $name
+            if (Test-Path -LiteralPath $binary -PathType Leaf) { $files += $binary }
+        }
     }
-    $files += @(Get-ChildItem -LiteralPath $Root -Filter '*.ps1' -File -Recurse | ForEach-Object FullName)
+    if (-not $BinaryOnly) {
+        foreach ($relative in @(Get-AgentBRuntimeSigningPolicy -Root $Root).Signable) {
+            $files += Join-Path $Root ($relative.Replace('/', '\'))
+        }
+    }
     return @($files | Sort-Object -Unique)
 }
 

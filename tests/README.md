@@ -44,7 +44,7 @@ path-specific failure exists, the gate remains `always`.
 | Playwright | `npm run test:ui` | Connection editor and UI browser flows | npm dependencies and Edge; disposable roots |
 | Chat acceptance and screenshots | `powershell -File tests/test-chat-acceptance.ps1` | Headless end-to-end chat and the 12 canonical surfaces | Edge; disposable install; no real model unless explicitly requested |
 | Screenshot comparison | `node tests/screenshot-gate.mjs BASELINE CANDIDATE` | Pixels are exact, declared-mask-only, or explained rounding | Two capture directories |
-| Installer matrix | `powershell -File tests/test-installer.ps1` | Candidate identity, single-file install, upgrades, rollback, launch, and exact runtime ship list | Windows; disposable roots; local test-signing identity |
+| Installer matrix | `powershell -File tests/test-installer.ps1` | Candidate identity, single-file install, upgrades, rollback, launch, exact runtime ship list, and installed payload signatures after install/update | Windows; disposable roots; local test-signing identity |
 | Capability acceptance | `go test ./internal/tools -run TestCapabilitySuiteLiveServiceSplit` | Service-account and operator capability routing | Windows host policy and disposable configuration |
 | Deploy gate | `powershell -File tests/test-deploy-gate.ps1` | Staging/signing/deploy ordering and manifest refusal | Windows; disposable fixtures, no publication |
 | Release signing | `powershell -File tests/test-release-signing.ps1` | Test certificates and signing policy behave as contracted | Windows certificate stores; disposable test identity |

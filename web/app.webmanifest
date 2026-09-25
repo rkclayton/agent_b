@@ -1,16 +1,19 @@
 {
   "name": "Agent_b",
   "short_name": "Agent_b",
-  "start_url": "/chat",
+  "id": "/phone",
+  "start_url": "/phone",
+  "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay"],
   "background_color": "#2A2E35",
   "theme_color": "#2A2E35",
   "icons": [
     {
-      "src": "/static/assets/Agent_b.ico",
+      "src": "/static/assets/mark.svg",
       "sizes": "any",
-      "type": "image/x-icon"
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }

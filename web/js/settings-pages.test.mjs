@@ -116,6 +116,19 @@ test("Security names each service identity state and offers only Set up or Repai
 	}
 });
 
+test("Security has one Phone access entry and the PWA stays transcript composer push only", () => {
+	const context = pageContext();
+	context.phoneAccess = { devices: [{ id: "one", name: "Phone", last_seen: "now" }], push_enabled: false };
+	const security = renderSecurityPage("shell", null, context);
+	assert.equal([...security.matchAll(/Phone access/g)].length, 1);
+	for (const action of ["phone-enrol", "phone-revoke", "phone-push-toggle"]) assert.match(security, new RegExp(`data-action="${action}"`));
+	const html = fs.readFileSync(new URL("../phone.html", import.meta.url), "utf8");
+	assert.match(html, /id="phone-transcript"/);
+	assert.match(html, /id="phone-composer"/);
+	assert.match(html, /id="phone-push"/);
+	assert.doesNotMatch(html, /settings|tools|plan|attachment/i);
+});
+
 test("Connections summary row never renders decoder detail verbatim", () => {
 	const context = pageContext();
 	const connection = { id: "fake", label: "Fake", base_url: "http://fake/", capabilities: { findings: ["probe failed: Connection returned a web page, not model API JSON. Add the API path to base_url.", "probe detail: invalid character '<' looking for beginning of value"] } };

@@ -154,9 +154,9 @@ Application and data roots are independent runtime inputs. The normal installed 
 
 Connections with `tool_calls=false`, `overflow_behavior=truncate`, `streaming=false`, or unknown context are not runnable. `context.accounting=exact` later refuses connections without `/tokenize` using `exact accounting requested but this server has no /tokenize`; `auto` chooses exact where possible and calibrated estimation elsewhere; `estimated` forces estimation.
 
-## Deferred: API authentication
+## Phone authentication and push
 
-The HTTP service binds loopback and has no API authentication. Putting a token into the only practical native `EventSource` transport (`?token=`) would leak it through logs and browser history without protecting against a present network threat. Authentication must be designed when a later Discord/non-loopback transport introduces a real boundary, not added piecemeal.
+The listener remains on `127.0.0.1`; a tailnet-only `tailscale serve` HTTPS proxy may expose it without changing the bind. `POST /api/phone/enrolment` is desktop-authenticated and returns a six-digit, five-minute, single-use in-memory code. Public `POST /api/phone/enrolment/redeem` is rate-limited and exchanges that code for one random per-device bearer credential; only its SHA-256 hash is retained. A valid device bearer has full desktop API authority by design, including shared `/api/state`, `/api/events`, and `/api/message`; per-device or all-device revocation invalidates the next request and cancels an active stream, while desktop cookies remain separate. The root-scope phone service worker persists and attaches the bearer only for requests initiated by `/phone` clients, so it does not authenticate desktop pages. Web Push uses a DPAPI-protected P-256 VAPID private key and profile-local subscriptions, removes HTTP 404/410 endpoints, and sends only the existing human notice, chat name, and chat deep link for `ApprovalRequired`, `RunStopped`, and `ItemStuck`.
 
 ## Implementation status
 

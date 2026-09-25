@@ -1,0 +1,12 @@
+<!doctype html><html lang="en"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Agent_b phone</title><link rel="manifest" href="/static/app.webmanifest"><link rel="icon" href="/static/assets/Agent_b.ico" type="image/x-icon">
+  <link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/phone.css">
+</head><body><main class="phone-shell"><header><strong>Agent_b</strong><span id="phone-status" role="status">connecting</span></header>
+    <section id="phone-enrol" class="phone-enrol" hidden><h1>Connect this phone</h1><form id="phone-enrol-form">
+        <label>Name<input id="phone-name" maxlength="64" autocomplete="name" required></label><label>Code<input id="phone-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label><button type="submit">Connect</button>
+      </form></section><section id="phone-chat" class="phone-chat" hidden>
+      <div class="phone-chat-head"><strong id="phone-chat-name">Chat</strong><button id="phone-push" type="button" aria-pressed="false">Push off</button></div>
+      <div id="phone-transcript" class="phone-transcript" aria-live="polite"></div>
+      <form id="phone-composer" class="phone-composer"><textarea id="phone-message" rows="3" aria-label="Message" required></textarea><button type="submit">Send</button></form>
+    </section></main><script type="module" src="/static/phone.js"></script></body></html>

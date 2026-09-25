@@ -12,6 +12,9 @@ func buildRequest(connection *config.Connection, request Request, stream bool) m
 	sampling := connection.Sampling.Nonthinking
 	if request.Thinking {
 		sampling = connection.Sampling.Thinking
+		if connection.IsQwen38() && sampling.Temperature == .6 {
+			sampling.Temperature = 1
+		}
 	}
 	body := map[string]any{"model": connection.Model, "messages": request.Messages, "temperature": sampling.Temperature, "top_p": sampling.TopP, "presence_penalty": sampling.PresencePenalty, "max_tokens": request.MaxTokens, "stream": stream}
 	if request.MaxTokens == 0 {
@@ -26,9 +29,11 @@ func buildRequest(connection *config.Connection, request Request, stream bool) m
 	if stream {
 		body["stream_options"] = map[string]any{"include_usage": true}
 	}
-	if connection.Capabilities.Server == "llama.cpp" {
+	if connection.Capabilities.Server == "llama.cpp" || contains(connection.Capabilities.Findings, "sampling top_k/min_p: accepted") {
 		body["top_k"] = sampling.TopK
 		body["min_p"] = sampling.MinP
+	}
+	if connection.Capabilities.Server == "llama.cpp" {
 		body["repeat_penalty"] = sampling.RepeatPenalty
 		body["cache_prompt"] = true
 		body["return_progress"] = true
@@ -44,15 +49,12 @@ func buildRequest(connection *config.Connection, request Request, stream bool) m
 		if effortAllowed {
 			kwargs["reasoning_effort"] = connection.Reasoning.Effort
 		}
-		if connection.Reasoning.MaxTokens > 0 {
-			kwargs["reasoning_budget"] = connection.Reasoning.MaxTokens
-		}
 		body["chat_template_kwargs"] = kwargs
 	case "top_level":
 		if effortAllowed {
 			body["reasoning_effort"] = connection.Reasoning.Effort
 		}
-		if connection.Reasoning.MaxTokens > 0 {
+		if connection.Reasoning.MaxTokens > 0 && contains(connection.Capabilities.Findings, "server reasoning budget: accepted") {
 			body["reasoning_budget"] = connection.Reasoning.MaxTokens
 		}
 	}

@@ -113,6 +113,15 @@ func Probe(ctx context.Context, connection *config.Connection) (config.Capabilit
 	caps.PromptProgress = streamErr == nil && streamed.PromptProgress
 	findings = append(findings, "streaming: "+availability(caps.Streaming), "prompt progress: "+availability(caps.PromptProgress))
 
+	check, cancel = context.WithTimeout(ctx, 20*time.Second)
+	_, status, samplingErr := client.DoJSON(check, http.MethodPost, "/v1/chat/completions", map[string]any{"model": connection.Model, "messages": []llm.Message{{Role: "user", Content: "Say OK."}}, "max_tokens": 1, "top_k": 20, "min_p": .05})
+	cancel()
+	if samplingErr == nil && status == http.StatusOK {
+		findings = append(findings, "sampling top_k/min_p: accepted")
+	} else {
+		findings = append(findings, "sampling top_k/min_p: rejected")
+	}
+
 	if connection.ProbeMode == "minimal" {
 		caps.ToolCalls = true
 		caps.Vision = config.VisionRejected

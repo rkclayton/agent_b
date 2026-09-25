@@ -60,10 +60,13 @@ func TestLengthDuringToolArgumentsDoesNotEnterToolHistory(t *testing.T) {
 			return
 		}
 		if attempt == 2 {
-			choice, _ := body["tool_choice"].(map[string]any)
-			function, _ := choice["function"].(map[string]any)
-			if function["name"] != "write_file" {
-				t.Fatalf("retry tool_choice=%#v", body["tool_choice"])
+			if body["tool_choice"] != "auto" {
+				t.Fatalf("retry relied on named tool_choice=%#v", body["tool_choice"])
+			}
+			messages, _ := body["messages"].([]any)
+			encoded, _ := json.Marshal(messages)
+			if !strings.Contains(string(encoded), "previous write_file call was truncated") {
+				t.Fatalf("retry has no text re-ask: %s", encoded)
 			}
 			writeStreamChunk(t, w, map[string]any{
 				"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{
@@ -112,6 +115,30 @@ func TestLengthDuringToolArgumentsDoesNotEnterToolHistory(t *testing.T) {
 	if retries != 1 || calls != 1 || results != 1 {
 		t.Fatalf("retries=%d calls=%d results=%d", retries, calls, results)
 	}
+}
+
+func TestToolCallParserGuards2k5(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		if retry, stop := malformedToolTurnAction("tool_calls", 0, false); !retry || stop {
+			t.Fatalf("empty first turn retry=%t stop=%t", retry, stop)
+		}
+		if retry, stop := malformedToolTurnAction("tool_calls", 0, true); retry || !stop {
+			t.Fatalf("empty second turn retry=%t stop=%t", retry, stop)
+		}
+	})
+	offered := map[string]bool{"read_file": true}
+	t.Run("unknown", func(t *testing.T) {
+		unknown := []events.ToolCall{{ID: "u", Name: "shell", Arguments: `{}`}}
+		if calls, lines := guardModelToolCalls(unknown, offered); len(calls) != 0 || len(lines) != 1 || !strings.Contains(lines[0], "not offered") {
+			t.Fatalf("unknown calls=%+v lines=%q", calls, lines)
+		}
+	})
+	t.Run("duplicate", func(t *testing.T) {
+		duplicates := []events.ToolCall{{ID: "a", Name: "read_file", Arguments: `{"path":"x"}`}, {ID: "b", Name: "read_file", Arguments: `{"path":"x"}`}}
+		if calls, lines := guardModelToolCalls(duplicates, offered); len(calls) != 1 || len(lines) != 1 || !strings.Contains(lines[0], "duplicate") {
+			t.Fatalf("duplicate calls=%+v lines=%q", calls, lines)
+		}
+	})
 }
 
 func TestRunPublishesCurrentToolAndCoversBetweenTurnAccounting(t *testing.T) {

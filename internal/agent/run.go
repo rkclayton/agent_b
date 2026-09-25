@@ -296,6 +296,8 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	toolCallsUsed := 0
 	lengthSeen := false
 	truncatedToolRetry := ""
+	retryInstruction := ""
+	malformedToolRetried := false
 	// Item 2fv: a read_file window refused on two consecutive turns ends the
 	// read; from then on the model answers from what it has read, without
 	// tools. refusedTurn is the turn of the latest refusal (-1: none since the
@@ -372,7 +374,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 					continue
 				}
 				converted := requestMessageAt(connection, s, message, current[message.ID])
-				if connection.Reasoning.Preserve && currentReasoning[message.ID] {
+				if preserveReasoning(connection) {
 					converted.ReasoningContent = message.Reasoning
 				}
 				messages = append(messages, converted)
@@ -395,10 +397,12 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			if !hadUser {
 				requestRecords = append(requestRecords, events.Message{Role: llm.RoleHarness, Category: "history", Content: "Continue from the recorded context."})
 			}
+			if retryInstruction != "" {
+				messages = append(messages, llm.Message{Role: llm.RoleAssistant, Content: "[harness note]\n" + retryInstruction})
+				requestRecords = append(requestRecords, events.Message{Role: llm.RoleHarness, Category: "history", Content: retryInstruction})
+			}
 			request = llm.Request{Messages: messages, Tools: schemas, ToolChoice: "auto", Thinking: connection.Reasoning.Enabled}
-			if truncatedToolRetry != "" {
-				request.ToolChoice = map[string]any{"type": "function", "function": map[string]any{"name": truncatedToolRetry}}
-			} else if readCutShort {
+			if readCutShort {
 				request.ToolChoice = "none"
 			}
 			budget, budgetErr = r.budget.MeasureWithBusy(ctx, connection, s, r.cfg().Context, budgetInput{SystemBase: systemBase, SystemProject: systemProject, SystemWorkspaceMemory: systemWorkspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(connection, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages[1:], Records: requestRecords}, false, func(err error) {
@@ -410,6 +414,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			}
 			guardUsed := guardedPromptTokens(budget)
 			request.MaxTokens = requestTokenLimit(connection, budget, guardUsed)
+			if request.Thinking && connection.Reasoning.MaxTokens > 0 && !containsFinding(connection, "server reasoning budget: accepted") {
+				request.MaxTokens = min(request.MaxTokens, connection.Reasoning.MaxTokens)
+			}
 			diagnosticRequest := request
 			diagnosticRequest.Messages = diagnosticMessages(request.Messages)
 			body = llm.BuildRequest(connection, diagnosticRequest, true)
@@ -556,12 +563,31 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		for _, call := range response.ToolCalls {
 			toolCalls = append(toolCalls, events.ToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
 		}
+		rawToolCalls := append([]events.ToolCall(nil), toolCalls...)
+		s.RecordModelTurn()
+		if retry, stop := malformedToolTurnAction(response.FinishReason, len(toolCalls), malformedToolRetried); retry {
+			malformedToolRetried = true
+			retryInstruction = "The previous response ended as tool_calls but contained no calls. Return one complete offered tool call or a final answer."
+			r.bus.Publish(events.New(events.ModelRetry, s.ID, runID, map[string]any{"turn": turn, "next_turn": turn + 1, "reason": "malformed_tool_turn", "attempt": 1, "max_attempts": 1}))
+			continue
+		} else if stop {
+			r.appendHarnessLine(ctx, connection, s, runID, turn, "malformed tool turn: finish_reason tool_calls contained no calls twice")
+			return "malformed_turn", "finish_reason tool_calls contained no calls after one retry", turn
+		}
+		var guardLines []string
+		toolCalls, guardLines = guardModelToolCalls(toolCalls, enabled)
+		for _, line := range guardLines {
+			r.appendHarnessLine(ctx, connection, s, runID, turn, line)
+		}
+		if len(response.ToolCalls) > 0 && len(toolCalls) == 0 {
+			retryInstruction = "The previous response named no offered tool. Use only an offered tool or return a final answer."
+			continue
+		}
 		reasoningTokens, reasoningTokensEstimated := r.count(ctx, connection, response.Reasoning)
 		durableToolCalls := sanitizedToolCalls(toolCalls)
 		responseData := map[string]any{"turn": turn, "finish_reason": response.FinishReason, "content": response.Content, "reasoning_tokens": reasoningTokens, "reasoning_tokens_estimated": reasoningTokensEstimated, "tool_calls": durableToolCalls, "usage": map[string]any{"prompt_tokens": response.Usage.PromptTokens, "completion_tokens": response.Usage.CompletionTokens, "cached_tokens": nullable(response.Usage.CachedTokens)}, "timings": response.Timings, "duration_ms": response.DurationMS}
 		responseEvent := events.New(events.ModelResponse, s.ID, runID, responseData)
-		responseEvent.Raw = redactToolCallHeaders(string(response.Raw), toolCalls)
-		s.RecordModelTurn()
+		responseEvent.Raw = redactToolCallHeaders(string(response.Raw), rawToolCalls)
 		r.bus.Publish(responseEvent)
 		r.maybeAuxProgress(ctx, s, runID, turn)
 		r.stage(s, runID, turn, "parse", func() {})
@@ -574,6 +600,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			}
 			lengthSeen = true
 			truncatedToolRetry = firstToolName(durableToolCalls)
+			retryInstruction = "The previous " + truncatedToolRetry + " call was truncated. Return that complete offered tool call again, with valid JSON arguments."
 			r.bus.Publish(events.New(events.ModelRetry, s.ID, runID, map[string]any{"turn": turn, "next_turn": turn + 1, "reason": "truncated_tool_call", "tool": truncatedToolRetry, "attempt": 1, "max_attempts": 1}))
 			continue
 		}
@@ -582,6 +609,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				return "length", fmt.Sprintf("truncated %s call retry did not return that tool call", truncatedToolRetry), turn
 			}
 			truncatedToolRetry = ""
+			retryInstruction = ""
 			lengthSeen = false
 		}
 		if len(toolCalls) == 0 && response.FinishReason != "tool_calls" {
@@ -1133,6 +1161,32 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	return outcome
 }
 
+func malformedToolTurnAction(finish string, calls int, retried bool) (bool, bool) {
+	if finish != "tool_calls" || calls != 0 {
+		return false, false
+	}
+	return !retried, retried
+}
+
+func guardModelToolCalls(calls []events.ToolCall, offered map[string]bool) ([]events.ToolCall, []string) {
+	kept, lines := make([]events.ToolCall, 0, len(calls)), []string{}
+	seen := map[string]bool{}
+	for _, call := range calls {
+		if !offered[call.Name] {
+			lines = append(lines, "dropped tool call "+call.Name+": name was not offered")
+			continue
+		}
+		key := call.Name + "\x00" + call.Arguments
+		if seen[key] {
+			lines = append(lines, "collapsed duplicate "+call.Name+" tool call")
+			continue
+		}
+		seen[key] = true
+		kept = append(kept, call)
+	}
+	return kept, lines
+}
+
 // withModelNote tells the model what happened to a call that did not succeed
 // (v0.65.0/W15 cold review): a denied, canceled or failed override is an error,
 // not file content, and a model that is not told retries and prompts again. A
@@ -1244,6 +1298,25 @@ func (r *Runner) makeMessage(ctx context.Context, p *config.Connection, role, co
 	tokens, estimated := r.count(ctx, p, content)
 	return events.Message{ID: r.id("m"), Role: role, Content: content, Category: category, Tokens: tokens, Estimated: estimated, Turn: turn}, nil
 }
+
+func preserveReasoning(connection *config.Connection) bool {
+	return connection.Reasoning.Preserve || connection.IsQwen38()
+}
+
+func containsFinding(connection *config.Connection, finding string) bool {
+	for _, value := range connection.Capabilities.Findings {
+		if value == finding {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Runner) appendHarnessLine(ctx context.Context, connection *config.Connection, s *session.Session, runID string, turn int, content string) {
+	message, _ := r.makeMessage(ctx, connection, llm.RoleHarness, content, "history", turn)
+	s.Append(message)
+	r.bus.Publish(events.New(events.MessageAppended, s.ID, runID, map[string]any{"message": message}))
+}
 func (r *Runner) count(ctx context.Context, p *config.Connection, text string) (int, bool) {
 	if p.Capabilities.Tokenize {
 		countCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
@@ -1339,7 +1412,7 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *se
 	current := runningTurnIDs(records, s.RunPin())
 	for _, message := range records {
 		converted := requestMessageAt(p, s, message, current[message.ID])
-		if p.Reasoning.Preserve && currentReasoning != nil && currentReasoning[message.ID] {
+		if preserveReasoning(p) {
 			converted.ReasoningContent = message.Reasoning
 		}
 		messages = append(messages, converted)

@@ -17,11 +17,16 @@ func TestBuildRequestCarriesConnectionReasoningCap(t *testing.T) {
 	connection := &config.Connection{Reasoning: config.Reasoning{Control: "chat_template_kwargs", Enabled: true, MaxTokens: 1000}}
 	body := BuildRequest(connection, Request{Thinking: true}, false)
 	kwargs := body["chat_template_kwargs"].(map[string]any)
-	if kwargs["reasoning_budget"] != 1000 {
-		t.Fatalf("kwargs=%v", kwargs)
+	if _, ok := kwargs["reasoning_budget"]; ok {
+		t.Fatalf("template reasoning budget leaked: %v", kwargs)
 	}
 	connection.Reasoning.Control = "top_level"
 	body = BuildRequest(connection, Request{Thinking: true}, false)
+	if _, ok := body["reasoning_budget"]; ok {
+		t.Fatalf("unprobed server reasoning budget leaked: %v", body)
+	}
+	connection.Capabilities.Findings = append(connection.Capabilities.Findings, "server reasoning budget: accepted")
+	body = buildRequest(connection, Request{}, false)
 	if body["reasoning_budget"] != 1000 {
 		t.Fatalf("body=%v", body)
 	}

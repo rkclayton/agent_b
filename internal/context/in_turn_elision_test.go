@@ -22,7 +22,7 @@ func s7r2Turn() []events.Message {
 		{ID: "m-41", Role: "tool", Name: "read_file", Category: "files", ToolCallID: "old", Content: "old read", Tokens: 3000, OK: ok()},
 		{ID: "m-60", Role: "user", Category: "history", Content: "more wondering about the rpg we were working on", Tokens: 12},
 	}
-	assistant := events.Message{ID: "m-61", Role: "assistant", Category: "history", Content: "reading", Tokens: 40}
+	assistant := events.Message{ID: "m-61", Role: "assistant", Category: "history", Content: "reading", Reasoning: "private tool reasoning", Tokens: 40}
 	reads := []struct {
 		path   string
 		tokens int
@@ -68,6 +68,9 @@ func TestInTurnResultsElideKeepingTheTaskAndTheRecentWindow(t *testing.T) {
 	}
 	if !strings.HasPrefix(byID["m-62"].Content, "[elided: read_file") {
 		t.Fatalf("an in-turn result must become a stub, never a summary: %q", byID["m-62"].Content)
+	}
+	if byID["m-61"].Reasoning != "" {
+		t.Fatal("reasoning that led to an elided tool result must also be elided")
 	}
 }
 

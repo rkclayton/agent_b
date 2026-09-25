@@ -357,7 +357,7 @@ function Stop-InstalledProcesses {
         Write-InstallProgress -Phase 'stopping the running application' -Text "STOPPING: Agent_b PID $($process.Id)"
         Write-Host "STOPPING: Agent_b PID $($process.Id)"
         try {
-            $channel = Request-AgentbGracefulStop -ApplicationRoot $Root -ProcessId $process.Id -AllowLegacy
+            $channel = Request-AgentbGracefulStop -ApplicationRoot $Root -ProcessId $process.Id -AllowLegacy -ProcessRecordsReason
         } catch {
             throw "Agent_b PID $($process.Id) could not be stopped gracefully ($($_.Exception.Message)). Installation was not changed."
         }

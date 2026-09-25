@@ -88,7 +88,7 @@ func TestSessionEndIsRecordedBeforeWindowsEndsTheProcess(t *testing.T) {
 		t.Fatal("the wrong-root sender delivered a close request")
 	default:
 	}
-	correctCommand := ". " + quote(stopScript) + "; Request-AgentbGracefulStop -ApplicationRoot " + quote(root) + " -ProcessId " + strconv.Itoa(os.Getpid())
+	correctCommand := ". " + quote(stopScript) + "; Request-AgentbGracefulStop -ApplicationRoot " + quote(root) + " -ProcessId " + strconv.Itoa(os.Getpid()) + " -ProcessRecordsReason"
 	if output, err := exec.Command(powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", correctCommand).CombinedOutput(); err != nil || !strings.Contains(string(output), "stop event") {
 		t.Fatalf("the matching-root sender did not use the stop event: %v: %s", err, output)
 	}

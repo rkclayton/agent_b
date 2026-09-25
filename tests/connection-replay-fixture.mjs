@@ -7,11 +7,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repository = resolve(here, "..");
@@ -175,6 +176,6 @@ try {
   stopChildren();
   await sleep(500);
   if (failure) console.error(`fixture root retained for inspection: ${root}`);
-  else if (!args.keep) await rm(root, { recursive: true, force: true, maxRetries: 5 });
+  else if (!args.keep) removeTreeWithinAllowedRoots(root, [tmpdir()], "connection replay fixture cleanup");
 }
 if (failure) { console.error(failure.message); process.exitCode = 1; }

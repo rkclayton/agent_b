@@ -43,10 +43,19 @@ foreach ($required in @('candidate-final.json', 'Agent_b.exe', 'Agent_b-setup.ex
 foreach ($required in @('-NoStart', '-TestMode', '-WhatIf', 'AUTOSTART SKIPPED: -NoStart')) {
     if ($verify -notmatch [regex]::Escape($required)) { throw "Deploy verifier does not run its signed setup preflight with $required." }
 }
-if ($sign -notmatch "@\('Agent_b\.exe', 'Agent_b-setup\.exe'\)") { throw 'Release signing does not include the setup executable.' }
+foreach ($required in @('Agent_b.exe', 'Agent_b-setup.exe', 'Get-AgentBRuntimeSigningPolicy', 'PayloadOnly', 'BinaryOnly')) {
+    if ($sign -notmatch [regex]::Escape($required)) { throw "Release signing policy does not include $required." }
+}
 if ($stage -notmatch 'manifest\.setup_sha256' -or $stage -notmatch 'manifest\.setup_bytes') { throw 'Candidate staging does not record the setup artifact.' }
 foreach ($required in @('windowsPowerShellEnvironment', 'PSModulePath', 'System32", "WindowsPowerShell", "v1.0", "powershell.exe')) {
     if ($stage -notmatch [regex]::Escape($required)) { throw "Candidate staging does not preserve native Windows PowerShell host repair $required." }
+}
+if ($deploy.IndexOf('-PayloadOnly') -gt $deploy.IndexOf("--build `$Tag") -or
+    $deploy.IndexOf("--build `$Tag") -gt $deploy.IndexOf('-BinaryOnly')) {
+    throw 'Deploy must sign payload, then capture it, then sign the executables.'
+}
+foreach ($required in @('Get-AgentBRuntimeSigningPolicy', 'INSTALLED SIGNATURES', 'TimeStamperCertificate')) {
+    if ($verify -notmatch [regex]::Escape($required)) { throw "Deploy verifier does not inspect installed payload rule $required." }
 }
 
 $fixture = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-deploy-gate-' + [Guid]::NewGuid().ToString('N'))

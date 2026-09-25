@@ -137,6 +137,8 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, task,
 			"read_file": true, "list_dir": true, "search": true, "fetch_url": true, "recall": true,
 		}, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{},
 	}
+	r.bus.Publish(events.New(events.DelegatedUsage, parent.ID, "", map[string]any{"child_id": child.ID, "status": "running"}))
+	defer r.bus.Publish(events.New(events.DelegatedUsage, parent.ID, "", map[string]any{"child_id": child.ID, "status": "completed"}))
 	connection, ok := r.connection(child.ConnectionID)
 	if !ok {
 		return tools.DelegateResult{}, fmt.Errorf("delegate connection %s is unavailable", child.ConnectionID)
@@ -151,6 +153,16 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, task,
 	partial := reason == "turn_ceiling"
 	if reason != "done" && !partial {
 		return tools.DelegateResult{}, fmt.Errorf("delegate stopped: %s: %s", reason, detail)
+	}
+	if partial {
+		message, _ := r.makeMessage(ctx, connection, "user", "Tool access is now withdrawn. Return the best concise evidence-based summary from what you found; do not request or call another tool.", "history", 0)
+		child.Append(message)
+		child.DisableTools()
+		child.SetRun(session.RunState{Status: "idle", MaxTurns: 1})
+		finalReason, finalDetail, _ := r.Run(ctx, child, r.id("delegate-summary"))
+		if finalReason != "done" {
+			detail = strings.TrimSpace(detail + "; final summary: " + finalReason + ": " + finalDetail)
+		}
 	}
 	transcript, summary := child.MessagesCopy(), ""
 	for index := len(transcript) - 1; index >= 0; index-- {
@@ -1100,7 +1112,13 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	}
 	decision := "approve"
 	var gateErr error
-	if name == "run_script" && cfg.Shell.ServiceAccount.Enabled && !r.hasPolicyChatGrant(s.ID, name) {
+	_, connectorChange, connectorErr := tools.ParseConnectorChange(args)
+	if connectorChange {
+		if connectorErr != nil {
+			eventArgs["validation_error"] = connectorErr.Error()
+		}
+		decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
+	} else if name == "run_script" && cfg.Shell.ServiceAccount.Enabled && !r.hasPolicyChatGrant(s.ID, name) {
 		decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
 	} else if name == "shell" && r.hasShellGrant(s.ID, runID, shellGrantPolicy, "") {
 		// An operator-approved repository default grants this displayed command
@@ -1126,7 +1144,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	if name == "shell" && decision == "session" {
 		r.grantShellSession(s, runID, shellRunGrant{Rule: shellGrantPolicy, Identity: "service"})
 	}
-	if decision == "session" {
+	if decision == "session" && !connectorChange {
 		r.grantPolicyChat(s.ID, name)
 	}
 	if name == "shell" && repoRunGrantMatches(s.Policy().Shell.RunGrantDefaults, args) {

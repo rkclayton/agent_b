@@ -40,9 +40,18 @@ if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: signing key policy check exite
 & node (Join-Path $repository 'tools\stage-candidate.mjs') --tag $Tag
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate staging exited $LASTEXITCODE." }
 
-$signingReport = Join-Path $candidate 'signing-report.json'
 $signingScript = Join-Path $repository 'tools\sign-release.ps1'
-& $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $signingScript -Path $candidate -Thumbprint $SigningThumbprint -ReportPath $signingReport
+$payloadSigningReport = Join-Path $candidate 'payload-signing-report.json'
+& $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $signingScript -Path $candidate -Thumbprint $SigningThumbprint -ReportPath $payloadSigningReport -PayloadOnly
+$payloadSigningExit = $LASTEXITCODE
+if ($payloadSigningExit -ne 0) { throw "DEPLOY REFUSED: payload signing is not available to this ordinary console; run the recorded one-time key grant first." }
+
+# 2ki: capture signed payload first; sign the new executables last.
+& node (Join-Path $repository 'tools\stage-candidate.mjs') --build $Tag
+if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate build exited $LASTEXITCODE." }
+
+$signingReport = Join-Path $candidate 'signing-report.json'
+& $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $signingScript -Path $candidate -Thumbprint $SigningThumbprint -ReportPath $signingReport -BinaryOnly
 $signingExit = $LASTEXITCODE
 if (Test-Path -LiteralPath $signingReport -PathType Leaf) {
     $signingResult = Get-Content -Raw -LiteralPath $signingReport | ConvertFrom-Json

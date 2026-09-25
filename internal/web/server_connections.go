@@ -517,6 +517,52 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ApplyConnector is reachable only after the browser-resolved approval gate.
+// The public config endpoint retains its browser-session and mutation-token checks.
+func (s *Server) ApplyConnector(change tools.ConnectorChange) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := *s.cfg
+	next.Services = make(map[string]config.Service, len(s.cfg.Services)+1)
+	for name, service := range s.cfg.Services {
+		next.Services[name] = service
+	}
+	_, exists := next.Services[change.Name]
+	switch change.Operation {
+	case "add":
+		if exists {
+			return fmt.Errorf("connector %q already exists", change.Name)
+		}
+		next.Services[change.Name] = change.Service
+	case "edit":
+		if !exists {
+			return fmt.Errorf("connector %q does not exist", change.Name)
+		}
+		next.Services[change.Name] = change.Service
+	case "remove":
+		if !exists {
+			return fmt.Errorf("connector %q does not exist", change.Name)
+		}
+		delete(next.Services, change.Name)
+	default:
+		return fmt.Errorf("invalid connector operation")
+	}
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	if err := next.Save(s.configPath); err != nil {
+		return err
+	}
+	*s.cfg = next
+	go func() {
+		if s.runner != nil {
+			s.runner.Configure(s.ConfigSnapshot())
+		}
+		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": s.ConfigSnapshot().Masked()}))
+	}()
+	return nil
+}
+
 func configField(err error, cfg config.Config) string {
 	field := strings.SplitN(err.Error(), ":", 2)[0]
 	if !strings.HasPrefix(field, "connections[") {

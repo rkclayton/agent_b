@@ -121,3 +121,19 @@ function Assert-SigningKeyNonInteractive {
     $policy = Get-SigningKeyUIPolicy -Certificate $Certificate -Store $Store
     return Assert-SigningKeyPolicy -Thumbprint $Certificate.Thumbprint -Store $Store -Policy $policy
 }
+
+# 2ki: one policy names the runtime payload files Authenticode cannot sign.
+# Every other runtime-scripts.txt entry must be a signable PowerShell file.
+function Get-AgentBRuntimeSigningPolicy {
+    param([Parameter(Mandatory = $true)][string]$Root)
+    $manifest = Join-Path $Root 'runtime-scripts.txt'
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw 'runtime-scripts.txt is missing.' }
+    $unsigned = @('scripts/launch-hidden.vbs', 'scripts/launch-installed.cmd', 'scripts/webview2-loader.json')
+    $entries = @(Get-Content -LiteralPath $manifest | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $unexpected = @($entries | Where-Object { $_ -notmatch '\.(?:ps1|psm1)$' -and $_ -notin $unsigned })
+    $missing = @($unsigned | Where-Object { $_ -notin $entries })
+    if ($unexpected.Count -or $missing.Count) {
+        throw "runtime signing policy mismatch; unexpected unsigned=$($unexpected -join ','); missing named unsigned=$($missing -join ',')"
+    }
+    return [pscustomobject]@{ Signable = @($entries | Where-Object { $_ -match '\.(?:ps1|psm1)$' }); DeliberatelyUnsigned = $unsigned }
+}

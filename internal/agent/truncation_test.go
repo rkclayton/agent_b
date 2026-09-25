@@ -138,7 +138,20 @@ func TestDelegateAskedToWriteRefusesWithToolAbsent(t *testing.T) {
 func TestDelegateQuickCapReturnsPartial(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Tools []map[string]any `json:"tools"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
 		index := calls.Add(1)
+		if index == 9 {
+			if len(body.Tools) != 0 {
+				t.Fatalf("summary turn retained tools: %d", len(body.Tools))
+			}
+			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "Partial finding from the eight reads."}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 20, "completion_tokens": 8}})
+			return
+		}
 		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": fmt.Sprintf("read-%d", index), "type": "function", "function": map[string]any{"name": "read_file", "arguments": fmt.Sprintf(`{"path":"file-%d"}`, index)}}}}, "finish_reason": "tool_calls"}}, "usage": map[string]any{"prompt_tokens": 20, "completion_tokens": 5}})
 	}))
 	defer server.Close()
@@ -151,7 +164,7 @@ func TestDelegateQuickCapReturnsPartial(t *testing.T) {
 	runner := NewRunner(events.NewBus(), tools.New(delegateFixtureTool{"read_file"}), &PromptRenderer{text: "parent", delegate: "read-only sub-task worker {{tools}}"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
 	parent := &session.Session{ID: "parent", AgentID: "main", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true}
 	result, err := runner.runDelegate(context.Background(), parent, "keep reading", "quick")
-	if err != nil || !result.Partial || result.ToolCalls != 8 || !strings.Contains(result.Summary, "No summary") {
+	if err != nil || !result.Partial || result.ToolCalls != 8 || calls.Load() != 9 || !strings.Contains(result.Summary, "Partial finding") {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }

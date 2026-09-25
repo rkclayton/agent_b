@@ -320,6 +320,8 @@ func TestCallServiceCredentialHelper(t *testing.T) {
 		fmt.Printf(`{"token":"exec-secret","expires_at":%q}`+"\n", args[2])
 	case "bearer":
 		fmt.Println("Bearer exec-secret")
+	case "headers":
+		fmt.Println(`{"Authorization":"Bearer header-secret","X-Broker":"ready"}`)
 	case "fail":
 		fmt.Fprintln(os.Stderr, "secret stderr must not escape")
 		os.Exit(7)
@@ -328,6 +330,32 @@ func TestCallServiceCredentialHelper(t *testing.T) {
 		fmt.Println("too-late-secret")
 	}
 	os.Exit(0)
+}
+
+func TestCallServiceConnectorChangeAndExecHeaders(t *testing.T) {
+	change, present, err := ParseConnectorChange(map[string]any{"connector": map[string]any{
+		"operation": "add", "entry": map[string]any{"name": "broker", "url": "https://broker.test/mcp", "kind": "mcp", "auth": "exec:helper headers"},
+	}})
+	if err != nil || !present || change.Name != "broker" || change.Service.Kind != "mcp" || !methodAllowed("POST", change.Service.AllowedMethods) {
+		t.Fatalf("change=%+v present=%t err=%v", change, present, err)
+	}
+	if _, _, err := ParseConnectorChange(map[string]any{"connector": map[string]any{"operation": "add", "entry": map[string]any{"name": "bad", "kind": "mcp", "auth": "pasted-secret"}}}); err == nil || !strings.Contains(err.Error(), "auth") {
+		t.Fatalf("bad auth error=%v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer header-secret" || r.Header.Get("X-Broker") != "ready" {
+			t.Fatalf("headers=%v", r.Header)
+		}
+		_, _ = w.Write([]byte(`{"reflected":"header-secret"}`))
+	}))
+	defer server.Close()
+	service := testService(server.URL, "exec:"+helperCredentialCommand("headers"))
+	service.Kind, service.AllowedMethods = "mcp", []string{"POST"}
+	detail := NewCallService(map[string]config.Service{"broker": service}).CallDetailed(context.Background(), &session.Session{}, map[string]any{"service": "broker", "method": "POST", "body": map[string]any{"method": "tools/list"}})
+	if detail.Err != nil || !detail.OperatorContext || strings.Contains(detail.Content, "header-secret") {
+		t.Fatalf("detail=%+v", detail)
+	}
 }
 
 func helperCredentialCommand(args ...string) string {
@@ -370,7 +398,7 @@ func TestCallServiceToolsBlockByteDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const wantDelta = 1134
+	const wantDelta = 1396
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("call_service tools-block byte delta=%d, want %d", delta, wantDelta)
 	}

@@ -27,7 +27,7 @@ func NewDelegate() *Delegate                     { return &Delegate{} }
 func (d *Delegate) SetRunner(run DelegateRunner) { d.run = run }
 func (*Delegate) Name() string                   { return "delegate" }
 func (*Delegate) Description() string {
-	return "Delegate a self-contained read-only question that needs many searches or reads and would flood this conversation. The child has fresh context and returns one summary. Do not use for work three tool calls can do, work needing this conversation, or anything that writes."
+	return "Delegate a precise, self-contained read-only question that needs more than three tool calls. Name the scope and exact evidence the summary must return; the child has fresh context, searches before reading, and cannot infer missing context or write."
 }
 func (*Delegate) Schema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"task": map[string]any{"type": "string"}, "thoroughness": map[string]any{"type": "string", "enum": []string{"quick", "thorough"}, "default": "quick"}}, "required": []string{"task"}}

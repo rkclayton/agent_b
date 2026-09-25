@@ -90,6 +90,20 @@ function stage(tag) {
     fs.rmSync(tar, { force: true });
   }
   requireProductIcon(target);
+  for (const name of stagedToRemove(fs.readdirSync(candidates))) {
+    removeTreeWithinAllowedRoots(path.join(candidates, name), [candidates], "staged candidate rotation");
+    console.log(`ROTATED: removed ${path.join(candidates, name)}`);
+  }
+  console.log(`STAGED SOURCE: ${target}`);
+}
+
+function build(tag) {
+  if (!versionKey(tag)) throw new Error(`--build value must look like vX.Y.Z: ${tag}`);
+  const target = path.join(repoRoot, "candidates", tag); if (!fs.existsSync(target)) throw new Error(`staged source is missing: ${target}`);
+  requireProductIcon(target);
+  const commit = spawnSync("git", ["-C", repoRoot, "rev-parse", `${tag}^{commit}`], { encoding: "utf8" });
+  if (commit.status !== 0) throw new Error(`tag ${tag} does not resolve to a commit`);
+  const sha = commit.stdout.trim();
   const powershell = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
   run(powershell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(target, "tools", "build-candidate.ps1"),
     "-SourceDirectory", target, "-Commit", sha, "-Dirty", "false", "-ExpectedTag", tag], { env: windowsPowerShellEnvironment() });
@@ -109,10 +123,6 @@ function stage(tag) {
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`SETUP: ${setup} (a copy of the verified Agent_b.exe)`);
 
-  for (const name of stagedToRemove(fs.readdirSync(candidates))) {
-    removeTreeWithinAllowedRoots(path.join(candidates, name), [candidates], "staged candidate rotation");
-    console.log(`ROTATED: removed ${path.join(candidates, name)}`);
-  }
   console.log(`STAGED: ${path.join(target, "install-Agent_b.cmd")}`);
 }
 
@@ -120,6 +130,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const [flag, value] = process.argv.slice(2);
   try {
     if (flag === "--tag") stage(value);
+    else if (flag === "--build") build(value);
     else if (flag === "--scratch") {
       const dir = workerScratch(value);
       fs.mkdirSync(dir, { recursive: true });
@@ -128,7 +139,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       const dir = workerScratch(value);
       if (fs.existsSync(dir)) removeTreeWithinAllowedRoots(dir, [workerScratchRoot()], "worker scratch purge");
       console.log(`PURGED: ${dir}`);
-    } else throw new Error("usage: --tag vX.Y.Z | --scratch <order> | --purge-scratch <order>");
+    } else throw new Error("usage: --tag vX.Y.Z | --build vX.Y.Z | --scratch <order> | --purge-scratch <order>");
   } catch (error) {
     console.error(error.message);
     process.exit(1);

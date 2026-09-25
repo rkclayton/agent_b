@@ -142,13 +142,43 @@ if ($UseExistingSignedBinary) {
     Push-Location $sourceRoot
     try { & $go build -ldflags $ldflags -o $binary ./cmd/harness } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw "go build exited $LASTEXITCODE." }
-    Add-EmbeddedInstallBundle -Root $sourceRoot -Executable $binary
+    $payloadRoot = $sourceRoot
+    $testPayloadRoot = $null
+    if ($SignForTest) {
+        # Never Authenticode-sign tracked working-tree scripts in place. Build
+        # the disposable payload from a private copy, sign that copy, and then
+        # capture exactly those signed bytes.
+        $testPayloadRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-signed-payload-' + [Guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $testPayloadRoot
+        foreach ($directory in @('web', 'prompts', 'docs')) {
+            Copy-Item -LiteralPath (Join-Path $sourceRoot $directory) -Destination (Join-Path $testPayloadRoot $directory) -Recurse
+        }
+        foreach ($name in @('WebView2Loader.dll', 'harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE', 'runtime-scripts.txt')) {
+            Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination (Join-Path $testPayloadRoot $name)
+        }
+        foreach ($relative in @(Get-Content -LiteralPath (Join-Path $sourceRoot 'runtime-scripts.txt'))) {
+            $from = Join-Path $sourceRoot ($relative.Replace('/', '\'))
+            $to = Join-Path $testPayloadRoot ($relative.Replace('/', '\'))
+            $null = New-Item -ItemType Directory -Path (Split-Path -Parent $to) -Force
+            Copy-Item -LiteralPath $from -Destination $to
+        }
+        & (Join-Path $sourceRoot 'tools\sign-test-candidate.ps1') -SourceDirectory $testPayloadRoot -PayloadOnly
+        if ($LASTEXITCODE -ne 0) { throw "Disposable payload signing exited $LASTEXITCODE." }
+        $payloadRoot = $testPayloadRoot
+    }
+    try { Add-EmbeddedInstallBundle -Root $payloadRoot -Executable $binary } finally {
+        if ($testPayloadRoot -and (Test-Path -LiteralPath $testPayloadRoot)) {
+            $resolvedPayload = [IO.Path]::GetFullPath($testPayloadRoot)
+            if ((Split-Path -Leaf $resolvedPayload) -notlike 'Agent_b-signed-payload-*') { throw "Refusing unexpected payload cleanup: $resolvedPayload" }
+            Remove-Item -LiteralPath $resolvedPayload -Recurse -Force
+        }
+    }
 
     # A test build must be signed before anything executes it, including the
     # identity probe below. This ordering is intentional: signing after
     # -version would still expose the raw Go output to real-time protection.
     if ($SignForTest) {
-        & (Join-Path $sourceRoot 'tools\sign-test-candidate.ps1') -SourceDirectory $sourceRoot
+        & (Join-Path $sourceRoot 'tools\sign-test-candidate.ps1') -SourceDirectory $sourceRoot -BinaryOnly
     }
 }
 

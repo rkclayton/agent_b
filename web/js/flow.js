@@ -20,6 +20,7 @@ export function renderFlow() {
   const stages = store.flow.stages || [];
   root.replaceChildren();
   for (const name of stages) root.append(stageRow(session, name));
+	if (session?.activity?.delegate) root.append(delegateRow(session.activity.delegate));
 	if (!session) {
 		count.textContent = "";
 		count.classList.remove("alarm");
@@ -74,6 +75,15 @@ function readoutFor(session, name) {
   const progress = session?.activity?.progress;
   if (progress?.total) return `${progress.cache || progress.processed || 0} / ${progress.total}`;
   return "";
+}
+
+function delegateRow(child) {
+	const row = document.createElement("div"), lamp = document.createElement("span"), label = document.createElement("span"), readout = document.createElement("span");
+	row.className = `activity-row delegate-child ${child.status === "running" ? "active" : "done"}`;
+	lamp.className = "activity-lamp"; label.textContent = "↳ Delegate"; readout.className = "activity-readout";
+	readout.textContent = `${child.status} · ${Number(child.tool_calls || 0)} tool calls`;
+	row.append(lamp, label, readout);
+	return row;
 }
 
 const number = (value) => Number(value || 0).toLocaleString("en-US");

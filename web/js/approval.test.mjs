@@ -28,6 +28,13 @@ test("approval wording stays direct and identifies the operation", () => {
 	assert.equal(policy.detail, "note.txt");
 });
 
+test("connector approval shows the proposed entry verbatim", () => {
+	const connector = { operation: "add", entry: { name: "deploy-broker", url: "https://broker.test/mcp", kind: "mcp", auth: "exec:helper headers" } };
+	const wording = approvalText({ name: "call_service", args: { connector } });
+	assert.match(wording.request, /add connector/);
+	assert.deepEqual(JSON.parse(wording.detail), connector);
+});
+
 test("pending cards consume the shared human sentence order", () => {
 	const wording = approvalText({
 		name: "write_file",

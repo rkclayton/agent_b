@@ -369,6 +369,7 @@ func main() {
 	// guarded uTLS transport, so the older tools retain their relative order.
 	fetchTool := tools.NewFetch(cfg.Tools.Fetch)
 	delegateTool := tools.NewDelegate()
+	callServiceTool := tools.NewCallService(cfg.Services)
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
@@ -384,13 +385,14 @@ func main() {
 		fetchTool,
 		tools.NewWebSearch(fetchTool, cfg.Tools.WebSearch),
 		tools.NewRunScript(shellTool),
-		tools.NewCallService(cfg.Services),
+		callServiceTool,
 		delegateTool,
 	)
 	// Item 2ch (v1.2.5): the threshold under which a PDF is sent inline rather
 	// than read from its extracted text.
 	agent.SetInlineDocumentLimit(cfg.Tools.Attachments.InlineDocumentLimit())
 	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Connection, web.ConfigSnapshot)
+	callServiceTool.SetConnectorWriter(web.ApplyConnector)
 	runner.BindDelegate(delegateTool)
 	runner.SetSessionRenamer(registry.RenameBy)
 	deliveryManager := delivery.New(bus, web.ConfigSnapshot)

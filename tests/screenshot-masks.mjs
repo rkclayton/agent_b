@@ -11,12 +11,12 @@ export const LIVE_VALUES = [
   // v1.6.3/W0: About intentionally changes for every release. Mask the exact
   // build identity text node so version/tag updates cannot fail a visual gate;
   // the row, typography, spacing and every surrounding pixel remain exact.
-  { name: "build-text", reason: "the About build identity changes with every release", selector: ".settings-build-text" },
+  { name: "build-text", reason: "the About build identity changes with every release", selector: ".settings-build-text", requiredWithin: ".settings-build-text, .settings-server-started, .settings-update-checked" },
   // Item 2jh: these two values are genuine process/check clocks. Their exact
   // time glyphs may change while the labels, punctuation, version, controls,
   // layout, and every surrounding pixel remain under exact comparison.
-  { name: "server-started-clock", reason: "the About server-started value is the current process incarnation's clock", selector: ".settings-server-started" },
-  { name: "update-checked-clock", reason: "the About checked value is the most recent update-check clock", selector: ".settings-update-checked" },
+  { name: "server-started-clock", reason: "the About server-started value is the current process incarnation's clock", selector: ".settings-server-started", requiredWithin: ".settings-build-text, .settings-server-started, .settings-update-checked" },
+  { name: "update-checked-clock", reason: "the About checked value is the most recent update-check clock", selector: ".settings-update-checked", requiredWithin: ".settings-build-text, .settings-server-started, .settings-update-checked" },
   // The app writes a duration as a number, a space, then ms or s ("67 ms",
   // "5.2 s"); prose such as "3s" or "1990s" is not one (v1.0.0/W4 cold review).
   { name: "duration", reason: "elapsed and wall times (ms, s) are measured each run", selector: "body", pattern: String.raw`(?<![\w.,])\d[\d,]*(?:\.\d+)? (?:ms|s)\b` },
@@ -94,6 +94,7 @@ function liveValueRects(specs) {
   };
   return specs.map((spec) => {
     const rects = [];
+    const required = spec.requiredWithin && document.querySelector(spec.requiredWithin);
     for (const root of document.querySelectorAll(spec.selector)) {
       if (spec.corners) {
         // ALL FOUR corners, not the bottom two. The bottom pair was masked in
@@ -168,7 +169,7 @@ function liveValueRects(specs) {
         }
       }
     }
-    return { name: spec.name, reason: spec.reason, rects };
+    return { name: spec.name, reason: spec.reason, rects, missing: Boolean(required && !rects.length) };
   });
 }
 
@@ -238,14 +239,15 @@ export async function captureWithMasks(target, path, { specs = LIVE_VALUES } = {
     });
   }
   const origin = box ? [box.x, box.y] : [0, 0];
-  const masks = found.map(({ name, reason, rects }) => ({
+  const masks = found.map(({ name, reason, rects, missing }) => ({
     name,
     reason,
+    missing,
     rects: rects.map(([x, y, w, h]) => {
       const left = Math.floor((x - origin[0]) * ratio), top = Math.floor((y - origin[1]) * ratio);
       return [left, top, Math.ceil((x - origin[0] + w) * ratio) - left, Math.ceil((y - origin[1] + h) * ratio) - top];
     }),
-  })).filter((mask) => mask.rects.length);
+  })).filter((mask) => mask.rects.length || mask.missing);
   await writeFile(`${path}.masks.json`, `${JSON.stringify({ element: box ? true : false, masks }, null, 1)}\n`);
   return image;
 }

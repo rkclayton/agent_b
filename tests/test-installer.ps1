@@ -14,6 +14,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\windows-tools.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\agentb-stop.ps1')
+. (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\signing-key-policy.ps1')
 . (Join-Path $PSScriptRoot 'browser-session.ps1')
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-installer-test-' + [Guid]::NewGuid().ToString('N'))
 # Item 2gd: set at the end of the scenario block; the cleanup below keeps the
@@ -36,6 +37,17 @@ function Assert-TemporaryTestPath {
         -not (Split-Path -Leaf $full).StartsWith('Agent_b-installer-test-', [StringComparison]::Ordinal)) {
         throw "Refusing to clean unexpected test path: $full"
     }
+}
+
+function Assert-InstalledSignatures {
+    param([Parameter(Mandatory=$true)][string]$Application, [Parameter(Mandatory=$true)][string]$PolicyRoot, [Parameter(Mandatory=$true)][string]$Phase)
+    $targets = @((Join-Path $Application 'Agent_b.exe'))
+    foreach ($relative in @(Get-AgentBRuntimeSigningPolicy -Root $PolicyRoot).Signable) { $targets += Join-Path $Application ($relative.Replace('/', '\')) }
+    foreach ($target in $targets) {
+        $signature = Get-AuthenticodeSignature -LiteralPath $target
+        if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw "$Phase installed signable is $($signature.Status) or lacks a timestamp: $target" }
+    }
+    Write-Host "PROOF installed signatures ($Phase): $($targets.Count)/$($targets.Count) Valid and timestamped"
 }
 
 # Item 2gu (v1.2.5): production listens on 8790, and a disposable root must
@@ -317,6 +329,7 @@ try {
         -not (Test-Path -LiteralPath $updateSentinel -PathType Leaf) -or (Get-Content -Raw -LiteralPath $updateSentinel) -cne 'preserve operator chat data') {
         throw "Updater-shaped default-root install did not complete on its first attempt or preserve operator data.`n$updateOutput"
     }
+    Assert-InstalledSignatures -Application $updateApplication -PolicyRoot $repositoryRoot -Phase 'update'
     Write-Host 'PROOF updater default: a v1.6.5-shaped per-user layout installed on the first attempt with default application/data/workspace roots and preserved chat data'
 
     $directOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer 2>&1 | Out-String).Trim()
@@ -477,6 +490,7 @@ try {
         $env:AGENT_B_INSTALL_LOG = $savedInstallLog
     }
     if ($freshExit -ne 0) { throw "First single-file install exited $freshExit.`n$freshOutput" }
+    Assert-InstalledSignatures -Application $testApplication -PolicyRoot $repositoryRoot -Phase 'install'
     $freshTranscript = Get-Content -Raw -LiteralPath $freshTranscriptPath
     if ($freshTranscript -notmatch 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval') {
         throw "Per-user install did not preserve the first-launch provisioning arm.`n$freshOutput"
@@ -924,6 +938,7 @@ try {
         $env:AGENT_B_INSTALL_NO_BROWSER = $savedNoBrowser
     }
     if ($upgradeExit -ne 0) { throw "Running-instance wrapper upgrade exited $upgradeExit.`n$upgradeOutput" }
+    Assert-InstalledSignatures -Application $testApplication -PolicyRoot $repositoryRoot -Phase 'update'
     $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
     $upgradeTranscript = $strictUtf8.GetString([IO.File]::ReadAllBytes($upgradeTranscriptPath))
     if ($upgradeTranscript.Contains([char]0) -or $upgradeTranscript.Contains([char]0xfffd)) {

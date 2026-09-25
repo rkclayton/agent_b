@@ -32,13 +32,13 @@ const { renderState } = await import("./state.js");
 
 reduce({ type: "snapshot", data: { replay: false, connections: [], config: {}, flow: { stages: ["assemble", "call_model"], edges: [] }, sessions: { main: {
   schema_version: 1, cursor: { generation: "main.jsonl", offset: 100 }, complete: true, id: "main", label: "main", connection_id: "homepc",
-  run: { status: "idle", turn: 0, max_turns: 40, last_stop_reason: "" }, activity: { stage: "wait_user", completed_stages: ["assemble"] },
+  run: { status: "idle", turn: 0, max_turns: 40, last_stop_reason: "" }, activity: { stage: "wait_user", completed_stages: ["assemble"], delegate: { id: "main-delegate-e1", status: "completed", tool_calls: 8 } },
   tools: [{ name: "read_file", calls: 2, enabled: true }], messages: [], timeline: [], chat: [],
   budget: { n_ctx: 32768, ceiling: 24576, reserve: 8192, used_est: 1511, categories: { system: 290, tools: 1221 }, estimated: false },
   model_turns: 3, compaction_count: 1, compaction_token_delta: -500, compaction_model_calls: 1, compaction_prompt_tokens: 400, compaction_completion_tokens: 100,
 } } } });
 
-test("Activity renders only the canned snapshot projection", () => { renderFlow(); assert.equal(elements.get("flow").children.length, 2); assert.equal(elements.get("flow-count").textContent, "idle"); });
+test("Activity renders the delegate under its parent", () => { renderFlow(); assert.equal(elements.get("flow").children.length, 3); assert.equal(elements.get("flow").children[2].children[1].textContent, "↳ Delegate"); assert.equal(elements.get("flow-count").textContent, "idle"); });
 test("Tools renders authoritative projected counts", () => { renderRack(); assert.equal(elements.get("tool-count").textContent, "2 calls"); assert.equal(elements.get("rack").children[0].children[1].textContent, "read_file"); });
 test("Context renders projected accounting", () => { renderRail(); assert.match(elements.get("rail").children[0].getAttribute("aria-label"), /system prompt 290/); });
 test("History renders projected durable history", () => { renderTimeline(); assert.match(elements.get("timeline-count").textContent, /3 turns.*1 compact/); assert.equal(elements.get("timeline-list").children[0].textContent, "—"); });

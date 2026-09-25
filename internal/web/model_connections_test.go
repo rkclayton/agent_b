@@ -15,7 +15,40 @@ import (
 	"harness/internal/credential"
 	"harness/internal/events"
 	"harness/internal/session"
+	"harness/internal/tools"
 )
+
+func TestApprovedConnectorMutationValidatesPersistsAndRemoves(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	cfg := config.Defaults(root)
+	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	service := config.Service{Kind: "mcp", BaseURL: "https://broker.test/mcp", Auth: "exec:helper headers", AllowedMethods: []string{"POST"}, TimeoutS: 60, MaxBodyKB: 64}
+	if err := server.ApplyConnector(tools.ConnectorChange{Operation: "add", Name: "deploy-broker", Service: service}); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.ConfigSnapshot().Services["deploy-broker"]; got.Kind != "mcp" || got.Auth != service.Auth {
+		t.Fatalf("service=%+v", got)
+	}
+	persisted, err := os.ReadFile(path)
+	if err != nil || !bytes.Contains(persisted, []byte(`"deploy-broker"`)) {
+		t.Fatalf("persisted=%s err=%v", persisted, err)
+	}
+	bad := service
+	bad.Auth = "pasted-secret"
+	if err := server.ApplyConnector(tools.ConnectorChange{Operation: "edit", Name: "deploy-broker", Service: bad}); err == nil {
+		t.Fatal("bad auth was written")
+	}
+	if server.ConfigSnapshot().Services["deploy-broker"].Auth != service.Auth {
+		t.Fatal("bad edit changed config")
+	}
+	if err := server.ApplyConnector(tools.ConnectorChange{Operation: "remove", Name: "deploy-broker"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := server.ConfigSnapshot().Services["deploy-broker"]; ok {
+		t.Fatal("removed connector remains")
+	}
+}
 
 func TestConfigPOSTAssignsConnectionsToLetteredAgentRoles(t *testing.T) {
 	root := t.TempDir()

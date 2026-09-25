@@ -2,6 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -9,7 +13,79 @@ import (
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/session"
+	toolpkg "harness/internal/tools"
 )
+
+func TestConnectorChangeAlwaysUsesApprovalAndHotReloadsForRead(t *testing.T) {
+	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method=%s", r.Method)
+		}
+		_, _ = w.Write([]byte(`{"tools":[]}`))
+	}))
+	defer broker.Close()
+	bus := events.NewBus()
+	eventCh, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	cfg := config.Defaults(t.TempDir())
+	cfg.Approval.Mode = config.ApprovalModeOff
+	serviceTool := toolpkg.NewCallService(nil)
+	writes := 0
+	serviceTool.SetConnectorWriter(func(change toolpkg.ConnectorChange) error {
+		writes++
+		cfg.Services[change.Name] = change.Service
+		serviceTool.Configure(cfg)
+		return nil
+	})
+	runner := NewRunner(bus, toolpkg.New(serviceTool), nil, nil, func() config.Config { return cfg })
+	s := &session.Session{ID: "connector", ToolsEnabled: map[string]bool{"call_service": true}, Run: session.RunState{Status: "running"}}
+	valid := map[string]any{"connector": map[string]any{"operation": "add", "entry": map[string]any{"name": "broker", "url": broker.URL, "kind": "mcp", "auth": "none"}}}
+
+	done := make(chan toolpkg.CallOutcome, 1)
+	bad := map[string]any{"connector": map[string]any{"operation": "add", "entry": map[string]any{"name": "broker", "url": broker.URL, "kind": "mcp", "auth": "pasted-secret"}}}
+	go func() { done <- runner.executeTool(context.Background(), s, "run", "bad", "call_service", bad) }()
+	badEvent := <-eventCh
+	badArgs := badEvent.Data.(map[string]any)["args"].(map[string]any)
+	if !strings.Contains(badArgs["validation_error"].(string), "auth") {
+		t.Fatalf("bad card=%#v", badArgs)
+	}
+	if encoded, _ := json.Marshal(badArgs); strings.Contains(string(encoded), "pasted-secret") {
+		t.Fatalf("bad card retained pasted secret: %s", encoded)
+	}
+	if err := runner.Gate().Decide(s.ID, "bad", "once"); err != nil {
+		t.Fatal(err)
+	}
+	<-eventCh
+	if outcome := <-done; outcome.OK || writes != 0 {
+		t.Fatalf("bad outcome=%+v writes=%d", outcome, writes)
+	}
+
+	go func() { done <- runner.executeTool(context.Background(), s, "run", "reject", "call_service", valid) }()
+	if event := <-eventCh; event.Type != events.ApprovalRequired {
+		t.Fatalf("event=%s", event.Type)
+	}
+	if err := runner.Gate().Decide(s.ID, "reject", "deny"); err != nil {
+		t.Fatal(err)
+	}
+	<-eventCh
+	if outcome := <-done; outcome.OK || writes != 0 {
+		t.Fatalf("rejected outcome=%+v writes=%d", outcome, writes)
+	}
+
+	go func() { done <- runner.executeTool(context.Background(), s, "run", "approve", "call_service", valid) }()
+	<-eventCh
+	if err := runner.Gate().Decide(s.ID, "approve", "once"); err != nil {
+		t.Fatal(err)
+	}
+	<-eventCh
+	if outcome := <-done; !outcome.OK || writes != 1 {
+		t.Fatalf("approved outcome=%+v writes=%d", outcome, writes)
+	}
+	read := runner.executeTool(context.Background(), s, "run", "read", "call_service", map[string]any{"service": "broker", "method": "POST", "body": map[string]any{"method": "tools/list"}})
+	if !read.OK || !strings.Contains(read.Content, `"tools"`) {
+		t.Fatalf("read=%+v", read)
+	}
+}
 
 func TestGateRequiredMatrix(t *testing.T) {
 	tests := []struct {

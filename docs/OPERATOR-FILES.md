@@ -1,6 +1,6 @@
 # Operator files
 
-Agent_b's operator data root is a plain folder. The files are intended to be readable, editable, searchable, syncable, and versionable with ordinary tools. Sync and source control remain the operator's responsibility; Agent_b does not listen on a network endpoint or push notifications for these files.
+Agent_b's operator data root is a plain folder. The files are intended to be readable, editable, searchable, syncable, and versionable with ordinary tools. Sync and source control remain the operator's responsibility; Agent_b neither synchronizes these files nor exposes them through a separate network service.
 
 The active convention:
 

@@ -36,6 +36,7 @@ var serviceResponseHeaders = []string{
 type cachedServiceCredential struct {
 	authorization string
 	token         string
+	headers       http.Header
 	validUntil    time.Time
 }
 
@@ -45,6 +46,13 @@ type CallService struct {
 	cache    map[string]cachedServiceCredential
 	now      func() time.Time
 	listener string
+	change   func(ConnectorChange) error
+}
+
+type ConnectorChange struct {
+	Operation string
+	Name      string
+	Service   config.Service
 }
 
 func NewCallService(services map[string]config.Service) *CallService {
@@ -56,24 +64,83 @@ func NewCallService(services map[string]config.Service) *CallService {
 func (*CallService) Name() string { return "call_service" }
 
 func (*CallService) Description() string {
-	return "Call a registered service name or an absolute URL; unregistered URLs carry no credential, and a registered credential is sent only to its registered host."
+	return "Call a registered service, or when the operator asks, draft a connector add/edit/remove for approval. Never propose a connector unsolicited or ask for a token when an auth helper exists."
 }
 
 func (*CallService) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"service": map[string]any{"type": "string", "description": "Registered service name or absolute HTTP(S) URL"},
-			"method":  map[string]any{"type": "string", "description": "HTTP method allowed by the service"},
-			"path":    map[string]any{"type": "string", "description": "Relative path for a registered service, or an absolute URL whose host must match that service"},
-			"query":   map[string]any{"type": "object", "description": "Query parameters", "additionalProperties": true},
-			"body":    map[string]any{"description": "JSON request body"},
-			"headers": map[string]any{"type": "object", "description": "Optional Accept, Content-Type, If-Match, If-None-Match, or Idempotency-Key values", "additionalProperties": map[string]any{"type": "string"}},
-			"offset":  map[string]any{"type": "integer", "description": "One-based response-body byte offset for a repeated request", "default": 1},
-			"limit":   map[string]any{"type": "integer", "description": "Maximum response-body bytes, capped by the configured service maximum"},
+			"connector": map[string]any{"type": "object", "description": "Operator-requested connector change: operation add, edit, or remove; entry has name, url, kind (mcp or http), auth, and allowed_methods for http"},
+			"service":   map[string]any{"type": "string", "description": "Registered service name or absolute HTTP(S) URL"},
+			"method":    map[string]any{"type": "string", "description": "HTTP method allowed by the service"},
+			"path":      map[string]any{"type": "string", "description": "Relative path for a registered service, or an absolute URL whose host must match that service"},
+			"query":     map[string]any{"type": "object", "description": "Query parameters", "additionalProperties": true},
+			"body":      map[string]any{"description": "JSON request body"},
+			"headers":   map[string]any{"type": "object", "description": "Optional Accept, Content-Type, If-Match, If-None-Match, or Idempotency-Key values", "additionalProperties": map[string]any{"type": "string"}},
+			"offset":    map[string]any{"type": "integer", "description": "One-based response-body byte offset for a repeated request", "default": 1},
+			"limit":     map[string]any{"type": "integer", "description": "Maximum response-body bytes, capped by the configured service maximum"},
 		},
-		"required": []string{"service", "method"},
+		"anyOf": []any{map[string]any{"required": []string{"connector"}}, map[string]any{"required": []string{"service", "method"}}},
 	}
+}
+
+func (c *CallService) SetConnectorWriter(change func(ConnectorChange) error) { c.change = change }
+
+func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
+	raw, present := args["connector"]
+	if !present {
+		return ConnectorChange{}, false, nil
+	}
+	value, ok := raw.(map[string]any)
+	if !ok {
+		return ConnectorChange{}, true, fmt.Errorf("connector must be an object")
+	}
+	op, _ := value["operation"].(string)
+	op = strings.ToLower(strings.TrimSpace(op))
+	if op != "add" && op != "edit" && op != "remove" {
+		return ConnectorChange{}, true, fmt.Errorf("connector.operation must be add, edit, or remove")
+	}
+	entry, ok := value["entry"].(map[string]any)
+	if !ok {
+		return ConnectorChange{}, true, fmt.Errorf("connector.entry must be an object")
+	}
+	name, _ := entry["name"].(string)
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ConnectorChange{}, true, fmt.Errorf("connector.entry.name is required")
+	}
+	change := ConnectorChange{Operation: op, Name: name}
+	if op == "remove" {
+		return change, true, nil
+	}
+	change.Service.BaseURL, _ = entry["url"].(string)
+	change.Service.Kind, _ = entry["kind"].(string)
+	change.Service.Auth, _ = entry["auth"].(string)
+	change.Service.Kind = strings.ToLower(strings.TrimSpace(change.Service.Kind))
+	if change.Service.Kind != "http" && change.Service.Kind != "mcp" {
+		return ConnectorChange{}, true, fmt.Errorf("connector.entry.kind must be mcp or http")
+	}
+	if err := config.ValidateServiceAuth(change.Service.Auth); err != nil {
+		return ConnectorChange{}, true, fmt.Errorf("connector.entry.auth: %w", err)
+	}
+	if strings.HasPrefix(strings.TrimSpace(change.Service.Auth), "exec:") {
+		argv, err := splitServiceArgv(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(change.Service.Auth), "exec:")))
+		if err != nil || len(argv) == 0 || (!strings.EqualFold(argv[len(argv)-1], "token") && !strings.EqualFold(argv[len(argv)-1], "headers")) {
+			return ConnectorChange{}, true, fmt.Errorf("connector.entry.auth: exec helper must end with token or headers")
+		}
+	}
+	if change.Service.Kind == "mcp" {
+		change.Service.AllowedMethods = []string{"POST"}
+	} else if methods, ok := entry["allowed_methods"].([]any); ok {
+		for _, rawMethod := range methods {
+			if method, ok := rawMethod.(string); ok {
+				change.Service.AllowedMethods = append(change.Service.AllowedMethods, strings.ToUpper(strings.TrimSpace(method)))
+			}
+		}
+	}
+	change.Service.TimeoutS, change.Service.MaxBodyKB = 60, 64
+	return change, true, nil
 }
 
 func (c *CallService) Configure(cfg config.Config) {
@@ -107,6 +174,22 @@ func (c *CallService) Call(ctx context.Context, item *session.Session, args map[
 }
 
 func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args map[string]any) (detail CallDetail) {
+	if change, present, err := ParseConnectorChange(args); present {
+		if err != nil {
+			detail.Err = err
+			return detail
+		}
+		if c.change == nil {
+			detail.Err = fmt.Errorf("connector changes are unavailable")
+			return detail
+		}
+		if err := c.change(change); err != nil {
+			detail.Err = err
+			return detail
+		}
+		detail.Content = fmt.Sprintf("connector %s %s; configuration reloaded", change.Name, change.Operation)
+		return detail
+	}
 	serviceName, ok := requiredString(args, "service")
 	if !ok {
 		detail.Err = fmt.Errorf("service is required")
@@ -129,7 +212,7 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 			detail.Err = fmt.Errorf("method %s is not allowed for service %q", method, serviceName)
 			return detail
 		}
-		if requestedPath == "" {
+		if requestedPath == "" && service.Kind != "mcp" {
 			detail.Err = fmt.Errorf("path is required for registered service %q", serviceName)
 			return detail
 		}
@@ -150,6 +233,8 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 				return detail
 			}
 			target = requestedURL
+		} else if requestedPath == "" {
+			target = base
 		} else {
 			target, detail.Err = resolveServiceTarget(service.BaseURL, requestedPath)
 			if detail.Err != nil {
@@ -212,9 +297,10 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 	}
 
 	authorization, token, operatorContext := "", "", false
+	credentialHeaders := http.Header{}
 	if registered {
 		var err error
-		authorization, token, operatorContext, err = c.authorization(ctx, serviceName, service)
+		authorization, token, credentialHeaders, operatorContext, err = c.authorization(ctx, serviceName, service)
 		if err != nil {
 			detail.Err = err
 			return detail
@@ -227,6 +313,11 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 		return detail
 	}
 	request.Header = headers
+	for name, values := range credentialHeaders {
+		for _, value := range values {
+			request.Header.Add(name, value)
+		}
+	}
 	if authorization != "" {
 		request.Header.Set("Authorization", authorization)
 	}
@@ -248,6 +339,16 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 		return detail
 	}
 	cleanBody := redactServiceCredential(window.Content, authorization, token)
+	for name, values := range credentialHeaders {
+		for _, value := range values {
+			cleanBody = strings.ReplaceAll(cleanBody, value, "[redacted]")
+			if strings.EqualFold(name, "Authorization") {
+				if _, secret, err := bearerAuthorization(value); err == nil {
+					cleanBody = strings.ReplaceAll(cleanBody, secret, "[redacted]")
+				}
+			}
+		}
+	}
 	outputBody := any(cleanBody)
 	if offset == 1 && !window.More && json.Valid([]byte(cleanBody)) {
 		var decoded any
@@ -288,47 +389,64 @@ func (c *CallService) service(name string) (config.Service, bool) {
 	return service, ok
 }
 
-func (c *CallService) authorization(ctx context.Context, name string, service config.Service) (authorization, token string, operatorContext bool, err error) {
+func (c *CallService) authorization(ctx context.Context, name string, service config.Service) (authorization, token string, headers http.Header, operatorContext bool, err error) {
 	auth := strings.TrimSpace(service.Auth)
 	if auth == "none" {
-		return "", "", false, nil
+		return "", "", nil, false, nil
 	}
 	if strings.HasPrefix(auth, "static_bearer:") {
 		value := strings.TrimSpace(os.Getenv(strings.TrimSpace(strings.TrimPrefix(auth, "static_bearer:"))))
 		if value == "" {
-			return "", "", false, fmt.Errorf("auth_error: configured bearer environment variable is empty")
+			return "", "", nil, false, fmt.Errorf("auth_error: configured bearer environment variable is empty")
 		}
 		authorization, token, err = bearerAuthorization(value)
-		return authorization, token, false, err
+		return authorization, token, nil, false, err
 	}
 	if !strings.HasPrefix(auth, "exec:") {
-		return "", "", false, fmt.Errorf("auth_error: unsupported configured auth mode")
+		return "", "", nil, false, fmt.Errorf("auth_error: unsupported configured auth mode")
 	}
 
 	c.mu.Lock()
 	if cached, ok := c.cache[name]; ok && c.now().Before(cached.validUntil) {
 		c.mu.Unlock()
-		return cached.authorization, cached.token, true, nil
+		return cached.authorization, cached.token, cached.headers.Clone(), true, nil
 	}
 	c.mu.Unlock()
 
 	argv, err := splitServiceArgv(strings.TrimSpace(strings.TrimPrefix(auth, "exec:")))
 	if err != nil || len(argv) == 0 {
-		return "", "", true, fmt.Errorf("auth_error: invalid credential argv")
+		return "", "", nil, true, fmt.Errorf("auth_error: invalid credential argv")
 	}
 	credentialContext, cancel := context.WithTimeout(ctx, time.Duration(service.TimeoutS)*time.Second)
 	defer cancel()
 	command := exec.CommandContext(credentialContext, argv[0], argv[1:]...)
 	output, runErr := command.Output()
 	if credentialContext.Err() == context.DeadlineExceeded {
-		return "", "", true, fmt.Errorf("auth_error: credential command timed out")
+		return "", "", nil, true, fmt.Errorf("auth_error: credential command timed out")
 	}
 	if runErr != nil {
-		return "", "", true, fmt.Errorf("auth_error: credential command failed")
+		return "", "", nil, true, fmt.Errorf("auth_error: credential command failed")
 	}
 	line := strings.TrimSpace(string(output))
 	if line == "" || strings.ContainsAny(line, "\r\n") {
-		return "", "", true, fmt.Errorf("auth_error: credential output must be one non-empty line")
+		return "", "", nil, true, fmt.Errorf("auth_error: credential output must be one non-empty line")
+	}
+	if strings.EqualFold(argv[len(argv)-1], "headers") {
+		var values map[string]string
+		if json.Unmarshal([]byte(line), &values) != nil || len(values) == 0 {
+			return "", "", nil, true, fmt.Errorf("auth_error: credential headers JSON is invalid")
+		}
+		headers = http.Header{}
+		for name, value := range values {
+			if strings.EqualFold(name, "Host") || strings.TrimSpace(name) == "" || strings.ContainsAny(value, "\r\n") {
+				return "", "", nil, true, fmt.Errorf("auth_error: credential header is invalid")
+			}
+			headers.Set(name, value)
+		}
+		c.mu.Lock()
+		c.cache[name] = cachedServiceCredential{headers: headers.Clone(), validUntil: c.now().Add(5 * time.Minute)}
+		c.mu.Unlock()
+		return "", "", headers, true, nil
 	}
 	expires := time.Time{}
 	if strings.HasPrefix(line, "{") {
@@ -337,19 +455,19 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 			ExpiresAt string `json:"expires_at"`
 		}
 		if json.Unmarshal([]byte(line), &value) != nil || strings.TrimSpace(value.Token) == "" {
-			return "", "", true, fmt.Errorf("auth_error: credential JSON is invalid")
+			return "", "", nil, true, fmt.Errorf("auth_error: credential JSON is invalid")
 		}
 		line = strings.TrimSpace(value.Token)
 		if value.ExpiresAt != "" {
 			expires, err = time.Parse(time.RFC3339, value.ExpiresAt)
 			if err != nil {
-				return "", "", true, fmt.Errorf("auth_error: credential expires_at must be RFC3339")
+				return "", "", nil, true, fmt.Errorf("auth_error: credential expires_at must be RFC3339")
 			}
 		}
 	}
 	authorization, token, err = bearerAuthorization(line)
 	if err != nil {
-		return "", "", true, err
+		return "", "", nil, true, err
 	}
 	validUntil := c.now().Add(5 * time.Minute)
 	if !expires.IsZero() {
@@ -360,7 +478,7 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 		c.cache[name] = cachedServiceCredential{authorization: authorization, token: token, validUntil: validUntil}
 		c.mu.Unlock()
 	}
-	return authorization, token, true, nil
+	return authorization, token, nil, true, nil
 }
 
 func bearerAuthorization(value string) (authorization, token string, err error) {

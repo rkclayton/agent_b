@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"harness/internal/config"
 	"harness/internal/events"
 )
 
@@ -18,6 +19,13 @@ func sanitizedToolArguments(name string, args map[string]any) map[string]any {
 		for key := range headers {
 			if sensitiveServiceHeader(key) {
 				headers[key] = redactedToolValue
+			}
+		}
+	}
+	if connector, ok := copy["connector"].(map[string]any); ok {
+		if entry, ok := connector["entry"].(map[string]any); ok {
+			if auth, ok := entry["auth"].(string); ok && config.ValidateServiceAuth(auth) != nil {
+				entry["auth"] = "[redacted: use an environment variable or credential helper]"
 			}
 		}
 	}
@@ -62,6 +70,13 @@ func redactToolCallHeaders(raw string, calls []events.ToolCall) string {
 			text, ok := value.(string)
 			if ok && text != "" {
 				raw = strings.ReplaceAll(raw, text, redactedToolValue)
+			}
+		}
+		if connector, ok := args["connector"].(map[string]any); ok {
+			if entry, ok := connector["entry"].(map[string]any); ok {
+				if auth, ok := entry["auth"].(string); ok && config.ValidateServiceAuth(auth) != nil && auth != "" {
+					raw = strings.ReplaceAll(raw, auth, redactedToolValue)
+				}
 			}
 		}
 	}

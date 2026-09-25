@@ -286,7 +286,7 @@ function adoptPanels() {
 
 function settingsPageContext(active) {
   return {
-    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, workspaceState, operatorFileState, phoneAccess,
+    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, workspaceState, operatorFileState, phoneAccess, standingGrants: store.standing_grants || [],
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList,
@@ -454,6 +454,20 @@ async function click(event) {
     catch (error) { errors.set("profiles", error.message); }
     return render();
   }
+	if (action === "remove-agent-memory") {
+		const key = `agent-memory:${id}`;
+		if (!armed.has(key)) { armed.add(key); return render(); }
+		armed.delete(key);
+		const active = store.sessions[store.active];
+		try { await api("/api/agent-memory/remove", { agent_id: active?.agent_id || "", note: id, confirm: true }); reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); }
+		catch (error) { errors.set("profiles", error.message); }
+		return render();
+	}
+	if (action === "revoke-standing-grant") {
+		const key=`standing-grant:${id}`; if(!armed.has(key)){armed.add(key);return render()} armed.delete(key);
+		try { await api("/api/standing-grants",{id}); reduce({type:"snapshot",data:await api("/api/state",undefined,"GET")}); } catch(error) { errors.set("shell",error.message); render(); }
+		return;
+	}
   if (action === "operator-context") {
     try { await api("/api/config", {shell:{operator_context:!store.shell_identity?.operator_context}}); }
     catch (error) { errors.set("shell", error.message); render(); }

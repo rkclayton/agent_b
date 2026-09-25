@@ -149,6 +149,10 @@ func (m *Manager) Clear(workspace string) error {
 func (m *Manager) ClearAgent(agentID string) error {
 	return m.clearPath(m.AgentPath(agentID))
 }
+func (m *Manager) RemoveAgent(agentID, note string) (bool, error) {
+	count, err := m.DropSessionWrites([]events.MemoryWrite{{Path: m.AgentPath(agentID), Note: note, Target: "agent", AgentID: agentID}})
+	return count > 0, err
+}
 
 func (m *Manager) Count(workspace string) (int, error) {
 	return m.countPath(m.Path(workspace))

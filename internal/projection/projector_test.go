@@ -560,3 +560,9 @@ func cloneSnapshot(t *testing.T, value Snapshot) Snapshot {
 	}
 	return result
 }
+
+func TestMemoryNotedUpdatesStateWithoutSecondChatNotice2kt(t *testing.T) {
+	if chatNotice(events.MemoryNoted) {
+		t.Fatal("memory.noted still renders beside the one harness memory line")
+	}
+}

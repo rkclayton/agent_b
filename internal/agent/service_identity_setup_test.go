@@ -69,3 +69,46 @@ func TestServiceIdentityUnavailableCarriesBothActions2kc(t *testing.T) {
 		t.Fatalf("actions=%#v", data["actions"])
 	}
 }
+
+func TestDisabledServiceIdentityRunsMutatingToolsWithoutRefusal2ks(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	cfg.Shell.ServiceAccount.Enabled = false
+	write := &unprovisionedTool{name: "write_file"}
+	shell := &unprovisionedTool{name: "shell"}
+	runner := &Runner{bus: events.NewBus(), tools: tools.New(write, shell), cfg: func() config.Config { return cfg }}
+	runner.gate = NewGate(runner.bus, runner.cfg)
+	item := &session.Session{ID: "disabled", Workspace: t.TempDir(), ToolsEnabled: map[string]bool{"write_file": true, "shell": true}}
+	for _, name := range []string{"write_file", "shell"} {
+		outcome := runner.executeTool(context.Background(), item, "run", name, name, map[string]any{})
+		if !outcome.OK || outcome.Content != "normal" {
+			t.Fatalf("%s outcome=%+v", name, outcome)
+		}
+	}
+}
+
+func TestServiceIdentityInvitationPublishesOncePerRunner2ks(t *testing.T) {
+	bus := events.NewBus()
+	runner := &Runner{bus: bus}
+	eventsSeen, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	publish := func() {
+		if runner.identityInvitation.CompareAndSwap(false, true) {
+			bus.Publish(events.New(events.ServiceIdentityUnavailable, "s", "r", serviceIdentityUnavailableData("missing")))
+		}
+	}
+	publish()
+	publish()
+	select {
+	case event := <-eventsSeen:
+		if event.Type != events.ServiceIdentityUnavailable {
+			t.Fatalf("event=%s", event.Type)
+		}
+	default:
+		t.Fatal("invitation was not published")
+	}
+	select {
+	case event := <-eventsSeen:
+		t.Fatalf("second invitation=%+v", event)
+	default:
+	}
+}

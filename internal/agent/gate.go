@@ -2,7 +2,12 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +24,12 @@ type approvalWait struct {
 	runID     string
 	callID    string
 	decided   bool
+	grant     StandingGrant
+}
+type StandingGrant struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Subject string `json:"subject"`
 }
 type approvalSignal struct {
 	decision string
@@ -44,14 +55,17 @@ type Gate struct {
 	mailboxDecision  func(string) (string, error)
 	// Item 2fs: the scheduler's hooks. A run waiting on a card gives up its
 	// model slot (released) and takes one back once answered (reacquire).
-	released  func(sessionID, runID string)
-	reacquire func(ctx context.Context, sessionID, runID string) error
+	released     func(sessionID, runID string)
+	reacquire    func(ctx context.Context, sessionID, runID string) error
+	standingPath string
+	standingMu   sync.Mutex
 }
 
 func NewGate(bus *events.Bus, cfg func() config.Config) *Gate {
 	return &Gate{waiting: map[string]*approvalWait{}, pendingBySession: map[string]string{}, bus: bus, cfg: cfg}
 }
 func (g *Gate) SetMailboxDecision(fn func(string) (string, error)) { g.mailboxDecision = fn }
+func (g *Gate) SetStandingGrantStore(path string)                  { g.standingPath = path }
 func (g *Gate) setModelHooks(released func(string, string), reacquire func(context.Context, string, string) error) {
 	g.released, g.reacquire = released, reacquire
 }
@@ -109,13 +123,20 @@ func (g *Gate) WaitPolicyDecision(ctx context.Context, s *session.Session, runID
 		}
 		return g.refuseUnattended(s, runID, callID, kind, name, args), nil
 	}
+	grant := standingGrant(s, name, args)
+	if g.standingPath == "" {
+		grant = StandingGrant{}
+	}
+	if grant.ID != "" && g.hasStandingGrant(grant.ID) {
+		return "approve", nil
+	}
 	kind := approvalPolicyScopes
 	if name == "shell" {
 		kind = approvalShellScopes
 	}
 	g.sequenceMu.Lock()
-	wait, cleanup := g.beginWait(s, runID, callID, kind)
-	g.publishPolicyApprovalRequired(s, runID, callID, name, args)
+	wait, cleanup := g.beginWait(s, runID, callID, kind, grant)
+	g.publishApprovalRequired(s, runID, callID, name, args, false, grant)
 	g.sequenceMu.Unlock()
 	defer cleanup()
 	return g.awaitDecision(ctx, s, runID, callID, wait)
@@ -132,13 +153,20 @@ func (g *Gate) WaitBoundaryDecision(ctx context.Context, s *session.Session, run
 	if g.unattended(s) {
 		return g.refuseUnattended(s, runID, callID, boundaryEscape, name, args), nil
 	}
+	grant := standingGrant(s, name, args)
+	if g.standingPath == "" {
+		grant = StandingGrant{}
+	}
+	if grant.ID != "" && g.hasStandingGrant(grant.ID) {
+		return "approve", nil
+	}
 	kind := approvalFileScopes
 	if name == "shell.operator_override" || name == "shell.operator_command" {
 		kind = approvalShellScopes
 	}
 	g.sequenceMu.Lock()
-	wait, cleanup := g.beginWait(s, runID, callID, kind)
-	g.publishBoundaryEscapeRequired(s, runID, callID, name, args)
+	wait, cleanup := g.beginWait(s, runID, callID, kind, grant)
+	g.publishApprovalRequired(s, runID, callID, name, args, true, grant)
 	g.sequenceMu.Unlock()
 	defer cleanup()
 	return g.awaitDecision(ctx, s, runID, callID, wait)
@@ -149,7 +177,7 @@ func (g *Gate) WaitCycleDecision(ctx context.Context, s *session.Session, runID,
 		return g.refuseUnattended(s, runID, callID, boundaryCycle, "run.cycle", args), nil
 	}
 	g.sequenceMu.Lock()
-	wait, cleanup := g.beginWait(s, runID, callID, approvalCycle)
+	wait, cleanup := g.beginWait(s, runID, callID, approvalCycle, StandingGrant{})
 	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, events.WithHuman(events.ApprovalRequired, workerApproval(s, map[string]any{
 		"call_id": callID, "name": "run.cycle", "kind": "cycle", "args": args, "boundary_escape": false,
 	}))))
@@ -158,9 +186,9 @@ func (g *Gate) WaitCycleDecision(ctx context.Context, s *session.Session, runID,
 	return g.awaitDecision(ctx, s, runID, callID, wait)
 }
 
-func (g *Gate) beginWait(s *session.Session, runID, callID string, kind approvalScopeKind) (*approvalWait, func()) {
+func (g *Gate) beginWait(s *session.Session, runID, callID string, kind approvalScopeKind, grant StandingGrant) (*approvalWait, func()) {
 	key := approvalKey(s.ID, callID)
-	wait := &approvalWait{decision: make(chan approvalSignal, 1), scopeKind: kind, sessionID: s.ID, runID: runID, callID: callID}
+	wait := &approvalWait{decision: make(chan approvalSignal, 1), scopeKind: kind, sessionID: s.ID, runID: runID, callID: callID, grant: grant}
 	var superseded *approvalWait
 	g.mu.Lock()
 	if priorKey := g.pendingBySession[s.ID]; priorKey != "" && priorKey != key {
@@ -193,22 +221,17 @@ func (g *Gate) beginWait(s *session.Session, runID, callID string, kind approval
 	return wait, cleanup
 }
 
-func (g *Gate) publishPolicyApprovalRequired(s *session.Session, runID, callID, name string, args map[string]any) {
-	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, events.WithHuman(events.ApprovalRequired, workerApproval(s, map[string]any{
+func (g *Gate) publishApprovalRequired(s *session.Session, runID, callID, name string, args map[string]any, boundary bool, grant StandingGrant) {
+	data := map[string]any{
 		"call_id":         callID,
 		"name":            name,
 		"args":            args,
-		"boundary_escape": false,
-	}))))
-}
-
-func (g *Gate) publishBoundaryEscapeRequired(s *session.Session, runID, callID, name string, args map[string]any) {
-	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, events.WithHuman(events.ApprovalRequired, workerApproval(s, map[string]any{
-		"call_id":         callID,
-		"name":            name,
-		"args":            args,
-		"boundary_escape": true,
-	}))))
+		"boundary_escape": boundary,
+	}
+	if grant.ID != "" {
+		data["standing_grant"] = grant
+	}
+	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, events.WithHuman(events.ApprovalRequired, workerApproval(s, data))))
 }
 
 // workerApproval tags a worker's request with its plan. A worker has no chat, so
@@ -325,12 +348,112 @@ func (g *Gate) DecideWith(sessionID, callID, decision string, before func()) err
 	if wait.decided {
 		return fmt.Errorf("approval already decided")
 	}
+	if decision == "approve" && wait.grant.ID != "" {
+		if err := g.saveStandingGrant(wait.grant); err != nil {
+			return fmt.Errorf("save standing grant: %w", err)
+		}
+	}
 	if before != nil {
 		before()
 	}
 	wait.decided = true
 	wait.decision <- approvalSignal{decision: decision}
 	return nil
+}
+
+func standingGrant(s *session.Session, name string, args map[string]any) StandingGrant {
+	kind, subject := "", ""
+	for _, candidate := range []struct{ key, kind string }{{"repo", "repo"}, {"path", "folder"}, {"host", "host"}, {"url", "host"}} {
+		if value, ok := args[candidate.key].(string); ok && strings.TrimSpace(value) != "" {
+			kind, subject = candidate.kind, strings.TrimSpace(value)
+			break
+		}
+	}
+	if connector, ok := args["connector"].(map[string]any); ok {
+		entry, _ := connector["entry"].(map[string]any)
+		if value, ok := entry["name"].(string); ok {
+			kind, subject = "connector", strings.TrimSpace(value)
+		}
+	}
+	if kind == "host" {
+		if parsed, err := url.Parse(subject); err == nil && parsed.Host != "" {
+			subject = parsed.Host
+		}
+	}
+	if kind == "folder" {
+		if !filepath.IsAbs(subject) && s.Workspace != "" {
+			subject = filepath.Join(s.Workspace, subject)
+		}
+		subject = filepath.Clean(subject)
+	}
+	if subject == "" {
+		return StandingGrant{}
+	}
+	return StandingGrant{ID: kind + ":" + subject, Kind: kind, Subject: subject}
+}
+
+func (g *Gate) grantCatalog() map[string]map[string]StandingGrant {
+	all := map[string]map[string]StandingGrant{}
+	data, err := os.ReadFile(g.standingPath)
+	if err == nil {
+		_ = json.Unmarshal(data, &all)
+	}
+	return all
+}
+func (g *Gate) profile() string { return g.cfg().Profiles.Active }
+func (g *Gate) hasStandingGrant(id string) bool {
+	g.standingMu.Lock()
+	defer g.standingMu.Unlock()
+	_, ok := g.grantCatalog()[g.profile()][id]
+	return ok
+}
+func (g *Gate) StandingGrants() []StandingGrant {
+	if g.standingPath == "" {
+		return nil
+	}
+	g.standingMu.Lock()
+	defer g.standingMu.Unlock()
+	var result []StandingGrant
+	for _, grant := range g.grantCatalog()[g.profile()] {
+		result = append(result, grant)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+func (g *Gate) saveStandingGrant(grant StandingGrant) error {
+	if g.standingPath == "" {
+		return fmt.Errorf("standing grant store unavailable")
+	}
+	g.standingMu.Lock()
+	defer g.standingMu.Unlock()
+	all := g.grantCatalog()
+	grants := all[g.profile()]
+	if grants == nil {
+		grants = map[string]StandingGrant{}
+		all[g.profile()] = grants
+	}
+	grants[grant.ID] = grant
+	return g.writeGrantCatalog(all)
+}
+func (g *Gate) writeGrantCatalog(all map[string]map[string]StandingGrant) error {
+	data, err := json.MarshalIndent(all, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(g.standingPath), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(g.standingPath, append(data, '\n'), 0600)
+}
+func (g *Gate) RevokeStandingGrant(id string) error {
+	if g.standingPath == "" {
+		return fmt.Errorf("standing grant store unavailable")
+	}
+	g.standingMu.Lock()
+	defer g.standingMu.Unlock()
+	all := g.grantCatalog()
+	delete(all[g.profile()], id)
+	return g.writeGrantCatalog(all)
 }
 
 func validApprovalDecision(decision string) bool {

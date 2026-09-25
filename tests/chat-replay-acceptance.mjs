@@ -22,10 +22,13 @@ config.agents = [{
   d: replayConnection,
   toolset: ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate"],
 }];
-const portProbe = createServer();
-await new Promise((resolve) => portProbe.listen(0, "127.0.0.1", resolve));
-const port = portProbe.address().port;
-await new Promise((resolve) => portProbe.close(resolve));
+let port;
+do {
+  const portProbe = createServer();
+  await new Promise((resolve) => portProbe.listen(0, "127.0.0.1", resolve));
+  port = portProbe.address().port;
+  await new Promise((resolve) => portProbe.close(resolve));
+} while (port === 8790);
 config.listen = `127.0.0.1:${port}`;
 await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
 const tape = await readFile(args.replay, "utf8");

@@ -26,6 +26,9 @@ test("approval wording stays direct and identifies the operation", () => {
 	const policy = approvalText({ name: "write_file", boundary_escape: false, args: { path: "note.txt" } });
 	assert.equal(policy.title, "Allow this");
 	assert.equal(policy.detail, "note.txt");
+	const data = { name: "read_file.operator_override", boundary_escape: true, args: { path: "C:\\work" }, standing_grant: { kind: "folder", subject: "C:\\work" }, human: { happened: "Read the folder.", harness_action: "The harness paused.", question: "Allow?" } };
+	assert.deepEqual(approvalChoices(data)[0], ["approve", "Always allow this exact scope"]);
+	assert.match(approvalText(data).reason, /If declined, the action will not run/);
 });
 
 test("connector approval shows the proposed entry verbatim", () => {
@@ -47,7 +50,7 @@ test("pending cards consume the shared human sentence order", () => {
 		},
 	});
 	assert.equal(wording.request, "write_file needs your approval before it can continue.");
-	assert.equal(wording.reason, "The harness paused before running the action.");
+	assert.equal(wording.reason, "The harness paused before running the action. If declined, the action will not run.");
 	assert.equal(wording.question, "Allow this action?");
 	assert.equal(wording.detail, "note.txt");
 });

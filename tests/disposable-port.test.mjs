@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const root = new URL("../", import.meta.url);
 const installer = await readFile(new URL("tests/test-installer.ps1", root), "utf8");
@@ -30,8 +35,38 @@ test("the suite's inventory includes untracked, non-ignored files", () => {
 test("every scenario runner refuses production's port", async () => {
   for (const name of [
     "tests/ui-harness.mjs",
+		"tests/chat-acceptance.mjs",
+		"tests/chat-replay-acceptance.mjs",
+		"tests/accounting-real-template-acceptance.mjs",
+		"tests/comparative/run-suite.mjs",
   ]) {
     const source = await readFile(new URL(name, root), "utf8");
     assert.match(source, /8790/, name);
   }
+});
+
+test("installed launcher refuses a foreign HTTP responder", { skip: process.platform !== "win32" }, async () => {
+	const rootDir = await mkdtemp(join(tmpdir(), "agentb-foreign-launcher-"));
+	const app = join(rootDir, "Application", "Agent_b"), data = join(rootDir, "Data", "Agent_b");
+	const server = createServer((_request, response) => response.end("foreign"));
+	try {
+		await mkdir(app, { recursive: true });
+		await mkdir(join(data, "logs"), { recursive: true });
+		await writeFile(join(app, "Agent_b.exe"), "not the listener");
+		await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+		const port = server.address().port;
+		assert.notEqual(port, 8790);
+		const config = join(data, "harness.json");
+		await writeFile(config, JSON.stringify({ listen: `127.0.0.1:${port}` }));
+		const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-File", new URL("../scripts/launch-Agent_b.ps1", import.meta.url).pathname.slice(1), "-ApplicationDirectory", app, "-DataDirectory", data, "-ConfigPath", config, "-NoPause", "-NoBrowser", "-Detached"], { stdio: ["ignore", "pipe", "pipe"] });
+		let output = "";
+		child.stdout.on("data", (chunk) => output += chunk);
+		child.stderr.on("data", (chunk) => output += chunk);
+		const status = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });
+		assert.equal(status, 1, output);
+		assert.match(output, /Foreign instance refused: PID \d+ owns port \d+ but does not match this install path and data root/);
+	} finally {
+		await new Promise((resolve) => server.close(resolve));
+		removeTreeWithinAllowedRoots(rootDir, [tmpdir()], "foreign-launcher fixture cleanup");
+	}
 });

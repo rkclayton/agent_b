@@ -1,6 +1,6 @@
-let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
+let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess, standingGrants, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
 function useSettingsContext(context) {
-  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess = { devices: [] }, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
+  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess = { devices: [] }, standingGrants = [], connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
 }
 
 function shell(active) {
@@ -28,9 +28,11 @@ function shell(active) {
 							: "agentb-svc · account not created";
 	const setupLabel = serviceAccountBusy
 		? "Waiting for Windows UAC…"
+		: serviceAccountStatus.state === "locked_out"
+			? "Repair unavailable — account locked out"
 		: serviceAccountStatus.action || (serviceAccountStatus.exists ? "Repair" : "Set up");
 	const connection = connectionList().find((item) => item.id === selectedHardeningConnectionID());
-	const setupDisabled = serviceAccountBusy || !serviceAccountStatus.loaded || !serviceAccountStatus.supported || serviceAccountStatus.administrator || !connection;
+	const setupDisabled = serviceAccountBusy || !serviceAccountStatus.loaded || !serviceAccountStatus.supported || serviceAccountStatus.administrator || serviceAccountStatus.state === "locked_out" || !connection;
 	const protectionReady = hardeningStatus.acl?.applied && hardeningStatus.firewall?.applied;
 	const elevationState = !hardeningStatus.loaded
 		? "checking process elevation…"
@@ -83,9 +85,13 @@ function shell(active) {
 	<p class="settings-note">This defeats the service-account OS boundary for every tool in every chat until it expires.</p>
 	${subhead("Unattended", "Never ask. A worker or scheduled run that would have raised a card records a boundary failure on its item and carries on; the report lists every one. This changes who is asked, not who runs anything and not what the boundary permits.")}
 	${toggle("approval.unattended", "Unattended: never ask; boundary hits fail the item", !!store.config.approval?.unattended, "A chat you are typing in still asks you. This is for a worker started by Go and for a scheduled run, which have nobody in front of them.")}
+	${subhead("Standing grants", "Exact repo, folder, connector, and host approvals for this profile. They survive restarts and new chats until revoked.")}
+	${row("grants", standingGrants.length ? `<span class="settings-actions vertical">${standingGrants.map((grant)=>`<span>${html(grant.kind)} · ${html(grant.subject)} <button type="button" data-action="revoke-standing-grant" data-id="${attr(grant.id)}">${armed.has(`standing-grant:${grant.id}`)?"Confirm revoke":"Revoke"}</button></span>`).join("")}</span>` : '<span class="account-status">none</span>')}
 	${subhead("Docker Sandbox", "Install-wide: routes shell and bash through Docker Sandbox. When Docker Sandbox is unavailable the setting stays on but is inert and reports why.")}
 	${toggle("sandbox.enabled", "Docker Sandbox", sandboxEnabled, "Install-wide: routes shell and bash through Docker Sandbox.")}
 	${row("status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`, "", "Inert means the setting is on but Docker Sandbox is unavailable; the reason is shown here.")}
+	${subhead("Service identity", "Use the restricted Windows account for tools. Turning this off restores direct non-elevated operator execution after Save.")}
+	${toggle("shell.service_account.enabled", "Service identity", !!service.enabled, "Off: tools run as the account that launched Agent_b. On: unavailable identity actions refuse and offer Repair or Run as you.")}
 	<details class="settings-advanced"${setupOpen ? " open" : ""}>
 	  <summary>Set up service identity</summary>
 	  <p class="settings-note">Agent_b generates and stores the password. One Windows approval creates or repairs the account, folder access and outbound policy, then tests the credential before enabling it.</p>

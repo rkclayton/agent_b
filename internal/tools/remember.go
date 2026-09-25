@@ -19,7 +19,7 @@ func NewRemember(manager *memory.Manager, bus *events.Bus) *Remember {
 }
 func (*Remember) Name() string { return "remember" }
 func (*Remember) Description() string {
-	return "Save durable memory; recall first to avoid duplicates. agent carries across all chats of this agent: preferences, habits, anything for later chats. folder is the project repository this chat has written to; with none, it saves to agent."
+	return "Save only durable facts about the operator, project, or work that a future chat will need; recall first to avoid duplicates. Never save command output, tool results, transient state, or facts already recorded by this chat. agent memory loads in every chat of this agent; folder memory follows the project repository, and with no project the note goes to agent memory."
 }
 func (*Remember) Schema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"note": map[string]any{"type": "string"}, "target": map[string]any{"type": "string", "enum": []string{"folder", "agent"}, "default": "folder"}}, "required": []string{"note"}}

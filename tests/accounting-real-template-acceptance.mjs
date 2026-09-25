@@ -11,10 +11,13 @@ const args = Object.fromEntries(Array.from({ length: Math.floor(argv.length / 2)
 for (const name of ["exe", "app-root", "data", "workspace", "server", "model", "evidence"]) assert.ok(args[name], `missing --${name}`);
 
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
-const portProbe = createServer();
-await new Promise((done) => portProbe.listen(0, "127.0.0.1", done));
-const port = portProbe.address().port;
-await new Promise((done) => portProbe.close(done));
+let port;
+do {
+  const portProbe = createServer();
+  await new Promise((done) => portProbe.listen(0, "127.0.0.1", done));
+  port = portProbe.address().port;
+  await new Promise((done) => portProbe.close(done));
+} while (port === 8790);
 
 const data = resolve(args.data);
 const workspace = resolve(args.workspace);

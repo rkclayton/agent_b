@@ -52,9 +52,14 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 	if s.updater != nil {
 		updateState = s.updater.State()
 	}
+	standingGrants := any([]any{})
+	if s.runner != nil {
+		standingGrants = s.runner.Gate().StandingGrants()
+	}
 	return map[string]any{
 		"sessions": sessions, "connections": masked.Connections, "config": masked, "replay": replay,
 		"profiles":                 s.profileState(),
+		"standing_grants":          standingGrants,
 		"process_id":               os.Getpid(),
 		"server_started_at":        s.startedAt,
 		"agent_connection_changes": s.agentConnectionChanges(),

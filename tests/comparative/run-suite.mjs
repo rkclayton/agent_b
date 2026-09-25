@@ -27,11 +27,13 @@ function mustRun(command, args, options = {}) {
 }
 
 async function freePort() {
-  const server = createServer();
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = server.address().port;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
+	for (;;) {
+		const server = createServer();
+		await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+		const port = server.address().port;
+		await new Promise((resolve) => server.close(resolve));
+		if (port !== 8790) return port;
+	}
 }
 
 async function json(url, options = {}) {

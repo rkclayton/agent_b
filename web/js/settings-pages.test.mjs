@@ -7,6 +7,7 @@ import { renderChatsPage } from "./settings-chats.js";
 import { renderConnectionsPage } from "./settings-connections.js";
 import { renderContextPage } from "./settings-context.js";
 import { renderGeneralPage } from "./settings-general.js";
+import { renderProfilesPage } from "./settings-profiles.js";
 import { renderRunPage } from "./settings-run.js";
 import { renderSecurityPage } from "./settings-security.js";
 import { renderWorkspacePage } from "./settings-workspace.js";
@@ -49,6 +50,16 @@ test("every Settings page renderer accepts the controller context", () => {
   ];
   assert.equal(pages.length, 10);
   for (const page of pages) assert.equal(typeof page, "string");
+});
+
+test("Profiles lists agent-layer memory with a named remove action", () => {
+	const context = pageContext();
+	context.store.active = "s1";
+	context.store.sessions.s1 = { agent_id: "agent-b", agent_memory_content: "Notes about how this agent works with the operator:\n- ping output\n- durable preference\n" };
+	const page = renderProfilesPage(context);
+	assert.match(page, /Agent memory/);
+	assert.match(page, /ping output/);
+	assert.match(page, /data-action="remove-agent-memory" data-id="ping output"/);
 });
 
 test("all rendered Settings rows have one direct label and one control cell", () => {
@@ -114,6 +125,21 @@ test("Security names each service identity state and offers only Set up or Repai
 		context.selectedHardeningConnectionID = () => "local";
 		assert.match(renderSecurityPage("shell", null, context), expected);
 	}
+});
+
+test("Security restores the service identity toggle and names a locked Repair dead end", () => {
+	const context = pageContext();
+	context.toggle = (path, label, value) => `${path}:${label}:${value}`;
+	context.serviceAccountStatus = { loaded: true, supported: true, administrator: false, exists: true, state: "locked_out", action: "Repair" };
+	context.connectionList = () => [{ id: "local", label: "Local", base_url: "http://127.0.0.1:8080" }];
+	context.selectedHardeningConnectionID = () => "local";
+	context.standingGrants = [{ id: "folder:C:\\work", kind: "folder", subject: "C:\\work" }];
+	const page = renderSecurityPage("shell", null, context);
+	assert.match(page, /shell\.service_account\.enabled:Service identity:false/);
+	assert.match(page, /account locked out · wait, then Repair/);
+	assert.match(page, /Repair unavailable — account locked out/);
+	assert.match(page, /data-action="setup-service-account" disabled/);
+	assert.match(page, /data-action="revoke-standing-grant"/);
 });
 
 test("Security has one Phone access entry and the PWA stays transcript composer push only", () => {

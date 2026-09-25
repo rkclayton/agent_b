@@ -84,6 +84,25 @@ func TestUnderBudgetHasNoNotice(t *testing.T) {
 	}
 }
 
+func TestRemoveAgentDeletesOnlyNamedEntry2kt(t *testing.T) {
+	root := t.TempDir()
+	manager := New(root, func() config.Config { return config.Config{Memory: config.Memory{Enabled: true, Dir: root}} }, func(context.Context, string, string) (int, error) { return 0, nil })
+	if _, _, err := manager.NoteAgent("agent-b", "ping output"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := manager.NoteAgent("agent-b", "operator prefers concise reports"); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := manager.RemoveAgent("agent-b", "ping output")
+	if err != nil || !removed {
+		t.Fatalf("removed=%t err=%v", removed, err)
+	}
+	content, err := manager.ReadAgent("agent-b")
+	if err != nil || strings.Contains(content, "ping output") || !strings.Contains(content, "operator prefers concise reports") {
+		t.Fatalf("content=%q err=%v", content, err)
+	}
+}
+
 func firstLines(value string, count int) string {
 	parts := strings.SplitN(value, "\n", count+1)
 	if len(parts) > count {

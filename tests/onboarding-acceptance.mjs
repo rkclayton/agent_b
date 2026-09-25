@@ -12,11 +12,24 @@ const args = Object.fromEntries(Array.from({ length: Math.floor(process.argv.sli
 for (const key of ["app", "data", "config", "port"]) assert.ok(args[key], `missing --${key}`);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+let browserCookie = "";
+const bootstrapHTTP = async (base, timeout = 15000) => {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${base}/chat`);
+      const cookie = (response.headers.getSetCookie?.()[0] || response.headers.get("set-cookie") || "").split(";", 1)[0];
+      if (response.ok && cookie) { browserCookie = cookie; return; }
+    } catch {}
+    await sleep(50);
+  }
+  throw new Error(`timed out bootstrapping ${base}`);
+};
 const waitJSON = async (url, timeout = 15000) => {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { headers: browserCookie ? { Cookie: browserCookie } : {} });
       if (response.ok) return await response.json();
     } catch {}
     await sleep(50);
@@ -91,6 +104,7 @@ app.stdout.on("data", (chunk) => process.stdout.write(chunk));
 app.stderr.on("data", (chunk) => process.stderr.write(chunk));
 let browser;
 try {
+  await bootstrapHTTP(baseURL);
   await waitJSON(`${baseURL}/api/state`);
   await assert.rejects(access(join(profileData, "logs", "retention-expired-working.jsonl")), "expired working JSONL must be pruned on startup");
   await access(join(profileData, "logs", "evidence", "retention-expired-evidence.jsonl"));

@@ -699,7 +699,7 @@ if ($WhatIfPreference) {
 $installedProcesses = @(Get-InstalledProcesses $installedBinary)
 $legacyProcesses = if ($legacyMigrationRoot -and -not $legacyMigrationRoot.Equals($applicationRoot, [StringComparison]::OrdinalIgnoreCase)) { @(Get-InstalledProcesses (Join-Path $legacyMigrationRoot 'Agent_b.exe')) } else { @() }
 $preflightAclEnabled = $preflightConfig -and $preflightConfig.shell.service_account -and [bool]$preflightConfig.shell.service_account.enabled
-if ($preflightAclEnabled -and (Get-LocalUser -Name $(if ($preflightConfig.shell.service_account.account) { [string]$preflightConfig.shell.service_account.account } else { 'agentb-svc' }) -ErrorAction SilentlyContinue)) {
+if ($AllUsers -and $preflightAclEnabled -and (Test-Path -LiteralPath $applicationRoot -PathType Container) -and (Get-LocalUser -Name $(if ($preflightConfig.shell.service_account.account) { [string]$preflightConfig.shell.service_account.account } else { 'agentb-svc' }) -ErrorAction SilentlyContinue)) {
     $preflightAclAccount = if ($preflightConfig.shell.service_account.account) { [string]$preflightConfig.shell.service_account.account } else { 'agentb-svc' }
     $preflightExchangeRoot = Get-FullPath $(if ($preflightConfig.deliver -and $preflightConfig.deliver.exchange_folder) { [string]$preflightConfig.deliver.exchange_folder } else { '%USERPROFILE%\Agent_b' })
     $sourceAclScript = Join-Path $sourceRoot 'scripts\apply-acls.ps1'
@@ -824,7 +824,7 @@ if (-not $TestMode) {
 	Write-Host "VERIFIED SIGNATURE: Agent_b.exe signed by $($installedSignature.SignerCertificate.Thumbprint)"
 }
 
-if ($config.shell.service_account -and [bool]$config.shell.service_account.enabled) {
+if ($AllUsers -and -not $TestMode -and $config.shell.service_account -and [bool]$config.shell.service_account.enabled) {
 	$aclAccount = if ($config.shell.service_account.account) { [string]$config.shell.service_account.account } else { 'agentb-svc' }
 	if (Get-LocalUser -Name $aclAccount -ErrorAction SilentlyContinue) {
 		$installedAclScript = Join-Path $applicationRoot 'scripts\apply-acls.ps1'
@@ -834,8 +834,10 @@ if ($config.shell.service_account -and [bool]$config.shell.service_account.enabl
 		if ($LASTEXITCODE -ne 0) { throw "Installed ACL policy verification failed with exit code $LASTEXITCODE." }
 		Write-Host 'PASS: installed root, plans/scratch exceptions, workspace, and exchange-folder ACL policy'
 	} else {
-		Write-Host 'DEFERRED: service identity account and protections await the single first-launch approval'
+		throw 'Service identity provisioning completed without creating the configured local account.'
 	}
+} elseif ($config.shell.service_account -and [bool]$config.shell.service_account.enabled) {
+	Write-Host 'DEFERRED: service identity account and protections await the single first-launch approval'
 }
 if ($ForcePostStopVerificationFailure) { throw 'Forced post-stop verification failure.' }
 

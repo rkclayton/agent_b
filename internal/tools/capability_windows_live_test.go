@@ -41,6 +41,9 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		}
 	})
 	cfg := config.Defaults(workspace)
+	if listen := strings.TrimSpace(os.Getenv("AGENTB_CAPABILITY_LISTEN")); listen != "" {
+		cfg.Listen = listen
+	}
 	var connection struct {
 		Shell struct {
 			ServiceAccount struct {

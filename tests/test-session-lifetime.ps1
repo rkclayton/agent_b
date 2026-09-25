@@ -20,7 +20,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\agentb-stop.ps1')
 $executable = Join-Path $ApplicationDirectory 'Agent_b.exe'
 $launcherLog = Join-Path $DataDirectory 'logs\launcher-errors.log'
-$state = "http://127.0.0.1:$Port/api/state"
+$state = "http://127.0.0.1:$Port/chat"
 $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
 
 function Get-Running {
@@ -30,7 +30,7 @@ function Get-Running {
 }
 
 function Test-Ready {
-    try { $null = Invoke-RestMethod -Uri $state -TimeoutSec 3; return $true } catch { return $false }
+    try { $null = Invoke-WebRequest -UseBasicParsing -Uri $state -TimeoutSec 3; return $true } catch { return $false }
 }
 
 function Wait-Until([scriptblock]$Condition, [int]$Seconds, [string]$What) {

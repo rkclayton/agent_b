@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { start } from "./ui-harness.mjs";
+import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const [exe, evidenceRoot, production = "http://127.0.0.1:8790"] = process.argv.slice(2);
 assert.ok(exe && evidenceRoot, "usage: node tests/settings-visual-acceptance.mjs EXE EVIDENCE [PRODUCTION]");
@@ -84,5 +85,5 @@ try {
     candidate.app.kill();
     await Promise.race([candidate.stop().catch(() => {}), new Promise((done) => setTimeout(done, 5000))]);
   }
-  await rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
+  try { removeTreeWithinAllowedRoots(temp, [tmpdir()], "settings visual fixture cleanup"); } catch { /* a still-closing Windows handle is non-fatal */ }
 }

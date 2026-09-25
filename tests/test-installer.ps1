@@ -14,6 +14,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\windows-tools.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\agentb-stop.ps1')
+. (Join-Path $PSScriptRoot 'browser-session.ps1')
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-installer-test-' + [Guid]::NewGuid().ToString('N'))
 # Item 2gd: set at the end of the scenario block; the cleanup below keeps the
 # root when it is still false, so a failing run can be read afterwards.
@@ -476,10 +477,10 @@ try {
         $env:AGENT_B_INSTALL_LOG = $savedInstallLog
     }
     if ($freshExit -ne 0) { throw "First single-file install exited $freshExit.`n$freshOutput" }
-    if ($freshOutput -notmatch 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval') {
+    $freshTranscript = Get-Content -Raw -LiteralPath $freshTranscriptPath
+    if ($freshTranscript -notmatch 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval') {
         throw "Per-user install did not preserve the first-launch provisioning arm.`n$freshOutput"
     }
-    $freshTranscript = Get-Content -Raw -LiteralPath $freshTranscriptPath
     $readyPosition = $freshTranscript.IndexOf("Agent_b is ready at http://127.0.0.1:$testPort/chat")
     $leftPattern = [regex]::Escape('MIGRATION LEFT IN PLACE: access denied') + '.{1,8}' +
         [regex]::Escape("remove it from an elevated shell: $legacyRoot; registered shortcuts and Installed apps point to the per-user copy, so no launcher under this legacy tree is used.")
@@ -510,7 +511,8 @@ try {
     if ($freshProcesses.Count -ne 1) { throw "Fresh single-file install did not start exactly one Agent_b: $(@($freshProcesses.Id) -join ', ')" }
     $freshTokenProof = Get-ProcessTokenProof -ProcessId $freshProcesses[0].Id
     if ($freshTokenProof.elevated) { throw "Fresh install started elevated PID $($freshTokenProof.pid)." }
-    $freshState = Invoke-RestMethod -Uri "http://127.0.0.1:$testPort/api/state" -TimeoutSec 5
+    $freshClient = New-AgentBBrowserClient "http://127.0.0.1:$testPort"
+    $freshState = Get-AgentBBrowserState $freshClient
     if ($freshTranscript -notmatch 'AUTOSTART COMPLETE:' -or $freshTranscript -notmatch 'OPENED: Agent_b (?:host|browser) window') {
         throw "Fresh install did not record a ready app and open window.`n$freshTranscript"
     }
@@ -518,9 +520,9 @@ try {
     $activeProfile = [string]$freshState.profiles.active
     $profileRoot = Join-Path $testData (Join-Path 'profiles' $activeProfile)
     $profilesUri = "http://127.0.0.1:$testPort/api/profiles"
-    $profileHeaders = @{ 'X-AgentB-Mutation-Token' = [string]$freshState.mutation_token }
-    $null = Invoke-RestMethod -Method Post -Uri $profilesUri -Headers $profileHeaders -ContentType 'application/json' -Body '{"action":"create","name":"Second"}' -TimeoutSec 5
-    $secondState = Invoke-RestMethod -Method Post -Uri $profilesUri -Headers $profileHeaders -ContentType 'application/json' -Body '{"action":"switch","name":"Second"}' -TimeoutSec 5
+    $profileHeaders = @{ 'X-AgentB-Mutation-Token' = [string]$freshClient.MutationToken }
+    $null = Invoke-RestMethod -Method Post -Uri $profilesUri -WebSession $freshClient.Session -Headers $profileHeaders -ContentType 'application/json' -Body '{"action":"create","name":"Second"}' -TimeoutSec 5
+    $secondState = Invoke-RestMethod -Method Post -Uri $profilesUri -WebSession $freshClient.Session -Headers $profileHeaders -ContentType 'application/json' -Body '{"action":"switch","name":"Second"}' -TimeoutSec 5
     $secondRoot = Join-Path $testData 'profiles\Second'
     $secondSettings = Get-Content -Raw -LiteralPath (Join-Path $secondRoot 'profile.json') | ConvertFrom-Json
     if ([string]$secondState.profiles.active -cne 'Second' -or
@@ -529,7 +531,7 @@ try {
         [string]$secondSettings.deliver.exchange_folder -cne '%USERPROFILE%\Agent_b\Second') {
         throw 'The second profile did not start isolated with its own exchange folder.'
     }
-    $null = Invoke-RestMethod -Method Post -Uri $profilesUri -Headers $profileHeaders -ContentType 'application/json' -Body (ConvertTo-Json @{ action = 'switch'; name = $activeProfile } -Compress) -TimeoutSec 5
+    $null = Invoke-RestMethod -Method Post -Uri $profilesUri -WebSession $freshClient.Session -Headers $profileHeaders -ContentType 'application/json' -Body (ConvertTo-Json @{ action = 'switch'; name = $activeProfile } -Compress) -TimeoutSec 5
     Write-Host "PROOF profiles: existing chat and memory moved into $activeProfile; Second stayed isolated; connections remained shared"
     $null = Request-AgentbGracefulStop -ApplicationRoot $testApplication -ProcessId $freshProcesses[0].Id
     $freshProcesses[0].WaitForExit(15000) | Out-Null
@@ -632,7 +634,8 @@ try {
     }
     if ($installedInstallerSource -notmatch '\$installedAclScript[^\r\n]+apply-acls\.ps1' -or
         $installedInstallerSource -notmatch '& \$installedAclScript[^\r\n]+-Verify' -or
-        $installedInstallerSource -notmatch 'PASS: installed root, plans/scratch exceptions, workspace, and exchange-folder ACL policy') {
+        $installedInstallerSource -notmatch 'PASS: installed root, plans/scratch exceptions, workspace, and exchange-folder ACL policy' -or
+        $installedInstallerSource -notmatch 'if \(\$AllUsers -and -not \$TestMode -and \$config\.shell\.service_account') {
 		throw 'Installed elevated installer does not self-verify the plans/scratch host-policy exceptions.'
     }
     if ($installedInstallerSource -notmatch '\$AllUsers -and -not \$TestMode' -or
@@ -820,7 +823,7 @@ try {
     do {
         Start-Sleep -Milliseconds 200
         try {
-            $beforeState = Invoke-RestMethod -Uri "http://127.0.0.1:$testPort/api/state" -TimeoutSec 1
+            $beforeState = Get-AgentBBrowserState (New-AgentBBrowserClient "http://127.0.0.1:$testPort")
             $ready = $true
         } catch { }
     } while (-not $ready -and -not $beforeProcess.HasExited -and [DateTime]::UtcNow -lt $deadline)
@@ -894,7 +897,7 @@ try {
         throw "Stale candidate was not refused before the stop with both identities.`n$staleOutput"
     }
     if ($beforeProcess.HasExited) { throw 'The stale-candidate refusal stopped the running instance.' }
-    $staleState = Invoke-RestMethod -Uri "http://127.0.0.1:$testPort/api/state" -TimeoutSec 5
+    $staleState = Get-AgentBBrowserState (New-AgentBBrowserClient "http://127.0.0.1:$testPort")
     if ($staleState.build.commit -ne $beforeState.build.commit -or (Get-FileHash -LiteralPath $installedBinary -Algorithm SHA256).Hash -ne $installedShaBeforeStale) {
         throw 'The stale-candidate refusal changed the running version.'
     }
@@ -951,7 +954,7 @@ try {
     $upgradeTokenProof = Get-ProcessTokenProof -ProcessId $afterProcesses[0].Id
     if ($upgradeTokenProof.elevated) { throw "Upgrade started elevated PID $($upgradeTokenProof.pid)." }
     Write-Host "PROOF upgrade autostart token: old PID $($beforeProcess.Id) gone; new PID $($upgradeTokenProof.pid), identity $($upgradeTokenProof.identity), elevated=$($upgradeTokenProof.elevated)"
-    $afterState = Invoke-RestMethod -Uri "http://127.0.0.1:$testPort/api/state" -TimeoutSec 5
+    $afterState = Get-AgentBBrowserState (New-AgentBBrowserClient "http://127.0.0.1:$testPort")
     if ([bool]$afterState.build.dirty -ne [bool]$beforeState.build.dirty -or $afterState.build.commit -ne $beforeState.build.commit) {
         throw 'Restarted Agent_b identity does not match the installed build.'
     }
@@ -1034,7 +1037,7 @@ try {
     if ($afterProcesses.Count -ne 1 -or $afterProcesses[0].Id -eq $stoppedForFailure.Id) {
         throw "Forced-failure rollback did not restart exactly one previous-version instance: $(@($afterProcesses.Id) -join ', ')"
     }
-    $rollbackState = Invoke-RestMethod -Uri "http://127.0.0.1:$testPort/api/state" -TimeoutSec 5
+    $rollbackState = Get-AgentBBrowserState (New-AgentBBrowserClient "http://127.0.0.1:$testPort")
     if ($rollbackState.build.commit -ne $afterState.build.commit -or [bool]$rollbackState.build.dirty -ne [bool]$afterState.build.dirty) {
         throw 'Forced-failure restart identity does not match the previously installed build.'
     }

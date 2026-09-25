@@ -81,7 +81,7 @@ $result.started = $true
 try {
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     while ((Get-Date) -lt $deadline) {
-        try { $null = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/api/state" -TimeoutSec 1; $result.ready = $true; break } catch { Start-Sleep -Milliseconds 250 }
+        try { $null = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/chat" -TimeoutSec 1; $result.ready = $true; break } catch { Start-Sleep -Milliseconds 250 }
     }
 
     $host_ = $null

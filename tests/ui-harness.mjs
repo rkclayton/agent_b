@@ -48,7 +48,7 @@ const TOOLSET = ["read_file", "list_dir", "write_file", "edit_file", "search", "
 
 function configFor({ appPort, modelPort, data, workspace, agents = [], connectionModel = "ui-harness" }) {
   return {
-    config_version: 6, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(data, "logs"),
+    config_version: 10, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(data, "logs"),
     connections: [{
       id: "ui", label: "UI", base_url: `http://127.0.0.1:${modelPort}`, model: connectionModel, credential: "", request_timeout_s: 2, probe_mode: "off",
       sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },

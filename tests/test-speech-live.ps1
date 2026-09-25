@@ -16,7 +16,7 @@ try {
     $base = "http://127.0.0.1:$Port"
     $ready = $false
     for ($attempt = 0; $attempt -lt 100; $attempt++) {
-        try { $null = Invoke-RestMethod -Uri "$base/api/state" -TimeoutSec 1; $ready = $true; break } catch { Start-Sleep -Milliseconds 100 }
+        try { $null = Invoke-WebRequest -UseBasicParsing -Uri "$base/chat" -TimeoutSec 1; $ready = $true; break } catch { Start-Sleep -Milliseconds 100 }
     }
     if (-not $ready) { throw 'Disposable server did not become ready.' }
     $status = Invoke-RestMethod -Uri "$base/api/speech" -TimeoutSec 20

@@ -134,8 +134,8 @@ test("No-agent and empty Plan invitations are explicit and Console links to acti
   assert.match(consoleHTML, /id="panel-tools-link"[^>]*>0 tools active<\/a>/);
 });
 
-test("web_search remains file-configured without a new Settings control", () => {
-	assert.match(app, /filter\(\(tool\) => tool\.name !== "web_search"\)/);
+test("web_search and delegate remain file-configured without new Settings controls", () => {
+	assert.match(app, /\["web_search", "delegate"\]\.includes\(tool\.name\)/);
 	assert.match(app, /counts\.replaceChildren\(\.\.\.\(store\.tools \|\| \[\]\)\.map/);
 });
 

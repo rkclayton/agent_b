@@ -822,7 +822,7 @@ function toolTick(entry, forceOpen = false) {
   const delegated = entry.name === "delegate" ? entry.result?.delegate : null;
   const stateText = delegated ? `${entry.result?.delegate_status || state} · ${Number(delegated.tool_calls || 0)} tool calls` : callServiceStatus(entry.name, entry.result) || state;
   setText(view.button.children[0], `${open ? "▾" : "▸"} ${entry.name}`);
-  setText(view.button.children[1], keyArgument(entry.args));
+  setText(view.button.children[1], delegated ? delegateKey(entry.args) : keyArgument(entry.args));
   setText(view.button.children[2], stateText);
   setAttribute(view.button.children[2], "class", `tool-state ${state === "error" ? "error" : ""}`);
   setText(view.button.children[3], formatDuration(entry.result?.ms));
@@ -1430,6 +1430,9 @@ function keyArgument(args) {
   for (const key of ["path", "command", "pattern", "note"]) if (args[key] !== undefined) return String(args[key]);
   const first = Object.values(args)[0];
   return first === undefined ? "" : typeof first === "string" ? first : JSON.stringify(first);
+}
+function delegateKey(args) {
+  return String(args?.task || "").trim().split(/\s+/).slice(0, 8).join(" ");
 }
 function delegateDetail(args, delegated) {
   const transcript = Array.isArray(delegated.transcript) ? delegated.transcript.map((message) => {

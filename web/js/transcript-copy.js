@@ -83,10 +83,14 @@ export function responseTranscriptRecord(entry, expanded = new Set(), author = "
           lines.push(`thought ${duration} (~${thoughtTokens(item)} tokens)`);
           if (blockOpen && expanded.has(item.key) && item.reasoning) appendIndented(lines, item.reasoning);
         } else if (item?.type === "tool") {
-          const argument = keyArgument(item.args);
+          const delegated = item.name === "delegate" ? item.result?.delegate : null;
+          const argument = delegated ? delegateKey(item.args) : keyArgument(item.args);
           const state = item.result?.ok === false ? "error" : "ok";
           lines.push(`tool ${item.name || "tool"}${argument ? ` ${argument}` : ""} → ${state} ${formatDuration(item.result?.ms || 0)}`);
-          if (blockOpen && expanded.has(item.key) && item.content) appendIndented(lines, item.content);
+          if (blockOpen && expanded.has(item.key)) {
+            const detail = delegated ? delegateDetail(item.args, delegated) : item.content;
+            if (detail) appendIndented(lines, detail);
+          }
         } else if (item?.type === "notice") {
           lines.push(`— harness —${item.text ? `\n${item.text}` : ""}`);
         }
@@ -114,6 +118,21 @@ function keyArgument(args) {
     // The renderer owns the visible per-step failure and the rest still copies.
     return "";
   }
+}
+
+function delegateKey(args) {
+  return String(args?.task || "").trim().split(/\s+/).slice(0, 8).join(" ");
+}
+
+function delegateDetail(args, delegated) {
+  const transcript = Array.isArray(delegated.transcript) ? delegated.transcript.map((message) => {
+    const parts = [`${message.role || "message"}${message.name ? ` ${message.name}` : ""}`];
+    if (message.reasoning) parts.push(`thought\n${message.reasoning}`);
+    if (message.tool_calls?.length) parts.push(`calls\n${JSON.stringify(message.tool_calls, null, 2)}`);
+    if (message.content) parts.push(String(message.content));
+    return parts.join("\n");
+  }).join("\n\n") : "";
+  return `arguments\n${JSON.stringify(args, null, 2)}\n\nchild transcript\n${transcript}\n\nsummary\n${delegated.summary || ""}`;
 }
 
 // rowsInSelection is every transcript entry the selection touches, in document

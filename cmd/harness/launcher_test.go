@@ -31,7 +31,7 @@ func TestLaunchersAreHiddenByDefaultWithConsoleOptIn(t *testing.T) {
 		// output blocked until the server exited. CreateProcess avoids both.
 		// The foreground -Console path keeps NoNewWindow, because there the
 		// window is the operator's and closing it is meant to stop the server.
-		filepath.Join("scripts", "launch-Agent_b.ps1"):  {"[switch]$Console", "CREATE_NO_WINDOW", "$false, $CREATE_NO_WINDOW", "-NoNewWindow", "$process.WaitForExit()", "launcher-errors.log"},
+		filepath.Join("scripts", "launch-Agent_b.ps1"):  {"[switch]$Console", "CREATE_NO_WINDOW", "$false, $CREATE_NO_WINDOW", "-NoNewWindow", "$process.WaitForExit()", "launcher-errors.log", "-ShowFailure", "Press any key to close."},
 		filepath.Join("scripts", "agentb-stop.ps1"):     {"the operator's stop script", "AppendAllText", "ProcessRecordsReason"},
 		filepath.Join("scripts", "install-Agent_b.ps1"): {"-ProcessRecordsReason"},
 		filepath.Join("cmd", "harness", "main.go"):      {"the installer's graceful stop"},

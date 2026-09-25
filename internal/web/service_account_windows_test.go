@@ -117,6 +117,76 @@ func TestServiceAccountSetupStoresTestsAndEnables(t *testing.T) {
 	}
 }
 
+func TestServiceAccountSetupAdoptsExistingAccountByPasswordReset(t *testing.T) {
+	manager := &fakeAccountManager{
+		status:      serviceaccount.Status{Supported: true, Account: "another-name", Exists: true, Enabled: true},
+		setupResult: serviceaccount.SetupResult{Attempted: true},
+	}
+	server, _, _ := serviceAccountTestServer(t, manager)
+	server.cfg.Shell.ServiceAccount.Account = "operator-choice-is-ignored"
+	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"provision","connection_id":"local"}`))
+	request.Header.Set("Content-Type", "application/json")
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || manager.setupAccount != "agentb-svc" || !manager.setupReset || !strings.Contains(response.Body.String(), "adopted existing agentb-svc by password reset") {
+		t.Fatalf("status=%d account=%q reset=%v body=%s", response.Code, manager.setupAccount, manager.setupReset, response.Body)
+	}
+}
+
+func TestServiceAccountSetupLeavesWorkingExistingCredentialAlone(t *testing.T) {
+	manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Exists: true, Enabled: true}}
+	server, store, _ := serviceAccountTestServer(t, manager)
+	if err := store.Write([]byte(randomTestPassword(t))); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"provision","connection_id":"local"}`))
+	request.Header.Set("Content-Type", "application/json")
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || manager.setupCalls != 0 || !strings.Contains(response.Body.String(), "no account change was needed") {
+		t.Fatalf("status=%d setup_calls=%d body=%s", response.Code, manager.setupCalls, response.Body)
+	}
+}
+
+func TestServiceAccountStatusNamesFourProvisioningStates(t *testing.T) {
+	tests := []struct {
+		name, state, action   string
+		exists, stored, works bool
+	}{
+		{name: "missing account", state: "missing", action: "Set up"},
+		{name: "existing account missing credential", exists: true, state: "missing_credential", action: "Repair"},
+		{name: "existing account valid credential", exists: true, stored: true, works: true, state: "ready"},
+		{name: "existing account invalid credential", exists: true, stored: true, state: "invalid_credential", action: "Repair"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Exists: tt.exists, Enabled: true}}
+			server, store, _ := serviceAccountTestServer(t, manager)
+			if tt.stored {
+				if err := store.Write([]byte(randomTestPassword(t))); err != nil {
+					t.Fatal(err)
+				}
+			}
+			server.shellTest = func(context.Context) (string, error) {
+				if tt.works {
+					return "ready", nil
+				}
+				return "credential rejected", errors.New("credential rejected")
+			}
+			request := httptest.NewRequest(http.MethodGet, "/api/service-account", nil)
+			response := httptest.NewRecorder()
+			server.Handler().ServeHTTP(response, request)
+			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"account":"agentb-svc"`) || !strings.Contains(response.Body.String(), `"state":"`+tt.state+`"`) || (tt.action != "" && !strings.Contains(response.Body.String(), `"action":"`+tt.action+`"`)) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body)
+			}
+		})
+	}
+}
+
 func TestServiceAccountSetupFailedTestLeavesSplitOnAndBlocked(t *testing.T) {
 	manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Account: "agentb-svc"}, setupResult: serviceaccount.SetupResult{Attempted: true}}
 	server, _, configPath := serviceAccountTestServer(t, manager)

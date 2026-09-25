@@ -10,6 +10,7 @@ param(
     [switch]$NoBrowser,
     [switch]$Detached,
     [switch]$NoPause,
+    [switch]$ShowFailure,
     [switch]$Console,
     [switch]$Check
 )
@@ -28,6 +29,22 @@ $configPath = [IO.Path]::GetFullPath($ConfigPath)
 $executable = Join-Path $applicationRoot 'Agent_b.exe'
 $launcherErrorLog = Join-Path $dataRoot 'logs\launcher-errors.log'
 $launcherLog = Join-Path $dataRoot 'logs\launcher.log'
+
+function Show-AgentBLaunchFailure {
+    param([string]$Message)
+    if ([string]::IsNullOrWhiteSpace($Message) -and (Test-Path -LiteralPath $launcherErrorLog -PathType Leaf)) {
+        $Message = [string](Get-Content -LiteralPath $launcherErrorLog -Tail 1)
+    }
+    if ([string]::IsNullOrWhiteSpace($Message)) { $Message = 'No failure detail was recorded.' }
+    Write-Host "Agent_b launch failed: $Message"
+    Write-Host 'Press any key to close.'
+    if (-not $NoPause) { $null = [Console]::ReadKey($true) }
+}
+
+if ($ShowFailure) {
+    Show-AgentBLaunchFailure
+    exit 1
+}
 
 # Item 2ev: every launch decision is written down, so a second launch path
 # (the sign-in start, a Start menu click) says what it did even when hidden.
@@ -61,6 +78,17 @@ trap {
     [Console]::Error.WriteLine("Agent_b launch failed: $message")
     if ($logged) {
         [Console]::Error.WriteLine("Details were appended to $launcherErrorLog")
+    }
+    if (-not $NoPause -and -not $Detached) {
+        if ($env:AGENTB_HIDDEN_REENTRY) {
+            $arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath.Replace('"', '\"') +
+                '" -ApplicationDirectory "' + $applicationRoot.Replace('"', '\"') +
+                '" -DataDirectory "' + $dataRoot.Replace('"', '\"') +
+                '" -ConfigPath "' + $configPath.Replace('"', '\"') + '" -ShowFailure'
+            Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments | Out-Null
+        } else {
+            Show-AgentBLaunchFailure -Message $message
+        }
     }
     exit 1
 }

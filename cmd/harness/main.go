@@ -326,7 +326,7 @@ func main() {
 		_, testErr := shellTool.TestServiceAccount(testContext)
 		cancelTest()
 		if testErr != nil {
-			const notice = "service identity not set up"
+			notice := serviceIdentityStartupNotice(cfg.Shell.ServiceAccount, credentialStore.Status())
 			inviteServiceSetup = true
 			shellTool.SetServiceSplitNotice(notice)
 			log.Print(notice)
@@ -521,6 +521,14 @@ func main() {
 	if err := serve(cfg, web.Handler(), newLifetime(paths.Data, time.Now), paths.Application, web.BrowserBootstrapToken()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func serviceIdentityStartupNotice(service config.ShellServiceAccount, status credential.Status) string {
+	credentialState := "missing"
+	if status.Stored {
+		credentialState = "stored"
+	}
+	return fmt.Sprintf("service identity not set up: enabled=%t; account=%s; credential=%s", service.Enabled, service.Account, credentialState)
 }
 
 func publishServiceSetupInvitation(registry *session.Registry, bus *events.Bus) {

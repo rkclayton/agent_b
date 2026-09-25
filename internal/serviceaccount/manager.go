@@ -8,13 +8,16 @@ import (
 var ErrUnsupported = errors.New("service-account setup is supported only on Windows")
 
 type Status struct {
-	Supported       bool   `json:"supported"`
-	Account         string `json:"account"`
-	Exists          bool   `json:"exists"`
-	Enabled         bool   `json:"enabled"`
-	Administrator   bool   `json:"administrator"`
-	UsersMember     bool   `json:"users_member"`
-	HarnessElevated bool   `json:"harness_elevated"`
+	Supported        bool   `json:"supported"`
+	Account          string `json:"account"`
+	Exists           bool   `json:"exists"`
+	Enabled          bool   `json:"enabled"`
+	Administrator    bool   `json:"administrator"`
+	UsersMember      bool   `json:"users_member"`
+	HarnessElevated  bool   `json:"harness_elevated"`
+	State            string `json:"state,omitempty"`
+	Action           string `json:"action,omitempty"`
+	CredentialStored bool   `json:"credential_stored,omitempty"`
 }
 
 type SetupResult struct {

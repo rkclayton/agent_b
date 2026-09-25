@@ -726,13 +726,14 @@ try {
     $shortcutPath = Join-Path $testStart 'Agent_b.lnk'
     $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
     $expectedExe = Join-Path $testApplication 'Agent_b.exe'
+    $expectedIcon = Join-Path $testApplication 'web\assets\Agent_b.ico'
     if (-not $shortcut.TargetPath.Equals($expectedExe, [StringComparison]::OrdinalIgnoreCase) -or
         $shortcut.Arguments -notmatch '(?:^|\s)-window(?:\s|$)' -or
         $shortcut.Arguments -notmatch [regex]::Escape($testData)) {
         throw 'Shortcut does not target the installed Agent_b executable and its data root.'
     }
-    if (-not $shortcut.IconLocation.StartsWith($expectedExe, [StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Shortcut does not use the Agent_b executable icon.'
+    if (-not $shortcut.IconLocation.Equals("$expectedIcon,0", [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $expectedIcon -PathType Leaf)) {
+        throw 'Shortcut icon does not resolve to the installed Agent_b product icon.'
     }
     $wrapperSource = Get-Content -Raw -LiteralPath $installerWrapper
     if ($wrapperSource -match [regex]::Escape("`$launchArgs=@('-Console'") -or
@@ -742,6 +743,7 @@ try {
 
     $registration = Get-ItemProperty -LiteralPath $testRegistry
     if ($registration.DisplayName -ne 'Agent_b' -or
+        -not ([string]$registration.DisplayIcon).Equals($expectedIcon, [StringComparison]::OrdinalIgnoreCase) -or
         -not ([string]$registration.InstallLocation).Equals($testApplication, [StringComparison]::OrdinalIgnoreCase) -or
         -not ([string]$registration.DataLocation).Equals($testData, [StringComparison]::OrdinalIgnoreCase) -or
         -not ([string]$registration.WorkspaceLocation).Equals($testWorkspace, [StringComparison]::OrdinalIgnoreCase)) {
@@ -937,6 +939,7 @@ try {
     }
     $repairedShortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
     if (-not $repairedShortcut.TargetPath.Equals($expectedExe, [StringComparison]::OrdinalIgnoreCase) -or
+        -not $repairedShortcut.IconLocation.Equals("$expectedIcon,0", [StringComparison]::OrdinalIgnoreCase) -or
         $repairedShortcut.Arguments -notmatch '(?:^|\s)-window(?:\s|$)' -or
         $repairedShortcut.Arguments -notmatch [regex]::Escape($testData) -or
         $repairedShortcut.Arguments -match 'stale') {

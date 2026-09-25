@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"harness/internal/config"
+	"harness/internal/credential"
 	"harness/internal/events"
 	"harness/internal/session"
 )
@@ -94,6 +95,16 @@ func TestRetainedChatsRestoreWithoutOperationalLogsAndDeleteExplicitly(t *testin
 	paths, err := secondWriters.DurableChatPaths()
 	if err != nil || len(paths) != 0 {
 		t.Fatalf("durable paths after explicit delete=%v err=%v", paths, err)
+	}
+}
+
+func TestServiceIdentityStartupNoticeNamesConfiguredState(t *testing.T) {
+	service := config.ShellServiceAccount{Enabled: true, Account: "agentb-svc"}
+	if got := serviceIdentityStartupNotice(service, credential.Status{}); got != "service identity not set up: enabled=true; account=agentb-svc; credential=missing" {
+		t.Fatalf("missing credential notice=%q", got)
+	}
+	if got := serviceIdentityStartupNotice(service, credential.Status{Stored: true}); got != "service identity not set up: enabled=true; account=agentb-svc; credential=stored" {
+		t.Fatalf("stored credential notice=%q", got)
 	}
 }
 

@@ -6,31 +6,20 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"os"
-	"regexp"
-	"strings"
 	"time"
 
 	"harness/internal/events"
 	"harness/internal/serviceaccount"
 )
 
-var localAccountName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+const managedServiceAccount = "agentb-svc"
 
 func (s *Server) serviceAccount(w http.ResponseWriter, r *http.Request) {
 	if s.account == nil || s.credential == nil || s.shell == nil {
 		writeError(w, http.StatusConflict, "service-account setup runtime is unavailable", "shell.service_account")
 		return
 	}
-	account, domain := s.configuredServiceAccount()
-	if !localAccountName.MatchString(account) {
-		writeError(w, http.StatusBadRequest, "account must contain only letters, numbers, dot, underscore, or hyphen", "shell.service_account.account")
-		return
-	}
-	if domain != "." && !strings.EqualFold(domain, os.Getenv("COMPUTERNAME")) {
-		writeError(w, http.StatusBadRequest, "web setup creates local accounts only; set domain to . or this computer", "shell.service_account.domain")
-		return
-	}
+	account := managedServiceAccount
 
 	switch r.Method {
 	case http.MethodGet:
@@ -41,6 +30,7 @@ func (s *Server) serviceAccount(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error(), "shell.service_account")
 			return
 		}
+		status = s.serviceAccountState(r.Context(), status)
 		writeJSON(w, http.StatusOK, status)
 	case http.MethodPost:
 		s.setupServiceAccount(w, r, account)
@@ -83,6 +73,15 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 	}
 	if status.Administrator {
 		writeError(w, http.StatusConflict, "refusing to manage an account that belongs to Administrators", "shell.service_account")
+		return
+	}
+	currentState := s.serviceAccountState(r.Context(), status)
+	if currentState.State == "ready" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":      true,
+			"message": "service identity already ready: existing agentb-svc credential works; no account change was needed",
+			"account": currentState,
+		})
 		return
 	}
 	protectionRequest, err := s.hardeningRequest(body.ConnectionID)
@@ -178,9 +177,13 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 		currentStatus = inspected
 	}
 	inspectCancel()
+	message := "service identity set up: account, protections, credential test, and identity split are ready"
+	if status.Exists {
+		message = "service identity repaired: adopted existing agentb-svc by password reset; protections, credential test, and identity split are ready"
+	}
 	response := map[string]any{
 		"ok":         true,
-		"message":    "service identity set up: account, protections, credential test, and identity split are ready",
+		"message":    message,
 		"account":    currentStatus,
 		"credential": credentialStatus,
 		"identity":   s.shell.IdentityStatus(),
@@ -210,10 +213,28 @@ func (s *Server) disableConfiguredServiceAccount(account string) (any, error) {
 	return masked, nil
 }
 
-func (s *Server) configuredServiceAccount() (string, string) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return strings.TrimSpace(s.cfg.Shell.ServiceAccount.Account), strings.TrimSpace(s.cfg.Shell.ServiceAccount.Domain)
+func (s *Server) serviceAccountState(ctx context.Context, status serviceaccount.Status) serviceaccount.Status {
+	status.Account = managedServiceAccount
+	status.CredentialStored = s.credential.Status().Stored
+	switch {
+	case !status.Supported:
+		status.State, status.Action = "unsupported", ""
+	case status.Administrator:
+		status.State, status.Action = "administrator", "Repair"
+	case !status.Exists:
+		status.State, status.Action = "missing", "Set up"
+	case !status.CredentialStored:
+		status.State, status.Action = "missing_credential", "Repair"
+	default:
+		testContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		if _, err := s.shellTest(testContext); err != nil {
+			status.State, status.Action = "invalid_credential", "Repair"
+		} else {
+			status.State, status.Action = "ready", ""
+		}
+	}
+	return status
 }
 
 func (s *Server) previousCredential() ([]byte, bool, error) {

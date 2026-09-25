@@ -195,6 +195,10 @@ func (p Connection) NativeDocumentInput() bool {
 	return p.AttachmentHandling == "native" || (p.AttachmentHandling == "auto" && p.Capabilities.DocumentInput)
 }
 
+func (p Connection) IsQwen38() bool {
+	return strings.Contains(strings.ToLower(p.Model), "qwen3.8")
+}
+
 func (p *Connection) UnmarshalJSON(data []byte) error {
 	type plain Connection
 	value := plain(defaultConnection())

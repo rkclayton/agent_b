@@ -138,10 +138,8 @@ func TestTruncatedToolRetryIsBoundedVisibleAndNeverWritesHarnessUserJSONL(t *tes
 		case 1:
 			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "cut", "type": "function", "function": map[string]any{"name": "write_file", "arguments": `{"path":"x.txt","content":"cut`}}}}, "finish_reason": "length"}}, "usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 4096}})
 		case 2:
-			choice, _ := body["tool_choice"].(map[string]any)
-			function, _ := choice["function"].(map[string]any)
-			if function["name"] != "write_file" {
-				t.Fatalf("forced retry=%#v", body["tool_choice"])
+			if body["tool_choice"] != "auto" {
+				t.Fatalf("retry choice=%#v", body["tool_choice"])
 			}
 			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "good", "type": "function", "function": map[string]any{"name": "write_file", "arguments": `{"path":"x.txt","content":"ok"}`}}}}, "finish_reason": "tool_calls"}}, "usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 20}})
 		default:

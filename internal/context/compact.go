@@ -90,6 +90,7 @@ func StubResultsBefore(messages []events.Message, anchor string, readDefaultLimi
 		}
 		call, _ := callFor(out, item.ToolCallID)
 		out[index] = elide(item, call.Arguments, readDefaultLimit, estimate)
+		clearReasoningForCall(out, item.ToolCallID)
 	}
 	return out
 }
@@ -191,6 +192,7 @@ func (c *Compactor) Supersede(s *session.Session, runID string, turn, readDefaul
 				continue
 			}
 			messages[prior] = elide(older, olderCall.Arguments, readDefaultLimit, count)
+			clearReasoningForCall(messages, older.ToolCallID)
 			c.updated(s, runID, messages[prior])
 			affected = append(affected, older.ID)
 			changed = true
@@ -293,6 +295,7 @@ func (c *Compactor) ElideOldWindow(s *session.Session, runID, trigger string, us
 		item := messages[index]
 		call, _ := callFor(messages, item.ToolCallID)
 		updated := elide(item, call.Arguments, readDefaultLimit, count)
+		clearReasoningForCall(messages, item.ToolCallID)
 		// v0.65.0/W11: a result whose stub is no smaller (a fresh in-turn result
 		// not yet weighed) frees nothing; eliding it would only hide its bytes
 		// and publish a compaction with before == after.
@@ -443,6 +446,17 @@ func callFor(messages []events.Message, id string) (events.ToolCall, bool) {
 		}
 	}
 	return events.ToolCall{}, false
+}
+
+func clearReasoningForCall(messages []events.Message, callID string) {
+	for index := range messages {
+		for _, call := range messages[index].ToolCalls {
+			if call.ID == callID {
+				messages[index].Reasoning = ""
+				return
+			}
+		}
+	}
 }
 func supersedes(name, older, current string, readDefaultLimit int) bool {
 	if name == "search_text" {

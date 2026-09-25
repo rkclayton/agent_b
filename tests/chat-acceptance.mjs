@@ -787,8 +787,8 @@ if (realModel) {
   assert.equal(await page.locator('.shell-page[aria-label="plan"] .shell-page-chip').count(), 1);
   const panelGeometry = await captureShellGeometry();
   assert.deepEqual(panelGeometry, chatGeometry, JSON.stringify({ chatGeometry, panelGeometry }));
-	// Agents holds the configurable half. web_search is deliberately file-only
-	// in this release, but remains observable as the one additional Activity row.
+	// Agents holds the configurable half. web_search and delegate are deliberately
+	// file-only, but remain observable as the two additional Activity rows.
   assert.equal(await clickText(".settings-nav button", "Agents"), true);
   await page.locator("#agents-panel").waitFor({ state: "visible" });
   const toolHalves = await page.evaluate(() => ({
@@ -796,7 +796,7 @@ if (realModel) {
     counts: document.querySelectorAll("#panel-tool-counters .panel-line").length,
     agent: !!document.querySelector("#panel-agent option"),
   }));
-	assert.ok(toolHalves.toggles >= 12 && toolHalves.counts === toolHalves.toggles + 1, JSON.stringify(toolHalves));
+	assert.ok(toolHalves.toggles >= 12 && toolHalves.counts === toolHalves.toggles + 2, JSON.stringify(toolHalves));
   assert.equal(toolHalves.agent, true);
   await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
   const toggleMenu = page.locator('.agent-tab-wrap.selected .agent-chat-menu');

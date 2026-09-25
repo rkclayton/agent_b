@@ -59,7 +59,12 @@ function Get-AgentBProductionIncarnation {
     $serverStartedAt = $null
     $activeProfile = $null
     try {
-        $state = Invoke-RestMethod -Uri $StateUri -TimeoutSec 2
+        $baseUri = ([Uri]$StateUri).GetLeftPart([UriPartial]::Authority)
+        $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+        $document = Invoke-WebRequest -UseBasicParsing -Uri "$baseUri/chat" -WebSession $session -TimeoutSec 2
+        $tokenMatch = [regex]::Match([string]$document.Content, '<meta name="agentb-mutation-token" content="([^"]+)">')
+        if ($document.StatusCode -ne 200 -or -not $tokenMatch.Success) { throw 'browser session bootstrap failed' }
+        $state = Invoke-RestMethod -Uri $StateUri -WebSession $session -TimeoutSec 2
         foreach ($candidate in @($state.build.commit, $state.commit, $state.build_commit)) {
             if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) { $commit = [string]$candidate; break }
         }

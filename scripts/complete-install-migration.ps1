@@ -23,7 +23,16 @@ if ($TestMode) {
 }
 
 if (Test-Path -LiteralPath (Join-Path $legacyRoot 'Agent_b.exe') -PathType Leaf) {
-    Remove-TreeWithinAllowedRoots -Path $legacyRoot -AllowedRoots @(Split-Path -Parent $legacyRoot) -Purpose 'completed legacy installation migration'
+    try {
+        Remove-TreeWithinAllowedRoots -Path $legacyRoot -AllowedRoots @(Split-Path -Parent $legacyRoot) -Purpose 'completed legacy installation migration'
+    } catch {
+        $detail = $_.Exception.ToString()
+        if ($detail -match '(?i)access (?:to the path )?(?:is )?denied|being used by another process') {
+            Write-Host "MIGRATION LEFT IN PLACE: access denied - remove it from an elevated shell: $legacyRoot; registered shortcuts and Installed apps point to the per-user copy, so no launcher under this legacy tree is used."
+            exit 0
+        }
+        throw
+    }
 }
 $registrations = @(Get-AgentBInstallRegistrations -Roots @($marker.registration_search_roots) -CanonicalRegistryPath ([string]$marker.current_registry_path) | Where-Object {
     -not [string]::IsNullOrWhiteSpace($_.InstallLocation) -and

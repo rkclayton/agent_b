@@ -21,3 +21,4 @@ if ($PSCmdlet.ShouldProcess($root, "Grant $AccountName inherited Modify access f
     Set-Acl -LiteralPath $root -AclObject $acl
 }
 Write-Host "GRANTED: $AccountName Modify :: $root"
+exit 0

@@ -329,16 +329,23 @@ func completeInstallMigration(applicationRoot, dataRoot string, testMode bool, l
 	command.Stderr = &output
 	if err := command.Run(); err != nil {
 		text := output.String()
-		lower := strings.ToLower(text)
+		// Windows PowerShell may select UTF-16 for a redirected native child;
+		// strip its interleaved NUL bytes before classifying the stable error text.
+		lower := strings.ToLower(strings.ReplaceAll(text, "\x00", ""))
 		if strings.Contains(text, "UnauthorizedAccessException") ||
 			strings.Contains(lower, "access to the path") && strings.Contains(lower, "denied") ||
-			strings.Contains(text, "FullyQualifiedErrorId : IOException") && strings.Contains(lower, "being used by another process") {
+			strings.Contains(lower, "being used by another process") {
 			return fmt.Sprintf("MIGRATION LEFT IN PLACE: access denied — remove it from an elevated shell: %s; registered shortcuts and Installed apps point to the per-user copy, so no launcher under this legacy tree is used.", migration.LegacyRoot), nil
 		}
 		_, _ = io.WriteString(log.writer(), text)
 		return "", err
 	}
-	_, _ = io.WriteString(log.writer(), output.String())
+	text := output.String()
+	_, _ = io.WriteString(log.writer(), text)
+	clean := strings.TrimSpace(strings.ReplaceAll(text, "\x00", ""))
+	if strings.Contains(clean, "MIGRATION LEFT IN PLACE:") {
+		return clean, nil
+	}
 	return "", nil
 }
 

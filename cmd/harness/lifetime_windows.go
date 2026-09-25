@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -97,7 +98,19 @@ func activateExistingInstance(dataRoot, applicationRoot string) (int, bool) {
 	if ip == nil || !ip.IsLoopback() {
 		return 0, false
 	}
-	client := http.Client{Timeout: time.Second}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return 0, false
+	}
+	client := http.Client{Timeout: time.Second, Jar: jar}
+	bootstrap, err := client.Get("http://" + marker.Listen + "/chat")
+	if err != nil {
+		return 0, false
+	}
+	bootstrap.Body.Close()
+	if bootstrap.StatusCode != http.StatusOK {
+		return 0, false
+	}
 	response, err := client.Get("http://" + marker.Listen + "/api/state")
 	if err != nil {
 		return 0, false

@@ -51,7 +51,7 @@ try {
     do {
         Start-Sleep -Milliseconds 500
         $ready = $false
-        try { $null = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/state" -TimeoutSec 3; $ready = $true } catch { }
+        try { $null = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/chat" -TimeoutSec 3; $ready = $true } catch { }
     } while (-not ($ready -and (Get-Running).Count -eq 1) -and [DateTime]::UtcNow -lt $deadline)
     if (-not $ready) { throw 'The disposable Agent_b never became ready.' }
     $target = (Get-Running)[0]

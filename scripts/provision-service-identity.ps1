@@ -48,3 +48,4 @@ if ($AllowedRange.Count) { $protectionArguments += @('-AllowedRange', ($AllowedR
 Invoke-AgentBScript -Path (Join-Path $PSScriptRoot 'apply-hardening.ps1') -Arguments $protectionArguments
 
 Write-Host 'AGENTB_SERVICE_IDENTITY_PROVISIONED'
+exit 0

@@ -327,10 +327,21 @@ const stopFake = async () => {
   await closing;
   model = null;
 };
-const json = async (url, options) => {
-  const response = await fetch(url, options);
+let acceptanceCookie = "";
+let acceptanceMutationToken = "";
+const json = async (url, options = {}) => {
+  const target = new URL(url);
+  const headers = new Headers(options.headers || {});
+  if (target.hostname === "127.0.0.1" && target.port === String(appPort) && acceptanceCookie) {
+    headers.set("Cookie", acceptanceCookie);
+    if (!["GET", "HEAD", "OPTIONS"].includes(String(options.method || "GET").toUpperCase()) && acceptanceMutationToken && !headers.has("X-AgentB-Mutation-Token")) {
+      headers.set("X-AgentB-Mutation-Token", acceptanceMutationToken);
+    }
+  }
+  const response = await fetch(url, { ...options, headers });
   const value = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(`${response.status} ${JSON.stringify(value)}`);
+  if (target.pathname === "/api/state") value.mutation_token = acceptanceMutationToken;
   return value;
 };
 // Item 2er: the application's own start (including the signing-state
@@ -342,6 +353,24 @@ const waitHTTP = async (url, timeout = 90000) => {
     try { return await json(url); } catch { await sleep(50); }
   }
   throw new Error(`timed out waiting for ${url}`);
+};
+const bootstrapHTTP = async (base, timeout = 90000) => {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${base}/chat`);
+      const body = await response.text();
+      const cookie = (response.headers.getSetCookie?.()[0] || response.headers.get("set-cookie") || "").split(";", 1)[0];
+      const token = body.match(/<meta name="agentb-mutation-token" content="([^"]+)">/)?.[1] || "";
+      if (response.ok && cookie && token) {
+        acceptanceCookie = cookie;
+        acceptanceMutationToken = token;
+        return;
+      }
+    } catch { /* retry until the listener is ready */ }
+    await sleep(50);
+  }
+  throw new Error(`timed out bootstrapping ${base}`);
 };
 const waitFileContains = async (path, text, timeout = 12000) => {
 	const deadline = Date.now() + timeout;
@@ -478,7 +507,7 @@ const connectionName = realModel ? args["real-model-name"] : "agentb-fake";
 const appEnvironment = realModel ? process.env : { ...process.env, AGENTB_UPDATE_FIXTURE_URL: `http://127.0.0.1:${modelPort}/agentb-release/latest` };
 const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
 const config = {
-  config_version: 6, listen: `127.0.0.1:${appPort}`, workspace: args.workspace, log_dir: join(args.data, "logs"),
+  config_version: 10, listen: `127.0.0.1:${appPort}`, workspace: args.workspace, log_dir: join(args.data, "logs"),
   connections: [{ id: "acceptance", label: "Acceptance", base_url: connectionURL, model: connectionName, credential: "", request_timeout_s: 3, probe_mode: "off",
     sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
     reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false }, context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
@@ -491,7 +520,7 @@ const config = {
   deliver: { mode: "chips", exchange_folder: join(args.data, "..", "exchange") }, context: { soft_pct: .75, summary_pct: .85, accounting: "auto" }, memory: { enabled: false, dir: join(args.data, "memory"), max_tokens: 1500 },
 	operator_files: { allow_mailbox_approvals: false, log_retention_days: 30 },
   tools: { read_file: { default_limit: 16384, max_limit: 65536 }, attachments: { max_bytes: 8388608 }, list_dir: { max_entries: 300, ignore: [".git"] }, grep: { max_matches: 50, max_line_chars: 200 }, shell: { operator_commands: [gitPath] }, fetch: { timeout_s: 20, max_bytes: 2097152, max_redirects: 5, default_limit: 16384, max_limit: 65536, allow_domains: [], deny_domains: [], allow_internal_hosts: [] }, find_files: { skip_roots: [] } },
-  shell: { command: ["powershell", "-NoProfile", "-NonInteractive", "-Command"], timeout_s: 60, max_timeout_s: 600, max_output_lines_head: 60, max_output_lines_tail: 40, file_routing_guard: true, operator_context: false, operator_context_idle_timeout_minutes: 20, service_account: { enabled: true, account: "agentb-svc", domain: "." }, deny: [] },
+  shell: { command: ["powershell", "-NoProfile", "-NonInteractive", "-Command"], timeout_s: 60, max_timeout_s: 600, max_output_lines_head: 60, max_output_lines_tail: 40, file_routing_guard: true, operator_context: false, operator_context_idle_timeout_minutes: 20, service_account: { enabled: false, account: "agentb-svc", domain: "." }, deny: [] },
   signing: { thumbprint: "", timestamp_url: "http://timestamp.digicert.com" }
 };
 await writeFile(join(args.data, "harness.json"), JSON.stringify(config, null, 2));
@@ -499,7 +528,7 @@ app = spawn(join(args.app, "Agent_b.exe"), ["-config", join(args.data, "harness.
 children.push(app);
 app.stdout.on("data", (chunk) => process.stdout.write(chunk));
 app.stderr.on("data", (chunk) => process.stderr.write(chunk));
-await waitHTTP(`http://127.0.0.1:${appPort}/api/state`);
+await bootstrapHTTP(`http://127.0.0.1:${appPort}`);
 const runtimeState = await state();
 profileData = join(args.data, "profiles", runtimeState.profiles?.active || "Randy");
 if (args["expected-commit"]) assert.equal(runtimeState.build?.commit, args["expected-commit"], "running build commit must match the requested source");
@@ -507,7 +536,7 @@ if (args["expected-dirty"]) assert.equal(runtimeState.build?.dirty, args["expect
 await mkdir(args.evidence, { recursive: true });
 await writeFile(join(args.evidence, "runtime-build.json"), JSON.stringify(runtimeState.build, null, 2));
 const loadedConfig = await json(`http://127.0.0.1:${appPort}/api/config`);
-assert.equal(loadedConfig.shell?.service_account?.enabled, false, "a configured split without an authenticating credential must turn itself off");
+assert.equal(loadedConfig.shell?.service_account?.enabled, false, "the general chat fixture explicitly opts out of the separately gated service identity");
 assert.equal(loadedConfig.connections?.[0]?.request_timeout_s, 3, "slow-accounting fixture needs a three-second request timeout");
 assert.equal(loadedConfig.connections?.[0]?.capabilities?.tokenize, true, "slow-accounting fixture needs exact tokenization");
 assert.equal(loadedConfig.context?.accounting, "auto", "slow-accounting fixture needs automatic exact accounting");
@@ -1643,7 +1672,8 @@ if (realModel) {
   await waitEvent(sessionID, (event) => event.seq > beforeStopMidTool && event.type === "stage" && event.data?.stage === "execute" && event.data?.state === "enter", "60 s tool executing");
   await page.locator("#chat-send").click();
   const sentWhileStopping = await page.evaluate(async (sessionID) => {
-    const token = (await (await fetch("/api/state")).json()).mutation_token;
+    const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
+    const token = bus.store.mutation_token;
     const response = await fetch("/api/message", { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": token }, body: JSON.stringify({ session_id: sessionID, text: "acceptance: sent while stopping" }) });
     return response.status;
   }, sessionID);
@@ -2124,7 +2154,9 @@ if (realModel) {
   children.push(app);
   app.stdout.on("data", (chunk) => process.stdout.write(chunk));
   app.stderr.on("data", (chunk) => process.stderr.write(chunk));
-  await waitHTTP(`http://127.0.0.1:${appPort}/api/state`);
+  acceptanceCookie = "";
+  acceptanceMutationToken = "";
+  await bootstrapHTTP(`http://127.0.0.1:${appPort}`);
   await page.reload();
   await browser.wait(`document.querySelectorAll('.agent-tab-wrap[data-session]').length === ${retainedOpenBeforeRestart}`, "retained tabs after application restart");
   const restartedState = await state();
@@ -2353,7 +2385,7 @@ if (realModel) {
   await page.locator("#plan-add-path").fill(briefRepo);
   await page.locator("#plan-add-path").press("Enter");
   await browser.wait(`document.querySelector('#plan-build') && !document.querySelector('#plan-build').hidden`, "Build plan now for the filled brief");
-  const briefPlan = (await (await fetch(`http://127.0.0.1:${appPort}/api/plans`)).json()).find((plan) => plan.repo && plan.repo.toLowerCase().endsWith("brief-repo"));
+  const briefPlan = (await json(`http://127.0.0.1:${appPort}/api/plans`)).find((plan) => plan.repo && plan.repo.toLowerCase().endsWith("brief-repo"));
   assert.ok(briefPlan, "the filled-brief plan was not registered");
   const briefPlanPath = join(profileData, "plans", briefPlan.id, "plan.md");
   planningBriefOriginal = await readFile(briefPlanPath, "utf8");
@@ -2391,7 +2423,7 @@ if (realModel) {
   await page.locator("#plan-add-path").press("Enter");
   await browser.wait(`document.querySelector('#plan-build') && !document.querySelector('#plan-build').hidden`, "Build plan now?");
   await browser.wait(`document.querySelector('#plan-raw')?.textContent.includes('## ')`, "the new plan's template on the right");
-  const createdPlan = (await (await fetch(`http://127.0.0.1:${appPort}/api/plans`)).json()).find((plan) => plan.repo && plan.repo.toLowerCase().endsWith("flyout-repo"));
+  const createdPlan = (await json(`http://127.0.0.1:${appPort}/api/plans`)).find((plan) => plan.repo && plan.repo.toLowerCase().endsWith("flyout-repo"));
   assert.ok(createdPlan, "the plan was not registered");
   await page.screenshot({ path: join(evidenceRun, "plan-build-prompt.png") });
   await page.locator("#plan-build-yes").click();
@@ -2418,7 +2450,7 @@ if (realModel) {
   // another waits with the role it is behind, and Go refuses with the reason.
   const holder = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
   const waiter = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
-  const post = async (id, text) => fetch(`http://127.0.0.1:${appPort}/api/message`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ session_id: id, text }) });
+  const post = async (id, message) => json(`http://127.0.0.1:${appPort}/api/message`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: id, text: message }) });
   await writeFile(planPath, markedPlan + "- [ ] 2x waits for the model\n");
   await writeFile(join(browserPlanDir, "plan", "items", "2x.md"), "state: live\nverify: echo verified\n\n# 2x\n");
   await post(holder.id, "acceptance: hold the model");
@@ -2427,7 +2459,7 @@ if (realModel) {
   await page.locator("#chat-task").waitFor({ state: "visible" });
   await post(waiter.id, "acceptance: queued behind");
   await browser.wait(`document.querySelector('#chat-notice')?.innerText.includes('waiting for model · behind agent_b')`, "the strip names the role ahead");
-  const busyGo = await (await fetch(`http://127.0.0.1:${appPort}/api/plan/go?plan_id=browser-plan`)).json();
+  const busyGo = await json(`http://127.0.0.1:${appPort}/api/plan/go?plan_id=browser-plan`);
   assert.equal(busyGo.enabled, false, JSON.stringify(busyGo));
   assert.match(busyGo.refusal || "", /the model is busy: agent_b is running/, JSON.stringify(busyGo));
   await page.screenshot({ path: join(evidenceRun, "queued-behind.png") });

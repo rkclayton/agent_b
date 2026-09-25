@@ -7,6 +7,7 @@ param(
     [int]$WaitSeconds = 45
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'browser-session.ps1')
 
 Add-Type -Namespace AgentbWindowAcceptance -Name Win -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr value);
@@ -66,7 +67,7 @@ function Click-Control([IntPtr]$Window, [int]$Index) {
     $action = @('close', 'maximize', 'minimize')[$Index]
     $uri = $script:stateURL -replace '/state$', '/host-window'
     $body = @{ action = $action } | ConvertTo-Json -Compress
-    $response = Invoke-RestMethod -Uri $uri -Method Post -Headers @{ 'X-AgentB-Mutation-Token' = $script:state.mutation_token } -ContentType 'application/json' -Body $body -TimeoutSec 5
+    $response = Invoke-RestMethod -Uri $uri -Method Post -WebSession $script:browserClient.Session -Headers @{ 'X-AgentB-Mutation-Token' = $script:browserClient.MutationToken } -ContentType 'application/json' -Body $body -TimeoutSec 5
     if ($response.action -ne $action) { throw "host window action $action was not acknowledged" }
 }
 
@@ -83,7 +84,7 @@ $second = $null
 $result = [ordered]@{ dpi = 0; first_pid = $first.Id; ready_ms = 0; second_exit = $null; marker_unchanged = $false; activated_foreground = $false; activated_restored = $false; process_count = 0; top_level_classes = @(); maximize = $false; restore = $false; minimize = $false; close = $false; launcher_line = '' }
 try {
     $state = $null
-    Wait-Until { try { $script:state = Invoke-RestMethod -Uri $stateURL -TimeoutSec 1; $true } catch { $false } } 'first installed process did not become ready' ($WaitSeconds * 1000)
+    Wait-Until { try { $script:browserClient = New-AgentBBrowserClient ($stateURL -replace '/api/state$', ''); $script:state = Get-AgentBBrowserState $script:browserClient; $true } catch { $false } } 'first installed process did not become ready' ($WaitSeconds * 1000)
     $result.ready_ms = $startedAt.ElapsedMilliseconds
     if ($state.process_id -ne $first.Id) { throw "state PID $($state.process_id) did not match $($first.Id)" }
     $window = [IntPtr]::Zero
@@ -107,7 +108,9 @@ try {
     $result.activated_foreground = [AgentbWindowAcceptance.Win]::GetForegroundWindow() -eq $window
     $result.activated_restored = -not [AgentbWindowAcceptance.Win]::IsIconic($window)
     $result.process_count = @(Get-Process | Where-Object { try { $_.Path -and [IO.Path]::GetFullPath($_.Path).Equals([IO.Path]::GetFullPath($Exe), [StringComparison]::OrdinalIgnoreCase) } catch { $false } }).Count
-    if ($result.second_exit -ne 0 -or -not $result.marker_unchanged -or -not $result.activated_restored -or $result.process_count -ne 1) { throw 'double-launch single-instance acceptance failed' }
+    if ($result.second_exit -ne 0 -or -not $result.marker_unchanged -or -not $result.activated_restored -or $result.process_count -ne 1) {
+        throw "double-launch single-instance acceptance failed: second_exit=$($result.second_exit), marker_unchanged=$($result.marker_unchanged), activated_restored=$($result.activated_restored), process_count=$($result.process_count)"
+    }
 
     Click-Control $window 1
     Wait-Until { [AgentbWindowAcceptance.Win]::IsZoomed($window) } 'maximize control did not maximize'

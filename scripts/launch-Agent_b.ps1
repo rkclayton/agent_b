@@ -93,7 +93,7 @@ function Get-AgentBUrl {
 function Test-AgentBEndpoint {
     param([string]$Url)
     try {
-        $endpoint = [Uri]::new([Uri]$Url, 'api/state')
+        $endpoint = [Uri]::new([Uri]$Url, 'chat')
         $response = Invoke-WebRequest -UseBasicParsing -Uri $endpoint -TimeoutSec 1
         return $response.StatusCode -eq 200
     } catch {

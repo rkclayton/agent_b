@@ -63,6 +63,22 @@ func TestNetworkBoundaryStaysStableUntilReopen(t *testing.T) {
 	}
 }
 
+func TestMediaCapabilitiesFollowConnectionAndToolset(t *testing.T) {
+	textOnly := MediaCapabilities(&config.Connection{}, map[string]bool{})
+	for _, want := range []string{"run_script is not enabled", "cannot see an attached image", "no image generator configured", "Do not prefer SVG"} {
+		if !strings.Contains(textOnly, want) {
+			t.Fatalf("text-only capabilities %q do not contain %q", textOnly, want)
+		}
+	}
+	vision := config.Connection{AttachmentHandling: "native"}
+	native := MediaCapabilities(&vision, map[string]bool{"run_script": true})
+	for _, want := range []string{"render PNG or JPEG", "System.Drawing", "can see an operator-attached image"} {
+		if !strings.Contains(native, want) {
+			t.Fatalf("native capabilities %q do not contain %q", native, want)
+		}
+	}
+}
+
 func TestSnapshotCarriesToolCallCounts(t *testing.T) {
 	s := &Session{
 		ToolsEnabled:   map[string]bool{"read_file": true},

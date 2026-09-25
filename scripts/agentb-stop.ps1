@@ -21,8 +21,19 @@ function Request-AgentbGracefulStop {
     param(
         [Parameter(Mandatory = $true)][string]$ApplicationRoot,
         [Parameter(Mandatory = $true)][int]$ProcessId,
-        [switch]$AllowLegacy
+        [switch]$AllowLegacy,
+        [switch]$ProcessRecordsReason
     )
+	if (-not $ProcessRecordsReason) {
+		$commandLine = [string](Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction Stop).CommandLine
+		$match = [regex]::Match($commandLine, '(?i)(?:^|\s)-data-root\s+(?:"([^"]+)"|(\S+))')
+		if (-not $match.Success) { throw "Agent_b PID $ProcessId data root was not present in its command line; the stop was not requested because its reason could not be recorded." }
+		$dataRoot = if ($match.Groups[1].Success) { $match.Groups[1].Value } else { $match.Groups[2].Value }
+		$logPath = Join-Path $dataRoot 'logs\launcher-errors.log'
+		$null = New-Item -ItemType Directory -Path (Split-Path -Parent $logPath) -Force
+		$line = "{0} Agent_b PID {1} stopped: asked to close (the operator's stop script)`r`n" -f [DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss zzz'), $ProcessId
+		[IO.File]::AppendAllText($logPath, $line, [Text.UTF8Encoding]::new($false))
+	}
     $stopEvent = $null
     $eventName = Get-AgentbStopEventName -ApplicationRoot $ApplicationRoot -ProcessId $ProcessId
     try {

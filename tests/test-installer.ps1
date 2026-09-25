@@ -533,7 +533,7 @@ try {
     }
     $null = Invoke-RestMethod -Method Post -Uri $profilesUri -WebSession $freshClient.Session -Headers $profileHeaders -ContentType 'application/json' -Body (ConvertTo-Json @{ action = 'switch'; name = $activeProfile } -Compress) -TimeoutSec 5
     Write-Host "PROOF profiles: existing chat and memory moved into $activeProfile; Second stayed isolated; connections remained shared"
-    $null = Request-AgentbGracefulStop -ApplicationRoot $testApplication -ProcessId $freshProcesses[0].Id
+    $null = Request-AgentbGracefulStop -ApplicationRoot $testApplication -ProcessId $freshProcesses[0].Id -ProcessRecordsReason
     $freshProcesses[0].WaitForExit(15000) | Out-Null
     if (-not $freshProcesses[0].HasExited) { throw 'Fresh autostart process did not stop before onboarding acceptance.' }
     $installedSha = (Get-FileHash -LiteralPath (Join-Path $testApplication 'Agent_b.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -1041,7 +1041,7 @@ try {
     if ($rollbackState.build.commit -ne $afterState.build.commit -or [bool]$rollbackState.build.dirty -ne [bool]$afterState.build.dirty) {
         throw 'Forced-failure restart identity does not match the previously installed build.'
     }
-    $null = Request-AgentbGracefulStop -ApplicationRoot $testApplication -ProcessId $afterProcesses[0].Id
+    $null = Request-AgentbGracefulStop -ApplicationRoot $testApplication -ProcessId $afterProcesses[0].Id -ProcessRecordsReason
     $afterProcesses[0].WaitForExit(15000) | Out-Null
     if (-not $afterProcesses[0].HasExited) { throw 'Restarted disposable Agent_b did not exit.' }
 

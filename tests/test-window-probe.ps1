@@ -79,7 +79,7 @@ try {
     if ($added.Count) { throw "The probe left launcher-log lines: $($added -join ' | ')" }
     Write-Host "PASS: PID $($target.Id) is still running with no new launcher-log line after the service-account probe"
 
-    $channel = Request-AgentbGracefulStop -ApplicationRoot $testApplication -ProcessId $target.Id
+    $channel = Request-AgentbGracefulStop -ApplicationRoot $testApplication -ProcessId $target.Id -ProcessRecordsReason
     if (-not $target.WaitForExit(15000)) { throw 'The stop event did not stop the disposable Agent_b.' }
     $stopLine = @(Get-Content -LiteralPath $launcherLog | Select-Object -Skip $before | Where-Object { $_ -match "PID $($target.Id) stopped: asked to close" })
     if ($channel -ne 'stop event' -or -not $stopLine.Count) { throw "The graceful stop was not recorded through the stop event ($channel)." }

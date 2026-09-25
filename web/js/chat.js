@@ -942,10 +942,11 @@ function noticeContent(session, entry, actionable) {
 	else if (event.type === "service.identity_unavailable") {
 		content.textContent = data.message || "Agent_b sets up its service identity now; Windows will ask once";
 		content.classList.add("alarm");
-		if (data.action === "provision" && !store.replay) {
+		const actions = Array.isArray(data.actions) ? data.actions : [data.action];
+		if (actions.includes("provision") && !store.replay) {
 			const action = document.createElement("button");
 			action.type = "button";
-			action.textContent = "Set up service identity";
+			action.textContent = "Set up now (one Windows prompt)";
 			action.onclick = async () => {
 				action.disabled = true;
 				try {
@@ -958,6 +959,23 @@ function noticeContent(session, entry, actionable) {
 					content.classList.remove("alarm");
 				} catch (error) {
 					content.textContent = `service identity not set up: ${error.message}. Next: open Settings > Security and choose Set up service identity.`;
+				}
+			};
+			content.append(" ", action);
+		}
+		if (actions.includes("operator_mode") && !store.replay) {
+			const action = document.createElement("button");
+			action.type = "button";
+			action.textContent = "Run as you for 20 minutes";
+			action.onclick = async () => {
+				action.disabled = true;
+				try {
+					await api("/api/config", { shell: { operator_context: true } });
+					content.textContent = "Run as you enabled for 20 minutes";
+					content.classList.remove("alarm");
+				} catch (error) {
+					action.disabled = false;
+					content.prepend(`run-as-you was not enabled: ${error.message}. `);
 				}
 			};
 			content.append(" ", action);

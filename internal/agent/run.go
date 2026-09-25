@@ -170,6 +170,14 @@ func (r *Runner) AppendUser(s *session.Session, message events.Message) {
 	r.bus.Publish(events.New(events.MessageAppended, s.ID, "", map[string]any{"message": message}))
 }
 
+func serviceIdentityUnavailableData(reason string) map[string]any {
+	return map[string]any{
+		"message": "Service identity is not set up. Set it up now with one Windows prompt, or run as you for 20 minutes.",
+		"reason":  reason,
+		"actions": []string{"provision", "operator_mode"},
+	}
+}
+
 func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (reason string, detail string, turns int) {
 	s.MarkNetworkBoundaryStale(session.NetworkBoundary(r.cfg()))
 	workspaceOK, workspaceReason, workspaceChanged := s.EnsureWorkspace()
@@ -198,9 +206,8 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		log.Printf("tool identity: process (service split disabled) session=%s run=%s", s.ID, runID)
 	} else if !cfg.Shell.OperatorContext {
 		if err := r.tools.PreflightServiceIdentity(); err != nil {
-			message := "Agent_b sets up its service identity now; Windows will ask once"
 			log.Printf("tool identity: service identity not set up session=%s run=%s reason=%q", s.ID, runID, err.Error())
-			r.bus.Publish(events.New(events.ServiceIdentityUnavailable, s.ID, runID, map[string]any{"message": message, "reason": err.Error(), "action": "provision"}))
+			r.bus.Publish(events.New(events.ServiceIdentityUnavailable, s.ID, runID, serviceIdentityUnavailableData(err.Error())))
 		} else {
 			log.Printf("tool identity: service session=%s run=%s", s.ID, runID)
 		}
@@ -964,6 +971,9 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 			case "read_file", "list_dir", "search", "search_text", "find_files":
 				return r.callFileAsOperator(ctx, s, name, args)
 			case "write_file", "edit_file", "shell", "run_script", "call_service":
+				if s.Scratch && (name == "write_file" || name == "edit_file") {
+					break
+				}
 				return tools.CallOutcome{Content: "error: service identity not set up"}
 			}
 		}

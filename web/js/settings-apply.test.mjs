@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const settings = readFileSync(new URL("./settings.js", import.meta.url), "utf8");
+// Windows checks these files out with CRLF, so a boundary written with \n is not
+// found there and a slice reads far more of the file than it means to.
+const settings = readFileSync(new URL("./settings.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 // Item 2l6 (d). The operator: "i want to remove the save button and the x in the
 // upper right theres no need for it. to page away you click the chat tab or plan

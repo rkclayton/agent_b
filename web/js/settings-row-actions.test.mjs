@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const names = ["settings.js", "settings-connections.js", "settings-general.js", "settings-profiles.js", "settings-security.js", "settings-workspace.js"];
-const sources = Object.fromEntries(await Promise.all(names.map(async (name) => [name, await readFile(new URL(`./${name}`, import.meta.url), "utf8")])));
+// Windows checks these files out with CRLF, so a boundary written with \n is not
+// found there and a slice reads far more of the file than it means to.
+const sources = Object.fromEntries(await Promise.all(names.map(async (name) =>
+  [name, (await readFile(new URL(`./${name}`, import.meta.url), "utf8")).replace(/\r\n/g, "\n")])));
 const all = Object.values(sources).join("\n");
 
 // Item 2l5 (a) and (g). The operator: "make these icons: save (floppy disk) Test

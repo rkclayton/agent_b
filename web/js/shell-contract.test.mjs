@@ -269,7 +269,7 @@ test("the attachment control replaces the redundant per-chat readout", async () 
   assert.ok(log < composer, "the transcript still precedes the composer");
 
   const chatCss = await readFile(new URL("../css/chat.css", import.meta.url), "utf8");
-  assert.match(chatCss, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; \}/);
+  assert.match(chatCss, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; margin-right:-4px; \}/);
   // No control characters anywhere in the stylesheet: the marker was a raw
   // 0x15 byte, which is how it reached the operator's screen as tofu.
   const control = [...chatCss].filter((ch) => ch.charCodeAt(0) < 32 && !"\r\n\t".includes(ch));

@@ -51,7 +51,7 @@ $payloadSigningExit = $LASTEXITCODE
 if ($payloadSigningExit -ne 0) { throw "DEPLOY REFUSED: payload signing is not available to this ordinary console; run the recorded one-time key grant first." }
 
 # 2ki: capture signed payload first; sign the new executables last.
-& node (Join-Path $repository 'tools\stage-candidate.mjs') --build $Tag
+& node (Join-Path $repository 'tools\stage-candidate.mjs') --build $Tag --thumbprint $SigningThumbprint
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate build exited $LASTEXITCODE." }
 
 $signingReport = Join-Path $candidate 'signing-report.json'

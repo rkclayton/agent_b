@@ -13,7 +13,11 @@ param(
     [switch]$SignForTest,
     # Defender recovery only: admit an existing, already-signed test executable
     # without asking Go to recreate the quarantined unsigned linker output.
-    [switch]$UseExistingSignedBinary
+    [switch]$UseExistingSignedBinary,
+    # Item 2lt: the certificate agentb.exe is signed with, before the bundle
+    # captures it. A release build supplies it; the test path does not and signs
+    # its own disposable payload instead.
+    [string]$SigningThumbprint
 )
 
 # Item 2eu: the release step builds the exe once, into the candidate, and records
@@ -164,9 +168,14 @@ if ($UseExistingSignedBinary) {
     #
     # The test path does not come through here: it signs its own disposable
     # payload copy a few lines below, with its own certificate.
-    if (-not $SignForTest) {
-        & (Join-Path $sourceRoot 'tools\sign-release.ps1') -Path $sourceRoot -CliOnly
+    if (-not $SignForTest -and -not [string]::IsNullOrWhiteSpace($SigningThumbprint)) {
+        & (Join-Path $sourceRoot 'tools\sign-release.ps1') -Path $sourceRoot -Thumbprint $SigningThumbprint -CliOnly
         if ($LASTEXITCODE -ne 0) { throw "Signing agentb.exe exited $LASTEXITCODE." }
+    } elseif (-not $SignForTest) {
+        # An unsigned CLI must never reach a bundle silently. A build with no
+        # thumbprint is a local build, and it says so rather than producing a
+        # candidate whose installed CLI 2km would refuse.
+        Write-Host 'BUILD NOTE: no -SigningThumbprint, so agentb.exe is unsigned in this bundle; this is not a releasable candidate.'
     }
     $payloadRoot = $sourceRoot
     $testPayloadRoot = $null

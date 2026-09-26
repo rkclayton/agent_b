@@ -64,10 +64,13 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 		"server_started_at":        s.startedAt,
 		"agent_connection_changes": s.agentConnectionChanges(),
 		"build":                    buildinfo.Current(),
-		"update":                   updateState,
-		"plans":                    s.planList(),
-		"signature":                s.signingState(),
-		"shell_credential":         credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,
+		// Item 2jg (d): the last batches exactly as they left, so About can show
+		// what was sent rather than describe it.
+		"telemetry_sent":   s.TelemetryRecords(),
+		"update":           updateState,
+		"plans":            s.planList(),
+		"signature":        s.signingState(),
+		"shell_credential": credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,
 		"serving_facts": servingFacts(filepath.Join(s.roots.Application, "SERVING.md")),
 		"flow":          map[string]any{"stages": events.Stages, "edges": [][2]string{{"assemble", "call_model"}, {"call_model", "parse"}, {"parse", "dispatch"}, {"dispatch", "execute"}, {"execute", "append"}, {"append", "assemble"}}},
 		"tools": []map[string]string{

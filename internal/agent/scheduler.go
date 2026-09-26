@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -518,8 +520,56 @@ func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail str
 	}
 	s.stoppedRuns[key] = true
 	data := map[string]any{"run_id": runID, "reason": reason, "terminal_reason": canonicalTerminalReason(reason), "detail": detail, "turns": turns, "queue_held": queueHeld, "armed_detectors": armed}
+	// Item 2jg: the model CLASS, never the model name, endpoint or connection id.
+	// "was this a local model or somebody's API" is the only distinction a
+	// diagnostic needs, and it is the only one that can leave.
+	if class := s.modelClassLocked(sessionID); class != "" {
+		data["model_class"] = class
+	}
 	s.bus.Publish(events.New(events.RunStopped, sessionID, runID, events.WithHuman(events.RunStopped, data)))
 	return true
+}
+
+// modelClassLocked answers local or remote for the session's connection. It is
+// deliberately coarse: item 2jg's contract forbids the endpoint, the model name
+// and the connection id from leaving, and this is what is left that is useful.
+func (s *Scheduler) modelClassLocked(sessionID string) string {
+	item, ok := s.registry.Get(sessionID)
+	if !ok {
+		return ""
+	}
+	connectionID := item.Snapshot().ConnectionID
+	if connectionID == "" {
+		return ""
+	}
+	for _, connection := range s.cfg().Connections {
+		if connection.ID != connectionID {
+			continue
+		}
+		if isLoopbackEndpoint(connection.BaseURL) {
+			return "local"
+		}
+		return "remote"
+	}
+	return ""
+}
+
+// isLoopbackEndpoint is the same question the fetch guard asks, asked once here
+// rather than reached for across a package boundary for one string.
+func isLoopbackEndpoint(baseURL string) bool {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		host = baseURL
+	}
+	switch strings.ToLower(host) {
+	case "localhost", "127.0.0.1", "::1", "[::1]":
+		return true
+	}
+	return strings.HasPrefix(host, "127.")
 }
 
 func canonicalTerminalReason(reason string) string {

@@ -1191,6 +1191,12 @@ func toolResultEventData(turn int, callID, name, content string, ok, operatorCon
 		"operator_context": operatorContext, "untrusted": untrusted, "ms": ms,
 		"bytes": len(content), "tokens": tokens, "preview": preview(content),
 	}
+	// Item 2jg (e): a failed tool result carries a CLASS from a closed
+	// vocabulary, so telemetry has something to send that is not free text. A
+	// successful call has no class and the field is absent, not empty.
+	if !ok {
+		data["class"] = ToolErrorClass(content)
+	}
 	for key, value := range metadata {
 		data[key] = value
 	}

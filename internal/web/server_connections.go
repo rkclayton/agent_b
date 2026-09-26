@@ -470,6 +470,12 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		previous := *s.cfg
+		// Item 2jg (d): turning the switch on issues a NEW install id, so two runs
+		// of telemetry from one machine cannot be joined. It is reissued here,
+		// before the save, so the new id is what lands on disk.
+		if next.Telemetry.Enabled && (!previous.Telemetry.Enabled || next.Telemetry.InstallID == "") {
+			next.Telemetry.InstallID = NewInstallID()
+		}
 		*s.cfg = next
 		if s.profiles != nil {
 			if err := s.profiles.SaveActive(); err != nil {
@@ -504,6 +510,10 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		if s.runner != nil {
 			s.runner.Configure(s.ConfigSnapshot())
 		}
+		// Item 2jg (d): the switch does not filter, it detaches. Applying the
+		// configuration is the only place collection starts or stops, so there is
+		// one answer to "is anything collecting" rather than two.
+		s.applyTelemetry(s.ConfigSnapshot())
 		if s.registry != nil {
 			s.registry.RefreshRunnable()
 		}

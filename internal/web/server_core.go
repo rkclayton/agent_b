@@ -225,6 +225,7 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 	}
 	if runner != nil {
 		runner.SetMessageLimitRecorder(s.recordObservedMessageLimit)
+		runner.SetByteLimitRecorder(s.recordObservedByteLimit)
 		runner.SetModelUnreachable(func(sessionID, connectionID string) {
 			if scheduler != nil {
 				scheduler.HoldModel(sessionID)
@@ -258,6 +259,31 @@ func (s *Server) recordObservedMessageLimit(connectionID string, limit int) erro
 	}
 	return fmt.Errorf("connection %q not found", connectionID)
 }
+// Item 2l8: the byte cap a connection has been refused by is remembered the same
+// way its message cap is, so a chat that was over the limit becomes sendable at
+// its next turn instead of after another refusal.
+func (s *Server) recordObservedByteLimit(connectionID string, limit int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := *s.cfg
+	next.Connections = append([]config.Connection(nil), s.cfg.Connections...)
+	for i := range next.Connections {
+		if next.Connections[i].ID != connectionID {
+			continue
+		}
+		if next.Connections[i].Capabilities.ObservedByteLimit == limit {
+			return nil
+		}
+		next.Connections[i].Capabilities.ObservedByteLimit = limit
+		if err := next.Save(s.configPath); err != nil {
+			return err
+		}
+		*s.cfg = next
+		return nil
+	}
+	return fmt.Errorf("connection %q not found", connectionID)
+}
+
 func (s *Server) ConfigSnapshot() config.Config {
 	s.mu.RLock()
 	result := *s.cfg

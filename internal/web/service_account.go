@@ -236,6 +236,12 @@ func (s *Server) serviceAccountState(ctx context.Context, status serviceaccount.
 			status.State = "missing_credential"
 		}
 		status.Action = "Repair"
+	case !s.ConfigSnapshot().Shell.ServiceAccount.Enabled:
+		// Item 2l2 (b): with the split off there is no identity in use, so nothing
+		// tests it and no alarm is raised. This path ran the live test on every
+		// Settings render, which is how ten approval alarms appeared in four
+		// minutes for an account the product was not using.
+		status.State, status.Action = "disabled", ""
 	default:
 		testContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()

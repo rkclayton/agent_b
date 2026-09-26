@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 
 	"harness/internal/session"
@@ -102,9 +101,17 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 			return CallDetail{Err: fmt.Errorf("source blocked: %s", reason)}
 		}
 	case "python":
-		executable, argv = resolvedInterpreter("python"), []string{"-"}
+		resolved, reason := usableInterpreter("python")
+		if reason != "" {
+			return CallDetail{Err: fmt.Errorf("%s", reason)}
+		}
+		executable, argv = resolved, []string{"-"}
 	case "node":
-		executable, argv = resolvedInterpreter("node"), []string{"-"}
+		resolved, reason := usableInterpreter("node")
+		if reason != "" {
+			return CallDetail{Err: fmt.Errorf("%s", reason)}
+		}
+		executable, argv = resolved, []string{"-"}
 	default:
 		return CallDetail{Err: fmt.Errorf("language must be powershell, python, node, or bash")}
 	}
@@ -141,9 +148,3 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	return waitShellProcess(ctx, process, usedService, timeout, cfg, &output, executable)
 }
 
-func resolvedInterpreter(name string) string {
-	if path, err := exec.LookPath(name); err == nil {
-		return path
-	}
-	return name
-}

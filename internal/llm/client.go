@@ -421,3 +421,40 @@ func responseShapeError(endpoint string, raw []byte, status int, contentType, fi
 	}
 	return &ResponseShapeError{Endpoint: endpoint, Status: status, ContentType: contentType, FinalURL: finalURL, Prefix: prefix, Cause: cause}
 }
+
+// ModelEntry is a model as the server publishes it. Item 2l1 (a7): an
+// OpenAI-compatible server carries the model's real context length on this route
+// -- vLLM as max_model_len -- and the probe used to read only the id, so a window
+// it could have learned was left to be guessed by hand.
+type ModelEntry struct {
+	ID            string
+	ContextLength int
+}
+
+// ModelCatalog is Models plus whatever each entry publishes about its length.
+func (c *Client) ModelCatalog(ctx context.Context) ([]ModelEntry, error) {
+	raw, status, contentType, finalURL, err := c.doJSONDetailed(ctx, http.MethodGet, "/v1/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != 200 {
+		return nil, responseShapeError("models", raw, status, contentType, finalURL, fmt.Errorf("HTTP %d", status))
+	}
+	var out struct {
+		Data []struct {
+			ID                string `json:"id"`
+			MaxModelLen       int    `json:"max_model_len"`
+			ContextLength     int    `json:"context_length"`
+			MaxContextLength  int    `json:"max_context_length"`
+			MaxPositionEmbeds int    `json:"max_position_embeddings"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, responseShapeError("models", raw, status, contentType, finalURL, err)
+	}
+	entries := make([]ModelEntry, 0, len(out.Data))
+	for _, entry := range out.Data {
+		entries = append(entries, ModelEntry{ID: entry.ID, ContextLength: max(max(entry.MaxModelLen, entry.ContextLength), max(entry.MaxContextLength, entry.MaxPositionEmbeds))})
+	}
+	return entries, nil
+}

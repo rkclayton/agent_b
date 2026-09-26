@@ -251,6 +251,10 @@ type Reasoning struct {
 type Context struct {
 	NCtx          int            `json:"n_ctx"`
 	ReserveOutput int            `json:"reserve_output"`
+	// AnswerCeilingSeconds bounds ONE answer, never a run or a chat (item 2l9):
+	// the operator spent 672 seconds on a single turn that was then thrown away.
+	// Zero means no ceiling, which is what every existing configuration says.
+	AnswerCeilingSeconds int         `json:"answer_ceiling_seconds,omitempty"`
 	Sizing        *ContextSizing `json:"sizing,omitempty"`
 }
 
@@ -283,6 +287,10 @@ type Capabilities struct {
 	ValidEfforts         []string `json:"valid_efforts"`
 	OverflowBehavior     string   `json:"overflow_behavior"`
 	ObservedMessageLimit int      `json:"observed_message_limit,omitempty"`
+	// Item 2l8: a server byte cap cannot be probed -- neither vLLM's /v1/models
+	// entry nor llama.cpp's /props publishes one -- so it is learned from the
+	// refusal that names it and remembered for this connection.
+	ObservedByteLimit    int      `json:"observed_byte_limit,omitempty"`
 	ProbedAt             string   `json:"probed_at"`
 	Findings             []string `json:"findings"`
 }
@@ -352,6 +360,8 @@ func (d *Deliver) UnmarshalJSON(data []byte) error {
 const (
 	CurrentConfigVersion     = 10
 	DefaultReserveOutput     = 10240
+	// MaxProposedReserveOutput caps what a probe proposes. Item 2l9 (c).
+	MaxProposedReserveOutput = 32768
 	ApprovalModeBoundaryOnly = "boundary-only"
 	ApprovalModeMutating     = "mutating"
 	ApprovalModeAll          = "all"
@@ -540,7 +550,11 @@ func Defaults(workspace string) Config {
 	}
 	abs, _ := filepath.Abs(workspace)
 	connection := defaultConnection()
-	connection.ID, connection.Label, connection.BaseURL, connection.Model = "local", "Local", "http://127.0.0.1:8080", "model"
+	// Item 2l1 (b): no placeholder that reads as a value. A connection with no
+	// model chosen has an empty model, and ConnectionSetupReason says exactly
+	// that. The literal "model" default reached save and was refused elsewhere,
+	// with wording the operator could not act on.
+	connection.ID, connection.Label, connection.BaseURL, connection.Model = "local", "Local", "http://127.0.0.1:8080", ""
 	return Config{
 		ConfigVersion: CurrentConfigVersion,
 		Listen:        "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
@@ -829,6 +843,18 @@ func (c Config) Validate() error {
 		}
 		if p.Context.ReserveOutput < 0 {
 			return fmt.Errorf("%s.context.reserve_output: cannot be negative", prefix)
+		}
+		// Item 2l9 (e3): the one hard limit here. Output is carved out of the
+		// context window, so a reserve larger than half of it starves the prompt it
+		// is taken from. The bound never falls below the reserve every version has
+		// shipped as its default, because a rule that refuses a configuration the
+		// product itself created is a broken rule, not a safeguard. Every other
+		// value in this area is the operator's to set.
+		if bound := reserveOutputBound(p.Context.NCtx); bound > 0 && p.Context.ReserveOutput > bound {
+			return fmt.Errorf("%s.context.reserve_output: %d leaves too little of the %d-token context window for the prompt; it may not exceed %d", prefix, p.Context.ReserveOutput, p.Context.NCtx, bound)
+		}
+		if p.Context.AnswerCeilingSeconds < 0 {
+			return fmt.Errorf("%s.context.answer_ceiling_seconds: cannot be negative", prefix)
 		}
 		if p.Capabilities.Props && p.Capabilities.NCtx > 0 && p.Context.NCtx > p.Capabilities.NCtx {
 			return fmt.Errorf("%s.context.n_ctx: may not exceed probed n_ctx", prefix)
@@ -1328,4 +1354,36 @@ func (c Config) DefaultAgentID() string {
 		return ""
 	}
 	return AgentID(c.Agents[0].Name)
+}
+
+// ReserveOutputFor is the output allowance a probe proposes for a connection
+// whose window it has just learned. Item 2l9 (c): a fixed 10,240 tokens is 3.9%
+// of a 262,144-token window, and the operator lost a 672-second answer to it. The
+// relationship is one eighth of the window, never below the old fixed default and
+// never above MaxProposedReserveOutput, which also keeps it inside (e3)'s bound.
+func ReserveOutputFor(nCtx int) int {
+	if nCtx <= 0 {
+		return DefaultReserveOutput
+	}
+	return min(max(nCtx/8, DefaultReserveOutput), MaxProposedReserveOutput)
+}
+
+// ReasoningShareFor is how much of the output allowance thinking may take when
+// reasoning is on and reasoning.max_tokens is unset. Item 2l9 (d): sharing one
+// allowance uncapped let a long thinking pass consume it and leave no answer.
+func ReasoningShareFor(reserveOutput int) int {
+	if reserveOutput <= 0 {
+		return 0
+	}
+	return max(reserveOutput/2, 1)
+}
+
+// reserveOutputBound is item 2l9 (e3)'s hard limit: half the context window, but
+// never less than the default every shipped version used, so a configuration with
+// a small window keeps loading.
+func reserveOutputBound(nCtx int) int {
+	if nCtx <= 0 {
+		return 0
+	}
+	return max(nCtx/2, DefaultReserveOutput)
 }

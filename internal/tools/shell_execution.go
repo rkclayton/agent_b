@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"harness/internal/config"
@@ -34,6 +35,10 @@ type Shell struct {
 	identityMu        sync.RWMutex
 	identity          ShellIdentityStatus
 	identityReporter  func(ShellIdentityStatus)
+	// alarmedCondition is the last service-account condition this launch alarmed
+	// on, so the same condition is reported once rather than once per trigger
+	// (item 2l2 (c)).
+	alarmedCondition atomic.Value
 }
 
 func NewShell(cfg config.Shell) *Shell {

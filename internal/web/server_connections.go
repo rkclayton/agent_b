@@ -1,6 +1,8 @@
 package web
 
 import (
+	"slices"
+	"strconv"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -172,6 +174,11 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		BaseURL string `json:"base_url"`
 		Model   string `json:"model"`
+		// Item 2l1 (a4): the one action uses what is on screen. A freshly typed
+		// address, key or timeout is used without a save first, and nothing typed
+		// is cleared by running it.
+		APIKey          string `json:"api_key"`
+		RequestTimeoutS int    `json:"request_timeout_s"`
 	}
 	if r.Body != nil && r.ContentLength != 0 && !decode(w, r, &body) {
 		return
@@ -182,6 +189,12 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(body.Model) != "" {
 		tested.Model = strings.TrimSpace(body.Model)
+	}
+	if strings.TrimSpace(body.APIKey) != "" {
+		tested.APIKey = body.APIKey
+	}
+	if body.RequestTimeoutS > 0 {
+		tested.RequestTimeoutS = body.RequestTimeoutS
 	}
 	if strings.TrimSpace(tested.BaseURL) == "" {
 		writeError(w, 400, "base_url is empty", "connections."+id+".base_url")
@@ -213,23 +226,23 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !listed {
-		model := strings.TrimSpace(updated.Model)
-		if model == "" {
-			model = "model"
-		}
-		modelErr := (&probe.ModelNotListedError{Model: model, Models: discovered.Models}).OperatorMessage()
-		writeJSON(w, http.StatusOK, map[string]any{"status": "model_required", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL, "error": modelErr})
+		// Item 2l1 (b),(c),(d): the refusal names the field, the value and what is
+		// wanted, and a server that answered with an empty list says THAT rather
+		// than blaming the model -- the operator HOMEPC case, where Ollama answered
+		// 200 with no models pulled.
+		modelErr := modelRefusalMessage(updated.Model, discovered.BaseURL, discovered.Models)
+		writeJSON(w, http.StatusOK, map[string]any{"status": "model_required", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL, "error": modelErr, "proposed": s.proposedConnectionValues(r.Context(), &tested, discovered.Models)})
 		return
 	}
 	// A ready connection that answers exactly as entered is a read-only test.
 	// In particular, do not rewrite a display-name model to llama-server's GGUF
 	// path and do not alter ProbedAt (which would change the config hash).
 	if connection.Capabilities.ProbedAt != "" && tested.BaseURL == connection.BaseURL && tested.Model == connection.Model {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "Test passed"})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "Test passed", "proposed": s.proposedConnectionValues(r.Context(), &tested, discovered.Models)})
 		return
 	}
 	s.startProbe(&updated)
-	writeJSON(w, http.StatusAccepted, map[string]any{"status": "probing", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL})
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "probing", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL, "proposed": s.proposedConnectionValues(r.Context(), &tested, discovered.Models)})
 }
 
 func (s *Server) queryConnectionModels(w http.ResponseWriter, r *http.Request, id string) {
@@ -577,4 +590,81 @@ func configField(err error, cfg config.Config) string {
 		return field
 	}
 	return "connections." + cfg.Connections[index].ID + field[end+1:]
+}
+
+// proposedConnectionValues is what the one action learned, offered as SOFT values
+// the operator sees in the fields and can change before saving. Item 2l1 (a5) and
+// (a7): the window is read from what the server publishes -- vLLM's max_model_len
+// on /v1/models, which the probe already fetches -- and where nothing publishes
+// it the field says the value is unverified instead of presenting a guess as a
+// measurement. Nothing here is written to configuration.
+func (s *Server) proposedConnectionValues(ctx context.Context, tested *config.Connection, models []string) map[string]any {
+	proposed := map[string]any{"model_selected": onlyModel(models), "context_source": "unverified"}
+	// The catalog read is enrichment, not the answer: it is bounded to a few
+	// seconds regardless of the connection request timeout, which defaults to 900,
+	// so a server that does not serve this route cannot delay the one action.
+	catalogCtx, cancel := context.WithTimeout(ctx, min(time.Duration(max(3, tested.RequestTimeoutS))*time.Second, 8*time.Second))
+	defer cancel()
+	published := 0
+	if entries, err := llm.New(tested).ModelCatalog(catalogCtx); err == nil {
+		for _, entry := range entries {
+			if entry.ContextLength <= 0 {
+				continue
+			}
+			if strings.TrimSpace(tested.Model) == "" || strings.EqualFold(strings.TrimSpace(entry.ID), strings.TrimSpace(tested.Model)) || len(entries) == 1 {
+				published = entry.ContextLength
+				break
+			}
+		}
+	}
+	window := published
+	if window == 0 {
+		window = tested.Capabilities.NCtx
+		if window > 0 {
+			proposed["context_source"] = "probed"
+		}
+	} else {
+		proposed["context_source"] = "published"
+	}
+	if window > 0 {
+		proposed["n_ctx"] = window
+		proposed["reserve_output"] = config.ReserveOutputFor(window)
+		proposed["reasoning_max_tokens"] = config.ReasoningShareFor(config.ReserveOutputFor(window))
+	}
+	if efforts := tested.Capabilities.ValidEfforts; len(efforts) > 0 {
+		proposed["valid_efforts"] = efforts
+		if !slices.Contains(efforts, tested.Reasoning.Effort) {
+			proposed["effort"] = efforts[len(efforts)/2]
+		}
+	}
+	proposed["reasoning_enabled"] = tested.Capabilities.ReasoningControl != "" && tested.Capabilities.ReasoningControl != "none"
+	return proposed
+}
+
+// onlyModel is item 2l1 (a3)'s first clause: a server offering exactly one model
+// has that model selected. Anything else is left to the picker, which keeps the
+// previous choice when it is still offered and otherwise stays empty.
+func onlyModel(models []string) string {
+	if len(models) == 1 {
+		return strings.TrimSpace(models[0])
+	}
+	return ""
+}
+
+// modelRefusalMessage names the field, the value and what is wanted. Item 2l1 (c)
+// and (d): a server that answered with an EMPTY list says that, rather than
+// blaming the model name -- the operator HOMEPC case, where Ollama answered 200
+// with no model pulled, and the old wording accused his model of not being served.
+func modelRefusalMessage(model, baseURL string, models []string) string {
+	model = strings.TrimSpace(model)
+	switch {
+	case len(models) == 0 && model == "":
+		return "model is empty, and " + baseURL + " answered but listed no models at all. Pull or load a model on that server, or type the model name by hand."
+	case len(models) == 0:
+		return baseURL + " answered but listed no models at all, so " + strconv.Quote(model) + " cannot be confirmed. Pull or load a model on that server, or keep this name if the server accepts it."
+	case model == "":
+		return "model is empty — choose one of the " + strconv.Itoa(len(models)) + " models this server listed."
+	default:
+		return (&probe.ModelNotListedError{Model: model, Models: models}).OperatorMessage()
+	}
 }

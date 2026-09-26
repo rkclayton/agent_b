@@ -52,9 +52,11 @@ type Runner struct {
 	mailboxBoundary    func(context.Context, string, bool) BoundaryAction
 	modelUnreachable   func(string, string)
 	recordMessageLimit func(string, int) error
+	recordByteLimit    func(string, int) error
 	ids                atomic.Int64
 	nameAttempts       sync.Map
 	messageLimits      sync.Map
+	byteLimits         sync.Map
 	identityInvitation atomic.Bool
 }
 
@@ -85,6 +87,7 @@ func (r *Runner) SetMailboxBoundary(fn func(context.Context, string, bool) Bound
 }
 func (r *Runner) SetModelUnreachable(fn func(string, string))        { r.modelUnreachable = fn }
 func (r *Runner) SetMessageLimitRecorder(fn func(string, int) error) { r.recordMessageLimit = fn }
+func (r *Runner) SetByteLimitRecorder(fn func(string, int) error)    { r.recordByteLimit = fn }
 func (r *Runner) BindDelegate(tool *tools.Delegate)                  { tool.SetRunner(r.runDelegate) }
 func (r *Runner) AcceptPlanEdit(ctx context.Context, s *session.Session, path, oldText, newText string) tools.CallOutcome {
 	if !s.BeginPlanAccept() {
@@ -376,6 +379,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	templateRetryTried := false
 	softLineChecked := false
 	messageLimitRetried := false
+	byteLimitRetried := false
 	guards := newRunGuards(runCfg.CycleWindow, runCfg.MaxConsecutiveToolErrors)
 	currentReasoning := map[string]bool{}
 	for {
@@ -399,6 +403,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		}
 		if value, found := r.messageLimits.Load(connection.ID); found {
 			connection.Capabilities.ObservedMessageLimit = value.(int)
+		}
+		if value, found := r.byteLimits.Load(connection.ID); found {
+			connection.Capabilities.ObservedByteLimit = value.(int)
 		}
 		// An invalid durable tool call is a history-shape problem, not an
 		// accounting endpoint failure. Repair it before any template or tokenizer
@@ -486,6 +493,12 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			if request.Thinking && connection.Reasoning.MaxTokens > 0 && !containsFinding(connection, "server reasoning budget: accepted") {
 				request.MaxTokens = min(request.MaxTokens, connection.Reasoning.MaxTokens)
 			}
+			// Item 2l9 (d): with reasoning on and no reasoning cap set, thinking and
+			// the answer share one allowance, and a long thinking pass can take all
+			// of it and leave nothing. Thinking gets its own share.
+			if request.Thinking && connection.Reasoning.MaxTokens == 0 {
+				request.ReasoningMaxTokens = config.ReasoningShareFor(request.MaxTokens)
+			}
 			diagnosticRequest := request
 			diagnosticRequest.Messages = diagnosticMessages(request.Messages)
 			body = llm.BuildRequest(connection, diagnosticRequest, true)
@@ -527,6 +540,18 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				continue
 			}
 		}
+		// Item 2l8: both constraints bind. A body the token budget believes has room
+		// is still refused by a server that counts bytes, so the serialized request
+		// is measured against the limit this connection has been refused by, with
+		// headroom rather than to the byte.
+		if limit := connection.Capabilities.ObservedByteLimit; limit > 0 {
+			if size := llm.SerializedBytes(connection, request, true); size >= byteLimitTarget(limit) {
+				if r.compactForByteLimit(ctx, s, runID, connection, limit, request) {
+					turn--
+					continue
+				}
+			}
+		}
 		// Item 2ey: a run's first request gets the projection a later turn gets at
 		// its end, so a restored chat over the soft line compacts before it is
 		// sent instead of after it overflows.
@@ -562,8 +587,17 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		toolArgumentRunes := map[int]int{}
 		var streamBusy atomic.Bool
 		requestDone := make(chan struct{})
+		// Item 2l9 (e2): a ceiling on ONE answer, never on a run or a chat. Zero,
+		// which is what every existing configuration carries, means no ceiling.
+		callCtx := ctx
+		answerStarted := time.Now()
+		if ceiling := answerCeiling(connection); ceiling > 0 {
+			var cancelAnswer context.CancelFunc
+			callCtx, cancelAnswer = context.WithTimeout(ctx, ceiling)
+			defer cancelAnswer()
+		}
 		r.stage(s, runID, turn, "call_model", func() {
-			response, callErr = client.ChatStreamStatus(ctx, request, func(delta llm.Delta) {
+			response, callErr = client.ChatStreamStatus(callCtx, request, func(delta llm.Delta) {
 				r.addFlightDelta(s.ID, runID, delta)
 				if delta.Kind == "progress" {
 					r.bus.Publish(events.New(events.ModelProgress, s.ID, runID, map[string]any{"turn": turn, "total": delta.Total, "cache": delta.Cache, "processed": delta.Processed}))
@@ -603,6 +637,35 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		if callErr != nil {
 			if ctx.Err() != nil {
 				return contextStop(turn, "model call canceled")
+			}
+			// Item 2l9 (e2): the answer, not the run, hit its ceiling. Same treatment
+			// as a token truncation — name the ceiling and keep what was produced.
+			if callCtx.Err() != nil && answerCeiling(connection) > 0 {
+				truncated := response
+				if strings.TrimSpace(truncated.Content) == "" {
+					truncated.Content = partial
+				}
+				r.keepTruncatedAnswer(ctx, s, runID, connection, truncated, turn, currentReasoning)
+				return "length", answerCeilingDetail(connection, time.Since(answerStarted)), turn
+			}
+			if limit, sentence, matched := byteLimitError(callErr); matched {
+				r.byteLimits.Store(connection.ID, limit)
+				connection.Capabilities.ObservedByteLimit = limit
+				if r.recordByteLimit != nil {
+					if err := r.recordByteLimit(connection.ID, limit); err != nil {
+						r.operationalError(s, runID, "record_byte_limit", err)
+					}
+				}
+				// Item 2l8 (d): a retry that would send the same bytes is not made.
+				// The refusal is acted on once -- compacted against the limit it
+				// named -- and only a genuinely smaller body is sent again.
+				before := llm.SerializedBytes(connection, request, true)
+				if !byteLimitRetried && r.compactForByteLimit(ctx, s, runID, connection, limit, request) {
+					byteLimitRetried = true
+					turn--
+					continue
+				}
+				return "model_error", sentence + fmt.Sprintf("; the request was %d bytes and could not be made smaller", before), turn
 			}
 			if limit, sentence, matched := messageLimitError(callErr); matched {
 				r.messageLimits.Store(connection.ID, limit)
@@ -686,7 +749,13 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		}
 		if len(toolCalls) == 0 && response.FinishReason != "tool_calls" {
 			if response.FinishReason == "length" {
-				return "length", "model output was truncated", turn
+				// Item 2l9 (a) and (b): the cap is named with its value and where it
+				// is set, and what the model did produce is kept in the transcript
+				// marked truncated, so the Continue action on the stop card has
+				// something to continue from instead of the run being thrown away.
+				detail := truncationDetail(connection, response)
+				r.keepTruncatedAnswer(ctx, s, runID, connection, response, turn, currentReasoning)
+				return "length", detail, turn
 			}
 			finalContent := response.Content
 			stopReason, stopDetail := "done", ""
@@ -899,6 +968,60 @@ func messageLimitError(err error) (int, string, bool) {
 		return 0, "", false
 	}
 	return limit, strings.TrimSpace(match[1]), true
+}
+
+// Item 2l8: the byte cap a server names in its refusal. Two currencies appear in
+// the operator's own evidence -- `prompt too large: 401628 bytes (limit 400000)`
+// and `conversation too long: 61 messages (limit 60)` -- and this reads the first.
+var byteLimitPattern = regexp.MustCompile(`(?i)([^\r\n"]*?(?:too large|too long|exceeds)[^\r\n"]*?\d+\s*bytes[^\r\n"]*?\(limit\s*(\d+)\))`)
+
+func byteLimitError(err error) (int, string, bool) {
+	if err == nil || !strings.Contains(err.Error(), "HTTP 400") {
+		return 0, "", false
+	}
+	match := byteLimitPattern.FindStringSubmatch(err.Error())
+	if len(match) < 3 {
+		return 0, "", false
+	}
+	limit := 0
+	fmt.Sscanf(match[2], "%d", &limit)
+	if limit <= 1 {
+		return 0, "", false
+	}
+	return limit, strings.TrimSpace(strings.Trim(match[1], `\"`)), true
+}
+
+// byteLimitTarget leaves headroom rather than compacting to the byte: the next
+// turn adds a message of its own, and a body that just fits today is refused
+// tomorrow.
+func byteLimitTarget(limit int) int {
+	target := limit - limit/20
+	if target < 1 {
+		return limit
+	}
+	return target
+}
+
+// compactForByteLimit elides with the same machinery that serves the token
+// budget and reports whether the body actually got smaller, so a retry is only
+// made when there is something new to send.
+func (r *Runner) compactForByteLimit(ctx context.Context, s *session.Session, runID string, connection *config.Connection, limit int, request llm.Request) bool {
+	before := llm.SerializedBytes(connection, request, true)
+	changed := false
+	for attempts := 0; attempts < 3; attempts++ {
+		if !r.summarize(withCompactionTrigger(ctx, "byte_limit"), s, runID, connection) {
+			break
+		}
+		changed = true
+		if len(s.MessagesCopy()) == 0 {
+			break
+		}
+	}
+	if !changed {
+		return false
+	}
+	r.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"trigger": "byte_limit", "limit_bytes": limit, "bytes_before": before, "connection_id": connection.ID}))
+	return true
 }
 
 func (r *Runner) compactForMessageLimit(ctx context.Context, s *session.Session, runID string, connection *config.Connection, limit int) bool {
@@ -1763,4 +1886,62 @@ func appendUnique(values []string, value string) []string {
 		}
 	}
 	return append(values, value)
+}
+
+// truncationDetail names the cap the answer hit, its value and where it is set,
+// and distinguishes thinking having used the budget from the answer being cut
+// short. Item 2l9 (a) and (d): "The run stopped because of length" told the
+// operator nothing, least of all that the limit was his own setting.
+func truncationDetail(connection *config.Connection, response llm.Response) string {
+	reserve := connection.Context.ReserveOutput
+	if reserve <= 0 {
+		reserve = config.DefaultReserveOutput
+	}
+	where := fmt.Sprintf("the %s connection's output reserve (Settings → Connections → reserve output, context.reserve_output = %d tokens)", connection.Label, reserve)
+	// Thinking used the budget when the model produced reasoning and no answer at
+	// all — the shape of the operator's own case — rather than a token comparison
+	// this function has no numbers for.
+	if connection.Reasoning.Enabled && connection.Reasoning.MaxTokens == 0 && strings.TrimSpace(response.Content) == "" && strings.TrimSpace(response.Reasoning) != "" {
+		return fmt.Sprintf("thinking used the output allowance of %d tokens and no answer was left; thinking now gets its own share of %d tokens. The limit is %s", reserve, config.ReasoningShareFor(reserve), where)
+	}
+	return fmt.Sprintf("the answer reached the output limit of %d tokens and was cut short; what it produced is kept above, marked truncated. The limit is %s", reserve, where)
+}
+
+// keepTruncatedAnswer appends what the model did produce, marked truncated, so
+// the stop card's existing Continue action has something to continue from.
+// Item 2l9 (b).
+func (r *Runner) keepTruncatedAnswer(ctx context.Context, s *session.Session, runID string, connection *config.Connection, response llm.Response, turn int, currentReasoning map[string]bool) {
+	kept := strings.TrimSpace(response.Content)
+	if kept == "" {
+		kept = strings.TrimSpace(response.Reasoning)
+		if kept == "" {
+			return
+		}
+		kept += "\n\n[answer taken from the model's reasoning]"
+	}
+	kept += "\n\n[the answer reached the output limit and was cut short here]"
+	r.stage(s, runID, turn, "append", func() {
+		message, _ := r.makeMessage(ctx, connection, "assistant", kept, "history", turn)
+		message.Reasoning = response.Reasoning
+		currentReasoning[message.ID] = true
+		s.Append(message)
+		r.bus.Publish(events.New(events.MessageAppended, s.ID, runID, map[string]any{"message": message, "truncated": true}))
+	})
+}
+
+// answerCeiling is the wall-clock bound on ONE answer (item 2l9 (e2)). Zero, the
+// value every existing configuration carries, means no ceiling.
+func answerCeiling(connection *config.Connection) time.Duration {
+	if connection.Context.AnswerCeilingSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(connection.Context.AnswerCeilingSeconds) * time.Second
+}
+
+// answerCeilingDetail is the same treatment as a token truncation: it names the
+// ceiling, its value and where to change it, and the output already produced is
+// kept.
+func answerCeilingDetail(connection *config.Connection, elapsed time.Duration) string {
+	return fmt.Sprintf("the answer ran past the %d-second ceiling for one answer (%.0f seconds elapsed) and was stopped; what it produced is kept above, marked truncated. The ceiling is the %s connection's context.answer_ceiling_seconds and is yours to change",
+		connection.Context.AnswerCeilingSeconds, elapsed.Seconds(), connection.Label)
 }

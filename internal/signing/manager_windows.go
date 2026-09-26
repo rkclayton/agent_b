@@ -79,11 +79,13 @@ func (m *windowsManager) run(ctx context.Context, action string, request Request
 	if runErr != nil {
 		return fmt.Errorf("%s: %s", strings.ToLower(action), safeOutput(output, runErr))
 	}
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[len(lines)-1]) == "" {
+	// Item 2lb: the result is the last line that is actually a JSON object, not
+	// simply the last line -- a warning or a module-load error written after it
+	// would otherwise be read as the answer.
+	last := lastJSONObject(string(output))
+	if last == "" {
 		return fmt.Errorf("%s returned no result", action)
 	}
-	last := strings.TrimSpace(lines[len(lines)-1])
 	// Item 2gc: a host the script cannot read an answer from is unsupported,
 	// not an internal error; the caller answers 501 rather than 500.
 	var probe struct {
@@ -113,4 +115,17 @@ func clear(value []byte) {
 	for i := range value {
 		value[i] = 0
 	}
+}
+
+// lastJSONObject returns the last line of a child's output that is a JSON
+// object, so ordinary console text before or after the result is ignored.
+func lastJSONObject(output string) string {
+	lines := strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n")
+	for index := len(lines) - 1; index >= 0; index-- {
+		line := strings.TrimSpace(lines[index])
+		if strings.HasPrefix(line, "{") && strings.HasSuffix(line, "}") && json.Valid([]byte(line)) {
+			return line
+		}
+	}
+	return ""
 }

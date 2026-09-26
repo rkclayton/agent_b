@@ -340,6 +340,46 @@ function subhead(label, hint = "") {
   return `<div class="settings-subhead">${html(label)}</div>${hint ? `<p class="settings-subhead-note">${html(hint)}</p>` : ""}`;
 }
 
+// Item 2l1 (a5) and (a6): the one action proposes what it learned as SOFT values
+// in the fields — context size, output reserve, reasoning cap, effort and whether
+// thinking is supported — and proposes into a field the operator has NOT changed,
+// so pressing it again is safe and nothing typed is overwritten. (a3): a server
+// offering exactly one model has it selected. Nothing here saves.
+function applyProposedValues(id, discovered) {
+  const proposed = discovered?.proposed;
+  if (!proposed) return;
+  const prefix = `connections.${id}.`;
+  const connection = connectionList().find((item) => item.id === id) || {};
+  const propose = (path, value, kind, saved) => {
+    if (value === undefined || value === null || value === "") return;
+    if (drafts.has(prefix + path)) return;                       // the operator typed it
+    if (saved !== undefined && saved !== null && saved !== "" && saved !== 0) return; // he saved it
+    drafts.set(prefix + path, String(value));
+    draftKinds.set(prefix + path, kind);
+    proposedFields.add(prefix + path);
+  };
+  // (a3): the previously selected model STAYS selected when it is still offered —
+  // a saved, working model is never replaced by the server listing, which would
+  // silently rewrite a display name to a path and undo a tested connection. Only
+  // an empty field is filled, and only when the server offers exactly one model.
+  const models = Array.isArray(discovered.models) ? discovered.models : [];
+  const saved = (connection.model || "").trim();
+  const keeps = saved !== "" && (models.length === 0 || models.includes(saved));
+  if (!keeps && !drafts.has(prefix + "model") && proposed.model_selected) {
+    drafts.set(prefix + "model", proposed.model_selected);
+    draftKinds.set(prefix + "model", "text");
+  }
+  if (proposed.context_source === "published" || proposed.context_source === "probed") {
+    propose("context.n_ctx", proposed.n_ctx, "number", connection.context?.n_ctx);
+    propose("context.reserve_output", proposed.reserve_output, "number", connection.context?.reserve_output === 10240 ? 0 : connection.context?.reserve_output);
+    propose("reasoning.max_tokens", proposed.reasoning_max_tokens, "number", connection.reasoning?.max_tokens);
+  }
+  if (Array.isArray(proposed.valid_efforts) && proposed.effort) propose("reasoning.effort", proposed.effort, "text", "");
+  if (proposedFields.size) settingsSaveMessage = "Proposed values are unsaved — review and Save";
+}
+
+const proposedFields = new Set();
+
 function current(path, fallback) {
   return drafts.has(path) ? drafts.get(path) : fallback ?? "";
 }
@@ -500,7 +540,10 @@ async function click(event) {
       const discovered = await api(`/api/connections/${encodeURIComponent(id)}/probe`, {
         base_url: current(`${pendingPrefix}base_url`, connection?.base_url || ""),
         model: current(`${pendingPrefix}model`, connection?.model || ""),
+        api_key: current(`${pendingPrefix}api_key`, ""),
+        request_timeout_s: Number(current(`${pendingPrefix}request_timeout_s`, connection?.request_timeout_s || 0)) || 0,
       });
+      applyProposedValues(id, discovered);
       const needsModel = discovered.status === "model_required";
       if (discovered.changes?.base_url) {
         drafts.set(`${pendingPrefix}base_url`, discovered.changes.base_url);
@@ -524,17 +567,6 @@ async function click(event) {
       render();
     }
     return;
-  }
-  if (action === "query-models") {
-    const prefix = `connections.${id}.`;
-    try {
-      const result = await api(`/api/connections/${encodeURIComponent(id)}/models`, {
-        base_url: current(`${prefix}base_url`, connectionList().find((item) => item.id === id)?.base_url || ""),
-        api_key: current(`${prefix}api_key`, ""),
-      });
-      probeMessages.set(id, { ...(probeMessages.get(id) || {}), models: result.models || [], message: result.message || "Models loaded", alarm: false });
-    } catch (error) { probeMessages.set(id, { ...(probeMessages.get(id) || {}), message: error.message, alarm: true }); }
-    return render();
   }
   if (action === "measure-connection") {
     const currentState = await api(`/api/eval/measure?connection_id=${encodeURIComponent(id)}`, undefined, "GET").catch(() => ({ running: false }));

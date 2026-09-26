@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 
@@ -56,6 +57,8 @@ func buildRequest(connection *config.Connection, request Request, stream bool) m
 		}
 		if connection.Reasoning.MaxTokens > 0 && contains(connection.Capabilities.Findings, "server reasoning budget: accepted") {
 			body["reasoning_budget"] = connection.Reasoning.MaxTokens
+		} else if request.ReasoningMaxTokens > 0 && contains(connection.Capabilities.Findings, "server reasoning budget: accepted") {
+			body["reasoning_budget"] = request.ReasoningMaxTokens
 		}
 	}
 	return body
@@ -99,4 +102,16 @@ func contains(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// SerializedBytes is the size of the request body this client would send, in the
+// bytes the server actually counts. Item 2l8: the token budget cannot see this
+// number, and a server that caps the serialized request refuses a body the token
+// budget believes has room.
+func SerializedBytes(connection *config.Connection, request Request, stream bool) int {
+	encoded, err := json.Marshal(buildRequest(connection, request, stream))
+	if err != nil {
+		return 0
+	}
+	return len(encoded)
 }

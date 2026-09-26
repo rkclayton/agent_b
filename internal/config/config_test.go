@@ -103,11 +103,15 @@ func TestLoadCreatesConfigFromExample(t *testing.T) {
 	if migrated || !created {
 		t.Fatalf("migrated=%v created=%v", migrated, created)
 	}
-	if reason := ConnectionSetupReason(&got.Connections[0]); reason != "" {
-		t.Fatalf("setup reason = %q", reason)
+	// Item 2l1 (b): a fresh connection has NO model, and the setup reason says
+	// exactly that. It used to be seeded with the literal string "model", which
+	// read as a real value, passed the emptiness check, and was refused later in
+	// words the operator could not act on.
+	if reason := ConnectionSetupReason(&got.Connections[0]); !strings.Contains(reason, "model is empty") {
+		t.Fatalf("setup reason = %q, want it to name the empty model", reason)
 	}
-	if got.Connections[0].Model != "model" {
-		t.Fatalf("fresh default model = %q, want model", got.Connections[0].Model)
+	if got.Connections[0].Model != "" {
+		t.Fatalf("fresh default model = %q, want empty", got.Connections[0].Model)
 	}
 	if got.Run.MaxTurns != DefaultMaxTurns {
 		t.Fatalf("fresh config max_turns=%d, want %d", got.Run.MaxTurns, DefaultMaxTurns)

@@ -1,0 +1,810 @@
+{
+ "source": "session-close",
+ "session": "s2",
+ "start": {
+  "schema_version": 1,
+  "cursor": {
+   "generation": "",
+   "offset": 0
+  },
+  "complete": false,
+  "id": "s2",
+  "label": "s2",
+  "agent_id": "",
+  "connection_id": "",
+  "agent_name": "",
+  "b_connection": "",
+  "role": "",
+  "created_at": "",
+  "workspace": "",
+  "workspace_dir": "",
+  "workspace_missing": false,
+  "project_content": "",
+  "project_files": null,
+  "project_notes": null,
+  "run": {
+   "status": "idle",
+   "run_id": "",
+   "turn": 0,
+   "max_turns": 0,
+   "queue_position": 0,
+   "partial": "",
+   "last_stop_reason": ""
+  },
+  "tools": [],
+  "messages": [],
+  "budget": {
+   "n_ctx": 0,
+   "reserve": 0,
+   "ceiling": 0,
+   "used_est": 0,
+   "used_measured": 0,
+   "drift": 0,
+   "cached_last": null,
+   "mode": "",
+   "estimated": false,
+   "estimated_categories": null,
+   "categories": null,
+   "tool_schema_tokens": null,
+   "tool_marginal_tokens": null
+  },
+  "queued_messages": 0,
+  "runnable": false,
+  "not_runnable_reason": "",
+  "memory_path": "",
+  "memory_content": "",
+  "agent_memory_path": "",
+  "agent_memory_content": "",
+  "log_path": "",
+  "model_turns": 0,
+  "compaction_count": 0,
+  "compaction_token_delta": 0,
+  "compaction_model_calls": 0,
+  "compaction_prompt_tokens": 0,
+  "compaction_completion_tokens": 0,
+  "activity": {
+   "stage": "",
+   "stage_state": "",
+   "completed_stages": [],
+   "active_tool": "",
+   "alarm_tool": "",
+   "dispatch_alarm": false,
+   "compaction_serial": 0
+  },
+  "timeline": [],
+  "chat": [],
+  "closed": false
+ },
+ "patches": [
+  {
+   "schema_version": 1,
+   "session_id": "s2",
+   "previous_cursor": {
+    "generation": "",
+    "offset": 0
+   },
+   "cursor": {
+    "generation": "session-close.events",
+    "offset": 1090
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/complete",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/connection_id",
+     "value": "home-api"
+    },
+    {
+     "op": "replace",
+     "path": "/agent_name",
+     "value": "Coder"
+    },
+    {
+     "op": "replace",
+     "path": "/b_connection",
+     "value": "Home API"
+    },
+    {
+     "op": "replace",
+     "path": "/role",
+     "value": "b"
+    },
+    {
+     "op": "replace",
+     "path": "/created_at",
+     "value": "2026-09-07T12:00:00Z"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace_dir",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/tools",
+     "value": [
+      {
+       "name": "read_file",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/budget",
+     "value": {
+      "n_ctx": 32768,
+      "reserve": 8192,
+      "ceiling": 24576,
+      "used_est": 0,
+      "used_measured": 0,
+      "drift": 0,
+      "cached_last": null,
+      "mode": "estimated",
+      "estimated": true,
+      "estimated_categories": [],
+      "categories": {},
+      "tool_schema_tokens": {},
+      "tool_marginal_tokens": {}
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/runnable",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/memory_path",
+     "value": "memory\\workspace.md"
+    },
+    {
+     "op": "replace",
+     "path": "/memory_content",
+     "value": "- pinned memory\n"
+    },
+    {
+     "op": "replace",
+     "path": "/log_path",
+     "value": "session-close.events"
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 1,
+      "ts": "2026-09-07T12:00:00Z",
+      "session_id": "s2",
+      "run_id": "",
+      "type": "session.created",
+      "data": {
+       "session": {
+        "agent_name": "Coder",
+        "budget": {
+         "cached_last": null,
+         "categories": {},
+         "ceiling": 24576,
+         "drift": 0,
+         "estimated": true,
+         "estimated_categories": [],
+         "mode": "estimated",
+         "n_ctx": 32768,
+         "reserve": 8192,
+         "tool_marginal_tokens": {},
+         "tool_schema_tokens": {},
+         "used_est": 0,
+         "used_measured": 0
+        },
+        "closed": false,
+        "compaction_completion_tokens": 0,
+        "compaction_count": 0,
+        "compaction_model_calls": 0,
+        "compaction_prompt_tokens": 0,
+        "compaction_token_delta": 0,
+        "connection_id": "home-api",
+        "created_at": "2026-09-07T12:00:00Z",
+        "id": "s2",
+        "label": "s2",
+        "log_path": "session-close.events",
+        "main_connection": "Home API",
+        "memory_content": "- pinned memory\n",
+        "memory_path": "memory\\workspace.md",
+        "messages": [],
+        "model_turns": 0,
+        "not_runnable_reason": "",
+        "queued_messages": 0,
+        "run": {
+         "last_stop_reason": "",
+         "max_turns": 40,
+         "partial": "",
+         "queue_position": 0,
+         "run_id": "",
+         "status": "idle",
+         "turn": 0
+        },
+        "runnable": true,
+        "tools": [
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "read_file",
+          "schema_tokens": 0
+         }
+        ],
+        "workspace": "C:\\fixture\\workspace"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s2",
+   "previous_cursor": {
+    "generation": "session-close.events",
+    "offset": 1090
+   },
+   "cursor": {
+    "generation": "session-close.events",
+    "offset": 1351
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "user",
+      "key": "message:m-1",
+      "text": "Close this session after the answer"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": [
+      {
+       "id": "m-1",
+       "role": "user",
+       "content": "Close this session after the answer",
+       "category": "history",
+       "tokens": 8,
+       "estimated": true,
+       "elided": false,
+       "turn": 0
+      }
+     ]
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 2,
+      "ts": "2026-09-07T12:01:00Z",
+      "session_id": "s2",
+      "run_id": "",
+      "type": "message.appended",
+      "data": {
+       "message": {
+        "category": "history",
+        "content": "Close this session after the answer",
+        "elided": false,
+        "estimated": true,
+        "id": "m-1",
+        "role": "user",
+        "tokens": 8,
+        "turn": 0
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s2",
+   "previous_cursor": {
+    "generation": "session-close.events",
+    "offset": 1351
+   },
+   "cursor": {
+    "generation": "session-close.events",
+    "offset": 1489
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "running",
+      "run_id": "r1",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 3,
+      "ts": "2026-09-07T12:01:01Z",
+      "session_id": "s2",
+      "run_id": "r1",
+      "type": "run.started",
+      "data": {
+       "run_id": "r1",
+       "user_message_id": "m-1"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s2",
+   "previous_cursor": {
+    "generation": "session-close.events",
+    "offset": 1489
+   },
+   "cursor": {
+    "generation": "session-close.events",
+    "offset": 1686
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "agent",
+      "key": "turn:r1:1",
+      "run_id": "r1",
+      "turn": 1,
+      "agent_role": "b"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r1:1",
+       "started_at": 1788782462000,
+       "last_chunk_at": 1788782462000,
+       "has_chunk": false,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788782462000,
+       "rate_chars": 0,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 4,
+      "ts": "2026-09-07T12:01:02Z",
+      "session_id": "s2",
+      "run_id": "r1",
+      "type": "model.request",
+      "data": {
+       "est_prompt_tokens": 100,
+       "estimated": true,
+       "message_count": 2,
+       "params": {},
+       "tool_count": 1,
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s2",
+   "previous_cursor": {
+    "generation": "session-close.events",
+    "offset": 1686
+   },
+   "cursor": {
+    "generation": "session-close.events",
+    "offset": 1984
+   },
+   "operations": [
+    {
+     "op": "upsert",
+     "path": "/chat/turn:r1:1",
+     "value": {
+      "type": "agent",
+      "key": "turn:r1:1",
+      "run_id": "r1",
+      "turn": 1,
+      "text": "Done.",
+      "done": true,
+      "agent_role": "b"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/model_turns",
+     "value": 1
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r1:1",
+       "started_at": 1788782462000,
+       "last_chunk_at": 1788782463000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788782462000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 5,
+      "ts": "2026-09-07T12:01:03Z",
+      "session_id": "s2",
+      "run_id": "r1",
+      "type": "model.response",
+      "data": {
+       "content": "Done.",
+       "finish_reason": "stop",
+       "reasoning_tokens": 0,
+       "reasoning_tokens_estimated": false,
+       "tool_calls": [],
+       "turn": 1,
+       "usage": {
+        "cached_tokens": null,
+        "completion_tokens": 2,
+        "prompt_tokens": 100
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s2",
+   "previous_cursor": {
+    "generation": "session-close.events",
+    "offset": 1984
+   },
+   "cursor": {
+    "generation": "session-close.events",
+    "offset": 2222
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": [
+      {
+       "id": "m-1",
+       "role": "user",
+       "content": "Close this session after the answer",
+       "category": "history",
+       "tokens": 8,
+       "estimated": true,
+       "elided": false,
+       "turn": 0
+      },
+      {
+       "id": "m-2",
+       "role": "assistant",
+       "content": "Done.",
+       "category": "history",
+       "tokens": 2,
+       "estimated": true,
+       "elided": false,
+       "turn": 1
+      }
+     ]
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 6,
+      "ts": "2026-09-07T12:01:04Z",
+      "session_id": "s2",
+      "run_id": "r1",
+      "type": "message.appended",
+      "data": {
+       "message": {
+        "category": "history",
+        "content": "Done.",
+        "elided": false,
+        "estimated": true,
+        "id": "m-2",
+        "role": "assistant",
+        "tokens": 2,
+        "turn": 1
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s2",
+   "previous_cursor": {
+    "generation": "session-close.events",
+    "offset": 2222
+   },
+   "cursor": {
+    "generation": "session-close.events",
+    "offset": 2399
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:7",
+      "run_id": "r1",
+      "event": {
+       "seq": 7,
+       "ts": "2026-09-07T12:01:05Z",
+       "session_id": "s2",
+       "run_id": "r1",
+       "type": "compaction",
+       "data": {
+        "after": 102,
+        "before": 102,
+        "connection_id": "aux-api",
+        "kind": "none",
+        "role": "aux"
+       }
+      },
+      "agent_role": "c"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/compaction_count",
+     "value": 1
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r1:1",
+       "started_at": 1788782462000,
+       "last_chunk_at": 1788782463000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788782462000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 1
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 7,
+      "ts": "2026-09-07T12:01:05Z",
+      "session_id": "s2",
+      "run_id": "r1",
+      "type": "compaction",
+      "data": {
+       "after": 102,
+       "before": 102,
+       "connection_id": "aux-api",
+       "kind": "none",
+       "role": "aux"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s2",
+   "previous_cursor": {
+    "generation": "session-close.events",
+    "offset": 2399
+   },
+   "cursor": {
+    "generation": "session-close.events",
+    "offset": 2551
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": "done",
+      "last_run_id": "r1"
+     }
+    },
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:8",
+      "run_id": "r1",
+      "event": {
+       "seq": 8,
+       "ts": "2026-09-07T12:01:06Z",
+       "session_id": "s2",
+       "run_id": "r1",
+       "type": "run.stopped",
+       "data": {
+        "detail": "",
+        "reason": "done",
+        "run_id": "r1",
+        "turns": 1
+       }
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "wait_user",
+      "stage_state": "enter",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r1:1",
+       "started_at": 1788782462000,
+       "last_chunk_at": 1788782463000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788782462000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 1
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 8,
+      "ts": "2026-09-07T12:01:06Z",
+      "session_id": "s2",
+      "run_id": "r1",
+      "type": "run.stopped",
+      "data": {
+       "detail": "",
+       "reason": "done",
+       "run_id": "r1",
+       "turns": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s2",
+   "previous_cursor": {
+    "generation": "session-close.events",
+    "offset": 2551
+   },
+   "cursor": {
+    "generation": "session-close.events",
+    "offset": 2670
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/closed",
+     "value": true
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 9,
+      "ts": "2026-09-07T12:02:00Z",
+      "session_id": "s2",
+      "run_id": "",
+      "type": "session.closed",
+      "data": {
+       "session_id": "s2"
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "records": 9,
+  "patches": 9,
+  "empty_patches": 0
+ }
+}

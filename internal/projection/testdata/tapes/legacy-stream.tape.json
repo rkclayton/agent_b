@@ -1,0 +1,3613 @@
+{
+ "source": "legacy-stream",
+ "session": "main",
+ "start": {
+  "schema_version": 1,
+  "cursor": {
+   "generation": "",
+   "offset": 0
+  },
+  "complete": false,
+  "id": "main",
+  "label": "main",
+  "agent_id": "",
+  "connection_id": "",
+  "agent_name": "",
+  "b_connection": "",
+  "role": "",
+  "created_at": "",
+  "workspace": "",
+  "workspace_dir": "",
+  "workspace_missing": false,
+  "project_content": "",
+  "project_files": null,
+  "project_notes": null,
+  "run": {
+   "status": "idle",
+   "run_id": "",
+   "turn": 0,
+   "max_turns": 0,
+   "queue_position": 0,
+   "partial": "",
+   "last_stop_reason": ""
+  },
+  "tools": [],
+  "messages": [],
+  "budget": {
+   "n_ctx": 0,
+   "reserve": 0,
+   "ceiling": 0,
+   "used_est": 0,
+   "used_measured": 0,
+   "drift": 0,
+   "cached_last": null,
+   "mode": "",
+   "estimated": false,
+   "estimated_categories": null,
+   "categories": null,
+   "tool_schema_tokens": null,
+   "tool_marginal_tokens": null
+  },
+  "queued_messages": 0,
+  "runnable": false,
+  "not_runnable_reason": "",
+  "memory_path": "",
+  "memory_content": "",
+  "agent_memory_path": "",
+  "agent_memory_content": "",
+  "log_path": "",
+  "model_turns": 0,
+  "compaction_count": 0,
+  "compaction_token_delta": 0,
+  "compaction_model_calls": 0,
+  "compaction_prompt_tokens": 0,
+  "compaction_completion_tokens": 0,
+  "activity": {
+   "stage": "",
+   "stage_state": "",
+   "completed_stages": [],
+   "active_tool": "",
+   "alarm_tool": "",
+   "dispatch_alarm": false,
+   "compaction_serial": 0
+  },
+  "timeline": [],
+  "chat": [],
+  "closed": false
+ },
+ "patches": [
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "",
+    "offset": 0
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 1324
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/complete",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/label",
+     "value": "\u003cr:0d6e4079e367:4\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/connection_id",
+     "value": "local"
+    },
+    {
+     "op": "replace",
+     "path": "/role",
+     "value": "b"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace",
+     "value": "\u003cr:4f686fac013c:28\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace_dir",
+     "value": "\u003cr:4f686fac013c:28\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/tools",
+     "value": [
+      {
+       "name": "read_file",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "list_dir",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "write_file",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "edit_file",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "grep",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "shell",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "remember",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "glob",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/budget",
+     "value": {
+      "n_ctx": 0,
+      "reserve": 10240,
+      "ceiling": 0,
+      "used_est": 0,
+      "used_measured": 0,
+      "drift": 0,
+      "cached_last": null,
+      "mode": "estimated",
+      "estimated": true,
+      "estimated_categories": [],
+      "categories": {
+       "files": 0,
+       "history": 0,
+       "memory": 0,
+       "results": 0,
+       "summary": 0,
+       "system": 0,
+       "tools": 0
+      },
+      "tool_schema_tokens": null,
+      "tool_marginal_tokens": null
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/not_runnable_reason",
+     "value": "\u003cr:ee027d788ea7:33\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/memory_path",
+     "value": "\u003cr:09b2f6d4b415:28\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/log_path",
+     "value": "\u003cr:511b10e8f93f:36\u003e"
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 1,
+      "ts": "1970-01-01T00:00:00Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "session.created",
+      "data": {
+       "session": {
+        "budget": {
+         "cached_last": null,
+         "categories": {
+          "files": 0,
+          "history": 0,
+          "memory": 0,
+          "results": 0,
+          "summary": 0,
+          "system": 0,
+          "tools": 0
+         },
+         "ceiling": 0,
+         "drift": 0,
+         "estimated": true,
+         "estimated_categories": [],
+         "mode": "estimated",
+         "n_ctx": 0,
+         "reserve": 10240,
+         "used_est": 0,
+         "used_measured": 0
+        },
+        "id": "main",
+        "label": "\u003cr:0d6e4079e367:4\u003e",
+        "log_path": "\u003cr:511b10e8f93f:36\u003e",
+        "memory_content": "",
+        "memory_path": "\u003cr:09b2f6d4b415:28\u003e",
+        "messages": [],
+        "not_runnable_reason": "\u003cr:ee027d788ea7:33\u003e",
+        "queued_messages": 0,
+        "run": {
+         "max_turns": 40,
+         "partial": "",
+         "queue_position": 0,
+         "run_id": "",
+         "status": "idle",
+         "turn": 0
+        },
+        "runnable": false,
+        "server_id": "local",
+        "timeline": null,
+        "tools": [
+         {
+          "calls": 0,
+          "enabled": true,
+          "name": "read_file",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "name": "list_dir",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "name": "write_file",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "name": "edit_file",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "name": "grep",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "name": "shell",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "name": "remember",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "name": "glob",
+          "schema_tokens": 0
+         }
+        ],
+        "workspace": "\u003cr:4f686fac013c:28\u003e"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 1324
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 1742
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/budget",
+     "value": {
+      "n_ctx": 0,
+      "reserve": 10240,
+      "ceiling": 0,
+      "used_est": 1081,
+      "used_measured": 0,
+      "drift": 0,
+      "cached_last": null,
+      "mode": "estimated",
+      "estimated": true,
+      "estimated_categories": [
+       "system",
+       "memory",
+       "tools",
+       "history",
+       "files",
+       "results",
+       "summary"
+      ],
+      "categories": {
+       "files": 0,
+       "history": 0,
+       "memory": 0,
+       "results": 0,
+       "summary": 0,
+       "system": 223,
+       "tools": 858
+      },
+      "tool_schema_tokens": null,
+      "tool_marginal_tokens": null
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 2,
+      "ts": "1970-01-01T00:00:00Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "budget",
+      "data": {
+       "cached_last": null,
+       "categories": {
+        "files": 0,
+        "history": 0,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 223,
+        "tools": 858
+       },
+       "ceiling": 0,
+       "drift": 0,
+       "estimated": true,
+       "estimated_categories": [
+        "system",
+        "memory",
+        "tools",
+        "history",
+        "files",
+        "results",
+        "summary"
+       ],
+       "mode": "estimated",
+       "n_ctx": 0,
+       "reserve": 10240,
+       "used_est": 1081,
+       "used_measured": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 1742
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 2164
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 5,
+      "ts": "1970-01-01T00:00:24.779Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "budget",
+      "data": {
+       "cached_last": null,
+       "categories": {
+        "files": 0,
+        "history": 0,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 223,
+        "tools": 858
+       },
+       "ceiling": 0,
+       "drift": 0,
+       "estimated": true,
+       "estimated_categories": [
+        "system",
+        "memory",
+        "tools",
+        "history",
+        "files",
+        "results",
+        "summary"
+       ],
+       "mode": "estimated",
+       "n_ctx": 0,
+       "reserve": 10240,
+       "used_est": 1081,
+       "used_measured": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 2164
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 2420
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/connection_id",
+     "value": "homepc"
+    },
+    {
+     "op": "replace",
+     "path": "/runnable",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/not_runnable_reason",
+     "value": ""
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 7,
+      "ts": "1970-01-01T00:01:08.092Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "session.updated",
+      "data": {
+       "memory_content": "",
+       "memory_path": "\u003cr:09b2f6d4b415:28\u003e",
+       "not_runnable_reason": "",
+       "runnable": true,
+       "server_id": "homepc",
+       "session_id": "main"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 2420
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 2783
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/budget",
+     "value": {
+      "n_ctx": 32768,
+      "reserve": 8192,
+      "ceiling": 24576,
+      "used_est": 1174,
+      "used_measured": 0,
+      "drift": 0,
+      "cached_last": null,
+      "mode": "exact",
+      "estimated": false,
+      "estimated_categories": [],
+      "categories": {
+       "files": 0,
+       "history": 0,
+       "memory": 0,
+       "results": 0,
+       "summary": 0,
+       "system": 197,
+       "tools": 977
+      },
+      "tool_schema_tokens": null,
+      "tool_marginal_tokens": null
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 8,
+      "ts": "1970-01-01T00:01:08.417Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "budget",
+      "data": {
+       "cached_last": null,
+       "categories": {
+        "files": 0,
+        "history": 0,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 197,
+        "tools": 977
+       },
+       "ceiling": 24576,
+       "drift": 0,
+       "estimated": false,
+       "estimated_categories": [],
+       "mode": "exact",
+       "n_ctx": 32768,
+       "reserve": 8192,
+       "used_est": 1174,
+       "used_measured": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 2783
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 3046
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "user",
+      "key": "message:m-1",
+      "text": "\u003cr:ddb55e93c841:51\u003e"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": [
+      {
+       "id": "m-1",
+       "role": "user",
+       "content": "\u003cr:ddb55e93c841:51\u003e",
+       "category": "history",
+       "tokens": 11,
+       "estimated": false,
+       "elided": false,
+       "turn": 0
+      }
+     ]
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 9,
+      "ts": "1970-01-01T00:01:17.363Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "message.appended",
+      "data": {
+       "message": {
+        "category": "history",
+        "content": "\u003cr:ddb55e93c841:51\u003e",
+        "elided": false,
+        "estimated": false,
+        "id": "m-1",
+        "role": "user",
+        "tokens": 11,
+        "turn": 0
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 3046
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 3191
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "running",
+      "run_id": "r1",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 10,
+      "ts": "1970-01-01T00:01:17.363Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "run.started",
+      "data": {
+       "run_id": "r1",
+       "user_message_id": "m-1"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 3191
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 3343
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "running",
+      "run_id": "r1",
+      "turn": 1,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "assemble",
+      "stage_state": "enter",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 11,
+      "ts": "1970-01-01T00:01:17.363Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "stage",
+      "data": {
+       "ms": 0,
+       "stage": "assemble",
+       "state": "enter",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 3343
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 3710
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/budget",
+     "value": {
+      "n_ctx": 32768,
+      "reserve": 8192,
+      "ceiling": 24576,
+      "used_est": 1190,
+      "used_measured": 0,
+      "drift": 0,
+      "cached_last": null,
+      "mode": "exact",
+      "estimated": false,
+      "estimated_categories": [],
+      "categories": {
+       "files": 0,
+       "history": 16,
+       "memory": 0,
+       "results": 0,
+       "summary": 0,
+       "system": 197,
+       "tools": 977
+      },
+      "tool_schema_tokens": null,
+      "tool_marginal_tokens": null
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 12,
+      "ts": "1970-01-01T00:01:17.717Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "budget",
+      "data": {
+       "cached_last": null,
+       "categories": {
+        "files": 0,
+        "history": 16,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 197,
+        "tools": 977
+       },
+       "ceiling": 24576,
+       "drift": 0,
+       "estimated": false,
+       "estimated_categories": [],
+       "mode": "exact",
+       "n_ctx": 32768,
+       "reserve": 8192,
+       "used_est": 1190,
+       "used_measured": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 3710
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 3863
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "assemble",
+      "stage_state": "exit",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 13,
+      "ts": "1970-01-01T00:01:17.717Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "stage",
+      "data": {
+       "ms": 353,
+       "stage": "assemble",
+       "state": "exit",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 3863
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 4306
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "agent",
+      "key": "turn:r1:1",
+      "run_id": "r1",
+      "turn": 1,
+      "agent_role": "b"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "assemble",
+      "stage_state": "exit",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 77717,
+       "has_chunk": false,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 77717,
+       "rate_chars": 0,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 14,
+      "ts": "1970-01-01T00:01:17.717Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.request",
+      "data": {
+       "est_prompt_tokens": 1190,
+       "estimated": false,
+       "message_count": 2,
+       "params": {
+        "max_tokens": 8192,
+        "min_p": 0,
+        "presence_penalty": 0,
+        "reasoning": {
+         "control": "\u003cr:b8003c8ac89c:20\u003e",
+         "effort": "\u003cr:c082456a7766:6\u003e",
+         "enabled": true,
+         "preserve": false
+        },
+        "repeat_penalty": 1,
+        "temperature": 0.6,
+        "top_k": 20,
+        "top_p": 0.95
+       },
+       "tool_count": 8,
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 4306
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 4460
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 77717,
+       "has_chunk": false,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 77717,
+       "rate_chars": 0,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 15,
+      "ts": "1970-01-01T00:01:17.717Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "stage",
+      "data": {
+       "ms": 0,
+       "stage": "call_model",
+       "state": "enter",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 4460
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 4620
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 697,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78009,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 77717,
+       "rate_chars": 0,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 16,
+      "ts": "1970-01-01T00:01:18.009Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.progress",
+      "data": {
+       "cache": 697,
+       "processed": 697,
+       "total": 1190,
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 4620
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 4781
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1169,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78483,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 77717,
+       "rate_chars": 0,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 17,
+      "ts": "1970-01-01T00:01:18.483Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.progress",
+      "data": {
+       "cache": 697,
+       "processed": 1169,
+       "total": 1190,
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 4781
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 4942
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1186,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78651,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 77717,
+       "rate_chars": 0,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 18,
+      "ts": "1970-01-01T00:01:18.651Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.progress",
+      "data": {
+       "cache": 697,
+       "processed": 1186,
+       "total": 1190,
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 4942
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 5103
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78727,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 77717,
+       "rate_chars": 0,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 19,
+      "ts": "1970-01-01T00:01:18.727Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.progress",
+      "data": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 5103
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 5286
+   },
+   "operations": [
+    {
+     "op": "upsert",
+     "path": "/chat/turn:r1:1",
+     "value": {
+      "type": "agent",
+      "key": "turn:r1:1",
+      "run_id": "r1",
+      "turn": 1,
+      "reasoning": "\u003cr:b344d80e24a3:3\u003e",
+      "thinkingStartedMS": 78727,
+      "agent_role": "b"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78727,
+       "has_chunk": true,
+       "reasoning_chars": 18,
+       "total_chars": 18,
+       "rate": 5,
+       "rate_started_at": 77717,
+       "rate_chars": 18,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 20,
+      "ts": "1970-01-01T00:01:18.727Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:b344d80e24a3:3\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 5286
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 5469
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:163576924d6f:5\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78757,
+       "has_chunk": true,
+       "reasoning_chars": 36,
+       "total_chars": 36,
+       "rate": 10,
+       "rate_started_at": 77717,
+       "rate_chars": 36,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 21,
+      "ts": "1970-01-01T00:01:18.757Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:163576924d6f:5\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 5469
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 5652
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:a8bdfde11f24:3\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78784,
+       "has_chunk": true,
+       "reasoning_chars": 54,
+       "total_chars": 54,
+       "rate": 14,
+       "rate_started_at": 77717,
+       "rate_chars": 54,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 22,
+      "ts": "1970-01-01T00:01:18.784Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:a8bdfde11f24:3\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 5652
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 5834
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:5a9d31cb3770:7\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78810,
+       "has_chunk": true,
+       "reasoning_chars": 72,
+       "total_chars": 72,
+       "rate": 18,
+       "rate_started_at": 77717,
+       "rate_chars": 72,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 23,
+      "ts": "1970-01-01T00:01:18.81Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:5a9d31cb3770:7\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 5834
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 6017
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:84d0f765cd51:3\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78826,
+       "has_chunk": true,
+       "reasoning_chars": 90,
+       "total_chars": 90,
+       "rate": 23,
+       "rate_started_at": 77717,
+       "rate_chars": 90,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 24,
+      "ts": "1970-01-01T00:01:18.826Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:84d0f765cd51:3\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 6017
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 6200
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:9c18bef61226:6\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78853,
+       "has_chunk": true,
+       "reasoning_chars": 108,
+       "total_chars": 108,
+       "rate": 26,
+       "rate_started_at": 77717,
+       "rate_chars": 108,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 25,
+      "ts": "1970-01-01T00:01:18.853Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:9c18bef61226:6\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 6200
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 6383
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:6a413b577539:5\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78862,
+       "has_chunk": true,
+       "reasoning_chars": 126,
+       "total_chars": 126,
+       "rate": 31,
+       "rate_started_at": 77717,
+       "rate_chars": 126,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 26,
+      "ts": "1970-01-01T00:01:18.862Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:6a413b577539:5\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 6383
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 6566
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:0c2e4902423d:2\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78884,
+       "has_chunk": true,
+       "reasoning_chars": 144,
+       "total_chars": 144,
+       "rate": 34,
+       "rate_started_at": 77717,
+       "rate_chars": 144,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 27,
+      "ts": "1970-01-01T00:01:18.884Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:0c2e4902423d:2\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 6566
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 6749
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:c2e3ac47f4a3:5\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78911,
+       "has_chunk": true,
+       "reasoning_chars": 162,
+       "total_chars": 162,
+       "rate": 38,
+       "rate_started_at": 77717,
+       "rate_chars": 162,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 28,
+      "ts": "1970-01-01T00:01:18.911Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:c2e3ac47f4a3:5\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 6749
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 6932
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:8a331fdde703:1\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78932,
+       "has_chunk": true,
+       "reasoning_chars": 180,
+       "total_chars": 180,
+       "rate": 41,
+       "rate_started_at": 77717,
+       "rate_chars": 180,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 29,
+      "ts": "1970-01-01T00:01:18.932Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:8a331fdde703:1\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 6932
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 7115
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:2e5f769687c7:4\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78949,
+       "has_chunk": true,
+       "reasoning_chars": 198,
+       "total_chars": 198,
+       "rate": 45,
+       "rate_started_at": 77717,
+       "rate_chars": 198,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 30,
+      "ts": "1970-01-01T00:01:18.949Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:2e5f769687c7:4\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 7115
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 7298
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:46d449bd377a:4\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78971,
+       "has_chunk": true,
+       "reasoning_chars": 216,
+       "total_chars": 216,
+       "rate": 48,
+       "rate_started_at": 77717,
+       "rate_chars": 216,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 31,
+      "ts": "1970-01-01T00:01:18.971Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:46d449bd377a:4\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 7298
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 7481
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:c71427b5867d:5\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 78993,
+       "has_chunk": true,
+       "reasoning_chars": 234,
+       "total_chars": 234,
+       "rate": 51,
+       "rate_started_at": 77717,
+       "rate_chars": 234,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 32,
+      "ts": "1970-01-01T00:01:18.993Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:c71427b5867d:5\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 7481
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 7664
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:163f704c54dd:4\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 79008,
+       "has_chunk": true,
+       "reasoning_chars": 252,
+       "total_chars": 252,
+       "rate": 54,
+       "rate_started_at": 77717,
+       "rate_chars": 252,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 33,
+      "ts": "1970-01-01T00:01:19.008Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:163f704c54dd:4\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 7664
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 7847
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:b3842f35c7fd:6\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 79028,
+       "has_chunk": true,
+       "reasoning_chars": 270,
+       "total_chars": 270,
+       "rate": 57,
+       "rate_started_at": 77717,
+       "rate_chars": 270,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 34,
+      "ts": "1970-01-01T00:01:19.028Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:b3842f35c7fd:6\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 7847
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 8030
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:cdb4ee2aea69:1\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 79049,
+       "has_chunk": true,
+       "reasoning_chars": 288,
+       "total_chars": 288,
+       "rate": 60,
+       "rate_started_at": 77717,
+       "rate_chars": 288,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 35,
+      "ts": "1970-01-01T00:01:19.049Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:cdb4ee2aea69:1\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 8030
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 8213
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat/turn:r1:1/reasoning",
+     "value": "\u003cr:01ba4719c80b:1\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 79067,
+       "has_chunk": true,
+       "reasoning_chars": 306,
+       "total_chars": 306,
+       "rate": 63,
+       "rate_started_at": 77717,
+       "rate_chars": 306,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 36,
+      "ts": "1970-01-01T00:01:19.067Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "reasoning",
+       "text": "\u003cr:01ba4719c80b:1\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 8213
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 8394
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/run/partial",
+     "value": "\u003cr:c2e3ac47f4a3:5\u003e"
+    },
+    {
+     "op": "upsert",
+     "path": "/chat/turn:r1:1",
+     "value": {
+      "type": "agent",
+      "key": "turn:r1:1",
+      "run_id": "r1",
+      "turn": 1,
+      "text": "\u003cr:c2e3ac47f4a3:5\u003e",
+      "reasoning": "\u003cr:b344d80e24a3:3\u003e\u003cr:163576924d6f:5\u003e\u003cr:a8bdfde11f24:3\u003e\u003cr:5a9d31cb3770:7\u003e\u003cr:84d0f765cd51:3\u003e\u003cr:9c18bef61226:6\u003e\u003cr:6a413b577539:5\u003e\u003cr:0c2e4902423d:2\u003e\u003cr:c2e3ac47f4a3:5\u003e\u003cr:8a331fdde703:1\u003e\u003cr:2e5f769687c7:4\u003e\u003cr:46d449bd377a:4\u003e\u003cr:c71427b5867d:5\u003e\u003cr:163f704c54dd:4\u003e\u003cr:b3842f35c7fd:6\u003e\u003cr:cdb4ee2aea69:1\u003e\u003cr:01ba4719c80b:1\u003e",
+      "thinkingStartedMS": 78727,
+      "thinkingEndedMS": 79131,
+      "agent_role": "b"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 79131,
+       "has_chunk": true,
+       "reasoning_chars": 306,
+       "total_chars": 324,
+       "rate": 64,
+       "rate_started_at": 77717,
+       "rate_chars": 324,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 37,
+      "ts": "1970-01-01T00:01:19.131Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "model.delta",
+      "data": {
+       "index": 0,
+       "kind": "content",
+       "text": "\u003cr:c2e3ac47f4a3:5\u003e",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 8394
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 8550
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "exit",
+      "completed_stages": [
+       "assemble",
+       "call_model"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 79131,
+       "has_chunk": true,
+       "reasoning_chars": 306,
+       "total_chars": 324,
+       "rate": 64,
+       "rate_started_at": 77717,
+       "rate_chars": 324,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 38,
+      "ts": "1970-01-01T00:01:19.151Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "stage",
+      "data": {
+       "ms": 1433,
+       "stage": "call_model",
+       "state": "exit",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 8550
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 9144
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "running",
+      "run_id": "r1",
+      "turn": 1,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "upsert",
+     "path": "/chat/turn:r1:1",
+     "value": {
+      "type": "agent",
+      "key": "turn:r1:1",
+      "run_id": "r1",
+      "turn": 1,
+      "text": "\u003cr:c2e3ac47f4a3:5\u003e",
+      "reasoning": "\u003cr:b344d80e24a3:3\u003e\u003cr:163576924d6f:5\u003e\u003cr:a8bdfde11f24:3\u003e\u003cr:5a9d31cb3770:7\u003e\u003cr:84d0f765cd51:3\u003e\u003cr:9c18bef61226:6\u003e\u003cr:6a413b577539:5\u003e\u003cr:0c2e4902423d:2\u003e\u003cr:c2e3ac47f4a3:5\u003e\u003cr:8a331fdde703:1\u003e\u003cr:2e5f769687c7:4\u003e\u003cr:46d449bd377a:4\u003e\u003cr:c71427b5867d:5\u003e\u003cr:163f704c54dd:4\u003e\u003cr:b3842f35c7fd:6\u003e\u003cr:cdb4ee2aea69:1\u003e\u003cr:01ba4719c80b:1\u003e",
+      "reasoningTokens": 17,
+      "thinkingStartedMS": 78727,
+      "thinkingEndedMS": 79131,
+      "thinkingMS": 404,
+      "done": true,
+      "agent_role": "b"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/model_turns",
+     "value": 1
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "call_model",
+      "stage_state": "exit",
+      "completed_stages": [
+       "assemble",
+       "call_model"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "last_timings": {
+       "cache_n": 697,
+       "predicted_ms": 418.141,
+       "predicted_n": 21,
+       "predicted_per_second": 47.830755654193204,
+       "predicted_per_token_ms": 20.90705,
+       "prompt_ms": 837.636,
+       "prompt_n": 493,
+       "prompt_per_second": 588.5611411161889,
+       "prompt_per_token_ms": 1.6990588235294117
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 79168,
+       "has_chunk": true,
+       "reasoning_chars": 306,
+       "total_chars": 324,
+       "rate": 64,
+       "rate_started_at": 77717,
+       "rate_chars": 324,
+       "done": true,
+       "reasoning_tokens": 17,
+       "timings": {
+        "cache_n": 697,
+        "predicted_ms": 418.141,
+        "predicted_n": 21,
+        "predicted_per_second": 47.830755654193204,
+        "predicted_per_token_ms": 20.90705,
+        "prompt_ms": 837.636,
+        "prompt_n": 493,
+        "prompt_per_second": 588.5611411161889,
+        "prompt_per_token_ms": 1.6990588235294117
+       }
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/timeline",
+     "value": [
+      {
+       "seq": 1,
+       "ts": "1970-01-01T00:00:00Z",
+       "session_id": "main",
+       "run_id": "",
+       "type": "session.created",
+       "data": {
+        "session": {
+         "budget": {
+          "cached_last": null,
+          "categories": {
+           "files": 0,
+           "history": 0,
+           "memory": 0,
+           "results": 0,
+           "summary": 0,
+           "system": 0,
+           "tools": 0
+          },
+          "ceiling": 0,
+          "drift": 0,
+          "estimated": true,
+          "estimated_categories": [],
+          "mode": "estimated",
+          "n_ctx": 0,
+          "reserve": 10240,
+          "used_est": 0,
+          "used_measured": 0
+         },
+         "id": "main",
+         "label": "\u003cr:0d6e4079e367:4\u003e",
+         "log_path": "\u003cr:511b10e8f93f:36\u003e",
+         "memory_content": "",
+         "memory_path": "\u003cr:09b2f6d4b415:28\u003e",
+         "messages": [],
+         "not_runnable_reason": "\u003cr:ee027d788ea7:33\u003e",
+         "queued_messages": 0,
+         "run": {
+          "max_turns": 40,
+          "partial": "",
+          "queue_position": 0,
+          "run_id": "",
+          "status": "idle",
+          "turn": 0
+         },
+         "runnable": false,
+         "server_id": "local",
+         "timeline": null,
+         "tools": [
+          {
+           "calls": 0,
+           "enabled": true,
+           "name": "read_file",
+           "schema_tokens": 0
+          },
+          {
+           "calls": 0,
+           "enabled": true,
+           "name": "list_dir",
+           "schema_tokens": 0
+          },
+          {
+           "calls": 0,
+           "enabled": true,
+           "name": "write_file",
+           "schema_tokens": 0
+          },
+          {
+           "calls": 0,
+           "enabled": true,
+           "name": "edit_file",
+           "schema_tokens": 0
+          },
+          {
+           "calls": 0,
+           "enabled": true,
+           "name": "grep",
+           "schema_tokens": 0
+          },
+          {
+           "calls": 0,
+           "enabled": true,
+           "name": "shell",
+           "schema_tokens": 0
+          },
+          {
+           "calls": 0,
+           "enabled": true,
+           "name": "remember",
+           "schema_tokens": 0
+          },
+          {
+           "calls": 0,
+           "enabled": true,
+           "name": "glob",
+           "schema_tokens": 0
+          }
+         ],
+         "workspace": "\u003cr:4f686fac013c:28\u003e"
+        }
+       }
+      },
+      {
+       "seq": 2,
+       "ts": "1970-01-01T00:00:00Z",
+       "session_id": "main",
+       "run_id": "",
+       "type": "budget",
+       "data": {
+        "cached_last": null,
+        "categories": {
+         "files": 0,
+         "history": 0,
+         "memory": 0,
+         "results": 0,
+         "summary": 0,
+         "system": 223,
+         "tools": 858
+        },
+        "ceiling": 0,
+        "drift": 0,
+        "estimated": true,
+        "estimated_categories": [
+         "system",
+         "memory",
+         "tools",
+         "history",
+         "files",
+         "results",
+         "summary"
+        ],
+        "mode": "estimated",
+        "n_ctx": 0,
+        "reserve": 10240,
+        "used_est": 1081,
+        "used_measured": 0
+       }
+      },
+      {
+       "seq": 5,
+       "ts": "1970-01-01T00:00:24.779Z",
+       "session_id": "main",
+       "run_id": "",
+       "type": "budget",
+       "data": {
+        "cached_last": null,
+        "categories": {
+         "files": 0,
+         "history": 0,
+         "memory": 0,
+         "results": 0,
+         "summary": 0,
+         "system": 223,
+         "tools": 858
+        },
+        "ceiling": 0,
+        "drift": 0,
+        "estimated": true,
+        "estimated_categories": [
+         "system",
+         "memory",
+         "tools",
+         "history",
+         "files",
+         "results",
+         "summary"
+        ],
+        "mode": "estimated",
+        "n_ctx": 0,
+        "reserve": 10240,
+        "used_est": 1081,
+        "used_measured": 0
+       }
+      },
+      {
+       "seq": 7,
+       "ts": "1970-01-01T00:01:08.092Z",
+       "session_id": "main",
+       "run_id": "",
+       "type": "session.updated",
+       "data": {
+        "memory_content": "",
+        "memory_path": "\u003cr:09b2f6d4b415:28\u003e",
+        "not_runnable_reason": "",
+        "runnable": true,
+        "server_id": "homepc",
+        "session_id": "main"
+       }
+      },
+      {
+       "seq": 8,
+       "ts": "1970-01-01T00:01:08.417Z",
+       "session_id": "main",
+       "run_id": "",
+       "type": "budget",
+       "data": {
+        "cached_last": null,
+        "categories": {
+         "files": 0,
+         "history": 0,
+         "memory": 0,
+         "results": 0,
+         "summary": 0,
+         "system": 197,
+         "tools": 977
+        },
+        "ceiling": 24576,
+        "drift": 0,
+        "estimated": false,
+        "estimated_categories": [],
+        "mode": "exact",
+        "n_ctx": 32768,
+        "reserve": 8192,
+        "used_est": 1174,
+        "used_measured": 0
+       }
+      },
+      {
+       "seq": 9,
+       "ts": "1970-01-01T00:01:17.363Z",
+       "session_id": "main",
+       "run_id": "",
+       "type": "message.appended",
+       "data": {
+        "message": {
+         "category": "history",
+         "content": "\u003cr:ddb55e93c841:51\u003e",
+         "elided": false,
+         "estimated": false,
+         "id": "m-1",
+         "role": "user",
+         "tokens": 11,
+         "turn": 0
+        }
+       }
+      },
+      {
+       "seq": 10,
+       "ts": "1970-01-01T00:01:17.363Z",
+       "session_id": "main",
+       "run_id": "r1",
+       "type": "run.started",
+       "data": {
+        "run_id": "r1",
+        "user_message_id": "m-1"
+       }
+      },
+      {
+       "seq": 11,
+       "ts": "1970-01-01T00:01:17.363Z",
+       "session_id": "main",
+       "run_id": "r1",
+       "type": "stage",
+       "data": {
+        "ms": 0,
+        "stage": "assemble",
+        "state": "enter",
+        "turn": 1
+       }
+      },
+      {
+       "seq": 12,
+       "ts": "1970-01-01T00:01:17.717Z",
+       "session_id": "main",
+       "run_id": "r1",
+       "type": "budget",
+       "data": {
+        "cached_last": null,
+        "categories": {
+         "files": 0,
+         "history": 16,
+         "memory": 0,
+         "results": 0,
+         "summary": 0,
+         "system": 197,
+         "tools": 977
+        },
+        "ceiling": 24576,
+        "drift": 0,
+        "estimated": false,
+        "estimated_categories": [],
+        "mode": "exact",
+        "n_ctx": 32768,
+        "reserve": 8192,
+        "used_est": 1190,
+        "used_measured": 0
+       }
+      },
+      {
+       "seq": 13,
+       "ts": "1970-01-01T00:01:17.717Z",
+       "session_id": "main",
+       "run_id": "r1",
+       "type": "stage",
+       "data": {
+        "ms": 353,
+        "stage": "assemble",
+        "state": "exit",
+        "turn": 1
+       }
+      },
+      {
+       "seq": 14,
+       "ts": "1970-01-01T00:01:17.717Z",
+       "session_id": "main",
+       "run_id": "r1",
+       "type": "model.request",
+       "data": {
+        "est_prompt_tokens": 1190,
+        "estimated": false,
+        "message_count": 2,
+        "params": {
+         "max_tokens": 8192,
+         "min_p": 0,
+         "presence_penalty": 0,
+         "reasoning": {
+          "control": "\u003cr:b8003c8ac89c:20\u003e",
+          "effort": "\u003cr:c082456a7766:6\u003e",
+          "enabled": true,
+          "preserve": false
+         },
+         "repeat_penalty": 1,
+         "temperature": 0.6,
+         "top_k": 20,
+         "top_p": 0.95
+        },
+        "tool_count": 8,
+        "turn": 1
+       }
+      },
+      {
+       "seq": 15,
+       "ts": "1970-01-01T00:01:17.717Z",
+       "session_id": "main",
+       "run_id": "r1",
+       "type": "stage",
+       "data": {
+        "ms": 0,
+        "stage": "call_model",
+        "state": "enter",
+        "turn": 1
+       }
+      },
+      {
+       "seq": 38,
+       "ts": "1970-01-01T00:01:19.151Z",
+       "session_id": "main",
+       "run_id": "r1",
+       "type": "stage",
+       "data": {
+        "ms": 1433,
+        "stage": "call_model",
+        "state": "exit",
+        "turn": 1
+       }
+      },
+      {
+       "seq": 39,
+       "ts": "1970-01-01T00:01:19.168Z",
+       "session_id": "main",
+       "run_id": "r1",
+       "type": "model.response",
+       "data": {
+        "content": "\u003cr:c2e3ac47f4a3:5\u003e",
+        "duration_ms": 1433,
+        "finish_reason": "\u003cr:6c45cb72a36e:4\u003e",
+        "reasoning_tokens": 17,
+        "timings": {
+         "cache_n": 697,
+         "predicted_ms": 418.141,
+         "predicted_n": 21,
+         "predicted_per_second": 47.830755654193204,
+         "predicted_per_token_ms": 20.90705,
+         "prompt_ms": 837.636,
+         "prompt_n": 493,
+         "prompt_per_second": 588.5611411161889,
+         "prompt_per_token_ms": 1.6990588235294117
+        },
+        "tool_calls": [],
+        "turn": 1,
+        "usage": {
+         "cached_tokens": 697,
+         "completion_tokens": 21,
+         "prompt_tokens": 1190
+        }
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 9144
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 9293
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "parse",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble",
+       "call_model"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "last_timings": {
+       "cache_n": 697,
+       "predicted_ms": 418.141,
+       "predicted_n": 21,
+       "predicted_per_second": 47.830755654193204,
+       "predicted_per_token_ms": 20.90705,
+       "prompt_ms": 837.636,
+       "prompt_n": 493,
+       "prompt_per_second": 588.5611411161889,
+       "prompt_per_token_ms": 1.6990588235294117
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 79168,
+       "has_chunk": true,
+       "reasoning_chars": 306,
+       "total_chars": 324,
+       "rate": 64,
+       "rate_started_at": 77717,
+       "rate_chars": 324,
+       "done": true,
+       "reasoning_tokens": 17,
+       "timings": {
+        "cache_n": 697,
+        "predicted_ms": 418.141,
+        "predicted_n": 21,
+        "predicted_per_second": 47.830755654193204,
+        "predicted_per_token_ms": 20.90705,
+        "prompt_ms": 837.636,
+        "prompt_n": 493,
+        "prompt_per_second": 588.5611411161889,
+        "prompt_per_token_ms": 1.6990588235294117
+       }
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 40,
+      "ts": "1970-01-01T00:01:19.169Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "stage",
+      "data": {
+       "ms": 0,
+       "stage": "parse",
+       "state": "enter",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 9293
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 9441
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "parse",
+      "stage_state": "exit",
+      "completed_stages": [
+       "assemble",
+       "call_model",
+       "parse"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "last_timings": {
+       "cache_n": 697,
+       "predicted_ms": 418.141,
+       "predicted_n": 21,
+       "predicted_per_second": 47.830755654193204,
+       "predicted_per_token_ms": 20.90705,
+       "prompt_ms": 837.636,
+       "prompt_n": 493,
+       "prompt_per_second": 588.5611411161889,
+       "prompt_per_token_ms": 1.6990588235294117
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 79168,
+       "has_chunk": true,
+       "reasoning_chars": 306,
+       "total_chars": 324,
+       "rate": 64,
+       "rate_started_at": 77717,
+       "rate_chars": 324,
+       "done": true,
+       "reasoning_tokens": 17,
+       "timings": {
+        "cache_n": 697,
+        "predicted_ms": 418.141,
+        "predicted_n": 21,
+        "predicted_per_second": 47.830755654193204,
+        "predicted_per_token_ms": 20.90705,
+        "prompt_ms": 837.636,
+        "prompt_n": 493,
+        "prompt_per_second": 588.5611411161889,
+        "prompt_per_token_ms": 1.6990588235294117
+       }
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 41,
+      "ts": "1970-01-01T00:01:19.169Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "stage",
+      "data": {
+       "ms": 0,
+       "stage": "parse",
+       "state": "exit",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 9441
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 9754
+   },
+   "operations": [
+    {
+     "op": "upsert",
+     "path": "/chat/turn:r1:1",
+     "value": {
+      "type": "agent",
+      "key": "turn:r1:1",
+      "run_id": "r1",
+      "turn": 1,
+      "text": "\u003cr:c2e3ac47f4a3:5\u003e",
+      "reasoning": "\u003cr:cd6cbefedfcd:65\u003e",
+      "reasoningTokens": 17,
+      "thinkingStartedMS": 78727,
+      "thinkingEndedMS": 79131,
+      "thinkingMS": 404,
+      "done": true,
+      "agent_role": "b"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": [
+      {
+       "id": "m-1",
+       "role": "user",
+       "content": "\u003cr:ddb55e93c841:51\u003e",
+       "category": "history",
+       "tokens": 11,
+       "estimated": false,
+       "elided": false,
+       "turn": 0
+      },
+      {
+       "id": "m-2",
+       "role": "assistant",
+       "content": "\u003cr:c2e3ac47f4a3:5\u003e",
+       "reasoning": "\u003cr:cd6cbefedfcd:65\u003e",
+       "category": "history",
+       "tokens": 1,
+       "estimated": false,
+       "elided": false,
+       "turn": 1
+      }
+     ]
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 42,
+      "ts": "1970-01-01T00:01:19.198Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "message.appended",
+      "data": {
+       "message": {
+        "category": "history",
+        "content": "\u003cr:c2e3ac47f4a3:5\u003e",
+        "elided": false,
+        "estimated": false,
+        "id": "m-2",
+        "reasoning": "\u003cr:cd6cbefedfcd:65\u003e",
+        "role": "assistant",
+        "tokens": 1,
+        "turn": 1
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 9754
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 10121
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/budget",
+     "value": {
+      "n_ctx": 32768,
+      "reserve": 8192,
+      "ceiling": 24576,
+      "used_est": 1193,
+      "used_measured": 1190,
+      "drift": 0,
+      "cached_last": 697,
+      "mode": "exact",
+      "estimated": false,
+      "estimated_categories": [],
+      "categories": {
+       "files": 0,
+       "history": 19,
+       "memory": 0,
+       "results": 0,
+       "summary": 0,
+       "system": 197,
+       "tools": 977
+      },
+      "tool_schema_tokens": null,
+      "tool_marginal_tokens": null
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 43,
+      "ts": "1970-01-01T00:01:19.575Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "budget",
+      "data": {
+       "cached_last": 697,
+       "categories": {
+        "files": 0,
+        "history": 19,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 197,
+        "tools": 977
+       },
+       "ceiling": 24576,
+       "drift": 0,
+       "estimated": false,
+       "estimated_categories": [],
+       "mode": "exact",
+       "n_ctx": 32768,
+       "reserve": 8192,
+       "used_est": 1193,
+       "used_measured": 1190
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 10121
+   },
+   "cursor": {
+    "generation": "legacy-stream.events",
+    "offset": 10280
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": "done",
+      "last_run_id": "r1"
+     }
+    },
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:44",
+      "run_id": "r1",
+      "event": {
+       "seq": 44,
+       "ts": "1970-01-01T00:01:19.576Z",
+       "session_id": "main",
+       "run_id": "r1",
+       "type": "run.stopped",
+       "data": {
+        "detail": "",
+        "reason": "done",
+        "run_id": "r1",
+        "turns": 1
+       }
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "wait_user",
+      "stage_state": "enter",
+      "completed_stages": [
+       "assemble",
+       "call_model",
+       "parse"
+      ],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "progress": {
+       "cache": 697,
+       "processed": 1190,
+       "total": 1190,
+       "turn": 1
+      },
+      "last_timings": {
+       "cache_n": 697,
+       "predicted_ms": 418.141,
+       "predicted_n": 21,
+       "predicted_per_second": 47.830755654193204,
+       "predicted_per_token_ms": 20.90705,
+       "prompt_ms": 837.636,
+       "prompt_n": 493,
+       "prompt_per_second": 588.5611411161889,
+       "prompt_per_token_ms": 1.6990588235294117
+      },
+      "stream": {
+       "key": "r1:1",
+       "started_at": 77717,
+       "last_chunk_at": 79168,
+       "has_chunk": true,
+       "reasoning_chars": 306,
+       "total_chars": 324,
+       "rate": 64,
+       "rate_started_at": 77717,
+       "rate_chars": 324,
+       "done": true,
+       "reasoning_tokens": 17,
+       "timings": {
+        "cache_n": 697,
+        "predicted_ms": 418.141,
+        "predicted_n": 21,
+        "predicted_per_second": 47.830755654193204,
+        "predicted_per_token_ms": 20.90705,
+        "prompt_ms": 837.636,
+        "prompt_n": 493,
+        "prompt_per_second": 588.5611411161889,
+        "prompt_per_token_ms": 1.6990588235294117
+       }
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 44,
+      "ts": "1970-01-01T00:01:19.576Z",
+      "session_id": "main",
+      "run_id": "r1",
+      "type": "run.stopped",
+      "data": {
+       "detail": "",
+       "reason": "done",
+       "run_id": "r1",
+       "turns": 1
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "records": 41,
+  "patches": 41,
+  "empty_patches": 0
+ }
+}

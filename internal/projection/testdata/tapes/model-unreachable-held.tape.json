@@ -1,0 +1,625 @@
+{
+ "source": "model-unreachable-held",
+ "session": "model-held",
+ "start": {
+  "schema_version": 1,
+  "cursor": {
+   "generation": "",
+   "offset": 0
+  },
+  "complete": false,
+  "id": "model-held",
+  "label": "model-held",
+  "agent_id": "",
+  "connection_id": "",
+  "agent_name": "",
+  "b_connection": "",
+  "role": "",
+  "created_at": "",
+  "workspace": "",
+  "workspace_dir": "",
+  "workspace_missing": false,
+  "project_content": "",
+  "project_files": null,
+  "project_notes": null,
+  "run": {
+   "status": "idle",
+   "run_id": "",
+   "turn": 0,
+   "max_turns": 0,
+   "queue_position": 0,
+   "partial": "",
+   "last_stop_reason": ""
+  },
+  "tools": [],
+  "messages": [],
+  "budget": {
+   "n_ctx": 0,
+   "reserve": 0,
+   "ceiling": 0,
+   "used_est": 0,
+   "used_measured": 0,
+   "drift": 0,
+   "cached_last": null,
+   "mode": "",
+   "estimated": false,
+   "estimated_categories": null,
+   "categories": null,
+   "tool_schema_tokens": null,
+   "tool_marginal_tokens": null
+  },
+  "queued_messages": 0,
+  "runnable": false,
+  "not_runnable_reason": "",
+  "memory_path": "",
+  "memory_content": "",
+  "agent_memory_path": "",
+  "agent_memory_content": "",
+  "log_path": "",
+  "model_turns": 0,
+  "compaction_count": 0,
+  "compaction_token_delta": 0,
+  "compaction_model_calls": 0,
+  "compaction_prompt_tokens": 0,
+  "compaction_completion_tokens": 0,
+  "activity": {
+   "stage": "",
+   "stage_state": "",
+   "completed_stages": [],
+   "active_tool": "",
+   "alarm_tool": "",
+   "dispatch_alarm": false,
+   "compaction_serial": 0
+  },
+  "timeline": [],
+  "chat": [],
+  "closed": false
+ },
+ "patches": [
+  {
+   "schema_version": 1,
+   "session_id": "model-held",
+   "previous_cursor": {
+    "generation": "",
+    "offset": 0
+   },
+   "cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 891
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/complete",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/label",
+     "value": "Unavailable model hold"
+    },
+    {
+     "op": "replace",
+     "path": "/agent_id",
+     "value": "homepc"
+    },
+    {
+     "op": "replace",
+     "path": "/connection_id",
+     "value": "home-api"
+    },
+    {
+     "op": "replace",
+     "path": "/agent_name",
+     "value": "HomePC"
+    },
+    {
+     "op": "replace",
+     "path": "/b_connection",
+     "value": "home-api"
+    },
+    {
+     "op": "replace",
+     "path": "/role",
+     "value": "b"
+    },
+    {
+     "op": "replace",
+     "path": "/created_at",
+     "value": "2026-09-07T21:00:00Z"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace_dir",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/tools",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/runnable",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/log_path",
+     "value": "model-unreachable-held.events"
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 1,
+      "ts": "2026-09-07T21:00:00Z",
+      "session_id": "model-held",
+      "run_id": "",
+      "type": "session.created",
+      "data": {
+       "session": {
+        "agent_id": "homepc",
+        "agent_memory_content": "",
+        "agent_memory_path": "",
+        "agent_name": "HomePC",
+        "b_connection": "home-api",
+        "budget": {},
+        "closed": false,
+        "compaction_completion_tokens": 0,
+        "compaction_count": 0,
+        "compaction_model_calls": 0,
+        "compaction_prompt_tokens": 0,
+        "compaction_token_delta": 0,
+        "connection_id": "home-api",
+        "created_at": "2026-09-07T21:00:00Z",
+        "id": "model-held",
+        "label": "Unavailable model hold",
+        "log_path": "model-unreachable-held.events",
+        "memory_content": "",
+        "memory_path": "",
+        "messages": [],
+        "model_turns": 0,
+        "not_runnable_reason": "",
+        "queued_messages": 0,
+        "run": {
+         "last_stop_reason": "",
+         "max_turns": 40,
+         "partial": "",
+         "queue_position": 0,
+         "run_id": "",
+         "status": "idle",
+         "turn": 0
+        },
+        "runnable": true,
+        "tools": [],
+        "workspace": "C:\\fixture\\workspace",
+        "workspace_dir": "C:\\fixture\\workspace"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "model-held",
+   "previous_cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 891
+   },
+   "cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 1036
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "running",
+      "run_id": "r1",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 2,
+      "ts": "2026-09-07T21:00:01Z",
+      "session_id": "model-held",
+      "run_id": "r1",
+      "type": "run.started",
+      "data": {
+       "run_id": "r1",
+       "user_message_id": "m1"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "model-held",
+   "previous_cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 1036
+   },
+   "cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 1198
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:3",
+      "event": {
+       "seq": 3,
+       "ts": "2026-09-07T21:00:02Z",
+       "session_id": "model-held",
+       "run_id": "",
+       "type": "message.queued",
+       "data": {
+        "message_id": "m2",
+        "position": 1,
+        "waiting_for": "model"
+       }
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/queued_messages",
+     "value": 1
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 3,
+      "ts": "2026-09-07T21:00:02Z",
+      "session_id": "model-held",
+      "run_id": "",
+      "type": "message.queued",
+      "data": {
+       "message_id": "m2",
+       "position": 1,
+       "waiting_for": "model"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "model-held",
+   "previous_cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 1198
+   },
+   "cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 1373
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/model_unreachable",
+     "value": {
+      "host": "model.example:8000",
+      "detail": "dial tcp: i/o timeout"
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 4,
+      "ts": "2026-09-07T21:00:03Z",
+      "session_id": "model-held",
+      "run_id": "r1",
+      "type": "model.unreachable",
+      "data": {
+       "detail": "dial tcp: i/o timeout",
+       "host": "model.example:8000"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "model-held",
+   "previous_cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 1373
+   },
+   "cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 1585
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "held",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 1,
+      "partial": "",
+      "last_stop_reason": "model_unreachable",
+      "last_stop_detail": "dial tcp: i/o timeout",
+      "last_run_id": "r1"
+     }
+    },
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:5",
+      "run_id": "r1",
+      "text": "model.example:8000",
+      "event": {
+       "seq": 5,
+       "ts": "2026-09-07T21:00:04Z",
+       "session_id": "model-held",
+       "run_id": "r1",
+       "type": "run.stopped",
+       "data": {
+        "detail": "dial tcp: i/o timeout",
+        "queue_held": true,
+        "reason": "model_unreachable",
+        "run_id": "r1",
+        "turns": 0
+       }
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "wait_user",
+      "stage_state": "enter",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 5,
+      "ts": "2026-09-07T21:00:04Z",
+      "session_id": "model-held",
+      "run_id": "r1",
+      "type": "run.stopped",
+      "data": {
+       "detail": "dial tcp: i/o timeout",
+       "queue_held": true,
+       "reason": "model_unreachable",
+       "run_id": "r1",
+       "turns": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "model-held",
+   "previous_cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 1585
+   },
+   "cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 1722
+   },
+   "operations": [
+    {
+     "op": "upsert",
+     "path": "/chat/event:5",
+     "value": {
+      "type": "notice",
+      "key": "event:5",
+      "run_id": "r1",
+      "text": "model.example:8000",
+      "event": {
+       "seq": 5,
+       "ts": "2026-09-07T21:00:04Z",
+       "session_id": "model-held",
+       "run_id": "r1",
+       "type": "run.stopped",
+       "data": {
+        "detail": "dial tcp: i/o timeout",
+        "queue_held": true,
+        "reason": "model_unreachable",
+        "run_id": "r1",
+        "turns": 0
+       }
+      },
+      "decision": "resolved"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/model_unreachable",
+     "value": null
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 6,
+      "ts": "2026-09-07T21:00:05Z",
+      "session_id": "model-held",
+      "run_id": "",
+      "type": "model.reachable",
+      "data": {
+       "connection_id": "home-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "model-held",
+   "previous_cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 1722
+   },
+   "cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 1867
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "running",
+      "run_id": "r2",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/queued_messages",
+     "value": 0
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 7,
+      "ts": "2026-09-07T21:00:06Z",
+      "session_id": "model-held",
+      "run_id": "r2",
+      "type": "run.started",
+      "data": {
+       "run_id": "r2",
+       "user_message_id": "m2"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "model-held",
+   "previous_cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 1867
+   },
+   "cursor": {
+    "generation": "model-unreachable-held.events",
+    "offset": 2046
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": "done",
+      "last_run_id": "r2"
+     }
+    },
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:8",
+      "run_id": "r2",
+      "event": {
+       "seq": 8,
+       "ts": "2026-09-07T21:00:07Z",
+       "session_id": "model-held",
+       "run_id": "r2",
+       "type": "run.stopped",
+       "data": {
+        "detail": "",
+        "queue_held": false,
+        "reason": "done",
+        "run_id": "r2",
+        "turns": 1
+       }
+      }
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 8,
+      "ts": "2026-09-07T21:00:07Z",
+      "session_id": "model-held",
+      "run_id": "r2",
+      "type": "run.stopped",
+      "data": {
+       "detail": "",
+       "queue_held": false,
+       "reason": "done",
+       "run_id": "r2",
+       "turns": 1
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "records": 8,
+  "patches": 8,
+  "empty_patches": 0
+ }
+}

@@ -11,6 +11,7 @@ import { attachmentChipFile, attachmentMetadata, exchangeFiles, exchangeUpload, 
 import { attachmentReadability } from "./attachment-readability.js";
 import { agentAuthor, isRunning, openSessions, sameWorkerPlan, workerApproval } from "./chat-lifecycle.js";
 import { renderSendStop } from "./stop-state.js";
+import { runTimeSentence } from "./run-summary.js";
 import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, itemFailed, responseBlocks, responseHasOnlyThoughts, responseSummary } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
@@ -361,7 +362,11 @@ function groupResponses(entries) {
     // group: an unreachable model, and a question from the worker, are the two
     // things in this thread that nobody can answer without seeing them. Item
     // 2fg: nor is a run stopped mid-tool, so the transcript shows the stop.
-    if (entry.type === "notice" && ((entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "aborted_mid_tool") || entry.event?.type === "service.identity_unavailable" || entry.event?.type === "c.job")) {
+    // Item 2ji (b): nor is a finished run's time sentence, for a different
+    // reason — it is the line that CLOSES the run, and folding it into the steps
+    // group buries it under a collapsed "Steps · 1 row", which is where my first
+    // version of this put it. The screenshot gate is what showed me.
+    if (entry.type === "notice" && ((entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "aborted_mid_tool") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "done") || entry.event?.type === "service.identity_unavailable" || entry.event?.type === "c.job")) {
       grouped.push(entry);
       response = null;
       continue;
@@ -905,7 +910,24 @@ function noticeContent(session, entry, actionable) {
 			if (data.detail) content.title = data.detail;
 		} else if (data.reason === "reply_empty_reasoning_shown" || data.reason === "reply_empty" || data.reason === "announced_action_and_stopped") {
 			content.textContent = data.detail || reason;
+		} else if (data.reason === "done") {
+			// Item 2ji (b): a run that finished shows only where its time went. "stopped:
+			// done" is not news, and this notice was hidden outright until this item gave
+			// it something to say. 2iw's rule — the reason first — governs the stops that
+			// are worth a reason.
+			content.textContent = "";
 		} else content.textContent = `stopped: ${reason}${data.detail ? ` · ${data.detail}` : ""}`;
+    // Item 2ji (b): where the time went, as a sentence, AFTER the reason — 2iw
+    // put the reason first and it stays first. A run journalled before this item
+    // carries no time and gets no sentence rather than a row of zeros.
+    const summary = runTimeSentence(data);
+    if (summary.text) {
+      const line = document.createElement("div");
+      line.className = "chat-run-time";
+      line.textContent = summary.text;
+      if (summary.title) line.title = summary.title;
+      content.append(line);
+    }
     if (data.reason !== "done") content.classList.add("alarm");
   } else if (event.type === "c.job") {
     content.textContent = data.question || "the worker asked a question";

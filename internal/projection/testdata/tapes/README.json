@@ -1,0 +1,9 @@
+{
+ "emitted": 20,
+ "max_records": 1000,
+ "note": "Emitted by tools/projection-tape from committed projector pins. Each tape is a starting snapshot and the patches that followed, in order, exactly as the wire carried them.",
+ "skipped": [
+  "known-good-live (2828 records)",
+  "recursive-compaction (12699 records)"
+ ]
+}

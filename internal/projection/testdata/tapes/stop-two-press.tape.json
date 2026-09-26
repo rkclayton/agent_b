@@ -1,0 +1,533 @@
+{
+ "source": "stop-two-press",
+ "session": "stop-two",
+ "start": {
+  "schema_version": 1,
+  "cursor": {
+   "generation": "",
+   "offset": 0
+  },
+  "complete": false,
+  "id": "stop-two",
+  "label": "stop-two",
+  "agent_id": "",
+  "connection_id": "",
+  "agent_name": "",
+  "b_connection": "",
+  "role": "",
+  "created_at": "",
+  "workspace": "",
+  "workspace_dir": "",
+  "workspace_missing": false,
+  "project_content": "",
+  "project_files": null,
+  "project_notes": null,
+  "run": {
+   "status": "idle",
+   "run_id": "",
+   "turn": 0,
+   "max_turns": 0,
+   "queue_position": 0,
+   "partial": "",
+   "last_stop_reason": ""
+  },
+  "tools": [],
+  "messages": [],
+  "budget": {
+   "n_ctx": 0,
+   "reserve": 0,
+   "ceiling": 0,
+   "used_est": 0,
+   "used_measured": 0,
+   "drift": 0,
+   "cached_last": null,
+   "mode": "",
+   "estimated": false,
+   "estimated_categories": null,
+   "categories": null,
+   "tool_schema_tokens": null,
+   "tool_marginal_tokens": null
+  },
+  "queued_messages": 0,
+  "runnable": false,
+  "not_runnable_reason": "",
+  "memory_path": "",
+  "memory_content": "",
+  "agent_memory_path": "",
+  "agent_memory_content": "",
+  "log_path": "",
+  "model_turns": 0,
+  "compaction_count": 0,
+  "compaction_token_delta": 0,
+  "compaction_model_calls": 0,
+  "compaction_prompt_tokens": 0,
+  "compaction_completion_tokens": 0,
+  "activity": {
+   "stage": "",
+   "stage_state": "",
+   "completed_stages": [],
+   "active_tool": "",
+   "alarm_tool": "",
+   "dispatch_alarm": false,
+   "compaction_serial": 0
+  },
+  "timeline": [],
+  "chat": [],
+  "closed": false
+ },
+ "patches": [
+  {
+   "schema_version": 1,
+   "session_id": "stop-two",
+   "previous_cursor": {
+    "generation": "",
+    "offset": 0
+   },
+   "cursor": {
+    "generation": "stop-two-press.events",
+    "offset": 948
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/complete",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/label",
+     "value": "Two press stop"
+    },
+    {
+     "op": "replace",
+     "path": "/agent_id",
+     "value": "homepc"
+    },
+    {
+     "op": "replace",
+     "path": "/connection_id",
+     "value": "home-api"
+    },
+    {
+     "op": "replace",
+     "path": "/agent_name",
+     "value": "HomePC"
+    },
+    {
+     "op": "replace",
+     "path": "/b_connection",
+     "value": "HomePC"
+    },
+    {
+     "op": "replace",
+     "path": "/role",
+     "value": "b"
+    },
+    {
+     "op": "replace",
+     "path": "/created_at",
+     "value": "2026-09-07T18:50:00Z"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace_dir",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/tools",
+     "value": [
+      {
+       "name": "shell",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/runnable",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/log_path",
+     "value": "stop-two-press.events"
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 1,
+      "ts": "2026-09-07T18:50:00Z",
+      "session_id": "stop-two",
+      "run_id": "",
+      "type": "session.created",
+      "data": {
+       "session": {
+        "agent_id": "homepc",
+        "agent_memory_content": "",
+        "agent_memory_path": "",
+        "agent_name": "HomePC",
+        "b_connection": "HomePC",
+        "budget": {},
+        "closed": false,
+        "compaction_completion_tokens": 0,
+        "compaction_count": 0,
+        "compaction_model_calls": 0,
+        "compaction_prompt_tokens": 0,
+        "compaction_token_delta": 0,
+        "connection_id": "home-api",
+        "created_at": "2026-09-07T18:50:00Z",
+        "id": "stop-two",
+        "label": "Two press stop",
+        "log_path": "stop-two-press.events",
+        "memory_content": "",
+        "memory_path": "",
+        "messages": [],
+        "model_turns": 0,
+        "not_runnable_reason": "",
+        "queued_messages": 0,
+        "run": {
+         "last_stop_reason": "",
+         "max_turns": 40,
+         "partial": "",
+         "queue_position": 0,
+         "run_id": "",
+         "status": "idle",
+         "turn": 0
+        },
+        "runnable": true,
+        "tools": [
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "shell",
+          "schema_tokens": 0
+         }
+        ],
+        "workspace": "C:\\fixture\\workspace",
+        "workspace_dir": "C:\\fixture\\workspace"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "stop-two",
+   "previous_cursor": {
+    "generation": "stop-two-press.events",
+    "offset": 948
+   },
+   "cursor": {
+    "generation": "stop-two-press.events",
+    "offset": 1091
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "running",
+      "run_id": "r1",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 2,
+      "ts": "2026-09-07T18:50:01Z",
+      "session_id": "stop-two",
+      "run_id": "r1",
+      "type": "run.started",
+      "data": {
+       "run_id": "r1",
+       "user_message_id": "m1"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "stop-two",
+   "previous_cursor": {
+    "generation": "stop-two-press.events",
+    "offset": 1091
+   },
+   "cursor": {
+    "generation": "stop-two-press.events",
+    "offset": 1229
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:3",
+      "event": {
+       "seq": 3,
+       "ts": "2026-09-07T18:50:02Z",
+       "session_id": "stop-two",
+       "run_id": "",
+       "type": "message.queued",
+       "data": {
+        "message_id": "m2",
+        "position": 1
+       }
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/queued_messages",
+     "value": 1
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 3,
+      "ts": "2026-09-07T18:50:02Z",
+      "session_id": "stop-two",
+      "run_id": "",
+      "type": "message.queued",
+      "data": {
+       "message_id": "m2",
+       "position": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "stop-two",
+   "previous_cursor": {
+    "generation": "stop-two-press.events",
+    "offset": 1229
+   },
+   "cursor": {
+    "generation": "stop-two-press.events",
+    "offset": 1352
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "stopping",
+      "run_id": "r1",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:4",
+      "run_id": "r1",
+      "event": {
+       "seq": 4,
+       "ts": "2026-09-07T18:50:03Z",
+       "session_id": "stop-two",
+       "run_id": "r1",
+       "type": "run.stopping",
+       "data": {
+        "reason": "safe"
+       }
+      }
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 4,
+      "ts": "2026-09-07T18:50:03Z",
+      "session_id": "stop-two",
+      "run_id": "r1",
+      "type": "run.stopping",
+      "data": {
+       "reason": "safe"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "stop-two",
+   "previous_cursor": {
+    "generation": "stop-two-press.events",
+    "offset": 1352
+   },
+   "cursor": {
+    "generation": "stop-two-press.events",
+    "offset": 1480
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:5",
+      "run_id": "r1",
+      "event": {
+       "seq": 5,
+       "ts": "2026-09-07T18:50:04Z",
+       "session_id": "stop-two",
+       "run_id": "r1",
+       "type": "run.stopping",
+       "data": {
+        "reason": "emergency"
+       }
+      }
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 5,
+      "ts": "2026-09-07T18:50:04Z",
+      "session_id": "stop-two",
+      "run_id": "r1",
+      "type": "run.stopping",
+      "data": {
+       "reason": "emergency"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "stop-two",
+   "previous_cursor": {
+    "generation": "stop-two-press.events",
+    "offset": 1480
+   },
+   "cursor": {
+    "generation": "stop-two-press.events",
+    "offset": 1661
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "held",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 1,
+      "partial": "",
+      "last_stop_reason": "emergency",
+      "last_run_id": "r1"
+     }
+    },
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:6",
+      "run_id": "r1",
+      "event": {
+       "seq": 6,
+       "ts": "2026-09-07T18:50:05Z",
+       "session_id": "stop-two",
+       "run_id": "r1",
+       "type": "run.stopped",
+       "data": {
+        "detail": "",
+        "queue_held": true,
+        "reason": "emergency",
+        "run_id": "r1",
+        "turns": 0
+       }
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "wait_user",
+      "stage_state": "enter",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 6,
+      "ts": "2026-09-07T18:50:05Z",
+      "session_id": "stop-two",
+      "run_id": "r1",
+      "type": "run.stopped",
+      "data": {
+       "detail": "",
+       "queue_held": true,
+       "reason": "emergency",
+       "run_id": "r1",
+       "turns": 0
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "records": 6,
+  "patches": 6,
+  "empty_patches": 0
+ }
+}

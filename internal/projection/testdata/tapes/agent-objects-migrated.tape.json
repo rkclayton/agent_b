@@ -1,0 +1,283 @@
+{
+ "source": "agent-objects-migrated",
+ "session": "migrated",
+ "start": {
+  "schema_version": 1,
+  "cursor": {
+   "generation": "",
+   "offset": 0
+  },
+  "complete": false,
+  "id": "migrated",
+  "label": "migrated",
+  "agent_id": "",
+  "connection_id": "",
+  "agent_name": "",
+  "b_connection": "",
+  "role": "",
+  "created_at": "",
+  "workspace": "",
+  "workspace_dir": "",
+  "workspace_missing": false,
+  "project_content": "",
+  "project_files": null,
+  "project_notes": null,
+  "run": {
+   "status": "idle",
+   "run_id": "",
+   "turn": 0,
+   "max_turns": 0,
+   "queue_position": 0,
+   "partial": "",
+   "last_stop_reason": ""
+  },
+  "tools": [],
+  "messages": [],
+  "budget": {
+   "n_ctx": 0,
+   "reserve": 0,
+   "ceiling": 0,
+   "used_est": 0,
+   "used_measured": 0,
+   "drift": 0,
+   "cached_last": null,
+   "mode": "",
+   "estimated": false,
+   "estimated_categories": null,
+   "categories": null,
+   "tool_schema_tokens": null,
+   "tool_marginal_tokens": null
+  },
+  "queued_messages": 0,
+  "runnable": false,
+  "not_runnable_reason": "",
+  "memory_path": "",
+  "memory_content": "",
+  "agent_memory_path": "",
+  "agent_memory_content": "",
+  "log_path": "",
+  "model_turns": 0,
+  "compaction_count": 0,
+  "compaction_token_delta": 0,
+  "compaction_model_calls": 0,
+  "compaction_prompt_tokens": 0,
+  "compaction_completion_tokens": 0,
+  "activity": {
+   "stage": "",
+   "stage_state": "",
+   "completed_stages": [],
+   "active_tool": "",
+   "alarm_tool": "",
+   "dispatch_alarm": false,
+   "compaction_serial": 0
+  },
+  "timeline": [],
+  "chat": [],
+  "closed": false
+ },
+ "patches": [
+  {
+   "schema_version": 1,
+   "session_id": "migrated",
+   "previous_cursor": {
+    "generation": "",
+    "offset": 0
+   },
+   "cursor": {
+    "generation": "agent-objects-migrated.events",
+    "offset": 1218
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/complete",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/label",
+     "value": "Migrated agent"
+    },
+    {
+     "op": "replace",
+     "path": "/agent_id",
+     "value": "homepc"
+    },
+    {
+     "op": "replace",
+     "path": "/connection_id",
+     "value": "home-api"
+    },
+    {
+     "op": "replace",
+     "path": "/agent_name",
+     "value": "HomePC"
+    },
+    {
+     "op": "replace",
+     "path": "/b_connection",
+     "value": "HomePC"
+    },
+    {
+     "op": "replace",
+     "path": "/role",
+     "value": "b"
+    },
+    {
+     "op": "replace",
+     "path": "/created_at",
+     "value": "2026-09-07T18:30:00Z"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace_dir",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/tools",
+     "value": [
+      {
+       "name": "read_file",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "remember",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/runnable",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/memory_path",
+     "value": "memory\\workspace.md"
+    },
+    {
+     "op": "replace",
+     "path": "/memory_content",
+     "value": "Notes from earlier sessions in this workspace:\n- project fact"
+    },
+    {
+     "op": "replace",
+     "path": "/agent_memory_path",
+     "value": "memory\\agent-homepc.md"
+    },
+    {
+     "op": "replace",
+     "path": "/agent_memory_content",
+     "value": "Notes about how this agent works with the operator:\n- concise reports"
+    },
+    {
+     "op": "replace",
+     "path": "/log_path",
+     "value": "agent-objects-migrated.events"
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 1,
+      "ts": "2026-09-07T18:30:00Z",
+      "session_id": "migrated",
+      "run_id": "",
+      "type": "session.created",
+      "data": {
+       "session": {
+        "agent_id": "homepc",
+        "agent_memory_content": "Notes about how this agent works with the operator:\n- concise reports",
+        "agent_memory_path": "memory\\agent-homepc.md",
+        "agent_name": "HomePC",
+        "b_connection": "HomePC",
+        "budget": {},
+        "closed": false,
+        "compaction_completion_tokens": 0,
+        "compaction_count": 0,
+        "compaction_model_calls": 0,
+        "compaction_prompt_tokens": 0,
+        "compaction_token_delta": 0,
+        "connection_id": "home-api",
+        "created_at": "2026-09-07T18:30:00Z",
+        "id": "migrated",
+        "label": "Migrated agent",
+        "log_path": "agent-objects-migrated.events",
+        "memory_content": "Notes from earlier sessions in this workspace:\n- project fact",
+        "memory_path": "memory\\workspace.md",
+        "messages": [],
+        "model_turns": 0,
+        "not_runnable_reason": "",
+        "queued_messages": 0,
+        "run": {
+         "last_stop_reason": "",
+         "max_turns": 40,
+         "partial": "",
+         "queue_position": 0,
+         "run_id": "",
+         "status": "idle",
+         "turn": 0
+        },
+        "runnable": true,
+        "tools": [
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "read_file",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "remember",
+          "schema_tokens": 0
+         }
+        ],
+        "workspace": "C:\\fixture\\workspace",
+        "workspace_dir": "C:\\fixture\\workspace"
+       }
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "records": 1,
+  "patches": 1,
+  "empty_patches": 0
+ }
+}

@@ -1,0 +1,1214 @@
+{
+ "source": "approval-parallel-turn2",
+ "session": "main",
+ "start": {
+  "schema_version": 1,
+  "cursor": {
+   "generation": "",
+   "offset": 0
+  },
+  "complete": false,
+  "id": "main",
+  "label": "main",
+  "agent_id": "",
+  "connection_id": "",
+  "agent_name": "",
+  "b_connection": "",
+  "role": "",
+  "created_at": "",
+  "workspace": "",
+  "workspace_dir": "",
+  "workspace_missing": false,
+  "project_content": "",
+  "project_files": null,
+  "project_notes": null,
+  "run": {
+   "status": "idle",
+   "run_id": "",
+   "turn": 0,
+   "max_turns": 0,
+   "queue_position": 0,
+   "partial": "",
+   "last_stop_reason": ""
+  },
+  "tools": [],
+  "messages": [],
+  "budget": {
+   "n_ctx": 0,
+   "reserve": 0,
+   "ceiling": 0,
+   "used_est": 0,
+   "used_measured": 0,
+   "drift": 0,
+   "cached_last": null,
+   "mode": "",
+   "estimated": false,
+   "estimated_categories": null,
+   "categories": null,
+   "tool_schema_tokens": null,
+   "tool_marginal_tokens": null
+  },
+  "queued_messages": 0,
+  "runnable": false,
+  "not_runnable_reason": "",
+  "memory_path": "",
+  "memory_content": "",
+  "agent_memory_path": "",
+  "agent_memory_content": "",
+  "log_path": "",
+  "model_turns": 0,
+  "compaction_count": 0,
+  "compaction_token_delta": 0,
+  "compaction_model_calls": 0,
+  "compaction_prompt_tokens": 0,
+  "compaction_completion_tokens": 0,
+  "activity": {
+   "stage": "",
+   "stage_state": "",
+   "completed_stages": [],
+   "active_tool": "",
+   "alarm_tool": "",
+   "dispatch_alarm": false,
+   "compaction_serial": 0
+  },
+  "timeline": [],
+  "chat": [],
+  "closed": false
+ },
+ "patches": [
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "",
+    "offset": 0
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 1227
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/complete",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/connection_id",
+     "value": "homepc"
+    },
+    {
+     "op": "replace",
+     "path": "/agent_name",
+     "value": "Local"
+    },
+    {
+     "op": "replace",
+     "path": "/b_connection",
+     "value": "Local"
+    },
+    {
+     "op": "replace",
+     "path": "/role",
+     "value": "b"
+    },
+    {
+     "op": "replace",
+     "path": "/created_at",
+     "value": "2026-09-07T12:00:00Z"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace_dir",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/tools",
+     "value": [
+      {
+       "name": "read_file",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "list_dir",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "shell",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/budget",
+     "value": {
+      "n_ctx": 32768,
+      "reserve": 8192,
+      "ceiling": 24576,
+      "used_est": 0,
+      "used_measured": 0,
+      "drift": 0,
+      "cached_last": null,
+      "mode": "estimated",
+      "estimated": true,
+      "estimated_categories": [],
+      "categories": {},
+      "tool_schema_tokens": {},
+      "tool_marginal_tokens": {}
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/runnable",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/log_path",
+     "value": "approval-parallel-turn2.events"
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 1,
+      "ts": "2026-09-07T12:30:00Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "session.created",
+      "data": {
+       "session": {
+        "agent_name": "Local",
+        "budget": {
+         "cached_last": null,
+         "categories": {},
+         "ceiling": 24576,
+         "drift": 0,
+         "estimated": true,
+         "estimated_categories": [],
+         "mode": "estimated",
+         "n_ctx": 32768,
+         "reserve": 8192,
+         "tool_marginal_tokens": {},
+         "tool_schema_tokens": {},
+         "used_est": 0,
+         "used_measured": 0
+        },
+        "closed": false,
+        "compaction_completion_tokens": 0,
+        "compaction_count": 0,
+        "compaction_model_calls": 0,
+        "compaction_prompt_tokens": 0,
+        "compaction_token_delta": 0,
+        "connection_id": "homepc",
+        "created_at": "2026-09-07T12:00:00Z",
+        "id": "main",
+        "label": "main",
+        "log_path": "approval-parallel-turn2.events",
+        "main_connection": "Local",
+        "memory_content": "",
+        "memory_path": "",
+        "messages": [],
+        "model_turns": 0,
+        "not_runnable_reason": "",
+        "queued_messages": 0,
+        "run": {
+         "last_stop_reason": "",
+         "max_turns": 40,
+         "partial": "",
+         "queue_position": 0,
+         "run_id": "",
+         "status": "idle",
+         "turn": 0
+        },
+        "runnable": true,
+        "tools": [
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "read_file",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "list_dir",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "shell",
+          "schema_tokens": 0
+         }
+        ],
+        "workspace": "C:\\fixture\\workspace"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 1227
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 1470
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "user",
+      "key": "message:m-1",
+      "text": "fixture request"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": [
+      {
+       "id": "m-1",
+       "role": "user",
+       "content": "fixture request",
+       "category": "history",
+       "tokens": 3,
+       "estimated": true,
+       "elided": false,
+       "turn": 0
+      }
+     ]
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 2,
+      "ts": "2026-09-07T12:30:01Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "message.appended",
+      "data": {
+       "message": {
+        "category": "history",
+        "content": "fixture request",
+        "elided": false,
+        "estimated": true,
+        "id": "m-1",
+        "role": "user",
+        "tokens": 3,
+        "turn": 0
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 1470
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 1610
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "running",
+      "run_id": "r5",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 3,
+      "ts": "2026-09-07T12:30:02Z",
+      "session_id": "main",
+      "run_id": "r5",
+      "type": "run.started",
+      "data": {
+       "run_id": "r5",
+       "user_message_id": "m-1"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 1610
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 1809
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "agent",
+      "key": "turn:r5:1",
+      "run_id": "r5",
+      "turn": 1,
+      "agent_role": "b"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r5:1",
+       "started_at": 1788784203000,
+       "last_chunk_at": 1788784203000,
+       "has_chunk": false,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788784203000,
+       "rate_chars": 0,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 4,
+      "ts": "2026-09-07T12:30:03Z",
+      "session_id": "main",
+      "run_id": "r5",
+      "type": "model.request",
+      "data": {
+       "est_prompt_tokens": 100,
+       "estimated": true,
+       "message_count": 2,
+       "params": {},
+       "tool_count": 3,
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 1809
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 2161
+   },
+   "operations": [
+    {
+     "op": "upsert",
+     "path": "/chat/turn:r5:1",
+     "value": {
+      "type": "agent",
+      "key": "turn:r5:1",
+      "run_id": "r5",
+      "turn": 1,
+      "reasoningTokens": 4,
+      "done": true,
+      "toolCallIDs": [
+       "recall-1"
+      ],
+      "agent_role": "b"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/model_turns",
+     "value": 1
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r5:1",
+       "started_at": 1788784203000,
+       "last_chunk_at": 1788784204000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788784203000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 4
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 5,
+      "ts": "2026-09-07T12:30:04Z",
+      "session_id": "main",
+      "run_id": "r5",
+      "type": "model.response",
+      "data": {
+       "content": "",
+       "finish_reason": "tool_calls",
+       "reasoning_tokens": 4,
+       "reasoning_tokens_estimated": false,
+       "tool_calls": [
+        {
+         "arguments": "{}",
+         "id": "recall-1",
+         "name": "recall"
+        }
+       ],
+       "turn": 1,
+       "usage": {
+        "cached_tokens": null,
+        "completion_tokens": 12,
+        "prompt_tokens": 100
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 2161
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 2317
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "tool",
+      "key": "tool:recall-1",
+      "callID": "recall-1",
+      "name": "recall",
+      "args": {}
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "recall",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r5:1",
+       "started_at": 1788784203000,
+       "last_chunk_at": 1788784204000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788784203000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 4
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 6,
+      "ts": "2026-09-07T12:30:05Z",
+      "session_id": "main",
+      "run_id": "r5",
+      "type": "tool.call",
+      "data": {
+       "args": {},
+       "call_id": "recall-1",
+       "name": "recall",
+       "turn": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 2317
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 2563
+   },
+   "operations": [
+    {
+     "op": "upsert",
+     "path": "/chat/tool:recall-1",
+     "value": {
+      "type": "tool",
+      "key": "tool:recall-1",
+      "callID": "recall-1",
+      "name": "recall",
+      "args": {},
+      "result": {
+       "bytes": 4,
+       "call_id": "recall-1",
+       "ms": 1,
+       "name": "recall",
+       "ok": true,
+       "operator_context": false,
+       "preview": "none",
+       "tokens": 1,
+       "turn": 1,
+       "untrusted": false
+      },
+      "content": "none"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r5:1",
+       "started_at": 1788784203000,
+       "last_chunk_at": 1788784204000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788784203000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 4
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 7,
+      "ts": "2026-09-07T12:30:06Z",
+      "session_id": "main",
+      "run_id": "r5",
+      "type": "tool.result",
+      "data": {
+       "bytes": 4,
+       "call_id": "recall-1",
+       "ms": 1,
+       "name": "recall",
+       "ok": true,
+       "operator_context": false,
+       "preview": "none",
+       "tokens": 1,
+       "turn": 1,
+       "untrusted": false
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 2563
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 2762
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "agent",
+      "key": "turn:r5:2",
+      "run_id": "r5",
+      "turn": 2,
+      "agent_role": "b"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r5:2",
+       "started_at": 1788784207000,
+       "last_chunk_at": 1788784207000,
+       "has_chunk": false,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788784207000,
+       "rate_chars": 0,
+       "done": false,
+       "reasoning_tokens": 0
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 8,
+      "ts": "2026-09-07T12:30:07Z",
+      "session_id": "main",
+      "run_id": "r5",
+      "type": "model.request",
+      "data": {
+       "est_prompt_tokens": 120,
+       "estimated": true,
+       "message_count": 4,
+       "params": {},
+       "tool_count": 3,
+       "turn": 2
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 2762
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 3215
+   },
+   "operations": [
+    {
+     "op": "upsert",
+     "path": "/chat/turn:r5:2",
+     "value": {
+      "type": "agent",
+      "key": "turn:r5:2",
+      "run_id": "r5",
+      "turn": 2,
+      "reasoningTokens": 6,
+      "done": true,
+      "toolCallIDs": [
+       "shell-2",
+       "list-2",
+       "read-2"
+      ],
+      "agent_role": "b"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/model_turns",
+     "value": 2
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r5:2",
+       "started_at": 1788784207000,
+       "last_chunk_at": 1788784208000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788784207000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 6
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 9,
+      "ts": "2026-09-07T12:30:08Z",
+      "session_id": "main",
+      "run_id": "r5",
+      "type": "model.response",
+      "data": {
+       "content": "",
+       "finish_reason": "tool_calls",
+       "reasoning_tokens": 6,
+       "reasoning_tokens_estimated": false,
+       "tool_calls": [
+        {
+         "arguments": "{}",
+         "id": "shell-2",
+         "name": "shell"
+        },
+        {
+         "arguments": "{}",
+         "id": "list-2",
+         "name": "list_dir"
+        },
+        {
+         "arguments": "{}",
+         "id": "read-2",
+         "name": "read_file"
+        }
+       ],
+       "turn": 2,
+       "usage": {
+        "cached_tokens": null,
+        "completion_tokens": 20,
+        "prompt_tokens": 120
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 3215
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 3394
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "tool",
+      "key": "tool:shell-2",
+      "callID": "shell-2",
+      "name": "shell",
+      "args": {
+       "command": "git diff"
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "shell",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r5:2",
+       "started_at": 1788784207000,
+       "last_chunk_at": 1788784208000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788784207000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 6
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 10,
+      "ts": "2026-09-07T12:30:08.100Z",
+      "session_id": "main",
+      "run_id": "r5",
+      "type": "tool.call",
+      "data": {
+       "args": {
+        "command": "git diff"
+       },
+       "call_id": "shell-2",
+       "name": "shell",
+       "turn": 2
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 3394
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 3565
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "tool",
+      "key": "tool:list-2",
+      "callID": "list-2",
+      "name": "list_dir",
+      "args": {
+       "path": "."
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "list_dir",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r5:2",
+       "started_at": 1788784207000,
+       "last_chunk_at": 1788784208000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788784207000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 6
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 11,
+      "ts": "2026-09-07T12:30:08.200Z",
+      "session_id": "main",
+      "run_id": "r5",
+      "type": "tool.call",
+      "data": {
+       "args": {
+        "path": "."
+       },
+       "call_id": "list-2",
+       "name": "list_dir",
+       "turn": 2
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 3565
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 3744
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "tool",
+      "key": "tool:read-2",
+      "callID": "read-2",
+      "name": "read_file",
+      "args": {
+       "path": "NOTES.md"
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "read_file",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r5:2",
+       "started_at": 1788784207000,
+       "last_chunk_at": 1788784208000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1788784207000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 6
+      },
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 12,
+      "ts": "2026-09-07T12:30:08.300Z",
+      "session_id": "main",
+      "run_id": "r5",
+      "type": "tool.call",
+      "data": {
+       "args": {
+        "path": "NOTES.md"
+       },
+       "call_id": "read-2",
+       "name": "read_file",
+       "turn": 2
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 3744
+   },
+   "cursor": {
+    "generation": "approval-parallel-turn2.events",
+    "offset": 4169
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "paused",
+      "run_id": "r5",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:1993",
+      "run_id": "r5",
+      "event": {
+       "seq": 1993,
+       "ts": "2026-09-07T12:30:08.400Z",
+       "session_id": "main",
+       "run_id": "r5",
+       "type": "approval.required",
+       "data": {
+        "args": {
+         "command": "git diff",
+         "executable": "git",
+         "identity": "Agent_b operator (not Administrator)",
+         "reason": "operator command rule: git runs as you for this run",
+         "rule": "operator_command",
+         "scope": "run this configured operator command"
+        },
+        "boundary_escape": true,
+        "call_id": "shell-2",
+        "name": "shell.operator_command"
+       }
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/pending_approval",
+     "value": {
+      "type": "notice",
+      "key": "event:1993",
+      "run_id": "r5",
+      "event": {
+       "seq": 1993,
+       "ts": "2026-09-07T12:30:08.400Z",
+       "session_id": "main",
+       "run_id": "r5",
+       "type": "approval.required",
+       "data": {
+        "args": {
+         "command": "git diff",
+         "executable": "git",
+         "identity": "Agent_b operator (not Administrator)",
+         "reason": "operator command rule: git runs as you for this run",
+         "rule": "operator_command",
+         "scope": "run this configured operator command"
+        },
+        "boundary_escape": true,
+        "call_id": "shell-2",
+        "name": "shell.operator_command"
+       }
+      }
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 1993,
+      "ts": "2026-09-07T12:30:08.400Z",
+      "session_id": "main",
+      "run_id": "r5",
+      "type": "approval.required",
+      "data": {
+       "args": {
+        "command": "git diff",
+        "executable": "git",
+        "identity": "Agent_b operator (not Administrator)",
+        "reason": "operator command rule: git runs as you for this run",
+        "rule": "operator_command",
+        "scope": "run this configured operator command"
+       },
+       "boundary_escape": true,
+       "call_id": "shell-2",
+       "name": "shell.operator_command"
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "records": 13,
+  "patches": 13,
+  "empty_patches": 0
+ }
+}

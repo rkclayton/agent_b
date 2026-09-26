@@ -5,13 +5,16 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -319,12 +322,19 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		queries := map[string]string{
 			"duckduckgo_html": "golang context cancellation", "duckduckgo_lite": "golang context cancellation",
 			"bing": "golang context cancellation", "brave": "golang context cancellation",
-			"startpage": "golang context cancellation", "mojeek": "golang context cancellation",
 			"wikipedia": "Go programming language wikipedia", "github": "github kubernetes repository",
 			"hacker_news": "hacker news golang", "arxiv": "research paper large language models",
 			"stackexchange": "golang context cancellation error", "pkg_go_dev": "golang context package",
 			"npm": "npm react package",
 		}
+		// Item 2lq (d): the arm emits a TABLE, and every engine in the tool appears
+		// in it with a state that is one of three things -- live, benched with the
+		// date and reason it was benched, or retired with the date and reason it was
+		// removed. Before this, an engine that had been quietly dropped from the
+		// merge left no row at all, which is how the bench list came to be three
+		// days stale without anyone reading it.
+		type engineRow struct{ name, state, detail string }
+		rows := []engineRow{}
 		for _, adapter := range search.adapters {
 			query := queries[adapter.Name()]
 			// Item 2if: the table measures THE SHIPPED DEFAULT. It hard-coded 5, so it
@@ -338,14 +348,41 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 			hits, searchErr := search.searchOne(requestCtx, client, cfg.Tools.Fetch, adapter, rawURL, webSearchDefaultLimit)
 			cancel()
 			if reason, benched := initiallyBenchedWebSearchEngines[adapter.Name()]; benched {
-				t.Logf("engine=%s state=benched reason=%q results=%d error=%v", adapter.Name(), reason, len(hits), searchErr)
+				rows = append(rows, engineRow{adapter.Name(), "benched", fmt.Sprintf("%s; probe returned %d results, error=%v", reason, len(hits), searchErr)})
+				continue
+			}
+			// (c): a rate limit is reported as a rate limit. Brave answers 429 to this
+			// very query, and calling that a failure is what made the old table
+			// unreadable.
+			var limited *webSearchRateLimited
+			if errors.As(searchErr, &limited) {
+				rows = append(rows, engineRow{adapter.Name(), "rate-limited", fmt.Sprintf("%s; benches itself on the first one, not the third", searchErr)})
 				continue
 			}
 			if searchErr != nil || len(hits) < 1 {
-				t.Errorf("engine=%s state=active results=%d error=%v", adapter.Name(), len(hits), searchErr)
-			} else {
-				t.Logf("engine=%s state=active results=%d", adapter.Name(), len(hits))
+				rows = append(rows, engineRow{adapter.Name(), "FAILING", fmt.Sprintf("results=%d error=%v", len(hits), searchErr)})
+				t.Errorf("engine=%s state=FAILING results=%d error=%v -- a live engine that does not answer is either fixed, benched with a date, or retired", adapter.Name(), len(hits), searchErr)
+				continue
 			}
+			rows = append(rows, engineRow{adapter.Name(), "live", fmt.Sprintf("results=%d", len(hits))})
+		}
+		// The retired engines have no adapter to probe, and that is exactly why they
+		// need a row: otherwise their absence is indistinguishable from an oversight.
+		retiredNames := make([]string, 0, len(retiredWebSearchEngines))
+		for name := range retiredWebSearchEngines {
+			retiredNames = append(retiredNames, name)
+		}
+		sort.Strings(retiredNames)
+		for _, name := range retiredNames {
+			rows = append(rows, engineRow{name, "retired", retiredWebSearchEngines[name]})
+		}
+		if len(rows) != len(search.adapters)+len(retiredWebSearchEngines) {
+			t.Errorf("the table has %d rows for %d adapters and %d retired engines; every engine gets a row",
+				len(rows), len(search.adapters), len(retiredWebSearchEngines))
+		}
+		t.Logf("web_search engine table (%d rows: %d in the tool, %d retired)", len(rows), len(search.adapters), len(retiredWebSearchEngines))
+		for _, row := range rows {
+			t.Logf("  engine=%-16s state=%-12s %s", row.name, row.state, row.detail)
 		}
 	})
 
@@ -447,6 +484,16 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	})
 
 	t.Run("phone_control_plane_call_service_refused_2kl", func(t *testing.T) {
+		// This arm asserts what the phone control plane REFUSES, so it needs
+		// something listening to do the refusing. Production is the only listener
+		// on that port, a worker never starts it, and its two sibling arms already
+		// report a missing prerequisite rather than failing. This one did not: it
+		// reported a connection refused as a contract failure, which reads as "the
+		// control plane accepted the call" to anyone skimming the suite. That is a
+		// louder wrong answer than the silence it replaced.
+		if address := phoneControlAddress(cfg); !somethingIsListening(address) {
+			t.Skipf("not exercised: prerequisite — nothing is listening on %s (production is the only listener there, and a worker never starts it)", address)
+		}
 		for _, args := range []map[string]any{{"service": "phone-control", "method": "POST", "path": "phone/enrolment/redeem", "body": map[string]any{"name": "tool"}}, {"service": "phone-control", "method": "GET", "path": "state"}} {
 			detail := toolRegistry.CallDetailed(context.Background(), item, "call_service", args)
 			if !detail.OK || detail.Metadata["status"] != http.StatusUnauthorized || !strings.Contains(detail.Content, `"status":401`) {
@@ -476,6 +523,28 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 			t.Fatalf("detail=%+v", detail)
 		}
 	})
+}
+
+// phoneControlAddress is where the phone-control service points. The refusal
+// this arm asserts happens at that listener, so its absence is a prerequisite.
+func phoneControlAddress(cfg config.Config) string {
+	service, ok := cfg.Services["phone-control"]
+	if !ok {
+		return "localhost:8790"
+	}
+	if parsed, err := url.Parse(service.BaseURL); err == nil && parsed.Host != "" {
+		return parsed.Host
+	}
+	return service.BaseURL
+}
+
+func somethingIsListening(address string) bool {
+	connection, err := net.DialTimeout("tcp", address, 2*time.Second)
+	if err != nil {
+		return false
+	}
+	_ = connection.Close()
+	return true
 }
 
 func capabilityApplicability(feature string, enabled bool) string {

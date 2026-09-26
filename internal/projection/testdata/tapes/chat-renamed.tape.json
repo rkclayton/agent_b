@@ -1,0 +1,301 @@
+{
+ "source": "chat-renamed",
+ "session": "s2",
+ "start": {
+  "schema_version": 1,
+  "cursor": {
+   "generation": "",
+   "offset": 0
+  },
+  "complete": false,
+  "id": "s2",
+  "label": "s2",
+  "agent_id": "",
+  "connection_id": "",
+  "agent_name": "",
+  "b_connection": "",
+  "role": "",
+  "created_at": "",
+  "workspace": "",
+  "workspace_dir": "",
+  "workspace_missing": false,
+  "project_content": "",
+  "project_files": null,
+  "project_notes": null,
+  "run": {
+   "status": "idle",
+   "run_id": "",
+   "turn": 0,
+   "max_turns": 0,
+   "queue_position": 0,
+   "partial": "",
+   "last_stop_reason": ""
+  },
+  "tools": [],
+  "messages": [],
+  "budget": {
+   "n_ctx": 0,
+   "reserve": 0,
+   "ceiling": 0,
+   "used_est": 0,
+   "used_measured": 0,
+   "drift": 0,
+   "cached_last": null,
+   "mode": "",
+   "estimated": false,
+   "estimated_categories": null,
+   "categories": null,
+   "tool_schema_tokens": null,
+   "tool_marginal_tokens": null
+  },
+  "queued_messages": 0,
+  "runnable": false,
+  "not_runnable_reason": "",
+  "memory_path": "",
+  "memory_content": "",
+  "agent_memory_path": "",
+  "agent_memory_content": "",
+  "log_path": "",
+  "model_turns": 0,
+  "compaction_count": 0,
+  "compaction_token_delta": 0,
+  "compaction_model_calls": 0,
+  "compaction_prompt_tokens": 0,
+  "compaction_completion_tokens": 0,
+  "activity": {
+   "stage": "",
+   "stage_state": "",
+   "completed_stages": [],
+   "active_tool": "",
+   "alarm_tool": "",
+   "dispatch_alarm": false,
+   "compaction_serial": 0
+  },
+  "timeline": [],
+  "chat": [],
+  "closed": false
+ },
+ "patches": [
+  {
+   "schema_version": 1,
+   "session_id": "s2",
+   "previous_cursor": {
+    "generation": "",
+    "offset": 0
+   },
+   "cursor": {
+    "generation": "chat-renamed.events",
+    "offset": 796
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/complete",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/connection_id",
+     "value": "homepc"
+    },
+    {
+     "op": "replace",
+     "path": "/agent_name",
+     "value": "HomePC"
+    },
+    {
+     "op": "replace",
+     "path": "/b_connection",
+     "value": "HomePC"
+    },
+    {
+     "op": "replace",
+     "path": "/role",
+     "value": "b"
+    },
+    {
+     "op": "replace",
+     "path": "/created_at",
+     "value": "2026-09-07T17:00:00Z"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace_dir",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/tools",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/runnable",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/log_path",
+     "value": "chat-renamed.events"
+    },
+    {
+     "op": "replace",
+     "path": "/model_turns",
+     "value": 20
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 1,
+      "ts": "2026-09-07T17:00:00Z",
+      "session_id": "s2",
+      "run_id": "",
+      "type": "session.created",
+      "data": {
+       "session": {
+        "agent_name": "HomePC",
+        "budget": {},
+        "closed": false,
+        "compaction_completion_tokens": 0,
+        "compaction_count": 0,
+        "compaction_model_calls": 0,
+        "compaction_prompt_tokens": 0,
+        "compaction_token_delta": 0,
+        "connection_id": "homepc",
+        "created_at": "2026-09-07T17:00:00Z",
+        "id": "s2",
+        "label": "s2",
+        "log_path": "chat-renamed.events",
+        "main_connection": "HomePC",
+        "memory_content": "",
+        "memory_path": "",
+        "messages": [],
+        "model_turns": 20,
+        "name_pinned": false,
+        "not_runnable_reason": "",
+        "queued_messages": 0,
+        "run": {
+         "last_stop_reason": "",
+         "max_turns": 40,
+         "partial": "",
+         "queue_position": 0,
+         "run_id": "",
+         "status": "idle",
+         "turn": 0
+        },
+        "runnable": true,
+        "tools": [],
+        "workspace": "C:\\fixture\\workspace",
+        "workspace_dir": "C:\\fixture\\workspace"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s2",
+   "previous_cursor": {
+    "generation": "chat-renamed.events",
+    "offset": 796
+   },
+   "cursor": {
+    "generation": "chat-renamed.events",
+    "offset": 957
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/label",
+     "value": "Shared shell polish"
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 2,
+      "ts": "2026-09-07T17:00:01Z",
+      "session_id": "s2",
+      "run_id": "",
+      "type": "session.renamed",
+      "data": {
+       "by": "aux",
+       "label": "Shared shell polish",
+       "session_id": "s2"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s2",
+   "previous_cursor": {
+    "generation": "chat-renamed.events",
+    "offset": 957
+   },
+   "cursor": {
+    "generation": "chat-renamed.events",
+    "offset": 1119
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/label",
+     "value": "Console consistency"
+    },
+    {
+     "op": "replace",
+     "path": "/name_pinned",
+     "value": true
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 3,
+      "ts": "2026-09-07T17:00:02Z",
+      "session_id": "s2",
+      "run_id": "",
+      "type": "session.renamed",
+      "data": {
+       "by": "user",
+       "label": "Console consistency",
+       "session_id": "s2"
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "records": 3,
+  "patches": 3,
+  "empty_patches": 0
+ }
+}

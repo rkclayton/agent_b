@@ -1,0 +1,299 @@
+{
+ "source": "bound-directory",
+ "session": "bound",
+ "start": {
+  "schema_version": 1,
+  "cursor": {
+   "generation": "",
+   "offset": 0
+  },
+  "complete": false,
+  "id": "bound",
+  "label": "bound",
+  "agent_id": "",
+  "connection_id": "",
+  "agent_name": "",
+  "b_connection": "",
+  "role": "",
+  "created_at": "",
+  "workspace": "",
+  "workspace_dir": "",
+  "workspace_missing": false,
+  "project_content": "",
+  "project_files": null,
+  "project_notes": null,
+  "run": {
+   "status": "idle",
+   "run_id": "",
+   "turn": 0,
+   "max_turns": 0,
+   "queue_position": 0,
+   "partial": "",
+   "last_stop_reason": ""
+  },
+  "tools": [],
+  "messages": [],
+  "budget": {
+   "n_ctx": 0,
+   "reserve": 0,
+   "ceiling": 0,
+   "used_est": 0,
+   "used_measured": 0,
+   "drift": 0,
+   "cached_last": null,
+   "mode": "",
+   "estimated": false,
+   "estimated_categories": null,
+   "categories": null,
+   "tool_schema_tokens": null,
+   "tool_marginal_tokens": null
+  },
+  "queued_messages": 0,
+  "runnable": false,
+  "not_runnable_reason": "",
+  "memory_path": "",
+  "memory_content": "",
+  "agent_memory_path": "",
+  "agent_memory_content": "",
+  "log_path": "",
+  "model_turns": 0,
+  "compaction_count": 0,
+  "compaction_token_delta": 0,
+  "compaction_model_calls": 0,
+  "compaction_prompt_tokens": 0,
+  "compaction_completion_tokens": 0,
+  "activity": {
+   "stage": "",
+   "stage_state": "",
+   "completed_stages": [],
+   "active_tool": "",
+   "alarm_tool": "",
+   "dispatch_alarm": false,
+   "compaction_serial": 0
+  },
+  "timeline": [],
+  "chat": [],
+  "closed": false
+ },
+ "patches": [
+  {
+   "schema_version": 1,
+   "session_id": "bound",
+   "previous_cursor": {
+    "generation": "",
+    "offset": 0
+   },
+   "cursor": {
+    "generation": "bound-directory.events",
+    "offset": 715
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/complete",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/connection_id",
+     "value": "local"
+    },
+    {
+     "op": "replace",
+     "path": "/role",
+     "value": "b"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace",
+     "value": "C:\\projects\\vesper"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace_dir",
+     "value": "C:\\projects\\vesper"
+    },
+    {
+     "op": "replace",
+     "path": "/project_content",
+     "value": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\\projects\\vesper\\AGENTS.md\nUse node tests.\n--- END REPOSITORY INSTRUCTIONS ---"
+    },
+    {
+     "op": "replace",
+     "path": "/project_files",
+     "value": [
+      "C:\\projects\\vesper\\AGENTS.md"
+     ]
+    },
+    {
+     "op": "replace",
+     "path": "/tools",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/budget",
+     "value": {
+      "n_ctx": 0,
+      "reserve": 0,
+      "ceiling": 0,
+      "used_est": 0,
+      "used_measured": 0,
+      "drift": 0,
+      "cached_last": null,
+      "mode": "",
+      "estimated": false,
+      "estimated_categories": null,
+      "categories": {
+       "project": 31
+      },
+      "tool_schema_tokens": null,
+      "tool_marginal_tokens": null
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/runnable",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/memory_path",
+     "value": "memory\\vesper-aabbccdd.md"
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 1,
+      "ts": "2026-09-07T16:00:00Z",
+      "session_id": "bound",
+      "run_id": "",
+      "type": "session.created",
+      "data": {
+       "session": {
+        "budget": {
+         "categories": {
+          "project": 31
+         }
+        },
+        "connection_id": "local",
+        "id": "bound",
+        "label": "bound",
+        "memory_content": "",
+        "memory_path": "memory\\vesper-aabbccdd.md",
+        "messages": [],
+        "project_content": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\\projects\\vesper\\AGENTS.md\nUse node tests.\n--- END REPOSITORY INSTRUCTIONS ---",
+        "project_files": [
+         "C:\\projects\\vesper\\AGENTS.md"
+        ],
+        "project_notes": [],
+        "run": {
+         "max_turns": 40,
+         "status": "idle"
+        },
+        "runnable": true,
+        "tools": [],
+        "workspace": "C:\\projects\\vesper",
+        "workspace_dir": "C:\\projects\\vesper",
+        "workspace_missing": false
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "bound",
+   "previous_cursor": {
+    "generation": "bound-directory.events",
+    "offset": 715
+   },
+   "cursor": {
+    "generation": "bound-directory.events",
+    "offset": 1092
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:2",
+      "event": {
+       "seq": 2,
+       "ts": "2026-09-07T16:00:01Z",
+       "session_id": "bound",
+       "run_id": "",
+       "type": "project.instructions_loaded",
+       "data": {
+        "block": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\\projects\\vesper\\src\\AGENTS.md\nUse strict mode.\n--- END REPOSITORY INSTRUCTIONS ---",
+        "files": [
+         "C:\\projects\\vesper\\src\\AGENTS.md"
+        ],
+        "lazy": true,
+        "notes": []
+       }
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/project_content",
+     "value": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\\projects\\vesper\\AGENTS.md\nUse node tests.\n--- END REPOSITORY INSTRUCTIONS ---\n\n--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\\projects\\vesper\\src\\AGENTS.md\nUse strict mode.\n--- END REPOSITORY INSTRUCTIONS ---"
+    },
+    {
+     "op": "replace",
+     "path": "/project_files",
+     "value": [
+      "C:\\projects\\vesper\\AGENTS.md",
+      "C:\\projects\\vesper\\src\\AGENTS.md"
+     ]
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 2,
+      "ts": "2026-09-07T16:00:01Z",
+      "session_id": "bound",
+      "run_id": "",
+      "type": "project.instructions_loaded",
+      "data": {
+       "block": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\\projects\\vesper\\src\\AGENTS.md\nUse strict mode.\n--- END REPOSITORY INSTRUCTIONS ---",
+       "files": [
+        "C:\\projects\\vesper\\src\\AGENTS.md"
+       ],
+       "lazy": true,
+       "notes": []
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "records": 2,
+  "patches": 2,
+  "empty_patches": 0
+ }
+}

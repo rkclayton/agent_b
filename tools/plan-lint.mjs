@@ -221,9 +221,25 @@ export function releaseTags(root = scriptRoot) {
 export function releaseFindings(orderText, tags) {
   const errors = [];
   const warnings = [];
-  const line = String(orderText ?? "").match(/^\**RELEASE:\**\s*([\s\S]*?)(?=\n\s*\n|\n[A-Z][A-Z ]+:|$(?![\s\S]))/m)?.[1]?.replace(/\s+/g, " ").trim();
-  if (!line || /^none\b/i.test(line)) return { errors, warnings };
-  const named = [...line.matchAll(/\bv(\d+)\.(\d+)\.(\d+)\s*\(([^)]*)\)/g)].map((match) => ({ version: match.slice(1, 4).map(Number), text: "v" + match[1] + "." + match[2] + "." + match[3], kind: match[4].trim() }));
+  const text = String(orderText ?? "");
+  // Item 2lp (a): find the declaration wherever an order legitimately writes it.
+  // The old pattern was anchored with /^\**RELEASE:/m, which only fires when
+  // RELEASE: starts a line. rel-1.17.0/W0 swept the closed orders and found it
+  // read SEVEN OF NINE as having no declaration at all: every release from
+  // v1.13.0 to v1.15.0 shipped with this check silently doing nothing, because
+  // those orders wrote it mid-paragraph and bolded.
+  const line = text.match(/\**RELEASE:\**\s*([\s\S]*?)(?=\n\s*\n|\n[A-Z][A-Z ]+:|$(?![\s\S]))/)?.[1]?.replace(/\s+/g, " ").trim();
+  if (line && /^none\b/i.test(line)) return { errors, warnings };
+  if (!line) {
+    // (b): a gate that matches nothing is a FAILURE, not a pass. Silence was the
+    // whole defect -- a check that found no declaration was indistinguishable
+    // from a check that ran and approved.
+    if (/\bRELEASE\b/i.test(text) || /\bv\d+\.\d+\.\d+\b/.test(text)) {
+      errors.push("RELEASE: the order names a release but no declaration could be read; write it as `RELEASE: vX.Y.Z (MINOR, milestone: …)`");
+    }
+    return { errors, warnings };
+  }
+  const named = [...line.matchAll(/\bv(\d+)\.(\d+)\.(\d+)\**\s*\(([^)]*)\)/g)].map((match) => ({ version: match.slice(1, 4).map(Number), text: "v" + match[1] + "." + match[2] + "." + match[3], kind: match[4].trim() }));
   const releases = named.length ? named : [{ version: null, text: "", kind: line }];
   const parse = (version) => version.slice(1).split(".").map(Number);
   const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];

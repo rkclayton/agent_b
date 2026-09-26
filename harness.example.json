@@ -32,7 +32,7 @@
     },
     "web_search": {
       "enabled": true,
-      "engines": ["duckduckgo_html", "duckduckgo_lite", "bing", "brave", "startpage", "mojeek", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"],
+      "engines": ["duckduckgo_html", "duckduckgo_lite", "bing", "brave", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"],
       "per_engine_timeout_s": 8,
       "bench_duration_minutes": 30
     },

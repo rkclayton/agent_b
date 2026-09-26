@@ -211,6 +211,12 @@ func main() {
 		}
 	}()
 	bus := events.NewBus()
+	// Item 2ji (a): every run already journals its timings; nothing added them up.
+	// The tally folds the run's own events and puts the buckets and the
+	// reliability counters onto run.stopped, before the journal is written, so the
+	// chat line, Activity and the telemetry receiver all read the same numbers
+	// from the same place and cannot disagree.
+	stats.InstallRunTally(bus)
 	projector := projection.NewStore()
 	bus.SetDurableSink(writers.WriteRecord, projector.Apply, projector.MarkStale)
 	progressManager := progress.New(bus)
@@ -228,9 +234,9 @@ func main() {
 		// per-user install happens to be.
 		ApplicationRoot: paths.Application,
 		WorkspaceRoot:   paths.Workspace,
-		LatestURL:      updateLatestURL(),
-		Enabled:        func() bool { return web.ConfigSnapshot().Updates.AutoCheck },
-		Changed:        func(state updater.State) { bus.Publish(events.New(events.UpdateChanged, "", "", state)) },
+		LatestURL:       updateLatestURL(),
+		Enabled:         func() bool { return web.ConfigSnapshot().Updates.AutoCheck },
+		Changed:         func(state updater.State) { bus.Publish(events.New(events.UpdateChanged, "", "", state)) },
 	})
 	web.SetUpdater(updateManager)
 	updateManager.Start(context.Background())

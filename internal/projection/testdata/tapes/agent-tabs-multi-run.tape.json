@@ -1,0 +1,506 @@
+{
+ "source": "agent-tabs-multi-run",
+ "session": "s3",
+ "start": {
+  "schema_version": 1,
+  "cursor": {
+   "generation": "",
+   "offset": 0
+  },
+  "complete": false,
+  "id": "s3",
+  "label": "s3",
+  "agent_id": "",
+  "connection_id": "",
+  "agent_name": "",
+  "b_connection": "",
+  "role": "",
+  "created_at": "",
+  "workspace": "",
+  "workspace_dir": "",
+  "workspace_missing": false,
+  "project_content": "",
+  "project_files": null,
+  "project_notes": null,
+  "run": {
+   "status": "idle",
+   "run_id": "",
+   "turn": 0,
+   "max_turns": 0,
+   "queue_position": 0,
+   "partial": "",
+   "last_stop_reason": ""
+  },
+  "tools": [],
+  "messages": [],
+  "budget": {
+   "n_ctx": 0,
+   "reserve": 0,
+   "ceiling": 0,
+   "used_est": 0,
+   "used_measured": 0,
+   "drift": 0,
+   "cached_last": null,
+   "mode": "",
+   "estimated": false,
+   "estimated_categories": null,
+   "categories": null,
+   "tool_schema_tokens": null,
+   "tool_marginal_tokens": null
+  },
+  "queued_messages": 0,
+  "runnable": false,
+  "not_runnable_reason": "",
+  "memory_path": "",
+  "memory_content": "",
+  "agent_memory_path": "",
+  "agent_memory_content": "",
+  "log_path": "",
+  "model_turns": 0,
+  "compaction_count": 0,
+  "compaction_token_delta": 0,
+  "compaction_model_calls": 0,
+  "compaction_prompt_tokens": 0,
+  "compaction_completion_tokens": 0,
+  "activity": {
+   "stage": "",
+   "stage_state": "",
+   "completed_stages": [],
+   "active_tool": "",
+   "alarm_tool": "",
+   "dispatch_alarm": false,
+   "compaction_serial": 0
+  },
+  "timeline": [],
+  "chat": [],
+  "closed": false
+ },
+ "patches": [
+  {
+   "schema_version": 1,
+   "session_id": "s3",
+   "previous_cursor": {
+    "generation": "",
+    "offset": 0
+   },
+   "cursor": {
+    "generation": "agent-tabs-multi-run.events",
+    "offset": 890
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/complete",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/label",
+     "value": "Agent tabs"
+    },
+    {
+     "op": "replace",
+     "path": "/connection_id",
+     "value": "homepc"
+    },
+    {
+     "op": "replace",
+     "path": "/agent_name",
+     "value": "HomePC"
+    },
+    {
+     "op": "replace",
+     "path": "/b_connection",
+     "value": "HomePC"
+    },
+    {
+     "op": "replace",
+     "path": "/role",
+     "value": "b"
+    },
+    {
+     "op": "replace",
+     "path": "/created_at",
+     "value": "2026-09-07T17:10:00Z"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace_dir",
+     "value": "C:\\fixture\\workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/tools",
+     "value": [
+      {
+       "name": "shell",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/runnable",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/log_path",
+     "value": "agent-tabs-multi-run.events"
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 1,
+      "ts": "2026-09-07T17:10:00Z",
+      "session_id": "s3",
+      "run_id": "",
+      "type": "session.created",
+      "data": {
+       "session": {
+        "agent_name": "HomePC",
+        "budget": {},
+        "closed": false,
+        "compaction_completion_tokens": 0,
+        "compaction_count": 0,
+        "compaction_model_calls": 0,
+        "compaction_prompt_tokens": 0,
+        "compaction_token_delta": 0,
+        "connection_id": "homepc",
+        "created_at": "2026-09-07T17:10:00Z",
+        "id": "s3",
+        "label": "Agent tabs",
+        "log_path": "agent-tabs-multi-run.events",
+        "main_connection": "HomePC",
+        "memory_content": "",
+        "memory_path": "",
+        "messages": [],
+        "model_turns": 0,
+        "name_pinned": false,
+        "not_runnable_reason": "",
+        "queued_messages": 0,
+        "run": {
+         "last_stop_reason": "",
+         "max_turns": 40,
+         "partial": "",
+         "queue_position": 0,
+         "run_id": "",
+         "status": "idle",
+         "turn": 0
+        },
+        "runnable": true,
+        "tools": [
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "shell",
+          "schema_tokens": 0
+         }
+        ],
+        "workspace": "C:\\fixture\\workspace",
+        "workspace_dir": "C:\\fixture\\workspace"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s3",
+   "previous_cursor": {
+    "generation": "agent-tabs-multi-run.events",
+    "offset": 890
+   },
+   "cursor": {
+    "generation": "agent-tabs-multi-run.events",
+    "offset": 1027
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "running",
+      "run_id": "r1",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 2,
+      "ts": "2026-09-07T17:10:01Z",
+      "session_id": "s3",
+      "run_id": "r1",
+      "type": "run.started",
+      "data": {
+       "run_id": "r1",
+       "user_message_id": "m1"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s3",
+   "previous_cursor": {
+    "generation": "agent-tabs-multi-run.events",
+    "offset": 1027
+   },
+   "cursor": {
+    "generation": "agent-tabs-multi-run.events",
+    "offset": 1179
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": "done",
+      "last_run_id": "r1"
+     }
+    },
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:3",
+      "run_id": "r1",
+      "event": {
+       "seq": 3,
+       "ts": "2026-09-07T17:10:02Z",
+       "session_id": "s3",
+       "run_id": "r1",
+       "type": "run.stopped",
+       "data": {
+        "detail": "",
+        "reason": "done",
+        "run_id": "r1",
+        "turns": 1
+       }
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "wait_user",
+      "stage_state": "enter",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 3,
+      "ts": "2026-09-07T17:10:02Z",
+      "session_id": "s3",
+      "run_id": "r1",
+      "type": "run.stopped",
+      "data": {
+       "detail": "",
+       "reason": "done",
+       "run_id": "r1",
+       "turns": 1
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s3",
+   "previous_cursor": {
+    "generation": "agent-tabs-multi-run.events",
+    "offset": 1179
+   },
+   "cursor": {
+    "generation": "agent-tabs-multi-run.events",
+    "offset": 1316
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "running",
+      "run_id": "r2",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 4,
+      "ts": "2026-09-07T17:10:03Z",
+      "session_id": "s3",
+      "run_id": "r2",
+      "type": "run.started",
+      "data": {
+       "run_id": "r2",
+       "user_message_id": "m2"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "s3",
+   "previous_cursor": {
+    "generation": "agent-tabs-multi-run.events",
+    "offset": 1316
+   },
+   "cursor": {
+    "generation": "agent-tabs-multi-run.events",
+    "offset": 1579
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "paused",
+      "run_id": "r2",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "notice",
+      "key": "event:5",
+      "run_id": "r2",
+      "event": {
+       "seq": 5,
+       "ts": "2026-09-07T17:10:04Z",
+       "session_id": "s3",
+       "run_id": "r2",
+       "type": "approval.required",
+       "data": {
+        "args": {
+         "command": "git push"
+        },
+        "boundary_escape": false,
+        "call_id": "call-shell",
+        "name": "shell.operator_command",
+        "reason": "configured operator command",
+        "turn": 2
+       }
+      }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/pending_approval",
+     "value": {
+      "type": "notice",
+      "key": "event:5",
+      "run_id": "r2",
+      "event": {
+       "seq": 5,
+       "ts": "2026-09-07T17:10:04Z",
+       "session_id": "s3",
+       "run_id": "r2",
+       "type": "approval.required",
+       "data": {
+        "args": {
+         "command": "git push"
+        },
+        "boundary_escape": false,
+        "call_id": "call-shell",
+        "name": "shell.operator_command",
+        "reason": "configured operator command",
+        "turn": 2
+       }
+      }
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 5,
+      "ts": "2026-09-07T17:10:04Z",
+      "session_id": "s3",
+      "run_id": "r2",
+      "type": "approval.required",
+      "data": {
+       "args": {
+        "command": "git push"
+       },
+       "boundary_escape": false,
+       "call_id": "call-shell",
+       "name": "shell.operator_command",
+       "reason": "configured operator command",
+       "turn": 2
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "records": 5,
+  "patches": 5,
+  "empty_patches": 0
+ }
+}

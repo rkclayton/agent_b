@@ -1,0 +1,1137 @@
+{
+ "source": "read-history-toolset",
+ "session": "main",
+ "start": {
+  "schema_version": 1,
+  "cursor": {
+   "generation": "",
+   "offset": 0
+  },
+  "complete": false,
+  "id": "main",
+  "label": "main",
+  "agent_id": "",
+  "connection_id": "",
+  "agent_name": "",
+  "b_connection": "",
+  "role": "",
+  "created_at": "",
+  "workspace": "",
+  "workspace_dir": "",
+  "workspace_missing": false,
+  "project_content": "",
+  "project_files": null,
+  "project_notes": null,
+  "run": {
+   "status": "idle",
+   "run_id": "",
+   "turn": 0,
+   "max_turns": 0,
+   "queue_position": 0,
+   "partial": "",
+   "last_stop_reason": ""
+  },
+  "tools": [],
+  "messages": [],
+  "budget": {
+   "n_ctx": 0,
+   "reserve": 0,
+   "ceiling": 0,
+   "used_est": 0,
+   "used_measured": 0,
+   "drift": 0,
+   "cached_last": null,
+   "mode": "",
+   "estimated": false,
+   "estimated_categories": null,
+   "categories": null,
+   "tool_schema_tokens": null,
+   "tool_marginal_tokens": null
+  },
+  "queued_messages": 0,
+  "runnable": false,
+  "not_runnable_reason": "",
+  "memory_path": "",
+  "memory_content": "",
+  "agent_memory_path": "",
+  "agent_memory_content": "",
+  "log_path": "",
+  "model_turns": 0,
+  "compaction_count": 0,
+  "compaction_token_delta": 0,
+  "compaction_model_calls": 0,
+  "compaction_prompt_tokens": 0,
+  "compaction_completion_tokens": 0,
+  "activity": {
+   "stage": "",
+   "stage_state": "",
+   "completed_stages": [],
+   "active_tool": "",
+   "alarm_tool": "",
+   "dispatch_alarm": false,
+   "compaction_serial": 0
+  },
+  "timeline": [],
+  "chat": [],
+  "closed": false
+ },
+ "patches": [
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "",
+    "offset": 0
+   },
+   "cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 1964
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/complete",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/label",
+     "value": "\u003cr:0d6e4079e367:4\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/connection_id",
+     "value": "server"
+    },
+    {
+     "op": "replace",
+     "path": "/role",
+     "value": "b"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace",
+     "value": "\u003cr:4f686fac013c:28\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace_dir",
+     "value": "\u003cr:4f686fac013c:28\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/tools",
+     "value": [
+      {
+       "name": "read_file",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "list_dir",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "write_file",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "edit_file",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "search_text",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "shell",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "remember",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "recall",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "fetch_url",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "find_files",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      },
+      {
+       "name": "read_history",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 0,
+       "marginal_tokens": 0
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/budget",
+     "value": {
+      "n_ctx": 32768,
+      "reserve": 8192,
+      "ceiling": 24576,
+      "used_est": 0,
+      "used_measured": 0,
+      "drift": 0,
+      "cached_last": null,
+      "mode": "estimated",
+      "estimated": true,
+      "estimated_categories": [],
+      "categories": {
+       "fetched": 0,
+       "files": 0,
+       "history": 0,
+       "memory": 0,
+       "results": 0,
+       "summary": 0,
+       "system": 0,
+       "tools": 0
+      },
+      "tool_schema_tokens": {},
+      "tool_marginal_tokens": {}
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/runnable",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/memory_path",
+     "value": "\u003cr:cf1f8533b396:65\u003e"
+    },
+    {
+     "op": "replace",
+     "path": "/log_path",
+     "value": "\u003cr:f18da4c93933:73\u003e"
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 1,
+      "ts": "1970-01-01T00:00:00Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "session.created",
+      "data": {
+       "session": {
+        "budget": {
+         "cached_last": null,
+         "categories": {
+          "fetched": 0,
+          "files": 0,
+          "history": 0,
+          "memory": 0,
+          "results": 0,
+          "summary": 0,
+          "system": 0,
+          "tools": 0
+         },
+         "ceiling": 24576,
+         "drift": 0,
+         "estimated": true,
+         "estimated_categories": [],
+         "mode": "estimated",
+         "n_ctx": 32768,
+         "reserve": 8192,
+         "tool_marginal_tokens": {},
+         "tool_schema_tokens": {},
+         "used_est": 0,
+         "used_measured": 0
+        },
+        "compaction_completion_tokens": 0,
+        "compaction_count": 0,
+        "compaction_model_calls": 0,
+        "compaction_prompt_tokens": 0,
+        "compaction_token_delta": 0,
+        "id": "main",
+        "label": "\u003cr:0d6e4079e367:4\u003e",
+        "log_path": "\u003cr:f18da4c93933:73\u003e",
+        "memory_content": "",
+        "memory_path": "\u003cr:cf1f8533b396:65\u003e",
+        "messages": [],
+        "model_turns": 0,
+        "not_runnable_reason": "",
+        "queued_messages": 0,
+        "run": {
+         "last_stop_reason": "",
+         "max_turns": 40,
+         "partial": "",
+         "queue_position": 0,
+         "run_id": "",
+         "status": "idle",
+         "turn": 0
+        },
+        "runnable": true,
+        "server_id": "server",
+        "timeline": null,
+        "tools": [
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "read_file",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "list_dir",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "write_file",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "edit_file",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "search_text",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "shell",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "remember",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "recall",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "fetch_url",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "find_files",
+          "schema_tokens": 0
+         },
+         {
+          "calls": 0,
+          "enabled": true,
+          "marginal_tokens": 0,
+          "name": "read_history",
+          "schema_tokens": 0
+         }
+        ],
+        "workspace": "\u003cr:4f686fac013c:28\u003e"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 1964
+   },
+   "cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 2731
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/tools",
+     "value": [
+      {
+       "name": "read_file",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 345,
+       "marginal_tokens": 151
+      },
+      {
+       "name": "list_dir",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 288,
+       "marginal_tokens": 94
+      },
+      {
+       "name": "write_file",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 284,
+       "marginal_tokens": 90
+      },
+      {
+       "name": "edit_file",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 300,
+       "marginal_tokens": 106
+      },
+      {
+       "name": "search_text",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 294,
+       "marginal_tokens": 100
+      },
+      {
+       "name": "shell",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 320,
+       "marginal_tokens": 125
+      },
+      {
+       "name": "remember",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 269,
+       "marginal_tokens": 74
+      },
+      {
+       "name": "recall",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 255,
+       "marginal_tokens": 60
+      },
+      {
+       "name": "fetch_url",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 355,
+       "marginal_tokens": 161
+      },
+      {
+       "name": "find_files",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 284,
+       "marginal_tokens": 90
+      },
+      {
+       "name": "read_history",
+       "enabled": true,
+       "calls": 0,
+       "schema_tokens": 323,
+       "marginal_tokens": 129
+      }
+     ]
+    },
+    {
+     "op": "replace",
+     "path": "/budget",
+     "value": {
+      "n_ctx": 32768,
+      "reserve": 8192,
+      "ceiling": 24576,
+      "used_est": 1640,
+      "used_measured": 0,
+      "drift": 0,
+      "cached_last": null,
+      "mode": "exact",
+      "estimated": false,
+      "estimated_categories": [],
+      "categories": {
+       "fetched": 0,
+       "files": 0,
+       "history": 0,
+       "memory": 0,
+       "results": 0,
+       "summary": 0,
+       "system": 293,
+       "tools": 1347
+      },
+      "tool_schema_tokens": {
+       "edit_file": 300,
+       "fetch_url": 355,
+       "find_files": 284,
+       "list_dir": 288,
+       "read_file": 345,
+       "read_history": 323,
+       "recall": 255,
+       "remember": 269,
+       "search_text": 294,
+       "shell": 320,
+       "write_file": 284
+      },
+      "tool_marginal_tokens": {
+       "edit_file": 106,
+       "fetch_url": 161,
+       "find_files": 90,
+       "list_dir": 94,
+       "read_file": 151,
+       "read_history": 129,
+       "recall": 60,
+       "remember": 74,
+       "search_text": 100,
+       "shell": 125,
+       "write_file": 90
+      }
+     }
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 2,
+      "ts": "1970-01-01T00:00:00.567Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "budget",
+      "data": {
+       "cached_last": null,
+       "categories": {
+        "fetched": 0,
+        "files": 0,
+        "history": 0,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 293,
+        "tools": 1347
+       },
+       "ceiling": 24576,
+       "drift": 0,
+       "estimated": false,
+       "estimated_categories": [],
+       "mode": "exact",
+       "n_ctx": 32768,
+       "reserve": 8192,
+       "tool_marginal_tokens": {
+        "edit_file": 106,
+        "fetch_url": 161,
+        "find_files": 90,
+        "list_dir": 94,
+        "read_file": 151,
+        "read_history": 129,
+        "recall": 60,
+        "remember": 74,
+        "search_text": 100,
+        "shell": 125,
+        "write_file": 90
+       },
+       "tool_schema_tokens": {
+        "edit_file": 300,
+        "fetch_url": 355,
+        "find_files": 284,
+        "list_dir": 288,
+        "read_file": 345,
+        "read_history": 323,
+        "recall": 255,
+        "remember": 269,
+        "search_text": 294,
+        "shell": 320,
+        "write_file": 284
+       },
+       "used_est": 1640,
+       "used_measured": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 2731
+   },
+   "cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 3498
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 7,
+      "ts": "1970-01-01T00:01:34.507Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "budget",
+      "data": {
+       "cached_last": null,
+       "categories": {
+        "fetched": 0,
+        "files": 0,
+        "history": 0,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 293,
+        "tools": 1347
+       },
+       "ceiling": 24576,
+       "drift": 0,
+       "estimated": false,
+       "estimated_categories": [],
+       "mode": "exact",
+       "n_ctx": 32768,
+       "reserve": 8192,
+       "tool_marginal_tokens": {
+        "edit_file": 106,
+        "fetch_url": 161,
+        "find_files": 90,
+        "list_dir": 94,
+        "read_file": 151,
+        "read_history": 129,
+        "recall": 60,
+        "remember": 74,
+        "search_text": 100,
+        "shell": 125,
+        "write_file": 90
+       },
+       "tool_schema_tokens": {
+        "edit_file": 300,
+        "fetch_url": 355,
+        "find_files": 284,
+        "list_dir": 288,
+        "read_file": 345,
+        "read_history": 323,
+        "recall": 255,
+        "remember": 269,
+        "search_text": 294,
+        "shell": 320,
+        "write_file": 284
+       },
+       "used_est": 1640,
+       "used_measured": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 3498
+   },
+   "cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 4268
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 2373,
+      "ts": "1970-01-01T00:07:58.089Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "budget",
+      "data": {
+       "cached_last": null,
+       "categories": {
+        "fetched": 0,
+        "files": 0,
+        "history": 0,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 293,
+        "tools": 1347
+       },
+       "ceiling": 24576,
+       "drift": 0,
+       "estimated": false,
+       "estimated_categories": [],
+       "mode": "exact",
+       "n_ctx": 32768,
+       "reserve": 8192,
+       "tool_marginal_tokens": {
+        "edit_file": 106,
+        "fetch_url": 161,
+        "find_files": 90,
+        "list_dir": 94,
+        "read_file": 151,
+        "read_history": 129,
+        "recall": 60,
+        "remember": 74,
+        "search_text": 100,
+        "shell": 125,
+        "write_file": 90
+       },
+       "tool_schema_tokens": {
+        "edit_file": 300,
+        "fetch_url": 355,
+        "find_files": 284,
+        "list_dir": 288,
+        "read_file": 345,
+        "read_history": 323,
+        "recall": 255,
+        "remember": 269,
+        "search_text": 294,
+        "shell": 320,
+        "write_file": 284
+       },
+       "used_est": 1640,
+       "used_measured": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 4268
+   },
+   "cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 5038
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 7691,
+      "ts": "1970-01-01T00:15:29.148Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "budget",
+      "data": {
+       "cached_last": null,
+       "categories": {
+        "fetched": 0,
+        "files": 0,
+        "history": 0,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 293,
+        "tools": 1347
+       },
+       "ceiling": 24576,
+       "drift": 0,
+       "estimated": false,
+       "estimated_categories": [],
+       "mode": "exact",
+       "n_ctx": 32768,
+       "reserve": 8192,
+       "tool_marginal_tokens": {
+        "edit_file": 106,
+        "fetch_url": 161,
+        "find_files": 90,
+        "list_dir": 94,
+        "read_file": 151,
+        "read_history": 129,
+        "recall": 60,
+        "remember": 74,
+        "search_text": 100,
+        "shell": 125,
+        "write_file": 90
+       },
+       "tool_schema_tokens": {
+        "edit_file": 300,
+        "fetch_url": 355,
+        "find_files": 284,
+        "list_dir": 288,
+        "read_file": 345,
+        "read_history": 323,
+        "recall": 255,
+        "remember": 269,
+        "search_text": 294,
+        "shell": 320,
+        "write_file": 284
+       },
+       "used_est": 1640,
+       "used_measured": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 5038
+   },
+   "cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 5808
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 11982,
+      "ts": "1970-01-01T00:22:32.98Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "budget",
+      "data": {
+       "cached_last": null,
+       "categories": {
+        "fetched": 0,
+        "files": 0,
+        "history": 0,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 293,
+        "tools": 1347
+       },
+       "ceiling": 24576,
+       "drift": 0,
+       "estimated": false,
+       "estimated_categories": [],
+       "mode": "exact",
+       "n_ctx": 32768,
+       "reserve": 8192,
+       "tool_marginal_tokens": {
+        "edit_file": 106,
+        "fetch_url": 161,
+        "find_files": 90,
+        "list_dir": 94,
+        "read_file": 151,
+        "read_history": 129,
+        "recall": 60,
+        "remember": 74,
+        "search_text": 100,
+        "shell": 125,
+        "write_file": 90
+       },
+       "tool_schema_tokens": {
+        "edit_file": 300,
+        "fetch_url": 355,
+        "find_files": 284,
+        "list_dir": 288,
+        "read_file": 345,
+        "read_history": 323,
+        "recall": 255,
+        "remember": 269,
+        "search_text": 294,
+        "shell": 320,
+        "write_file": 284
+       },
+       "used_est": 1640,
+       "used_measured": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 5808
+   },
+   "cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 6579
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 14025,
+      "ts": "1970-01-01T00:28:49.331Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "budget",
+      "data": {
+       "cached_last": null,
+       "categories": {
+        "fetched": 0,
+        "files": 0,
+        "history": 0,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 293,
+        "tools": 1347
+       },
+       "ceiling": 24576,
+       "drift": 0,
+       "estimated": false,
+       "estimated_categories": [],
+       "mode": "exact",
+       "n_ctx": 32768,
+       "reserve": 8192,
+       "tool_marginal_tokens": {
+        "edit_file": 106,
+        "fetch_url": 161,
+        "find_files": 90,
+        "list_dir": 94,
+        "read_file": 151,
+        "read_history": 129,
+        "recall": 60,
+        "remember": 74,
+        "search_text": 100,
+        "shell": 125,
+        "write_file": 90
+       },
+       "tool_schema_tokens": {
+        "edit_file": 300,
+        "fetch_url": 355,
+        "find_files": 284,
+        "list_dir": 288,
+        "read_file": 345,
+        "read_history": 323,
+        "recall": 255,
+        "remember": 269,
+        "search_text": 294,
+        "shell": 320,
+        "write_file": 284
+       },
+       "used_est": 1640,
+       "used_measured": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 6579
+   },
+   "cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 7349
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 20229,
+      "ts": "1970-01-01T00:36:37.53Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "budget",
+      "data": {
+       "cached_last": null,
+       "categories": {
+        "fetched": 0,
+        "files": 0,
+        "history": 0,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 293,
+        "tools": 1347
+       },
+       "ceiling": 24576,
+       "drift": 0,
+       "estimated": false,
+       "estimated_categories": [],
+       "mode": "exact",
+       "n_ctx": 32768,
+       "reserve": 8192,
+       "tool_marginal_tokens": {
+        "edit_file": 106,
+        "fetch_url": 161,
+        "find_files": 90,
+        "list_dir": 94,
+        "read_file": 151,
+        "read_history": 129,
+        "recall": 60,
+        "remember": 74,
+        "search_text": 100,
+        "shell": 125,
+        "write_file": 90
+       },
+       "tool_schema_tokens": {
+        "edit_file": 300,
+        "fetch_url": 355,
+        "find_files": 284,
+        "list_dir": 288,
+        "read_file": 345,
+        "read_history": 323,
+        "recall": 255,
+        "remember": 269,
+        "search_text": 294,
+        "shell": 320,
+        "write_file": 284
+       },
+       "used_est": 1640,
+       "used_measured": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 7349
+   },
+   "cursor": {
+    "generation": "read-history-toolset.events",
+    "offset": 8120
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 21793,
+      "ts": "1970-01-01T00:45:02.358Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "budget",
+      "data": {
+       "cached_last": null,
+       "categories": {
+        "fetched": 0,
+        "files": 0,
+        "history": 0,
+        "memory": 0,
+        "results": 0,
+        "summary": 0,
+        "system": 293,
+        "tools": 1347
+       },
+       "ceiling": 24576,
+       "drift": 0,
+       "estimated": false,
+       "estimated_categories": [],
+       "mode": "exact",
+       "n_ctx": 32768,
+       "reserve": 8192,
+       "tool_marginal_tokens": {
+        "edit_file": 106,
+        "fetch_url": 161,
+        "find_files": 90,
+        "list_dir": 94,
+        "read_file": 151,
+        "read_history": 129,
+        "recall": 60,
+        "remember": 74,
+        "search_text": 100,
+        "shell": 125,
+        "write_file": 90
+       },
+       "tool_schema_tokens": {
+        "edit_file": 300,
+        "fetch_url": 355,
+        "find_files": 284,
+        "list_dir": 288,
+        "read_file": 345,
+        "read_history": 323,
+        "recall": 255,
+        "remember": 269,
+        "search_text": 294,
+        "shell": 320,
+        "write_file": 284
+       },
+       "used_est": 1640,
+       "used_measured": 0
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "records": 9,
+  "patches": 9,
+  "empty_patches": 0
+ }
+}

@@ -420,7 +420,15 @@ if ($Detached) {
 }
 
 $process.WaitForExit()
-$exitCode = $process.ExitCode
+$exitCode = $null
+try { $exitCode = $process.ExitCode } catch { $exitCode = $null }
+if ($null -eq $exitCode) {
+    # rel-1.16.0 left "Agent_b stopped with exit code ." in the operator log
+    # twice. An absent code is not a blank: it means the process was ended from
+    # outside, or its window closed, or Windows would not report a code, and the
+    # reader of this line needs to be told which rather than shown a gap.
+    throw "Agent_b stopped without reporting an exit code: it was ended from outside, its window was closed, or Windows did not report one. See the launcher log beside this message."
+}
 if ($exitCode -ne 0) {
     throw "Agent_b stopped with exit code $exitCode."
 }

@@ -5,11 +5,13 @@ import (
 	_ "embed"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,11 +23,27 @@ import (
 //go:embed web_search_news.json
 var webSearchNewsJSON []byte
 
-var initiallyBenchedWebSearchEngines = map[string]string{
-	"startpage":       "W0 fixed-query page did not parse",
-	"mojeek":          "W0 fixed-query page did not parse",
-	"duckduckgo_html": "2026-09-23 capability fixed query returned zero results",
-	"duckduckgo_lite": "2026-09-23 capability fixed query returned zero results",
+// Item 2lq: a benched engine is a decision with a date, not a silence.
+//
+// rel-1.17.0/W0 probed every benched engine against the capability suite's own
+// fixed query and the bench list turned out to be three days stale:
+//
+//	duckduckgo_html   10 results, no error   -> REVIVED, the reason was untrue
+//	duckduckgo_lite   10 results, no error   -> REVIVED, the reason was untrue
+//	startpage          0 results, HTTP 200   -> RETIRED, see below
+//	mojeek             0 results, HTTP 403   -> RETIRED, blocked at the source
+//
+// The merge had been running two engines short since 2026-09-23 for a reason
+// that had stopped being true. That is the state this item exists to end: every
+// entry below carries what was observed and when it was observed.
+var initiallyBenchedWebSearchEngines = map[string]string{}
+
+// retiredWebSearchEngines records engines that were removed, so the next reader
+// does not wonder where they went or quietly add them back. (b): broken at the
+// source means retired and removed, not left as a permanent skipped arm.
+var retiredWebSearchEngines = map[string]string{
+	"startpage": "2026-09-26: serves an Anubis proof-of-work challenge instead of results (HTTP 200 with a challenge document, no result markup). Not a scraper fix -- passing it means doing the work the challenge demands.",
+	"mojeek":    "2026-09-26: HTTP 403 to the fixed query. Blocked at the source.",
 }
 
 type webSearchHealth struct {
@@ -33,6 +51,61 @@ type webSearchHealth struct {
 	LastError           string
 	LastSuccess         time.Time
 	BenchedUntil        time.Time
+	// Item 2lq (c): why it is benched, in the words of whatever benched it. A
+	// bench with no reason is the silence this item exists to end.
+	BenchReason string
+}
+
+// Item 2lq (c): brave answers HTTP 429 to the capability suite's fixed query, and
+// the old code could not tell that apart from a parser that had stopped working:
+// three of anything benched the engine for the same fixed interval with
+// "HTTP status 429" as the whole explanation.
+//
+// A 429 is not a broken engine. It is the engine saying come back later, and it
+// often says WHEN. So a rate limit is its own outcome: it benches immediately
+// rather than on the third try, it benches for as long as the server asked
+// (bounded, because Retry-After is attacker-adjacent input), and it records that
+// it was rate-limited rather than that it failed.
+type webSearchRateLimited struct {
+	status int
+	after  time.Duration
+}
+
+func (e *webSearchRateLimited) Error() string {
+	if e.after > 0 {
+		return fmt.Sprintf("HTTP status %d (rate limited, waiting %s)", e.status, e.after)
+	}
+	return fmt.Sprintf("HTTP status %d (rate limited, no Retry-After given)", e.status)
+}
+
+// The bench window a rate limit buys. The floor keeps a server that says "0"
+// from buying nothing; the ceiling keeps one that says a week from parking an
+// engine for a week.
+const (
+	webSearchRateLimitFloor   = 2 * time.Minute
+	webSearchRateLimitCeiling = 60 * time.Minute
+)
+
+// rateLimitWindow reads Retry-After, which is either seconds or an HTTP date,
+// and clamps whatever it finds. An unreadable or absent value falls back to the
+// configured bench duration, so a rate limit always buys a real pause.
+func rateLimitWindow(header string, fallback time.Duration) time.Duration {
+	window := fallback
+	header = strings.TrimSpace(header)
+	if header != "" {
+		if seconds, err := strconv.Atoi(header); err == nil {
+			window = time.Duration(seconds) * time.Second
+		} else if when, err := http.ParseTime(header); err == nil {
+			window = time.Until(when)
+		}
+	}
+	if window < webSearchRateLimitFloor {
+		window = webSearchRateLimitFloor
+	}
+	if window > webSearchRateLimitCeiling {
+		window = webSearchRateLimitCeiling
+	}
+	return window
 }
 
 type webSearchEngineOutcome struct {
@@ -59,7 +132,7 @@ func newWebSearch(fetch *Fetch, cfg config.WebSearchTool, adapters []webSearchAd
 	if initialBench {
 		until := tool.now().Add(time.Duration(cfg.BenchDurationMinutes) * time.Minute)
 		for name, reason := range initiallyBenchedWebSearchEngines {
-			tool.health[name] = webSearchHealth{ConsecutiveFailures: 3, LastError: reason, BenchedUntil: until}
+			tool.health[name] = webSearchHealth{ConsecutiveFailures: 3, LastError: reason, BenchedUntil: until, BenchReason: reason}
 		}
 	}
 	return tool
@@ -161,7 +234,16 @@ func (w *WebSearch) CallDetailed(ctx context.Context, s *session.Session, args m
 			continue
 		}
 		if health, ok := w.healthSnapshot(adapter.Name()); ok && health.BenchedUntil.After(now) {
-			benched = append(benched, fmt.Sprintf("%s(until %s)", adapter.Name(), health.BenchedUntil.UTC().Format(time.RFC3339)))
+			// (b): a benched engine is reported WITH its reason, dated. The
+			// caller used to be handed a bare name and a timestamp.
+			reason := health.BenchReason
+			if reason == "" {
+				reason = health.LastError
+			}
+			if reason == "" {
+				reason = "no reason recorded"
+			}
+			benched = append(benched, fmt.Sprintf("%s(until %s: %s)", adapter.Name(), health.BenchedUntil.UTC().Format(time.RFC3339), reason))
 			continue
 		}
 		selected = append(selected, struct {
@@ -260,6 +342,14 @@ func (w *WebSearch) searchOne(ctx context.Context, client *http.Client, cfg conf
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer response.Body.Close()
+	// (c): a rate limit is a distinct outcome, not one more failure.
+	if response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusServiceUnavailable {
+		fallback := time.Duration(w.configuredBenchMinutes()) * time.Minute
+		return nil, &webSearchRateLimited{
+			status: response.StatusCode,
+			after:  rateLimitWindow(response.Header.Get("Retry-After"), fallback),
+		}
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("HTTP status %d", response.StatusCode)
 	}
@@ -292,13 +382,32 @@ func (w *WebSearch) recordWebSearchSuccess(name string) {
 	w.health[name] = webSearchHealth{LastSuccess: w.now()}
 	w.mu.Unlock()
 }
+func (w *WebSearch) configuredBenchMinutes() int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.cfg.BenchDurationMinutes
+}
+
 func (w *WebSearch) recordWebSearchFailure(name string, err error, cfg config.WebSearchTool) {
 	w.mu.Lock()
 	health := w.health[name]
-	health.ConsecutiveFailures++
 	health.LastError = err.Error()
+	// (c): a rate limit benches on the FIRST one, for as long as the engine
+	// asked, and says that is why. It does not count towards the broken-parser
+	// tally, because waiting is not breaking.
+	var limited *webSearchRateLimited
+	if errors.As(err, &limited) {
+		health.BenchedUntil = w.now().Add(limited.after)
+		health.BenchReason = fmt.Sprintf("rate limited (HTTP %d) on %s", limited.status, w.now().UTC().Format("2006-01-02"))
+		w.health[name] = health
+		w.mu.Unlock()
+		return
+	}
+	health.ConsecutiveFailures++
 	if health.ConsecutiveFailures >= 3 {
 		health.BenchedUntil = w.now().Add(time.Duration(cfg.BenchDurationMinutes) * time.Minute)
+		health.BenchReason = fmt.Sprintf("%d consecutive failures, last: %s, on %s",
+			health.ConsecutiveFailures, err.Error(), w.now().UTC().Format("2006-01-02"))
 	}
 	w.health[name] = health
 	w.mu.Unlock()

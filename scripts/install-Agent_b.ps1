@@ -39,7 +39,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 . (Join-Path $PSScriptRoot 'install-root-policy.ps1')
-$displayVersion = '1.16.0'
+$displayVersion = '1.17.0'
 
 if (-not $TestMode -and -not $EmbeddedBundle) {
     Write-Output 'Agent_b installs come from the signed Agent_b-setup.exe on the release page.'
@@ -1031,7 +1031,8 @@ Write-InstallProgress -Phase 'finished' -Text "Agent_b $displayVersion is instal
 Write-Host 'INSTALLATION COMPLETE'
 Write-Host "Start Menu: $shortcutPath"
 Write-Host "At sign-in: $startupPath"
-Write-Host "Registration: $(if ($AllUsers) { 'HKLM' } else { 'HKCU' }) and the operator Start Menu, matching the LocalAppData configuration and user-scoped DPAPI owner."
+$registrationHive = if ($resolvedRoots.UninstallRegistryPath -match '^(?i)HKLM:') { 'HKLM' } else { 'HKCU' }
+Write-Host "Registration: $registrationHive at $($resolvedRoots.UninstallRegistryPath) and the operator Start Menu, matching the LocalAppData configuration and user-scoped DPAPI owner."
 Write-Host 'Settings: created once in LocalAppData and preserved on upgrades'
 Write-Host "Transcript: $script:installTranscriptPath"
 Stop-InstallTranscript

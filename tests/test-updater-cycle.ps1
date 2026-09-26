@@ -1,11 +1,24 @@
 # Item 2lh (c) and (d): the whole updater path on disposable roots. A disposable
-# instance of the PREVIOUS release reads a release feed, downloads, verifies,
-# installs and comes back on the NEW version, entirely beneath this suite's root.
+# instance of one release reads a release feed, downloads, verifies and launches
+# the setup, entirely beneath this suite root.
 #
 # rel-1.13.2/W8 could not do this: the updater invoked the setup with no roots, so
-# the setup resolved the operator's own per-user locations and a disposable
+# the setup resolved the operator own per-user locations and a disposable
 # self-update would have installed over production. That is why the launch half of
 # the updater path had never been gated.
+#
+# NARROWED per 2lh @consequence-if-false, whose @verify assumption rel-1.14.0/W8
+# refuted: the suite CANNOT host the install half. scripts/install-Agent_b.ps1
+# refuses any non-canonical ApplicationDirectory outside TestMode, and the updater
+# must never be able to pass TestMode, so a disposable instance can never complete
+# an install beneath the suite root -- which is the same guard that stops it
+# landing on the operator installation. This gate therefore covers download,
+# verification and launch WITH THE INSTALL TARGET ASSERTED, accepts a completed
+# install when one is possible, and names the half that stays unexercised.
+#
+# At release N the FROM build carries the updater under test, so this gate proves
+# release N-1 updater. Its first passing run is v1.14.0 -> v1.15.0; run from a
+# build older than v1.14.0 it fails on the launch target, correctly.
 [CmdletBinding()]
 param(
     # The setup the disposable instance starts from, and the one the feed offers.
@@ -25,11 +38,21 @@ $application = Join-Path $root 'Application\Agent_b'
 $data = Join-Path $root 'Data\Agent_b'
 $workspace = Join-Path $root 'workspace'
 $feedRoot = Join-Path $root 'feed'
-$registry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b-UpdaterCycle'
+# install-root-policy requires a TestMode uninstall key to be recognisably
+# disposable: Agent_b followed by Test, Acceptance, or a long hex run.
+$registry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b-UpdaterCycleTest'
 $null = New-Item -ItemType Directory -Path $feedRoot -Force
 $listener = $null
 $child = $null
 $productionBefore = @(Get-Process -Name Agent_b -ErrorAction SilentlyContinue | ForEach-Object { $_.Id }) -join ','
+# The operator installation is the thing this gate must never touch, so its
+# identity is recorded before anything runs and compared after.
+$operatorApplication = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\Agent_b'
+$operatorKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b'
+$operatorBefore = if (Test-Path -LiteralPath (Join-Path $operatorApplication 'Agent_b.exe')) {
+    (Get-FileHash (Join-Path $operatorApplication 'Agent_b.exe') -Algorithm SHA256).Hash
+} else { 'absent' }
+$keyBefore = if (Test-Path -LiteralPath $operatorKey) { (Get-ItemProperty -LiteralPath $operatorKey).DisplayVersion } else { 'absent' }
 
 function Get-FreePort {
     $probe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
@@ -44,8 +67,16 @@ try {
     Copy-Item -LiteralPath $ToSetup -Destination (Join-Path $feedRoot 'Agent_b-setup.exe') -Force
     $setupBytes = (Get-Item (Join-Path $feedRoot 'Agent_b-setup.exe')).Length
     $setupHash = (Get-FileHash (Join-Path $feedRoot 'Agent_b-setup.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
-    @{ schema = 1; version = $ToVersion; commit = ('0' * 40); file = 'Agent_b-setup.exe'; sha256 = $setupHash; bytes = $setupBytes } |
-        ConvertTo-Json -Depth 5 | Set-Content (Join-Path $feedRoot 'release.json') -Encoding utf8
+    # The release manifest the deploy step produced beside this setup is served
+    # verbatim: the updater checks the executable identity it carries, so a
+    # synthetic manifest would prove less than the real one and fail on identity.
+    $manifest = Join-Path (Split-Path -Parent $ToSetup) 'release.json'
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw "UPDATER CYCLE REFUSED: no release.json beside $ToSetup" }
+    $manifestBody = Get-Content -Raw -LiteralPath $manifest | ConvertFrom-Json
+    if ($manifestBody.sha256 -cne $setupHash -or [long]$manifestBody.bytes -ne $setupBytes) {
+        throw "UPDATER CYCLE REFUSED: release.json does not describe the setup it sits beside"
+    }
+    Copy-Item -LiteralPath $manifest -Destination (Join-Path $feedRoot 'release.json') -Force
     $base = "http://127.0.0.1:$feedPort"
     @{ tag_name = $ToVersion; body = "Agent_b $ToVersion"; assets = @(
         @{ name = 'release.json'; browser_download_url = "$base/release.json" },
@@ -83,12 +114,20 @@ try {
     }
     $before = (& (Join-Path $application 'Agent_b.exe') -version | ConvertFrom-Json)
     Write-Host "CYCLE FROM: $($before.tag) $($before.commit)"
+    # The updater under test is the one in the FROM build, so at release N this
+    # gate proves N-1 updater. A build that predates item 2lh passes no roots at
+    # all, and the launch-target assertion below is what says so; it is stated up
+    # front so a failure from that cause reads as the cause and not as a surprise.
+    $preFix = [version]($before.tag -replace '^v') -lt [version]'1.14.0'
+    if ($preFix) { Write-Host "CYCLE NOTE: $($before.tag) predates item 2lh, so its updater names no roots; the launch-target assertion is expected to fail" }
 
     # 3. Start it on its own port, with the loopback feed as its update source.
     $port = Get-FreePort
     $config = Get-Content (Join-Path $data 'harness.json') -Raw | ConvertFrom-Json
     $config.listen = "127.0.0.1:$port"
-    $config.updates.auto_check = $false
+    # The updater answers only while it is enabled, so the cycle enables it and
+    # points it at the loopback feed rather than at the real release page.
+    $config.updates.auto_check = $true
     $config | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $data 'harness.json') -Encoding utf8
     $env:AGENTB_UPDATE_FIXTURE_URL = "$base/latest.json"
     $child = Start-Process -FilePath (Join-Path $application 'Agent_b.exe') -PassThru -WindowStyle Hidden `
@@ -108,30 +147,109 @@ try {
         -Headers @{ 'X-AgentB-Mutation-Token' = $token } -ContentType 'application/json' -Body '{"action":"check"}' -TimeoutSec 300
     Write-Host "CYCLE CHECK: $($check.Content)"
     if (($check.Content | ConvertFrom-Json).available -ne $true) { throw "UPDATER CYCLE REFUSED: the feed offering $ToVersion was not seen as available" }
+    # Anything the launched setup writes is newer than this instant.
+    $launchedAt = Get-Date
     $install = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/api/update" -Method POST -WebSession $session `
         -Headers @{ 'X-AgentB-Mutation-Token' = $token } -ContentType 'application/json' -Body '{"action":"install"}' -TimeoutSec 600
     Write-Host "CYCLE INSTALL HTTP $([int]$install.StatusCode): $($install.Content)"
 
-    # 5. It must come back on the new version, and nothing may be written outside.
-    $deadline = (Get-Date).AddSeconds(300); $installed = $null
+    # 5. The install must land where the asking instance lives, and nowhere else.
+    #
+    # Item 2lh @consequence-if-false: if a full cycle cannot run beneath the suite
+    # root, this gate covers download, verification and launch with the install
+    # target asserted, and names what stays unexercised. The installer refuses any
+    # non-canonical ApplicationDirectory outside TestMode, so the install half of a
+    # disposable self-update cannot succeed — which is itself the guarantee that a
+    # disposable instance can never land on the operator's installation.
+    $decision = $null
+    $progress = Join-Path $data 'install-progress.jsonl'
+    $escaped = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Agent_b\install-progress.jsonl'
+    $deadline = (Get-Date).AddSeconds(180); $installed = $null; $escapedRoot = $false
     while ((Get-Date) -lt $deadline) {
         try {
             $identity = & (Join-Path $application 'Agent_b.exe') -version 2>$null | ConvertFrom-Json
             if ($identity.tag -eq $ToVersion) { $installed = $identity; break }
         } catch { }
+        foreach ($candidate in @($progress, $escaped)) {
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                $lines = @(Get-Content -LiteralPath $candidate | Where-Object { $_.Trim() })
+                $last = $lines | Where-Object { $_ -match '"done":true' } | Select-Object -Last 1
+                if ($last) { $decision = $last; $escapedRoot = ($candidate -eq $escaped); break }
+            }
+        }
+        if ($decision) { break }
         Start-Sleep -Seconds 2
     }
-    if (-not $installed) { throw "UPDATER CYCLE FAILED: the disposable install is still $((& (Join-Path $application 'Agent_b.exe') -version | ConvertFrom-Json).tag), not $ToVersion" }
-    Write-Host "CYCLE TO: $($installed.tag) $($installed.commit)"
+    if (-not $decision -and -not $installed) { throw 'UPDATER CYCLE FAILED: the launched setup reached no decision' }
+
+    # Whichever way it went, the operator's installation must be exactly as it was.
+    $operatorAfter = if (Test-Path -LiteralPath (Join-Path $operatorApplication 'Agent_b.exe')) {
+        (Get-FileHash (Join-Path $operatorApplication 'Agent_b.exe') -Algorithm SHA256).Hash
+    } else { 'absent' }
+    $keyAfter = if (Test-Path -LiteralPath $operatorKey) { (Get-ItemProperty -LiteralPath $operatorKey).DisplayVersion } else { 'absent' }
+    if ($operatorAfter -cne $operatorBefore) { throw "UPDATER CYCLE FAILED: the operator's installed executable changed: $operatorBefore then $operatorAfter" }
+    if ($keyAfter -cne $keyBefore) { throw "UPDATER CYCLE FAILED: the operator's uninstall registration changed: $keyBefore then $keyAfter" }
     $productionAfter = @(Get-Process -Name Agent_b -ErrorAction SilentlyContinue | Where-Object {
         try { $_.Path -and -not $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } catch { $false }
     } | ForEach-Object { $_.Id }) -join ','
-    if ($productionBefore -cne $productionAfter) { throw "UPDATER CYCLE REFUSED: processes outside the suite root changed: '$productionBefore' then '$productionAfter'" }
-    Write-Host "PROOF disposable updater cycle: $($before.tag) updated itself to $($installed.tag) beneath $root; no process outside it changed"
-    Write-Host 'UPDATER CYCLE PASS'
+    if ($productionBefore -cne $productionAfter) { throw "UPDATER CYCLE FAILED: processes outside the suite root changed: '$productionBefore' then '$productionAfter'" }
+
+    # The verified setup is the download-and-verification half, proven on disk: the
+    # manager deletes it when the Authenticode check fails, so its presence beneath
+    # the instance's own data root is the proof that both halves ran.
+    $verified = Join-Path $data "updates\$ToVersion\Agent_b-setup.exe"
+    if (-not (Test-Path -LiteralPath $verified -PathType Leaf)) { throw 'UPDATER CYCLE FAILED: no verified setup beneath the instance own data root' }
+    if ((Get-FileHash $verified -Algorithm SHA256).Hash.ToLowerInvariant() -cne $setupHash) { throw 'UPDATER CYCLE FAILED: the verified setup is not the one the feed served' }
+    Write-Host "PROOF download and verification: $verified matches the served digest beneath the instance's own data root"
+
+    $outcome = 'PASS'
+    if ($installed) {
+        Write-Host "CYCLE TO: $($installed.tag) $($installed.commit)"
+        Write-Host "PROOF disposable updater cycle: $($before.tag) updated itself to $($installed.tag) beneath $root; nothing outside it changed"
+    } else {
+        # The launch happened and the installer decided. It must have decided about
+        # THIS instance's roots, not the operator's: that is 2lh (a).
+        #
+        # The decision TEXT is not the proof: a refusal can name the disposable path
+        # because it found the disposable REGISTRATION, with no root passed at all.
+        # The installer's own transcript records the command line it was invoked
+        # with, so the proof is a transcript beneath this suite root carrying
+        # -ApplicationDirectory <this instance>.
+        $transcripts = @(Get-ChildItem (Join-Path $data 'logs') -Filter 'installer-*.log' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -ge $launchedAt })
+        $named = @($transcripts | Where-Object {
+            (Get-Content -Raw -LiteralPath $_.FullName) -match ("(?i)-ApplicationDirectorys+" + [regex]::Escape($application))
+        })
+        if (-not $named.Count) {
+            $why = if ($preFix) { " -- $($before.tag) predates item 2lh, so its updater passed no roots and the setup resolved the operator's own locations" } else { '' }
+            throw ("UPDATER CYCLE FAILED: no transcript beneath the suite root shows the setup being invoked with this instance's application root$why. " + $decision)
+        }
+        Write-Host "PROOF launch target: $($named[0].FullName) records -ApplicationDirectory $application, so the setup the updater launched targeted this instance and not the operator location"
+        Write-Host "INSTALLER DECISION: $decision"
+        Write-Host 'UNEXERCISED: the install-and-restart half. The installer refuses a non-canonical ApplicationDirectory outside TestMode, and the updater must not be able to pass TestMode, so a disposable instance cannot complete an install beneath the suite root.'
+        $outcome = 'PARTIAL'
+    }
+    if ($escapedRoot) {
+        # Carried as a known miss: the updater passes the installer's -DataDirectory
+        # but not the process's --install-data, so the install log and progress file
+        # still resolve to the operator's LocalAppData. Copy them out and clear them
+        # so the gate leaves nothing behind.
+        if ($EvidenceDirectory) { $null = New-Item -ItemType Directory -Path $EvidenceDirectory -Force; Copy-Item -LiteralPath $escaped -Destination $EvidenceDirectory -Force }
+        Remove-Item -LiteralPath $escaped -Force -ErrorAction SilentlyContinue
+        $marker = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Agent_b\install-in-progress.json'
+        if (Test-Path -LiteralPath $marker) {
+            if ($EvidenceDirectory) { Copy-Item -LiteralPath $marker -Destination $EvidenceDirectory -Force }
+            Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+        }
+        Write-Warning "the launched setup wrote its progress into the operator's LocalAppData because the updater passes no --install-data; copied out and cleared"
+    }
+    Write-Host "UPDATER CYCLE $outcome"
     if ($EvidenceDirectory) {
         $null = New-Item -ItemType Directory -Path $EvidenceDirectory -Force
-        @{ from = $before.tag; to = $installed.tag; root = $root; setup_sha256 = $setupHash; setup_bytes = $setupBytes } |
+        @{ outcome = $outcome; from = $before.tag; to = $(if ($installed) { $installed.tag } else { $null }); offered = $ToVersion
+           root = $root; setup_sha256 = $setupHash; setup_bytes = $setupBytes; verified_setup = $verified
+           installer_decision = $decision; progress_escaped_the_suite_root = $escapedRoot
+           operator_executable_sha256 = $operatorAfter; operator_registration = $keyAfter } |
             ConvertTo-Json -Depth 5 | Set-Content (Join-Path $EvidenceDirectory 'updater-cycle.json') -Encoding utf8
     }
 } finally {

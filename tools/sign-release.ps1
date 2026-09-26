@@ -6,6 +6,12 @@ param(
     [string]$TimestampUrl = 'http://timestamp.digicert.com',
     [string]$ReportPath,
     [switch]$PayloadOnly,
+    # Item 2lt: agentb.exe alone. The release path signs the payload BEFORE the
+    # build, so the CLI does not exist yet when the payload pass runs -- and the
+    # bundle, captured straight after the build, would embed an unsigned copy.
+    # It carries no bundle of its own, so unlike Agent_b.exe it can be signed
+    # between the build and the capture, which is what this is for.
+    [switch]$CliOnly,
     [switch]$BinaryOnly
 )
 
@@ -62,6 +68,11 @@ function Test-PrivateKeyUsable {
 function Get-SignableFiles {
     param([string]$Root)
     if ($PayloadOnly -and $BinaryOnly) { throw 'PayloadOnly and BinaryOnly are mutually exclusive.' }
+    if ($CliOnly) {
+        $cli = Join-Path $Root 'agentb.exe'
+        if (-not (Test-Path -LiteralPath $cli -PathType Leaf)) { throw "agentb.exe not found: $cli" }
+        return @($cli)
+    }
     $files = @()
     if (-not $PayloadOnly) {
         foreach ($name in @('Agent_b.exe', 'Agent_b-setup.exe')) {

@@ -22,12 +22,10 @@ let renderFrame = 0;
 let mounted = false;
 const liveContent = document.getElementById("panel-live-content");
 const liveEmpty = document.getElementById("panel-live-empty");
+const liveIdle = document.getElementById("panel-live-idle");
 const dropLastMessage = document.getElementById("drop-last-message");
 const agentSelect = document.getElementById("panel-agent");
-const agentConnectionSelect = document.getElementById("panel-agent-connection");
-const agentConnectionVision = document.getElementById("panel-agent-vision");
-const agentConnectionState = document.getElementById("panel-agent-connection-state");
-const agentConnectionCancel = document.getElementById("panel-agent-connection-cancel");
+const roleTable = document.getElementById("panel-roles");
 const feedback = document.getElementById("panel-feedback");
 const panelStop = document.getElementById("panel-stop");
 const panelLiveCompactions = document.getElementById("panel-live-compactions");
@@ -51,12 +49,17 @@ agentSelect.addEventListener("change", () => {
   }
   void refreshLedger();
 });
-agentConnectionSelect.addEventListener("change", () => void changeAgentConnection());
-agentConnectionCancel.addEventListener("click", () => void cancelAgentConnectionChange());
+// Item 2iq (a): b's row and the strip's switcher write the same setting, so
+// the table delegates rather than binding a listener per render.
+roleTable.addEventListener("change", (event) => {
+  if (event.target instanceof HTMLSelectElement && event.target.dataset.role === "b") void changeAgentConnection(event.target.value);
+});
+roleTable.addEventListener("click", (event) => {
+  if (event.target instanceof HTMLElement && event.target.dataset.action === "cancel-pending") void cancelAgentConnectionChange();
+});
 document.getElementById("clear-stats").addEventListener("click", () => void clearStats());
 document.getElementById("flush-memory").addEventListener("click", () => void flushMemory());
 document.getElementById("panel-tools").addEventListener("change", (event) => void toggleTool(event));
-document.getElementById("panel-tools-link").addEventListener("click", (event) => { event.preventDefault(); document.getElementById("panel-tools-panel").scrollIntoView({block:"start"}); });
 panelStop.addEventListener("click", () => { const id=store.selection.session_id; if(id&&!store.replay) void api("/api/stop",{session_id:id}); });
 panelRunLabel.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-label]");
@@ -122,22 +125,58 @@ function renderPanels() {
   agentSelect.replaceChildren(...agents.map((agent) => option(agentKey(agent), agent.name, agentKey(agent) === selectedAgent)));
   const agent = agents.find((candidate) => agentKey(candidate) === selectedAgent);
   renderAgentConnection(agent);
-  document.getElementById("panel-agent-binding").textContent = agent ? `${agent.c ? `c ${agent.c}` : ""}${agent.c && agent.d ? " · " : ""}${agent.d ? `d ${agent.d}` : ""}` : store.loaded ? "No configured agents" : "";
+  document.getElementById("panel-agent-binding").textContent = agent ? "" : store.loaded ? "No configured agents" : "";
   renderTools(agent);
   renderLifetime();
   const session = store.sessions[store.active];
   const hasSelectedChat = !!session && session.agent_id === selectedAgent;
-  liveContent.hidden = !hasSelectedChat;
+  // Item 2ip (b): the page shows a live run's apparatus only while one is live.
+  // Idle, it is one line -- what ended, when, and what it cost -- and the
+  // apparatus is folded away rather than removed. The operator can open it, and
+  // a run starting opens it for them.
+  const live = isLiveRun(session);
+  if (live) liveOpenedByOperator = false;
+  const showApparatus = hasSelectedChat && (live || liveOpenedByOperator);
+  liveContent.hidden = !showApparatus;
+  liveIdle.hidden = !hasSelectedChat || showApparatus;
+  if (!liveIdle.hidden) liveIdle.replaceChildren(...idleSummary(session));
   liveEmpty.hidden = hasSelectedChat || !store.loaded;
   renderStopState(panelStop, hasSelectedChat ? session : null, store.replay);
   panelLiveCompactions.textContent = hasSelectedChat ? compactionFigures(session) : "";
   panelLiveCompactions.hidden = !hasSelectedChat;
   document.getElementById("panel-live-state").textContent = !store.loaded ? "" : !hasSelectedChat ? "no open chat" : session.pending_approval ? "waiting for you" : liveActivityText(session) || session.run?.status || "idle";
   renderRunResult(hasSelectedChat ? session : null);
-  if (hasSelectedChat) {
+  if (hasSelectedChat && showApparatus) {
     renderRail(); renderFlow(); renderRack(); renderState(); renderTimeline(); placeDropLastMessage(); dropControl.render(); renderPendingApproval(session);
   }
   navigationSurfaceReady("panels", store);
+}
+
+// Item 2ip (b): "live" is a run that is doing something, not a chat that exists.
+function isLiveRun(session) {
+  return ["running", "queued", "stopping"].includes(session?.run?.status || "");
+}
+
+// Opened by hand, and only until the next run starts.
+let liveOpenedByOperator = false;
+
+// The one line: what ended, when, and what it cost. Every figure here is already
+// on the page while a run is live; nothing new is computed for it.
+function idleSummary(session) {
+  const run = session?.run;
+  const when = run?.ended_at ? new Date(run.ended_at).toLocaleTimeString() : "";
+  const used = session?.context?.used_tokens;
+  const window = session?.context?.window_tokens;
+  const parts = ["idle"];
+  if (when) parts.push(`last run ended ${when}`);
+  if (Number.isFinite(used) && Number.isFinite(window) && window > 0) parts.push(`${used.toLocaleString()} / ${window.toLocaleString()}`);
+  const text = node("span", "panel-live-idle-text");
+  text.textContent = parts.join(" · ");
+  const open = node("button", "panel-live-open");
+  open.type = "button";
+  open.textContent = "Show the run detail";
+  open.addEventListener("click", () => { liveOpenedByOperator = true; scheduleRender(); });
+  return [text, open];
 }
 
 function renderRunResult(session) {
@@ -168,27 +207,74 @@ export function unmountPanels() {
   flowFrame = 0;
 }
 
+// Item 2iq (a): one row per role the product has, each with the role's
+// plain-language name and a model picker listing the connection profiles with
+// state. Nothing else in the row.
+//
+// b is settable here and from the strip's switcher, through the one write route
+// that exists. c and d are NOT settable: there is no route for them, and 2iq's
+// @keep protects "the write route" and "the c/d semantics in the run loop" from
+// this item. So their pickers show what is configured and say where it is set,
+// rather than pretending to write. The finding is in the report.
+const roleNames = { b: "the one you talk to", c: "the worker", d: "the planner" };
+
 function renderAgentConnection(agent) {
   const connections = store.connections?.length ? store.connections : store.config.connections || [];
   const pending = store.agent_connection_changes?.[selectedAgent];
-  agentConnectionSelect.replaceChildren(...connections.map((connection) => option(connection.id, connection.label || connection.id, connection.id === agent?.b)));
-  agentConnectionSelect.disabled = !agent || store.replay;
-  const connection = connections.find((candidate) => candidate.id === agent?.b);
-  const vision = connection?.capabilities?.vision || "not classified";
-  const visionFinding = (connection?.capabilities?.findings || []).find((finding) => finding.startsWith("vision:"));
-  agentConnectionVision.hidden = !connection?.capabilities?.probed_at;
-  agentConnectionVision.className = `panel-agent-vision ${vision === "reads images" ? "reads" : "does-not-read"}`;
-  agentConnectionVision.title = visionFinding || `vision: ${vision}`;
-  agentConnectionVision.setAttribute("aria-label", agentConnectionVision.title);
-  agentConnectionState.textContent = !agent ? "" : pending ? `Applied ${agent.b} · pending ${pending.to}` : `Applied ${agent.b}`;
-  agentConnectionState.className = pending ? "pending" : "";
-  agentConnectionCancel.hidden = !pending;
-  agentConnectionCancel.disabled = store.replay;
+  const rows = [];
+  for (const role of ["b", "c", "d"]) {
+    const assigned = agent?.[role];
+    // (a): d appears "when present" -- a product without a d role shows no d row.
+    if (role === "d" && !assigned) continue;
+    const settable = role === "b";
+    const row = node("div", "panel-role-row");
+    const name = node("span", "panel-role-name");
+    name.textContent = role;
+    const what = node("span", "panel-role-what");
+    what.textContent = roleNames[role];
+    const picker = document.createElement("select");
+    picker.dataset.role = role;
+    picker.setAttribute("aria-label", `${role} — ${roleNames[role]}`);
+    picker.replaceChildren(...connections.map((connection) => option(connection.id, connection.label || connection.id, connection.id === assigned)));
+    picker.disabled = !agent || store.replay || !settable;
+    const state = node("span", "panel-role-state");
+    if (settable) {
+      state.textContent = !agent ? "" : pending ? `applied ${agent.b} · pending ${pending.to}` : "";
+      state.className = `panel-role-state ${pending ? "pending" : ""}`;
+    } else {
+      state.textContent = "set in the configuration";
+    }
+    row.append(name, what, picker, state);
+    if (settable && pending) {
+      const cancel = node("button", "panel-role-cancel");
+      cancel.type = "button";
+      cancel.dataset.action = "cancel-pending";
+      cancel.textContent = "Cancel pending";
+      cancel.disabled = store.replay;
+      row.append(cancel);
+    }
+    if (settable) {
+      // The probe's vision verdict belongs to the connection this row names, so
+      // it is built here rather than being a single page-level element moved
+      // from row to row.
+      const connection = connections.find((candidate) => candidate.id === assigned);
+      if (connection?.capabilities?.probed_at) {
+        const vision = connection.capabilities.vision || "not classified";
+        const visionFinding = (connection.capabilities.findings || []).find((finding) => finding.startsWith("vision:"));
+        const mark = node("span", `panel-agent-vision ${vision === "reads images" ? "reads" : "does-not-read"}`);
+        mark.setAttribute("role", "img");
+        mark.title = visionFinding || `vision: ${vision}`;
+        mark.setAttribute("aria-label", mark.title);
+        row.append(mark);
+      }
+    }
+    rows.push(row);
+  }
+  roleTable.replaceChildren(...rows);
 }
 
-async function changeAgentConnection() {
+async function changeAgentConnection(connectionID) {
   if (!selectedAgent || store.replay) return;
-  const connectionID = agentConnectionSelect.value;
   try {
     const result = await api(`/api/agents/${encodeURIComponent(selectedAgent)}/connection`, { action: "set", connection_id: connectionID });
     showFeedback(result.status === "pending" ? `Server change queued for ${selectedAgent}.` : `Server changed for ${selectedAgent}.`);
@@ -224,7 +310,7 @@ function renderTools(agent) {
 	// observable in Activity, but do not invent a Settings control for it.
 	const configurable = (store.tools || []).filter((tool) => !["web_search", "delegate"].includes(tool.name));
 	const configurableEnabled = configurable.filter((tool) => enabled.has(tool.name));
-	document.getElementById("panel-tools-link").textContent = `${configurableEnabled.length} tools active`;
+	document.getElementById("panel-tools-count").textContent = `${configurableEnabled.length} tools active`;
 	const counters = ledger?.agent?.tools || {};
 	root.replaceChildren(...configurable.map((tool) => {
     const row = node("label", "panel-line panel-tool-line");

@@ -18,10 +18,19 @@ param(
     # pass; (d) is why it may do that safely.
     [switch]$Unattended,
     # Item 2li (f): the same tool undoes it.
-    [switch]$RemoveMachineCredential
+    [switch]$RemoveMachineCredential,
+    # Item 2kk (a): where to write the result. The caller names it; this script
+    # writes what happened there, and the caller reports FROM THE FILE rather
+    # than from a stream it had to parse.
+    [string]$ResultFile
 )
 
 $ErrorActionPreference = 'Stop'
+# Item 2kk (b): a PS 5.1 child serializes progress and verbose records to
+# stderr as `#< CLIXML`. Nothing here produces them.
+$ProgressPreference = 'SilentlyContinue'
+$VerbosePreference = 'SilentlyContinue'
+$InformationPreference = 'SilentlyContinue'
 
 # Item 2li (c): the result is a structured line, not a prose summary a management
 # tool has to scrape. It follows the marker-line discipline [[2kk]] and [[2lb]]
@@ -32,7 +41,23 @@ function Write-ProvisionResult {
     param([string]$Outcome, [string]$Message, [hashtable]$Detail = @{})
     $payload = [ordered]@{ outcome = $Outcome; account = $AccountName; message = $Message }
     foreach ($key in $Detail.Keys) { $payload[$key] = $Detail[$key] }
-    Write-Output ("$script:resultMarker " + ($payload | ConvertTo-Json -Depth 5 -Compress))
+    $payload['ok'] = ($Outcome -eq 'ready' -or $Outcome -eq 'removed' -or $Outcome -eq 'unchanged')
+    $json = $payload | ConvertTo-Json -Depth 5 -Compress
+    Write-Output ("$script:resultMarker " + $json)
+    # Item 2kk (a): the same payload as a FILE. stdout is discarded for an
+    # elevated child -- Start-Process redirects nothing -- so the line above is
+    # invisible on that route and the file is the only thing the caller reads.
+    if ($ResultFile) {
+        try {
+            $directory = Split-Path -Parent $ResultFile
+            if ($directory -and -not (Test-Path -LiteralPath $directory)) { $null = New-Item -ItemType Directory -Path $directory -Force }
+            [IO.File]::WriteAllText($ResultFile, $json, [Text.UTF8Encoding]::new($false))
+        } catch {
+            # A result file that cannot be written must not become the failure:
+            # the exit code still carries the outcome.
+            Write-Host "RESULT FILE NOT WRITTEN: $($_.Exception.Message)"
+        }
+    }
 }
 
 function Test-IsAdministrator {

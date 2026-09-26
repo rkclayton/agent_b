@@ -1320,6 +1320,134 @@ Write-Host 'PASS: the pre-stop gate fails closed on a null exit code, keeps a re
 Assert-TemporaryTestPath $testRoot
 Remove-TreeWithinAllowedRoots -Path $testRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'installer-suite exit-gate probe cleanup'
 
+# Item 2lg (g): the seed arm. One JSON fragment merged into the configuration on
+# FIRST INSTALL ONLY, so a managed deployment arrives pointed at a connection and
+# a redeploy over a running machine changes nothing the user has set.
+#
+# Narrowed to the per-user path by the item's own @consequence-if-false:
+# rel-1.16.0/W0 established that an all-users install refuses without elevation
+# (install-Agent_b.ps1 "ALL-USERS INSTALL REFUSED"), so the managed half is
+# carded rather than half-built. The all-users BRANCH is exercised beneath a
+# disposable root by the default-roots arm above; a real one needs an elevated
+# machine.
+$seedRoots = [System.Collections.ArrayList]::new()
+$seedRegistries = [System.Collections.ArrayList]::new()
+$seedFailures = [System.Collections.ArrayList]::new()
+
+function New-SeedRoot {
+    param([string]$Tag)
+    $root = Join-Path ([IO.Path]::GetTempPath()) ("Agent_b-installer-test-seed-$Tag-" + [Guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Path $root -Force
+    $null = $seedRoots.Add($root)
+    return $root
+}
+
+function Invoke-SeedInstall {
+    param([string]$Root, [string]$KeySuffix, [string[]]$Extra = @())
+    $registry = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b-Seed${KeySuffix}Test"
+    if (-not $seedRegistries.Contains($registry)) { $null = $seedRegistries.Add($registry) }
+    $arguments = @(
+        '-SourceDirectory', $repositoryRoot,
+        '-ApplicationDirectory', (Join-Path $Root 'Application\Agent_b'),
+        '-DataDirectory', (Join-Path $Root 'Data\Agent_b'),
+        '-WorkspaceDirectory', (Join-Path $Root 'workspace'),
+        '-StartMenuDirectory', (Join-Path $Root 'StartMenu'),
+        '-UninstallRegistryPath', $registry, '-TestMode'
+    ) + $Extra
+    $text = & (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer @arguments 2>&1 | Out-String
+    return [pscustomobject]@{ exit = $LASTEXITCODE; text = $text }
+}
+
+function Get-SeedTranscript {
+    param([string]$Root)
+    $file = Get-ChildItem (Join-Path $Root 'Data\Agent_b\logs') -Filter 'installer-*.log' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime | Select-Object -Last 1
+    if ($file) { return Get-Content -Raw -LiteralPath $file.FullName }
+    return ''
+}
+
+function Assert-Seed {
+    param([string]$Name, [bool]$Ok, [string]$Detail = '')
+    if (-not $Ok) { $null = $seedFailures.Add("$Name -- $Detail") }
+}
+
+try {
+    # A seed lands, and the connection it names is present and complete.
+    $seedOk = New-SeedRoot 'ok'
+    $seedFile = Join-Path $seedOk 'seed.json'
+    @{ connections = @(@{ id = 'slumberland'; label = 'Slumberland'; base_url = 'https://ai.slumberland.com/v1'; model = ''; credential = 'slumberland' }) } |
+        ConvertTo-Json -Depth 8 | Set-Content $seedFile -Encoding utf8
+
+    $seeded = Invoke-SeedInstall -Root $seedOk -KeySuffix 'Ok' -Extra @('-SeedConfiguration', $seedFile)
+    Assert-Seed 'a seeded first install completes' ($seeded.exit -eq 0) "exit $($seeded.exit); $($seeded.text)"
+
+    $seedConfigPath = Join-Path $seedOk 'Data\Agent_b\harness.json'
+    if (Test-Path -LiteralPath $seedConfigPath) {
+        $seedConfig = Get-Content -Raw -LiteralPath $seedConfigPath | ConvertFrom-Json
+        $seedConnection = @($seedConfig.connections | Where-Object { $_.id -eq 'slumberland' })
+        Assert-Seed 'the seeded connection is present' ($seedConnection.Count -eq 1) "connections: $(@($seedConfig.connections).Count)"
+        if ($seedConnection.Count -eq 1) {
+            Assert-Seed 'the seeded base_url survived the merge' ($seedConnection[0].base_url -eq 'https://ai.slumberland.com/v1') "$($seedConnection[0].base_url)"
+            Assert-Seed 'the seeded credential reference survived' ($seedConnection[0].credential -eq 'slumberland') "$($seedConnection[0].credential)"
+        }
+    } else {
+        Assert-Seed 'the seeded install wrote a configuration' $false "missing $seedConfigPath"
+    }
+    Assert-Seed '(d) the transcript names what the seed set' ((Get-SeedTranscript -Root $seedOk) -match 'SEEDED:') 'no SEEDED line'
+
+    # (a) A redeploy over an existing machine changes nothing the user has set.
+    if (Test-Path -LiteralPath $seedConfigPath) {
+        $seedConfig.connections[0].label = 'the user renamed this'
+        $seedConfig | ConvertTo-Json -Depth 100 | Set-Content $seedConfigPath -Encoding utf8
+        $seedBefore = (Get-FileHash $seedConfigPath -Algorithm SHA256).Hash
+        $redeployed = Invoke-SeedInstall -Root $seedOk -KeySuffix 'Ok' -Extra @('-SeedConfiguration', $seedFile)
+        Assert-Seed 'a redeploy over an existing machine completes' ($redeployed.exit -eq 0) "exit $($redeployed.exit); $($redeployed.text)"
+        Assert-Seed '(a) the redeploy changed nothing the user set' ($seedBefore -eq (Get-FileHash $seedConfigPath -Algorithm SHA256).Hash) 'the configuration changed'
+        Assert-Seed 'the redeploy says it skipped the seed' ((Get-SeedTranscript -Root $seedOk) -match 'SEED SKIPPED') 'no SEED SKIPPED line'
+    }
+
+    # (c) No secret in the seed. It lands on every endpoint a management tool
+    # touches, and credential storage is per-user regardless.
+    $seedRegistryRoot = New-SeedRoot 'key'
+    $seedWithKey = Join-Path $seedRegistryRoot 'seed-key.json'
+    @{ connections = @(@{ id = 'x'; base_url = 'https://example.invalid'; api_key = 'sk-not-a-real-key' }) } |
+        ConvertTo-Json -Depth 8 | Set-Content $seedWithKey -Encoding utf8
+    $refusedKey = Invoke-SeedInstall -Root $seedRegistryRoot -KeySuffix 'Key' -Extra @('-SeedConfiguration', $seedWithKey)
+    $refusedKeySaid = $refusedKey.text + (Get-SeedTranscript -Root $seedRegistryRoot)
+    Assert-Seed '(c) a seed carrying a key fails the install' ($refusedKey.exit -ne 0) "exit $($refusedKey.exit)"
+    Assert-Seed '(c) the refusal names the field' ($refusedKeySaid -match 'SEED REFUSED.*credential value.*api_key') 'no SEED REFUSED naming api_key'
+    Assert-Seed '(c) no half-configured machine is left' (-not (Test-Path (Join-Path $seedRegistryRoot 'Data\Agent_b\harness.json'))) 'a configuration was written anyway'
+
+    # (e) A malformed or unreadable fragment fails with the reason.
+    $seedBadRoot = New-SeedRoot 'bad'
+    $seedBad = Join-Path $seedBadRoot 'seed-bad.json'
+    Set-Content $seedBad '{ "connections": [ this is not json' -Encoding utf8
+    $refusedBad = Invoke-SeedInstall -Root $seedBadRoot -KeySuffix 'Bad' -Extra @('-SeedConfiguration', $seedBad)
+    $refusedBadSaid = $refusedBad.text + (Get-SeedTranscript -Root $seedBadRoot)
+    Assert-Seed '(e) a malformed seed fails the install' ($refusedBad.exit -ne 0) "exit $($refusedBad.exit)"
+    Assert-Seed '(e) the refusal says it is not valid JSON' ($refusedBadSaid -match 'SEED REFUSED.*not valid JSON') 'no SEED REFUSED naming JSON'
+
+    $seedMissingRoot = New-SeedRoot 'missing'
+    $refusedMissing = Invoke-SeedInstall -Root $seedMissingRoot -KeySuffix 'Missing' -Extra @('-SeedConfiguration', (Join-Path $seedMissingRoot 'nothing-here.json'))
+    Assert-Seed '(e) a missing seed fails the install' ($refusedMissing.exit -ne 0) "exit $($refusedMissing.exit)"
+
+    if ($seedFailures.Count) { throw ("Seed arm failures: " + ($seedFailures -join '; ')) }
+    Write-Host 'PASS: a seed lands on a first install, a redeploy leaves the operator configuration untouched, and a seed carrying a credential or malformed JSON is refused with its reason'
+} finally {
+    foreach ($seedRoot in $seedRoots) {
+        if ($seedRoot -and (Test-Path -LiteralPath $seedRoot)) {
+            Get-Process -Name Agent_b -ErrorAction SilentlyContinue |
+                Where-Object { try { $_.Path.StartsWith($seedRoot, [StringComparison]::OrdinalIgnoreCase) } catch { $false } } |
+                ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+            Assert-TemporaryTestPath $seedRoot
+            Remove-TreeWithinAllowedRoots -Path $seedRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'installer-suite seed arm cleanup'
+        }
+    }
+    foreach ($seedRegistry in $seedRegistries) {
+        if (Test-Path -LiteralPath $seedRegistry) { Remove-Item -LiteralPath $seedRegistry -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
     & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-chat-acceptance.ps1') -SkipBuild
 } else {

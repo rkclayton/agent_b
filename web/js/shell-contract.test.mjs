@@ -237,9 +237,15 @@ test("the Plan chip is the operator's prepared artwork, not a drawing", async ()
   // The drawing it replaces is not left behind beside it.
   assert.doesNotMatch(shell, /<rect x="7" y="7" width="10" height="10" rx="2"\/>/);
   assert.doesNotMatch(shell, /stroke-width="2"/);
-  // Both sizes ship, and both are real PNGs with an alpha channel: the background
+  // Item 2lm (b): the nav mark is a SIZE SET now. The strip draws a 12px box and
+  // the product runs at more than one device pixel ratio -- rel-1.16.0/W0
+  // measured the operator's own display at 1.75x, where that box is 21 physical
+  // pixels while every screenshot captures it at 12. One asset cannot be sharp at
+  // all of them, so the browser picks.
+  assert.match(shell, /srcset="[^"]*plan-mark-nav\.png 1x[^"]*plan-mark-nav@2x\.png 2x[^"]*plan-mark-nav@3x\.png 3x"/);
+  // Every size ships, and each is a real PNG with an alpha channel: the background
   // is removed, not repainted, so the mark sits on whatever is behind it.
-  for (const [name, expected] of [["plan-mark-nav.png", 24], ["plan-mark.png", 128]]) {
+  for (const [name, expected] of [["plan-mark-nav.png", 12], ["plan-mark-nav@2x.png", 24], ["plan-mark-nav@3x.png", 36], ["plan-mark.png", 128]]) {
     const png = await readFile(new URL(`../assets/${name}`, import.meta.url));
     assert.equal(png.subarray(1, 4).toString("ascii"), "PNG", `${name} is not a PNG`);
     assert.equal(png.readUInt32BE(16), expected, `${name} is not ${expected}px wide`);
@@ -249,8 +255,19 @@ test("the Plan chip is the operator's prepared artwork, not a drawing", async ()
   const chipRule = (tokensCss.split("}").find((rule) => rule.includes(".shell-page-chip{")) ?? "")
     .replace(/\/\*[\s\S]*?\*\//g, "").split(".shell-page-chip{").pop();
   assert.doesNotMatch(chipRule, /stroke/, "the artwork carries its own colour; no stroke is applied to it");
-  // The operator explicitly halved the displayed box; that is unchanged.
+  // The operator explicitly halved the displayed box; item 2lm (c) says the drawn
+  // size is not changed to make the artwork work, so it is still 12.
   assert.match(chipRule, /width:12px;height:12px/);
+});
+
+// Item 2lm @keep: the full-detail Plan page header is exactly what v1.15.0 ships.
+// Only the nav variant was prepared again.
+test("the full-detail Plan mark is untouched", async () => {
+  const png = await readFile(new URL("../assets/plan-mark.png", import.meta.url));
+  assert.equal(png.readUInt32BE(16), 128);
+  assert.equal(png.readUInt32BE(20), 128);
+  const plan = await readFile(new URL("../plan.html", import.meta.url), "utf8");
+  assert.match(plan, /plan-mark\.png/, "the Plan page no longer heads with the full-detail mark");
 });
 
 // Item 2gk (v1.3.0/W2): the readout joined the strip, and the marker that drew

@@ -1,0 +1,30 @@
+{
+  "_comment": [
+    "Item 2lg: a seed fragment. Pass it with -SeedConfiguration <path> and it is",
+    "merged into the configuration ON FIRST INSTALL ONLY. An install over a",
+    "machine that already has a configuration preserves what is there and skips",
+    "this entirely, so a redeploy changes nothing a user has set.",
+    "",
+    "It holds whatever the configuration holds; the deployment case below is one",
+    "connection and nothing else. Objects merge key by key; arrays replace, so the",
+    "connections list is exactly what this file says.",
+    "",
+    "NO SECRETS. A fragment carrying api_key, password, secret, token or",
+    "client_secret with a value is refused at install, because this file lands on",
+    "every endpoint and credential storage is per-user regardless. Name a",
+    "credential REFERENCE instead -- the slug below -- and each user supplies the",
+    "key once in Settings.",
+    "",
+    "Tuning is not needed here: a seeded connection learns its context window,",
+    "reserve, reasoning cap and effort from the server on its first Test (2l1)."
+  ],
+  "connections": [
+    {
+      "id": "slumberland",
+      "label": "Slumberland",
+      "base_url": "https://ai.slumberland.com/v1",
+      "model": "",
+      "credential": "slumberland"
+    }
+  ]
+}

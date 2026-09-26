@@ -15,11 +15,33 @@ param(
 
 	# Internal UAC helper path. The browser already supplied the two matching
 	# password entries and the API validated the requested operation.
-	[switch]$NoPrompt
+	[switch]$NoPrompt,
+
+	# Item 2kk (a): where to write the result the caller reports from.
+	[string]$ResultFile
 )
 
 $ErrorActionPreference = 'Stop'
+# Item 2kk (b): no progress or verbose records into a captured stream.
+$ProgressPreference = 'SilentlyContinue'
+$VerbosePreference = 'SilentlyContinue'
+$InformationPreference = 'SilentlyContinue'
 $minimumPasswordLength = 14
+
+# Item 2kk (a) and (d): what happened, written where the caller can read it,
+# complete. The message here is the one the operator sees.
+function Write-AgentBResult {
+    param([bool]$Ok, [Parameter(Mandatory)][string]$Message, [string]$Outcome = '')
+    if (-not $ResultFile) { return }
+    try {
+        $directory = Split-Path -Parent $ResultFile
+        if ($directory -and -not (Test-Path -LiteralPath $directory)) { $null = New-Item -ItemType Directory -Path $directory -Force }
+        $payload = [ordered]@{ ok = $Ok; message = $Message; outcome = $Outcome; account = $AccountName }
+        [IO.File]::WriteAllText($ResultFile, ($payload | ConvertTo-Json -Depth 5 -Compress), [Text.UTF8Encoding]::new($false))
+    } catch {
+        Write-Host "RESULT FILE NOT WRITTEN: $($_.Exception.Message)"
+    }
+}
 $script:changeState = 'nothing'
 $script:confirmationSuppressed = $NoPrompt -or ($PSBoundParameters.ContainsKey('Confirm') -and -not [bool]$PSBoundParameters['Confirm'])
 if ($NoPrompt) { $ConfirmPreference = 'None' }

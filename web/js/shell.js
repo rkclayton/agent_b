@@ -60,7 +60,13 @@ export function initShell(options = {}) {
     // Item 2le: the operator own artwork, prepared to transparency with its colours
     // kept. The rail draws this at 12px, so a variant with the faint interior
     // tracery thinned is used here and the full-detail image heads the Plan page.
-    link.innerHTML = '<img class="shell-page-chip" src="/static/assets/plan-mark-nav.png" width="12" height="12" alt="" decoding="async">';
+    // Item 2lm (b): the strip draws a 12px box and the product runs at more than
+    // one device pixel ratio -- rel-1.16.0/W0 measured the operator own display at
+    // 1.75x, where that box is 21 physical pixels. One asset cannot be sharp at 1x
+    // and 2x and 3x, so the browser picks: 12, 24 and 36, each prepared from the
+    // full-detail mark rather than reduced from the one above it. (c): the DRAWN
+    // size is unchanged at 12.
+    link.innerHTML = '<img class="shell-page-chip" src="/static/assets/plan-mark-nav.png" srcset="/static/assets/plan-mark-nav.png 1x, /static/assets/plan-mark-nav@2x.png 2x, /static/assets/plan-mark-nav@3x.png 3x" width="12" height="12" alt="" decoding="async">';
     link.setAttribute("aria-label", "plan");
     link.title = "plan";
     if (page === id) {

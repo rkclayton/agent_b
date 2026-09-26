@@ -85,7 +85,7 @@ test("the page, its route and its tab-menu entry are gone", async () => {
   // Every group it held has a home: two sections of Settings, and the chat.
   assert.match(settings, /\["agents", "Agents"\]/);
   assert.match(settings, /\["activity", "Activity"\]/);
-  for (const id of ["panel-agent", "panel-tools", "panel-tools-link"]) {
+  for (const id of ["panel-agent", "panel-tools", "panel-tools-count"]) {
     assert.match(html, new RegExp(`id="${id}"[\\s\\S]*id="activity-panel"`), id);
   }
   for (const id of ["panel-tool-counters", "panel-stats", "panel-live", "panel-run-label", "rail", "flow", "rack", "state-list", "timeline-list", "panel-reflection-overview", "panel-reflection-report", "clear-stats", "flush-memory"]) {

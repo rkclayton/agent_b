@@ -68,10 +68,24 @@
   <div id="panel-sources" hidden>
   <div id="agents-panel" class="panel-surface">
     <section class="panel-group panel-agent-group" aria-labelledby="panel-agent-title">
-      <header class="panel-caption"><span id="panel-agent-title">Agent</span><span>connection bindings and selected chat</span></header>
-      <div class="panel-selector"><label for="panel-agent">Agent</label><select id="panel-agent"></select><label for="panel-agent-connection">Connection</label><select id="panel-agent-connection"></select><span id="panel-agent-vision" class="panel-agent-vision" role="img" hidden></span><span id="panel-agent-connection-state" role="status"></span><button id="panel-agent-connection-cancel" type="button" hidden>Cancel pending</button><span id="panel-agent-binding"></span></div>
+      <!-- Item 2iq (a) and (d): one table, a row per role, and one line saying
+           what a role is. The agent picker stays above it because a role belongs
+           to an agent; everything else that used to sit here is in the table or
+           in the More fold below, each named in the report for veto. -->
+      <header class="panel-caption"><span id="panel-agent-title">Agents</span><span>a role is a job inside a run: b is the one you talk to, c does the work, d plans it</span></header>
+      <div class="panel-selector"><label for="panel-agent">Agent</label><select id="panel-agent"></select><span id="panel-agent-binding"></span></div>
+      <div id="panel-roles" class="panel-roles"></div>
     </section>
-    <section id="panel-tools-panel" class="panel-pane panel-group" aria-labelledby="panel-tools-title"><header class="panel-caption"><span id="panel-tools-title">Tools</span><span><a id="panel-tools-link" class="panel-tools-link" href="#panel-tools">0 tools active</a> · toggle · name</span></header><div id="panel-tools" class="panel-lines"></div></section>
+    <section id="panel-tools-panel" class="panel-pane panel-group" aria-labelledby="panel-tools-title">
+      <!-- Item 2iq (b) and its @consequence-if-false: the tool toggles have no
+           other home in the product, so they stay on Agents under a fold rather
+           than being moved somewhere they do not belong or deleted. The finding
+           is in the report. -->
+      <details id="panel-tools-fold">
+        <summary><span id="panel-tools-title">Tools</span><span><span id="panel-tools-count">0 tools active</span> · toggle · name</span></summary>
+        <div id="panel-tools" class="panel-lines"></div>
+      </details>
+    </section>
   </div>
   <div id="activity-panel" class="panel-surface">
     <section id="panel-tool-use" class="panel-pane panel-group" aria-labelledby="panel-tool-use-title"><header class="panel-caption"><span id="panel-tool-use-title">Tool use</span><span>name · calls · fail % · last used</span></header><div id="panel-tool-counters" class="panel-lines"></div></section>
@@ -80,6 +94,12 @@
       <header class="panel-caption"><span id="panel-live-title">Live run</span><span class="panel-live-actions"><span id="panel-live-compactions"></span><span id="panel-live-state" role="status"></span><button id="panel-stop" class="stop-sign" type="button" aria-label="Stop"><span aria-hidden="true"></span></button></span></header>
       <div id="panel-run-result" class="panel-run-result" hidden><span id="panel-run-stop"></span><span id="panel-run-label" class="panel-run-label" aria-label="Label this run"></span></div>
       <p id="panel-live-empty" class="panel-empty" hidden>No open chat for this agent.</p>
+      <!-- Item 2ip (b): two states. While a run is live this shows what it has
+           always shown. While idle it is one line, and everything else -- the
+           armed detectors, the verdict chips, the occupancy bar and the
+           Activity and Tools sub-panels -- is inside this block, present but
+           folded, because (e) removes nothing from the page. -->
+      <p id="panel-live-idle" class="panel-live-idle" hidden></p>
       <div id="panel-live-content" class="panel-live-content">
         <section id="rail" class="rail" aria-label="Context budget"></section>
         <div class="grid">

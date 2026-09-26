@@ -9,6 +9,10 @@ param(
     [string]$UninstallRegistryPath,
     [string]$OperatorSid,
     [string]$OperatorLocalAppData,
+    # Item 2lg: one seed, not a switch per setting. A JSON fragment merged into
+    # the configuration ON FIRST INSTALL ONLY, so a redeploy over a running
+    # machine changes nothing the user has set.
+    [string]$SeedConfiguration,
     [string]$SigningThumbprint,
     # Test-only registry roots used by the singleton-registration scenarios.
     [string[]]$RegistrationSearchRoots,
@@ -35,7 +39,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 . (Join-Path $PSScriptRoot 'install-root-policy.ps1')
-$displayVersion = '1.15.0'
+$displayVersion = '1.16.0'
 
 if (-not $TestMode -and -not $EmbeddedBundle) {
     Write-Output 'Agent_b installs come from the signed Agent_b-setup.exe on the release page.'
@@ -375,6 +379,68 @@ function Stop-InstalledProcesses {
     Write-Host "STOPPED: Agent_b PID(s) $(@($Processes.Id) -join ', ')"
 }
 
+
+# Item 2lg (c): NO SECRET IN THE SEED. The fragment lands on every endpoint a
+# management tool touches, and credential storage is per-user regardless, so a
+# key in it would be both useless and exposed. A credential REFERENCE -- the
+# slug naming a per-user DPAPI blob -- is fine: the user supplies the key once.
+$script:seedSecretNames = @('api_key', 'apikey', 'password', 'secret', 'token', 'client_secret')
+
+function Find-AgentBSeedSecret {
+    param([Parameter(Mandatory)]$Node, [string]$Path = '')
+    if ($null -eq $Node) { return $null }
+    if ($Node -is [Management.Automation.PSCustomObject]) {
+        foreach ($property in $Node.PSObject.Properties) {
+            $here = if ($Path) { "$Path.$($property.Name)" } else { $property.Name }
+            if ($script:seedSecretNames -contains $property.Name.ToLowerInvariant()) {
+                $value = $property.Value
+                # A key present but empty is not a secret; it is the schema.
+                if ($null -ne $value -and -not [string]::IsNullOrWhiteSpace([string]$value)) { return $here }
+            }
+            $found = Find-AgentBSeedSecret -Node $property.Value -Path $here
+            if ($found) { return $found }
+        }
+        return $null
+    }
+    if ($Node -is [Array]) {
+        for ($index = 0; $index -lt $Node.Count; $index++) {
+            $found = Find-AgentBSeedSecret -Node $Node[$index] -Path "$Path[$index]"
+            if ($found) { return $found }
+        }
+    }
+    return $null
+}
+
+# Merge is by key, depth first: an object merges into an object, and anything
+# else replaces. Arrays replace rather than append, so a seeded connections list
+# is exactly what the fragment says and not the template's plus the seed's.
+function Merge-AgentBSeed {
+    param([Parameter(Mandatory)]$Target, [Parameter(Mandatory)]$Seed, [string]$Path = '', [Collections.ArrayList]$Added)
+    foreach ($property in $Seed.PSObject.Properties) {
+        $here = if ($Path) { "$Path.$($property.Name)" } else { $property.Name }
+        $existing = $Target.PSObject.Properties[$property.Name]
+        if ($existing -and $existing.Value -is [Management.Automation.PSCustomObject] -and $property.Value -is [Management.Automation.PSCustomObject]) {
+            Merge-AgentBSeed -Target $existing.Value -Seed $property.Value -Path $here -Added $Added
+            continue
+        }
+        if ($existing) { $existing.Value = $property.Value } else { $Target | Add-Member -NotePropertyName $property.Name -NotePropertyValue $property.Value }
+        $null = $Added.Add($here)
+    }
+}
+
+function Read-AgentBSeed {
+    param([Parameter(Mandatory)][string]$Path)
+    $full = Get-FullPath $Path
+    # (e): a malformed or unreadable fragment fails the install with the reason,
+    # rather than installing a half-configured machine.
+    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { throw "SEED REFUSED: the seed configuration is missing: $full" }
+    try { $text = Get-Content -Raw -LiteralPath $full -ErrorAction Stop } catch { throw "SEED REFUSED: the seed configuration could not be read: $($_.Exception.Message)" }
+    try { $seed = $text | ConvertFrom-Json -ErrorAction Stop } catch { throw "SEED REFUSED: the seed configuration is not valid JSON: $($_.Exception.Message)" }
+    if ($null -eq $seed -or -not ($seed -is [Management.Automation.PSCustomObject])) { throw 'SEED REFUSED: the seed configuration must be a JSON object.' }
+    $secret = Find-AgentBSeedSecret -Node $seed
+    if ($secret) { throw "SEED REFUSED: the seed configuration carries a credential value at '$secret'. A seed lands on every endpoint and credential storage is per-user regardless; name a credential reference instead and let each user supply the key once." }
+    return $seed
+}
 function Copy-ProgramDirectory {
     param([string]$Name, [string]$Source, [string]$Destination, [string[]]$AllowedRemovalRoots)
     $from = Join-Path $Source $Name
@@ -753,6 +819,7 @@ $configPath = Join-Path $dataRoot 'harness.json'
 $writeConfig = $false
 if (Test-Path -LiteralPath $configPath -PathType Leaf) {
 	Write-Host 'PRESERVED: existing operator configuration'
+	if ($SeedConfiguration) { Write-Host 'SEED SKIPPED: this machine already has a configuration; the seed applies to a first install only.' }
 	$config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
 } else {
     $templatePath = Join-Path $applicationRoot 'harness.example.json'
@@ -762,6 +829,18 @@ if (Test-Path -LiteralPath $configPath -PathType Leaf) {
 	$config.memory.dir = Join-Path $dataRoot 'memory'
 	$writeConfig = $true
 	Write-Host 'CREATED: operator configuration from the installed template'
+	# Item 2lg (a): the seed is merged HERE and only here -- inside the branch that
+	# runs when there is no configuration yet. An install over an existing machine
+	# takes the PRESERVED path above and never reaches this, so a redeploy cannot
+	# overwrite, amend or reorder what a user has set.
+	if ($SeedConfiguration) {
+		$seed = Read-AgentBSeed -Path $SeedConfiguration
+		$added = [Collections.ArrayList]::new()
+		Merge-AgentBSeed -Target $config -Seed $seed -Added $added
+		# (d): the transcript names what the seed added, so a NinjaOne run's log shows it.
+		Write-Host "SEEDED: $((Get-FullPath $SeedConfiguration)) set $($added.Count) value(s): $($added -join ', ')"
+		Write-InstallProgress -Phase 'seeding the configuration' -Text "SEEDED: $($added.Count) value(s) from the supplied fragment"
+	}
 }
 if (-not $config.deliver) {
 	$config | Add-Member -NotePropertyName deliver -NotePropertyValue ([pscustomobject]@{ mode = 'both'; exchange_folder = '%USERPROFILE%\Agent_b' })

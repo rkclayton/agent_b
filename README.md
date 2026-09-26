@@ -12,16 +12,9 @@ Agent_b is a Windows-first coding agent for OpenAI-compatible models. It is one 
 
 The installed app is a singleton. Its own WebView2 window falls back to an Edge app window when the runtime or loader is unavailable. Reopening the shortcut focuses the healthy instance.
 
-## Use it
+## Everything else
 
-- **Chat** holds durable conversations and delivered-file links. Start a chat, name the repository or plan, and describe the work.
-- **Plan** shows accepted work and can run its next verified item with **Go**. Planning proposes edits; the operator accepts them.
-- **Console** shows live activity, context use, tool calls, and retained agent statistics.
-- **Settings** owns Agents, Activity, Connections, Profiles, Chats, Notifications, Security, and About.
-
-Files created by a run appear as download chips and, by default, are also copied to `%USERPROFILE%\Agent_b`. The paperclip accepts local files or files from that folder. Operator state, chats, plans, memory, and logs live under `%LocalAppData%\Agent_b`; the normal application lives under `%LocalAppData%\Programs\Agent_b`.
-
-Agent_b checks for updates and reports them in About. Selecting **Update** downloads and verifies the signed installer before launching it; it never installs silently. Uninstall preserves operator data unless purge is explicitly selected.
+[Operator reference](docs/REFERENCE.md) — the surfaces, the tools, configuration, updates, and where your data lives.
 
 ## Source development
 

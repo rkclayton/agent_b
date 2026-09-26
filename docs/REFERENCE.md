@@ -1,6 +1,6 @@
 # Agent_b detailed reference
 
-Agent_b is a small Go coding agent for OpenAI-compatible model connections. It provides observable multi-session runs, thirteen governed tools, exact-or-labeled context accounting, compaction, durable workspace notes, and a unified Chat, Console, Plan, and Settings interface. The browser remains dependency-free.
+Agent_b is a small Go coding agent for OpenAI-compatible model connections. It provides observable multi-session runs, thirteen governed tools, exact-or-labeled context accounting, compaction, durable workspace notes, and a unified Chat, Plan and Settings interface. The browser remains dependency-free.
 
 Choose one serving path before you start.
 
@@ -51,7 +51,7 @@ For either path, Node.js remains optional for building and running Agent_b. Deve
 
 ## Use Agent_b
 
-The installed application opens Chat at `http://127.0.0.1:8790/chat`; its header switches among Chat, Console, Plan, and Settings. Settings has eight sections: Agents, Activity, Connections, Profiles, Chats, Notifications, Security, and About.
+The installed application opens Chat at `http://127.0.0.1:8790/chat`; its header switches among Chat, Plan and Settings. Settings has eight sections: Agents, Activity, Connections, Profiles, Chats, Notifications, Security, and About.
 
 Replay one or more session logs without loading a model or enabling mutations:
 
@@ -61,7 +61,7 @@ go run ./cmd/harness -config harness.json -replay logs/main.jsonl,logs/s2.jsonl
 
 Connections hold an endpoint, model, sampling, reasoning, context settings, and measured capabilities. The settings sheet can add, duplicate, edit, test, and remove connections; full probes measure behavior while minimal/off modes label assumptions. A connection is runnable only with known context, streaming, structured tool calls, and non-truncating overflow behavior.
 
-Compaction summaries use the optional `aux` connection when its fully rendered request fits that connection's context window. An unavailable, rejecting, or undersized aux connection falls back to the session's main connection; blank aux preserves the single-main-model path. Console timeline entries identify the serving connection and keep compaction inference input/output tokens separate from the main context-budget measurement.
+Compaction summaries use the optional `aux` connection when its fully rendered request fits that connection's context window. An unavailable, rejecting, or undersized aux connection falls back to the session's main connection; blank aux preserves the single-main-model path. Settings -> Activity timeline entries identify the serving connection and keep compaction inference input/output tokens separate from the main context-budget measurement.
 
 Sessions are durable open-or-closed chats onto a workspace and may use different connections. Closing retains the JSONL, messages, workspace, memory, connection, and tool selection; it does not delete or stop work. Point several sessions at one workspace for a swarm; file-write conflicts force a re-read instead of silently overwriting another session. Agent_b schedules two runs by default, but a llama.cpp server started with `--parallel 1` interleaves their slot work instead of decoding two requests simultaneously.
 
@@ -72,6 +72,16 @@ Settings → Security owns the longer-lived **Run everything as me for 20 minute
 Use `fetch_url` for public HTTP/HTTPS text. It sends GET requests without model-supplied headers, cookies, or credentials; extracts readable HTML; refuses binary responses and private, loopback, or link-local destinations; and marks every result as untrusted external data. Results are UTF-8-safe byte windows: pass the returned `next_offset` unchanged as `offset` to receive the next non-overlapping window. `read_file` supports the same explicit byte cursor and a separate one-based `line`/`lines` mode; both return numbered source text and a next cursor when more remains. `tools.fetch.allow_domains` optionally limits public domains; when it is empty, `deny_domains` still blocks the default IP-geolocation hosts, while a nonempty allowlist supersedes that deny list. `allow_internal_hosts` is an exact-host exception for deliberately configured private endpoints. Defaults are a 20-second request timeout, five redirects, a 2 MiB response cap, a 16 KiB return window, and a 64 KiB maximum window.
 
 The Plan page's **Go** button runs the plan's accepted items one at a time and reads Stop while a worker runs.
+
+## Where your files and data live
+
+Files created by a run appear as download chips and, by default, are also copied to `%USERPROFILE%\Agent_b`. The paperclip accepts local files or files from that folder. Operator state, chats, plans, memory and logs live under `%LocalAppData%\Agent_b`; the normal per-user application lives under `%LocalAppData%\Programs\Agent_b`. An all-users install (`--all-users`, elevated) puts the application under `%ProgramFiles%\Agent_b` and the shared workspace under `%ProgramData%\Agent_b`, with each operator's own data still under their `%LocalAppData%`.
+
+A managed deployment can ship a machine already pointed at a connection: `-SeedConfiguration <fragment.json>` merges a JSON fragment into the configuration **on first install only**, so a redeploy over a machine someone is using changes nothing they have set. A fragment carrying an API key or any other credential value is refused at install; name a credential reference instead and each user supplies the key once. See `seed.example.json`.
+
+## Updates
+
+Agent_b checks for a release hourly and reports one in About. Selecting **Update** downloads the signed installer, verifies its digest and its Authenticode signature, and only then launches it; it never installs silently. An update installs where the instance asking for it lives. Uninstall preserves operator data unless purge is explicitly selected.
 
 ## Bring your own model
 

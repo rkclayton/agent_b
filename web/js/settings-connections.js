@@ -1,3 +1,12 @@
+// Item 2l5 (g): drawn to the sheet's weight and metrics — 13px, currentColor, no
+// new colour and no new stroke width. Three of the four are icon-only, so every one
+// carries an accessible label at its call site.
+const connectionIcons = {
+  save: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M2 2h9l3 3v9H2V2Zm2 1v4h6V3H4Zm1 7h6v3H5v-3Z"/></svg>',
+  duplicate: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3 4h6v6H3V4Zm1 1v4h4V5H4Zm1.5.8h1v1h-1v-1Zm2 0h1v1h-1v-1Z"/><path d="M7 2h6v6h-1.5V3.5H7V2Z"/></svg>',
+  trash: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M6 2h4v1h3v1H3V3h3V2Zm-2 3h8l-.7 9H4.7L4 5Zm2.2 1 .4 7h1V6H6.2Zm3.6 0H8.8v7h1l.4-7Z"/></svg>',
+};
+
 let expanded, advancedConnections, armed, drafts, errors, probeMessages, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store;
 function useSettingsContext(context) {
   ({ expanded, advancedConnections, armed, drafts, errors, probeMessages, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store } = context);
@@ -36,7 +45,12 @@ function connections() {
           <button type="button" class="connection-summary" data-action="connection-toggle" data-id="${attr(connection.id)}">
             <span class="lamp ${lamp}"></span><span>${html(connection.label)}</span><span class="connection-url">${html(connection.base_url)}</span><span class="connection-state">${testState}</span>
           </button>
-          <button type="button" class="connection-remove ${armed.has(removeKey) ? "confirm" : ""}" data-action="remove-connection" data-id="${attr(connection.id)}" aria-label="${armed.has(removeKey) ? `Confirm remove ${attr(connection.label)}` : `Remove ${attr(connection.label)}`}" title="${armed.has(removeKey) ? `Confirm remove ${attr(connection.label)}` : `Remove ${attr(connection.label)}`}">${armed.has(removeKey) ? "Confirm ×" : "×"}</button>
+          <span class="connection-actions">
+            <button type="button" class="row-action" data-action="save-connection" data-id="${attr(connection.id)}" aria-label="Save ${attr(connection.label)}" title="Save ${attr(connection.label)}" ${hasPendingChanges ? "" : "disabled"}>${connectionIcons.save}</button>
+            <button type="button" class="row-action test" data-action="probe" data-id="${attr(connection.id)}" aria-label="Test ${attr(connection.label)}" title="Test ${attr(connection.label)} and fill what it finds" ${connection._probing ? "disabled" : ""}>${connection._probing ? "testing" : "test"}</button>
+            <button type="button" class="row-action" data-action="duplicate-connection" data-id="${attr(connection.id)}" aria-label="Duplicate ${attr(connection.label)}" title="Duplicate ${attr(connection.label)}">${connectionIcons.duplicate}</button>
+            <button type="button" class="row-action" data-action="remove-connection" data-id="${attr(connection.id)}" data-confirm="${attr(connection.label)}" aria-label="Remove ${attr(connection.label)}" title="Remove ${attr(connection.label)}">${connectionIcons.trash}</button>
+          </span>
       </div>`;
     })
     .join("");
@@ -102,7 +116,7 @@ function connectionFields(connection, reason, discovery) {
     ${row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(connection.context.n_ctx || "")}" placeholder="${attr(caps.n_ctx || "")}">`, "", "The probed context is used as the placeholder until this is saved.")}
     ${toggle(`${p}.reasoning.enabled`, "enabled", connection.reasoning.enabled, "Asks the model to think before it answers, where the server supports it.")}
     ${row("state", `<span class="account-status"><span class="lamp ${reason && reason !== "context length unknown" ? "alarm" : ""}"></span>${html(state)}</span>`)}
-    <div class="settings-actions"><button type="button" data-action="probe" data-id="${attr(id)}" ${connection._probing ? "disabled" : ""}>${connection._probing ? "Testing…" : "Test and fill"}</button><button type="button" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? "Stop" : "Evaluation Harness"}</button><button type="button" data-action="duplicate-connection" data-id="${attr(id)}">Duplicate</button></div>${feedback}${measurementResult}</div>
+    <div class="settings-actions"><button type="button" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? "Stop" : "Evaluation Harness"}</button></div>${feedback}${measurementResult}</div>
     <details class="connection-advanced" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Advanced</summary>
     <div class="connection-fieldset connection-identity"><h4>Connection</h4>
 	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", "An optional service that turns PDFs into text for this connection; it is used before the local reader.")}

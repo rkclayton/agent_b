@@ -19,7 +19,7 @@ function sessions() {
         <input class="session-label" data-session-label="${attr(item.id)}" value="${attr(item.label)}" aria-label="${attr(item.id)} label">
         <select data-session-connection="${attr(item.id)}" aria-label="${attr(item.id)} server" ${running || store.replay ? "disabled" : ""}>${connectionOptions}</select><span class="path" title="${attr(item.workspace)}">${html(item.workspace)}</span>
         <span>${html(item.run.status)}</span>
-        <button type="button" class="${armed.has(key) ? "confirm" : ""}" data-action="close-session" data-id="${attr(item.id)}">${running && armed.has(key) ? "Confirm" : "Close"}</button>
+        <button type="button" data-action="close-session" data-id="${attr(item.id)}" data-confirm="chat ${attr(item.label)}">Close</button>
       </div>${issue(`session.${item.id}`) ? `<p class="field-error">${html(issue(`session.${item.id}`))}</p>` : ""}`;
     })
     .join("");

@@ -1,3 +1,4 @@
+import { installComposerResize } from "./composer-resize.js";
 import { api, reduce, setSelection, store, subscribe } from "./bus.js";
 import { renderMarkdown } from "./markdown.js";
 import { operatorLogEntry } from "./operator-log.js";
@@ -19,7 +20,7 @@ import { installTranscriptCopy, responseTranscriptRecord, setTranscriptCopyRecor
 const budget = document.getElementById("chat-budget");
 const log = document.getElementById("chat-log");
 const input = document.getElementById("chat-task");
-const expandComposer = document.getElementById("chat-expand");
+const statusStrip = document.getElementById("chat-status-strip");
 const send = document.getElementById("chat-send");
 const notice = document.getElementById("chat-notice");
 const pendingApproval = document.getElementById("chat-pending-approval");
@@ -59,7 +60,6 @@ let renderTimer = 0;
 let attachmentsBusy = false;
 let dragDepth = 0;
 let queuedAttachments = [];
-let composerExpanded = false;
 const attachmentQueues = new Map();
 let lastRender = 0;
 let mounted = false;
@@ -1379,11 +1379,9 @@ document.body.addEventListener("drop", (event) => {
     void queueFiles([...event.dataTransfer.files]);
   }
 });
-expandComposer.onclick = () => {
-  composerExpanded = !composerExpanded;
-  resize();
-  input.focus();
-};
+// Item 2ld: the strip is the handle; composer-resize.js owns the drag.
+installComposerResize({ strip: statusStrip, composer, input, log });
+
 input.addEventListener("paste", (event) => {
   const files = [...(event.clipboardData?.files || [])];
   if (files.length) {
@@ -1414,11 +1412,9 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-function resize() {
-  composer.classList.toggle("expanded", composerExpanded);
-  expandComposer.textContent = composerExpanded ? "↧" : "↥";
-  expandComposer.setAttribute("aria-label", composerExpanded ? "Collapse composer" : "Expand composer");
-}
+// Item 2ld (b): the composer's height is the dragged one now, so there is nothing
+// for this to step through.
+function resize() {}
 function busy(session) {
   return !!session && ["running", "queued", "paused", "stopping"].includes(session.run?.status);
 }

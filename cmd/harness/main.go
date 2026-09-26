@@ -224,6 +224,10 @@ func main() {
 	updateManager := updater.New(updater.Options{
 		CurrentVersion: buildinfo.Current().Tag,
 		DataRoot:       paths.Data,
+		// Item 2lh: this instance updates where it lives, not where the operator
+		// per-user install happens to be.
+		ApplicationRoot: paths.Application,
+		WorkspaceRoot:   paths.Workspace,
 		LatestURL:      updateLatestURL(),
 		Enabled:        func() bool { return web.ConfigSnapshot().Updates.AutoCheck },
 		Changed:        func(state updater.State) { bus.Publish(events.New(events.UpdateChanged, "", "", state)) },

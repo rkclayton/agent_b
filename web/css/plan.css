@@ -48,3 +48,21 @@
 .plan-stats dt { color:var(--mute); }
 .plan-stats dd { margin:0; color:var(--ink); overflow-wrap:anywhere; }
 @media(max-width:900px){ .plan-body { grid-template-columns:minmax(0,1fr); } .plan-stats { border-left:0; border-top:1px solid rgba(125,135,148,.28); } }
+
+/* Item 2le (d): the header is the icon plus three lines, sized to what it holds,
+   with no new scrolling and nothing oversized. It is static text, not a control. */
+.plan-intro {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: var(--s3);
+  align-items: center;
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--accent-plan);
+}
+.plan-intro-mark { display: block; width: 64px; height: 64px; }
+.plan-intro p {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--mute);
+  font: 12px/18px var(--sans);
+}

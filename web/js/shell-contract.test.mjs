@@ -200,7 +200,10 @@ test("the Plan toggle is the chip in the accent, and the accent is used once", a
   assert.doesNotMatch(shell, /M9 4\.5A3\.5 3\.5 0 0 0 5\.5 8/); // the mark he did not recognise
   assert.doesNotMatch(shell, /shell-page-brain/); // 2he: the traced brain is gone
   assert.match(tokens, /--accent-plan:#5AC8FA;/);
-  assert.match(tokens, /\.shell-page-chip\{display:block;width:12px;height:12px;stroke:var\(--accent-plan\);opacity:\.45\}/);
+  // Item 2le: the chip is the operator's own artwork now, so it carries its own
+  // colour and needs no stroke. The accent keeps exactly one use, on the Plan
+  // header the full-quality version of that same artwork heads.
+  assert.match(tokens, /\.shell-page-chip\{display:block;width:12px;height:12px;opacity:\.6\}/);
   assert.match(tokens, /\.shell-page:hover \.shell-page-chip\{opacity:\.8\}/);
   assert.match(tokens, /\.shell-page\.selected \.shell-page-chip\{opacity:1\}/);
   // One element, and one only: every var(--accent-plan) in every stylesheet
@@ -212,7 +215,7 @@ test("the Plan toggle is the chip in the accent, and the accent is used once", a
     for (const rule of css.split("}")) if (rule.includes("var(--accent-plan)")) uses.push(`${name}: ${rule.split("*/").pop().trim()}`);
   }
   assert.equal(uses.length, 1, uses.join(" | "));
-  assert.match(uses[0], /shell-page-chip/);
+  assert.match(uses[0], /plan-intro/);
   // The palette rule records it as the operator's exception, not as a seventh
   // colour quietly added to the list.
   const design = await readFile(new URL("../DESIGN.md", import.meta.url), "utf8");
@@ -225,22 +228,28 @@ test("the Plan toggle is the chip in the accent, and the accent is used once", a
 // drawn, so the test compares the shapes in shell.js against the asset itself
 // rather than against a copy of them written here -- a redraw, a simplification
 // or a "tidied" path all fail, and the asset stays the single source.
-test("the Plan chip is the checked-in asset, not a redraw", async () => {
-  const asset = await readFile(new URL("../assets/plan-chip.svg", import.meta.url), "utf8");
-  const shapes = (text) => [...text.matchAll(/<(rect|path)\b[^>]*\/>/g)].map((match) =>
-    match[0].replace(/\s+/g, " ").trim());
-  const assetShapes = shapes(asset);
-  assert.equal(assetShapes.length, 3, "the asset should be two rects and the pin path");
-  for (const shape of assetShapes) assert.ok(shell.includes(shape), `shell.js is missing ${shape}`);
-  // The stroke width belongs to the asset, so no stylesheet may override it.
-  assert.match(asset, /stroke-width="2"/);
-  assert.match(shell, /stroke-width="2"/);
+// Item 2le (v1.14.0): the operator supplied his own artwork — "i want this to be
+// the new plan icon … maintain the color of the icon itself" — so the chip is that
+// prepared asset, and the drawn 24-grid SVG it replaces is gone from shell.js.
+test("the Plan chip is the operator's prepared artwork, not a drawing", async () => {
+  assert.match(shell, /src="\/static\/assets\/plan-mark-nav\.png"/);
+  assert.match(shell, /class="shell-page-chip"/);
+  // The drawing it replaces is not left behind beside it.
+  assert.doesNotMatch(shell, /<rect x="7" y="7" width="10" height="10" rx="2"\/>/);
+  assert.doesNotMatch(shell, /stroke-width="2"/);
+  // Both sizes ship, and both are real PNGs with an alpha channel: the background
+  // is removed, not repainted, so the mark sits on whatever is behind it.
+  for (const [name, expected] of [["plan-mark-nav.png", 24], ["plan-mark.png", 128]]) {
+    const png = await readFile(new URL(`../assets/${name}`, import.meta.url));
+    assert.equal(png.subarray(1, 4).toString("ascii"), "PNG", `${name} is not a PNG`);
+    assert.equal(png.readUInt32BE(16), expected, `${name} is not ${expected}px wide`);
+    assert.equal(png.readUInt8(25), 6, `${name} has no alpha channel`);
+  }
   const tokensCss = await readFile(new URL("../css/tokens.css", import.meta.url), "utf8");
   const chipRule = (tokensCss.split("}").find((rule) => rule.includes(".shell-page-chip{")) ?? "")
     .replace(/\/\*[\s\S]*?\*\//g, "").split(".shell-page-chip{").pop();
-  assert.doesNotMatch(chipRule, /stroke-width/, "the chip's stroke-width must come from the asset");
-  // The operator explicitly halved the displayed box; the source geometry is
-  // still the checked-in 24-grid asset above.
+  assert.doesNotMatch(chipRule, /stroke/, "the artwork carries its own colour; no stroke is applied to it");
+  // The operator explicitly halved the displayed box; that is unchanged.
   assert.match(chipRule, /width:12px;height:12px/);
 });
 

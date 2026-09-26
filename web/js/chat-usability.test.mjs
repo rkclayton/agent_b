@@ -101,7 +101,12 @@ test("State strip owns queue operator pending and unreachable state without chat
   assert.match(chat, /queued \(\$\{queued\}\).*waiting for model/);
   assert.match(chat, /operator mode · until/);
   assert.match(chat, /filter\(\(entry\) => !\["operator\.context", "message\.queued", "run\.queued"\]/);
-  assert.match(css, /\.chat-status-strip \{ min-height:24px/);
+  // Item 2ld (d) and (f): the strip is trimmed to the height its text needs, with
+  // the same small padding all round, and it is the resize handle — the cursor is
+  // the only thing that says so.
+  assert.match(css, /\.chat-status-strip \{ min-height:20px/);
+  assert.match(css, /\.chat-status-strip \{[^}]*padding:2px 4px/);
+  assert.match(css, /\.chat-status-strip \{[^}]*cursor:row-resize/);
 });
 
 test("Operator mode lives only in Settings Security and states the defeated boundary", () => {
@@ -173,13 +178,18 @@ test("Composer is five lines with no placeholder and expands upward", () => {
   assert.match(html, /textarea id="chat-task" rows="5" aria-label="Task"><\/textarea>/);
   assert.doesNotMatch(html, /placeholder=/);
   assert.match(css, /height:\s*112px/);
-	assert.match(css, /\.chat-composer\.expanded textarea[\s\S]*height:\s*min\(50vh, 520px\)/);
+	// Item 2ld (a) and (b): the composer takes the height the operator dragged the
+	// strip to; the two predetermined heights and the control that stepped through
+	// them are gone.
+	assert.match(css, /--composer-height/);
+	assert.doesNotMatch(css, /\.chat-composer\.expanded textarea/);
 	assert.match(css, /grid-template-columns:\s*minmax\(0, 1fr\)/);
 	assert.match(css, /\.chat-pending-attachments,[\s\S]*\.chat-input-wrap\s*\{\s*grid-column:\s*1/);
 	assert.match(css, /\.chat-input-wrap \{[^}]*border-radius:0;[^}]*box-shadow:inset/);
 	assert.match(css, /\.chat-composer textarea \{[\s\S]*?padding:\s*7px 64px 7px 9px;[\s\S]*?border:\s*0;[\s\S]*?border-radius:\s*0;/);
 	assert.match(css, /\.chat-input-actions \{[^}]*right:6px;[^}]*bottom:6px;[^}]*flex-direction:column/);
-	assert.match(css, /#chat-expand\s*\{[\s\S]*position:\s*absolute;[\s\S]*top:\s*4px;[\s\S]*right:\s*4px/);
+	assert.doesNotMatch(css, /#chat-expand/);
+	assert.doesNotMatch(html, /id="chat-expand"/);
   assert.match(html, /id="chat-send"[^>]+aria-label="Send"[^>]*>[\s\S]{0,40}composer-glyph/);
   assert.match(css, /#chat-send \{[\s\S]*?height: 24px;[\s\S]*?min-height: 24px;/);
   assert.match(css, /\.chat-input-actions \.stop-sign \{ width:24px; height:24px;/);

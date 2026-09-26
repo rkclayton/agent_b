@@ -48,8 +48,10 @@ test("Settings navigation remains install-global while agent controls live on Co
 });
 
 test("Console server controls gain wrapped height before narrow layouts can clip them", () => {
-  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.panel-agent-group \{ height:78px; grid-template-rows:22px 56px; \}/);
-  assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.panel-agent-group \{ height:110px; grid-template-rows:22px 88px; \}/);
+  // Item 2l7: the narrow layout gives these rows a FLOOR, not a fixed height, so a
+  // row is as tall as what it holds and nothing inside it has to scroll.
+  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.panel-agent-group \{ min-height:78px; grid-template-rows:22px auto; \}/);
+  assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.panel-agent-group \{ min-height:110px; grid-template-rows:22px auto; \}/);
 });
 
 test("Console pins the current approval and shows waiting for you in state colour", () => {

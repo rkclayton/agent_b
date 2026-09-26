@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { releaseFindings } from "./plan-lint.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -174,3 +175,32 @@ assert.equal(fs.existsSync(publisher), true);
   expectPrepareFailure(root, makeCandidate(root, "- W1 **2b bare none.**", [{ id: "2b", text: bare }]), /PUBLICATION BUDGET: ordered item 2b/);
 }
 process.stdout.write("plan publication fixtures passed\n");
+
+// Item 2lp (a), (b) and (e). rel-1.17.0/W0 swept the closed orders with the old
+// anchored matcher and found it read SEVEN OF NINE as having no declaration at
+// all: every release from v1.13.0 to v1.15.0 shipped with the
+// version-follows-the-tag check silently doing nothing, because those orders
+// wrote `RELEASE:` mid-paragraph and bolded. A gate that cannot match its own
+// documented input is a defect in the gate.
+{
+  const readable = (text, tags) => releaseFindings(text, tags).errors;
+
+  // The form recent orders actually used, which the old pattern ignored.
+  assert.deepEqual(readable("This order authorizes **2li**. RELEASE: **v1.15.0** (MINOR).", ["v1.14.0"]), [],
+    "a bolded mid-paragraph declaration must be read");
+
+  // The documented form still works.
+  assert.deepEqual(readable("RELEASE: v1.17.0 (MINOR, milestone: 1.8).", ["v1.16.0"]), []);
+
+  // And now that it is read, the check it was always meant to make actually fires.
+  assert.match(readable("RELEASE: **v1.19.0** (MINOR).", ["v1.14.0"])[0] ?? "",
+    /does not follow v1\.14\.0/, "the successor check must fire on a declaration it can now read");
+
+  // (b): silence is a failure. This is the whole defect, as an assertion.
+  assert.match(readable("This order ships v1.18.0 with no declaration anywhere.", ["v1.17.0"])[0] ?? "",
+    /no declaration could be read/, "an order naming a release with no declaration must fail");
+
+  // A discovery order that names no release is still fine, and `none` is still none.
+  assert.deepEqual(readable("A discovery order that builds nothing.", ["v1.17.0"]), []);
+  assert.deepEqual(readable("RELEASE: none", ["v1.17.0"]), []);
+}

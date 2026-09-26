@@ -2,9 +2,11 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -144,5 +146,176 @@ func TestNormalizeWebSearchURLDropsTracking(t *testing.T) {
 	right := normalizeWebSearchURL("https://example.com/a?b=2")
 	if left != right {
 		t.Fatalf("left=%q right=%q", left, right)
+	}
+}
+
+// Item 2lq (c): brave answers 429, and the old code spent three round trips
+// finding that out before benching for a duration nobody asked for. A rate limit
+// benches on the first one, for as long as the server asked, and says so.
+func TestARateLimitBenchesOnTheFirstOne2lq(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "300")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+	fetchCfg, searchCfg := webSearchTestConfig("limited")
+	adapter := fixedSearchAdapter{name: "limited", url: server.URL, hits: []webSearchHit{{Title: "never parsed", URL: "https://example.com"}}}
+	tool := newWebSearch(NewFetch(fetchCfg), searchCfg, []webSearchAdapter{adapter}, false)
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	tool.now = func() time.Time { return now }
+
+	client := tool.fetch.client(fetchCfg)
+	defer client.CloseIdleConnections()
+	_, err := tool.searchOne(context.Background(), client, fetchCfg, adapter, server.URL, 10)
+	var limited *webSearchRateLimited
+	if !errors.As(err, &limited) {
+		t.Fatalf("a 429 must be its own outcome, got %v", err)
+	}
+	if limited.after != 5*time.Minute {
+		t.Fatalf("Retry-After: 300 should buy 5m, got %s", limited.after)
+	}
+
+	tool.recordWebSearchFailure("limited", err, searchCfg)
+	health, ok := tool.healthSnapshot("limited")
+	if !ok || !health.BenchedUntil.Equal(now.Add(5*time.Minute)) {
+		t.Fatalf("the first rate limit must bench for what the server asked: %+v", health)
+	}
+	// Waiting is not breaking: a rate limit does not walk the engine towards the
+	// broken-parser threshold.
+	if health.ConsecutiveFailures != 0 {
+		t.Fatalf("a rate limit counted as a failure: %+v", health)
+	}
+	if !strings.Contains(health.BenchReason, "rate limited") || !strings.Contains(health.BenchReason, "2026-09-26") {
+		t.Fatalf("the bench reason must name the cause and the date: %q", health.BenchReason)
+	}
+	// And the caller is told, in the report, with the reason and the date.
+	detail := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"query": "context"})
+	if !strings.Contains(detail.Content, "rate limited") || !strings.Contains(detail.Content, "2026-09-26") {
+		t.Fatalf("the benched line dropped the reason:\n%s", detail.Content)
+	}
+
+	// The negative control: an ordinary failure still takes three, and is still
+	// described as a failure. Without this, the change would bench every engine on
+	// its first hiccup.
+	plain := newWebSearch(NewFetch(fetchCfg), searchCfg, nil, false)
+	plain.now = func() time.Time { return now }
+	plain.recordWebSearchFailure("ordinary", fmt.Errorf("parse: no results"), searchCfg)
+	if first, _ := plain.healthSnapshot("ordinary"); !first.BenchedUntil.IsZero() || first.ConsecutiveFailures != 1 {
+		t.Fatalf("one ordinary failure must not bench: %+v", first)
+	}
+	plain.recordWebSearchFailure("ordinary", fmt.Errorf("parse: no results"), searchCfg)
+	plain.recordWebSearchFailure("ordinary", fmt.Errorf("parse: no results"), searchCfg)
+	third, _ := plain.healthSnapshot("ordinary")
+	if !third.BenchedUntil.Equal(now.Add(10*time.Minute)) || !strings.Contains(third.BenchReason, "3 consecutive failures") {
+		t.Fatalf("the third ordinary failure must bench for the configured duration, with a reason: %+v", third)
+	}
+}
+
+// Retry-After is a header from a stranger. Whatever it says, the pause it buys is
+// bounded at both ends.
+func TestRetryAfterIsClamped2lq(t *testing.T) {
+	fallback := 10 * time.Minute
+	for _, probe := range []struct {
+		header string
+		want   time.Duration
+	}{
+		{"", fallback},
+		{"0", webSearchRateLimitFloor},
+		{"1", webSearchRateLimitFloor},
+		{"600", 10 * time.Minute},
+		{"604800", webSearchRateLimitCeiling},
+		{"-9", webSearchRateLimitFloor},
+		{"not a number", fallback},
+		{"Wed, 21 Oct 2015 07:28:00 GMT", webSearchRateLimitFloor}, // a date in the past
+	} {
+		if got := rateLimitWindow(probe.header, fallback); got != probe.want {
+			t.Errorf("Retry-After %q gave %s, want %s", probe.header, got, probe.want)
+		}
+	}
+}
+
+// Item 2lq (e): the merge runs with two fewer engines than it did before this
+// item retired startpage and mojeek. Ranking is by agreement first, so removing
+// an engine changes agreement counts — and the thing to prove is that it changes
+// them HONESTLY: a hit only the departed engine returned leaves, the survivors
+// keep their relative order, and nothing inherits an agreement it did not earn.
+func TestRankingSurvivesOneFewerEngine2lq(t *testing.T) {
+	const (
+		all   = "https://example.com/all"
+		two   = "https://example.com/two"
+		alone = "https://example.com/only-from-the-third"
+	)
+	hit := func(engine, url string, rank int) webSearchHit {
+		return webSearchHit{Engine: engine, URL: url, Title: url, Rank: rank}
+	}
+	three := []webSearchHit{
+		hit("first", all, 1), hit("first", two, 2),
+		hit("second", all, 1), hit("second", two, 3),
+		hit("third", all, 2), hit("third", alone, 1),
+	}
+
+	before := mergeWebSearchHits(three, 10)
+	if len(before) != 3 || before[0].URL != all || before[0].Agreement != 3 {
+		t.Fatalf("three engines: %+v", before)
+	}
+	if before[1].URL != two || before[1].Agreement != 2 {
+		t.Fatalf("three engines, second place: %+v", before)
+	}
+
+	// Now the third engine is gone, as startpage and mojeek are gone.
+	withoutThird := []webSearchHit{}
+	for _, item := range three {
+		if item.Engine != "third" {
+			withoutThird = append(withoutThird, item)
+		}
+	}
+	after := mergeWebSearchHits(withoutThird, 10)
+	if len(after) != 2 {
+		t.Fatalf("the hit only the departed engine returned must leave: %+v", after)
+	}
+	for index, url := range []string{all, two} {
+		if after[index].URL != url {
+			t.Fatalf("the survivors changed order: position %d is %s, want %s", index, after[index].URL, url)
+		}
+	}
+	// Agreement drops by exactly the engines that left, and by no more.
+	if after[0].Agreement != 2 || after[1].Agreement != 2 {
+		t.Fatalf("agreement was not recomputed honestly: %+v", after)
+	}
+	for _, item := range after {
+		if len(item.Engines) != item.Agreement {
+			t.Fatalf("%s claims agreement %d from engines %v", item.URL, item.Agreement, item.Engines)
+		}
+		if containsString(item.Engines, "third") {
+			t.Fatalf("%s still credits a departed engine: %v", item.URL, item.Engines)
+		}
+	}
+	// And a one-engine merge still ranks, by that engine's own order.
+	single := mergeWebSearchHits([]webSearchHit{hit("first", two, 2), hit("first", all, 1)}, 10)
+	if len(single) != 2 || single[0].URL != all || single[0].Agreement != 1 {
+		t.Fatalf("one engine: %+v", single)
+	}
+}
+
+// The tool ships the engines it has adapters for, and nothing it retired. And a
+// bench or a retirement carries a date and a reason, or it is the silence this
+// item exists to end.
+func TestRetiredEnginesHaveNoAdapter2lq(t *testing.T) {
+	for _, adapter := range defaultWebSearchAdapters() {
+		if reason, retired := retiredWebSearchEngines[adapter.Name()]; retired {
+			t.Errorf("%s is recorded as retired (%s) but still has an adapter", adapter.Name(), reason)
+		}
+	}
+	dated := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}: \S`)
+	for name, reason := range retiredWebSearchEngines {
+		if !dated.MatchString(reason) {
+			t.Errorf("%s: a retirement must read \"YYYY-MM-DD: why\", got %q", name, reason)
+		}
+	}
+	anyDate := regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
+	for name, reason := range initiallyBenchedWebSearchEngines {
+		if !anyDate.MatchString(reason) {
+			t.Errorf("%s: a bench must carry the date it was observed, got %q", name, reason)
+		}
 	}
 }

@@ -148,11 +148,11 @@ func defaultWebSearchAdapters() []webSearchAdapter {
 			values := url.Values{"q": {q}, "source": {"web"}}
 			return "https://search.brave.com/search?" + values.Encode()
 		}, newsURL: func(q string, _ int) (string, bool) { return query("https://search.brave.com/news", "q", q), true }, containerClass: "snippet", snippetClass: "snippet-description"},
-		htmlSearchAdapter{name: "startpage", webURL: func(q string, _ int) string { return query("https://www.startpage.com/sp/search", "query", q) }, newsURL: func(q string, _ int) (string, bool) {
-			values := url.Values{"query": {q}, "cat": {"news"}}
-			return "https://www.startpage.com/sp/search?" + values.Encode(), true
-		}, containerClass: "w-gl__result", anchorClass: "w-gl__result-title", snippetClass: "w-gl__description"},
-		htmlSearchAdapter{name: "mojeek", webURL: func(q string, _ int) string { return query("https://www.mojeek.com/search", "q", q) }, containerTag: "li", containerClass: "result", snippetClass: "s"},
+		// Item 2lq: startpage and mojeek were RETIRED on 2026-09-26. startpage
+		// serves an Anubis proof-of-work challenge instead of results and mojeek
+		// answers 403; both were probed against the suite's own fixed query. See
+		// retiredWebSearchEngines in web_search.go for the observations. They are
+		// removed rather than left as permanently skipped arms.
 		structuredSearchAdapter{name: "wikipedia", match: contains("what is", "who is", "wikipedia", "definition", "history of"), url: func(q string, n int) string {
 			values := url.Values{"action": {"query"}, "list": {"search"}, "srsearch": {q}, "srlimit": {fmt.Sprint(n)}, "format": {"json"}, "utf8": {"1"}}
 			return "https://en.wikipedia.org/w/api.php?" + values.Encode()

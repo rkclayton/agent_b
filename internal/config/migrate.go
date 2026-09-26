@@ -43,7 +43,7 @@ func migrateWebSearch(data []byte, version int) (bool, []byte, error) {
 	} else {
 		tools = map[string]json.RawMessage{}
 	}
-	tools["web_search"], _ = json.Marshal(WebSearchTool{Enabled: true, Engines: []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "startpage", "mojeek", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"}, PerEngineTimeoutS: 8, BenchDurationMinutes: 30})
+	tools["web_search"], _ = json.Marshal(WebSearchTool{Enabled: true, Engines: []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"}, PerEngineTimeoutS: 8, BenchDurationMinutes: 30})
 	raw["tools"], _ = json.Marshal(tools)
 	var agents []Agent
 	if value := raw["agents"]; value != nil {

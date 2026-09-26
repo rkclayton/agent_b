@@ -1933,7 +1933,11 @@
    Only Activity is changed. The Agents page has the same shape with its own
    Tool panel, and is carded rather than restyled here: it is not this item's. */
 #activity-panel > .panel-pane,
-#activity-panel > .panel-lifetime-group {
+#activity-panel > .panel-lifetime-group,
+/* Item 2ln (e): the Agents page has the same shape -- the Tools pane sat in one
+   column at 300px beside a 721px role group. rel-1.15.0 card 8 carried this
+   forward unmeasured; measured at 1250px it was still there. */
+#agents-panel > .panel-pane {
   grid-column: 1 / -1;
 }
 .panel-lifetime-group .panel-lines {

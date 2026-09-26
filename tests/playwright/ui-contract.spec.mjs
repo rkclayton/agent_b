@@ -313,3 +313,48 @@ test("Activity's upper grid leaves no empty column at 1250px", async ({ page }) 
   expect(geometry.width, "Lifetime does not take the width of the surface").toBeGreaterThan(700);
   expect(geometry.paneWidth, "Tool use does not take the width of the surface").toBeGreaterThan(700);
 });
+
+// Item 2ln (e): rel-1.15.0 card 8 said the Agents page leaves a column empty at
+// 1250px. [[2iq]] replaced that page with a role table in v1.16.0 and the card
+// was carried forward UNMEASURED. This measures it, which is how the item says
+// to close it: either the column is no longer empty, or it is fixed here.
+test("the Agents page leaves no empty column at 1250px", async ({ page }) => {
+  await page.setViewportSize({ width: 1250, height: 900 });
+  const agentsMarkup = (() => {
+    const start = indexHTML.indexOf('<div id="agents-panel"');
+    const end = indexHTML.indexOf('<div id="activity-panel"', start);
+    return indexHTML.slice(start, end > start ? end : indexHTML.length);
+  })();
+  await page.setContent(`<!doctype html><html><head><style>
+    :root { --bezel:#2A2E35; --well:#15181C; --ink:#D8DDE3; --mute:#7D8794; --trace:#F2B233; --alarm:#E4624F;
+      --accent-plan:#5AC8FA; --sans:sans-serif; --mono:monospace;
+      --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s8:32px; --app-header-height:32px; --agent-tab-width:118px; --etch-fade:.165; }
+    ${appCSS}
+  </style></head><body>
+    <div id="settings-page" class="settings-page"><div class="settings-layout"><div class="settings-content">${agentsMarkup}</div></div></div>
+  </body></html>`);
+
+  // The shape that produced the hole: a role table of three rows beside a tool
+  // list, in a two-column surface.
+  await page.evaluate(() => {
+    const row = (role, what) => `<div class="panel-role-row"><span class="panel-role-name">${role}</span><span class="panel-role-what">${what}</span><select><option>local</option></select><span class="panel-role-state">takes effect on the next run that reads it</span></div>`;
+    document.querySelector("#panel-roles").innerHTML =
+      row("b", "the one you talk to") + row("c", "the worker") + row("d", "the planner");
+    document.querySelector("#panel-tools").innerHTML =
+      Array.from({ length: 13 }, (_, i) => `<div class="panel-line"><span>tool ${i}</span><span>on</span></div>`).join("");
+  });
+
+  const geometry = await page.evaluate(() => {
+    const surface = document.querySelector("#agents-panel");
+    const kids = [...surface.children].map((node) => {
+      const r = node.getBoundingClientRect();
+      return { id: node.id || node.className, x: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height) };
+    });
+    return { surface: Math.round(surface.getBoundingClientRect().width), kids };
+  });
+
+  // Every child takes the width it is given: no child sits in one column of a
+  // two-column surface with nothing beside it.
+  const narrow = geometry.kids.filter((kid) => kid.w < geometry.surface - 4);
+  expect(narrow, `these sit in a partial column: ${JSON.stringify(narrow)} of ${geometry.surface}px`).toEqual([]);
+});

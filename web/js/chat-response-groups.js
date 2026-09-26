@@ -1,10 +1,16 @@
 import { groupAdjacentRuns } from "./timeline-groups.js";
+import { runTimeSentence } from "./run-summary.js";
 
 export const thinThoughtTokenLimit = 64;
 
 export function hasVisibleChatContent(item) {
   if (!item || typeof item !== "object") return true;
-  if (item.type === "notice" && item.event?.type === "run.stopped" && item.event?.data?.reason === "done") return false;
+  // A run that finished had nothing to say, so its notice was hidden. Item 2ji
+  // (b) gives it something to say — where the time went — so it is hidden only
+  // when there is no time to report, which is every run journalled before that.
+  if (item.type === "notice" && item.event?.type === "run.stopped" && item.event?.data?.reason === "done") {
+    return Boolean(runTimeSentence(item.event?.data).text);
+  }
   if (item.type === "notice" && item.event?.type === "files.delivered") {
     const items = item.event.data?.items;
     return !Array.isArray(items) || items.length > 0;

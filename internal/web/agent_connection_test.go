@@ -272,3 +272,76 @@ func waitEventType(t *testing.T, stream <-chan events.Event, eventType, message 
 		}
 	}
 }
+
+// Item 2ln (a), (c) and (d). [[2iq]] built the Agents table in v1.16.0 and found
+// the operator's ask -- "assign a model to an agent" -- could not be met: this
+// route wrote agent.B and nothing else, so two of three rows were read-only.
+func TestEveryRoleIsAssignable2ln(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeModelDone(w) }))
+	defer model.Close()
+	fixture := newAgentConnectionFixture(t, model.URL, model.URL)
+	agentID := fixture.session.AgentID
+
+	// (a): c is settable, and it applies straight away -- no session is bound to
+	// it, so there is nothing to wait for.
+	response := postAgentConnection(t, fixture.server, agentID, `{"action":"set","role":"c","connection_id":"new"}`)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"applied"`) {
+		t.Fatalf("setting c: status=%d body=%s", response.Code, response.Body)
+	}
+	if got := fixture.server.ConfigSnapshot().Agents[0].C; got != fixture.newID {
+		t.Fatalf("c = %q, want %q", got, fixture.newID)
+	}
+
+	// It persists: the configuration on disk carries it, which is what the next
+	// worker run reads.
+	saved, _, _, err := config.Load(fixture.server.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Agents[0].C != fixture.newID {
+		t.Fatalf("c did not persist: %q", saved.Agents[0].C)
+	}
+
+	// (c): clearing a role is a valid state, not an error.
+	if response := postAgentConnection(t, fixture.server, agentID, `{"action":"set","role":"c","connection_id":""}`); response.Code != http.StatusBadRequest {
+		t.Fatalf("an empty connection_id is still refused by the route's own contract: status=%d", response.Code)
+	}
+
+	// (d): a role the agent does not have is refused BY THE ROUTE, not only
+	// hidden by the page. This fixture's agent has no d.
+	if got := fixture.server.ConfigSnapshot().Agents[0].D; got != "" {
+		t.Fatalf("fixture unexpectedly has a d role: %q", got)
+	}
+	response = postAgentConnection(t, fixture.server, agentID, `{"action":"set","role":"d","connection_id":"new"}`)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "no d role") {
+		t.Fatalf("assigning to an absent d must be refused: status=%d body=%s", response.Code, response.Body)
+	}
+
+	// An unknown role is refused too.
+	if response := postAgentConnection(t, fixture.server, agentID, `{"action":"set","role":"z","connection_id":"new"}`); response.Code != http.StatusBadRequest {
+		t.Fatalf("an unknown role must be refused: status=%d", response.Code)
+	}
+
+	// b keeps its own path: no role named means b, which is how the strip's
+	// switcher has always called this route.
+	if got := fixture.server.ConfigSnapshot().Agents[0].B; got != fixture.oldID {
+		t.Fatalf("b moved while c was being set: %q", got)
+	}
+}
+
+// (b): c and d are written straight through, because no session is bound to them
+// and there is nothing to defer. b's deferral is [[2ia]]'s and is untouched --
+// the tests above this one still prove it.
+func TestARoleChangeDoesNotDeferExceptForB2ln(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeModelDone(w) }))
+	defer model.Close()
+	fixture := newAgentConnectionFixture(t, model.URL, model.URL)
+	agentID := fixture.session.AgentID
+
+	if response := postAgentConnection(t, fixture.server, agentID, `{"action":"set","role":"c","connection_id":"new"}`); response.Code != http.StatusOK {
+		t.Fatalf("c should apply without waiting: status=%d body=%s", response.Code, response.Body)
+	}
+	if _, pending := fixture.server.agentConnectionChanges()[agentID]; pending {
+		t.Fatal("setting c left a pending change; only b defers")
+	}
+}

@@ -1,0 +1,261 @@
+{
+ "source": "attachment-message",
+ "session": "main",
+ "start": {
+  "schema_version": 1,
+  "cursor": {
+   "generation": "",
+   "offset": 0
+  },
+  "complete": false,
+  "id": "main",
+  "label": "main",
+  "agent_id": "",
+  "connection_id": "",
+  "agent_name": "",
+  "b_connection": "",
+  "role": "",
+  "created_at": "",
+  "workspace": "",
+  "workspace_dir": "",
+  "workspace_missing": false,
+  "project_content": "",
+  "project_files": null,
+  "project_notes": null,
+  "run": {
+   "status": "idle",
+   "run_id": "",
+   "turn": 0,
+   "max_turns": 0,
+   "queue_position": 0,
+   "partial": "",
+   "last_stop_reason": ""
+  },
+  "tools": [],
+  "messages": [],
+  "budget": {
+   "n_ctx": 0,
+   "reserve": 0,
+   "ceiling": 0,
+   "used_est": 0,
+   "used_measured": 0,
+   "drift": 0,
+   "cached_last": null,
+   "mode": "",
+   "estimated": false,
+   "estimated_categories": null,
+   "categories": null,
+   "tool_schema_tokens": null,
+   "tool_marginal_tokens": null
+  },
+  "queued_messages": 0,
+  "runnable": false,
+  "not_runnable_reason": "",
+  "memory_path": "",
+  "memory_content": "",
+  "agent_memory_path": "",
+  "agent_memory_content": "",
+  "log_path": "",
+  "model_turns": 0,
+  "compaction_count": 0,
+  "compaction_token_delta": 0,
+  "compaction_model_calls": 0,
+  "compaction_prompt_tokens": 0,
+  "compaction_completion_tokens": 0,
+  "activity": {
+   "stage": "",
+   "stage_state": "",
+   "completed_stages": [],
+   "active_tool": "",
+   "alarm_tool": "",
+   "dispatch_alarm": false,
+   "compaction_serial": 0
+  },
+  "timeline": [],
+  "chat": [],
+  "closed": false
+ },
+ "patches": [
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "",
+    "offset": 0
+   },
+   "cursor": {
+    "generation": "attachment-message.events",
+    "offset": 271
+   },
+   "operations": [
+    {
+     "op": "replace",
+     "path": "/run",
+     "value": {
+      "status": "idle",
+      "run_id": "",
+      "turn": 0,
+      "max_turns": 40,
+      "queue_position": 0,
+      "partial": "",
+      "last_stop_reason": ""
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/complete",
+     "value": true
+    },
+    {
+     "op": "replace",
+     "path": "/connection_id",
+     "value": "local"
+    },
+    {
+     "op": "replace",
+     "path": "/role",
+     "value": "b"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace",
+     "value": "workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/workspace_dir",
+     "value": "workspace"
+    },
+    {
+     "op": "replace",
+     "path": "/tools",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": null
+    },
+    {
+     "op": "replace",
+     "path": "/runnable",
+     "value": true
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 1,
+      "ts": "2026-09-06T00:00:00Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "session.created",
+      "data": {
+       "session": {
+        "connection_id": "local",
+        "id": "main",
+        "label": "main",
+        "messages": [],
+        "run": {
+         "max_turns": 40,
+         "status": "idle"
+        },
+        "runnable": true,
+        "tools": [],
+        "workspace": "workspace"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema_version": 1,
+   "session_id": "main",
+   "previous_cursor": {
+    "generation": "attachment-message.events",
+    "offset": 271
+   },
+   "cursor": {
+    "generation": "attachment-message.events",
+    "offset": 661
+   },
+   "operations": [
+    {
+     "op": "append",
+     "path": "/chat",
+     "value": {
+      "type": "user",
+      "key": "message:m-attachment",
+      "text": "Review this file.",
+      "attachments": [
+       {
+        "path": "attachments/spec.txt",
+        "bytes": 17,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      ]
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/messages",
+     "value": [
+      {
+       "id": "m-attachment",
+       "role": "user",
+       "content": "Review this file.",
+       "category": "history",
+       "tokens": 12,
+       "estimated": true,
+       "elided": false,
+       "turn": 0,
+       "attachments": [
+        {
+         "path": "attachments/spec.txt",
+         "bytes": 17,
+         "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "op": "append",
+     "path": "/timeline",
+     "value": {
+      "seq": 2,
+      "ts": "2026-09-06T00:00:01Z",
+      "session_id": "main",
+      "run_id": "",
+      "type": "message.appended",
+      "data": {
+       "message": {
+        "attachments": [
+         {
+          "bytes": 17,
+          "path": "attachments/spec.txt",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+         }
+        ],
+        "category": "history",
+        "content": "Review this file.",
+        "elided": false,
+        "estimated": true,
+        "id": "m-attachment",
+        "role": "user",
+        "tokens": 12,
+        "turn": 0
+       }
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "records": 2,
+  "patches": 2,
+  "empty_patches": 0
+ }
+}

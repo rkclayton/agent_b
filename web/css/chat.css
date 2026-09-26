@@ -548,6 +548,14 @@
 .chat-notice-row .chat-content {
   grid-column: 2;
 }
+/* Item 2ji (b): where the run time went, one line, in the muted colour every
+   other notice already uses. No bar, no pane, no chart — the item says text
+   only, and this adds no colour to the six. */
+.chat-run-time {
+  color: var(--mute);
+  font-size: var(--ct);
+}
+.chat-notice-row.alarm .chat-run-time { color: var(--alarm); }
 .chat-render-failure .chat-content {
   overflow: hidden;
   text-overflow: ellipsis;

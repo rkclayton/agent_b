@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-import { agentKey, compactionFigures, lifetimeRows } from "./panel-lifetime.js";
+import { agentKey, compactionFigures, lifetimeRows, runProfile, runProfileRows } from "./panel-lifetime.js";
 
 test("Console agent selector keys named objects", () => {
   assert.equal(agentKey({ name: "Home Coder" }), "home-coder");
@@ -35,4 +35,65 @@ test("Console body exposes selectors tools lifetime instruments and maintenance 
   assert.doesNotMatch(script, /lifetime\.hidden|live\.hidden/);
   assert.match(script, /patchEndedRun/);
   assert.match(script, /if \(next\) setActive\(next\.id\)/);
+});
+
+// Item 2ji (c): lifetime beside the last twenty runs. One column cannot show that
+// a connection has got worse, and that is the question this table is asked.
+test("2ji: the per-connection row shows lifetime and the last twenty side by side", () => {
+  // Twenty-two runs. The first two were fast and clean; the last twenty were slow
+  // and spent their time waiting. Lifetime alone would blur the two together.
+  const recent = [];
+  for (let index = 0; index < 20; index += 1) {
+    recent.push({ total_ms: 100_000, model_ms: 20_000, tool_ms: 0, waiting_ms: 80_000, tool_calls: 10, tool_failures: 2, empty_replies: 1, repeated_calls: 0 });
+  }
+  const counters = {
+    run_time_ms: [1_000, 1_000, ...recent.map((run) => run.total_ms)],
+    run_model_ms: 2 * 900 + 20 * 20_000,
+    run_tool_ms: 0,
+    run_waiting_ms: 20 * 80_000,
+    empty_replies: 20,
+    repeated_calls: 0,
+    tools: { read_file: { calls: 202, failures: 40 } },
+    recent_runs: recent,
+  };
+  const rows = runProfileRows(counters);
+  const byLabel = Object.fromEntries(rows.map(([label, life, last]) => [label, { life, last }]));
+
+  assert.equal(byLabel["runs measured"].life, "22");
+  assert.equal(byLabel["runs measured"].last, "20");
+  // The median is a real median: twenty runs at 100 s and two at 1 s.
+  assert.equal(byLabel["median run"].life, "1.7 min");
+  assert.equal(byLabel["median run"].last, "1.7 min");
+  // Three percentages, in the order the item names them.
+  assert.equal(byLabel["model / tools / waiting %"].last, "20/0/80");
+  assert.equal(byLabel["empty replies / run"].last, "100.0%");
+  assert.equal(byLabel["tool errors"].last, "20.0%");
+});
+
+test("2ji: a ledger written before this item shows no run profile at all", () => {
+  assert.deepEqual(runProfileRows({}), []);
+  assert.deepEqual(runProfileRows({ runs: 40, wall_ms: 900_000, tools: { shell: { calls: 5 } } }), []);
+});
+
+test("2ji: a rate with no denominator reads as absent, not as zero", () => {
+  const rows = runProfileRows({ run_time_ms: [5_000], recent_runs: [{ total_ms: 5_000 }] });
+  const byLabel = Object.fromEntries(rows.map(([label, life, last]) => [label, { life, last }]));
+  // No tool ever ran, so there is no tool-error rate. "0.0%" would be a claim.
+  assert.equal(byLabel["tool errors"].life, "—");
+  assert.equal(byLabel["tool errors"].last, "—");
+  // And a run that reported a wall clock but no buckets has no shares.
+  assert.equal(byLabel["model / tools / waiting %"].last, "0/0/0");
+});
+
+test("2ji: the recent side sums the window and the lifetime side sums everything", () => {
+  const counters = {
+    run_time_ms: [1_000, 2_000, 3_000],
+    run_model_ms: 600,
+    run_waiting_ms: 0,
+    recent_runs: [{ total_ms: 3_000, model_ms: 300, tool_calls: 1, tool_failures: 0 }],
+  };
+  assert.equal(runProfile(counters, false).runs, 3);
+  assert.equal(runProfile(counters, false).median, 2_000);
+  assert.equal(runProfile(counters, true).runs, 1);
+  assert.equal(runProfile(counters, true).median, 3_000);
 });

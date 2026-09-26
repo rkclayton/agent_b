@@ -14,6 +14,11 @@ type Bus struct {
 	durableSink func(Event) (LogCursor, error)
 	afterAppend func(Event, LogCursor)
 	appendError func(Event, error)
+	// Item 2ji (a): the run's time buckets have to be ON the run.stopped event,
+	// because the wire is what the client, the journal and the telemetry receiver
+	// all read. The enricher runs before the sink, so the fields are in the
+	// journal too and not only in the live stream.
+	enrich func(*Event)
 }
 
 func NewBus() *Bus                            { return &Bus{subscribers: map[int]chan Event{}} }
@@ -23,6 +28,15 @@ func (b *Bus) SetDurableSink(sink func(Event) (LogCursor, error), appended func(
 	b.durableSink, b.afterAppend, b.appendError = sink, appended, failed
 	b.mu.Unlock()
 }
+
+// SetEnricher installs a hook that may add fields to an event before it is
+// sequenced, written or delivered. It sees every event; it must not block.
+func (b *Bus) SetEnricher(enrich func(*Event)) {
+	b.mu.Lock()
+	b.enrich = enrich
+	b.mu.Unlock()
+}
+
 func (b *Bus) Publish(event Event) Event {
 	b.publishMu.Lock()
 	published, dropped := b.publish(event, true)
@@ -33,6 +47,12 @@ func (b *Bus) Publish(event Event) Event {
 	return published
 }
 func (b *Bus) publish(event Event, writeSink bool) (Event, []int) {
+	b.mu.Lock()
+	enrich := b.enrich
+	b.mu.Unlock()
+	if enrich != nil {
+		enrich(&event)
+	}
 	b.mu.Lock()
 	b.seq++
 	event.Seq = b.seq

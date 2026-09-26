@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 
-const moduleNames = ["transcript-copy.js", "call-service-display.js", "duration.js", "chat-response-groups.js", "timeline-groups.js"];
+// run-summary.js joins the list because item 2ji made chat-response-groups.js
+// import it: a done run is hidden only when it has no time to report, and that
+// question is answered there. The fixture serves the whole import chain or the
+// module never loads.
+const moduleNames = ["transcript-copy.js", "call-service-display.js", "duration.js", "chat-response-groups.js", "timeline-groups.js", "run-summary.js"];
 const modules = new Map(await Promise.all(moduleNames.map(async (name) => [name, await readFile(new URL(`../../web/js/${name}`, import.meta.url), "utf8")] )));
 
 const expectedClosed = [

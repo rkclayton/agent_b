@@ -7,7 +7,7 @@ import { renderTimeline } from "./timeline.js";
 import { createMessageDropController } from "./message-drop.js";
 import { createApprovalCard } from "./approval.js";
 import { loadReflection } from "./reflection.js";
-import { agentKey, compactionFigures, lifetimeRows, ratio } from "./panel-lifetime.js";
+import { agentKey, compactionFigures, lifetimeRows, ratio, runProfileRows } from "./panel-lifetime.js";
 import { renderStopState } from "./stop-state.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText } from "./chat-activity.js";
@@ -52,7 +52,9 @@ agentSelect.addEventListener("change", () => {
 // Item 2iq (a): b's row and the strip's switcher write the same setting, so
 // the table delegates rather than binding a listener per render.
 roleTable.addEventListener("change", (event) => {
-  if (event.target instanceof HTMLSelectElement && event.target.dataset.role === "b") void changeAgentConnection(event.target.value);
+  if (event.target instanceof HTMLSelectElement && event.target.dataset.role) {
+    void changeAgentConnection(event.target.value, event.target.dataset.role);
+  }
 });
 roleTable.addEventListener("click", (event) => {
   if (event.target instanceof HTMLElement && event.target.dataset.action === "cancel-pending") void cancelAgentConnectionChange();
@@ -218,15 +220,33 @@ export function unmountPanels() {
 // rather than pretending to write. The finding is in the report.
 const roleNames = { b: "the one you talk to", c: "the worker", d: "the planner" };
 
+// Item 2ln (b): what a role's change affects, in the same words the run loop
+// obeys. rel-1.17.0/W0 measured it rather than assuming:
+//
+//   - a run resolves its connection from the SESSION, so a session already bound
+//     is never moved by a role change;
+//   - but r.cfg is a live accessor, and the aux and compaction paths read
+//     agent.C at the point of use, so a compaction taken after the change uses
+//     the new one;
+//   - b alone is deferred until the agent is idle, which is [[2ia]]'s machinery.
+//
+// So b says "pending" when it is, and c and d say what is true of them: the next
+// run that reads them.
+const roleEffect = {
+  b: "changes when this agent is idle",
+  c: "takes effect on the next run that reads it",
+  d: "takes effect on the next run that reads it",
+};
+
 function renderAgentConnection(agent) {
   const connections = store.connections?.length ? store.connections : store.config.connections || [];
   const pending = store.agent_connection_changes?.[selectedAgent];
   const rows = [];
   for (const role of ["b", "c", "d"]) {
     const assigned = agent?.[role];
-    // (a): d appears "when present" -- a product without a d role shows no d row.
+    // (d): d appears only when the agent has one. The route refuses it too, so
+    // this is the ergonomic and not the guarantee.
     if (role === "d" && !assigned) continue;
-    const settable = role === "b";
     const row = node("div", "panel-role-row");
     const name = node("span", "panel-role-name");
     name.textContent = role;
@@ -235,17 +255,20 @@ function renderAgentConnection(agent) {
     const picker = document.createElement("select");
     picker.dataset.role = role;
     picker.setAttribute("aria-label", `${role} — ${roleNames[role]}`);
-    picker.replaceChildren(...connections.map((connection) => option(connection.id, connection.label || connection.id, connection.id === assigned)));
-    picker.disabled = !agent || store.replay || !settable;
+    // (c): a role with no connection configured is a valid state and reads as
+    // one. The empty option is offered so the operator can return to it.
+    const options = [option("", "none", !assigned), ...connections.map((connection) => option(connection.id, connection.label || connection.id, connection.id === assigned))];
+    picker.replaceChildren(...options);
+    picker.disabled = !agent || store.replay;
     const state = node("span", "panel-role-state");
-    if (settable) {
-      state.textContent = !agent ? "" : pending ? `applied ${agent.b} · pending ${pending.to}` : "";
-      state.className = `panel-role-state ${pending ? "pending" : ""}`;
+    if (role === "b" && pending) {
+      state.textContent = `applied ${agent.b} · pending ${pending.to}`;
+      state.className = "panel-role-state pending";
     } else {
-      state.textContent = "set in the configuration";
+      state.textContent = roleEffect[role];
     }
     row.append(name, what, picker, state);
-    if (settable && pending) {
+    if (role === "b" && pending) {
       const cancel = node("button", "panel-role-cancel");
       cancel.type = "button";
       cancel.dataset.action = "cancel-pending";
@@ -253,30 +276,25 @@ function renderAgentConnection(agent) {
       cancel.disabled = store.replay;
       row.append(cancel);
     }
-    if (settable) {
-      // The probe's vision verdict belongs to the connection this row names, so
-      // it is built here rather than being a single page-level element moved
-      // from row to row.
-      const connection = connections.find((candidate) => candidate.id === assigned);
-      if (connection?.capabilities?.probed_at) {
-        const vision = connection.capabilities.vision || "not classified";
-        const visionFinding = (connection.capabilities.findings || []).find((finding) => finding.startsWith("vision:"));
-        const mark = node("span", `panel-agent-vision ${vision === "reads images" ? "reads" : "does-not-read"}`);
-        mark.setAttribute("role", "img");
-        mark.title = visionFinding || `vision: ${vision}`;
-        mark.setAttribute("aria-label", mark.title);
-        row.append(mark);
-      }
+    const connection = connections.find((candidate) => candidate.id === assigned);
+    if (connection?.capabilities?.probed_at) {
+      const vision = connection.capabilities.vision || "not classified";
+      const visionFinding = (connection.capabilities.findings || []).find((finding) => finding.startsWith("vision:"));
+      const mark = node("span", `panel-agent-vision ${vision === "reads images" ? "reads" : "does-not-read"}`);
+      mark.setAttribute("role", "img");
+      mark.title = visionFinding || `vision: ${vision}`;
+      mark.setAttribute("aria-label", mark.title);
+      row.append(mark);
     }
     rows.push(row);
   }
   roleTable.replaceChildren(...rows);
 }
 
-async function changeAgentConnection(connectionID) {
+async function changeAgentConnection(connectionID, role = "b") {
   if (!selectedAgent || store.replay) return;
   try {
-    const result = await api(`/api/agents/${encodeURIComponent(selectedAgent)}/connection`, { action: "set", connection_id: connectionID });
+    const result = await api(`/api/agents/${encodeURIComponent(selectedAgent)}/connection`, { action: "set", role, connection_id: connectionID });
     showFeedback(result.status === "pending" ? `Server change queued for ${selectedAgent}.` : `Server changed for ${selectedAgent}.`);
     await refreshState();
   } catch (error) { showError(error.message); scheduleRender(); }
@@ -331,7 +349,14 @@ function renderLifetime() {
   const root = document.getElementById("panel-stats");
   if (!ledger) { root.innerHTML = store.loaded && ledgerAsked ? '<p class="panel-empty">No lifetime activity.</p>' : ""; return; }
   const sections = [[selectedAgent, ledger.agent], ...Object.entries(ledger.connections || {})];
-  root.replaceChildren(...sections.flatMap(([name, counters]) => [text(name, "panel-connection-head"), ...lifetimeRows(counters, percentile).map(([label, value]) => line(label, value))]));
+  root.replaceChildren(...sections.flatMap(([name, counters]) => [
+    text(name, "panel-connection-head"),
+    ...lifetimeRows(counters, percentile).map(([label, value]) => line(label, value)),
+    // Item 2ji (c): the run profile, lifetime beside the last twenty. It appears
+    // only once a run has reported its time, so a ledger written before this item
+    // shows nothing rather than a column of dashes.
+    ...runProfileSection(runProfileRows(counters)),
+  ]));
 }
 
 async function toggleTool(event) {
@@ -363,6 +388,18 @@ function placeDropLastMessage() { const heads = document.querySelectorAll(".time
 function renderPendingApproval(session) { const root = document.getElementById("panel-pending-approval"); root.hidden = !session?.pending_approval; root.replaceChildren(...(session?.pending_approval ? [createApprovalCard(document, session.pending_approval, { replay: store.replay, decide: (callID, decision) => api("/api/approve", { session_id: session.id, call_id: callID, decision }) })] : [])); }
 function percentile(values = [], fraction = .5) { if (!values.length) return 0; const copy = [...values].sort((a, b) => a - b); return copy[Math.floor((copy.length - 1) * fraction)]; }
 function patchEndedRun(patch = {}) { return (patch.operations || []).some((operation) => operation.path === "/run" && ["idle", "held"].includes(operation.value?.status)); }
+// Item 2ji (c): lifetime and the last twenty, side by side in ONE value cell.
+//
+// My first version gave the row a third grid column. Activity flows its lines
+// into narrow columns, and three cells did not fit: the screenshot showed
+// "lifetime" and "last 20" printed on top of "runs measured". The panel has two
+// columns everywhere else for a reason, so this keeps two and separates the
+// figures the way the rest of the panel already separates a pair.
+function runProfileSection(rows) {
+  if (!rows.length) return [];
+  return [line("per run", "lifetime · last 20"), ...rows.map(([label, life, recent]) => line(label, `${life} · ${recent}`))];
+}
+
 function line(label, value) { const row = node("div", "panel-line"); row.append(text(label), text(String(value))); return row; }
 function node(tag, className = "") { const value = document.createElement(tag); value.className = className; return value; }
 function text(value, className = "") { const result = node("span", className); result.textContent = String(value); return result; }

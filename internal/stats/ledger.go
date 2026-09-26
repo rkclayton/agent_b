@@ -47,10 +47,44 @@ type Counters struct {
 	DelegatedToolCalls        int64           `json:"delegated_tool_calls,omitempty"`
 	WallMS                    int64           `json:"wall_ms"`
 	ModelResponseMS           []int64         `json:"model_response_ms"`
-	FirstUse                  string          `json:"first_use,omitempty"`
-	LastUse                   string          `json:"last_use,omitempty"`
-	Reliability               Reliability     `json:"worker_reliability"`
+	// Item 2ji (c): the per-connection row. RunTimeMS is one entry per finished
+	// run, so the median is a real median rather than a mean pretending to be one.
+	// The three time sums are what the run.stopped event reported, which item 2ji
+	// (a) put there -- so Activity, the chat line and the eval harness read the
+	// same numbers from the same place and cannot disagree.
+	RunTimeMS     []int64 `json:"run_time_ms,omitempty"`
+	RunModelMS    int64   `json:"run_model_ms,omitempty"`
+	RunToolMS     int64   `json:"run_tool_ms,omitempty"`
+	RunWaitingMS  int64   `json:"run_waiting_ms,omitempty"`
+	EmptyReplies  int64   `json:"empty_replies,omitempty"`
+	RepeatedCalls int64   `json:"repeated_calls,omitempty"`
+	// RecentRuns is the last RecentRunWindow finished runs, so the row can show
+	// lifetime and recent SIDE BY SIDE. A connection that has got worse looks
+	// identical to one that was always this way if only the lifetime is shown.
+	RecentRuns  []RunRecord `json:"recent_runs,omitempty"`
+	FirstUse    string      `json:"first_use,omitempty"`
+	LastUse     string      `json:"last_use,omitempty"`
+	Reliability Reliability `json:"worker_reliability"`
 }
+
+// RecentRunWindow is the "last 20 runs" item 2ji (c) names.
+const RecentRunWindow = 20
+
+// RunRecord is one finished run, reduced to what the row needs. A run whose event
+// carried no wall clock is not recorded at all, rather than recorded as zeros --
+// see recordRun. That is the same narrowing the wire uses: absent, not zero.
+type RunRecord struct {
+	Stopped       string `json:"stopped,omitempty"`
+	TotalMS       int64  `json:"total_ms"`
+	ModelMS       int64  `json:"model_ms"`
+	ToolMS        int64  `json:"tool_ms"`
+	WaitingMS     int64  `json:"waiting_ms"`
+	ToolCalls     int64  `json:"tool_calls"`
+	ToolFailures  int64  `json:"tool_failures"`
+	EmptyReplies  int64  `json:"empty_replies"`
+	RepeatedCalls int64  `json:"repeated_calls"`
+}
+
 type Ledger struct {
 	Version     int                 `json:"version"`
 	AgentID     string              `json:"agent_id"`
@@ -62,6 +96,10 @@ type run struct {
 	evidence   bool
 	connection string
 	wallMS     int64
+	// Item 2ji (c): run.stopped carries no tool counts, so the tool-error rate for
+	// the last 20 runs is tallied here as the results arrive.
+	toolCalls    int64
+	toolFailures int64
 }
 
 type Manager struct {
@@ -218,6 +256,8 @@ func add(c *Counters, event events.Event, r *run) {
 		if r != nil {
 			c.WallMS += r.wallMS
 		}
+		// Item 2ji (c): the run's own figures, as the event reports them.
+		recordRun(c, d, r, event.TS)
 		if reason == "done" {
 			c.Reliability.Completed++
 			if r != nil && !r.evidence {
@@ -237,6 +277,41 @@ func add(c *Counters, event events.Event, r *run) {
 		touch(c, event.TS)
 	}
 }
+
+// recordRun folds one finished run's reported time into the connection's
+// counters and onto the recent window. A run whose event carries no time -- every
+// run journalled before item 2ji -- contributes nothing rather than a row of
+// zeros that would drag every rate towards nothing.
+func recordRun(c *Counters, d map[string]any, r *run, at string) {
+	timeFields := eventData(d["time"])
+	total := int64Value(timeFields["total_ms"])
+	if total <= 0 {
+		return
+	}
+	record := RunRecord{
+		Stopped:       at,
+		TotalMS:       total,
+		ModelMS:       int64Value(timeFields["model_ms"]),
+		ToolMS:        int64Value(timeFields["tool_ms"]),
+		WaitingMS:     int64Value(timeFields["waiting_ms"]),
+		EmptyReplies:  int64Value(d["empty_replies"]),
+		RepeatedCalls: int64Value(d["repeated_calls"]),
+	}
+	if r != nil {
+		record.ToolCalls, record.ToolFailures = r.toolCalls, r.toolFailures
+	}
+	c.RunTimeMS = append(c.RunTimeMS, total)
+	c.RunModelMS += record.ModelMS
+	c.RunToolMS += record.ToolMS
+	c.RunWaitingMS += record.WaitingMS
+	c.EmptyReplies += record.EmptyReplies
+	c.RepeatedCalls += record.RepeatedCalls
+	c.RecentRuns = append(c.RecentRuns, record)
+	if len(c.RecentRuns) > RecentRunWindow {
+		c.RecentRuns = c.RecentRuns[len(c.RecentRuns)-RecentRunWindow:]
+	}
+}
+
 func (m *Manager) record(event events.Event) {
 	agentID, connection, ok := m.identity(event.SessionID)
 	if !ok {
@@ -249,6 +324,16 @@ func (m *Manager) record(event events.Event) {
 	if event.Type == events.RunStarted {
 		r = &run{started: time.Now(), connection: connection}
 		m.runs[key(event)] = r
+	}
+	// Item 2ji (c): the tool-error rate for the last 20 runs needs per-run counts,
+	// and run.stopped carries none -- it never knew them. This is tallied HERE
+	// rather than in add(), which runs twice per event, once for the agent and once
+	// for the connection, and would count every tool call twice.
+	if event.Type == events.ToolResult && r != nil {
+		r.toolCalls++
+		if ok, exists := eventData(event.Data)["ok"].(bool); exists && !ok {
+			r.toolFailures++
+		}
 	}
 	if event.Type == events.RunStopped && r != nil {
 		r.wallMS = time.Since(r.started).Milliseconds()

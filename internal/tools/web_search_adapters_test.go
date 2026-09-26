@@ -12,7 +12,9 @@ func TestWebSearchAdapterFixtures(t *testing.T) {
 	for _, adapter := range defaultWebSearchAdapters() {
 		adapters[adapter.Name()] = adapter
 	}
-	for _, name := range []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "startpage", "mojeek", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"} {
+	// Item 2lq: startpage and mojeek were RETIRED on 2026-09-26, so their fixtures
+	// went with them. See retiredWebSearchEngines for what each one answered.
+	for _, name := range []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"} {
 		t.Run(name, func(t *testing.T) {
 			ext := ".html"
 			if name == "wikipedia" || name == "github" || name == "hacker_news" || name == "stackexchange" || name == "npm" {

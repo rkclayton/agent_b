@@ -18,7 +18,7 @@ export function renderProfilesPage(context) {
   const notes = String(activeSession?.agent_memory_content || "").split(/\r?\n/).map((line) => line.trim()).filter((line) => line.startsWith("- ")).map((line) => line.slice(2));
   const memory = notes.length ? notes.map((note) => {
     const key = `agent-memory:${note}`;
-    return `<div class="setting-row"><label>${html(note)}</label><div><button type="button" class="${context.armed.has(key) ? "confirm" : ""}" data-action="remove-agent-memory" data-id="${attr(note)}">${context.armed.has(key) ? "Confirm remove" : "Remove"}</button></div></div>`;
+    return `<div class="setting-row"><label>${html(note)}</label><div><button type="button" data-action="remove-agent-memory" data-id="${attr(note)}" data-confirm="this memory note">Remove</button></div></div>`;
   }).join("") : '<p class="settings-note inline">No agent-layer memory entries.</p>';
   return `${errors.get("profiles") ? `<p class="field-error">${html(errors.get("profiles"))}</p>` : ""}${rows || '<p class="settings-note inline">No profiles configured.</p>'}
     ${subhead("Create profile", "Creates an empty operator profile; connections remain shared.")}

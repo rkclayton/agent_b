@@ -80,6 +80,8 @@ export function initSettings(entry = {}) {
 		if (open) void leaveSettingsForChat().finally(() => event.detail?.after?.());
 	});
   document.addEventListener("keydown", (event) => {
+		// Item 2l4 (c): Escape answers the popover first, and cancels it.
+		if (event.key === "Escape" && open && confirmPending) { cancelConfirmation(); return; }
 		if (event.key === "Escape" && open) void leaveSettingsForChat();
     if (open && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
@@ -87,6 +89,13 @@ export function initSettings(entry = {}) {
     }
   });
   sheet.addEventListener("click", click);
+  // Item 2l4 (c): a click outside cancels. The popover and the control that raised
+  // it are the only places a click means something else.
+  sheet.addEventListener("pointerdown", (event) => {
+    if (!confirmPending) return;
+    if (event.target.closest(".confirm-popover") || event.target.closest("[data-action]")) return;
+    cancelConfirmation();
+  }, true);
   sheet.addEventListener("focusout", blur);
   sheet.addEventListener("change", change);
   sheet.addEventListener("toggle", (event) => {
@@ -95,9 +104,14 @@ export function initSettings(entry = {}) {
   }, true);
   sheet.addEventListener("input", (event) => {
     if (event.target.matches(".setting-input[data-path]")) {
-      drafts.set(event.target.dataset.path, event.target.value);
-      draftKinds.set(event.target.dataset.path, event.target.dataset.kind || "text");
-      settingsSaveMessage = "Unsaved changes";
+      const path = event.target.dataset.path;
+      drafts.set(path, event.target.value);
+      draftKinds.set(path, event.target.dataset.kind || "text");
+      // Item 2l6 (b): typing is not committing. The draft is held so the field
+      // keeps what is typed, and blur applies it; a setting that waits for an
+      // explicit save says so now, and the rest say nothing until they apply.
+      appliedSettings.delete(path);
+      settingsSaveMessage = needsExplicitSave(path) ? "Unsaved — use the save beside the setting" : "";
       settingsSaveAlarm = false;
       refreshSaveControls();
     }
@@ -193,8 +207,10 @@ async function leaveSettingsForChat() {
 	// The question is save-or-discard, not stay-or-leave: either answer honors
 	// the requested Chat navigation. A failed save is already rendered by the
 	// settings save path and does not trap the operator on this surface.
-	if (drafts.size && (globalThis.confirm?.("Save unsaved settings before returning to Chat?") ?? false)) {
-		await saveSettings();
+	// (e): nothing else can be lost by navigating away, because nothing else is
+	// pending — every other setting applied when it was set.
+	if (pendingExplicitSaves().length && (globalThis.confirm?.("Save unsaved settings before returning to Chat?") ?? false)) {
+		for (const path of pendingExplicitSaves()) await saveSettings(path);
 	}
 	openedFrom = "";
 	closeSettings("chat");
@@ -226,7 +242,6 @@ function render() {
     session: () => renderSecurityPage("session", active, settingsPageContext(active)),
   };
   const label = sectionLabels.find(([id]) => id === activeSection)?.[1] || "Settings";
-  const saveLabel = settingsSaving ? "Saving…" : drafts.size ? `Save (${drafts.size})` : "Saved";
   // Item 2gk: an adopted panel is put back in its source holder before the
   // sheet is rewritten. Assigning innerHTML destroys whatever is inside, and
   // the panels are the only nodes here that cannot be rebuilt from a string.
@@ -234,14 +249,14 @@ function render() {
   sheet.innerHTML = `
     <header class="settings-head">
       <div><strong>Settings</strong><span data-save-status class="${settingsSaveAlarm ? "alarm" : ""}">${html(settingsSaveMessage)}</span></div>
-      <div class="settings-head-actions"><button type="button" class="settings-save" data-action="save-settings" ${settingsSaving || !drafts.size ? "disabled" : ""}>${saveLabel}</button><button type="button" data-action="close" aria-label="Close settings" title="Close settings">×</button></div>
+      <div class="settings-head-actions"></div>
     </header>
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="Settings sections">
         ${sectionLabels.map(([id, name]) => `<button type="button" class="${id === activeSection ? "selected" : ""}" data-action="settings-section" data-id="${id}" aria-current="${id === activeSection ? "page" : "false"}">${name}</button>`).join("")}
       </nav>
       <div class="settings-content" tabindex="-1">${group(label, content[activeSection]())}</div>
-    </div>`;
+    </div>${confirmPopover()}`;
   adoptPanels();
   const contentNode = sheet.querySelector(".settings-content");
   contentNode.scrollTop = scrollTop;
@@ -296,19 +311,14 @@ function settingsPageContext(active) {
   };
 }
 
+// Item 2l6 (d): there is no sheet-wide Save to refresh any more. The status line
+// is what remains, and it says what the last commit did.
 function refreshSaveControls() {
   const status = sheet.querySelector("[data-save-status]");
-  const button = sheet.querySelector('[data-action="save-settings"]');
-  if (status) {
-    status.textContent = settingsSaveMessage;
-    status.classList.toggle("alarm", settingsSaveAlarm);
-  }
-  if (button) {
-    button.textContent = settingsSaving ? "Saving…" : drafts.size ? `Save (${drafts.size})` : "Saved";
-    button.disabled = settingsSaving || !drafts.size;
-  }
+  if (!status) return;
+  status.textContent = settingsSaveMessage;
+  status.classList.toggle("alarm", settingsSaveAlarm);
 }
-
 function controlKey(node) {
   if (!node || !sheet.contains(node)) return "";
   return node.id || node.dataset?.path || [node.dataset?.action, node.dataset?.id || node.dataset?.setupAction].filter(Boolean).join(":") || node.getAttribute?.("aria-label") || "";
@@ -379,6 +389,16 @@ function applyProposedValues(id, discovered) {
 }
 
 const proposedFields = new Set();
+// Item 2l6 (b): which rows have just taken effect, so the row can say so.
+const appliedSettings = new Map();
+// Item 2l4: one anchored confirmation for every remove control. The operator:
+// "the delete function the confirm is goofy dont change buttons like that in the
+// same place, little pop up is fine very minimalistic." The two-click protocol the
+// handlers already use is unchanged — the popover IS the second click — so every
+// control that arms gets this behaviour without its handler being touched.
+let confirmPending = null;
+// Item 2l5 uses the same floppy for a connection's save; one glyph, one meaning.
+const saveGlyph = "<svg viewBox=\"0 0 16 16\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M2 2h9l3 3v9H2V2Zm2 1v4h6V3H4Zm1 7h6v3H5v-3Z\"/></svg>";
 
 function current(path, fallback) {
   return drafts.has(path) ? drafts.get(path) : fallback ?? "";
@@ -397,9 +417,51 @@ function issue(path) {
   return "";
 }
 
+// Item 2l6 (a) and (c): the settings that need a COMPLETE value before they mean
+// anything keep an explicit save. A half-typed path is a different location, and a
+// half-typed comma list silently narrows or widens a guard. Everything else in the
+// inventory is a bounded number, a toggle or a choice from a fixed list, and applies
+// the moment it is set. Connection values ride [[2l5]]'s per-connection save.
+const explicitSavePaths = new Set(["memory.dir", "tools.list_dir.ignore", "tools.shell.operator_commands", "shell.deny"]);
+function needsExplicitSave(path) {
+  return explicitSavePaths.has(path) || path.startsWith("connections.");
+}
+function pendingExplicitSaves() {
+  return [...drafts.keys()].filter(needsExplicitSave);
+}
+
+// applySetting writes one setting the moment it is committed — blur, toggle or
+// selection, never per keystroke. An invalid value does not apply: the server says
+// which field and why, that sits beside the field, and the stored value is left
+// alone because nothing else was sent.
+async function saveConnection(id) {
+  const prefix = `connections.${id}.`;
+  if (![...drafts.keys()].some((path) => path.startsWith(prefix))) return;
+  if (await saveSettings(prefix)) settingsSaveMessage = "";
+  if (open) render();
+}
+
+async function applySetting(path) {
+  if (!drafts.has(path)) return;
+  appliedSettings.delete(path);
+  const ok = await saveSettings(path);
+  if (ok) {
+    appliedSettings.set(path, Date.now());
+    settingsSaveMessage = "";
+  }
+  if (open) render();
+}
+
 function field(path, label, control, alarm = false, hint = "") {
   const problem = issue(path);
-  return `${row(label, control, alarm || problem ? "invalid" : "", hint)}${problem ? `<p class="field-error">${html(problem)}</p>` : ""}`;
+  // (b): the row shows it took effect. (c): a setting that waits for an explicit
+  // save says so, with the save beside it rather than across the whole sheet.
+  const state = problem ? "" : appliedSettings.has(path)
+    ? '<span class="setting-applied" aria-live="polite">applied</span>'
+    : needsExplicitSave(path) && drafts.has(path)
+      ? `<button type="button" class="setting-save" data-action="save-setting" data-save-path="${attr(path)}" title="Save this setting" aria-label="Save this setting">${saveGlyph}</button>`
+      : "";
+  return `${row(label, control + state, alarm || problem ? "invalid" : "", hint)}${problem ? `<p class="field-error">${html(problem)}</p>` : ""}`;
 }
 
 function text(path, label, value, kind = "text", hint = "") {
@@ -460,7 +522,76 @@ async function click(event) {
   if (!button) return;
   const action = button.dataset.action;
   const id = button.dataset.id;
+  if (action === "confirm-cancel") return void cancelConfirmation();
+  if (action === "confirm-proceed") return void proceedWithConfirmation();
+  // Item 2l4: a control that arms does not rewrite itself; it raises the popover.
+  // Anything already confirming is answered, not re-armed.
+  const armedBefore = armed.size;
+  const wasPending = confirmPending;
+  if (wasPending && wasPending.action === action && wasPending.id === (id || "")) confirmPending = null;
+  const settle = () => {
+    if (!wasPending && armed.size > armedBefore) {
+      confirmPending = { action, id: id || "", question: removalQuestion(button), rect: rectOf(button) };
+      render();
+    }
+  };
+  try {
+    const result = dispatchAction(event, button, action, id);
+    if (result && typeof result.then === "function") await result;
+  } finally {
+    settle();
+  }
+  return;
+}
+
+// removalQuestion says what will be removed, in the words the control already uses.
+function removalQuestion(button) {
+  const label = button.dataset.confirm || button.getAttribute("aria-label") || button.title || button.textContent || "";
+  return String(label).replace(/^Confirm\s+/i, "").trim() || "this";
+}
+
+function rectOf(button) {
+  const box = button.getBoundingClientRect();
+  return { top: box.bottom, left: box.left, right: box.right };
+}
+
+function cancelConfirmation() {
+  if (!confirmPending) return;
+  // (c): cancel leaves everything as it was, including the arming.
+  armed.clear();
+  confirmPending = null;
+  render();
+}
+
+function proceedWithConfirmation() {
+  const pending = confirmPending;
+  if (!pending) return;
+  const selector = `[data-action="${pending.action}"]${pending.id ? `[data-id="${CSS.escape(pending.id)}"]` : ""}`;
+  const button = sheet.querySelector(selector);
+  confirmPending = null;
+  if (button) button.click();
+  else { armed.clear(); render(); }
+}
+
+// The popover: what will be removed, confirm, cancel. Nothing else, no dimmed
+// page, no dialog that takes over the view.
+function confirmPopover() {
+  if (!confirmPending) return "";
+  const { rect, question } = confirmPending;
+  return `<div class="confirm-popover" role="dialog" aria-modal="false" aria-label="Confirm" style="top:${Math.round(rect.top + 6)}px; left:${Math.round(Math.max(8, rect.right - 232))}px">
+      <p>Remove ${html(question)}?</p>
+      <div class="confirm-actions"><button type="button" data-action="confirm-cancel">Cancel</button><button type="button" class="confirm" data-action="confirm-proceed">Remove</button></div>
+    </div>`;
+}
+
+// dispatchAction is the original body of click, unchanged.
+async function dispatchAction(event, button, action, id) {
 	if (action === "close") return void leaveSettingsForChat();
+  // Item 2l6 (c): the save that belongs to one setting, beside it.
+  if (action === "save-setting") return void applySetting(button.dataset.savePath);
+  // Item 2l5 (d): the row save commits THAT connection pending changes and nothing
+  // else. It is the explicit save 2l6 leaves in place for this surface.
+  if (action === "save-connection") return void saveConnection(id);
   if (action === "settings-section") {
     activeSection = id;
     history.replaceState(null, "", `#settings/${activeSection}`);
@@ -526,9 +657,15 @@ async function click(event) {
     const value = action === "config-toggle" ? button.dataset.value === "true" : button.dataset.value;
     drafts.set(path, value);
     draftKinds.set(path, action === "config-toggle" ? "boolean" : "text");
-    settingsSaveMessage = "Unsaved changes";
     settingsSaveAlarm = false;
-    return render();
+    // Item 2l6 (b): a toggle or a selection IS the commit — there is nothing more
+    // to type, so it applies now.
+    if (needsExplicitSave(path)) {
+      settingsSaveMessage = "Unsaved — use the save beside the setting";
+      return render();
+    }
+    render();
+    return void applySetting(path);
   }
   if (action === "probe") {
     const pendingPrefix = `connections.${id}.`;
@@ -919,9 +1056,11 @@ async function blur(event) {
     if (input.dataset.kind === "secret" && input.value === "•••• set") return;
     drafts.set(path, input.value);
     draftKinds.set(path, input.dataset.kind || "text");
-    settingsSaveMessage = "Unsaved changes";
     settingsSaveAlarm = false;
-    refreshSaveControls();
+    if (needsExplicitSave(path)) {
+      settingsSaveMessage = "Unsaved — use the save beside the setting";
+      refreshSaveControls();
+    } else await applySetting(path);
   }
   if (input.matches("[data-session-label]")) {
     try {

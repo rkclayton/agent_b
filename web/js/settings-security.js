@@ -86,7 +86,7 @@ function shell(active) {
 	${subhead("Unattended", "Never ask. A worker or scheduled run that would have raised a card records a boundary failure on its item and carries on; the report lists every one. This changes who is asked, not who runs anything and not what the boundary permits.")}
 	${toggle("approval.unattended", "Unattended: never ask; boundary hits fail the item", !!store.config.approval?.unattended, "A chat you are typing in still asks you. This is for a worker started by Go and for a scheduled run, which have nobody in front of them.")}
 	${subhead("Standing grants", "Exact repo, folder, connector, and host approvals for this profile. They survive restarts and new chats until revoked.")}
-	${row("grants", standingGrants.length ? `<span class="settings-actions vertical">${standingGrants.map((grant)=>`<span>${html(grant.kind)} · ${html(grant.subject)} <button type="button" data-action="revoke-standing-grant" data-id="${attr(grant.id)}">${armed.has(`standing-grant:${grant.id}`)?"Confirm revoke":"Revoke"}</button></span>`).join("")}</span>` : '<span class="account-status">none</span>')}
+	${row("grants", standingGrants.length ? `<span class="settings-actions vertical">${standingGrants.map((grant)=>`<span>${html(grant.kind)} · ${html(grant.subject)} <button type="button" data-action="revoke-standing-grant" data-id="${attr(grant.id)}" data-confirm="the ${attr(grant.kind)} grant for ${attr(grant.subject)}">Revoke</button></span>`).join("")}</span>` : '<span class="account-status">none</span>')}
 	${subhead("Docker Sandbox", "Install-wide: routes shell and bash through Docker Sandbox. When Docker Sandbox is unavailable the setting stays on but is inert and reports why.")}
 	${toggle("sandbox.enabled", "Docker Sandbox", sandboxEnabled, "Install-wide: routes shell and bash through Docker Sandbox.")}
 	${row("status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`, "", "Inert means the setting is on but Docker Sandbox is unavailable; the reason is shown here.")}
@@ -139,7 +139,7 @@ function sessionControls(active) {
   if (!active) return '<p class="settings-note">No active session.</p>';
   const resetKey = `reset:${active.id}`;
   return `<div class="settings-actions vertical">
-      <button type="button" class="${armed.has(resetKey) ? "confirm" : ""}" data-action="reset-session" data-id="${attr(active.id)}">${armed.has(resetKey) ? "Confirm clear" : "Clear conversation"}</button>
+      <button type="button" data-action="reset-session" data-id="${attr(active.id)}" data-confirm="this conversation">Clear conversation</button>
     </div>
 
     ${copyRow("JSONL", active.log_path || "", "The file this chat's full record is written to; copy copies its path.")}`;

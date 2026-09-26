@@ -14,14 +14,19 @@ test("Settings has no Workspace tab and Security retains folder policy controls"
   assert.doesNotMatch(settings, /clear-workspace-memory/);
   assert.match(settings, /policy\.hash/);
   assert.match(settings, /policy\.approved_at/);
-  assert.match(settings, /Confirm revoke/);
+  // Item 2l4: the control no longer rewrites itself to "Confirm revoke"; it keeps
+  // its label and the popover asks, naming what will be revoked.
+  assert.match(settings, /data-action="revoke-workspace-policy"[^>]*data-confirm=/);
+  assert.doesNotMatch(settings, /Confirm revoke/);
   assert.match(settings, /\/api\/workspaces\/policy-revoke/);
 });
 
 test("Settings Security owns operator attachments mailbox approvals retention and Adopt", () => {
 	assert.match(settings, /row\("attachments"/);
 	assert.match(settings, /data-action="empty-operator-attachments"/);
-	assert.match(settings, /Confirm empty/);
+	// Item 2l4: the label stays "Empty"; the popover names what will be emptied.
+	assert.match(settings, /data-action="empty-operator-attachments"[^>]*data-confirm=/);
+	assert.doesNotMatch(settings, /Confirm empty/);
 	assert.match(settings, /operator_files\.allow_mailbox_approvals/);
 	assert.match(settings, /Whoever can write to your synced folder can then grant the agent your identity/);
 	assert.match(settings, /operator_files\.log_retention_days/);

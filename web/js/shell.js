@@ -57,13 +57,10 @@ export function initShell(options = {}) {
     //
     // The operator halved the displayed chip in v1.5.0; its checked-in geometry
     // remains unchanged and scales inside the smaller header box.
-    link.innerHTML = '<svg class="shell-page-chip" viewBox="0 0 24 24" width="12" height="12"'
-      + ' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"'
-      + ' stroke-linejoin="round" aria-hidden="true">'
-      + '<rect x="7" y="7" width="10" height="10" rx="2"/>'
-      + '<rect x="10" y="10" width="4" height="4" rx="0.5"/>'
-      + '<path d="M9 2v5M12 2v5M15 2v5M9 17v5M12 17v5M15 17v5M2 9h5M2 12h5M2 15h5M17 9h5M17 12h5M17 15h5"/>'
-      + '</svg>';
+    // Item 2le: the operator own artwork, prepared to transparency with its colours
+    // kept. The rail draws this at 12px, so a variant with the faint interior
+    // tracery thinned is used here and the full-detail image heads the Plan page.
+    link.innerHTML = '<img class="shell-page-chip" src="/static/assets/plan-mark-nav.png" width="12" height="12" alt="" decoding="async">';
     link.setAttribute("aria-label", "plan");
     link.title = "plan";
     if (page === id) {

@@ -23,7 +23,7 @@
     <div id="chat-pending-approval" class="pending-approval" hidden></div>
     <!-- The top occupancy bar already exposes its exact value on hover. The
          lower strip therefore spends its right edge on the attachment action. -->
-    <div id="chat-status-strip" class="chat-status-strip">
+    <div id="chat-status-strip" class="chat-status-strip" role="separator" aria-orientation="horizontal" aria-label="Drag to resize the message box" title="Drag to resize the message box">
       <span id="chat-notice" class="chat-notice" role="status"></span>
       <button id="chat-retry-model" class="chat-retry" type="button" hidden>Retry</button>
       <span id="chat-update-banner" class="chat-update-banner" hidden>
@@ -45,7 +45,6 @@
       <div id="chat-attachments" class="chat-pending-attachments" aria-live="polite"></div>
       <div class="chat-input-wrap">
         <textarea id="chat-task" rows="5" aria-label="Task"></textarea>
-        <button id="chat-expand" type="button" aria-label="Expand composer" title="Expand composer">↥</button>
         <span class="chat-input-actions">
           <!-- Item 2ge: a microphone where the paperclip was. -->
           <button id="chat-mic" class="chat-mic composer-control" type="button" aria-label="Dictate" title="Dictate" data-state="idle"><svg class="composer-glyph" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="10" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/><path d="M8.5 21h7"/></svg></button>

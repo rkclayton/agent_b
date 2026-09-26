@@ -82,7 +82,12 @@ test("a copy event with no clipboard is left alone rather than emptied", () => {
   assert.equal(prevented, false, "an event with no clipboard must keep the browser's own copy");
   let written = null;
   handler({ clipboardData: { setData: (_type, value) => { written = value; } }, preventDefault: () => { prevented = true; } });
-  assert.equal(written, "you: hello");
+  // Item 2lc (c): a selection inside ONE entry has no change of speaker, so it
+  // carries no mark — the operator asked for exactly what he selected. The mark is
+  // still applied wherever a speaker changes, and to any caller that is not a
+  // selection, which is what keeps an agent turn reading "you: …" from pasting as
+  // though he wrote it (see "content cannot suppress its own kind mark").
+  assert.equal(written, "hello");
   assert.equal(prevented, true);
 });
 

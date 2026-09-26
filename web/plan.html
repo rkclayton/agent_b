@@ -33,6 +33,10 @@
       <p id="plan-list-empty" class="plan-list-empty" hidden>No plans yet. + adds one for a folder.</p>
     </nav>
     <section class="plan-view" aria-label="Plan document">
+      <div class="plan-intro">
+        <img class="plan-intro-mark" src="/static/assets/plan-mark.png" width="64" height="64" alt="" decoding="async">
+        <p>A plan points at one repository. You and Claude write items that describe what should change; an order picks the items to build. Agent_b executes the order, appends what happened to NOTES, and stops when something needs you.</p>
+      </div>
       <header class="plan-panel-head"><span id="plan-name">Plan</span><span class="plan-run-controls"><label for="plan-auto">Auto-continue</label><select id="plan-auto" aria-label="Auto-continue"><option value="off">Off</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="5">5</option><option value="autonomous">Autonomous</option></select><button type="button" id="plan-go" class="plan-go" disabled>Go</button></span></header>
       <div id="plan-lint" class="plan-lint" role="status" hidden></div>
       <p id="plan-refusal" class="plan-refusal" hidden></p>

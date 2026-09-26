@@ -952,8 +952,13 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 
 var messageLimitPattern = regexp.MustCompile(`(?i)(conversation too long:\s*\d+ messages\s*\(limit\s*(\d+)\)?|[^\r\n\"]*message[^\r\n\"]*limit[^\r\n\"]*)`)
 
+// Item 2lf: the status the refusal arrives with is not the test. A server that
+// refuses an over-large request with 500 or 413 says the same thing, and gating on
+// HTTP 400 first meant the connection learned nothing, compacted nothing and
+// retried nothing. The pattern remains the whole test, so an ordinary 400 or 500
+// with unrelated text is handled exactly as before.
 func messageLimitError(err error) (int, string, bool) {
-	if err == nil || !strings.Contains(err.Error(), "HTTP 400") {
+	if err == nil {
 		return 0, "", false
 	}
 	match := messageLimitPattern.FindStringSubmatch(err.Error())
@@ -976,7 +981,7 @@ func messageLimitError(err error) (int, string, bool) {
 var byteLimitPattern = regexp.MustCompile(`(?i)([^\r\n"]*?(?:too large|too long|exceeds)[^\r\n"]*?\d+\s*bytes[^\r\n"]*?\(limit\s*(\d+)\))`)
 
 func byteLimitError(err error) (int, string, bool) {
-	if err == nil || !strings.Contains(err.Error(), "HTTP 400") {
+	if err == nil {
 		return 0, "", false
 	}
 	match := byteLimitPattern.FindStringSubmatch(err.Error())

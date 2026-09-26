@@ -95,8 +95,14 @@ type Manager struct {
 }
 
 type Options struct {
-	CurrentVersion  string
-	DataRoot        string
+	CurrentVersion string
+	DataRoot       string
+	// Item 2lh: the roots the ASKING instance lives in. The setup resolves the
+	// operator own per-user locations when it is told nothing, so an instance that
+	// does not pass its own roots updates over production whoever asked. These are
+	// passed to the setup; an instance that cannot name them refuses to install.
+	ApplicationRoot string
+	WorkspaceRoot   string
 	LatestURL       string
 	Client          *http.Client
 	Enabled         func() bool
@@ -121,10 +127,11 @@ func New(options Options) *Manager {
 	}
 	launch := options.Launch
 	if launch == nil {
+		application, data, workspace := options.ApplicationRoot, options.DataRoot, options.WorkspaceRoot
 		launch = func(path, sessionID string) error {
-			arguments := []string{"--install", "--quiet"}
-			if sessionID != "" {
-				arguments = append(arguments, "--reopen-session", sessionID)
+			arguments, err := installArguments(application, data, workspace, sessionID)
+			if err != nil {
+				return err
 			}
 			return exec.Command(path, arguments...).Start()
 		}
@@ -534,4 +541,23 @@ func compareVersion(left, right [3]int) int {
 		}
 	}
 	return 0
+}
+
+// installArguments tells the setup where the asking instance lives. Item 2lh (a)
+// and (b): production passes production roots and behaves exactly as before, while
+// an instance that cannot name its own roots refuses rather than falling back to
+// the operator location -- the fallback that made the launch half of this path
+// impossible to gate without installing over production.
+func installArguments(application, data, workspace, sessionID string) ([]string, error) {
+	if strings.TrimSpace(application) == "" || strings.TrimSpace(data) == "" {
+		return nil, errors.New("this instance cannot name its own application and data roots, so it will not install; install by hand from the release page")
+	}
+	arguments := []string{"--install", "--quiet", "-ApplicationDirectory", application, "-DataDirectory", data}
+	if strings.TrimSpace(workspace) != "" {
+		arguments = append(arguments, "-WorkspaceDirectory", workspace)
+	}
+	if sessionID != "" {
+		arguments = append(arguments, "--reopen-session", sessionID)
+	}
+	return arguments, nil
 }

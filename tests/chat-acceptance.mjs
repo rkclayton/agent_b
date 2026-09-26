@@ -918,7 +918,8 @@ if (realModel) {
   await page.locator("#settings-page").waitFor({ state: "visible" });
   const connectionState = page.locator('.connection-summary[data-id="acceptance"] .connection-state');
   await page.locator('.connection-summary[data-id="acceptance"]').click();
-  await page.locator('.connection-editor [data-action="probe"]').click();
+  // Item 2l5: Test is one of the four actions on the connection own row now.
+  await page.locator('.connection-row [data-action="probe"][data-id="acceptance"]').click();
   await browser.wait(`document.querySelector('.connection-summary[data-id="acceptance"] .connection-state')?.textContent.includes('Test passed')`, "Settings Test passed before Chat return");
   assert.match(await connectionState.innerText(), /Test passed/);
   // Item 2gf: from Settings, ONE click on the tab reaches the chat. This step
@@ -1445,9 +1446,10 @@ if (realModel) {
   await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('FIRST PROSE BLOCK')`, "prose fixture restored");
 
-  const geometry = await browser.evaluate(`(() => { const textarea=document.querySelector('#chat-task').getBoundingClientRect(); const row=document.querySelector('.chat-composer-row').getBoundingClientRect(); const expand=document.querySelector('#chat-expand').getBoundingClientRect(); const robot=document.querySelector('.agent-tab-wrap.selected .agent-tab-robot').getBoundingClientRect(); const tab=document.querySelector('.agent-tab-wrap.selected').getBoundingClientRect(); const plus=document.querySelector('.shell-left > .agent-tab-new').getBoundingClientRect(); const send=document.querySelector('#chat-send').getBoundingClientRect(); const stop=document.querySelector('#chat-send').getBoundingClientRect(); return {textarea:textarea.width,row:row.width,rowHeight:row.height,expandTop:expand.top-textarea.top,expandRight:textarea.right-expand.right,robot:robot.width,tab:tab.width,plus:{width:plus.width,height:plus.height},send:{width:send.width,height:send.height},stop:{width:stop.width,height:stop.height}}; })()`);
+  const geometry = await browser.evaluate(`(() => { const textarea=document.querySelector('#chat-task').getBoundingClientRect(); const row=document.querySelector('.chat-composer-row').getBoundingClientRect(); const strip=document.querySelector('#chat-status-strip').getBoundingClientRect(); const robot=document.querySelector('.agent-tab-wrap.selected .agent-tab-robot').getBoundingClientRect(); const tab=document.querySelector('.agent-tab-wrap.selected').getBoundingClientRect(); const plus=document.querySelector('.shell-left > .agent-tab-new').getBoundingClientRect(); const send=document.querySelector('#chat-send').getBoundingClientRect(); const stop=document.querySelector('#chat-send').getBoundingClientRect(); return {textarea:textarea.width,row:row.width,rowHeight:row.height,stripHeight:strip.height,stripCursor:getComputedStyle(document.querySelector('#chat-status-strip')).cursor,robot:robot.width,tab:tab.width,plus:{width:plus.width,height:plus.height},send:{width:send.width,height:send.height},stop:{width:stop.width,height:stop.height}}; })()`);
   assert.ok(geometry.textarea >= geometry.row - 50, JSON.stringify(geometry));
-  assert.ok(geometry.expandTop >= 0 && geometry.expandTop <= 8 && geometry.expandRight >= 0 && geometry.expandRight <= 8, JSON.stringify(geometry));
+  // Item 2ld: the strip is trimmed to what its text needs and is the resize handle.
+  assert.ok(geometry.stripHeight > 0 && geometry.stripHeight <= 28 && geometry.stripCursor === "row-resize", JSON.stringify(geometry));
   assert.ok(geometry.robot > 0, JSON.stringify(geometry));
   assert.ok(geometry.tab < 180 && geometry.plus.width === 20 && geometry.plus.height === 20, JSON.stringify(geometry));
   assert.deepEqual(geometry.send, geometry.stop, JSON.stringify(geometry));
@@ -1896,7 +1898,8 @@ if (realModel) {
   await page.locator(".shell-settings").click();
   await page.locator("#settings-page").waitFor({ state: "visible" });
   await page.locator('.connection-summary[data-id="acceptance"]').click();
-  await page.locator('.connection-editor [data-action="probe"]').click();
+  // Item 2l5: Test is one of the four actions on the connection own row now.
+  await page.locator('.connection-row [data-action="probe"][data-id="acceptance"]').click();
   await waitEvent(sessionID, (event) => event.seq > testUnreachableAfter && event.type === "model.reachable", "Settings Test model.reachable");
   await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click();
   assert.equal(await page.locator("#settings-page").isHidden(), true);
@@ -1989,7 +1992,10 @@ if (realModel) {
 	assert.equal(await clickText(".settings-nav button", "Security"), true);
 	await browser.wait(`!document.querySelector('#settings-page').hidden && [...document.querySelectorAll('.settings-content button')].some(item=>item.textContent.trim()==='Empty')`, "attachments Empty action");
 	assert.equal(await clickText(".settings-content button", "Empty"), true);
-	assert.equal(await clickText(".settings-content button", "Confirm empty"), true);
+	// Item 2l4: the Empty button keeps its label; the confirmation is a small
+	// popover anchored to it, naming what will be removed.
+	await browser.wait(`!!document.querySelector('.confirm-popover')`, "remove confirmation popover");
+	assert.equal(await clickText(".confirm-popover button", "Remove"), true);
 	for (let attempt = 0; attempt < 100; attempt++) {
 		if ((await readdir(join(profileData, "attachments"))).length === 0) break;
 		await sleep(50);

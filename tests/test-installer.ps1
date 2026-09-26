@@ -693,7 +693,9 @@ try {
         $shellSource -match 'all:\s*true') {
         throw 'Installed shared shell does not preserve agent-tabs/right-controls ownership.'
     }
-    foreach ($required in @('id="chat-attach"', 'id="chat-expand"', 'rows="5"', '/static/assets/Agent_b.ico', '/static/app.webmanifest')) {
+    # Item 2ld: the fixed-height expand control is gone; the strip between the
+    # transcript and the composer is the handle, and the shipped view carries it.
+    foreach ($required in @('id="chat-attach"', 'id="chat-status-strip"', 'rows="5"', '/static/assets/Agent_b.ico', '/static/app.webmanifest')) {
         if ($chatSource -notmatch [regex]::Escape($required)) { throw "Installed Chat view is missing: $required" }
     }
     if ($chatSource -match 'chat-clear-conversation|chat-attachment-controls') {

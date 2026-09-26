@@ -47,19 +47,27 @@ export function markFor(className) {
 // Blank rows are dropped; a row whose text already begins with its mark is not
 // marked twice; entries are separated by one blank line, which is what makes a
 // pasted transcript readable.
+// Item 2lc (c): a mark is a change of speaker, not a row. A selection inside one
+// entry gets no mark at all; one that spans speakers marks each speaker's portion
+// once and separates them with a blank line.
 export function transcriptText(rows) {
-  const blocks = [];
+  const parts = [];
   for (const row of rows || []) {
-    if (typeof row?.record === "string" && row.record.length) {
-      blocks.push(row.record);
-      continue;
-    }
-    const text = String(row?.text ?? "").replace(/\r/g, "").replace(/[ \t]+$/gm, "").trim();
+    const text = typeof row?.record === "string" && row.record.length
+      ? normalize(row.record)
+      : normalize(row?.text);
     if (!text) continue;
-    const mark = markFor(row?.className);
-    if (!mark) { blocks.push(text); continue; }
-    if (text.startsWith(mark)) { blocks.push(text); continue; }
-    blocks.push(mark.endsWith(":") ? `${mark} ${text}` : `${mark}\n${text}`);
+    parts.push({ mark: markFor(row?.className), text, fromSelection: row?.fromSelection === true });
+  }
+  // Within one entry there is no change of speaker, so there is no mark.
+  if (parts.length === 1 && parts[0].fromSelection) return parts[0].text;
+  const blocks = [];
+  let previous = null;
+  for (const part of parts) {
+    if (part.mark && part.mark !== previous && !part.text.startsWith(part.mark)) {
+      blocks.push(part.mark.endsWith(":") ? `${part.mark} ${part.text}` : `${part.mark}\n${part.text}`);
+    } else blocks.push(part.text);
+    previous = part.mark;
   }
   return blocks.join("\n\n");
 }
@@ -135,17 +143,79 @@ function delegateDetail(args, delegated) {
   return `arguments\n${JSON.stringify(args, null, 2)}\n\nchild transcript\n${transcript}\n\nsummary\n${delegated.summary || ""}`;
 }
 
-// rowsInSelection is every transcript entry the selection touches, in document
-// order. Selecting part of one entry copies that entry.
+// Item 2lc: the rows a selection touches, each carrying ONLY the text that was
+// actually selected inside it. This supersedes 2js's whole-entry rule, which was a
+// deliberate choice and is now reversed — the operator: "when i copy a small bit of
+// text it takes more of the window then i want. it should be exact".
 export function rowsInSelection(log, selection) {
   if (!log || !selection || selection.rangeCount === 0) return [];
   const range = selection.getRangeAt(0);
   if (range.collapsed) return [];
-  const rows = [...log.querySelectorAll(".chat-entry")];
-  const touched = rows.filter((row) => range.intersectsNode(row));
-  // A selection inside a single entry intersects only that entry; one that
-  // covers the log intersects them all.
-  return touched.map((row) => ({ className: row.className, text: row.innerText || "", record: copyRecords.get(row) }));
+  return [...log.querySelectorAll(".chat-entry")]
+    .filter((row) => range.intersectsNode(row))
+    .map((row) => {
+      const text = selectedTextIn(row, range);
+      // partial is the operator case: a few words inside a turn. A selection that
+      // covers the whole entry is NOT partial, and keeps its mark — that is 2js's
+      // whole-record copy, and it is also what stops an agent message that reads
+      // "you: …" from pasting as though the operator had written it.
+      return { className: row.className, text, fromSelection: true };
+    })
+    .filter((row) => row.text);
+}
+
+// (b): the collapsed step and fold summaries are furniture. Their caret rows —
+// `steps · …`, `thought …`, `tool … → ok …` — are omitted, and their bodies are
+// already hidden and omitted with them. This hides nothing: it declines to copy
+// what the operator did not want.
+const FURNITURE = ".chat-step-summary, .tool-tick";
+
+// selectedTextIn is the selected text inside one entry, in document order, with
+// furniture skipped and block boundaries kept as line breaks.
+export function selectedTextIn(row, range) {
+  const doc = row?.ownerDocument;
+  // A row that cannot be walked — a detached node, or a caller that passed a plain
+  // object — falls back to its own text rather than failing the copy.
+  if (!doc?.createTreeWalker) return normalize(row?.innerText ?? row?.textContent ?? "");
+  const walker = doc.createTreeWalker(row, 0x1 | 0x4, {
+    acceptNode(node) {
+      if (node.nodeType === 1) {
+        if (node.hidden || (node.matches && node.matches(FURNITURE))) return 2; // FILTER_REJECT
+        return 3; // FILTER_SKIP — descend, but the element itself is not text
+      }
+      return range.intersectsNode(node) ? 1 : 2;
+    },
+  });
+  const lines = [];
+  let block = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    let text = node.data ?? "";
+    if (node === range.endContainer) text = text.slice(0, range.endOffset);
+    if (node === range.startContainer) text = text.slice(node === range.endContainer ? range.startOffset : range.startOffset);
+    if (!text) continue;
+    const owner = blockOf(node, row);
+    // Whitespace BETWEEN blocks is markup indentation, not content, and turning it
+    // into a line of its own is what put a blank line where a step row was removed.
+    // Whitespace inside a block is kept, because there it is spacing the operator
+    // selected.
+    if (!text.trim() && owner !== block) continue;
+    if (owner !== block) { lines.push(text); block = owner; }
+    else lines[lines.length - 1] += text;
+  }
+  return normalize(lines.join("\n"));
+}
+
+function blockOf(node, row) {
+  for (let element = node.parentElement; element && element !== row.parentElement; element = element.parentElement) {
+    if (["P", "DIV", "LI", "PRE", "SECTION", "HEADER", "TD", "TR"].includes(element.tagName)) return element;
+  }
+  return row;
+}
+
+// (d): carriage returns removed, trailing spaces trimmed, runs of blank lines
+// collapsed to one, ends trimmed. The selected words themselves are never altered.
+export function normalize(value) {
+  return String(value ?? "").replace(/\r/g, "").replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 // installTranscriptCopy makes the copy event produce that text. It leaves the

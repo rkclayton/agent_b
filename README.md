@@ -30,8 +30,12 @@ the same tools and jail — approvals are terminal prompts with the app's scopes
 and a boundary hit fails the run, and the run is journaled to the folder's
 `.agentb/` in the same format the app reads.
 
-**Not yet on the installer's ship list** — build it with
-`go build ./cmd/agentb` for now.
+It is installed beside the app and signed with it. There is no PATH entry —
+the installer has never added one for anything — so call it by its path, or put
+that directory on your own PATH:
+
+    %LOCALAPPDATA%ProgramsAgent_bagentb.exe        (per-user install)
+    %ProgramFiles%Agent_bagentb.exe                 (all-users install)
 
 ## Source development
 

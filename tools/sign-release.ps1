@@ -74,6 +74,14 @@ function Get-SignableFiles {
             $files += Join-Path $Root ($relative.Replace('/', '\'))
         }
     }
+    # Item 2lt (a): agentb.exe is signed in EITHER pass, because it is both a
+    # binary and a payload file. It travels in the install bundle like the loader
+    # does, and the test candidate signs its payload with -PayloadOnly, which
+    # skips binaries -- so listing it only among the binaries left it NotSigned
+    # in every installed root. The installer matrix caught that. Test-Path means
+    # each pass signs it only where it actually is.
+    $cli = Join-Path $Root 'agentb.exe'
+    if (Test-Path -LiteralPath $cli -PathType Leaf) { $files += $cli }
     return @($files | Sort-Object -Unique)
 }
 

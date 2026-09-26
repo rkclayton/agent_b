@@ -39,6 +39,7 @@ type Config struct {
 	Notifications Notifications      `json:"notifications"`
 	Updates       Updates            `json:"updates"`
 	Telemetry     Telemetry          `json:"telemetry"`
+	Reflection    Reflection         `json:"reflection"`
 	Signing       Signing            `json:"signing"`
 	LoadNotices   []string           `json:"-"`
 }
@@ -153,6 +154,40 @@ func allowed(value string, values []string) bool {
 // Updates controls the one passive release check. AutoCheck defaults on even
 // for older configuration files that predate this object; an explicit false is
 // preserved by the custom unmarshaller.
+// Item 2ls (b): reflection's floor, visible and adjustable.
+//
+// A run below BOTH counts does not trigger reflection. The numbers come from
+// item 2iy's measurement of this machine's own journals -- seven of eleven runs
+// made two model calls or fewer, and reflection doubled the cost of a one-call
+// run -- and they are configuration rather than constants precisely because a
+// number derived from one machine's distribution should not be something the
+// operator cannot see or move.
+//
+// Zero on either count disables that half of the floor. Zero on both means
+// reflection runs on everything, which is the behaviour before this item.
+type ReflectionFloor struct {
+	ModelCalls  int `json:"model_calls"`
+	ToolCalls   int `json:"tool_calls"`
+	initialized bool
+}
+
+// defaultReflectionFloor is 2iy's decision sheet: three model calls or one tool
+// call, whichever is reached first.
+func defaultReflectionFloor() ReflectionFloor {
+	return ReflectionFloor{ModelCalls: 3, ToolCalls: 1, initialized: true}
+}
+
+func (f *ReflectionFloor) UnmarshalJSON(data []byte) error {
+	type plain ReflectionFloor
+	value := plain(defaultReflectionFloor())
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*f = ReflectionFloor(value)
+	f.initialized = true
+	return nil
+}
+
 // Item 2jg: diagnostic telemetry. Three keys and no more.
 //
 // There is NO DEFAULT ENDPOINT, and that is deliberate. This repository does not
@@ -179,6 +214,29 @@ func (t *Telemetry) UnmarshalJSON(data []byte) error {
 	}
 	*t = Telemetry(value)
 	t.initialized = true
+	return nil
+}
+
+// Reflection is what reflection reads from configuration. Item 2ls adds the
+// floor; nothing else about reflection is configurable and this does not change
+// that.
+type Reflection struct {
+	Floor       ReflectionFloor `json:"floor"`
+	initialized bool
+}
+
+func defaultReflection() Reflection {
+	return Reflection{Floor: defaultReflectionFloor(), initialized: true}
+}
+
+func (r *Reflection) UnmarshalJSON(data []byte) error {
+	type plain Reflection
+	value := plain(defaultReflection())
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*r = Reflection(value)
+	r.initialized = true
 	return nil
 }
 
@@ -326,13 +384,13 @@ type Reasoning struct {
 	MaxTokens    int      `json:"max_tokens,omitempty"`
 }
 type Context struct {
-	NCtx          int            `json:"n_ctx"`
-	ReserveOutput int            `json:"reserve_output"`
+	NCtx          int `json:"n_ctx"`
+	ReserveOutput int `json:"reserve_output"`
 	// AnswerCeilingSeconds bounds ONE answer, never a run or a chat (item 2l9):
 	// the operator spent 672 seconds on a single turn that was then thrown away.
 	// Zero means no ceiling, which is what every existing configuration says.
-	AnswerCeilingSeconds int         `json:"answer_ceiling_seconds,omitempty"`
-	Sizing        *ContextSizing `json:"sizing,omitempty"`
+	AnswerCeilingSeconds int            `json:"answer_ceiling_seconds,omitempty"`
+	Sizing               *ContextSizing `json:"sizing,omitempty"`
 }
 
 // ContextSizing records the immutable install-time inputs used to choose the
@@ -367,9 +425,9 @@ type Capabilities struct {
 	// Item 2l8: a server byte cap cannot be probed -- neither vLLM's /v1/models
 	// entry nor llama.cpp's /props publishes one -- so it is learned from the
 	// refusal that names it and remembered for this connection.
-	ObservedByteLimit    int      `json:"observed_byte_limit,omitempty"`
-	ProbedAt             string   `json:"probed_at"`
-	Findings             []string `json:"findings"`
+	ObservedByteLimit int      `json:"observed_byte_limit,omitempty"`
+	ProbedAt          string   `json:"probed_at"`
+	Findings          []string `json:"findings"`
 }
 
 const (
@@ -435,8 +493,8 @@ func (d *Deliver) UnmarshalJSON(data []byte) error {
 }
 
 const (
-	CurrentConfigVersion     = 10
-	DefaultReserveOutput     = 10240
+	CurrentConfigVersion = 10
+	DefaultReserveOutput = 10240
 	// MaxProposedReserveOutput caps what a probe proposes. Item 2l9 (c).
 	MaxProposedReserveOutput = 32768
 	ApprovalModeBoundaryOnly = "boundary-only"
@@ -638,7 +696,7 @@ func Defaults(workspace string) Config {
 		Connections: []Connection{connection}, Agents: []Agent{{Name: connection.Label, B: "local", Toolset: FullToolset()}},
 		Services: map[string]Service{},
 		Sandbox:  Sandbox{Enabled: true, initialized: true},
-		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(), Telemetry: defaultTelemetry(),
+		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),
 		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, Attachments: AttachmentTool{MaxBytes: 8 << 20, InlineMaxBytes: 2 << 20}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Shell: ShellTool{OperatorCommands: []string{"git"}}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, WebSearch: WebSearchTool{Enabled: true, Engines: []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"}, PerEngineTimeoutS: 8, BenchDurationMinutes: 30, initialized: true}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
 		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Enabled: true, Account: "agentb-svc", Domain: ".", initialized: true}},
 		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
@@ -1239,6 +1297,12 @@ func applyDefaults(c *Config) {
 	}
 	if !c.Telemetry.initialized {
 		c.Telemetry = d.Telemetry
+	}
+	if !c.Reflection.initialized {
+		c.Reflection = d.Reflection
+	}
+	if !c.Reflection.Floor.initialized {
+		c.Reflection.Floor = d.Reflection.Floor
 	}
 	if !c.Deliver.initialized {
 		c.Deliver = d.Deliver

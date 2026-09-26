@@ -46,7 +46,7 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 	if !chatA.Scratch {
 		t.Fatalf("a new chat must be a scratch chat: %s", chatA.Workspace)
 	}
-	reply, err := remember.Call(context.Background(), chatA, map[string]any{"note": "the walk project's mascot is a heron named Quill", "target": "folder"})
+	reply, err := remember.Call(context.Background(), chatA, map[string]any{"note": "the walk project's mascot is a heron named Quill", "scope": "repository"})
 	if err != nil || !strings.Contains(reply, "agent layer") {
 		t.Fatalf("a fact from a chat with no project in scope goes to the agent layer, and says so: %q %v", reply, err)
 	}
@@ -71,7 +71,7 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 	if written, err := chatC.WriteRoot(filepath.Join(repo, "notes.txt")); err != nil || !strings.EqualFold(written, filepath.Clean(repo)) {
 		t.Fatalf("a write into the plan's repository: %q %v", written, err)
 	}
-	reply, err = remember.Call(context.Background(), chatC, map[string]any{"note": "the build uses make", "target": "folder"})
+	reply, err = remember.Call(context.Background(), chatC, map[string]any{"note": "the build uses make", "scope": "repository"})
 	if err != nil || strings.Contains(reply, "agent layer") {
 		t.Fatalf("a project fact from a chat working in a plan's repo: %q %v", reply, err)
 	}

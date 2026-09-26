@@ -69,7 +69,10 @@ try {
         throw "DEPLOY REFUSED: signed setup did not complete its disposable -NoStart install.`n$output"
     }
     # 2ki: verify the installed bytes against the central signing policy.
-    $installedSignables = @((Join-Path $application 'Agent_b.exe'))
+    # Item 2lt (a): agentb.exe is part of what 2km counts, from the same commit
+    # that put it on the ship list. The printed count is $installedSignables.Count
+    # and is derived from this list, so it moves by itself.
+    $installedSignables = @((Join-Path $application 'Agent_b.exe'), (Join-Path $application 'agentb.exe'))
     foreach ($relative in @(Get-AgentBRuntimeSigningPolicy -Root $root).Signable) { $installedSignables += Join-Path $application ($relative.Replace('/', '\')) }
     if ($TestUnsignedInstalledFile) {
         $replace = $installedSignables | Where-Object { $_ -ne (Join-Path $application 'Agent_b.exe') } | Select-Object -First 1

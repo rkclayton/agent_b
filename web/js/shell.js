@@ -155,7 +155,9 @@ export function initShell(options = {}) {
 
   function sessionsFor(agentID, includeClosed = true) {
     return Object.values(store.sessions)
-      .filter((session) => session.role !== "c" && `agent_${session.role === "d" ? "d" : "b"}` === agentID && (includeClosed || !session.closed))
+      // Item 2lu (b): ONE answer, not two — the menu and the tab strip above use
+      // the same rule, so a session that gets a tab also gets a row in it.
+      .filter((session) => (store.replay || session.role !== "c") && `agent_${session.role === "d" ? "d" : "b"}` === agentID && (includeClosed || !session.closed))
       .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
   }
 
@@ -242,8 +244,17 @@ export function initShell(options = {}) {
     // read a transcript with no tab of its own and the strip said he was
     // somewhere else. Only the selected one appears; the rest of the closed
     // history stays in the tab menu where it lives.
+    // Item 2lu (a): a session the page is DISPLAYING is listed by the tab that
+    // is displaying it, whatever route it arrived by. A c-role session is a
+    // worker chat and is deliberately not listed beside the operator's own
+    // chats — but IN REPLAY there is no such distinction to preserve: there is
+    // only what was replayed, and the page is showing it. rel-1.19.0/W4
+    // measured a replayed session as role=c agent_id=acceptance, so the
+    // premise 2lu was written on — "no agent binding the page can see" — was
+    // not what was happening; the binding was there and the filter was hiding
+    // it from every tab.
     const open = Object.values(store.sessions)
-      .filter((session) => session.role !== "c" && (!session.closed || session.id === store.selection.session_id))
+      .filter((session) => (store.replay || session.role !== "c") && (!session.closed || session.id === store.selection.session_id))
       .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
     const selectedSession = store.sessions[store.selection.session_id];
     const configured = configuredAgent(selectedSession);
@@ -366,7 +377,13 @@ export function initShell(options = {}) {
     // else either.
     if (!sessions.length) {
       const empty = node("span", "shell-menu-empty");
-      empty.textContent = "No chats";
+      // Item 2lu (c): a session the page holds but this tab cannot claim is a
+      // STATE, and the words say which. "No chats" beside a visible transcript
+      // is what sent rel-1.18.0 looking for a selector defect for an hour.
+      const unclaimed = Object.values(store.sessions || {}).filter((session) => session.role === "c");
+      empty.textContent = unclaimed.length
+        ? `No chats for this agent — ${unclaimed.length} worker chat${unclaimed.length === 1 ? "" : "s"} elsewhere`
+        : "No chats";
       menu.append(empty);
       return;
     }

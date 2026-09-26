@@ -106,7 +106,7 @@ Dropped: `model.delta`, `model.progress`, `model.request`, `model.response`,
 `navigation.measured`, `navigation.suppressed`, `navigation.document_started`,
 `navigation.document_completed`, `notification.failed`, `notification.changed`,
 `update.changed`, `progress.shadow`, `progress.aux`, `speech`,
-`agent.connection_change`, and `projection.patch` and `snapshot` — which carry
+`agent.connection_change`, `reflection.skipped`, and `projection.patch` and `snapshot` — which carry
 the whole conversation as a client reads it, and are the two most important
 names on this list.
 

@@ -52,6 +52,16 @@ if (-not $PayloadOnly) {
     if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "test candidate not found: $binary" }
     $targets += $binary
 }
+# Item 2lt (a): agentb.exe is signed in EITHER pass, because it is both a binary
+# and a payload file -- it travels in the install bundle like the loader does.
+#
+# THIS IS THE SECOND PLACE, and finding it is what 2lt's @verify was asking
+# about: the release path derives its expected count from one list, but the TEST
+# path keeps its own copy of the same policy here. Signing the file in
+# sign-release.ps1 alone left it NotSigned in every installed test root, and the
+# installer matrix caught it twice before I looked here.
+$cli = Join-Path $root 'agentb.exe'
+if (Test-Path -LiteralPath $cli -PathType Leaf) { $targets += $cli }
 foreach ($target in $targets) {
     $signature = Set-AuthenticodeSignature -LiteralPath $target -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer $TimestampUrl
     if (-not $signature.SignerCertificate -or $signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw "Test candidate signing failed for ${target}: $($signature.Status) $($signature.StatusMessage)" }

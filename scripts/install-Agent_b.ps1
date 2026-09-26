@@ -39,7 +39,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 . (Join-Path $PSScriptRoot 'install-root-policy.ps1')
-$displayVersion = '1.18.0'
+$displayVersion = '1.19.0'
 
 if (-not $TestMode -and -not $EmbeddedBundle) {
     Write-Output 'Agent_b installs come from the signed Agent_b-setup.exe on the release page.'
@@ -799,7 +799,10 @@ Wait-FileUnlocked -Path $installedBinary
 # curated rather than a tree copy, so a file that is not named here simply does
 # not reach the installation - which is how the loader first arrived verified
 # and then went missing from the installed root.
-foreach ($file in @('Agent_b.exe', 'WebView2Loader.dll', 'harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE')) {
+# Item 2lt: agentb.exe is named here, which is what makes it reach BOTH root
+# modes -- this list is the only route into an installation and the per-user and
+# all-users paths share it.
+foreach ($file in @('Agent_b.exe', 'agentb.exe', 'WebView2Loader.dll', 'harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE')) {
     $from = Join-Path $sourceRoot $file
     if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { throw "Required program file is missing: $from" }
     Copy-FileReplacing -Source $from -Destination (Join-Path $applicationRoot $file)

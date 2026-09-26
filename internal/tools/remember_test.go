@@ -26,35 +26,41 @@ func memoryTools(t *testing.T) (*Remember, *Recall, *session.Session, string) {
 
 func TestRememberTargetSeparatesWorkspaceAndAgentMemory(t *testing.T) {
 	remember, recall, item, _ := memoryTools(t)
-	if _, err := remember.Call(context.Background(), item, map[string]any{"note": "project fact", "target": "workspace"}); err != nil {
+	if _, err := remember.Call(context.Background(), item, map[string]any{"note": "project fact", "scope": "repository"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := remember.Call(context.Background(), item, map[string]any{"note": "operator preference", "target": "agent"}); err != nil {
+	if _, err := remember.Call(context.Background(), item, map[string]any{"note": "operator preference", "scope": "user"}); err != nil {
 		t.Fatal(err)
 	}
 	value, err := recall.Call(context.Background(), item, nil)
 	if err != nil || !strings.Contains(value, "Folder memory:\n") || !strings.Contains(value, "project fact") || !strings.Contains(value, "Agent memory:\n") || !strings.Contains(value, "operator preference") {
 		t.Fatalf("recall=%q err=%v", value, err)
 	}
+	// Item 2jf (b): scope has NO DEFAULT. A default is how the folder layer
+	// filled with facts about the operator -- the model has to say what kind of
+	// fact this is, and an unscoped note is refused rather than guessed at.
 	properties := remember.Schema()["properties"].(map[string]any)
-	target := properties["target"].(map[string]any)
-	if target["default"] != "folder" {
-		t.Fatalf("target schema=%#v", target)
+	scope := properties["scope"].(map[string]any)
+	if _, defaulted := scope["default"]; defaulted {
+		t.Fatalf("scope has a default: %#v", scope)
+	}
+	if required, _ := remember.Schema()["required"].([]string); len(required) != 2 {
+		t.Fatalf("required=%v, want note and scope", required)
 	}
 }
 
 func TestRecallReadsRememberEntryAndRememberStillDetectsDuplicate(t *testing.T) {
 	remember, recall, item, _ := memoryTools(t)
 	ctx := context.Background()
-	result, err := remember.Call(ctx, item, map[string]any{"note": "prefer focused tests first"})
-	if err != nil || result != "ok: noted; active next session." {
+	result, err := remember.Call(ctx, item, map[string]any{"note": "prefer focused tests first", "scope": "user"})
+	if err != nil || result != "ok: noted as user; active next session." {
 		t.Fatalf("remember.Call() = %q, %v", result, err)
 	}
 	result, err = recall.Call(ctx, item, nil)
 	if err != nil || !strings.Contains(result, " prefer focused tests first") {
 		t.Fatalf("recall.Call() = %q, %v", result, err)
 	}
-	result, err = remember.Call(ctx, item, map[string]any{"note": "prefer focused tests first"})
+	result, err = remember.Call(ctx, item, map[string]any{"note": "prefer focused tests first", "scope": "user"})
 	if err != nil || result != "ok: already noted" {
 		t.Fatalf("duplicate remember.Call() = %q, %v", result, err)
 	}
@@ -100,10 +106,65 @@ func TestRememberToolsBlockByteDelta(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Item 2kt: the description states the durable/transient boundary before a
-	// call and names the cost of falling through to the agent layer.
-	const wantDelta = 310
+	// call and names the cost of falling through to the agent layer. Item 2jf
+	// rewrote it to carry scope, replaces and the per-run cap, which is why the
+	// number moved -- and the pin is why the move had to be deliberate.
+	const wantDelta = 431
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("remember tools-block byte delta=%d, want %d", delta, wantDelta)
 	}
 	t.Logf("remember tools-block byte delta: +%d (%d to %d)", wantDelta, len(before), len(after))
+}
+
+// Item 2jf (c): TWO WRITES PER RUN, enforced by the tool rather than asked for
+// in the prompt. A rule the prompt asks for is a rule the model may follow; a
+// rule the tool enforces is a rule.
+func TestTwoNotesPerRunAndTheThirdIsRefused2jf(t *testing.T) {
+	remember, _, item, _ := memoryTools(t)
+	item.Run.LastRunID = "r1"
+	ctx := context.Background()
+	for index, note := range []string{"the operator prefers focused tests", "the operator reads reports in full"} {
+		result, err := remember.Call(ctx, item, map[string]any{"note": note, "scope": "user"})
+		if err != nil || !strings.HasPrefix(result, "ok: noted as user") {
+			t.Fatalf("note %d: %q %v", index+1, result, err)
+		}
+	}
+	third, err := remember.Call(ctx, item, map[string]any{"note": "a third fact", "scope": "user"})
+	if err != nil {
+		t.Fatalf("the third note errored rather than refusing: %v", err)
+	}
+	// The refusal says what to do instead, because a bare refusal teaches the
+	// model nothing.
+	for _, want := range []string{"2 notes this run", "replace one or skip"} {
+		if !strings.Contains(third, want) {
+			t.Errorf("the refusal does not say %q: %q", want, third)
+		}
+	}
+	// A NEW RUN gets its own two. The cap is per run, not per session — a long
+	// chat is not punished for a previous run's writes.
+	item.Run.LastRunID = "r2"
+	fourth, err := remember.Call(ctx, item, map[string]any{"note": "a fact in the next run", "scope": "user"})
+	if err != nil || !strings.HasPrefix(fourth, "ok: noted as user") {
+		t.Fatalf("a new run did not get its own allowance: %q %v", fourth, err)
+	}
+}
+
+// (b): the scope decides the layer, and an unscoped note is refused rather than
+// routed by a default. A default is how the folder layer filled up with facts
+// about the operator.
+func TestScopeDecidesTheLayerAndIsRequired2jf(t *testing.T) {
+	remember, _, item, _ := memoryTools(t)
+	ctx := context.Background()
+	if result, _ := remember.Call(ctx, item, map[string]any{"note": "unscoped"}); !strings.Contains(result, "scope is required") {
+		t.Errorf("an unscoped note was accepted: %q", result)
+	}
+	if result, _ := remember.Call(ctx, item, map[string]any{"note": "bad scope", "scope": "folder"}); !strings.Contains(result, "not one of user, repository or environment") {
+		t.Errorf("the old vocabulary was accepted: %q", result)
+	}
+	// user and environment follow the agent; repository follows the folder.
+	for scope, layer := range map[string]string{"user": "agent", "environment": "agent", "repository": "folder"} {
+		if got := layerFor(scope); got != layer {
+			t.Errorf("scope %q routes to %q, want %q", scope, got, layer)
+		}
+	}
 }

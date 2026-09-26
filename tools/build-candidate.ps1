@@ -25,6 +25,9 @@ if ([string]::IsNullOrWhiteSpace($SourceDirectory)) { $SourceDirectory = Split-P
 $sourceRoot = [IO.Path]::GetFullPath($SourceDirectory)
 $manifestPath = Join-Path $sourceRoot 'candidate-final.json'
 $binary = Join-Path $sourceRoot 'Agent_b.exe'
+# Item 2lt: the CLI ships beside the app, built from the same source with the
+# same ldflags, so it reports the same tag and commit.
+$cliBinary = Join-Path $sourceRoot 'agentb.exe'
 
 function Find-Go {
     param([string]$Source)
@@ -56,7 +59,8 @@ function Add-EmbeddedInstallBundle {
                 if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Runtime script is missing: $relative" }
                 $files += Get-Item -LiteralPath $file
             }
-            foreach ($name in @('WebView2Loader.dll', 'harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE', 'runtime-scripts.txt')) {
+            # Item 2lt: agentb.exe rides the bundle like the loader does.
+            foreach ($name in @('WebView2Loader.dll', 'agentb.exe', 'harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE', 'runtime-scripts.txt')) {
                 $files += Get-Item -LiteralPath (Join-Path $Root $name)
             }
             foreach ($file in $files) {
@@ -142,6 +146,16 @@ if ($UseExistingSignedBinary) {
     Push-Location $sourceRoot
     try { & $go build -ldflags $ldflags -o $binary ./cmd/harness } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw "go build exited $LASTEXITCODE." }
+    # Item 2lt: agentb.exe is built here, from the same source and the same
+    # ldflags, so it reports the same tag and commit as the app it ships beside.
+    # Removed first for the same reason the app binary is: a stale output would
+    # be signed and shipped as though it were this build.
+    if (Test-Path -LiteralPath $cliBinary -PathType Leaf) {
+        Remove-Item -LiteralPath $cliBinary -Force
+    }
+    Push-Location $sourceRoot
+    try { & $go build -ldflags $ldflags -o $cliBinary ./cmd/agentb } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { throw "go build of cmd/agentb exited $LASTEXITCODE." }
     $payloadRoot = $sourceRoot
     $testPayloadRoot = $null
     if ($SignForTest) {
@@ -153,7 +167,7 @@ if ($UseExistingSignedBinary) {
         foreach ($directory in @('web', 'prompts', 'docs')) {
             Copy-Item -LiteralPath (Join-Path $sourceRoot $directory) -Destination (Join-Path $testPayloadRoot $directory) -Recurse
         }
-        foreach ($name in @('WebView2Loader.dll', 'harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE', 'runtime-scripts.txt')) {
+        foreach ($name in @('WebView2Loader.dll', 'agentb.exe', 'harness.example.json', 'SECURITY.md', 'LICENSE', 'NOTICE', 'runtime-scripts.txt')) {
             Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination (Join-Path $testPayloadRoot $name)
         }
         foreach ($relative in @(Get-Content -LiteralPath (Join-Path $sourceRoot 'runtime-scripts.txt'))) {

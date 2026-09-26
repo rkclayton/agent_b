@@ -114,9 +114,11 @@ type Session struct {
 	Budget                 events.Budget
 	Run                    RunState
 	ToolsEnabled           map[string]bool
-	ToolCalls              map[string]int
-	LastSeen               map[string]time.Time
-	TouchedPlanRepos       map[string]bool
+	// Item 2jf (e): set when an untrusted tool result lands in this turn.
+	untrustedInTurn  bool
+	ToolCalls        map[string]int
+	LastSeen         map[string]time.Time
+	TouchedPlanRepos map[string]bool
 	// WrittenPlanRepos are the plan repositories this chat has written into,
 	// oldest first, for its lifetime (item 2fh); TouchedPlanRepos is per run.
 	WrittenPlanRepos []string
@@ -588,6 +590,32 @@ func (s *Session) ToggleTool(name string, enabled bool) bool {
 	s.ToolsEnabled[name] = enabled
 	return true
 }
+
+// Item 2jf (e): whether an untrusted tool result landed in the turn now running.
+//
+// A note written in a turn that had external content in it is marked in the
+// memory file, because that is the note somebody should look at twice. The flag
+// is per TURN and is cleared when a turn begins -- a note is only suspect
+// because of what was in the turn that wrote it, not because of something three
+// turns ago.
+func (s *Session) MarkUntrustedInTurn() {
+	s.mu.Lock()
+	s.untrustedInTurn = true
+	s.mu.Unlock()
+}
+
+func (s *Session) BeginTurnTrust() {
+	s.mu.Lock()
+	s.untrustedInTurn = false
+	s.mu.Unlock()
+}
+
+func (s *Session) UntrustedInTurn() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.untrustedInTurn
+}
+
 func (s *Session) IncrementToolCall(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

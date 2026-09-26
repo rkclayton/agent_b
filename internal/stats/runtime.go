@@ -64,6 +64,18 @@ type RunOutcome struct {
 	Compactions   int     `json:"compactions"`
 	EmptyReplies  int     `json:"empty_replies"`
 	RepeatedCalls int     `json:"repeated_calls"`
+	// Item 2ls: the floor's two counts.
+	//
+	// rel-1.19.0/W0 asked whether the run loop can know both at the moment
+	// reflection triggers, and the answer was that NEITHER was on the event and
+	// BOTH were already being counted here — this fold sums every model.response
+	// duration and every tool.result's milliseconds, so it has seen both all
+	// along and simply did not say so. Publishing them is these two integers.
+	//
+	// They are not the same as "turns": a turn that retries makes two model
+	// calls, and the floor is about work done rather than turns taken.
+	ModelCalls int `json:"model_calls"`
+	ToolCalls  int `json:"tool_calls"`
 }
 
 // Fields renders the outcome as the run.stopped data keys, with no prose. The
@@ -184,6 +196,7 @@ func (t *RunTally) Observe(kind, sessionID, runID, ts string, data map[string]an
 			entry.startedAt = at
 		}
 	case "model.response":
+		entry.out.ModelCalls++
 		entry.out.Time.ModelMS += int64Value(data["duration_ms"])
 		// timings can arrive as a named map type (llm.Timings) rather than as
 		// map[string]any, and an assertion to the unnamed type does not match a
@@ -212,6 +225,7 @@ func (t *RunTally) Observe(kind, sessionID, runID, ts string, data map[string]an
 			entry.seenCalls[signature] = true
 		}
 	case "tool.result":
+		entry.out.ToolCalls++
 		entry.out.Time.ToolMS += int64Value(data["ms"])
 	case "compaction":
 		entry.out.Compactions++

@@ -2051,3 +2051,62 @@
   text-transform: uppercase;
   padding: 0 6px;
 }
+
+/* Item 2iq (a): Agents is one table -- a row per role, the role's plain-language
+   name, a model picker with its state, and nothing else in the row. The columns
+   are fixed so the pickers line up down the page rather than shifting with the
+   longest label. */
+.panel-roles {
+  display: grid;
+  gap: 1px;
+  padding: 0 10px 10px;
+}
+.panel-role-row {
+  display: grid;
+  grid-template-columns: 24px minmax(120px, 1fr) minmax(160px, 1.4fr) minmax(0, auto) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  border-top: 1px solid rgba(125, 135, 148, .28);
+}
+.panel-role-name {
+  color: var(--trace);
+  font: 500 12px/16px var(--mono);
+}
+.panel-role-what { color: var(--mute); }
+.panel-role-state { color: var(--mute); font-size: 12px; }
+.panel-role-state.pending { color: var(--trace); }
+.panel-role-cancel { min-height: 22px; }
+/* Item 2iq (b): the tool toggles have no other home, so they fold rather than
+   move or vanish. Closed by default: a role table is what this page is for. */
+#panel-tools-fold > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--mute);
+}
+#panel-tools-fold > summary::-webkit-details-marker { display: none; }
+#panel-tools-fold[open] > summary { color: var(--ink); }
+
+/* Item 2ip (b): the idle line. One row, the same height as a panel line, with
+   the way back to the detail on it. (d): the occupancy bar keeps its five
+   category labels but shows them on hover, so the bar itself is the row and
+   the words arrive when they are wanted. */
+.panel-live-idle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+  margin: 0;
+  padding: 4px 10px;
+  color: var(--mute);
+}
+.panel-live-open { min-height: 22px; }
+.rail-labels { opacity: 0; transition: opacity 90ms linear; }
+.rail:hover .rail-labels,
+.rail:focus-within .rail-labels { opacity: 1; }

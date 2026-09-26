@@ -451,6 +451,19 @@ async function openPanel(section, sessionID) {
   await page.locator(`#${section}-panel`).waitFor({ state: "visible" });
 }
 
+
+// Item 2ip (b): open Activity's run detail if it is folded, and wait until the
+// apparatus is actually laid out. Idle is the default state now, so every
+// measurement of the live-run wells goes through here.
+async function showRunDetail() {
+  await page.evaluate(() => document.querySelector(".panel-live-open")?.click());
+  await browser.wait(
+    "!document.getElementById('panel-live-content')?.hidden && !!document.querySelector('.flow')?.offsetParent",
+    "Activity's run detail is open",
+    5000,
+  );
+}
+
 async function settleSession(id, what) {
   const deadline = Date.now() + 60000;
   let previous = "";
@@ -872,6 +885,13 @@ if (realModel) {
   const chatStyles = await captureRobotStates("chat", "chat.css");
   await openPanel("activity", sessionID);
   const panelStyles = await captureRobotStates("panels", "app.css");
+  // Item 2ip (b): Activity is idle by default now and the run apparatus -- the
+  // rail, the Activity and Tools wells, Context and History -- is hidden until a
+  // run starts or the operator opens it. Anything that MEASURES that apparatus
+  // has to open it first: getComputedStyle inside a hidden subtree returns the
+  // specified value, not the used one, so "margin: auto" never resolves to a
+  // length and a measurement of it means nothing.
+  await showRunDetail();
   const emptyStateIllustration = await page.evaluate(() => {
     const flow = document.querySelector(".flow");
     const fixture = document.createElement("div");
@@ -963,6 +983,7 @@ if (realModel) {
   // Items 2fu and 2fw, on this direct load: the lifetime numbers arrive with no
   // interaction, and History's count heads the rows it draws, one text per line.
   await browser.wait(`document.getElementById('panel-stats')?.innerText.includes('runs / briefs')`, "lifetime numbers on a direct load", 3000);
+  await showRunDetail();
   const history = await page.evaluate(() => {
     const box = (node) => { const r = node.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
     const texts = [...document.querySelectorAll("#timeline-list > .timeline-row > .timeline-head *")].filter((node) => node.childElementCount === 0 && node.textContent.trim() && node.offsetParent).map((node) => ({ text: node.textContent.trim().slice(0, 40), ...box(node) }));

@@ -131,6 +131,23 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 	})
 	setupCancel()
 	if setupErr != nil {
+		// Item 2kk (d) and (e): what the operator sees is the result the elevated
+		// child WROTE, complete, with the log path beside it -- never raw CLIXML
+		// and never truncated. A launch that never happened is its own state: no
+		// account was touched, so there is nothing to inspect or repair.
+		if result.Launch == serviceaccount.LaunchDeclined {
+			if restoreErr := s.restoreCredential(previous, hadPrevious); restoreErr != nil {
+				writeError(w, http.StatusInternalServerError, setupErr.Error()+"; restoring the prior credential also failed", "shell.service_account")
+				return
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error":    setupErr.Error(),
+				"field":    "shell.service_account",
+				"declined": true,
+				"log":      result.LogPath,
+			})
+			return
+		}
 		if !result.Attempted {
 			if restoreErr := s.restoreCredential(previous, hadPrevious); restoreErr != nil {
 				writeError(w, http.StatusInternalServerError, setupErr.Error()+"; restoring the prior credential also failed", "shell.service_account")
@@ -146,6 +163,7 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 			"field":      "shell.service_account",
 			"credential": credentialStatus,
 			"attempted":  true,
+			"log":        result.LogPath,
 		})
 		return
 	}

@@ -327,12 +327,15 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		}
 		for _, adapter := range search.adapters {
 			query := queries[adapter.Name()]
-			rawURL, ok := adapter.URL(query, webSearchWeb, 5)
+			// Item 2if: the table measures THE SHIPPED DEFAULT. It hard-coded 5, so it
+			// could never have answered which adapters can fill ten -- rel-1.16.0/W0
+			// found every engine reporting exactly 5 for that reason alone.
+			rawURL, ok := adapter.URL(query, webSearchWeb, webSearchDefaultLimit)
 			if !ok {
 				t.Fatalf("%s did not route fixed query %q", adapter.Name(), query)
 			}
 			requestCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Tools.WebSearch.PerEngineTimeoutS)*time.Second)
-			hits, searchErr := search.searchOne(requestCtx, client, cfg.Tools.Fetch, adapter, rawURL, 5)
+			hits, searchErr := search.searchOne(requestCtx, client, cfg.Tools.Fetch, adapter, rawURL, webSearchDefaultLimit)
 			cancel()
 			if reason, benched := initiallyBenchedWebSearchEngines[adapter.Name()]; benched {
 				t.Logf("engine=%s state=benched reason=%q results=%d error=%v", adapter.Name(), reason, len(hits), searchErr)

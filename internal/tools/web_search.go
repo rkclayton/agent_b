@@ -77,11 +77,17 @@ func (*WebSearch) Schema() map[string]any {
 		"properties": map[string]any{
 			"query": map[string]any{"type": "string", "description": "Search query"},
 			"kind":  map[string]any{"type": "string", "enum": []string{"web", "news"}, "default": "web"},
-			"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+			"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 10, "default": webSearchDefaultLimit, "description": "ten unless set lower"},
 		},
 		"required": []string{"query"},
 	}
 }
+
+// Item 2if: ten, because the model never set the limit and every call came back
+// in blocks of five. One constant, so the tool and the gate that measures it
+// cannot drift apart -- the capability table hard-coded 5 and could never have
+// shown what shipped.
+const webSearchDefaultLimit = 10
 
 func (w *WebSearch) Configure(value config.Config) {
 	w.mu.Lock()
@@ -107,7 +113,10 @@ func (w *WebSearch) CallDetailed(ctx context.Context, s *session.Session, args m
 		detail.Err = fmt.Errorf("kind must be web or news")
 		return detail
 	}
-	limit := number(args["limit"], 5)
+	// Item 2if. The operator: "why is web search always in blocks of 5?" -- the
+	// schema said 5 and the model never set it, so every call returned five.
+	// "i want it set to 10, the model is calling it multiple times anyway."
+	limit := number(args["limit"], webSearchDefaultLimit)
 	if limit < 1 || limit > 10 {
 		detail.Err = fmt.Errorf("limit must be between 1 and 10")
 		return detail

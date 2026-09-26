@@ -17,6 +17,7 @@ path-specific failure exists, the gate remains `always`.
 | Production-incarnation guard | `always`, around every non-installer suite | build-1.8a/2ix W0 inventory |
 | Go unit/build-tag suites | CI on every push; local only when `*.go`, `go.mod`, `go.sum`, or Go test inputs change, or CI is unavailable | rel-1.7.1 caught release-identity inconsistency; rel-1.7.2 exercised run-loop restore |
 | Node unit suites | CI on every push; local only when `web/**`, `tests/**/*.mjs`, `tools/*.mjs`, or workflow inputs change, or CI is unavailable | v1.7.0b caught capture determinism; rel-1.7.2 exercised composer layout |
+| Documentation terms | `node --test tests/docs-terms.test.mjs` (also in the node suite) | No shipped document makes a claim the product no longer supports; each rule carries its own negative control, and correct prose using the same word is spared | Node 24; no model or network |
 | Playwright | `web/**`, browser-facing `internal/web/**`, onboarding or connection browser flows | rel-1.7.2 paperclip geometry; v1.7.0b setup capture |
 | Chat acceptance and screenshots | `web/**`, `internal/agent/**`, `internal/session/**`, `internal/projection/**`, `internal/web/**` | rel-1.7.2 restore and chat smoke; v1.7.0b capture determinism |
 | Screenshot comparison | captured surfaces under `web/**`, capture harness, masks, or release identity shown in captures | v1.7.0b stable identity difference; rel-1.7.2 chat rebaseline |

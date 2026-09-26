@@ -89,14 +89,21 @@ test("the Plan header carries the artwork and three lines about planning", async
   expect(sentences.length, "the description should be three sentences, no more").toBeLessThanOrEqual(3);
   expect(copy).toContain("A plan points at one repository");
 
-  // Both assets resolve as real images at the sizes they are drawn.
-  await page.setContent(`<img id="nav" src="data:image/png;base64,${(await readFile(new URL("../../web/assets/plan-mark-nav.png", import.meta.url))).toString("base64")}">
-    <img id="head" src="data:image/png;base64,${(await readFile(new URL("../../web/assets/plan-mark.png", import.meta.url))).toString("base64")}">`);
+  // Item 2lm (b) and (f): the nav mark is a size set now, because the strip draws
+  // a 12px box and the product runs at more than one device pixel ratio --
+  // rel-1.16.0/W0 measured the operator's own display at 1.75x, where that box is
+  // 21 physical pixels while every screenshot captures it at 12. Each member is
+  // prepared from the full-detail mark rather than reduced from the one above it,
+  // and each must resolve as a real image at its own size.
+  const assets = ["plan-mark-nav.png", "plan-mark-nav@2x.png", "plan-mark-nav@3x.png", "plan-mark.png"];
+  const encoded = await Promise.all(assets.map(async (name) =>
+    (await readFile(new URL(`../../web/assets/${name}`, import.meta.url))).toString("base64")));
+  await page.setContent(encoded.map((data, index) => `<img id="a${index}" src="data:image/png;base64,${data}">`).join(""));
   const sizes = await page.evaluate(async () => {
     await Promise.all([...document.images].map((image) => image.decode()));
-    return [...document.images].map((image) => [image.id, image.naturalWidth, image.naturalHeight]);
+    return [...document.images].map((image) => [image.naturalWidth, image.naturalHeight]);
   });
-  expect(sizes).toEqual([["nav", 24, 24], ["head", 128, 128]]);
+  expect(sizes).toEqual([[12, 12], [24, 24], [36, 36], [128, 128]]);
 });
 
 // Item 2ld. The operator, 2026-09-26: "can we make it where if you grab this

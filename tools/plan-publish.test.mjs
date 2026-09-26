@@ -154,4 +154,23 @@ assert.equal(workerStopped(plan("- W1 **2a work.**", "TEST/W1 started 12:00\nTES
 assert.equal(crypto.createHash("sha256").update(fs.readFileSync(linter)).digest("hex"), linterHash, "plan-lint.mjs must remain byte-unchanged");
 assert.equal(fs.existsSync(publisher), true);
 
+
+// rel-1.16.0: an item may say it is measured and not capped, and be published --
+// but only if it says WHY. Silence and a bare `none` are still refused, so the
+// gate still means what it always meant: nothing ships without stating its
+// budget. The order that forced this named an item it described itself as
+// "capped by nothing", which the gate had no way to hear.
+{
+  const root = makeRoot();
+  const uncapped = item("2b").replace(/^@budget.*$/m, "@budget  none — a documentation sweep has no honest cap in advance");
+  const candidate = makeCandidate(root, "- W1 **2b uncapped work.**", [{ id: "2b", text: uncapped }]);
+  const prepared = preparePublication({ root, candidate });
+  assert.ok(String(prepared.manifest.proposal_id).startsWith("sha256:"), "an explicitly uncapped item must publish");
+}
+
+{
+  const root = makeRoot();
+  const bare = item("2b").replace(/^@budget.*$/m, "@budget  none");
+  expectPrepareFailure(root, makeCandidate(root, "- W1 **2b bare none.**", [{ id: "2b", text: bare }]), /PUBLICATION BUDGET: ordered item 2b/);
+}
 process.stdout.write("plan publication fixtures passed\n");

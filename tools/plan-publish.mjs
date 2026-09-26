@@ -95,6 +95,22 @@ function mergedProposal(root, candidateFiles) {
   };
 }
 
+// rel-1.16.0: an ordered item must STATE its budget, which is not the same as
+// carrying a number. The gate exists so that nothing ships unmeasured, and a
+// cap is how that is usually said -- but rel-1.16.0 named an item the order
+// itself described as "capped by nothing", and the gate had no way to hear it.
+// A documentation sweep has no honest cap in advance, and an invented one is
+// worse than none: it reads as a decision somebody made.
+//
+// So there are two forms and no third. Either every count is given, or the item
+// says plainly that it is measured and not capped, AND SAYS WHY. Silence is
+// still refused, and so is a bare `@budget none` with no reason after it.
+const budgetCounts = /^@budget\s+net LOC\s*(?:≤|<=)\s*\+?\d+\s*,\s*new files?\s*(?:≤|<=)?\s*\+?\d+\s*,\s*new deps?\s*(?:≤|<=)?\s*\+?\d+\s*,\s*new config keys?\s*(?:≤|<=)?\s*\+?\d+/mi;
+const budgetUncapped = /^@budget\s+none\s*(?:—|--)\s*\S/mi;
+
+export function budgetIsStated(text) {
+  return budgetCounts.test(String(text)) || budgetUncapped.test(String(text));
+}
 function publicationErrors(planText, itemContents = []) {
   const count = [...String(planText).matchAll(/^## Current work order\b/gm)].length;
   const errors = count === 1 ? [] : [`PUBLICATION: found ${count} Current work order bodies; expected exactly one`];
@@ -106,8 +122,8 @@ function publicationErrors(planText, itemContents = []) {
   const items = new Map(itemContents.map(({ relative, text }) => [path.posix.basename(normalize(relative), ".md").toLowerCase(), text]));
   for (const id of ids) {
     const text = items.get(id) ?? "";
-    if (!/^@budget\s+net LOC\s*(?:≤|<=)\s*\+?\d+\s*,\s*new files?\s*(?:≤|<=)?\s*\+?\d+\s*,\s*new deps?\s*(?:≤|<=)?\s*\+?\d+\s*,\s*new config keys?\s*(?:≤|<=)?\s*\+?\d+/mi.test(text)) {
-      errors.push(`PUBLICATION BUDGET: ordered item ${id} needs a complete @budget line`);
+    if (!budgetIsStated(text)) {
+      errors.push(`PUBLICATION BUDGET: ordered item ${id} needs a complete @budget line, or an explicit uncapped one`);
     }
   }
   return errors;

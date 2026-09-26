@@ -101,8 +101,28 @@ jumpButton.onclick = () => {
   page = 0;
   renderLog(store.sessions[selectedID()]);
 };
+// Item 2lj (b) and (d): the two reading settings apply as they are set. They are
+// two custom properties on the document root, which is the whole mechanism --
+// chat.css expresses every size as a ratio of --chat-scale and every prose face
+// as --chat-face, so setting them here is the entire apply path and there is no
+// second place for the two to disagree.
+const TEXT_SCALES = { small: 0.9, normal: 1, large: 1.15, larger: 1.3, largest: 1.5 };
+
+function applyReadingSettings() {
+  const chat = store.config?.chat || {};
+  const scale = TEXT_SCALES[chat.text_size] ?? 1;
+  const face = (chat.typeface || "").trim();
+  const root = document.documentElement;
+  root.style.setProperty("--chat-scale", String(scale));
+  // An unset typeface is not a broken one: it falls back to the product's own
+  // sans, which is what every release before v1.15.0 rendered.
+  if (face) root.style.setProperty("--chat-face", `"${face}", var(--sans)`);
+  else root.style.removeProperty("--chat-face");
+}
+
 subscribe((_state, event) => {
   if (event.type === "snapshot") {
+    applyReadingSettings();
     const open = newestOpenSessions();
     // Item 2gn: a link that names a chat opens THAT chat, closed or open. The
     // `!closed` test sent the operator to whatever chat happened to be
@@ -111,6 +131,7 @@ subscribe((_state, event) => {
     if (requested && store.sessions[requested]) { askedFor = requested; changeBound(requested); requested = ""; }
     else if (store.selection.agent_id === "agent_b" && (!store.sessions[selectedID()] || store.sessions[selectedID()].closed)) changeBound(open[0]?.id || "");
   }
+  if (event.type === "config.changed") applyReadingSettings();
   // The sweep below exists for a selection that went stale on its own. A chat
   // the operator asked for by name is not stale, so it is left in front of him
   // until he chooses another (item 2gn).

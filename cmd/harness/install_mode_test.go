@@ -295,3 +295,27 @@ func contains(values []string, want string) bool {
 	}
 	return false
 }
+
+// Item 2ll (a) and (b): the install's OWN records -- its log, its in-progress
+// marker, its progress file -- follow the instance that asked for the install,
+// and production's do not move because production passes its own root.
+func TestTheInstallsRecordsFollowTheAskingInstance2ll(t *testing.T) {
+	operator := filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b")
+	for _, testCase := range []struct {
+		name     string
+		explicit string
+		args     []string
+		want     string
+	}{
+		{"an explicit --install-data wins", `C:\suite\Data\Agent_b`, []string{"-DataDirectory", `C:\other`}, `C:\suite\Data\Agent_b`},
+		{"otherwise the installer's own -DataDirectory", "", []string{"-DataDirectory", `C:\suite\Data\Agent_b`}, `C:\suite\Data\Agent_b`},
+		{"production, which passes its own root", "", []string{"-DataDirectory", operator}, operator},
+		{"and nothing passed is still the operator's location", "", nil, operator},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := installDataRoot(testCase.explicit, testCase.args); got != testCase.want {
+				t.Fatalf("installDataRoot = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}

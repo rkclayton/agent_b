@@ -552,7 +552,12 @@ func installArguments(application, data, workspace, sessionID string) ([]string,
 	if strings.TrimSpace(application) == "" || strings.TrimSpace(data) == "" {
 		return nil, errors.New("this instance cannot name its own application and data roots, so it will not install; install by hand from the release page")
 	}
-	arguments := []string{"--install", "--quiet", "-ApplicationDirectory", application, "-DataDirectory", data}
+	// Item 2ll (a) and (d): BOTH arguments carry the same root. -DataDirectory is
+	// the installer script's; --install-data is this process's, and it governs
+	// the install log, the in-progress marker and the progress file. rel-1.14.0
+	// passed only the first, so a disposable instance's update wrote its own
+	// records into the operator's LocalAppData.
+	arguments := []string{"--install", "--quiet", "--install-data", data, "-ApplicationDirectory", application, "-DataDirectory", data}
 	if strings.TrimSpace(workspace) != "" {
 		arguments = append(arguments, "-WorkspaceDirectory", workspace)
 	}

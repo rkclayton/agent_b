@@ -100,7 +100,54 @@ func migrateToolset(toolset []string) []string {
 	return migrated
 }
 
-type Chat struct{}
+// Item 2lj: the chat can be read the way the reader needs. Two settings, no
+// more: how big the transcript is, and what it is set in. Both are empty by
+// default, which means the shipped default -- an empty value is not a broken
+// one, it is "whatever Agent_b has always looked like".
+type Chat struct {
+	// TextSize is a named step, not a number: the operator picks one and the
+	// transcript, composer and step rows scale together, keeping their
+	// proportions.
+	TextSize string `json:"text_size,omitempty"`
+	// Typeface is a family name from the list the Chats page offers, which holds
+	// the faces Agent_b ships and the faces Windows already provides. A face
+	// Agent_b cannot confirm is never offered, because a font named but absent
+	// falls back silently and the reader would not know.
+	Typeface string `json:"typeface,omitempty"`
+}
+
+// ChatTextSizes are the steps, smallest first. The default is "normal", which
+// is what every release before v1.15.0 rendered.
+var ChatTextSizes = []string{"small", "normal", "large", "larger", "largest"}
+
+// ChatTypefaces are the families the Chats page may offer. The first is the
+// shipped default; the next two are shipped with the product because Agent_b
+// runs offline; the rest are Windows' own, confirmed present in the machine
+// font directory by rel-1.15.0/W0 before any of them was listed here.
+var ChatTypefaces = []string{
+	"IBM Plex Sans",
+	"Atkinson Hyperlegible",
+	"OpenDyslexic",
+	"Segoe UI",
+	"Arial",
+	"Verdana",
+	"Tahoma",
+	"Trebuchet MS",
+	"Georgia",
+	"Times New Roman",
+	"Calibri",
+	"Cambria",
+	"Comic Sans MS",
+}
+
+func allowed(value string, values []string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
+}
 
 // Updates controls the one passive release check. AutoCheck defaults on even
 // for older configuration files that predate this object; an explicit false is
@@ -780,6 +827,15 @@ func (c Config) Validate() error {
 	}
 	if c.Workspace == "" {
 		return fmt.Errorf("workspace: required")
+	}
+	// Item 2lj (c): a face that is not on the list is not a face this build can
+	// promise to render, so it is refused rather than written and silently
+	// substituted by the browser.
+	if c.Chat.TextSize != "" && !allowed(c.Chat.TextSize, ChatTextSizes) {
+		return fmt.Errorf("chat.text_size: %q is not one of %s", c.Chat.TextSize, strings.Join(ChatTextSizes, ", "))
+	}
+	if c.Chat.Typeface != "" && !allowed(c.Chat.Typeface, ChatTypefaces) {
+		return fmt.Errorf("chat.typeface: %q is not a typeface this build offers", c.Chat.Typeface)
 	}
 	if !c.Shell.AllowLocalNetwork && len(c.Shell.ConfirmedLocalSubnets) > 0 {
 		return fmt.Errorf("shell.confirmed_local_subnets: must be empty while allow_local_network is off")

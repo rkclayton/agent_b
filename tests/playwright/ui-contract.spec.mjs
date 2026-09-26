@@ -160,3 +160,149 @@ test("dragging the strip resizes the composer, keeps what is typed, and persists
   expect(Number(remembered)).toBe(Number.parseFloat(applied));
   expect(shorter).toBeGreaterThanOrEqual(Number(remembered));
 });
+
+// Item 2lj (f) and (g): the standing UI contract still holds at every step. At
+// the largest size nothing overflows and nothing gains a scrollbar it did not
+// have, at the wide width and at the phone viewport both.
+const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8");
+
+function chatPage(scale, face) {
+  return `<!doctype html><html><head><style>
+    :root { --bezel:#2A2E35; --well:#15181C; --ink:#D8DDE3; --mute:#7D8794; --trace:#F2B233; --alarm:#E4624F;
+      --accent-plan:#5AC8FA; --sans:sans-serif; --mono:monospace;
+      --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s8:32px; --app-header-height:32px;
+      --agent-tab-width:118px; --etch-fade:.165; --chat-scale:${scale}; --chat-face:${face}; }
+    ${appCSS}
+    ${chatCSS}
+  </style></head><body class="chat-page">
+    <main id="chat-log" class="chat-log">
+      <article class="chat-entry"><div class="chat-speaker">operator</div><div class="chat-content">
+        <p>A message long enough to wrap at the phone width and to keep wrapping when the reader asks for the largest step.</p>
+        <pre><code>read_file("C:/projects/agentb/internal/credential/store.go")</code></pre>
+      </div></article>
+    </main>
+    <footer id="chat-composer" class="chat-composer">
+      <div id="chat-status-strip" class="chat-status-strip"><span class="chat-notice">idle</span></div>
+      <div class="chat-input-wrap"><textarea id="chat-input">typed text</textarea></div>
+    </footer>
+  </body></html>`;
+}
+
+for (const width of [1280, 390]) {
+  for (const [step, scale] of [["smallest", 0.9], ["largest", 1.5]]) {
+    test(`the chat surface holds the UI contract at the ${step} step at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.setContent(chatPage(scale, '"OpenDyslexic", var(--sans)'));
+      const findings = await page.evaluate(() => {
+        const problems = [];
+        if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) problems.push("the page scrolls sideways");
+        for (const element of document.querySelectorAll(".chat-composer, .chat-composer *, .chat-entry, .chat-content")) {
+          const style = getComputedStyle(element);
+          // The transcript scrolls because it must; nothing inside it may.
+          if (/(auto|scroll)/.test(style.overflowY) && element.scrollHeight > element.clientHeight + 1) {
+            problems.push(`${element.className || element.tagName} scrolls on its own`);
+          }
+          if (element.scrollWidth > element.clientWidth + 1) problems.push(`${element.className || element.tagName} overflows sideways`);
+        }
+        return problems;
+      });
+      expect(findings, findings.join("; ")).toEqual([]);
+    });
+  }
+}
+
+// (e): a code block stays monospaced whatever the prose face is. The prose
+// changes and the code does not, under every typeface the Chats page offers.
+test("a code block stays monospaced under every typeface", async ({ page }) => {
+  const faces = ["IBM Plex Sans", "Atkinson Hyperlegible", "OpenDyslexic", "Segoe UI", "Verdana", "Comic Sans MS"];
+  for (const face of faces) {
+    await page.setContent(chatPage(1, `"${face}", var(--sans)`));
+    const seen = await page.evaluate(() => ({
+      prose: getComputedStyle(document.querySelector(".chat-content p")).fontFamily,
+      code: getComputedStyle(document.querySelector(".chat-content code")).fontFamily,
+    }));
+    expect(seen.prose, `${face} did not reach the prose`).toContain(face);
+    expect(seen.code, `${face} leaked into a code block`).not.toContain(face);
+    expect(seen.code).toContain("monospace");
+  }
+});
+
+// Item 2lk (d): the same rule over EVERY settings page, not only Activity, so a
+// new inner scroller is caught where it appears rather than the next time
+// someone looks. The pages are rendered from their own source, so a selector
+// that no page uses cannot hide here either.
+const settingsSources = Object.fromEntries(await Promise.all(
+  ["settings-security.js", "settings-general.js", "settings-workspace.js", "settings-profiles.js",
+   "settings-connections.js", "settings-chats.js", "settings-notifications.js", "settings-about.js"]
+    .map(async (name) => {
+      try { return [name, await readFile(new URL(`../../web/js/${name}`, import.meta.url), "utf8")]; }
+      catch { return [name, ""]; }
+    })));
+
+// Every class the settings pages put on an element, gathered from their own
+// markup: whatever app.css says about any of them has to obey the contract.
+const settingsClasses = [...new Set(
+  Object.values(settingsSources).flatMap((source) => [...source.matchAll(/class="([^"$]+)"/g)]
+    .flatMap((match) => match[1].split(/\s+/)))
+)].filter(Boolean).sort();
+
+test("no class any settings page uses is styled to scroll inside the page", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.setContent(`<!doctype html><html><head><style>
+    :root { --bezel:#2A2E35; --well:#15181C; --ink:#D8DDE3; --mute:#7D8794; --trace:#F2B233; --alarm:#E4624F;
+      --accent-plan:#5AC8FA; --sans:sans-serif; --mono:monospace;
+      --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s8:32px; --app-header-height:32px; --agent-tab-width:118px; --etch-fade:.165; }
+    ${appCSS}
+  </style></head><body>
+    <div id="settings-page" class="settings-page"><div class="settings-layout"><div class="settings-content">
+      ${settingsClasses.map((name) => `<div class="${name}" data-probe="${name}">text</div>`).join("")}
+    </div></div></div>
+  </body></html>`);
+
+  const offenders = await page.evaluate(() => [...document.querySelectorAll("[data-probe]")].filter((node) => {
+    const style = getComputedStyle(node);
+    return ["overflow", "overflow-y"].some((property) => ["auto", "scroll"].includes(style.getPropertyValue(property)));
+  }).map((node) => node.dataset.probe));
+
+  expect(offenders, "these settings classes scroll inside a page that already scrolls").toEqual([]);
+  // The probe is only worth anything if it actually covered the two this item
+  // exists for, so it says so rather than passing on an empty list.
+  expect(settingsClasses).toContain("settings-feedback");
+  expect(settingsClasses).toContain("memory-content");
+});
+
+// (b): Activity leaves no empty column at 1250px.
+test("Activity's upper grid leaves no empty column at 1250px", async ({ page }) => {
+  await page.setViewportSize({ width: 1250, height: 900 });
+  await page.setContent(`<!doctype html><html><head><style>
+    :root { --bezel:#2A2E35; --well:#15181C; --ink:#D8DDE3; --mute:#7D8794; --trace:#F2B233; --alarm:#E4624F;
+      --accent-plan:#5AC8FA; --sans:sans-serif; --mono:monospace;
+      --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s8:32px; --app-header-height:32px; --agent-tab-width:118px; --etch-fade:.165; }
+    ${appCSS}
+  </style></head><body>
+    <div id="settings-page" class="settings-page"><div class="settings-layout"><div class="settings-content">${activityMarkup()}</div></div></div>
+  </body></html>`);
+  // Twenty metric rows on the right, two tool rows on the left: the shape that
+  // produced the hole rel-1.14.0/W7 reported.
+  await page.evaluate(() => {
+    const line = (label, value) => `<div class="panel-line"><span>${label}</span><span>${value}</span></div>`;
+    document.querySelector("#panel-stats").innerHTML =
+      Array.from({ length: 20 }, (_, index) => line(`metric ${index}`, index)).join("");
+    document.querySelector("#panel-tool-counters").innerHTML = line("list_dir", 1) + line("write_file", 1);
+  });
+
+  const geometry = await page.evaluate(() => {
+    const pane = document.querySelector("#panel-tool-use").getBoundingClientRect();
+    const lifetime = document.querySelector("#panel-lifetime").getBoundingClientRect();
+    const rows = document.querySelector("#panel-lifetime .panel-lines");
+    const columns = getComputedStyle(rows).gridTemplateColumns.split(" ").length;
+    return { pane: pane.height, paneWidth: Math.round(pane.width), lifetime: lifetime.height, columns, width: Math.round(lifetime.width), sameRow: Math.abs(pane.top - lifetime.top) < 2 };
+  });
+
+  // Both panes take the whole surface, so there is no second column left to be
+  // empty, and the metrics use that width instead of running down one column.
+  expect(geometry.sameRow, "the panes still share a row").toBe(false);
+  expect(geometry.columns, `the metrics still run down a single column in ${geometry.width}px`).toBeGreaterThan(1);
+  expect(geometry.width, "Lifetime does not take the width of the surface").toBeGreaterThan(700);
+  expect(geometry.paneWidth, "Tool use does not take the width of the surface").toBeGreaterThan(700);
+});

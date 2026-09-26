@@ -263,3 +263,79 @@ test("a repeated entry key is drawn as its own row, not moved", async () => {
   // A repeat is never dropped: that would hide part of the record.
   assert.doesNotMatch(chat, /entries\.filter\([^)]*seen[^)]*\)/);
 });
+
+// Item 2lj. Windows checks these files out with CRLF, so anything that slices
+// or counts lines normalizes first.
+const chatsPage = await readFile(new URL("./settings-chats.js", import.meta.url), "utf8").then((t) => t.replace(/\r\n/g, "\n"));
+const configGo = await readFile(new URL("../../internal/config/config.go", import.meta.url), "utf8").then((t) => t.replace(/\r\n/g, "\n"));
+
+// (a): two rows in Chats, and only two.
+test("Chats offers text size and typeface, and nothing else was added", () => {
+  assert.match(chatsPage, /context\.choices\("chat\.text_size", "text size"/);
+  assert.match(chatsPage, /context\.choices\("chat\.typeface", "typeface"/);
+  const added = [...chatsPage.matchAll(/context\.(choices|number|text|toggle|textarea|secret)\("chat\./g)];
+  assert.equal(added.length, 2, `Chats gained ${added.length} chat rows, expected exactly two`);
+});
+
+// (c): the operator asked for the dyslexia face to be listed like any other --
+// "just include it as a font dont make it special or anything". Nothing in the
+// page may mark any face as an accessibility option.
+test("no typeface is marked as an accessibility option", () => {
+  // What the reader sees, not what the source says about itself: this file's
+  // own comments explain why the rule exists and must not trip it.
+  const rendered = chatsPage.split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join("\n");
+  for (const forbidden of [/dyslexi[ac][^"]/i, /accessib/i, /readability option/i, /recommended/i]) {
+    const hit = rendered.match(forbidden);
+    if (hit) assert.fail(`the Chats page explains a face: ${hit[0]}`);
+  }
+  assert.match(rendered, /"OpenDyslexic"/, "OpenDyslexic is not offered at all");
+});
+
+// (c): the list the page draws and the list the config accepts are the same
+// list, so a face can never be offered and then refused on save.
+test("the offered typefaces are exactly the ones the config accepts", () => {
+  const page = [...chatsPage.matchAll(/"([^"]+)",?/g)];
+  const declared = /const TYPEFACES = \[([\s\S]*?)\];/.exec(chatsPage);
+  assert.ok(declared, "the page declares no typeface list");
+  const offered = [...declared[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  const accepted = /var ChatTypefaces = \[\]string\{([\s\S]*?)\n\}/.exec(configGo);
+  assert.ok(accepted, "the config declares no typeface list");
+  const allowed = [...accepted[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(offered, allowed);
+  assert.ok(page.length > 0);
+});
+
+// (b): one base size, and every size in the chat stylesheet a ratio of it. W0
+// counted 38 hard-coded declarations here; a new one would not scale and would
+// break the proportions the step is supposed to keep.
+test("the chat stylesheet hard-codes no type size", () => {
+  const offenders = [...css.replace(/\r\n/g, "\n").matchAll(/font(?:-size)?:\s*[^;]*?\b\d+px/g)].map((match) => match[0]);
+  assert.deepEqual(offenders, [], `the chat surface still hard-codes a size: ${offenders.join("; ")}`);
+  assert.match(css, /--ct: calc\(12px \* var\(--chat-scale, 1\)\)/);
+});
+
+// (b) and (d): the apply path is the two custom properties and nothing else.
+test("the reading settings apply as they are set", () => {
+  assert.match(chat, /function applyReadingSettings\(\)/);
+  assert.match(chat, /root\.style\.setProperty\("--chat-scale"/);
+  assert.match(chat, /root\.style\.setProperty\("--chat-face"/);
+  assert.match(chat, /if \(event\.type === "config\.changed"\) applyReadingSettings\(\);/);
+});
+
+// (c): both shipped faces are declared, because a font named but absent falls
+// back silently and the reader who chose it would never know.
+test("both shipped faces are declared against files that exist", async () => {
+  for (const [family, file] of [
+    ["Atkinson Hyperlegible", "atkinson-hyperlegible-latin-400-normal.woff2"],
+    ["OpenDyslexic", "opendyslexic-latin-400-normal.woff2"],
+  ]) {
+    assert.ok(tokens.includes(`font-family:"${family}"`), `${family} has no @font-face`);
+    assert.ok(tokens.includes(file), `${family} does not name its file`);
+    const bytes = await readFile(new URL(`../assets/fonts/${file}`, import.meta.url));
+    assert.ok(bytes.length > 1000, `${file} is not a font`);
+  }
+  const licence = await readFile(new URL("../assets/fonts/LICENSE-FONTS.md", import.meta.url), "utf8");
+  for (const family of ["Atkinson Hyperlegible", "OpenDyslexic", "IBM Plex Sans", "IBM Plex Mono"]) {
+    assert.ok(licence.includes(family), `${family} is shipped without a licence line`);
+  }
+});

@@ -54,6 +54,14 @@ $operatorBefore = if (Test-Path -LiteralPath (Join-Path $operatorApplication 'Ag
 } else { 'absent' }
 $keyBefore = if (Test-Path -LiteralPath $operatorKey) { (Get-ItemProperty -LiteralPath $operatorKey).DisplayVersion } else { 'absent' }
 
+# Item 2ll (c): the check that would have caught the leak. Everything the
+# operator's own data root holds before this gate runs, so anything the launched
+# setup writes there is visible as a difference rather than as a warning nobody
+# reads.
+$operatorData = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Agent_b'
+$operatorDataBefore = @(Get-ChildItem -LiteralPath $operatorData -Recurse -File -Force -ErrorAction SilentlyContinue |
+    ForEach-Object { $_.FullName }) | Sort-Object
+
 function Get-FreePort {
     $probe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
     $probe.Start(); $port = $probe.LocalEndpoint.Port; $probe.Stop()
@@ -163,24 +171,23 @@ try {
     # disposable instance can never land on the operator's installation.
     $decision = $null
     $progress = Join-Path $data 'install-progress.jsonl'
-    $escaped = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Agent_b\install-progress.jsonl'
-    $deadline = (Get-Date).AddSeconds(180); $installed = $null; $escapedRoot = $false
+    # 2ll: the progress file belongs beneath the instance's own data root now,
+    # so that is the only place this looks. A file in the operator's root is a
+    # leak the assertion below fails on, not a second place to read from.
+    $deadline = (Get-Date).AddSeconds(180); $installed = $null
     while ((Get-Date) -lt $deadline) {
         try {
             $identity = & (Join-Path $application 'Agent_b.exe') -version 2>$null | ConvertFrom-Json
             if ($identity.tag -eq $ToVersion) { $installed = $identity; break }
         } catch { }
-        foreach ($candidate in @($progress, $escaped)) {
-            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-                $lines = @(Get-Content -LiteralPath $candidate | Where-Object { $_.Trim() })
-                $last = $lines | Where-Object { $_ -match '"done":true' } | Select-Object -Last 1
-                if ($last) { $decision = $last; $escapedRoot = ($candidate -eq $escaped); break }
-            }
+        if (Test-Path -LiteralPath $progress -PathType Leaf) {
+            $lines = @(Get-Content -LiteralPath $progress | Where-Object { $_.Trim() })
+            $last = $lines | Where-Object { $_ -match '"done":true' } | Select-Object -Last 1
+            if ($last) { $decision = $last }
         }
         if ($decision) { break }
         Start-Sleep -Seconds 2
     }
-    if (-not $decision -and -not $installed) { throw 'UPDATER CYCLE FAILED: the launched setup reached no decision' }
 
     # Whichever way it went, the operator's installation must be exactly as it was.
     $operatorAfter = if (Test-Path -LiteralPath (Join-Path $operatorApplication 'Agent_b.exe')) {
@@ -193,6 +200,31 @@ try {
         try { $_.Path -and -not $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } catch { $false }
     } | ForEach-Object { $_.Id }) -join ','
     if ($productionBefore -cne $productionAfter) { throw "UPDATER CYCLE FAILED: processes outside the suite root changed: '$productionBefore' then '$productionAfter'" }
+
+    # Item 2ll (c): a disposable instance's update writes nothing into the
+    # operator's LocalAppData. rel-1.14.0/W8 had to copy three such files out and
+    # clear them by hand; this is the assertion that makes that impossible to
+    # miss again. Anything found is copied to the evidence directory and cleared
+    # before the gate fails, so a failure does not also leave a mess behind.
+    $operatorDataAfter = @(Get-ChildItem -LiteralPath $operatorData -Recurse -File -Force -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.FullName }) | Sort-Object
+    $leaked = @(Compare-Object -ReferenceObject @($operatorDataBefore) -DifferenceObject @($operatorDataAfter) |
+        Where-Object { $_.SideIndicator -eq '=>' } | ForEach-Object { $_.InputObject })
+    if ($leaked.Count) {
+        if ($EvidenceDirectory) { $null = New-Item -ItemType Directory -Path $EvidenceDirectory -Force }
+        foreach ($file in $leaked) {
+            if ($EvidenceDirectory) { Copy-Item -LiteralPath $file -Destination $EvidenceDirectory -Force -ErrorAction SilentlyContinue }
+            Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+        }
+        throw ("UPDATER CYCLE FAILED: the update wrote into the operator's LocalAppData: " + ($leaked -join '; '))
+    }
+    Write-Host "PROOF nothing written outside the suite root: the operator's data root is unchanged, $($operatorDataBefore.Count) files before and after"
+
+    # Only now: a launch that reached no decision beneath the suite root and left
+    # nothing in the operator's root either is a genuine mystery, and worth
+    # saying so. Checked after the side effects, because when a pre-2ll build
+    # leaks, WHERE it wrote is the answer and the check above gives it.
+    if (-not $decision -and -not $installed) { throw 'UPDATER CYCLE FAILED: the launched setup reached no decision beneath the suite root' }
 
     # The verified setup is the download-and-verification half, proven on disk: the
     # manager deletes it when the Authenticode check fails, so its presence beneath
@@ -229,26 +261,12 @@ try {
         Write-Host 'UNEXERCISED: the install-and-restart half. The installer refuses a non-canonical ApplicationDirectory outside TestMode, and the updater must not be able to pass TestMode, so a disposable instance cannot complete an install beneath the suite root.'
         $outcome = 'PARTIAL'
     }
-    if ($escapedRoot) {
-        # Carried as a known miss: the updater passes the installer's -DataDirectory
-        # but not the process's --install-data, so the install log and progress file
-        # still resolve to the operator's LocalAppData. Copy them out and clear them
-        # so the gate leaves nothing behind.
-        if ($EvidenceDirectory) { $null = New-Item -ItemType Directory -Path $EvidenceDirectory -Force; Copy-Item -LiteralPath $escaped -Destination $EvidenceDirectory -Force }
-        Remove-Item -LiteralPath $escaped -Force -ErrorAction SilentlyContinue
-        $marker = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Agent_b\install-in-progress.json'
-        if (Test-Path -LiteralPath $marker) {
-            if ($EvidenceDirectory) { Copy-Item -LiteralPath $marker -Destination $EvidenceDirectory -Force }
-            Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
-        }
-        Write-Warning "the launched setup wrote its progress into the operator's LocalAppData because the updater passes no --install-data; copied out and cleared"
-    }
     Write-Host "UPDATER CYCLE $outcome"
     if ($EvidenceDirectory) {
         $null = New-Item -ItemType Directory -Path $EvidenceDirectory -Force
         @{ outcome = $outcome; from = $before.tag; to = $(if ($installed) { $installed.tag } else { $null }); offered = $ToVersion
            root = $root; setup_sha256 = $setupHash; setup_bytes = $setupBytes; verified_setup = $verified
-           installer_decision = $decision; progress_escaped_the_suite_root = $escapedRoot
+           installer_decision = $decision; operator_data_files = $operatorDataBefore.Count
            operator_executable_sha256 = $operatorAfter; operator_registration = $keyAfter } |
             ConvertTo-Json -Depth 5 | Set-Content (Join-Path $EvidenceDirectory 'updater-cycle.json') -Encoding utf8
     }

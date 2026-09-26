@@ -19,6 +19,9 @@ type Status struct {
 	State            string `json:"state,omitempty"`
 	Action           string `json:"action,omitempty"`
 	CredentialStored bool   `json:"credential_stored,omitempty"`
+	// Item 2li (e): a machine-provisioned identity must read as ready without
+	// offering to redo it. "machine" is how Settings knows not to.
+	CredentialScope string `json:"credential_scope,omitempty"`
 }
 
 type SetupResult struct {

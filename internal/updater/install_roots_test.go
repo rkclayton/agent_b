@@ -52,3 +52,28 @@ func TestAnInstanceThatCannotNameItsRootsRefuses2lh(t *testing.T) {
 		}
 	}
 }
+
+// Item 2ll (d): both arguments carry the same root. -DataDirectory is the
+// installer script's and --install-data is the process's; rel-1.14.0 passed only
+// the first, so the install's own log, marker and progress file still resolved
+// to the operator's LocalAppData whatever instance asked for the update.
+func TestBothDataArgumentsCarryTheSameRoot2ll(t *testing.T) {
+	const data = `C:\suite\root\Data\Agent_b`
+	arguments, err := installArguments(`C:\suite\root\Application\Agent_b`, data, `C:\suite\root\workspace`, "")
+	if err != nil {
+		t.Fatalf("installArguments: %v", err)
+	}
+	roots := map[string]string{}
+	for index := 0; index+1 < len(arguments); index++ {
+		switch arguments[index] {
+		case "--install-data", "-DataDirectory":
+			roots[arguments[index]] = arguments[index+1]
+		}
+	}
+	if len(roots) != 2 {
+		t.Fatalf("both data arguments are not present: %v", arguments)
+	}
+	if roots["--install-data"] != data || roots["-DataDirectory"] != data {
+		t.Fatalf("the two data arguments disagree: %v", roots)
+	}
+}

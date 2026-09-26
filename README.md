@@ -16,6 +16,23 @@ The installed app is a singleton. Its own WebView2 window falls back to an Edge 
 
 [Operator reference](docs/REFERENCE.md) — the surfaces, the tools, configuration, updates, and where your data lives.
 
+[Where the work lives](docs/REPOSITORIES.md) — the four repositories, what each owns, and what the VPS is for.
+
+## From a prompt
+
+`agentb` runs one task in the current directory without the app:
+
+    agentb "add a unit test for the parser and run it"
+
+It is the same engine, the same configuration, connections and credentials, and
+the same tools and jail — approvals are terminal prompts with the app's scopes.
+`--json` emits the event stream for scripts, `--unattended` means nothing asks
+and a boundary hit fails the run, and the run is journaled to the folder's
+`.agentb/` in the same format the app reads.
+
+**Not yet on the installer's ship list** — build it with
+`go build ./cmd/agentb` for now.
+
 ## Source development
 
 Go 1.24+ is required. `start-Agent_b.cmd` builds and runs a checkout. A compatible endpoint is enough; llama.cpp additionally enables exact template/token accounting when it exposes `/tokenize` and `/apply-template`.

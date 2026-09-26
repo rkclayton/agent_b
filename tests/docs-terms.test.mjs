@@ -24,6 +24,7 @@ const documents = [
   "docs/HARDENING.md",
   "docs/OPERATOR-FILES.md",
   "docs/SCREENSHOT-GATE.md",
+  "docs/REPOSITORIES.md",
   "SECURITY.md",
   "INTERFACES.md",
   "web/DESIGN.md",
@@ -76,6 +77,16 @@ const rules = [
     pattern: /\bprofile(?:'s)?\s+base_url\b|\bprofile\s+endpoint\b|\bendpoint\s+profile\b/i,
     trips: "Set the profile base_url for each endpoint profile.",
     allows: "Profiles keep separate chats, memory and logs; connections carry base_url.",
+  },
+  {
+    // Item 2lr: the decision is only worth writing down if it cannot quietly
+    // rot. The claim that would rot is a telemetry RECEIVER in this repository;
+    // the sender is here and the word alone proves nothing.
+    name: "a telemetry receiver in this repository",
+    why: "item 2lr: the receiver is the VPS; this repository ships the sender and the off switch only",
+    pattern: /\b(?:receiver|receiving endpoint)\b[^.\n]{0,60}\b(?:in|inside|on|within) (?:this repository|the harness|Agent_b)\b|\bAgent_b (?:hosts|runs|serves|provides) (?:a|the) telemetry receiver\b/i,
+    trips: "Agent_b runs a telemetry receiver, and the receiver in this repository stores each batch.",
+    allows: "This repository keeps only the sender and the off switch; the receiver is the VPS.",
   },
 ];
 

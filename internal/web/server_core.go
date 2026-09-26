@@ -40,11 +40,13 @@ import (
 )
 
 type Server struct {
-	mu                 sync.RWMutex
-	cfg                *config.Config
-	configPath         string
-	roots              RuntimeRoots
-	bus                *events.Bus
+	mu         sync.RWMutex
+	cfg        *config.Config
+	configPath string
+	roots      RuntimeRoots
+	bus        *events.Bus
+	// Item 2jg: the telemetry sender and its subscription, or nothing at all.
+	telemetry          telemetryHost
 	registry           *session.Registry
 	webDir             string
 	worker             *worker.Driver
@@ -259,6 +261,7 @@ func (s *Server) recordObservedMessageLimit(connectionID string, limit int) erro
 	}
 	return fmt.Errorf("connection %q not found", connectionID)
 }
+
 // Item 2l8: the byte cap a connection has been refused by is remembered the same
 // way its message cap is, so a chat that was over the limit becomes sendable at
 // its next turn instead of after another refusal.

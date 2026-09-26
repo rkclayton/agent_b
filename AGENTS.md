@@ -3,6 +3,10 @@
 ## Orientation
 - Read `PLAN.md` at session start. `PLAN.md` is the sequencing authority. Read `NOTES.md` only by a targeted pointer (named heading, search result, or tail), never at session start and never from top to bottom; it is the append-only document of record for decisions, discovery findings, and the follow-up card backlog.
 - `INTERFACES.md` and `SECURITY.md` are binding. `docs/HARDENING.md` is the operator runbook.
+- `docs/REPOSITORIES.md` says which of four repositories a piece of work belongs to (item 2lr):
+  **vps** (broker, telemetry receiver, release serving), **windows** (this one — the harness and
+  its installer), **mac**, **android**. Nothing is shared by copying; what more than one needs is
+  a published artifact. Read it before starting work that might not belong here.
 - Planning documents are not tracked. `PLAN.md` is gitignored and operator-owned; record durable findings and decisions in `NOTES.md`.
 
 ## PLAN.md is operator-owned

@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -19,6 +19,9 @@ const repository = resolve(here, "..");
 // Bounded on purpose: three journals, 202 events, enough to exercise streaming
 // projection, tool and card rendering, a long transcript and shell geometry.
 const boundedJournals = ["short.jsonl", "cards.jsonl", "long.jsonl"];
+
+// The application root this run built for itself, if it did; removed at the end.
+let disposableApp = null;
 
 const args = {};
 for (let index = 2; index < process.argv.length; index += 1) {
@@ -111,8 +114,34 @@ async function journalPrefixes(directory) {
   return Object.fromEntries(await Promise.all(names.map(async (name) => [basename(name, ".jsonl"), await readFile(join(directory, name))])));
 }
 
-assert.ok(args.app, "missing --app (the candidate application root holding Agent_b.exe)");
-const app = resolve(args.app);
+// Item 2k1: the gate runs from a disposable root WITHOUT production or
+// candidate orchestration. It already built everything else it needs from
+// committed journals -- item 2l3 did that -- but it still demanded a candidate
+// application root somebody else had staged, which is the one piece of
+// orchestration its own acceptance says it should not need.
+//
+// Without --app it now builds the binary itself, into a disposable directory it
+// removes afterwards. --app is kept because a RELEASE gate should test the
+// candidate it is about to publish rather than a fresh build of the same source.
+const app = args.app ? resolve(args.app) : await buildDisposableApp();
+
+async function buildDisposableApp() {
+	const root = await mkdtemp(join(tmpdir(), "agentb-replay-app-"));
+	disposableApp = root;
+	const built = join(root, "Agent_b.exe");
+	await new Promise((done, failed) => {
+		const build = spawn("go", ["build", "-o", built, "./cmd/harness"], {
+			cwd: repository, stdio: ["ignore", "inherit", "inherit"], windowsHide: true,
+		});
+		build.on("error", failed);
+		build.on("exit", (code) => (code === 0 ? done() : failed(new Error(`go build exited ${code}`))));
+	});
+	for (const directory of ["web", "prompts"]) {
+		await cp(join(repository, directory), join(root, directory), { recursive: true });
+	}
+	console.log(`BUILT disposable application root at ${root}`);
+	return root;
+}
 const evidence = resolve(args.evidence ?? join(repository, "logs", "evidence", "connection-replay"));
 const negative = Boolean(args["negative-control"]);
 await mkdir(evidence, { recursive: true });
@@ -177,5 +206,10 @@ try {
   await sleep(500);
   if (failure) console.error(`fixture root retained for inspection: ${root}`);
   else if (!args.keep) removeTreeWithinAllowedRoots(root, [tmpdir()], "connection replay fixture cleanup");
+  // Item 2k1: an application root this run built for itself goes with it, so a
+  // gate that needed no orchestration to start leaves none behind either.
+  if (disposableApp && !args.keep) {
+    removeTreeWithinAllowedRoots(disposableApp, [tmpdir()], "connection replay disposable application root");
+  }
 }
 if (failure) { console.error(failure.message); process.exitCode = 1; }

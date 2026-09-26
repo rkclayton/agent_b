@@ -38,6 +38,7 @@ type Config struct {
 	OperatorFiles OperatorFiles      `json:"operator_files"`
 	Notifications Notifications      `json:"notifications"`
 	Updates       Updates            `json:"updates"`
+	Telemetry     Telemetry          `json:"telemetry"`
 	Signing       Signing            `json:"signing"`
 	LoadNotices   []string           `json:"-"`
 }
@@ -152,6 +153,35 @@ func allowed(value string, values []string) bool {
 // Updates controls the one passive release check. AutoCheck defaults on even
 // for older configuration files that predate this object; an explicit false is
 // preserved by the custom unmarshaller.
+// Item 2jg: diagnostic telemetry. Three keys and no more.
+//
+// There is NO DEFAULT ENDPOINT, and that is deliberate. This repository does not
+// know the operator's receiver -- item 2lr puts it on the VPS -- and shipping a
+// guess would send his counts to a stranger. Until Endpoint is set, nothing is
+// collected and nothing is queued, because there is nowhere for it to go.
+//
+// InstallID identifies an install, never a person, and is regenerated whenever
+// the switch goes off and on again.
+type Telemetry struct {
+	Enabled     bool   `json:"enabled"`
+	Endpoint    string `json:"endpoint"`
+	InstallID   string `json:"install_id"`
+	initialized bool
+}
+
+func defaultTelemetry() Telemetry { return Telemetry{Enabled: true, initialized: true} }
+
+func (t *Telemetry) UnmarshalJSON(data []byte) error {
+	type plain Telemetry
+	value := plain(defaultTelemetry())
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*t = Telemetry(value)
+	t.initialized = true
+	return nil
+}
+
 type Updates struct {
 	AutoCheck   bool `json:"auto_check"`
 	initialized bool
@@ -608,7 +638,7 @@ func Defaults(workspace string) Config {
 		Connections: []Connection{connection}, Agents: []Agent{{Name: connection.Label, B: "local", Toolset: FullToolset()}},
 		Services: map[string]Service{},
 		Sandbox:  Sandbox{Enabled: true, initialized: true},
-		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(),
+		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(), Telemetry: defaultTelemetry(),
 		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, Attachments: AttachmentTool{MaxBytes: 8 << 20, InlineMaxBytes: 2 << 20}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Shell: ShellTool{OperatorCommands: []string{"git"}}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, WebSearch: WebSearchTool{Enabled: true, Engines: []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"}, PerEngineTimeoutS: 8, BenchDurationMinutes: 30, initialized: true}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
 		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Enabled: true, Account: "agentb-svc", Domain: ".", initialized: true}},
 		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
@@ -1206,6 +1236,9 @@ func applyDefaults(c *Config) {
 	}
 	if !c.Updates.initialized {
 		c.Updates = d.Updates
+	}
+	if !c.Telemetry.initialized {
+		c.Telemetry = d.Telemetry
 	}
 	if !c.Deliver.initialized {
 		c.Deliver = d.Deliver

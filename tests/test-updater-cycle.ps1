@@ -250,11 +250,16 @@ try {
         $transcripts = @(Get-ChildItem (Join-Path $data 'logs') -Filter 'installer-*.log' -File -ErrorAction SilentlyContinue |
             Where-Object { $_.LastWriteTime -ge $launchedAt })
         $named = @($transcripts | Where-Object {
-            (Get-Content -Raw -LiteralPath $_.FullName) -match ("(?i)-ApplicationDirectorys+" + [regex]::Escape($application))
+            (Get-Content -Raw -LiteralPath $_.FullName) -match ("(?i)-ApplicationDirectory\s+" + [regex]::Escape($application))
         })
         if (-not $named.Count) {
             $why = if ($preFix) { " -- $($before.tag) predates item 2lh, so its updater passed no roots and the setup resolved the operator's own locations" } else { '' }
-            throw ("UPDATER CYCLE FAILED: no transcript beneath the suite root shows the setup being invoked with this instance's application root$why. " + $decision)
+            # Say what was actually there: a failure that names only what it
+            # wanted sends the reader hunting for a directory that is already gone.
+            $seen = @(Get-ChildItem (Join-Path $data 'logs') -Filter 'installer-*.log' -File -ErrorAction SilentlyContinue |
+                ForEach-Object { "$($_.Name) @ $($_.LastWriteTime.ToString('o'))" }) -join '; '
+            throw ("UPDATER CYCLE FAILED: no transcript beneath the suite root shows the setup being invoked with this instance's application root$why." +
+                   " Looked for -ApplicationDirectory $application in transcripts newer than $($launchedAt.ToString('o')); found: $seen. " + $decision)
         }
         Write-Host "PROOF launch target: $($named[0].FullName) records -ApplicationDirectory $application, so the setup the updater launched targeted this instance and not the operator location"
         Write-Host "INSTALLER DECISION: $decision"
@@ -271,6 +276,16 @@ try {
             ConvertTo-Json -Depth 5 | Set-Content (Join-Path $EvidenceDirectory 'updater-cycle.json') -Encoding utf8
     }
 } finally {
+    # The suite root is removed below, so anything worth reading afterwards is
+    # copied out first -- on a pass and on a failure alike. rel-1.15.0/W6 lost a
+    # diagnosis to this twice before the gate started keeping them.
+    if ($EvidenceDirectory) {
+        $null = New-Item -ItemType Directory -Path $EvidenceDirectory -Force
+        Get-ChildItem (Join-Path $data 'logs') -Filter 'installer-*.log' -File -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName (Join-Path $EvidenceDirectory "suite-$($_.Name)") -Force -ErrorAction SilentlyContinue }
+        $progressFile = Join-Path $data 'install-progress.jsonl'
+        if (Test-Path -LiteralPath $progressFile) { Copy-Item $progressFile (Join-Path $EvidenceDirectory 'suite-install-progress.jsonl') -Force -ErrorAction SilentlyContinue }
+    }
     if ($child -and -not $child.HasExited) { Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue }
     Get-Process -Name Agent_b -ErrorAction SilentlyContinue | Where-Object {
         try { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } catch { $false }

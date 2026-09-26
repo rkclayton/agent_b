@@ -66,6 +66,37 @@ function connections() {
 // injection starts dropping its oldest notes. No control, no new row.
 const count = (value) => new Intl.NumberFormat().format(Number(value) || 0);
 
+// Item 2jf (e): the provenance is in the file, at the end of the line, in
+// brackets. Reading it back is the same parse the Go side does and it is
+// deliberately forgiving: a note written before this item has no brackets and
+// must still list, without claiming a scope it never had.
+function parseNotes(content, layer) {
+  return String(content || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("- "))
+    .map((line) => {
+      let rest = line.slice(2).trim();
+      const marks = {};
+      const bracket = rest.match(/\s*\[([^\]]*)\]$/);
+      if (bracket) {
+        rest = rest.slice(0, bracket.index).trim();
+        for (const field of bracket[1].split(",")) {
+          const [key, ...value] = field.split(":");
+          marks[key.trim()] = value.join(":").trim();
+        }
+      }
+      const date = rest.match(/^(\d{4}-\d{2}-\d{2})\s+/);
+      if (date) rest = rest.slice(date[0].length);
+      return {
+        text: rest,
+        date: date ? date[1] : "",
+        scope: marks.scope || "",
+        layer,
+        untrusted_in_turn: marks["untrusted-in-turn"] === "yes",
+      };
+    });
+}
 function memoryFinding() {
   const session = Object.values(store?.sessions || {})[0];
   if (!session || !session.memory_max_tokens) return [];
@@ -75,8 +106,27 @@ function memoryFinding() {
   const over = [];
   if (session.agent_memory_over_budget) over.push("agent");
   if (session.memory_over_budget) over.push("folder");
-  const suffix = over.length ? ` · ${over.join(" and ")} over budget, oldest notes omitted` : "";
-  return [`<li>memory: agent ${agent}/${budget} · folder ${folder}/${budget}${suffix}</li>`];
+  // Item 2jf (d): the harness no longer trims on the way in — a write that
+  // would exceed the budget is REFUSED and the model is told to replace a note
+  // it names — so this line says full rather than "oldest notes omitted".
+  const suffix = over.length ? ` · ${over.join(" and ")} full; the next write is refused until a note is replaced` : "";
+  const lines = [`<li>memory: agent ${agent}/${budget} · folder ${folder}/${budget}${suffix}</li>`];
+  // Item 2jf (f): the notes themselves, with their scope, date and provenance,
+  // so the operator can see what the agent believes and where each belief came
+  // from. PER-NOTE DELETE IS NOT HERE: it needs a control per row, and the
+  // item’s own narrowing says to list it for veto and ship without it. The
+  // whole-layer clear stays where it is.
+  // The snapshot already carries each layer’s raw text, so the notes are parsed
+  // here rather than adding a field to it: the file format IS the interface, and
+  // a second representation would be a second thing to keep in step.
+  const notes = [...parseNotes(session.agent_memory_content, "agent"), ...parseNotes(session.memory_content, "folder")];
+  for (const note of notes.slice(0, 40)) {
+    const marks = [note.scope, note.date].filter(Boolean).join(" · ");
+    const beside = note.untrusted_in_turn ? " · written beside untrusted content" : "";
+    lines.push(`<li class="settings-memory-note${note.untrusted_in_turn ? " invalid" : ""}">${html(note.text || "")}<span class="settings-memory-mark"> — ${html(marks)}${html(beside)}</span></li>`);
+  }
+  if (notes.length > 40) lines.push(`<li>… and ${count(notes.length - 40)} more note(s)</li>`);
+  return lines;
 }
 function connectionFields(connection, reason, discovery) {
   const id = connection.id;

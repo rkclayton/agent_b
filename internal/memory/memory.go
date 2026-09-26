@@ -5,9 +5,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -272,6 +275,194 @@ func (m *Manager) Note(workspace, note string) (string, bool, error) {
 func (m *Manager) NoteAgent(agentID, note string) (string, bool, error) {
 	return m.notePath(m.AgentPath(agentID), note)
 }
+
+// Item 2jf: a note is written rarely, scoped, replacing, and within a budget.
+//
+// Write carries what the note needs to be accountable for itself. Everything
+// here is a property of the FILE rather than of the injection: item 2eb trimmed
+// the oldest notes on the way IN and asked the model to consolidate, which meant
+// the file grew forever and the operator never met the limit. (d) reverses that
+// — the write is refused and the model is told to replace something it names.
+type Write struct {
+	Note     string
+	Scope    string // user | repository | environment
+	Replaces string // the text of the note this supersedes, or empty
+	Run      string
+	Turn     int
+	// UntrustedInTurn marks a note written in a turn that had an untrusted tool
+	// result in it. (e): a note that arrived beside external content is marked,
+	// because that is the note somebody should look at twice.
+	UntrustedInTurn bool
+	// Budget is the layer's token budget for the FILE. Zero means unbounded.
+	Budget int
+}
+
+// ErrMemoryFull is (d): the write is refused and the caller is told to replace a
+// note it names. The harness never trims.
+var ErrMemoryFull = errors.New("memory full")
+
+// ErrNoteNotFound is (b): a replaces that names nothing is a mistake worth
+// reporting rather than quietly becoming an ordinary write.
+var ErrNoteNotFound = errors.New("the note to replace was not found")
+
+// WriteNote does (b), (d) and (e) in ONE pass over the file, because a replace
+// and a budget check that ran separately could each pass and together overflow.
+func (m *Manager) WriteNote(path string, write Write) (bool, error) {
+	note := strings.TrimSpace(write.Note)
+	if note == "" {
+		return false, fmt.Errorf("note is empty")
+	}
+	if len([]rune(note)) > 300 {
+		return false, fmt.Errorf("note too long (max 300 Unicode characters)")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+	lines := []string{}
+	for _, line := range strings.Split(normalize(string(data)), "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines = append(lines, line)
+		}
+	}
+	// A duplicate is still a duplicate, and says so rather than being written
+	// twice or refused as full.
+	for _, line := range lines {
+		if strings.EqualFold(noteTextOf(line), note) {
+			return true, nil
+		}
+	}
+	// (b): the old note goes in the SAME write. A replace that left the old one
+	// behind would grow the file it was meant to hold steady.
+	if replaced := strings.TrimSpace(write.Replaces); replaced != "" {
+		kept := make([]string, 0, len(lines))
+		found := false
+		for _, line := range lines {
+			if !found && strings.EqualFold(noteTextOf(line), replaced) {
+				found = true
+				continue
+			}
+			kept = append(kept, line)
+		}
+		if !found {
+			return false, fmt.Errorf("%w: %q", ErrNoteNotFound, replaced)
+		}
+		lines = kept
+	}
+	lines = append(lines, formatNote(note, write))
+	// (d): the budget is on the FILE, and a write that would exceed it is
+	// refused with what to do about it. The estimate is the same crude
+	// characters-over-four the loader falls back to, so the two agree.
+	if write.Budget > 0 {
+		body := strings.Join(lines, "\n")
+		if tokens := (len([]rune(body)) + 3) / 4; tokens > write.Budget {
+			return false, fmt.Errorf("%w: this layer would hold %d of %d tokens; replace a note you name, or skip", ErrMemoryFull, tokens, write.Budget)
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	return false, os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
+}
+
+// formatNote is the line as it lands in the file: the existing date-and-text
+// shape with (e)'s provenance appended, so the FILE records where the note came
+// from. Anything that read the old format still reads this.
+func formatNote(note string, write Write) string {
+	line := fmt.Sprintf("- %s %s", time.Now().Format("2006-01-02"), note)
+	marks := []string{}
+	if write.Scope != "" {
+		marks = append(marks, "scope: "+write.Scope)
+	}
+	if write.Run != "" {
+		marks = append(marks, "run: "+write.Run)
+	}
+	if write.Turn > 0 {
+		marks = append(marks, fmt.Sprintf("turn: %d", write.Turn))
+	}
+	if write.UntrustedInTurn {
+		marks = append(marks, "untrusted-in-turn: yes")
+	}
+	if len(marks) == 0 {
+		return line
+	}
+	return line + "  [" + strings.Join(marks, ", ") + "]"
+}
+
+// Note is one line of a layer, parsed back out for the Settings view.
+type Note struct {
+	Date            string `json:"date"`
+	Text            string `json:"text"`
+	Scope           string `json:"scope,omitempty"`
+	Run             string `json:"run,omitempty"`
+	Turn            int    `json:"turn,omitempty"`
+	UntrustedInTurn bool   `json:"untrusted_in_turn,omitempty"`
+}
+
+// Notes reads a layer back. Item 2jf (f): the Settings view lists them with
+// their scope, date and provenance, so the operator can see what the agent
+// believes and where each belief came from.
+func (m *Manager) Notes(path string) ([]Note, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := []Note{}
+	for _, line := range strings.Split(normalize(string(data)), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		out = append(out, parseNote(line))
+	}
+	return out, nil
+}
+
+// noteTextOf is the note's own words, with the date and any provenance removed,
+// so a replaces or a duplicate check compares what the model actually wrote.
+func noteTextOf(line string) string { return parseNote(line).Text }
+
+var notePattern = regexp.MustCompile(`^-\s*(\d{4}-\d{2}-\d{2})?\s*(.*)$`)
+var provenancePattern = regexp.MustCompile(`\s*\[([^\]]*)\]\s*$`)
+
+func parseNote(line string) Note {
+	note := Note{}
+	rest := strings.TrimSpace(line)
+	if match := notePattern.FindStringSubmatch(rest); match != nil {
+		note.Date, rest = match[1], strings.TrimSpace(match[2])
+	}
+	if match := provenancePattern.FindStringSubmatch(rest); match != nil {
+		rest = strings.TrimSpace(strings.TrimSuffix(rest, match[0]))
+		for _, field := range strings.Split(match[1], ",") {
+			key, value, found := strings.Cut(strings.TrimSpace(field), ":")
+			if !found {
+				continue
+			}
+			value = strings.TrimSpace(value)
+			switch strings.TrimSpace(key) {
+			case "scope":
+				note.Scope = value
+			case "run":
+				note.Run = value
+			case "turn":
+				if parsed, err := strconv.Atoi(value); err == nil {
+					note.Turn = parsed
+				}
+			case "untrusted-in-turn":
+				note.UntrustedInTurn = value == "yes"
+			}
+		}
+	}
+	note.Text = rest
+	return note
+}
+
 func (m *Manager) notePath(path, note string) (string, bool, error) {
 	note = strings.TrimSpace(note)
 	if note == "" {

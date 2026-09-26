@@ -968,7 +968,17 @@ function noticeContent(session, entry, actionable) {
   else if (event.type === "workspace.conflict") {
     content.textContent = `conflict: ${data.path} written by ${data.other_label} ${data.age_s} s ago`;
     content.classList.add("alarm");
-  } else if (event.type === "memory.noted") content.textContent = "noted for next session";
+  } else if (event.type === "memory.noted") {
+    // Item 2jf (e): the row says WHICH KIND of note and whether it replaced one,
+    // because "noted for next session" told the operator nothing about what the
+    // agent now believes. An untrusted turn is marked, since that is the note
+    // worth a second look.
+    const scope = data.scope ? ` · ${data.scope}` : "";
+    const replaced = data.replaced ? " · replaced one" : "";
+    const beside = data.untrusted_in_turn ? " · written beside untrusted content" : "";
+    content.textContent = `noted for next session${scope}${replaced}${beside}`;
+    if (data.untrusted_in_turn) content.classList.add("alarm");
+  }
   else if (event.type === "operator.context") {
     const entry = operatorLogEntry(data);
     content.textContent = entry.text;

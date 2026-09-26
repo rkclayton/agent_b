@@ -98,6 +98,10 @@ const (
 	ProgressShadow             = "progress.shadow"
 	ProgressAux                = "progress.aux"
 	Speech                     = "speech"
+	// ReflectionSkipped records a run the floor kept reflection off (item 2ls
+	// (c)). It carries the two counts, so the saving is auditable and a
+	// wrongly-skipped run is findable rather than merely absent.
+	ReflectionSkipped = "reflection.skipped"
 )
 
 const (

@@ -253,21 +253,19 @@ try {
   // selector matched nothing and the runner asserted 0 === 1 against a product
   // that was rendering correctly the whole time.
   const historyRows = page.locator(".agent-chat-menu .agent-chat-row");
-  // Item 2k0: say what was found, not just that it was wrong. This assertion
-  // failed as "0 !== 1" for an unknown number of releases, which is a count and
-  // not a diagnosis -- the same defect 2lo (d) had. rel-1.18.0/W5 corrected the
-  // selector (the rows are in .agent-chat-menu, not under .agent-tab-wrap) and
-  // the count is STILL zero, so the right-click interaction itself no longer
-  // matches the product. That is the open question, and it is now printed.
+  // Item 2lu (d): BACK TO STRICT. 2k0 left this weakened -- it printed what it
+  // found instead of only failing -- because the product was wrong and the
+  // runner was blamed. rel-1.19.0/W4 measured a replayed session as role=c
+  // agent_id=acceptance, so it HAD a binding and the tab filter was hiding it;
+  // the product is fixed and this asserts a NON-EMPTY menu again, with the
+  // diagnosis kept in the message because it cost an hour to get once.
+  const rows = await historyRows.count();
   const menus = await page.locator(".agent-chat-menu").count();
   const visibleMenus = await page.locator(".agent-chat-menu:not([hidden])").count();
-  assert.equal(await historyRows.count(), Object.keys(finalState.sessions || {}).length,
-    `the tab menu showed ${await historyRows.count()} chat row(s) for ${Object.keys(finalState.sessions || {}).length} session(s); ${menus} menu(s) exist in the DOM and ${visibleMenus} are visible, so the question is whether the right-click opened one`);
-  // rel-1.18.0/W5 answered that question: the menu IS in the DOM and IS visible,
-  // and it renders empty. shell.js writes "No chats" when the AGENT has no
-  // sessions, so a replayed session is not bound to the agent whose tab was
-  // right-clicked. That is a replay-binding question about the product, not a
-  // selector, and it is what this runner is now blocked on.
+  assert.ok(rows > 0,
+    `the tab menu showed no chat rows for ${Object.keys(finalState.sessions || {}).length} session(s); ${menus} menu(s) in the DOM, ${visibleMenus} visible. A visible, empty menu beside a rendered transcript means the tab filter is excluding a session the page is showing.`);
+  assert.equal(rows, Object.keys(finalState.sessions || {}).length,
+    `the tab menu showed ${rows} chat row(s) for ${Object.keys(finalState.sessions || {}).length} session(s)`);
   await page.screenshot({ path: join(args.evidence, "real-tape-menu.png") });
   await page.keyboard.press("Escape");
   await tab.click();

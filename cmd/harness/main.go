@@ -381,6 +381,9 @@ func main() {
 	}()
 	// Item 2ho (v1.6.0): web_search follows fetch_url. It shares that tool's
 	// guarded uTLS transport, so the older tools retain their relative order.
+	// Item 2jf (d): the tool enforces the layer budget, so it needs the number.
+	rememberTool := tools.NewRemember(memoryManager, bus)
+	rememberTool.SetConfig(web.ConfigSnapshot)
 	fetchTool := tools.NewFetch(cfg.Tools.Fetch)
 	delegateTool := tools.NewDelegate()
 	callServiceTool := tools.NewCallService(cfg.Services)
@@ -394,7 +397,7 @@ func main() {
 			fileIdentity.Wrap(tools.NewGlob(cfg.Tools.FindFiles)),
 		),
 		shellTool,
-		tools.NewRemember(memoryManager, bus),
+		rememberTool,
 		tools.NewRecall(memoryManager),
 		fetchTool,
 		tools.NewWebSearch(fetchTool, cfg.Tools.WebSearch),

@@ -41,7 +41,14 @@ function Assert-TemporaryTestPath {
 
 function Assert-InstalledSignatures {
     param([Parameter(Mandatory=$true)][string]$Application, [Parameter(Mandatory=$true)][string]$PolicyRoot, [Parameter(Mandatory=$true)][string]$Phase)
-    $targets = @((Join-Path $Application 'Agent_b.exe'))
+    # Item 2lt (f): agentb.exe is asserted PRESENT, SIGNED and TIMESTAMPED here,
+    # which is the same assertion the app binary gets and runs in BOTH root modes
+    # because every install arm calls this. The presence check is separate and
+    # explicit: a missing file would otherwise fail as an unhelpful signature
+    # error on a path that does not exist.
+    $cli = Join-Path $Application 'agentb.exe'
+    if (-not (Test-Path -LiteralPath $cli -PathType Leaf)) { throw "$Phase installation is missing agentb.exe: $cli" }
+    $targets = @((Join-Path $Application 'Agent_b.exe'), $cli)
     foreach ($relative in @(Get-AgentBRuntimeSigningPolicy -Root $PolicyRoot).Signable) { $targets += Join-Path $Application ($relative.Replace('/', '\')) }
     foreach ($target in $targets) {
         $signature = Get-AuthenticodeSignature -LiteralPath $target
@@ -869,6 +876,15 @@ try {
     $aclBeforeUpgrade = (Get-Acl -LiteralPath $webDirectory).Sddl
     $staleFile = Join-Path $webDirectory 'stale-upgrade-test.txt'
     Set-Content -LiteralPath $staleFile -Value 'removed by upgrade'
+    # Item 2lt (f): AN UPDATE FROM A BUILD THAT DID NOT HAVE IT INSTALLS IT.
+    # Every build from here on ships agentb.exe, so the only way to test the
+    # upgrade the item names is to make this installation look like a pre-2lt
+    # one -- delete the file, then assert the update puts it back. The
+    # Assert-InstalledSignatures call after the upgrade is what catches it, and
+    # it now checks presence explicitly rather than failing obscurely.
+    $preItemCli = Join-Path $testApplication 'agentb.exe'
+    if (Test-Path -LiteralPath $preItemCli -PathType Leaf) { Remove-Item -LiteralPath $preItemCli -Force }
+    Write-Host "PROOF pre-2lt state: agentb.exe removed before the update, to prove the update installs it"
     $staleShortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
     $staleShortcut.TargetPath = 'powershell.exe'
     $staleShortcut.Arguments = '-NoExit -File C:\stale\launch-Agent_b.ps1'
@@ -984,6 +1000,7 @@ try {
     }
     if ($upgradeExit -ne 0) { throw "Running-instance wrapper upgrade exited $upgradeExit.`n$upgradeOutput" }
     Assert-InstalledSignatures -Application $testApplication -PolicyRoot $repositoryRoot -Phase 'update'
+    Write-Host 'PASS: an update from a build without agentb.exe installs it, signed and timestamped'
     $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
     $upgradeTranscript = $strictUtf8.GetString([IO.File]::ReadAllBytes($upgradeTranscriptPath))
     if ($upgradeTranscript.Contains([char]0) -or $upgradeTranscript.Contains([char]0xfffd)) {

@@ -100,6 +100,15 @@ func (s *Server) reflectionLoop(tick time.Duration, state *reflectionState) {
 			}
 			data, _ := event.Data.(map[string]any)
 			runID, _ := data["run_id"].(string)
+			// Item 2ls: the floor, applied before anything is dispatched. A run
+			// below it costs nothing rather than costing a model call and being
+			// discarded afterwards.
+			if skip, counts := s.belowReflectionFloor(data); skip {
+				s.bus.Publish(events.New(events.ReflectionSkipped, event.SessionID, runID, counts))
+				log.Printf("reflection skipped: below floor (%v model call(s), %v tool call(s)) for run %s",
+					counts["model_calls"], counts["tool_calls"], runID)
+				continue
+			}
 			state.inFlight.Add(1)
 			go func(sessionID, runID string) {
 				defer state.inFlight.Done()
@@ -113,6 +122,64 @@ func (s *Server) reflectionLoop(tick time.Duration, state *reflectionState) {
 			}()
 		}
 	}
+}
+
+// belowReflectionFloor decides whether this run is too small to be worth a
+// summary, from the counts item 2ls put on run.stopped.
+//
+// Item 2ls (a): the floor is three model calls OR one tool call, whichever is
+// reached first — so a run clears it by doing enough of either. Both numbers are
+// configuration, because they came from one machine's distribution.
+//
+// Item 2ls (d): A RUN THAT ENDED BADLY ALWAYS REFLECTS, however small. A
+// two-call run that failed is exactly the one worth a summary, and a floor that
+// skipped it would be saving money on the only runs anybody goes back to read.
+func (s *Server) belowReflectionFloor(data map[string]any) (bool, map[string]any) {
+	modelCalls, toolCalls := intField(data["model_calls"]), intField(data["tool_calls"])
+	counts := map[string]any{"model_calls": modelCalls, "tool_calls": toolCalls}
+	floor := s.ConfigSnapshot().Reflection.Floor
+	if floor.ModelCalls <= 0 && floor.ToolCalls <= 0 {
+		return false, counts
+	}
+	// (d): the ordinary stop reasons are the ones a floor may skip. Anything
+	// else — a limit, a tool-error stop, a model failure — reflects regardless
+	// of how small the run was.
+	reason, _ := data["reason"].(string)
+	if !ordinaryStopReason(reason) {
+		counts["kept_because"] = reason
+		return false, counts
+	}
+	if floor.ModelCalls > 0 && modelCalls >= floor.ModelCalls {
+		return false, counts
+	}
+	if floor.ToolCalls > 0 && toolCalls >= floor.ToolCalls {
+		return false, counts
+	}
+	counts["floor_model_calls"], counts["floor_tool_calls"] = floor.ModelCalls, floor.ToolCalls
+	return true, counts
+}
+
+// ordinaryStopReason is the set item 2ls (d) permits the floor to skip: a run
+// that simply finished, or that the operator ended deliberately. Everything else
+// is a run somebody may want to read about.
+func ordinaryStopReason(reason string) bool {
+	switch reason {
+	case "done", "user_stop", "cancellation_requested", "mailbox_stop":
+		return true
+	}
+	return false
+}
+
+func intField(value any) int {
+	switch typed := value.(type) {
+	case float64:
+		return int(typed)
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	}
+	return 0
 }
 
 // reflectOnClosedRun summarises one finished run.

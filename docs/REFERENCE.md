@@ -79,6 +79,19 @@ Files created by a run appear as download chips and, by default, are also copied
 
 A managed deployment can ship a machine already pointed at a connection: `-SeedConfiguration <fragment.json>` merges a JSON fragment into the configuration **on first install only**, so a redeploy over a machine someone is using changes nothing they have set. A fragment carrying an API key or any other credential value is refused at install; name a credential reference instead and each user supplies the key once. See `seed.example.json`.
 
+### The command-line agent
+
+An install carries a second executable, `agentb.exe`, in the same application
+directory as `Agent_b.exe` and signed with it. It runs one task in the current
+directory without the app — see the README for what it does.
+
+**There is no PATH entry.** The installer has never added one, for anything, and
+item 2lt declined to invent the precedent. Call it by its path, or add that
+directory to your own PATH:
+
+    %LocalAppData%ProgramsAgent_bagentb.exe     per-user
+    %ProgramFiles%Agent_bagentb.exe               all-users
+
 ## Updates
 
 Agent_b checks for a release hourly and reports one in About. Selecting **Update** downloads the signed installer, verifies its digest and its Authenticode signature, and only then launches it; it never installs silently. An update installs where the instance asking for it lives. Uninstall preserves operator data unless purge is explicitly selected.

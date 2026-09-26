@@ -85,6 +85,9 @@ var allowList = map[string]Classification{
 	// projection.patch and snapshot are the same material: the whole conversation
 	// as a client reads it. Dropped, emphatically.
 	"projection.patch": dropped, "snapshot": dropped,
+	// Item 2ls's accounting line. Dropped: it is two counts about one of the
+	// operator's own runs and nothing outside this machine needs it.
+	"reflection.skipped": dropped,
 }
 
 // Classify answers for one event type. The second result is false when the type

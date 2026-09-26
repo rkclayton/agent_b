@@ -430,6 +430,10 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		var budget events.Budget
 		var budgetErr error
 		budgetBusy := false
+		// Item 2jf (e): the trust flag is per TURN, so it clears here. A note is
+		// suspect because of what was in the turn that wrote it, not because of
+		// something three turns ago.
+		s.BeginTurnTrust()
 		r.stage(s, runID, turn, "assemble", func() {
 			records := s.MessagesCopy()
 			systemBase := r.prompt.RenderParts(connection, s, toolNames, "", "")
@@ -846,6 +850,11 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 					item.content, item.ok, item.operatorContext = outcome.Content, outcome.OK, outcome.OperatorContext
 					r.setFlightToolOutput(s.ID, runID, item.content)
 					item.category, item.untrusted, item.metadata = outcome.Category, outcome.Untrusted, outcome.Metadata
+					// Item 2jf (e): a note written in this turn is marked, because
+					// external content was in it.
+					if outcome.Untrusted {
+						s.MarkUntrustedInTurn()
+					}
 					if item.ok && item.call.Name == "read_file" && untrustedAttachmentRead(s, item.args) {
 						item.untrusted = true
 					}

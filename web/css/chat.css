@@ -1,3 +1,36 @@
+/* Item 2lj (b): ONE base size, and every other size in this file expressed as a
+   ratio of it, so a step changes the whole chat surface without changing any
+   proportion. --ct is the base; --lead and --lead-tight are the two line heights
+   this file used (20px and 16px at the 12px base). --chat-scale and --chat-face
+   are set on :root by Settings and default to 1 and the shipped sans, so a build
+   nobody has touched renders exactly as every release before v1.15.0 did.
+
+   rel-1.15.0/W0 counted 38 hard-coded font declarations here and no size token
+   at all; this is the token, and the conversion below is mechanical. app.css is
+   deliberately untouched: the shell, the rail and the settings pages do not
+   scale with the chat, because (b) says nothing else in the product changes
+   size. */
+.chat-page {
+  --ct: calc(12px * var(--chat-scale, 1));
+  --lead: calc(var(--ct) * 5 / 3);
+  --lead-tight: calc(var(--ct) * 4 / 3);
+}
+
+/* Item 2lj (c) and (e): the chosen face is for PROSE. It is set on the chat's
+   own regions rather than on .chat-page, so the shell that shares that page --
+   the tabs, the titlebar, the session name -- keeps the product's own face and
+   nothing outside the chat changes. Every rule below that names var(--mono)
+   keeps it: code, tool output, paths and identifiers stay monospaced under
+   every typeface, because a proportional font makes them unreadable. */
+.chat-log,
+.chat-composer,
+.chat-budget,
+.chat-proposals,
+.pending-approval,
+.approval-card {
+  font-family: var(--chat-face, var(--sans));
+}
+
 .chat-page {
   display: grid;
   /* Item 2gk: header, budget bar, transcript, this chat's readout, composer. */
@@ -6,7 +39,7 @@
   overflow: hidden;
   background: var(--bezel);
   color: var(--ink);
-  font: 400 13px/20px var(--sans);
+  font: 400 calc(var(--ct) * 13 / 12)/var(--lead) var(--sans);
 }
 .chat-page > :where(:not(.app-shell)),
 .chat-page > :where(:not(.app-shell)) * {
@@ -55,11 +88,11 @@
   font-weight: 500;
 }
 #chat-binding { min-width: 0; display: flex; flex-direction: column; }
-.chat-workspace { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42vw; }
+.chat-workspace { color: var(--muted); font-size: var(--ct); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42vw; }
 .chat-workspace.missing { color: var(--alarm); }
 .repo-policy-card pre { max-height: 12rem; overflow-x: hidden; overflow-y: auto; white-space: pre-wrap; }
 .approval-card { display: grid; gap: 2px; }
-.approval-card > span:first-child { color: var(--alarm); font: 12px/16px var(--mono); }
+.approval-card > span:first-child { color: var(--alarm); font: var(--ct)/var(--lead-tight) var(--mono); }
 .approval-card details { color: var(--mute); }
 .approval-card summary { cursor: pointer; }
 .approval-card pre { margin: 2px 0; color: var(--trace); }
@@ -73,14 +106,14 @@
   color: var(--mute);
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 12px/20px var(--mono);
+  font: var(--ct)/var(--lead) var(--mono);
 }
 #chat-status,
 #chat-build,
 #connection {
   color: var(--mute);
   white-space: nowrap;
-  font: 12px/16px var(--mono);
+  font: var(--ct)/var(--lead-tight) var(--mono);
   font-variant-numeric: tabular-nums;
 }
 #connection {
@@ -145,7 +178,7 @@
   padding: 2px 5px;
   background: var(--well);
   color: var(--ink);
-  font: 12px/16px var(--mono);
+  font: var(--ct)/var(--lead-tight) var(--mono);
   font-variant-numeric: tabular-nums;
 }
 .chat-budget:hover .chat-budget-tip {
@@ -178,7 +211,7 @@
   flex-direction: column;
   align-items: flex-start;
   color: var(--mute);
-  font-size: 12px;
+  font-size: var(--ct);
   user-select: none;
 }
 .chat-speaker img {
@@ -186,7 +219,7 @@
   height: 20px;
 }
 .chat-user .chat-content {
-  font-size: 14px;
+  font-size: calc(var(--ct) * 7 / 6);
 }
 .chat-content {
   min-width: 0;
@@ -198,7 +231,7 @@
 }
 .chat-summary .chat-content {
   color: var(--mute);
-  font-size: 13px;
+  font-size: calc(var(--ct) * 13 / 12);
 }
 .chat-content p {
   margin: 0 0 8px;
@@ -216,7 +249,7 @@
 }
 .chat-content code,
 .chat-content pre {
-  font: 13px/20px var(--mono);
+  font: calc(var(--ct) * 13 / 12)/var(--lead) var(--mono);
 }
 .chat-content code {
   padding: 0 2px;
@@ -246,7 +279,7 @@
   background: transparent !important;
   border: 0;
   opacity: 0.35;
-  font-size: 12px;
+  font-size: var(--ct);
   user-select: none;
 }
 .chat-page > :where(:not(.app-shell)) .code-copy:hover,
@@ -264,7 +297,7 @@
   background: transparent !important;
   border: 0;
   opacity: .35;
-  font-size: 12px;
+  font-size: var(--ct);
 }
 .collapse-arrow:hover,
 .collapse-arrow:focus-visible { color: var(--ink); opacity: 1; }
@@ -285,7 +318,7 @@
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 12px/20px var(--mono);
+  font: var(--ct)/var(--lead) var(--mono);
   user-select: none;
 }
 .chat-response.alarm .chat-response-summary,
@@ -328,7 +361,7 @@
   padding: 0 8px;
   border: 1px solid rgba(125, 135, 148, 0.28);
   border-radius: 2px;
-  font: 12px/16px var(--mono);
+  font: var(--ct)/var(--lead-tight) var(--mono);
 }
 .file-chip-name {
   color: var(--ink);
@@ -380,7 +413,7 @@
   min-height: 20px;
   padding-top: 2px;
   color: var(--mute);
-  font-size: 12px;
+  font-size: var(--ct);
 }
 .chat-response-notice.alarm {
   color: var(--alarm);
@@ -404,7 +437,7 @@
   color: var(--mute);
   background: transparent;
   text-align: left;
-  font-size: 12px;
+  font-size: var(--ct);
   user-select: none;
 }
 .disclosure-caret {
@@ -457,7 +490,7 @@
   background: var(--well);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: 12px/16px var(--mono);
+  font: var(--ct)/var(--lead-tight) var(--mono);
 }
 .tool-entry {
   padding-top: 0;
@@ -495,7 +528,7 @@
 .tool-harness-note {
   min-height: 20px;
   color: var(--mute);
-  font: 400 12px/20px var(--mono);
+  font: 400 var(--ct)/var(--lead) var(--mono);
   user-select: none;
 }
 .tool-state.error {
@@ -506,7 +539,7 @@
   padding-top: 4px;
   padding-bottom: 4px;
   color: var(--mute);
-  font-size: 12px;
+  font-size: var(--ct);
   user-select: none;
 }
 .chat-notice-row.alarm {
@@ -521,7 +554,7 @@
   white-space: nowrap;
 }
 .chat-empty.chat-render-failure { color: var(--mute); }
-.chat-notice-author { color: var(--mute); font: 12px/20px var(--mono); margin-right: 8px; }
+.chat-notice-author { color: var(--mute); font: var(--ct)/var(--lead) var(--mono); margin-right: 8px; }
 .worker-approval .chat-notice-author { margin: 0 0 0 8px; text-transform: none; }
 .chat-approval button {
   min-height: 20px;
@@ -539,7 +572,7 @@
 	color: var(--alarm);
 	background: var(--well);
 	border: 1px solid var(--alarm);
-	font-size: 12px;
+	font-size: var(--ct);
 	line-height: 20px;
 	user-select: none;
 }
@@ -558,7 +591,7 @@
   color: var(--mute);
   background: transparent;
   text-align: left;
-  font: 12px/20px var(--mono);
+  font: var(--ct)/var(--lead) var(--mono);
 }
 .chat-jump {
   position: sticky;
@@ -596,7 +629,7 @@
   background: var(--well);
   border: 0;
   border-radius: 0;
-  font-size: 14px;
+  font-size: calc(var(--ct) * 7 / 6);
   line-height: 20px;
 }
 .chat-notice {
@@ -605,7 +638,7 @@
   gap: 5px;
   min-height: 16px;
   color: var(--mute);
-  font-size: 12px;
+  font-size: var(--ct);
   line-height: 16px;
 }
 /* Live-state motion, beside the traveling trace and the streaming caret. The
@@ -650,7 +683,7 @@
 /* Item 2ld: the strip is the handle. It is trimmed to the height its text needs,
    with the same small padding on all sides, and it remains a status line — the
    cursor is the only thing that says it can be dragged. */
-.chat-status-strip { min-height:20px; display:flex; align-items:center; gap:6px; padding:2px 4px; color:var(--mute); font:12px/16px var(--mono); cursor:row-resize; touch-action:none; }
+.chat-status-strip { min-height:20px; display:flex; align-items:center; gap:6px; padding:2px 4px; color:var(--mute); font:var(--ct)/var(--lead-tight) var(--mono); cursor:row-resize; touch-action:none; }
 .chat-status-strip.dragging { user-select:none; }
 .chat-status-strip .chat-attach-wrap { margin-left:auto; margin-right:-4px; }
 .chat-update-banner { margin-left:auto; display:flex; align-items:center; gap:4px; white-space:nowrap; color:var(--ink); }
@@ -714,7 +747,7 @@
   color: var(--ink);
   background: var(--well);
   outline: 1px solid rgba(125, 135, 148, 0.28);
-  font: 12px/20px var(--mono);
+  font: var(--ct)/var(--lead) var(--mono);
 }
 .chat-page.drop-target::after {
   content: "";
@@ -796,11 +829,11 @@
   padding: 2px 5px;
   background: transparent;
   text-align: left;
-  font: 12px/20px var(--mono);
+  font: var(--ct)/var(--lead) var(--mono);
 }
 .chat-exchange-files { max-height: 180px; overflow-x: hidden; overflow-y: auto; border-top: 1px solid rgba(125, 135, 148, 0.28); }
 .chat-exchange-files:empty { display: none; }
-.chat-exchange-files span { display: block; padding: 2px 5px; color: var(--mute); font: 12px/20px var(--mono); }
+.chat-exchange-files span { display: block; padding: 2px 5px; color: var(--mute); font: var(--ct)/var(--lead) var(--mono); }
 #chat-build {
   color: var(--mute);
 }
@@ -881,9 +914,9 @@
    the composer, with the tray's rows and controls. */
 .chat-proposals { max-height:40vh; overflow-y:auto; border-top:1px solid rgba(125,135,148,.28); }
 .chat-proposals[hidden] { display:none; }
-.plan-proposal { padding:6px 10px; border-bottom:1px solid rgba(125,135,148,.18); cursor:pointer; font-size:12px; }
+.plan-proposal { padding:6px 10px; border-bottom:1px solid rgba(125,135,148,.18); cursor:pointer; font-size:var(--ct); }
 .plan-proposal:hover { background:rgba(216,221,227,.04); }
-.plan-proposal code { display:block; color:var(--mute); font:12px/16px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.plan-proposal code { display:block; color:var(--mute); font:var(--ct)/var(--lead-tight) var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .plan-proposal-actions { display:flex; gap:4px; margin-top:4px; }
 .plan-proposal-actions button { min-height:22px; padding:2px 7px; background:rgba(216,221,227,.08); }
 .plan-proposal-actions button:hover { background:rgba(216,221,227,.12); }

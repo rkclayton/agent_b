@@ -9,12 +9,13 @@ import (
 	"net/http"
 	"time"
 
+	"harness/internal/credential"
 	"harness/internal/events"
 	"harness/internal/serviceaccount"
 	"harness/internal/tools"
 )
 
-const managedServiceAccount = "agentb-svc"
+const managedServiceAccount = credential.ServiceAccount
 
 func (s *Server) serviceAccount(w http.ResponseWriter, r *http.Request) {
 	if s.account == nil || s.credential == nil || s.shell == nil {
@@ -219,7 +220,9 @@ func (s *Server) disableConfiguredServiceAccount(account string) (any, error) {
 
 func (s *Server) serviceAccountState(ctx context.Context, status serviceaccount.Status) serviceaccount.Status {
 	status.Account = managedServiceAccount
-	status.CredentialStored = s.credential.Status().Stored
+	credentialStatus := s.credential.Status()
+	status.CredentialStored = credentialStatus.Stored
+	status.CredentialScope = credentialStatus.Scope
 	switch {
 	case !status.Supported:
 		status.State, status.Action = "unsupported", ""

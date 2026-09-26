@@ -317,7 +317,10 @@ func main() {
 	}
 	workspaces := session.NewWorkspaceRegistry()
 	coordinator := tools.NewFileCoordinator(workspaces, registry.Label, bus)
-	credentialStore := credential.New(paths.Data)
+	// Item 2li (b): the store is pinned to the service account it holds the
+	// password for, so a machine-scoped blob's access list can name that account
+	// and the read-side check can insist on it.
+	credentialStore := credential.New(paths.Data).ForAccount(credential.ServiceAccount)
 	fileIdentity := tools.NewFileIdentity(credentialStore)
 	fileIdentity.Configure(*cfg)
 	shellTool := tools.NewShell(cfg.Shell)

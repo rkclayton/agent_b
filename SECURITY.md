@@ -116,6 +116,42 @@ instead of borrowing one from Edge.
   forms of (`internal/tools/shell_policy.go` refuses `regsvr32` and `rundll32` by name). The
   decision and its reasoning are in `NOTES.md`, 2026-09-22.
 
+## Machine-scoped service credentials, and the trade they make
+
+A machine wide management tool can provision the service identity for the people
+who use the machine, which non-administrator users cannot do for themselves.
+`scripts\provision-service-identity.ps1 -Unattended`, run as SYSTEM, creates or
+adopts `agentb-svc`, generates a password nobody types or sees, stores it
+**machine-scoped**, applies the ACLs and firewall rule, verifies the identity by a
+real logon, and reports one structured `AGENTB_PROVISION_RESULT` line. It is
+idempotent: run it on every machine on every pass. `-RemoveMachineCredential`
+undoes it.
+
+**The trade, stated plainly.** A machine-scoped DPAPI blob is encrypted under a
+key held by the machine, not by any user. **Anything running on that machine can
+decrypt it.** The DPAPI envelope is therefore not what keeps the service password
+secret — **the file's access list is.** Agent_b writes
+`.agentb-shell-credential-machine.dpapi` with a protected access list holding
+exactly three principals: Administrators, SYSTEM, and `agentb-svc` itself. It
+re-checks that list on **every read** and refuses the credential outright if the
+list has been widened or is inherited rather than protected, rather than handing
+the password to whoever widened it.
+
+What this means for an administrator deciding whether to use it:
+
+- Only the service-account password may use this scope. Connection API keys and
+  every other stored secret stay encrypted under the individual user's key, and
+  there is no code path that would let them ask for the machine scope.
+- Anyone you place in the local Administrators group of an endpoint can read that
+  endpoint's service password. That was already true of a local administrator in
+  practice; it is now true by construction and worth saying out loud.
+- Loosening the file's permissions does not expose the password gradually. It
+  stops the credential working, for everyone on the machine, until it is
+  reprovisioned.
+- A user who provisioned their own identity keeps it: their user-scoped
+  credential answers first, and the machine one is the fallback for users who
+  have none.
+
 ## Network exposure
 
 Agent_b has no user login and ships with `listen` bound to loopback. Each launch generates separate browser-session and mutation capabilities. A verified operator browser receives an HttpOnly, SameSite=Strict session cookie and the mutation capability once in the page response; the native WebView2 host carries its bootstrap capability in the URL fragment, removes it before making the exchange request, and receives the same HttpOnly cookie. `/api/state` and `/api/events` require the cookie and no longer return the mutation capability. Every mutation requires both the cookie and the `X-AgentB-Mutation-Token` header, and a missing or invalid capability returns an empty 401. A phone is deliberately another full-authority operator surface: it redeems a short-lived one-time code for a random per-device bearer, whose hash alone remains in harness memory; revocation cancels its streams, and the root-scope service worker attaches the bearer only to same-origin API requests originating from `/phone`. Agent_b descendant processes fail the existing Windows client-process check when they try to obtain page credentials; no listener capability or enrolment code is placed in tool environments, files, state, logs, or URLs. `call_service` also refuses the configured listener before dialing, as `fetch_url` already does. These are application capability guards that keep ordinary Agent_b tool children away from the control plane; they are not an OS containment boundary, and another process already running as the operator can still exercise the operator-browser bootstrap path. Agent_b provides no remote reachability path and does not widen the loopback listener. The VAPID private key is operator-scoped DPAPI data; profile-local push subscriptions are bearer-like destinations, and notification payloads exclude chat content. Cross-origin browser mutations are rejected, framing is denied, and a restrictive Content Security Policy is sent. The native frameless window's minimize, maximize and close actions use the same guarded loopback boundary and are unavailable when no native host exists. Moving the listener off loopback exposes an endpoint that can run shell commands and requires a real TLS/authentication design.

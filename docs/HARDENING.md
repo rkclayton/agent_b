@@ -34,6 +34,27 @@ Canceling UAC starts no account operation and restores the previous stored crede
 
 Run an approved `whoami` shell command and require the returned identity to end in `\agentb-svc`. Confirm the process owner externally with Task Manager or Process Explorer. If alternate-identity spawning fails, Agent_b does not silently run the command as the operator: it returns the reason and requires **Run as you**.
 
+### Provisioning without an administrator at the keyboard
+
+Fleet endpoints whose users have no admin rights cannot use the Settings action
+above. Run, as SYSTEM, from the installed `scripts` folder:
+
+    provision-service-identity.ps1 -Unattended `
+      -ApplicationDirectory <app> -DataDirectory <data> -WorkspaceDirectory <workspace> `
+      -ExchangeDirectory <exchange> -ModelAddress <host> -ModelPort <port>
+
+It prints one line beginning `AGENTB_PROVISION_RESULT` followed by JSON:
+`outcome` is `ready`, `refused` or `failed`, and `changed` says whether this pass
+did anything. Exit code 0 means the identity is ready, 1 that the invocation was
+refused before any change, 2 that a change was attempted and did not complete.
+Running it again on an already-provisioned machine changes nothing.
+
+**Read the machine-scope trade in [SECURITY.md](../SECURITY.md) before using
+this.** In short: the credential it stores is decryptable by anything running on
+that machine, and the file's access list — Administrators, SYSTEM and
+`agentb-svc`, checked on every read — is what protects it. Undo it with
+`provision-service-identity.ps1 -RemoveMachineCredential -DataDirectory <data>`.
+
 ## 3. Apply host protections
 
 Stop active Agent_b tasks. In Settings → Security → **Set up service identity**, confirm the displayed model route and any intended LAN exceptions, then choose the setup action. The same action repairs every listed ACL or firewall drift item before testing the real service-account shell, avoiding a circular first-run dependency. Local UAC policy can suppress consent for trusted Windows binaries, so trust the reported post-condition rather than the presence of a dialog.

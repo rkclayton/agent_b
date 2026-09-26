@@ -118,10 +118,15 @@ func runInstall(options installOptions, args []string) int {
 	// resolved, before the marker, before any check — because a failure before
 	// the log is a failure nobody can read, which is exactly what the operator
 	// met when a double-clicked setup did nothing at all.
-	dataRoot := options.dataRoot
-	if dataRoot == "" {
-		dataRoot = filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b")
-	}
+	// Item 2ll: an instance's install writes ITS OWN records. This one line was
+	// the leak rel-1.14.0/W8 found: it fell straight to the operator's
+	// LocalAppData whatever instance asked for the update, so a disposable
+	// instance's self-update left its log, its in-progress marker and its
+	// progress file in the operator's data root. The two other resolutions in
+	// this file already prefer the installer's own -DataDirectory, and so does
+	// this one now -- which fixes it for every caller, not only for an updater
+	// that remembers to pass --install-data.
+	dataRoot := installDataRoot(options.dataRoot, args)
 	log := openInstallLog(dataRoot, options.quiet)
 	defer log.close()
 	installDone := make(chan struct{})
@@ -284,6 +289,16 @@ func runInstall(options installOptions, args []string) int {
 		showInstallFailure("Agent_b install failed", fmt.Sprintf("The install stopped during %s (exit %d). It is safe to run again.\n\nLog: %s", lastPhase, code, log.location()))
 	}
 	return code
+}
+
+// installDataRoot resolves where the install writes its own records: the
+// explicit --install-data if the caller gave one, then the -DataDirectory the
+// installer itself was handed, and only then the operator's own location.
+func installDataRoot(explicit string, args []string) string {
+	if strings.TrimSpace(explicit) != "" {
+		return explicit
+	}
+	return installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
 }
 
 func defaultInstallRoot(allUsers bool) string {

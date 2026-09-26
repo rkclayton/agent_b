@@ -1270,10 +1270,11 @@
   color: var(--mute);
   font: 12px/16px var(--mono);
 }
+/* Item 2lk (a): part of the page, and the page is what scrolls. The 48px cap
+   with overflow-y:auto put a scrollbar on a two-line status message; removing
+   overflow-y alone would not have worked, because overflow-x:hidden on its own
+   computes overflow-y to auto, which is what cost rel-1.14.0/W4 an attempt. */
 .settings-feedback {
-  max-height: 48px;
-  overflow-x: hidden;
-  overflow-y: auto;
   margin: 6px 0 0 170px;
   padding: 6px 8px;
   color: var(--mute);
@@ -1594,10 +1595,10 @@
   color: var(--ink);
   font-weight: 500;
 }
+/* Item 2lk (a): the same violation, on the General page. The notes are as long
+   as they are and the page carries them; nothing that was reachable by
+   scrolling inside this block stopped being reachable. */
 .memory-content {
-  max-height: 240px;
-  overflow-x: hidden;
-  overflow-y: auto;
   margin: 8px 0 0;
   padding: 8px;
   background: var(--well);
@@ -1916,7 +1917,31 @@
 .panel-tool-line > :last-child { color: var(--mute); }
 .panel-empty { padding: 10px; color: var(--mute); }
 .panel-connection-head { padding: 8px 10px 4px; color: var(--trace); font: 12px/16px var(--mono); }
-.panel-lifetime-group { grid-column: 2; }
+/* Item 2lk (b): Lifetime sat in column 2 of a two-column surface, so at 1250px
+   its twenty metric rows towered over the two-row Tool use pane beside it and
+   left the whole left column as bare bezel. rel-1.14.0/W7 recorded that as the
+   one honest reservation of that pass, and rel-1.15.0/W0 confirmed it is the
+   GRID and not missing content.
+
+   The fix is to stop asking two lists of wildly different length to be the same
+   height. On Activity both panes take the full width of the surface, so there
+   is no second column left to leave empty, and Lifetime's metrics -- each a
+   label and a number, which want width rather than height -- flow into as many
+   columns as the surface can hold. At 1250px that is three, and Lifetime is a
+   third as tall as it was. Nothing was removed from either pane.
+
+   Only Activity is changed. The Agents page has the same shape with its own
+   Tool panel, and is carded rather than restyled here: it is not this item's. */
+#activity-panel > .panel-pane,
+#activity-panel > .panel-lifetime-group {
+  grid-column: 1 / -1;
+}
+.panel-lifetime-group .panel-lines {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  column-gap: 16px;
+  align-content: start;
+}
 .panel-actions button { min-height: 26px; }
 .panel-feedback.alarm { color: var(--alarm); }
 .settings-operator-status { min-height:28px; display:inline-flex; align-items:center; gap:7px; padding:2px 7px; background:transparent; box-shadow:inset 0 0 0 1px rgba(125,135,148,.28); }

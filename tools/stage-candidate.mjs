@@ -97,7 +97,7 @@ function stage(tag) {
   console.log(`STAGED SOURCE: ${target}`);
 }
 
-function build(tag) {
+function build(tag, thumbprint) {
   if (!versionKey(tag)) throw new Error(`--build value must look like vX.Y.Z: ${tag}`);
   const target = path.join(repoRoot, "candidates", tag); if (!fs.existsSync(target)) throw new Error(`staged source is missing: ${target}`);
   requireProductIcon(target);
@@ -106,7 +106,10 @@ function build(tag) {
   const sha = commit.stdout.trim();
   const powershell = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
   run(powershell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(target, "tools", "build-candidate.ps1"),
-    "-SourceDirectory", target, "-Commit", sha, "-Dirty", "false", "-ExpectedTag", tag], { env: windowsPowerShellEnvironment() });
+    // Item 2lt: the thumbprint reaches the build so agentb.exe can be signed
+    // before the install bundle captures it.
+    "-SourceDirectory", target, "-Commit", sha, "-Dirty", "false", "-ExpectedTag", tag,
+    ...(thumbprint ? ["-SigningThumbprint", thumbprint] : [])], { env: windowsPowerShellEnvironment() });
   // Item 2gl (v1.2.0/W2): the candidate carries a setup executable. It is a
   // COPY of the build that was just verified against the manifest — the same
   // bytes under the name the operator double-clicks — so there is nothing
@@ -128,9 +131,13 @@ function build(tag) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [flag, value] = process.argv.slice(2);
+  // Item 2lt: --thumbprint reaches build-candidate so agentb.exe is signed
+  // before the install bundle captures it.
+  const thumbprintIndex = process.argv.indexOf("--thumbprint");
+  const thumbprint = thumbprintIndex > 0 ? process.argv[thumbprintIndex + 1] : "";
   try {
     if (flag === "--tag") stage(value);
-    else if (flag === "--build") build(value);
+    else if (flag === "--build") build(value, thumbprint);
     else if (flag === "--scratch") {
       const dir = workerScratch(value);
       fs.mkdirSync(dir, { recursive: true });
@@ -139,7 +146,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       const dir = workerScratch(value);
       if (fs.existsSync(dir)) removeTreeWithinAllowedRoots(dir, [workerScratchRoot()], "worker scratch purge");
       console.log(`PURGED: ${dir}`);
-    } else throw new Error("usage: --tag vX.Y.Z | --build vX.Y.Z | --scratch <order> | --purge-scratch <order>");
+    } else throw new Error("usage: --tag vX.Y.Z | --build vX.Y.Z [--thumbprint T] | --scratch <order> | --purge-scratch <order>");
   } catch (error) {
     console.error(error.message);
     process.exit(1);

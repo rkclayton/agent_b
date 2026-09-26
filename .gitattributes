@@ -5,5 +5,10 @@ internal/projection/testdata/pins/manifest.json text eol=lf
 internal/projection/testdata/pins/README.md text eol=lf
 internal/projection/testdata/pins/sweep-baseline.json text eol=lf
 internal/projection/testdata/pins/sources/*.events text eol=lf
+# Item 2lo: a tape is compared byte for byte against what the projector emits,
+# and its operations carry RAW JSON. A CRLF checkout changes those bytes without
+# changing their meaning, so the gate failed in CI and in any fresh clone while
+# passing in the working tree the tapes were written in. Pinned, like the sources.
+internal/projection/testdata/tapes/*.json text eol=lf
 # PDF fixtures are byte-exact documents (item 2fj); never convert line endings.
 *.pdf binary

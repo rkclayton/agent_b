@@ -125,8 +125,21 @@ func TestCommittedTapesMatchTheProjector2lo(t *testing.T) {
 			}
 			was, _ := json.Marshal(have.Patches[index])
 			now, _ := json.Marshal(rebuilt.Patches[index])
-			t.Errorf("%s: patch %d differs\n  committed: %s\n  now:       %s",
-				rebuilt.Source, index, truncate(was), truncate(now))
+			// An operation's value is json.RawMessage, so two patches can mean the
+			// same thing and still differ as Go values. That is exactly what a CRLF
+			// checkout of these files produced: the gate passed in the working tree
+			// the tapes were written in and failed in every fresh clone and in CI,
+			// showing two identical-looking prefixes. Say which kind this is.
+			if string(was) == string(now) {
+				t.Errorf("%s: patch %d differs as BYTES but not as JSON — the committed file's raw bytes are not what the projector emits, which is a line-ending or formatting change and not a projector change. Check that .gitattributes pins testdata/tapes to eol=lf.",
+					rebuilt.Source, index)
+				break
+			}
+			// And name the first differing OPERATION, because a patch is long and
+			// the difference is usually one path.
+			t.Errorf("%s: patch %d differs%s\n  committed: %s\n  now:       %s",
+				rebuilt.Source, index, firstDifferingOperation(have.Patches[index], rebuilt.Patches[index]),
+				truncate(was), truncate(now))
 			break
 		}
 	}
@@ -252,4 +265,23 @@ func truncate(value []byte) string {
 		return string(value)
 	}
 	return string(value[:220]) + "…"
+}
+
+// firstDifferingOperation names the path whose operation changed, so the reader
+// is pointed at one field rather than handed two long patches to compare by eye.
+func firstDifferingOperation(committed, now projection.Patch) string {
+	for index := 0; index < len(committed.Operations) || index < len(now.Operations); index++ {
+		if index >= len(committed.Operations) {
+			return " — the projector now emits an extra operation at " + now.Operations[index].Path
+		}
+		if index >= len(now.Operations) {
+			return " — the projector no longer emits " + committed.Operations[index].Path
+		}
+		was, _ := json.Marshal(committed.Operations[index])
+		is, _ := json.Marshal(now.Operations[index])
+		if string(was) != string(is) {
+			return " at " + committed.Operations[index].Path
+		}
+	}
+	return ""
 }

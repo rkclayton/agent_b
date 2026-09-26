@@ -16,12 +16,22 @@
 - If it is non-empty, read it and act on the operator's instruction: `STOP` means finish the file in hand safely, report, and end; `REVISE: <text>` means re-read `## Current work order` and continue under the revision; any other text is a note to acknowledge.
 - Append one acknowledgement line to `NOTES.md`, then truncate `INBOX.md` to zero so the flag resets. Only the operator or Fable writes new mailbox content; Codex never writes instructions there.
 
-## Absent production baseline recovery
-- If production is absent at W0, preserve and inspect diagnostics before starting anything: `launcher-errors.log`, the newest installer transcript, and Application Error / Windows Error Reporting events for `Agent_b.exe`. Detached launcher stderr is not persisted and absence of an event is not proof of a clean stop.
-- Positive abnormal-termination evidence is a hard stop. A completed installer transcript with `STOPPING` / `STOPPED` identifies an installer-initiated stop. If no source explains the absence and no source contradicts a routine stop, record it as unexplained and permit exactly one start through the normal installed launcher.
-- After that one start, verify the actual process, build identity, and `/api/state`. If it exits again or never becomes ready, capture its exit code and available diagnostics, report, and stop; never start it a second time. A successful start does not explain the earlier absence.
-- This recovery never authorizes stopping or restarting a running production process, bypassing UAC, or weakening any other hard stop.
+## Absent production: read it, never start it
 
+- **A worker READS production and never starts it.** rel-1.16.0 replaced a recovery that
+  permitted a single start: two graceful closes in one session traced to starting production
+  from a short-lived shell, and the fix is not to start it more carefully — it is not to start it.
+- If production is absent, record it: the version the installed executable reports, its digest,
+  and what `launcher-errors.log` says ended the last instance. Preserve and inspect the same
+  diagnostics as before — the launcher log, the newest installer transcript, and Application Error
+  / Windows Error Reporting events for `Agent_b.exe`. Detached launcher stderr is not persisted
+  and absence of an event is not proof of a clean stop.
+- **Then continue without it.** An absent production is not a stop and not a finding; an order
+  that never installs or restarts production does not require it to be running. Positive
+  abnormal-termination evidence is still a hard stop, and is still reported with what it says.
+- The operator starts production. Say so in the report when it is down, so he knows to.
+- This never authorizes stopping, restarting or mutating a running production process, bypassing
+  UAC, or weakening any other hard stop.
 ## Do not lose NOTES.md
 - Never delete, move, rename, truncate, or overwrite `NOTES.md`. It is gitignored, so git holds no copy and any loss is permanent.
 - Append new prompt sections. Never rewrite existing ones.

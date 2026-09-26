@@ -156,6 +156,18 @@ if ($UseExistingSignedBinary) {
     Push-Location $sourceRoot
     try { & $go build -ldflags $ldflags -o $cliBinary ./cmd/agentb } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw "go build of cmd/agentb exited $LASTEXITCODE." }
+    # Item 2lt: agentb.exe is signed HERE, between its build and the bundle
+    # capture below, because the bundle is what reaches an installed machine and
+    # the release path already signed the payload before this script ran. It
+    # carries no embedded bundle, so signing it early is safe in a way it is not
+    # for Agent_b.exe -- which is why that one is still signed last.
+    #
+    # The test path does not come through here: it signs its own disposable
+    # payload copy a few lines below, with its own certificate.
+    if (-not $SignForTest) {
+        & (Join-Path $sourceRoot 'tools\sign-release.ps1') -Path $sourceRoot -CliOnly
+        if ($LASTEXITCODE -ne 0) { throw "Signing agentb.exe exited $LASTEXITCODE." }
+    }
     $payloadRoot = $sourceRoot
     $testPayloadRoot = $null
     if ($SignForTest) {

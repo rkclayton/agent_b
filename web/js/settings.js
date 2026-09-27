@@ -689,6 +689,23 @@ async function dispatchAction(event, button, action, id) {
     render();
     return void applySetting(path);
   }
+  // Item 2mf (e): SETTINGS BRINGS A HIDDEN SURFACE BACK. This is the promise the
+  // hide confirmation makes in the strip, so it belongs to that item rather than
+  // to a follow-up. The stored value is the list of hidden names, so a switch
+  // here adds or removes one name and saves the whole list; the surface itself
+  // was never discarded, and it returns pinned at the far right because that is
+  // where the surface list puts it.
+  if (action === "surface-visible") {
+    const kind = button.dataset.surface;
+    const show = button.dataset.value === "true";
+    const hidden = new Set(Array.isArray(store.config.chat?.hidden_surfaces) ? store.config.chat.hidden_surfaces : []);
+    show ? hidden.delete(kind) : hidden.add(kind);
+    drafts.set("chat.hidden_surfaces", [...hidden].sort().join(","));
+    draftKinds.set("chat.hidden_surfaces", "list");
+    settingsSaveAlarm = false;
+    render();
+    return void applySetting("chat.hidden_surfaces");
+  }
   if (action === "probe") {
     const pendingPrefix = `connections.${id}.`;
     const connection = connectionList().find((x) => x.id === id);

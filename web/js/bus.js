@@ -239,17 +239,32 @@ export function setSelection(agentID, sessionID = "") {
   // that runs work is handed a closed session.
   const target = sessionID && store.sessions[sessionID] && roleAgentID(store.sessions[sessionID]) === nextAgent ? sessionID : "";
   const nextSession = target;
-  store.selection = { agent_id: nextAgent, session_id: nextSession };
+  // Item 2mf (b): SELECTION IS A SURFACE REFERENCE. It was a session id, which is
+  // why no tab could point at anything that was not a chat. The session id is
+  // still here and still means what it meant — it is what the CHAT KIND carries,
+  // rather than what every tab must have.
+  store.selection = { agent_id: nextAgent, session_id: nextSession, surface: { kind: "chat", key: nextSession } };
   store.active = target && !store.sessions[target].closed ? target : "";
+  persistSelection();
+  notify({ type: "selection.changed", data: { ...store.selection } });
+}
+// Item 2mf (b): selecting a surface that is not a chat. The chat selection is
+// left exactly as it was, because the operator's chat is still his chat while he
+// is reading the Plan, and one click on its tab must return to it.
+export function setSurface(surface) {
+  store.selection = { ...store.selection, surface: surface ? { kind: surface.kind, key: surface.key } : null };
   persistSelection();
   notify({ type: "selection.changed", data: { ...store.selection } });
 }
 function readSelection() {
   try {
     const value = JSON.parse(globalThis.sessionStorage?.getItem("agentb.selection") || "null");
-    if (value && typeof value.agent_id === "string" && typeof value.session_id === "string") return value;
+    if (value && typeof value.agent_id === "string" && typeof value.session_id === "string") {
+      const surface = value.surface && typeof value.surface.kind === "string" && typeof value.surface.key === "string" ? value.surface : { kind: "chat", key: value.session_id };
+      return { ...value, surface };
+    }
   } catch {}
-  return { agent_id: "agent_b", session_id: "" };
+  return { agent_id: "agent_b", session_id: "", surface: { kind: "chat", key: "" } };
 }
 function persistSelection() {
   try { globalThis.sessionStorage?.setItem("agentb.selection", JSON.stringify(store.selection)); } catch {}

@@ -295,6 +295,20 @@ type Measurement struct {
 	DurationMS    int64   `json:"duration_ms"`
 	Capped        bool    `json:"capped"`
 	Stopped       bool    `json:"stopped,omitempty"`
+	// Item 2ih (c), (d) and (e): the two arms the harness ran, the decision it
+	// wrote from them, and the window the model will actually run with. A
+	// measurement that only reported a pass count could not explain what it
+	// changed, and the operator would be left reading a switch that moved by
+	// itself.
+	//
+	// All of it is omitempty: every measurement recorded before this release is a
+	// single arm with no decision, and it must keep rendering as what it was
+	// rather than as a two-arm run with empty halves.
+	ReasoningOn  *MeasurementArm    `json:"reasoning_on,omitempty"`
+	ReasoningOff *MeasurementArm    `json:"reasoning_off,omitempty"`
+	Decision     *ReasoningDecision `json:"decision,omitempty"`
+	NCtx         int                `json:"n_ctx,omitempty"`
+	WindowTokens int                `json:"window_tokens,omitempty"`
 }
 
 type Service struct {

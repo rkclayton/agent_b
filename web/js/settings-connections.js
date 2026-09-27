@@ -156,7 +156,7 @@ function connectionFields(connection, reason, discovery) {
 	const modelControl = row("model", `<span class="settings-actions">${picker}</span>`, "", "Filled by Test from what the server lists; type a name by hand when a server cannot enumerate.");
 	const feedback = discovery?.message ? `<p class="settings-note ${discovery.alarm ? "alarm" : ""}">${html(discovery.message)}</p>` : "";
 	const measurement = connection.measurement;
-	const measurementResult = measurement ? `<div class="findings"><span class="settings-note">${html(measurement.measured_at || "measured")}</span><ul><li>${Number(measurement.passed || 0)}/${Number(measurement.total || 10)} passed</li><li>${Number(measurement.tool_errors || 0)} tool errors</li></ul></div>` : "";
+	const measurementResult = measurement ? renderMeasurement(measurement) : "";
 	const state = reason || (caps.probed_at ? "ready" : "not tested");
 	return `<div class="connection-fieldset connection-identity">${text(`${p}.label`, "label", connection.label, "text", "The name this connection is shown by.")}
     ${text(`${p}.base_url`, "base_url", connection.base_url, "text", "The server address; Test and fill discovers its API path and port, lists models and proposes the rest.")}${discovery?.base_url ? `<p class="settings-note discovery-note">${html(discovery.found || `found ${discovery.base_url}`)}</p>` : ""}
@@ -192,4 +192,37 @@ function connectionFields(connection, reason, discovery) {
 export function renderConnectionsPage(context) {
   useSettingsContext(context);
   return connections();
+}
+
+// Item 2ih (d): the Evaluation Harness screen renders the per-arm table and the
+// settings it wrote, and Connections shows the same table under the profile with
+// the measurement's date. It is the same function, because they are the same
+// table -- two renderings would drift apart within a release.
+//
+// (e): the probe's n_ctx and the window the model will actually run with are in
+// that table, so the operator sees the window rather than inferring it.
+//
+// A measurement recorded before rel-1.22.0 has one arm and no decision, and
+// renders as what it was: this shows the arms only when both are present.
+export function renderMeasurement(measurement) {
+  const when = html(measurement.measured_at || "measured");
+  const rows = [];
+  const arms = measurement.reasoning_on && measurement.reasoning_off;
+  if (arms) {
+    const arm = (name, side) => `<tr><td>${name}</td><td>${Number(side.passed || 0)}/${Number(side.total || 0)}</td><td>${Number(side.empty_replies || 0)}</td><td>${Number(side.tool_errors || 0)}</td><td>${Number(side.completion_ms || 0)} ms</td></tr>`;
+    rows.push(`<table class="harness-arms">
+      <thead><tr><th>arm</th><th>passed</th><th>empty</th><th>tool errors</th><th>p95</th></tr></thead>
+      <tbody>${arm("thinking on", measurement.reasoning_on)}${arm("thinking off", measurement.reasoning_off)}</tbody>
+    </table>`);
+  } else {
+    rows.push(`<ul><li>${Number(measurement.passed || 0)}/${Number(measurement.total || 10)} passed</li><li>${Number(measurement.tool_errors || 0)} tool errors</li></ul>`);
+  }
+  // (c): every write is ONE LINE, and this is where the operator reads it. A
+  // switch that moved by itself with no sentence beside it is the thing this
+  // exists to prevent.
+  if (measurement.decision?.line) rows.push(`<p class="settings-note">${html(measurement.decision.line)}</p>`);
+  if (measurement.n_ctx) {
+    rows.push(`<p class="settings-note">window ${Number(measurement.window_tokens || 0).toLocaleString()} of ${Number(measurement.n_ctx).toLocaleString()} tokens</p>`);
+  }
+  return `<div class="findings"><span class="settings-note">${when}</span>${rows.join("")}</div>`;
 }

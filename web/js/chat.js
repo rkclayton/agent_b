@@ -569,7 +569,7 @@ function renderResponseStepFold(session, view, block, active, directThoughts) {
   view.fold.classList.toggle("headerless", headerless);
   view.fold.classList.toggle("alarm", totals.failed > 0);
   setAttribute(view.head, "aria-expanded", String(open));
-  setText(view.head, `${open ? "▾" : "▸"} Steps · ${responseSummaryText(totals, block.steps.length)}`);
+  setSummaryWithDuration(view.head, `${open ? "▾" : "▸"} Steps · ${responseSummaryText(totals, block.steps.length)}`, totals.duration);
   const usedItems = new Set(block.steps.map((item, index) => item?.key || `invalid:${index}`));
   const nodes = [];
   if (open) {
@@ -609,8 +609,40 @@ function responseSummaryText(summary, rowCount) {
   if (summary.thoughts) parts.push(`${summary.thoughts} ${summary.thoughts === 1 ? "thought" : "thoughts"}`);
   if (!summary.tools && !summary.thoughts && summary.answers) parts.push(`${summary.answers} ${summary.answers === 1 ? "answer" : "answers"}`);
   if (!parts.length) parts.push(`${rowCount} ${rowCount === 1 ? "row" : "rows"}`);
-  if (summary.duration) parts.push(formatDuration(summary.duration));
   return parts.join(" · ");
+}
+
+// Item 2m2 (a): the trailing duration sits in a SEAT rather than in the summary
+// string, and the seat is there whether a duration is or not.
+//
+// A step summary draws its measured duration only when it rounds to at least a
+// millisecond, so two runs of one build read "2 tool calls · 2 failed" and "2
+// tool calls · 2 failed · 1 ms". That presence difference is what the
+// duration-seat MASK existed to cover -- a mask over the place a value would
+// sit. The place is real now, so the mask is gone: item 2m2 (e) removes the
+// masks whose only job was hiding movement, so that a future difference in
+// those pixels is seen rather than covered.
+//
+// Nine characters, because formatDuration's widest form is "21600.0 s" and
+// run.max_wall_clock_seconds is 21600 by default -- the longest run the product
+// allows. Sized from the range, per (c), not from today's sample.
+function setSummaryWithDuration(head, label, milliseconds) {
+  let text = head.firstChild;
+  if (!text || text.nodeType !== 3) {
+    head.textContent = "";
+    text = document.createTextNode("");
+    head.append(text);
+  }
+  if (text.nodeValue !== label) text.nodeValue = label;
+  let seat = head.querySelector(".seat");
+  if (!seat) {
+    seat = document.createElement("span");
+    seat.className = "seat";
+    seat.style.setProperty("--seat", "9ch");
+    head.append(seat);
+  }
+  const drawn = milliseconds ? ` · ${formatDuration(milliseconds)}` : "";
+  if (seat.textContent !== drawn) seat.textContent = drawn;
 }
 
 function renderResponseToolGroup(session, view, group) {
@@ -635,10 +667,9 @@ function renderResponseToolGroup(session, view, group) {
   const parts = [`${group.tool} ×${group.calls}`];
   if (group.thoughts) parts.push(`+${group.thoughts} ${group.thoughts === 1 ? "thought" : "thoughts"}`);
   if (group.failed) parts.push(`${group.failed} failed`);
-  if (group.duration) parts.push(formatDuration(group.duration));
   groupView.root.classList.toggle("alarm", group.failed > 0);
   setAttribute(groupView.head, "aria-expanded", String(open));
-  setText(groupView.head, `${open ? "▾" : "▸"} ${parts.join(" · ")}`);
+  setSummaryWithDuration(groupView.head, `${open ? "▾" : "▸"} ${parts.join(" · ")}`, group.duration);
   const children = open ? group.items.map((item, index) => {
     try {
       if (item?.type === "agent" && item.reasoning) expanded.add(item.key);

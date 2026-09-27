@@ -319,3 +319,56 @@ func TestRetiredEnginesHaveNoAdapter2lq(t *testing.T) {
 		}
 	}
 }
+
+// Item 2m3 (b): A RATE-LIMITED ENGINE COMES BACK. The bench is a wait, not a
+// retirement, and nothing else in the suite proves the waiting ends.
+//
+// rel-1.21.0 carded this as unproven and it very nearly was: 2lq proves the
+// bench is taken and dated, and the report line is asserted, but no test moves
+// the clock past the window. An engine benched forever by a temporary condition
+// is the failure mode the whole mechanism exists to avoid.
+func TestABenchedEngineIsRetriedAfterItsWindow2m3(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		if requests == 1 {
+			w.Header().Set("Retry-After", "300")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html><body>answered</body></html>"))
+	}))
+	defer server.Close()
+
+	fetchCfg, searchCfg := webSearchTestConfig("limited")
+	adapter := fixedSearchAdapter{name: "limited", url: server.URL, hits: []webSearchHit{{Title: "back", URL: "https://example.com/back"}}}
+	tool := newWebSearch(NewFetch(fetchCfg), searchCfg, []webSearchAdapter{adapter}, false)
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	tool.now = func() time.Time { return now }
+
+	client := tool.fetch.client(fetchCfg)
+	defer client.CloseIdleConnections()
+	_, err := tool.searchOne(context.Background(), client, fetchCfg, adapter, server.URL, 10)
+	tool.recordWebSearchFailure("limited", err, searchCfg)
+
+	health, _ := tool.healthSnapshot("limited")
+	if !health.BenchedUntil.After(now) {
+		t.Fatalf("the engine was not benched at all: %+v", health)
+	}
+
+	// One second before the window closes it is still benched, and the caller is
+	// still told why.
+	now = health.BenchedUntil.Add(-time.Second)
+	if detail := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"query": "context"}); !strings.Contains(detail.Content, "rate limited") {
+		t.Errorf("inside the window the bench stopped being reported:\n%s", detail.Content)
+	}
+
+	// One second after it, the engine is tried again -- and this one answers.
+	now = health.BenchedUntil.Add(time.Second)
+	before := requests
+	detail := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"query": "context"})
+	if requests == before {
+		t.Fatalf("the window passed and the engine was never retried: %+v", detail)
+	}
+}

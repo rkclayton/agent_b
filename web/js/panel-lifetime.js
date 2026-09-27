@@ -110,15 +110,26 @@ export function runProfileRows(counters = {}) {
   const life = runProfile(counters, false);
   const recent = runProfile(counters, true);
   if (!life.runs && !recent.runs) return [];
-  const pair = (label, read) => [label, read(life), read(recent)];
+  // Item 2m2: the fourth element is the SEAT, in characters, sized to the
+  // widest form the value can take -- not to today's sample. A measured value
+  // that changes digit count must not move anything, and a mask cannot help
+  // with that: a mask covers a rectangle and the text has left it.
+  //
+  // The widths come from the formatters above and from the run's own limits:
+  //   runs        an integer count, five digits before anyone notices
+  //   duration    "21600.0 s" -- run.max_wall_clock_seconds is 21600 by default,
+  //               which is the longest run the product will allow
+  //   the triple  "100/100/100", three shares that each reach three digits
+  //   rate        "100.0%"
+  const pair = (label, read, seat) => [label, read(life), read(recent), seat];
   return [
-    pair("runs measured", (p) => String(p.runs)),
-    pair("median run", (p) => (p.median === null ? "—" : duration(p.median))),
+    pair("runs measured", (p) => String(p.runs), 5),
+    pair("median run", (p) => (p.median === null ? "—" : duration(p.median)), 9),
     // The per cent signs are dropped: the label says these are shares, and with
     // them the row wrapped over three lines in Activity's narrow columns.
-    pair("model / tools / waiting %", (p) => `${share(p.model, p.wall)}/${share(p.tool, p.wall)}/${share(p.waiting, p.wall)}`),
-    pair("empty replies / run", (p) => rate(p.empty, p.runs)),
-    pair("tool errors", (p) => rate(p.toolFailures, p.toolCalls)),
-    pair("repeated calls / run", (p) => rate(p.repeated, p.runs)),
+    pair("model / tools / waiting %", (p) => `${share(p.model, p.wall)}/${share(p.tool, p.wall)}/${share(p.waiting, p.wall)}`, 11),
+    pair("empty replies / run", (p) => rate(p.empty, p.runs), 6),
+    pair("tool errors", (p) => rate(p.toolFailures, p.toolCalls), 6),
+    pair("repeated calls / run", (p) => rate(p.repeated, p.runs), 6),
   ];
 }

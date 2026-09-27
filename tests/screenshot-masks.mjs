@@ -45,13 +45,13 @@ export const LIVE_VALUES = [
   // one un-masked run was the whole difference between two captures of one
   // build. Same named live value, matched wherever the host is cut.
   { name: "loopback-port", reason: "the fake model server's port is chosen when it starts", selector: "body", pattern: String.raw`(?:[\d.]*\d\.\d+|localhost):\d{2,5}` },
-  // v1.2.2/W3: a step summary draws its measured duration only when it rounds
-  // to at least a millisecond, so two runs of one build read "2 tool calls · 2
-  // failed" and "2 tool calls · 2 failed · 1 ms". The counts are compared as
-  // they are; only the seat the duration would occupy - from the end of the
-  // last count to the right edge of the line - is masked, and it is masked in
-  // every capture whether a duration sits there or not, so the two agree.
-  { name: "duration-seat", reason: "a duration under half a millisecond is not drawn at all, so the place one would sit differs between runs", selector: ".chat-step-summary, .chat-response-summary, .chat-tool-group-head", pattern: String.raw`\d[\d,]* (?:failed|rows?|thoughts?|answers?|tool calls?)(?=(?: · [\d,.]+ (?:ms|s))?$)`, afterMatch: true },
+  // Item 2m2 (e), rel-1.22.0: duration-seat is GONE. It masked the place a
+  // trailing duration would sit, because the value is drawn only when it rounds
+  // to at least a millisecond and two runs of one build therefore ended their
+  // line in different places. chat.js now reserves that place in the markup --
+  // a nine-character seat, wide enough for the longest run the product allows --
+  // so the place no longer moves and a mask over it would only hide a future
+  // difference. A mask that is not needed is not kept alongside the fix.
   { name: "budget-meter", reason: "the chat's budget fill follows measured token counts", selector: ".chat-budget-fill" },
   // v1.0.0/W5: the staged candidate's prompt measured five tokens more than a
   // working-tree build's, so every token readout and the Console rail's

@@ -1,5 +1,20 @@
 [CmdletBinding()]
 param()
+
+# Item 2m3 (c): REFUSE AT THE TOP, not after the work.
+#
+# This probe reports its verdict with
+# [Security.Cryptography.X509Certificates.X509ChainTrustMode], which exists
+# only in .NET Core. Under Windows PowerShell 5.1 it created its disposable
+# certificate, signed, timestamped, removed every certificate it made -- and
+# then died on the type, exiting non-zero. A probe that does its work
+# correctly and then reports failure is worse than one that will not start:
+# rel-1.21.0/W0 read that exit as a signing failure until the log was read
+# line by line.
+if ($PSVersionTable.PSEdition -ne 'Core') {
+    throw "This probe requires PowerShell 7 (pwsh). It reports its verdict with X509ChainTrustMode, which exists only in .NET Core, and Windows PowerShell $($PSVersionTable.PSVersion) would do the work and then fail on the report. Run: pwsh -NoProfile -File tests/test-release-signing.ps1"
+}
+
 $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\windows-tools.ps1')

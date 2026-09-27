@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -115,51 +116,178 @@ func (s *Server) runMeasurement(ctx context.Context, connectionID string, connec
 		delete(s.measureCancels, connectionID)
 		s.measureMu.Unlock()
 	}()
-	client := llm.New(&connection)
-	passed, toolErrors, briefsRun := 0, 0, 0
-	capped := false
-	stopped := false
+
+	// Item 2ih (b) and (c): TWO ARMS, then the rule decides.
+	//
+	// The arms are the same ten briefs with thinking on and thinking off, and
+	// the only difference between them is the switch -- if the two differed in
+	// any other way the comparison would measure that instead. The rule that
+	// consumes them is config.DecideReasoning, which shipped at v1.20.0 and was
+	// fed live numbers at rel-1.21.0; nothing here re-derives it.
+	//
+	// The off-arm runs FIRST. It is the cheaper one, and if the operator stops
+	// the measurement or the cap bites, the arm that finished is the one that
+	// costs least to repeat.
+	off, offErr := s.measureArm(ctx, connectionID, connection, false)
+
+	// (f): A MEASUREMENT THAT CANNOT RUN SAYS SO AND WRITES NOTHING.
+	//
+	// If the connection advertises no way to express the switch, both arms would
+	// go out identical and the comparison would measure sampling noise and call
+	// it reasoning. An on-arm that never ran is exactly what DecideReasoning
+	// refuses to decide from, and its line says the measurement did not run.
+	var on config.MeasurementArm
+	var onErr error
+	if reasoningControlOf(connection) == "" {
+		on = config.MeasurementArm{Total: len(measurementBriefs)}
+	} else {
+		on, onErr = s.measureArm(ctx, connectionID, connection, true)
+	}
+	runErr := offErr
+	if runErr == nil {
+		runErr = onErr
+	}
+
+	decision := config.DecideReasoning(on, off)
+	result := &config.Measurement{
+		Passed: off.Passed, Total: len(measurementBriefs), BriefsRun: off.BriefsRun + on.BriefsRun,
+		ToolErrors:    off.ToolErrors + on.ToolErrors,
+		ToolErrorRate: measurementErrorRate(off.ToolErrors+on.ToolErrors, off.BriefsRun+on.BriefsRun), Trials: 2,
+		Provenance: measurementProvenance, MeasuredAt: time.Now().UTC().Format(time.RFC3339),
+		DurationMS: time.Since(started).Milliseconds(),
+		Capped:     off.Capped || on.Capped, Stopped: off.Stopped || on.Stopped,
+		ReasoningOn: &on, ReasoningOff: &off, Decision: &decision,
+		NCtx: connection.Context.NCtx, WindowTokens: connection.Context.NCtx - connection.Context.ReserveOutput,
+	}
+
+	// (c): the harness SETS, and (f): an arm that did not run writes nothing.
+	// DecideReasoning already refuses to decide from an arm that did not run, and
+	// its line says so; this only declines to write what it refused to decide.
+	if on.Ran && off.Ran && !on.Stopped && !off.Stopped {
+		if err := s.writeReasoningDecision(connectionID, decision); err != nil && runErr == nil {
+			runErr = err
+		}
+	}
+	if err := s.storeMeasurement(connectionID, result); err != nil {
+		runErr = err
+	}
+	state := measureState{Text: decision.Line, Result: result}
+	if runErr != nil {
+		state.Error = runErr.Error()
+	}
+	s.setMeasurement(connectionID, state)
+}
+
+// measureArm is one arm of item 2ih (b): the same ten briefs, with the thinking
+// switch in one position.
+func (s *Server) measureArm(ctx context.Context, connectionID string, connection config.Connection, thinking bool) (config.MeasurementArm, error) {
+	label := "thinking off"
+	if thinking {
+		label = "thinking on"
+	}
+	// THE SWITCH LIVES IN TWO PLACES AND BOTH HAVE TO MOVE, which is not obvious
+	// and cost this item a test to find out. Request.Thinking chooses the
+	// SAMPLING COLUMN; what the server is actually told is the CONNECTION's
+	// Reasoning.Enabled, through whichever control it advertises --
+	// chat_template_kwargs for a llama.cpp template, a top-level field
+	// otherwise. An arm that flipped only the request would have measured two
+	// sampling columns against one thinking model and called the difference
+	// reasoning.
+	//
+	// The copy is local to the arm, so nothing is written to the operator's
+	// configuration until (c) writes the decision.
+	armConnection := connection
+	armConnection.Reasoning.Enabled = thinking
+	client := llm.New(&armConnection)
+	arm := config.MeasurementArm{Total: len(measurementBriefs)}
 	var runErr error
+	var completions []int64
 	for index, brief := range measurementBriefs {
-		s.setMeasurement(connectionID, measureState{Running: true, Text: fmt.Sprintf("Brief %d of %d", index+1, len(measurementBriefs))})
-		briefsRun++
+		if ctx.Err() != nil {
+			break
+		}
+		s.setMeasurement(connectionID, measureState{Running: true, Text: fmt.Sprintf("%s, brief %d of %d", label, index+1, len(measurementBriefs))})
+		arm.BriefsRun++
+		at := time.Now()
 		response, err := client.Chat(ctx, llm.Request{
 			Messages: []llm.Message{
 				{Role: "system", Content: "Call inspect_workspace exactly once. Put the brief in its request argument. Do not answer in prose."},
 				{Role: "user", Content: brief},
 			},
 			Tools: []any{measurementTool}, ToolChoice: "required", MaxTokens: 256,
+			// The ONLY difference between the arms.
+			Thinking: thinking,
 		})
+		completions = append(completions, time.Since(at).Milliseconds())
 		if err != nil {
 			if ctx.Err() != nil {
-				capped = ctx.Err() == context.DeadlineExceeded
-				stopped = ctx.Err() == context.Canceled
+				arm.Capped = ctx.Err() == context.DeadlineExceeded
+				arm.Stopped = ctx.Err() == context.Canceled
 				break
 			}
 			runErr = err
-			toolErrors++
+			arm.ToolErrors++
 			continue
 		}
-		if validMeasurementCall(response.ToolCalls, brief) {
-			passed++
-		} else {
-			toolErrors++
+		switch {
+		case validMeasurementCall(response.ToolCalls, brief):
+			arm.Passed++
+		case len(response.ToolCalls) == 0 && strings.TrimSpace(response.Content) == "":
+			// (b)'s empty-reply rate: a turn that finished with neither a call nor
+			// prose. rel-1.21.0 saw one of these on a live model, and it is the
+			// clause the decision rule vetoes on.
+			arm.EmptyReplies++
+		default:
+			arm.ToolErrors++
 		}
+		arm.ReasoningP95 = maxInt(arm.ReasoningP95, len(response.Reasoning))
 	}
-	result := &config.Measurement{
-		Passed: passed, Total: len(measurementBriefs), BriefsRun: briefsRun, ToolErrors: toolErrors,
-		ToolErrorRate: measurementErrorRate(toolErrors, briefsRun), Trials: 1,
-		Provenance: measurementProvenance, MeasuredAt: time.Now().UTC().Format(time.RFC3339),
-		DurationMS: time.Since(started).Milliseconds(), Capped: capped, Stopped: stopped,
+	arm.Ran = arm.BriefsRun > 0 && !arm.Stopped
+	arm.CompletionMS = percentile95(completions)
+	return arm, runErr
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
 	}
-	if err := s.storeMeasurement(connectionID, result); err != nil {
-		runErr = err
+	return b
+}
+
+// percentile95 is the 95th percentile of what was observed, which is what (c)
+// derives the reasoning cap from. An empty sample is zero, and zero means the
+// cap is left alone rather than invented.
+func percentile95(values []int64) int64 {
+	if len(values) == 0 {
+		return 0
 	}
-	state := measureState{Text: fmt.Sprintf("%d/%d briefs passed; %d ran", passed, len(measurementBriefs), briefsRun), Result: result}
-	if runErr != nil {
-		state.Error = runErr.Error()
+	sorted := append([]int64(nil), values...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	index := (len(sorted) * 95) / 100
+	if index >= len(sorted) {
+		index = len(sorted) - 1
 	}
-	s.setMeasurement(connectionID, state)
+	return sorted[index]
+}
+
+// writeReasoningDecision is (c)'s write: the switch the harness measured, onto
+// the connection it measured, through the scope boundary item 2m0 built.
+func (s *Server) writeReasoningDecision(connectionID string, decision config.ReasoningDecision) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for index := range s.cfg.Connections {
+		if s.cfg.Connections[index].ID != connectionID {
+			continue
+		}
+		s.cfg.Connections[index].Reasoning.Enabled = decision.Enabled
+		// (c) and @keep: the cap is written only when one was OBSERVED, so an
+		// operator's own value survives a measurement that could not report one.
+		if decision.ReasoningCap > 0 {
+			s.cfg.Connections[index].Reasoning.MaxTokens = decision.ReasoningCap
+		}
+		return s.saveMachineConfig(*s.cfg)
+	}
+	return nil
 }
 
 func measurementErrorRate(toolErrors, briefsRun int) float64 {
@@ -200,4 +328,17 @@ func (s *Server) storeMeasurement(connectionID string, result *config.Measuremen
 		return nil
 	}
 	return fmt.Errorf("connection %q disappeared during measurement", connectionID)
+}
+
+// reasoningControlOf resolves how this connection expresses the thinking switch:
+// what the operator configured, or what the probe found, or nothing at all.
+func reasoningControlOf(connection config.Connection) string {
+	control := connection.Reasoning.Control
+	if control == "auto" {
+		control = connection.Capabilities.ReasoningControl
+	}
+	if control == "none" {
+		return ""
+	}
+	return control
 }

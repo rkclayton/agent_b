@@ -307,8 +307,8 @@ export function initShell(options = {}) {
 
   // Item 2mf (c) and (g): PLAN IS A SURFACE AND IT LIVES IN THE STRIP, pinned at
   // the far right AFTER every chat, so it does not sort with them and does not
-  // move when one opens, closes or reorders. The one-entry `shell-pages` nav it
-  // replaces is gone.
+  // move when one opens, closes or reorders. The one-entry page nav it replaces
+  // is gone, and so is its class.
   //
   // (g) THE STRIP STAYS A CHAT STRIP TO LOOK AT: this tab carries no robot glyph
   // and no run state, because it has neither, and it says so in its class rather

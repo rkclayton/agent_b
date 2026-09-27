@@ -35,7 +35,7 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .window-titlebar{height:var(--app-header-height);-webkit-app-region:drag;app-region:drag}
 .window-titlebar button,.window-titlebar input,.window-titlebar select,.window-titlebar a{-webkit-app-region:no-drag;app-region:no-drag}
 .app-shell{position:relative;z-index:30;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px;height:var(--app-header-height);min-width:0;padding:0 4px;background:var(--bezel)}
-.shell-left,.agent-tabs,.shell-right,.shell-pages{display:flex;align-items:center;min-width:0;gap:2px}
+.shell-left,.agent-tabs,.shell-right{display:flex;align-items:center;min-width:0;gap:2px}
 .shell-right{height:100%}
 .shell-left{overflow:hidden}
 .shell-left{width:100%}

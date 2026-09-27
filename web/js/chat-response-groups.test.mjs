@@ -49,7 +49,11 @@ test("response blocks keep prose visible and assign only their following steps",
     prose: block.prose?.text || "",
     steps: block.steps.map((item) => item.key),
   })), [
-    { key: "response-block:leading:leading", prose: "", steps: ["leading"] },
+    // Item 2mu (a): a leading thought carries the same `thought:` key it will
+    // carry once prose arrives, so the fold the operator opened survives the
+    // switch between branches. Before this it was keyed "leading" here and
+    // "thought:leading" there, and that change is what shut the fold.
+    { key: "response-block:leading:leading", prose: "", steps: ["thought:leading"] },
     { key: "response-block:first", prose: "First prose", steps: ["thought:first", "after-first", "notice-first"] },
     { key: "response-block:second", prose: "Second prose", steps: ["thought:second", "after-second"] },
   ]);
@@ -96,4 +100,32 @@ test("only completed agent entries with no content are omitted from Chat", () =>
   assert.equal(hasVisibleChatContent({ type: "notice", key: "malformed-delivery", event: { type: "files.delivered", data: {} } }), true);
   assert.equal(hasVisibleChatContent({ type: "notice", key: "routine-done", event: { type: "run.stopped", data: { reason: "done" } } }), false);
   assert.equal(hasVisibleChatContent(null), true);
+});
+
+// Item 2mu's W0: CONFIRM OR REFUTE THE CHANGING-KEY THEORY BY OBSERVATION before
+// touching anything. The operator, 2026-09-27 03:10: "when the agent thinks you
+// still cant expand the carrot — it flashes if you try but nothing."
+//
+// The theory is confirmed, and the key changes for a reason the item did not name:
+// not per delta, but at the FIRST TEXT DELTA. One agent item streaming reasoning
+// with no text yet falls through to the leading block and keeps its own key; the
+// moment that same item gains any text it takes the prose branch and its thought
+// is split out under a `thought:` prefix. reasoning.js keys its views and its
+// `expanded` set by exactly that key and drops every view whose key went unused in
+// a pass — so the fold the operator opened is looked up under a key that no longer
+// exists, renders shut, and its view is discarded. One frame open, then shut.
+test("a live thought keeps one key from its first delta to its last", () => {
+  const keysFor = (item) => responseBlocks([item]).flatMap((block) => block.steps.map((step) => step.key));
+
+  // Streaming: reasoning has arrived, text has not.
+  const thinking = { type: "agent", key: "turn:r643:1", reasoning: "weighing it up", text: "", done: false };
+  const whileThinking = keysFor(thinking);
+  assert.deepEqual(whileThinking, ["thought:turn:r643:1"], "the live thought's key");
+
+  // The same item, one text delta later. THIS is the key that used to change.
+  const answering = { ...thinking, text: "Here is" };
+  assert.deepEqual(keysFor(answering), whileThinking, "the key changed when the first text delta arrived, which is the flash");
+
+  // And through to done.
+  assert.deepEqual(keysFor({ ...answering, text: "Here is the answer.", done: true }), whileThinking);
 });

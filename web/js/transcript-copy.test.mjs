@@ -135,7 +135,11 @@ test("open response copy includes indented visible bodies byte for byte", () => 
     .replace("thought 2.3 s (~74 tokens)", "thought 2.3 s (~74 tokens)\n  I considered the executable search.")
     .replace("tool list_dir . → ok 0 ms", "tool list_dir . → ok 0 ms\n  directory is empty")
     .replace("tool shell sqlcmd -? → error 15 ms", "tool shell sqlcmd -? → error 15 ms\n  executable not found");
-  const expanded = new Set(["response-block:leading:thought-1", "thought-1", "tool-1", "tool-2"]);
+  // Item 2mu (a): a thought's open state is keyed by the same `thought:` prefixed
+  // key the renderer and the grouping both use now, whether or not prose has
+  // arrived. Keyed by the raw id, as this was, the two disagreed and the body
+  // silently vanished from the copy — which is how this gate caught the change.
+  const expanded = new Set(["response-block:leading:thought-1", "thought:thought-1", "tool-1", "tool-2"]);
   const record = responseTranscriptRecord(response, expanded);
   const text = transcriptText([{ className: "chat-entry chat-agent chat-response", text: "expanded UI furniture", record }]);
   assert.equal(text, openRecord);

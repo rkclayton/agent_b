@@ -317,6 +317,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/static/", revalidateStatic(http.StripPrefix("/static/", http.FileServer(http.Dir(s.webDir)))))
 	mux.HandleFunc("/api/events", s.sse)
 	mux.HandleFunc("/api/state", s.state)
+	// Item 2mv: one read-only export of what this installation already knows.
+	mux.HandleFunc("/api/diagnostics", s.diagnostics)
 	mux.HandleFunc("/api/browser-session", s.browserSessionEndpoint)
 	mux.HandleFunc("/api/phone/enrolment", s.phoneEnrolment)
 	mux.HandleFunc(phoneRedeemPath, s.phoneEnrolmentRedeem)

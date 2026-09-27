@@ -6,6 +6,7 @@ param(
     [string]$DataDirectory,
     [string]$WorkspaceDirectory,
     [string]$StartMenuDirectory,
+    [string]$SendToDirectory,
     [string]$UninstallRegistryPath,
     [string]$OperatorSid,
     [string]$OperatorLocalAppData,
@@ -618,13 +619,14 @@ if ([string]::IsNullOrWhiteSpace($OperatorSid)) { $OperatorSid = [Security.Princ
 if ([string]::IsNullOrWhiteSpace($OperatorLocalAppData)) { $OperatorLocalAppData = [Environment]::GetFolderPath('LocalApplicationData') }
 $resolvedRoots = Resolve-AgentBInstallRoots -AllUsers:$AllUsers -TestMode:$TestMode `
     -ApplicationDirectory $ApplicationDirectory -DataDirectory $DataDirectory `
-    -WorkspaceDirectory $WorkspaceDirectory -StartMenuDirectory $StartMenuDirectory `
+    -WorkspaceDirectory $WorkspaceDirectory -StartMenuDirectory $StartMenuDirectory -SendToDirectory $SendToDirectory `
     -UninstallRegistryPath $UninstallRegistryPath -LegacyApplicationDirectory $LegacyApplicationDirectory `
     -OperatorLocalAppData $OperatorLocalAppData
 $ApplicationDirectory = $resolvedRoots.ApplicationDirectory
 $DataDirectory = $resolvedRoots.DataDirectory
 $WorkspaceDirectory = $resolvedRoots.WorkspaceDirectory
 $StartMenuDirectory = $resolvedRoots.StartMenuDirectory
+$SendToDirectory = $resolvedRoots.SendToDirectory
 $UninstallRegistryPath = $resolvedRoots.UninstallRegistryPath
 $legacyApplicationOverride = $resolvedRoots.LegacyApplicationExplicit
 $LegacyApplicationDirectory = $resolvedRoots.LegacyApplicationDirectory
@@ -983,6 +985,35 @@ $startup.IconLocation = "$iconPath,0"
 $startup.Description = 'Start Agent_b in the background at sign-in'
 $startup.Save()
 
+# Item 2mv (e): SEND TO -> AGENT_B. Explorer hands the selected paths to the link,
+# which copies them into the exchange folder Agent_b already reads. Placing it is
+# idempotent: the link is written whole every install, so a reinstall repairs it and
+# never leaves a second one. It runs through launch-hidden.vbs, so sending a file
+# flashes no console window.
+$sendToScript = Join-Path $applicationRoot 'scripts\send-to-Agent_b.ps1'
+if (-not (Test-Path -LiteralPath $sendToScript -PathType Leaf)) { throw "Installed Send-to script is missing: $sendToScript" }
+$exchangeAttachments = Join-Path $exchangeRoot 'attachments'
+$sendToPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$sendToReady = $true
+if (-not (Test-Path -LiteralPath $SendToDirectory -PathType Container)) {
+    try { $null = New-Item -ItemType Directory -Path $SendToDirectory -Force } catch { $sendToReady = $false }
+}
+if ($sendToReady) {
+    $sendToLink = Join-Path $SendToDirectory 'Agent_b.lnk'
+    $sendTo = $shell.CreateShortcut($sendToLink)
+    $sendTo.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
+    # The exchange folder is the first argument; Explorer appends the selection.
+    $sendTo.Arguments = '//B "' + $hiddenLauncher + '" "' + $sendToPowerShell + '" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $sendToScript + '" -ExchangeDirectory "' + $exchangeAttachments + '"'
+    $sendTo.WorkingDirectory = $dataRoot
+    $sendTo.IconLocation = "$iconPath,0"
+    $sendTo.Description = 'Copy the selected files into Agent_b'
+    $sendTo.Save()
+    Write-Host "Send-to link: $sendToLink"
+} else {
+    # @consequence-if-false: documented for the operator rather than forced.
+    Write-Host "SKIPPED: Send-to link, because $SendToDirectory could not be used. Create it, or place a shortcut there yourself to: wscript //B `"$hiddenLauncher`" powershell -File `"$sendToScript`" -ExchangeDirectory `"$exchangeAttachments`""
+}
+
 $uninstallScript = Join-Path $applicationRoot 'scripts\uninstall-Agent_b.ps1'
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $uninstallArguments = @(
@@ -991,6 +1022,7 @@ $uninstallArguments = @(
     '-DataDirectory', $dataRoot,
     '-WorkspaceDirectory', $workspaceRoot,
     '-StartMenuDirectory', $StartMenuDirectory,
+    '-SendToDirectory', $SendToDirectory,
     '-UninstallRegistryPath', $UninstallRegistryPath,
     '-ExpectedOperatorSid', $OperatorSid,
     '-ExpectedOperatorLocalAppData', $OperatorLocalAppData

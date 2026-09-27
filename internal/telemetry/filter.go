@@ -147,14 +147,22 @@ const MaxStringLength = 200
 // ones the allow-list believes are already safe — a class name is a fixed
 // vocabulary today and this is what keeps that true tomorrow.
 func Redact(value string) string {
-	for _, rule := range redactions {
-		value = rule.pattern.ReplaceAllString(value, rule.with)
-	}
-	value = strings.TrimSpace(value)
+	value = RedactFull(value)
 	if len(value) > MaxStringLength {
 		value = value[:MaxStringLength]
 	}
 	return value
+}
+
+// RedactFull applies exactly the same rules WITHOUT the length cut. Item 2mv's
+// diagnostics export needs it for log lines: a cut stack trace is worth nothing,
+// and duplicating these patterns anywhere else is how two redactors drift apart.
+// Every caller that sends data off the machine wants Redact, not this.
+func RedactFull(value string) string {
+	for _, rule := range redactions {
+		value = rule.pattern.ReplaceAllString(value, rule.with)
+	}
+	return strings.TrimSpace(value)
 }
 
 // Pick applies one classification to one event's data: the allow-listed fields,

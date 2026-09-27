@@ -114,7 +114,7 @@
     {
      "op": "replace",
      "path": "/agent_id",
-     "value": "acme"
+     "value": "host-a"
     },
     {
      "op": "replace",
@@ -124,12 +124,12 @@
     {
      "op": "replace",
      "path": "/agent_name",
-     "value": "acme"
+     "value": "host-a"
     },
     {
      "op": "replace",
      "path": "/b_connection",
-     "value": "acme"
+     "value": "host-a"
     },
     {
      "op": "replace",
@@ -139,7 +139,7 @@
     {
      "op": "replace",
      "path": "/created_at",
-     "value": "2026-09-07T18:30:00Z"
+     "value": "2020-01-01T00:00:00Z"
     },
     {
      "op": "replace",
@@ -194,7 +194,7 @@
     {
      "op": "replace",
      "path": "/agent_memory_path",
-     "value": "memory\\agent-acme.md"
+     "value": "memory\\agent-host-a.md"
     },
     {
      "op": "replace",
@@ -211,17 +211,17 @@
      "path": "/timeline",
      "value": {
       "seq": 1,
-      "ts": "2026-09-07T18:30:00Z",
+      "ts": "2020-01-01T00:00:00Z",
       "session_id": "migrated",
       "run_id": "",
       "type": "session.created",
       "data": {
        "session": {
-        "agent_id": "acme",
+        "agent_id": "host-a",
         "agent_memory_content": "Notes about how this agent works with the operator:\n- concise reports",
-        "agent_memory_path": "memory\\agent-acme.md",
-        "agent_name": "acme",
-        "b_connection": "acme",
+        "agent_memory_path": "memory\\agent-host-a.md",
+        "agent_name": "host-a",
+        "b_connection": "host-a",
         "budget": {},
         "closed": false,
         "compaction_completion_tokens": 0,
@@ -230,7 +230,7 @@
         "compaction_prompt_tokens": 0,
         "compaction_token_delta": 0,
         "connection_id": "home-api",
-        "created_at": "2026-09-07T18:30:00Z",
+        "created_at": "2020-01-01T00:00:00Z",
         "id": "migrated",
         "label": "Migrated agent",
         "log_path": "agent-objects-migrated.events",

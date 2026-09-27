@@ -156,7 +156,7 @@
      "path": "/timeline",
      "value": {
       "seq": 1,
-      "ts": "2026-09-07T16:10:00Z",
+      "ts": "2020-01-01T00:00:00Z",
       "session_id": "policy",
       "run_id": "",
       "type": "session.created",
@@ -207,13 +207,13 @@
       "key": "event:2",
       "event": {
        "seq": 2,
-       "ts": "2026-09-07T16:10:01Z",
+       "ts": "2020-01-01T00:00:01Z",
        "session_id": "policy",
        "run_id": "",
        "type": "policy.approved",
        "data": {
         "approved": true,
-        "approved_at": "2026-09-07T16:10:01Z",
+        "approved_at": "2020-01-01T00:00:01Z",
         "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "path": "C:\work\acmevesper\\.agentb\\policy.json"
        }
@@ -231,7 +231,7 @@
      "value": {
       "path": "C:\work\acmevesper\\.agentb\\policy.json",
       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "approved_at": "2026-09-07T16:10:01Z",
+      "approved_at": "2020-01-01T00:00:01Z",
       "approved": true
      }
     },
@@ -240,13 +240,13 @@
      "path": "/timeline",
      "value": {
       "seq": 2,
-      "ts": "2026-09-07T16:10:01Z",
+      "ts": "2020-01-01T00:00:01Z",
       "session_id": "policy",
       "run_id": "",
       "type": "policy.approved",
       "data": {
        "approved": true,
-       "approved_at": "2026-09-07T16:10:01Z",
+       "approved_at": "2020-01-01T00:00:01Z",
        "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
        "path": "C:\work\acmevesper\\.agentb\\policy.json"
       }

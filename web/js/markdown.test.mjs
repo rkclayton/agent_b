@@ -66,7 +66,9 @@ test("numbered lists retain fenced blocks and copy code without markdown chrome"
   assert.equal(root.children[0].children.length, 2);
   const block = root.children[0].children[0].children[1];
   assert.equal(block.className, "code-block");
-  assert.equal(block.children[0].textContent, "📎");
+  // Item 2m8 (d), rel-1.24.0: the copy control stopped borrowing the
+  // composer's paperclip, which meant "attach a file" one surface away.
+  assert.equal(block.children[0].textContent, "⧉");
   assert.equal(block.children[0].ariaLabel, "Copy code");
   assert.equal(block.children[1].textContent, "Get-Process");
   await block.children[0].onclick();

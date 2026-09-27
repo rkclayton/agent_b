@@ -42,6 +42,11 @@ function listLine(line) {
 
 function fencedBlock(document, lines, start, indent) {
   const code = [];
+  // Item 2m8 (b): KEEP THE INFO STRING. The opening fence may carry a language
+  // and it was thrown away, so a reader could not tell PowerShell from JSON
+  // without reading the code. No highlighting in this item — the label, and the
+  // hook for it.
+  const info = lines[start].trimStart().replace(/^`+/, "").trim().split(/\s+/)[0] || "";
   let index = start + 1;
   while (index < lines.length && !lines[index].trimStart().startsWith("```")) {
     const line = lines[index++];
@@ -53,14 +58,31 @@ function fencedBlock(document, lines, start, indent) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "code-copy";
-  button.textContent = "📎";
+  // Item 2m8 (d): the copy control STOPS BORROWING THE PAPERCLIP. The same glyph
+  // meant "attach a file" in the composer and "copy this" here, which teaches a
+  // reader that a glyph means whatever the surface feels like. Two overlapping
+  // squares is the copy idiom and it is not used for anything else here.
+  button.textContent = "⧉";
   button.ariaLabel = "Copy code";
   button.title = "Copy code";
   const value = code.join("\n");
   button.onclick = () => navigator.clipboard?.writeText(value);
   const pre = document.createElement("pre");
   pre.textContent = value;
+  // (b) and (c): a labelled fence says what it is; an UNLABELLED one renders
+  // exactly as it does today, because a local model will not always comply and
+  // the reader must never be worse off than before the instruction existed.
   wrapper.append(button, pre);
+  if (info) {
+    // The hook for future highlighting is the attribute; the label is what a
+    // reader sees. Appended AFTER the control so the block's first child stays
+    // the copy button, which is what everything else reads it as.
+    wrapper.setAttribute?.("data-language", info);
+    const label = document.createElement("span");
+    label.className = "code-language";
+    label.textContent = info;
+    wrapper.append(label);
+  }
   return { node: wrapper, next: index };
 }
 

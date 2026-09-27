@@ -1,0 +1,184 @@
+# The application message — `agentb-app-message-v1`
+
+Version: **1**. Every unit carries `"v": 1` as its first field. This version is independent of the
+broker's wire version: the broker's `protocol-v0.md` states that the `CIPHERTEXT` payload is an
+opaque application payload "whose separately versioned format belongs to the Windows repository",
+and this is that format. A wire change does not change this number and a change here does not
+change the wire's.
+
+This document does not define a field. **`INTERFACES.md` is the authority for every field carried
+here**, and this document says only how those existing shapes are framed for a socket that carries
+ciphertext instead of HTTP. Where the two disagree, `INTERFACES.md` wins and this document is wrong.
+
+Normative vectors: `internal/appmessage/testdata/vectors-v1.json`. The gate is
+`internal/appmessage/vectors_test.go`. An implementation in another repository verifies against
+those bytes, not against this prose.
+
+## What sits above and below
+
+Below: one `CIPHERTEXT` frame per broker message, sealed under the pairing's traffic key with AAD
+`version || sender_key_id || recipient_key_id || message_id || sequence`. **The payload ceiling is
+8 MiB including JSON encoding**, control payloads are capped at 64 KiB, and a receiver applies the
+limit before allocation. The broker forwards the frame unchanged and never parses it. A recipient
+sends `ACK` only after the AEAD opens and the content is accepted.
+
+Above: the desktop API exactly as `INTERFACES.md` defines it. There is no second protocol.
+
+The plaintext of one `CIPHERTEXT` payload is one UTF-8 JSON object — a **unit** — with no framing
+bytes of its own.
+
+## The unit budget
+
+`UNIT_MAX = 8 388 608` bytes, the broker's ceiling. A sender MUST NOT emit a unit whose UTF-8
+encoding exceeds `UNIT_MAX`. Because the ceiling is stated to include JSON encoding, a sender
+measures the encoded bytes it is about to seal, not the size of the value it started from.
+
+Measured, 2026-09-27, on the operator's own data root: the largest projected snapshot across 32
+chats is **474 248 bytes** (175 messages), from a journal of 44 422 091 bytes. A snapshot is a
+projection of a journal and is roughly two orders of magnitude smaller than it, so the oversize case
+is not reached by today's largest chat. It is specified anyway, because the ceiling is real, one
+retained tool result can approach it, and an implementation that has never split will split wrongly
+the first time it must.
+
+## Downstream: desktop → device
+
+| `kind` | Carries | `INTERFACES.md` authority |
+|---|---|---|
+| `snapshot` | the SSE `snapshot` payload for one session, unchanged | "Event envelope and transport", `SessionSnapshot` schema 1 |
+| `patch` | one `projection.patch` envelope, unchanged | "Event envelope and transport" |
+| `event` | one global durable event envelope, unchanged | "Event envelope and transport" |
+| `response` | the single answer to one upstream `request` | "HTTP API" |
+| `part` | one ordered fragment of an oversize unit of any kind above | this document only |
+
+```
+{"v":1,"kind":"snapshot","session_id":"<id>","data":{ … SessionSnapshot … }}
+{"v":1,"kind":"patch","data":{ … projection.patch … }}
+{"v":1,"kind":"event","data":{ … {seq,ts,session_id,run_id,type,data} … }}
+```
+
+`data` is the envelope the tailnet client already receives, byte-for-byte after JSON re-encoding.
+A device's view through the broker is therefore identical to its view over the tailnet, route by
+route: the same `snapshot` on connect, the same `projection.patch` stream after it, the same cursor
+semantics, the same `projection_stale` and `complete` flags.
+
+## Splitting a unit that does not fit
+
+A unit whose encoding would exceed `UNIT_MAX` is sent as an ordered sequence of `part` units:
+
+```
+{"v":1,"kind":"part","unit_id":"<32 lower-case hex>","index":0,"count":3,
+ "total_bytes":25165824,"sha256":"<64 lower-case hex>","chunk":"<base64url, unpadded>"}
+```
+
+- `unit_id` is 16 random bytes as 32 lower-case hex, fresh per split unit, matching the broker's
+  identifier convention.
+- `index` is zero-based and MUST arrive in increasing order on the connection. `count` is the total
+  number of parts and is identical in every part of the unit.
+- `chunk` is unpadded base64url over a contiguous slice of the **UTF-8 bytes of the whole unit**.
+  A split may land mid-codepoint; a receiver concatenates bytes and decodes once, at the end.
+- `total_bytes` is the length of the whole unit's UTF-8 encoding and `sha256` is its digest, both
+  identical in every part.
+- Every `part` unit, encoded, MUST itself fit `UNIT_MAX`.
+
+A receiver holds at most one incomplete unit per sender. It reassembles in `index` order, checks the
+reassembled length against `total_bytes` and its digest against `sha256`, and only then decodes and
+applies. A mismatch is treated as a gap.
+
+**Resume after a gap uses the cursor the snapshot already carries.** A receiver that misses a part,
+sees `index` out of order, or fails the digest **discards the whole partial unit and does not apply
+any of it**, then asks for a full resync. It does not request the missing part: the projection's own
+rule is that `previous_cursor` mismatch causes a full snapshot resync, and a partial unit is exactly
+that condition arriving in fragments. This matches the iOS reducer, which already stops on a gap by
+design rather than applying a patch out of order; the rule is written for that behaviour, not around
+it. Resolution of the open question in the item: **the split needs no sequence of its own beyond
+`index`**, because recovery is always "discard and resync by cursor", never "repair in place".
+
+A `snapshot` unit is never resumed mid-flight. Resync means a new `snapshot` from the current
+cursor.
+
+The split rule is parameterised by the budget, not by the constant: a sender splits against whatever
+`UNIT_MAX` is in force. The committed vectors therefore declare a reduced `unit_max` so the rule is
+exercised by a fixture small enough to read, and the reduced budget is the only difference between
+the vector and production.
+
+## Canonical encoding
+
+The vectors carry exact bytes, so the encoding must be reproducible. **Canonical form is compact
+JSON — no insignificant whitespace — with object keys sorted by Unicode code point**, which is what
+Go's `encoding/json` produces for a map. The examples above are written in reading order for a human;
+the bytes on the wire are the canonical form. A receiver MUST NOT depend on key order.
+
+## Upstream: device → desktop
+
+One shape, keyed by the route it stands for:
+
+```
+{"v":1,"kind":"request","id":"<32 lower-case hex>","route":"message","body":{ … }}
+```
+
+`id` is 16 random bytes as 32 lower-case hex, unique per request on the connection. `route` is one
+of the names in the table below — **not** a URL path, so a device cannot compose a path the desktop
+did not publish. `body` is the request body `INTERFACES.md` defines for that route.
+
+| `route` | HTTP route it stands for | `body` |
+|---|---|---|
+| `message` | `POST /api/message` | `{session_id,text,attachments?}` |
+| `stop` | `POST /api/stop` | `{session_id?,all?}` |
+| `approve` | `POST /api/approve` | `{session_id,call_id,decision}` |
+| `tool` | `POST /api/tools/{name}` | `{name,session_id,enabled}` |
+| `state` | `GET /api/state` | `{}` |
+| `resync` | `GET /api/state` for one session | `{session_id}` |
+
+`tool` carries the path segment as a `name` field for the same reason: the route set is closed.
+
+The mutation token of `INTERFACES.md`'s "HTTP API" is a per-launch browser/CSRF secret and is **not**
+carried here. Authority on this transport is the pairing, established by the broker's pairing flow
+and bounded by revocation; a device never learns the mutation token and never sends one.
+
+## The return path
+
+**Every `request` receives exactly one `response` naming its `id`, and nothing else.**
+
+```
+{"v":1,"kind":"response","id":"<the request's id>","status":202,"body":{"run_id":"r1"}}
+```
+
+- `status` is the HTTP status the route would have returned over the tailnet: `200`, `201`, `202`,
+  `400`, `404`, `409`, `413`, `501`. The device's state machine is therefore the one it already has.
+- `body` is the response body for that status, or absent when the route returns none.
+- A refusal is a `response`, not an error frame:
+  `{"v":1,"kind":"response","id":"…","status":409,"body":{"error":"a run is already active"}}`.
+- A request the desktop cannot parse at all, or whose `route` is not in the table, is answered
+  `status: 501` with `body.error` naming the unsupported route. **It is never tunnelled.**
+- A device MUST NOT wait on a request with no `response`. A desktop that refuses a request before
+  reaching its handler still answers, so a phone never waits on something the desktop dropped.
+
+A `response` may be split by the `part` rule like any other downstream unit.
+
+## What a device may NOT reach through the broker
+
+A phone bearer has full desktop authority by design (`INTERFACES.md`, "Phone authentication and
+push"), which makes the list of what it cannot reach a security statement rather than a convenience.
+**The route table above is exhaustive.** Anything else is answered `501` and is not proxied,
+including, explicitly:
+
+- `POST /api/config`, `/api/service-account`, `/api/hardening`, `/api/shell-credential` — machine
+  state and credentials. The OS boundary is not reachable from a paired phone.
+- `shell.operator_context` and `shell.service_account`, which `INTERFACES.md` already requires to
+  come from a loopback request whose client process carries the operator's Windows SID. A broker
+  frame is not such a request and cannot become one.
+- `POST /api/update` — no install is startable from a device.
+- `POST /api/host-window`, `/api/plans`, `/api/plan/accept`, `/api/plan/marker`, `/api/plan/go`,
+  `/api/sessions` and every session-lifecycle route, `/api/notifications`,
+  `/api/operator-files`, `/api/workspaces` and its policy routes, `/api/standing-grants`.
+- Anything reached by a path rather than a name: there is no generic passthrough, and `route` is
+  matched against the closed set above by exact string equality.
+
+A stolen paired phone can therefore send a message, stop a run, answer an approval card, toggle a
+tool for the next request, and read state. It cannot change the machine, install anything, register
+a plan, create or delete a chat, or reach a credential.
+
+## What is not in this version
+
+No broker client, no pairing UI, no Settings entry, and no code that opens a socket. This document
+and its vectors are the contract that work is written against later.

@@ -1,0 +1,231 @@
+{
+  "version": 1,
+  "document": "docs/app-message-v1.md",
+  "unit_max": 8388608,
+  "note": "Normative vectors for agentb-app-message-v1. Canonical form is compact JSON with object keys sorted by code point. Every `bytes` string is re-derived from its `decoded` value by the gate; a disagreement between this file and the document fails internal/appmessage/vectors_test.go.",
+  "downstream_kinds": [
+    "snapshot",
+    "patch",
+    "event",
+    "response",
+    "part"
+  ],
+  "routes": [
+    "message",
+    "stop",
+    "approve",
+    "tool",
+    "state",
+    "resync"
+  ],
+  "vectors": [
+    {
+      "name": "snapshot",
+      "note": "One session's SSE snapshot, framed. data is the SessionSnapshot as INTERFACES.md defines it; the fields shown are those the framing depends on.",
+      "decoded": {
+        "v": 1,
+        "kind": "snapshot",
+        "session_id": "s1",
+        "data": {
+          "schema_version": 1,
+          "cursor": {
+            "generation": "s1-1577836800000000000",
+            "offset": 4096
+          },
+          "complete": true,
+          "id": "s1",
+          "label": "",
+          "run": {
+            "status": "idle",
+            "run_id": "",
+            "turn": 0,
+            "max_turns": 20,
+            "queue_position": 0,
+            "partial": false,
+            "last_stop_reason": "done"
+          }
+        }
+      },
+      "bytes": "{\"data\":{\"complete\":true,\"cursor\":{\"generation\":\"s1-1577836800000000000\",\"offset\":4096},\"id\":\"s1\",\"label\":\"\",\"run\":{\"last_stop_reason\":\"done\",\"max_turns\":20,\"partial\":false,\"queue_position\":0,\"run_id\":\"\",\"status\":\"idle\",\"turn\":0},\"schema_version\":1},\"kind\":\"snapshot\",\"session_id\":\"s1\",\"v\":1}",
+      "byte_length": 292,
+      "sha256": "6fe01038766b4d9e6cbf88c4b9c8aa05b3df0173ea32f5b1328c65f7983700ef"
+    },
+    {
+      "name": "patch",
+      "note": "One projection.patch envelope, framed. previous_cursor/cursor are the projection's own; a mismatch means full resync.",
+      "decoded": {
+        "v": 1,
+        "kind": "patch",
+        "data": {
+          "schema_version": 1,
+          "session_id": "s1",
+          "previous_cursor": {
+            "generation": "s1-1577836800000000000",
+            "offset": 4096
+          },
+          "cursor": {
+            "generation": "s1-1577836800000000000",
+            "offset": 4352
+          },
+          "operations": [
+            {
+              "op": "append",
+              "path": "/chat",
+              "value": {
+                "id": "m2",
+                "role": "assistant",
+                "content": "ok"
+              }
+            }
+          ]
+        }
+      },
+      "bytes": "{\"data\":{\"cursor\":{\"generation\":\"s1-1577836800000000000\",\"offset\":4352},\"operations\":[{\"op\":\"append\",\"path\":\"/chat\",\"value\":{\"content\":\"ok\",\"id\":\"m2\",\"role\":\"assistant\"}}],\"previous_cursor\":{\"generation\":\"s1-1577836800000000000\",\"offset\":4096},\"schema_version\":1,\"session_id\":\"s1\"},\"kind\":\"patch\",\"v\":1}",
+      "byte_length": 303,
+      "sha256": "6aec0909c454341dc1d95080312ae46bd5c508d8973f4b87902ce68e575665fc"
+    },
+    {
+      "name": "request",
+      "note": "One upstream request. route is a closed-set name, never a path. id is 16 random bytes as 32 lower-case hex.",
+      "decoded": {
+        "v": 1,
+        "kind": "request",
+        "id": "0123456789abcdef0123456789abcdef",
+        "route": "message",
+        "body": {
+          "session_id": "s1",
+          "text": "run the tests"
+        }
+      },
+      "bytes": "{\"body\":{\"session_id\":\"s1\",\"text\":\"run the tests\"},\"id\":\"0123456789abcdef0123456789abcdef\",\"kind\":\"request\",\"route\":\"message\",\"v\":1}",
+      "byte_length": 132,
+      "sha256": "d98bd209238a29d22bcc1df792a5fea279c585c846a0a0bc8f501fac13523ca1"
+    },
+    {
+      "name": "response",
+      "note": "The single response naming that request's id, carrying the status the HTTP route would have returned.",
+      "decoded": {
+        "v": 1,
+        "kind": "response",
+        "id": "0123456789abcdef0123456789abcdef",
+        "status": 202,
+        "body": {
+          "run_id": "r7"
+        }
+      },
+      "bytes": "{\"body\":{\"run_id\":\"r7\"},\"id\":\"0123456789abcdef0123456789abcdef\",\"kind\":\"response\",\"status\":202,\"v\":1}",
+      "byte_length": 101,
+      "sha256": "dff08e2dc4dbdd6692d706b2dd622a37f3b23969530133757383b3fbbaac8320"
+    },
+    {
+      "name": "refusal",
+      "note": "A refusal travels as a response with the route's own status. 409 is POST /api/message with a run already active and no queue depth.",
+      "decoded": {
+        "v": 1,
+        "kind": "response",
+        "id": "fedcba9876543210fedcba9876543210",
+        "status": 409,
+        "body": {
+          "error": "a run is already active"
+        }
+      },
+      "bytes": "{\"body\":{\"error\":\"a run is already active\"},\"id\":\"fedcba9876543210fedcba9876543210\",\"kind\":\"response\",\"status\":409,\"v\":1}",
+      "byte_length": 121,
+      "sha256": "ac61e27ed0609ee734f2b17e2fad00a33f73987fcc9313ebee4189aadbe6f992"
+    }
+  ],
+  "split": {
+    "name": "oversize-split",
+    "note": "An oversize unit carried as ordered parts and reassembled. unit_max is reduced so the fixture is readable; the rule is unchanged.",
+    "unit_max": 512,
+    "chunk_bytes": 240,
+    "unit": {
+      "decoded": {
+        "v": 1,
+        "kind": "snapshot",
+        "session_id": "s2",
+        "data": {
+          "schema_version": 1,
+          "cursor": {
+            "generation": "s2-1577836800000000000",
+            "offset": 999424
+          },
+          "complete": true,
+          "id": "s2",
+          "chat": [
+            {
+              "id": "m1",
+              "role": "assistant",
+              "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          ]
+        }
+      },
+      "bytes": "{\"data\":{\"chat\":[{\"content\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"id\":\"m1\",\"role\":\"assistant\"}],\"complete\":true,\"cursor\":{\"generation\":\"s2-1577836800000000000\",\"offset\":999424},\"id\":\"s2\",\"schema_version\":1},\"kind\":\"snapshot\",\"session_id\":\"s2\",\"v\":1}",
+      "byte_length": 915,
+      "sha256": "dd0d64d34826429193b7b909de86c4f1571183546e543c0b8770d40d5903e8f0"
+    },
+    "parts": [
+      {
+        "decoded": {
+          "v": 1,
+          "kind": "part",
+          "unit_id": "abcdef0123456789abcdef0123456789",
+          "index": 0,
+          "count": 4,
+          "total_bytes": 915,
+          "sha256": "dd0d64d34826429193b7b909de86c4f1571183546e543c0b8770d40d5903e8f0",
+          "chunk": "eyJkYXRhIjp7ImNoYXQiOlt7ImNvbnRlbnQiOiJ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4"
+        },
+        "bytes": "{\"chunk\":\"eyJkYXRhIjp7ImNoYXQiOlt7ImNvbnRlbnQiOiJ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\",\"count\":4,\"index\":0,\"kind\":\"part\",\"sha256\":\"dd0d64d34826429193b7b909de86c4f1571183546e543c0b8770d40d5903e8f0\",\"total_bytes\":915,\"unit_id\":\"abcdef0123456789abcdef0123456789\",\"v\":1}",
+        "byte_length": 511,
+        "sha256": "5c326798915e0dc0a1f75b428e7c244b938aabdc26d8684d6fb663d5cd0be248"
+      },
+      {
+        "decoded": {
+          "v": 1,
+          "kind": "part",
+          "unit_id": "abcdef0123456789abcdef0123456789",
+          "index": 1,
+          "count": 4,
+          "total_bytes": 915,
+          "sha256": "dd0d64d34826429193b7b909de86c4f1571183546e543c0b8770d40d5903e8f0",
+          "chunk": "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4"
+        },
+        "bytes": "{\"chunk\":\"eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\",\"count\":4,\"index\":1,\"kind\":\"part\",\"sha256\":\"dd0d64d34826429193b7b909de86c4f1571183546e543c0b8770d40d5903e8f0\",\"total_bytes\":915,\"unit_id\":\"abcdef0123456789abcdef0123456789\",\"v\":1}",
+        "byte_length": 511,
+        "sha256": "efd4cd7ea4710836fd330fe8a643298efa9c9de1fedf29bed346a3ca3d4f61ac"
+      },
+      {
+        "decoded": {
+          "v": 1,
+          "kind": "part",
+          "unit_id": "abcdef0123456789abcdef0123456789",
+          "index": 2,
+          "count": 4,
+          "total_bytes": 915,
+          "sha256": "dd0d64d34826429193b7b909de86c4f1571183546e543c0b8770d40d5903e8f0",
+          "chunk": "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4"
+        },
+        "bytes": "{\"chunk\":\"eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\",\"count\":4,\"index\":2,\"kind\":\"part\",\"sha256\":\"dd0d64d34826429193b7b909de86c4f1571183546e543c0b8770d40d5903e8f0\",\"total_bytes\":915,\"unit_id\":\"abcdef0123456789abcdef0123456789\",\"v\":1}",
+        "byte_length": 511,
+        "sha256": "099f6036a8a4e9c6f2db2d993be0e08d9151d9afa97b46556b8e13bd0b06c104"
+      },
+      {
+        "decoded": {
+          "v": 1,
+          "kind": "part",
+          "unit_id": "abcdef0123456789abcdef0123456789",
+          "index": 3,
+          "count": 4,
+          "total_bytes": 915,
+          "sha256": "dd0d64d34826429193b7b909de86c4f1571183546e543c0b8770d40d5903e8f0",
+          "chunk": "eHh4eHh4eHh4IiwiaWQiOiJtMSIsInJvbGUiOiJhc3Npc3RhbnQifV0sImNvbXBsZXRlIjp0cnVlLCJjdXJzb3IiOnsiZ2VuZXJhdGlvbiI6InMyLTE1Nzc4MzY4MDAwMDAwMDAwMDAiLCJvZmZzZXQiOjk5OTQyNH0sImlkIjoiczIiLCJzY2hlbWFfdmVyc2lvbiI6MX0sImtpbmQiOiJzbmFwc2hvdCIsInNlc3Npb25faWQiOiJzMiIsInYiOjF9"
+        },
+        "bytes": "{\"chunk\":\"eHh4eHh4eHh4IiwiaWQiOiJtMSIsInJvbGUiOiJhc3Npc3RhbnQifV0sImNvbXBsZXRlIjp0cnVlLCJjdXJzb3IiOnsiZ2VuZXJhdGlvbiI6InMyLTE1Nzc4MzY4MDAwMDAwMDAwMDAiLCJvZmZzZXQiOjk5OTQyNH0sImlkIjoiczIiLCJzY2hlbWFfdmVyc2lvbiI6MX0sImtpbmQiOiJzbmFwc2hvdCIsInNlc3Npb25faWQiOiJzMiIsInYiOjF9\",\"count\":4,\"index\":3,\"kind\":\"part\",\"sha256\":\"dd0d64d34826429193b7b909de86c4f1571183546e543c0b8770d40d5903e8f0\",\"total_bytes\":915,\"unit_id\":\"abcdef0123456789abcdef0123456789\",\"v\":1}",
+        "byte_length": 451,
+        "sha256": "33a5b7959f3e2fb33781e903d45a40a1a90b1b0074cbfb275fa18fe0e917673f"
+      }
+    ]
+  }
+}

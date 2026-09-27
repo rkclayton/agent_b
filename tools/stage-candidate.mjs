@@ -124,7 +124,11 @@ function build(tag, thumbprint) {
   manifest.setup_sha256 = manifest.exe_sha256;
   manifest.setup_bytes = fs.statSync(setup).size;
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-  console.log(`SETUP: ${setup} (a copy of the verified Agent_b.exe)`);
+  // rel-1.25.0 card 4: SAY THAT IT IS UNSIGNED. `--build` copies the executable
+  // it just built; the SETUP is signed by deploy-release's SECOND signing pass,
+  // not here. rel-1.25.0 gated a hand-staged candidate and the updater refused it
+  // with "status is NotSigned", which cost a run to work out.
+  console.log(`SETUP: ${setup} (a copy of the verified Agent_b.exe; NOT YET SIGNED — deploy-release signs the setup in its second pass, so a candidate staged with --build alone will be refused by the updater)`);
 
   console.log(`STAGED: ${path.join(target, "install-Agent_b.cmd")}`);
 }

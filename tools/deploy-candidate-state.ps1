@@ -31,6 +31,11 @@ function Remove-MatchingStagedCandidate {
     $shownCommit = if ($state.Commit) { $state.Commit } else { '<unknown>' }
     Write-Host "STALE CANDIDATE: path=$([IO.Path]::GetFullPath($Candidate)) tag=$shownTag commit=$shownCommit signed-state=$($state.SignedState)"
     if ($state.Tag -cne $ExpectedTag) {
+        # rel-1.27.0/W4: the recovery command named THIS file, which does not declare
+        # the guard function, so pasting it failed with "not recognized as a name of a
+        # cmdlet". A recovery command that does not run is the dead end card 3 was
+        # written to remove.
+        $guardScript = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'scripts\removal-guard.ps1'))
         # rel-1.25.0 card 3: a deploy that fails mid-staging -- as one did at
         # rel-1.25.0 when the timestamp server timed out -- leaves a candidate
         # directory with copied sources, no manifest and no binaries. This guard
@@ -39,7 +44,7 @@ function Remove-MatchingStagedCandidate {
         # between a correct guard and a dead end.
         throw ("DEPLOY REFUSED: staged candidate does not identify itself as $ExpectedTag; it was retained. " +
                "If this is a partial candidate from a failed deploy (no candidate-final.json, no Agent_b.exe), remove it through the removal guard and deploy again:`n" +
-               "  pwsh -NoProfile -Command "". '$PSCommandPath'; Remove-TreeWithinAllowedRoots -Path '$Candidate' -AllowedRoots @('$CandidatesRoot') -Purpose 'partial candidate removal'""")
+               "  pwsh -NoProfile -Command "". '$guardScript'; Remove-TreeWithinAllowedRoots -Path '$Candidate' -AllowedRoots @('$CandidatesRoot') -Purpose 'partial candidate removal'""")
     }
     Remove-TreeWithinAllowedRoots -Path $Candidate -AllowedRoots @($CandidatesRoot) -Purpose "restage $ExpectedTag"
     Write-Host "STALE CANDIDATE REMOVED: $ExpectedTag"

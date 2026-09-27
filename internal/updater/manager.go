@@ -411,6 +411,12 @@ func (m *Manager) Install(ctx context.Context, sessionID string) (string, error)
 	if err != nil {
 		return "", err
 	}
+	// Item 2mr (c): the setup LAUNCHING is not the setup SUCCEEDING. An installer
+	// that ran and refused used to look identical to one that worked, because
+	// nothing read back what it said. This watches the installer's own progress
+	// file and puts its own sentence on state.Error if it fails; a successful
+	// install replaces this process long before the watch ends.
+	go m.watchInstallOutcome(m.now())
 	return path, nil
 }
 

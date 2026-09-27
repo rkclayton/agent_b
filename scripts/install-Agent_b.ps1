@@ -125,8 +125,30 @@ function Assert-SafeAgentBPath {
     param([string]$Path, [string]$Purpose)
     $full = Get-FullPath $Path
     $root = [IO.Path]::GetPathRoot($full).TrimEnd('\')
-    if ($full -eq $root -or (Split-Path -Leaf $full) -notin @('Agent_b', 'Agent_b-workspace', 'workspace')) {
-        throw "$Purpose must name a dedicated Agent_b or workspace directory: $full"
+    # Item 2mr (b): THE LEAF OR ANY ANCESTOR, not the leaf alone.
+    #
+    # This is the line every update from the operator's own client failed on,
+    # and it failed silently. Measured from his install at 02:01 on 2026-09-27:
+    # the setup downloaded, verified and RAN, and then this threw
+    # 'WorkspaceDirectory must name a dedicated Agent_b or workspace directory'
+    # naming his profile-scoped scratch root, and exited 1. That root's leaf is
+    # 'scratch' and it sits INSIDE a dedicated Agent_b directory, so the
+    # leaf-only rule refused a path that was never unsafe.
+    #
+    # The guard exists to stop the installer writing to a drive root or a shared
+    # user directory. A dedicated segment anywhere above the path means it is
+    # already inside this product's own tree, which is the same protection. The
+    # path is fully resolved FIRST, so '...\Agent_b\..\Documents' normalises the
+    # segment away and is still refused.
+    #
+    # The updater's own gate passed throughout, for exactly one reason: its
+    # disposable workspace is named 'workspace' and his is named 'scratch'. That
+    # is fixed in tests/test-updater-cycle.ps1 under the same item.
+    $dedicated = @('Agent_b', 'Agent_b-workspace', 'workspace')
+    $segments = @($full.Substring($root.Length).Split([char]'\', [char]'/') | Where-Object { $_ -ne '' })
+    $inDedicatedTree = @($segments | Where-Object { $dedicated -contains $_ }).Count -gt 0
+    if ($full -eq $root -or -not $inDedicatedTree) {
+        throw "$Purpose must name a dedicated Agent_b or workspace directory, or a directory inside one: $full"
     }
     return $full
 }

@@ -57,6 +57,19 @@ export const LIVE_VALUES = [
   // working-tree build's, so every token readout and the Console rail's
   // segment widths are live values between builds (2ga's "the meter's numbers").
   { name: "token-count", reason: "token counts follow the measured prompt, which differs between builds of one tree", selector: "body", pattern: String.raw`(?<![\w.,])~?\d[\d,]* (?:/ ~?\d[\d,]*|in · \d[\d,]* out)` },
+  // rel-1.21.0/W4 (item 2m1 (e), which requires a mask to say what it covers):
+  // the Lifetime pane's "model / tools / waiting %" row draws three shares of
+  // MEASURED WALL CLOCK as a slash-separated triple, and the label rather than
+  // each number carries the per-cent sign -- so the existing lifetime-ratio
+  // pattern, which looks for a %, walked straight past it. Three runs of one
+  // build read 68/1/0, 72/1/0 and 85/1/0, and the widest of them moved the
+  // column beside it.
+  //
+  // WHAT THIS COVERS AND NOTHING MORE: the triple itself. Two slashes, three
+  // integers of at most three digits, not touching a word character on either
+  // side -- so a path, a date and a version number are all left alone, and any
+  // count that is not one of these three shares is still compared exactly.
+  { name: "wall-share", reason: "the model / tools / waiting split is computed from measured wall clock and differs between two runs of one build", selector: "body", pattern: String.raw`(?<![\w.,/])\d{1,3}/\d{1,3}/\d{1,3}(?![\w./])` },
   { name: "lifetime-ratio", reason: "the Lifetime panel's ratios and per-brief token cost are computed from measured token counts", selector: "#panel-lifetime", pattern: String.raw`(?<![\w.])\d+(?:\.\d+)?%|(?<![\w.,])\d[\d,]* tokens` },
   { name: "context-rail", reason: "the Console rail's segments and numbers follow measured token counts", selector: "#rail .meter, #rail .rail-labels .number, #rail .rail-readout" },
 ];

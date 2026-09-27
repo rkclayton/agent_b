@@ -81,7 +81,7 @@ func (s *Server) saveAppliedNetworkPolicy(enabled bool, subnets []string) error 
 	next := *s.cfg
 	next.Shell.AllowLocalNetwork = enabled
 	next.Shell.ConfirmedLocalSubnets = append([]string(nil), subnets...)
-	if err := next.Save(s.configPath); err != nil {
+	if err := s.saveMachineConfig(next); err != nil {
 		s.mu.Unlock()
 		return err
 	}

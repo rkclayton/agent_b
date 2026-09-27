@@ -74,7 +74,7 @@ func (s *Server) installedModelReady(_ context.Context, state modelinstall.State
 		s.mu.Unlock()
 		return err
 	}
-	if err := next.Save(s.configPath); err != nil {
+	if err := s.saveMachineConfig(next); err != nil {
 		s.mu.Unlock()
 		return err
 	}

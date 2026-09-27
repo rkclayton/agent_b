@@ -221,7 +221,7 @@ func (s *Server) disableConfiguredServiceAccount(account string) (any, error) {
 	s.cfg.Shell.ServiceAccount.Account = account
 	s.cfg.Shell.ServiceAccount.Domain = "."
 	s.cfg.Shell.ServiceAccount.Enabled = false
-	if err := s.cfg.Save(s.configPath); err != nil {
+	if err := s.saveMachineConfig(*s.cfg); err != nil {
 		*s.cfg = previous
 		s.mu.Unlock()
 		return nil, err
@@ -306,7 +306,7 @@ func (s *Server) enableConfiguredServiceAccount(account string, allowLocalNetwor
 	s.cfg.Shell.ServiceAccount.Enabled = true
 	s.cfg.Shell.AllowLocalNetwork = allowLocalNetwork
 	s.cfg.Shell.ConfirmedLocalSubnets = append([]string(nil), localSubnets...)
-	if err := s.cfg.Save(s.configPath); err != nil {
+	if err := s.saveMachineConfig(*s.cfg); err != nil {
 		*s.cfg = previous
 		s.mu.Unlock()
 		return nil, err

@@ -193,7 +193,7 @@ func (s *Server) storeMeasurement(connectionID string, result *config.Measuremen
 			continue
 		}
 		s.cfg.Connections[index].Measurement = result
-		if err := s.cfg.Save(s.configPath); err != nil {
+		if err := s.saveMachineConfig(*s.cfg); err != nil {
 			return err
 		}
 		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": s.cfg.Masked()}))

@@ -253,7 +253,7 @@ func (s *Server) recordObservedMessageLimit(connectionID string, limit int) erro
 			return nil
 		}
 		next.Connections[i].Capabilities.ObservedMessageLimit = limit
-		if err := next.Save(s.configPath); err != nil {
+		if err := s.saveMachineConfig(next); err != nil {
 			return err
 		}
 		*s.cfg = next
@@ -278,7 +278,7 @@ func (s *Server) recordObservedByteLimit(connectionID string, limit int) error {
 			return nil
 		}
 		next.Connections[i].Capabilities.ObservedByteLimit = limit
-		if err := next.Save(s.configPath); err != nil {
+		if err := s.saveMachineConfig(next); err != nil {
 			return err
 		}
 		*s.cfg = next
@@ -606,3 +606,37 @@ func writeError(w http.ResponseWriter, status int, message, field string) {
 	writeJSON(w, status, map[string]string{"error": message, "field": field})
 }
 func method(w http.ResponseWriter) { writeError(w, 405, "method not allowed", "method") }
+
+// saveMachineConfig writes the machine's configuration file. Item 2m0: this is
+// the ONE place the server writes it, and it writes the machine's own
+// per-profile sections rather than the active profile's.
+//
+// Every caller here holds `*s.cfg`, which is the MERGE, so before this existed
+// each of them wrote whichever profile was active into the machine's defaults as
+// a side effect of changing a connection or the service identity. The audit at
+// rel-1.21.0/W0 found nineteen such writers and only one that had any idea it
+// was doing it.
+//
+// A caller whose write IS per-profile does not belong here: it calls
+// saveProfileConfig instead, which puts the value where that scope lives.
+func (s *Server) saveMachineConfig(cfg config.Config) error {
+	if s.profiles == nil {
+		return cfg.Save(s.configPath)
+	}
+	return s.profiles.SaveMachine(cfg)
+}
+
+// saveProfileConfig persists a change to a PER-PROFILE section, and writes the
+// machine file too because a route may have changed both. Item 2m0 (b).
+//
+// The order matters: the profile's own file is written first, so that if the
+// machine write fails the profile's value is already durable rather than lost.
+func (s *Server) saveProfileConfig(cfg config.Config) error {
+	if s.profiles == nil {
+		return cfg.Save(s.configPath)
+	}
+	if err := s.profiles.SaveActive(); err != nil {
+		return err
+	}
+	return s.profiles.SaveMachine(cfg)
+}

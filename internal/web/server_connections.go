@@ -146,7 +146,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 404, "connection not found", "connection_id")
 			return
 		}
-		err := s.cfg.Save(s.configPath)
+		err := s.saveMachineConfig(*s.cfg)
 		masked := s.cfg.Masked()
 		s.mu.Unlock()
 		if err != nil {
@@ -361,7 +361,7 @@ func (s *Server) runProbe(ctx context.Context, connection *config.Connection, cu
 			}
 		}
 	}
-	saveErr := s.cfg.Save(s.configPath)
+	saveErr := s.saveMachineConfig(*s.cfg)
 	s.mu.Unlock()
 	if saveErr != nil {
 		s.bus.Publish(events.New(events.Error, "", "", map[string]any{"where": "config", "message": saveErr.Error()}))
@@ -485,7 +485,7 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if err := next.Save(s.configPath); err != nil {
+		if err := s.saveMachineConfig(next); err != nil {
 			*s.cfg = previous
 			if s.profiles != nil {
 				_ = s.profiles.SaveActive()
@@ -573,7 +573,7 @@ func (s *Server) ApplyConnector(change tools.ConnectorChange) error {
 	if err := next.Validate(); err != nil {
 		return err
 	}
-	if err := next.Save(s.configPath); err != nil {
+	if err := s.saveMachineConfig(next); err != nil {
 		return err
 	}
 	*s.cfg = next

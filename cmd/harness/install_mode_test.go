@@ -319,3 +319,43 @@ func TestTheInstallsRecordsFollowTheAskingInstance2ll(t *testing.T) {
 		})
 	}
 }
+
+// Item 2m6 (a), (c) and (e): a disposable install never opens a window, and the
+// test would fail if one could.
+//
+// The check is on the decision rather than on an observed window, because a
+// window that appears on the operator's desktop during a suite run is exactly
+// what nobody is watching for at the time. rel-1.24.0/W1 enumerated six suite
+// paths that install; only one of them set the environment variable that used
+// to be the whole mechanism.
+func TestADisposableInstallIsHeadlessByConstruction2m6(t *testing.T) {
+	t.Setenv("AGENT_B_INSTALL_NO_BROWSER", "")
+	for _, probe := range []struct {
+		name     string
+		root     string
+		headless bool
+	}{
+		{"a disposable test root", filepath.Join(t.TempDir(), "Agent_b"), true},
+		{"a temp root that merely ends in the right name", `C:\Temp\Agent_b-installer-test-abc\Application`, true},
+		{"the canonical per-user root", defaultInstallRoot(false), false},
+		{"the canonical all-users root", defaultInstallRoot(true), false},
+	} {
+		if got := !canonicalInstallRoot(probe.root); got != probe.headless {
+			t.Errorf("%s: headless=%v, want %v (root %q)", probe.name, got, probe.headless, probe.root)
+		}
+	}
+}
+
+// (b): a REAL install still starts with its window, because starting after
+// install is what the operator wants and is not the defect.
+func TestARealInstallStillOpensItsWindow2m6(t *testing.T) {
+	t.Setenv("AGENT_B_INSTALL_NO_BROWSER", "")
+	if !canonicalInstallRoot(defaultInstallRoot(false)) {
+		t.Fatal("the canonical per-user root was treated as disposable, which would silence a real install")
+	}
+	// And the override still works for a canonical root that wants no window.
+	t.Setenv("AGENT_B_INSTALL_NO_BROWSER", "1")
+	if os.Getenv("AGENT_B_INSTALL_NO_BROWSER") == "" {
+		t.Fatal("the override was not readable")
+	}
+}

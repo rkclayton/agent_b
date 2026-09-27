@@ -408,7 +408,18 @@ func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, log *inst
 	if sessionID != "" {
 		arguments = append(arguments, "-SessionID", sessionID)
 	}
-	if os.Getenv("AGENT_B_INSTALL_NO_BROWSER") != "" {
+	// Item 2m6 (a) and (c): A DISPOSABLE INSTALL NEVER OPENS A WINDOW, and it is
+	// decided by WHAT THE INSTALL IS rather than by a flag a future arm can
+	// forget.
+	//
+	// The environment variable below was the only thing keeping the suite's
+	// installs headless, and rel-1.24.0/W1 enumerated the suite paths that
+	// install: six of them, and only test-installer.ps1 set it. An install to a
+	// root that is not the canonical one is by definition not the operator's
+	// install -- that is 2kr's disposable-root marker -- so it starts without a
+	// window whether or not anyone remembered the variable. The variable still
+	// works, as an override for a canonical-root install that wants no window.
+	if os.Getenv("AGENT_B_INSTALL_NO_BROWSER") != "" || !canonicalInstallRoot(applicationRoot) {
 		arguments = append(arguments, "-NoBrowser")
 	}
 	command := exec.Command(windowsPowerShell(), arguments...)
@@ -612,4 +623,24 @@ func readInstallProgress(dataRoot string) ([]installProgress, error) {
 		return entries, err
 	}
 	return entries, nil
+}
+
+// canonicalInstallRoot reports whether a path is one of the two locations a real
+// install uses. Item 2m6: everything else is disposable, and a disposable
+// install is never allowed to put a window on the operator's desktop.
+func canonicalInstallRoot(applicationRoot string) bool {
+	resolved, err := filepath.Abs(applicationRoot)
+	if err != nil {
+		return false
+	}
+	for _, allUsers := range []bool{false, true} {
+		canonical, err := filepath.Abs(defaultInstallRoot(allUsers))
+		if err != nil || canonical == "" {
+			continue
+		}
+		if strings.EqualFold(resolved, canonical) {
+			return true
+		}
+	}
+	return false
 }

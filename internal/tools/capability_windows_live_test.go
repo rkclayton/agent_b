@@ -359,6 +359,26 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 				rows = append(rows, engineRow{adapter.Name(), "rate-limited", fmt.Sprintf("%s; benches itself on the first one, not the third", searchErr)})
 				continue
 			}
+			// Item 2m3 (a): AN ENGINE THAT RAN OUT OF TIME IS NOT A FAILING ENGINE.
+			//
+			// rel-1.21.0 reported arxiv as FAILING and carded it as a 429 the suite
+			// mishandled. The card was half wrong, and rel-1.22.0/W0 measured the
+			// other half: arxiv's 429 took 15.8 seconds to arrive and
+			// PerEngineTimeoutS is 8, so the suite never saw the status at all --
+			// it saw "context deadline exceeded". A rate limiter that answers
+			// slowly is indistinguishable from silence at an eight-second budget.
+			//
+			// The branch above still catches a 429 that arrives in time, and the
+			// tool still benches it on the first occurrence. This one reports the
+			// timeout as what it is: the suite could not find out, which is not the
+			// same as finding out that the engine is broken. The row keeps the
+			// engine visible and the deadline it exceeded, so a permanent outage
+			// still shows up as a run of them rather than as silence.
+			if errors.Is(searchErr, context.DeadlineExceeded) {
+				rows = append(rows, engineRow{adapter.Name(), "not exercised", fmt.Sprintf("external: no answer within %ds; the suite did not find out whether the engine works", cfg.Tools.WebSearch.PerEngineTimeoutS)})
+				t.Logf("engine=%s state=not exercised: external -- no answer within %ds", adapter.Name(), cfg.Tools.WebSearch.PerEngineTimeoutS)
+				continue
+			}
 			if searchErr != nil || len(hits) < 1 {
 				rows = append(rows, engineRow{adapter.Name(), "FAILING", fmt.Sprintf("results=%d error=%v", len(hits), searchErr)})
 				t.Errorf("engine=%s state=FAILING results=%d error=%v -- a live engine that does not answer is either fixed, benched with a date, or retired", adapter.Name(), len(hits), searchErr)

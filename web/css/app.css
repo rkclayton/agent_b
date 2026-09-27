@@ -1915,6 +1915,26 @@
 .panel-line > :last-child { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .panel-tool-line { grid-template-columns: 30px minmax(130px, 1fr) 64px 64px minmax(100px, auto); }
 .panel-tool-line > :last-child { color: var(--mute); }
+/* Item 2m2 (a): a measured value sits in a seat as wide as its widest form.
+   Tabular figures keep every digit the same width; the seat keeps the FIELD the
+   same width when the count of digits changes. Right-aligned, because a number
+   that grows should grow away from the label rather than push it. */
+/* Item 2m2 (b), found at W4 by the gate rather than by the inventory: the About
+   page's "checked <clock>" row draws a LOCALE-FORMATTED DATE, whose width moves
+   with the date, the time and the locale -- and the row is right-aligned, so the
+   word "checked" moved with it while the clock itself sat under its mask. A
+   value nobody listed, which is the defect card 3 named. It gets a seat like
+   every other measured value; 22 characters holds "9/26/2026, 10:41:07 PM",
+   the widest form toLocaleString produces here. */
+.settings-update-checked { display: inline-block; min-width: 22ch; font-variant-numeric: tabular-nums; }
+.seat { display: inline-block; min-width: var(--seat, auto); text-align: right; font-variant-numeric: tabular-nums; }
+.panel-figures { font-variant-numeric: tabular-nums; }
+/* Item 2ih (d): the Evaluation Harness's two arms, side by side. Tabular
+   figures and right-aligned numbers, for the same reason item 2m2 gives: these
+   are measured values and they must not move the columns when they change. */
+.harness-arms { width: 100%; border-collapse: collapse; font: 12px/18px var(--mono); }
+.harness-arms th { text-align: left; color: var(--mute); font-weight: normal; }
+.harness-arms td + td, .harness-arms th + th { text-align: right; font-variant-numeric: tabular-nums; }
 .panel-empty { padding: 10px; color: var(--mute); }
 /* Item 2ly (c): one line per group saying the settings below follow the
    profile. Muted, like every other note on the page; no new colour. */

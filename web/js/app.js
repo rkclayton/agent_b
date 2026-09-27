@@ -397,7 +397,27 @@ function patchEndedRun(patch = {}) { return (patch.operations || []).some((opera
 // figures the way the rest of the panel already separates a pair.
 function runProfileSection(rows) {
   if (!rows.length) return [];
-  return [line("per run", "lifetime · last 20"), ...rows.map(([label, life, recent]) => line(label, `${life} · ${recent}`))];
+  // Item 2m2 (a): each figure sits in a seat the width of its widest form, so a
+  // value that gains a digit changes nothing about where the other column, or
+  // the column beside this panel, ends up.
+  return [line("per run", "lifetime · last 20"), ...rows.map(([label, life, recent, seat]) => {
+    const row = node("div", "panel-line");
+    row.append(text(label));
+    const value = node("span", "panel-figures");
+    value.append(seated(life, seat), text(" · "), seated(recent, seat));
+    row.append(value);
+    return row;
+  })];
+}
+
+// seated wraps one measured value in a fixed-width, right-aligned, tabular-figure
+// box. Tabular figures alone are not enough: they make every DIGIT the same
+// width, and the defect is a changing NUMBER of digits.
+function seated(value, characters) {
+  const span = node("span", "seat");
+  span.style.setProperty("--seat", `${characters}ch`);
+  span.append(text(String(value)));
+  return span;
 }
 
 function line(label, value) { const row = node("div", "panel-line"); row.append(text(label), text(String(value))); return row; }

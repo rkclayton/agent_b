@@ -36,13 +36,24 @@ foreach ($path in @($FromSetup, $ToSetup)) {
 $root = Join-Path ([IO.Path]::GetTempPath()) ('agentb-updater-cycle-' + [Guid]::NewGuid().ToString('N'))
 $application = Join-Path $root 'Application\Agent_b'
 $data = Join-Path $root 'Data\Agent_b'
-# Item 2mr (d) and (e): THE WORKSPACE IS SHAPED LIKE PRODUCTION'S, not like a
-# convenient temp folder. This gate passed through twelve releases while every
-# update from the operator's own client failed, for exactly one reason: its
-# workspace was named 'workspace', which the installer's leaf-only path guard
-# accepted, and his is the profile-scoped scratch root, which it refused. A gate
-# whose fixture is safer than production proves nothing about production.
-$workspace = Join-Path $data 'profiles\Operator\scratch'
+# Item 2mr (d) and (e): THE WORKSPACE THE UPDATER PASSES IS SHAPED LIKE
+# PRODUCTION'S, not like a convenient temp folder.
+#
+# This gate passed through twelve releases while every update from the operator's
+# own client failed, for exactly one reason: its workspace was named 'workspace',
+# which the installer's leaf-only path guard accepted, and his is the
+# profile-scoped scratch root, which it refused. A gate whose fixture is safer
+# than production proves nothing about production.
+#
+# The FROM install is done with a name the PREVIOUS release's installer accepts,
+# because the previous release carries the OLD guard and cannot install to a
+# profile-scoped root at all — measured: it exits 1 during failed. What matters is
+# the workspace the updater then PASSES TO THE CANDIDATE, so the installed
+# instance's configured workspace is set to the production shape before Install is
+# pressed, below. That is the operator's case exactly: an install whose configured
+# workspace is profile-scoped, updating with the new installer.
+$workspace = Join-Path $root 'workspace'
+$productionShapedWorkspace = Join-Path $data 'profiles\Operator\scratch'
 $feedRoot = Join-Path $root 'feed'
 # install-root-policy requires a TestMode uninstall key to be recognisably
 # disposable: Agent_b followed by Test, Acceptance, or a long hex run.
@@ -142,7 +153,13 @@ try {
     # The updater answers only while it is enabled, so the cycle enables it and
     # points it at the loopback feed rather than at the real release page.
     $config.updates.auto_check = $true
+    # Item 2mr (d): the configured workspace is what the updater hands the setup, so
+    # this is where the operator's shape enters the gate. The directory is created
+    # because a missing workspace is a different failure.
+    $null = New-Item -ItemType Directory -Path $productionShapedWorkspace -Force
+    $config.workspace = $productionShapedWorkspace
     $config | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $data 'harness.json') -Encoding utf8
+    Write-Host "CYCLE WORKSPACE: the instance will hand the setup $productionShapedWorkspace, which is the shape the operator's install carries"
     $env:AGENTB_UPDATE_FIXTURE_URL = "$base/latest.json"
     $child = Start-Process -FilePath (Join-Path $application 'Agent_b.exe') -PassThru -WindowStyle Hidden `
         -ArgumentList @('-config', (Join-Path $data 'harness.json'), '-app-root', $application, '-data-root', $data)
@@ -282,7 +299,17 @@ try {
             throw ("UPDATER CYCLE FAILED: the installer refused the workspace it was given, $workspace. " +
                    "That is item 2mr's defect: every update from the operator's own client failed on this guard and the product said nothing. " + $decision)
         }
-        Write-Host "PROOF workspace accepted: the installer did not refuse $workspace, which is shaped like the operator's profile-scoped scratch root"
+        # Name the path the transcript actually records, not the one this script
+        # asked for: the updater passes the instance's CONFIGURED workspace, and
+        # the proof is worth nothing if it names something else.
+        $passed = @($transcripts | ForEach-Object {
+            [regex]::Match((Get-Content -Raw -LiteralPath $_.FullName), '-WorkspaceDirectory\s+(\S+)').Groups[1].Value
+        } | Where-Object { $_ }) | Select-Object -Last 1
+        if (-not $passed) { throw 'UPDATER CYCLE FAILED: no transcript records the workspace the setup was given.' }
+        if ($passed -notmatch 'profiles') {
+            throw "UPDATER CYCLE FAILED: the setup was given $passed, which is not shaped like the operator's profile-scoped scratch root, so this gate proves nothing about his case."
+        }
+        Write-Host "PROOF workspace accepted: the installer was given $passed and did not refuse it; that shape is what the operator's own install hands the setup, and refusing it is item 2mr's defect"
         Write-Host "INSTALLER DECISION: $decision"
         Write-Host 'UNEXERCISED: the install-and-restart half. The installer refuses a non-canonical ApplicationDirectory outside TestMode, and the updater must not be able to pass TestMode, so a disposable instance cannot complete an install beneath the suite root.'
         $outcome = 'PARTIAL'

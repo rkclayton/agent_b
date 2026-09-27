@@ -109,6 +109,63 @@ test("the Plan header carries the artwork and three lines about planning", async
 // Item 2ld. The operator, 2026-09-26: "can we make it where if you grab this
 // little part at the top of the chat window in between where you type and it
 // displays that you can resize the chat input? and remove the [expand control]".
+// Item 2me (a): the floor came down from 48 to ONE LINE of input, measured in the
+// running app at 34px — a 20px line with the textarea's own 7px above and below.
+// It does not go to zero: a composer that can be dragged shut is a composer that
+// can be lost, and the strip must stay grabbable at the smallest size.
+test("the composer shrinks to a single line and cannot be dragged shut", async ({ page }) => {
+  const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8");
+  const body = `<!doctype html><html><head><style>
+    :root { --bezel:#2A2E35; --well:#15181C; --ink:#D8DDE3; --mute:#7D8794; --mono:monospace; }
+    body { margin:0 } #wrap { height:600px; display:grid; grid-template-rows: 1fr auto auto }
+    #chat-log { overflow-y:auto } ${chatCSS}
+  </style></head><body><div id="wrap">
+    <main id="chat-log"><p>transcript</p></main>
+    <div id="chat-status-strip" class="chat-status-strip" role="separator" title="Drag to resize the message box">ready</div>
+    <footer id="chat-composer" class="chat-composer"><textarea id="chat-input"></textarea></footer>
+  </div>
+  <script type="module">
+    import { installComposerResize, COMPOSER_MIN } from "/js/composer-resize.js";
+    window.COMPOSER_MIN = COMPOSER_MIN;
+    installComposerResize({ strip: document.getElementById("chat-status-strip"), composer: document.getElementById("chat-composer"), input: document.getElementById("chat-input"), log: document.getElementById("chat-log") });
+  </script></body></html>`;
+  await page.route("**/*", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/composer.html") return route.fulfill({ contentType: "text/html", body });
+    return route.fulfill({ path: webRoot + path.replace(/^\//, "") });
+  });
+  await page.goto("http://composer.test/composer.html");
+  await page.fill("#chat-input", "still here");
+
+  const floor = await page.evaluate(() => window.COMPOSER_MIN);
+  expect(floor, "the floor is one line of input plus the textarea's padding").toBe(34);
+
+  // Drag far past the bottom of the window: the clamp, not the pointer, decides.
+  const strip = await page.locator("#chat-status-strip").boundingBox();
+  await page.mouse.move(strip.x + 40, strip.y + strip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(strip.x + 40, strip.y + strip.height / 2 + 900, { steps: 8 });
+  await page.mouse.up();
+
+  const applied = await page.evaluate(() => Number.parseFloat(document.getElementById("chat-composer").style.getPropertyValue("--composer-height")));
+  expect(applied, "the composer went below its floor").toBe(floor);
+  // Not shut, and what was typed is still shown.
+  expect(applied).toBeGreaterThan(0);
+  await expect(page.locator("#chat-input")).toHaveValue("still here");
+  expect((await page.locator("#chat-input").boundingBox()).height).toBeGreaterThan(0);
+  // The handle is still findable: the strip is still there and still the target.
+  const smallest = await page.locator("#chat-status-strip").boundingBox();
+  expect(smallest.height, "the handle disappeared at the smallest size").toBeGreaterThanOrEqual(20);
+
+  // And it comes back: the drag is reversible from the floor.
+  await page.mouse.move(smallest.x + 40, smallest.y + smallest.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(smallest.x + 40, smallest.y + smallest.height / 2 - 100, { steps: 6 });
+  await page.mouse.up();
+  const back = await page.evaluate(() => Number.parseFloat(document.getElementById("chat-composer").style.getPropertyValue("--composer-height")));
+  expect(back, "the composer could not be dragged back up from the floor").toBeGreaterThan(floor);
+});
+
 test("dragging the strip resizes the composer, keeps what is typed, and persists", async ({ page }) => {
   const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8");
   const body = `<!doctype html><html><head><style>

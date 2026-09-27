@@ -286,7 +286,11 @@ test("the attachment control replaces the redundant per-chat readout", async () 
   assert.ok(log < composer, "the transcript still precedes the composer");
 
   const chatCss = await readFile(new URL("../css/chat.css", import.meta.url), "utf8");
-  assert.match(chatCss, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; margin-right:-4px; \}/);
+  // Item 2me (c): this pinned `margin-right:-4px`, which cancelled the strip's own
+  // right padding so the paperclip sat hard against the window edge while the text
+  // on the left kept its 4px. Both ends are inset the same now, measured, and the
+  // assertion moved with the contract rather than being deleted.
+  assert.match(chatCss, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; width:16px; height:16px; \}/);
   // No control characters anywhere in the stylesheet: the marker was a raw
   // 0x15 byte, which is how it reached the operator's screen as tofu.
   const control = [...chatCss].filter((ch) => ch.charCodeAt(0) < 32 && !"\r\n\t".includes(ch));

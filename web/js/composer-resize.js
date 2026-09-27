@@ -7,7 +7,13 @@
 //
 // It lives in its own module because a drag is only proven by dragging it, and the
 // gate needs to load this behaviour without loading the whole chat surface.
-export const COMPOSER_MIN = 48;
+// Item 2me (a): the floor was 48 and the operator asked to shrink the input
+// "nearly to the bottom of the app". MEASURED in the running app: the composer's
+// textarea has a 20px line and 7px of padding above and below, so ONE LINE of
+// input is 34px. That is the floor. It is not zero: a composer that can be
+// dragged shut is a composer that can be lost, and the drag must stay reversible
+// without the operator hunting for the handle.
+export const COMPOSER_MIN = 34;
 export const TRANSCRIPT_MIN = 120;
 export const HEIGHT_KEY = "agentb.composer-height";
 

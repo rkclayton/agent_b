@@ -55,7 +55,11 @@ test("the paperclip replaces the duplicate token readout, and the composer holds
   // paperclip is an SVG in the shared glyph box rather than an emoji drawn by
   // whatever font the host has.
   assert.match(html, /id="chat-status-strip"[\s\S]{0,1000}class="chat-attach-wrap"[\s\S]{0,400}id="chat-attach"[\s\S]{0,200}composer-glyph/);
-  assert.match(css, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; margin-right:-4px; \}/);
+  // Item 2me (c): this pinned `margin-right:-4px`, which cancelled the strip's own
+  // right padding so the paperclip sat hard against the window edge while the text
+  // on the left kept its 4px. Both ends are inset the same now, measured, and the
+  // assertion moved with the contract rather than being deleted.
+  assert.match(css, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; width:16px; height:16px; \}/);
   assert.match(css, /\.chat-update-banner:not\(\[hidden\]\) \+ \.chat-attach-wrap \{ margin-left:0; \}/);
   assert.doesNotMatch(html, /id="chat-readout"|id="chat-readout-meter"/);
   assert.match(html, /class="chat-composer-row"/);

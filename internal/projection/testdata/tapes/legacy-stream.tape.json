@@ -506,7 +506,7 @@
     {
      "op": "replace",
      "path": "/connection_id",
-     "value": "homepc"
+     "value": "host-a"
     },
     {
      "op": "replace",
@@ -532,7 +532,7 @@
        "memory_path": "\u003cr:09b2f6d4b415:28\u003e",
        "not_runnable_reason": "",
        "runnable": true,
-       "server_id": "homepc",
+       "server_id": "host-a",
        "session_id": "main"
       }
      }
@@ -2940,7 +2940,7 @@
         "memory_path": "\u003cr:09b2f6d4b415:28\u003e",
         "not_runnable_reason": "",
         "runnable": true,
-        "server_id": "homepc",
+        "server_id": "host-a",
         "session_id": "main"
        }
       },

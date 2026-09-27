@@ -146,7 +146,7 @@
      "path": "/timeline",
      "value": {
       "seq": 1,
-      "ts": "2026-09-06T00:00:00Z",
+      "ts": "2020-01-01T00:00:00Z",
       "session_id": "main",
       "run_id": "",
       "type": "session.created",
@@ -225,7 +225,7 @@
      "path": "/timeline",
      "value": {
       "seq": 2,
-      "ts": "2026-09-06T00:00:01Z",
+      "ts": "2020-01-01T00:00:01Z",
       "session_id": "main",
       "run_id": "",
       "type": "message.appended",

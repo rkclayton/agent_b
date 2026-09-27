@@ -114,17 +114,17 @@
     {
      "op": "replace",
      "path": "/connection_id",
-     "value": "homepc"
+     "value": "host-a"
     },
     {
      "op": "replace",
      "path": "/agent_name",
-     "value": "HomePC"
+     "value": "host-a"
     },
     {
      "op": "replace",
      "path": "/b_connection",
-     "value": "HomePC"
+     "value": "host-a"
     },
     {
      "op": "replace",
@@ -134,7 +134,7 @@
     {
      "op": "replace",
      "path": "/created_at",
-     "value": "2026-09-07T17:10:00Z"
+     "value": "2020-01-01T00:00:00Z"
     },
     {
      "op": "replace",
@@ -179,13 +179,13 @@
      "path": "/timeline",
      "value": {
       "seq": 1,
-      "ts": "2026-09-07T17:10:00Z",
+      "ts": "2020-01-01T00:00:00Z",
       "session_id": "s3",
       "run_id": "",
       "type": "session.created",
       "data": {
        "session": {
-        "agent_name": "HomePC",
+        "agent_name": "host-a",
         "budget": {},
         "closed": false,
         "compaction_completion_tokens": 0,
@@ -193,12 +193,12 @@
         "compaction_model_calls": 0,
         "compaction_prompt_tokens": 0,
         "compaction_token_delta": 0,
-        "connection_id": "homepc",
-        "created_at": "2026-09-07T17:10:00Z",
+        "connection_id": "host-a",
+        "created_at": "2020-01-01T00:00:00Z",
         "id": "s3",
         "label": "Agent tabs",
         "log_path": "agent-tabs-multi-run.events",
-        "main_connection": "HomePC",
+        "main_connection": "host-a",
         "memory_content": "",
         "memory_path": "",
         "messages": [],
@@ -263,7 +263,7 @@
      "path": "/timeline",
      "value": {
       "seq": 2,
-      "ts": "2026-09-07T17:10:01Z",
+      "ts": "2020-01-01T00:00:01Z",
       "session_id": "s3",
       "run_id": "r1",
       "type": "run.started",
@@ -310,7 +310,7 @@
       "run_id": "r1",
       "event": {
        "seq": 3,
-       "ts": "2026-09-07T17:10:02Z",
+       "ts": "2020-01-01T00:00:02Z",
        "session_id": "s3",
        "run_id": "r1",
        "type": "run.stopped",
@@ -341,7 +341,7 @@
      "path": "/timeline",
      "value": {
       "seq": 3,
-      "ts": "2026-09-07T17:10:02Z",
+      "ts": "2020-01-01T00:00:02Z",
       "session_id": "s3",
       "run_id": "r1",
       "type": "run.stopped",
@@ -385,7 +385,7 @@
      "path": "/timeline",
      "value": {
       "seq": 4,
-      "ts": "2026-09-07T17:10:03Z",
+      "ts": "2020-01-01T00:00:03Z",
       "session_id": "s3",
       "run_id": "r2",
       "type": "run.started",
@@ -431,7 +431,7 @@
       "run_id": "r2",
       "event": {
        "seq": 5,
-       "ts": "2026-09-07T17:10:04Z",
+       "ts": "2020-01-01T00:00:04Z",
        "session_id": "s3",
        "run_id": "r2",
        "type": "approval.required",
@@ -457,7 +457,7 @@
       "run_id": "r2",
       "event": {
        "seq": 5,
-       "ts": "2026-09-07T17:10:04Z",
+       "ts": "2020-01-01T00:00:04Z",
        "session_id": "s3",
        "run_id": "r2",
        "type": "approval.required",
@@ -479,7 +479,7 @@
      "path": "/timeline",
      "value": {
       "seq": 5,
-      "ts": "2026-09-07T17:10:04Z",
+      "ts": "2020-01-01T00:00:04Z",
       "session_id": "s3",
       "run_id": "r2",
       "type": "approval.required",

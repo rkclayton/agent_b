@@ -184,7 +184,7 @@
      "path": "/timeline",
      "value": {
       "seq": 1,
-      "ts": "2026-09-07T16:00:00Z",
+      "ts": "2020-01-01T00:00:00Z",
       "session_id": "bound",
       "run_id": "",
       "type": "session.created",
@@ -241,7 +241,7 @@
       "key": "event:2",
       "event": {
        "seq": 2,
-       "ts": "2026-09-07T16:00:01Z",
+       "ts": "2020-01-01T00:00:01Z",
        "session_id": "bound",
        "run_id": "",
        "type": "project.instructions_loaded",
@@ -274,7 +274,7 @@
      "path": "/timeline",
      "value": {
       "seq": 2,
-      "ts": "2026-09-07T16:00:01Z",
+      "ts": "2020-01-01T00:00:01Z",
       "session_id": "bound",
       "run_id": "",
       "type": "project.instructions_loaded",

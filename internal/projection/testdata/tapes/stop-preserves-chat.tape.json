@@ -109,7 +109,7 @@
     {
      "op": "replace",
      "path": "/connection_id",
-     "value": "homepc"
+     "value": "host-a"
     },
     {
      "op": "replace",
@@ -129,7 +129,7 @@
     {
      "op": "replace",
      "path": "/created_at",
-     "value": "2026-09-07T13:00:00Z"
+     "value": "2020-01-01T00:00:00Z"
     },
     {
      "op": "replace",
@@ -207,7 +207,7 @@
      "path": "/timeline",
      "value": {
       "seq": 1,
-      "ts": "2026-09-07T13:00:00Z",
+      "ts": "2020-01-01T00:00:00Z",
       "session_id": "main",
       "run_id": "",
       "type": "session.created",
@@ -235,8 +235,8 @@
         "compaction_model_calls": 0,
         "compaction_prompt_tokens": 0,
         "compaction_token_delta": 0,
-        "connection_id": "homepc",
-        "created_at": "2026-09-07T13:00:00Z",
+        "connection_id": "host-a",
+        "created_at": "2020-01-01T00:00:00Z",
         "id": "main",
         "label": "main",
         "log_path": "stop-preserves-chat.events",
@@ -329,7 +329,7 @@
      "path": "/timeline",
      "value": {
       "seq": 2,
-      "ts": "2026-09-07T13:00:01Z",
+      "ts": "2020-01-01T00:00:01Z",
       "session_id": "main",
       "run_id": "",
       "type": "message.appended",
@@ -379,7 +379,7 @@
      "path": "/timeline",
      "value": {
       "seq": 3,
-      "ts": "2026-09-07T13:00:02Z",
+      "ts": "2020-01-01T00:00:02Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "run.started",
@@ -426,13 +426,13 @@
       "dispatch_alarm": false,
       "stream": {
        "key": "r1:1",
-       "started_at": 1788786003000,
-       "last_chunk_at": 1788786003000,
+       "started_at": 1577836803000,
+       "last_chunk_at": 1577836803000,
        "has_chunk": false,
        "reasoning_chars": 0,
        "total_chars": 0,
        "rate": 0,
-       "rate_started_at": 1788786003000,
+       "rate_started_at": 1577836803000,
        "rate_chars": 0,
        "done": false,
        "reasoning_tokens": 0
@@ -445,7 +445,7 @@
      "path": "/timeline",
      "value": {
       "seq": 4,
-      "ts": "2026-09-07T13:00:03Z",
+      "ts": "2020-01-01T00:00:03Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "model.request",
@@ -508,13 +508,13 @@
       "dispatch_alarm": false,
       "stream": {
        "key": "r1:1",
-       "started_at": 1788786003000,
-       "last_chunk_at": 1788786004000,
+       "started_at": 1577836803000,
+       "last_chunk_at": 1577836804000,
        "has_chunk": true,
        "reasoning_chars": 0,
        "total_chars": 0,
        "rate": 0,
-       "rate_started_at": 1788786003000,
+       "rate_started_at": 1577836803000,
        "rate_chars": 0,
        "done": true,
        "reasoning_tokens": 4
@@ -527,7 +527,7 @@
      "path": "/timeline",
      "value": {
       "seq": 5,
-      "ts": "2026-09-07T13:00:04Z",
+      "ts": "2020-01-01T00:00:04Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "model.response",
@@ -601,13 +601,13 @@
       "dispatch_alarm": false,
       "stream": {
        "key": "r1:1",
-       "started_at": 1788786003000,
-       "last_chunk_at": 1788786004000,
+       "started_at": 1577836803000,
+       "last_chunk_at": 1577836804000,
        "has_chunk": true,
        "reasoning_chars": 0,
        "total_chars": 0,
        "rate": 0,
-       "rate_started_at": 1788786003000,
+       "rate_started_at": 1577836803000,
        "rate_chars": 0,
        "done": true,
        "reasoning_tokens": 4
@@ -620,7 +620,7 @@
      "path": "/timeline",
      "value": {
       "seq": 6,
-      "ts": "2026-09-07T13:00:05Z",
+      "ts": "2020-01-01T00:00:05Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "tool.call",
@@ -673,13 +673,13 @@
       "dispatch_alarm": false,
       "stream": {
        "key": "r1:1",
-       "started_at": 1788786003000,
-       "last_chunk_at": 1788786004000,
+       "started_at": 1577836803000,
+       "last_chunk_at": 1577836804000,
        "has_chunk": true,
        "reasoning_chars": 0,
        "total_chars": 0,
        "rate": 0,
-       "rate_started_at": 1788786003000,
+       "rate_started_at": 1577836803000,
        "rate_chars": 0,
        "done": true,
        "reasoning_tokens": 4
@@ -692,7 +692,7 @@
      "path": "/timeline",
      "value": {
       "seq": 7,
-      "ts": "2026-09-07T13:00:05.100Z",
+      "ts": "2020-01-01T00:00:05.100Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "tool.call",
@@ -745,13 +745,13 @@
       "dispatch_alarm": false,
       "stream": {
        "key": "r1:1",
-       "started_at": 1788786003000,
-       "last_chunk_at": 1788786004000,
+       "started_at": 1577836803000,
+       "last_chunk_at": 1577836804000,
        "has_chunk": true,
        "reasoning_chars": 0,
        "total_chars": 0,
        "rate": 0,
-       "rate_started_at": 1788786003000,
+       "rate_started_at": 1577836803000,
        "rate_chars": 0,
        "done": true,
        "reasoning_tokens": 4
@@ -764,7 +764,7 @@
      "path": "/timeline",
      "value": {
       "seq": 8,
-      "ts": "2026-09-07T13:00:05.200Z",
+      "ts": "2020-01-01T00:00:05.200Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "tool.call",
@@ -814,7 +814,7 @@
       "run_id": "r1",
       "event": {
        "seq": 9,
-       "ts": "2026-09-07T13:00:06Z",
+       "ts": "2020-01-01T00:00:06Z",
        "session_id": "main",
        "run_id": "r1",
        "type": "approval.required",
@@ -839,7 +839,7 @@
       "run_id": "r1",
       "event": {
        "seq": 9,
-       "ts": "2026-09-07T13:00:06Z",
+       "ts": "2020-01-01T00:00:06Z",
        "session_id": "main",
        "run_id": "r1",
        "type": "approval.required",
@@ -860,7 +860,7 @@
      "path": "/timeline",
      "value": {
       "seq": 9,
-      "ts": "2026-09-07T13:00:06Z",
+      "ts": "2020-01-01T00:00:06Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "approval.required",
@@ -898,7 +898,7 @@
       "run_id": "r1",
       "event": {
        "seq": 9,
-       "ts": "2026-09-07T13:00:06Z",
+       "ts": "2020-01-01T00:00:06Z",
        "session_id": "main",
        "run_id": "r1",
        "type": "approval.required",
@@ -925,7 +925,7 @@
      "path": "/timeline",
      "value": {
       "seq": 10,
-      "ts": "2026-09-07T13:00:07Z",
+      "ts": "2020-01-01T00:00:07Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "approval.decided",
@@ -1014,13 +1014,13 @@
       "dispatch_alarm": false,
       "stream": {
        "key": "r1:1",
-       "started_at": 1788786003000,
-       "last_chunk_at": 1788786004000,
+       "started_at": 1577836803000,
+       "last_chunk_at": 1577836804000,
        "has_chunk": true,
        "reasoning_chars": 0,
        "total_chars": 0,
        "rate": 0,
-       "rate_started_at": 1788786003000,
+       "rate_started_at": 1577836803000,
        "rate_chars": 0,
        "done": true,
        "reasoning_tokens": 4
@@ -1033,7 +1033,7 @@
      "path": "/timeline",
      "value": {
       "seq": 11,
-      "ts": "2026-09-07T13:00:08Z",
+      "ts": "2020-01-01T00:00:08Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "tool.result",
@@ -1123,7 +1123,7 @@
      "path": "/timeline",
      "value": {
       "seq": 12,
-      "ts": "2026-09-07T13:00:08.100Z",
+      "ts": "2020-01-01T00:00:08.100Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "tool.result",
@@ -1213,7 +1213,7 @@
      "path": "/timeline",
      "value": {
       "seq": 13,
-      "ts": "2026-09-07T13:00:08.200Z",
+      "ts": "2020-01-01T00:00:08.200Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "tool.result",
@@ -1313,7 +1313,7 @@
      "path": "/timeline",
      "value": {
       "seq": 14,
-      "ts": "2026-09-07T13:00:09Z",
+      "ts": "2020-01-01T00:00:09Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "message.appended",
@@ -1425,7 +1425,7 @@
      "path": "/timeline",
      "value": {
       "seq": 15,
-      "ts": "2026-09-07T13:00:10Z",
+      "ts": "2020-01-01T00:00:10Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "message.appended",
@@ -1535,7 +1535,7 @@
      "path": "/timeline",
      "value": {
       "seq": 16,
-      "ts": "2026-09-07T13:00:10.100Z",
+      "ts": "2020-01-01T00:00:10.100Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "message.appended",
@@ -1658,7 +1658,7 @@
      "path": "/timeline",
      "value": {
       "seq": 17,
-      "ts": "2026-09-07T13:00:10.200Z",
+      "ts": "2020-01-01T00:00:10.200Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "message.appended",
@@ -1716,7 +1716,7 @@
       "run_id": "r1",
       "event": {
        "seq": 18,
-       "ts": "2026-09-07T13:00:11Z",
+       "ts": "2020-01-01T00:00:11Z",
        "session_id": "main",
        "run_id": "r1",
        "type": "run.stopped",
@@ -1741,13 +1741,13 @@
       "dispatch_alarm": false,
       "stream": {
        "key": "r1:1",
-       "started_at": 1788786003000,
-       "last_chunk_at": 1788786004000,
+       "started_at": 1577836803000,
+       "last_chunk_at": 1577836804000,
        "has_chunk": true,
        "reasoning_chars": 0,
        "total_chars": 0,
        "rate": 0,
-       "rate_started_at": 1788786003000,
+       "rate_started_at": 1577836803000,
        "rate_chars": 0,
        "done": true,
        "reasoning_tokens": 4
@@ -1760,7 +1760,7 @@
      "path": "/timeline",
      "value": {
       "seq": 18,
-      "ts": "2026-09-07T13:00:11Z",
+      "ts": "2020-01-01T00:00:11Z",
       "session_id": "main",
       "run_id": "r1",
       "type": "run.stopped",

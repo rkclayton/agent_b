@@ -693,7 +693,30 @@
    cursor is the only thing that says it can be dragged. */
 .chat-status-strip { min-height:20px; display:flex; align-items:center; gap:6px; padding:2px 4px; color:var(--mute); font:var(--ct)/var(--lead-tight) var(--mono); cursor:row-resize; touch-action:none; }
 .chat-status-strip.dragging { user-select:none; }
-.chat-status-strip .chat-attach-wrap { margin-left:auto; margin-right:-4px; }
+.chat-status-strip .chat-attach-wrap { margin-left:auto; width:16px; height:16px; }
+/* Item 2me (b) and (c), both MEASURED in the running app before they were made.
+   (b): the strip was 28px because a 24px control sat in it, and removing that
+   control dropped it to its 20px min-height — so the paperclip, not the text, was
+   setting the height, exactly as the item read it. The control in the STRIP is now
+   the size of the glyph it draws, which is the strip's own line, so the strip is
+   its text plus its padding and 2ld's comment above becomes true. [[2ha]]'s family
+   on the composer CORNER is untouched at 24px.
+   THE HIT TARGET IS NOT SMALLER: the ::before expands the pressable area back to
+   24x24 without taking part in layout, so the box shrinks and the target does not.
+   (c): the negative right margin cancelled the strip's own 4px right padding and
+   put the paperclip hard against the window edge while the text kept its 4px. It
+   is gone; both ends are inset 4px, measured.
+   THREE rules set this control's size and all three are below, so all three are
+   answered here: the family rule, which ties on specificity and wins on source
+   order (answered with one more class), the wrap's own 24px box, and .chat-attach's
+   min-height, which is already !important in this file — the only way past an
+   !important is another one, so this carries the reason instead of hiding it. */
+.chat-status-strip .chat-attach.composer-control {
+  width:16px; height:16px; min-width:16px;
+  min-height:16px !important;
+  position:relative;
+}
+.chat-status-strip .chat-attach.composer-control::before { content:""; position:absolute; inset:-4px; }
 .chat-update-banner { margin-left:auto; display:flex; align-items:center; gap:4px; white-space:nowrap; color:var(--ink); }
 .chat-update-banner[hidden] { display:none; }
 .chat-update-banner:not([hidden]) + .chat-attach-wrap { margin-left:0; }

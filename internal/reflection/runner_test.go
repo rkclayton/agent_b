@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"harness/internal/memory"
 )
 
 type fakeNoter struct {
@@ -204,9 +206,21 @@ func TestReflectionWritesOneMemoryNoteAndRegistersAPlanOnlyWhenNeeded(t *testing
 	if len(noter.notes[repo]) != 2 {
 		t.Fatalf("notes = %v", noter.notes)
 	}
+	// Item 2mw (b): the provenance is a TRAILING field naming the run, not a prefix.
+	// A prefix was part of the note's own words, so it reached every prompt as text
+	// and two notes differing only in provenance looked like different notes.
 	for _, note := range noter.notes[repo] {
-		if !strings.HasPrefix(note, NoteProvenance) {
-			t.Fatalf("a reflection note carries no provenance: %q", note)
+		if !strings.HasSuffix(note, memory.ReflectionSuffix(memory.ReflectionUnconfirmed, "r1")) {
+			t.Fatalf("a reflection note carries no trailing provenance naming its run: %q", note)
+		}
+		if strings.HasPrefix(note, "[") {
+			t.Fatalf("a reflection note still leads with its marker: %q", note)
+		}
+		// And the loader reads the words WITHOUT the marker, which is the property
+		// the move was for.
+		parsed := memory.ParseNoteLine("- 2026-09-27 " + note)
+		if strings.Contains(parsed.Text, "reflection") || parsed.Reflection != memory.ReflectionUnconfirmed || parsed.Run != "r1" {
+			t.Fatalf("the loader does not see the provenance as provenance: text=%q reflection=%q run=%q", parsed.Text, parsed.Reflection, parsed.Run)
 		}
 	}
 	if len(noter.notes[plain]) != 0 {

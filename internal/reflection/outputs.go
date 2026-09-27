@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"harness/internal/memory"
 )
 
 // Reflection's durable outputs (item 17-i, step 5). Both go through the paths
@@ -67,7 +69,21 @@ type Noter interface {
 // NoteProvenance marks every note reflection writes. A note is read back into
 // later prompts for that folder, so a reader — operator or model — is told
 // where it came from and that nobody confirmed it (v1.1.0/W6 cold review).
-const NoteProvenance = "[reflection, unconfirmed]"
+//
+// Item 2mw (b): this moved from a PREFIX to the trailing provenance form the memory
+// loader already parses, and it now names the run. As a prefix it was invisible to
+// the parser — whose provenance pattern is anchored to the end of the line — so the
+// bracket was part of the note's own words: it travelled into every prompt as text
+// and it defeated the duplicate check. NoteProvenance is kept as the marker a reader
+// looks for; noteLine is what gets written.
+const NoteProvenance = "reflection"
+
+// noteLine is one note's text with its provenance: unconfirmed until the operator
+// says otherwise, and carrying the run that produced it so (b)'s provenance survives
+// without a second store.
+func noteLine(note, runID string) string {
+	return note + " " + memory.ReflectionSuffix(memory.ReflectionUnconfirmed, runID)
+}
 
 // NoteResult is one attempted note.
 type NoteResult struct {
@@ -91,7 +107,7 @@ func WriteNotes(noter Noter, summary Summary, limit int) []NoteResult {
 		if limit > 0 && index >= limit {
 			break
 		}
-		note = NoteProvenance + " " + note
+		note = noteLine(note, summary.RunID)
 		_, duplicate, err := noter.Note(summary.Workspace, note)
 		result := NoteResult{Workspace: summary.Workspace, Note: note, Written: err == nil && !duplicate, Duplicate: duplicate}
 		if err != nil {

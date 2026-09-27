@@ -27,10 +27,12 @@ type Registry struct {
 	config      func() config.Config
 	memory      func(context.Context, string, string) (string, string, error)
 	agentMemory func(context.Context, string, string) (string, string, error)
-	workspaces  *workspaceinfo.Manager
-	plansRoot   string
-	scratchRoot string
-	planGrant   func(string) error
+	// Item 2mw (e): the machine layer takes no id — it is one layer for the box.
+	machineMemory func(context.Context, string) (string, string, error)
+	workspaces    *workspaceinfo.Manager
+	plansRoot     string
+	scratchRoot   string
+	planGrant     func(string) error
 }
 
 func NewRegistry(bus *events.Bus, writers *events.Writers, connections func(string) (*config.Connection, bool), maxTurns int, settings func() config.Config) *Registry {
@@ -41,6 +43,9 @@ func (r *Registry) SetMemoryLoader(loader func(context.Context, string, string) 
 }
 func (r *Registry) SetAgentMemoryLoader(loader func(context.Context, string, string) (string, string, error)) {
 	r.agentMemory = loader
+}
+func (r *Registry) SetMachineMemoryLoader(loader func(context.Context, string) (string, string, error)) {
+	r.machineMemory = loader
 }
 func (r *Registry) SetWorkspaceManager(manager *workspaceinfo.Manager) { r.workspaces = manager }
 
@@ -404,8 +409,17 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 			return nil, err
 		}
 	}
+	// Item 2mw (e): the machine layer, loaded the same way and under the same budget.
+	// It takes no id, because there is one machine.
+	machineMemoryBlock, machineMemoryPath := "", ""
+	if r.machineMemory != nil {
+		machineMemoryBlock, machineMemoryPath, err = r.machineMemory(context.Background(), agent.B)
+		if err != nil {
+			return nil, err
+		}
+	}
 	settings := r.config()
-	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: time.Now().UTC(), LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: time.Now().UTC(), LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		session.ProjectTouch = r.projectTouch(session)
 	}

@@ -183,7 +183,11 @@ try {
       tallDecisions: decided.filter((node) => node.getBoundingClientRect().height > 21).length,
       pendingResolvedCards: [...document.querySelectorAll(".approval-card")].filter((node) => /allowed for this chat|allowed once|denied/i.test(node.innerText)).length,
       alarmsWithoutFailure: alarmSummaries.filter((node) => !/failed/.test(node.innerText)).map((node) => node.innerText),
-      headerChatConsoleLinks: document.querySelectorAll('.shell-page[data-page="chat"],.shell-page[data-page="console"]').length,
+      // Item 2gk's guarantee, restated in today's vocabulary: no page switch for
+      // chat or the dissolved second surface exists in the header. rel-1.25.0's
+      // card 7 removed the class this counted, so it counts the surface tabs the
+      // strip actually renders — neither kind can exist, by construction.
+      headerChatConsoleLinks: document.querySelectorAll('.agent-tab-surface[data-surface-kind="chat"],.agent-tab-surface[data-surface-kind="console"]').length,
       tabPresent: Boolean(tab),
       offline: tab?.querySelector(".agent-tab-robot")?.classList.contains("offline") || tab?.querySelector(".agent-state")?.classList.contains("offline") || false,
       replayComposerDisabled: document.querySelector("#chat-task")?.disabled && document.querySelector("#chat-send")?.disabled,

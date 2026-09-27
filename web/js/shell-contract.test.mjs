@@ -211,8 +211,12 @@ test("the Plan toggle is the chip in the accent, and the accent is used once", a
   // colour and needs no stroke. The accent keeps exactly one use, on the Plan
   // header the full-quality version of that same artwork heads.
   assert.match(tokens, /\.shell-page-chip\{display:block;width:12px;height:12px;opacity:\.6\}/);
-  assert.match(tokens, /\.shell-page:hover \.shell-page-chip\{opacity:\.8\}/);
-  assert.match(tokens, /\.shell-page\.selected \.shell-page-chip\{opacity:1\}/);
+  // rel-1.25.0 card 7: the chip's hover and selected rules hang off the SURFACE
+  // TAB now, because item 2mf moved the chip there and .shell-page renders
+  // nothing. The chip itself, its size and its opacity ramp are unchanged.
+  assert.match(tokens, /\.agent-tab-surface:hover \.shell-page-chip\{opacity:\.8\}/);
+  assert.match(tokens, /\.agent-tab-surface\.selected \.shell-page-chip\{opacity:1\}/);
+  assert.doesNotMatch(tokens, /\.shell-page[,.:{]/);
   // One element, and one only: every var(--accent-plan) in every stylesheet
   // must be a .shell-page-chip rule.
   const styles = await Promise.all(["tokens.css", "app.css", "chat.css", "plan.css", "setup.css"]

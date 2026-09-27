@@ -534,8 +534,17 @@ try {
     if ($freshTokenProof.elevated) { throw "Fresh install started elevated PID $($freshTokenProof.pid)." }
     $freshClient = New-AgentBBrowserClient "http://127.0.0.1:$testPort"
     $freshState = Get-AgentBBrowserState $freshClient
-    if ($freshTranscript -notmatch 'AUTOSTART COMPLETE:' -or $freshTranscript -notmatch 'OPENED: Agent_b (?:host|browser) window') {
-        throw "Fresh install did not record a ready app and open window.`n$freshTranscript"
+    # Item 2m6 (e), rel-1.24.0: A DISPOSABLE INSTALL MUST NOT OPEN A WINDOW, and
+    # this assertion used to require that it did. The install still has to come
+    # up and say so -- AUTOSTART COMPLETE is what proves the app is ready -- but
+    # the window is now the thing that must be ABSENT, because this root is not
+    # one of the two canonical install locations and a suite run must not put a
+    # window on the operator's desktop.
+    if ($freshTranscript -notmatch 'AUTOSTART COMPLETE:') {
+        throw "Fresh install did not record a ready app.`n$freshTranscript"
+    }
+    if ($freshTranscript -match 'OPENED: Agent_b (?:host|browser) window') {
+        throw "A DISPOSABLE INSTALL OPENED A WINDOW on the operator's desktop (item 2m6).`n$freshTranscript"
     }
     Write-Host "PROOF fresh autostart token: PID $($freshTokenProof.pid), identity $($freshTokenProof.identity), elevated=$($freshTokenProof.elevated), commit $($freshState.build.commit)"
     $activeProfile = [string]$freshState.profiles.active

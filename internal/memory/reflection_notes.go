@@ -394,7 +394,11 @@ func (m *Manager) Layers() ([]Layer, error) {
 // package will act on from outside are the files in its own directory.
 func (m *Manager) LayerPath(file string) (string, error) {
 	name := strings.TrimSpace(file)
-	if name == "" || name != filepath.Base(name) || !strings.HasSuffix(name, ".md") || strings.HasSuffix(name, "-removed.md") {
+	// Both separators are refused on every platform, not just the one this is built
+	// for: on Linux filepath.Base leaves a backslash alone, so a Windows-shaped
+	// nested name would pass a check that only asked filepath. CI caught exactly that.
+	if name == "" || strings.ContainsAny(name, "/\\") || name != filepath.Base(name) ||
+		!strings.HasSuffix(name, ".md") || strings.HasSuffix(name, "-removed.md") {
 		return "", fmt.Errorf("not a memory layer file: %q", file)
 	}
 	path := filepath.Join(m.Dir(), name)

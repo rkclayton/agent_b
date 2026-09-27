@@ -20,6 +20,11 @@ Write-Host "DEPLOY PARENT: identity=$($identity.Name) elevated=false; staging, v
 if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) {
     throw "DEPLOY REFUSED: release notes are missing: $notesPath"
 }
+# Item 2n9 (d) and its @verify: the notes gate runs HERE, before staging and before
+# anything is signed or published, so a note written to the wrong reader stops the
+# release instead of being discovered on the releases page afterwards.
+& node (Join-Path $repository 'tools\check-release-notes.mjs') $notesPath
+if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the release notes do not pass the notes gate; see the lines above." }
 $commitOutput = @(& git -C $repository rev-parse "$Tag^{commit}" 2>&1)
 $commitExit = $LASTEXITCODE
 $commit = [string]($commitOutput | Select-Object -First 1)

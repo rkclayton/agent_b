@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 	"sync"
@@ -526,6 +527,18 @@ func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail str
 	if class := s.modelClassLocked(sessionID); class != "" {
 		data["model_class"] = class
 	}
+	// Item 2lw (b): a reason outside the declared set is DETECTABLE rather than
+	// silent. This is at the EMISSION point, which is the one place that can know
+	// the product produced it -- a reader cannot tell a new reason from an old
+	// one, and (d) forbids making readers stricter anyway.
+	//
+	// It is a log line and a field, not a refusal: a run that finished is not
+	// worth failing over a vocabulary slip, and an operator reading the journal
+	// should see the reason AND that nobody declared it.
+	if !events.DeclaredStopReason(reason) {
+		data["stop_reason_declared"] = false
+		log.Printf("run.stopped carried an undeclared reason %q for run %s; add it to events.StopReasons or find what emits it", reason, runID)
+	}
 	s.bus.Publish(events.New(events.RunStopped, sessionID, runID, events.WithHuman(events.RunStopped, data)))
 	return true
 }
@@ -584,10 +597,29 @@ func canonicalTerminalReason(reason string) string {
 		return "cancelled-by-operator"
 	case "wall_clock", "turn_ceiling", "tool_budget", "context_exhausted", "context_ceiling":
 		return "limit"
-	case "model_error", "model_unreachable", "length":
+	// Item 2lw: malformed_turn joins these. rel-1.20.0/W1 s own scan found it
+	// LIVE and undeclared -- the model returned finish_reason tool_calls with no
+	// calls twice and the run stopped with a reason nothing named, so the
+	// accounting called it a harness defect. It is the model s output that was
+	// malformed, so it belongs here.
+	case "model_error", "model_unreachable", "length", "malformed_turn":
 		return "model-error"
 	case "tool_errors":
 		return "tool-errors"
+	// Item 2lw (c): these four are DECLARED reasons that fell through to
+	// "harness-error", which is a wrong answer rather than a missing one. A run
+	// the operator's mailbox stopped, or that stopped because the model repeated
+	// itself, or that could not start because its connection is not runnable, is
+	// not a defect in the harness -- and calling it one sends anybody reading the
+	// accounting looking for a bug that is not there.
+	case "mailbox_stop":
+		return "stopped-by-mailbox"
+	case "cycle":
+		return "cycle"
+	case "reply_empty":
+		return "reply-empty"
+	case "connection_not_runnable":
+		return "connection-not-runnable"
 	default:
 		return "harness-error"
 	}

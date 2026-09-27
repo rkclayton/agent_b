@@ -44,6 +44,15 @@ var allowList = map[string]Classification{
 		"total_ms", "model_ms", "tool_ms", "waiting_ms", "compaction_ms",
 		"prompt_ms", "generation_ms",
 		"retries", "compactions", "empty_replies", "repeated_calls",
+		// Item 2lx: the two counts item 2ls's reflection floor reads are the two
+		// counts telemetry sends. They are COUNTS -- how many model calls, how
+		// many tool results -- and carry no tool name, no model name and no
+		// argument content, which is what makes them sendable under 2jg's
+		// contract at all.
+		//
+		// They come from the same map the floor read, so a disagreement between
+		// what the floor did and what telemetry reported is not possible.
+		"model_calls", "tool_calls",
 		"model_class",
 	),
 	"tool.result": sent("name", "ok", "ms", "class"),

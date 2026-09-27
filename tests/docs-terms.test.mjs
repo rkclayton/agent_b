@@ -88,6 +88,28 @@ const rules = [
     trips: "Agent_b runs a telemetry receiver, and the receiver in this repository stores each batch.",
     allows: "This repository keeps only the sender and the off switch; the receiver is the VPS.",
   },
+  {
+    // Item 2lz: the decision is that the installer does NOT touch PATH, and the
+    // docs carry it. What would rot is a claim that it does -- somebody adding
+    // the entry later and leaving the reasoning, or the reverse. This matches
+    // the CLAIM, so "add the directory to your PATH" (an instruction to the
+    // reader) still passes while "the installer adds it" does not.
+    name: "the installer putting agentb on PATH",
+    why: "item 2lz decided against it: editing shared, length-limited machine state on every deployment pass breaks working machines",
+    pattern: /\b(?:the installer|setup)\b(?:(?!\b(?:does not|doesn't|never|declined|will not|won't)\b)[^.\n]){0,40}\b(?:adds|puts|places|writes)\b[^.\n]{0,30}\bPATH\b/i,
+    trips: "The installer adds agentb to your PATH, so agentb is on your PATH after setup.",
+    allows: "The installer does not put it on your PATH; add the directory once if you want it.",
+  },
+  {
+    // A documented path that lost its backslashes is a path nobody can use, and
+    // v1.19.0 shipped exactly that: "%LocalAppData%ProgramsAgent_bagentb.exe".
+    // It looked fine in review because the words were all there.
+    name: "a Windows path with its separators eaten",
+    why: "v1.19.0 shipped %LocalAppData%ProgramsAgent_bagentb.exe in two documents; a path with no separators is not a path",
+    pattern: /%(?:LocalAppData|LOCALAPPDATA|ProgramFiles|USERPROFILE|ProgramData|AppData)%[A-Za-z]/,
+    trips: "Run %LocalAppData%ProgramsAgent_bagentb.exe from a shell.",
+    allows: "Run %LocalAppData%\\Programs\\Agent_b\\agentb.exe from a shell.",
+  },
 ];
 
 // Every rule must actually catch what it claims to catch, and must not catch the

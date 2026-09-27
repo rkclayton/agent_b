@@ -111,7 +111,56 @@ const (
 )
 
 var Stages = []string{"assemble", "call_model", "parse", "dispatch", "execute", "append", "compact", "wait_user"}
-var StopReasons = []string{"done", "reply_empty_reasoning_shown", "reply_empty", "announced_action_and_stopped", "aborted_mid_model", "aborted_mid_tool", "aborted_mid_run", "mailbox_stop", "turn_ceiling", "wall_clock", "tool_budget", "cycle", "tool_errors", "context_ceiling", "context_exhausted", "length", "model_error", "model_unreachable", "connection_not_runnable"}
+var StopReasons = []string{"done", "reply_empty_reasoning_shown", "reply_empty", "announced_action_and_stopped", "aborted_mid_model", "aborted_mid_tool", "aborted_mid_run", "mailbox_stop", "turn_ceiling", "wall_clock", "tool_budget", "cycle", "tool_errors", "context_ceiling", "context_exhausted", "length", "model_error", "model_unreachable", "connection_not_runnable", "malformed_turn"}
+
+// Item 2lw: every stop reason a run can produce is one the product names.
+//
+// StopReasons above is the documented set and nothing enforced it, so a reason
+// could reach a journal, the accounting and the operator's eye without ever
+// being declared. rel-1.20.0/W0 went looking and found the two that had:
+// `emergency` and `safe`, which a two-press stop once escalated through. NEITHER
+// HAS A LIVE EMITTER any more — abortReason returns only the three aborted_mid_*
+// values and the one other publisher hard-codes "done" — so they are HISTORICAL,
+// they stay out of StopReasons, and the journals that carry them are named in
+// HistoricalStopReasons below rather than being quietly re-admitted.
+//
+// Item 2lw (d): nothing that READS a journal is made stricter by any of this. A
+// historical reason still loads and still renders. Refusing to read old journals
+// to enforce a new rule would be worse than the defect.
+
+// DeclaredStopReason reports whether a reason is one the product names.
+func DeclaredStopReason(reason string) bool {
+	for _, declared := range StopReasons {
+		if declared == reason {
+			return true
+		}
+	}
+	return false
+}
+
+// HistoricalStopReasons are reasons that appear in retained journals and that no
+// live path can produce. They are recorded rather than declared: declaring them
+// would say the product can still emit them, and it cannot.
+//
+// The journals carrying them are named so the next reader does not have to go
+// looking: internal/projection/testdata/pins/sources/stop-two-press.events, its
+// golden, its 2lo tape, and the pins manifest shape "run-stopping-emergency".
+var HistoricalStopReasons = map[string]string{
+	"emergency": "the second of two Stop presses, when the second press escalated; the escalation no longer exists (seen in stop-two-press)",
+	"safe":      "the first of two Stop presses, when the first was a soft stop; the same removed behaviour (seen in stop-two-press)",
+}
+
+// KnownStopReason is what a READER should ask: declared, or known to be
+// historical. It exists so a journal reader can tell "a reason I know about and
+// no longer emit" from "a reason nobody has ever heard of" -- and so that
+// neither one makes it refuse to read.
+func KnownStopReason(reason string) bool {
+	if DeclaredStopReason(reason) {
+		return true
+	}
+	_, historical := HistoricalStopReasons[reason]
+	return historical
+}
 
 type ToolCall struct {
 	ID        string `json:"id"`

@@ -826,10 +826,37 @@ try {
     }
     try {
         $windowFailErrors = Get-Content -Raw -LiteralPath (Join-Path $windowFailData 'logs\launcher-errors.log')
-        if ($windowFailExit -eq 0 -or $windowFailOutput -notmatch 'fixture could not present WebView2' -or
-            $windowFailOutput -notmatch [regex]::Escape("http://127.0.0.1:$windowFailPort/chat") -or
-            $windowFailErrors -notmatch 'fixture could not present WebView2' -or $windowFailErrors -notmatch [regex]::Escape("http://127.0.0.1:$windowFailPort/chat")) {
-            throw "Failed host-window fixture did not return and persist its reason plus fallback URL.`n$windowFailOutput`n$windowFailErrors"
+        # rel-1.20.0/W6: MATCH WITHOUT WHITESPACE. This assertion reads a
+        # transcript, and the transcript is rendered by PowerShell's error-record
+        # formatter, which wraps at the console width -- sometimes mid-word. A
+        # wrap inside "fixture could not present WebView2" failed this gate twice
+        # while the launcher had done exactly what the gate asks: the reason and
+        # the fallback URL were both there, with a newline through the middle of
+        # one of them. Redirecting the child's stderr to a file does not help,
+        # because Windows PowerShell writes the FORMATTED stream there too.
+        #
+        # So the needles and the haystack both lose their whitespace before the
+        # comparison. What the gate proves is unchanged -- the reason and the URL
+        # are visible and durable -- and it no longer depends on how wide the
+        # terminal was.
+        $flat = { param([string]$Text) if ($null -eq $Text) { '' } else { $Text -replace '\s', '' } }
+        $flatOutput = & $flat $windowFailOutput
+        $flatErrors = & $flat $windowFailErrors
+        $reasonNeedle = [regex]::Escape((& $flat 'fixture could not present WebView2'))
+        $urlNeedle = [regex]::Escape((& $flat "http://127.0.0.1:$windowFailPort/chat"))
+        $windowFailChecks = [ordered]@{
+            'launcher exited non-zero'       = ($windowFailExit -ne 0)
+            'output names the reason'        = ($flatOutput -match $reasonNeedle)
+            'output names the fallback URL'  = ($flatOutput -match $urlNeedle)
+            'log names the reason'           = ($flatErrors -match $reasonNeedle)
+            'log names the fallback URL'     = ($flatErrors -match $urlNeedle)
+        }
+        $windowFailMissing = @($windowFailChecks.Keys | Where-Object { -not $windowFailChecks[$_] })
+        if ($windowFailMissing.Count) {
+            # Naming the failed condition is the point: the first two failures of
+            # this gate printed the whole transcript and left which of five
+            # clauses had failed to be worked out by hand.
+            throw "Failed host-window fixture: $($windowFailMissing -join '; ') (exit $windowFailExit).`n$windowFailOutput`n$windowFailErrors"
         }
         Write-Host "PROOF host-window failure: reason and http://127.0.0.1:$windowFailPort/chat were visible and durable"
     } finally {

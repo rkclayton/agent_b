@@ -85,12 +85,44 @@ An install carries a second executable, `agentb.exe`, in the same application
 directory as `Agent_b.exe` and signed with it. It runs one task in the current
 directory without the app — see the README for what it does.
 
-**There is no PATH entry.** The installer has never added one, for anything, and
-item 2lt declined to invent the precedent. Call it by its path, or add that
-directory to your own PATH:
+**The installer does not put it on your PATH, and that is a decision, not an
+oversight** (item 2lz). Four things were possible: a per-user PATH entry, a
+machine-wide one, a shim dropped in a directory Windows already has on PATH, or
+nothing. Nothing won, for three reasons:
 
-    %LocalAppData%ProgramsAgent_bagentb.exe     per-user
-    %ProgramFiles%Agent_bagentb.exe               all-users
+- **An installer that edits PATH is the most surprising thing it can do on a
+  machine nobody is watching.** Agent_b can be deployed by a management tool and
+  re-run on every pass; PATH is shared, ordered, length-limited state, and a
+  deployment that appends to it repeatedly is a well-known way to break a
+  machine that was working.
+- **The shim option means writing into `%LocalAppData%\Microsoft\WindowsApps`**,
+  which is already on your PATH — but it is Microsoft's App Execution Aliases
+  directory, not ours, and it has no all-users equivalent, so it would serve one
+  install mode and not the other.
+- **Adding it yourself is one line**, and it is your PATH.
+
+So: run it by its path, or add the directory once.
+
+**Per-user install** — the application lives at
+`%LocalAppData%\Programs\Agent_b`:
+
+    & "$env:LOCALAPPDATA\Programs\Agent_b\agentb.exe" "your task"
+
+To put it on your PATH permanently, from any PowerShell — no elevation, no
+reboot, and new shells pick it up:
+
+    [Environment]::SetEnvironmentVariable('Path',
+      [Environment]::GetEnvironmentVariable('Path','User') + ';' +
+      "$env:LOCALAPPDATA\Programs\Agent_b", 'User')
+
+**All-users install** — the application lives at `%ProgramFiles%\Agent_b`:
+
+    & "$env:ProgramFiles\Agent_b\agentb.exe" "your task"
+
+Adding that one to the machine PATH needs an elevated shell, and is the same
+call with `'Machine'` in place of `'User'`.
+
+Either way, `agentb --help` from a fresh shell tells you the rest.
 
 ## Updates
 

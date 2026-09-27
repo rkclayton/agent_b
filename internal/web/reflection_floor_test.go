@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"harness/internal/config"
+	"harness/internal/telemetry"
 )
 
 // Item 2ls: the floor, and the run it must never skip.
@@ -139,5 +140,47 @@ func TestTheCountsReadInEitherForm2ls(t *testing.T) {
 	}
 	if skip, _ := server.belowReflectionFloor(map[string]any{"reason": "tool_errors"}); skip {
 		t.Error("a run with no counts that ended badly was skipped")
+	}
+}
+
+// Item 2lx (e): THE TWO COUNTS TELEMETRY SENDS ARE THE TWO COUNTS THE FLOOR
+// READ, and this proves it by giving one payload to both readers.
+//
+// The reason to prove it here rather than in either package is that a
+// disagreement between them would be invisible from inside either one: the floor
+// would skip on numbers telemetry never saw, or telemetry would report a run
+// size the harness never acted on, and each would look correct alone. One
+// payload, two readers, the same integers.
+func TestTelemetrySendsTheCountsTheFloorRead2lx(t *testing.T) {
+	// A run that the floor SKIPS -- the interesting direction, because a skipped
+	// run makes no model call and is exactly the run a receiver would otherwise
+	// have no record of.
+	data := map[string]any{
+		"reason": "done", "turns": 2, "model_calls": 2, "tool_calls": 0,
+		"run_id": "r7", "model_class": "local",
+	}
+	server := floorServer(t, 3, 1)
+	skip, counts := server.belowReflectionFloor(data)
+	if !skip {
+		t.Fatal("a two-call run with no tool calls cleared a floor of three and one")
+	}
+
+	class, known := telemetry.Classify("run.stopped")
+	if !known || !class.Sent {
+		t.Fatal("run.stopped is not sent")
+	}
+	sent := telemetry.Pick(class, data)
+	for _, key := range []string{"model_calls", "tool_calls"} {
+		if sent[key] != counts[key] {
+			t.Errorf("%s: telemetry sends %v, the floor read %v -- they came from different places",
+				key, sent[key], counts[key])
+		}
+	}
+	// And the floor's own numbers -- what it was comparing against -- stay local.
+	// The receiver learns how big the run was, not how this machine is configured.
+	for _, key := range []string{"floor_model_calls", "floor_tool_calls", "run_id"} {
+		if _, present := sent[key]; present {
+			t.Errorf("%s left the machine", key)
+		}
 	}
 }

@@ -30,12 +30,15 @@ the same tools and jail — approvals are terminal prompts with the app's scopes
 and a boundary hit fails the run, and the run is journaled to the folder's
 `.agentb/` in the same format the app reads.
 
-It is installed beside the app and signed with it. There is no PATH entry —
-the installer has never added one for anything — so call it by its path, or put
-that directory on your own PATH:
+It is installed beside the app and signed with it. **The installer does not put
+it on your PATH** — a deliberate decision, not an oversight: editing shared,
+length-limited machine state on every deployment pass is a well-known way to
+break a working machine. Run it by its path, or add the directory once —
+[the reference](docs/REFERENCE.md#the-command-line-agent) has the one-liner for
+each install mode.
 
-    %LOCALAPPDATA%ProgramsAgent_bagentb.exe        (per-user install)
-    %ProgramFiles%Agent_bagentb.exe                 (all-users install)
+    %LOCALAPPDATA%\Programs\Agent_b\agentb.exe        per-user install
+    %ProgramFiles%\Agent_b\agentb.exe                 all-users install
 
 ## Source development
 

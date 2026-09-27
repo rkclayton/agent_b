@@ -24,6 +24,11 @@ type GGUFMetadata struct {
 	HeadCountKV   uint64
 	KeyLength     uint64
 	ValueLength   uint64
+	// Item 2ih (a): the model's parameter count, from general.parameter_count.
+	// It is OPTIONAL: not every GGUF carries it and an API connection has no
+	// artifact at all, so zero means unknown and no size default is applied
+	// rather than a wrong one being guessed.
+	ParameterCount uint64
 }
 
 type ContextSizing struct {
@@ -79,7 +84,10 @@ func readGGUFMetadata(path string) (GGUFMetadata, error) {
 		return GGUFMetadata{}, errors.New("GGUF general.architecture is missing")
 	}
 	get := func(suffix string) uint64 { value, _ := values[arch+"."+suffix].(uint64); return value }
-	metadata := GGUFMetadata{Architecture: arch, ContextLength: get("context_length"), BlockCount: get("block_count"), HeadCountKV: get("attention.head_count_kv"), KeyLength: get("attention.key_length"), ValueLength: get("attention.value_length")}
+	// general.parameter_count is not architecture-prefixed, so it is read
+	// directly rather than through get(). Its absence is not an error.
+	parameters, _ := values["general.parameter_count"].(uint64)
+	metadata := GGUFMetadata{Architecture: arch, ContextLength: get("context_length"), BlockCount: get("block_count"), HeadCountKV: get("attention.head_count_kv"), KeyLength: get("attention.key_length"), ValueLength: get("attention.value_length"), ParameterCount: parameters}
 	if metadata.ContextLength == 0 || metadata.BlockCount == 0 || metadata.HeadCountKV == 0 || metadata.KeyLength == 0 || metadata.ValueLength == 0 {
 		return GGUFMetadata{}, fmt.Errorf("GGUF %s context/KV metadata is incomplete", arch)
 	}

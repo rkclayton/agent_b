@@ -26,7 +26,7 @@ SERVING.md
 NOTES.md
 # The operator-owned sequencing document is local and intentionally untracked.
 PLAN.md
-# The operator/Fable in-session mailbox and local plan material are untracked.
+# The operator/planner in-session mailbox and local plan material are untracked.
 INBOX.md
 plan/
 # Local serving environment contains model paths and host choices.

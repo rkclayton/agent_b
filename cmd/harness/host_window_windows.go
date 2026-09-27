@@ -543,6 +543,14 @@ func (w *hostWindow) create(title string) error {
 		return fmt.Errorf("loading the embedded Agent_b icon failed")
 	}
 	w.windowProc = syscall.NewCallback(func(hwnd, message, wParam uintptr, lParam unsafe.Pointer) uintptr {
+		// Item 2mt (a): THE ONE BOUNDARY WINDOWS CALLS INTO GO, and until now it
+		// had no recover() at all. A panic here takes the whole process with it —
+		// server and window together — which is what the operator saw when he
+		// dragged the window mid-stream: the journal stops on a model.delta and
+		// nothing anywhere names a cause. This does not swallow the fault; it
+		// writes the record and re-panics, because a window procedure that
+		// pretends to have handled a message leaves a process lying about itself.
+		defer recoverCrash("host window procedure", crashLauncherLine)
 		return w.windowProcedure(hwnd, message, wParam, lParam)
 	})
 	class := wndClassEx{wndProc: w.windowProc, instance: syscall.Handle(instance), className: className, cursor: syscall.Handle(cursor), icon: icon, iconSm: iconSmall}

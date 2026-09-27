@@ -105,6 +105,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Item 2mt (a): before anything that can fault. The data root is the first
+	// thing a crash record needs and this is the first line that knows it.
+	build := buildinfo.Current()
+	installCrashRecord(paths.Data, map[string]any{"tag": build.Tag, "commit": build.Commit, "dirty": build.Dirty, "executable_sha256": build.ExecutableSHA256}, *window)
 	// Item 2hx: an installed launch is one application, not a race to bind the
 	// same port. The serving process's marker names its install root and port;
 	// a second window launch validates both, asks that exact process to foreground
@@ -709,6 +713,15 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 		if unmarshalErr := json.Unmarshal(encoded, &saved); unmarshalErr != nil {
 			return nil, floor, unmarshalErr
 		}
+		// Item 2mt (e): A RUN THE PROCESS DIED IN IS CLOSED HERE, and the item
+		// asked me to verify this already happened. It did not. The projector
+		// takes `run.status` from `run.started` and `run.stopped`, so a journal
+		// that stops on a `model.delta` — which is exactly what the operator's
+		// chat s34 does, run r643 started at 08:09:04 and 6,544 deltas in when
+		// the drag killed the process — projects as STILL RUNNING, and stayed
+		// that way on every later start. A chat that claims to be thinking
+		// forever is worse than one that says it was cut.
+		saved.Run = closeRunCutByProcessDeath(saved.Run, replay.Sessions[id].Timeline)
 		// Item 2et, anchored by item 2fd rule 3: results older than the newest
 		// user message the journal names — surviving or folded — come back as
 		// their elision stubs; the JSONL keeps the bytes.

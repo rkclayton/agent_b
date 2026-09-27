@@ -834,6 +834,25 @@ async function dispatchAction(event, button, action, id) {
 	if (action === "clear-notification") return notificationAction("clear");
 	if (action === "install-update") return installUpdate();
 	if (action === "check-update") return checkUpdate();
+	// Item 2mv: the export is a plain read, saved through the browser. No new probe,
+	// no elevation, and the file is already redacted by the time it arrives here.
+	if (action === "export-diagnostics") {
+		try {
+			const body = await api("/api/diagnostics", undefined, "GET");
+			const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+			const blob = new Blob([JSON.stringify(body, null, 2)], { type: "application/json" });
+			const link = document.createElement("a");
+			link.href = URL.createObjectURL(blob);
+			link.download = `agent_b-diagnostics-${stamp}.json`;
+			link.click();
+			URL.revokeObjectURL(link.href);
+		} catch (error) {
+			settingsSaveMessage = `Export failed: ${error.message}`;
+			settingsSaveAlarm = true;
+			render();
+		}
+		return;
+	}
 	if (action === "remove-hardening") {
 		if (!armed.has("hardening:remove")) {
 			armed.add("hardening:remove");

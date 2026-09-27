@@ -62,6 +62,7 @@ function about() {
     ${toggle("updates.auto_check", "check for updates", store.config.updates?.auto_check !== false, "At startup, every hour, and on window attach (at most once per 15 minutes), sends one anonymous GET to api.github.com for acme/agent_b's latest release. It sends no Agent_b data.")}
     ${row("checked", `<span>checked <time class="settings-update-checked">${html(checked)}</time></span><button type="button" data-action="check-update" ${update.checking ? "disabled" : ""}>${update.checking ? "Checking…" : "Check now"}</button>`, update.error ? "invalid" : "", "The most recent completed release check.")}
     ${row("update", `<span>${html(status)}</span>${installAction}`, update.error ? "invalid" : "", "An update is downloaded only when you press Update. Agent_b verifies release.json and the setup SHA-256 before starting the per-user installer without elevation.")}
+    ${row("diagnostics", `<span>one file describing this installation</span><button type="button" data-action="export-diagnostics">Export diagnostics</button>`, "", "Gathers what Agent_b already knows — build, update state, the last install attempt, connection test results and recent log lines — into one file. Nothing new is measured. Paths outside the installation, account names, addresses and anything token-shaped are replaced, so the file is safe to send to whoever is helping.")}
     ${telemetry()}`;
 }
 

@@ -7,6 +7,10 @@ param(
     [string]$DataDirectory,
     [string]$WorkspaceDirectory,
     [string]$StartMenuDirectory = (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs'),
+    # Item 2mv (e): the operator's Send-to folder, from the same derivation the
+    # installer uses, so an elevated uninstall removes the operator's link and not
+    # a link in whatever account approved the elevation.
+    [string]$SendToDirectory,
     [string]$UninstallRegistryPath,
     [string]$ExpectedOperatorSid,
     [string]$ExpectedOperatorLocalAppData,
@@ -102,11 +106,21 @@ $applicationRoot = Assert-SafePath $ApplicationDirectory @('Agent_b') 'applicati
 $dataRoot = Assert-SafePath $DataDirectory @('Agent_b') 'operator-data removal'
 $workspaceRoot = Assert-SafePath $WorkspaceDirectory @('workspace') 'workspace removal'
 $startMenuRoot = Get-FullPath $StartMenuDirectory
+if ([string]::IsNullOrWhiteSpace($SendToDirectory)) {
+    if ($TestMode) {
+        $SendToDirectory = Join-Path $startMenuRoot 'SendTo'
+    } else {
+        $sendToSource = if (-not [string]::IsNullOrWhiteSpace($ExpectedOperatorLocalAppData)) { $ExpectedOperatorLocalAppData } else { [Environment]::GetFolderPath('LocalApplicationData') }
+        $SendToDirectory = Join-Path (Split-Path -Parent (Get-FullPath $sendToSource)) 'Roaming\Microsoft\Windows\SendTo'
+    }
+}
+$sendToRoot = Get-FullPath $SendToDirectory
 Assert-SafeRegistryPath $UninstallRegistryPath
 Assert-TestPath $applicationRoot
 Assert-TestPath $dataRoot
 Assert-TestPath $workspaceRoot
 Assert-TestPath $startMenuRoot
+Assert-TestPath $sendToRoot
 Assert-DisjointRoots @($applicationRoot, $dataRoot, $workspaceRoot)
 
 $launchingSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -153,6 +167,7 @@ if (-not $currentSid.Equals($ExpectedOperatorSid, [StringComparison]::OrdinalIgn
 $installedBinary = Join-Path $applicationRoot 'Agent_b.exe'
 $shortcutPath = Join-Path $startMenuRoot 'Agent_b.lnk'
 $startupShortcutPath = Join-Path $startMenuRoot 'Startup\Agent_b.lnk'
+$sendToShortcutPath = Join-Path $sendToRoot 'Agent_b.lnk'
 $purge = $PurgeData.IsPresent
 Write-Host 'Agent_b uninstall'
 Write-Host "Application: $applicationRoot"
@@ -200,6 +215,13 @@ if (Test-Path -LiteralPath $shortcutPath) {
 if (Test-Path -LiteralPath $startupShortcutPath) {
     $removalPath = Assert-RemovalWithinAllowedRoots -Path $startupShortcutPath -AllowedRoots @($startMenuRoot) -Purpose 'sign-in shortcut cleanup'
     Remove-Item -LiteralPath $removalPath -Force
+}
+# Item 2mv (e): the Send-to link goes with the application. Only ours, only from the
+# Send-to folder, and its absence is not a failure.
+if (Test-Path -LiteralPath $sendToShortcutPath) {
+    $removalPath = Assert-RemovalWithinAllowedRoots -Path $sendToShortcutPath -AllowedRoots @($sendToRoot) -Purpose 'Send-to link cleanup'
+    Remove-Item -LiteralPath $removalPath -Force
+    Write-Host "Removed Send-to link: $sendToShortcutPath"
 }
 # Item 2gl: the Edge app-window policy goes with the application. Read the url
 # out of the uninstall key BEFORE that key is removed, and remove only the

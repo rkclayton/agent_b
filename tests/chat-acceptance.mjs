@@ -2071,6 +2071,33 @@ if (realModel) {
 	}
 	assert.deepEqual(await readdir(join(profileData, "attachments")), []);
 	record("settings-confirmed-empty-attachments");
+
+	// Item 2mv (a): one control on Settings -> About produces one file. The click path
+	// is exercised for real; what the driver cannot observe is the saved file itself, so
+	// the export's own content is read back through the same browser session.
+	assert.equal(await clickText(".settings-nav button", "About"), true);
+	await browser.wait(`!document.querySelector('#settings-page').hidden && [...document.querySelectorAll('.settings-content button')].some(item=>item.textContent.trim()==='Export diagnostics')`, "the About diagnostics control");
+	assert.equal(await clickText(".settings-content button", "Export diagnostics"), true);
+	const diagnostics = await page.evaluate(`(async () => {
+		const response = await fetch('/api/diagnostics', { headers: { accept: 'application/json' } });
+		const body = await response.json();
+		return {
+			status: response.status,
+			schema: body.schema,
+			sections: (body.sections || []).length,
+			withoutMeans: (body.sections || []).filter((one) => !one.means || !one.means.trim()).map((one) => one.name),
+			named: (body.sections || []).map((one) => one.name),
+			failure: document.querySelector('[data-save-status]')?.textContent || '',
+		};
+	})()`);
+	assert.equal(diagnostics.status, 200, JSON.stringify(diagnostics));
+	assert.equal(diagnostics.schema, 1, JSON.stringify(diagnostics));
+	assert.deepEqual(diagnostics.withoutMeans, [], "every section says what it means");
+	assert.equal(diagnostics.failure.includes("Export failed"), false, diagnostics.failure);
+	for (const wanted of ["build", "update", "local_detection", "hardening", "service_account"]) {
+		assert.equal(diagnostics.named.includes(wanted), true, `${wanted} missing from ${JSON.stringify(diagnostics.named)}`);
+	}
+	record("about-export-diagnostics-one-redacted-file");
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
 	await browser.wait(`document.querySelector('#chat-task')`, "chat restored after empty attachments");
 	const finalState = await state();

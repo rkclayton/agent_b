@@ -15,6 +15,7 @@ scripts/manage-signing.ps1
 scripts/pwa-policy.ps1
 scripts/provision-service-identity.ps1
 scripts/removal-guard.ps1
+scripts/send-to-Agent_b.ps1
 scripts/setup-service-account.ps1
 scripts/signing-key-policy.ps1
 scripts/speech-helper.ps1

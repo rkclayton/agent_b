@@ -620,7 +620,10 @@ try {
         (Join-Path $testApplication 'scripts\launch-Agent_b.ps1'),
         (Join-Path $testApplication 'web\assets\Agent_b.ico'),
         (Join-Path $testStart 'Agent_b.lnk'),
-        (Join-Path $testStart 'Startup/Agent_b.lnk')
+        (Join-Path $testStart 'Startup/Agent_b.lnk'),
+        # Item 2mv (e): Explorer's Send-to entry. TestMode puts the disposable
+        # Send-to folder beside the disposable Start menu.
+        (Join-Path $testStart 'SendTo\Agent_b.lnk')
     )) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing installed file: $path" }
     }
@@ -780,6 +783,66 @@ try {
     if (-not $shortcut.IconLocation.Equals("$expectedIcon,0", [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $expectedIcon -PathType Leaf)) {
         throw 'Shortcut icon does not resolve to the installed Agent_b product icon.'
     }
+
+    # Item 2mv (e): the Send-to link runs hidden, through the installed copy of the
+    # send-to script, and hands it the exchange folder Agent_b actually reads. A link
+    # that pointed anywhere else would silently drop every file sent to it.
+    $sendToLink = Join-Path $testStart 'SendTo\Agent_b.lnk'
+    $sendTo = (New-Object -ComObject WScript.Shell).CreateShortcut($sendToLink)
+    $expectedSendToScript = Join-Path $testApplication 'scripts\send-to-Agent_b.ps1'
+    $expectedHiddenLauncher = Join-Path $testApplication 'scripts\launch-hidden.vbs'
+    if (-not (Test-Path -LiteralPath $expectedSendToScript -PathType Leaf)) {
+        throw "Send-to link has no installed script to run: $expectedSendToScript"
+    }
+    if ($sendTo.TargetPath -notmatch '(?i)wscript\.exe$') {
+        throw "Send-to link does not run hidden through wscript: $($sendTo.TargetPath)"
+    }
+    foreach ($fragment in @('//B', $expectedHiddenLauncher, $expectedSendToScript, '-ExchangeDirectory')) {
+        if ($sendTo.Arguments -notmatch [regex]::Escape($fragment)) {
+            throw "Send-to link arguments are missing $fragment : $($sendTo.Arguments)"
+        }
+    }
+    # The link must name the CONFIGURED exchange folder's attachments directory. It is
+    # asserted as a string and never written to: the configured folder is the
+    # operator's own %USERPROFILE%\Agent_b, which no test may touch.
+    $configuredExchange = [Environment]::ExpandEnvironmentVariables([string]((Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json).deliver.exchange_folder))
+    $expectedExchange = Join-Path ([IO.Path]::GetFullPath($configuredExchange)) 'attachments'
+    if ($sendTo.Arguments -notmatch [regex]::Escape($expectedExchange)) {
+        throw "Send-to link does not point at the exchange folder $expectedExchange : $($sendTo.Arguments)"
+    }
+    # And the script it runs really does copy a file in, without overwriting one
+    # already present. Proved against a disposable folder, not the operator's, and
+    # run directly rather than through the link, because a hidden wscript child
+    # cannot be waited on.
+    # Every executable and script the link names must EXIST. A mangled path inside the
+    # arguments would leave a link that silently does nothing when a file is sent, and
+    # that is exactly what this caught once: a lost backslash in the interpreter path.
+    foreach ($quoted in ([regex]::Matches($sendTo.Arguments, '"([^"]+)"') | ForEach-Object { $_.Groups[1].Value })) {
+        if ($quoted -notmatch '^[A-Za-z]:') { continue }
+        if ($quoted -eq $expectedExchange) { continue }
+        if (-not (Test-Path -LiteralPath $quoted)) {
+            throw "Send-to link names a path that does not exist: $quoted"
+        }
+    }
+
+    $sendToExchange = Join-Path $testRoot 'SendToProof\attachments'
+    $null = New-Item -ItemType Directory -Path $sendToExchange -Force
+    $sendToSample = Join-Path $testRoot 'sendto-sample.txt'
+    Set-Content -LiteralPath $sendToSample -Value 'first'
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File $expectedSendToScript -ExchangeDirectory $sendToExchange $sendToSample
+    if ($LASTEXITCODE -ne 0) { throw "Send-to script exited $LASTEXITCODE." }
+    Set-Content -LiteralPath $sendToSample -Value 'second'
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File $expectedSendToScript -ExchangeDirectory $sendToExchange $sendToSample
+    if ($LASTEXITCODE -ne 0) { throw "Second send exited $LASTEXITCODE." }
+    $landed = Join-Path $sendToExchange 'sendto-sample.txt'
+    $second = Join-Path $sendToExchange 'sendto-sample-2.txt'
+    if (-not (Test-Path -LiteralPath $landed -PathType Leaf) -or -not (Test-Path -LiteralPath $second -PathType Leaf)) {
+        throw 'Send-to did not land both files in the exchange folder.'
+    }
+    if ((Get-Content -LiteralPath $landed -Raw).Trim() -ne 'first') {
+        throw 'Send-to overwrote a file already in the exchange folder.'
+    }
+    Remove-Item -LiteralPath $landed, $second -Force
     $wrapperSource = Get-Content -Raw -LiteralPath $installerWrapper
     if ($wrapperSource -match [regex]::Escape("`$launchArgs=@('-Console'") -or
         $wrapperSource -match 'AUTOSTART COMPLETE:[^\r\n]+\r?\ncall :append_install_record\r?\nif not defined AGENT_B_INSTALL_NO_PAUSE pause') {
@@ -1182,6 +1245,7 @@ try {
         (Test-Path -LiteralPath (Join-Path $testApplication 'Agent_b.exe')) -or
         (Test-Path -LiteralPath (Join-Path $testStart 'Agent_b.lnk')) -or
         (Test-Path -LiteralPath (Join-Path $testStart 'Startup/Agent_b.lnk')) -or
+        (Test-Path -LiteralPath (Join-Path $testStart 'SendTo\Agent_b.lnk')) -or
         (Test-Path -LiteralPath $testRegistry)) {
         throw 'Preserving uninstall did not keep only local data.'
     }

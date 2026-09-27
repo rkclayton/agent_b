@@ -41,8 +41,17 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .shell-left{width:100%}
 .shell-session-title{max-width:42vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;background:transparent;color:var(--mute);font:12px/20px var(--mono)}
 .shell-connection-menu{min-width:280px}
-.shell-connection-choice{display:grid;grid-template-columns:minmax(90px,1fr) minmax(100px,1fr) auto;gap:10px;width:100%;text-align:left;font:12px/18px var(--mono)}
+/* Item 2mh (b) and (c): four columns now, because the model is what the operator
+   is choosing between and the row did not show it. The menu is 680px wide and
+   the name column was flooring at 90 — it gets room, and its type is set one
+   step smaller for this row alone so a long name fits WHOLE. */
+.shell-connection-choice{display:grid;grid-template-columns:minmax(80px,auto) minmax(180px,2fr) minmax(90px,1fr) auto;gap:10px;width:100%;text-align:left;font:12px/18px var(--mono)}
 .shell-connection-choice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* (c): NO ELLIPSIS ON A MODEL NAME. The rule above applies to every other cell;
+   this one is allowed to be smaller rather than cut, because a truncated model
+   name identifies nothing and that is the whole defect. */
+.shell-connection-model{overflow:visible;text-overflow:clip;font-size:11px}
+.shell-connection-untested{color:var(--mute);font-style:italic}
 .shell-connection-choice.selected{color:var(--trace)}
 .agent-tabs{flex:1 1 auto;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
 .agent-tabs::-webkit-scrollbar{height:4px}.agent-tabs::-webkit-scrollbar-thumb{background:var(--mute)}

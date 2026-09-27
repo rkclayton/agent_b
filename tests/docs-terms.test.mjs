@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -224,4 +224,60 @@ test("the gate fails on a seeded vendor name and passes the classified exception
   // Exceptions 2 and 3 are named, not skipped by path shape.
   assert.equal(VOICE_EXCEPTIONS.size, 3);
   for (const reason of VOICE_EXCEPTIONS.values()) assert.ok(reason.length > 20, "every exception states why");
+});
+
+// Item 2n9: RELEASE NOTES ARE WRITTEN TO ANY USER. The operator, 2026-09-27: the
+// notes "are a bit too personal and toward the wrong audience — they reference
+// setting up a model on my PC for testing etc. These should be aimed at a general
+// audience."
+//
+// The gate itself lives in tools/check-release-notes.mjs because deploy-release
+// calls it before staging; this holds it to its own contract and holds every note
+// written under the rule to the gate.
+test("every release note under the rule passes the notes gate", async () => {
+  const { notesUnderTheRule, checkNotes, bannedPatterns } = await import("../tools/check-release-notes.mjs");
+  const patterns = bannedPatterns();
+  const offenders = [];
+  for (const file of notesUnderTheRule()) {
+    const failures = checkNotes(file, patterns);
+    if (failures.length) offenders.push(`${basename(file)}: ${failures.map((f) => `line ${f.line} ${f.kind} ${f.entry}`).join("; ")}`);
+  }
+  assert.deepEqual(offenders, [], `notes written to the wrong reader:\n${offenders.join("\n")}`);
+});
+
+test("the notes gate catches what the item's evidence quoted, and the list is one editable file", async () => {
+  const { checkNotes, bannedPatterns, underTheRule, versionOf } = await import("../tools/check-release-notes.mjs");
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const patterns = bannedPatterns();
+  const root = await mkdtemp(join(tmpdir(), "agentb-notes-gate-"));
+  const seed = async (body) => {
+    const file = join(root, "v9.9.9.md");
+    await writeFile(file, body, "utf8");
+    return checkNotes(file, patterns);
+  };
+
+  // The exact shapes 2n9's evidence quoted from the old notes.
+  for (const line of [
+    "- the check was made again and the Ollama machine still lists nothing",
+    "- yours is named `scratch`",
+    "- passing for twelve releases",
+    "- the document another repository was waiting on",
+    "- the operator pressed Update",
+  ]) {
+    const failures = await seed(`# Agent_b v9.9.9\n\n## Fixed\n\n${line}\n`);
+    assert.ok(failures.some((f) => f.kind === "vocabulary"), `not caught: ${line}`);
+  }
+
+  // (g): narrative outside a bullet fails even when every word is allowed.
+  const prose = await seed("# Agent_b v9.9.9\n\n## Fixed\n\nThe update button works now, and here is the story of how.\n");
+  assert.ok(prose.some((f) => f.kind === "prose"), "a narrative paragraph was allowed");
+
+  // A note that obeys both rules passes.
+  assert.deepEqual(await seed("# Agent_b v9.9.9\n\n## Fixed\n\n- The Update button works.\n- A failed update says why.\n"), []);
+
+  // Notes older than the rule are left as the record they are.
+  assert.equal(underTheRule("v1.23.0.md"), false);
+  assert.equal(underTheRule("v1.24.0.md"), true);
+  assert.deepEqual(versionOf("v1.27.0.md"), [1, 27, 0]);
 });

@@ -1,0 +1,54 @@
+# Item 2n9 (d): the words a release note may not contain, in one file so it can be
+# extended without touching the gate.
+#
+# The reader of a release note is ANY USER of Agent_b, never one person. The notes
+# up to v1.23.0 addressed the one reader the writer knew: they named a particular
+# machine, a particular folder, how many releases had shipped, which repository was
+# waiting on what. All of it true, none of it belonging on a page someone else
+# reads. NOTES.md is still the place for every one of these things.
+#
+# FORMAT: one entry per line. Blank lines and lines beginning with # are ignored.
+# A line is matched case-insensitively as a whole word unless it is wrapped in
+# /slashes/, which makes it a regular expression.
+#
+# Add a line to forbid a word. Nothing else needs changing.
+
+# --- particular machines, hosts and networks ---
+HOMEPC
+Ollama machine
+tailnet
+tailscale
+127.0.0.1
+localhost
+
+# --- particular people and their paths ---
+operator
+rkclayton
+Randy
+/C:\\Users\\[A-Za-z]/
+/%LOCALAPPDATA%/
+/AppData\\Local/
+
+# --- a folder named for this project's internals ---
+/\bscratch\b(?!pad)/
+
+# --- the project's own machinery, which a user does not have ---
+repository
+repositories
+planner
+worker
+/\border\b/
+/\borders\b/
+/\bgate\b/
+/\bgates\b/
+/\bitem [0-9]/
+/\b2[a-z][a-z0-9]\b/
+
+# --- how many releases have shipped, and which one someone is on ---
+/\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen)\s+releases\b/
+/\breleases behind\b/
+/\bfor the [a-z]+ release running\b/
+
+# --- cross-repository status, which is not a product fact ---
+/\bthe (phone|iOS|broker|VPS) repo\b/
+/\banother repository\b/

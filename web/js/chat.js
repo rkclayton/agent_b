@@ -688,12 +688,12 @@ function renderResponseToolGroup(session, view, group) {
   setSummaryWithDuration(groupView.head, `${open ? "▾" : "▸"} ${parts.join(" · ")}`, group.duration);
   const children = open ? group.items.map((item, index) => {
     try {
-      // Item 2mu (a): the SAME key the renderer uses. This opened the fold under
-      // the item's raw key while reasoning.js looks its views and this very set up
-      // under the `thought:` prefixed one, so the two disagreed and the body
-      // rendered hidden — caught by the transcript-copy gate, which found a
-      // thought whose text had vanished from the copy.
-      if (item?.type === "agent" && item.reasoning) expanded.add(`thought:${item.key}`);
+      // Item 2mu (a): item.key, unprefixed here on purpose. These items come from
+      // responseBlocks, which already gives a thought its `thought:` key in BOTH
+      // of its branches now — so prefixing again produced `thought:thought:…`,
+      // which matched no view, and a thin thought inside a group rendered CLOSED
+      // with its body missing from the transcript. The acceptance gate caught it.
+      if (item?.type === "agent" && item.reasoning) expanded.add(item.key);
       return renderResponseItem(session, view, item, item?.key || `invalid:group:${index}`, item?.type === "tool");
     }
     catch (error) {

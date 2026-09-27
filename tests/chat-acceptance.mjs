@@ -1260,7 +1260,11 @@ if (realModel) {
     return { rows: document.querySelectorAll('.chat-step-rows > *').length, groupText: group?.innerText || '' };
   });
   await page.locator(".chat-tool-group-head").click();
-  await page.locator('[data-entry-key="group:long"] .thinking-line').click();
+  // Item 2mu (a): a thought's entry key carries the `thought:` prefix now, in the
+  // grouped path as well as the standalone one, so the fold the operator opens
+  // survives the switch between the two branches. The selector moved with it; the
+  // tool tick on the next line is not a thought and is unchanged.
+  await page.locator('[data-entry-key="thought:group:long"] .thinking-line').click();
   await page.locator('[data-entry-key="group:read-3"] .tool-tick').click();
   const groupingFixture = await page.evaluate(() => ({
       calls: document.querySelectorAll('.chat-tool-group-calls .tool-tick').length,

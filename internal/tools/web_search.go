@@ -36,7 +36,22 @@ var webSearchNewsJSON []byte
 // The merge had been running two engines short since 2026-09-23 for a reason
 // that had stopped being true. That is the state this item exists to end: every
 // entry below carries what was observed and when it was observed.
-var initiallyBenchedWebSearchEngines = map[string]string{}
+var initiallyBenchedWebSearchEngines = map[string]string{
+	// rel-1.23.0 card 5, DECIDED rather than carried: both DuckDuckGo endpoints
+	// answer the fixed query with an ANOMALY CHALLENGE and no result markup --
+	// html.duckduckgo.com with HTTP 202 and lite.duckduckgo.com with 200, both
+	// serving a challenge-form and an anomaly.js token. That is the engine's own
+	// behaviour, not a parse bug in the adapter, which is what the last order
+	// could not tell and this one was authorized to settle.
+	//
+	// BENCHED, NOT RETIRED. Startpage was retired because its challenge is a
+	// proof-of-work that passing would mean performing; DuckDuckGo's is an
+	// anti-automation gate that has come and gone before, and a bench expires and
+	// retries where a retirement does not. If it is still challenging in a
+	// month, retire them.
+	"duckduckgo_html": "2026-09-27: HTTP 202 with an anomaly challenge form and no result markup. The engine's own gate, not a parse failure.",
+	"duckduckgo_lite": "2026-09-27: HTTP 200 with an anomaly challenge form and no result markup. The engine's own gate, not a parse failure.",
+}
 
 // retiredWebSearchEngines records engines that were removed, so the next reader
 // does not wonder where they went or quietly add them back. (b): broken at the

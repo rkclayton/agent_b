@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -278,5 +279,182 @@ func TestTheOverlayWinsOverTheBaseline2ly(t *testing.T) {
 	}
 	if other.Chat.TextSize != "large" {
 		t.Errorf("the overlay did not win: %q", other.Chat.TextSize)
+	}
+}
+
+// Item 2m0 (d): a drifted machine file is DETECTABLE from its own contents, and
+// the tell is exact rather than heuristic.
+//
+// ExtractOverlay writes a key into an overlay only when it disagrees with the
+// baseline. So an overlay entry that equals the machine file's section cannot
+// have arisen honestly: either the machine file moved toward the profile, or the
+// entry would have been dropped. Nothing else makes them converge.
+func TestADriftedMachineFileIsNamed2m0(t *testing.T) {
+	machine := Defaults(t.TempDir())
+	baseline, err := AllProfileSections(machine)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A profile disagrees about typography. Nothing has drifted yet.
+	live := machine
+	live.Chat.TextSize = "large"
+	overlay, err := ExtractOverlaySections(live, baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if drifted, err := DriftedSections(machine, overlay); err != nil || len(drifted) != 0 {
+		t.Fatalf("a healthy machine file was called drifted: %v (%v)", drifted, err)
+	}
+
+	// Now an older build saves the MERGE over the machine file, which is exactly
+	// what every writer did before this item. The machine's chat section becomes
+	// the profile's.
+	drifted := machine
+	drifted.Chat.TextSize = "large"
+	names, err := DriftedSections(drifted, overlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 || names[0] != "chat" {
+		t.Fatalf("the drifted section was not named: %v", names)
+	}
+
+	// And the consequence it warns about is real: a profile created now would
+	// inherit "large" as though the machine had always meant it.
+	fresh := drifted
+	if err := SelectProfile(&fresh, mustSections(t, drifted), nil); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Chat.TextSize != "large" {
+		t.Errorf("the drift did not reach a new profile, so the warning would be wrong: %q", fresh.Chat.TextSize)
+	}
+}
+
+func mustSections(t *testing.T, cfg Config) Overlay {
+	t.Helper()
+	out, err := AllProfileSections(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// Item 2m0 (c): THE REJECTED FIX STAYS REJECTED, and this is the test that
+// stops it being rediscovered.
+//
+// The obvious fix for drift is to teach Config.Save to keep whatever
+// per-profile sections are already on disk. rel-1.20.0/W6 tried it and reverted
+// it, because a caller whose write IS per-profile then has its write silently
+// discarded -- the Connections route writes an agent's role, `agents` is
+// per-profile, and preserving disk threw it away. The cost of rediscovering
+// that is a release; the cost of this test is nine lines.
+//
+// So: Save writes what it is given, and the scope split happens in SaveMachine,
+// which takes the baseline from MEMORY rather than reading the file back.
+func TestSaveWritesWhatItIsGiven2m0(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	cfg := Defaults(root)
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	// A per-profile section, written straight through Save.
+	cfg.Agents = []Agent{{Name: "Coder", B: "local", Toolset: FullToolset()}}
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	back, _, _, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back.Agents) != 1 || back.Agents[0].Name != "Coder" {
+		t.Fatalf("Save dropped a per-profile section it was asked to write: %+v", back.Agents)
+	}
+
+	// SaveMachine is where the split lives, and it keeps the BASELINE it was
+	// handed rather than what the file happens to hold.
+	baseline, err := AllProfileSections(Defaults(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := *back
+	live.Chat.TextSize = "large"
+	// The profile's OPINION: it disagrees about chat, so chat is the key the
+	// machine file must keep its own version of.
+	opinion, err := ExtractOverlaySections(live, baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveMachine(live, baseline, opinion, path); err != nil {
+		t.Fatal(err)
+	}
+	if after, _, _, err := Load(path); err != nil {
+		t.Fatal(err)
+	} else if after.Chat.TextSize == "large" {
+		t.Error("SaveMachine carried the live profile's typography into the machine file")
+	}
+}
+
+// rel-1.21.0/W4, found by the installer matrix rather than by a unit test: a
+// machine write must not roll back a per-profile value the profile has NO
+// OPINION about.
+//
+// The first version of SaveMachine restored every per-profile section from the
+// baseline. On a first run the baseline is captured before setup has chosen
+// anything, so saving the connection setup had just created restored the EMPTY
+// agents list and the file failed its own validation with "at least one agent is
+// required". Inheriting a machine value has to mean the machine value can still
+// change; only a key the profile has overridden is the profile's to keep.
+func TestAMachineWriteDoesNotRollBackAnUnopinionatedKey2m0(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	machine := Defaults(root)
+	machine.Agents = nil // a first run: nothing has been set up yet
+	baseline, err := AllProfileSections(machine)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Setup writes the first agent. The profile has expressed no opinion about
+	// anything, so this IS the machine's value and must land.
+	live := machine
+	live.Agents = []Agent{{Name: "Coder", B: "local", Toolset: FullToolset()}}
+	// The profile's STORED overlay is empty: it has never expressed an opinion,
+	// and a value setup created a moment ago is not one.
+	if err := SaveMachine(live, baseline, Overlay{}, path); err != nil {
+		t.Fatalf("the machine write was refused: %v", err)
+	}
+	back, _, _, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back.Agents) != 1 {
+		t.Fatalf("setup's agent was rolled back to the baseline: %+v", back.Agents)
+	}
+
+	// And the protection still holds for a key the profile DOES own: the
+	// opinion names it, so the machine file keeps its own.
+	// And the protection still holds for a key the profile's own file DOES
+	// carry: the stored overlay names chat, so the machine keeps its own.
+	opinionated := *back
+	opinionated.Chat.TextSize = "large"
+	ownOpinion, err := ExtractOverlaySections(opinionated, baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := ownOpinion["chat"]; !present {
+		t.Fatal("the disagreement was not captured, so this proves nothing")
+	}
+	delete(ownOpinion, "agents") // the machine's, established above
+	if err := SaveMachine(opinionated, baseline, ownOpinion, path); err != nil {
+		t.Fatal(err)
+	}
+	if after, _, _, err := Load(path); err != nil {
+		t.Fatal(err)
+	} else if after.Chat.TextSize == "large" {
+		t.Error("a profile's typography reached the machine file")
+	} else if len(after.Agents) != 1 {
+		t.Errorf("the machine's own agents were lost: %+v", after.Agents)
 	}
 }

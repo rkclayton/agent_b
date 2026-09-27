@@ -502,8 +502,24 @@ const waitEvent = async (sessionID, predicate, label, timeout = 12000) => {
 
 const appPort = await freePort();
 let profileData = args.data;
-const gitPath = spawnSync("where.exe", ["git.exe"], { encoding: "utf8" }).stdout.split(/\r?\n/).find(Boolean);
+// Item 2m1 (b): PIN WHICH git.exe, because the screenshot shows it.
+//
+// where.exe returns EVERY match in PATH order, and Git for Windows installs the
+// same program twice -- \cmd\git.exe, the documented entry point, and
+// \mingw64\bin\git.exe, which a Git Bash shell puts first. This fixture used
+// the first line, so the operator command written into the configuration, and
+// rendered into the chat transcript the gate photographs, depended on which
+// shell the gate happened to run from. rel-1.20.0's gate failed on exactly that
+// and the difference was 2,598 px of a file path.
+//
+// The baseline must not absorb a machine's PATH order, so the choice is made
+// here instead: \cmd\git.exe when Git for Windows offers it, and otherwise the
+// first match, with what was chosen printed so a machine that has neither says
+// so rather than drifting quietly.
+const gitCandidates = spawnSync("where.exe", ["git.exe"], { encoding: "utf8" }).stdout.split(/\r?\n/).filter(Boolean).map((line) => line.trim());
+const gitPath = gitCandidates.find((candidate) => candidate.toLowerCase().endsWith(String.raw`\cmd\git.exe`)) ?? gitCandidates[0];
 assert.ok(gitPath, "Git is required for the Run as you acceptance scenario");
+console.log(`GIT PINNED: ${gitPath}${gitCandidates.length > 1 ? ` (of ${gitCandidates.length} on PATH)` : ""}`);
 const bound = join(args.workspace, "..", "acceptance-bound");
 await mkdir(args.workspace, { recursive: true });
 await mkdir(bound, { recursive: true });

@@ -200,7 +200,7 @@ func (s *Server) writeAgentRole(agentID, role, connectionID string) error {
 		s.mu.Unlock()
 		return errUnknownRole
 	}
-	if err := s.cfg.Save(s.configPath); err != nil {
+	if err := s.saveProfileConfig(*s.cfg); err != nil {
 		setAgentRoleConnection(&s.cfg.Agents[index], role, previous)
 		s.mu.Unlock()
 		return err
@@ -239,7 +239,7 @@ func (s *Server) applyPendingAgentConnection(agentID string) {
 	}
 	previous := s.cfg.Agents[index].B
 	s.cfg.Agents[index].B = change.To
-	if err := s.cfg.Save(s.configPath); err != nil {
+	if err := s.saveProfileConfig(*s.cfg); err != nil {
 		s.cfg.Agents[index].B = previous
 		s.mu.Unlock()
 		s.restorePendingAgentConnection(change)

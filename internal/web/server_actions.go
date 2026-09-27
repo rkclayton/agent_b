@@ -214,7 +214,7 @@ func (s *Server) toggleTool(w http.ResponseWriter, r *http.Request) {
 	}
 	var saveErr error
 	if foundAgent && foundTool {
-		saveErr = s.cfg.Save(s.configPath)
+		saveErr = s.saveProfileConfig(*s.cfg)
 	}
 	s.mu.Unlock()
 	if !foundAgent {

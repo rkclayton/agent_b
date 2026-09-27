@@ -141,3 +141,84 @@ func profileCall(t *testing.T, server *Server, body string) *httptest.ResponseRe
 	}
 	return response
 }
+
+// Item 2m0 (e) and its acceptance: two profiles, a write through each route,
+// and the machine file's per-profile sections unchanged.
+//
+// This is the test rel-1.20.0 did not have, and the defect it would have caught
+// is that EVERY writer of the machine file marshals the live configuration,
+// which is the merge. A route that came to change a connection wrote whichever
+// profile was active into the machine's defaults as a side effect.
+func TestMachineFileKeepsItsOwnPerProfileSections2m0(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(t.TempDir())
+	path := filepath.Join(root, "harness.json")
+	cfg.Chat.TextSize = "" // the machine's default: unset
+	cfg.Agents = []config.Agent{{Name: "Coder", B: "local", Toolset: config.FullToolset()}}
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	manager, _, err := profiles.Open(root, path, &cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(&cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, events.NewBus())
+	server.SetProfiles(manager)
+
+	// The active profile takes an opinion about a per-profile setting.
+	cfg.Chat.TextSize = "large"
+	if err := manager.SaveActive(); err != nil {
+		t.Fatal(err)
+	}
+
+	// A MACHINE write, through the boundary every machine-scoped route now uses.
+	// Nothing about it concerns typography.
+	next := cfg
+	next.Shell.AllowLocalNetwork = true
+	if err := server.saveMachineConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	onDisk, _, _, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if onDisk.Chat.TextSize != "" {
+		t.Errorf("a machine write carried the profile's text size into the machine file: %q", onDisk.Chat.TextSize)
+	}
+	if !onDisk.Shell.AllowLocalNetwork {
+		t.Error("the machine write did not land")
+	}
+
+	// A PER-PROFILE write, through the other boundary: it must land, and it must
+	// land in the PROFILE rather than in the machine file. (c)'s rejected fix
+	// failed exactly here -- it preserved the machine file's sections from disk
+	// and dropped this write entirely.
+	cfg.Agents[0].C = "local" // an existing connection; the point is the file it lands in
+	if err := server.saveProfileConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := manager.Settings(manager.Active())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(settings.Agents) == 0 || settings.Agents[0].C != "local" {
+		t.Errorf("the agent-role write did not reach the profile: %+v", settings.Agents)
+	}
+	if onDisk, _, _, err := config.Load(path); err != nil {
+		t.Fatal(err)
+	} else if onDisk.Chat.TextSize != "" {
+		t.Errorf("the per-profile write carried typography into the machine file: %q", onDisk.Chat.TextSize)
+	}
+
+	// And a second profile still inherits the MACHINE's value rather than the
+	// first profile's, which is the consequence all of this exists to protect.
+	if err := manager.Create("Second"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Switch("Second"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Chat.TextSize != "" {
+		t.Errorf("the second profile inherited the first profile's text size: %q", cfg.Chat.TextSize)
+	}
+}

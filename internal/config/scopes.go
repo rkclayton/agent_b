@@ -289,3 +289,97 @@ func zeroSection(cfg *Config, key string) {
 		}
 	}
 }
+
+// SaveMachine writes the machine's configuration file with the per-profile
+// sections taken from BASELINE rather than from the configuration in memory.
+//
+// Item 2m0. The configuration a running harness holds is the MERGE -- the
+// machine's values with the active profile's laid over them -- and every writer
+// of the machine file marshals that whole thing. So a route that came to change
+// a connection wrote the active profile's typography into the machine's
+// defaults as a side effect, and the next profile created inherited them. The
+// nineteen callers do not each need to know this; the boundary does.
+//
+// This is NOT Config.Save taught to preserve what is on disk. That was tried at
+// rel-1.20.0/W6 and reverted, because reading the sections back from the file
+// drops a write the caller meant to make -- the Connections route's agent-role
+// write is per-profile, and preserving disk silently discarded it. The baseline
+// here is the machine's own values as they were before any profile was applied,
+// held in memory, and a caller whose write IS per-profile writes it through the
+// profile instead.
+// OPINION is what the active profile currently disagrees with the baseline
+// about. Only those keys are restored from the baseline; for every other key
+// the live value IS the machine's value, because SelectProfile put the
+// baseline there and nothing overrode it.
+//
+// rel-1.21.0/W4 found this the hard way. Restoring EVERY per-profile section
+// from the baseline rolled back writes the machine was entitled to make: on a
+// first run the baseline is captured before setup has chosen anything, so
+// saving a new connection restored the empty agents list and the file failed
+// its own validation with "at least one agent is required". A profile that has
+// expressed no opinion about a key must still be able to have the machine's
+// value changed under it -- that is what inheriting means.
+func SaveMachine(cfg Config, baseline Overlay, opinion Overlay, path string) error {
+	restore := Overlay{}
+	for key := range opinion {
+		if value, ok := baseline[key]; ok {
+			restore[key] = value
+		}
+	}
+	if len(restore) == 0 {
+		return cfg.Save(path)
+	}
+	machine := cfg
+	if err := ApplyOverlay(&machine, restore); err != nil {
+		return err
+	}
+	// THE WRITE IS NEVER LOST. If the machine's own values are not a viable
+	// configuration by themselves -- which is exactly true during a first run,
+	// where the baseline predates setup and carries no agent at all -- then the
+	// merge is written instead and the caller's change lands.
+	//
+	// rel-1.21.0/W4 found this twice, both times as "agents: at least one agent
+	// is required" from the onboarding gate. Refusing the write to protect the
+	// machine's defaults is the same mistake as the fix this item rejected: it
+	// puts tidiness above the operator's change. Separation is worth having
+	// until it costs a write, and then the write wins.
+	if err := machine.Validate(); err != nil {
+		return cfg.Save(path)
+	}
+	return machine.Save(path)
+}
+
+// DriftedSections names the per-profile sections of a machine configuration that
+// a profile's own values have leaked into. Item 2m0 (d).
+//
+// The tell is exact rather than heuristic. ExtractOverlay writes a key into a
+// profile's overlay ONLY when it disagrees with the machine baseline, so an
+// overlay entry that now EQUALS the machine file's section is proof the machine
+// file moved toward that profile: the entry could not have been written
+// otherwise, and nothing else makes them converge.
+//
+// It reports and does not repair, which is the narrowing rel-1.21.0/W0 took
+// deliberately: the value the section drifted FROM is gone, and substituting a
+// default would silently overwrite a machine setting the operator meant. A named
+// finding lets the operator decide; a guess would not.
+func DriftedSections(machine Config, overlay Overlay) ([]string, error) {
+	if len(overlay) == 0 {
+		return nil, nil
+	}
+	current, err := sections(machine)
+	if err != nil {
+		return nil, err
+	}
+	var drifted []string
+	for _, key := range ProfileScopedKeys() {
+		value, present := overlay[key]
+		if !present {
+			continue
+		}
+		if same, ok := current[key]; ok && bytes.Equal(same, value) {
+			drifted = append(drifted, key)
+		}
+	}
+	sort.Strings(drifted)
+	return drifted, nil
+}

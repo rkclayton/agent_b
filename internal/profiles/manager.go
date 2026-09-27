@@ -65,6 +65,7 @@ func Open(dataRoot, configPath string, cfg *config.Config) (*Manager, bool, erro
 		if err := manager.loadLocked(cfg.Profiles.Active); err != nil {
 			return nil, false, err
 		}
+		manager.reportDrift(cfg.Profiles.Active)
 		return manager, false, nil
 	}
 	name, err := currentUsername()
@@ -431,4 +432,73 @@ func cloneAgents(values []config.Agent) []config.Agent {
 		result[index].Toolset = append([]string(nil), result[index].Toolset...)
 	}
 	return result
+}
+
+// MachineBaseline is the machine's per-profile sections as they were before any
+// profile was applied. Item 2m0: the web layer writes the machine file too, and
+// it must write the same baseline this manager reasons about rather than a
+// second one of its own.
+func (manager *Manager) MachineBaseline() config.Overlay {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	out := config.Overlay{}
+	for key, value := range manager.machine {
+		out[key] = value
+	}
+	return out
+}
+
+// SaveMachine writes the machine's configuration file without the active
+// profile's values in it. Item 2m0.
+func (manager *Manager) SaveMachine(cfg config.Config) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	// The opinion is the profile's STORED overlay, not the live disagreement.
+	//
+	// The difference decides a first run. A value setup has just created
+	// disagrees with the baseline too, and reading the opinion from memory would
+	// call it the profile's and restore the baseline over it -- which is how
+	// saving the first connection came back "agents: at least one agent is
+	// required". A route whose write IS per-profile goes through
+	// saveProfileConfig, which stores the profile FIRST, so by the time this runs
+	// the file already says what the profile owns.
+	settings, err := manager.readSettings(manager.cfg.Profiles.Active)
+	if err != nil {
+		return config.SaveMachine(cfg, manager.machine, nil, manager.configPath)
+	}
+	return config.SaveMachine(cfg, manager.machine, settings.Overlay, manager.configPath)
+}
+
+// Settings reads one profile's stored settings. Item 2m0 (e) asserts through it
+// that a per-profile write reached the profile's own file rather than the
+// machine's.
+func (manager *Manager) Settings(name string) (Settings, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.readSettings(name)
+}
+
+// reportDrift names the machine sections a profile's values have leaked into.
+// Item 2m0 (d): the drift is on disk before this release fixes the writers, and
+// a fix that only prevents NEW drift leaves the wrong values in place silently.
+//
+// It reports rather than repairs, and the reason is that repair is not possible
+// from the file alone: the value a section drifted FROM is gone, and putting a
+// default there would overwrite a machine setting the operator meant to make.
+// So it says which sections and lets the operator decide.
+func (manager *Manager) reportDrift(name string) {
+	settings, err := manager.readSettings(name)
+	if err != nil {
+		return
+	}
+	machine, _, _, err := config.Load(manager.configPath)
+	if err != nil || machine == nil {
+		return
+	}
+	drifted, err := config.DriftedSections(*machine, settings.Overlay)
+	if err != nil || len(drifted) == 0 {
+		return
+	}
+	log.Printf("profile settings: the machine's %s now match profile %s exactly, which means an earlier build wrote this profile's values into the machine's defaults; a new profile will inherit them. See NOTES.md rel-1.21.0 for what to check.",
+		strings.Join(drifted, ", "), name)
 }

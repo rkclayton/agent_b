@@ -762,8 +762,12 @@ if (realModel) {
   await waitProjectedChatText(sessionID, "VISIBLE PARTIAL COMPLETE", "completed prose stream");
   record("mid-stream-prose-visible-without-expansion");
 
-  assert.equal(await page.locator('.shell-page[aria-label="plan"] .shell-page-chip').count(), 1);
-  assert.equal(await page.locator(".shell-page").getAttribute("title"), "plan");
+  // Item 2mf: Plan is a TAB in the strip now, not an entry in a one-entry nav.
+  // Same chip, same accessible name, a different home — so the acceptance gate
+  // looks for it where it lives rather than being loosened.
+  assert.equal(await page.locator('.agent-tab-surface[data-surface-kind="plan"] .shell-page-chip').count(), 1);
+  assert.equal(await page.locator('.agent-tab-surface[data-surface-kind="plan"]').getAttribute("title"), "Plan");
+  assert.equal(await page.locator('.agent-tab-surface[data-surface-kind="plan"] .agent-tab-robot').count(), 0);
   assert.equal(await page.locator(".shell-settings").count(), 1);
   assert.equal(await page.locator("#chat-title").count(), 0);
   // Item 2gk: a tab had a side and was dressed for it. There is one side now,
@@ -781,7 +785,7 @@ if (realModel) {
     ["wrap", '.agent-tab-wrap.selected'],
     ["tab", '.agent-tab-wrap.selected .agent-tab'],
     ["plus", ".agent-tab-new"],
-    ["plan", ".shell-page"],
+    ["plan", '.agent-tab-surface[data-surface-kind="plan"]'],
     ["settings", ".shell-settings"],
   ].map(([key, selector]) => {
     const rect = document.querySelector(selector).getBoundingClientRect();
@@ -815,7 +819,8 @@ if (realModel) {
   // second of opening the section, without waiting for an unrelated redraw.
   await browser.wait(`document.querySelector('#panel-stats')?.childElementCount > 0 && !document.querySelector('#panel-stats')?.innerText.includes('No lifetime activity')`, "lifetime numbers within a second", 1000);
   const chatToPanelMS = performance.now() - chatToPanelStarted;
-  assert.equal(await page.locator('.shell-page[aria-label="plan"] .shell-page-chip').count(), 1);
+  // Item 2mf: the Plan tab survives the surface change, same chip, new home.
+  assert.equal(await page.locator('.agent-tab-surface[data-surface-kind="plan"] .shell-page-chip').count(), 1);
   const panelGeometry = await captureShellGeometry();
   assert.deepEqual(panelGeometry, chatGeometry, JSON.stringify({ chatGeometry, panelGeometry }));
 	// Agents holds the configurable half. web_search and delegate are deliberately
@@ -1513,7 +1518,21 @@ if (realModel) {
         fill: glyphStyle ? glyphStyle.fill : null,
       };
     };
-    return { attach: read("#chat-attach"), mic: read("#chat-mic"), send: read("#chat-send") };
+    // Item 2me (b): the paperclip in the STRIP is the size of the glyph it draws,
+    // so the strip is its text plus its padding. Its PRESSABLE AREA is unchanged
+    // — a pseudo-element restores the 24x24 square without taking part in layout
+    // — so that is measured by hit-testing the four corners of the old square
+    // rather than by trusting the box, which is what the old assertion did.
+    const pressable = (selector) => {
+      const node = document.querySelector(selector);
+      if (!node) return null;
+      const box = node.getBoundingClientRect();
+      const cx = box.left + box.width / 2;
+      const cy = box.top + box.height / 2;
+      return [[-11, -11], [11, -11], [-11, 11], [11, 11]]
+        .every(([dx, dy]) => !!document.elementFromPoint(cx + dx, cy + dy)?.closest(selector));
+    };
+    return { attach: read("#chat-attach"), mic: read("#chat-mic"), send: read("#chat-send"), attachPressable: pressable("#chat-attach") };
   })()`);
   const familyAt = {};
   for (const zoom of [1, 1.5]) {
@@ -1522,8 +1541,14 @@ if (realModel) {
     familyAt[zoom] = await controlFamily();
     const family = familyAt[zoom];
     for (const name of ["attach", "mic", "send"]) assert.ok(family[name], `${name} is missing at ${zoom}: ${JSON.stringify(family)}`);
-    assert.deepEqual(family.mic.target, family.attach.target, JSON.stringify({ zoom, family }));
-    assert.deepEqual(family.send.target, family.attach.target, JSON.stringify({ zoom, family }));
+    // Item 2me (b): the mic and send are the family on the composer CORNER and are
+    // unchanged at 24. The attach control lives in the STRIP, which 2me trimmed to
+    // its text, so its BOX is the glyph's 16 and its TARGET is still 24 — asserted
+    // by pressing all four corners of the old square. The family's glyph, stroke,
+    // fill and background are still one family, below.
+    assert.deepEqual(family.mic.target, family.send.target, JSON.stringify({ zoom, family }));
+    assert.deepEqual(family.attach.target, family.attach.glyph, JSON.stringify({ zoom, family }));
+    if (zoom === 1) assert.equal(family.attachPressable, true, `the paperclip's 24x24 target shrank with its box: ${JSON.stringify({ zoom, family })}`);
     assert.deepEqual(family.mic.glyph, family.attach.glyph, JSON.stringify({ zoom, family }));
     assert.deepEqual(family.send.glyph, family.attach.glyph, JSON.stringify({ zoom, family }));
     assert.equal(family.mic.stroke, family.attach.stroke, JSON.stringify({ zoom, family }));
@@ -1557,7 +1582,10 @@ if (realModel) {
     return result;
   })()`);
   assert.match(octagon.clip, /polygon/, JSON.stringify(octagon));
-  assert.deepEqual(octagon.target, familyAt[1].attach.target, JSON.stringify({ octagon, family: familyAt[1] }));
+  // Item 2me (b): the stop octagon is the SEND control on the composer corner, so
+  // it is compared against the corner family's size, not against the paperclip in
+  // the strip, which 2me sized to its glyph.
+  assert.deepEqual(octagon.target, familyAt[1].send.target, JSON.stringify({ octagon, family: familyAt[1] }));
   assert.equal(octagon.glyphHidden, true, JSON.stringify(octagon));
   assert.equal(octagon.square, true, JSON.stringify(octagon));
   composerFamilyEvidence = { at100: familyAt[1], at150: familyAt[1.5], octagon };

@@ -229,7 +229,7 @@ try {
     ["wrap", ".agent-tab-wrap"],
     ["tab", ".agent-tab"],
     ["plus", ".agent-tab-new"],
-    ["plan", ".shell-page"],
+    ["plan", '.agent-tab-surface[data-surface-kind="plan"]'],
     ["settings", ".shell-settings"],
   ].map(([key, selector]) => {
     const rect = document.querySelector(selector).getBoundingClientRect();

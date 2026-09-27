@@ -117,7 +117,13 @@ const TEXT_SCALES = { small: 0.9, normal: 1, large: 1.15, larger: 1.3, largest: 
 //
 // (f): a reader who has already set a size keeps it. This is the value used when
 // chat.text_size is unset, and an unset setting is the only thing it touches.
-const DEFAULT_TEXT_SIZE = "large";
+// rel-1.23.0/W8 MEASURED THIS AND PUT IT BACK. At "large" the transcript
+// overflowed the 320px viewport by TWO PIXELS -- the chat acceptance gate's
+// phone case caught it, pageOverflow 2 with the fold and prose edges still
+// correct. One step of size is not worth a horizontal scrollbar on a phone, so
+// the default stays where it was and the size increase waits for the layout fix
+// it needs. 2lj's control still reaches every step from here.
+const DEFAULT_TEXT_SIZE = "normal";
 
 function applyReadingSettings() {
   const chat = store.config?.chat || {};

@@ -28,9 +28,12 @@ test("no bold is synthesized: every weight asked for is one the product ships", 
   assert.match(chatCSS, /\.chat-response-answer strong/, "prose bold has no weight of its own, so the browser picks 700");
 });
 
-test("the default reading size is one step up, and a chosen size still wins", () => {
-  // (d) and (f) together: this moves where a reader starts, not what they chose.
-  assert.match(chatJS, /const DEFAULT_TEXT_SIZE = "large"/);
+test("the default reading size is named once, and a chosen size still wins", () => {
+  // (f): whatever the default is, it is the value used only when the setting is
+  // UNSET, so a reader who chose a size keeps it. (d) tried "large" and
+  // rel-1.23.0/W8 put it back: at that step the transcript overflowed a 320px
+  // viewport by two pixels and the chat acceptance gate said so.
+  assert.match(chatJS, /const DEFAULT_TEXT_SIZE = "(?:small|normal|large|larger|largest)"/);
   assert.match(chatJS, /TEXT_SCALES\[chat\.text_size\] \?\? TEXT_SCALES\[DEFAULT_TEXT_SIZE\]/);
   // The fallback fires only for an unset value — "small" must still be 0.9.
   const scales = /const TEXT_SCALES = \{([^}]*)\}/.exec(chatJS)[1];

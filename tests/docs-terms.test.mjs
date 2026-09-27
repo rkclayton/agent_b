@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 // Item 2jm (d): a docs check that fails on terms the product no longer uses, so
 // the next rename cannot leave the documentation behind.
@@ -161,4 +166,62 @@ test("no shipped document references the deleted handoff note", () => {
     .filter(([, text]) => text !== null && text.includes("2g-attachment-ingest-handoff"))
     .map(([name]) => name);
   assert.deepEqual(referrers, []);
+});
+
+// Item 2mj: THE PRODUCT CALLS ITSELF agent_b IN ITS OWN VOICE.
+//
+// The W0 classification is the item's real output, and it is what this gate
+// encodes. Twelve tracked files named a vendor and only ONE of them was the
+// product talking about itself — web/plan.html said "You and Claude write items".
+// The other eleven are third-party facts or historical operator data, and a gate
+// that blanket-skipped whole files would pass the next leak, so each exception is
+// narrow and carries its reason.
+//
+// Three classified exceptions:
+//   1. OpenAI-compatible — the wire protocol's own name, in nine files.
+//   2. A historical worker label in a stop-discipline fixture: operator data.
+//   3. The worker executable's name in the queue runner's default: a third-party
+//      fact about the command being run, not the product's voice.
+const VENDOR_GREP = "Codex|Claude|Fable|Anthropic|OpenAI|ChatGPT|GPT-[0-9]";
+const VENDOR_WORDS = /\b(Codex|Claude|Fable|Anthropic|ChatGPT|GPT-[0-9])\b/;
+
+// `OpenAI` appears only ever as part of the protocol's name. It is matched on its
+// own so a bare "OpenAI" in the product's voice would still be caught.
+// The protocol's name appears as "OpenAI-compatible" and, where INTERFACES.md
+// describes the request bodies, "OpenAI-shaped". Both are facts about the wire,
+// so both are stripped and a bare mention is still caught.
+const PROTOCOL_NAME = /OpenAI-(?:compatible|shaped)/g;
+
+const VOICE_EXCEPTIONS = new Map([
+  ["tests/stop-discipline/known-cases/v0.18.0-w9.json", "a historical worker label recorded in a fixture: operator data, not the product's voice"],
+  ["tools/run-queue.ps1", "the worker executable's name as the runner's default command: a third-party fact"],
+  ["tests/docs-terms.test.mjs", "this gate names the words it forbids"],
+]);
+
+test("no shipped file names a model vendor in the product's own voice", async () => {
+  const listed = execFileSync("git", ["grep", "-lwIE", VENDOR_GREP, "--", "."], { cwd: repoRoot, encoding: "utf8" })
+    .split("\n").map((line) => line.trim()).filter(Boolean);
+  const offenders = [];
+  for (const relative of listed) {
+    if (VOICE_EXCEPTIONS.has(relative)) continue;
+    const text = await readFile(join(repoRoot, relative), "utf8");
+    // Strip the protocol's name, which is a fact about the endpoint being spoken
+    // to. What is left must name no vendor at all.
+    const remaining = text.replace(PROTOCOL_NAME, "").replace(/\bOpenAI endpoint\b/g, "");
+    const hit = VENDOR_WORDS.exec(remaining) || /\bOpenAI\b/.exec(remaining);
+    if (hit) offenders.push(`${relative}: ${hit[0]}`);
+  }
+  assert.deepEqual(offenders, [], `these tracked files name a vendor outside the three classified exceptions:\n${offenders.join("\n")}`);
+});
+
+test("the gate fails on a seeded vendor name and passes the classified exceptions", () => {
+  // Seeded: the exact shape of the defect this item fixes.
+  assert.match("You and Claude write items", VENDOR_WORDS);
+  // Exception 1: the protocol's name survives the strip and then matches nothing.
+  assert.doesNotMatch("Connections target an OpenAI-compatible server".replace(PROTOCOL_NAME, ""), /\bOpenAI\b/);
+  // A bare vendor name is still caught even where the protocol's name is allowed.
+  assert.match("an OpenAI-compatible server built by OpenAI".replace(PROTOCOL_NAME, ""), /\bOpenAI\b/);
+  // Exceptions 2 and 3 are named, not skipped by path shape.
+  assert.equal(VOICE_EXCEPTIONS.size, 3);
+  for (const reason of VOICE_EXCEPTIONS.values()) assert.ok(reason.length > 20, "every exception states why");
 });

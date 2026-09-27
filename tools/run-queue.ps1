@@ -2,9 +2,10 @@
 param(
     # The mailbox to drain. Each block is one order.
     [string]$Inbox = (Join-Path (Split-Path -Parent $PSScriptRoot) 'INBOX.md'),
-    # The worker command. The default starts a fresh non-interactive Claude
-    # Code session per block; -WorkerCommand lets the operator point the runner
-    # at something else without editing this script.
+    # The worker command. The default starts one fresh non-interactive worker
+    # session per block; -WorkerCommand lets the operator point the runner at a
+    # different worker without editing this script. Item 2mj: the default's value
+    # below is the executable's name, which is a third-party fact and stays.
     [string]$WorkerCommand = 'claude',
     [string[]]$WorkerArguments = @('-p'),
     # Print what would run and start nothing.

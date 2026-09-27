@@ -703,8 +703,13 @@ try {
             throw "Installed $($page.Name) page is missing the shared shell slot."
         }
     }
+    # Item 2mf: the one-entry pages nav is gone and Plan is a pinned tab in the
+    # strip on the LEFT, so the right slot is one element shorter and the surface
+    # list is what names the Plan tab. The assertion moved with the contract.
     if ($shellSource -notmatch 'root\.append\(left, right\)' -or
-        $shellSource -notmatch 'right\.append\(sessionHeading, connectionMenu, pages, settings, windowControls\)' -or
+        $shellSource -notmatch 'right\.append\(sessionHeading, connectionMenu, settings, windowControls\)' -or
+        $shellSource -notmatch 'visibleStaticSurfaces\(store\.config\)' -or
+        $shellSource -match 'shell-pages' -or
         $shellSource -match 'shell-operator-status' -or
         $shellSource -match 'all:\s*true') {
         throw 'Installed shared shell does not preserve agent-tabs/right-controls ownership.'

@@ -38,6 +38,19 @@ func TestLaunchersAreHiddenByDefaultWithConsoleOptIn(t *testing.T) {
 	}
 	for relative, wanted := range checks {
 		body, err := os.ReadFile(filepath.Join(root, relative))
+		if os.IsNotExist(err) && relative == "AGENTS.md" {
+			// rel-1.24.0: AGENTS.md left the public repository at the operator's
+			// request. It is still on his disk and still read by the product, but
+			// a CI checkout does not have it, and a test that reads a file the
+			// repository no longer carries passes locally and fails in CI —
+			// which is exactly what it did.
+			//
+			// The discipline it guards is duplicated in docs/HARDENING.md, which
+			// IS tracked and is checked below, so the rule is still gated. This
+			// skips the untracked copy rather than pretending to check it.
+			t.Logf("AGENTS.md is not in this checkout (untracked at rel-1.24.0); docs/HARDENING.md carries the same rule and is checked")
+			continue
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -62,6 +75,19 @@ func TestAbsentBaselineRecoveryStaysOneShotAndEvidenceFirst(t *testing.T) {
 	}
 	for relative, wanted := range checks {
 		body, err := os.ReadFile(filepath.Join(root, relative))
+		if os.IsNotExist(err) && relative == "AGENTS.md" {
+			// rel-1.24.0: AGENTS.md left the public repository at the operator's
+			// request. It is still on his disk and still read by the product, but
+			// a CI checkout does not have it, and a test that reads a file the
+			// repository no longer carries passes locally and fails in CI —
+			// which is exactly what it did.
+			//
+			// The discipline it guards is duplicated in docs/HARDENING.md, which
+			// IS tracked and is checked below, so the rule is still gated. This
+			// skips the untracked copy rather than pretending to check it.
+			t.Logf("AGENTS.md is not in this checkout (untracked at rel-1.24.0); docs/HARDENING.md carries the same rule and is checked")
+			continue
+		}
 		if err != nil {
 			t.Fatal(err)
 		}

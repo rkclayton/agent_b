@@ -689,6 +689,9 @@ try {
     $chatSource = $indexSource
     $planSource = Get-Content -Raw -LiteralPath (Join-Path $testApplication 'web\plan.html')
     $shellSource = Get-Content -Raw -LiteralPath (Join-Path $testApplication 'web\js\shell.js')
+    # Item 2mf: the Plan tab is named by the surface list, so the installed build
+    # is checked there rather than in a nav entry that no longer exists.
+    $surfacesSource = Get-Content -Raw -LiteralPath (Join-Path $testApplication 'web\js\surfaces.js')
     if ($indexSource -match 'target=' -or $chatSource -match 'target=' -or $planSource -match 'target=') {
         throw 'Installed application still contains second-window navigation.'
     }
@@ -722,8 +725,11 @@ try {
     if ($chatSource -match 'chat-clear-conversation|chat-attachment-controls') {
         throw 'Installed Chat view still contains removed Clear or attachment-pane chrome.'
     }
-    foreach ($link in @('Plan", "/plan"')) {
-        if ($shellSource -notmatch [regex]::Escape($link)) { throw "Installed application is missing page switch $link." }
+    # Item 2mf: there is no page SWITCH any more. Plan is a surface in the tab
+    # strip, named by the surface list and reached by its own URL, so the installed
+    # build is checked for the surface and its href instead of for a nav entry.
+    foreach ($required in @('PLAN_KIND = "plan"', 'href: "/plan"')) {
+        if ($surfacesSource -notmatch [regex]::Escape($required)) { throw "Installed application is missing the Plan surface: $required." }
     }
     foreach ($removed in @('Chat", "/chat"', 'Console", "/"')) {
         if ($shellSource -match [regex]::Escape($removed)) { throw "Installed application retains removed page switch $removed." }
@@ -737,10 +743,12 @@ try {
         @('settings.js', 'settings-chats.js', 'settings-connections.js', 'settings-general.js', 'settings-context.js', 'settings-run.js', 'settings-about.js', 'settings-workspace.js', 'settings-security.js') |
             ForEach-Object { Get-Content -Raw -LiteralPath (Join-Path $testApplication "web\js\$_") }
     ))
-    # Item 2gf: the selected Plan link still prevents the default document
-    # navigation, and now also returns to the chat instead of doing nothing —
-    # the operator had no route back from the page that control opened.
-    if ($shellSource -notmatch 'link\.onclick = \(event\) => \{[\s\S]{0,160}event\.preventDefault\(\);[\s\S]{0,80}returnToChat\(\);' -or
+    # Item 2gf: the route back from the Plan surface still exists — the operator had
+    # none from the control that opened it. Item 2mf moved that control from a nav
+    # link to a tab, so it is a button rather than an anchor and needs no
+    # preventDefault; the selected tab returning to the chat is the behaviour, and
+    # that is what is asserted.
+    if ($shellSource -notmatch 'if \(selected\) return void returnToChat\(\);' -or
         $settingsScript -notmatch 'gear\.addEventListener\("click", \(event\) => \{\s+event\.preventDefault\(\);' -or
         $settingsScript -match 'consoleLaunch') {
         throw 'Installed application does not preserve selected-Plan or Settings in-place navigation.'

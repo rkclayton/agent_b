@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"harness/internal/events"
 	"harness/internal/llm"
+	"harness/internal/memory"
 	"harness/internal/reflection"
 )
 
@@ -315,4 +317,142 @@ func (s *Server) reflectionEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// Item 2mw (a): THE ROWS NEED STRUCTURED DATA. The Activity page rendered the
+// reflection overview as text, so there was nothing for a row to be built from. This
+// returns every reflection-authored note across the memory layers, with its
+// provenance, plus what is restorable and how long it stays that way.
+//
+// Read-only. A row names its layer by FILE, and the file name is validated against the
+// memory directory, so this route cannot be asked to read anything else.
+func (s *Server) reflectionNotes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet || s.memoryState == nil {
+		method(w)
+		return
+	}
+	layers, err := s.memoryState.Layers()
+	if err != nil {
+		writeError(w, 500, err.Error(), "memory")
+		return
+	}
+	type row struct {
+		memory.Note
+		Layer string `json:"layer"`
+		File  string `json:"file"`
+	}
+	rows, removed := []row{}, []row{}
+	total := 0
+	for _, layer := range layers {
+		notes, err := s.memoryState.Notes(layer.Path)
+		if err != nil {
+			continue
+		}
+		total += len(notes)
+		for _, note := range notes {
+			// Only reflection's own notes are rows: a note the model wrote through
+			// remember is not something the operator is being asked to confirm.
+			if note.Reflection != "" {
+				rows = append(rows, row{Note: note, Layer: layer.Kind, File: layer.File})
+			}
+		}
+		gone, err := s.memoryState.RemovedNotes(layer.Path)
+		if err != nil {
+			continue
+		}
+		for _, note := range gone {
+			removed = append(removed, row{Note: note, Layer: layer.Kind, File: layer.File})
+		}
+	}
+	writeJSON(w, 200, map[string]any{
+		"notes": rows,
+		// Every note in every layer, so the page can say how many of them
+		// reflection wrote without a second request.
+		"total":          total,
+		"removed":        removed,
+		"retention_days": int(memory.TombstoneRetention.Hours() / 24),
+		// (f): the retrieval cap each layer is loaded under, stated where the
+		// operator is looking at the notes and not only in the documentation.
+		"max_tokens": s.ConfigSnapshot().Memory.MaxTokens,
+	})
+}
+
+// Item 2mw (a) and (c): confirm, edit and restore. Delete is unchanged — it is the
+// exact-note route that already existed, and it now leaves a tombstone these read.
+func (s *Server) reflectionNoteAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || s.memoryState == nil {
+		method(w)
+		return
+	}
+	var body struct {
+		File string `json:"file"`
+		Note string `json:"note"`
+		Edit string `json:"edit"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Note) == "" {
+		writeError(w, http.StatusBadRequest, "the note to act on is required", "memory")
+		return
+	}
+	path, err := s.memoryState.LayerPath(body.File)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), "memory")
+		return
+	}
+	var changed bool
+	if strings.HasSuffix(r.URL.Path, "/restore") {
+		changed, err = s.memoryState.RestoreNote(path, body.Note)
+	} else {
+		changed, err = s.memoryState.ConfirmNote(path, body.Note, body.Edit)
+	}
+	if err != nil {
+		writeError(w, 500, err.Error(), "memory")
+		return
+	}
+	if !changed {
+		// Not found is not an error: another window may have acted first, and the
+		// page reloads either way.
+		writeJSON(w, 200, map[string]any{"changed": false, "already_absent": true})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"changed": true})
+}
+
+// Item 2mw (a): DELETE, for a reflection note in any layer. The agent layer already
+// had an exact-note route; the folder layer, which is where reflection actually writes,
+// did not. Both go through the same removal, so both leave a tombstone.
+func (s *Server) reflectionNoteRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || s.memoryState == nil {
+		method(w)
+		return
+	}
+	var body struct {
+		File    string `json:"file"`
+		Note    string `json:"note"`
+		Confirm bool   `json:"confirm"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if !body.Confirm || strings.TrimSpace(body.Note) == "" {
+		writeError(w, http.StatusBadRequest, "removal requires the note and confirmation", "memory")
+		return
+	}
+	path, err := s.memoryState.LayerPath(body.File)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), "memory")
+		return
+	}
+	removed, err := s.memoryState.RemoveNote(path, body.Note)
+	if err != nil {
+		writeError(w, 500, err.Error(), "memory")
+		return
+	}
+	if !removed {
+		writeJSON(w, 200, map[string]any{"removed": false, "already_absent": true})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"removed": true})
 }

@@ -6,7 +6,7 @@ import { renderState } from "./state.js";
 import { renderTimeline } from "./timeline.js";
 import { createMessageDropController } from "./message-drop.js";
 import { createApprovalCard } from "./approval.js";
-import { loadReflection } from "./reflection.js";
+import { loadReflection, loadReflectionNotes, wireReflectionNotes } from "./reflection.js";
 import { agentKey, compactionFigures, lifetimeRows, ratio, runProfileRows } from "./panel-lifetime.js";
 import { renderStopState } from "./stop-state.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
@@ -86,7 +86,13 @@ subscribe((_state, event) => {
   if (mounted && (["snapshot", "config.changed"].includes(event.type) || (event.type === "projection.patch" && patchEndedRun(event.data)))) void refreshLedger(false);
   // Item 17-i: the reflection section is read-only text; it is fetched on the
   // first snapshot and again after a run ends, when a new summary may exist.
-  if (mounted && (event.type === "snapshot" || (event.type === "projection.patch" && patchEndedRun(event.data)))) void loadReflection();
+  if (mounted && (event.type === "snapshot" || (event.type === "projection.patch" && patchEndedRun(event.data)))) {
+    void loadReflection();
+    // Item 2mw: the rows refresh on the same events the overview does, and the
+    // delegate is wired once.
+    wireReflectionNotes();
+    void loadReflectionNotes();
+  }
   scheduleRender();
 });
 

@@ -123,15 +123,20 @@ type Session struct {
 	// oldest first, for its lifetime (item 2fh); TouchedPlanRepos is per run.
 	WrittenPlanRepos []string
 	// LoadFolderMemory loads one folder's memory layer for this chat's connection.
-	LoadFolderMemory     func(folder string) (string, string, error)
-	CreatedAt            time.Time
-	LogPath              string
-	Runnable             bool
-	NotRunnableReason    string
-	DegradedNotes        []string
-	MemoryBlock          string
-	MemoryPath           string
-	AgentMemoryBlock     string
+	LoadFolderMemory  func(folder string) (string, string, error)
+	CreatedAt         time.Time
+	LogPath           string
+	Runnable          bool
+	NotRunnableReason string
+	DegradedNotes     []string
+	MemoryBlock       string
+	MemoryPath        string
+	AgentMemoryBlock  string
+	// Item 2mw (e): the machine layer — facts about this box rather than about a
+	// folder or about the agent. Loaded like the agent layer and written only by
+	// reflection.
+	MachineMemoryBlock   string
+	MachineMemoryPath    string
 	AgentMemoryPath      string
 	MemoryMaxTokens      int
 	PromptAddendum       string
@@ -462,6 +467,9 @@ func (s *Session) CombinedMemory() string {
 	}
 	if s.AgentMemoryBlock != "" {
 		parts = append(parts, s.AgentMemoryBlock)
+	}
+	if s.MachineMemoryBlock != "" {
+		parts = append(parts, s.MachineMemoryBlock)
 	}
 	return strings.Join(parts, "\n\n")
 }

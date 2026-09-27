@@ -439,7 +439,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			systemBase := r.prompt.RenderParts(connection, s, toolNames, "", "")
 			systemProject := r.prompt.RenderParts(connection, s, toolNames, s.ProjectBlock, "")
 			systemWorkspaceMemory := r.prompt.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, s.MemoryBlock, "")
-			system = r.prompt.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, s.MemoryBlock, s.AgentMemoryBlock)
+			system = r.prompt.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, s.MemoryBlock, s.AgentMemoryBlock, s.MachineMemoryBlock)
 			messages := []llm.Message{}
 			requestRecords := make([]events.Message, 0, len(records))
 			current := runningTurnIDs(records, s.RunPin())
@@ -1655,7 +1655,7 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *se
 	base := r.prompt.RenderParts(p, s, toolNames, "", "")
 	project := r.prompt.RenderParts(p, s, toolNames, s.ProjectBlock, "")
 	workspaceMemory := r.prompt.RenderMemoryParts(p, s, toolNames, s.ProjectBlock, s.MemoryBlock, "")
-	system := r.prompt.RenderMemoryParts(p, s, toolNames, s.ProjectBlock, s.MemoryBlock, s.AgentMemoryBlock)
+	system := r.prompt.RenderMemoryParts(p, s, toolNames, s.ProjectBlock, s.MemoryBlock, s.AgentMemoryBlock, s.MachineMemoryBlock)
 	// As the run's own assembly does, harness abort records lead the list: a
 	// system-role record mid-history is refused by chat templates (item 2fg).
 	all := s.MessagesCopy()

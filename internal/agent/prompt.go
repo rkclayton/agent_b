@@ -67,12 +67,16 @@ func (r *PromptRenderer) Reload() error {
 	return nil
 }
 func (r *PromptRenderer) Render(connection *config.Connection, s *session.Session, toolNames []string, memory string) string {
-	return r.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, memory, s.AgentMemoryBlock)
+	return r.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, memory, s.AgentMemoryBlock, s.MachineMemoryBlock)
 }
 func (r *PromptRenderer) RenderParts(connection *config.Connection, s *session.Session, toolNames []string, project, memory string) string {
 	return r.RenderMemoryParts(connection, s, toolNames, project, memory, "")
 }
-func (r *PromptRenderer) RenderMemoryParts(connection *config.Connection, s *session.Session, toolNames []string, project, workspaceMemory, agentMemory string) string {
+
+// RenderMemoryParts takes the memory layers as a list rather than as two named
+// arguments: item 2mw added a third, `machine`, and a list means a layer joins the
+// prompt without every caller having to be told about it.
+func (r *PromptRenderer) RenderMemoryParts(connection *config.Connection, s *session.Session, toolNames []string, project string, layers ...string) string {
 	r.mu.RLock()
 	template := r.text
 	planner := r.planner
@@ -103,7 +107,13 @@ func (r *PromptRenderer) RenderMemoryParts(connection *config.Connection, s *ses
 	value = strings.ReplaceAll(value, "{{tools}}", strings.Join(toolNames, ", "))
 	value = strings.ReplaceAll(value, "{{agent}}", agentBlock)
 	value = strings.ReplaceAll(value, "{{project}}", project)
-	memory := strings.TrimSpace(strings.Join([]string{strings.TrimSpace(workspaceMemory), strings.TrimSpace(agentMemory)}, "\n\n"))
+	present := make([]string, 0, len(layers))
+	for _, layer := range layers {
+		if trimmed := strings.TrimSpace(layer); trimmed != "" {
+			present = append(present, trimmed)
+		}
+	}
+	memory := strings.TrimSpace(strings.Join(present, "\n\n"))
 	value = strings.ReplaceAll(value, "{{memory}}", memory)
 	value = strings.ReplaceAll(value, "{{os_context}}", operatingSystemContext())
 	value = strings.ReplaceAll(value, "{{date}}", time.Now().Format("2006-01-02"))

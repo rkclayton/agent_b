@@ -199,6 +199,7 @@ func (m *Manager) DropSessionWrites(writes []events.MemoryWrite) (int, error) {
 		byPath[path][strings.TrimSpace(write.Note)] = true
 	}
 	dropped := 0
+	removed := map[string][]string{}
 	for path, notes := range byPath {
 		data, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
@@ -217,6 +218,10 @@ func (m *Manager) DropSessionWrites(writes []events.MemoryWrite) (int, error) {
 			}
 			if notes[strings.TrimSpace(note)] {
 				dropped++
+				// Item 2mw (c): a removal is undoable. The whole line goes to the
+				// tombstone, so a restore brings back its words rather than a
+				// reconstruction of them.
+				removed[path] = append(removed[path], line)
 				continue
 			}
 			if strings.TrimSpace(line) != "" {
@@ -234,6 +239,13 @@ func (m *Manager) DropSessionWrites(writes []events.MemoryWrite) (int, error) {
 			return dropped, err
 		}
 		if err := os.Rename(temporary, path); err != nil {
+			return dropped, err
+		}
+	}
+	// The tombstones are written after the layers, so a failure here loses the undo
+	// and never the removal the operator asked for.
+	for path, lines := range removed {
+		if err := m.rememberRemoved(path, lines); err != nil {
 			return dropped, err
 		}
 	}
@@ -399,6 +411,9 @@ type Note struct {
 	Run             string `json:"run,omitempty"`
 	Turn            int    `json:"turn,omitempty"`
 	UntrustedInTurn bool   `json:"untrusted_in_turn,omitempty"`
+	// Item 2mw (b): reflection's own state, "unconfirmed" or "confirmed <date>",
+	// read from the same trailing provenance the other fields come from.
+	Reflection string `json:"reflection,omitempty"`
 }
 
 // Notes reads a layer back. Item 2jf (f): the Settings view lists them with
@@ -456,6 +471,8 @@ func parseNote(line string) Note {
 				}
 			case "untrusted-in-turn":
 				note.UntrustedInTurn = value == "yes"
+			case "reflection":
+				note.Reflection = value
 			}
 		}
 	}
@@ -478,9 +495,14 @@ func (m *Manager) notePath(path, note string) (string, bool, error) {
 		return path, false, err
 	}
 	for _, line := range strings.Split(normalize(string(data)), "\n") {
-		line = strings.TrimPrefix(strings.TrimSpace(line), "- ")
-		parts := strings.SplitN(line, " ", 2)
-		if len(parts) == 2 && strings.EqualFold(strings.TrimSpace(parts[1]), note) {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		// Item 2mw (d): DEDUPE BEFORE WRITING, on meaning rather than on bytes. This
+		// compared the remainder of the line against the incoming note, so differing
+		// whitespace wrote a second copy of the same correction — and, while
+		// reflection's marker was a prefix, a note whose provenance changed looked new.
+		if SameNote(line, note) {
 			return path, true, nil
 		}
 	}

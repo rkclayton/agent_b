@@ -261,6 +261,7 @@ func main() {
 	registry := session.NewRegistry(bus, writers, web.Connection, cfg.Run.MaxTurns, web.ConfigSnapshot)
 	registry.SetMemoryLoader(memoryManager.Load)
 	registry.SetAgentMemoryLoader(memoryManager.LoadAgent)
+	registry.SetMachineMemoryLoader(memoryManager.LoadMachine)
 	registry.SetWorkspaceManager(workspaceManager)
 	web.SetRegistry(registry)
 	notificationStore, err := credential.NewNamed(profileRoot, cfg.Notifications.DiscordCredential)
@@ -455,7 +456,7 @@ func main() {
 		if switchErr := registry.SwitchProfile(nextWriters, memoryManager.Load, memoryManager.LoadAgent, nextWorkspaceManager, filepath.Join(nextRoot, "plans")); switchErr != nil {
 			_ = nextWriters.Close()
 			web.StartReflection(24 * time.Hour)
-	web.ApplyTelemetry()
+			web.ApplyTelemetry()
 			return switchErr
 		}
 		nextProjector := projection.NewStore()
@@ -496,7 +497,7 @@ func main() {
 		}
 		web.SetWorkspaceState(nextWorkspaceManager, memoryManager)
 		web.StartReflection(24 * time.Hour)
-	web.ApplyTelemetry()
+		web.ApplyTelemetry()
 		web.PublishPlanChanges()
 		return nil
 	})

@@ -72,6 +72,23 @@ try {
     } finally { Pop-Location }
     if ($probeExit -ne 0) { throw "The service-account window probe failed (go test exit $probeExit)." }
 
+    # Item 2mt (d): THE WINDOW PROBE GAINS THE DRAG, so the operator's crash is a
+    # gate and not a memory. This starts its own disposable windowed instance with a
+    # streaming fixture model, posts the message sequence a caption drag generates
+    # while the stream is live, and asserts the process survives with no crash
+    # record and no unexplained line in its launcher log. It is a separate instance
+    # from the one above on purpose: that one is mid-probe and must not be disturbed.
+    Push-Location $repository
+    try {
+        $env:AGENTB_DRAG_PROBE = '1'
+        & $go test -count=1 -v -run 'TestDraggingTheHostWindowDuringAStreamDoesNotEndTheProcess$' ./cmd/harness
+        $dragExit = $LASTEXITCODE
+    } finally {
+        Remove-Item Env:AGENTB_DRAG_PROBE -ErrorAction SilentlyContinue
+        Pop-Location
+    }
+    if ($dragExit -ne 0) { throw "The drag-during-stream window probe failed (go test exit $dragExit)." }
+
     Start-Sleep -Seconds 2
     $after = Get-Running
     if ($after.Count -ne 1 -or $after[0].Id -ne $target.Id) { throw 'The disposable Agent_b did not survive the probe as the same process.' }

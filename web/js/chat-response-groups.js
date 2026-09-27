@@ -64,6 +64,23 @@ export function responseBlocks(items = []) {
       if (item.reasoning) block.steps.push({ ...item, key: `thought:${item.key || index}`, text: "", done: true });
       continue;
     }
+    // Item 2mu (a): ONE KEY FROM THE FIRST DELTA TO THE LAST.
+    //
+    // A streaming agent item with reasoning and no text yet used to come through
+    // here under its OWN key, and the instant it gained a text delta the branch
+    // above split its thought out under a `thought:` prefix. reasoning.js keys
+    // both its views and the operator's `expanded` set by that key and drops any
+    // view whose key went unused in a pass — so the fold he had just opened was
+    // looked up under a key that no longer existed, rendered shut, and its view
+    // was thrown away. That is the flash he has been reporting.
+    //
+    // A thought carries the same prefixed key whichever branch renders it, so the
+    // open state survives the whole stream. `done` is NOT forced here: while the
+    // model is still thinking the line is live, which is what (b) and (d) need.
+    if (item?.type === "agent" && item.reasoning) {
+      ensureLeading(item, index).steps.push({ ...item, key: `thought:${item.key || index}` });
+      continue;
+    }
     ensureLeading(item, index).steps.push(item);
   }
   finish();

@@ -46,7 +46,10 @@ async function fixtureRecord(page, open) {
       ],
     };
     return window.copier.responseTranscriptRecord(response, new Set(expanded));
-  }, open ? ["response-block:leading:thought-1", "thought-1", "tool-1", "tool-2"] : []);
+    // Item 2mu (a): a thought's open state is keyed by the `thought:` prefixed key
+    // the grouping and the renderer both use, live or done alike. Keyed by the raw
+    // id, as this was, the two disagreed and the body vanished from the copy.
+  }, open ? ["response-block:leading:thought-1", "thought:thought-1", "tool-1", "tool-2"] : []);
 }
 
 test.beforeEach(async ({ page }) => loadCopier(page));

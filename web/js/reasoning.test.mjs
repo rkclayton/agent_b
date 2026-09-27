@@ -103,3 +103,71 @@ test("thinking renderer preserves its DOM and never opens to an empty body", () 
   assert.equal(body.getAttribute("hidden"), "until-found");
   assert.equal(collapse.hidden, true);
 });
+
+// Item 2mu (c) and (d): NO RENDER PASS MAY CLOSE A FOLD THE OPERATOR OPENED.
+//
+// This is the operator's symptom, driven the way he drove it: open the fold on a
+// live thought, then feed deltas — including the first TEXT delta, which is where
+// the key used to change and the fold used to shut — and check it is still open on
+// every pass, then through the done transition.
+//
+// The renderer drops every view whose key went unused in a pass, so a key that
+// changes mid-stream both closes the fold and discards its DOM. That is why this
+// asserts on each pass rather than only at the end.
+test("a fold opened while the model is thinking stays open through every delta and the done transition", () => {
+  const expanded = new Set();
+  const renderer = createThinkingRenderer({
+    document: fakeDocument,
+    expanded,
+    rerender: () => {},
+    format: String,
+    formatDuration: (value) => value === undefined || value === null ? "" : "1.2",
+  });
+
+  // The key the grouping now gives a thought, live or done alike.
+  const key = "thought:turn:r643:1";
+  const pass = (entry, tokens) => {
+    renderer.begin();
+    const root = renderer.render(entry, tokens);
+    renderer.end();
+    return root;
+  };
+  // children[0] is the thinking line; its children[1] is the glyph that carries
+  // data-open, and the line itself carries aria-expanded. Both are checked,
+  // because the operator sees the glyph and a screen reader sees the attribute.
+  const openState = (root) => ({
+    glyph: root.children[0].children[1].getAttribute("data-open"),
+    aria: root.children[0].getAttribute("aria-expanded"),
+  });
+
+  // One pass before the operator touches it, so the view exists.
+  const first = pass({ key, reasoning: "weigh", done: false, thinkingMS: null }, 2);
+  assert.deepEqual(openState(first), { glyph: "false", aria: "false" });
+
+  // He clicks the caret. That is what the renderer's own click handler does.
+  expanded.add(key);
+
+  // Now the stream continues, and the first text delta arrives partway through.
+  const deltas = [
+    { reasoning: "weighing it", text: "", done: false },
+    { reasoning: "weighing it up", text: "", done: false },
+    { reasoning: "weighing it up carefully", text: "Here is", done: false },
+    { reasoning: "weighing it up carefully now", text: "Here is the", done: false },
+  ];
+  for (const [index, delta] of deltas.entries()) {
+    const root = pass({ key, ...delta, thinkingMS: null }, 4 + index);
+    assert.deepEqual(openState(root), { glyph: "true", aria: "true" }, `the fold closed on delta ${index + 1}, which is the flash`);
+    // And the same DOM, not a re-mount: a discarded view loses the operator's place.
+    assert.equal(root, first, `the view was re-mounted on delta ${index + 1}`);
+  }
+
+  // (d): the done transition keeps it open.
+  const done = pass({ key, reasoning: "weighing it up carefully now", text: "Here is the answer.", done: true, thinkingMS: 2300 }, 74);
+  assert.deepEqual(openState(done), { glyph: "true", aria: "true" }, "the fold closed when the thought completed");
+  assert.equal(done, first);
+
+  // And a fold the operator closes stays closed through the same traffic.
+  expanded.delete(key);
+  const closed = pass({ key, reasoning: "more", text: "Here is the answer.", done: true, thinkingMS: 2300 }, 80);
+  assert.deepEqual(openState(closed), { glyph: "false", aria: "false" }, "a fold the operator closed reopened itself");
+});

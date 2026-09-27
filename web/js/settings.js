@@ -255,7 +255,7 @@ function render() {
       <nav class="settings-nav" aria-label="Settings sections">
         ${sectionLabels.map(([id, name]) => `<button type="button" class="${id === activeSection ? "selected" : ""}" data-action="settings-section" data-id="${id}" aria-current="${id === activeSection ? "page" : "false"}">${name}</button>`).join("")}
       </nav>
-      <div class="settings-content" tabindex="-1">${group(label, content[activeSection]())}</div>
+      <div class="settings-content" tabindex="-1">${group(label, content[activeSection](), activeSection)}</div>
     </div>${confirmPopover()}`;
   adoptPanels();
   const contentNode = sheet.querySelector(".settings-content");
@@ -324,8 +324,30 @@ function controlKey(node) {
   return node.id || node.dataset?.path || [node.dataset?.action, node.dataset?.id || node.dataset?.setupAction].filter(Boolean).join(":") || node.getAttribute?.("aria-label") || "";
 }
 
-function group(name, content) {
-  return `<section class="settings-group"><h2>${name}</h2>${content}</section>`;
+// Item 2ly (c): the surface says WHICH SCOPE it is, once per group rather than
+// once per row — an operator must never have to guess whether a change follows
+// them to another profile. A machine-wide page is NOT marked: the absence is the
+// statement, and marking both would be noise on every row of every page.
+//
+// The classification itself lives in Go (internal/config/scopes.go) and this is
+// the list of NAV SECTIONS whose page edits one of those keys. A section that
+// moves scope moves in both places, and settings-scope.test.mjs derives the
+// second list from the first and fails when they disagree.
+//
+// These three, and why: Chats carries chat, run, context and reflection (it
+// composes the Run and Context pages into itself); Agents carries agents;
+// Notifications carries notifications. The first list rel-1.20.0 shipped named
+// "sessions" and "memory" instead -- two entries of the content map that are NOT
+// in sectionLabels and so cannot be the active section at all -- and left Agents
+// and Notifications, which an operator reaches from the nav, saying nothing. The
+// test was written second and found it.
+export const perProfileSections = new Set(["chats", "agents", "notifications"]);
+
+function group(name, content, section = "") {
+  const scoped = perProfileSections.has(section)
+    ? `<p class="settings-scope-note">These apply to the <strong>${html(store.profiles?.active || store.config.profiles?.active || "current")}</strong> profile. Another profile keeps its own.</p>`
+    : "";
+  return `<section class="settings-group"><h2>${name}</h2>${scoped}${content}</section>`;
 }
 
 async function refreshWorkspaceState() {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -22,6 +23,17 @@ type Settings struct {
 	Agents        []config.Agent       `json:"agents"`
 	Deliver       config.Deliver       `json:"deliver"`
 	Notifications config.Notifications `json:"notifications"`
+	// Item 2ly: everything else this profile overrides, as raw JSON, one entry
+	// per top-level configuration key.
+	//
+	// The three fields above were per-profile before this item and are kept as
+	// they are — rewriting working storage to prove a point is not worth an
+	// upgrade path. The Overlay is how the REST of the classification is stored,
+	// and it holds only what the profile has actually expressed an opinion
+	// about, so a machine default still reaches a profile that never overrode
+	// it. A struct would have to store every field and would silently freeze
+	// the defaults at the moment the profile was created.
+	Overlay config.Overlay `json:"overlay,omitempty"`
 }
 
 type Manager struct {
@@ -29,6 +41,14 @@ type Manager struct {
 	dataRoot   string
 	configPath string
 	cfg        *config.Config
+	// Item 2ly: the machine's per-profile sections as they were BEFORE any
+	// profile was laid over them. It is the baseline for both halves of the
+	// overlay: what counts as a disagreement worth storing, and what a profile
+	// that has no opinion goes back to when another profile's values are in
+	// memory. Reading the machine file again instead would read whichever
+	// profile is active, because the live configuration is the merge and any
+	// save of the machine file writes the merge.
+	machine config.Overlay
 }
 
 var profileDirectories = []string{"attachments", "chats", "logs", "memory", "plans", "reflection", "scratch", "stats"}
@@ -36,6 +56,11 @@ var profileFiles = []string{"INBOX.md", "OUTBOX.md", "STATE.md", "workspace-stat
 
 func Open(dataRoot, configPath string, cfg *config.Config) (*Manager, bool, error) {
 	manager := &Manager{dataRoot: dataRoot, configPath: configPath, cfg: cfg}
+	if baseline, err := config.AllProfileSections(*cfg); err == nil {
+		manager.machine = baseline
+	} else {
+		log.Printf("profile settings: the machine's per-profile defaults could not be read, so profiles inherit what is in memory: %v", err)
+	}
 	if cfg.Profiles.Active != "" {
 		if err := manager.loadLocked(cfg.Profiles.Active); err != nil {
 			return nil, false, err
@@ -210,6 +235,22 @@ func (manager *Manager) existsLocked(name string) bool {
 	return false
 }
 
+// overlayOfLive is item 2ly's half of saveActiveLocked: the live values of the
+// keys this profile owns, captured as raw JSON so only what is set is stored.
+func (manager *Manager) overlayOfLive() config.Overlay {
+	// The baseline is the SNAPSHOT taken when this manager opened, not the live
+	// configuration and not the machine file re-read. The live one already has
+	// this profile's values laid over it, so comparing against itself would find
+	// no disagreement and store nothing; and the file on disk carries whatever
+	// profile was active the last time anything saved it.
+	overlay, err := config.ExtractOverlaySections(*manager.cfg, manager.machine)
+	if err != nil {
+		log.Printf("profile settings: the per-profile sections could not be captured and are unchanged on disk: %v", err)
+		return nil
+	}
+	return overlay
+}
+
 func (manager *Manager) saveActiveLocked() error {
 	current, err := manager.readSettings(manager.cfg.Profiles.Active)
 	if err != nil {
@@ -218,6 +259,8 @@ func (manager *Manager) saveActiveLocked() error {
 	current.Agents = cloneAgents(manager.cfg.Agents)
 	current.Deliver = manager.cfg.Deliver
 	current.Notifications = manager.cfg.Notifications
+	// Item 2ly: and the rest of what this profile owns.
+	current.Overlay = manager.overlayOfLive()
 	return manager.writeSettings(current)
 }
 
@@ -231,6 +274,20 @@ func (manager *Manager) loadLocked(name string) error {
 }
 
 func (manager *Manager) apply(settings Settings) {
+	// Item 2ly: and everything else this profile has an opinion about. A key it
+	// does not carry keeps the MACHINE's value, which is the inheritance -- so
+	// the machine's sections are restored first and the overlay laid over those.
+	// Applying the overlay alone would leave the PREVIOUS profile's answers in
+	// place for every key this profile is silent about, which is how a new
+	// profile came to read the old one's text size.
+	if err := config.SelectProfile(manager.cfg, manager.machine, settings.Overlay); err != nil {
+		log.Printf("profile %s: its saved settings could not be applied and the machine defaults are in use: %v", settings.Name, err)
+	}
+	// The three fields that were per-profile before this item are assigned LAST,
+	// because the reset above restores the machine's agents, delivery and
+	// notifications too and these are the profile's own. Their storage is the
+	// struct rather than the overlay, and this is the order that makes the two
+	// kinds of storage agree.
 	manager.cfg.Agents = cloneAgents(settings.Agents)
 	manager.cfg.Deliver = settings.Deliver
 	manager.cfg.Notifications = settings.Notifications

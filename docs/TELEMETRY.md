@@ -57,6 +57,7 @@ to the second.
 | `total_ms`, `model_ms`, `tool_ms`, `waiting_ms`, `compaction_ms` | int | item 2ji's buckets |
 | `prompt_ms`, `generation_ms` | int, **optional** | absent when the server reported no timings — **absent, never zero** |
 | `retries`, `compactions`, `empty_replies`, `repeated_calls` | int | |
+| `model_calls`, `tool_calls` | int | how many model calls the run made and how many tool results came back — the two counts the reflection floor reads, and nothing about what any of them were |
 | `model_class` | string | `local` or `remote`; never the model name, endpoint or connection id |
 
 ### `tool.result`

@@ -108,7 +108,15 @@ func TestCanonicalTerminalReasonsAreClosed(t *testing.T) {
 	want := map[string]string{
 		"done": "done", "reply_empty_reasoning_shown": "reply-empty-reasoning-shown",
 		"announced_action_and_stopped": "announced-action-and-stopped", "aborted_mid_model": "cancelled-by-operator",
-		"turn_ceiling": "limit", "model_error": "model-error", "tool_errors": "tool-errors", "cycle": "harness-error",
+		"turn_ceiling": "limit", "model_error": "model-error", "tool_errors": "tool-errors",
+		// Item 2lw (c): cycle was pinned here AS "harness-error", which is the
+		// defect that item names -- a run the cycle guard stopped is not a harness
+		// fault, and calling it one sends somebody looking for a bug that is not
+		// there. The four that fell through now have words of their own.
+		"cycle": "cycle", "mailbox_stop": "stopped-by-mailbox",
+		"reply_empty": "reply-empty", "connection_not_runnable": "connection-not-runnable",
+		// And the reason rel-1.20.0/W1 found live and undeclared.
+		"malformed_turn": "model-error",
 	}
 	for input, expected := range want {
 		if got := canonicalTerminalReason(input); got != expected {

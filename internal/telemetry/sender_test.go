@@ -234,3 +234,91 @@ func TestEachInstallIDIsNewAndWellFormed2jg(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+// Item 2lx: the two counts the reflection floor reads are the two counts
+// telemetry sends — and (d) is the whole justification: they are COUNTS and
+// nothing more.
+func TestTheTwoCountsAreSentAndCarryNothingElse2lx(t *testing.T) {
+	sink := &capture{}
+	sender, _ := newSender(t, sink)
+	sender.Observe("run.stopped", "2026-09-26T20:00:00Z", map[string]any{
+		"reason": "done", "turns": 7,
+		"model_calls": 12, "tool_calls": 9,
+		// Everything a count must not drag along with it.
+		"run_id": "r42", "detail": "read the file secret.go in the operator workspace",
+		"armed_detectors": []any{"novel_action"},
+	})
+	sender.Flush()
+	if sink.count() != 1 {
+		t.Fatalf("expected one batch, got %d", sink.count())
+	}
+	body := string(sink.bodies[0])
+	var batch struct {
+		Events []map[string]any `json:"events"`
+	}
+	if err := json.Unmarshal(sink.bodies[0], &batch); err != nil {
+		t.Fatal(err)
+	}
+	event := batch.Events[0]
+	// (a): both arrived.
+	if event["model_calls"] != float64(12) || event["tool_calls"] != float64(9) {
+		t.Fatalf("the counts did not arrive: model=%v tool=%v", event["model_calls"], event["tool_calls"])
+	}
+	// (d): counts and nothing more. No tool name, no model name, no argument
+	// content — asserted against the SERIALIZED batch rather than the struct,
+	// because the bytes are what leaves the machine.
+	for _, forbidden := range []string{"r42", "Randy", "secret.go", "novel_action", "project"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("%q left the machine beside the counts:\n%s", forbidden, body)
+		}
+	}
+}
+
+// (b): the allow-list is STILL the authority. This item adds two entries to it
+// and no way to send anything not on it.
+func TestTheAllowListIsStillTheAuthority2lx(t *testing.T) {
+	class, known := Classify("run.stopped")
+	if !known || !class.Sent {
+		t.Fatal("run.stopped is not sent")
+	}
+	picked := Pick(class, map[string]any{
+		"model_calls": 3, "tool_calls": 1,
+		"a_field_nobody_allow_listed": "should not travel",
+	})
+	if _, present := picked["a_field_nobody_allow_listed"]; present {
+		t.Error("a field outside the allow-list was picked")
+	}
+	if picked["model_calls"] != 3 || picked["tool_calls"] != 1 {
+		t.Errorf("the two counts were not picked: %v", picked)
+	}
+	// And a run journalled before item 2ls has neither — they are ABSENT rather
+	// than zero, the same rule item 2ji's buckets live by, so a receiver can
+	// tell "no calls" from "this build did not count them".
+	older := Pick(class, map[string]any{"reason": "done", "turns": 2})
+	for _, key := range []string{"model_calls", "tool_calls"} {
+		if _, present := older[key]; present {
+			t.Errorf("%s was invented for a run that never carried it", key)
+		}
+	}
+}
+
+// (c): off still means off, and the proof extends to the new fields — they are
+// computed for the floor and never queued.
+func TestTheCountsAreNotQueuedWhenTelemetryIsOff2lx(t *testing.T) {
+	// No endpoint and no transport is a machine with telemetry off. The sender
+	// does not exist, so there is nothing that could queue anything.
+	if sender := New(Options{DataRoot: t.TempDir()}); sender != nil {
+		t.Fatal("a sender started with telemetry off")
+	}
+	// And with it on, a DROPPED event carrying the same words never reaches a
+	// batch either — the allow-list decides by type first.
+	sink := &capture{}
+	sender, _ := newSender(t, sink)
+	sender.Observe("model.response", "2026-09-26T20:00:00Z", map[string]any{
+		"model_calls": 12, "tool_calls": 9, "content": "the model said this",
+	})
+	sender.Flush()
+	if sink.count() != 0 {
+		t.Fatalf("a dropped type carrying the counts produced %d batch(es)", sink.count())
+	}
+}

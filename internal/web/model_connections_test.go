@@ -92,7 +92,11 @@ func TestConfigPOSTAssignsConnectionsToLetteredAgentRoles(t *testing.T) {
 	authorizeMutation(request, server)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "assigned to an agent role") {
+	// Item 2mb (b), rel-1.23.0: the refusal NAMES the role rather than saying
+	// "an agent role", because the operator's next move has to be readable off
+	// the message. This fixture holds the connection on both B and C, so the
+	// message names both.
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "assigned to Coder's B and C role") {
 		t.Fatalf("delete status=%d body=%s", response.Code, response.Body)
 	}
 

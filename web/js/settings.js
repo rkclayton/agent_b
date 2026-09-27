@@ -1233,7 +1233,11 @@ async function removeConnection(id) {
     await api(`/api/connections/${encodeURIComponent(id)}`, undefined, "DELETE");
     armed.delete(key);
   } catch (error) {
-    errors.set(`connections.${id}`, error.message);
+    // Item 2mb (c): USE THE FIELD THE SERVER SENT. It is what lets the refusal
+    // land on the row that was clicked; a handler that discards it is how the
+    // message went missing. The per-row key stays as the fallback, so a refusal
+    // from an older build still lands where the operator is looking.
+    errors.set(error.field || `connections.${id}`, error.message);
     armed.delete(key);
     render();
   }

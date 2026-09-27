@@ -1,14 +1,14 @@
 package web
 
 import (
-	"slices"
-	"strconv"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -110,29 +110,39 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	tail := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/connections/"), "/")
 	if r.Method == http.MethodDelete && !strings.Contains(tail, "/") {
 		if sessionID, used := s.registry.ConnectionInUse(tail); used {
-			writeError(w, 409, "connection in use by session "+sessionID, "connection_id")
+			writeError(w, 409, "connection in use by session "+sessionID, "connections."+tail)
 			return
 		}
 		s.mu.Lock()
-		assigned := false
-		for _, agent := range s.cfg.Agents {
-			if agent.B == tail || agent.C == tail || agent.D == tail {
-				assigned = true
-				break
-			}
-		}
-		if assigned {
+		// Item 2mb (b): NAME THE ROLE. "assigned to an agent role" is true and
+		// useless; the operator's next move has to be readable off the message.
+		// (c): the field is the ROW, so the refusal lands where the click was
+		// rather than on a page nobody aimed at.
+		if holder := agentRoleHolding(s.cfg.Agents, tail); holder != "" {
 			s.mu.Unlock()
-			writeError(w, 409, "connection is assigned to an agent role", "agents")
+			writeError(w, 409, "connection is assigned to "+holder, "connections."+tail)
 			return
 		}
 		if len(s.cfg.Connections) == 1 {
 			s.mu.Unlock()
-			writeError(w, 409, "cannot delete the last connection", "connection_id")
+			writeError(w, 409, "cannot delete the last connection", "connections."+tail)
 			return
 		}
+		// Item 2mb (d): A FRESH SLICE, AND NOTHING ASSIGNED UNTIL THE ID EXISTS.
+		//
+		// This read s.cfg.Connections[:0] and appended into the LIVE array, so
+		// deleting B from [A,B,C] overwrote index 1 in place, and anything still
+		// holding the three-element slice — a snapshot, a Masked() copy, a
+		// subscriber mid-render — read [A,C,C]. The assignment also happened
+		// BEFORE the not-found check, so a delete of an id that does not exist
+		// wrote the configuration it was supposed to leave alone.
+		//
+		// rel-1.23.0/W0 read this rather than reproducing it on the operator's
+		// machine, and found it is NOT what turned his page red: the client
+		// already keys the message per row. It is a correctness fix and the
+		// report says so.
 		found := false
-		kept := s.cfg.Connections[:0]
+		kept := make([]config.Connection, 0, len(s.cfg.Connections))
 		for _, connection := range s.cfg.Connections {
 			if connection.ID == tail {
 				found = true
@@ -140,12 +150,12 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 			}
 			kept = append(kept, connection)
 		}
-		s.cfg.Connections = kept
 		if !found {
 			s.mu.Unlock()
-			writeError(w, 404, "connection not found", "connection_id")
+			writeError(w, 404, "connection not found", "connections."+tail)
 			return
 		}
+		s.cfg.Connections = kept
 		err := s.saveMachineConfig(*s.cfg)
 		masked := s.cfg.Masked()
 		s.mu.Unlock()
@@ -677,4 +687,38 @@ func modelRefusalMessage(model, baseURL string, models []string) string {
 	default:
 		return (&probe.ModelNotListedError{Model: model, Models: models}).OperatorMessage()
 	}
+}
+
+// agentRoleHolding names the first agent role holding a connection, for item
+// 2mb (b). "assigned to an agent role" is true and useless; "assigned to Coder's
+// B role" is where the operator goes next.
+func agentRoleHolding(agents []config.Agent, connectionID string) string {
+	var held []string
+	for _, agent := range agents {
+		var roles []string
+		for _, role := range []struct {
+			name string
+			id   string
+		}{{"B", agent.B}, {"C", agent.C}, {"D", agent.D}} {
+			if role.id == connectionID {
+				roles = append(roles, role.name)
+			}
+		}
+		if len(roles) == 0 {
+			continue
+		}
+		// ALL of them, not the first. A connection can hold two roles on one
+		// agent, and clearing the one the message named would leave the delete
+		// refused again for a reason the operator thought they had dealt with.
+		name := agent.Name
+		if name == "" {
+			held = append(held, "the "+strings.Join(roles, " and ")+" role")
+			continue
+		}
+		held = append(held, name+"'s "+strings.Join(roles, " and ")+" role")
+	}
+	if len(held) == 0 {
+		return ""
+	}
+	return strings.Join(held, ", ")
 }

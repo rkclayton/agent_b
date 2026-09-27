@@ -28,10 +28,14 @@ const documents = [
   "SECURITY.md",
   "INTERFACES.md",
   "web/DESIGN.md",
-  "AGENTS.md",
-  "CLAUDE.md",
   "tests/README.md",
 ];
+
+// rel-1.24.0: AGENTS.md and CLAUDE.md left the public repository at the
+// operator's request. They are still on his disk and still read by the product,
+// so they are still checked for vocabulary WHEN PRESENT — but a CI checkout does
+// not have them, and a list that requires them turns every checkout red.
+const OPERATOR_LOCAL_DOCUMENTS = ["AGENTS.md", "CLAUDE.md"];
 
 const rules = [
   {
@@ -122,7 +126,10 @@ test("each stale-term rule trips on its own reintroduction and spares correct pr
   }
 });
 
-const sources = Object.fromEntries(await Promise.all(documents.map(async (name) => {
+// The vocabulary rules below run over BOTH lists: a document that is present is
+// checked whether or not the repository ships it. Only the existence assertion
+// distinguishes them.
+const sources = Object.fromEntries(await Promise.all([...documents, ...OPERATOR_LOCAL_DOCUMENTS].map(async (name) => {
   try {
     return [name, (await readFile(new URL(`../${name}`, import.meta.url), "utf8")).replace(/\r\n/g, "\n")];
   } catch {

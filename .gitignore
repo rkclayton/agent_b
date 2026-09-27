@@ -83,3 +83,16 @@ candidates/
 # Operator-supplied source images (etching, glyphs) stay local; the derived assets the
 # pipeline generates from them are what ships.
 web/assets/source/
+
+# rel-1.24.0, at the operator's request: "i just dont want it in the public repo
+# at least." Both files stay ON DISK and keep working -- the product discovers
+# them by name (internal/operatorfiles/manager.go and internal/reflection/
+# outputs.go both search for AGENTS.md and CLAUDE.md), so untracking them
+# changes what is published and nothing else.
+#
+# This does NOT remove them from history. An audit before untracking found
+# nothing identifying in either: zero absolute paths, usernames, hostnames or
+# tailnet addresses, and one URL which is this repository's own remote. So no
+# history rewrite is proposed.
+AGENTS.md
+CLAUDE.md

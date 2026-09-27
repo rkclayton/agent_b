@@ -33,10 +33,24 @@ function about() {
   const signatureFiles = Array.isArray(store.signature?.files) ? store.signature.files : [];
   const signatureWord = signatureFiles.length > 0 && signatureFiles.every((file) => file.status === "Valid" && file.timestamped) ? "signed" : "unsigned";
   const update = store.update || {};
+  // Item 2mr (c): AN ERROR IS SHOWN WHETHER OR NOT AN UPDATE IS STILL OFFERED.
+  //
+  // The operator pressed Update, saw "downloading and verifying", and was returned
+  // to "v1.24.0 available" with nothing said. This line is why: the error branch
+  // sat BELOW the available branch, so a failed install — which leaves the update
+  // available, because it is still available — could never reach it. The reason is
+  // the updater's own words and it stays until the next check replaces it.
+  const failure = update.error
+    ? update.available
+      // The version stays named in the line, so the reason does not cost the
+      // reader the one fact the line used to carry. No new control is added.
+      ? `${update.version} available · update failed · ${update.error}`
+      : `Check failed · ${update.error}`
+    : "";
   const status = update.installing ? "Downloading and verifying…"
     : update.checking ? "Checking…"
+    : failure ? failure
     : update.available ? `${update.version} available${update.notes ? ` · ${update.notes}` : ""}`
-    : update.error ? `Check failed · ${update.error}`
     : update.checked_at ? "Up to date" : "Not checked yet";
   const installAction = update.available
     ? `<button type="button" data-action="install-update" ${update.installing ? "disabled" : ""}>${update.installing ? "Starting…" : "Update"}</button>`

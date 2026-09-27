@@ -36,7 +36,13 @@ foreach ($path in @($FromSetup, $ToSetup)) {
 $root = Join-Path ([IO.Path]::GetTempPath()) ('agentb-updater-cycle-' + [Guid]::NewGuid().ToString('N'))
 $application = Join-Path $root 'Application\Agent_b'
 $data = Join-Path $root 'Data\Agent_b'
-$workspace = Join-Path $root 'workspace'
+# Item 2mr (d) and (e): THE WORKSPACE IS SHAPED LIKE PRODUCTION'S, not like a
+# convenient temp folder. This gate passed through twelve releases while every
+# update from the operator's own client failed, for exactly one reason: its
+# workspace was named 'workspace', which the installer's leaf-only path guard
+# accepted, and his is the profile-scoped scratch root, which it refused. A gate
+# whose fixture is safer than production proves nothing about production.
+$workspace = Join-Path $data 'profiles\Operator\scratch'
 $feedRoot = Join-Path $root 'feed'
 # install-root-policy requires a TestMode uninstall key to be recognisably
 # disposable: Agent_b followed by Test, Acceptance, or a long hex run.
@@ -262,6 +268,21 @@ try {
                    " Looked for -ApplicationDirectory $application in transcripts newer than $($launchedAt.ToString('o')); found: $seen. " + $decision)
         }
         Write-Host "PROOF launch target: $($named[0].FullName) records -ApplicationDirectory $application, so the setup the updater launched targeted this instance and not the operator location"
+        # Item 2mr (d): THE INSTALLER MUST NOT REFUSE THE WORKSPACE IT WAS GIVEN.
+        # This is the step that failed on the operator's machine at 02:01 on
+        # 2026-09-27 while this gate was green, and the refusal is the one thing the
+        # unexercised install half cannot hide: the installer reaches the path guard
+        # before it reaches anything that needs a canonical application root.
+        $refusals = @(Get-ChildItem (Join-Path $data 'logs') -Filter 'installer-*.log' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -ge $launchedAt } |
+            Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match 'WorkspaceDirectory must name a dedicated' })
+        $progress = Join-Path $data 'install-progress.jsonl'
+        $progressRefused = (Test-Path -LiteralPath $progress) -and ((Get-Content -Raw -LiteralPath $progress) -match 'WorkspaceDirectory must name a dedicated')
+        if ($refusals.Count -or $progressRefused) {
+            throw ("UPDATER CYCLE FAILED: the installer refused the workspace it was given, $workspace. " +
+                   "That is item 2mr's defect: every update from the operator's own client failed on this guard and the product said nothing. " + $decision)
+        }
+        Write-Host "PROOF workspace accepted: the installer did not refuse $workspace, which is shaped like the operator's profile-scoped scratch root"
         Write-Host "INSTALLER DECISION: $decision"
         Write-Host 'UNEXERCISED: the install-and-restart half. The installer refuses a non-canonical ApplicationDirectory outside TestMode, and the updater must not be able to pass TestMode, so a disposable instance cannot complete an install beneath the suite root.'
         $outcome = 'PARTIAL'

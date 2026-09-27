@@ -12,3 +12,9 @@ internal/projection/testdata/pins/sources/*.events text eol=lf
 internal/projection/testdata/tapes/*.json text eol=lf
 # PDF fixtures are byte-exact documents (item 2fj); never convert line endings.
 *.pdf binary
+
+# Item 2ml: the application-message vectors are EXACT BYTES with committed
+# digests, verified by another repository's implementation. A CRLF checkout
+# changes those bytes without changing their meaning, which is the same failure
+# 2lo's tapes had.
+internal/appmessage/testdata/*.json text eol=lf

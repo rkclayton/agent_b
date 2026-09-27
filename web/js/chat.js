@@ -1,6 +1,7 @@
 import { installComposerResize } from "./composer-resize.js";
 import { api, reduce, setSelection, store, subscribe } from "./bus.js";
 import { renderMarkdown } from "./markdown.js";
+import { waitElement } from "./wait.js";
 import { operatorLogEntry } from "./operator-log.js";
 import { createThinkingRenderer } from "./reasoning.js";
 import { formatDuration } from "./duration.js";
@@ -1199,7 +1200,27 @@ function renderComposer(session) {
   // state colour the tab robot uses.
   const running = !!activity;
   notice.replaceChildren();
-  if (running) {
+  // Item 2m4: THE ONE WAITING ELEMENT, EARNING ITS PLACE.
+  //
+  // The model wait is the case the operator described — "chatting and hoping the
+  // model catches it" — so this is where it goes first. It appears only while a
+  // run is live and nothing has been written back yet, which is exactly the
+  // interval where the product previously showed a blinking glyph and a sentence
+  // and nothing about progress.
+  //
+  // Determinate when llama.cpp is streaming prompt_progress, which
+  // rel-1.23.0/W0 confirmed is the only progress any server here reports;
+  // indeterminate for everything else, cycling in place rather than sweeping
+  // toward a finish it does not know.
+  const progress = session?.activity?.progress || {};
+  const promptOnly = running && /^prompt /.test(activity);
+  if (promptOnly) {
+    notice.append(waitElement(document, {
+      line: unreachable ? "waiting for the model to come back" : activity,
+      processed: progress.processed ?? null,
+      total: progress.total ?? null,
+    }));
+  } else if (running) {
     const glyph = document.createElement("span");
     glyph.className = `chat-run-robot ${session?.model_unreachable ? "offline" : session?.pending_approval || session?.pending_repo_policy ? "waiting" : "running"}`;
     glyph.setAttribute("aria-hidden", "true");

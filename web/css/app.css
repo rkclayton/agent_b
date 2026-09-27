@@ -2137,3 +2137,24 @@
 .rail-labels { opacity: 0; transition: opacity 90ms linear; }
 .rail:hover .rail-labels,
 .rail:focus-within .rail-labels { opacity: 1; }
+
+/* Item 2m4: the one waiting element. Twelve cells, monospace line, step timing
+   — the same discrete vocabulary as .chat-run-robot rather than a smooth sweep,
+   which would be the only organic movement in the product.
+
+   Indeterminate cycles a lit cell along the row and says nothing about how far
+   through it is. Determinate lights --filled cells and stops there: the two are
+   visibly different, which is the point of (c). */
+.wait { display: inline-flex; align-items: center; gap: var(--s2); font: 12px/16px var(--mono); color: var(--mute); }
+.wait-meter { display: inline-flex; gap: 2px; }
+.wait-cell { width: 4px; height: 10px; background: var(--bezel); }
+.wait[data-mode="determinate"] .wait-cell[data-lit="1"] { background: var(--trace); }
+.wait[data-mode="indeterminate"] .wait-cell {
+  animation: wait-cycle 1.08s steps(1, end) infinite;
+  animation-delay: calc(var(--cell) * 0.09s);
+}
+.wait-line { color: var(--ink); }
+@keyframes wait-cycle {
+  0%, 24% { background: var(--trace); }
+  25%, 100% { background: var(--bezel); }
+}

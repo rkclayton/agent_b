@@ -198,7 +198,22 @@ export function initShell(options = {}) {
       const row = button("", `Use ${connection.label || connection.id}`, `shell-connection-choice ${configured?.b === connection.id ? "selected" : ""}`);
       let host = connection.base_url || "";
       try { host = new URL(host).host || host; } catch {}
-      row.innerHTML = `<span>${escapeHTML(connection.label || connection.id)}</span><span>${escapeHTML(host)}</span><span>${escapeHTML(connectionState(connection, session))}</span>`;
+      // Item 2mh (b), (d) and (e): THE SWITCHER SHOWS THE MODEL.
+      //
+      // It showed label, host and state, and at any width `server-2` identifies
+      // nothing — the operator has to already know which box is which. The model
+      // is what he is actually choosing between.
+      //
+      // (d) a llama.cpp model is a full GGUF path, so it is reduced to its
+      // basename the same way the Connections page reduces it, with the whole
+      // string kept on hover. (e) "model" is not a model: a connection that has
+      // never been tested says so rather than naming one that does not exist.
+      const rawModel = String(connection.model || "").trim();
+      const named = rawModel && rawModel !== "model";
+      const modelLabel = named ? rawModel.split(/[\/]/).pop() : "not tested";
+      row.innerHTML = `<span>${escapeHTML(connection.label || connection.id)}</span>`
+        + `<span class="shell-connection-model${named ? "" : " shell-connection-untested"}" title="${escapeHTML(named ? rawModel : "this connection has not been tested")}">${escapeHTML(modelLabel)}</span>`
+        + `<span>${escapeHTML(host)}</span><span>${escapeHTML(connectionState(connection, session))}</span>`;
       row.onclick = async () => {
         const current = store.sessions[store.selection.session_id];
         if (isRunning(current)) {

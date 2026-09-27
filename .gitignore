@@ -96,3 +96,9 @@ web/assets/source/
 # history rewrite is proposed.
 AGENTS.md
 CLAUDE.md
+
+# Item 2ml: the broker's own protocol document and vectors are READ from here, not
+# owned here. docs/REPOSITORIES.md says nothing is shared between the four
+# repositories by copying, so the planner places a local copy for a worker to read
+# and it is never committed into this one.
+docs/external/

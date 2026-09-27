@@ -34,9 +34,13 @@ func (c *FileCoordinator) check(s *session.Session, path, resolved string) (stri
 	if s.Role == "d" {
 		root = s.PlanDir
 	}
+	// Item 2mn (a): the CONFLICT is checked on the file's own identity, so a
+	// shared plan repository is shared however each session reached it. `rel`
+	// stays what the operator reads in the event, which is (d): the event's shape
+	// and the chat's rendering of it are unchanged.
 	rel := workspaceRel(root, resolved)
-	seen, hasSeen := s.LastSeenAt(rel)
-	if record, ok := c.workspaces.LastWriter(root, rel); ok && record.SessionID != s.ID && (!hasSeen || record.At.After(seen)) {
+	seen, hasSeen := s.LastSeenAt(session.FileKey(resolved))
+	if record, ok := c.workspaces.LastWriter(resolved); ok && record.SessionID != s.ID && (!hasSeen || record.At.After(seen)) {
 		age := int(time.Since(record.At).Seconds())
 		if age < 0 {
 			age = 0
@@ -51,13 +55,10 @@ func (c *FileCoordinator) check(s *session.Session, path, resolved string) (stri
 	return "", nil
 }
 func (c *FileCoordinator) record(s *session.Session, resolved string) {
-	root := s.Workspace
-	if s.Role == "d" {
-		root = s.PlanDir
-	}
-	rel := workspaceRel(root, resolved)
-	s.Touch(rel)
-	c.workspaces.RecordWrite(root, rel, s.ID)
+	// Item 2mn (a): the write is recorded against the FILE. The session's own root
+	// no longer takes part, which is why a shared plan repository is now shared.
+	s.Touch(session.FileKey(resolved))
+	c.workspaces.RecordWrite(resolved, s.ID)
 	if s.Role != "d" && strings.EqualFold(filepath.Base(resolved), "AGENT_B.md") && filepath.Dir(resolved) == filepath.Clean(s.Workspace) && s.EnsurePlan != nil {
 		s.EnsurePlan(s.Workspace)
 	}
@@ -76,11 +77,7 @@ func (c *FileCoordinator) wasAgentWritten(s *session.Session, resolved string) b
 	if c == nil || s == nil {
 		return false
 	}
-	root := s.Workspace
-	if s.Role == "d" {
-		root = s.PlanDir
-	}
-	_, ok := c.workspaces.LastWriter(root, workspaceRel(root, resolved))
+	_, ok := c.workspaces.LastWriter(resolved)
 	return ok
 }
 

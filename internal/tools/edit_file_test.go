@@ -435,7 +435,7 @@ func TestEditFile(t *testing.T) {
 		tool, _, _, _ := testTools(root)
 		s := testSession(root, "a", "A")
 		path := writeFixture(t, root, "x.txt", []byte("old"))
-		s.Touch("x.txt")
+		s.Touch(session.FileKey(filepath.Join(root, "x.txt")))
 		future := time.Now().Add(2 * time.Second)
 		if err := os.Chtimes(path, future, future); err != nil {
 			t.Fatal(err)
@@ -450,9 +450,9 @@ func TestEditFile(t *testing.T) {
 		tool, _, _, workspaces := testTools(root)
 		a := testSession(root, "a", "A")
 		path := writeFixture(t, root, "x.txt", []byte("old"))
-		a.Touch("x.txt")
+		a.Touch(session.FileKey(filepath.Join(root, "x.txt")))
 		time.Sleep(time.Millisecond)
-		workspaces.RecordWrite(root, "x.txt", "b")
+		workspaces.RecordWrite(filepath.Join(root, "x.txt"), "b")
 		_, err := edit(t, tool, a, path, "old", "new")
 		if err == nil || !strings.Contains(err.Error(), "session B wrote this file") || !strings.Contains(err.Error(), "re-read before editing") {
 			t.Fatalf("error %v", err)
@@ -467,9 +467,9 @@ func TestEditFile(t *testing.T) {
 		tool, _, reader, workspaces := testTools(root)
 		a := testSession(root, "a", "A")
 		path := writeFixture(t, root, "x.txt", []byte("old"))
-		a.Touch("x.txt")
+		a.Touch(session.FileKey(filepath.Join(root, "x.txt")))
 		time.Sleep(time.Millisecond)
-		workspaces.RecordWrite(root, "x.txt", "b")
+		workspaces.RecordWrite(filepath.Join(root, "x.txt"), "b")
 		if _, err := reader.Call(context.Background(), a, map[string]any{"path": path}); err != nil {
 			t.Fatal(err)
 		}
@@ -483,9 +483,9 @@ func TestEditFile(t *testing.T) {
 		_, writer, _, workspaces := testTools(root)
 		a := testSession(root, "a", "A")
 		path := writeFixture(t, root, "x.txt", []byte("old"))
-		a.Touch("x.txt")
+		a.Touch(session.FileKey(filepath.Join(root, "x.txt")))
 		time.Sleep(time.Millisecond)
-		workspaces.RecordWrite(root, "x.txt", "b")
+		workspaces.RecordWrite(filepath.Join(root, "x.txt"), "b")
 		_, err := writer.Call(context.Background(), a, map[string]any{"path": path, "content": "new"})
 		if err == nil || !strings.Contains(err.Error(), "session B wrote this file") {
 			t.Fatalf("error %v", err)
@@ -518,7 +518,7 @@ func TestWriteFileByteIdenticalContentIsUnchanged(t *testing.T) {
 	if !after.ModTime().Equal(before.ModTime()) {
 		t.Fatalf("mtime changed: before=%s after=%s", before.ModTime(), after.ModTime())
 	}
-	if _, ok := workspaces.LastWriter(root, "same.txt"); ok {
+	if _, ok := workspaces.LastWriter(filepath.Join(root, "same.txt")); ok {
 		t.Fatal("unchanged write was recorded as a mutation")
 	}
 }

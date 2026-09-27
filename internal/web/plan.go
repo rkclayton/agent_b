@@ -255,8 +255,10 @@ func (s *Server) acceptPlanProposal(r *http.Request, item *session.Session, prop
 	}
 	writer.SetPlanPage(true)
 	// The accepted old_text is the browser's exact observed span; count that
-	// observation for the existing cross-session edit coordinator.
-	writer.Touch(filepath.ToSlash(proposal.Path))
+	// observation for the existing cross-session edit coordinator. Item 2mn (a):
+	// under the file's own key, which is what the coordinator records against, so
+	// a d-session's accepted edit is seen by a session in another scratch root.
+	writer.Touch(session.FileKey(filepath.Join(writer.PlanDir, proposal.Path)))
 	outcome := s.runner.AcceptPlanEdit(r.Context(), writer, proposal.Path, proposal.OldText, proposal.NewText)
 	if !outcome.OK {
 		return "", fmt.Errorf("%s", strings.TrimPrefix(outcome.Content, "error: "))

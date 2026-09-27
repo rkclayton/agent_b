@@ -93,7 +93,10 @@ func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string
 			results = append(results, fmt.Sprintf("[read_file %s]\n%s", label, result))
 		}
 		if succeeded {
-			s.Touch(workspaceRel(root, resolved))
+			// Item 2mn (a): the seen-list is keyed by the FILE, the same key the
+			// write coordinator records against, so a read clears a conflict
+			// whichever root either session reached the file through.
+			s.Touch(session.FileKey(resolved))
 		}
 		return strings.Join(results, "\n\n"), nil
 	}
@@ -101,7 +104,7 @@ func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string
 	if err != nil {
 		return "", err
 	}
-	s.Touch(workspaceRel(root, resolved))
+	s.Touch(session.FileKey(resolved))
 	return result, nil
 }
 

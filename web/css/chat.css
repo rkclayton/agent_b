@@ -929,3 +929,16 @@
 .plan-proposal-actions button { min-height:22px; padding:2px 7px; background:rgba(216,221,227,.08); }
 .plan-proposal-actions button:hover { background:rgba(216,221,227,.12); }
 .plan-proposal .field-error { margin:4px 0 0; color:var(--alarm); }
+
+/* Item 2m7 (c): BOLD IS A REAL WEIGHT.
+   Markdown emits <strong>, nothing set its weight, and the browser's default is
+   700 -- a weight this product does not ship, so every bold word in every model
+   answer was SYNTHESIZED: the 400 face smeared wider by the rasteriser. IBM Plex
+   ships 400 and 500 here and 500 is the one that exists, so that is the one
+   asked for. Asserted in web/js/typography.test.mjs rather than eyeballed. */
+.chat-response-answer strong,
+.chat-response-answer b,
+.chat-user-text strong,
+.chat-user-text b {
+  font-weight: 500;
+}

@@ -109,9 +109,18 @@ jumpButton.onclick = () => {
 // second place for the two to disagree.
 const TEXT_SCALES = { small: 0.9, normal: 1, large: 1.15, larger: 1.3, largest: 1.5 };
 
+// Item 2m7 (d): THE UNTOUCHED DEFAULT GOES UP ONE STEP. The operator read the
+// product at "normal" and found it small; the scale is unchanged and 2lj's
+// control still reaches every step from here, so this moves where a reader
+// STARTS, not what they can choose.
+//
+// (f): a reader who has already set a size keeps it. This is the value used when
+// chat.text_size is unset, and an unset setting is the only thing it touches.
+const DEFAULT_TEXT_SIZE = "large";
+
 function applyReadingSettings() {
   const chat = store.config?.chat || {};
-  const scale = TEXT_SCALES[chat.text_size] ?? 1;
+  const scale = TEXT_SCALES[chat.text_size] ?? TEXT_SCALES[DEFAULT_TEXT_SIZE];
   const face = (chat.typeface || "").trim();
   const root = document.documentElement;
   root.style.setProperty("--chat-scale", String(scale));

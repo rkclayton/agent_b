@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"harness/internal/credential"
@@ -116,7 +117,23 @@ type Chat struct {
 	// Agent_b cannot confirm is never offered, because a font named but absent
 	// falls back silently and the reader would not know.
 	Typeface string `json:"typeface,omitempty"`
+	// HiddenSurfaces names the static tab-strip surfaces this reader has hidden
+	// (item 2mf). It lives here rather than under shell because it is a
+	// preference about what a reader sees, not machine state: item 2ly's scope
+	// table makes `chat` per-profile and `shell` machine-wide, and a hidden tab
+	// follows the person, not the computer.
+	//
+	// A hidden surface is hidden, NOT GONE: nothing about it is discarded and
+	// re-enabling puts it back where the list puts it, pinned at the far right.
+	// Only the names in HideableSurfaces are accepted, because an unknown name
+	// would be a surface nothing could bring back.
+	HiddenSurfaces []string `json:"hidden_surfaces,omitempty"`
 }
+
+// HideableSurfaces are the static surfaces a right-click may hide. A chat is not
+// here: a chat is CLOSED, which is item 2hq's close-is-not-delete and a
+// different thing entirely.
+var HideableSurfaces = []string{"plan"}
 
 // ChatTextSizes are the steps, smallest first. The default is "normal", which
 // is what every release before v1.15.0 rendered.
@@ -938,6 +955,13 @@ func (c Config) Validate() error {
 	}
 	if c.Chat.Typeface != "" && !allowed(c.Chat.Typeface, ChatTypefaces) {
 		return fmt.Errorf("chat.typeface: %q is not a typeface this build offers", c.Chat.Typeface)
+	}
+	// Item 2mf: an unknown hidden surface would be a surface nothing can bring
+	// back, so the name is refused rather than stored and forgotten.
+	for _, name := range c.Chat.HiddenSurfaces {
+		if !slices.Contains(HideableSurfaces, name) {
+			return fmt.Errorf("chat.hidden_surfaces: %q is not a surface that can be hidden", name)
+		}
 	}
 	if !c.Shell.AllowLocalNetwork && len(c.Shell.ConfirmedLocalSubnets) > 0 {
 		return fmt.Errorf("shell.confirmed_local_subnets: must be empty while allow_local_network is off")

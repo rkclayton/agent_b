@@ -112,10 +112,10 @@ test("projection-neutral tape events advance the cursor without rerendering view
 test("one agent and chat selection object persists across page loads", () => {
   snapshot();
   setSelection("agent_b", "main");
-  assert.deepEqual(store.selection, { agent_id: "agent_b", session_id: "main" });
+  assert.deepEqual(store.selection, { agent_id: "agent_b", session_id: "main", surface: { kind: "chat", key: "main" } });
   assert.equal(stored.get("agentb.selection"), JSON.stringify(store.selection));
   reduce({ type: "snapshot", data: { sessions: store.sessions, replay: false, connections: [], config: {} } });
-  assert.deepEqual(store.selection, { agent_id: "agent_b", session_id: "main" });
+  assert.deepEqual(store.selection, { agent_id: "agent_b", session_id: "main", surface: { kind: "chat", key: "main" } });
 });
 
 test("session-scoped UI error evidence never notifies rendering subscribers", () => {

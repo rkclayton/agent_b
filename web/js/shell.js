@@ -1,7 +1,8 @@
-import { api, reduce, setSelection, store, subscribe } from "./bus.js";
+import { api, reduce, setSelection, setSurface, store, subscribe } from "./bus.js";
 import { chatName, chatRowText, isRunning, sessionTitle } from "./chat-lifecycle.js";
 import { installUIErrorRelay } from "./ui-error-relay.js";
 import { requestNavigation } from "./navigation-guard.js";
+import { canHide, surfaceForPage, surfaceHref, surfaceLabel, surfaceTitle, visibleStaticSurfaces, withHidden } from "./surfaces.js";
 import { beginNavigation } from "./navigation-telemetry.js";
 
 const activeRunStates = new Set(["running", "queued", "stopping"]);
@@ -16,6 +17,11 @@ export function initShell(options = {}) {
   if (!root) return null;
   let page = options.page || root.dataset.page || "chat";
   root.replaceChildren();
+  // Item 2mf (b): the document loaded ON a surface, so the selection says which
+  // one. A chat page leaves the chat selection alone; a static surface records
+  // itself, which is how its tab knows it is the selected one after a reload.
+  const loaded = surfaceForPage(page, store.selection.session_id);
+  if (loaded && loaded.kind !== "chat") setSurface(loaded);
 
   const left = node("div", "shell-left");
   const newChatButton = button("+", "New chat with agent_b", "agent-tab-new");
@@ -41,55 +47,6 @@ export function initShell(options = {}) {
       sessionHeading.setAttribute("aria-expanded", "false");
     }
   };
-  const pages = node("nav", "shell-pages");
-  pages.setAttribute("aria-label", "Pages");
-  for (const [id, path] of [["plan", "/plan"]]) {
-    const link = node("button", `shell-page ${page === id ? "selected" : ""}`);
-    link.type = "button";
-    link.dataset.page = id;
-    // Item 2he: the processor, as drawn. The operator asked for "something more
-    // symmetrical that represents planning/thought and is robotic", picked the
-    // chip from three candidates, and it is checked in at
-    // web/assets/plan-chip.svg. This is that file VERBATIM -- same viewBox,
-    // same rects, same pin path, same stroke-width 2 -- not a redraw and not a
-    // simplification. The traced brain it replaces is gone, with its source
-    // reference and plan-brain.svg.
-    //
-    // The operator halved the displayed chip in v1.5.0; its checked-in geometry
-    // remains unchanged and scales inside the smaller header box.
-    // Item 2le: the operator own artwork, prepared to transparency with its colours
-    // kept. The rail draws this at 12px, so a variant with the faint interior
-    // tracery thinned is used here and the full-detail image heads the Plan page.
-    // Item 2lm (b): the strip draws a 12px box and the product runs at more than
-    // one device pixel ratio -- rel-1.16.0/W0 measured the operator own display at
-    // 1.75x, where that box is 21 physical pixels. One asset cannot be sharp at 1x
-    // and 2x and 3x, so the browser picks: 12, 24 and 36, each prepared from the
-    // full-detail mark rather than reduced from the one above it. (c): the DRAWN
-    // size is unchanged at 12.
-    link.innerHTML = '<img class="shell-page-chip" src="/static/assets/plan-mark-nav.png" srcset="/static/assets/plan-mark-nav.png 1x, /static/assets/plan-mark-nav@2x.png 2x, /static/assets/plan-mark-nav@3x.png 3x" width="12" height="12" alt="" decoding="async">';
-    link.setAttribute("aria-label", "plan");
-    link.title = "plan";
-    if (page === id) {
-      // Item 2gf: on the Plan page the toggle returns to the chat. It used to
-      // preventDefault, so the operator who reached Plan had no route back
-      // from the control that brought him — the capture in W1 shows the page
-      // he was left on.
-      link.setAttribute("aria-current", "page");
-      link.title = "chat";
-      link.setAttribute("aria-label", "chat");
-      link.onclick = (event) => {
-        event.preventDefault();
-        returnToChat();
-      };
-    } else {
-      link.onclick = () => {
-        const sessionID = store.selection.session_id || "";
-        const suffix = sessionID ? `?session=${encodeURIComponent(sessionID)}` : "";
-        requestNavigation({ kind: "flip", from: page, to: id, fullDocument: true, chatID: sessionID, mutationToken: store.mutation_token }, `${path}${suffix}`);
-      };
-    }
-    pages.append(link);
-  }
   const settings = node("button", "shell-settings");
   settings.type = "button";
   settings.textContent = "⚙";
@@ -111,7 +68,7 @@ export function initShell(options = {}) {
     control.append(glyph);
     windowControls.append(control);
   }
-  right.append(sessionHeading, connectionMenu, pages, settings, windowControls);
+  right.append(sessionHeading, connectionMenu, settings, windowControls);
   root.append(left, right);
   document.addEventListener("click", (event) => {
     if (!root.contains(event.target)) for (const menu of root.querySelectorAll(".shell-menu")) menu.hidden = true;
@@ -345,6 +302,113 @@ export function initShell(options = {}) {
       wrap.append(menu);
       tabs.append(wrap);
     }
+    renderStaticSurfaces(selectedSession, configured);
+  }
+
+  // Item 2mf (c) and (g): PLAN IS A SURFACE AND IT LIVES IN THE STRIP, pinned at
+  // the far right AFTER every chat, so it does not sort with them and does not
+  // move when one opens, closes or reorders. The one-entry `shell-pages` nav it
+  // replaces is gone.
+  //
+  // (g) THE STRIP STAYS A CHAT STRIP TO LOOK AT: this tab carries no robot glyph
+  // and no run state, because it has neither, and it says so in its class rather
+  // than by drawing a grey robot that would read as an idle conversation.
+  function renderStaticSurfaces(selectedSession, configured) {
+    for (const surface of visibleStaticSurfaces(store.config)) {
+      // The availability rule the pages nav carried, moved with the surface and
+      // not widened: the Plan is offered on a d-session, or when no separate d
+      // connection is configured at all.
+      if (surface.kind === "plan" && (!selectedSession || (selectedSession.role !== "d" && !!String(configured?.d || "").trim()))) continue;
+      const label = surfaceLabel(surface);
+      const wrap = node("div", "agent-tab-wrap agent-tab-wrap-surface");
+      wrap.dataset.surfaceKind = surface.kind;
+      wrap.dataset.surfaceKey = surface.key;
+      const selected = page === surface.kind;
+      if (selected) wrap.classList.add("selected");
+      const tab = button("", surfaceTitle(surface), `agent-tab agent-tab-surface ${selected ? "selected" : ""}`);
+      tab.dataset.surfaceKind = surface.kind;
+      tab.dataset.surfaceKey = surface.key;
+      tab.setAttribute("aria-label", `${surfaceTitle(surface)} · surface`);
+      if (selected) tab.setAttribute("aria-current", "page");
+      // [[2le]] and [[2lm]]: THE OPERATOR'S OWN PREPARED ARTWORK STAYS. It moved
+      // with the surface out of the pages nav and is drawn at the same 12px from
+      // the same three files, because the product runs at more than one device
+      // pixel ratio and one asset cannot be sharp at 1x, 2x and 3x. (c) asked
+      // for no ROBOT GLYPH and no run state, which this is not and does not have.
+      tab.innerHTML = `${surfaceChip(surface)}<span class="agent-tab-name">${escapeHTML(label)}</span>`;
+      tab.onclick = () => {
+        // Item 2gf: from the surface itself the tab is the way back, exactly as
+        // the pages nav's selected state was. From anywhere else it opens it.
+        if (selected) return void returnToChat();
+        setSurface(surface);
+        const sessionID = store.selection.session_id || "";
+        requestNavigation({ kind: "flip", from: page, to: surface.kind, fullDocument: true, chatID: sessionID, mutationToken: store.mutation_token }, surfaceHref(surface, sessionID));
+      };
+      const menu = node("div", "shell-menu agent-chat-menu");
+      menu.hidden = true;
+      tab.oncontextmenu = (event) => {
+        event.preventDefault();
+        for (const other of tabs.querySelectorAll(".shell-menu")) if (other !== menu) other.hidden = true;
+        // Item 2gh: a second right-click on the same tab dismisses it.
+        if (!menu.hidden) { menu.hidden = true; return; }
+        renderSurfaceMenu(menu, surface, tab);
+        revealMenu(menu, tab, { x: event.clientX, y: event.clientY });
+      };
+      wrap.append(tab, menu);
+      tabs.append(wrap);
+    }
+  }
+
+  function surfaceChip(surface) {
+    if (surface.kind !== "plan") return "";
+    return '<img class="shell-page-chip" src="/static/assets/plan-mark-nav.png" srcset="/static/assets/plan-mark-nav.png 1x, /static/assets/plan-mark-nav@2x.png 2x, /static/assets/plan-mark-nav@3x.png 3x" width="12" height="12" alt="" decoding="async">';
+  }
+
+  // (d): right-click offers Hide, through the context menu the strip already has,
+  // and hiding ASKS FIRST — in [[2l4]]'s shape, the one anchored confirmation this
+  // product uses, rather than a second confirm pattern invented here.
+  function renderSurfaceMenu(menu, surface, anchor) {
+    menu.replaceChildren();
+    if (!canHide(surface)) return;
+    const hide = button(`Hide ${surfaceTitle(surface)}`, `Hide the ${surfaceTitle(surface)} tab`, "shell-new-choice");
+    hide.onclick = () => {
+      menu.hidden = true;
+      confirmHide(surface, anchor);
+    };
+    menu.append(hide);
+  }
+
+  function confirmHide(surface, anchor) {
+    for (const stale of tabs.querySelectorAll(".confirm-popover")) stale.remove();
+    const popover = node("div", "confirm-popover");
+    const text = node("p", "");
+    text.textContent = `Hide the ${surfaceTitle(surface)} tab? You can turn it back on in Settings.`;
+    const actions = node("div", "confirm-actions");
+    const cancel = button("Cancel", "Leave it where it is", "");
+    const confirm = button("Hide", `Hide ${surfaceTitle(surface)}`, "default");
+    cancel.onclick = () => popover.remove();
+    confirm.onclick = async () => {
+      popover.remove();
+      try {
+        // (f): the surface is not discarded. Only its name is remembered as
+        // hidden, so re-enabling puts it back where the list puts it.
+        await api("/api/config", { chat: { hidden_surfaces: withHidden(store.config, surface, true) } });
+        reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+      } catch (error) { report(error.message); }
+    };
+    actions.append(cancel, confirm);
+    popover.append(text, actions);
+    tabs.append(popover);
+    revealMenu(popover, anchor);
+    const dismiss = (event) => {
+      if (popover.contains(event.target)) return;
+      popover.remove();
+      document.removeEventListener("pointerdown", dismiss, true);
+    };
+    document.addEventListener("pointerdown", dismiss, true);
+    // Item 2l4 (c): Escape answers the popover first, and cancels it.
+    popover.addEventListener("keydown", (event) => { if (event.key === "Escape") popover.remove(); });
+    cancel.focus();
   }
 
   // Item 2gf: the one way back, used by the Plan toggle and by the stand-in
@@ -547,8 +611,6 @@ export function initShell(options = {}) {
     if (session) query.set("session", session.id);
     const suffix = query.size ? `?${query}` : "";
     const configured = configuredAgent(session);
-    const planLink = pages.querySelector('[data-page="plan"]');
-    if (planLink) planLink.hidden = !session || (session.role !== "d" && !!String(configured?.d || "").trim());
     // Item 2hb: on a page that is its own document the gear is a LINK, and the
     // document it opens has no other way to know where it came from. The view
     // being left is named in the address, so closing can return to it.
@@ -565,6 +627,9 @@ export function initShell(options = {}) {
     setPage(next) {
       page = next;
       root.dataset.page = next;
+      // Item 2mf (b): an in-page surface change moves the selection with it.
+      const surface = surfaceForPage(next, store.selection.session_id);
+      if (surface && surface.kind !== "chat") setSurface(surface);
       render();
     },
     newChat() {

@@ -109,3 +109,57 @@ test("the phone viewport enrols into the shared chat surface without horizontal 
 	expect(await phone.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 	await phoneContext.close();
 });
+
+// Item 2mf: Plan is a SURFACE in the tab strip, pinned at the far right, and a
+// tab's identity is a kind and a key. Everything here is read from the running
+// app, because the whole point of the item is where the tab sits relative to the
+// chats and what happens when they change.
+test("the Plan tab is pinned after every chat, carries a kind and a key, and hides with a confirmation", async () => {
+	const page = await harness.context.newPage();
+	await page.goto(`${harness.base}/chat`);
+	await expect(page.locator("#chat-log")).toBeVisible();
+
+	const plan = page.locator('.agent-tab-wrap-surface[data-surface-kind="plan"]');
+	await expect(plan).toHaveCount(1);
+	// The one-entry pages nav is gone.
+	await expect(page.locator(".shell-pages")).toHaveCount(0);
+
+	// (a): a kind and a key, and the chat kind carries the session.
+	await expect(plan).toHaveAttribute("data-surface-key", "plan");
+	const chatTab = page.locator(".agent-tab-wrap[data-session]").first();
+	await expect(chatTab).toHaveCount(1);
+
+	// (c): pinned at the far RIGHT of the strip — last in the strip — and it stays
+	// last when another chat opens, which is the part a static entry gets wrong.
+	const lastOf = () => page.evaluate(() => {
+		const wraps = [...document.querySelectorAll(".agent-tabs .agent-tab-wrap")];
+		return { last: wraps.at(-1)?.dataset.surfaceKind || "", count: wraps.length };
+	});
+	const before = await lastOf();
+	expect(before.last).toBe("plan");
+	await page.locator(".agent-tab-new").click();
+	await expect.poll(async () => (await lastOf()).count).toBeGreaterThan(before.count);
+	expect((await lastOf()).last, "the Plan tab moved when a chat opened").toBe("plan");
+
+	// (g): no robot glyph and no run state on a surface tab.
+	await expect(plan.locator(".agent-tab-robot")).toHaveCount(0);
+	// [[2le]]/[[2lm]]: the operator's own prepared mark came with it.
+	await expect(plan.locator("img.shell-page-chip")).toHaveCount(1);
+
+	// (d): right-click offers Hide, and hiding ASKS FIRST, naming Settings.
+	await plan.locator(".agent-tab").click({ button: "right" });
+	const hide = plan.locator(".agent-chat-menu button");
+	await expect(hide).toHaveText(/Hide Plan/);
+	await hide.click();
+	const confirm = page.locator(".confirm-popover");
+	await expect(confirm).toBeVisible();
+	await expect(confirm.locator("p")).toHaveText(/turn it back on in Settings/);
+	await confirm.locator("button.default").click();
+	await expect(page.locator('.agent-tab-wrap-surface[data-surface-kind="plan"]')).toHaveCount(0);
+
+	// (e) and (f): Settings brings it back, and it returns to the far right.
+	await page.locator(".shell-settings").click();
+	await page.locator('.settings-nav [data-id="chats"]').click();
+	await page.locator('[data-action="surface-visible"][data-surface="plan"]').click();
+	await expect.poll(async () => (await lastOf()).last).toBe("plan");
+});

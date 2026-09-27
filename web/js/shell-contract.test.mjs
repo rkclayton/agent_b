@@ -17,9 +17,13 @@ test("shared shell slot order is identical on the chat and Plan", () => {
     assert.doesNotMatch(html, /id="(?:shell-stop|shell-state|shell-operator-status)"/);
   }
   assert.match(shell, /root\.append\(left, right\)/);
-  assert.match(shell, /right\.append\(sessionHeading, connectionMenu, pages, settings, windowControls\)/);
+  // Item 2mf (c): the one-entry pages nav is gone and Plan is a tab in the strip
+  // on the LEFT, so the right slot is one element shorter and the plan entry it
+  // held is not there to assert any more.
+  assert.match(shell, /right\.append\(sessionHeading, connectionMenu, settings, windowControls\)/);
   assert.doesNotMatch(shell, /shell-operator-status|right\.append\(stop/);
-  assert.match(shell, /\[\["plan", "\/plan"\]\]/);
+  assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
+  assert.match(shell, /renderStaticSurfaces\(selectedSession, configured\)/);
   assert.doesNotMatch(shell, /\["chat", "Chat", "\/chat"\]|\["console", "Console", "\/"\]/);
   // Item 2gk: the page it used to flip to is gone, so the flip is gone with it.
   assert.doesNotMatch(shell, /Console/);
@@ -93,12 +97,15 @@ test("plus adds a two-line d choice only for an assigned d connection", () => {
   assert.doesNotMatch(shell, /planRepoEditor|showPlanMenu|plan_id/);
 });
 
-test("Plan is a compact accessible chip icon", () => {
+// Item 2mf: Plan is a TAB now, not a one-entry nav. The chip is the same file at
+// the same drawn size and the accessible name is still there; what moved is where
+// it lives. The pages nav is gone and this asserts that too.
+test("Plan is a compact accessible chip icon, in the tab strip", () => {
   assert.match(shell, /class="shell-page-chip"/);
-  assert.match(shell, /setAttribute\("aria-label", "plan"\)/);
-  assert.match(shell, /link\.title = "plan"/);
-  assert.doesNotMatch(shell, /\[\["plan", "Plan", "\/plan"\]\]/);
-  assert.match(shell, /node\("button", `shell-page/);
+  assert.match(shell, /plan-mark-nav\.png 1x, [^"]*@2x\.png 2x, [^"]*@3x\.png 3x/);
+  assert.match(shell, /aria-label", `\$\{surfaceTitle\(surface\)\} · surface`/);
+  assert.doesNotMatch(shell, /node\("nav", "shell-pages"\)/);
+  assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
   assert.match(shell, /node\("button", "shell-settings"\)/);
   assert.doesNotMatch(shell, /link\.href|settings\.href/);
 });

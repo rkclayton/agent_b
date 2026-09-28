@@ -961,8 +961,13 @@ if (realModel) {
   await page.locator('.connection-summary[data-id="acceptance"]').click();
   // Item 2l5: Test is one of the four actions on the connection own row now.
   await page.locator('.connection-row [data-action="probe"][data-id="acceptance"]').click();
-  await browser.wait(`document.querySelector('.connection-summary[data-id="acceptance"] .connection-state')?.textContent.includes('Test passed')`, "Settings Test passed before Chat return");
-  assert.match(await connectionState.innerText(), /Test passed/);
+  // Item 2nb (g): ONE MESSAGE, ONE PLACE. The row header carries the STATE WORD, and
+  // the sentence lives once in the editor under the field it is about. Before this the
+  // row carried the whole message, which overflowed it and was also shown twice more.
+  await browser.wait(`document.querySelector('.connection-summary[data-id="acceptance"] .connection-state')?.textContent.includes('ready')`, "Settings Test ready on the row before Chat return");
+  assert.match(await connectionState.innerText(), /ready/);
+  assert.doesNotMatch(await connectionState.innerText(), /Test passed/);
+  assert.match(await page.locator(".connection-editor .discovery-note").innerText(), /Test passed/);
   // Item 2gf: from Settings, ONE click on the tab reaches the chat. This step
   // used to need the tab menu entry to get back, which is the trap 2gf closed.
   await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click();

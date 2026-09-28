@@ -439,7 +439,13 @@ try {
     foreach ($state in $walk) {
         if ($state.step -and -not $state.line) { throw 'UPDATE WALK FAILED: a stage was published with no line, and a wait element without one is decoration' }
     }
-    Write-Host "PROOF the update is a sequence you can watch: $($walkSteps -join ' -> '), determinate at $largest of $setupBytes bytes during the download"
+    if ($walkCapable -and $determinate.Count) {
+        Write-Host "PROOF the update is a sequence you can watch: $($walkSteps -join ' -> '), determinate at $largest of $setupBytes bytes during the download"
+    } else {
+        # A PROOF line that proves nothing is worse than no line: this half is the one
+        # the FROM build cannot answer, and it says so instead of printing an empty one.
+        Write-Host "NOT PROVED HERE: the stage walk saw $($walk.Count) states and no stages, because $($before.tag)'s updater publishes none. The candidate's own stages are proved in-process by TestTheUpdateIsASequenceOfStages2nh."
+    }
 
     # Whichever way it went, the operator's installation must be exactly as it was.
     $operatorAfter = if (Test-Path -LiteralPath (Join-Path $operatorApplication 'Agent_b.exe')) {

@@ -26,9 +26,11 @@ package main
 import (
 	_ "embed"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -46,8 +48,30 @@ const (
 	hostDefaultWidth  = 1280
 	hostDefaultHeight = 860
 
+	// Item 2nm (b): THE ONLY MINIMUM IS THE ONE THE PAGE NEEDS TO STAY USABLE, and
+	// these two numbers are measured rather than chosen. wmGetMinMaxInfo was declared
+	// here and never handled, so the frame stated nothing and the window kept
+	// Windows' own default track size (measured on the operator's machine as
+	// 136 x 39) -- a size at which the page is a strip and nothing else.
+	//
+	// HEIGHT, at 96 DPI and measured in the running page rather than reasoned about:
+	// the strip band the transcript starts below (36 px), the composer's own row at
+	// its floor (158 px), and three lines of transcript at the 20 px line height the
+	// chat log computes to (60 px) -- 254 px of client, plus the 39 px of frame this
+	// style carries, is 293. The first arithmetic here said 289 and the layout case
+	// measured 57 px of transcript at it, which is two lines and a bit; the number is
+	// what the page reported, not what the sum predicted.
+	//
+	// WIDTH: the three window buttons the strip paints (108 px) beside one chat tab
+	// and the new-chat control, measured at 295 px of content in the 304 px client a
+	// 320 px window gives. Below that the strip begins to lose tabs rather than
+	// overflow them, which item 2mf's strip is not written for.
+	hostMinWidth  = 320
+	hostMinHeight = 293
+
 	wmDestroy       = 0x0002
 	wmSize          = 0x0005
+	wmExitSizeMove  = 0x0232
 	wmNCCalcSize    = 0x0083
 	wmNCHitTest     = 0x0084
 	wmSetIcon       = 0x0080
@@ -103,6 +127,9 @@ var (
 	procPostMessage         = user32.NewProc("PostMessageW")
 	procSendMessage         = user32.NewProc("SendMessageW")
 	procCreateIconResource  = user32.NewProc("CreateIconFromResourceEx")
+	procIsIconic            = user32.NewProc("IsIconic")
+	procGetDpiForWindow     = user32.NewProc("GetDpiForWindow")
+	procMonitorFromRect     = user32.NewProc("MonitorFromRect")
 	procSetAppUserModelID   = syscall.NewLazyDLL("shell32.dll").NewProc("SetCurrentProcessExplicitAppUserModelID")
 )
 
@@ -268,6 +295,11 @@ func isMaximized(hwnd uintptr) bool {
 	return zoomed != 0
 }
 
+func isMinimized(hwnd uintptr) bool {
+	iconic, _, _ := procIsIconic.Call(hwnd)
+	return iconic != 0
+}
+
 // windowProcedure is the whole of the frame. Everything it does is either
 // "give the client area the caption's band" or "tell Windows which part of the
 // frame this point is", and Windows does the rest.
@@ -326,6 +358,20 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsaf
 		w.resizeController()
 		return 0
 
+	case wmGetMinMaxInfo:
+		// Declared since v1.3.0 and never answered until item 2nm. Answering it is
+		// what lets the bottom and right edges drag all the way to the stated
+		// minimum and no further, and it is the only clamp this window has.
+		info := (*minMaxInfo)(lParam)
+		info.minTrackSize.x, info.minTrackSize.y = hostMinimumTrack(hwnd)
+		return 0
+
+	case wmExitSizeMove:
+		// (d): the size he chose is his. Written when the drag ends rather than on
+		// every WM_SIZE, which would be a file write per frame of a resize.
+		w.savePlacement()
+		return 0
+
 	case wmHostMinimize:
 		procShowWindow.Call(hwnd, swMinimize)
 		return 0
@@ -346,6 +392,7 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsaf
 		return 0
 
 	case wmDestroy:
+		w.savePlacement()
 		procPostQuitMessage.Call(0)
 		return 0
 	}
@@ -396,6 +443,95 @@ func hostHitTest(x, y, width, height, borderX, borderY int32, maximized bool) ui
 		}
 	}
 	return htClient
+}
+
+// minMaxInfo is what WM_GETMINMAXINFO hands us to fill in. Only minTrackSize is
+// written; every other field stays as Windows computed it.
+type minMaxInfo struct {
+	reserved     point
+	maxSize      point
+	maxPosition  point
+	minTrackSize point
+	maxTrackSize point
+}
+
+// hostMinimumTrack is hostMinWidth x hostMinHeight in the window's own DPI, so the
+// stated minimum means the same thing on a 150% display as on a 100% one.
+func hostMinimumTrack(hwnd uintptr) (int32, int32) {
+	dpi := int32(96)
+	if procGetDpiForWindow.Find() == nil {
+		if value, _, _ := procGetDpiForWindow.Call(hwnd); value >= 48 {
+			dpi = int32(value)
+		}
+	}
+	return hostMinWidth * dpi / 96, hostMinHeight * dpi / 96
+}
+
+// placementPath is beside the marker file the launcher writes, in the data root:
+// the WebView2 folder is WebView2's, and this is ours. Item 2nm (d).
+func (w *hostWindow) placementPath() string {
+	if strings.TrimSpace(w.userDataDir) == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(w.userDataDir), "window-placement.json")
+}
+
+type hostPlacement struct {
+	X      int32 `json:"x"`
+	Y      int32 `json:"y"`
+	Width  int32 `json:"width"`
+	Height int32 `json:"height"`
+}
+
+// savePlacement records where the window is, so the next launch opens it there.
+// Nothing is recorded while it is minimised or maximised: those are states, not
+// sizes, and writing them would lose the size underneath.
+func (w *hostWindow) savePlacement() {
+	path := w.placementPath()
+	if path == "" || w.hwnd == 0 || isMaximized(w.hwnd) || isMinimized(w.hwnd) {
+		return
+	}
+	var window rect
+	if ok, _, _ := procGetWindowRect.Call(w.hwnd, uintptr(unsafe.Pointer(&window))); ok == 0 {
+		return
+	}
+	placement := hostPlacement{X: window.left, Y: window.top, Width: window.right - window.left, Height: window.bottom - window.top}
+	if placement.Width <= 0 || placement.Height <= 0 {
+		return
+	}
+	data, err := json.Marshal(placement)
+	if err != nil {
+		return
+	}
+	// A placement that cannot be written is not worth failing a launch over.
+	_ = os.WriteFile(path, data, 0o600)
+}
+
+// readPlacement returns the remembered placement, or zero values when there is
+// none, when it cannot be read, or when it would open the window off every screen
+// this machine currently has -- a laptop that was docked yesterday must not open
+// its window onto a monitor that is no longer there.
+func (w *hostWindow) readPlacement() hostPlacement {
+	path := w.placementPath()
+	if path == "" {
+		return hostPlacement{}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return hostPlacement{}
+	}
+	var placement hostPlacement
+	if err := json.Unmarshal(data, &placement); err != nil {
+		return hostPlacement{}
+	}
+	if placement.Width < hostMinWidth || placement.Height < hostMinHeight {
+		return hostPlacement{}
+	}
+	corner := rect{left: placement.X, top: placement.Y, right: placement.X + placement.Width, bottom: placement.Y + placement.Height}
+	if monitor, _, _ := procMonitorFromRect.Call(uintptr(unsafe.Pointer(&corner)), 0); monitor == 0 {
+		return hostPlacement{}
+	}
+	return placement
 }
 
 func (w *hostWindow) resizeController() {
@@ -560,8 +696,17 @@ func (w *hostWindow) create(title string) error {
 		return fmt.Errorf("registering the host window class failed")
 	}
 	w.classAtom = atom
+	// Item 2nm (d): the window opens where it was left, at the size it was left,
+	// including a small one. Nothing remembered it before this: every launch was
+	// 1280 x 860 whatever the operator had dragged it to.
+	x, y := uintptr(cwUseDefault), uintptr(cwUseDefault)
+	width, height := uintptr(hostDefaultWidth), uintptr(hostDefaultHeight)
+	if placement := w.readPlacement(); placement.Width > 0 {
+		x, y = uintptr(placement.X), uintptr(placement.Y)
+		width, height = uintptr(placement.Width), uintptr(placement.Height)
+	}
 	hwnd, _, _ := procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(windowTitle)),
-		wsOverlappedWindow, cwUseDefault, cwUseDefault, hostDefaultWidth, hostDefaultHeight, 0, 0, instance, 0)
+		wsOverlappedWindow, x, y, width, height, 0, 0, instance, 0)
 	if hwnd == 0 {
 		return fmt.Errorf("creating the host window failed")
 	}

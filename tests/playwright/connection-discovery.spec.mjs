@@ -259,3 +259,47 @@ test("the Plan is a top-level Settings section, not a tab, and the switch hides 
 	await expect.poll(async () => page.locator('.settings-nav [data-id="plan"]').count()).toBe(1);
 	await page.close();
 });
+
+// Item 2nm (c): THE SMALL DESKTOP. "i still can't drag the bottom chat window all the
+// way down to collapse the window ... i want to be able to shrink it down."
+//
+// The frame now states one minimum and nothing else clamps, so the page has to hold at
+// that minimum: the client area a 320 x 293 window gives is 304 x 254, and this walks
+// the real surface at exactly that. The phone case above proves the enrolled surface at
+// 390 px; this one proves the desktop chat at the smallest size the window can be.
+test("the chat surface holds at the smallest size the window can be dragged to", async () => {
+  const small = await harness.browser.newContext({ viewport: { width: 304, height: 254 } });
+  const page = await small.newPage();
+  await page.goto(`${harness.base}/chat`);
+  await expect(page.locator("#chat-log")).toBeVisible();
+  const seen = await page.evaluate(() => {
+    const box = (selector) => {
+      const node = document.querySelector(selector);
+      return node ? node.getBoundingClientRect() : null;
+    };
+    const composer = box("#chat-task");
+    const send = box("#chat-send");
+    const strip = box(".agent-tabs");
+    const log = box("#chat-log");
+    const clipped = [];
+    for (const [name, rect] of Object.entries({ composer, send, strip, log })) {
+      if (!rect) { clipped.push(`${name} is not on the page at all`); continue; }
+      if (rect.right > window.innerWidth + 1) clipped.push(`${name} runs off the right edge`);
+      if (rect.bottom > window.innerHeight + 1) clipped.push(`${name} runs off the bottom edge`);
+      if (rect.width < 1 || rect.height < 1) clipped.push(`${name} has no size`);
+    }
+    // Nothing overlaps the composer: the transcript ends where the composer begins.
+    if (log && composer && log.bottom > composer.top + 1) clipped.push("the transcript runs under the composer");
+    return {
+      clipped,
+      sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      transcript: log ? Math.round(log.height) : 0,
+    };
+  });
+  expect(seen.clipped, seen.clipped.join("; ")).toEqual([]);
+  expect(seen.sideways, "the page scrolls sideways at the stated minimum").toBe(false);
+  // Three lines of transcript at the 20 px line height the chat log computes to, which
+  // is the reason the stated minimum is the number it is.
+  expect(seen.transcript, "the transcript has no room for three lines").toBeGreaterThanOrEqual(60);
+  await small.close();
+});

@@ -76,10 +76,33 @@ $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
 $stateURL = "http://$($config.listen)/api/state"
 $arguments = @('-config', $configPath, '-data-root', $DataRoot, '-app-root', $ApplicationRoot, '-window')
 $shortcutRecord = (New-Object -ComObject WScript.Shell).CreateShortcut($Shortcut)
-if (-not $shortcutRecord.TargetPath.Equals($Exe, [StringComparison]::OrdinalIgnoreCase)) { throw 'shortcut does not target the supplied executable' }
+# Item 2nk (b): the shortcut now starts the app through the HIDDEN HOST rather than
+# naming the executable as its target, because a console-subsystem binary started
+# directly by Explorer is handed a console. So the executable is named in the ARGUMENTS,
+# and the process this gate must follow is the app it eventually starts, not the host,
+# which exits at once.
+if (-not ($shortcutRecord.TargetPath.Equals($Exe, [StringComparison]::OrdinalIgnoreCase) -or $shortcutRecord.Arguments -match [regex]::Escape($Exe))) {
+    throw 'shortcut neither targets the supplied executable nor names it in its arguments'
+}
 $shortcutArguments = $shortcutRecord.Arguments
 $startedAt = [Diagnostics.Stopwatch]::StartNew()
-$first = Start-Process -FilePath $shortcutRecord.TargetPath -ArgumentList $shortcutArguments -PassThru -WindowStyle Hidden
+function Get-InstalledInstances {
+    return @(Get-Process -Name Agent_b -ErrorAction SilentlyContinue | Where-Object {
+        try { $_.Path -and [IO.Path]::GetFullPath($_.Path).Equals([IO.Path]::GetFullPath($Exe), [StringComparison]::OrdinalIgnoreCase) } catch { $false }
+    })
+}
+$launcher = Start-Process -FilePath $shortcutRecord.TargetPath -ArgumentList $shortcutArguments -PassThru -WindowStyle Hidden
+$first = $launcher
+if (-not $shortcutRecord.TargetPath.Equals($Exe, [StringComparison]::OrdinalIgnoreCase)) {
+    # Wait for the app the host started, and follow that.
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $running = Get-InstalledInstances
+        if ($running.Count) { $first = $running[0]; break }
+        Start-Sleep -Milliseconds 250
+    }
+    if ($first -eq $launcher) { throw 'the hidden host did not start the installed executable' }
+}
 $second = $null
 $result = [ordered]@{ dpi = 0; first_pid = $first.Id; ready_ms = 0; second_exit = $null; marker_unchanged = $false; activated_foreground = $false; activated_restored = $false; process_count = 0; top_level_classes = @(); maximize = $false; restore = $false; minimize = $false; close = $false; launcher_line = '' }
 try {
@@ -101,6 +124,13 @@ try {
     Wait-Until { [AgentbWindowAcceptance.Win]::IsIconic($window) } 'pre-activation minimize failed'
     $second = Start-Process -FilePath $shortcutRecord.TargetPath -ArgumentList $shortcutArguments -PassThru -WindowStyle Hidden
     if (-not $second.WaitForExit(10000)) { throw 'second launch did not exit' }
+    # Through the hidden host the exit code is the HOST's, and the app it started is the
+    # one that decides to activate the existing window and exit. Give it time to do so,
+    # then assert on the instance count, which is what single-instance means.
+    if (-not $shortcutRecord.TargetPath.Equals($Exe, [StringComparison]::OrdinalIgnoreCase)) {
+        $settle = [DateTime]::UtcNow.AddSeconds(15)
+        while ([DateTime]::UtcNow -lt $settle -and (Get-InstalledInstances).Count -gt 1) { Start-Sleep -Milliseconds 250 }
+    }
     $result.second_exit = $second.ExitCode
     $after = (Get-FileHash -Algorithm SHA256 -LiteralPath $marker).Hash
     $result.marker_unchanged = $before -eq $after

@@ -34,6 +34,10 @@ test.afterAll(async () => {
   if (root) removeTreeWithinAllowedRoots(root, [tmpdir()], "connection-discovery Playwright cleanup");
 });
 
+// NOTE, measured at rel-1.31.0: every case here opens its own page, and a page holds
+// an SSE stream. Six of them reach the browser's per-origin HTTP/1.1 connection limit
+// and the next page's requests queue behind them forever — which showed up as a save
+// that said "Saving changes…" and never finished. Each case closes its page.
 test("Setup and Connections share endpoint discovery and the model picker", async () => {
   const setup = await harness.context.newPage();
   await setup.goto(`${harness.base}/setup`);
@@ -65,6 +69,8 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   await expect(header).not.toContainText('is not served');
   await expect(header).not.toHaveText("");
   expect(await hash(join(harness.dataRoot, "harness.json"))).toBe(before);
+  await setup.close();
+  await settings.close();
 });
 
 // Item 2mh (a) and (c): THE SWITCHER, MEASURED IN THE RUNNING APP.
@@ -98,6 +104,7 @@ test("the switcher's model column has real room and no ellipsis", async () => {
   expect(measured.overflow, JSON.stringify(measured)).toBe("clip");
   expect(measured.clipped, "the model name is being cut off").toBe(false);
   expect(Number.parseFloat(measured.fontSize)).toBeLessThan(12);
+  await page.close();
 });
 
 test("the active chat tab returns from Plan and three Settings depths", async () => {
@@ -131,6 +138,7 @@ test("the active chat tab returns from Plan and three Settings depths", async ()
 		await expect(page.locator("#settings-page")).toBeHidden();
 		await expect(page.locator("#chat-log")).toBeVisible();
 	}
+	await page.close();
 });
 
 test("the phone viewport enrols into the shared chat surface without horizontal overflow", async () => {
@@ -202,6 +210,12 @@ test("closing the selected chat shows its neighbour, and the last one shows the 
   await expect(page.locator(".chat-empty")).toBeVisible();
   await expect(tabs()).toHaveCount(0);
   await expect(page.locator("#chat-task")).toBeDisabled();
+
+  // This harness is shared with the cases below and this one closes every chat.
+  // Leave it as it was found.
+  await page.locator(".agent-tab-new").click();
+  await expect(tabs()).toHaveCount(1);
+  await page.close();
 });
 
 // Item 2ni: THE PLAN IS A SETTINGS SECTION, NOT A TAB. "why is plan a chat tab on
@@ -243,4 +257,5 @@ test("the Plan is a top-level Settings section, not a tab, and the switch hides 
 	expect(direct.status(), "the Plan's own address stopped answering when its entry was hidden").toBe(200);
 	await page.locator('[data-action="surface-visible"][data-surface="plan"]').click();
 	await expect.poll(async () => page.locator('.settings-nav [data-id="plan"]').count()).toBe(1);
+	await page.close();
 });

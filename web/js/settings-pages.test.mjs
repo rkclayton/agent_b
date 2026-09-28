@@ -215,11 +215,15 @@ test("the configuration route refuses an API key that still holds the mask", () 
 // before this, which is why the operator thought Test had done nothing.
 test("a running endpoint walk leaves a seat for the one waiting element, not a second indicator", () => {
 	const context = pageContext();
-	context.connectionList = () => [{ id: "walk", label: "Walk", base_url: "http://walk:8080/", sampling: { thinking: {}, nonthinking: {} }, context: {}, reasoning: {}, capabilities: {} }];
+	context.connectionList = () => [{ id: "walk", label: "Walk", base_url: "http://walk:8080/", _probing: true, sampling: { thinking: {}, nonthinking: {} }, context: {}, reasoning: {}, capabilities: {} }];
 	context.expanded.add("walk");
 	context.probeMessages.set("walk", { walking: { line: "http://walk:8080 — wants an API key", processed: 2, total: 16 } });
 	const page = renderConnectionsPage(context);
-	assert.match(page, /data-connection-wait="walk"/, "no seat was left for the waiting element");
+	// Item 2nn (c) moved the seat: the waiting element belongs INSIDE the control
+	// that was pressed, not under the field, because a bar the operator has to go
+	// looking for is a bar he reports as missing.
+	assert.match(page, /data-probe-wait="walk"/, "no seat was left for the waiting element");
+	assert.doesNotMatch(page, /data-connection-wait="walk"/, "the old seat under the field is still rendered too");
 	// The page must NOT build its own indicator: item 2m4 says there is one element.
 	assert.doesNotMatch(page, /class="wait"/, "the page built its own waiting element");
 	assert.doesNotMatch(page, /discovery-note/, "the note and the wait are both shown");
@@ -227,8 +231,11 @@ test("a running endpoint walk leaves a seat for the one waiting element, not a s
 
 test("the controller mounts the one waiting element into that seat, determinate", () => {
 	const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
-	assert.match(controller, /import \{ waitElement \} from "\.\/wait\.js"/);
-	assert.match(controller, /data-connection-wait/);
+	assert.match(controller, /import \{ setWaitProgress, waitElement \} from "\.\/wait\.js"/);
+	// (2nn (c)) the seat is in the control now, and the walk's reports move the bar
+	// in place rather than re-rendering the sheet out from under the operator.
+	assert.match(controller, /data-probe-wait/);
+	assert.match(controller, /setWaitProgress\(bar, moved\)/);
 	assert.match(controller, /waitElement\(document, \{ line: walking\.line, processed: walking\.processed, total: walking\.total \}\)/);
 	// (b): the walk's own report is what fills it, and it is cleared when Test answers.
 	assert.match(controller, /event\.type === "connection\.discovering"/);

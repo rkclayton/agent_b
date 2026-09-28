@@ -39,8 +39,12 @@ function connections() {
         if (/^test passed|ready/.test(text)) return "ready";
         return "";
       };
+      // Item 2nn (c): while the test runs the state word is BLANK, because the
+      // waiting element in the Test control beside it is the state — and because
+      // the bare word "testing" is exactly what the operator read as no progress
+      // at all. One waiting element, and it is a bar.
       const testState = connection._probing
-        ? "testing"
+        ? ""
         : (feedback?.message && stateWord(feedback.message))
           ? stateWord(feedback.message) + (hasPendingChanges ? " · unsaved" : "")
           : hasPendingChanges
@@ -65,7 +69,7 @@ function connections() {
           </button>
           <span class="connection-actions">
             <button type="button" class="row-action" data-action="save-connection" data-id="${attr(connection.id)}" aria-label="Save ${attr(connection.label)}" title="Save ${attr(connection.label)}" ${hasPendingChanges ? "" : "disabled"}>${connectionIcons.save}</button>
-            <button type="button" class="row-action test" data-action="probe" data-id="${attr(connection.id)}" aria-label="Test ${attr(connection.label)}" title="Test ${attr(connection.label)} and fill what it finds" ${connection._probing ? "disabled" : ""}>${connection._probing ? "testing" : "test"}</button>
+            <button type="button" class="row-action test" data-action="probe" data-id="${attr(connection.id)}" aria-label="Test ${attr(connection.label)}" title="Test ${attr(connection.label)} and fill what it finds" ${connection._probing ? "disabled" : ""}>${connection._probing ? `<span class="probe-wait" data-probe-wait="${attr(connection.id)}"></span>` : "test"}</button>
             <button type="button" class="row-action" data-action="duplicate-connection" data-id="${attr(connection.id)}" aria-label="Duplicate ${attr(connection.label)}" title="Duplicate ${attr(connection.label)}">${connectionIcons.duplicate}</button>
             <button type="button" class="row-action" data-action="remove-connection" data-id="${attr(connection.id)}" data-confirm="${attr(connection.label)}" aria-label="Remove ${attr(connection.label)}" title="Remove ${attr(connection.label)}">${connectionIcons.trash}</button>
           </span>
@@ -206,19 +210,33 @@ function connectionFields(connection, reason, discovery) {
 	// waiting element, mounted by the controller. A second indicator is not built here,
 	// and the note is replaced by it rather than sitting beside it.
 	const walking = discovery?.walking;
+	// Item 2nn (c): the bar lives in the CONTROL that was pressed now, so the field's
+	// own seat is gone rather than showing a second one — 2m4's rule is one waiting
+	// element, and the one the operator is looking at is the one he just clicked.
 	const discoveryNote = walking
-	  ? `<div class="discovery-wait" data-connection-wait="${attr(id)}"></div>`
+	  ? ""
 	  : noteText ? `<p class="settings-note discovery-note ${discovery?.alarm ? "alarm" : ""}">${html(noteText)}</p>` : "";
 	const state = reason || (caps.probed_at ? "ready" : "not tested");
-	return `<div class="connection-fieldset connection-identity">${text(`${p}.label`, "label", connection.label, "text", "The name this connection is shown by.")}
-    ${text(`${p}.base_url`, "base_url", connection.base_url, "text", "The server address; Test and fill discovers its API path and port, lists models and proposes the rest.")}${discoveryNote}
-	${text(`${p}.credential`, "credential ref", connection.credential || "", "text", "The name the stored API key is kept under; the key itself is never in the configuration.")}
-    ${secret(`${p}.api_key`, "api_key", connection.api_key, id, "API keys are stored in user-scoped DPAPI storage; configuration keeps only the credential reference.")}
-    ${modelControl}
+	// Item 2nn (d): THE SHEET READS TOP TO BOTTOM AS THE FLOW. label, address, key,
+	// Test, model, Evaluate, Save — the order an operator actually does it in. The
+	// settings that only make sense once a model is chosen (the credential name it
+	// was stored under, the context size, the thinking switch, the state line) are
+	// not on screen until one is: before that they are questions about a connection
+	// that has not been established, and the operator's report was that the sheet
+	// asks too much of him at once.
+	const chosenModel = !!(connection.model || "").trim();
+	const afterModel = chosenModel ? `${text(`${p}.credential`, "credential ref", connection.credential || "", "text", "The name the stored API key is kept under; the key itself is never in the configuration.")}
     ${row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(connection.context.n_ctx || "")}" placeholder="${attr(caps.n_ctx || "")}">`, "", "The probed context is used as the placeholder until this is saved.")}
     ${toggle(`${p}.reasoning.enabled`, "enabled", connection.reasoning.enabled, "Asks the model to think before it answers, where the server supports it.")}
     ${row("state", `<span class="account-status"><span class="lamp ${reason && reason !== "context length unknown" ? "alarm" : ""}"></span>${html(state)}</span>`)}
-    <div class="settings-actions"><button type="button" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? "Stop" : "Evaluation Harness"}</button></div>${feedback}${measurementResult}</div>
+    <div class="settings-actions"><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Evaluation Harness"}</button></div>${feedback}${measurementResult}` : "";
+	return `<div class="connection-fieldset connection-identity">${text(`${p}.label`, "label", connection.label, "text", "The name this connection is shown by.")}
+    ${text(`${p}.base_url`, "base_url", connection.base_url, "text", "The server address; Test and fill discovers its API path and port, lists models and proposes the rest.")}${discoveryNote}
+    ${secret(`${p}.api_key`, "api_key", connection.api_key, id, "API keys are stored in user-scoped DPAPI storage; configuration keeps only the credential reference.")}
+    ${row("", `<div class="settings-actions"><button type="button" class="connection-test ${connection._probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${connection._probing ? "disabled" : ""}>${connection._probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button></div>`, "", "Contacts the address exactly as typed and lists the models it serves.")}
+    ${modelControl}
+    ${afterModel}
+    ${row("", `<div class="settings-actions"><button type="button" data-action="save-connection" data-id="${attr(id)}">Save</button></div>`, "", "Saves every change made here; Test is never a precondition.")}</div>
     <details class="connection-advanced" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Advanced</summary>
     <div class="connection-fieldset connection-identity"><h4>Connection</h4>
 	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", "An optional service that turns PDFs into text for this connection; it is used before the local reader.")}

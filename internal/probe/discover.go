@@ -40,6 +40,21 @@ type DiscoveryResult struct {
 	// TypedAddress is the address whose port the operator typed, once it has answered.
 	// (a): the typed address wins, so a walk that reaches it stops there.
 	TypedAddress string `json:"typed_address,omitempty"`
+	// Item 2nn (a): WHAT EACH PORT ANSWERED, when the operator typed a host with NO
+	// port. The walk stops choosing for him — it reports, and he adds the port. His
+	// own case is why: ":8080" was down, ":11434" was an Ollama with no models, and
+	// the walk took the one that answered and wrote it into his address field.
+	Ports []PortFinding `json:"ports,omitempty"`
+}
+
+// PortFinding is one port's verdict, as the sheet lists it: ":8080 — 3 models",
+// ":11434 — answered, no models", ":8000 — nothing".
+type PortFinding struct {
+	Port     string `json:"port"`
+	Address  string `json:"address"`
+	Answered bool   `json:"answered"`
+	Models   int    `json:"models"`
+	Result   string `json:"result"`
 }
 
 // answeredStatus reports the HTTP status an attempt's error carries, or zero when the
@@ -175,6 +190,20 @@ func DiscoverEndpointReporting(ctx context.Context, connection *config.Connectio
 			return result, err
 		}
 	}
+	// Item 2nn (a): A TYPED PORT IS TRIED, AND ONLY IT. Item 2nb (a) already stopped
+	// the walk once the typed port ANSWERED; what was left was the case where it says
+	// nothing at all, and that was still walking off to other ports and rewriting his
+	// address. It does not any more: the answer is what his port did, whatever that is.
+	if typedPort != "" && !typedAnswered {
+		tried := make([]string, 0, len(result.Attempts))
+		for _, attempt := range result.Attempts {
+			tried = append(tried, attempt.BaseURL+": "+attempt.Result)
+		}
+		return result, &ConnectionError{
+			Friendly: fmt.Sprintf("Nothing answered at %s. Tried %s. The address is left as you typed it.", strings.TrimSpace(connection.BaseURL), strings.Join(tried, "; ")),
+			Detail:   "discovery refused to leave the operator-typed port " + typedPort,
+		}
+	}
 	// (a): the typed port answered but listed nothing usable. The walk stops here
 	// rather than quietly moving to another port and rewriting what he typed.
 	if typedAnswered {
@@ -189,22 +218,76 @@ func DiscoverEndpointReporting(ctx context.Context, connection *config.Connectio
 			Detail:   fmt.Sprintf("discovery stopped at the operator-typed port %s: HTTP %d", typedPort, typedStatus),
 		}
 	}
+	// No port was typed. Every common port is tried and NONE of them is chosen: (a)
+	// says the product never writes the address field, so what comes back is a list of
+	// what answered, for him to read and act on.
 	for _, baseURL := range otherCandidates {
-		if _, err, done := try(baseURL, false); done {
-			return result, err
+		_, _, _ = try(baseURL, false)
+	}
+	result.Ports = portFindings(result.Attempts)
+	result.BaseURL, result.Models = "", nil
+	if len(result.Ports) == 0 {
+		return result, &ConnectionError{Friendly: fmt.Sprintf("Nothing answered for %s on any of the usual ports.", host), Detail: "discovery exhausted operator-typed host " + host}
+	}
+	return result, nil
+}
+
+// portFindings reduces the attempts to one line per port, keeping the best thing that
+// port said: a model list beats an answer with none, which beats a refusal, which
+// beats silence. Ports that said nothing at all are listed too — "nothing" is an
+// answer the operator can act on, and leaving them out would look like a shorter walk
+// than the one that ran.
+func portFindings(attempts []DiscoveryAttempt) []PortFinding {
+	order := []string{}
+	best := map[string]PortFinding{}
+	rank := func(finding PortFinding) int {
+		switch {
+		case finding.Models > 0:
+			return 4
+		case finding.Answered && finding.Models == 0 && finding.Result == "model list answered with 0 model(s)":
+			return 3
+		case finding.Answered:
+			return 2
+		default:
+			return 1
 		}
 	}
-	if emptyAnswer != "" {
-		// Something answered, with nothing loaded. That is a real answer and the
-		// operator can act on it, so it is reported rather than thrown away.
-		result.BaseURL, result.Models = emptyAnswer, []string{}
-		return result, nil
+	for _, attempt := range attempts {
+		if !attempt.Allowed {
+			continue
+		}
+		parsed, err := url.Parse(attempt.BaseURL)
+		if err != nil || parsed == nil {
+			continue
+		}
+		port := parsed.Port()
+		if port == "" {
+			if parsed.Scheme == "https" {
+				port = "443"
+			} else {
+				port = "80"
+			}
+		}
+		finding := PortFinding{Port: port, Address: attempt.BaseURL, Answered: attempt.Answered, Models: attempt.Models, Result: attempt.Result}
+		if attempt.Models > 0 {
+			finding.Result = fmt.Sprintf("%d model(s)", attempt.Models)
+		} else if attempt.Answered && strings.HasPrefix(attempt.Result, "model list answered") {
+			finding.Result = "answered, no models"
+		} else if !attempt.Answered {
+			finding.Result = "nothing"
+		}
+		if existing, seen := best[port]; !seen {
+			order = append(order, port)
+			best[port] = finding
+		} else if rank(finding) > rank(existing) {
+			best[port] = finding
+		}
 	}
-	detail := make([]string, 0, len(result.Attempts))
-	for _, attempt := range result.Attempts {
-		detail = append(detail, attempt.BaseURL+": "+attempt.Result)
+	findings := make([]PortFinding, 0, len(order))
+	for _, port := range order {
+		findings = append(findings, best[port])
 	}
-	return result, &ConnectionError{Friendly: fmt.Sprintf("No model API answered for %s; tried %s.", host, strings.Join(detail, "; ")), Detail: "discovery exhausted operator-typed host " + host}
+	return findings
 }
 
 // candidateUsesPort reports whether a candidate address carries the port the operator

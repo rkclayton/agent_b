@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,11 +17,17 @@ import (
 
 const measurementProvenance = "setup-wizard-ten-briefs-n1"
 
+// Item 2nn (c): the state carries the COUNT as numbers, not only inside a
+// sentence. The screen shows item 2nh's determinate bar while the harness runs,
+// and a bar cannot be drawn from prose -- the briefs are a known ten per arm, so
+// the honest mode here is determinate and the numbers have to travel.
 type measureState struct {
-	Running bool                `json:"running"`
-	Text    string              `json:"text"`
-	Error   string              `json:"error,omitempty"`
-	Result  *config.Measurement `json:"result,omitempty"`
+	Running   bool                `json:"running"`
+	Text      string              `json:"text"`
+	Processed int                 `json:"processed,omitempty"`
+	Total     int                 `json:"total,omitempty"`
+	Error     string              `json:"error,omitempty"`
+	Result    *config.Measurement `json:"result,omitempty"`
 }
 
 var measurementBriefs = []string{
@@ -80,7 +87,7 @@ func (s *Server) measureConnection(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		s.measurements[connectionID] = measureState{Running: true, Text: "Starting ten briefs"}
+		s.measurements[connectionID] = measureState{Running: true, Text: "brief 0 of " + strconv.Itoa(len(measurementBriefs)) + " — thinking off", Total: len(measurementBriefs)}
 		s.measureCancels[connectionID] = cancel
 		s.measureMu.Unlock()
 		go s.runMeasurement(ctx, connectionID, *connection)
@@ -94,7 +101,7 @@ func (s *Server) measureConnection(w http.ResponseWriter, r *http.Request) {
 		cancel := s.measureCancels[connectionID]
 		state := s.measurements[connectionID]
 		if cancel != nil && state.Running {
-			state.Text = "Stopping after the current brief"
+			state.Text = fmt.Sprintf("stopping after brief %d of %d", state.Processed, state.Total)
 			s.measurements[connectionID] = state
 			cancel()
 		}
@@ -206,7 +213,12 @@ func (s *Server) measureArm(ctx context.Context, connectionID string, connection
 		if ctx.Err() != nil {
 			break
 		}
-		s.setMeasurement(connectionID, measureState{Running: true, Text: fmt.Sprintf("%s, brief %d of %d", label, index+1, len(measurementBriefs))})
+		s.setMeasurement(connectionID, measureState{
+			Running:   true,
+			Text:      fmt.Sprintf("brief %d of %d — %s", index+1, len(measurementBriefs), label),
+			Processed: index + 1,
+			Total:     len(measurementBriefs),
+		})
 		arm.BriefsRun++
 		at := time.Now()
 		response, err := client.Chat(ctx, llm.Request{

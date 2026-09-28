@@ -54,6 +54,26 @@ func (c *FileCoordinator) check(s *session.Session, path, resolved string) (stri
 	}
 	return "", nil
 }
+
+// lastWriterNote names who wrote a file last, for item 2mn (b)'s refusal. It says
+// nothing when the last writer was this session or when nothing is recorded: "it
+// changed" is the fact, and naming a session that did not do it would be worse than
+// naming none.
+func (c *FileCoordinator) lastWriterNote(s *session.Session, resolved string) string {
+	if c == nil || s == nil {
+		return ""
+	}
+	record, ok := c.workspaces.LastWriter(resolved)
+	if !ok || record.SessionID == s.ID {
+		return ""
+	}
+	age := int(time.Since(record.At).Seconds())
+	if age < 0 {
+		age = 0
+	}
+	return fmt.Sprintf("; session %s wrote it %ds ago", c.label(record.SessionID), age)
+}
+
 func (c *FileCoordinator) record(s *session.Session, resolved string) {
 	// Item 2mn (a): the write is recorded against the FILE. The session's own root
 	// no longer takes part, which is why a shared plan repository is now shared.

@@ -494,6 +494,11 @@ func main() {
 			if !item.IsClosed() {
 				runner.PublishBudget(context.Background(), item)
 			}
+			// rel-1.23.0 card 5: a message that was queued when the process ended is
+			// still queued, in the same place.
+			if count := scheduler.RestoreQueue(item); count > 0 {
+				log.Printf("restored chat %s came back with %d queued message(s), held until your next message", item.ID, count)
+			}
 		}
 		web.SetWorkspaceState(nextWorkspaceManager, memoryManager)
 		web.StartReflection(24 * time.Hour)
@@ -538,6 +543,9 @@ func main() {
 		for _, item := range restored {
 			if !item.IsClosed() {
 				runner.PublishBudget(context.Background(), item)
+			}
+			if count := scheduler.RestoreQueue(item); count > 0 {
+				log.Printf("restored chat %s came back with %d queued message(s), held until your next message", item.ID, count)
 			}
 		}
 	}

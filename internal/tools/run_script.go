@@ -147,4 +147,3 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	}
 	return waitShellProcess(ctx, process, usedService, timeout, cfg, &output, executable)
 }
-

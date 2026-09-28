@@ -63,6 +63,9 @@ type Snapshot struct {
 	Messages          []events.Message           `json:"messages"`
 	Budget            events.Budget              `json:"budget"`
 	QueuedMessages    int                        `json:"queued_messages"`
+	// rel-1.23.0 card 5: the queue itself, not only its length, so a restart can
+	// put the messages back in the order they were accepted.
+	QueuedMessageIDs  []string                   `json:"queued_message_ids,omitempty"`
 	Runnable          bool                       `json:"runnable"`
 	NotRunnableReason string                     `json:"not_runnable_reason"`
 	// Item 2gy (v1.2.5): what this connection cannot do, for the strip to say once.
@@ -147,6 +150,7 @@ type Session struct {
 	SchemaTokens         map[string]int
 	MarginalTokens       map[string]int
 	queuedMessages       int
+	queuedMessageIDs     []string
 	modelTurns           int
 	compactionCount      int
 	compactionTokenDelta int
@@ -198,7 +202,7 @@ func (s *Session) SnapshotUnlocked() Snapshot {
 			tools = append(tools, ToolState{Name: name, Enabled: enabled, Calls: s.ToolCalls[name], SchemaTokens: s.SchemaTokens[name], MarginalTokens: s.MarginalTokens[name]})
 		}
 	}
-	return Snapshot{ID: s.ID, Label: s.Label, AgentID: s.AgentID, ConnectionID: s.ConnectionID, AgentName: s.AgentName, BConnection: s.BConnection, Role: s.Role, PlanID: s.PlanID, PlanName: s.PlanName, PlanDir: s.PlanDir, PlanRepo: s.PlanRepo, CreatedAt: s.CreatedAt.Format(time.RFC3339Nano), Closed: s.Closed, NamePinned: s.NamePinned, Workspace: s.Workspace, WorkspaceDir: s.Workspace, WorkspaceMissing: s.WorkspaceMissing, Scratch: s.Scratch, ProjectContent: s.ProjectBlock, ProjectFiles: append([]string(nil), s.ProjectFiles...), ProjectNotes: append([]string(nil), s.ProjectNotes...), PendingRepoPolicy: clonePolicyState(s.PendingRepoPolicy), RepoPolicy: clonePolicyState(s.RepoPolicy), Run: s.Run, Tools: tools, Messages: append([]events.Message{}, s.Messages...), Budget: s.Budget, QueuedMessages: s.queuedMessages, Runnable: s.Runnable, NotRunnableReason: s.NotRunnableReason, DegradedNotes: append([]string(nil), s.DegradedNotes...), MemoryPath: s.MemoryPath, MemoryContent: s.MemoryBlock, AgentMemoryPath: s.AgentMemoryPath, AgentMemoryContent: s.AgentMemoryBlock, MemoryTokens: estimateMemoryTokens(s.MemoryBlock), AgentMemoryTokens: estimateMemoryTokens(s.AgentMemoryBlock), MemoryMaxTokens: s.MemoryMaxTokens, MemoryOverBudget: overBudget(s.MemoryBlock), AgentMemoryOverBudget: overBudget(s.AgentMemoryBlock), PromptAddendum: s.PromptAddendum, NetworkBoundary: s.NetworkBoundary, NetworkBoundarySet: s.NetworkBoundarySet, MediaCapabilities: s.MediaCapabilities, MediaCapabilitiesSet: s.MediaCapabilitiesSet, LogPath: s.LogPath, ModelTurns: s.modelTurns, CompactionCount: s.compactionCount, CompactionTokenDelta: s.compactionTokenDelta, CompactionModelCalls: s.compactionModelCalls, CompactionPrompt: s.compactionPrompt, CompactionCompletion: s.compactionCompletion}
+	return Snapshot{ID: s.ID, Label: s.Label, AgentID: s.AgentID, ConnectionID: s.ConnectionID, AgentName: s.AgentName, BConnection: s.BConnection, Role: s.Role, PlanID: s.PlanID, PlanName: s.PlanName, PlanDir: s.PlanDir, PlanRepo: s.PlanRepo, CreatedAt: s.CreatedAt.Format(time.RFC3339Nano), Closed: s.Closed, NamePinned: s.NamePinned, Workspace: s.Workspace, WorkspaceDir: s.Workspace, WorkspaceMissing: s.WorkspaceMissing, Scratch: s.Scratch, ProjectContent: s.ProjectBlock, ProjectFiles: append([]string(nil), s.ProjectFiles...), ProjectNotes: append([]string(nil), s.ProjectNotes...), PendingRepoPolicy: clonePolicyState(s.PendingRepoPolicy), RepoPolicy: clonePolicyState(s.RepoPolicy), Run: s.Run, Tools: tools, Messages: append([]events.Message{}, s.Messages...), Budget: s.Budget, QueuedMessages: s.queuedMessages, QueuedMessageIDs: append([]string(nil), s.queuedMessageIDs...), Runnable: s.Runnable, NotRunnableReason: s.NotRunnableReason, DegradedNotes: append([]string(nil), s.DegradedNotes...), MemoryPath: s.MemoryPath, MemoryContent: s.MemoryBlock, AgentMemoryPath: s.AgentMemoryPath, AgentMemoryContent: s.AgentMemoryBlock, MemoryTokens: estimateMemoryTokens(s.MemoryBlock), AgentMemoryTokens: estimateMemoryTokens(s.AgentMemoryBlock), MemoryMaxTokens: s.MemoryMaxTokens, MemoryOverBudget: overBudget(s.MemoryBlock), AgentMemoryOverBudget: overBudget(s.AgentMemoryBlock), PromptAddendum: s.PromptAddendum, NetworkBoundary: s.NetworkBoundary, NetworkBoundarySet: s.NetworkBoundarySet, MediaCapabilities: s.MediaCapabilities, MediaCapabilitiesSet: s.MediaCapabilitiesSet, LogPath: s.LogPath, ModelTurns: s.modelTurns, CompactionCount: s.compactionCount, CompactionTokenDelta: s.compactionTokenDelta, CompactionModelCalls: s.compactionModelCalls, CompactionPrompt: s.compactionPrompt, CompactionCompletion: s.compactionCompletion}
 }
 
 const staleNetworkBoundaryNote = "network boundary text is stale until reopened"
@@ -699,6 +703,21 @@ func (s *Session) SetRun(state RunState)          { s.mu.Lock(); s.Run = state; 
 func (s *Session) UpdatePartial(partial string)   { s.mu.Lock(); s.Run.Partial = partial; s.mu.Unlock() }
 func (s *Session) SetBudget(budget events.Budget) { s.mu.Lock(); s.Budget = budget; s.mu.Unlock() }
 func (s *Session) SetQueuedMessages(count int)    { s.mu.Lock(); s.queuedMessages = count; s.mu.Unlock() }
+
+// SetQueuedMessageIDs and QueuedMessageIDs carry rel-1.23.0 card 5's queue across a
+// restart: the messages were always durable in the journal, their PLACE in the queue
+// was not.
+func (s *Session) SetQueuedMessageIDs(ids []string) {
+	s.mu.Lock()
+	s.queuedMessageIDs = append([]string(nil), ids...)
+	s.mu.Unlock()
+}
+
+func (s *Session) QueuedMessageIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.queuedMessageIDs...)
+}
 func (s *Session) RecordModelTurn()               { s.mu.Lock(); s.modelTurns++; s.mu.Unlock() }
 func (s *Session) RecordCompaction(delta int) {
 	s.mu.Lock()

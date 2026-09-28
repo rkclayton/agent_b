@@ -199,3 +199,119 @@ test("the confirmation popover stays with its control on a scrolled sheet", asyn
   await page.locator('.confirm-popover [data-action="confirm-cancel"]').click();
   await expect(popover).toHaveCount(0);
 });
+
+// Item 2nn's acceptance, cases 3, 5 and 6, on screen, because every one of the three
+// is about what the operator sees and none of them can be proved from a response.
+
+// 3: "Rename only, Save: saved, row shows the new label, no Test run, no refusal."
+// This is the one he reported as a refusal and W0 found was a dead button: the save
+// carried the disabled attribute from the last render and no request was ever made.
+test("a rename alone saves, with no Test and no refusal", async () => {
+  test.setTimeout(120000);
+  const page = await harness.context.newPage();
+  const posts = [];
+  page.on("request", (request) => { if (request.method() === "POST" || request.method() === "PATCH") posts.push(request.url()); });
+  await page.goto(`${harness.base}/chat`);
+  await page.locator(".shell-settings").click();
+  await page.locator('.settings-nav [data-id="connections"]').click();
+  await page.locator('[data-action="add-connection"]').click();
+  const editor = page.locator(".connection-editor");
+  const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
+  posts.length = 0;
+
+  await editor.locator(`[data-path="connections.${id}.label"]`).fill("renamed by hand");
+  const save = page.locator(`.connection-row [data-action="save-connection"][data-id="${id}"]`);
+  // The button is LIVE the moment there is something to save — no Test first.
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(save).toBeDisabled();
+  await expect(page.locator(`.connection-summary[data-id="${id}"]`)).toContainText("renamed by hand");
+  await expect(page.locator(".connection-refusal")).toHaveCount(0);
+  expect(posts.some((url) => url.includes("/api/config")), `no save request was made: ${JSON.stringify(posts)}`).toBe(true);
+  expect(posts.some((url) => url.includes("/probe")), "a rename ran a test").toBe(false);
+  await page.close();
+});
+
+// 5: "During Test the bar is visible in a screenshot taken 100 ms after the click,
+// with a phase line; the DOM never contains the bare text 'testing'." The address is
+// a TEST-NET-1 one (RFC 5737), which nothing answers, so the walk is still running
+// when the screenshot is taken.
+test("the bar is on screen 100 ms after Test, and the bare word is not", async () => {
+  test.setTimeout(120000);
+  const page = await harness.context.newPage();
+  await page.goto(`${harness.base}/chat`);
+  await page.locator(".shell-settings").click();
+  await page.locator('.settings-nav [data-id="connections"]').click();
+  await page.locator('[data-action="add-connection"]').click();
+  const editor = page.locator(".connection-editor");
+  const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
+  await editor.locator(`[data-path="connections.${id}.base_url"]`).fill("192.0.2.1:8080");
+
+  await page.locator(`.connection-row [data-action="probe"][data-id="${id}"]`).click();
+  await page.waitForTimeout(100);
+  // The viewport rather than the row: the list re-renders while the walk runs, and an
+  // element screenshot of a node that was just replaced fails for a reason that has
+  // nothing to do with what is being proved.
+  const shot = await page.screenshot();
+  expect(shot.length, "no screenshot was taken").toBeGreaterThan(0);
+  const seen = await page.evaluate((connection) => {
+    const seat = document.querySelector(`[data-probe-wait="${connection}"] .wait`);
+    return {
+      bar: !!seat,
+      cells: seat ? seat.querySelectorAll(".wait-cell").length : 0,
+      line: seat ? seat.querySelector(".wait-line").textContent.trim() : "",
+      word: /(^|[^a-z])testing([^a-z]|$)/i.test(document.body.innerText),
+    };
+  }, id);
+  expect(seen.bar, "there is no waiting element in the control that was pressed").toBe(true);
+  expect(seen.cells).toBeGreaterThan(0);
+  expect(seen.line, "the bar says nothing about what is being waited for").toContain("192.0.2.1:8080");
+  expect(seen.word, "the bare word is still on screen").toBe(false);
+  await page.close();
+});
+
+// 6: "The sheet's field order is label, address, key, Test, model, Evaluate, Save;
+// Advanced is collapsed and below Save."
+test("the sheet reads top to bottom as the flow", async () => {
+  test.setTimeout(120000);
+  const page = await harness.context.newPage();
+  await page.goto(`${harness.base}/chat`);
+  await page.locator(".shell-settings").click();
+  await page.locator('.settings-nav [data-id="connections"]').click();
+  await page.locator('[data-action="add-connection"]').click();
+  const editor = page.locator(".connection-editor");
+  const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
+
+  const order = async () => page.evaluate((connection) => {
+    const marks = [
+      [`[data-path="connections.${connection}.label"]`, "label"],
+      [`[data-path="connections.${connection}.base_url"]`, "address"],
+      [`[data-path="connections.${connection}.api_key"]`, "key"],
+      [`.connection-editor [data-action="probe"][data-id="${connection}"]`, "Test"],
+      [`[data-path="connections.${connection}.model"]`, "model"],
+      [`.connection-editor [data-action="measure-connection"][data-id="${connection}"]`, "Evaluate"],
+      [`.connection-editor [data-action="save-connection"][data-id="${connection}"]`, "Save"],
+      [".connection-advanced", "Advanced"],
+    ];
+    return marks
+      .map(([selector, name]) => [name, document.querySelector(selector)])
+      .filter(([, node]) => node)
+      .map(([name, node]) => ({ name, top: node.getBoundingClientRect().top }))
+      .sort((a, b) => a.top - b.top)
+      .map((entry) => entry.name);
+  }, id);
+
+  // Before a model is chosen, Evaluate is not among them: nothing but the flow is
+  // on screen until the connection has one.
+  expect(await order()).toEqual(["label", "address", "key", "Test", "model", "Save", "Advanced"]);
+  await expect(page.locator(".connection-advanced")).not.toHaveAttribute("open", /.*/);
+
+  // With a model chosen, Evaluate takes its place between the model and Save.
+  await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
+  await page.locator(`.connection-row [data-action="probe"][data-id="${id}"]`).click();
+  await expect(page.locator(`[data-path="connections.${id}.model"]`)).toHaveJSProperty("tagName", "SELECT");
+  await page.locator(`[data-path="connections.${id}.model"]`).selectOption("journey-model");
+  await expect(page.locator(`.connection-editor [data-action="measure-connection"][data-id="${id}"]`)).toBeVisible();
+  expect(await order()).toEqual(["label", "address", "key", "Test", "model", "Evaluate", "Save", "Advanced"]);
+  await page.close();
+});

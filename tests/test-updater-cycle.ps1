@@ -126,6 +126,74 @@ try {
         throw 'UPDATER REPLAY FAILED: the workspace the updater sent was modified.'
     }
     Write-Host "PASS updater replay: v1.24.0's exact command line installs $ToVersion, the workspace argument is ignored by name, and the folder it named is untouched"
+
+    # Item 2nh (b), (c) and (d): THE SEQUENCE THE INSTALLER WROTE, AND THE OUTCOME THE
+    # INSTANCE THAT CAME BACK CAN STATE.
+    #
+    # This is the one place in the suite where a REAL install of the candidate has
+    # just run to completion, so it is the only place the phases can be read from the
+    # installer's own file rather than from a fixture. The operator's complaint was
+    # not that the update failed - it succeeded - but that nothing showed it
+    # happening and the instance that came back said nothing about it.
+    $replayProgress = Join-Path $replayData 'install-progress.jsonl'
+    if (-not (Test-Path -LiteralPath $replayProgress -PathType Leaf)) {
+        throw "UPDATER SEQUENCE FAILED: the install wrote no progress file at $replayProgress"
+    }
+    $replayPhases = @(Get-Content -LiteralPath $replayProgress | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json })
+    $phaseNames = @($replayPhases | ForEach-Object { $_.phase })
+    Write-Host ("UPDATER SEQUENCE: " + ($phaseNames -join ' -> '))
+    foreach ($expected in @('starting', 'preflight', 'copying the application', 'finished')) {
+        if ($phaseNames -notcontains $expected) {
+            throw "UPDATER SEQUENCE FAILED: the phase '$expected' never appeared. Saw: $($phaseNames -join ', ')"
+        }
+    }
+    # (c): the LAST line is the finish. His successful update ended with a migration
+    # warning written as a second finish, and that is the line the page read as the
+    # result.
+    $replayLast = $replayPhases[-1]
+    if (-not ($replayLast.done -eq $true -and $replayLast.ok -eq $true -and $replayLast.text -match 'is installed')) {
+        throw "UPDATER SEQUENCE FAILED: the last progress line is not the finish: $($replayLast | ConvertTo-Json -Compress)"
+    }
+    # And the instance that came back states the outcome. Its own data root carries
+    # the file the installer wrote, so it can answer without being told.
+    Get-Process -Name Agent_b -ErrorAction SilentlyContinue | Where-Object {
+        try { $_.Path -and $_.Path.StartsWith($replayRoot, [StringComparison]::OrdinalIgnoreCase) } catch { $false }
+    } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Seconds 2
+    $probe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+    $probe.Start(); $replayPort = $probe.LocalEndpoint.Port; $probe.Stop()
+    if ($replayPort -eq 8790) { throw 'UPDATER SEQUENCE REFUSED: the probe picked the production port' }
+    $replayConfigPath = Join-Path $replayData 'harness.json'
+    $replayConfig = Get-Content -Raw -LiteralPath $replayConfigPath | ConvertFrom-Json
+    $replayConfig.listen = "127.0.0.1:$replayPort"
+    # The reopened page must not need a network to say what the last update did.
+    $replayConfig.updates.auto_check = $false
+    $replayConfig | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $replayConfigPath -Encoding utf8
+    $reopened = Start-Process -FilePath $replayExe -PassThru -WindowStyle Hidden `
+        -ArgumentList @('-config', $replayConfigPath, '-app-root', $replayApplication, '-data-root', $replayData)
+    try {
+        $deadline = (Get-Date).AddSeconds(120); $updateState = $null
+        while ((Get-Date) -lt $deadline) {
+            try {
+                $updateState = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$replayPort/api/update" -TimeoutSec 5).Content | ConvertFrom-Json
+                break
+            } catch { Start-Sleep -Milliseconds 400 }
+        }
+        if (-not $updateState) { throw "UPDATER SEQUENCE FAILED: the reopened instance never answered on $replayPort" }
+        Write-Host ("UPDATER OUTCOME: " + ($updateState.outcome | ConvertTo-Json -Compress))
+        if (-not $updateState.outcome) {
+            throw 'UPDATER SEQUENCE FAILED: the instance that came back after the install states no outcome, which is the silence 2nh exists to end'
+        }
+        if ($updateState.outcome.ok -ne $true) {
+            throw "UPDATER SEQUENCE FAILED: a completed install is reported as a failure: $($updateState.outcome | ConvertTo-Json -Compress)"
+        }
+        if ($updateState.outcome.version -ne $ToVersion) {
+            throw "UPDATER SEQUENCE FAILED: the outcome names $($updateState.outcome.version), not $ToVersion"
+        }
+        Write-Host "PROOF the reopened page can say what happened: the About row reads 'updated to $($updateState.outcome.version)' at $($updateState.outcome.at) from the installer's own finish, with $(@($updateState.outcome.warnings).Count) note(s)"
+    } finally {
+        if ($reopened -and -not $reopened.HasExited) { Stop-Process -Id $reopened.Id -Force -ErrorAction SilentlyContinue }
+    }
 } finally {
     Get-Process -Name Agent_b -ErrorAction SilentlyContinue | Where-Object {
         try { $_.Path -and $_.Path.StartsWith($replayRoot, [StringComparison]::OrdinalIgnoreCase) } catch { $false }
@@ -281,6 +349,23 @@ try {
         -Headers @{ 'X-AgentB-Mutation-Token' = $token } -ContentType 'application/json' -Body '{"action":"check"}' -TimeoutSec 300
     Write-Host "CYCLE CHECK: $($check.Content)"
     if (($check.Content | ConvertFrom-Json).available -ne $true) { throw "UPDATER CYCLE REFUSED: the feed offering $ToVersion was not seen as available" }
+    # Item 2nh (a) and (d): WALK THE PAGE'S OWN READOUT WHILE IT HAPPENS.
+    #
+    # Install blocks until the setup is launched, so the states the About row would
+    # show - download with bytes of total, verify, install - exist only DURING that
+    # call. A second reader samples the same endpoint the page reads, so the
+    # sequence is asserted from what a watching operator would actually have seen.
+    $walkFile = Join-Path $root 'update-walk.jsonl'
+    $walker = [powershell]::Create()
+    $null = $walker.AddScript({
+        param($uri, $file, $seconds)
+        $stop = (Get-Date).AddSeconds($seconds)
+        while ((Get-Date) -lt $stop) {
+            try { [IO.File]::AppendAllText($file, (Invoke-WebRequest -UseBasicParsing -Uri $uri -TimeoutSec 5).Content + [Environment]::NewLine) } catch { }
+            Start-Sleep -Milliseconds 150
+        }
+    }).AddArgument("http://127.0.0.1:$port/api/update").AddArgument($walkFile).AddArgument(300)
+    $null = $walker.BeginInvoke()
     # Anything the launched setup writes is newer than this instant.
     $launchedAt = Get-Date
     $install = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/api/update" -Method POST -WebSession $session `
@@ -314,6 +399,47 @@ try {
         if ($decision) { break }
         Start-Sleep -Seconds 2
     }
+
+    # The walk, read back. Every state the page could have shown, in order.
+    $walker.Stop()
+    $walk = @()
+    if (Test-Path -LiteralPath $walkFile -PathType Leaf) {
+        $walk = @(Get-Content -LiteralPath $walkFile | Where-Object { $_.Trim() } | ForEach-Object { try { $_ | ConvertFrom-Json } catch { } })
+    }
+    $walkSteps = @()
+    foreach ($state in $walk) {
+        if ($state.step -and ($walkSteps.Count -eq 0 -or $walkSteps[-1] -ne $state.step)) { $walkSteps += $state.step }
+    }
+    Write-Host ("UPDATE WALK: " + (($walkSteps | Select-Object -Unique) -join ' -> ') + " over $($walk.Count) samples")
+    # The updater under test is the one in the FROM build, so a build that predates
+    # item 2nh publishes no stages at all and this half of the walk cannot apply to
+    # it. Said up front, as the 2lh assertion below does, so a failure from that
+    # cause reads as the cause. The candidate's own stages are proved in-process by
+    # TestTheUpdateIsASequenceOfStages2nh.
+    $walkCapable = [version]($before.tag -replace '^v') -ge [version]'1.30.0'
+    if (-not $walkCapable) {
+        Write-Host "UPDATE WALK NOTE: $($before.tag) predates item 2nh, so its updater publishes no stages; the stage assertions are skipped and this half activates from v1.30.0 onward"
+    }
+    foreach ($expected in @('downloading', 'verifying', 'installing')) {
+        if (-not $walkCapable) { break }
+        if ($walkSteps -notcontains $expected) {
+            throw "UPDATE WALK FAILED: the stage '$expected' was never shown. Saw: $($walkSteps -join ', ')"
+        }
+    }
+    # Determinate where it can be: the release manifest names the size, so the
+    # download reports bytes of total rather than cycling a pattern in place.
+    $determinate = @($walk | Where-Object { $_.step -eq 'downloading' -and [long]$_.total -gt 0 -and [long]$_.processed -gt 0 })
+    if ($walkCapable -and -not $determinate.Count) {
+        throw 'UPDATE WALK FAILED: no download state carried bytes of a total, so the wait element could never have been determinate'
+    }
+    $largest = if ($determinate.Count) { ($determinate | Measure-Object -Property processed -Maximum).Maximum } else { 0 }
+    if ([long]$largest -ne [long]$setupBytes) {
+        Write-Host "UPDATE WALK NOTE: the largest reported read was $largest of $setupBytes bytes; the last sample can land before the final chunk"
+    }
+    foreach ($state in $walk) {
+        if ($state.step -and -not $state.line) { throw 'UPDATE WALK FAILED: a stage was published with no line, and a wait element without one is decoration' }
+    }
+    Write-Host "PROOF the update is a sequence you can watch: $($walkSteps -join ' -> '), determinate at $largest of $setupBytes bytes during the download"
 
     # Whichever way it went, the operator's installation must be exactly as it was.
     $operatorAfter = if (Test-Path -LiteralPath (Join-Path $operatorApplication 'Agent_b.exe')) {

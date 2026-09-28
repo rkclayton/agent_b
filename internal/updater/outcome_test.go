@@ -105,3 +105,138 @@ func TestAFailedInstallPutsTheReasonOnTheState(t *testing.T) {
 		}
 	}
 }
+
+// Item 2nh (b) and (c): THE OPERATOR'S OWN 23:22 FILE, REPLAYED.
+//
+// His update to v1.29.0 worked and he reported it as a failure. These are the
+// bytes his data root carried, in the order the build he was on wrote them: the
+// real finish, and then the migration warning written as a second "finished
+// ok:true" line, which made "MIGRATION LEFT IN PLACE: access denied" the last
+// line of a successful update. It must read as a success with one note.
+const operatorMigrationWarning = `MIGRATION LEFT IN PLACE: access denied — remove it from an elevated shell: C:\Program Files\Agent_b`
+
+// writePhases writes the same file through the encoder, for lines whose text
+// carries Windows paths: a hand-written JSON string with a single backslash in it
+// is not JSON, and a line that will not parse is silently skipped, which would
+// make a test pass for the wrong reason.
+func writePhases(t *testing.T, root string, phases ...progressPhase) {
+	t.Helper()
+	body := ""
+	for _, phase := range phases {
+		raw, err := json.Marshal(phase)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body += string(raw) + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(root, installProgressName), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeRawProgress(t *testing.T, root string, lines ...string) {
+	t.Helper()
+	body := ""
+	for _, line := range lines {
+		body += line + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(root, installProgressName), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheOperatorsSuccessfulUpdateReadsAsASuccessWithANote2nh(t *testing.T) {
+	root := t.TempDir()
+	writePhases(t, root,
+		progressPhase{At: "2026-09-28T04:22:21Z", Phase: "starting", Text: "Installing Agent_b v1.29.0"},
+		progressPhase{At: "2026-09-28T04:22:23Z", Phase: "preflight", Text: "Installing Agent_b v1.29.0"},
+		progressPhase{At: "2026-09-28T04:22:25Z", Phase: "copying the application", Text: `Application: C:\work\acme\AppData\Local\Programs\Agent_b`},
+		progressPhase{At: "2026-09-28T04:22:30Z", Phase: "stopping the running application", Text: "STOPPING: Agent_b PID 29488"},
+		progressPhase{At: "2026-09-28T04:22:38Z", Phase: "finished", Text: "Agent_b v1.29.0 is installed.", Done: true, OK: true},
+		progressPhase{At: "2026-09-28T04:23:02Z", Phase: "finished", Text: operatorMigrationWarning, Done: true, OK: true},
+	)
+	outcome := outcomeFor(root, "1.29.0")
+	if outcome == nil {
+		t.Fatal("his file reached no outcome at all, which is the silence the item exists to end")
+	}
+	if !outcome.OK {
+		t.Fatalf("a successful update read as a failure: %+v", outcome)
+	}
+	if outcome.Version != "v1.29.0" {
+		t.Fatalf("version %q, want v1.29.0", outcome.Version)
+	}
+	if len(outcome.Warnings) != 1 || outcome.Warnings[0] != operatorMigrationWarning {
+		t.Fatalf("warnings %q, want the one migration note", outcome.Warnings)
+	}
+	if outcome.At != "2026-09-28T04:23:02Z" {
+		t.Fatalf("outcome time %q, want the last finish", outcome.At)
+	}
+}
+
+func TestTheWarningPhaseIsANoteAndTheFinishIsTheResult2nh(t *testing.T) {
+	root := t.TempDir()
+	writeRawProgress(t, root,
+		`{"phase":"preflight","text":"Installing Agent_b v1.30.0"}`,
+		`{"phase":"restarting","text":"Starting Agent_b v1.30.0"}`,
+		`{"phase":"warning","text":"MIGRATION LEFT IN PLACE: access denied","ok":true}`,
+		`{"at":"2026-09-28T05:00:00Z","phase":"finished","text":"Agent_b v1.30.0 is installed.","done":true,"ok":true}`,
+	)
+	outcome := outcomeFor(root, "v1.30.0")
+	if outcome == nil || !outcome.OK || outcome.Version != "v1.30.0" {
+		t.Fatalf("outcome %+v, want a v1.30.0 success", outcome)
+	}
+	if len(outcome.Warnings) != 1 {
+		t.Fatalf("warnings %q, want the one note", outcome.Warnings)
+	}
+	// A finish for a version this process is not running belongs to somebody
+	// else's install, and claiming it would be a lie about this process.
+	if other := outcomeFor(root, "v1.29.0"); other != nil {
+		t.Fatalf("a finish for another version was claimed: %+v", other)
+	}
+}
+
+func TestAFailedInstallOutcomeNamesThePhaseAndTheTranscript2nh(t *testing.T) {
+	root := t.TempDir()
+	transcript := `C:\work\acme\AppData\Local\Agent_b\logs\installer-20260927-190511.log`
+	writePhases(t, root,
+		progressPhase{Phase: "starting", Text: "Installing Agent_b v1.30.0"},
+		progressPhase{At: "2026-09-28T05:10:00Z", Phase: "copying the application", Text: operatorRefusal + " It is safe to run again. Transcript: " + transcript, Done: true},
+	)
+	outcome := outcomeFor(root, "v1.29.0")
+	if outcome == nil || outcome.OK {
+		t.Fatalf("outcome %+v, want a failure", outcome)
+	}
+	if outcome.Phase != "copying the application" {
+		t.Fatalf("phase %q, want the phase it stopped in", outcome.Phase)
+	}
+	if outcome.Transcript != transcript {
+		t.Fatalf("transcript %q, want %q", outcome.Transcript, transcript)
+	}
+	if outcome.Version != "v1.30.0" {
+		t.Fatalf("version %q, want the version it was installing", outcome.Version)
+	}
+}
+
+// Item 2nh (a): the five stages, named from the installer's own phase words.
+func TestEveryInstallerPhaseNamesAStage2nh(t *testing.T) {
+	for phase, want := range map[string]string{
+		"starting":                         "installing",
+		"preflight":                        "installing",
+		"copying the application":          "installing",
+		"stopping the running application": "stopping",
+		"restarting":                       "restarting",
+		"finished":                         "restarting",
+		"something this build has never heard of": "installing",
+	} {
+		step, line := stepFor(phase)
+		if step != want {
+			t.Fatalf("phase %q mapped to step %q, want %q", phase, step, want)
+		}
+		if line == "" {
+			t.Fatalf("phase %q produced no line, and a wait element without one is decoration", phase)
+		}
+	}
+	if step, _ := stepFor("warning"); step != "" {
+		t.Fatalf("a warning became the stage in hand (%q); it is a note", step)
+	}
+}

@@ -294,6 +294,18 @@ function render() {
     if (!walking) continue;
     seat.replaceChildren(waitElement(document, { line: walking.line, processed: walking.processed, total: walking.total }));
   }
+  // Item 2nh (a): the same element in the About page's update row, determinate while
+  // the download is the stage in hand — the release manifest names the size, so the
+  // bytes are real — and indeterminate for every stage that reports no fraction.
+  for (const seat of sheet.querySelectorAll("[data-update-wait]")) {
+    const total = Number(seat.dataset.updateTotal || 0);
+    const processed = Number(seat.dataset.updateProcessed || 0);
+    seat.replaceChildren(waitElement(document, {
+      line: seat.dataset.updateLine || "starting the update",
+      processed: total > 0 ? processed : null,
+      total: total > 0 ? total : null,
+    }));
+  }
   navigationSurfaceReady("settings", store);
 }
 

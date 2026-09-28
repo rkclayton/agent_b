@@ -74,17 +74,36 @@ func readInstallFailure(dataRoot string, since time.Time) string {
 // or the timeout passes. It never blocks Install: a refused install must reach the
 // control the operator is looking at, and a successful one replaces this process
 // before the watch matters.
+//
+// Item 2nh (a) and (d): IT ALSO FOLLOWS THE PHASES. The same file that carries the
+// verdict carries the sequence, and the operator's complaint was not that the
+// update failed — it succeeded — but that nothing showed it happening. Each new
+// phase the installer writes becomes the line on the one wait element, so the
+// readout is the installer's own account of where it is, not a guess about timing.
 func (m *Manager) watchInstallOutcome(started time.Time) {
 	deadline := started.Add(InstallOutcomeTimeout)
+	seen := ""
 	for m.now().Before(deadline) {
 		time.Sleep(installOutcomePoll)
-		reason := readInstallFailure(m.dataRoot, started)
-		if reason == "" {
+		phases := readProgressPhases(m.dataRoot)
+		if len(phases) > 0 {
+			last := phases[len(phases)-1]
+			if last.Phase != seen {
+				seen = last.Phase
+				if step, line := stepFor(last.Phase); step != "" {
+					m.setStep(step, line, 0, 0)
+				}
+			}
+		}
+		outcome := outcomeFor(m.dataRoot, m.State().CurrentVersion)
+		if outcome == nil || outcome.OK {
 			continue
 		}
 		m.mu.Lock()
 		// Installing is already false: Install cleared it when the setup launched.
-		m.state.Error = reason
+		m.state.Error = outcome.Error
+		m.state.Step, m.state.Line, m.state.Processed, m.state.Total = "", "", 0, 0
+		m.state.Outcome = outcome
 		state := m.state
 		m.mu.Unlock()
 		m.publish(state)

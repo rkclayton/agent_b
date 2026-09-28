@@ -2158,6 +2158,12 @@
 .rail:hover .rail-labels,
 .rail:focus-within .rail-labels { opacity: 1; }
 
+/* Item 2nh (c): an installer warning is a note under the update outcome. It is
+   muted and on its own line, because it is not the result and must not read as
+   one - a "MIGRATION LEFT IN PLACE" line written as a success is exactly how a
+   working update came to be reported as a failure. */
+.settings-update-note { display: block; font: 12px/16px var(--mono); color: var(--mute); }
+
 /* Item 2m4: the one waiting element. Twelve cells, monospace line, step timing
    — the same discrete vocabulary as .chat-run-robot rather than a smooth sweep,
    which would be the only organic movement in the product.

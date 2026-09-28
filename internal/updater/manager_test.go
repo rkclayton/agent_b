@@ -1,6 +1,7 @@
 package updater
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -204,5 +206,79 @@ func TestHourlyLoopRetriesAFailedCheckAtTheNextTick(t *testing.T) {
 	}
 	if requests.Load() < 2 || manager.State().Error != "" {
 		t.Fatalf("failed check was not retried and cleared: requests=%d state=%+v", requests.Load(), manager.State())
+	}
+}
+
+// Item 2nh (a): THE UPDATE IS A SEQUENCE OF STAGES, PUBLISHED AS IT RUNS.
+//
+// "update failed. this needs to be a more controlled process with a loading bar
+// and error handling that's evident" — written about an update that SUCCEEDED. The
+// control said "Downloading and verifying…" from the first moment to the last and
+// then the window closed, so every stage looked like the same stage. These are the
+// states a watching page would have been given, in order, and the download's are
+// determinate because the release manifest names the size.
+func TestTheUpdateIsASequenceOfStages2nh(t *testing.T) {
+	setup := bytes.Repeat([]byte("s"), 700*1024)
+	digest := sha256.Sum256(setup)
+	manifest := map[string]any{
+		"version": "v1.31.0", "commit": strings.Repeat("b", 40), "file": setupName,
+		"sha256": hex.EncodeToString(digest[:]), "bytes": len(setup),
+		"exe_identity": map[string]any{"tag": "v1.31.0", "commit": strings.Repeat("b", 40), "dirty": false},
+	}
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest":
+			_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v1.31.0", "body": "notes", "assets": []map[string]string{{"name": manifestName, "browser_download_url": server.URL + "/release.json"}, {"name": setupName, "browser_download_url": server.URL + "/setup"}}})
+		case "/release.json":
+			_ = json.NewEncoder(w).Encode(manifest)
+		case "/setup":
+			_, _ = w.Write(setup)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	var mu sync.Mutex
+	stages := []string{}
+	determinate := int64(0)
+	manager := New(Options{CurrentVersion: "v1.30.0", DataRoot: t.TempDir(), LatestURL: server.URL + "/latest", Client: server.Client(),
+		VerifySignature: func(context.Context, string) error { return nil },
+		Launch:          func(string, string) error { return nil },
+		Changed: func(state State) {
+			mu.Lock()
+			defer mu.Unlock()
+			if state.Step == "" {
+				return
+			}
+			if state.Line == "" {
+				t.Errorf("stage %q published no line, and a wait element without one is decoration", state.Step)
+			}
+			if state.Step == "downloading" && state.Total > 0 && state.Processed > determinate {
+				determinate = state.Processed
+			}
+			if len(stages) == 0 || stages[len(stages)-1] != state.Step {
+				stages = append(stages, state.Step)
+			}
+		}})
+	if err := manager.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Install(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"downloading", "verifying", "installing"}
+	if len(stages) != len(want) {
+		t.Fatalf("stages %q, want %q", stages, want)
+	}
+	for index, stage := range want {
+		if stages[index] != stage {
+			t.Fatalf("stages %q, want %q", stages, want)
+		}
+	}
+	if determinate != int64(len(setup)) {
+		t.Fatalf("the download reported %d of %d bytes; the last chunk must be reported too", determinate, len(setup))
 	}
 }

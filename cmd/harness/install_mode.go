@@ -248,30 +248,47 @@ func runInstall(options installOptions, args []string) int {
 		}
 	}
 
+	finish := installProgress{Phase: "finished", Text: "Agent_b " + marker.Version + " is installed.", Done: true, OK: true}
 	if code == 0 {
-		appendProgress(dataRoot, installProgress{Phase: "finished", Text: "Agent_b " + marker.Version + " is installed.", Done: true, OK: true})
 		// The marker is cleared ONLY on success. That is what makes its
 		// presence at the next launch mean something.
 		if err := clearInstallMarker(dataRoot); err != nil {
 			log.printf("install: the install finished but its marker could not be cleared: %v", err)
 		}
 		if options.noStart {
+			appendProgress(dataRoot, finish)
 			log.printf("AUTOSTART SKIPPED: -NoStart was requested. Log: %s", log.location())
 			return 0
 		}
+		// Item 2nh (a): THE RESTART IS PART OF THE SEQUENCE. The operator's window
+		// closed under him and a new one opened with nothing said; the phase that
+		// covers that gap was the one phase nobody wrote.
+		appendProgress(dataRoot, installProgress{Phase: "restarting", Text: "Starting Agent_b " + marker.Version})
 		applicationRoot := installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers))
 		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
 		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, log); err != nil {
+			// Item 2nh (b): the finish is written below, after the restart, so a
+			// restart that fails must write its own end — otherwise the page that is
+			// watching waits for a line that is never coming.
+			appendProgress(dataRoot, installProgress{Phase: "restarting", Text: fmt.Sprintf("Agent_b %s was installed but failed to start: %v. Transcript: %s", marker.Version, err, log.location()), Done: true})
 			return log.fail("Agent_b was installed but failed to start: %v", err)
 		}
 		leftInPlace, err := completeInstallMigration(applicationRoot, operatorDataRoot, installerFlagPresent(args, "TestMode"), log)
 		if err != nil {
+			appendProgress(dataRoot, installProgress{Phase: "finished", Text: fmt.Sprintf("Agent_b %s started, but legacy migration cleanup failed: %v. Transcript: %s", marker.Version, err, log.location()), Done: true})
 			return log.fail("Agent_b started, but legacy migration cleanup failed: %v", err)
 		}
 		if leftInPlace != "" {
 			log.printf("%s", leftInPlace)
-			appendProgress(dataRoot, installProgress{Phase: "finished", Text: leftInPlace, Done: true, OK: true})
+			// Item 2nh (c): A WARNING IS NOT A FAILURE, AND IT IS NOT THE FINISH.
+			// This line used to be written as "finished ok:true" AFTER the finish,
+			// so the last line of the progress file — the line a reader takes as the
+			// result — was "MIGRATION LEFT IN PLACE: access denied", and a successful
+			// update read as an error. It is a note now, and the finish below is the
+			// last line.
+			appendProgress(dataRoot, installProgress{Phase: "warning", Text: leftInPlace, OK: true})
 		}
+		appendProgress(dataRoot, finish)
 		log.printf("AUTOSTART COMPLETE: Agent_b started through %s. Log: %s", filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1"), log.location())
 		return 0
 	}

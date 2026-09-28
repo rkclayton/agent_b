@@ -601,11 +601,21 @@ func (r *Registry) ConnectionInUse(connectionID string) (string, bool) {
 }
 
 // ConnectionHolder returns the id and the label of the chat holding a connection.
+// ConnectionHolder names an OPEN chat using a connection, which is what can block
+// removing it.
+//
+// Item 2mo's settings journey found this by walking it: a CLOSED chat held the
+// connection too, so "in use by the chat main — close that chat first" was returned
+// for a chat that was already closed, and the connection could never be removed. The
+// operator has 33 closed chats. [[2hq]]'s close-is-not-delete keeps a closed chat's
+// binding as a RECORD of what it used, not as a claim on it; a closed chat that is
+// reopened onto a connection that is gone already says so and offers to rebind.
 func (r *Registry) ConnectionHolder(connectionID string) (string, string, bool) {
 	for _, item := range r.List() {
-		if item.ConnectionID == connectionID {
-			return item.ID, item.Snapshot().Label, true
+		if item.ConnectionID != connectionID || item.IsClosed() {
+			continue
 		}
+		return item.ID, item.Snapshot().Label, true
 	}
 	return "", "", false
 }

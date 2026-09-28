@@ -318,7 +318,31 @@ function render() {
       total: total > 0 ? total : null,
     }));
   }
+  placeConfirmPopover();
   navigationSurfaceReady("settings", store);
+}
+
+// Item 2nc (c), corrected at rel-1.31.0 by item 2mo's journey walking it: the rect
+// was captured AT THE CLICK and the render that follows moves the page — the armed
+// row grows, a refusal appears — so on a scrolled sheet the question opened 400px
+// below the control it belonged to and off the bottom of the screen. Measured:
+// control at 462, popover at 870, not visible.
+//
+// The position is taken AFTER the render, from the control's own live rectangle, in
+// the scroller's coordinates. Nothing is captured that a layout can invalidate.
+function placeConfirmPopover() {
+  const popover = sheet.querySelector(".confirm-popover");
+  if (!popover || !confirmPending) return;
+  const selector = `[data-action="${confirmPending.action}"]${confirmPending.id ? `[data-id="${CSS.escape(confirmPending.id)}"]` : ""}`;
+  const control = sheet.querySelector(selector);
+  const scroller = sheet.querySelector(".settings-content");
+  if (!control || !scroller) return;
+  const box = control.getBoundingClientRect();
+  const host = scroller.getBoundingClientRect();
+  const top = box.bottom - host.top + scroller.scrollTop + 6;
+  const left = box.right - host.left + scroller.scrollLeft - POPOVER_WIDTH;
+  popover.style.top = `${Math.round(Math.max(0, top))}px`;
+  popover.style.left = `${Math.round(Math.max(8, left))}px`;
 }
 
 // Item 2gk: the two panels are MOVED between their source holder and the open

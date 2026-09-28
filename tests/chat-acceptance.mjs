@@ -1670,6 +1670,10 @@ if (realModel) {
   const rowsWithoutHover = [];
   let settingsRows = 0;
   for (const section of settingsSections) {
+    // Item 2ni: the Plan's entry opens its own DOCUMENT, so it draws no rows in this
+    // sheet and clicking it here would leave Settings mid-enumeration. It is proved
+    // on its own below, including the way back.
+    if (section.trim() === "Plan") continue;
     assert.equal(await clickText(".settings-nav button", section), true);
     await sleep(150);
     const rows = await browser.evaluate(`[...document.querySelectorAll('.settings-content .setting-row')].map((row) => ({ label: row.querySelector('label')?.textContent.trim() || '', title: (row.getAttribute('title') || '').trim() }))`);
@@ -1679,6 +1683,20 @@ if (realModel) {
   assert.ok(settingsRows >= 30, `Settings rows enumerated: ${settingsRows}`);
   assert.deepEqual(rowsWithoutHover, [], "every Settings row carries hover text");
   record("settings-every-row-has-hover-text");
+  // Item 2ni: THE PLAN IS A TOP-LEVEL SETTINGS ENTRY, third, and it opens the Plan
+  // page. (c): the way back is that sheet's close — the gear on the Plan document,
+  // which returns to the view it was clicked from rather than to a stand-in route.
+  assert.deepEqual(settingsSections.map((name) => name.trim()).slice(0, 3), ["Agents", "Activity", "Plan"]);
+  assert.equal(await page.locator('.settings-nav [data-id="plan"] img.shell-page-chip').count(), 1);
+  assert.equal(await clickText(".settings-nav button", "Plan"), true);
+  await browser.wait(`location.pathname === '/plan' && document.querySelector('#plan-list')`, "the Plan entry opens the Plan page");
+  assert.equal(await browser.evaluate(`document.querySelector('.shell-settings')?.getAttribute('aria-expanded')`), "true");
+  await page.locator(".shell-settings").click();
+  await browser.wait(`location.pathname === '/chat' && document.querySelector('#chat-task')`, "the Plan page's close returns to the chat");
+  assert.equal(await page.locator('.agent-tab-wrap-surface').count(), 0);
+  record("settings-plan-section-opens-and-closes");
+  await page.locator(".shell-settings").click();
+  await browser.wait(`document.querySelector('#settings-page') && !document.querySelector('#settings-page').hidden`, "Settings reopened after the Plan");
   assert.equal(await clickText(".settings-nav button", "Security"), true);
   await browser.wait(`document.querySelector('.settings-operator-status[data-action="operator-context"]')`, "Settings operator toggle");
   const operatorBefore = await browser.evaluate(`document.querySelector('.settings-operator-status').getAttribute('aria-pressed')`);

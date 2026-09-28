@@ -875,6 +875,7 @@ function Test-EntryPointOpensNoConsole {
     $consoles = @()
     $ours = @()
     $sawProduct = $false
+    $seenFor = 0
     # Sample through the launch rather than once at the end: a console that appears and
     # closes is still a console the operator saw.
     for ($tick = 0; $tick -lt 40; $tick++) {
@@ -886,7 +887,16 @@ function Test-EntryPointOpensNoConsole {
                 try { $_.Path -and $_.Path.StartsWith($ApplicationRoot, [StringComparison]::OrdinalIgnoreCase) } catch { $false }
             })
         if ($ours.Count) { $consoles += Get-ConsoleWindowsFor -ProcessIds @($ours | Select-Object -Expand Id) }
-        if (@($ours | Where-Object { $_.ProcessName -eq 'Agent_b' }).Count) { $sawProduct = $true }
+        if (@($ours | Where-Object { $_.ProcessName -eq 'Agent_b' }).Count) {
+            $sawProduct = $true
+            $seenFor++
+        }
+        # The product opens its OWN window on these entry points, which is the window it
+        # is meant to open and the documented exception to the no-window rule. It is on
+        # the operator's desktop while this runs, so the watch ends as soon as there is
+        # something to conclude: a console allocated by Windows exists from the first
+        # instant of the process, so three seconds of it is the whole answer.
+        if ($seenFor -ge 12) { break }
     }
     $visible = @($consoles | Where-Object { $_.Visible })
     # Stop whatever this launched, by path, before reporting.
@@ -908,6 +918,19 @@ function New-EntryPointDataRoot {
     # production port. The copy pins it to a free one.
     $root = Join-Path $testRoot ('EntryPointData-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
     $null = New-Item -ItemType Directory -Path $root -Force
+    # MEASURED, not assumed: a data root holding only a config is not enough. The app
+    # exits 1 with "open <data>\profiles\<name>\profile.json: The system cannot find
+    # the path specified", which is how the first version of this gate came to report
+    # "no console" for launches that started nothing at all. So the installer's own
+    # seeded root is copied, minus the logs the later scenarios read.
+    Copy-Item -Path (Join-Path $testData '*') -Destination $root -Recurse -Force -ErrorAction SilentlyContinue
+    $copiedLogs = Join-Path $root 'logs'
+    if (Test-Path -LiteralPath $copiedLogs) {
+        Remove-TreeWithinAllowedRoots -Path $copiedLogs -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'entry-point data root logs'
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $root 'profiles') -PathType Container)) {
+        throw "the entry-point data root has no profiles folder, so the launch would exit before it could open anything: $root"
+    }
     $entryConfig = Get-Content -Raw -LiteralPath (Join-Path $testData 'harness.json') | ConvertFrom-Json
     $entryConfig.listen = '127.0.0.1:' + (Get-FreeTcpPort)
     ($entryConfig | ConvertTo-Json -Depth 12) | Set-Content -LiteralPath (Join-Path $root 'harness.json') -Encoding UTF8

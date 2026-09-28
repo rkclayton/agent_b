@@ -41,6 +41,18 @@ type Outcome struct {
 	Error      string   `json:"error,omitempty"`
 	Transcript string   `json:"transcript,omitempty"`
 	Warnings   []string `json:"warnings,omitempty"`
+	// Item 2mk (a): THE VERSION THAT DID NOT CHANGE, said in those words. An
+	// install can finish and leave this window serving something else — on
+	// 2026-09-26 the installer wrote v1.22.0 to the per-user root, the launcher
+	// found port 8790 already answered by another instance, the new process exited,
+	// and the operator was told "installed but failed to start" while his window
+	// went on serving the old build. Running is set only when the installer
+	// finished with a NEWER version than the one this process is: an older one is a
+	// stale file, not a fact about now.
+	Running string `json:"running,omitempty"`
+	// (c): the install root the setup was given, so the version being reported and
+	// the path it was written to are the same statement.
+	ApplicationRoot string `json:"application_root,omitempty"`
 }
 
 var installedVersion = regexp.MustCompile(`Agent_b (v?[0-9][0-9A-Za-z.\-+]*) is installed`)
@@ -139,10 +151,22 @@ func outcomeFor(dataRoot, currentVersion string) *Outcome {
 		}
 	}
 	version := normalizeVersion(installedVersionIn(phases))
-	if version == "" || version != normalizeVersion(currentVersion) {
+	if version == "" {
 		return nil
 	}
-	return &Outcome{Version: version, At: last.At, OK: true, Warnings: warningsIn(phases)}
+	running := normalizeVersion(currentVersion)
+	if version == running {
+		return &Outcome{Version: version, At: last.At, OK: true, Warnings: warningsIn(phases)}
+	}
+	// Item 2mk (a): a finish for a NEWER version than this process is running is the
+	// case the operator lived through and was never told about. An older one is a
+	// progress file left by an earlier install and says nothing about now.
+	if installed, ok := semanticVersion(version); ok {
+		if current, currentOK := semanticVersion(running); currentOK && compareVersion(installed, current) > 0 {
+			return &Outcome{Version: version, At: last.At, OK: true, Running: running, Warnings: warningsIn(phases)}
+		}
+	}
+	return nil
 }
 
 // installedVersionIn reads the version out of the installer's own sentences rather

@@ -57,6 +57,12 @@ type State struct {
 	// the restart can say so where the control was rather than flipping silently
 	// back to "up to date".
 	Outcome *Outcome `json:"outcome,omitempty"`
+	// Item 2mk (b) and (c): HOW FAR BEHIND, and WHICH INSTALL. He was eleven
+	// releases behind and learned it from a report; and on 2026-09-26 an install
+	// wrote v1.22.0 to the per-user root while the window went on being served by
+	// another instance entirely, with nothing naming either path.
+	ReleasesBehind  int    `json:"releases_behind,omitempty"`
+	ApplicationRoot string `json:"application_root,omitempty"`
 }
 
 type releaseAsset struct {
@@ -92,20 +98,21 @@ type availableRelease struct {
 }
 
 type Manager struct {
-	mu            sync.RWMutex
-	state         State
-	release       availableRelease
-	client        *http.Client
-	latestURL     string
-	dataRoot      string
-	enabled       func() bool
-	launch        func(string, string) error
-	verify        func(context.Context, string) error
-	changed       func(State)
-	now           func() time.Time
-	checkInterval time.Duration
-	lastCheck     time.Time
-	cancel        context.CancelFunc
+	mu              sync.RWMutex
+	state           State
+	applicationRoot string
+	release         availableRelease
+	client          *http.Client
+	latestURL       string
+	dataRoot        string
+	enabled         func() bool
+	launch          func(string, string) error
+	verify          func(context.Context, string) error
+	changed         func(State)
+	now             func() time.Time
+	checkInterval   time.Duration
+	lastCheck       time.Time
+	cancel          context.CancelFunc
 }
 
 type Options struct {
@@ -161,13 +168,19 @@ func New(options Options) *Manager {
 	if interval <= 0 {
 		interval = time.Hour
 	}
-	manager := &Manager{client: client, latestURL: latest, dataRoot: options.DataRoot, enabled: enabled, launch: launch, verify: verify, changed: options.Changed, now: time.Now, checkInterval: interval}
-	manager.state = State{Enabled: enabled(), CurrentVersion: normalizeVersion(options.CurrentVersion)}
+	manager := &Manager{client: client, latestURL: latest, dataRoot: options.DataRoot, applicationRoot: options.ApplicationRoot, enabled: enabled, launch: launch, verify: verify, changed: options.Changed, now: time.Now, checkInterval: interval}
+	manager.state = State{Enabled: enabled(), CurrentVersion: normalizeVersion(options.CurrentVersion), ApplicationRoot: options.ApplicationRoot}
 	// Item 2nh (b): THIS PROCESS MAY BE THE RESULT OF AN UPDATE. The installer
 	// stopped the instance that pressed Update and started this one, so the only
 	// account of what happened is the file the installer wrote. Read it once, here,
 	// and the About row can state the outcome instead of saying nothing.
 	manager.state.Outcome = outcomeFor(options.DataRoot, manager.state.CurrentVersion)
+	if manager.state.Outcome != nil {
+		// Item 2mk (c): the outcome names the install it is about. A version without
+		// a path is what left the operator unable to tell which of two installs the
+		// reports had been measuring.
+		manager.state.Outcome.ApplicationRoot = options.ApplicationRoot
+	}
 	return manager
 }
 
@@ -240,6 +253,7 @@ func (m *Manager) refreshEnabled() {
 	if !m.state.Enabled {
 		m.state.Checking = false
 		m.state.Available = false
+		m.state.ReleasesBehind = 0
 		m.state.Error = ""
 		m.release = availableRelease{}
 	}
@@ -307,6 +321,7 @@ func (m *Manager) finishCheck(ctx context.Context) error {
 		m.state.Enabled = false
 		m.state.Checking = false
 		m.state.Available = false
+		m.state.ReleasesBehind = 0
 		m.state.Error = ""
 		m.release = availableRelease{}
 		state := m.state
@@ -319,12 +334,14 @@ func (m *Manager) finishCheck(ctx context.Context) error {
 	if err != nil {
 		m.state.Error = err.Error()
 		m.state.Available = false
+		m.state.ReleasesBehind = 0
 		m.release = availableRelease{}
 	} else {
 		m.state.Error = ""
 		m.state.Version = release.Version
 		m.state.Notes = release.Notes
 		m.state.Available = release.Available
+		m.state.ReleasesBehind = release.Behind
 		m.release = release.availableRelease
 	}
 	state := m.state
@@ -337,6 +354,7 @@ type fetchedRelease struct {
 	availableRelease
 	Notes     string
 	Available bool
+	Behind    int
 }
 
 func (m *Manager) fetchRelease(ctx context.Context) (fetchedRelease, error) {
@@ -386,7 +404,63 @@ func (m *Manager) fetchRelease(ctx context.Context) (fetchedRelease, error) {
 	current, currentOK := semanticVersion(m.state.CurrentVersion)
 	remoteVersion, _ := semanticVersion(version)
 	result.Available = currentOK && compareVersion(remoteVersion, current) > 0
+	if result.Available {
+		result.Behind = m.countBehind(ctx, current)
+	}
 	return result, nil
+}
+
+// countBehind answers item 2mk (b): HOW FAR BEHIND, in releases, not in versions.
+//
+// The operator was eleven releases behind and learned it from a report rather than
+// from the product. One published release is one thing he did not get, so the number
+// is a count of published, stable releases newer than the one running — not a
+// subtraction of version numbers, which would say "1" for a jump of eleven minors.
+//
+// It costs one more anonymous GET, and only when an update is already known to
+// exist. A failure answers 0, which reads as "not said" rather than as "up to date":
+// the available line is what tells him there is something, and this only sizes it.
+func (m *Manager) countBehind(ctx context.Context, current [3]int) int {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseListURL(m.latestURL), nil)
+	if err != nil {
+		return 0
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("User-Agent", "Agent_b update checker")
+	response, err := m.client.Do(request)
+	if err != nil {
+		return 0
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return 0
+	}
+	var releases []releaseResponse
+	if json.NewDecoder(io.LimitReader(response.Body, 4*maxMetadata+1)).Decode(&releases) != nil {
+		return 0
+	}
+	behind := 0
+	for _, release := range releases {
+		if release.Draft || release.Prerelease {
+			continue
+		}
+		if version, ok := semanticVersion(normalizeVersion(release.Tag)); ok && compareVersion(version, current) > 0 {
+			behind++
+		}
+	}
+	return behind
+}
+
+// releaseListURL turns the latest-release URL into the list of releases beside it,
+// so the fixture host a test points at is still the host this asks.
+func releaseListURL(latest string) string {
+	if strings.HasSuffix(latest, "/releases/latest") {
+		return strings.TrimSuffix(latest, "/latest") + "?per_page=100"
+	}
+	if index := strings.LastIndex(latest, "/"); index > 0 {
+		return latest[:index] + "/releases?per_page=100"
+	}
+	return latest
 }
 
 func (m *Manager) validateAssetURL(raw string) error {

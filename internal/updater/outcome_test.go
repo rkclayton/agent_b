@@ -188,10 +188,16 @@ func TestTheWarningPhaseIsANoteAndTheFinishIsTheResult2nh(t *testing.T) {
 	if len(outcome.Warnings) != 1 {
 		t.Fatalf("warnings %q, want the one note", outcome.Warnings)
 	}
-	// A finish for a version this process is not running belongs to somebody
-	// else's install, and claiming it would be a lie about this process.
-	if other := outcomeFor(root, "v1.29.0"); other != nil {
-		t.Fatalf("a finish for another version was claimed: %+v", other)
+	// Item 2mk (a): a finish for a NEWER version than this process is running is not
+	// claimed as this process's success — it is reported as what it is, an install
+	// that happened while this window went on serving something else.
+	other := outcomeFor(root, "v1.29.0")
+	if other == nil || other.Running != "v1.29.0" || other.Version != "v1.30.0" {
+		t.Fatalf("a finished install this process did not become was not reported: %+v", other)
+	}
+	// And a finish OLDER than what is running is a stale file, not a fact about now.
+	if stale := outcomeFor(root, "v1.31.0"); stale != nil {
+		t.Fatalf("a stale progress file was claimed: %+v", stale)
 	}
 }
 

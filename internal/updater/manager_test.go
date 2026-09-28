@@ -66,7 +66,11 @@ func TestCheckDownloadVerifyAndLaunch(t *testing.T) {
 	if got, err := os.ReadFile(path); err != nil || string(got) != string(setup) {
 		t.Fatalf("verified setup: %q, %v", got, err)
 	}
-	if filepath.Base(path) != setupName || requests.Load() != 3 {
+	// Item 2mk (b): FOUR requests now, not three. The check asks for the latest
+	// release and then, only because one is available, for the list beside it, so it
+	// can say how many releases behind this build is. The download and the manifest
+	// are the other two.
+	if filepath.Base(path) != setupName || requests.Load() != 4 {
 		t.Fatalf("path=%q requests=%d", path, requests.Load())
 	}
 }
@@ -280,5 +284,92 @@ func TestTheUpdateIsASequenceOfStages2nh(t *testing.T) {
 	}
 	if determinate != int64(len(setup)) {
 		t.Fatalf("the download reported %d of %d bytes; the last chunk must be reported too", determinate, len(setup))
+	}
+}
+
+// Item 2mk (b) and (c): HOW FAR BEHIND, AND WHICH INSTALL.
+//
+// "yeah thats fine i just used the in app updater" — said while eleven releases
+// behind, a number he got from a report and not from the product. One published
+// release is one thing he did not get, so this counts releases and not the
+// difference between two version numbers, which would have said "1".
+func TestTheCheckSaysHowManyReleasesBehindAndWhichInstall2mk(t *testing.T) {
+	setup := []byte("setup")
+	digest := sha256.Sum256(setup)
+	manifest := map[string]any{
+		"version": "v1.24.0", "commit": strings.Repeat("c", 40), "file": setupName,
+		"sha256": hex.EncodeToString(digest[:]), "bytes": len(setup),
+		"exe_identity": map[string]any{"tag": "v1.24.0", "commit": strings.Repeat("c", 40), "dirty": false},
+	}
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/releases/latest":
+			_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v1.24.0", "body": "notes", "assets": []map[string]string{{"name": manifestName, "browser_download_url": server.URL + "/release.json"}, {"name": setupName, "browser_download_url": server.URL + "/setup"}}})
+		case r.URL.Path == "/releases":
+			// Eleven stable releases newer than v1.13.0, plus two that must not
+			// count: a draft and a prerelease.
+			list := []map[string]any{{"tag_name": "v1.25.0", "draft": true}, {"tag_name": "v1.24.1", "prerelease": true}, {"tag_name": "v1.13.0"}, {"tag_name": "v1.12.0"}}
+			for _, tag := range []string{"v1.24.0", "v1.23.0", "v1.22.0", "v1.21.0", "v1.20.0", "v1.19.0", "v1.18.0", "v1.17.0", "v1.16.0", "v1.15.0", "v1.14.0"} {
+				list = append(list, map[string]any{"tag_name": tag})
+			}
+			_ = json.NewEncoder(w).Encode(list)
+		case r.URL.Path == "/release.json":
+			_ = json.NewEncoder(w).Encode(manifest)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	manager := New(Options{CurrentVersion: "v1.13.0", DataRoot: root, ApplicationRoot: `C:\Users\someone\AppData\Local\Programs\Agent_b`,
+		LatestURL: server.URL + "/releases/latest", Client: server.Client(),
+		VerifySignature: func(context.Context, string) error { return nil },
+		Launch:          func(string, string) error { return nil }})
+	if err := manager.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	state := manager.State()
+	if !state.Available || state.ReleasesBehind != 11 {
+		t.Fatalf("available=%v behind=%d, want 11 releases behind", state.Available, state.ReleasesBehind)
+	}
+	if state.ApplicationRoot == "" {
+		t.Fatal("the state does not name the install it is about, which is (c)")
+	}
+	// (d): an updater switched off says so, and takes its count with it — "update
+	// checks are off · 11 releases behind" would be a number nothing is refreshing.
+	on := true
+	off := New(Options{CurrentVersion: "v1.13.0", DataRoot: t.TempDir(), LatestURL: server.URL + "/releases/latest", Client: server.Client(),
+		Enabled:         func() bool { return on },
+		VerifySignature: func(context.Context, string) error { return nil },
+		Launch:          func(string, string) error { return nil }})
+	if err := off.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if state := off.State(); !state.Available || state.ReleasesBehind != 11 {
+		t.Fatalf("before switching off: available=%v behind=%d", state.Available, state.ReleasesBehind)
+	}
+	on = false
+	off.refreshEnabled()
+	if state := off.State(); state.Enabled || state.Available || state.ReleasesBehind != 0 {
+		t.Fatalf("a switched-off updater kept %+v", state)
+	}
+}
+
+// Item 2mk (a): an install that finished while this window went on serving the old
+// build is reported as exactly that.
+func TestAnInstallThisWindowDidNotBecomeIsReported2mk(t *testing.T) {
+	root := t.TempDir()
+	writePhases(t, root,
+		progressPhase{Phase: "starting", Text: "Installing Agent_b v1.22.0"},
+		progressPhase{At: "2026-09-27T04:32:07Z", Phase: "finished", Text: "Agent_b v1.22.0 is installed.", Done: true, OK: true},
+	)
+	manager := New(Options{CurrentVersion: "v1.13.0", DataRoot: root, ApplicationRoot: `C:\Users\someone\AppData\Local\Programs\Agent_b`})
+	outcome := manager.State().Outcome
+	if outcome == nil || !outcome.OK || outcome.Running != "v1.13.0" || outcome.Version != "v1.22.0" {
+		t.Fatalf("outcome %+v, want v1.22.0 installed while v1.13.0 runs", outcome)
+	}
+	if outcome.ApplicationRoot == "" {
+		t.Fatal("the outcome does not name the install it is about")
 	}
 }

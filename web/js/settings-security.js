@@ -1,5 +1,7 @@
+let serviceAccountLog = "";
 let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess, standingGrants, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
 function useSettingsContext(context) {
+  serviceAccountLog = context.serviceAccountLog || "";
   ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess = { devices: [] }, standingGrants = [], connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
 }
 
@@ -25,7 +27,15 @@ function shell(active) {
 							? "agentb-svc · credential check temporarily unavailable"
 						: serviceAccountStatus.state === "administrator"
 							? "agentb-svc · ADMINISTRATOR — refused"
-							: "agentb-svc · account not created";
+						: serviceAccountStatus.state === "disabled"
+							// Item 2np (c): the account EXISTS and the identity is off by
+							// choice. This state fell through to "account not created" —
+							// the operator read that beside a working account and pressed
+							// Repair, which is what the words told him to do.
+							? "agentb-svc · account exists · identity off"
+						: serviceAccountStatus.state === "missing"
+							? "agentb-svc · account not created"
+							: `agentb-svc · ${serviceAccountStatus.state || "state unknown"}`;
 	const setupLabel = serviceAccountBusy
 		? "Waiting for Windows UAC…"
 		: serviceAccountStatus.state === "locked_out"
@@ -79,7 +89,13 @@ function shell(active) {
 	const subnetChoices = detectedSubnets.length
 		? detectedSubnets.map((subnet) => `<label class="settings-chip"><input type="checkbox" data-local-subnet value="${attr(subnet)}" ${confirmedSubnets.has(subnet) ? "checked" : ""} ${lanEnabled ? "" : "disabled"}> ${html(subnet)}</label>`).join("")
 		: '<span class="settings-chip-empty">none detected</span>';
-	const setupOpen = serviceAccountStatus.state !== "ready";
+	// Item 2np (d): OFF IS NOT AN ERROR. The panel opened whenever the state was not
+	// ready, which includes the identity being off by choice — so a deliberate setting
+	// looked like a fault with a repair panel hanging open under it. It opens when
+	// something is actually wrong with an identity that is on, or being turned on.
+	const identityOn = !!service.enabled;
+	const setupOpen = (identityOn || serviceAccountBusy) && serviceAccountStatus.state !== "ready";
+	const identityAlarm = (identityOn || serviceAccountBusy) && serviceAccountStatus.loaded && serviceAccountStatus.state !== "ready";
   return `${subhead("Operator mode", "Run everything as you for 20 minutes. This is the one line that stays visible because misreading it is dangerous.")}
 	${row("identity", `<button type="button" class="settings-operator-status" data-action="operator-context" aria-pressed="${operatorView.active}" aria-label="${attr(operatorView.label)}"><img src="${operatorView.src}" srcset="${operatorView.srcset}" width="24" height="24" alt=""><span>${operatorView.active ? "Stop running everything as me" : "Run everything as me for 20 minutes"}</span></button>`, "", "Runs every tool as you, without the service account's limits, for 20 minutes or until you stop it.")}
 	<p class="settings-note">This defeats the service-account OS boundary for every tool in every chat until it expires.</p>
@@ -91,12 +107,14 @@ function shell(active) {
 	${toggle("sandbox.enabled", "Docker Sandbox", sandboxEnabled, "Install-wide: routes shell and bash through Docker Sandbox.")}
 	${row("status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`, "", "Inert means the setting is on but Docker Sandbox is unavailable; the reason is shown here.")}
 	${subhead("Service identity", "Use the restricted Windows account for tools. Turning this off restores direct non-elevated operator execution after Save.")}
-	${toggle("shell.service_account.enabled", "Service identity", !!service.enabled, "Off: tools run as the account that launched Agent_b. On: unavailable identity actions refuse and offer Repair or Run as you.")}
+	${row("Service identity", `<button type="button" role="switch" aria-checked="${identityOn}" aria-label="Service identity" class="switch ${identityOn ? "on" : ""}" data-action="service-identity-toggle" ${serviceAccountBusy ? "disabled" : ""}></button><span class="account-status">${serviceAccountBusy ? "Turning on — Windows will ask once" : identityOn ? "on" : "off"}</span>`, "", "Off: tools run as the account that launched Agent_b. On: Agent_b runs tools as its own restricted Windows account.")}
+	${feedback(serviceAccountMessage, serviceAccountAlarm)}
+	${serviceAccountMessage && serviceAccountLog ? `<p class="account-status">${html(serviceAccountLog)}</p>` : ""}
 	<details class="settings-advanced"${setupOpen ? " open" : ""}>
 	  <summary>Set up service identity</summary>
 	  <p class="settings-note">Agent_b generates and stores the password. One Windows approval creates or repairs the account, folder access and outbound policy, then tests the credential before enabling it.</p>
 	  ${store.shell_identity?.notice ? `<p class="settings-feedback alarm" role="status">${html(store.shell_identity.notice)}</p>` : ""}
-	  ${row("account", `<span class="account-status"><span class="lamp ${serviceAccountStatus.state === "ready" ? "live" : serviceAccountStatus.loaded ? "alarm" : ""}"></span>${html(accountState)}</span>`)}
+	  ${row("account", `<span class="account-status"><span class="lamp ${serviceAccountStatus.state === "ready" ? "live" : identityAlarm ? "alarm" : ""}"></span>${html(accountState)}</span>`)}
 	  ${row("credential", `<span class="account-status">${html(stored)}</span>`)}
 	  ${subhead("Host protections", "Folder access and outbound policy applied to the service identity.")}
 	  ${row("protections", `<span class="account-status"><span class="lamp ${protectionReady ? "live" : hardeningStatus.loaded ? "alarm" : ""}"></span>${html(protectionState)}</span>`)}
@@ -105,7 +123,7 @@ function shell(active) {
 	  ${row("Allow my local network", `<button type="button" role="switch" aria-checked="${lanEnabled}" aria-label="Allow my local network" class="switch ${lanEnabled ? "on" : ""}" data-action="local-network-toggle"></button><span class="settings-subnets" data-local-subnets>${subnetChoices}</span>`)}
 	  <p class="settings-note">Local access is limited to loopback and the configured model server; link-local, cloud metadata and Agent_b's own listener remain refused.</p>
 	  ${row("actions", `<div class="settings-actions"><button type="button" data-action="setup-service-account" ${setupDisabled ? "disabled" : ""}>${setupLabel}</button></div>`)}
-	${feedback(serviceAccountMessage || hardeningMessage, serviceAccountAlarm || hardeningAlarm)}
+	${feedback(hardeningMessage, hardeningAlarm)}
 	</details>
 	${subhead("Phone access", "One-time enrolment and revocable phone sessions. The phone uses the same chat endpoints as this page.")}
 	${row("enrolment", `<span class="account-status mono">${phoneAccess.code ? html(phoneAccess.code) : "no active code"}</span><button type="button" data-action="phone-enrol">New code</button>`, "", phoneAccess.expires_at ? `Expires ${phoneAccess.expires_at}` : "The code expires in five minutes and works once.")}

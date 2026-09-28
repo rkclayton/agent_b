@@ -180,7 +180,12 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 		credentialStatus := s.credential.Status()
 		s.bus.Publish(events.New(events.ShellCredential, "", "", credentialStatus))
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"error":      setupErr.Error() + "; the elevated script started, so inspect the account and use Reset password before continuing",
+			// Item 2np (e): NO TEXT NAMES A CONTROL THAT DOES NOT EXIST. This said "use
+			// Reset password", and there is no such control anywhere in Settings; the
+			// operator read it beside a red box and had nothing to press. What is true is
+			// that the elevated run started, so the account may have been changed, and
+			// the thing to do is the same thing again.
+			"error":      setupErr.Error() + "; the elevated setup had started, so switch Service identity on again to finish it",
 			"field":      "shell.service_account",
 			"credential": credentialStatus,
 			"attempted":  true,

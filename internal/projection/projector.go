@@ -126,59 +126,64 @@ type ChatEntry struct {
 // Snapshot is the serializable session projection. Complete is false when the log has no
 // session.created seed, so callers cannot mistake guessed defaults for reconstructed state.
 type Snapshot struct {
-	SchemaVersion        int                        `json:"schema_version"`
-	Cursor               Cursor                     `json:"cursor"`
-	Complete             bool                       `json:"complete"`
-	ID                   string                     `json:"id"`
-	Label                string                     `json:"label"`
-	AgentID              string                     `json:"agent_id"`
-	ConnectionID         string                     `json:"connection_id"`
-	AgentName            string                     `json:"agent_name"`
-	BConnection          string                     `json:"b_connection"`
-	Role                 string                     `json:"role"`
-	PlanID               string                     `json:"plan_id,omitempty"`
-	PlanName             string                     `json:"plan_name,omitempty"`
-	PlanDir              string                     `json:"plan_dir,omitempty"`
-	PlanRepo             string                     `json:"plan_repo,omitempty"`
-	CreatedAt            string                     `json:"created_at"`
-	Workspace            string                     `json:"workspace"`
-	WorkspaceDir         string                     `json:"workspace_dir"`
-	WorkspaceMissing     bool                       `json:"workspace_missing"`
-	Scratch              bool                       `json:"scratch,omitempty"`
-	ProjectContent       string                     `json:"project_content"`
-	ProjectFiles         []string                   `json:"project_files"`
-	ProjectNotes         []string                   `json:"project_notes"`
-	PendingRepoPolicy    *workspaceinfo.PolicyState `json:"pending_repo_policy,omitempty"`
-	RepoPolicy           *workspaceinfo.PolicyState `json:"repo_policy,omitempty"`
-	Run                  Run                        `json:"run"`
-	Tools                []Tool                     `json:"tools"`
-	Messages             []events.Message           `json:"messages"`
-	Budget               events.Budget              `json:"budget"`
-	QueuedMessages       int                        `json:"queued_messages"`
-	Runnable             bool                       `json:"runnable"`
-	NotRunnableReason    string                     `json:"not_runnable_reason"`
-	MemoryPath           string                     `json:"memory_path"`
-	MemoryContent        string                     `json:"memory_content"`
-	AgentMemoryPath      string                     `json:"agent_memory_path"`
-	AgentMemoryContent   string                     `json:"agent_memory_content"`
-	LogPath              string                     `json:"log_path"`
-	ModelTurns           int                        `json:"model_turns"`
-	CompactionCount      int                        `json:"compaction_count"`
-	CompactionTokenDelta int                        `json:"compaction_token_delta"`
-	CompactionModelCalls int                        `json:"compaction_model_calls"`
-	CompactionPrompt     int                        `json:"compaction_prompt_tokens"`
-	CompactionCompletion int                        `json:"compaction_completion_tokens"`
-	Activity             Activity                   `json:"activity"`
-	Timeline             []events.Event             `json:"timeline"`
-	Chat                 []ChatEntry                `json:"chat"`
-	PendingApproval      *ChatEntry                 `json:"pending_approval,omitempty"`
-	ModelUnreachable     *ModelAvailability         `json:"model_unreachable,omitempty"`
-	ModelBusy            *ModelAvailability         `json:"model_busy,omitempty"`
-	RunAsYou             bool                       `json:"run_as_you,omitempty"`
-	Closed               bool                       `json:"closed"`
-	NamePinned           bool                       `json:"name_pinned,omitempty"`
-	Stale                bool                       `json:"projection_stale,omitempty"`
-	StaleReason          string                     `json:"projection_stale_reason,omitempty"`
+	SchemaVersion     int                        `json:"schema_version"`
+	Cursor            Cursor                     `json:"cursor"`
+	Complete          bool                       `json:"complete"`
+	ID                string                     `json:"id"`
+	Label             string                     `json:"label"`
+	AgentID           string                     `json:"agent_id"`
+	ConnectionID      string                     `json:"connection_id"`
+	AgentName         string                     `json:"agent_name"`
+	BConnection       string                     `json:"b_connection"`
+	Role              string                     `json:"role"`
+	PlanID            string                     `json:"plan_id,omitempty"`
+	PlanName          string                     `json:"plan_name,omitempty"`
+	PlanDir           string                     `json:"plan_dir,omitempty"`
+	PlanRepo          string                     `json:"plan_repo,omitempty"`
+	CreatedAt         string                     `json:"created_at"`
+	Workspace         string                     `json:"workspace"`
+	WorkspaceDir      string                     `json:"workspace_dir"`
+	WorkspaceMissing  bool                       `json:"workspace_missing"`
+	Scratch           bool                       `json:"scratch,omitempty"`
+	ProjectContent    string                     `json:"project_content"`
+	ProjectFiles      []string                   `json:"project_files"`
+	ProjectNotes      []string                   `json:"project_notes"`
+	PendingRepoPolicy *workspaceinfo.PolicyState `json:"pending_repo_policy,omitempty"`
+	RepoPolicy        *workspaceinfo.PolicyState `json:"repo_policy,omitempty"`
+	Run               Run                        `json:"run"`
+	Tools             []Tool                     `json:"tools"`
+	Messages          []events.Message           `json:"messages"`
+	Budget            events.Budget              `json:"budget"`
+	QueuedMessages    int                        `json:"queued_messages"`
+	// rel-1.23.0 card 5: WHICH messages are queued, not only how many. The count
+	// survived a restart and the queue did not: the messages were in the journal,
+	// their place in it was in memory. These ids are what the scheduler rebuilds
+	// the queue from, in order, after a restart.
+	QueuedMessageIDs     []string           `json:"queued_message_ids,omitempty"`
+	Runnable             bool               `json:"runnable"`
+	NotRunnableReason    string             `json:"not_runnable_reason"`
+	MemoryPath           string             `json:"memory_path"`
+	MemoryContent        string             `json:"memory_content"`
+	AgentMemoryPath      string             `json:"agent_memory_path"`
+	AgentMemoryContent   string             `json:"agent_memory_content"`
+	LogPath              string             `json:"log_path"`
+	ModelTurns           int                `json:"model_turns"`
+	CompactionCount      int                `json:"compaction_count"`
+	CompactionTokenDelta int                `json:"compaction_token_delta"`
+	CompactionModelCalls int                `json:"compaction_model_calls"`
+	CompactionPrompt     int                `json:"compaction_prompt_tokens"`
+	CompactionCompletion int                `json:"compaction_completion_tokens"`
+	Activity             Activity           `json:"activity"`
+	Timeline             []events.Event     `json:"timeline"`
+	Chat                 []ChatEntry        `json:"chat"`
+	PendingApproval      *ChatEntry         `json:"pending_approval,omitempty"`
+	ModelUnreachable     *ModelAvailability `json:"model_unreachable,omitempty"`
+	ModelBusy            *ModelAvailability `json:"model_busy,omitempty"`
+	RunAsYou             bool               `json:"run_as_you,omitempty"`
+	Closed               bool               `json:"closed"`
+	NamePinned           bool               `json:"name_pinned,omitempty"`
+	Stale                bool               `json:"projection_stale,omitempty"`
+	StaleReason          string             `json:"projection_stale_reason,omitempty"`
 }
 
 type ModelAvailability struct {
@@ -364,6 +369,7 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 			next.Tools[index].Calls = 0
 		}
 		next.QueuedMessages = 0
+		next.QueuedMessageIDs = nil
 		next.ModelTurns = 0
 		next.CompactionCount = 0
 		next.CompactionTokenDelta = 0
@@ -407,6 +413,10 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 		next.Run.ArmedDetectors = stringSlice(data["armed_detectors"])
 		next.Run.ResultLabel = ""
 		next.QueuedMessages = max(0, next.QueuedMessages-1)
+		// The run that starts takes its own message out of the queue. Removing it by
+		// id rather than from the front keeps the two in step even when a run starts
+		// out of order.
+		next.QueuedMessageIDs = withoutQueuedID(next.QueuedMessageIDs, stringValue(data["user_message_id"]))
 		next.Activity.DispatchAlarm = false
 	case events.RunStopping:
 		next.Run.Status = "stopping"
@@ -656,6 +666,11 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 		}
 	case events.MessageQueued:
 		next.QueuedMessages++
+		// rel-1.23.0 card 5: the id, so a restart can rebuild the queue and not just
+		// its length.
+		if id := stringValue(data["message_id"]); id != "" {
+			next.QueuedMessageIDs = append(append([]string(nil), next.QueuedMessageIDs...), id)
+		}
 	case events.BudgetEvent:
 		var budget events.Budget
 		if err := decode(record.Event.Data, &budget); err != nil {
@@ -906,6 +921,7 @@ type seed struct {
 	Messages             []events.Message           `json:"messages"`
 	Budget               events.Budget              `json:"budget"`
 	QueuedMessages       int                        `json:"queued_messages"`
+	QueuedMessageIDs     []string                   `json:"queued_message_ids,omitempty"`
 	Runnable             bool                       `json:"runnable"`
 	NotRunnableReason    string                     `json:"not_runnable_reason"`
 	MemoryPath           string                     `json:"memory_path"`
@@ -944,7 +960,7 @@ func (value seed) snapshot(cursor Cursor) Snapshot {
 		SchemaVersion: SchemaVersion, Cursor: cursor, Complete: true,
 		ID: value.ID, Label: value.Label, AgentID: value.AgentID, ConnectionID: value.ConnectionID, AgentName: value.AgentName, BConnection: value.BConnection, Role: firstString(value.Role, "b"), PlanID: value.PlanID, PlanName: value.PlanName, PlanDir: value.PlanDir, PlanRepo: value.PlanRepo, CreatedAt: value.CreatedAt, Closed: value.Closed, NamePinned: value.NamePinned, Workspace: value.Workspace, WorkspaceDir: firstString(value.WorkspaceDir, value.Workspace), WorkspaceMissing: value.WorkspaceMissing, Scratch: value.Scratch, ProjectContent: value.ProjectContent, ProjectFiles: append([]string(nil), value.ProjectFiles...), ProjectNotes: append([]string(nil), value.ProjectNotes...), PendingRepoPolicy: value.PendingRepoPolicy, RepoPolicy: value.RepoPolicy,
 		Run: value.Run, Tools: cloneTools(value.Tools), Messages: cloneMessages(value.Messages), Budget: value.Budget,
-		QueuedMessages: value.QueuedMessages, Runnable: value.Runnable, NotRunnableReason: value.NotRunnableReason,
+		QueuedMessages: value.QueuedMessages, QueuedMessageIDs: append([]string(nil), value.QueuedMessageIDs...), Runnable: value.Runnable, NotRunnableReason: value.NotRunnableReason,
 		MemoryPath: value.MemoryPath, MemoryContent: value.MemoryContent, AgentMemoryPath: value.AgentMemoryPath, AgentMemoryContent: value.AgentMemoryContent, LogPath: value.LogPath,
 		ModelTurns: value.ModelTurns, CompactionCount: value.CompactionCount, CompactionTokenDelta: value.CompactionTokenDelta,
 		CompactionModelCalls: value.CompactionModelCalls, CompactionPrompt: value.CompactionPrompt,
@@ -1335,6 +1351,31 @@ func stringValues(value any) []string {
 func cloneMessages(values []events.Message) []events.Message {
 	return append([]events.Message(nil), values...)
 }
+
+// withoutQueuedID drops one id from the queue, or the first entry when the event
+// named none - an older journal, where the position was only ever a count.
+func withoutQueuedID(ids []string, id string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	if id == "" {
+		return append([]string(nil), ids[1:]...)
+	}
+	result := make([]string, 0, len(ids))
+	removed := false
+	for _, one := range ids {
+		if !removed && one == id {
+			removed = true
+			continue
+		}
+		result = append(result, one)
+	}
+	if !removed {
+		return append([]string(nil), ids[1:]...)
+	}
+	return result
+}
+
 func cloneTools(values []Tool) []Tool { return append([]Tool(nil), values...) }
 func cloneMap(value map[string]any) map[string]any {
 	if value == nil {

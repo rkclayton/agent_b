@@ -99,6 +99,53 @@ func (s *Scheduler) notifyAgentIdleLocked(agentID string) {
 		s.agentIdle(agentID)
 	}
 }
+// RestoreQueue puts a restored chat's queued messages back in the queue, in the
+// order they were accepted. rel-1.23.0's card 5: the messages were always durable —
+// QueueUserAttachments writes them to the journal before they are queued — but their
+// PLACE in the queue lived in this map, so a restart turned a queue of three into
+// three ordinary history messages that nothing would ever send.
+//
+// They come back HELD, not running. The queue existed because something was in the
+// way; a restart is not evidence that it has cleared, and the operator's next
+// message releases them in order exactly as it does after a stop.
+func (s *Scheduler) RestoreQueue(item *session.Session) int {
+	if item == nil {
+		return 0
+	}
+	ids := item.QueuedMessageIDs()
+	if len(ids) == 0 {
+		return 0
+	}
+	known := map[string]events.Message{}
+	for _, message := range item.MessagesCopy() {
+		known[message.ID] = message
+	}
+	restored := make([]queuedRun, 0, len(ids))
+	for _, id := range ids {
+		message, ok := known[id]
+		if !ok {
+			// The message is not in the restored conversation: compaction may have
+			// folded it, or it was removed. A queue entry with no message would
+			// send nothing, so it is dropped rather than carried as a ghost.
+			continue
+		}
+		restored = append(restored, queuedRun{s: item, userMessageID: id, userMessage: message})
+	}
+	if len(restored) == 0 {
+		return 0
+	}
+	s.mu.Lock()
+	s.pending[item.ID] = restored
+	s.held[item.ID] = true
+	s.mu.Unlock()
+	item.SetQueuedMessages(len(restored))
+	state := item.Snapshot().Run
+	state.Status = "held"
+	state.QueuePosition = len(restored)
+	item.SetRun(state)
+	return len(restored)
+}
+
 func (s *Scheduler) Submit(ctx context.Context, sessionID, text string) (SubmitResult, error) {
 	return s.SubmitAttachments(ctx, sessionID, text, nil)
 }

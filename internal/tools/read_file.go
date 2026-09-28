@@ -3,6 +3,8 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -98,14 +100,32 @@ func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string
 			// whichever root either session reached the file through.
 			s.Touch(session.FileKey(resolved))
 		}
-		return strings.Join(results, "\n\n"), nil
+		return ContentDigestLine(data) + strings.Join(results, "\n\n"), nil
 	}
 	result, err := readFileWindow(string(data), args, cfg)
 	if err != nil {
 		return "", err
 	}
 	s.Touch(session.FileKey(resolved))
-	return result, nil
+	return ContentDigestLine(data) + result, nil
+}
+
+// ContentDigestLine is item 2mn (b): WHAT THIS READ SAW, in a form an edit can
+// carry back. The whole FILE's digest heads every read - not the window's, because
+// what an edit needs to know is whether the file changed underneath it, and a
+// window can be identical while the rest of the file is rewritten.
+//
+// Twelve hex characters is 48 bits. It is here to catch a file that changed between
+// a read and an edit, which is an accident and not an attack, and it costs one short
+// line of a read the model was going to spend hundreds of tokens on.
+func ContentDigestLine(data []byte) string {
+	return fmt.Sprintf("[file sha256=%s]\n", ContentDigest(data))
+}
+
+// ContentDigest is the short digest read_file reports and edit_file compares.
+func ContentDigest(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 func readFileWindow(text string, args map[string]any, cfg config.ReadFileTool) (string, error) {

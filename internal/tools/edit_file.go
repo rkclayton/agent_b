@@ -20,10 +20,13 @@ type EditFile struct{ coordinator *FileCoordinator }
 func NewEditFile(c *FileCoordinator) *EditFile { return &EditFile{coordinator: c} }
 func (*EditFile) Name() string                 { return "edit_file" }
 func (*EditFile) Description() string {
-	return "Replace one unique old_string in path with new_string using ordered exact, whitespace-normalized, then block-anchor matching. Preserves line endings, returns a unified diff, and runs an available syntax checker."
+	return "Replace one unique old_string in path with new_string using ordered exact, whitespace-normalized, then block-anchor matching. Preserves line endings, returns a unified diff, and runs an available syntax checker. Pass read_sha256 with the [file sha256=...] value from the read this edit is based on: if the file has changed since that read, the edit is refused and names who wrote it, instead of overwriting work you have not seen."
 }
 func (*EditFile) Schema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "old_string": map[string]any{"type": "string"}, "new_string": map[string]any{"type": "string"}}, "required": []string{"path", "old_string", "new_string"}}
+	// Item 2mn (b): read_sha256 is OPTIONAL in the schema and load-bearing when it is
+	// there. A model that does not send it behaves exactly as before; one that does
+	// cannot silently overwrite a file that changed between its read and its edit.
+	return map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "old_string": map[string]any{"type": "string"}, "new_string": map[string]any{"type": "string"}, "read_sha256": map[string]any{"type": "string", "description": "the [file sha256=...] value from the read this edit is based on"}}, "required": []string{"path", "old_string", "new_string"}}
 }
 func (e *EditFile) Call(ctx context.Context, s *session.Session, args map[string]any) (string, error) {
 	if s.Role == "d" && !s.PlanWriteAllowed() {
@@ -91,6 +94,17 @@ func (e *EditFile) Call(ctx context.Context, s *session.Session, args map[string
 	raw, err := os.ReadFile(resolved)
 	if err != nil {
 		return fail(err)
+	}
+	// Item 2mn (b): AN EDIT BASED ON A READ CARRIES WHAT IT READ. The coordinator
+	// above catches another SESSION's write; this catches every other way a file
+	// moves under an edit - the operator's own editor, a shell command, a tool this
+	// coordinator does not see - by comparing what the model read against what is
+	// on disk now.
+	if declared, ok := args["read_sha256"].(string); ok && strings.TrimSpace(declared) != "" {
+		current := ContentDigest(raw)
+		if !strings.EqualFold(strings.TrimSpace(declared), current) {
+			return fail(fmt.Errorf("%s changed since you read it: you read sha256=%s and it is now sha256=%s%s. Re-read it and edit the current text.", displayPath, strings.TrimSpace(declared), current, e.coordinator.lastWriterNote(s, resolved)))
+		}
 	}
 	sample := raw
 	if len(sample) > 8192 {

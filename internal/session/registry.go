@@ -197,7 +197,7 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		Closed: saved.Closed, NamePinned: saved.NamePinned, Messages: append([]events.Message(nil), saved.Messages...), Budget: saved.Budget,
 		LogPath: logPath, Runnable: runnable, NotRunnableReason: notRunnableReason,
 		LoadFolderMemory: r.folderLoader(connectionID), MemoryBlock: saved.MemoryContent, MemoryPath: saved.MemoryPath, AgentMemoryBlock: saved.AgentMemoryContent, AgentMemoryPath: saved.AgentMemoryPath,
-		SchemaTokens: schemaTokens, MarginalTokens: marginalTokens, queuedMessages: saved.QueuedMessages,
+		SchemaTokens: schemaTokens, MarginalTokens: marginalTokens, queuedMessages: saved.QueuedMessages, queuedMessageIDs: append([]string(nil), saved.QueuedMessageIDs...),
 		modelTurns: saved.ModelTurns, compactionCount: saved.CompactionCount, compactionTokenDelta: saved.CompactionTokenDelta,
 		compactionModelCalls: saved.CompactionModelCalls, compactionPrompt: saved.CompactionPrompt, compactionCompletion: saved.CompactionCompletion,
 	}

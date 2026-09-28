@@ -33,6 +33,22 @@ func TestWindowUTF8UsesByteOffsetsWithoutSplittingRunes(t *testing.T) {
 	}
 }
 
+// Item 2mn (b): every read now heads its answer with the file's digest, so an edit
+// can carry back what it read and be refused if the file moved underneath it. These
+// cases are about the WINDOWS, so they drop that line and assert the rest unchanged;
+// TestReadFileReportsTheDigestAnEditCarriesBack2mn asserts the line itself.
+func withoutDigest(t *testing.T, value string) string {
+	t.Helper()
+	if !strings.HasPrefix(value, "[file sha256=") {
+		t.Fatalf("a read did not report the file's digest: %q", value)
+	}
+	index := strings.Index(value, "\n")
+	if index < 0 {
+		t.Fatalf("the digest line is not a line: %q", value)
+	}
+	return value[index+1:]
+}
+
 func TestReadFileUsesSharedByteWindow(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "single-line.txt")
@@ -42,11 +58,11 @@ func TestReadFileUsesSharedByteWindow(t *testing.T) {
 	tool := NewReadFile(config.ReadFileTool{DefaultLimit: 4, MaxLimit: 4})
 	item := &session.Session{Workspace: root, LastSeen: map[string]time.Time{}}
 	first, err := tool.Call(context.Background(), item, map[string]any{"path": path})
-	if err != nil || first != "[byte window: offset=1 bytes=4 total=10 more=true next_offset=5 start_line=1 start_mid_line=false end_mid_line=true]\n1: 0123" {
+	if err != nil || withoutDigest(t, first) != "[byte window: offset=1 bytes=4 total=10 more=true next_offset=5 start_line=1 start_mid_line=false end_mid_line=true]\n1: 0123" {
 		t.Fatalf("first=%q err=%v", first, err)
 	}
 	second, err := tool.Call(context.Background(), item, map[string]any{"path": path, "offset": 5})
-	if err != nil || second != "[byte window: offset=5 bytes=4 total=10 more=true next_offset=9 start_line=1 start_mid_line=true end_mid_line=true]\n1: 4567" {
+	if err != nil || withoutDigest(t, second) != "[byte window: offset=5 bytes=4 total=10 more=true next_offset=9 start_line=1 start_mid_line=true end_mid_line=true]\n1: 4567" {
 		t.Fatalf("second=%q err=%v", second, err)
 	}
 }
@@ -62,17 +78,17 @@ func TestReadFileNumbersLinesAndMarksMidLineBoundaries(t *testing.T) {
 
 	first, err := tool.Call(context.Background(), item, map[string]any{"path": path})
 	wantFirst := "[byte window: offset=1 bytes=8 total=20 more=true next_offset=9 start_line=1 start_mid_line=false end_mid_line=true]\n1: alpha\n2: br"
-	if err != nil || first != wantFirst {
+	if err != nil || withoutDigest(t, first) != wantFirst {
 		t.Fatalf("first=%q err=%v", first, err)
 	}
 	second, err := tool.Call(context.Background(), item, map[string]any{"path": path, "offset": 9})
 	wantSecond := "[byte window: offset=9 bytes=8 total=20 more=true next_offset=17 start_line=2 start_mid_line=true end_mid_line=true]\n2: avo\n3: char"
-	if err != nil || second != wantSecond {
+	if err != nil || withoutDigest(t, second) != wantSecond {
 		t.Fatalf("second=%q err=%v", second, err)
 	}
 	last, err := tool.Call(context.Background(), item, map[string]any{"path": path, "offset": 17})
 	wantLast := "[byte window: offset=17 bytes=4 total=20 more=false start_line=3 start_mid_line=true end_mid_line=false]\n3: lie\n"
-	if err != nil || last != wantLast {
+	if err != nil || withoutDigest(t, last) != wantLast {
 		t.Fatalf("last=%q err=%v", last, err)
 	}
 }
@@ -90,7 +106,7 @@ func TestReadFileLineModeUsesOneBasedLineWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "[line window: line=2 lines=2 total_lines=4 more=true next_line=4]\n2: bravo\n3: charlie"
-	if got != want {
+	if withoutDigest(t, got) != want {
 		t.Fatalf("line window=%q, want %q", got, want)
 	}
 	if _, err := tool.Call(context.Background(), item, map[string]any{"path": path, "line": 1, "offset": 1}); err == nil || !strings.Contains(err.Error(), "cannot be combined") {
@@ -113,7 +129,7 @@ func TestReadFileDefaultWindowNumbersLongSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(result, "[byte window: offset=1 bytes=3200 total=3200 more=false start_line=1 start_mid_line=false end_mid_line=false]\n1: source line 001\n") || !strings.HasSuffix(result, "200: source line 200\n") {
+	if !strings.HasPrefix(withoutDigest(t, result), "[byte window: offset=1 bytes=3200 total=3200 more=false start_line=1 start_mid_line=false end_mid_line=false]\n1: source line 001\n") || !strings.HasSuffix(result, "200: source line 200\n") {
 		t.Fatalf("unexpected numbered source window: %q", result)
 	}
 }
@@ -139,7 +155,7 @@ func TestReadFileBatchReturnsOrderedLabelledIndependentWindows(t *testing.T) {
 	want := "[read_file opening]\n[line window: line=1 lines=2 total_lines=4 more=true next_line=3]\n1: alpha\n2: bravo\n\n" +
 		"[read_file bad region error]\nline 99 is past end of file (4 lines)\n\n" +
 		"[read_file tail]\n[byte window: offset=21 bytes=6 total=26 more=false start_line=4 start_mid_line=false end_mid_line=false]\n4: delta\n"
-	if got != want {
+	if withoutDigest(t, got) != want {
 		t.Fatalf("batch=%q\nwant=%q", got, want)
 	}
 }
@@ -167,7 +183,7 @@ func TestReadFileBatchTruncatesUnicodeLabelsOnRuneBoundary(t *testing.T) {
 	got, err := tool.Call(context.Background(), &session.Session{Workspace: root, LastSeen: map[string]time.Time{}}, map[string]any{
 		"path": path, "windows": []any{map[string]any{"label": strings.Repeat("é", 81)}},
 	})
-	if err != nil || !utf8.ValidString(got) || !strings.HasPrefix(got, "[read_file "+strings.Repeat("é", 80)+"]") {
+	if err != nil || !utf8.ValidString(got) || !strings.HasPrefix(withoutDigest(t, got), "[read_file "+strings.Repeat("é", 80)+"]") {
 		t.Fatalf("result=%q err=%v", got, err)
 	}
 }

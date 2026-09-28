@@ -109,6 +109,11 @@ func (m *Manager) watchInstallOutcome(started time.Time) {
 		m.publish(state)
 		return
 	}
+	// The bound passed with no verdict. Item 2nh (a): the stage the wait element is
+	// showing is no longer true, and an element that waits forever is worse than
+	// none — InstallOutcomeTimeout exists precisely because saying nothing is the
+	// honest answer here.
+	m.setStep("", "", 0, 0)
 }
 
 var installOutcomePoll = 500 * time.Millisecond

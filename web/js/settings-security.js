@@ -106,7 +106,7 @@ function shell(active) {
 	${subhead("Docker Sandbox", "Install-wide: routes shell and bash through Docker Sandbox. When Docker Sandbox is unavailable the setting stays on but is inert and reports why.")}
 	${toggle("sandbox.enabled", "Docker Sandbox", sandboxEnabled, "Install-wide: routes shell and bash through Docker Sandbox.")}
 	${row("status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`, "", "Inert means the setting is on but Docker Sandbox is unavailable; the reason is shown here.")}
-	${subhead("Service identity", "Use the restricted Windows account for tools. Turning this off restores direct non-elevated operator execution after Save.")}
+	${subhead("Service identity", "Use the restricted Windows account for tools. Switching it on sets the account up and asks Windows once; switching it off takes effect immediately.")}
 	${row("Service identity", `<button type="button" role="switch" aria-checked="${identityOn}" aria-label="Service identity" class="switch ${identityOn ? "on" : ""}" data-action="service-identity-toggle" ${serviceAccountBusy ? "disabled" : ""}></button><span class="account-status">${serviceAccountBusy ? "Turning on — Windows will ask once" : identityOn ? "on" : "off"}</span>`, "", "Off: tools run as the account that launched Agent_b. On: Agent_b runs tools as its own restricted Windows account.")}
 	${feedback(serviceAccountMessage, serviceAccountAlarm)}
 	${serviceAccountMessage && serviceAccountLog ? `<p class="account-status">${html(serviceAccountLog)}</p>` : ""}

@@ -1611,3 +1611,72 @@ if ($LASTEXITCODE -ne 0) { throw "Chat acceptance release gate exited $LASTEXITC
 
 & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-install-registration.ps1')
 if ($LASTEXITCODE -ne 0) { throw "The singleton Installed apps registration suite exited $LASTEXITCODE." }
+
+# Item 2ng (e): REPAIR, PROVED THE WAY THE OPERATOR PRESSES IT.
+#
+# The case is a real Repair against a DISPOSABLE account name: result `ready`, the
+# credential test green, then the account removed. That needs a local Windows account
+# created and deleted, which is elevation and machine state — a hard stop for an
+# unattended worker, and this order's own DO NOT forbids leaving a disposable account
+# behind. So the case is written, it is here, and it REFUSES TO GUESS: without elevation
+# and an explicit opt-in it says what it would have done and why it did not, rather than
+# passing silently and implying a proof nobody performed.
+#
+# To run it, from an elevated console:
+#   $env:AGENTB_SERVICE_ACCOUNT_GATE = '1'; pwsh -File tests/test-installer.ps1
+$serviceGateOptIn = $env:AGENTB_SERVICE_ACCOUNT_GATE -eq '1'
+$serviceGateElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not ($serviceGateOptIn -and $serviceGateElevated)) {
+    $why = @()
+    if (-not $serviceGateOptIn) { $why += 'AGENTB_SERVICE_ACCOUNT_GATE is not 1' }
+    if (-not $serviceGateElevated) { $why += 'this console is not elevated' }
+    Write-Host "SKIPPED service-account Repair case: $($why -join '; '). It creates and removes a disposable local account, which is elevation and machine state; run it from an elevated console with the opt-in set."
+} else {
+    $disposableAccount = 'agentb-gate-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
+    $serviceGateRoot = Join-Path ([IO.Path]::GetTempPath()) ('agentb-service-gate-' + [Guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Path $serviceGateRoot -Force
+    $serviceGateStore = Join-Path $serviceGateRoot 'credential.dpapi'
+    Set-Content -LiteralPath $serviceGateStore -Value 'seed' -Encoding utf8
+    try {
+        $provision = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\provision-service-identity.ps1'
+        $wrapper = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\run-elevated-provision.ps1'
+        if (-not (Test-Path -LiteralPath $wrapper -PathType Leaf)) { throw "the elevated wrapper is missing: $wrapper" }
+        $gateLog = Join-Path $serviceGateRoot 'service-identity.log'
+        $gateResult = Join-Path $serviceGateRoot 'service-identity.result.json'
+        # Through the WRAPPER, exactly as the console now elevates it.
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -NonInteractive -File $wrapper -Log $gateLog -Script $provision `
+            -AccountName $disposableAccount -CredentialStore $serviceGateStore `
+            -ApplicationDirectory (Join-Path $serviceGateRoot 'Application') `
+            -DataDirectory (Join-Path $serviceGateRoot 'Data') `
+            -WorkspaceDirectory (Join-Path $serviceGateRoot 'Workspace') `
+            -ExchangeDirectory (Join-Path $serviceGateRoot 'Exchange') `
+            -ModelAddress '127.0.0.1' -ModelPort 8000 -ResultFile $gateResult
+        $gateExit = $LASTEXITCODE
+        if (-not (Test-Path -LiteralPath $gateResult -PathType Leaf)) {
+            throw "Repair wrote no result (exit $gateExit). The captured log is $gateLog and its first lines are:`n$((Get-Content -LiteralPath $gateLog -First 6) -join "`n")"
+        }
+        $outcome = (Get-Content -LiteralPath $gateResult -Raw | ConvertFrom-Json)
+        if ($gateExit -ne 0 -or $outcome.outcome -ne 'ready') {
+            throw "Repair did not end ready: exit $gateExit, outcome $($outcome.outcome), message $($outcome.message)"
+        }
+        # The credential the run stored actually authenticates, which is the point.
+        $storedPassword = & (Get-WindowsPowerShell) -NoLogo -NoProfile -NonInteractive -Command "
+            Add-Type -AssemblyName System.Security
+            `$bytes = [IO.File]::ReadAllBytes('$serviceGateStore')
+            [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect(`$bytes, `$null, 'CurrentUser'))"
+        if ([string]::IsNullOrWhiteSpace($storedPassword)) { throw 'the credential store held nothing after a ready Repair' }
+        Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+        $context = New-Object System.DirectoryServices.AccountManagement.PrincipalContext('Machine')
+        if (-not $context.ValidateCredentials($disposableAccount, $storedPassword)) {
+            throw 'the credential a ready Repair stored does not authenticate, which is the defect 2ng exists for'
+        }
+        Write-Host "PASS service-account Repair: $disposableAccount ended ready and its stored credential authenticates"
+    } finally {
+        # The disposable account never survives this gate, whatever happened.
+        try { Remove-LocalUser -Name $disposableAccount -ErrorAction Stop; Write-Host "REMOVED disposable account $disposableAccount" }
+        catch { Write-Host "NOTE: $disposableAccount was not present to remove" }
+        # Through the guard, like every other tree this suite removes.
+        try { Remove-TreeWithinAllowedRoots -Path $serviceGateRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'service-account gate cleanup' }
+        catch { Write-Warning $_.Exception.Message }
+    }
+}

@@ -227,3 +227,167 @@ func err2String(result SetupResult) string {
 	}
 	return result.Result.Message
 }
+
+// Item 2ng (b): THE CHILD'S OWN FIRST COMPLAINT, out of the log the wrapper captured.
+//
+// Before this, a child that died above the script's result writer left the operator with
+// "the elevated service-account setup did not complete" and a 25-byte log holding one
+// marker line. The wrapper captures the streams; this is what turns them into the one
+// line worth showing.
+func TestTheFirstErrorLineIsTheReasonAndNotTheNoiseAroundIt(t *testing.T) {
+	directory := t.TempDir()
+	log := filepath.Join(directory, "service-identity.log")
+	// A real PowerShell failure, in shape: the marker lines the wrapper writes, then the
+	// error, then its continuation block, then the launcher's own tail.
+	body := strings.Join([]string{
+		"AGENTB_ELEVATED_WRAPPER_STARTED 2026-09-27T19:44:25.9100000Z",
+		"C:\\path\\provision-service-identity.ps1 : Cannot validate argument on parameter 'ModelPort'.",
+		"At line:1 char:1",
+		"+ & 'C:\\path\\provision-service-identity.ps1' -ModelPort 0",
+		"+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+		"    + CategoryInfo          : InvalidData: (:) [], ParameterBindingValidationException",
+		"AGENTB_ELEVATED_WRAPPER_EXIT 1",
+		"AGENTB_LAUNCHER_OUTPUT",
+		"AGENTB_ELEVATED_STARTED",
+	}, "\r\n")
+	if err := os.WriteFile(log, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reason := firstErrorLine(log)
+	if !strings.Contains(reason, "Cannot validate argument on parameter 'ModelPort'") {
+		t.Fatalf("the reason is %q", reason)
+	}
+	// None of the surrounding block is the reason.
+	for _, noise := range []string{"AGENTB_", "At line", "CategoryInfo", "~~~"} {
+		if strings.Contains(reason, noise) {
+			t.Errorf("the reason carries %q: %q", noise, reason)
+		}
+	}
+}
+
+func TestALogWithNothingButMarkersHasNoReasonRatherThanAGuess(t *testing.T) {
+	directory := t.TempDir()
+	// Exactly what the operator's own failed run left behind.
+	log := filepath.Join(directory, "his.log")
+	if err := os.WriteFile(log, []byte("AGENTB_ELEVATED_STARTED\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if reason := firstErrorLine(log); reason != "" {
+		t.Errorf("a log with only a marker produced %q", reason)
+	}
+	if reason := firstErrorLine(filepath.Join(directory, "absent.log")); reason != "" {
+		t.Errorf("a missing log produced %q", reason)
+	}
+	// CLIXML noise is not a reason either: item 2kk exists because it was read as one.
+	clixml := filepath.Join(directory, "clixml.log")
+	if err := os.WriteFile(clixml, []byte("#< CLIXML\r\n<Objs Version=\"1.1.0.1\">\r\n<S S=\"progress\">x</S>\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if reason := firstErrorLine(clixml); reason != "" {
+		t.Errorf("CLIXML was read as a reason: %q", reason)
+	}
+}
+
+// (a): the wrapper is what gets elevated, and the inner call is given the script's own
+// arguments once — not the host flags twice.
+func TestTheElevatedArgumentsAreStrippedToTheScriptsOwn(t *testing.T) {
+	script := "C:\\app\\scripts\\provision-service-identity.ps1"
+	full := []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-File", script, "-AccountName", "agentb-svc", "-ModelPort", "8000"}
+	stripped := stripLeadingHostArguments(full, script)
+	for _, gone := range []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-File", script} {
+		for _, argument := range stripped {
+			if argument == gone {
+				t.Errorf("%q survived the strip: %v", gone, stripped)
+			}
+		}
+	}
+	if len(stripped) != 4 || stripped[0] != "-AccountName" || stripped[3] != "8000" {
+		t.Fatalf("the script's own arguments were not kept in order: %v", stripped)
+	}
+	// A list that does not name this script is returned whole rather than truncated.
+	other := stripLeadingHostArguments([]string{"-AccountName", "x"}, script)
+	if len(other) != 2 {
+		t.Errorf("an unrecognised list was altered: %v", other)
+	}
+}
+
+// Item 2ng (a) and (b) TOGETHER, END TO END: A FAILURE ABOVE THE SCRIPT'S OWN WRITER IS
+// NOW READABLE.
+//
+// This is the case that beat the operator on 2026-09-27 at 19:44. The elevated child
+// exited nonzero without writing a result file, because whatever failed happened above
+// the code that writes one — and because `Start-Process -Verb RunAs -WindowStyle Hidden`
+// redirects nothing, the reason went to a console nobody could see. All he got was a
+// 25-byte log holding one marker line and the sentence "the elevated service-account
+// setup did not complete".
+//
+// The wrapper is the real one, copied beside the fixture so the manager finds it exactly
+// as it finds it in an installation. Nothing here elevates: the fixture seam runs the
+// child directly, because reaching Start-Process -Verb RunAs would raise a credential
+// prompt on the operator's own desktop, which is a hard stop rather than a test.
+const preWriterFailureFixture = `
+param([string]$AccountName, [string]$CredentialStore, [switch]$NoPrompt, [switch]$ResetPassword, [string]$ResultFile)
+# A failure ABOVE the writer: the script throws before it can record anything, exactly as
+# a parameter that will not bind or a policy refusal does.
+throw 'Administrator elevation is required to provision the Agent_b service identity.'
+`
+
+func TestAFailureAboveTheResultWriterIsCapturedAndQuoted2ng(t *testing.T) {
+	manager := fixtureManager(t, preWriterFailureFixture)
+	// The real wrapper, beside the fixture, where the manager looks for it.
+	source, err := os.ReadFile(filepath.Join("..", "..", "scripts", "run-elevated-provision.ps1"))
+	if err != nil {
+		t.Fatalf("read the wrapper: %v", err)
+	}
+	wrapper := filepath.Join(filepath.Dir(manager.scriptPath), "run-elevated-provision.ps1")
+	if err := os.WriteFile(wrapper, source, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := manager.Setup(context.Background(), "agentb-svc", writeCredential(t), false, nil)
+	if err == nil {
+		t.Fatal("a child that threw above its writer was reported as a success")
+	}
+	if result.Launch != LaunchStarted {
+		t.Fatalf("launch = %q, want started", result.Launch)
+	}
+	if result.Result != nil {
+		t.Fatalf("a result file appeared where the fixture writes none: %+v", result.Result)
+	}
+
+	// (b): the message is the child's OWN first line, not the generic sentence.
+	if strings.Contains(err.Error(), "did not complete") {
+		t.Errorf("the generic sentence is still what the operator would see: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Administrator elevation is required") {
+		t.Errorf("the child's own reason did not reach the message: %v", err)
+	}
+	// The log path is still named, because the first line is a summary and the file is
+	// the account.
+	if !strings.Contains(err.Error(), result.LogPath) {
+		t.Errorf("the message does not name the log: %v", err)
+	}
+
+	// (a): the log holds the child's streams AND the launcher's, and the wrapper's own
+	// markers show it ran. This is what the 25-byte log could not do.
+	captured, readErr := os.ReadFile(result.LogPath)
+	if readErr != nil {
+		t.Fatalf("read the captured log: %v", readErr)
+	}
+	for _, wanted := range []string{
+		"AGENTB_ELEVATED_WRAPPER_STARTED",
+		"Administrator elevation is required",
+		"AGENTB_ELEVATED_WRAPPER_EXIT",
+		// The launcher's own streams are APPENDED rather than overwriting the capture,
+		// which is the mistake that would have made the wrapper pointless.
+		"AGENTB_LAUNCHER_OUTPUT",
+		"AGENTB_ELEVATED_STARTED",
+	} {
+		if !strings.Contains(string(captured), wanted) {
+			t.Errorf("the log is missing %q:\n%s", wanted, captured)
+		}
+	}
+	if len(captured) < 200 {
+		t.Errorf("the log is %d bytes, which is the size that told him nothing", len(captured))
+	}
+}

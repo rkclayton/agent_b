@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -142,7 +143,14 @@ func TestConnectionSetupReasonNamesConnectionsAndSetupGuide(t *testing.T) {
 	if got, want := ConnectionSetupReason(&connection), "model is empty — Settings → Connections → this connection → model, or Open setup guide"; got != want {
 		t.Fatalf("empty model reason = %q, want %q", got, want)
 	}
+	// Item 2nq (b): the literal "model" is not a model. It used to satisfy this check,
+	// which is how a connection carrying the old placeholder counted as set up while
+	// every server refused it by name.
 	connection.Model = "model"
+	if got := ConnectionSetupReason(&connection); got == "" {
+		t.Fatalf("the placeholder is accepted as a model")
+	}
+	connection.Model = "a-real-model"
 	if got := ConnectionSetupReason(&connection); got != "" {
 		t.Fatalf("complete connection reason = %q, want empty", got)
 	}
@@ -956,7 +964,10 @@ func TestSchema4ModelConnectionsMigrateWithUTF8BOM(t *testing.T) {
 	if loaded.Connections[1].Context.NCtx != 16384 || loaded.Connections[1].Capabilities.NCtx != 32768 {
 		t.Fatalf("connection context=%+v capabilities=%+v", loaded.Connections[1].Context, loaded.Connections[1].Capabilities)
 	}
-	if len(loaded.LoadNotices) != 2 || loaded.LoadNotices[0] != ModelRolesMigrationNotice || loaded.LoadNotices[1] != AgentObjectsMigrationNotice {
+	// Item 2nq (a): this fixture's connection also carries the old placeholder, so the
+	// load clears it and says so — a third notice, naming the connection it cleared.
+	if len(loaded.LoadNotices) != 3 || loaded.LoadNotices[0] != ModelRolesMigrationNotice || loaded.LoadNotices[1] != AgentObjectsMigrationNotice ||
+		!strings.HasPrefix(loaded.LoadNotices[2], ModelPlaceholderMigrationNotice) {
 		t.Fatalf("notices=%#v", loaded.LoadNotices)
 	}
 	persisted, err := os.ReadFile(path)
@@ -1182,5 +1193,93 @@ func TestPreMergeToolsetIsReadAsSearch(t *testing.T) {
 		if got := strings.Join(migrateToolset(item.toolset), ","); got != item.want {
 			t.Fatalf("migrateToolset(%v) = %q, want %q", item.toolset, got, item.want)
 		}
+	}
+}
+
+// Item 2nq (a) and (b): THE PLACEHOLDER LEAVES DISK, and "model" is never a model.
+//
+// The operator: "i have an existing connection. i click test. it says 'model' is not
+// a type. MODEL WAS NEVER PUT IN BY ME... i asked about 5 times now to remove MODEL
+// and there it is." Two earlier items removed the placeholder from Defaults() and
+// from addConnection(); both only stop a NEW connection getting it, and nothing ever
+// removed it from a configuration already written. Every one of those fixes was a
+// no-op for his install.
+func TestTheModelPlaceholderLeavesTheSavedConfig2nq(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	written := `{
+  "config_version": 10,
+  "listen": "127.0.0.1:8790",
+  "workspace": ` + strconv.Quote(filepath.Join(root, "workspace")) + `,
+  "connections": [
+    {"id": "server-2", "label": "server-2", "base_url": "http://127.0.0.1:8080", "model": "model", "request_timeout_s": 5, "probe_mode": "off", "context": {"n_ctx": 32768}},
+    {"id": "server-3", "label": "server-3", "base_url": "http://127.0.0.1:8081", "model": "MODEL ", "request_timeout_s": 5, "probe_mode": "off", "context": {"n_ctx": 32768}},
+    {"id": "server-4", "label": "server-4", "base_url": "http://127.0.0.1:8082", "model": "a-real-model", "request_timeout_s": 5, "probe_mode": "off", "context": {"n_ctx": 32768}}
+  ],
+  "agents": [{"name": "server-2", "b": "server-2", "toolset": ["read_file"]}]
+}`
+	if err := os.WriteFile(path, []byte(written), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, connection := range cfg.Connections {
+		switch connection.ID {
+		case "server-2", "server-3":
+			if connection.Model != "" {
+				t.Errorf("%s still holds %q", connection.ID, connection.Model)
+			}
+		case "server-4":
+			if connection.Model != "a-real-model" {
+				t.Errorf("a real model was migrated away: %q", connection.Model)
+			}
+		}
+	}
+	// And it is gone from the FILE, not only from what was loaded: the next start
+	// must not read it back.
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), `"model": "model"`) || strings.Contains(string(saved), `"model": "MODEL "`) {
+		t.Fatalf("the placeholder is still on disk:\n%s", saved)
+	}
+	// One line naming each connection, so the operator can see what changed.
+	notices := strings.Join(cfg.LoadNotices, " | ")
+	for _, want := range []string{"server-2", "server-3"} {
+		if !strings.Contains(notices, want) {
+			t.Errorf("the load notices do not name %s: %q", want, notices)
+		}
+	}
+	if strings.Contains(notices, "server-4") {
+		t.Errorf("the load notices name a connection that was not migrated: %q", notices)
+	}
+	// Reading it again changes nothing and says nothing.
+	again, _, _, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, notice := range again.LoadNotices {
+		if strings.Contains(notice, "server-2") {
+			t.Errorf("the migration ran twice: %q", notice)
+		}
+	}
+}
+
+// (b): "model" is never accepted as a model, in the one place that already says so
+// for an empty one.
+func TestModelIsNeverAModel2nq(t *testing.T) {
+	for _, value := range []string{"", " ", "model", "MODEL", " Model "} {
+		connection := Connection{BaseURL: "http://127.0.0.1:8080", Model: value}
+		reason := ConnectionSetupReason(&connection)
+		if !strings.Contains(reason, "model is empty") {
+			t.Errorf("a model of %q is accepted: %q", value, reason)
+		}
+	}
+	connection := Connection{BaseURL: "http://127.0.0.1:8080", Model: "a-real-model"}
+	if reason := ConnectionSetupReason(&connection); reason != "" {
+		t.Errorf("a real model is refused: %q", reason)
 	}
 }

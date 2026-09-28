@@ -535,7 +535,7 @@ func (d *Deliver) UnmarshalJSON(data []byte) error {
 }
 
 const (
-	CurrentConfigVersion = 10
+	CurrentConfigVersion = 11
 	DefaultReserveOutput = 10240
 	// MaxProposedReserveOutput caps what a probe proposes. Item 2l9 (c).
 	MaxProposedReserveOutput = 32768
@@ -552,6 +552,11 @@ const ApprovalDefaultMigrationNotice = "corrected inherited approval default fro
 const OperatorIdleTimeoutMigrationNotice = "migrated shell.operator_context_timeout_minutes to shell.operator_context_idle_timeout_minutes; operator mode now expires after agent inactivity"
 const ByteWindowMigrationNotice = "migrated read_file and fetch_url limits from line counts to UTF-8 byte windows"
 const ModelRolesMigrationNotice = "migrated model connections to schema 5 with an explicit main role, optional aux role, and per-connection context size"
+
+// ModelPlaceholderMigrationNotice is item 2nq (a), and it names the connections it
+// cleared: the operator asked five times for the placeholder to go and every fix so
+// far had only stopped new connections getting it.
+const ModelPlaceholderMigrationNotice = "cleared the \"model\" placeholder from connection(s): "
 const AgentObjectsMigrationNotice = "migrated connection roles to schema 6 with one named agent, bound b/c connections, and the full toolset"
 
 type GlobalContext struct {
@@ -801,7 +806,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		return nil, false, created, fmt.Errorf("run.max_tool_calls: zero is not unlimited; omit it for the default %d or use a positive backstop", DefaultMaxToolCalls)
 	}
 	unstamped := metadata.ConfigVersion == nil
-	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != 6 && *metadata.ConfigVersion != 7 && *metadata.ConfigVersion != 8 && *metadata.ConfigVersion != 9 && *metadata.ConfigVersion != CurrentConfigVersion {
+	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != 6 && *metadata.ConfigVersion != 7 && *metadata.ConfigVersion != 8 && *metadata.ConfigVersion != 9 && *metadata.ConfigVersion != 10 && *metadata.ConfigVersion != CurrentConfigVersion {
 		return nil, false, created, fmt.Errorf("config_version: unsupported value %d (current %d)", *metadata.ConfigVersion, CurrentConfigVersion)
 	}
 	migrated, data, err := migrateV1(data)
@@ -836,6 +841,12 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if err != nil {
 		return nil, false, created, err
 	}
+	// Item 2nq (a): THE PLACEHOLDER LEAVES DISK. Once, named, and recorded by the
+	// config version, so it cannot come back from a load.
+	placeholderCleared, data, err := migrateModelPlaceholder(data, version)
+	if err != nil {
+		return nil, false, created, err
+	}
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, false, created, err
@@ -860,7 +871,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if err := ResolveConnectionCredentials(&cfg, dataRoot); err != nil {
 		return nil, false, created, err
 	}
-	if migrated || connectionKeyMigrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated || unstamped {
+	if migrated || connectionKeyMigrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated || len(placeholderCleared) > 0 || unstamped {
 		if err := cfg.Save(path); err != nil {
 			return nil, false, created, err
 		}
@@ -880,7 +891,12 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if agentsMigrated && !unstamped {
 		cfg.LoadNotices = append(cfg.LoadNotices, AgentObjectsMigrationNotice)
 	}
-	return &cfg, migrated || connectionKeyMigrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated, created, nil
+	// Item 2nq (a): one line, naming the connections it cleared. It says which ones
+	// because the operator's question was which ones.
+	if len(placeholderCleared) > 0 {
+		cfg.LoadNotices = append(cfg.LoadNotices, ModelPlaceholderMigrationNotice+strings.Join(placeholderCleared, ", "))
+	}
+	return &cfg, migrated || connectionKeyMigrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated || len(placeholderCleared) > 0, created, nil
 }
 
 func (c Config) Save(path string) error {
@@ -1269,11 +1285,26 @@ func (c Config) Validate() error {
 
 // ConnectionSetupReason explains incomplete first-run connection settings without
 // making the configuration file itself invalid.
+// ModelPlaceholder is the literal string a connection used to be created with, and
+// item 2nq (b): it is NEVER a model. The operator met it as a model name his server
+// refused — "it says 'model' is not a type. MODEL WAS NEVER PUT IN BY ME" — and two
+// earlier items stopped new connections getting it without ever saying what it means
+// when it is already there. It means no model was chosen.
+const ModelPlaceholder = "model"
+
+// ModelChosen reports whether a connection's model is a model at all. An empty value
+// and the placeholder are the same thing, in one place, so nothing can accept one and
+// refuse the other.
+func ModelChosen(model string) bool {
+	trimmed := strings.TrimSpace(model)
+	return trimmed != "" && !strings.EqualFold(trimmed, ModelPlaceholder)
+}
+
 func ConnectionSetupReason(connection *Connection) string {
 	if strings.TrimSpace(connection.BaseURL) == "" {
 		return "base_url is empty — Settings → Connections → this connection → base_url, or Open setup guide"
 	}
-	if strings.TrimSpace(connection.Model) == "" {
+	if !ModelChosen(connection.Model) {
 		return "model is empty — Settings → Connections → this connection → model, or Open setup guide"
 	}
 	return ""

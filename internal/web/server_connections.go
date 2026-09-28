@@ -513,6 +513,22 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err.Error(), configField(err, next))
 			return
 		}
+		// Item 2nq (b) and (e): THE PLACEHOLDER IS NEVER WRITTEN BACK. An empty model
+		// still saves — an address is worth keeping before a model is chosen, which is
+		// item 2nn (b)'s rule — but the literal "model" is not a model, and writing it
+		// again is what kept it alive on the operator's disk through three fixes. The
+		// refusal NAMES THE CONNECTION and the field, so one connection's problem is
+		// never an unexplained refusal about another.
+		for _, connection := range next.Connections {
+			if strings.TrimSpace(connection.Model) == "" || config.ModelChosen(connection.Model) {
+				continue
+			}
+			s.mu.Unlock()
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("%s: model is empty — Settings → Connections → %s → model, or Open setup guide", connection.Label, connection.Label),
+				fmt.Sprintf("connections.%s.model", connection.ID))
+			return
+		}
 		if err := config.ResolveConnectionCredentials(&next, s.roots.Data); err != nil {
 			s.mu.Unlock()
 			writeError(w, 400, err.Error(), configField(err, next))

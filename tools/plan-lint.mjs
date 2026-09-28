@@ -351,7 +351,13 @@ export function validateProposal({ planText, orderBody = null, itemContents, str
   for (const { relative, text } of sourceTexts) {
     for (const match of text.matchAll(/\[\[([0-9]+[a-z0-9]*)\]\]/g)) if (!items.has(match[1])) errors.push(`${relative}: unresolved item reference [[${match[1]}]]`);
   }
-  const sortedItems = [...items.values()].sort((a, b) => a.state.localeCompare(b.state) || a.milestone.localeCompare(b.milestone, "en", { numeric: true }) || a.id.localeCompare(b.id, "en", { numeric: true }));
+  // An item whose metadata is malformed has already produced its own error above;
+  // the index must not die on it first. rel-1.35.0 met exactly that: two item files
+  // opened with "State:" rather than "state:", and instead of the two diagnostics
+  // the checks had already written, every reader of this module -- the linter and
+  // the publication gate -- died on a TypeError with a stack trace and no file name.
+  const sortKey = (value) => String(value ?? "");
+  const sortedItems = [...items.values()].sort((a, b) => sortKey(a.state).localeCompare(sortKey(b.state)) || sortKey(a.milestone).localeCompare(sortKey(b.milestone), "en", { numeric: true }) || sortKey(a.id).localeCompare(sortKey(b.id), "en", { numeric: true }));
   const indexSection = [
     "## Index", "", "Generated from item files. This is navigation, not an execution priority queue.", "",
     "| State | Kind | Milestone | Item | Title | Surfaces | Lines |",

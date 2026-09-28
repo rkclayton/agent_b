@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // migrateConnectionKey preserves the v1.6.6-and-earlier list key. The legacy
@@ -404,4 +405,61 @@ func migrateV1(data []byte) (bool, []byte, error) {
 	applyDefaults(&cfg)
 	out, err := json.Marshal(cfg)
 	return true, out, err
+}
+
+// migrateModelPlaceholder is item 2nq (a): THE PLACEHOLDER LEAVES DISK.
+//
+// A connection created before item 2l1 (b) carries the literal string "model" as its
+// model, and nothing ever removed it from a configuration already written — so the
+// operator met it again after every fix: "i asked about 5 times now to remove MODEL
+// and there it is." It is cleared here, once, on any config written before version 11,
+// and the ids it cleared are returned so the load can name them.
+//
+// It reads and writes the RAW connection objects rather than the typed Config,
+// because everything else in a connection — sampling, reasoning, credentials, the
+// fields this migration knows nothing about — has to survive untouched.
+func migrateModelPlaceholder(data []byte, version int) ([]string, []byte, error) {
+	if version >= 11 {
+		return nil, data, nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, nil, err
+	}
+	value, ok := raw["connections"]
+	if !ok {
+		return nil, data, nil
+	}
+	var connections []map[string]json.RawMessage
+	if err := json.Unmarshal(value, &connections); err != nil {
+		return nil, nil, fmt.Errorf("migrate connection models: %w", err)
+	}
+	cleared := []string{}
+	for _, connection := range connections {
+		var model string
+		if err := json.Unmarshal(connection["model"], &model); err != nil || ModelChosen(model) {
+			continue
+		}
+		if strings.TrimSpace(model) == "" {
+			continue
+		}
+		connection["model"], _ = json.Marshal("")
+		id := ""
+		if connection["id"] != nil {
+			_ = json.Unmarshal(connection["id"], &id)
+		}
+		if id == "" {
+			id = "(unnamed connection)"
+		}
+		cleared = append(cleared, id)
+	}
+	if len(cleared) == 0 {
+		return nil, data, nil
+	}
+	raw["connections"], _ = json.Marshal(connections)
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cleared, out, nil
 }

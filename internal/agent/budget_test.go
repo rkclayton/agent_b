@@ -470,7 +470,7 @@ func TestMessageWeightsCacheByIDAndInvalidateOnContentChange(t *testing.T) {
 	}))
 	defer server.Close()
 
-	connection := config.Connection{BaseURL: server.URL, Model: "model", RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
+	connection := config.Connection{BaseURL: server.URL, Model: "test-model", RequestTimeoutS: 5, Capabilities: config.Capabilities{Tokenize: true, ApplyTemplate: true}}
 	item := &session.Session{ID: "message-cache", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	input := budgetInput{SystemBase: "system", System: "system"}
 	for index := 0; index < 19; index++ {

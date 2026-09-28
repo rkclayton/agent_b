@@ -315,3 +315,87 @@ test("the sheet reads top to bottom as the flow", async () => {
   expect(await order()).toEqual(["label", "address", "key", "Test", "model", "Evaluate", "Save", "Advanced"]);
   await page.close();
 });
+
+// Item 2nq (c) and (d): HIS PICK SURVIVES TEST AND SAVE, and it is VISIBLE.
+//
+// "i select a different model and press test it goes back to MODEL. i save and it goes
+// back to MODEL." W0 reproduced it on a stub and found the pick was never lost: the
+// model picker rendered the SAVED value and never the draft, so every render after a
+// choice — and Test is a render — drew the old value over his. The field lied.
+test("the model he picks is the one the field shows, through Test and through Save", async () => {
+  test.setTimeout(120000);
+  const page = await harness.context.newPage();
+  await page.goto(`${harness.base}/chat`);
+  await page.locator(".shell-settings").click();
+  await page.locator('.settings-nav [data-id="connections"]').click();
+  await page.locator('[data-action="add-connection"]').click();
+  const editor = page.locator(".connection-editor");
+  const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
+  await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
+  await page.locator(`.connection-row [data-action="probe"][data-id="${id}"]`).click();
+
+  const model = page.locator(`[data-path="connections.${id}.model"]`);
+  await expect(model).toHaveJSProperty("tagName", "SELECT");
+  await expect(model.locator("option")).toContainText(["journey-model", "second-model"]);
+
+  // Pick the one that is NOT the first, which is what Test proposes.
+  await model.selectOption("second-model");
+  await expect(model, "the field forgot the pick as soon as it was made").toHaveValue("second-model");
+
+  // Test again: the field still shows what he picked, not what is saved.
+  await page.locator(`.connection-row [data-action="probe"][data-id="${id}"]`).click();
+  await expect(page.locator(".connection-editor .discovery-note")).toBeVisible();
+  await expect(model, "Test drew the saved model over his pick").toHaveValue("second-model");
+
+  // Save writes it, and the field still shows it afterwards.
+  await page.locator(`.connection-row [data-action="save-connection"][data-id="${id}"]`).click();
+  await expect(page.locator(`.connection-row [data-action="save-connection"][data-id="${id}"]`)).toBeDisabled();
+  await expect(model).toHaveValue("second-model");
+  const saved = await page.evaluate(async () => (await (await fetch("/api/config")).json()).connections);
+  const written = saved.find((connection) => connection.id === id);
+  expect(written?.model, "the saved configuration does not hold the picked model").toBe("second-model");
+  await page.close();
+});
+
+// (d) and (e): a refused Save keeps every draft on screen and says which connection and
+// which field it is about.
+test("a refused save keeps the drafts and names the connection", async () => {
+  test.setTimeout(120000);
+  const page = await harness.context.newPage();
+  await page.goto(`${harness.base}/chat`);
+  await page.locator(".shell-settings").click();
+  await page.locator('.settings-nav [data-id="connections"]').click();
+  await page.locator('[data-action="add-connection"]').click();
+  const editor = page.locator(".connection-editor");
+  const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
+  await editor.locator(`[data-path="connections.${id}.label"]`).fill("renamed while refused");
+  await editor.locator(`[data-path="connections.${id}.base_url"]`).fill("127.0.0.1:9");
+
+  // The literal placeholder is not a model, so the server refuses to write it back —
+  // which is exactly what kept it alive on the operator's disk.
+  await page.evaluate((connection) => {
+    const node = document.querySelector(`[data-path="connections.${connection}.model"]`);
+    node.value = "";
+    const option = document.createElement("option");
+    option.value = "model";
+    option.textContent = "model";
+    node.append(option);
+    node.value = "model";
+    // Both, the way a real pick does: the input listener records the draft and the
+    // change listener is what fills the rest from the chosen model.
+    node.dispatchEvent(new Event("input", { bubbles: true }));
+    node.dispatchEvent(new Event("change", { bubbles: true }));
+  }, id);
+  await page.locator(`.connection-row [data-action="save-connection"][data-id="${id}"]`).click();
+
+  const refusal = page.locator(".connection-refusal, .settings-group .field-error, [data-save-status]");
+  await expect(page.locator("[data-save-status]")).toContainText("Save failed");
+  // It names the connection, and the row it is about carries it.
+  const row = page.locator(`.connection-row:has(.connection-summary[data-id="${id}"])`);
+  await expect(row).toContainText("model is empty");
+  // Every draft is still on screen: nothing was re-rendered back to the saved value.
+  await expect(editor.locator(`[data-path="connections.${id}.label"]`)).toHaveValue("renamed while refused");
+  await expect(editor.locator(`[data-path="connections.${id}.base_url"]`)).toHaveValue("127.0.0.1:9");
+  void refusal;
+  await page.close();
+});

@@ -433,7 +433,9 @@ func schedulerFixtureAccounting(t *testing.T, modelURL, accounting string) (conf
 	cfg.Context.Accounting = accounting
 	cfg.Run.MaxConcurrent = 1
 	connection := cfg.Connections[0]
-	connection.BaseURL, connection.Model, connection.RequestTimeoutS = modelURL, "model", 30
+	// Item 2nq (b): the literal "model" is not a model any more — a connection
+	// carrying it is not runnable, which is the whole point — so this fixture names one.
+	connection.BaseURL, connection.Model, connection.RequestTimeoutS = modelURL, "test-model", 30
 	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
 	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls, connection.Capabilities.OverflowBehavior = true, true, "error"
 	connection.Capabilities.Tokenize = accounting == "exact"

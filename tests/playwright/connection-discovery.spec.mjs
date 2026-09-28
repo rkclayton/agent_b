@@ -25,7 +25,11 @@ test.beforeAll(async () => {
     appRoot: repo,
     data: join(root, "data"),
     modelIDs: ["alpha-model", "beta-model"],
-    connectionModel: "model",
+    // Item 2nq: the literal "model" cannot be a saved model any more — a config
+    // carrying it is migrated to an empty one at load — so this fixture names a model
+    // the server does not serve instead. What it is testing is a SAVED model the
+    // listing does not offer, which is still exactly this case.
+    connectionModel: "absent-model",
   });
 });
 
@@ -44,8 +48,8 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   await setup.getByRole("button", { name: "Test" }).click();
   await expect(setup.locator(".discovery-note")).toHaveText(`found http://127.0.0.1:${harness.modelPort}`);
   await expect(setup.locator('[data-field="model"]')).toHaveJSProperty("tagName", "SELECT");
-  await expect(setup.locator('[data-field="model"] option')).toHaveText(["model · not served", "alpha-model", "beta-model"]);
-  await expect(setup.locator(".setup-feedback")).toContainText('Model "model" is not served');
+  await expect(setup.locator('[data-field="model"] option')).toHaveText(["absent-model · not served", "alpha-model", "beta-model"]);
+  await expect(setup.locator(".setup-feedback")).toContainText('Model "absent-model" is not served');
 
   const settings = await harness.context.newPage();
   await settings.goto(`${harness.base}/chat?from=setup#settings/connections`);
@@ -58,11 +62,11 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   // sentence before this; the note carries the message when there is one, and what
   // discovery found when there is not.
   await expect(settings.locator(".connection-editor .discovery-note")).toHaveCount(1);
-  await expect(settings.locator(".connection-editor .discovery-note")).toContainText('Model "model" is not served');
+  await expect(settings.locator(".connection-editor .discovery-note")).toContainText('Model "absent-model" is not served');
   // (c): the model control is a dropdown ALWAYS, and it always offers the one way out
   // for a server that cannot list its models.
   await expect(settings.locator('[data-path="connections.ui.model"]')).toHaveJSProperty("tagName", "SELECT");
-  await expect(settings.locator('[data-path="connections.ui.model"] option')).toHaveText(["model", "alpha-model", "beta-model", "type a name…"]);
+  await expect(settings.locator('[data-path="connections.ui.model"] option')).toHaveText(["absent-model", "alpha-model", "beta-model", "type a name…"]);
   // (g) again, from the other side: the row header carries the STATE WORD and never
   // the message, so it cannot overflow.
   const header = settings.locator('.connection-row:has(.connection-summary[data-id="ui"]) .connection-state');
@@ -272,6 +276,14 @@ test("the chat surface holds at the smallest size the window can be dragged to",
   const page = await small.newPage();
   await page.goto(`${harness.base}/chat`);
   await expect(page.locator("#chat-log")).toBeVisible();
+  // A chat has to be OPEN for this to measure anything: the case above closes the last
+  // one deliberately, and the empty state has no composer to measure. Measured rather
+  // than assumed - the first run of this file after item 2no's cases were added failed
+  // on exactly that ordering.
+  if (!await page.locator(".agent-tab-wrap[data-session]").count()) {
+    await page.locator(".agent-tab-new").click();
+  }
+  await expect(page.locator("#chat-task")).toBeVisible();
   const seen = await page.evaluate(() => {
     const box = (selector) => {
       const node = document.querySelector(selector);

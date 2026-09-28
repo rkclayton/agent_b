@@ -1492,7 +1492,16 @@ async function saveSettings(pathPrefix = "") {
     if (changedPaths.some((path) => path === "shell.service_account.account" || path === "shell.service_account.domain"))
       await refreshServiceAccountStatus();
   } catch (error) {
+    // Item 2nq (e): a refusal about a CONNECTION is shown on that connection's row as
+    // well as under its field, and the row is expanded, so a refusal caused by one
+    // connection is never an unexplained failure about another. The drafts are
+    // untouched here by design — a refused save keeps everything he typed.
     errors.set(error.field || "config", error.message);
+    const connection = /^connections\.([A-Za-z0-9-]+)\./.exec(error.field || "")?.[1];
+    if (connection) {
+      errors.set(`connections.${connection}`, error.message);
+      expanded.add(connection);
+    }
     settingsSaveMessage = `Save failed: ${error.message}`;
     settingsSaveAlarm = true;
     return false;

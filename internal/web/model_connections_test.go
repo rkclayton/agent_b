@@ -166,3 +166,54 @@ func postConfigPatch(t *testing.T, server *Server, body string) *httptest.Respon
 	server.Handler().ServeHTTP(response, request)
 	return response
 }
+
+// Item 2nq (b) and (e): the placeholder is never written back, and a refusal NAMES the
+// connection it is about. The operator's config carried "model" on two connections and
+// every fix so far only stopped new ones getting it; writing it back is how it stayed.
+func TestSavingTheModelPlaceholderIsRefusedByName2nq(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	cfg := config.Defaults(root)
+	cfg.Connections[0] = runnableTestConnection("server-2")
+	cfg.Connections[0].Label = "server-2"
+	other := runnableTestConnection("server-3")
+	other.Label = "server-3"
+	cfg.Connections = append(cfg.Connections, other)
+	cfg.Agents = []config.Agent{{Name: "server-2", B: "server-2", Toolset: config.FullToolset()}}
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+
+	refused := postConfigPatch(t, server, `{"connections":[{"id":"server-3","model":"model"}]}`)
+	if refused.Code != http.StatusBadRequest {
+		t.Fatalf("the placeholder was accepted: %d %s", refused.Code, refused.Body)
+	}
+	var problem struct {
+		Error string `json:"error"`
+		Field string `json:"field"`
+	}
+	if err := json.Unmarshal(refused.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(problem.Error, "server-3") {
+		t.Errorf("the refusal does not name the connection: %q", problem.Error)
+	}
+	if problem.Field != "connections.server-3.model" {
+		t.Errorf("the refusal does not name the field: %q", problem.Field)
+	}
+	// And the connection that is fine still saves: one connection never blocks another.
+	accepted := postConfigPatch(t, server, `{"connections":[{"id":"server-2","model":"a-real-model"}]}`)
+	if accepted.Code != http.StatusOK {
+		t.Fatalf("a good connection was refused: %d %s", accepted.Code, accepted.Body)
+	}
+	if got, _ := server.Connection("server-2"); got == nil || got.Model != "a-real-model" {
+		t.Fatalf("the accepted model was not written: %+v", got)
+	}
+	// An EMPTY model still saves: an address is worth keeping before a model is
+	// chosen, which is item 2nn (b)'s rule and not something this item takes away.
+	empty := postConfigPatch(t, server, `{"connections":[{"id":"server-3","model":""}]}`)
+	if empty.Code != http.StatusOK {
+		t.Fatalf("an empty model was refused: %d %s", empty.Code, empty.Body)
+	}
+}

@@ -177,7 +177,15 @@ function connectionFields(connection, reason, discovery) {
 	// exactly such a name, saved and then refused elsewhere. Empty now says what to do
 	// instead, and a server that cannot enumerate is one explicit choice away.
 	const typedByHand = typedModels?.has(id);
-	const savedModel = (connection.model || "").trim();
+	// Item 2nq (c) and (d): THE FIELD SHOWS WHAT HE PICKED. This read the SAVED model
+	// and never the draft, so every render after a choice — and Test is a render —
+	// redrew the saved value over it. The operator watched that happen with the old
+	// "model" placeholder and reported it as his pick being thrown away: "i select a
+	// different model and press test it goes back to MODEL. i save and it goes back to
+	// MODEL." The pick was never lost; it was invisible, and Save wrote it correctly
+	// all along. A draft is his choice, so a draft wins.
+	const draftModel = drafts.has(`${p}.model`) ? String(drafts.get(`${p}.model`)).trim() : null;
+	const savedModel = draftModel ?? (connection.model || "").trim();
 	const options = [];
 	if (!discoveredModels.length && !savedModel) {
 		options.push(`<option value="" selected>Test to list models</option>`);
@@ -192,7 +200,7 @@ function connectionFields(connection, reason, discovery) {
 	});
 	options.push(`<option value="__type__">type a name…</option>`);
 	const picker = typedByHand
-	  ? `<input class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text" value="${attr(connection.model || "")}" placeholder="the model name this server expects">`
+	  ? `<input class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text" value="${attr(draftModel ?? connection.model ?? "")}" placeholder="the model name this server expects">`
 	  : `<select class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text">${options.join("")}</select>`;
 	// Item 2l1 (a2): one action, not two. Test contacts the address once and fills
 	// the picker and the connection settings from that single result.

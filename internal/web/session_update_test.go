@@ -168,7 +168,9 @@ func TestDropLastMessageEndpoint(t *testing.T) {
 
 func runnableTestConnection(id string) config.Connection {
 	connection := config.Defaults(".").Connections[0]
-	connection.ID, connection.Label, connection.Model = id, id, "model"
+	// Item 2nq (b): "model" is not a model, so a connection that is supposed to be
+	// runnable cannot be built with the placeholder any more.
+	connection.ID, connection.Label, connection.Model = id, id, "test-model"
 	connection.Capabilities.NCtx = 32768
 	connection.Context.NCtx = 32768
 	connection.Capabilities.ToolCalls = true

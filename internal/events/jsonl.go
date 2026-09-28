@@ -60,6 +60,17 @@ func NewWriters(dir string) (*Writers, error) {
 	return &Writers{dir: dir, chatDir: chatDir, start: stamp, global: file, sessions: map[string]*os.File{}, chats: map[string]*os.File{}, paths: map[string]string{}, sizes: map[string]int64{}, history: map[string]*historyIndex{}}, nil
 }
 
+// ProjectionCacheDir is where item 2m5's projected chat states are kept: beside
+// the data root's other machine state, and NEVER inside chats/, which this product
+// does not rewrite. It is a cache in the strict sense — deleting it costs one slow
+// launch and nothing else.
+func (w *Writers) ProjectionCacheDir() string {
+	w.mu.Lock()
+	dir := w.dir
+	w.mu.Unlock()
+	return filepath.Join(filepath.Dir(dir), "cache", "projection")
+}
+
 // DurableChatPaths returns the retained chat journals. Unlike the operational
 // tapes in logs, these files are not subject to log retention.
 func (w *Writers) DurableChatPaths() ([]string, error) {

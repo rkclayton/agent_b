@@ -2098,6 +2098,14 @@
   text-transform: uppercase;
   padding: 0 6px;
 }
+/* Item 2nn (c): while the test runs the control HOLDS the waiting element, so it
+   widens to the bar and its phase line rather than clipping them, and a disabled
+   control that is the thing being watched is not dimmed. */
+.row-action.test:has(.probe-wait) { padding: 0 var(--s2); opacity: 1; }
+.probe-wait { display: inline-flex; align-items: center; }
+.probe-wait .wait { font-size: 10px; text-transform: none; letter-spacing: 0; gap: var(--s1); }
+.probe-wait .wait-cell { height: 8px; }
+.settings-actions button.has-wait { display: inline-flex; align-items: center; gap: var(--s2); }
 
 /* Item 2iq (a): Agents is one table -- a row per role, the role's plain-language
    name, a model picker with its state, and nothing else in the row. The columns

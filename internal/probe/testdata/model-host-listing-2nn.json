@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "recorded": "item 2nn @verify, once, GET only, no completion; the bearer key is in no file",
+  "host": "<operator model host>",
+  "cases": {
+    "port_8080_with_key": {
+      "path": "/v1/models",
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "id": "Huihui-Qwen3.8-27B-abliterated-UD-Q3_K_XL",
+            "object": "model",
+            "owned_by": "llamacpp",
+            "created": 1790614180
+          },
+          {
+            "id": "Qwen3.8-27B-UD-IQ4_XS",
+            "object": "model",
+            "owned_by": "llamacpp",
+            "created": 1790614180
+          },
+          {
+            "id": "Qwen3.8-27B-UD-Q3_K_XL",
+            "object": "model",
+            "owned_by": "llamacpp",
+            "created": 1790614180
+          }
+        ]
+      }
+    },
+    "port_8080_without_key": {
+      "path": "/v1/models",
+      "status": 401,
+      "body": null
+    },
+    "port_11434_openai": {
+      "path": "/v1/models",
+      "status": 200,
+      "body": {
+        "object": "list",
+        "data": null
+      }
+    },
+    "port_11434_tags": {
+      "path": "/api/tags",
+      "status": 200,
+      "body": {
+        "models": []
+      }
+    }
+  }
+}

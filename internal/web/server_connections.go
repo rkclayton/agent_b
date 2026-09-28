@@ -244,15 +244,38 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, message, "connections."+id+".base_url")
 		return
 	}
+	// Item 2nn (a): THE PRODUCT NEVER WRITES THE ADDRESS FIELD. A host typed with no
+	// port comes back as a LIST of what each port answered, and the field stays as he
+	// typed it — he adds the port. What this replaces is a rewrite: the walk picked a
+	// port, the server answered "changes_required" with a new base_url, and the sheet
+	// typed it into his field. His own case: ":8080" was down, ":11434" answered with
+	// no models, and the product moved him there and said so as if he had asked.
+	if len(discovered.Ports) > 0 {
+		lines := make([]string, 0, len(discovered.Ports))
+		for _, finding := range discovered.Ports {
+			lines = append(lines, ":"+finding.Port+" — "+finding.Result)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status": "port_required", "connection_id": id, "base_url": tested.BaseURL,
+			"models": []string{}, "ports": discovered.Ports,
+			"message": "add the port you want: " + strings.Join(lines, " · "),
+		})
+		return
+	}
 	updated := tested
 	updated.BaseURL = discovered.BaseURL
-	listed := modelListed(updated.Model, discovered.Models)
+	// A PATH on the port he typed is still proposed, because that is item 2l1's path
+	// discovery and item 2nn keeps 2nb (c)-(h): same host, same port, the path that
+	// answers. What 2nn (a) forbids is moving him to another PORT, and the walk cannot
+	// do that any more — a typed port is the only port tried, and a host with no port
+	// answers with the list above instead of a choice.
 	changes := map[string]any{}
 	if strings.TrimRight(tested.BaseURL, "/") != strings.TrimRight(discovered.BaseURL, "/") {
 		changes["base_url"] = discovered.BaseURL
 		writeJSON(w, http.StatusOK, map[string]any{"status": "changes_required", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "changes": changes, "message": fmt.Sprintf("changed base_url from %s to %s", tested.BaseURL, discovered.BaseURL)})
 		return
 	}
+	listed := modelListed(updated.Model, discovered.Models)
 	if !listed {
 		// Item 2l1 (b),(c),(d): the refusal names the field, the value and what is
 		// wanted, and a server that answered with an empty list says THAT rather

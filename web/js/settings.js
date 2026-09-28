@@ -9,7 +9,7 @@ import { renderNotificationsPage } from "./settings-notifications.js";
 import { renderProfilesPage } from "./settings-profiles.js";
 import { renderSecurityPage } from "./settings-security.js";
 import { renderWorkspacePage } from "./settings-workspace.js";
-import { waitElement } from "./wait.js";
+import { setWaitProgress, waitElement } from "./wait.js";
 import { agentKey } from "./panel-lifetime.js";
 import { mountPanels, unmountPanels } from "./app.js";
 
@@ -137,12 +137,22 @@ export function initSettings(entry = {}) {
       const connectionID = event.data?.connection_id || "";
       probeMessages.set(connectionID, {
         ...(probeMessages.get(connectionID) || {}),
+        // Item 2nn (c): the line names the PHASE, not the raw verdict. One step per
+        // address when no port was typed, counted, so the bar is determinate.
         walking: {
-          line: `${event.data?.base_url || "an address"} — ${event.data?.result || "trying"}`,
+          line: probePhaseLine(event.data),
           processed: Number(event.data?.tried) || 0,
           total: Number(event.data?.total) || 0,
         },
       });
+      // The bar is moved in place rather than by a render: "connection.discovering"
+      // is not in the render list below, and a full render of the sheet mid-walk
+      // would take the focus out of the field he was typing in.
+      const moved = probeMessages.get(connectionID).walking;
+      for (const bar of sheet.querySelectorAll(`[data-probe-wait="${CSS.escape(connectionID)}"] .wait`)) {
+        bar.querySelector(".wait-line").textContent = moved.line;
+        setWaitProgress(bar, moved);
+      }
     }
     if (event.type === "connection.probed") {
       const connectionID = event.data?.connection_id || "";
@@ -298,11 +308,21 @@ function render() {
   const focusNode = [...sheet.querySelectorAll("button, input, textarea, select, summary")]
     .find((node) => controlKey(node) === focusKey);
   focusNode?.focus({ preventScroll: true });
-  // Item 2nb (b) and (i): mount item 2m4's waiting element into the seat the
-  // connections page left, determinate on addresses tried of the total. Built here
-  // rather than in the page because the page writes HTML and this is the one element.
-  for (const seat of sheet.querySelectorAll("[data-connection-wait]")) {
-    const walking = probeMessages.get(seat.dataset.connectionWait)?.walking;
+  // Item 2nn (c): THE BAR, NOT THE WORD. Test showed the bare text "testing" on the
+  // control and, unless the walk happened to emit events, nothing else — "there are
+  // still no loading bars. i hit test and it just says testing and goes back to that
+  // port". The element goes INSIDE the control that was pressed, with the phase line,
+  // and is gone when the result renders.
+  for (const seat of sheet.querySelectorAll("[data-probe-wait]")) {
+    const walking = probeMessages.get(seat.dataset.probeWait)?.walking;
+    if (!walking) continue;
+    seat.replaceChildren(waitElement(document, { line: walking.line, processed: walking.processed, total: walking.total }));
+  }
+  // The Evaluation Harness runs a known ten briefs per arm, so its bar is
+  // determinate and its line is the count with the arm named — the mode
+  // @consequence-if-false allows for is not needed, because the server counts.
+  for (const seat of sheet.querySelectorAll("[data-harness-wait]")) {
+    const walking = probeMessages.get(seat.dataset.harnessWait)?.harnessWalking;
     if (!walking) continue;
     seat.replaceChildren(waitElement(document, { line: walking.line, processed: walking.processed, total: walking.total }));
   }
@@ -318,6 +338,10 @@ function render() {
       total: total > 0 ? total : null,
     }));
   }
+  // Item 2nn (b): a Save control is only ever as live as the drafts, and the
+  // markup is written before this render knows them, so the same refresh that
+  // typing calls runs here too.
+  refreshSaveControls();
   placeConfirmPopover();
   navigationSurfaceReady("settings", store);
 }
@@ -388,11 +412,32 @@ function settingsPageContext(active) {
 
 // Item 2l6 (d): there is no sheet-wide Save to refresh any more. The status line
 // is what remains, and it says what the last commit did.
+// Item 2nn (b): SAVE IS SAVE.
+//
+// "i went to rename it and couldn't save it after a rename. guessing i have to test
+// first then it saves that port — i DON'T WANT THAT." Reproduced on a disposable root
+// with the shipped v1.31.0: after typing, the status line said "Unsaved" and the row's
+// Save was DISABLED, so the click did nothing and NO request was ever made. Nothing
+// refused him — the button was dead.
+//
+// The cause was here: this function updated the status TEXT and nothing else, while
+// every Save control carried the disabled attribute from the last render, computed
+// from the drafts as they were THEN. A Test re-rendered the sheet, which is why
+// testing first appeared to be the price of saving. The controls are part of the
+// state this refreshes now.
 function refreshSaveControls() {
   const status = sheet.querySelector("[data-save-status]");
-  if (!status) return;
-  status.textContent = settingsSaveMessage;
-  status.classList.toggle("alarm", settingsSaveAlarm);
+  if (status) {
+    status.textContent = settingsSaveMessage;
+    status.classList.toggle("alarm", settingsSaveAlarm);
+  }
+  for (const control of sheet.querySelectorAll('[data-action="save-connection"][data-id]')) {
+    const prefix = `connections.${control.dataset.id}.`;
+    control.disabled = ![...drafts.keys()].some((path) => path.startsWith(prefix));
+  }
+  for (const control of sheet.querySelectorAll("[data-action=\"save-setting\"][data-save-path]")) {
+    control.disabled = !drafts.has(control.dataset.savePath);
+  }
 }
 function controlKey(node) {
   if (!node || !sheet.contains(node)) return "";
@@ -421,6 +466,18 @@ export const perProfileSections = new Set(["chats", "agents", "notifications"]);
 // Item 2ni (b): the AVAILABILITY RULE, moved with the Plan and not widened. It is
 // the rule the tab carried: the Plan is offered on a planner chat, or when no
 // separate d connection is configured at all. It decides what the section SHOWS.
+// probePhaseLine turns one discovery attempt into the phase the operator is waiting
+// through, in item 2nn (c)'s words: connecting, then listing, then reading. The raw
+// verdict stays in the note the result renders; a bar says what is happening NOW.
+function probePhaseLine(data) {
+  const address = data?.base_url || "the address";
+  const result = String(data?.result || "");
+  if (/model list answered/.test(result)) return `listing models at ${address}`;
+  if (/wants an API key/.test(result)) return `${address} wants an API key`;
+  if (/no model API/.test(result)) return `looking for the model list at ${address}`;
+  return `connecting to ${address}`;
+}
+
 function planAvailable() {
   const session = store.sessions?.[store.selection?.session_id || ""];
   if (!session) return false;
@@ -881,7 +938,11 @@ async function dispatchAction(event, button, action, id) {
     const pendingPrefix = `connections.${id}.`;
     const connection = connectionList().find((x) => x.id === id);
     if (connection) connection._probing = true;
-    probeMessages.set(id, { message: "Testing…", alarm: false });
+    // (c): visible within the same frame as the click. The line names the address it
+    // is connecting to before any request has answered, and the walk's own events
+    // replace it as they land.
+    const typedAddress = current(`connections.${id}.base_url`, connection?.base_url || "") || "the address";
+    probeMessages.set(id, { message: "", alarm: false, walking: { line: `connecting to ${typedAddress}`, processed: 0, total: 0 } });
     render();
     try {
       const discovered = await api(`/api/connections/${encodeURIComponent(id)}/probe`, {
@@ -892,6 +953,12 @@ async function dispatchAction(event, button, action, id) {
       });
       applyProposedValues(id, discovered);
       const needsModel = discovered.status === "model_required";
+      // Item 2nn (a): THE ADDRESS FIELD IS HIS. A host typed with no port comes back
+      // as "port_required" with what each port answered, and NOTHING is written into
+      // the field — the note names the ports and he adds the one he wants. The only
+      // value Test still proposes into base_url is a PATH on the port he typed
+      // himself (item 2l1's path discovery, which 2nb (c)-(h) keeps), never another
+      // port: that is what put :11434 in his field after he typed the bare address.
       if (discovered.changes?.base_url) {
         drafts.set(`${pendingPrefix}base_url`, discovered.changes.base_url);
         draftKinds.set(`${pendingPrefix}base_url`, "text");
@@ -922,7 +989,13 @@ async function dispatchAction(event, button, action, id) {
     try {
       if (currentState.running) await api(`/api/eval/measure?connection_id=${encodeURIComponent(id)}`, undefined, "DELETE");
       else await api("/api/eval/measure", { connection_id: id });
-      probeMessages.set(id, { ...(probeMessages.get(id) || {}), measureRunning: !currentState.running, message: currentState.running ? "Evaluation Harness stopping" : "Evaluation Harness running", alarm: false });
+      probeMessages.set(id, {
+        ...(probeMessages.get(id) || {}),
+        measureRunning: !currentState.running,
+        message: currentState.running ? "Evaluation Harness stopping" : "",
+        alarm: false,
+        harnessWalking: currentState.running ? null : { line: "brief 0 of 10 — thinking off", processed: 0, total: 10 },
+      });
       if (!currentState.running) void refreshMeasurement(id);
     } catch (error) { probeMessages.set(id, { ...(probeMessages.get(id) || {}), message: error.message, alarm: true }); }
     return render();
@@ -1043,8 +1116,18 @@ async function refreshMeasurement(id) {
   for (let attempt = 0; attempt < 400; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 750));
     const state = await api(`/api/eval/measure?connection_id=${encodeURIComponent(id)}`, undefined, "GET").catch(() => null);
-    if (!state || state.running) continue;
-    probeMessages.set(id, { ...(probeMessages.get(id) || {}), measureRunning: false, message: state.error || state.text || "Evaluation Harness complete", alarm: !!state.error });
+    if (state?.running) {
+      // The bar follows the run: its line is the brief and the arm the server is
+      // on, and the fraction is real because the brief count is fixed.
+      const seat = sheet.querySelector(`[data-harness-wait="${CSS.escape(id)}"] .wait`);
+      const walking = { line: state.text || "running the briefs", processed: Number(state.processed) || 0, total: Number(state.total) || 0 };
+      probeMessages.set(id, { ...(probeMessages.get(id) || {}), harnessWalking: walking });
+      if (seat) { seat.querySelector(".wait-line").textContent = walking.line; setWaitProgress(seat, walking); }
+      else if (open && activeSection === "connections") render();
+      continue;
+    }
+    if (!state) continue;
+    probeMessages.set(id, { ...(probeMessages.get(id) || {}), measureRunning: false, harnessWalking: null, message: state.error || state.text || "Evaluation Harness complete", alarm: !!state.error });
     reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
     if (open && activeSection === "connections") render();
     return;

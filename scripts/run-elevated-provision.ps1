@@ -74,8 +74,7 @@ $literals = ($Arguments | ForEach-Object {
 $shim = @"
 `$ErrorActionPreference = 'Stop'
 try { & '$($Script -replace "'", "''")' $literals; exit `$LASTEXITCODE }
-catch { Write-Output ('AGENTB_CHILD_ERROR ' + (`$_.Exception.Message -replace '?
-', ' ')); exit 1 }
+catch { Write-Output ('AGENTB_CHILD_ERROR ' + (`$_.Exception.Message -replace '[\r\n]+', ' ')); exit 1 }
 "@
 & $powershell -NoLogo -NoProfile -NonInteractive -Command $shim 2>&1 |
     Out-String -Stream -Width 4096 |

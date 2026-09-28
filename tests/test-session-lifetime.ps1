@@ -17,6 +17,7 @@ param(
 # logoff path is proved by the harness's WM_ENDSESSION test.
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\windows-tools.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\agentb-stop.ps1')
 $executable = Join-Path $ApplicationDirectory 'Agent_b.exe'
 $launcherLog = Join-Path $DataDirectory 'logs\launcher-errors.log'
@@ -60,7 +61,8 @@ if (-not $shortcut.TargetPath.Equals((Join-Path $env:SystemRoot 'System32\wscrip
 if (Get-Running) { throw 'A disposable Agent_b is already running before the lifetime scenario.' }
 
 function Invoke-SignIn {
-    Start-Process -FilePath $shortcut.TargetPath -ArgumentList $shortcut.Arguments -WorkingDirectory $shortcut.WorkingDirectory | Out-Null
+    # Item 2na (b): started through the one helper, so it cannot take the screen.
+    $null = Start-Quiet -FilePath $shortcut.TargetPath -ArgumentList $shortcut.Arguments -WorkingDirectory $shortcut.WorkingDirectory
 }
 
 try {

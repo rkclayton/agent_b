@@ -33,6 +33,109 @@ $ErrorActionPreference = 'Stop'
 foreach ($path in @($FromSetup, $ToSetup)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "UPDATER CYCLE REFUSED: missing setup $path" }
 }
+
+# Item 2nf (e): THE GATE RUNS THE INSTALLED BASE'S COMMAND LINE.
+#
+# This gate proved the cycle from the PREVIOUS release's updater, and passed for
+# twelve releases while the version most people are actually on could not update at
+# all. v1.24.0's updater sends -WorkspaceDirectory pointing INSIDE the data root -
+# the app's own profile scratch folder - and the installer refused it with
+# "Application, operator-data, and workspace directories must be three disjoint
+# trees" in under a second, three times, with nothing readable on screen.
+#
+# So the first case is a verbatim replay of that argument list, from a fixture
+# captured out of the operator's own transcript, against the candidate setup. It runs
+# in TestMode on disposable roots shaped like his, because the disjoint-roots check
+# runs in TestMode too - it is the canonical-location checks that do not, and the
+# disjoint one is what refused him.
+$replayFixture = Join-Path $PSScriptRoot 'fixtures\updater-v1.24.0-command-line.json'
+if (-not (Test-Path -LiteralPath $replayFixture -PathType Leaf)) {
+    throw "UPDATER REPLAY REFUSED: missing fixture $replayFixture"
+}
+$replay = Get-Content -LiteralPath $replayFixture -Raw | ConvertFrom-Json
+$replayRoot = Join-Path ([IO.Path]::GetTempPath()) ('agentb-v1240-replay-' + [Guid]::NewGuid().ToString('N'))
+$replayApplication = Join-Path $replayRoot 'Application\Agent_b'
+$replayData = Join-Path $replayRoot 'Data\Agent_b'
+# His shape exactly: the workspace the updater sends is inside the data root.
+$replayWorkspace = Join-Path $replayData ('profiles\' + $env:USERNAME + '\scratch')
+$replayRegistry = 'HKCU:\Software\Agent_b-UpdaterReplayTest-' + [Guid]::NewGuid().ToString('N').Substring(0, 16)
+try {
+    foreach ($directory in @($replayApplication, $replayData, $replayWorkspace)) {
+        $null = New-Item -ItemType Directory -Path $directory -Force
+    }
+    # A file in the handed workspace, so the assertion can say it was left alone.
+    $replayWitness = Join-Path $replayWorkspace 'witness.txt'
+    Set-Content -LiteralPath $replayWitness -Value 'the operator work that lives here' -Encoding utf8
+
+    $replayArguments = @('--install', '--quiet', '--install-data', $replayData)
+    foreach ($argument in $replay.arguments) {
+        # -ProgressFile and -EmbeddedBundle are added by the setup itself, so the
+        # replay passes what the UPDATER passes and nothing more.
+        if ($argument -eq '-ProgressFile' -or $argument -eq '{progress}' -or $argument -eq '-EmbeddedBundle') { continue }
+        $replayArguments += switch ($argument) {
+            '{application}' { $replayApplication }
+            '{data}' { $replayData }
+            '{workspace}' { $replayWorkspace }
+            default { $argument }
+        }
+    }
+    # TestMode keeps every root beneath the suite root, so the disposable Start menu
+    # and Send-to folder are named here rather than defaulting to the operator's.
+    $replayStartMenu = Join-Path $replayRoot 'StartMenu'
+    # The canonical workspace the installer falls back to is derived from the
+    # operator's LocalAppData, so TestMode is given a disposable one: the fallback then
+    # lands inside the suite root instead of beside the operator's own.
+    $replayLocalAppData = Join-Path $replayRoot 'LocalAppData'
+    $null = New-Item -ItemType Directory -Path $replayLocalAppData -Force
+    $replayArguments += @('-StartMenuDirectory', $replayStartMenu, '-SendToDirectory', (Join-Path $replayStartMenu 'SendTo'),
+        '-OperatorLocalAppData', $replayLocalAppData,
+        '-UninstallRegistryPath', $replayRegistry, '-TestMode')
+    Write-Host "UPDATER REPLAY: $ToSetup $($replayArguments -join ' ')"
+
+    $replayProcess = Start-Process -FilePath $ToSetup -ArgumentList $replayArguments -PassThru -WindowStyle Hidden
+    if (-not $replayProcess.WaitForExit(300000)) {
+        throw 'UPDATER REPLAY FAILED: the setup did not finish within five minutes.'
+    }
+    $replayExit = $replayProcess.ExitCode
+    $replayLogs = @(Get-ChildItem (Join-Path $replayData 'logs') -Filter 'installer-*.log' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime)
+    $replayTranscript = ($replayLogs | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join "`n"
+    if ($replayExit -ne 0) {
+        $reason = @($replayTranscript -split "`n" | Where-Object { $_ -match 'INSTALLATION FAILED:' }) -join ' | '
+        throw "UPDATER REPLAY FAILED: v1.24.0's command line exited $replayExit. $reason"
+    }
+    # (a): the workspace it could not accept was ignored, by name, and said so.
+    if ($replayTranscript -notmatch 'workspace argument ignored') {
+        throw 'UPDATER REPLAY FAILED: the transcript does not record that the workspace argument was ignored.'
+    }
+    if ($replayTranscript -notmatch [regex]::Escape($replayWorkspace)) {
+        throw 'UPDATER REPLAY FAILED: the ignored-workspace line does not name the path that was sent.'
+    }
+    # The app is on the new version.
+    $replayExe = Join-Path $replayApplication 'Agent_b.exe'
+    if (-not (Test-Path -LiteralPath $replayExe -PathType Leaf)) {
+        throw "UPDATER REPLAY FAILED: no installed executable at $replayExe"
+    }
+    $replayIdentity = & $replayExe -version 2>$null | Select-Object -First 1
+    if ($replayIdentity -notmatch [regex]::Escape($ToVersion)) {
+        throw "UPDATER REPLAY FAILED: the installed app reports $replayIdentity, not $ToVersion."
+    }
+    # And the operator's own workspace is untouched: the installer ignored the
+    # argument, it did not reach into the folder and reorganise it.
+    if (-not (Test-Path -LiteralPath $replayWitness -PathType Leaf)) {
+        throw 'UPDATER REPLAY FAILED: the workspace the updater sent was modified.'
+    }
+    Write-Host "PASS updater replay: v1.24.0's exact command line installs $ToVersion, the workspace argument is ignored by name, and the folder it named is untouched"
+} finally {
+    Get-Process -Name Agent_b -ErrorAction SilentlyContinue | Where-Object {
+        try { $_.Path -and $_.Path.StartsWith($replayRoot, [StringComparison]::OrdinalIgnoreCase) } catch { $false }
+    } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $replayRegistry) { Remove-Item -LiteralPath $replayRegistry -Recurse -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $replayRoot) {
+        try { Remove-TreeWithinAllowedRoots -Path $replayRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'updater replay cleanup' }
+        catch { Write-Warning $_.Exception.Message }
+    }
+}
 $root = Join-Path ([IO.Path]::GetTempPath()) ('agentb-updater-cycle-' + [Guid]::NewGuid().ToString('N'))
 $application = Join-Path $root 'Application\Agent_b'
 $data = Join-Path $root 'Data\Agent_b'

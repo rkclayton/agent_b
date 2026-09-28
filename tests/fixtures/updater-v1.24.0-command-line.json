@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "item": "2nf",
+  "captured_from": "the operator's installer transcript of 2026-09-27 19:11:45, the third of three Update attempts",
+  "captured_at": "2026-09-27T19:11:45-05:00",
+  "installed_version": "v1.24.0",
+  "why": [
+    "This is the argument list the INSTALLED BASE sends. The updater-cycle gate proved the",
+    "cycle from the previous release's updater, which passes a different list, so the guard",
+    "that refuses this one was never exercised: 'Application, operator-data, and workspace",
+    "directories must be three disjoint trees', because the workspace sits inside the data",
+    "root. The version that most needs the update was the one that could not take it.",
+    "Placeholders are substituted by the gate so the replay runs on disposable roots.",
+    "{data} is the data root, {application} the application root, {workspace} the workspace",
+    "the updater sends, and {progress} the progress file."
+  ],
+  "arguments": [
+    "-ProgressFile",
+    "{progress}",
+    "-EmbeddedBundle",
+    "-ApplicationDirectory",
+    "{application}",
+    "-DataDirectory",
+    "{data}",
+    "-WorkspaceDirectory",
+    "{workspace}"
+  ],
+  "workspace_shape": "{data}\\profiles\\{operator}\\scratch",
+  "observed_refusal": "Application, operator-data, and workspace directories must be three disjoint trees.",
+  "expected_after_2nf": "workspace argument ignored"
+}

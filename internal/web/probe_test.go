@@ -258,3 +258,45 @@ func TestProbeNonJSONFailuresUseFriendlyRowsAndDiagnosticFindings(t *testing.T) 
 		})
 	}
 }
+
+// Item 2nb (f): NO VALUE CARRYING THE MASK SENTINEL REACHES THE CONFIGURATION.
+//
+// The merge used to DELETE an api_key that equalled the mask exactly. That is a silent
+// drop, and it only covered the exact string: a value that merely contained the mask —
+// a half-edited field, a paste beside it — would have been stored as the operator's key
+// and every later request would have authenticated with bullets.
+func TestAConfigurationPatchCarryingTheMaskedKeyIsRefused(t *testing.T) {
+	for name, value := range map[string]string{
+		"the mask exactly as it is shown":  "•••• set",
+		"the mask with something typed in": "•••• setsk-live-1234",
+		"the mask alone":                   "••••",
+		"the mask with surrounding space":  "  •••• set  ",
+	} {
+		patch := map[string]any{"connections": []any{map[string]any{"id": "local", "api_key": value}}}
+		field, found := patchCarriesMaskedKey(patch)
+		if !found {
+			t.Errorf("%s was not refused", name)
+			continue
+		}
+		if field != "connections.local.api_key" {
+			t.Errorf("%s named the field %q, so the refusal would not land on the row", name, field)
+		}
+	}
+}
+
+func TestARealKeyAndAnEmptyKeyBothReachTheConfiguration(t *testing.T) {
+	for name, value := range map[string]string{
+		"a real key":                     "sk-live-abcdefghijklmnop",
+		"an empty value, which removes":  "",
+		"a key that merely has a bullet": "sk-live-•",
+	} {
+		patch := map[string]any{"connections": []any{map[string]any{"id": "local", "api_key": value}}}
+		if field, found := patchCarriesMaskedKey(patch); found {
+			t.Errorf("%s was refused, naming %q", name, field)
+		}
+	}
+	// A patch with no connections at all is not a key patch.
+	if _, found := patchCarriesMaskedKey(map[string]any{"memory": map[string]any{"enabled": true}}); found {
+		t.Error("a patch with no connections was treated as a key patch")
+	}
+}

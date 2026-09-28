@@ -19,6 +19,10 @@ const armed = new Set();
 const drafts = new Map();
 const draftKinds = new Map();
 const errors = new Map();
+// Item 2nb (c): the connections whose model the operator chose to type by hand. Not a
+// draft, because a draft is a configuration path and this is a choice about the
+// control rather than a value to save.
+const typedModels = new Set();
 const probeMessages = new Map();
 const shownKeys = new Set();
 let open = false;
@@ -301,7 +305,7 @@ function adoptPanels() {
 
 function settingsPageContext(active) {
   return {
-    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, workspaceState, operatorFileState, phoneAccess, standingGrants: store.standing_grants || [],
+    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, phoneAccess, standingGrants: store.standing_grants || [],
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList,
@@ -503,10 +507,20 @@ function textarea(path, label, value, hint = "") {
   return field(path, label, `<textarea class="setting-input" rows="8" data-path="${attr(path)}" data-kind="text">${html(current(path, value))}</textarea>`, false, hint);
 }
 
+// Item 2nb (f): THE KEY IS NEVER TEXT ON THE PAGE. The field used to be rendered with
+// the server's mask as its VALUE, so the placeholder for a stored key was a string in
+// an input that could be submitted, shown, copied or half-edited. The field is empty
+// now, a note beside it says a key is stored, and what "show" reveals is only what was
+// typed this session, because that is the only thing the field ever holds.
 function secret(path, label, value, id, hint = "") {
   const shown = shownKeys.has(id);
   const type = shown ? "text" : "password";
-  return field(path, label, `<span class="secret-control"><input class="setting-input" type="${type}" data-path="${attr(path)}" data-kind="secret" value="${attr(current(path, value))}"><button type="button" data-action="show-key" data-id="${attr(id)}">${shown ? "hide" : "show"}</button></span>`, false, hint);
+  const stored = typeof value === "string" && value.includes("••••");
+  const typedThisSession = drafts.has(path) ? String(drafts.get(path)) : "";
+  const note = stored
+    ? `<span class="control-note">${typedThisSession ? "replacing the stored key" : "stored"}</span>`
+    : "";
+  return field(path, label, `<span class="secret-control"><input class="setting-input" type="${type}" data-path="${attr(path)}" data-kind="secret" value="${attr(typedThisSession)}" placeholder="${attr(stored ? "leave empty to keep the stored key" : "paste the API key")}"><button type="button" data-action="show-key" data-id="${attr(id)}">${shown ? "hide" : "show"}</button>${note}</span>`, false, hint);
 }
 
 function toggle(path, label, value, hint = "") {
@@ -1131,6 +1145,16 @@ async function blur(event) {
 }
 
 async function change(event) {
+  // Item 2nb (c): the one explicit way out of the dropdown, for a server that cannot
+  // enumerate its models. Choosing it turns the control into a field and saves
+  // nothing by itself.
+  if (event.target.matches('.setting-input[data-path$=".model"]') && event.target.value === "__type__") {
+    const id = event.target.dataset.path.split(".")[1];
+    typedModels.add(id);
+    drafts.delete(event.target.dataset.path);
+    render();
+    return;
+  }
   if (event.target.matches("#hardening-connection")) {
     hardeningConnectionID = event.target.value;
     hardeningStatus = { loaded: false, supported: true, applied: false };
@@ -1223,7 +1247,11 @@ async function addConnection() {
   expanded.clear();
   expanded.add(id);
   try {
-    const result = await api("/api/config", { connections: [{ id, label: id, base_url: "http://127.0.0.1:8000", model: "model" }] });
+    // Item 2nb (h) and (c): a new connection carries NO address and NO model. The old
+    // defaults were a guess and a placeholder: 127.0.0.1:8000 is not where his server
+    // is, and the literal "model" reached save and was refused elsewhere with wording
+    // he could not act on. Empty fields with placeholders say what to do instead.
+    const result = await api("/api/config", { connections: [{ id, label: id, base_url: "", model: "" }] });
     probeMessages.set(id, { message: "Added and saved — edit, then Test", alarm: false });
     reduce({ type: "config.changed", data: { config: result } });
   } catch (error) {

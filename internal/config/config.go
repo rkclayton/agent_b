@@ -41,8 +41,12 @@ type Config struct {
 	Updates       Updates            `json:"updates"`
 	Telemetry     Telemetry          `json:"telemetry"`
 	Reflection    Reflection         `json:"reflection"`
-	Signing       Signing            `json:"signing"`
-	LoadNotices   []string           `json:"-"`
+	// Item 2mx: the one chat a voice request lands in when it names none. One key, not
+	// a section: a voice assistant has no screen to choose a chat on, so it needs a
+	// default and nothing else.
+	Voice       Voice    `json:"voice,omitempty"`
+	Signing     Signing  `json:"signing"`
+	LoadNotices []string `json:"-"`
 }
 
 // ProfileCatalog selects the operator-owned namespace. Connections and host
@@ -326,6 +330,13 @@ type Measurement struct {
 	Decision     *ReasoningDecision `json:"decision,omitempty"`
 	NCtx         int                `json:"n_ctx,omitempty"`
 	WindowTokens int                `json:"window_tokens,omitempty"`
+}
+
+// Voice is item 2mx's one setting. DefaultSessionID names the chat a spoken request
+// goes to; the server creates one labelled Siri the first time it is needed and writes
+// its id here, so the chat is created ONCE and not per request.
+type Voice struct {
+	DefaultSessionID string `json:"default_session_id,omitempty"`
 }
 
 type Service struct {

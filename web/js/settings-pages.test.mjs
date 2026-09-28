@@ -33,7 +33,7 @@ function pageContext() {
     signingStatus: { loaded: false, supported: true, configured: false, can_manage: false, files: [] },
     signingBusy: false, signingMessage: "", signingAlarm: false,
     connectionList: () => [], row, subhead: (label, hint = "") => `<div class="settings-subhead">${label}</div>${hint ? `<p class="settings-subhead-note">${hint}</p>` : ""}`, field: blank, text: inputRow, number: inputRow, numberControl: () => "<input>",
-    textarea: inputRow, secret: inputRow, toggle: inputRow, choices: inputRow, approvalChoices: () => row("approval", "<button>boundary-only</button>"), copyRow: row,
+    textarea: inputRow, secret: inputRow, toggle: inputRow, choices: inputRow, selectSetting: inputRow, approvalChoices: () => row("approval", "<button>boundary-only</button>"), copyRow: row,
     currentValue: (_path, fallback) => fallback, issue: blank, connectionReason: blank,
     html: String, attr: String, selectedHardeningConnectionID: blank,
     operatorStatusView: () => ({ active: false, label: "off", src: "", srcset: "" }),

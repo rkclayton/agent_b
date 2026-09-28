@@ -7,7 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"net/url"
+	"regexp"
+
 	"harness/internal/config"
+	"harness/internal/events"
 	"harness/internal/projection"
 )
 
@@ -44,6 +48,11 @@ type idempotentReply struct {
 	status int
 	body   any
 	at     time.Time
+	// Item 2mx (b): a retry with the same key AND THE SAME SESSION replays. The session
+	// is part of the identity because a key reused against a different chat is a
+	// different request, and replaying the first chat's answer into the second would be
+	// a wrong answer rather than a safe retry.
+	session string
 }
 
 type idempotentSubmissions struct {
@@ -56,7 +65,7 @@ func newIdempotentSubmissions() *idempotentSubmissions {
 }
 
 // remembered returns a previous reply for this key, if one is still in the window.
-func (i *idempotentSubmissions) remembered(key string) (idempotentReply, bool) {
+func (i *idempotentSubmissions) remembered(key, session string) (idempotentReply, bool) {
 	if key == "" {
 		return idempotentReply{}, false
 	}
@@ -70,12 +79,16 @@ func (i *idempotentSubmissions) remembered(key string) (idempotentReply, bool) {
 		delete(i.replies, key)
 		return idempotentReply{}, false
 	}
+	// A key reused against another chat is not this request.
+	if reply.session != session {
+		return idempotentReply{}, false
+	}
 	return reply, true
 }
 
 // remember stores a reply under a key, dropping what has expired and, if the store is
 // still full, the oldest entry.
-func (i *idempotentSubmissions) remember(key string, status int, body any) {
+func (i *idempotentSubmissions) remember(key, session string, status int, body any) {
 	if key == "" {
 		return
 	}
@@ -102,7 +115,7 @@ func (i *idempotentSubmissions) remember(key string, status int, body any) {
 		}
 		delete(i.replies, oldest)
 	}
-	i.replies[key] = idempotentReply{status: status, body: body, at: time.Now()}
+	i.replies[key] = idempotentReply{status: status, body: body, at: time.Now(), session: session}
 }
 
 // idempotencyKey is the header a caller sends to make a submission repeatable. A key
@@ -124,15 +137,21 @@ func (s *Server) voiceSessionID() (string, error) {
 		}
 	}
 	// The label is the operator's word for it, and it is how he will recognise the chat
-	// in his own list. The agent is whichever the installation already uses first: a
-	// spoken request cannot choose one, and creating a chat with no agent is refused.
+	// in his own list. A spoken request cannot choose an agent, and a chat with no agent
+	// is refused, so the installation's default answers for it.
 	agentID := ""
 	settings := s.ConfigSnapshot()
-	if len(settings.Agents) > 0 {
-		agentID = settings.Agents[0].B
+	// (d): THE DEFAULT agent, not merely the first one in the file. The installation
+	// already has an answer to which agent is the default and a spoken request should land
+	// on the same one a new chat would.
+	if agent, ok := settings.Agent(settings.DefaultAgentID()); ok {
+		agentID = agent.B
 		if strings.TrimSpace(agentID) == "" {
-			agentID = config.AgentID(settings.Agents[0].Name)
+			agentID = config.AgentID(agent.Name)
 		}
+	}
+	if strings.TrimSpace(agentID) == "" && len(settings.Agents) > 0 {
+		agentID = settings.Agents[0].B
 	}
 	if strings.TrimSpace(agentID) == "" && len(settings.Connections) > 0 {
 		agentID = settings.Connections[0].ID
@@ -171,15 +190,15 @@ func spokenLine(pending *spokenApproval, lastReply, stopReason string, running b
 	if pending != nil {
 		what := strings.TrimSpace(pending.Summary)
 		if what == "" {
-			what = "a tool call"
+			what = "run a tool"
 		}
-		return "Waiting for your approval: " + what
+		return "Agent_b needs your approval to " + what
 	}
 	if reply := strings.TrimSpace(lastReply); reply != "" {
 		return reply
 	}
 	if reason := strings.TrimSpace(stopReason); reason != "" {
-		return "The run stopped: " + reason
+		return reason
 	}
 	if running {
 		return "Still working."
@@ -191,6 +210,89 @@ func spokenLine(pending *spokenApproval, lastReply, stopReason string, running b
 type spokenApproval struct {
 	Summary string `json:"summary"`
 	CallID  string `json:"call_id,omitempty"`
+}
+
+// Item 2mx (c): THE STATE VOCABULARY IS THE ITEM'S, NOT THE RUN'S.
+//
+// The brief passed the run's own status through, which is the harness's word for it.
+// (c) names six states a caller can branch on without knowing how the harness talks:
+// queued, running, needs_approval, done, failed, stopped. An approval outranks the run
+// status, because nothing else will happen until it is answered.
+func briefState(status string, pending bool, stopReason string) string {
+	if pending {
+		return "needs_approval"
+	}
+	switch status {
+	case "queued":
+		return "queued"
+	case "running", "stopping":
+		return "running"
+	}
+	switch strings.TrimSpace(stopReason) {
+	case "":
+		return "done"
+	case "done":
+		return "done"
+	case "stopped", "operator_stopped", "canceled", "cancelled":
+		return "stopped"
+	}
+	return "failed"
+}
+
+// spokenReplyLimit is (c)'s STATED LENGTH. A spoken sentence is heard, not read: past
+// this a listener has lost the beginning by the time the end arrives, and a Shortcut
+// reading a whole answer aloud was the thing to avoid.
+const spokenReplyLimit = 360
+
+// plainSpoken strips the markdown a reply is written in, because a listener hears
+// asterisks and backticks as nothing at all while they eat the length budget. It removes
+// the marks and keeps the words; it is not a markdown parser and does not try to be.
+func plainSpoken(text string) string {
+	replaced := strings.NewReplacer(
+		"```", " ", "`", "", "**", "", "__", "", "*", "", "_", "", "#", "", ">", "", "~~", "",
+	).Replace(text)
+	// Link syntax keeps the words and drops the target: the target cannot be spoken.
+	replaced = markdownLink.ReplaceAllString(replaced, "$1")
+	// A LIST BULLET IS NOT A WORD, and it is only a bullet at the start of a line: a
+	// hyphen inside non-trivial must survive, so this is done per line rather than by
+	// replacing every dash. A test caught "- " reaching the spoken line.
+	lines := strings.Split(strings.ReplaceAll(replaced, "\r\n", "\n"), "\n")
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		for _, bullet := range []string{"- ", "+ ", "• "} {
+			trimmed = strings.TrimPrefix(trimmed, bullet)
+		}
+		lines[index] = trimmed
+	}
+	replaced = strings.Join(lines, " ")
+	// Any run of whitespace, including the newlines a reply is full of, becomes one space.
+	replaced = strings.Join(strings.Fields(replaced), " ")
+	if len(replaced) <= spokenReplyLimit {
+		return replaced
+	}
+	// Cut on a word boundary and say that it was cut, rather than stopping mid-word as
+	// though the connection dropped.
+	cut := replaced[:spokenReplyLimit]
+	if space := strings.LastIndex(cut, " "); space > spokenReplyLimit/2 {
+		cut = cut[:space]
+	}
+	return strings.TrimRight(cut, " ,;:") + "… (the rest is in the chat)"
+}
+
+var markdownLink = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+
+// humanStopReason is (c)'s `human.happened`: the stop reason in the words the product
+// already uses for it everywhere else, rather than the identifier. "connection_not_runnable"
+// is not something to say out loud.
+func humanStopReason(reason string) string {
+	if strings.TrimSpace(reason) == "" {
+		return ""
+	}
+	notice := events.HumanNoticeFor(events.RunStopped, map[string]any{"reason": reason})
+	if strings.TrimSpace(notice.Happened) != "" {
+		return notice.Happened
+	}
+	return reason
 }
 
 // runBrief is item 2mx's `GET /api/runs/{id}/brief`: one line a voice assistant can
@@ -232,12 +334,17 @@ func (s *Server) runBrief(w http.ResponseWriter, r *http.Request) {
 		"session_id": snapshot.ID,
 		"chat":       snapshot.Label,
 		"status":     snapshot.Run.Status,
+		// (c): the state a caller branches on, in the item's own six words, and where to
+		// go to answer an approval — a voice assistant cannot show a screen, so it hands
+		// over a link instead.
+		"state":    briefState(snapshot.Run.Status, pending != nil, stopped),
+		"chat_url": "/chat?session=" + url.QueryEscape(snapshot.ID),
 		// The three fields the line is drawn from, so a caller that wants to phrase it
 		// differently has the same material and does not have to parse the sentence.
 		"pending_approval": pending,
 		"last_reply":       lastReply,
 		"last_stop_reason": snapshot.Run.LastStopReason,
-		"spoken":           spokenLine(pending, lastReply, stopped, running),
+		"spoken":           spokenLine(pending, plainSpoken(lastReply), humanStopReason(stopped), running),
 	})
 }
 

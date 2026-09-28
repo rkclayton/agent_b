@@ -30,7 +30,12 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Idempotency-Key is too long", "Idempotency-Key")
 		return
 	}
-	if reply, found := s.submissions.remembered(key); found {
+	// The session AS THE CALLER NAMED IT, before the voice default is resolved. A voice
+	// request names none, and its retry names none either, so the pair has to be the
+	// caller's words rather than what they resolved to — otherwise the retry would miss
+	// and start the second run this exists to prevent.
+	submittedSession := strings.TrimSpace(body.SessionID)
+	if reply, found := s.submissions.remembered(key, submittedSession); found {
 		// The same answer as the first time, and no second run.
 		writeJSON(w, reply.status, reply.body)
 		return
@@ -62,7 +67,7 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err.Error(), "session_id")
 		return
 	}
-	s.submissions.remember(key, 202, result)
+	s.submissions.remember(key, submittedSession, 202, result)
 	writeJSON(w, 202, result)
 }
 

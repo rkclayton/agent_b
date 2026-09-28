@@ -408,11 +408,20 @@ try {
         $passed = @($transcripts | ForEach-Object {
             [regex]::Match((Get-Content -Raw -LiteralPath $_.FullName), '-WorkspaceDirectory\s+(\S+)').Groups[1].Value
         } | Where-Object { $_ }) | Select-Object -Last 1
-        if (-not $passed) { throw 'UPDATER CYCLE FAILED: no transcript records the workspace the setup was given.' }
-        if ($passed -notmatch 'profiles') {
-            throw "UPDATER CYCLE FAILED: the setup was given $passed, which is not shaped like the operator's profile-scoped scratch root, so this gate proves nothing about his case."
+        # Item 2nf (b): AN UPDATER FROM v1.28.0 ONWARDS SENDS NO WORKSPACE AT ALL, so
+        # there is none for the transcript to record and none for the installer to
+        # refuse. That is the stronger outcome: item 2mr's proof was that a workspace it
+        # was GIVEN was accepted, and this is the same guarantee reached by not giving
+        # one. The v1.24.0 replay case above still covers the was-given-one half, because
+        # an installed updater cannot be changed retroactively.
+        if ($passed) {
+            if ($passed -notmatch 'profiles') {
+                throw "UPDATER CYCLE FAILED: the setup was given $passed, which is not shaped like the operator's profile-scoped scratch root, so this gate proves nothing about his case."
+            }
+            Write-Host "PROOF workspace accepted: the installer was given $passed and did not refuse it; that shape is what an older install hands the setup, and refusing it is item 2mr's defect"
+        } else {
+            Write-Host 'PROOF no workspace sent: this updater passes none, so there is nothing for the installer to refuse. Item 2nf (b).'
         }
-        Write-Host "PROOF workspace accepted: the installer was given $passed and did not refuse it; that shape is what the operator's own install hands the setup, and refusing it is item 2mr's defect"
         Write-Host "INSTALLER DECISION: $decision"
         Write-Host 'UNEXERCISED: the install-and-restart half. The installer refuses a non-canonical ApplicationDirectory outside TestMode, and the updater must not be able to pass TestMode, so a disposable instance cannot complete an install beneath the suite root.'
         $outcome = 'PARTIAL'

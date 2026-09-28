@@ -511,6 +511,16 @@ function applyProposedValues(id, discovered) {
     propose("reasoning.max_tokens", proposed.reasoning_max_tokens, "number", connection.reasoning?.max_tokens);
   }
   if (Array.isArray(proposed.valid_efforts) && proposed.effort) propose("reasoning.effort", proposed.effort, "text", "");
+  // Item 2mh (a): and the NAME, when the operator has not given one. "server-2"
+  // identifies nothing; the model it serves does. The same untouched rule as
+  // fillFromPickedModel — never typed here, and still the id the Add button
+  // generated — so pressing Test again never overwrites a name he chose.
+  const labelUntouched = !drafts.has(prefix + "label") && (!connection.label || connection.label === connection.id);
+  if (labelUntouched && proposed.label) {
+    drafts.set(prefix + "label", proposed.label);
+    draftKinds.set(prefix + "label", "text");
+    proposedFields.add(prefix + "label");
+  }
   if (proposedFields.size) settingsSaveMessage = "Proposed values are unsaved — review and Save";
 }
 

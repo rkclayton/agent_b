@@ -31,7 +31,10 @@ test("an untested connection says so rather than naming a model that does not ex
 
 test("the model name is not ellipsised and the column has room", () => {
   // (c): the menu is 680px and the name column was flooring at 90.
-  assert.match(tokens, /\.shell-connection-model\{[^}]*text-overflow:clip/);
+  // Item 2mh (c): the rule has to BEAT `.shell-connection-choice span`, which is a
+  // class and an element. Measured in the running app at rel-1.31.0: the bare class
+  // lost and the browser computed ellipsis on the model name.
+  assert.match(tokens, /\.shell-connection-choice span\.shell-connection-model\{[^}]*text-overflow:clip/);
   const grid = /\.shell-connection-choice\{[^}]*grid-template-columns:([^;}]+)/.exec(tokens);
   assert.ok(grid, "the row's grid is gone");
   assert.match(grid[1], /minmax\(180px/, "the model column did not get room");

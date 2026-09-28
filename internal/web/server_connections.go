@@ -644,6 +644,34 @@ func configField(err error, cfg config.Config) string {
 // on /v1/models, which the probe already fetches -- and where nothing publishes
 // it the field says the value is unverified instead of presenting a guess as a
 // measurement. Nothing here is written to configuration.
+// proposedLabelFor answers item 2mh (a): the name a connection would have if it were
+// named after what it serves. It is empty when the operator has named the connection
+// himself, and when there is no model to name it after.
+func proposedLabelFor(tested *config.Connection, models []string) string {
+	if tested == nil {
+		return ""
+	}
+	label := strings.TrimSpace(tested.Label)
+	if label != "" && !strings.EqualFold(label, strings.TrimSpace(tested.ID)) {
+		return ""
+	}
+	model := strings.TrimSpace(tested.Model)
+	if model == "" || strings.EqualFold(model, "model") {
+		model = strings.TrimSpace(onlyModel(models))
+	}
+	if model == "" || strings.EqualFold(model, "model") {
+		return ""
+	}
+	// A llama.cpp model is a full GGUF path; the switcher already reduces one to its
+	// basename (item 2mh (d)) and the label uses the same reduction rather than a
+	// second one.
+	model = strings.TrimSuffix(model, ".gguf")
+	if index := strings.LastIndexAny(model, `/\`); index >= 0 {
+		model = model[index+1:]
+	}
+	return strings.TrimSpace(model)
+}
+
 func (s *Server) proposedConnectionValues(ctx context.Context, tested *config.Connection, models []string) map[string]any {
 	proposed := map[string]any{"model_selected": onlyModel(models), "context_source": "unverified"}
 	// The catalog read is enrichment, not the answer: it is bounded to a few
@@ -684,6 +712,15 @@ func (s *Server) proposedConnectionValues(ctx context.Context, tested *config.Co
 		}
 	}
 	proposed["reasoning_enabled"] = tested.Capabilities.ReasoningControl != "" && tested.Capabilities.ReasoningControl != "none"
+	// Item 2mh (a): TEST NAMES THE CONNECTION WHEN THE OPERATOR HAS NOT. A connection
+	// is born labelled with its own generated id — "server-2" identifies nothing, at
+	// any width — and the one thing Test learns that would identify it is the model.
+	// It arrives as a PROPOSED value through 2l1's path, which the operator can
+	// accept or overwrite; a label he has touched is never replaced, whatever it
+	// says, and that rule is enforced here and again in the browser.
+	if label := proposedLabelFor(tested, models); label != "" {
+		proposed["label"] = label
+	}
 	return proposed
 }
 

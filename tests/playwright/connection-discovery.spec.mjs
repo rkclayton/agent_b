@@ -67,6 +67,39 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   expect(await hash(join(harness.dataRoot, "harness.json"))).toBe(before);
 });
 
+// Item 2mh (a) and (c): THE SWITCHER, MEASURED IN THE RUNNING APP.
+//
+// "the model switcher in chat only displays like 10 characters. we need the text for
+// models much smaller so it can fully fit long names - i dont want elipsis." The
+// @verify asked for the label column's REAL rendered width, because the 90px floor
+// was read from a rule and the row might have been getting less for another reason.
+// This opens the menu and measures.
+test("the switcher's model column has real room and no ellipsis", async () => {
+  const page = await harness.context.newPage();
+  await page.goto(`${harness.base}/chat`);
+  await expect(page.locator("#chat-log")).toBeVisible();
+  await page.locator(".shell-session-title").click();
+  const row = page.locator(".shell-connection-choice").first();
+  await expect(row).toBeVisible();
+  const measured = await row.evaluate((node) => {
+    const model = node.querySelector(".shell-connection-model");
+    const style = getComputedStyle(model);
+    return {
+      menu: node.closest(".shell-menu").getBoundingClientRect().width,
+      model: model.getBoundingClientRect().width,
+      overflow: style.textOverflow,
+      fontSize: style.fontSize,
+      clipped: model.scrollWidth > model.clientWidth + 1,
+    };
+  });
+  // The column the operator was getting 90px of. It is a floor of 180 and a 2fr
+  // share now, and the menu it sits in is 680px wide.
+  expect(measured.model, JSON.stringify(measured)).toBeGreaterThanOrEqual(180);
+  expect(measured.overflow, JSON.stringify(measured)).toBe("clip");
+  expect(measured.clipped, "the model name is being cut off").toBe(false);
+  expect(Number.parseFloat(measured.fontSize)).toBeLessThan(12);
+});
+
 test("the active chat tab returns from Plan and three Settings depths", async () => {
 	const page = await harness.context.newPage();
 	await page.goto(`${harness.base}/chat`);

@@ -50,7 +50,11 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 /* (c): NO ELLIPSIS ON A MODEL NAME. The rule above applies to every other cell;
    this one is allowed to be smaller rather than cut, because a truncated model
    name identifies nothing and that is the whole defect. */
-.shell-connection-model{overflow:visible;text-overflow:clip;font-size:11px}
+/* Item 2mh (c), MEASURED IN THE RUNNING APP at rel-1.31.0 and found not to apply:
+   `.shell-connection-choice span` is a class AND an element, so it outranks a bare
+   class and the ellipsis it sets won. The rule said clip and the browser computed
+   ellipsis. Same selector weight as the rule it must beat, plus one. */
+.shell-connection-choice span.shell-connection-model{overflow:visible;text-overflow:clip;font-size:11px}
 .shell-connection-untested{color:var(--mute);font-style:italic}
 .shell-connection-choice.selected{color:var(--trace)}
 .agent-tabs{flex:1 1 auto;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}

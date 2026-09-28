@@ -16,10 +16,12 @@ test("Console uses the shared shell without retaining a task composer", () => {
   assert.doesNotMatch(index, /id="(?:composer|task)"/);
   assert.doesNotMatch(script, /getElementById\("(?:composer|task)"\)/);
   assert.doesNotMatch(shell, /\["chat", "Chat", "\/chat"\]|\["console", "Console", "\/"\]/);
-  // Item 2mf (c): the one-entry pages nav is gone. Plan is a pinned tab in the
-  // strip, and the surface list is what names it.
+  // Item 2mf (c): the one-entry pages nav is gone. Item 2ni: and so is the tab that
+  // replaced it — the Plan is a top-level entry in the Settings nav now, so the shell
+  // names no static surface at all and the strip is chats only.
   assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
-  assert.match(shell, /visibleStaticSurfaces\(store\.config\)/);
+  assert.doesNotMatch(shell, /visibleStaticSurfaces/);
+  assert.match(settings, /\["plan", "Plan"\]/);
   // The flip is deliberate now: it comes from the tab menu, not a second click.
   assert.match(shell, /options\.switchView\(next, navigation\)/);
   assert.doesNotMatch(shell, /tab\.onclick[\s\S]{0,200}switchView/);

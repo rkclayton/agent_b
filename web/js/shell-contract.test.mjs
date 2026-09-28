@@ -6,6 +6,7 @@ const shell = await readFile(new URL("./shell.js", import.meta.url), "utf8");
 const chat = await readFile(new URL("./chat.js", import.meta.url), "utf8");
 const consoleApp = await readFile(new URL("./app.js", import.meta.url), "utf8");
 const plan = await readFile(new URL("./plan.js", import.meta.url), "utf8");
+const settings = await readFile(new URL("./settings.js", import.meta.url), "utf8");
 const tokens = await readFile(new URL("../css/tokens.css", import.meta.url), "utf8");
 const appCSS = await readFile(new URL("../css/app.css", import.meta.url), "utf8");
 const chatCSS = await readFile(new URL("../css/chat.css", import.meta.url), "utf8");
@@ -23,7 +24,10 @@ test("shared shell slot order is identical on the chat and Plan", () => {
   assert.match(shell, /right\.append\(sessionHeading, connectionMenu, settings, windowControls\)/);
   assert.doesNotMatch(shell, /shell-operator-status|right\.append\(stop/);
   assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
-  assert.match(shell, /renderStaticSurfaces\(selectedSession, configured\)/);
+  // Item 2ni: and the tab is gone too. "i decided i think i want it under settings,
+  // as its own top level item" — so the strip draws chats and nothing else, and the
+  // static-surface pass that drew the Plan is not here to assert any more.
+  assert.doesNotMatch(shell, /renderStaticSurfaces/);
   assert.doesNotMatch(shell, /\["chat", "Chat", "\/chat"\]|\["console", "Console", "\/"\]/);
   // Item 2gk: the page it used to flip to is gone, so the flip is gone with it.
   assert.doesNotMatch(shell, /Console/);
@@ -100,10 +104,15 @@ test("plus adds a two-line d choice only for an assigned d connection", () => {
 // Item 2mf: Plan is a TAB now, not a one-entry nav. The chip is the same file at
 // the same drawn size and the accessible name is still there; what moved is where
 // it lives. The pages nav is gone and this asserts that too.
-test("Plan is a compact accessible chip icon, in the tab strip", () => {
-  assert.match(shell, /class="shell-page-chip"/);
-  assert.match(shell, /plan-mark-nav\.png 1x, [^"]*@2x\.png 2x, [^"]*@3x\.png 3x/);
-  assert.match(shell, /aria-label", `\$\{surfaceTitle\(surface\)\} · surface`/);
+//
+// Item 2ni: it moved again, and for the last time — into the Settings nav as its own
+// top-level entry. Same three files, same 12px, same class; the strip no longer
+// draws it at all, and the entry's name is the accessible name.
+test("Plan is a compact accessible chip icon, in the Settings nav", () => {
+  assert.match(settings, /class="shell-page-chip"/);
+  assert.match(settings, /plan-mark-nav\.png 1x, [^"]*@2x\.png 2x, [^"]*@3x\.png 3x/);
+  assert.match(settings, /\["plan", "Plan"\]/);
+  assert.doesNotMatch(shell, /shell-page-chip/);
   assert.doesNotMatch(shell, /node\("nav", "shell-pages"\)/);
   assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
   assert.match(shell, /node\("button", "shell-settings"\)/);
@@ -203,7 +212,7 @@ test("the tab menu opens at the pointer, dismisses three ways and takes the arro
 // the processor chip in the operator's accent, and that accent has exactly one
 // use in the product.
 test("the Plan toggle is the chip in the accent, and the accent is used once", async () => {
-  assert.match(shell, /class="shell-page-chip"/);
+  assert.match(settings, /class="shell-page-chip"/);
   assert.doesNotMatch(shell, /M9 4\.5A3\.5 3\.5 0 0 0 5\.5 8/); // the mark he did not recognise
   assert.doesNotMatch(shell, /shell-page-brain/); // 2he: the traced brain is gone
   assert.match(tokens, /--accent-plan:#5AC8FA;/);
@@ -211,11 +220,12 @@ test("the Plan toggle is the chip in the accent, and the accent is used once", a
   // colour and needs no stroke. The accent keeps exactly one use, on the Plan
   // header the full-quality version of that same artwork heads.
   assert.match(tokens, /\.shell-page-chip\{display:block;width:12px;height:12px;opacity:\.6\}/);
-  // rel-1.25.0 card 7: the chip's hover and selected rules hang off the SURFACE
-  // TAB now, because item 2mf moved the chip there and .shell-page renders
-  // nothing. The chip itself, its size and its opacity ramp are unchanged.
-  assert.match(tokens, /\.agent-tab-surface:hover \.shell-page-chip\{opacity:\.8\}/);
-  assert.match(tokens, /\.agent-tab-surface\.selected \.shell-page-chip\{opacity:1\}/);
+  // rel-1.25.0 card 7: the chip's hover and selected rules hang off the entry that
+  // carries it, because .shell-page renders nothing. The chip itself, its size and
+  // its opacity ramp are unchanged through both moves.
+  // Item 2ni: the ramp follows the entry into the Settings nav. Same opacities.
+  assert.match(tokens, /\.settings-nav button:hover \.shell-page-chip\{opacity:\.8\}/);
+  assert.match(tokens, /\.settings-nav button\.selected \.shell-page-chip\{opacity:1\}/);
   assert.doesNotMatch(tokens, /\.shell-page[,.:{]/);
   // One element, and one only: every var(--accent-plan) in every stylesheet
   // must be a .shell-page-chip rule.
@@ -243,17 +253,19 @@ test("the Plan toggle is the chip in the accent, and the accent is used once", a
 // the new plan icon … maintain the color of the icon itself" — so the chip is that
 // prepared asset, and the drawn 24-grid SVG it replaces is gone from shell.js.
 test("the Plan chip is the operator's prepared artwork, not a drawing", async () => {
-  assert.match(shell, /src="\/static\/assets\/plan-mark-nav\.png"/);
-  assert.match(shell, /class="shell-page-chip"/);
+  // Item 2ni: read from settings.js, which is where the entry the chip belongs to
+  // now lives. The asset, the size set and the class are unchanged.
+  assert.match(settings, /src="\/static\/assets\/plan-mark-nav\.png"/);
+  assert.match(settings, /class="shell-page-chip"/);
   // The drawing it replaces is not left behind beside it.
-  assert.doesNotMatch(shell, /<rect x="7" y="7" width="10" height="10" rx="2"\/>/);
+  assert.doesNotMatch(settings, /<rect x="7" y="7" width="10" height="10" rx="2"\/>/);
   assert.doesNotMatch(shell, /stroke-width="2"/);
   // Item 2lm (b): the nav mark is a SIZE SET now. The strip draws a 12px box and
   // the product runs at more than one device pixel ratio -- rel-1.16.0/W0
   // measured the operator's own display at 1.75x, where that box is 21 physical
   // pixels while every screenshot captures it at 12. One asset cannot be sharp at
   // all of them, so the browser picks.
-  assert.match(shell, /srcset="[^"]*plan-mark-nav\.png 1x[^"]*plan-mark-nav@2x\.png 2x[^"]*plan-mark-nav@3x\.png 3x"/);
+  assert.match(settings, /srcset="[^"]*plan-mark-nav\.png 1x[^"]*plan-mark-nav@2x\.png 2x[^"]*plan-mark-nav@3x\.png 3x"/);
   // Every size ships, and each is a real PNG with an alpha channel: the background
   // is removed, not repainted, so the mark sits on whatever is behind it.
   for (const [name, expected] of [["plan-mark-nav.png", 12], ["plan-mark-nav@2x.png", 24], ["plan-mark-nav@3x.png", 36], ["plan-mark.png", 128]]) {

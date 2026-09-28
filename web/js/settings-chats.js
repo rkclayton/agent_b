@@ -16,6 +16,10 @@ const TYPEFACES = [
 // switch exists, so it ships with the same item. Hiding stores a name; showing
 // removes it. Nothing about the surface is discarded either way, which is why the
 // hint says hidden and not gone.
+//
+// Item 2ni: the tab it hid is gone, so this switch now hides the Plan's SETTINGS
+// SECTION. The stored name and the config key are unchanged; only what the choice
+// applies to moved, along with the Plan itself.
 const HIDEABLE_SURFACES = [["plan", "Plan"]];
 
 function surfaceRow(context) {
@@ -23,8 +27,8 @@ function surfaceRow(context) {
   return HIDEABLE_SURFACES.map(([kind, label]) => {
     const shown = !hidden.has(kind);
     return context.field(`chat.hidden_surfaces.${kind}`, label,
-      `<button type="button" role="switch" aria-checked="${shown}" aria-label="Show the ${label} tab" class="switch ${shown ? "on" : ""}" data-action="surface-visible" data-surface="${kind}" data-value="${shown ? "false" : "true"}"></button>`,
-      false, `Shows the ${label} tab, pinned at the right of the tab strip.`);
+      `<button type="button" role="switch" aria-checked="${shown}" aria-label="Show ${label} in Settings" class="switch ${shown ? "on" : ""}" data-action="surface-visible" data-surface="${kind}" data-value="${shown ? "false" : "true"}"></button>`,
+      false, `Shows ${label} as its own section in this Settings nav. Off hides the entry; nothing about the page is discarded and its address still works.`);
   }).join("");
 }
 

@@ -762,12 +762,12 @@ if (realModel) {
   await waitProjectedChatText(sessionID, "VISIBLE PARTIAL COMPLETE", "completed prose stream");
   record("mid-stream-prose-visible-without-expansion");
 
-  // Item 2mf: Plan is a TAB in the strip now, not an entry in a one-entry nav.
-  // Same chip, same accessible name, a different home — so the acceptance gate
-  // looks for it where it lives rather than being loosened.
-  assert.equal(await page.locator('.agent-tab-surface[data-surface-kind="plan"] .shell-page-chip').count(), 1);
-  assert.equal(await page.locator('.agent-tab-surface[data-surface-kind="plan"]').getAttribute("title"), "Plan");
-  assert.equal(await page.locator('.agent-tab-surface[data-surface-kind="plan"] .agent-tab-robot').count(), 0);
+  // Item 2mf: Plan was a TAB in the strip. Item 2ni moved it into the Settings nav
+  // as its own top-level entry — "i decided i think i want it under settings, as its
+  // own top level item" — so the strip is chats only again and the gate looks for the
+  // entry where it lives rather than being loosened.
+  assert.equal(await page.locator('.agent-tab-wrap-surface').count(), 0);
+  assert.equal(await page.locator('.agent-tab-surface[data-surface-kind="plan"]').count(), 0);
   assert.equal(await page.locator(".shell-settings").count(), 1);
   assert.equal(await page.locator("#chat-title").count(), 0);
   // Item 2gk: a tab had a side and was dressed for it. There is one side now,
@@ -785,7 +785,6 @@ if (realModel) {
     ["wrap", '.agent-tab-wrap.selected'],
     ["tab", '.agent-tab-wrap.selected .agent-tab'],
     ["plus", ".agent-tab-new"],
-    ["plan", '.agent-tab-surface[data-surface-kind="plan"]'],
     ["settings", ".shell-settings"],
   ].map(([key, selector]) => {
     const rect = document.querySelector(selector).getBoundingClientRect();
@@ -819,8 +818,15 @@ if (realModel) {
   // second of opening the section, without waiting for an unrelated redraw.
   await browser.wait(`document.querySelector('#panel-stats')?.childElementCount > 0 && !document.querySelector('#panel-stats')?.innerText.includes('No lifetime activity')`, "lifetime numbers within a second", 1000);
   const chatToPanelMS = performance.now() - chatToPanelStarted;
-  // Item 2mf: the Plan tab survives the surface change, same chip, new home.
-  assert.equal(await page.locator('.agent-tab-surface[data-surface-kind="plan"] .shell-page-chip').count(), 1);
+  // Item 2ni: the Plan is an entry in this nav, third, carrying the operator's own
+  // prepared mark — the same asset the tab carried, at the same drawn size.
+  const planEntry = page.locator('.settings-nav [data-id="plan"]');
+  assert.equal(await planEntry.count(), 1);
+  assert.equal(await planEntry.locator("img.shell-page-chip").count(), 1);
+  assert.deepEqual(
+    (await page.locator(".settings-nav button").allInnerTexts()).map((line) => line.trim()).slice(0, 3),
+    ["Agents", "Activity", "Plan"],
+  );
   const panelGeometry = await captureShellGeometry();
   assert.deepEqual(panelGeometry, chatGeometry, JSON.stringify({ chatGeometry, panelGeometry }));
 	// Agents holds the configurable half. web_search and delegate are deliberately

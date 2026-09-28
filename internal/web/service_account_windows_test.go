@@ -383,9 +383,12 @@ func TestAnAttemptedFailureThatWroteAResultKeepsTheNewCredential2ng(t *testing.T
 	if len(stored) < 40 {
 		t.Fatalf("the generated credential was not retained: %d bytes", len(stored))
 	}
-	// And the operator is told to look, because this is the ambiguous case.
-	if !strings.Contains(response.Body.String(), "inspect the account") {
-		t.Errorf("the ambiguous case does not say to inspect: %s", response.Body)
+	// And the operator is told what to do, because this is the ambiguous case. Item
+	// 2np (e): what it used to tell him was "use Reset password", a control that does
+	// not exist anywhere in Settings. What it says now is the one thing that is both
+	// true and available on the page he is looking at.
+	if !strings.Contains(response.Body.String(), "switch Service identity on again") {
+		t.Errorf("the ambiguous case does not say what to do: %s", response.Body)
 	}
 }
 

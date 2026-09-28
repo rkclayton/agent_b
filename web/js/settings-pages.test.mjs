@@ -135,7 +135,11 @@ test("Security restores the service identity toggle and names a locked Repair de
 	context.selectedHardeningConnectionID = () => "local";
 	context.standingGrants = [{ id: "folder:C:\\work", kind: "folder", subject: "C:\\work" }];
 	const page = renderSecurityPage("shell", null, context);
-	assert.match(page, /shell\.service_account\.enabled:Service identity:false/);
+	// Item 2np (a): the toggle is no longer a Save draft — it is the setup, and it acts
+	// at once. Saving it was refused by the server with a pointer to "its Security setup
+	// flow", which is the message the operator met when he simply turned it on.
+	assert.match(page, /data-action="service-identity-toggle"/);
+	assert.doesNotMatch(page, /shell\.service_account\.enabled:Service identity/);
 	assert.match(page, /account locked out · wait, then Repair/);
 	assert.match(page, /Repair unavailable — account locked out/);
 	assert.match(page, /data-action="setup-service-account" disabled/);
@@ -300,4 +304,95 @@ test("the confirmation popover is anchored in the scroller's space and clamped",
 	assert.doesNotMatch(popover, /position: fixed/);
 	// And it is rendered inside the scroller, which is what makes absolute mean that.
 	assert.match(controller, /settings-content" tabindex="-1">\$\{group\(label, content\[activeSection\]\(\), activeSection\)\}\$\{confirmPopover\(\)\}/);
+});
+
+// Item 2np's acceptance, recorded. The operator, with a screenshot of Settings →
+// Security: "i tried to enable service identity and it told me to use the 'flow' i
+// want this fixed. the toggle needs to work and not allude to some other section. the
+// red text all over and i figure it meant repair clicked repair and that failed. tihs
+// is a terrible UX help me fix the service identity transition UX".
+//
+// On his screen at once: a banner, the row label in red, the same sentence again under
+// the toggle, "account not created" beside an account that existed, and a red box
+// telling him to use a control that does not exist.
+
+// (c) and (d): identity off with the account there is not an error, and the words say
+// what is true.
+test("identity off with the account present is not an error", () => {
+  const context = pageContext();
+  context.serviceAccountStatus = { loaded: true, supported: true, administrator: false, exists: true, state: "disabled" };
+  context.store.config.shell.service_account = { enabled: false, account: "agentb-svc" };
+  context.connectionList = () => [{ id: "local", label: "Local", base_url: "http://127.0.0.1:8080" }];
+  context.selectedHardeningConnectionID = () => "local";
+  const page = renderSecurityPage("shell", null, context);
+  assert.match(page, /account exists · identity off/, "the account row still says the account is not created");
+  assert.doesNotMatch(page, /account not created/);
+  // (d): nothing red, and the setup panel is closed.
+  assert.doesNotMatch(page, /lamp alarm/);
+  assert.doesNotMatch(page, /<details class="settings-advanced" open>/);
+});
+
+// (c): every state the server can return has its own words, and "account not created"
+// belongs to exactly one of them.
+test("every service identity state has its own words", () => {
+  const states = ["unsupported", "administrator", "locked_out", "missing", "missing_credential", "invalid_credential", "disabled", "credential_check_failed", "ready"];
+  const seen = new Map();
+  for (const state of states) {
+    const context = pageContext();
+    context.serviceAccountStatus = { loaded: true, supported: state !== "unsupported", administrator: state === "administrator", exists: state !== "missing", state };
+    context.store.config.shell.service_account = { enabled: state === "ready", account: "agentb-svc" };
+    context.connectionList = () => [{ id: "local", label: "Local", base_url: "http://127.0.0.1:8080" }];
+    context.selectedHardeningConnectionID = () => "local";
+    const page = renderSecurityPage("shell", null, context);
+    const line = /agentb-svc[^<]*/.exec(page)?.[0] ?? (state === "unsupported" ? "available only on Windows" : "");
+    assert.ok(line.trim(), `${state} renders no account line`);
+    assert.doesNotMatch(line, /undefined/, `${state} renders a placeholder`);
+    seen.set(state, line.trim());
+  }
+  const notCreated = [...seen].filter(([, line]) => /account not created/.test(line)).map(([state]) => state);
+  assert.deepEqual(notCreated, ["missing"], `"account not created" is shown for ${notCreated.join(", ")}`);
+  // No two states share a line: a word that covers two states cannot be acted on.
+  assert.equal(new Set(seen.values()).size, seen.size, `two states share their words: ${JSON.stringify([...seen])}`);
+});
+
+// (a) and (b): the toggle is the setup, and a failure is ONE sentence under it.
+test("the toggle is the setup and its failure is one sentence in one place", () => {
+  const context = pageContext();
+  context.serviceAccountStatus = { loaded: true, supported: true, administrator: false, exists: true, state: "disabled" };
+  context.store.config.shell.service_account = { enabled: false, account: "agentb-svc" };
+  context.serviceAccountMessage = "the account was provisioned but its protections were not applied: network policy NOT applied";
+  context.serviceAccountAlarm = true;
+  context.serviceAccountLog = "C:\\path\\service-identity.log";
+  context.connectionList = () => [{ id: "local", label: "Local", base_url: "http://127.0.0.1:8080" }];
+  context.selectedHardeningConnectionID = () => "local";
+  const page = renderSecurityPage("shell", null, context);
+  // It acts at once; it is not a Save draft with a path.
+  assert.match(page, /data-action="service-identity-toggle"/);
+  assert.doesNotMatch(page, /data-path="shell\.service_account\.enabled"/);
+  // Exactly one copy of the sentence, and the log path beside it as secondary text.
+  // Visible copies, not the tooltip the same element carries in its title attribute.
+  const copies = [...page.matchAll(/>[^<]*protections were not applied/g)].length;
+  assert.equal(copies, 1, `the failure is shown ${copies} times`);
+  assert.match(page, /service-identity\.log/);
+  // (e): nothing names a control this page does not render.
+  for (const missing of [/Reset password/, /Security setup flow/]) {
+    assert.doesNotMatch(page, missing, "the section names a control or a flow that is not here");
+  }
+});
+
+// (e), as a rule rather than one example: every failure sentence the setup path can
+// produce is checked against the controls the section actually renders.
+test("no service identity message names a control the section does not render", () => {
+  const context = pageContext();
+  context.serviceAccountStatus = { loaded: true, supported: true, administrator: false, exists: true, state: "disabled" };
+  context.store.config.shell.service_account = { enabled: false, account: "agentb-svc" };
+  context.connectionList = () => [{ id: "local", label: "Local", base_url: "http://127.0.0.1:8080" }];
+  context.selectedHardeningConnectionID = () => "local";
+  const rendered = renderSecurityPage("shell", null, context);
+  const controls = new Set([...rendered.matchAll(/data-action="([a-z-]+)"/g)].map((match) => match[1]));
+  assert.ok(controls.has("service-identity-toggle") && controls.has("setup-service-account"), [...controls].join(", "));
+  // The words the server can send, read from the source rather than imagined.
+  const source = fs.readFileSync(new URL("../../internal/web/service_account.go", import.meta.url), "utf8");
+  const named = [...source.matchAll(/use ([A-Z][A-Za-z ]+?) (?:before|to)/g)].map((match) => match[1].trim());
+  assert.deepEqual(named, [], `a failure text names ${named.join(", ")}, which is not a control on this page`);
 });

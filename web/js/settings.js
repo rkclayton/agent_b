@@ -35,6 +35,9 @@ let shellCredentialAlarm = false;
 let serviceAccountStatus = { loaded: false, supported: true, exists: false, administrator: false };
 let serviceAccountBusy = false;
 let serviceAccountMessage = "";
+// Item 2np (b): the log path is SECONDARY TEXT under the one sentence, not a second
+// message and not a paragraph of its own.
+let serviceAccountLog = "";
 let serviceAccountAlarm = false;
 let hardeningStatus = { loaded: false, supported: true, applied: false };
 let hardeningBusy = false;
@@ -417,7 +420,7 @@ function adoptPanels() {
 function settingsPageContext(active) {
   return {
     active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, phoneAccess, standingGrants: store.standing_grants || [],
-    shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy,
+    shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList,
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm,
@@ -1063,6 +1066,27 @@ async function dispatchAction(event, button, action, id) {
 	if (action === "test-shell-credential") return shellCredentialAction("test");
 	if (action === "clear-shell-credential") return shellCredentialAction("clear");
 	if (action === "setup-service-account") return setupServiceAccount();
+	// Item 2np (a): THE TOGGLE IS THE SETUP. It used to be a Save draft, and saving it
+	// was refused by the server — "turn on the service identity with its Security setup
+	// flow so the account and credential are tested first" — which pointed the operator
+	// at a panel rather than doing the thing he had just asked for. Switching it on runs
+	// the same provision Repair runs, at once; switching it off is immediate the same
+	// way. The server guard stays where it is; the UI can no longer reach it.
+	if (action === "service-identity-toggle") {
+		const on = !!store.config.shell?.service_account?.enabled;
+		if (!on) return setupServiceAccount();
+		try {
+			const result = await api("/api/config", { shell: { service_account: { enabled: false } } });
+			reduce({ type: "config.changed", data: { config: result } });
+			serviceAccountMessage = "service identity off — tools run as you";
+			serviceAccountAlarm = false;
+		} catch (error) {
+			serviceAccountMessage = error.message;
+			serviceAccountAlarm = true;
+		}
+		await refreshServiceAccountStatus(true);
+		return render();
+	}
 	if (action === "disable-service-account") {
 		try {
 			const result = await api("/api/config", {shell:{service_account:{enabled:false}}});
@@ -1330,10 +1354,12 @@ async function setupServiceAccount() {
 		store.shell_identity = result.identity || store.shell_identity;
 		if (result.config) reduce({ type: "config.changed", data: { config: result.config } });
 		serviceAccountMessage = result.message;
+		serviceAccountLog = result.log || "";
 		serviceAccountAlarm = !result.ok;
 		await refreshHardeningStatus();
 	} catch (error) {
 		if (error.data?.credential) store.shell_credential = error.data.credential;
+		serviceAccountLog = error.data?.log || "";
 		serviceAccountMessage = error.message;
 		serviceAccountAlarm = true;
 		await refreshServiceAccountStatus(true);

@@ -1690,7 +1690,10 @@ if (realModel) {
   assert.equal(await page.locator('.settings-nav [data-id="plan"] img.shell-page-chip').count(), 1);
   assert.equal(await clickText(".settings-nav button", "Plan"), true);
   await browser.wait(`location.pathname === '/plan' && document.querySelector('#plan-list')`, "the Plan entry opens the Plan page");
-  assert.equal(await browser.evaluate(`document.querySelector('.shell-settings')?.getAttribute('aria-expanded')`), "true");
+  // The gear is created by initShell and dressed by its first render, so this waits
+  // for the state rather than sampling it — measured at rel-1.31.0 on a busy machine,
+  // where the assertion read the attribute before the first render had set it.
+  await browser.wait(`document.querySelector('.shell-settings')?.getAttribute('aria-expanded') === 'true'`, "the Plan page's gear reads as this sheet's close");
   await page.locator(".shell-settings").click();
   await browser.wait(`location.pathname === '/chat' && document.querySelector('#chat-task')`, "the Plan page's close returns to the chat");
   assert.equal(await page.locator('.agent-tab-wrap-surface').count(), 0);

@@ -371,6 +371,8 @@ try {
     }
     Write-Host 'PROOF hand-run strictness: a workspace inside the data root is still refused as three overlapping trees, and is never silently ignored'
 
+
+
     $alternateConnection = Join-Path $testRoot 'AlternateConnection'
     $registeredRoot = Join-Path $alternateConnection 'Registered\Agent_b'
     $null = New-Item -ItemType Directory -Path $registeredRoot -Force
@@ -799,14 +801,165 @@ try {
     $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
     $expectedExe = Join-Path $testApplication 'Agent_b.exe'
     $expectedIcon = Join-Path $testApplication 'web\assets\Agent_b.ico'
-    if (-not $shortcut.TargetPath.Equals($expectedExe, [StringComparison]::OrdinalIgnoreCase) -or
+    # Item 2nk (b): the shortcut runs the HIDDEN HOST, not the executable. Agent_b.exe is
+    # console-subsystem, so Explorer starting it directly hands it a console — which is the
+    # window the operator kept seeing. It must still name the executable, the -window
+    # switch and the data root, all of which now ride in the host's arguments.
+    if ($shortcut.TargetPath -notmatch '(?i)wscript\.exe$' -or
+        $shortcut.Arguments -notmatch [regex]::Escape($expectedExe) -or
         $shortcut.Arguments -notmatch '(?:^|\s)-window(?:\s|$)' -or
         $shortcut.Arguments -notmatch [regex]::Escape($testData)) {
-        throw 'Shortcut does not target the installed Agent_b executable and its data root.'
+        throw "Shortcut does not start the installed Agent_b through the hidden host with its data root: $($shortcut.TargetPath) $($shortcut.Arguments)"
     }
     if (-not $shortcut.IconLocation.Equals("$expectedIcon,0", [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $expectedIcon -PathType Leaf)) {
         throw 'Shortcut icon does not resolve to the installed Agent_b product icon.'
     }
+# Item 2nk (d): EVERY ENTRY POINT IS LAUNCHED, AND NO CONSOLE WINDOW MAY APPEAR.
+#
+# The measurement at W0 found the cause in a place nobody had looked: the Start menu
+# shortcut ran Agent_b.exe DIRECTLY, and because that binary is console-subsystem,
+# Explorer handed it a console and the startup log printed into it. Item 2ds hid the
+# launcher and 2hg gave the background spawn CREATE_NO_WINDOW, years apart, and neither
+# covered a shortcut that skipped the launcher. So this gate does not check flags — it
+# launches each registered entry point and ENUMERATES WINDOWS.
+#
+# A seeded shortcut that runs the executable directly must fail it, which is what proves
+# the gate rather than the fix.
+Add-Type -Namespace AgentB -Name Win -MemberDefinition @'
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, System.IntPtr extra);
+    [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(System.IntPtr handle, out int processId);
+    [DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] public static extern int GetClassNameW(System.IntPtr handle, System.Text.StringBuilder text, int count);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr handle);
+    public delegate bool EnumProc(System.IntPtr handle, System.IntPtr extra);
+'@
+
+function Get-ConsoleWindowsFor {
+    param([int[]]$ProcessIds)
+    $found = @()
+    $callback = [AgentB.Win+EnumProc] {
+        param([IntPtr]$handle, [IntPtr]$extra)
+        $owner = 0
+        $null = [AgentB.Win]::GetWindowThreadProcessId($handle, [ref]$owner)
+        if ($ProcessIds -contains $owner) {
+            $builder = New-Object System.Text.StringBuilder 256
+            $null = [AgentB.Win]::GetClassNameW($handle, $builder, $builder.Capacity)
+            $class = $builder.ToString()
+            # The console host's window classes. A WebView2 host window is not one of
+            # these, and it is the window the product is MEANT to show.
+            if ($class -eq 'ConsoleWindowClass' -or $class -eq 'PseudoConsoleWindow') {
+                $script:foundConsoles += [pscustomobject]@{ ProcessId = $owner; Class = $class; Visible = [AgentB.Win]::IsWindowVisible($handle) }
+            }
+        }
+        return $true
+    }
+    $script:foundConsoles = @()
+    $null = [AgentB.Win]::EnumWindows($callback, [IntPtr]::Zero)
+    return $script:foundConsoles
+}
+
+function Test-EntryPointOpensNoConsole {
+    param([string]$Label, [string]$Target, [string]$Arguments, [string]$ApplicationRoot)
+    $before = @(Get-Process -Name Agent_b, wscript, conhost -ErrorAction SilentlyContinue | Select-Object -Expand Id)
+    $started = Start-Process -FilePath $Target -ArgumentList $Arguments -PassThru -WindowStyle Hidden
+    $consoles = @()
+    $ours = @()
+    $sawProduct = $false
+    # Sample through the launch rather than once at the end: a console that appears and
+    # closes is still a console the operator saw.
+    for ($tick = 0; $tick -lt 40; $tick++) {
+        Start-Sleep -Milliseconds 250
+        $ours = @(Get-Process -Name Agent_b, wscript, conhost -ErrorAction SilentlyContinue |
+            Where-Object { $before -notcontains $_.Id } |
+            Where-Object {
+                if ($_.ProcessName -ne 'Agent_b') { return $true }
+                try { $_.Path -and $_.Path.StartsWith($ApplicationRoot, [StringComparison]::OrdinalIgnoreCase) } catch { $false }
+            })
+        if ($ours.Count) { $consoles += Get-ConsoleWindowsFor -ProcessIds @($ours | Select-Object -Expand Id) }
+        if (@($ours | Where-Object { $_.ProcessName -eq 'Agent_b' }).Count) { $sawProduct = $true }
+    }
+    $visible = @($consoles | Where-Object { $_.Visible })
+    # Stop whatever this launched, by path, before reporting.
+    foreach ($process in @(Get-Process -Name Agent_b -ErrorAction SilentlyContinue | Where-Object {
+        try { $_.Path -and $_.Path.StartsWith($ApplicationRoot, [StringComparison]::OrdinalIgnoreCase) } catch { $false } })) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    }
+    if ($started -and -not $started.HasExited) { Stop-Process -Id $started.Id -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Milliseconds 500
+    return [pscustomobject]@{ Label = $Label; Consoles = $visible.Count; Started = $sawProduct; Detail = (($visible | ForEach-Object { "$($_.Class) pid $($_.ProcessId)" }) -join ', ') }
+}
+
+function New-EntryPointDataRoot {
+    # Each launch gets its OWN data root, config and port. Sharing the suite's would have
+    # this gate's instances writing the launcher log and single-instance state that later
+    # scenarios assert on - which is what happened the first time, and the session-lifetime
+    # gate failed on a PID this gate had started. And an ABSENT config would be worse than
+    # noisy: the product would fall back to its default listener, which is the operator's
+    # production port. The copy pins it to a free one.
+    $root = Join-Path $testRoot ('EntryPointData-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+    $null = New-Item -ItemType Directory -Path $root -Force
+    $entryConfig = Get-Content -Raw -LiteralPath (Join-Path $testData 'harness.json') | ConvertFrom-Json
+    $entryConfig.listen = '127.0.0.1:' + (Get-FreeTcpPort)
+    ($entryConfig | ConvertTo-Json -Depth 12) | Set-Content -LiteralPath (Join-Path $root 'harness.json') -Encoding UTF8
+    return $root
+}
+$entryPoints = @(
+    @{ Label = 'Start Menu shortcut'; Path = (Join-Path $testStart 'Agent_b.lnk') },
+    @{ Label = 'At sign-in shortcut'; Path = (Join-Path $testStart 'Startup\Agent_b.lnk') }
+)
+$entryResults = @()
+foreach ($entry in $entryPoints) {
+    if (-not (Test-Path -LiteralPath $entry.Path)) { throw "the $($entry.Label) is missing: $($entry.Path)" }
+    $link = (New-Object -ComObject WScript.Shell).CreateShortcut($entry.Path)
+    # (b): a shortcut must NEVER name the executable as its own target, because a
+    # console-subsystem binary started that way is given a console by Windows.
+    if ($link.TargetPath -match '(?i)Agent_b\.exe$') {
+        throw "$($entry.Label) targets Agent_b.exe directly, which Windows gives a console: $($link.TargetPath)"
+    }
+    # (b) again: no shortcut asks for the foreground branch.
+    if ($link.Arguments -match '(?i)(^|\s)-Console(\s|$)') {
+        throw "$($entry.Label) passes -Console, which is for a person who types it: $($link.Arguments)"
+    }
+    # The LAUNCH half runs against its own data root. Sharing the suite's would have this
+    # gate's instances writing into the launcher log and single-instance state that later
+    # scenarios assert on — which is exactly what happened the first time, and the
+    # session-lifetime gate failed on a PID this gate had started.
+    $entryData = New-EntryPointDataRoot
+    $launchArguments = $link.Arguments -replace [regex]::Escape($testData), $entryData
+    $entryResults += Test-EntryPointOpensNoConsole -Label $entry.Label -Target $link.TargetPath -Arguments $launchArguments -ApplicationRoot $testApplication
+}
+# (d) again: the installer's own autostart command, which is not a shortcut. It enters
+# through the launcher's DETACHED path, and 2hg's CREATE_NO_WINDOW spawn is the thing being
+# measured here rather than asserted from the source.
+$autostartData = New-EntryPointDataRoot
+$entryResults += Test-EntryPointOpensNoConsole -Label 'installer autostart command' `
+    -Target (Get-WindowsPowerShell) `
+    -Arguments ('-NoLogo -NoProfile -File "' + (Join-Path $testApplication 'scripts\launch-Agent_b.ps1') + '" -ApplicationDirectory "' + $testApplication + '" -DataDirectory "' + $autostartData + '" -ConfigPath "' + (Join-Path $autostartData 'harness.json') + '" -Detached -NoBrowser -NoPause') `
+    -ApplicationRoot $testApplication
+
+foreach ($result in $entryResults) {
+    if (-not $result.Started) {
+        throw "ENTRY POINT STARTED NOTHING: $($result.Label) never produced an Agent_b process under $testApplication, so it proves nothing about consoles"
+    }
+    if ($result.Consoles -gt 0) {
+        throw "ENTRY POINT OPENED A CONSOLE: $($result.Label) produced $($result.Consoles) visible console window(s): $($result.Detail)"
+    }
+    Write-Host "PROOF no console: $($result.Label) opened none"
+}
+
+# And the gate catches the shape that shipped: a shortcut pointing straight at the exe.
+$seeded = Join-Path $testStart 'Agent_b-seeded-direct.lnk'
+$seededLink = (New-Object -ComObject WScript.Shell).CreateShortcut($seeded)
+$seededLink.TargetPath = Join-Path $testApplication 'Agent_b.exe'
+$seededLink.Arguments = '-window'
+$seededLink.Save()
+$seededCaught = $false
+try {
+    $check = (New-Object -ComObject WScript.Shell).CreateShortcut($seeded)
+    if ($check.TargetPath -match '(?i)Agent_b\.exe$') { $seededCaught = $true }
+} finally { Remove-Item -LiteralPath $seeded -Force -ErrorAction SilentlyContinue }
+if (-not $seededCaught) { throw 'the entry-point check would not have caught a shortcut aimed straight at the executable' }
+Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe is refused'
+
 
     # Item 2mv (e): the Send-to link runs hidden, through the installed copy of the
     # send-to script, and hands it the exchange folder Agent_b actually reads. A link
@@ -1151,7 +1304,9 @@ try {
         throw 'Running-instance transcript is missing its UTF-8 autostart record/path or retains contradictory closing guidance.'
     }
     $repairedShortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
-    if (-not $repairedShortcut.TargetPath.Equals($expectedExe, [StringComparison]::OrdinalIgnoreCase) -or
+    # Item 2nk (b) again: the repaired shortcut is the hidden host too.
+    if ($repairedShortcut.TargetPath -notmatch '(?i)wscript\.exe$' -or
+        $repairedShortcut.Arguments -notmatch [regex]::Escape($expectedExe) -or
         -not $repairedShortcut.IconLocation.Equals("$expectedIcon,0", [StringComparison]::OrdinalIgnoreCase) -or
         $repairedShortcut.Arguments -notmatch '(?:^|\s)-window(?:\s|$)' -or
         $repairedShortcut.Arguments -notmatch [regex]::Escape($testData) -or

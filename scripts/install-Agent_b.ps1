@@ -998,9 +998,25 @@ if (-not (Test-Path -LiteralPath $iconPath -PathType Leaf)) { throw "Installed i
 $null = New-Item -ItemType Directory -Path $StartMenuDirectory -Force
 $shortcutPath = Join-Path $StartMenuDirectory 'Agent_b.lnk'
 $shell = New-Object -ComObject WScript.Shell
+# The hidden host, used by the Start menu, the sign-in start and Send-to alike.
+$hiddenLauncher = Join-Path $applicationRoot 'scripts\launch-hidden.vbs'
+if (-not (Test-Path -LiteralPath $hiddenLauncher -PathType Leaf)) { throw "Installed hidden launcher is missing: $hiddenLauncher" }
+# Item 2nk (b): THE START MENU SHORTCUT DOES NOT RUN THE EXECUTABLE DIRECTLY ANY MORE.
+#
+# Agent_b.exe is a CONSOLE-subsystem binary (its PE Subsystem is 3, WINDOWS_CUI), and
+# Explorer starting a console-subsystem process allocates a console for it. The app's own
+# stdout — the startup log — then prints into that console. THAT is the window the
+# operator saw every time he opened Agent_b from the Start menu, and it had nothing to do
+# with launch-Agent_b.ps1's foreground branch: this shortcut never went through the
+# launcher at all. Items 2ds and 2hg hid every OTHER path years apart and this one was
+# never measured, which is why it survived being asked about ten times.
+#
+# It goes through the same hidden host the sign-in shortcut uses. The host WINDOW still
+# opens, because the app creates that itself once it is running; what disappears is the
+# console Windows would otherwise hand it.
 $shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = Join-Path $applicationRoot 'Agent_b.exe'
-$shortcut.Arguments = '-window -config "' + (Join-Path $dataRoot 'harness.json') + '" -app-root "' + $applicationRoot + '" -data-root "' + $dataRoot + '"'
+$shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
+$shortcut.Arguments = '//B "' + $hiddenLauncher + '" "' + (Join-Path $applicationRoot 'Agent_b.exe') + '" -window -config "' + (Join-Path $dataRoot 'harness.json') + '" -app-root "' + $applicationRoot + '" -data-root "' + $dataRoot + '"'
 $shortcut.WorkingDirectory = $dataRoot
 $shortcut.IconLocation = "$iconPath,0"
 $shortcut.Description = 'Open Agent_b'
@@ -1014,7 +1030,6 @@ $null = New-Item -ItemType Directory -Path $startupDirectory -Force
 $startupPath = Join-Path $startupDirectory 'Agent_b.lnk'
 $startup = $shell.CreateShortcut($startupPath)
 $startup.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
-$hiddenLauncher = Join-Path $applicationRoot 'scripts\launch-hidden.vbs'
 $batchLauncher = Join-Path $applicationRoot 'Agent_b.cmd'
 # v0.65.0/W9: the arguments pass through WScript.Shell.Run and cmd's `call`, and
 # both expand %VAR%. The default data root is the launcher's own default, so it

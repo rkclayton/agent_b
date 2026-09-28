@@ -64,7 +64,17 @@ func answeredStatus(err error) int {
 // address that does not answer at all (refused, timed out, no route) lets the walk go
 // on. And an answer of ZERO models never beats an answer with models: his :11434
 // answered `{"data":null}` and would otherwise have won over the :8080 that had three.
+// DiscoveryReport is item 2nb (b): called as each address lands, with the attempt, how
+// many have been tried and how many there are. Nil when nobody is watching.
+type DiscoveryReport func(attempt DiscoveryAttempt, tried, total int)
+
+// DiscoverEndpoint walks without reporting.
 func DiscoverEndpoint(ctx context.Context, connection *config.Connection) (DiscoveryResult, error) {
+	return DiscoverEndpointReporting(ctx, connection, nil)
+}
+
+// DiscoverEndpointReporting is the walk, reporting each attempt as it lands.
+func DiscoverEndpointReporting(ctx context.Context, connection *config.Connection, report DiscoveryReport) (DiscoveryResult, error) {
 	candidates, host, typedPort, parseErr := discoveryCandidates(connection.BaseURL)
 	result := DiscoveryResult{}
 	if parseErr != nil {
@@ -120,6 +130,9 @@ func DiscoverEndpoint(ctx context.Context, connection *config.Connection) (Disco
 				attempt.Result = firstLine(err.Error(), "failed")
 			}
 			result.Attempts = append(result.Attempts, attempt)
+			if report != nil {
+				report(attempt, len(result.Attempts), len(candidates))
+			}
 			if typed && attempt.Answered {
 				typedAnswered, typedStatus = true, status
 				result.TypedAddress = baseURL
@@ -138,6 +151,9 @@ func DiscoverEndpoint(ctx context.Context, connection *config.Connection) (Disco
 		attempt.Answered, attempt.Status, attempt.Models = true, 200, len(models)
 		attempt.Result = fmt.Sprintf("model list answered with %d model(s)", len(models))
 		result.Attempts = append(result.Attempts, attempt)
+		if report != nil {
+			report(attempt, len(result.Attempts), len(candidates))
+		}
 		if typed {
 			typedAnswered, typedStatus = true, 200
 			result.TypedAddress = baseURL

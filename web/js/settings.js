@@ -9,6 +9,7 @@ import { renderNotificationsPage } from "./settings-notifications.js";
 import { renderProfilesPage } from "./settings-profiles.js";
 import { renderSecurityPage } from "./settings-security.js";
 import { renderWorkspacePage } from "./settings-workspace.js";
+import { waitElement } from "./wait.js";
 import { mountPanels, unmountPanels } from "./app.js";
 
 const sheet = document.getElementById("settings-page");
@@ -122,11 +123,25 @@ export function initSettings(entry = {}) {
   });
   subscribe((_state, event) => {
 	if (event.type === "notification.changed") notificationStatus = event.data || notificationStatus;
+    // Item 2nb (b) and (i): the walk reports each address as it lands, and the sheet
+    // shows it in the one waiting element, determinate: addresses tried of the total,
+    // with the line naming the address in hand and what it found.
+    if (event.type === "connection.discovering") {
+      const connectionID = event.data?.connection_id || "";
+      probeMessages.set(connectionID, {
+        ...(probeMessages.get(connectionID) || {}),
+        walking: {
+          line: `${event.data?.base_url || "an address"} — ${event.data?.result || "trying"}`,
+          processed: Number(event.data?.tried) || 0,
+          total: Number(event.data?.total) || 0,
+        },
+      });
+    }
     if (event.type === "connection.probed") {
       const connectionID = event.data?.connection_id || "";
       const findings = event.data?.capabilities?.findings || event.data?.findings || [];
       const failed = findings.find((value) => String(value).startsWith("probe failed:"));
-      probeMessages.set(connectionID, { ...(probeMessages.get(connectionID) || {}), message: failed ? `Test failed — ${String(failed).slice(13).trim()}` : "Test passed", alarm: !!failed });
+      probeMessages.set(connectionID, { ...(probeMessages.get(connectionID) || {}), walking: null, message: failed ? `Test failed — ${String(failed).slice(13).trim()}` : "Test passed", alarm: !!failed });
     }
     if (
       open && (
@@ -271,6 +286,14 @@ function render() {
   const focusNode = [...sheet.querySelectorAll("button, input, textarea, select, summary")]
     .find((node) => controlKey(node) === focusKey);
   focusNode?.focus({ preventScroll: true });
+  // Item 2nb (b) and (i): mount item 2m4's waiting element into the seat the
+  // connections page left, determinate on addresses tried of the total. Built here
+  // rather than in the page because the page writes HTML and this is the one element.
+  for (const seat of sheet.querySelectorAll("[data-connection-wait]")) {
+    const walking = probeMessages.get(seat.dataset.connectionWait)?.walking;
+    if (!walking) continue;
+    seat.replaceChildren(waitElement(document, { line: walking.line, processed: walking.processed, total: walking.total }));
+  }
   navigationSurfaceReady("settings", store);
 }
 
@@ -381,6 +404,25 @@ function subhead(label, hint = "") {
 // thinking is supported — and proposes into a field the operator has NOT changed,
 // so pressing it again is safe and nothing typed is overwritten. (a3): a server
 // offering exactly one model has it selected. Nothing here saves.
+// Item 2nb (d): the label follows the model when the operator has not named the
+// connection himself (which is item 2mh (a)'s rule), and the values Test learned are
+// re-proposed for the model now chosen.
+function fillFromPickedModel(id, model) {
+  const connection = connectionList().find((x) => x.id === id);
+  if (!connection) return;
+  const prefix = `connections.${id}.`;
+  const displayName = String(model).split(/[\\/]/).pop();
+  // Untouched means: never edited in this session, and still the name the Add button
+  // generated. A label the operator chose is never overwritten.
+  const untouched = !drafts.has(prefix + "label") && (!connection.label || connection.label === connection.id);
+  if (untouched && displayName) {
+    drafts.set(prefix + "label", displayName);
+    draftKinds.set(prefix + "label", "text");
+  }
+  applyProposedValues(id, probeMessages.get(id));
+  render();
+}
+
 function applyProposedValues(id, discovered) {
   const proposed = discovered?.proposed;
   if (!proposed) return;
@@ -740,6 +782,8 @@ async function dispatchAction(event, button, action, id) {
         draftKinds.set(`${pendingPrefix}base_url`, "text");
         settingsSaveMessage = "Unsaved discovery change";
       }
+      // The walk is finished the moment Test answers, however it answered.
+      probeMessages.set(id, { ...(probeMessages.get(id) || {}), walking: null });
       const observed = probeMessages.get(id) || {};
       const terminal = /^Test (?:passed|failed)/.test(observed.message || "");
       probeMessages.set(id, {
@@ -1162,6 +1206,12 @@ async function change(event) {
     render();
     await refreshHardeningStatus();
     return;
+  }
+  // Item 2nb (d): PICKING A MODEL FILLS THE REST. Until now Test filled the fields and
+  // picking a different model from the list left them describing the one Test happened
+  // to try. Nothing here is typed by the operator and nothing here saves.
+  if (event.target.matches('.setting-input[data-path$=".model"]') && event.target.value && event.target.value !== "__type__") {
+    fillFromPickedModel(event.target.dataset.path.split(".")[1], event.target.value);
   }
   const select = event.target.closest("[data-session-connection]");
   if (!select) return;

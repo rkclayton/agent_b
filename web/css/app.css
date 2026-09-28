@@ -1392,11 +1392,21 @@
 .connection-editor-head .connection-url {
   max-width: 42ch;
 }
+/* Item 2nn (d): THE SHEET READS TOP TO BOTTOM AS THE FLOW, so the editor is one
+   column — two put Advanced beside the flow rather than below Save, and a second
+   column is a second place to look while adding a server. The Advanced sheet keeps
+   two columns inside itself, where the settings are a reference rather than a path. */
 .connection-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px 24px;
 }
+.connection-advanced[open] > .connection-fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 24px;
+}
+.connection-advanced[open] > .connection-fieldset > h4 { grid-column: 1 / -1; }
 .connection-fieldset {
   min-width: 0;
 }

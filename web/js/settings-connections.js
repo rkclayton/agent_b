@@ -224,7 +224,9 @@ function connectionFields(connection, reason, discovery) {
 	// not on screen until one is: before that they are questions about a connection
 	// that has not been established, and the operator's report was that the sheet
 	// asks too much of him at once.
-	const chosenModel = !!(connection.model || "").trim();
+	// A model PICKED counts, not only a model saved: the draft is what he has chosen,
+	// and the rest of the sheet has to be there for him before he presses Save.
+	const chosenModel = !!String(drafts.get(`${p}.model`) ?? connection.model ?? "").trim();
 	const afterModel = chosenModel ? `${text(`${p}.credential`, "credential ref", connection.credential || "", "text", "The name the stored API key is kept under; the key itself is never in the configuration.")}
     ${row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(connection.context.n_ctx || "")}" placeholder="${attr(caps.n_ctx || "")}">`, "", "The probed context is used as the placeholder until this is saved.")}
     ${toggle(`${p}.reasoning.enabled`, "enabled", connection.reasoning.enabled, "Asks the model to think before it answers, where the server supports it.")}

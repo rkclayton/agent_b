@@ -2,10 +2,14 @@ package probe
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -232,5 +236,173 @@ func TestAnAddressThatDoesNotAnswerLetsTheWalkContinue(t *testing.T) {
 	}
 	if typedAttempts == 0 {
 		t.Error("the typed address was never tried")
+	}
+}
+
+// Item 2nn's acceptance, recorded: the operator's own two servers, replayed from
+// internal/probe/testdata/model-host-listing-2nn.json — what his :8080 and :11434
+// actually answered on 2026-09-28, captured once with GET /v1/models and no
+// completion. The key is in no file; these servers need none, and the 401 case is
+// replayed as a status rather than by withholding a secret.
+type recordedListing struct {
+	Cases map[string]struct {
+		Path   string          `json:"path"`
+		Status int             `json:"status"`
+		Body   json.RawMessage `json:"body"`
+	} `json:"cases"`
+}
+
+func recordedCase(t *testing.T, name string) (int, []byte, string) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "model-host-listing-2nn.json"))
+	if err != nil {
+		t.Fatalf("the recording is missing: %v", err)
+	}
+	var listing recordedListing
+	if err := json.Unmarshal(raw, &listing); err != nil {
+		t.Fatalf("the recording is malformed: %v", err)
+	}
+	found, ok := listing.Cases[name]
+	if !ok {
+		t.Fatalf("the recording has no case %q", name)
+	}
+	return found.Status, found.Body, found.Path
+}
+
+// replayPort serves one recorded case and reports the port it is listening on.
+func replayPort(t *testing.T, name string) string {
+	t.Helper()
+	status, body, path := recordedCase(t, name)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != path {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		if len(body) > 0 {
+			_, _ = w.Write(body)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return strings.TrimPrefix(server.URL, "http://127.0.0.1:")
+}
+
+// deadPort is a port nothing is listening on: his :8080 on the evening he reported
+// this, the server he had started by hand having exited.
+func deadPort(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("no port: %v", err)
+	}
+	port := strings.TrimPrefix(listener.Addr().String(), "127.0.0.1:")
+	_ = listener.Close()
+	return port
+}
+
+func withDiscoveryPorts(t *testing.T, ports ...string) {
+	t.Helper()
+	previous := discoveryPorts
+	discoveryPorts = ports
+	t.Cleanup(func() { discoveryPorts = previous })
+}
+
+// Acceptance 1: "Address typed 100.64.0.10 (no port), :8080 up with three models,
+// :11434 up with none: Test leaves the field reading 100.64.0.10, the result names
+// both ports with their counts."
+func TestNoTypedPortReportsEveryPortAndWritesNothing(t *testing.T) {
+	serving := replayPort(t, "port_8080_with_key")
+	empty := replayPort(t, "port_11434_openai")
+	withDiscoveryPorts(t, serving, empty)
+	connection := &config.Connection{BaseURL: "127.0.0.1"}
+	result, err := DiscoverEndpoint(context.Background(), connection)
+	if err != nil {
+		t.Fatalf("the walk failed: %v", err)
+	}
+	// THE FIELD IS HIS: nothing is proposed back into it.
+	if result.BaseURL != "" || len(result.Models) != 0 {
+		t.Fatalf("discovery chose an address for him: %q with %d model(s)", result.BaseURL, len(result.Models))
+	}
+	if connection.BaseURL != "127.0.0.1" {
+		t.Fatalf("the typed address was rewritten to %q", connection.BaseURL)
+	}
+	// And both ports are named, with their counts.
+	byPort := map[string]PortFinding{}
+	for _, finding := range result.Ports {
+		byPort[finding.Port] = finding
+	}
+	if got := byPort[serving]; got.Models != 3 || !strings.Contains(got.Result, "3 model") {
+		t.Fatalf("the serving port reads %+v", got)
+	}
+	if got := byPort[empty]; !got.Answered || got.Models != 0 || !strings.Contains(got.Result, "no models") {
+		t.Fatalf("the empty port reads %+v", got)
+	}
+}
+
+// Acceptance 2: "Address typed 100.64.0.10:8080, key stored: Test lists three
+// models; nothing else on the sheet changes."
+func TestTypedPortListsWhatThatPortServes(t *testing.T) {
+	serving := replayPort(t, "port_8080_with_key")
+	empty := replayPort(t, "port_11434_openai")
+	withDiscoveryPorts(t, empty)
+	result, err := DiscoverEndpoint(context.Background(), &config.Connection{BaseURL: "127.0.0.1:" + serving})
+	if err != nil {
+		t.Fatalf("the typed port failed: %v", err)
+	}
+	if len(result.Models) != 3 {
+		t.Fatalf("expected the three recorded models, got %v", result.Models)
+	}
+	if !strings.Contains(result.BaseURL, ":"+serving) {
+		t.Fatalf("the result left the typed port: %q", result.BaseURL)
+	}
+	if len(result.Ports) != 0 {
+		t.Fatalf("a typed port produced a port list, which is for the address he did not finish: %+v", result.Ports)
+	}
+}
+
+// Acceptance 4: "Address typed 100.64.0.10 with :8080 DOWN and :11434 answering
+// empty: the field still reads 100.64.0.10; the result says :8080 — nothing,
+// :11434 — answered, no models." His actual evening.
+func TestNoTypedPortWithTheServingPortDownStillWritesNothing(t *testing.T) {
+	down := deadPort(t)
+	empty := replayPort(t, "port_11434_openai")
+	withDiscoveryPorts(t, down, empty)
+	connection := &config.Connection{BaseURL: "127.0.0.1"}
+	result, err := DiscoverEndpoint(context.Background(), connection)
+	if err != nil {
+		t.Fatalf("the walk failed: %v", err)
+	}
+	if result.BaseURL != "" {
+		t.Fatalf("the empty port was written into his address as %q — this is the defect", result.BaseURL)
+	}
+	byPort := map[string]PortFinding{}
+	for _, finding := range result.Ports {
+		byPort[finding.Port] = finding
+	}
+	if got := byPort[down]; got.Answered || got.Result != "nothing" {
+		t.Fatalf("the port that was down reads %+v", got)
+	}
+	if got := byPort[empty]; !got.Answered || !strings.Contains(got.Result, "no models") {
+		t.Fatalf("the Ollama reads %+v", got)
+	}
+}
+
+// The other half of acceptance 2, also recorded: his :8080 WITHOUT the key answers
+// 401. That is the server saying who it is, so the walk stays on the port he typed
+// and asks him for the key instead of going looking elsewhere.
+func TestTypedPortAnswering401AsksForTheKeyAndStays(t *testing.T) {
+	refusing := replayPort(t, "port_8080_without_key")
+	serving := replayPort(t, "port_8080_with_key")
+	withDiscoveryPorts(t, serving)
+	result, err := DiscoverEndpoint(context.Background(), &config.Connection{BaseURL: "127.0.0.1:" + refusing})
+	if err == nil || !strings.Contains(err.Error(), "wants an API key") {
+		t.Fatalf("the 401 was not reported as a key request: %v", err)
+	}
+	if !result.NeedsKey {
+		t.Fatalf("the result does not say a key is wanted: %+v", result)
+	}
+	if len(result.Models) != 0 {
+		t.Fatalf("the walk left the port he typed and listed %v", result.Models)
 	}
 }

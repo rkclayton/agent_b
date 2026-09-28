@@ -381,7 +381,7 @@ func discoveryCandidates(raw string) ([]string, string, string, error) {
 	if strings.Contains(host, ":") {
 		hostForURL = "[" + host + "]"
 	}
-	ports := []string{"443", "80", "8000", "8080", "11434", "1234", "5000"}
+	ports := append([]string(nil), discoveryPorts...)
 	if parsed.Port() != "" {
 		ports = append([]string{parsed.Port()}, ports...)
 	}
@@ -392,6 +392,13 @@ func discoveryCandidates(raw string) ([]string, string, string, error) {
 	}
 	return values, host, parsed.Port(), err
 }
+
+// discoveryPorts is the list of ports a host typed WITHOUT one is tried on. It is a
+// variable rather than a literal so item 2nn's acceptance can replay the operator's
+// own case — :8080 serving three models beside an :11434 serving none — against
+// servers a test can actually bind, without asking a test machine for those two
+// ports.
+var discoveryPorts = []string{"443", "80", "8000", "8080", "11434", "1234", "5000"}
 
 func uniqueModels(values []string) []string {
 	seen := map[string]bool{}

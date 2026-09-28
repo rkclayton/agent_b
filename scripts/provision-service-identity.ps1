@@ -191,7 +191,13 @@ if ($Unattended) {
     # a credential this machine can still read rather than one nobody can.
     New-MachineCredential -Path $machinePath -AccountSid (Get-AccountSid -Name $AccountName)
 
-    $accountArguments = @('-AccountName', $AccountName, '-CredentialStore', $machinePath, '-NoPrompt', '-Confirm:$false')
+    # Item 2nj: '-Confirm:$false' USED TO BE HERE AND IT FAILED EVERY RUN. In single
+    # quotes it is literal text, so the child bound the string "$false" to a
+    # SwitchParameter and died with "Cannot convert 'System.String' to the type
+    # 'SwitchParameter' required by parameter 'Confirm'" before touching the account.
+    # -NoPrompt already sets $ConfirmPreference = 'None' in the child, so nothing is
+    # lost by its absence: it was unnecessary as well as wrong.
+    $accountArguments = @('-AccountName', $AccountName, '-CredentialStore', $machinePath, '-NoPrompt')
     if ($existing) { $accountArguments += '-ResetPassword' }
     try {
         Invoke-AgentBScript -Path (Join-Path $PSScriptRoot 'setup-service-account.ps1') -Arguments $accountArguments
@@ -247,7 +253,9 @@ foreach ($required in @('CredentialStore', 'ApplicationDirectory', 'DataDirector
 }
 if (-not (Test-IsAdministrator)) { throw 'Administrator elevation is required to provision the Agent_b service identity.' }
 
-$accountArguments = @('-AccountName', $AccountName, '-CredentialStore', $CredentialStore, '-NoPrompt', '-Confirm:$false')
+# Item 2nj: see the note above — the quoted '-Confirm:$false' bound as a string and
+# killed every Repair and every Set up through this script. -NoPrompt is the suppression.
+$accountArguments = @('-AccountName', $AccountName, '-CredentialStore', $CredentialStore, '-NoPrompt')
 if ($ResetPassword) { $accountArguments += '-ResetPassword' }
 Invoke-AgentBScript -Path (Join-Path $PSScriptRoot 'setup-service-account.ps1') -Arguments $accountArguments
 

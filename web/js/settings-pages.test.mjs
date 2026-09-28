@@ -245,3 +245,52 @@ test("picking a model proposes the label only when the connection was never name
 	// The display name, not the path: a file-based model must not put a path in the label.
 	assert.ok(filler.includes("split(/[\\\\/]/"), "the display name is not split on either separator");
 });
+
+// Item 2nc (a) and (d): THE OPERATOR'S CASE. A collapsed row, a connection held by a
+// chat, Remove pressed — and the screen did not change. The server had always sent the
+// row as the field and the handler had always kept it, but only the fields inside the
+// EXPANDED body rendered it, so the reason was never on screen.
+test("a refused removal is shown on the row itself, collapsed or not", () => {
+	const context = pageContext();
+	const connection = { id: "held", label: "Held", base_url: "http://held/", sampling: { thinking: {}, nonthinking: {} }, context: {}, reasoning: {}, capabilities: {} };
+	context.connectionList = () => [connection];
+	// Collapsed: the row is not in `expanded`.
+	context.errors.set("connections.held", "in use by the chat Siri (s12) — close that chat first, then remove this connection");
+	const page = renderConnectionsPage(context);
+	assert.match(page, /class="connection-refusal alarm"/, "the refusal is not on the row");
+	assert.match(page, /close that chat first/, "the row does not say what to do");
+	assert.match(page, /connection-row [^"]*refused/, "the row is not marked as refused");
+});
+
+test("a row with nothing refused carries no refusal line", () => {
+	const context = pageContext();
+	context.connectionList = () => [{ id: "fine", label: "Fine", base_url: "http://fine/", sampling: { thinking: {}, nonthinking: {} }, context: {}, reasoning: {}, capabilities: {} }];
+	const page = renderConnectionsPage(context);
+	assert.doesNotMatch(page, /connection-refusal/);
+});
+
+// (a) again, from the controller: the row is expanded when the refusal lands, and a
+// later success clears it so a refusal cannot outlive what it described.
+test("a refused removal expands its row, and a successful one clears the refusal", () => {
+	const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
+	const remover = controller.slice(controller.indexOf("async function removeConnection"), controller.indexOf("async function newSession"));
+	assert.match(remover, /expanded\.add\(id\)/, "the row is not expanded when the refusal lands");
+	assert.match(remover, /errors\.delete\(`connections\.\$\{id\}`\)/, "a successful removal leaves the old refusal on screen");
+	assert.match(remover, /errors\.set\(error\.field \|\| `connections\.\$\{id\}`/, "the server's own field is not used");
+});
+
+// (c): the popover is anchored in the settings scroller's space, not the viewport's, so
+// it stays with its control however far the sheet is scrolled.
+test("the confirmation popover is anchored in the scroller's space and clamped", () => {
+	const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
+	const anchor = controller.slice(controller.indexOf("const POPOVER_WIDTH"), controller.indexOf("function cancelConfirmation"));
+	assert.match(anchor, /scroller\.scrollTop/, "the anchor ignores the sheet's scroll");
+	assert.match(anchor, /getBoundingClientRect\(\)/);
+	assert.match(anchor, /Math\.max\(0, top\)/, "the anchor is not clamped");
+	const css = fs.readFileSync(new URL("../css/app.css", import.meta.url), "utf8");
+	const popover = css.slice(css.indexOf(".confirm-popover {"), css.indexOf(".confirm-popover p"));
+	assert.match(popover, /position: absolute/, "the popover is still fixed to the viewport");
+	assert.doesNotMatch(popover, /position: fixed/);
+	// And it is rendered inside the scroller, which is what makes absolute mean that.
+	assert.match(controller, /settings-content" tabindex="-1">\$\{group\(label, content\[activeSection\]\(\), activeSection\)\}\$\{confirmPopover\(\)\}/);
+});

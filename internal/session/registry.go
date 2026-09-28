@@ -591,13 +591,23 @@ func (r *Registry) Label(id string) string {
 	}
 	return id
 }
+
+// ConnectionInUse names the chat holding a connection. Item 2nc (b): the LABEL comes
+// back with the id, because "in use by session s12" tells the operator nothing he can
+// act on — he knows his chats by their names, not by their ids.
 func (r *Registry) ConnectionInUse(connectionID string) (string, bool) {
+	id, _, used := r.ConnectionHolder(connectionID)
+	return id, used
+}
+
+// ConnectionHolder returns the id and the label of the chat holding a connection.
+func (r *Registry) ConnectionHolder(connectionID string) (string, string, bool) {
 	for _, item := range r.List() {
 		if item.ConnectionID == connectionID {
-			return item.ID, true
+			return item.ID, item.Snapshot().Label, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 func (r *Registry) ConnectionRunnable(connectionID string) (bool, string) {
 	if connectionID == "" {

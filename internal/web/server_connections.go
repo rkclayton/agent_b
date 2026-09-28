@@ -109,8 +109,15 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	tail := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/connections/"), "/")
 	if r.Method == http.MethodDelete && !strings.Contains(tail, "/") {
-		if sessionID, used := s.registry.ConnectionInUse(tail); used {
-			writeError(w, 409, "connection in use by session "+sessionID, "connections."+tail)
+		// Item 2nc (b): THE REASON SAYS WHAT TO DO. "in use by session s12" named an id
+		// the operator has never seen; this names the chat as he knows it and says what to
+		// do about it.
+		if sessionID, label, used := s.registry.ConnectionHolder(tail); used {
+			named := sessionID
+			if strings.TrimSpace(label) != "" {
+				named = label + " (" + sessionID + ")"
+			}
+			writeError(w, 409, "in use by the chat "+named+" — close that chat first, then remove this connection", "connections."+tail)
 			return
 		}
 		s.mu.Lock()
@@ -120,12 +127,12 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		// rather than on a page nobody aimed at.
 		if holder := agentRoleHolding(s.cfg.Agents, tail); holder != "" {
 			s.mu.Unlock()
-			writeError(w, 409, "connection is assigned to "+holder, "connections."+tail)
+			writeError(w, 409, "assigned to "+holder+" — change that assignment on the Agents page, then remove this connection", "connections."+tail)
 			return
 		}
 		if len(s.cfg.Connections) == 1 {
 			s.mu.Unlock()
-			writeError(w, 409, "cannot delete the last connection", "connections."+tail)
+			writeError(w, 409, "this is the only connection — add another one first, then remove this", "connections."+tail)
 			return
 		}
 		// Item 2mb (d): A FRESH SLICE, AND NOTHING ASSIGNED UNTIL THE ID EXISTS.

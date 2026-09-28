@@ -1172,6 +1172,9 @@
   background: var(--well);
 }
 .settings-content {
+  /* Item 2nc (c): the confirmation popover is positioned inside this scroller, so it
+     stays with the control that raised it however far the sheet is scrolled. */
+  position: relative;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable;
@@ -2058,7 +2061,9 @@
    offers confirm and cancel — nothing else, no dimmed page, no dialog that takes
    over the view. It uses the sheet's own tokens and adds no other new idiom. */
 .confirm-popover {
-  position: fixed;
+  /* Item 2nc (c): absolute in the settings scroller, not fixed to the viewport. Fixed
+     meant the question stayed where the screen was while its control scrolled away. */
+  position: absolute;
   z-index: 40;
   width: 232px;
   padding: var(--s2);
@@ -2070,6 +2075,10 @@
 }
 .confirm-popover p { margin: 0; color: var(--ink); font-size: 12px; line-height: 16px; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 6px; }
+/* Item 2nc (a): the refusal sits on the row it belongs to, expanded or not, so a
+   Remove that could not happen is never an unchanged screen. */
+.connection-row.refused { height: auto; grid-template-rows: 36px auto; }
+.connection-refusal { grid-column: 1 / -1; margin: 0; padding: 0 var(--s2) var(--s2); color: var(--alarm); font: 11px/16px var(--mono); }
 
 /* Item 2l5: a connection's four actions live at the right of its own line, at the
    sheet's normal control size. Test is lettering, the other three are icons. */

@@ -49,7 +49,6 @@ const (
 	wmNCLButtonDown = 0x00A1
 	wmNCLButtonUp   = 0x00A2
 	wmEnterSizeMove = 0x0231
-	wmExitSizeMove  = 0x0232
 	wmMoving        = 0x0216
 	wmMove          = 0x0003
 	wmMouseMove     = 0x0200

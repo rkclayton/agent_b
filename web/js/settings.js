@@ -10,6 +10,7 @@ import { renderProfilesPage } from "./settings-profiles.js";
 import { renderSecurityPage } from "./settings-security.js";
 import { renderWorkspacePage } from "./settings-workspace.js";
 import { waitElement } from "./wait.js";
+import { agentKey } from "./panel-lifetime.js";
 import { mountPanels, unmountPanels } from "./app.js";
 
 const sheet = document.getElementById("settings-page");
@@ -399,7 +400,7 @@ export const perProfileSections = new Set(["chats", "agents", "notifications"]);
 function planAvailable() {
   const session = store.sessions?.[store.selection?.session_id || ""];
   if (!session) return false;
-  const configured = (store.config.agents || []).find((agent) => agent.id === session.agent_id) || store.config.agents?.[0];
+  const configured = (store.config.agents || []).find((agent) => agentKey(agent) === session.agent_id) || store.config.agents?.[0];
   return session.role === "d" || !String(configured?.d || "").trim();
 }
 

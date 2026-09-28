@@ -735,12 +735,14 @@ try {
             throw "Installed $($page.Name) page is missing the shared shell slot."
         }
     }
-    # Item 2mf: the one-entry pages nav is gone and Plan is a pinned tab in the
-    # strip on the LEFT, so the right slot is one element shorter and the surface
-    # list is what names the Plan tab. The assertion moved with the contract.
+    # Item 2mf: the one-entry pages nav is gone and Plan was a pinned tab in the
+    # strip on the LEFT, so the right slot is one element shorter. Item 2ni moved the
+    # Plan into the Settings nav as its own top-level section, so the SHIPPED strip
+    # must name no static surface at all, and the entry is asserted below where it
+    # now lives. The assertion moves with the contract each time.
     if ($shellSource -notmatch 'root\.append\(left, right\)' -or
         $shellSource -notmatch 'right\.append\(sessionHeading, connectionMenu, settings, windowControls\)' -or
-        $shellSource -notmatch 'visibleStaticSurfaces\(store\.config\)' -or
+        $shellSource -match 'visibleStaticSurfaces' -or
         $shellSource -match 'shell-pages' -or
         $shellSource -match 'shell-operator-status' -or
         $shellSource -match 'all:\s*true') {
@@ -754,11 +756,15 @@ try {
     if ($chatSource -match 'chat-clear-conversation|chat-attachment-controls') {
         throw 'Installed Chat view still contains removed Clear or attachment-pane chrome.'
     }
-    # Item 2mf: there is no page SWITCH any more. Plan is a surface in the tab
-    # strip, named by the surface list and reached by its own URL, so the installed
-    # build is checked for the surface and its href instead of for a nav entry.
+    # Item 2mf: there is no page SWITCH any more. The Plan keeps its own kind and its
+    # own URL - item 2ni moved where it is REACHED FROM, not what it is - so the
+    # installed build is still checked for the surface and its href.
     foreach ($required in @('PLAN_KIND = "plan"', 'href: "/plan"')) {
         if ($surfacesSource -notmatch [regex]::Escape($required)) { throw "Installed application is missing the Plan surface: $required." }
+    }
+    # Item 2ni: and the shipped strip draws no surface tab for it any more.
+    if ($shellSource -match 'agent-tab-wrap-surface') {
+        throw 'Installed shared shell still draws a surface tab for the Plan.'
     }
     foreach ($removed in @('Chat", "/chat"', 'Console", "/"')) {
         if ($shellSource -match [regex]::Escape($removed)) { throw "Installed application retains removed page switch $removed." }
@@ -777,10 +783,15 @@ try {
     # link to a tab, so it is a button rather than an anchor and needs no
     # preventDefault; the selected tab returning to the chat is the behaviour, and
     # that is what is asserted.
-    if ($shellSource -notmatch 'if \(selected\) return void returnToChat\(\);' -or
+    # Item 2ni (c): the tab that toggled back to the chat is gone, and the way back from
+    # the Plan's own document is the gear behaving as this sheet's close. So the shipped
+    # build is checked for THAT, and for the entry that opens the page at all.
+    if ($shellSource -notmatch 'openedFromSettings' -or
+        $settingsScript -notmatch '\["plan", "Plan"\]' -or
+        $settingsScript -notmatch 'shell-page-chip' -or
         $settingsScript -notmatch 'gear\.addEventListener\("click", \(event\) => \{\s+event\.preventDefault\(\);' -or
         $settingsScript -match 'consoleLaunch') {
-        throw 'Installed application does not preserve selected-Plan or Settings in-place navigation.'
+        throw 'Installed application does not preserve the Plan entry or Settings in-place navigation.'
     }
     $manifestPath = Join-Path $testApplication 'web\app.webmanifest'
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {

@@ -620,7 +620,15 @@ browser = {
   wait: async (expression, label, timeout = 12000) => {
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
-      if (await page.evaluate(`Boolean(${expression})`)) return;
+      // A navigation while this is polling destroys the execution context, and that is
+      // a normal thing for a page under test to do — the planning wizard ends with one.
+      // Losing the context is a reason to look again, not a failure: the only failure
+      // here is the deadline.
+      try {
+        if (await page.evaluate(`Boolean(${expression})`)) return;
+      } catch (error) {
+        if (!/Execution context was destroyed|Target closed|Navigation/i.test(String(error?.message))) throw error;
+      }
       await sleep(50);
     }
     throw new Error(`screen timeout: ${label}`);

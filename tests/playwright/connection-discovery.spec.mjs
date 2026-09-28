@@ -49,10 +49,21 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   const before = await hash(join(harness.dataRoot, "harness.json"));
   // Item 2l5: Test is one of the four actions on the connection own row now.
   await settings.locator('.connection-row [data-action="probe"][data-id="ui"]').click();
-  await expect(settings.locator(".connection-editor .discovery-note")).toHaveText(`found http://127.0.0.1:${harness.modelPort}`);
+  // Item 2nb (g): ONE MESSAGE, ONE PLACE. The result of the last Test is rendered
+  // under the field it is about and nowhere else. The operator saw three copies of one
+  // sentence before this; the note carries the message when there is one, and what
+  // discovery found when there is not.
+  await expect(settings.locator(".connection-editor .discovery-note")).toHaveCount(1);
+  await expect(settings.locator(".connection-editor .discovery-note")).toContainText('Model "model" is not served');
+  // (c): the model control is a dropdown ALWAYS, and it always offers the one way out
+  // for a server that cannot list its models.
   await expect(settings.locator('[data-path="connections.ui.model"]')).toHaveJSProperty("tagName", "SELECT");
-  await expect(settings.locator('[data-path="connections.ui.model"] option')).toHaveText(["model", "alpha-model", "beta-model"]);
-  await expect(settings.locator('.connection-row:has(.connection-summary[data-id="ui"]) .connection-state')).toContainText('Model "model" is not served');
+  await expect(settings.locator('[data-path="connections.ui.model"] option')).toHaveText(["model", "alpha-model", "beta-model", "type a name…"]);
+  // (g) again, from the other side: the row header carries the STATE WORD and never
+  // the message, so it cannot overflow.
+  const header = settings.locator('.connection-row:has(.connection-summary[data-id="ui"]) .connection-state');
+  await expect(header).not.toContainText('is not served');
+  await expect(header).not.toHaveText("");
   expect(await hash(join(harness.dataRoot, "harness.json"))).toBe(before);
 });
 

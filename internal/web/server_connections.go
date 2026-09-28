@@ -442,6 +442,14 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		if s.applyOperatorContextPatch(w, r, patch) {
 			return
 		}
+		// Item 2nb (f): NO VALUE CARRYING THE MASK SENTINEL REACHES THE CONFIGURATION.
+		// The merge used to DELETE an api_key that equalled the sentinel exactly, which
+		// is a silent drop: a value that merely contained it, or arrived by another path,
+		// would have been stored as the operator's key. A refusal says what happened.
+		if field, found := patchCarriesMaskedKey(patch); found {
+			writeError(w, http.StatusBadRequest, "the API key field still holds the placeholder for a stored key; type the key to replace it, or leave it alone", field)
+			return
+		}
 		s.mu.Lock()
 		previousConnections := make(map[string]config.Connection, len(s.cfg.Connections))
 		for _, connection := range s.cfg.Connections {
@@ -721,4 +729,29 @@ func agentRoleHolding(agents []config.Agent, connectionID string) string {
 		return ""
 	}
 	return strings.Join(held, ", ")
+}
+
+// maskedKeySentinel is what a stored key is shown as. It must never travel back.
+const maskedKeySentinel = "••••"
+
+// patchCarriesMaskedKey is item 2nb (f)'s guard: it finds any api_key in an incoming
+// patch that CONTAINS the mask, at any depth, and names the field so the refusal lands
+// on the row the operator was looking at.
+func patchCarriesMaskedKey(patch map[string]any) (string, bool) {
+	connections, _ := patch["connections"].([]any)
+	for _, raw := range connections {
+		item, _ := raw.(map[string]any)
+		if item == nil {
+			continue
+		}
+		value, _ := item["api_key"].(string)
+		if strings.Contains(value, maskedKeySentinel) {
+			id, _ := item["id"].(string)
+			if id == "" {
+				return "connections.api_key", true
+			}
+			return "connections." + id + ".api_key", true
+		}
+	}
+	return "", false
 }

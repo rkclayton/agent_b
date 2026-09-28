@@ -23,7 +23,7 @@ function pageContext() {
       config: { workspace: "C:\\workspace", context: { soft_pct: 0.75, summary_pct: 0.85, accounting: "auto" }, chat: {}, run: {}, approval: {}, deliver: {}, memory: {}, tools: {}, shell: { service_account: {} }, signing: {}, sandbox: {} },
       shell_credential: {}, shell_identity: {}, sandbox: {}, serving_facts: {}, signature: { files: [{ status: "Valid", timestamped: true }] },
     },
-    expanded: new Set(), armed: new Set(), drafts: new Map(), errors: new Map(), probeMessages: new Map(),
+    expanded: new Set(), armed: new Set(), drafts: new Map(), errors: new Map(), probeMessages: new Map(), typedModels: new Set(),
     workspaceState: [], operatorFileState: { attachment_files: 0, attachment_bytes: 0, instruction_found: [] },
     shellCredentialMessage: "", shellCredentialAlarm: false,
     serviceAccountStatus: { loaded: false, supported: true, exists: false, administrator: false },
@@ -161,7 +161,13 @@ test("Connections summary row never renders decoder detail verbatim", () => {
 	context.connectionList = () => [connection];
 	context.probeMessages.set("fake", { message: "Test failed — Connection returned a web page, not model API JSON. Add the API path to base_url.", alarm: true });
 	const page = renderConnectionsPage(context);
-	assert.match(page, /Test failed — Connection returned a web page, not model API JSON/);
+	// Item 2nb (g): the collapsed row carries the STATE WORD, not the sentence. The
+	// sentence lives once, in the editor, under the field it is about — a whole message
+	// here overflowed the row, and the operator saw three copies of one of them.
+	assert.match(page, /class="connection-state">failed/);
+	assert.doesNotMatch(page, /Connection returned a web page/);
+	// And the decoder's own words never reach the page at all, which is what this test
+	// was written for.
 	assert.doesNotMatch(page, /invalid character/);
 });
 
@@ -177,4 +183,28 @@ test("Connections Test consumes endpoint discovery and renders its model picker"
   assert.match(connections, /<select class="setting-input"/);
   assert.match(connections, /discovery-note/);
 	assert.match(connections, /split\(\/\[\\\\\/\]\//);
+});
+
+// Item 2nb (f): THE KEY IS NEVER TEXT. The field used to be rendered with the server's
+// mask as its VALUE, so the placeholder for a stored key was a submittable string in an
+// input that could be shown, copied or half-edited. It is empty now, with a note beside
+// it, and what "show" reveals is only what was typed this session — because that is the
+// only thing the field ever holds. Asserted on the source, because this suite renders
+// pages with a stubbed field helper.
+test("the API key field never carries the stored-key mask as its value", () => {
+	const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
+	const secret = controller.slice(controller.indexOf("function secret("), controller.indexOf("function toggle("));
+	assert.doesNotMatch(secret, /value="\$\{attr\(current\(path/, "the field still renders the stored value");
+	assert.match(secret, /typedThisSession/, "the field does not render only what was typed");
+	assert.match(secret, /control-note">\$\{typedThisSession \? "replacing the stored key" : "stored"\}/);
+	assert.match(secret, /leave empty to keep the stored key/);
+});
+
+// And the server refuses a masked value outright rather than silently dropping it.
+test("the configuration route refuses an API key that still holds the mask", () => {
+	const source = fs.readFileSync(new URL("../../internal/web/server_connections.go", import.meta.url), "utf8");
+	assert.match(source, /func patchCarriesMaskedKey/);
+	assert.match(source, /still holds the placeholder for a stored key/);
+	// A refusal, not a delete: the old merge dropped an exact match and stored anything else.
+	assert.match(source, /strings\.Contains\(value, maskedKeySentinel\)/);
 });

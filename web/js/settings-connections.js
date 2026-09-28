@@ -7,9 +7,9 @@ const connectionIcons = {
   trash: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M6 2h4v1h3v1H3V3h3V2Zm-2 3h8l-.7 9H4.7L4 5Zm2.2 1 .4 7h1V6H6.2Zm3.6 0H8.8v7h1l.4-7Z"/></svg>',
 };
 
-let expanded, advancedConnections, armed, drafts, errors, probeMessages, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store;
+let expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store;
 function useSettingsContext(context) {
-  ({ expanded, advancedConnections, armed, drafts, errors, probeMessages, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store } = context);
+  ({ expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store } = context);
 }
 
 function connections() {
@@ -27,10 +27,22 @@ function connections() {
       // unsaved changes by design. The result of the test is what the operator
       // asked for and comes first; "unsaved" is appended rather than replacing it,
       // because a bare "unsaved" hides whether the connection actually works.
+      // Item 2nb (g): THE HEADER CARRIES THE STATE WORD ONLY, never the message. A
+      // whole sentence here overflowed the row, and the same sentence was already
+      // under the field it is about. The word is derived from the message rather than
+      // being the message.
+      const stateWord = (message) => {
+        const text = String(message || "").toLowerCase();
+        if (/wants an api key|api key/.test(text)) return "wants key";
+        if (/no model|not served|lists no|0 model/.test(text)) return "no models";
+        if (/^test failed|failed|refused|timed out|malformed/.test(text)) return "failed";
+        if (/^test passed|ready/.test(text)) return "ready";
+        return "";
+      };
       const testState = connection._probing
         ? "testing"
-        : feedback?.message
-          ? feedback.message + (hasPendingChanges ? " · unsaved" : "")
+        : (feedback?.message && stateWord(feedback.message))
+          ? stateWord(feedback.message) + (hasPendingChanges ? " · unsaved" : "")
           : hasPendingChanges
             ? "unsaved"
             : failed
@@ -148,18 +160,45 @@ function connectionFields(connection, reason, discovery) {
   ].map(([name, label, step, disabled]) => `<div class="sampling-label">${html(label)}</div>${["thinking", "nonthinking"].map((mode) => `<div>${numberControl(`${p}.sampling.${mode}.${name}`, connection.sampling[mode][name], step, disabled)}${disabled ? '<span class="control-note">llama.cpp only</span>' : ""}</div>`).join("")}`).join("");
 	const discoveredModels = discovery?.models || [];
 	const modelName = (model) => String(model).split(/[\\/]/).pop();
-	const picker = discoveredModels.length
-	  ? `<select class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text">${!discoveredModels.includes(connection.model) && connection.model ? `<option value="${attr(connection.model)}" selected>${html(connection.model)}</option>` : ""}${discoveredModels.map((model) => `<option value="${attr(model)}" title="${attr(model)}" ${model === connection.model ? "selected" : ""}>${html(modelName(model))}</option>`).join("")}</select>`
-	  : `<input class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text" value="${attr(connection.model || "")}">`;
+	// Item 2nb (c): THE MODEL IS A DROPDOWN, ALWAYS. It used to be a text box until
+	// Test had listed something, which invited the operator to type a name nobody had
+	// checked — and the literal placeholder `model` that a new connection carried was
+	// exactly such a name, saved and then refused elsewhere. Empty now says what to do
+	// instead, and a server that cannot enumerate is one explicit choice away.
+	const typedByHand = typedModels?.has(id);
+	const savedModel = (connection.model || "").trim();
+	const options = [];
+	if (!discoveredModels.length && !savedModel) {
+		options.push(`<option value="" selected>Test to list models</option>`);
+	} else if (savedModel && !discoveredModels.includes(savedModel)) {
+		options.push(`<option value="${attr(savedModel)}" selected>${html(modelName(savedModel))}</option>`);
+	}
+	// The first entry is preselected when nothing is saved yet, so Test leaves a
+	// usable choice rather than an empty field.
+	discoveredModels.forEach((model, index) => {
+		const chosen = savedModel ? model === savedModel : index === 0;
+		options.push(`<option value="${attr(model)}" title="${attr(model)}" ${chosen ? "selected" : ""}>${html(modelName(model))}</option>`);
+	});
+	options.push(`<option value="__type__">type a name…</option>`);
+	const picker = typedByHand
+	  ? `<input class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text" value="${attr(connection.model || "")}" placeholder="the model name this server expects">`
+	  : `<select class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text">${options.join("")}</select>`;
 	// Item 2l1 (a2): one action, not two. Test contacts the address once and fills
 	// the picker and the connection settings from that single result.
 	const modelControl = row("model", `<span class="settings-actions">${picker}</span>`, "", "Filled by Test from what the server lists; type a name by hand when a server cannot enumerate.");
-	const feedback = discovery?.message ? `<p class="settings-note ${discovery.alarm ? "alarm" : ""}">${html(discovery.message)}</p>` : "";
+	// Item 2nb (g): ONE MESSAGE, ONE PLACE. The discovery result used to be rendered
+	// twice — once under base_url and once beside the Evaluation Harness button — and
+	// the operator saw three copies of one sentence. It belongs under the field it is
+	// about, and the row header carries the state word only.
+	const feedback = "";
 	const measurement = connection.measurement;
 	const measurementResult = measurement ? renderMeasurement(measurement) : "";
+	// The one note: the result of the last Test, or what discovery found.
+	const noteText = discovery?.message || (discovery?.base_url ? (discovery.found || `found ${discovery.base_url}`) : "");
+	const discoveryNote = noteText ? `<p class="settings-note discovery-note ${discovery?.alarm ? "alarm" : ""}">${html(noteText)}</p>` : "";
 	const state = reason || (caps.probed_at ? "ready" : "not tested");
 	return `<div class="connection-fieldset connection-identity">${text(`${p}.label`, "label", connection.label, "text", "The name this connection is shown by.")}
-    ${text(`${p}.base_url`, "base_url", connection.base_url, "text", "The server address; Test and fill discovers its API path and port, lists models and proposes the rest.")}${discovery?.base_url ? `<p class="settings-note discovery-note">${html(discovery.found || `found ${discovery.base_url}`)}</p>` : ""}
+    ${text(`${p}.base_url`, "base_url", connection.base_url, "text", "The server address; Test and fill discovers its API path and port, lists models and proposes the rest.")}${discoveryNote}
 	${text(`${p}.credential`, "credential ref", connection.credential || "", "text", "The name the stored API key is kept under; the key itself is never in the configuration.")}
     ${secret(`${p}.api_key`, "api_key", connection.api_key, id, "API keys are stored in user-scoped DPAPI storage; configuration keeps only the credential reference.")}
     ${modelControl}

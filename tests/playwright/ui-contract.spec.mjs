@@ -16,9 +16,13 @@ const indexHTML = await readFile(new URL("../../web/index.html", import.meta.url
 // adopted #activity-panel inside the Settings sheet.
 function activityMarkup() {
   const start = indexHTML.indexOf('<div id="activity-panel"');
-  const end = indexHTML.indexOf('<div id="dissolved-sources"', start) > 0
-    ? indexHTML.indexOf('<div id="dissolved-sources"', start)
-    : indexHTML.indexOf("</div>\n</body>", start);
+  // The end is the NEXT thing in the holder, whatever it is. Item 2no put the Plan's
+  // own markup after this panel, and a slice that ran to the end of the document
+  // dragged the Plan's textarea in and reported it as an Activity offender.
+  const boundaries = ['<!-- Item 2no', '<div id="plan-panel"', '<div id="dissolved-sources"']
+    .map((marker) => indexHTML.indexOf(marker, start))
+    .filter((index) => index > start);
+  const end = boundaries.length ? Math.min(...boundaries) : indexHTML.indexOf("</div>\n</body>", start);
   return indexHTML.slice(start, end > start ? end : indexHTML.length);
 }
 
@@ -81,7 +85,8 @@ test("the connection row actions are the sheet's normal control size", async ({ 
 // supplied the artwork and asked for "a very brief description adjacent that
 // explains how planning works".
 test("the Plan header carries the artwork and three lines about planning", async ({ page }) => {
-  const planHTML = await readFile(new URL("../../web/plan.html", import.meta.url), "utf8");
+  // Item 2no: the Plan section lives in the one document now.
+  const planHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
   const intro = planHTML.slice(planHTML.indexOf('<div class="plan-intro">'), planHTML.indexOf("</div>", planHTML.indexOf('<div class="plan-intro">')));
   expect(intro, "the Plan page has no header block").toContain("/static/assets/plan-mark.png");
   const copy = /<p>([\s\S]*?)<\/p>/.exec(intro)?.[1] ?? "";

@@ -35,11 +35,15 @@ const entry = (() => {
   const search = new URLSearchParams(location.search);
   const requested = location.hash.match(/^#settings(?:\/([a-z-]+))?$/);
   const from = search.get("from");
+  // Item 2no (d): /plan STILL ANSWERS, and it lands on Settings > Plan. So does
+  // ?from=plan, which used to mean "another document sent you here and closing goes
+  // back to it" — there is no other document now, so it names the section instead.
+  const plan = location.pathname === "/plan" || from === "plan";
   return {
-    settings: requested ? (requested[1] || "connections") : "",
-    // The view to return to when Settings closes. Only another document can
-    // ask for this; inside this one, Settings closes onto the chat beneath it.
-    from: from === "plan" ? "plan" : "",
+    settings: requested ? (requested[1] || "connections") : (plan ? "plan" : ""),
+    // The view to return to when Settings closes. Inside this one document, Settings
+    // closes onto the chat beneath it.
+    from: "",
   };
 })();
 

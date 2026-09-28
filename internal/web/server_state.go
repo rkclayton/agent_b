@@ -240,7 +240,10 @@ func (s *Server) pageContent(w http.ResponseWriter, r *http.Request) {
 	} else if r.URL.Path == "/chat" {
 		name = "index.html"
 	} else if r.URL.Path == "/plan" {
-		name = "plan.html"
+		// Item 2no: the Plan is a Settings section, so /plan is the SAME document
+		// every other route serves; the client opens Settings on its Plan section.
+		// It still answers, because a deep link and a bookmark still exist.
+		name = "index.html"
 	} else if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return

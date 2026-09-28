@@ -66,3 +66,25 @@
   color: var(--mute);
   font: 12px/18px var(--sans);
 }
+
+/* Item 2no (c): LAID OUT TO FIT THE PANE. The workspace was a page: a grid sized to
+   the whole viewport height, with a flyout column that took 22vw of it. Inside the
+   Settings pane it is a section body like any other — it fills the pane it is given,
+   its flyout takes a share of the pane rather than of the window, and at the narrow
+   widths the sheet reaches it stacks instead of scrolling sideways. The window
+   minimum v1.33.0 shipped (320 x 293, a 304 x 254 client) is the narrowest this has
+   to hold. */
+.settings-content .plan-workspace {
+  height: auto;
+  min-height: min(620px, calc(100dvh - 180px));
+  grid-template-columns: clamp(150px, 26%, 260px) minmax(0, 1fr);
+}
+@media (max-width: 760px) {
+  .settings-content .plan-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+  .settings-content .plan-flyout { max-height: 40vh; }
+  .settings-content .plan-intro { grid-template-columns: minmax(0, 1fr); }
+  .settings-content .plan-intro-mark { display: none; }
+}

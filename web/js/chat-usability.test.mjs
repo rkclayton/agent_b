@@ -12,7 +12,9 @@ const settings = (await Promise.all([
   "settings.js", "settings-chats.js", "settings-connections.js", "settings-general.js", "settings-context.js", "settings-run.js",
   "settings-about.js", "settings-workspace.js", "settings-security.js",
 ].map((name) => readFile(new URL(`./${name}`, import.meta.url), "utf8")))).join("\n");
-const plan = await readFile(new URL("../plan.html", import.meta.url), "utf8");
+// Item 2no: the Plan is a Settings section, so its markup is in the one document
+// beside the panels Settings adopts. There is no plan.html any more.
+const plan = html;
 const consoleHTML = await readFile(new URL("../index.html", import.meta.url), "utf8");
 
 test("Chat has fence-only copy and documents composer keys", () => {
@@ -182,7 +184,10 @@ test("new chats expose no folder selection surface", () => {
 
 test("Composer is five lines with no placeholder and expands upward", () => {
   assert.match(html, /textarea id="chat-task" rows="5" aria-label="Task"><\/textarea>/);
-  assert.doesNotMatch(html, /placeholder=/);
+  // The composer, not the whole document: item 2no moved the Plan's own markup into
+  // this file, and its search box and folder field carry placeholders of their own.
+  const composer = html.slice(html.indexOf('<footer id="chat-composer"'), html.indexOf("</footer>", html.indexOf('<footer id="chat-composer"')));
+  assert.doesNotMatch(composer, /placeholder=/);
   assert.match(css, /height:\s*112px/);
 	// Item 2ld (a) and (b): the composer takes the height the operator dragged the
 	// strip to; the two predetermined heights and the control that stepped through

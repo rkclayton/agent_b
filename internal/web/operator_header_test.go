@@ -21,8 +21,11 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 
 	// Item 2gk (v1.2.3): both routes of the served document show the chat now;
 	// the page that "/" used to open is dissolved into Settings.
+	// Item 2no: and so is the Plan. /plan still answers — a bookmark and a deep link
+	// still exist — and it serves the SAME document, which opens Settings on its Plan
+	// section. There is no second page left to serve.
 	for _, item := range []struct{ path, page string }{
-		{"/", "chat"}, {"/chat", "chat"}, {"/plan", "plan"},
+		{"/", "chat"}, {"/chat", "chat"}, {"/plan", "chat"},
 	} {
 		request := httptest.NewRequest(http.MethodGet, item.path, nil)
 		response := httptest.NewRecorder()

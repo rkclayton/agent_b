@@ -1,6 +1,14 @@
-// The Plan page (item 2fc): every plan in a flyout, one plan's raw plan.md and its numbers.
+// The Plan (item 2fc): every plan in a flyout, one plan's raw plan.md and its numbers.
+//
+// Item 2no: IT IS A SETTINGS SECTION NOW, NOT A PAGE. It used to own a document -- it
+// called initShell for the whole window, read the address for its state, rewrote that
+// address as the selection moved, subscribed to the bus at import and never
+// unsubscribed, and started a thirty-second timer nothing ever cleared. All of that is
+// page lifetime, and a section has a mount lifetime instead: mountPlan() when Settings
+// adopts the panel, unmountPlan() when it gives it back. The nodes themselves are the
+// ones index.html carries, moved rather than rebuilt, so every listener wired here at
+// import is still wired to the node the operator clicks.
 import { api, store, subscribe } from "./bus.js";
-import { initShell } from "./shell.js";
 import { changedLines, fadeFor, filterPlans, markerSummary } from "./plan-surface.js";
 
 // The page is plan-centric. The left flyout lists every plan with a search and
@@ -9,7 +17,6 @@ import { changedLines, fadeFor, filterPlans, markerSummary } from "./plan-surfac
 // that changed since the page opened (or the last hour) highlighted and
 // fading, its numbers beside or below it, and Go in its header. Proposals are
 // not drawn here: they sit in the planning chat's own thread.
-initShell({ page: "plan" });
 const byID = (id) => document.getElementById(id);
 const roots = {
   search: byID("plan-search"), add: byID("plan-add"), form: byID("plan-add-form"), path: byID("plan-add-path"), addError: byID("plan-add-error"),
@@ -17,6 +24,9 @@ const roots = {
   wizard: byID("plan-wizard"), wizardLabel: byID("plan-wizard-label"), wizardValue: byID("plan-wizard-value"), wizardNext: byID("plan-wizard-next"), wizardSkip: byID("plan-wizard-skip"),
   name: byID("plan-name"), go: byID("plan-go"), auto: byID("plan-auto"), lint: byID("plan-lint"), refusal: byID("plan-refusal"), done: byID("plan-done"), raw: byID("plan-raw"), stats: byID("plan-stats"),
 };
+// The address is read ONCE, at import, before the workspace rewrites it to the chat's
+// own path: a deep link of /plan?plan=<id> or ?session=<id> is honoured, and nothing
+// here writes to the address afterwards -- a section does not own it.
 const params = new URLSearchParams(location.search);
 let plans = [];
 let selected = params.get("plan") || "";
@@ -33,17 +43,36 @@ let goTimer = 0;
 let plansLoaded = false;
 let autoArmed = "";
 
-void loadPlans();
-setInterval(renderRaw, 30000);
+let unsubscribe = null;
+let rawTimer = 0;
 
-subscribe((_state, event) => {
-  resolveFromSession();
-  if (["plan.created", "plan.updated", "plan.removed"].includes(event?.type)) {
-    void loadPlans();
-    if (event.data?.plan_id === selected) void loadPlan();
-  }
-  scheduleGo();
-});
+// mountPlan is called when Settings adopts the panel into its Plan section, and it is
+// safe to call twice: a second mount while one is live does nothing.
+export function mountPlan() {
+  if (unsubscribe) return;
+  unsubscribe = subscribe((_state, event) => {
+    resolveFromSession();
+    if (["plan.created", "plan.updated", "plan.removed"].includes(event?.type)) {
+      void loadPlans();
+      if (event.data?.plan_id === selected) void loadPlan();
+    }
+    scheduleGo();
+  });
+  rawTimer = setInterval(renderRaw, 30000);
+  void loadPlans();
+}
+
+// unmountPlan is called when the panel goes back to its holder. Everything this
+// section started stops: no subscriber drawing into nodes nobody can see, no timer,
+// no pending Go poll.
+export function unmountPlan() {
+  if (unsubscribe) unsubscribe();
+  unsubscribe = null;
+  if (rawTimer) clearInterval(rawTimer);
+  rawTimer = 0;
+  if (goTimer) clearTimeout(goTimer);
+  goTimer = 0;
+}
 
 // Opened from a chat (?session=): its bound plan, once both the snapshot and
 // the plan list are here; a chat bound to none, or gone, shows the first plan.
@@ -92,9 +121,9 @@ function select(id) {
   if (id === selected) return;
   selected = id;
   loadAuto();
-  params.set("plan", id);
-  params.delete("session");
-  history.replaceState(null, "", `/plan?${params}`);
+  // Item 2no (a): no address change beyond what other sections do. Choosing a plan
+  // used to rewrite the document's address to /plan?plan=<id>; the selection is this
+  // section's state, and Settings' own `#settings/plan` is the address.
   renderList();
   void loadPlan();
 }

@@ -163,13 +163,51 @@ func (m *windowsManager) Setup(ctx context.Context, account, credentialPath stri
 			message = first
 		}
 		return SetupResult{Attempted: true, Launch: LaunchStarted, Result: result, LogPath: logPath},
-			fmt.Errorf("%s (full output: %s)", message, logPath)
+			fmt.Errorf("%s (full output: %s)", partialRepairNote(logPath, message), logPath)
 	}
 	if result != nil && !result.Ok {
 		return SetupResult{Attempted: true, Launch: LaunchStarted, Result: result, LogPath: logPath},
-			fmt.Errorf("%s (full output: %s)", result.Message, logPath)
+			fmt.Errorf("%s (full output: %s)", partialRepairNote(logPath, result.Message), logPath)
 	}
 	return SetupResult{Attempted: true, Launch: LaunchStarted, Result: result, LogPath: logPath}, nil
+}
+
+// partialRepairNote is item 2nl (d): A PARTIAL REPAIR IS SAID PLAINLY.
+//
+// A Repair is three things -- the account and its credential, the folder protections,
+// the network policy -- and the operator's run on 2026-09-28 did the first two and
+// refused on the third. What he was told was that the protections "were not applied",
+// which is wrong about the half that worked and silent about which half did not. The
+// child says when each half is done; this reads that back and names all three.
+func partialRepairNote(logPath, reason string) string {
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return reason
+	}
+	log := string(data)
+	account := strings.Contains(log, "VALIDATED: the supplied credential")
+	protections := strings.Contains(log, "AGENTB_HARDENING_STEP=protections")
+	network := strings.Contains(log, "AGENTB_HARDENING_STEP=network")
+	if !account && !protections {
+		// Nothing got far enough for a part-by-part sentence to say more than the reason.
+		return reason
+	}
+	say := func(done bool, yes, no string) string {
+		if done {
+			return yes
+		}
+		return no
+	}
+	parts := []string{
+		say(account, "account repaired and credential valid", "account NOT repaired"),
+		say(protections, "folder protections applied", "folder protections NOT applied"),
+		say(network, "network policy applied", "network policy NOT applied"),
+	}
+	sentence := strings.Join(parts, "; ")
+	if reason = strings.TrimSpace(reason); reason != "" {
+		sentence += " — " + reason
+	}
+	return sentence
 }
 
 // resultPaths names the two files this run writes: the child's result and the
@@ -222,12 +260,34 @@ func (m *windowsManager) writeLauncherLog(path string, output []byte) {
 // <line>, then the source line and the CategoryInfo — and the FIRST line is the one a
 // person can act on. The marker lines the wrapper and the launcher write are skipped,
 // and so is the CLIXML noise item 2kk documented, because neither is a reason.
+// childErrorMarker is the wrapper's one-line report of a child's terminating error,
+// written by scripts/run-elevated-provision.ps1.
+const childErrorMarker = "AGENTB_CHILD_ERROR "
+
 func firstErrorLine(path string) string {
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
-	for _, raw := range strings.Split(strings.ReplaceAll(string(bytes), "\r\n", "\n"), "\n") {
+	lines := strings.Split(strings.ReplaceAll(string(bytes), "\r\n", "\n"), "\n")
+	// Item 2nl (a): THE WHOLE SENTENCE FIRST. The wrapper catches the child's terminating
+	// errors where the message is still one string and writes it on one marked line,
+	// because a console-less PowerShell breaks its own error text at 80 columns and the
+	// halves arrived in the log with the first one's decoration between them -- which is
+	// how Repair came to say "A parameter cannot be found that" and stop. When the marked
+	// line is there, it IS the reason.
+	for _, raw := range lines {
+		line := strings.TrimSpace(strings.TrimPrefix(raw, "\ufeff"))
+		if rest, ok := strings.CutPrefix(line, childErrorMarker); ok {
+			if rest = strings.TrimSpace(rest); rest != "" {
+				if len(rest) > 400 {
+					rest = rest[:400]
+				}
+				return rest
+			}
+		}
+	}
+	for _, raw := range lines {
 		// A UTF-8 BOM rides the log's first line. Without trimming it the wrapper's own
 		// marker stopped looking like a marker and was reported as the reason.
 		line := strings.TrimSpace(strings.TrimPrefix(raw, "\ufeff"))

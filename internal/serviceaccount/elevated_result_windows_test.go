@@ -391,3 +391,77 @@ func TestAFailureAboveTheResultWriterIsCapturedAndQuoted2ng(t *testing.T) {
 		t.Errorf("the log is %d bytes, which is the size that told him nothing", len(captured))
 	}
 }
+
+// Item 2nl (a): THE WHOLE SENTENCE, NOT ITS FIRST HALF. This is the operator's own log
+// of 2026-09-28 in shape: a console-less PowerShell wrapped its error at 80 columns, so
+// the two halves of one sentence arrived with the first one's decoration between them
+// and the reason he was shown ended at "A parameter cannot be found that". The wrapper
+// writes the caught message on one marked line now, and that line is the reason.
+func TestTheWholeBindingMessageIsTheReason2nl(t *testing.T) {
+	directory := t.TempDir()
+	log := filepath.Join(directory, "service-identity.log")
+	body := strings.Join([]string{
+		"AGENTB_ELEVATED_WRAPPER_STARTED 2026-09-28T14:05:37.9776317Z",
+		"VALIDATED: the supplied credential successfully authenticated with LogonUser.",
+		"AGENTB_HARDENING_STEP=protections",
+		"AGENTB_CHILD_ERROR A parameter cannot be found that matches parameter name 'Connection'.",
+		"AGENTB_ELEVATED_WRAPPER_EXIT 1",
+	}, "\r\n")
+	if err := os.WriteFile(log, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reason := firstErrorLine(log)
+	if reason != "A parameter cannot be found that matches parameter name 'Connection'." {
+		t.Fatalf("the reason is %q, which is not the whole sentence", reason)
+	}
+}
+
+// Item 2nl (d): a repair that did two of three things says so, and names which one it
+// did not do.
+func TestAPartialRepairNamesEachHalf2nl(t *testing.T) {
+	directory := t.TempDir()
+	log := filepath.Join(directory, "service-identity.log")
+	body := strings.Join([]string{
+		"VALIDATED: the supplied credential successfully authenticated with LogonUser.",
+		"AGENTB_HARDENING_STEP=protections",
+		"AGENTB_CHILD_ERROR A parameter cannot be found that matches parameter name 'Connection'.",
+	}, "\r\n")
+	if err := os.WriteFile(log, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	note := partialRepairNote(log, firstErrorLine(log))
+	for _, want := range []string{
+		"account repaired and credential valid",
+		"folder protections applied",
+		"network policy NOT applied",
+		"parameter name 'Connection'",
+	} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the partial repair does not say %q: %q", want, note)
+		}
+	}
+
+	// And a run that finished all three says nothing about a part that is missing.
+	whole := filepath.Join(directory, "whole.log")
+	if err := os.WriteFile(whole, []byte(strings.Join([]string{
+		"VALIDATED: the supplied credential successfully authenticated with LogonUser.",
+		"AGENTB_HARDENING_STEP=protections",
+		"AGENTB_HARDENING_STEP=network",
+		"AGENTB_HARDENING_COMPLETE=Apply",
+	}, "\r\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if note := partialRepairNote(whole, "something else went wrong"); strings.Contains(note, "NOT") {
+		t.Errorf("a complete run is described as partial: %q", note)
+	}
+
+	// A log that never got as far as the account keeps the reason it was given rather
+	// than inventing a part-by-part sentence about steps that never ran.
+	bare := filepath.Join(directory, "bare.log")
+	if err := os.WriteFile(bare, []byte("AGENTB_ELEVATED_WRAPPER_STARTED"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if note := partialRepairNote(bare, "elevation was declined"); note != "elevation was declined" {
+		t.Errorf("a run that did nothing is described as a partial repair: %q", note)
+	}
+}

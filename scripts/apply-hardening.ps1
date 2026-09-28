@@ -89,12 +89,20 @@ Write-Host "Workspace: $WorkspaceDirectory"
 Write-Host "Exchange: $ExchangeDirectory"
 Write-Host "Model endpoint: $ModelAddress`:$ModelPort"
 
+# Item 2nl (d): EACH HALF SAYS WHEN IT IS DONE, so a repair that gets part of the way
+# can be described as the part it got. The operator's run applied every folder
+# protection and then refused on the network policy, and all he was told was that the
+# protections "were not applied".
 if ($Mode -eq 'Remove') {
     Invoke-HardeningScript -Path $firewallScript -Arguments $firewallArguments
+    Write-Host 'AGENTB_HARDENING_STEP=network'
     Invoke-HardeningScript -Path $aclScript -Arguments $aclArguments
+    Write-Host 'AGENTB_HARDENING_STEP=protections'
 } else {
     Invoke-HardeningScript -Path $aclScript -Arguments $aclArguments
+    Write-Host 'AGENTB_HARDENING_STEP=protections'
     Invoke-HardeningScript -Path $firewallScript -Arguments $firewallArguments
+    Write-Host 'AGENTB_HARDENING_STEP=network'
 }
 
 if ($Mode -eq 'Apply' -and -not $WhatIfPreference) {

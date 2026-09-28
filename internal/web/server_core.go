@@ -73,40 +73,43 @@ type Server struct {
 	accountMu          sync.Mutex
 	credentialRejected bool
 	mutationToken      string
-	operatorChangeMu   sync.Mutex
-	operatorMu         sync.Mutex
-	operatorEnabled    bool
-	operatorExpires    string
-	operatorTimer      operatorTimer
-	operatorEpoch      uint64
-	operatorRequest    func(*http.Request) error
-	operatorNow        func() time.Time
-	operatorAfter      func(time.Duration, func()) operatorTimer
-	browserSession     string
-	phoneDevices       *phoneDevices
-	push               *push.Manager
-	openFolder         func(string) error
-	openFile           func(string) error
-	extractClient      *http.Client
-	ocrExtract         func(string) (string, error)
-	ocrPDF             func(string, int) (string, error)
-	detectLocal        func(context.Context, string) (any, error)
-	workspaceState     *workspaceinfo.Manager
-	memoryState        *memory.Manager
-	reflection         *reflectionState
-	proposals          *proposalOffers
-	speech             speechProbe
-	speechCommand      func(context.Context, string, ...string) *exec.Cmd
-	modelInstaller     *modelinstall.Manager
-	measureMu          sync.RWMutex
-	measurements       map[string]measureState
-	measureCancels     map[string]context.CancelFunc
-	statsState         *stats.Manager
-	operatorFiles      *operatorfiles.Manager
-	profiles           *profiles.Manager
-	profileChanged     func(string) error
-	probeMu            sync.Mutex
-	probeCancels       map[string]*probeRun
+	// Item 2mx: submissions already answered, so a phone's retry does not start a
+	// second run.
+	submissions      *idempotentSubmissions
+	operatorChangeMu sync.Mutex
+	operatorMu       sync.Mutex
+	operatorEnabled  bool
+	operatorExpires  string
+	operatorTimer    operatorTimer
+	operatorEpoch    uint64
+	operatorRequest  func(*http.Request) error
+	operatorNow      func() time.Time
+	operatorAfter    func(time.Duration, func()) operatorTimer
+	browserSession   string
+	phoneDevices     *phoneDevices
+	push             *push.Manager
+	openFolder       func(string) error
+	openFile         func(string) error
+	extractClient    *http.Client
+	ocrExtract       func(string) (string, error)
+	ocrPDF           func(string, int) (string, error)
+	detectLocal      func(context.Context, string) (any, error)
+	workspaceState   *workspaceinfo.Manager
+	memoryState      *memory.Manager
+	reflection       *reflectionState
+	proposals        *proposalOffers
+	speech           speechProbe
+	speechCommand    func(context.Context, string, ...string) *exec.Cmd
+	modelInstaller   *modelinstall.Manager
+	measureMu        sync.RWMutex
+	measurements     map[string]measureState
+	measureCancels   map[string]context.CancelFunc
+	statsState       *stats.Manager
+	operatorFiles    *operatorfiles.Manager
+	profiles         *profiles.Manager
+	profileChanged   func(string) error
+	probeMu          sync.Mutex
+	probeCancels     map[string]*probeRun
 	// Item 2gy: how many inconclusive probes a connection has had in a row, which
 	// is where it stands on the backoff ladder.
 	probeRetries      map[string]int
@@ -138,7 +141,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 	cfg.Shell.OperatorContext = false
 	cfg.Shell.OperatorContextExpiresAt = ""
 	server := &Server{
-		cfg: cfg, configPath: path, webDir: webDir, roots: roots, bus: bus, mutationToken: newMutationToken(), browserSession: newMutationToken(), phoneDevices: newPhoneDevices(),
+		cfg: cfg, configPath: path, webDir: webDir, roots: roots, bus: bus, mutationToken: newMutationToken(), browserSession: newMutationToken(), phoneDevices: newPhoneDevices(), submissions: newIdempotentSubmissions(),
 		startedAt:       time.Now().UTC().Format(time.RFC3339),
 		operatorRequest: requireOperatorHTTPClient,
 		operatorNow:     time.Now,
@@ -369,6 +372,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/service-account", s.replayGuard(s.serviceAccount))
 	mux.HandleFunc("/api/hardening", s.replayGuard(s.hostHardening))
 	mux.HandleFunc("/api/message", s.replayGuard(s.message))
+	// Item 2mx: one read a voice assistant can speak, for a run it just started.
+	mux.HandleFunc("/api/runs/", s.replayGuard(s.runBrief))
 	mux.HandleFunc("/api/stop", s.replayGuard(s.stop))
 	mux.HandleFunc("/api/host-window", s.replayGuard(s.hostWindow))
 	// Item 2ge: the composer microphone asks the host what it can do.

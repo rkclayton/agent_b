@@ -60,11 +60,14 @@ var scopes = map[string]Scope{
 	"tools":          ScopeMachine, // limits and guards on what tools may do
 
 	// ------------------------------------------------------------- per-profile
-	"chat":          ScopeProfile, // item 2lj (d): typography and density
-	"run":           ScopeProfile, // the dials a person tunes to their own patience
-	"context":       ScopeProfile, // accounting and compaction thresholds
-	"memory":        ScopeProfile, // a profile already owns its memory directory
-	"reflection":    ScopeProfile, // item 2ls's floor, which is a working preference
+	"chat":       ScopeProfile, // item 2lj (d): typography and density
+	"run":        ScopeProfile, // the dials a person tunes to their own patience
+	"context":    ScopeProfile, // accounting and compaction thresholds
+	"memory":     ScopeProfile, // a profile already owns its memory directory
+	"reflection": ScopeProfile, // item 2ls's floor, which is a working preference
+	// Item 2mx: the chat a spoken request lands in. A session belongs to a profile, so
+	// switching profile must not send a voice request into another profile's chat.
+	"voice":         ScopeProfile,
 	"agents":        ScopeProfile, // already per-profile before this item
 	"deliver":       ScopeProfile, // already per-profile
 	"notifications": ScopeProfile, // already per-profile

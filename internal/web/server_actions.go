@@ -22,6 +22,28 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
+	// Item 2mx: A SUBMIT THAT CAN BE REPEATED. Siri retries on a flaky network, and a
+	// retried request that starts a SECOND run is worse than one that fails. The key is a
+	// header, so the body shape is unchanged for every existing caller.
+	key := idempotencyKeyOf(r)
+	if len(key) > idempotencyKeyMax {
+		writeError(w, http.StatusBadRequest, "Idempotency-Key is too long", "Idempotency-Key")
+		return
+	}
+	if reply, found := s.submissions.remembered(key); found {
+		// The same answer as the first time, and no second run.
+		writeJSON(w, reply.status, reply.body)
+		return
+	}
+	// Item 2mx: a spoken request names no chat, so it lands in the one the server keeps.
+	if strings.TrimSpace(body.SessionID) == "" {
+		voice, err := s.voiceSessionID()
+		if err != nil {
+			writeError(w, http.StatusConflict, err.Error(), "session_id")
+			return
+		}
+		body.SessionID = voice
+	}
 	attachments, err := s.validateMessageAttachments(body.SessionID, body.Attachments)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error(), "attachments")
@@ -40,6 +62,7 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err.Error(), "session_id")
 		return
 	}
+	s.submissions.remember(key, 202, result)
 	writeJSON(w, 202, result)
 }
 

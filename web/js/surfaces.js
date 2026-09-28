@@ -31,10 +31,13 @@ export function sameSurface(a, b) {
   return !!a && !!b && a.kind === b.kind && a.key === b.key;
 }
 
-// The static surfaces, in the order they are pinned, AFTER every chat. Plan does
-// not sort with the chats and does not move when one opens, closes or reorders,
-// because it is not in the list that sorting touches.
-export const STATIC_SURFACES = Object.freeze([PLAN_SURFACE]);
+// The static surfaces the STRIP pins after every chat. Item 2ni emptied this list:
+// "why is plan a chat tab on the left side? ... i decided i think i want it under
+// settings, as its own top level item". The Plan is a Settings section now, so the
+// strip is chats only again. The list and the machinery around it stay, because the
+// next static surface will not need this argued a third time, and because a surface
+// is still what carries the Plan's page name and its URL.
+export const STATIC_SURFACES = Object.freeze([]);
 
 const STATIC_DETAIL = {
   [PLAN_KIND]: { label: "plan", title: "Plan", href: "/plan", page: "plan" },
@@ -78,6 +81,11 @@ export function surfaceForPage(page, sessionID = "") {
 //
 // Only a static surface may be hidden. A chat is closed, which is [[2hq]]'s
 // close-is-not-delete and a different thing entirely.
+//
+// Item 2ni: hiding the Plan now hides its SETTINGS SECTION rather than a tab that
+// no longer exists. The stored name, the config key and the switch are unchanged:
+// the operator's choice was "I do not want to see this", and that is still the
+// choice, applied where the entry now lives.
 export const HIDEABLE_KINDS = Object.freeze([PLAN_KIND]);
 
 export function canHide(surface) {

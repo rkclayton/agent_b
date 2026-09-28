@@ -58,9 +58,15 @@ const connectionList = () => Array.isArray(store.connections) ? store.connection
 // Item 2gk: Agents and Activity are where the page that used to stand on its
 // own now lives. They come first because they are what the operator opened
 // that page to read.
+// Item 2ni (a): and the Plan is one of them, its own top-level entry, third:
+// "why is plan a chat tab on the left side? ... i decided i think i want it under
+// settings, as its own top level item please implement." It comes after the two
+// the operator opened this sheet to read and before the machine settings, which is
+// where a document he writes in belongs.
 const sectionLabels = [
   ["agents", "Agents"],
   ["activity", "Activity"],
+  ["plan", "Plan"],
   ["connections", "Connections"],
   ["profiles", "Profiles"],
   ["chats", "Chats"],
@@ -249,6 +255,11 @@ function render() {
     // seat and the nodes are moved into it below.
     agents: () => '<div data-adopt="agents-panel"></div>',
     activity: () => '<div data-adopt="activity-panel"></div>',
+    // Item 2ni (a) and (b): the Plan page is its own document, so the entry NAVIGATES
+    // there and this body is only what is shown when it cannot. The availability rule
+    // that used to decide whether the tab existed decides that and nothing else: the
+    // entry is always here.
+    plan: () => planSection(),
     connections: () => renderConnectionsPage(settingsPageContext(active)),
     profiles: () => renderProfilesPage(settingsPageContext(active)),
     sessions: () => renderGeneralPage("sessions", active, settingsPageContext(active)),
@@ -272,7 +283,7 @@ function render() {
     </header>
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="Settings sections">
-        ${sectionLabels.map(([id, name]) => `<button type="button" class="${id === activeSection ? "selected" : ""}" data-action="settings-section" data-id="${id}" aria-current="${id === activeSection ? "page" : "false"}">${name}</button>`).join("")}
+        ${navSections().map(([id, name]) => `<button type="button" class="${id === activeSection ? "selected" : ""}" data-action="settings-section" data-id="${id}" aria-current="${id === activeSection ? "page" : "false"}">${sectionChip(id)}${name}</button>`).join("")}
       </nav>
       <div class="settings-content" tabindex="-1">${group(label, content[activeSection](), activeSection)}${confirmPopover()}</div>
     </div>`;
@@ -381,6 +392,40 @@ function controlKey(node) {
 // and Notifications, which an operator reaches from the nav, saying nothing. The
 // test was written second and found it.
 export const perProfileSections = new Set(["chats", "agents", "notifications"]);
+
+// Item 2ni (b): the AVAILABILITY RULE, moved with the Plan and not widened. It is
+// the rule the tab carried: the Plan is offered on a planner chat, or when no
+// separate d connection is configured at all. It decides what the section SHOWS.
+function planAvailable() {
+  const session = store.sessions?.[store.selection?.session_id || ""];
+  if (!session) return false;
+  const configured = (store.config.agents || []).find((agent) => agent.id === session.agent_id) || store.config.agents?.[0];
+  return session.role === "d" || !String(configured?.d || "").trim();
+}
+
+// Items 2le and 2lm, kept by 2ni: THE OPERATOR'S OWN PREPARED ARTWORK STAYS, and it
+// moves with the Plan. "i want this to be the new plan icon … maintain the color of
+// the icon itself" — the same three files at the same drawn 12px, beside the nav
+// entry now that the tab it sat in is gone. The size set is not optional: his own
+// display renders that box at 1.75x, so the browser picks.
+function sectionChip(id) {
+  if (id !== "plan") return "";
+  return '<img class="shell-page-chip" src="/static/assets/plan-mark-nav.png" srcset="/static/assets/plan-mark-nav.png 1x, /static/assets/plan-mark-nav@2x.png 2x, /static/assets/plan-mark-nav@3x.png 3x" width="12" height="12" alt="" decoding="async">';
+}
+
+function planSection() {
+  // The entry exists either way; this is the one line that says why the page is
+  // not here, in the words of the thing to do about it.
+  return `<p class="settings-plan-note">Assign a planner in Agents to write a plan. The Plan opens on a planner chat, or on any chat when one connection serves every role.</p>`;
+}
+
+// Item 2ni: hiding the Plan hides its ENTRY, which is the operator's own choice
+// from Settings > Chats. The availability rule never removes an entry (2ni (b));
+// only this does.
+function navSections() {
+  const hidden = new Set(Array.isArray(store.config.chat?.hidden_surfaces) ? store.config.chat.hidden_surfaces : []);
+  return sectionLabels.filter(([id]) => !(id === "plan" && hidden.has("plan")));
+}
 
 function group(name, content, section = "") {
   const scoped = perProfileSections.has(section)
@@ -699,6 +744,13 @@ async function dispatchAction(event, button, action, id) {
   // else. It is the explicit save 2l6 leaves in place for this surface.
   if (action === "save-connection") return void saveConnection(id);
   if (action === "settings-section") {
+    // Item 2ni (a): the Plan's page is a document of its own, so this entry opens it
+    // rather than drawing it. `from=settings` is how that document knows its gear is
+    // this sheet's close (2ni (c)).
+    if (id === "plan" && planAvailable()) {
+      const session = store.selection?.session_id || "";
+      return void location.assign(`/plan${session ? `?session=${encodeURIComponent(session)}&from=settings` : "?from=settings"}`);
+    }
     activeSection = id;
     history.replaceState(null, "", `#settings/${activeSection}`);
     return render();

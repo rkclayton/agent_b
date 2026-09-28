@@ -121,56 +121,43 @@ test("the phone viewport enrols into the shared chat surface without horizontal 
 	await phoneContext.close();
 });
 
-// Item 2mf: Plan is a SURFACE in the tab strip, pinned at the far right, and a
-// tab's identity is a kind and a key. Everything here is read from the running
-// app, because the whole point of the item is where the tab sits relative to the
-// chats and what happens when they change.
-test("the Plan tab is pinned after every chat, carries a kind and a key, and hides with a confirmation", async () => {
+// Item 2ni: THE PLAN IS A SETTINGS SECTION, NOT A TAB. "why is plan a chat tab on
+// the left side? it was supposed to be right side.. but i decided i think i want it
+// under settings, as its own top level item please implement." Everything here is
+// read from the running app, because the point of the item is where the entry sits
+// and what the strip looks like without it.
+test("the Plan is a top-level Settings section, not a tab, and the switch hides the entry", async () => {
 	const page = await harness.context.newPage();
 	await page.goto(`${harness.base}/chat`);
 	await expect(page.locator("#chat-log")).toBeVisible();
 
-	const plan = page.locator('.agent-tab-wrap-surface[data-surface-kind="plan"]');
-	await expect(plan).toHaveCount(1);
-	// The one-entry pages nav is gone.
+	// (b): the strip is chats only again. No surface tab, and no one-entry pages nav
+	// either — that went with item 2mf and does not come back.
+	await expect(page.locator(".agent-tab-wrap-surface")).toHaveCount(0);
 	await expect(page.locator(".shell-pages")).toHaveCount(0);
-
-	// (a): a kind and a key, and the chat kind carries the session.
-	await expect(plan).toHaveAttribute("data-surface-key", "plan");
 	const chatTab = page.locator(".agent-tab-wrap[data-session]").first();
 	await expect(chatTab).toHaveCount(1);
+	await expect(page.locator(".agent-tabs .agent-tab-wrap-surface")).toHaveCount(0);
 
-	// (c): pinned at the far RIGHT of the strip — last in the strip — and it stays
-	// last when another chat opens, which is the part a static entry gets wrong.
-	const lastOf = () => page.evaluate(() => {
-		const wraps = [...document.querySelectorAll(".agent-tabs .agent-tab-wrap")];
-		return { last: wraps.at(-1)?.dataset.surfaceKind || "", count: wraps.length };
-	});
-	const before = await lastOf();
-	expect(before.last).toBe("plan");
-	await page.locator(".agent-tab-new").click();
-	await expect.poll(async () => (await lastOf()).count).toBeGreaterThan(before.count);
-	expect((await lastOf()).last, "the Plan tab moved when a chat opened").toBe("plan");
-
-	// (g): no robot glyph and no run state on a surface tab.
-	await expect(plan.locator(".agent-tab-robot")).toHaveCount(0);
-	// [[2le]]/[[2lm]]: the operator's own prepared mark came with it.
-	await expect(plan.locator("img.shell-page-chip")).toHaveCount(1);
-
-	// (d): right-click offers Hide, and hiding ASKS FIRST, naming Settings.
-	await plan.locator(".agent-tab").click({ button: "right" });
-	const hide = plan.locator(".agent-chat-menu button");
-	await expect(hide).toHaveText(/Hide Plan/);
-	await hide.click();
-	const confirm = page.locator(".confirm-popover");
-	await expect(confirm).toBeVisible();
-	await expect(confirm.locator("p")).toHaveText(/turn it back on in Settings/);
-	await confirm.locator("button.default").click();
-	await expect(page.locator('.agent-tab-wrap-surface[data-surface-kind="plan"]')).toHaveCount(0);
-
-	// (e) and (f): Settings brings it back, and it returns to the far right.
+	// (a): one top-level entry, third, after the two the sheet is opened to read,
+	// carrying the operator's own prepared mark.
 	await page.locator(".shell-settings").click();
+	const nav = page.locator(".settings-nav button");
+	await expect(nav.nth(2)).toHaveAttribute("data-id", "plan");
+	await expect(nav.nth(2)).toHaveText(/Plan/);
+	await expect(page.locator('.settings-nav [data-id="plan"] img.shell-page-chip')).toHaveCount(1);
+
+	// The entry exists whatever the planner situation is; what changes is what it
+	// shows. On this chat there is no separate planner, so it opens the page.
+	await expect(page.locator('.settings-nav [data-id="plan"]')).toBeVisible();
+
+	// (b) and item 2mf (e)/(f): the switch hides the ENTRY now, and brings it back.
+	// Nothing about the page is discarded: its address still answers.
 	await page.locator('.settings-nav [data-id="chats"]').click();
 	await page.locator('[data-action="surface-visible"][data-surface="plan"]').click();
-	await expect.poll(async () => (await lastOf()).last).toBe("plan");
+	await expect.poll(async () => page.locator('.settings-nav [data-id="plan"]').count()).toBe(0);
+	const direct = await page.request.get(`${harness.base}/plan`);
+	expect(direct.status(), "the Plan's own address stopped answering when its entry was hidden").toBe(200);
+	await page.locator('[data-action="surface-visible"][data-surface="plan"]').click();
+	await expect.poll(async () => page.locator('.settings-nav [data-id="plan"]').count()).toBe(1);
 });

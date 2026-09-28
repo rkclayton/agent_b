@@ -46,8 +46,18 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 	if !strings.Contains(text, "right.append(sessionHeading, connectionMenu, settings, windowControls)") || strings.Contains(text, "folderMenu") || strings.Contains(text, "right.append(stop") || strings.Contains(text, "shell-operator-status") {
 		t.Fatalf("shared shell right slot must contain the role/connection heading, Settings, and native-frame glyphs")
 	}
-	if !strings.Contains(text, "visibleStaticSurfaces(store.config)") || strings.Contains(text, `node("nav", "shell-pages")`) {
-		t.Fatalf("the Plan surface must be rendered from the surface list, and the one-entry pages nav must be gone")
+	// Item 2ni: the Plan is a top-level SETTINGS SECTION now, so the strip draws no
+	// static surface at all and the one-entry pages nav stays gone. The entry and its
+	// chip are asserted where they live, in settings.js.
+	if strings.Contains(text, "visibleStaticSurfaces") || strings.Contains(text, `node("nav", "shell-pages")`) {
+		t.Fatalf("the strip must be chats only, and the one-entry pages nav must be gone")
+	}
+	settingsSource, err := os.ReadFile(filepath.Join(webDir, "js", "settings.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(settingsSource), `["plan", "Plan"]`) {
+		t.Fatalf("the Plan must be an entry in the Settings nav")
 	}
 }
 

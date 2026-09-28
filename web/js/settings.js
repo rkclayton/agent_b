@@ -333,7 +333,7 @@ function settingsPageContext(active) {
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList,
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm,
-    row, subhead, field, text, number, numberControl, textarea, secret, toggle, choices, approvalChoices,
+    row, subhead, field, text, number, numberControl, textarea, secret, toggle, choices, selectSetting, approvalChoices,
     copyRow, currentValue, issue, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView,
   };
 }

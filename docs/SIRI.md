@@ -80,15 +80,20 @@ acting on one instruction is the outcome worth avoiding.
 
 | What is true | What you hear |
 | --- | --- |
-| A tool call is waiting for you | `Waiting for your approval: <what it wants to do>` |
+| A tool call is waiting for you | `Agent_b needs your approval to <what it wants to do>` |
 | The model answered | the answer itself |
-| The run stopped for a reason | `The run stopped: <reason>` |
+| The run stopped for a reason | `The run stopped because of <the reason, in words>.` |
 | It is still going | `Still working.` |
 | Nothing has happened yet | `Nothing to report yet.` |
 
-Nothing is summarised, embellished or invented. The same reply also carries
-`pending_approval`, `last_reply`, `last_stop_reason` and `status`, so a Shortcut that
-wants to phrase things its own way has the same material without parsing the sentence.
+Nothing is summarised, embellished or invented. A long answer is cut on a word boundary
+and says so, and the markdown it was written in is stripped, because a listener hears
+asterisks as nothing at all.
+
+The same reply also carries `state` — one of `queued`, `running`, `needs_approval`,
+`done`, `failed`, `stopped` — so a Shortcut can branch without reading the sentence, plus
+`pending_approval`, `last_reply`, `last_stop_reason`, `status` and `chat_url`, which is
+where to go to answer an approval.
 
 ## When it does not work
 
@@ -101,7 +106,7 @@ from Settings → Security → Phone access and replace the token in both Shortc
 is single-use and expires after five minutes, so an unused one from yesterday will not
 work.
 
-**You hear `Waiting for your approval:` and nothing else ever happens.** That is
+**You hear `Agent_b needs your approval to …` and nothing else ever happens.** That is
 correct and it is waiting for you. Approvals are answered on a screen, by design — open
 the chat and decide. Asking for the brief again will keep saying the same thing until
 you do.

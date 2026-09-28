@@ -28,10 +28,28 @@ function surfaceRow(context) {
   }).join("");
 }
 
+// Item 2mx (d): the chat a spoken request lands in, settable here. Empty means the
+// server creates one labelled Siri the first time a spoken request arrives and records
+// it — so this is normally filled in by having used it, and is here to point it
+// somewhere else or to clear it.
+function voiceRow(context) {
+  const sessions = Object.values(context.store.sessions || {}).filter((one) => one && !one.closed);
+  const current = context.store.config.voice?.default_session_id || "";
+  const options = [["", "a chat named Siri, created when first needed"]]
+    .concat(sessions.map((one) => [one.id, `${one.label || one.id} (${one.id})`]));
+  // A configured chat that has since been closed is still shown, so the field says what
+  // it holds rather than silently reading as empty.
+  if (current && !sessions.some((one) => one.id === current)) options.push([current, `${current} (closed)`]);
+  // A select rather than the button row: a chat list is a list, not a handful of modes.
+  return context.selectSetting("voice.default_session_id", "voice chat", options, current);
+}
+
 export function renderChatsPage(active, context) {
   return `${context.subhead("Reading", "How the transcript and the message box are drawn.")}
     ${context.choices("chat.text_size", "text size", TEXT_SIZES, context.store.config.chat?.text_size || "normal", "Scales the transcript, the message box and the step rows together. Nothing else in the product changes size.")}
     ${context.choices("chat.typeface", "typeface", TYPEFACES, context.store.config.chat?.typeface || "IBM Plex Sans", "Applies to the text of a message. Code, tool output and paths stay monospaced.")}
+    ${context.subhead("Voice", "Where a spoken request lands when it names no chat.")}
+    ${voiceRow(context)}
     ${context.subhead("Tabs", "Which pinned tabs the strip shows. A hidden tab is hidden, not gone.")}
     ${surfaceRow(context)}
     ${context.subhead("Run and approval", "Limits and approval behavior shared by every chat.")}

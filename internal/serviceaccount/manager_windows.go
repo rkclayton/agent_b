@@ -116,6 +116,19 @@ func (m *windowsManager) Setup(ctx context.Context, account, credentialPath stri
 	_ = os.Remove(resultPath)
 	arguments = append(arguments, "-ResultFile", resultPath)
 
+	// Item 2ng (a): THE WRAPPER IS WHAT GETS ELEVATED. It runs the same script with the
+	// same arguments and appends every stream to this run's log, so a failure ABOVE the
+	// script's own result writer — a parameter that will not bind, a policy refusal, a
+	// crash on load — lands in the file the message already names instead of vanishing
+	// into a hidden console. When the wrapper is not installed the old direct call is
+	// used, so an older tree still works and only loses the capture.
+	wrapper := filepath.Join(filepath.Dir(scriptPath), "run-elevated-provision.ps1")
+	if _, statErr := os.Stat(wrapper); statErr == nil {
+		arguments = append([]string{
+			"-NoLogo", "-NoProfile", "-NonInteractive", "-File", wrapper,
+			"-Log", logPath, "-Script", scriptPath,
+		}, stripLeadingHostArguments(arguments, scriptPath)...)
+	}
 	output, runErr := m.runLauncher(ctx, arguments)
 
 	// (c) and (d): the streams are KEPT, never shown as the outcome. A PS 5.1
@@ -142,6 +155,12 @@ func (m *windowsManager) Setup(ctx context.Context, account, credentialPath stri
 		message := "the elevated service-account setup did not complete"
 		if result != nil && strings.TrimSpace(result.Message) != "" {
 			message = result.Message
+		} else if first := firstErrorLine(logPath); first != "" {
+			// Item 2ng (b): NO RESULT FILE MEANS THE CHILD DIED ABOVE THE WRITER, and now
+			// that the wrapper captures its streams the reason is in the log. The generic
+			// sentence was all the operator could see on 2026-09-27 at 19:44; this is the
+			// child's own first error line instead.
+			message = first
 		}
 		return SetupResult{Attempted: true, Launch: LaunchStarted, Result: result, LogPath: logPath},
 			fmt.Errorf("%s (full output: %s)", message, logPath)
@@ -167,11 +186,69 @@ func (m *windowsManager) resultPaths() (string, string) {
 		filepath.Join(dir, "service-identity-"+stamp+".log")
 }
 
+// stripLeadingHostArguments drops the PowerShell host flags and the -File <script> pair
+// from an argument list, leaving only the script's OWN arguments. The wrapper supplies
+// its own host flags and names the script itself, so passing these through would give the
+// inner call two of each.
+func stripLeadingHostArguments(arguments []string, scriptPath string) []string {
+	for index := 0; index < len(arguments); index++ {
+		if arguments[index] == "-File" && index+1 < len(arguments) && arguments[index+1] == scriptPath {
+			return append([]string(nil), arguments[index+2:]...)
+		}
+	}
+	return append([]string(nil), arguments...)
+}
+
+// writeLauncherLog appends the launcher's own streams. Item 2ng (a): it used to OVERWRITE
+// this file, which would now erase what the elevated wrapper captured into it — the whole
+// point of the wrapper. The launcher's own lines go at the end, because they are about
+// starting the child rather than about what the child did.
 func (m *windowsManager) writeLauncherLog(path string, output []byte) {
 	if len(output) == 0 {
 		output = []byte("(the launcher produced no output)\n")
 	}
-	_ = os.WriteFile(path, output, 0o600)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		_ = os.WriteFile(path, output, 0o600)
+		return
+	}
+	defer file.Close()
+	_, _ = file.WriteString("AGENTB_LAUNCHER_OUTPUT\n")
+	_, _ = file.Write(output)
+}
+
+// firstErrorLine is item 2ng (b): the child's own first complaint, out of the log the
+// wrapper captured. A PowerShell error arrives as a block — the message, then At <file>:
+// <line>, then the source line and the CategoryInfo — and the FIRST line is the one a
+// person can act on. The marker lines the wrapper and the launcher write are skipped,
+// and so is the CLIXML noise item 2kk documented, because neither is a reason.
+func firstErrorLine(path string) string {
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, raw := range strings.Split(strings.ReplaceAll(string(bytes), "\r\n", "\n"), "\n") {
+		// A UTF-8 BOM rides the log's first line. Without trimming it the wrapper's own
+		// marker stopped looking like a marker and was reported as the reason.
+		line := strings.TrimSpace(strings.TrimPrefix(raw, "\ufeff"))
+		switch {
+		case line == "":
+		case strings.HasPrefix(line, "AGENTB_"):
+		case strings.HasPrefix(line, "#< CLIXML"):
+		case strings.HasPrefix(line, "<Objs"), strings.HasPrefix(line, "<S "):
+			// none of these is a reason
+		default:
+			// A PowerShell error block's continuation lines are not the reason either.
+			if strings.HasPrefix(line, "At ") || strings.HasPrefix(line, "+ ") || strings.HasPrefix(line, "~") {
+				continue
+			}
+			if len(line) > 400 {
+				line = line[:400]
+			}
+			return line
+		}
+	}
+	return ""
 }
 
 // readElevatedResult reads what the child wrote. A missing or unreadable file

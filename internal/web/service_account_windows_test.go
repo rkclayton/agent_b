@@ -294,29 +294,98 @@ func TestServiceAccountCanceledElevationRestoresCredential(t *testing.T) {
 	}
 }
 
-func TestServiceAccountAttemptedFailureRetainsSubmittedCredentialAndWarns(t *testing.T) {
+// Item 2ng (d): A FAILED SETUP MUST NOT LEAVE THE STORE WORSE THAN IT FOUND IT, and the
+// RESULT FILE is what decides which credential is the right one.
+//
+// This replaces an assumption that turned out to be the operator's bug. The old rule was
+// "an attempted failure might have changed the password, so keep the new one" — for every
+// attempted failure, including one where the elevated child never reached the code that
+// changes a password. His 2026-09-27 19:44 Repair was exactly that: the child started,
+// died above the script's own result writer, wrote no result, and the store was left
+// holding a password the account had never been given. Every press made authentication
+// less likely to work, which is why the credential written on 09-25 had never worked.
+//
+// The rule now: no result file means the body was never reached, so the previous
+// credential comes back. A result file means the body ran and may have set the new
+// password, so the new one stays and the operator is told to inspect.
+func TestAnAttemptedFailureWithNoResultFileRestoresThePreviousCredential2ng(t *testing.T) {
 	manager := &fakeAccountManager{
-		status:      serviceaccount.Status{Supported: true, Account: "agentb-svc"},
-		setupResult: serviceaccount.SetupResult{Attempted: true},
-		setupErr:    errors.New("setup validation failed"),
+		status: serviceaccount.Status{Supported: true, Account: "agentb-svc"},
+		// Attempted, and NO Result: the child started and died above its own writer.
+		setupResult: serviceaccount.SetupResult{Attempted: true, Launch: serviceaccount.LaunchStarted},
+		setupErr:    errors.New("the elevated service-account setup did not complete"),
 	}
 	server, store, _ := serviceAccountTestServer(t, manager)
+	previous := "the-password-the-account-actually-has"
+	if err := store.Write([]byte(previous)); err != nil {
+		t.Fatal(err)
+	}
+
 	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"provision","connection_id":"local"}`))
 	request.Header.Set("Content-Type", "application/json")
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 
-	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), `"attempted":true`) || !strings.Contains(response.Body.String(), "potentially partial") && !strings.Contains(response.Body.String(), "script started") {
-		t.Fatalf("partial failure was not loud: status=%d body=%s", response.Code, response.Body)
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), `"attempted":true`) {
+		t.Fatalf("the failure was not reported: status=%d body=%s", response.Code, response.Body)
 	}
 	stored, err := store.Read()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer clearSecret(stored)
+	if string(stored) != previous {
+		t.Fatalf("the store was left holding a password the account never received: %d bytes", len(stored))
+	}
+	if bytes.Contains(response.Body.Bytes(), []byte(previous)) {
+		t.Fatal("the response returned a credential")
+	}
+}
+
+// The other half: a child that DID reach its body may already have set the new password,
+// so the new one stays. Restoring here would be the wrong answer, and this is the case
+// the old test was written for.
+func TestAnAttemptedFailureThatWroteAResultKeepsTheNewCredential2ng(t *testing.T) {
+	manager := &fakeAccountManager{
+		status: serviceaccount.Status{Supported: true, Account: "agentb-svc"},
+		setupResult: serviceaccount.SetupResult{
+			Attempted: true,
+			Launch:    serviceaccount.LaunchStarted,
+			// The body ran and said what went wrong, so it may have got as far as the
+			// password before failing.
+			Result: &serviceaccount.ElevatedResult{Ok: false, Message: "granting the workspace failed after the password was set"},
+		},
+		setupErr: errors.New("granting the workspace failed after the password was set"),
+	}
+	server, store, _ := serviceAccountTestServer(t, manager)
+	if err := store.Write([]byte("an-older-password")); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"provision","connection_id":"local"}`))
+	request.Header.Set("Content-Type", "application/json")
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body)
+	}
+	stored, err := store.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clearSecret(stored)
+	if string(stored) == "an-older-password" {
+		t.Fatal("the previous credential was restored over a password the script may already have set")
+	}
 	if len(stored) < 40 {
-		t.Fatal("generated credential was not retained after a potentially partial password change")
+		t.Fatalf("the generated credential was not retained: %d bytes", len(stored))
+	}
+	// And the operator is told to look, because this is the ambiguous case.
+	if !strings.Contains(response.Body.String(), "inspect the account") {
+		t.Errorf("the ambiguous case does not say to inspect: %s", response.Body)
 	}
 }
 

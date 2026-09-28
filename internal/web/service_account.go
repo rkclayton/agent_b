@@ -156,6 +156,27 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 			writeError(w, http.StatusBadRequest, setupErr.Error()+"; no account change was attempted", "shell.service_account")
 			return
 		}
+		// Item 2ng (d): A FAILED SETUP MUST NOT LEAVE THE STORE WORSE THAN IT FOUND IT.
+		//
+		// A new password is written to the store BEFORE elevating. Until now the previous
+		// one came back only when UAC was declined or the launch never happened — so a child
+		// that STARTED and FAILED left the store holding a password the account had never
+		// been given. The operator's 2026-09-27 19:44 Repair did exactly that: his store's
+		// mtime is that minute, and it is why the credential written on 09-25 has never
+		// authenticated. Every press of the designed fix was breaking it further.
+		//
+		// The discriminator is the RESULT FILE, not the exit code. Every failure inside the
+		// script's body writes one; the password change is inside that body. So no result
+		// file means the child died above it, the account was never touched, and the old
+		// credential is the correct one. A result file means the body ran and may have set
+		// the new password, and then restoring the old one would be the wrong answer — so
+		// that case is left alone and reported, as it was.
+		if result.Result == nil {
+			if restoreErr := s.restoreCredential(previous, hadPrevious); restoreErr != nil {
+				writeError(w, http.StatusInternalServerError, setupErr.Error()+"; restoring the prior credential also failed", "shell.service_account")
+				return
+			}
+		}
 		credentialStatus := s.credential.Status()
 		s.bus.Publish(events.New(events.ShellCredential, "", "", credentialStatus))
 		writeJSON(w, http.StatusInternalServerError, map[string]any{

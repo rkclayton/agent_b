@@ -51,6 +51,9 @@ let activeSection = "connections";
 // The view another document was on when it sent us here; "" when the sheet was
 // opened from inside this one, where it closes onto the chat beneath it.
 let openedFrom = "";
+// Item 2no (d) and (e): true when this document was opened AT the Plan — /plan,
+// ?from=plan, or #settings/plan.
+let planRequestedByAddress = false;
 let hardeningConnectionID = "";
 let workspaceState = [];
 let operatorFileState = { attachment_files: 0, attachment_bytes: 0, instruction_found: [] };
@@ -189,6 +192,7 @@ export function initSettings(entry = {}) {
 export function openSettings(section = "") {
   const started = performance.now();
   if (sectionLabels.some(([id]) => id === section)) activeSection = section;
+  if (section === "plan") planRequestedByAddress = true;
   open = true;
   lastFocus = document.activeElement;
   // Item 2gk: app.css dresses this sheet and the two panels it adopts, and
@@ -514,7 +518,12 @@ function planSection() {
   // glitch.
   // (e): the entry exists either way; this is the one line that says why the document
   // is not here, in the words of the thing to do about it.
-  if (planAvailable()) return '<div data-adopt="plan-panel"></div>';
+  // The address asking for the Plan is the operator asking for it. Before item 2no
+  // the rule gated the nav ENTRY's content and never the document: /plan rendered the
+  // Plan whatever chat was selected. That stays true — what the rule still decides is
+  // what the entry shows when he arrives at it from the nav on a chat that cannot
+  // plan (item 2ni (b), kept by 2no (e)).
+  if (planAvailable() || planRequestedByAddress) return '<div data-adopt="plan-panel"></div>';
   return `<p class="settings-plan-note">Assign a planner in Agents to write a plan. The Plan opens on a planner chat, or on any chat when one connection serves every role.</p>`;
 }
 

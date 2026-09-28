@@ -716,7 +716,9 @@ try {
     }
     $indexSource = Get-Content -Raw -LiteralPath (Join-Path $testApplication 'web\index.html')
     $chatSource = $indexSource
-    $planSource = Get-Content -Raw -LiteralPath (Join-Path $testApplication 'web\plan.html')
+    # Item 2no: the Plan is a Settings section rendered in the one document, so there
+    # is no plan.html to install and its markup is checked in index.html.
+    $planSource = $indexSource
     $shellSource = Get-Content -Raw -LiteralPath (Join-Path $testApplication 'web\js\shell.js')
     # Item 2mf: the Plan tab is named by the surface list, so the installed build
     # is checked there rather than in a nav entry that no longer exists.
@@ -729,7 +731,7 @@ try {
     }
     foreach ($page in @(
         @{ Source = $indexSource; Name = 'chat' },
-        @{ Source = $planSource; Name = 'plan' }
+        @{ Source = $planSource; Name = 'chat' }
     )) {
         if ($page.Source -notmatch ('id="app-shell"[^>]+data-page="' + $page.Name + '"')) {
             throw "Installed $($page.Name) page is missing the shared shell slot."

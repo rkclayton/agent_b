@@ -10,7 +10,10 @@ const settings = await readFile(new URL("./settings.js", import.meta.url), "utf8
 const tokens = await readFile(new URL("../css/tokens.css", import.meta.url), "utf8");
 const appCSS = await readFile(new URL("../css/app.css", import.meta.url), "utf8");
 const chatCSS = await readFile(new URL("../css/chat.css", import.meta.url), "utf8");
-const pages = await Promise.all(["index.html", "plan.html"].map(async (name) => [name, await readFile(new URL(`../${name}`, import.meta.url), "utf8")]));
+// Item 2no: one document. The Plan was a page of its own with its own shell slot;
+// it is a Settings section now, drawn in this document beside the two panels
+// Settings already adopts, so there is one page to hold the contract.
+const pages = await Promise.all(["index.html"].map(async (name) => [name, await readFile(new URL(`../${name}`, import.meta.url), "utf8")]));
 
 test("shared shell slot order is identical on the chat and Plan", () => {
   for (const [name, html] of pages) {
@@ -289,8 +292,8 @@ test("the full-detail Plan mark is untouched", async () => {
   const png = await readFile(new URL("../assets/plan-mark.png", import.meta.url));
   assert.equal(png.readUInt32BE(16), 128);
   assert.equal(png.readUInt32BE(20), 128);
-  const plan = await readFile(new URL("../plan.html", import.meta.url), "utf8");
-  assert.match(plan, /plan-mark\.png/, "the Plan page no longer heads with the full-detail mark");
+  const plan = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(plan, /plan-mark\.png/, "the Plan section no longer heads with the full-detail mark");
 });
 
 // Item 2gk (v1.3.0/W2): the readout joined the strip, and the marker that drew

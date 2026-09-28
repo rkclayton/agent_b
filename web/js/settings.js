@@ -12,6 +12,7 @@ import { renderWorkspacePage } from "./settings-workspace.js";
 import { setWaitProgress, waitElement } from "./wait.js";
 import { agentKey } from "./panel-lifetime.js";
 import { mountPanels, unmountPanels } from "./app.js";
+import { mountPlan, unmountPlan } from "./plan.js";
 
 const sheet = document.getElementById("settings-page");
 let gear;
@@ -218,6 +219,8 @@ export function closeSettings(surface = "chat") {
   // inside a hidden surface where the next render would wipe them.
   returnAdoptedPanels();
   unmountPanels();
+  // Item 2no (b): closing the sheet is leaving the section, so the Plan stops too.
+  unmountPlan();
   setSheetStyles(false);
   sheet.hidden = true;
   sheet.setAttribute("aria-hidden", "true");
@@ -232,11 +235,10 @@ export function closeSettings(surface = "chat") {
   // document that is the chat, which is already beneath it; from Plan it is
   // another document, so closing goes back rather than leaving the operator
   // somewhere he never asked for.
-  if (openedFrom === "plan") {
-    const session = new URLSearchParams(location.search).get("session");
-    openedFrom = "";
-    location.assign(`/plan${session ? `?session=${encodeURIComponent(session)}` : ""}`);
-  }
+  // Item 2no (d): there is no Plan document to go back to any more — `from=plan` and
+  // `/plan` both land on this sheet's Plan section, and closing it returns to the chat
+  // beneath like every other section.
+  openedFrom = "";
 }
 
 async function leaveSettingsForChat() {
@@ -374,14 +376,18 @@ function placeConfirmPopover() {
 // the listeners app.js set, and the renderers write into them by id, so a rebuilt
 // copy would be a second, dead set of controls.
 function setSheetStyles(on) {
-  const styles = document.getElementById("panel-styles");
-  if (styles) styles.disabled = !on;
+  // Item 2no: plan.css dresses the Plan section now, so it is switched on with the
+  // sheet beside app.css rather than linked by a document of its own.
+  for (const id of ["panel-styles", "plan-styles"]) {
+    const styles = document.getElementById(id);
+    if (styles) styles.disabled = !on;
+  }
 }
 
 function returnAdoptedPanels() {
   const sources = document.getElementById("panel-sources");
   if (!sources) return;
-  for (const panel of sheet.querySelectorAll("#agents-panel, #activity-panel")) sources.append(panel);
+  for (const panel of sheet.querySelectorAll("#agents-panel, #activity-panel, #plan-panel")) sources.append(panel);
 }
 
 function adoptPanels() {
@@ -394,8 +400,14 @@ function adoptPanels() {
   }
   // The renderers run only while a panel is on screen; off it they would draw
   // into nodes nobody can see, once per event.
-  if (adopted) mountPanels();
+  if (sheet.querySelector("#agents-panel, #activity-panel")) mountPanels();
   else unmountPanels();
+  // Item 2no (b): the Plan keeps its own state the way the other sections keep
+  // theirs — its subscriber and its timer run while it is on screen and stop when it
+  // is not.
+  if (sheet.querySelector("#plan-panel")) mountPlan();
+  else unmountPlan();
+  void adopted;
 }
 
 function settingsPageContext(active) {
@@ -496,8 +508,13 @@ function sectionChip(id) {
 }
 
 function planSection() {
-  // The entry exists either way; this is the one line that says why the page is
-  // not here, in the words of the thing to do about it.
+  // Item 2no (a) and (b): the Plan is DRAWN HERE, in the pane, exactly as Agents and
+  // Activity are — the same adoption, the same container, the same nav selection. It
+  // used to navigate to a document of its own, which is the transition he watched
+  // glitch.
+  // (e): the entry exists either way; this is the one line that says why the document
+  // is not here, in the words of the thing to do about it.
+  if (planAvailable()) return '<div data-adopt="plan-panel"></div>';
   return `<p class="settings-plan-note">Assign a planner in Agents to write a plan. The Plan opens on a planner chat, or on any chat when one connection serves every role.</p>`;
 }
 
@@ -836,13 +853,8 @@ async function dispatchAction(event, button, action, id) {
   // else. It is the explicit save 2l6 leaves in place for this surface.
   if (action === "save-connection") return void saveConnection(id);
   if (action === "settings-section") {
-    // Item 2ni (a): the Plan's page is a document of its own, so this entry opens it
-    // rather than drawing it. `from=settings` is how that document knows its gear is
-    // this sheet's close (2ni (c)).
-    if (id === "plan" && planAvailable()) {
-      const session = store.selection?.session_id || "";
-      return void location.assign(`/plan${session ? `?session=${encodeURIComponent(session)}&from=settings` : "?from=settings"}`);
-    }
+    // Item 2no (a): every section is drawn in the pane, the Plan included. This used
+    // to be location.assign('/plan...') — a page navigation dressed as a section.
     activeSection = id;
     history.replaceState(null, "", `#settings/${activeSection}`);
     return render();

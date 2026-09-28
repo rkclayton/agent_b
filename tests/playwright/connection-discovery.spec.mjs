@@ -154,6 +154,56 @@ test("the phone viewport enrols into the shared chat surface without horizontal 
 	await phoneContext.close();
 });
 
+// Item 2ms: CLOSING THE SELECTED CHAT MOVES THE SELECTION OFF IT.
+//
+// "when no chat tabs are open its showing me an old chat still in the window."
+// Reproduced at rel-1.31.0 against a copy of the operator's own restored journal set,
+// 34 chats: closing the one open chat left the selection on it, and close-is-not-
+// delete keeps the whole transcript in the store, so the pane went on drawing a chat
+// he had just closed - and a reload drew it again.
+test("closing the selected chat shows its neighbour, and the last one shows the empty state", async () => {
+  const page = await harness.context.newPage();
+  await page.goto(`${harness.base}/chat`);
+  await expect(page.locator("#chat-log")).toBeVisible();
+  const tabs = () => page.locator(".agent-tab-wrap[data-session]");
+  await expect(tabs()).toHaveCount(1);
+
+  // A neighbour to move to.
+  await page.locator(".agent-tab-new").click();
+  await expect(tabs()).toHaveCount(2);
+  const selected = await page.locator(".agent-tab-wrap.selected").getAttribute("data-session");
+  const neighbour = await page.locator(`.agent-tab-wrap[data-session]:not([data-session="${selected}"])`).getAttribute("data-session");
+
+  // (a): the neighbour that took its place is selected, and it is SHOWN.
+  await page.locator(`.agent-tab-wrap[data-session="${selected}"] .agent-tab-close`).click();
+  await expect(tabs()).toHaveCount(1);
+  await expect(page.locator(".agent-tab-wrap.selected")).toHaveAttribute("data-session", neighbour);
+  await expect(page.locator("#chat-task")).toBeEnabled();
+
+  // (b): closing a chat that is NOT selected moves nothing.
+  await page.locator(".agent-tab-new").click();
+  await expect(tabs()).toHaveCount(2);
+  const stays = await page.locator(".agent-tab-wrap.selected").getAttribute("data-session");
+  const other = await page.locator(`.agent-tab-wrap[data-session]:not([data-session="${stays}"])`).getAttribute("data-session");
+  await page.locator(`.agent-tab-wrap[data-session="${other}"] .agent-tab-close`).click();
+  await expect(tabs()).toHaveCount(1);
+  await expect(page.locator(".agent-tab-wrap.selected")).toHaveAttribute("data-session", stays);
+
+  // (a) with nothing to move to, and (d): the empty state is a real state - one
+  // line, no tab lit, and no composer for a chat that does not exist.
+  await page.locator(`.agent-tab-wrap[data-session="${stays}"] .agent-tab-close`).click();
+  await expect(tabs()).toHaveCount(0);
+  await expect(page.locator(".agent-tab-wrap.selected")).toHaveCount(0);
+  await expect(page.locator(".chat-empty")).toBeVisible();
+  await expect(page.locator("#chat-task")).toBeDisabled();
+
+  // (e): and a reload lands in the same place, not back on the last transcript.
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator(".chat-empty")).toBeVisible();
+  await expect(tabs()).toHaveCount(0);
+  await expect(page.locator("#chat-task")).toBeDisabled();
+});
+
 // Item 2ni: THE PLAN IS A SETTINGS SECTION, NOT A TAB. "why is plan a chat tab on
 // the left side? it was supposed to be right side.. but i decided i think i want it
 // under settings, as its own top level item please implement." Everything here is

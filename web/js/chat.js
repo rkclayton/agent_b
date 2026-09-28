@@ -224,8 +224,22 @@ export function unmountChat() {
   document.body.classList.remove("drop-target");
 }
 
+// Item 2ms: THE PANE MAY ONLY FALL BACK TO A CHAT THE STRIP WOULD SHOW.
+//
+// This is the operator's sighting, found against a copy of his own restored journal
+// set: of his 34 chats, 33 are closed and the one that is not is s23, role `c` — a
+// WORKER. The strip refuses role c ("a worker has no chat"), and this fallback only
+// filtered `closed`, so with every chat of his own closed the window bound to the
+// worker's transcript and no tab was lit. "when no chat tabs are open its showing me
+// an old chat still in the window."
+//
+// One rule, in one place: open, and something the strip would draw. In replay there
+// is no such distinction to preserve — there is only what was replayed — which is
+// [[2lu]]'s rule and is kept.
 function newestOpenSessions() {
-  return openSessions(store.sessions).sort((left, right) => Date.parse(right.created_at || 0) - Date.parse(left.created_at || 0));
+  return openSessions(store.sessions)
+    .filter((session) => store.replay || session.role !== "c")
+    .sort((left, right) => Date.parse(right.created_at || 0) - Date.parse(left.created_at || 0));
 }
 
 function renderBudget(session) {

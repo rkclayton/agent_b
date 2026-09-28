@@ -320,3 +320,26 @@ test("the attachment control replaces the redundant per-chat readout", async () 
   assert.equal(control.length, 0, `stylesheet holds ${control.length} control character(s)`);
   assert.doesNotMatch(chatCss, /\.chat-readout > summary::before/, "the removed readout cannot reintroduce tofu");
 });
+
+// Item 2ms: the two rules that kept a closed chat on screen, asserted where they
+// live. The sighting was reproduced against a copy of the operator's own 34 restored
+// chats: 33 closed, and the one that was not is role `c` - a WORKER, which the strip
+// refuses to draw and which the pane's fallback happily bound to.
+test("a closed chat cannot stay on screen: the selection moves and the pane binds only to a chat the strip shows", () => {
+  // (a) and (b): closing the SELECTED chat moves the selection; closing another
+  // moves nothing.
+  assert.match(shell, /const wasSelected = store\.selection\.session_id === session\.id;/);
+  assert.match(shell, /if \(wasSelected\) selectAfterClose\(session, agentID\);/);
+  assert.match(shell, /function selectAfterClose/);
+  // The neighbour is picked from the same order the strip draws, and a worker chat
+  // is not a neighbour.
+  const picker = shell.slice(shell.indexOf("function selectAfterClose"), shell.indexOf("// Item 2ms (e)"));
+  assert.match(picker, /!one\.closed/);
+  assert.match(picker, /one\.role !== "c"/);
+  assert.match(picker, /setSelection\(agentID, ""\)/, "with no neighbour the selection is cleared");
+  // (e): a reload does not restore a closed chat unless the address asked for it.
+  assert.match(shell, /function clearClosedSelectionOnce/);
+  assert.match(shell, /new URLSearchParams\(location\.search\)\.get\("session"\) === selected\.id/);
+  // And the pane's own fallback carries the strip's rule rather than a second one.
+  assert.match(chat, /function newestOpenSessions\(\)[\s\S]{0,400}store\.replay \|\| session\.role !== "c"/);
+});

@@ -1066,8 +1066,11 @@ if (realModel) {
   await wizard.locator('[data-field="url"]').evaluate((node) => node.blur());
   await captureWithMasks(wizard, join(baselineDirectory, "setup-connection.png"));
   await wizard.close();
+  // Item 2no: /plan is the same document now, and it lands on Settings > Plan. The
+  // shell is the chat's, because there is one; what the capture is of is the Plan
+  // section in the Settings pane, which is where the Plan lives.
   await page.goto(`http://127.0.0.1:${appPort}/plan?session=${sessionID}`);
-  await page.locator('#app-shell[data-page="plan"]').waitFor({ state: "visible" });
+  await page.locator("#settings-page #plan-panel").waitFor({ state: "visible" });
   await captureWithMasks(page, join(baselineDirectory, "plan.png"));
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
   await page.locator("#chat-task").waitFor({ state: "visible" });
@@ -1683,19 +1686,21 @@ if (realModel) {
   assert.ok(settingsRows >= 30, `Settings rows enumerated: ${settingsRows}`);
   assert.deepEqual(rowsWithoutHover, [], "every Settings row carries hover text");
   record("settings-every-row-has-hover-text");
-  // Item 2ni: THE PLAN IS A TOP-LEVEL SETTINGS ENTRY, third, and it opens the Plan
-  // page. (c): the way back is that sheet's close — the gear on the Plan document,
-  // which returns to the view it was clicked from rather than to a stand-in route.
+  // Item 2ni: THE PLAN IS A TOP-LEVEL SETTINGS ENTRY, third. Item 2no: and it is
+  // DRAWN IN THE PANE now, like every other section — no navigation, so the address
+  // stays the Settings pattern and the gear is the sheet's own close, which it always
+  // was for every other section.
   assert.deepEqual(settingsSections.map((name) => name.trim()).slice(0, 3), ["Agents", "Activity", "Plan"]);
   assert.equal(await page.locator('.settings-nav [data-id="plan"] img.shell-page-chip').count(), 1);
   assert.equal(await clickText(".settings-nav button", "Plan"), true);
-  await browser.wait(`location.pathname === '/plan' && document.querySelector('#plan-list')`, "the Plan entry opens the Plan page");
+  await browser.wait(`location.hash === '#settings/plan' && document.querySelector('#settings-page #plan-panel')`, "the Plan entry draws the Plan in the pane");
+  await browser.wait(`location.pathname !== '/plan'`, "the Plan entry navigated instead of drawing");
   // The gear is created by initShell and dressed by its first render, so this waits
   // for the state rather than sampling it — measured at rel-1.31.0 on a busy machine,
   // where the assertion read the attribute before the first render had set it.
-  await browser.wait(`document.querySelector('.shell-settings')?.getAttribute('aria-expanded') === 'true'`, "the Plan page's gear reads as this sheet's close");
+  await browser.wait(`document.querySelector('.shell-settings')?.getAttribute('aria-expanded') === 'true'`, "the gear reads as this sheet's close while the Plan is open");
   await page.locator(".shell-settings").click();
-  await browser.wait(`location.pathname === '/chat' && document.querySelector('#chat-task')`, "the Plan page's close returns to the chat");
+  await browser.wait(`location.pathname === '/chat' && document.querySelector('#chat-task')`, "closing the sheet on the Plan returns to the chat");
   assert.equal(await page.locator('.agent-tab-wrap-surface').count(), 0);
   record("settings-plan-section-opens-and-closes");
   await page.locator(".shell-settings").click();
@@ -1712,7 +1717,7 @@ if (realModel) {
   // log no console error — no 409 for "no plan", no 404 for /favicon.ico.
   consoleErrors.length = 0;
   await page.goto(`http://127.0.0.1:${appPort}/plan?session=${sessionID}`);
-  await browser.wait(`document.querySelector('#plan-list') && (document.querySelector('.plan-entry') || !document.querySelector('#plan-list-empty').hidden)`, "the Plan page drew its list");
+  await browser.wait(`document.querySelector('#settings-page #plan-list') && (document.querySelector('.plan-entry') || !document.querySelector('#plan-list-empty').hidden)`, "the Plan section drew its list");
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
   await browser.wait(`document.querySelector('#chat-task')`, "chat for the clean-surface check");
   await openPanel("activity", sessionID);
@@ -2537,6 +2542,10 @@ if (realModel) {
   await page.locator("#plan-wizard-value").fill("Do not touch billing");
   await page.locator("#plan-wizard-next").click();
   await page.waitForURL((url) => url.pathname === "/chat" && !!url.searchParams.get("session"));
+  // The URL changes before the new document is up. Item 2no put the wizard inside the
+  // chat's own document, so the navigation it ends with lands in the same frame and an
+  // evaluate that ran between the two was destroyed mid-flight. Wait for the chat.
+  await page.locator("#chat-task").waitFor({ state: "visible" });
   await browser.wait(`document.querySelectorAll('#chat-proposals .plan-proposal').length === 1`, "the filled brief's plan.md draft", 20000);
   const briefProposal = page.locator("#chat-proposals .plan-proposal").first();
   await briefProposal.getByRole("button", { name: "Accept" }).click();

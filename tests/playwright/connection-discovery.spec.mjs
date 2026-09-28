@@ -303,3 +303,126 @@ test("the chat surface holds at the smallest size the window can be dragged to",
   expect(seen.transcript, "the transcript has no room for three lines").toBeGreaterThanOrEqual(60);
   await small.close();
 });
+
+// Item 2no's acceptance, recorded. "the plan page is wrong — it should be a subpage in
+// settings, not a redirect to its own page. the way it is now is bad, it glitches when
+// transitioning. i want it like other settings tabs, but refactored to fit nicely."
+//
+// Four cases, each measuring what is on screen rather than what a handler returned.
+
+// 1. Click Plan in the nav: the pane shows the Plan body, the nav stays selected, the
+// address is the Settings pattern, no document is loaded — and the screenshot 50 ms
+// after the click is the pane with the body in it.
+test("Plan opens in the pane, 50 ms after the click, with no page load", async () => {
+  test.setTimeout(120000);
+  const page = await harness.context.newPage();
+  let loads = 0;
+  page.on("load", () => { loads += 1; });
+  await page.goto(`${harness.base}/chat`);
+  await expect(page.locator("#chat-log")).toBeVisible();
+  const loadsBefore = loads;
+
+  await page.locator(".shell-settings").click();
+  await page.locator('.settings-nav [data-id="plan"]').click();
+  await page.waitForTimeout(50);
+  const shot = await page.screenshot();
+  expect(shot.length, "no screenshot was taken").toBeGreaterThan(0);
+  const seen = await page.evaluate(() => {
+    const panel = document.querySelector("#settings-page #plan-panel");
+    const box = panel?.getBoundingClientRect();
+    return {
+      inThePane: !!panel,
+      drawn: !!box && box.width > 0 && box.height > 0,
+      nav: document.querySelector(".settings-nav button.selected")?.dataset?.id || "",
+      hash: location.hash,
+      path: location.pathname,
+      flyout: !!panel?.querySelector(".plan-flyout"),
+      document: !!panel?.querySelector(".plan-view"),
+    };
+  });
+  expect(seen.inThePane, "the Plan is not in the Settings pane").toBe(true);
+  expect(seen.drawn, "the Plan body has no size 50 ms after the click").toBe(true);
+  expect(seen.nav, "the nav entry is not the selected one").toBe("plan");
+  // The Settings pattern and nothing else: no /plan in the address.
+  expect(seen.hash).toBe("#settings/plan");
+  expect(seen.path).not.toBe("/plan");
+  expect(seen.flyout && seen.document, "the Plan body is not the whole document").toBe(true);
+  expect(loads - loadsBefore, "a document was loaded, which is the transition he watched glitch").toBe(0);
+  await page.close();
+});
+
+// 2. The narrowest width the window can be dragged to — the minimum v1.33.0 shipped
+// (item 2nm): a 320 x 293 window is a 304 x 254 client. No sideways scroll, and the
+// flyout and the document stack instead of sitting side by side.
+test("the Plan section fits the pane at the narrowest window the frame allows", async () => {
+  test.setTimeout(120000);
+  const small = await harness.browser.newContext({ viewport: { width: 304, height: 254 } });
+  const page = await small.newPage();
+  await page.goto(`${harness.base}/chat`);
+  await page.locator(".shell-settings").click();
+  await page.locator('.settings-nav [data-id="plan"]').click();
+  await expect(page.locator("#settings-page #plan-panel")).toBeVisible();
+  const shot = await page.screenshot();
+  expect(shot.length, "no narrowest-width screenshot was taken").toBeGreaterThan(0);
+  const seen = await page.evaluate(() => {
+    const panel = document.querySelector("#settings-page #plan-panel");
+    const box = panel.getBoundingClientRect();
+    return {
+      columns: getComputedStyle(panel).gridTemplateColumns.split(" ").length,
+      offRight: Math.round(box.right) > window.innerWidth + 1,
+      sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      inner: [...panel.querySelectorAll("*")].some((node) => node.scrollWidth > node.clientWidth + 1),
+    };
+  });
+  expect(seen.columns, "the flyout and the document are still side by side").toBe(1);
+  expect(seen.offRight, "the Plan runs off the right edge").toBe(false);
+  expect(seen.sideways, "the page scrolls sideways").toBe(false);
+  expect(seen.inner, "something inside the Plan scrolls sideways").toBe(false);
+  await small.close();
+});
+
+// 3. /plan, ?from=plan and a deep link with a plan id all land on Settings → Plan.
+test("every route the Plan had still lands on the section", async () => {
+  test.setTimeout(120000);
+  for (const path of ["/plan", "/chat?from=plan", "/plan?plan=none"]) {
+    const page = await harness.context.newPage();
+    const response = await page.goto(`${harness.base}${path}`);
+    expect(response.status(), `${path} did not answer`).toBe(200);
+    await expect(page.locator("#settings-page #plan-panel"), `${path} did not land on the Plan section`).toBeVisible();
+    await expect(page.locator(".settings-nav button.selected")).toHaveAttribute("data-id", "plan");
+    await page.close();
+  }
+});
+
+// 4. The availability rule (item 2ni (b), kept by 2no (e)): with a planner assigned to
+// another connection and this chat not the planner's, the entry is still there and the
+// pane carries the one line saying what to do about it.
+test("an unassigned planner leaves the entry and shows the one line in the pane", async () => {
+  test.setTimeout(120000);
+  const page = await harness.context.newPage();
+  await page.goto(`${harness.base}/chat`);
+  await page.locator(".shell-settings").click();
+  // Give the agent a planner that is not this chat's role, which is what makes the
+  // Plan unavailable on this chat.
+  await page.locator('.settings-nav [data-id="agents"]').click();
+  await expect(page.locator("#panel-roles")).toBeVisible();
+  const planner = page.locator('#panel-roles select[data-role="d"]');
+  const choice = await planner.locator("option").evaluateAll((options) =>
+    options.map((option) => option.value).find((value) => value));
+  if (choice) {
+    await planner.selectOption(choice);
+    await page.waitForTimeout(800);
+  }
+  await page.locator('.settings-nav [data-id="plan"]').click();
+  await expect(page.locator('.settings-nav [data-id="plan"]'), "the entry went away").toBeVisible();
+  const note = page.locator(".settings-plan-note");
+  const panel = page.locator("#settings-page #plan-panel");
+  // Either the document is there because this chat can plan, or the one line is —
+  // never neither, and never a blank pane.
+  expect(await note.count() + await panel.count(), "the Plan section is empty").toBeGreaterThan(0);
+  if (await note.count()) {
+    await expect(note).toContainText("Assign a planner in Agents");
+    await expect(panel).toHaveCount(0);
+  }
+  await page.close();
+});

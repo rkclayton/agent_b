@@ -361,3 +361,57 @@ test("no spawn site in the tooling can take the operator's screen", async () => 
   // how the list stops being trustworthy.
   assert.deepEqual([...unusedExceptions], [], "these documented spawn exceptions match no site any more and should be removed");
 });
+
+// Item 2nj: A SWITCH PASSED AS QUOTED TEXT IS A BINDING ERROR, AND IT KILLED EVERY RUN.
+//
+// `'-Confirm:$false'` in single quotes is literal text. The child bound the string
+// "$false" to a SwitchParameter and died with "Cannot convert 'System.String' to the type
+// 'SwitchParameter'" before it touched the account — so every Repair and every Set up
+// through that script failed from the day the argument was written, and until item 2ng
+// captured the elevated child's streams nobody could see why.
+//
+// This is a source check because the failure was a source mistake: a quoted switch looks
+// exactly like a working argument until something runs it.
+test("no script passes a PowerShell switch as quoted text", async () => {
+  const offenders = [];
+  for (const directory of ["scripts", "tools", "tests"]) {
+    let names;
+    try {
+      names = await readdir(join(repoRoot, directory));
+    } catch {
+      continue;
+    }
+    for (const name of names.filter((one) => one.endsWith(".ps1"))) {
+      const text = await readFile(join(repoRoot, directory, name), "utf8");
+      for (const [index, line] of text.split(/\r?\n/).entries()) {
+        const trimmed = line.trim();
+        // A comment explaining the mistake is not the mistake.
+        if (trimmed.startsWith("#")) continue;
+        // Only where an argument LIST is being built. A quoted switch passed as DATA is
+        // fine and there is one: setup-service-account.ps1 hands the name of a parameter
+        // to an error message, which is not an argument being forwarded to anything.
+        if (!/@\(|\+=|-Argument(?:List)?\b|\bArguments\b/.test(trimmed)) continue;
+        // `'-Switch:$true'` or `"-Switch:$false"` inside that list.
+        for (const match of trimmed.matchAll(/(['"])(-[A-Za-z]+:\$(?:true|false))\1/g)) {
+          offenders.push(`${directory}/${name}:${index + 1}: ${match[2]} is quoted, so the child receives literal text`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `these pass a switch as text; the child binds the word "$false" to a SwitchParameter and fails before doing anything:\n${offenders.join("\n")}`,
+  );
+
+  // AND THE CHECK CATCHES IT: the line that actually shipped, seeded here, so a gate that
+  // has quietly stopped matching cannot pass on an empty sweep.
+  const shipped = "$accountArguments = @('-AccountName', $AccountName, '-CredentialStore', $machinePath, '-NoPrompt', '-Confirm:$false')";
+  const quoted = [...shipped.matchAll(/(['"])(-[A-Za-z]+:\$(?:true|false))\1/g)];
+  assert.equal(quoted.length, 1, "the pattern no longer matches the line that shipped");
+  assert.equal(quoted[0][2], "-Confirm:$false");
+  assert.ok(/@\(|\+=|-Argument(?:List)?\b|\bArguments\b/.test(shipped), "the argument-list narrowing would have skipped the real mistake");
+  // And the data use is NOT matched, which is why that narrowing exists at all.
+  const dataUse = "Assert-SafeInteractiveInput -NonInteractiveParameter '-Confirm:$false'";
+  assert.equal(/@\(|\+=|-Argument(?:List)?\b|\bArguments\b/.test(dataUse), false);
+});

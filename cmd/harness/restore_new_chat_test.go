@@ -77,7 +77,7 @@ func TestNewChatAfterRestartCarriesNothingFromARetainedChat(t *testing.T) {
 	}, nil, nil)
 	secondRegistry := session.NewRegistry(secondBus, secondWriters, connections, 40, func() config.Config { return cfg })
 	secondRegistry.SetPlansRoot(filepath.Join(root, "plans"))
-	restored, _, err := restoreRetainedChats(secondWriters, secondRegistry, secondBus, 0)
+	restored, restoredFloor, err := restoreRetainedChats(secondWriters, secondRegistry, secondBus, 0)
 	if err != nil || len(restored) != 1 || len(restored[0].Snapshot().Messages) != 3 {
 		t.Fatalf("restore: %d chats, err %v", len(restored), err)
 	}
@@ -96,8 +96,10 @@ func TestNewChatAfterRestartCarriesNothingFromARetainedChat(t *testing.T) {
 	if !kept {
 		t.Fatalf("restored chat projects without its transcript: %+v", projected.Chat)
 	}
-	if floor := retainedIDFloor(secondWriters); floor < 9 {
-		t.Fatalf("id floor %d does not cover m-9", floor)
+	// Item 2m5: the floor comes back from the restore itself now, taken over the
+	// projections it already holds, instead of from a second pass over the journals.
+	if restoredFloor < 9 {
+		t.Fatalf("id floor %d does not cover m-9", restoredFloor)
 	}
 
 	fresh, err := secondRegistry.CreateLike(restored[0].ID)
@@ -117,7 +119,7 @@ func TestNewChatAfterRestartCarriesNothingFromARetainedChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := agent.NewRunner(secondBus, tools.New(), renderer, connections, func() config.Config { return cfg })
-	runner.ReserveIDs(retainedIDFloor(secondWriters))
+	runner.ReserveIDs(restoredFloor)
 	fresh.Runnable = true
 	fresh.Run = session.RunState{Status: "running", MaxTurns: 40}
 	message, err := runner.AddUser(context.Background(), fresh, "hello")

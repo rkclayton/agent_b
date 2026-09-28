@@ -51,7 +51,7 @@ For either path, Node.js remains optional for building and running Agent_b. Deve
 
 ## Use Agent_b
 
-The installed application opens Chat at `http://127.0.0.1:8790/chat`; its header switches among Chat, Plan and Settings. Settings has eight sections: Agents, Activity, Connections, Profiles, Chats, Notifications, Security, and About.
+The installed application opens Chat at `http://127.0.0.1:8790/chat`; its header carries the chat tabs and the Settings gear. Settings has nine sections: Agents, Activity, Plan, Connections, Profiles, Chats, Notifications, Security, and About. The Plan opens its own page and closes back to the view the gear was clicked from.
 
 Replay one or more session logs without loading a model or enabling mutations:
 
@@ -62,6 +62,10 @@ go run ./cmd/harness -config harness.json -replay logs/main.jsonl,logs/s2.jsonl
 Connections hold an endpoint, model, sampling, reasoning, context settings, and measured capabilities. The settings sheet can add, duplicate, edit, test, and remove connections; full probes measure behavior while minimal/off modes label assumptions. A connection is runnable only with known context, streaming, structured tool calls, and non-truncating overflow behavior.
 
 Compaction summaries use the optional `aux` connection when its fully rendered request fits that connection's context window. An unavailable, rejecting, or undersized aux connection falls back to the session's main connection; blank aux preserves the single-main-model path. Settings -> Activity timeline entries identify the serving connection and keep compaction inference input/output tokens separate from the main context-budget measurement.
+
+Two kinds of JSONL live under the data root and they are not the same thing. `chats\<id>.jsonl` is the DURABLE JOURNAL of one chat: one file per chat, appended to for as long as the chat exists, never rotated and never subject to log retention — it is the record. `logs\<id>-<timestamp>.jsonl` is an OPERATIONAL TAPE: a new generation is opened every time the application starts, seeded with a snapshot of the session so the generation can be read on its own, and those generations are pruned by `operator_files.log_retention_days` (30 by default). A launch therefore leaves one new tape per open chat, which is intended and is not the journal growing.
+
+Startup reads each chat's PROJECTED STATE from `cache\projection\<id>.json` rather than projecting its whole journal, and records the byte offset it projected through; a journal that has grown since is carried forward by projecting only the records past that offset. The cache is rebuildable and holds nothing the journals do not: deleting it costs one slow launch. Measured on a 218 MB set of 33 chats, two of them 56 MB and 48 MB: projecting all of it took 6.2 seconds, and reading the projections takes 50 ms.
 
 Sessions are durable open-or-closed chats onto a workspace and may use different connections. Closing retains the JSONL, messages, workspace, memory, connection, and tool selection; it does not delete or stop work. Point several sessions at one workspace for a swarm; file-write conflicts force a re-read instead of silently overwriting another session. Agent_b schedules two runs by default, but a llama.cpp server started with `--parallel 1` interleaves their slot work instead of decoding two requests simultaneously.
 

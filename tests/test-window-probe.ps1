@@ -46,7 +46,8 @@ try {
     [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 
     $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $testStart 'Startup\Agent_b.lnk'))
-    Start-Process -FilePath $shortcut.TargetPath -ArgumentList $shortcut.Arguments -WorkingDirectory $shortcut.WorkingDirectory | Out-Null
+    # Item 2na (b): started through the one helper, so it cannot take the screen.
+    $null = Start-Quiet -FilePath $shortcut.TargetPath -ArgumentList $shortcut.Arguments -WorkingDirectory $shortcut.WorkingDirectory
     $deadline = [DateTime]::UtcNow.AddSeconds(60)
     do {
         Start-Sleep -Milliseconds 500

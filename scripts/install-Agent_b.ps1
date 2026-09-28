@@ -617,6 +617,47 @@ if ($env:OS -ne 'Windows_NT') { throw 'Agent_b installation is supported only on
 if ([string]::IsNullOrWhiteSpace($SourceDirectory)) { $SourceDirectory = Split-Path -Parent $PSScriptRoot }
 if ([string]::IsNullOrWhiteSpace($OperatorSid)) { $OperatorSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value }
 if ([string]::IsNullOrWhiteSpace($OperatorLocalAppData)) { $OperatorLocalAppData = [Environment]::GetFolderPath('LocalApplicationData') }
+# Item 2nf (a): A WORKSPACE AN UPDATER SENT IS ADVISORY, NOT FATAL.
+#
+# v1.24.0's updater sends -WorkspaceDirectory pointing at the app's own profile
+# scratch folder, which lives INSIDE the data root. Three guards refuse that: the
+# dedicated-name check, Assert-DisjointRoots, and the canonical-location check. The
+# operator pressed Update three times and each attempt died in under a second. An
+# installed updater cannot be changed retroactively, so the installer stops treating
+# its workspace as an instruction: the argument is DROPPED and the resolver decides
+# the workspace exactly as it does for a hand run, which is how his hand install
+# succeeded. A hand run keeps today's strictness, because a person who names a
+# workspace means it.
+#
+# The marker is the update launch's argument SHAPE, not -ProgressFile alone: the
+# setup adds -ProgressFile to a hand run too (cmd/harness/install_mode.go), which his
+# own successful transcript shows. An updater is the only caller that supplies all
+# three roots at once. A hand run that reproduces that exact shape gets this path as
+# well, and the transcript line below is where that is visible.
+$script:workspaceArgumentIgnored = ''
+$updateLaunch = $PSBoundParameters.ContainsKey('ProgressFile') -and $PSBoundParameters.ContainsKey('ApplicationDirectory') -and
+    $PSBoundParameters.ContainsKey('DataDirectory') -and $PSBoundParameters.ContainsKey('WorkspaceDirectory')
+$suppliedWorkspace = $WorkspaceDirectory
+if ($updateLaunch -and -not [string]::IsNullOrWhiteSpace($suppliedWorkspace)) {
+    # ONLY a workspace the installer CANNOT ACCEPT is dropped. An earlier version of
+    # this dropped every updater-supplied workspace, and the installer matrix caught it
+    # at once: a TestMode caller that legitimately passes all three roots lost its
+    # workspace and then failed the disposable-root containment. So the guards are asked
+    # first, and the argument is honoured whenever they would have accepted it.
+    $suppliedFull = Get-FullPath $suppliedWorkspace
+    $workspaceAcceptable = $true
+    try {
+        $null = Assert-SafeAgentBPath $suppliedFull 'WorkspaceDirectory'
+        Assert-DisjointRoots @((Get-FullPath $ApplicationDirectory), (Get-FullPath $DataDirectory), $suppliedFull)
+        if (-not $TestMode) {
+            # The same canonical workspace the check further down compares against.
+            $canonicalWorkspace = Get-FullPath $(if ($AllUsers) { Join-Path $env:ProgramData 'Agent_b\workspace' } else { Join-Path $OperatorLocalAppData 'Agent_b-workspace' })
+            if (-not $suppliedFull.Equals($canonicalWorkspace, [StringComparison]::OrdinalIgnoreCase)) { throw 'not the canonical workspace' }
+        }
+    } catch { $workspaceAcceptable = $false }
+    if (-not $workspaceAcceptable) { $WorkspaceDirectory = '' }
+}
+
 $resolvedRoots = Resolve-AgentBInstallRoots -AllUsers:$AllUsers -TestMode:$TestMode `
     -ApplicationDirectory $ApplicationDirectory -DataDirectory $DataDirectory `
     -WorkspaceDirectory $WorkspaceDirectory -StartMenuDirectory $StartMenuDirectory -SendToDirectory $SendToDirectory `
@@ -629,6 +670,10 @@ $StartMenuDirectory = $resolvedRoots.StartMenuDirectory
 $SendToDirectory = $resolvedRoots.SendToDirectory
 $UninstallRegistryPath = $resolvedRoots.UninstallRegistryPath
 $legacyApplicationOverride = $resolvedRoots.LegacyApplicationExplicit
+if ($updateLaunch -and -not [string]::IsNullOrWhiteSpace($suppliedWorkspace) -and
+    -not (Get-FullPath $suppliedWorkspace).Equals($WorkspaceDirectory, [StringComparison]::OrdinalIgnoreCase)) {
+    $script:workspaceArgumentIgnored = "workspace argument ignored: $(Get-FullPath $suppliedWorkspace), using $WorkspaceDirectory"
+}
 $LegacyApplicationDirectory = $resolvedRoots.LegacyApplicationDirectory
 if ($WhatIfPreference) {
     $TranscriptPath = Join-Path ([IO.Path]::GetTempPath()) ("Agent_b-whatif-installer-{0}.log" -f [DateTime]::Now.ToString('yyyyMMdd-HHmmss-fff'))
@@ -637,6 +682,7 @@ if ($WhatIfPreference) {
 }
 $script:installTranscriptPath = Get-FullPath $TranscriptPath
 Start-InstallTranscript -Path $script:installTranscriptPath
+if ($script:workspaceArgumentIgnored) { Write-Host $script:workspaceArgumentIgnored }
 
 $sourceRoot = Get-FullPath $SourceDirectory
 $applicationRoot = Assert-SafeAgentBPath $ApplicationDirectory 'ApplicationDirectory'

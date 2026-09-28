@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -280,4 +280,84 @@ test("the notes gate catches what the item's evidence quoted, and the list is on
   assert.equal(underTheRule("v1.23.0.md"), false);
   assert.equal(underTheRule("v1.24.0.md"), true);
   assert.deepEqual(versionOf("v1.27.0.md"), [1, 27, 0]);
+});
+
+// Item 2na (d): A SPAWN SITE THAT CAN TAKE THE OPERATOR'S SCREEN FAILS THE SUITE.
+//
+// He works on this machine while the suite runs. Thirteen scripts under tools/,
+// scripts/ and tests/ start processes and eleven had remembered to hide the window;
+// the fourteenth is the problem, and a person remembering is not a mechanism. This
+// gate greps the spawn set and fails on a Start-Process that neither hides its window
+// nor appears below as a deliberate exception with its reason.
+//
+// The exceptions are deliberate and each is a window the operator is MEANT to see.
+// Adding one means writing down why, here, where the next reader will find it.
+const spawnExceptions = new Map([
+  [
+    "scripts/launch-Agent_b.ps1:Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments | Out-Null",
+    "the failure re-entry: a hidden launch that failed re-runs itself visibly, which is the only way it can report anything at all",
+  ],
+  [
+    "scripts/launch-Agent_b.ps1:Start-Process $Url",
+    "opening the browser at Agent_b is the point of a launch, and -NoBrowser is how a caller declines it",
+  ],
+]);
+
+// A spawn is quiet when it hides its window, reuses the current console rather than
+// opening one — which is what -NoNewWindow does for the deliberate foreground start,
+// whose window is the operator's and whose closing is how he stops the server —
+// or goes through the Start-Quiet helper.
+const quietMarkers = ["-WindowStyle Hidden", "WindowStyle = 'Hidden'", "-NoNewWindow", "Start-Quiet", "Start-QuietMinimized"];
+
+test("no spawn site in the tooling can take the operator's screen", async () => {
+  const root = repoRoot;
+  const directories = ["tools", "scripts", "tests"];
+  // windows-tools.ps1 DEFINES the quiet start: its own Start-Process calls are
+  // where the window style is set, from a splat this grep cannot read.
+  const definesTheHelper = "scripts/windows-tools.ps1";
+  const offenders = [];
+  const unusedExceptions = new Set(spawnExceptions.keys());
+
+  for (const directory of directories) {
+    let names;
+    try {
+      names = await readdir(join(root, directory));
+    } catch {
+      continue;
+    }
+    for (const name of names.filter((one) => one.endsWith(".ps1"))) {
+      const relative = `${directory}/${name}`;
+      if (relative === definesTheHelper) continue;
+      const text = await readFile(join(root, directory, name), "utf8");
+      const lines = text.split(/\r?\n/);
+      for (const [index, line] of lines.entries()) {
+        const trimmed = line.trim();
+        // A comment about spawning, or a gate grepping for one, is not a spawn.
+        if (!trimmed.includes("Start-Process") || trimmed.startsWith("#")) continue;
+        if (trimmed.includes("'Start-Process") || trimmed.includes('"Start-Process')) continue;
+        // The call may wrap, so the quiet marker is looked for on the statement,
+        // which continues while the line ends in a backtick or an open splat.
+        let statement = trimmed;
+        for (let ahead = index + 1; ahead < lines.length && /[`@{,]$/.test(statement.trim()); ahead += 1) {
+          statement += " " + lines[ahead].trim();
+        }
+        if (quietMarkers.some((marker) => statement.includes(marker))) continue;
+        const key = `${relative}:${trimmed}`;
+        if (spawnExceptions.has(key)) {
+          unusedExceptions.delete(key);
+          continue;
+        }
+        offenders.push(`${relative}:${index + 1}: ${trimmed}`);
+      }
+    }
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `these spawn sites can put a window on the operator's screen. Start them through Start-Quiet in scripts/windows-tools.ps1, or add the site to spawnExceptions with the reason the window is meant to be seen:\n${offenders.join("\n")}`,
+  );
+  // An exception that no longer matches anything is a stale note, and a stale note is
+  // how the list stops being trustworthy.
+  assert.deepEqual([...unusedExceptions], [], "these documented spawn exceptions match no site any more and should be removed");
 });

@@ -347,6 +347,30 @@ try {
     }
     Write-Host "PROOF direct source-tree refusal: $directSentence"
 
+    # Item 2nf (a): A HAND RUN KEEPS TODAY'S STRICTNESS. The workspace argument is
+    # advisory only for the shape an installed updater sends - all three roots at once,
+    # alongside the setup's own -ProgressFile. A person who names a workspace means it,
+    # so a hand run pointing one inside the data root is still refused, in the words it
+    # has always used. Without this the fix for his Update would have quietly widened
+    # what any caller can ask for.
+    $handRoot = Join-Path $testRoot 'HandWorkspace'
+    $handApplication = Join-Path $handRoot 'Application\Agent_b'
+    $handData = Join-Path $handRoot 'Data\Agent_b'
+    $handWorkspace = Join-Path $handData 'profiles\Someone\scratch'
+    foreach ($directory in @($handApplication, $handData, $handWorkspace)) { $null = New-Item -ItemType Directory -Path $directory -Force }
+    $handOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer -SourceDirectory (Split-Path -Parent $PSScriptRoot) `
+        -ApplicationDirectory $handApplication -DataDirectory $handData -WorkspaceDirectory $handWorkspace `
+        -StartMenuDirectory (Join-Path $handRoot 'StartMenu') -SendToDirectory (Join-Path $handRoot 'StartMenu\SendTo') `
+        -UninstallRegistryPath ($testRegistry + '-HandWorkspace') -TestMode 2>&1 | Out-String)
+    $handExit = $LASTEXITCODE
+    if ($handExit -eq 0 -or $handOutput -notmatch 'three disjoint trees') {
+        throw "A hand run with a workspace inside the data root was not refused with today's message.`n$handOutput"
+    }
+    if ($handOutput -match 'workspace argument ignored') {
+        throw "A hand run's workspace was treated as advisory; only an updater's is.`n$handOutput"
+    }
+    Write-Host 'PROOF hand-run strictness: a workspace inside the data root is still refused as three overlapping trees, and is never silently ignored'
+
     $alternateConnection = Join-Path $testRoot 'AlternateConnection'
     $registeredRoot = Join-Path $alternateConnection 'Registered\Agent_b'
     $null = New-Item -ItemType Directory -Path $registeredRoot -Force

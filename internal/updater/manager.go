@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"harness/internal/quietproc"
 )
 
 const LatestReleaseURL = "https://api.github.com/repos/acme/agent_b/releases/latest"
@@ -133,7 +135,10 @@ func New(options Options) *Manager {
 			if err != nil {
 				return err
 			}
-			return exec.Command(path, arguments...).Start()
+			// Item 2nf (d) and 2na (a): the setup is started with no console, so an
+			// update never puts a window on the operator's screen and cannot leave one
+			// behind when it fails.
+			return quietproc.Quiet(exec.Command(path, arguments...)).Start()
 		}
 	}
 	verify := options.VerifySignature
@@ -564,9 +569,14 @@ func installArguments(application, data, workspace, sessionID string) ([]string,
 	// passed only the first, so a disposable instance's update wrote its own
 	// records into the operator's LocalAppData.
 	arguments := []string{"--install", "--quiet", "--install-data", data, "-ApplicationDirectory", application, "-DataDirectory", data}
-	if strings.TrimSpace(workspace) != "" {
-		arguments = append(arguments, "-WorkspaceDirectory", workspace)
-	}
+	// Item 2nf (b): THE WORKSPACE IS NO LONGER SENT. It was this instance's own
+	// configured workspace, which for a real install sits inside the data root, and
+	// every guard in the installer refused that: three Update attempts died in under a
+	// second each. The installer resolves the workspace itself, as it does for a hand
+	// run, so there is nothing here for it to reject. The two ROOTS stay, because
+	// item 2lh's install-target assertion depends on them — without them a disposable
+	// instance's update would install over the operator's own copy.
+	_ = workspace
 	if sessionID != "" {
 		arguments = append(arguments, "--reopen-session", sessionID)
 	}

@@ -21,12 +21,20 @@ func TestTheSetupIsToldWhereTheAskingInstanceLives2lh(t *testing.T) {
 		"--install", "--quiet",
 		`-ApplicationDirectory C:\suite\root\Application\Agent_b`,
 		`-DataDirectory C:\suite\root\Data\Agent_b`,
-		`-WorkspaceDirectory C:\suite\root\workspace`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("the setup was not told %q: %s", want, joined)
 		}
 	}
+	// Item 2nf (b): THE WORKSPACE IS NO LONGER TOLD, AND THAT IS THE POINT. An
+	// installed updater sent this instance's own workspace, which for a real install
+	// sits inside the data root, and every guard in the installer refused it: the
+	// operator's three Update attempts each died in under a second. What item 2lh
+	// actually protects is the install TARGET, and the two roots above still carry it.
+	if strings.Contains(joined, "-WorkspaceDirectory") {
+		t.Fatalf("the updater still sends a workspace the installer will refuse: %s", joined)
+	}
+
 	// The reopen-session argument the operator's own update relies on is still passed.
 	withSession, err := installArguments(`C:\a`, `C:\d`, "", "s29")
 	if err != nil {

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"harness/internal/buildinfo"
+	"harness/internal/quietproc"
 )
 
 // Item 2gl (v1.2.0/W2): `Agent_b.exe --install` — the app installs itself.
@@ -179,6 +180,11 @@ func runInstall(options installOptions, args []string) int {
 	}
 	scriptArgs = append(scriptArgs, args...)
 	command := exec.Command(powershell, scriptArgs...)
+	// Item 2nf (d) and 2na (a): NO CONSOLE. His Update attempt left a window behind
+	// after the installer had exited, with nothing readable in it. A child started
+	// with no console cannot leave one open, and the transcript is where the account
+	// of the install lives either way.
+	quietproc.Quiet(command)
 	command.Dir = source
 	// A setup launched from PowerShell 7 inherits its PSModulePath. Windows
 	// PowerShell 5.1 can then discover PowerShell 7's modules first and fail to
@@ -278,7 +284,16 @@ func runInstall(options installOptions, args []string) int {
 			log.printf("RESTARTED: %s after %s.", version, reason)
 		}
 	}
-	appendProgress(dataRoot, installProgress{Phase: lastPhase, Text: fmt.Sprintf("The install stopped during %s (exit %d). It is safe to run again.", lastPhase, code), Done: true})
+	// Item 2nf (c): THE CONTROL SHOWS THE INSTALLER'S OWN REASON. "The install stopped
+	// during starting (exit 1)" is what the operator saw three times, while the
+	// transcript said plainly that the three directories must be disjoint trees. The
+	// installer already writes its reason; nothing carried it to where he was looking.
+	failureText := fmt.Sprintf("The install stopped during %s (exit %d). It is safe to run again.", lastPhase, code)
+	if reason := installerFailureReason(log.location()); reason != "" {
+		failureText = reason + " It is safe to run again."
+	}
+	failureText += " Transcript: " + log.location()
+	appendProgress(dataRoot, installProgress{Phase: lastPhase, Text: failureText, Done: true})
 	marker.Phase = lastPhase
 	_ = writeInstallMarker(dataRoot, marker)
 	// Item 2gv: this exit is logged too. The Setup page shows the same thing
@@ -286,9 +301,45 @@ func runInstall(options installOptions, args []string) int {
 	// the whole of the report.
 	log.printf("install: the installer exited %d during %s", code, lastPhase)
 	if !options.quiet {
-		showInstallFailure("Agent_b install failed", fmt.Sprintf("The install stopped during %s (exit %d). It is safe to run again.\n\nLog: %s", lastPhase, code, log.location()))
+		showInstallFailure("Agent_b install failed", failureText)
 	}
 	return code
+}
+
+// installerFailureReason is item 2nf (c): the installer's OWN words, read back out of
+// the transcript it just wrote.
+//
+// The installer ends a refusal with a line that begins "INSTALLATION FAILED:" and says
+// exactly what was wrong — "Application, operator-data, and workspace directories must
+// be three disjoint trees." The update control showed none of it: it showed "The
+// install stopped during starting (exit 1)", three times, while the answer sat in a
+// file nobody was pointed at.
+//
+// The last such line wins, because the transcript is appended to and the final refusal
+// is the one that ended the run. A transcript that cannot be read gives an empty
+// string and the generic sentence stands, since a missing log is not a reason.
+func installerFailureReason(transcript string) string {
+	if strings.TrimSpace(transcript) == "" {
+		return ""
+	}
+	data, err := os.ReadFile(transcript)
+	if err != nil {
+		return ""
+	}
+	const marker = "INSTALLATION FAILED:"
+	reason := ""
+	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		at := strings.Index(line, marker)
+		if at < 0 {
+			continue
+		}
+		// The marker's own text is kept, so the operator reads the same sentence the
+		// transcript carries rather than a paraphrase of it.
+		if text := strings.TrimSpace(line[at:]); text != marker {
+			reason = text
+		}
+	}
+	return reason
 }
 
 // installDataRoot resolves where the install writes its own records: the

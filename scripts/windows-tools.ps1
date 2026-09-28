@@ -39,3 +39,53 @@ function Get-WindowsPowerShell {
     if (Test-Path -LiteralPath $sysnative) { return $sysnative }
     throw 'Windows PowerShell is not in System32; this host cannot run it by absolute path.'
 }
+
+# Item 2na: ONE HELPER, NOT A FLAG PER SITE.
+#
+# The operator works on this machine while the suite runs. Every child a gate starts
+# used to take whatever window the platform gave it: a console for each pwsh, a real
+# window for the product and the installer. Thirteen scripts started processes and
+# eleven of them had remembered `-WindowStyle Hidden`; the point of a helper is that
+# the fourteenth cannot forget.
+#
+# Start-Quiet starts a process WITHOUT a window and WITHOUT activation and returns it,
+# so a gate can wait on it and stop it. Start-QuietMinimized is for the one case a
+# window is genuinely needed — the product under a window probe — and shows it
+# minimized and non-activating, so it never comes to the front of the operator's
+# screen. Neither ever calls SetForegroundWindow or AppActivate, and nothing here
+# should.
+
+function Start-Quiet {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [string[]]$ArgumentList = @(),
+        [string]$WorkingDirectory,
+        # Redirection is opt-in: a gate that needs the child's output names files for
+        # it, because a hidden child's console is not there to read.
+        [string]$StandardOutput,
+        [string]$StandardError
+    )
+    $parameters = @{ FilePath = $FilePath; PassThru = $true; WindowStyle = 'Hidden' }
+    if ($ArgumentList.Count) { $parameters.ArgumentList = $ArgumentList }
+    if ($WorkingDirectory) { $parameters.WorkingDirectory = $WorkingDirectory }
+    if ($StandardOutput) { $parameters.RedirectStandardOutput = $StandardOutput }
+    if ($StandardError) { $parameters.RedirectStandardError = $StandardError }
+    return Start-Process @parameters
+}
+
+function Start-QuietMinimized {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [string[]]$ArgumentList = @(),
+        [string]$WorkingDirectory
+    )
+    # MinimizedNoActivate is Start-Process's own SW_SHOWMINNOACTIVE: the window
+    # exists, so a probe that needs one has one, and the operator's focus is left
+    # where it was.
+    $parameters = @{ FilePath = $FilePath; PassThru = $true; WindowStyle = 'Minimized' }
+    if ($ArgumentList.Count) { $parameters.ArgumentList = $ArgumentList }
+    if ($WorkingDirectory) { $parameters.WorkingDirectory = $WorkingDirectory }
+    return Start-Process @parameters
+}

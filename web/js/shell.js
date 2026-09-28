@@ -434,11 +434,56 @@ export function initShell(options = {}) {
 
   async function closeChat(session, menu, agentID) {
     if (isRunning(session)) return report("This chat has a running run. Stop it before closing the chat.");
+    // Item 2ms (a) and (b): WHICH CHAT THE WINDOW SHOWS AFTER A CLOSE.
+    //
+    // Reproduced against a copy of the operator's own restored journal set, 34
+    // chats: closing the one open chat left the selection pointing at it, and
+    // because [[2hq]]'s close-is-not-delete keeps the session in the store with its
+    // whole transcript, the pane went on rendering a chat he had just closed — and
+    // a reload showed it again. "when no chat tabs are open its showing me an old
+    // chat still in the window."
+    //
+    // Closing the SELECTED chat moves the selection to its neighbour in strip
+    // order; closing any other chat moves nothing.
+    const wasSelected = store.selection.session_id === session.id;
     try {
       await api(`/api/sessions/${encodeURIComponent(session.id)}/close`, {});
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+      if (wasSelected) selectAfterClose(session, agentID);
       renderAgentMenu(menu, agentID);
     } catch (error) { report(error.message); }
+  }
+
+  // The neighbour that took its place: the nearest OPEN chat of the same agent in
+  // the order the strip draws, and when there is none, nothing — which is the empty
+  // launch well the shell already has, with no tab lit and the composer disabled.
+  function selectAfterClose(closed, agentID) {
+    const order = Object.values(store.sessions)
+      .filter((one) => one && !one.closed && one.id !== closed.id && (store.replay || one.role !== "c"))
+      .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
+    const sameAgent = order.filter((one) => `agent_${one.role === "d" ? "d" : "b"}` === agentID);
+    const next = sameAgent[0] || order[0] || null;
+    if (!next) {
+      setSelection(agentID, "");
+      render();
+      return;
+    }
+    setSelection(`agent_${next.role === "d" ? "d" : "b"}`, next.id);
+    render();
+  }
+
+  // Item 2ms (e): A RELOAD WITH NO OPEN CHAT LANDS IN THE EMPTY STATE. The selection
+  // is kept in sessionStorage, so a reload restored the closed chat it named and the
+  // pane drew the transcript again. A closed chat stays selectable — that is
+  // [[2gn]]'s open-by-name — so the address asking for it by name is honoured and
+  // anything else is cleared.
+  function clearClosedSelectionOnce() {
+    if (!store.loaded || clearedClosedSelection) return;
+    clearedClosedSelection = true;
+    const selected = store.sessions[store.selection.session_id];
+    if (!selected || !selected.closed) return;
+    if (new URLSearchParams(location.search).get("session") === selected.id) return;
+    setSelection(store.selection.agent_id, "");
   }
 
   async function deleteChat(session, menu, agentID) {
@@ -535,7 +580,9 @@ export function initShell(options = {}) {
     options.syncLocation?.(page);
   }
 
+  let clearedClosedSelection = false;
   subscribe((_state, event) => {
+    clearClosedSelectionOnce();
     render();
   });
   return {

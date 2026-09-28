@@ -1652,6 +1652,37 @@ try {
         $text = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot (Join-Path 'scripts' $required))
         if ($text.TrimEnd() -notmatch 'exit 0$') { throw "$required no longer ends with an explicit exit code." }
     }
+
+    # Item 2nl (b), as a guard rather than a fix: EVERY PARAMETER THESE SCRIPTS PASS
+    # HAS TO EXIST. `-Connection Any` sat in the firewall script's Apply branch for
+    # weeks; because both calls are inside ShouldProcess, every -WhatIf run bound
+    # cleanly and only a real Repair ever hit it. This reads the scripts rather than
+    # running them, so the branch nobody can run unelevated is still checked.
+    $unknownParameters = @()
+    foreach ($script in @('apply-acls.ps1', 'apply-firewall-rule.ps1', 'apply-hardening.ps1', 'setup-service-account.ps1', 'provision-service-identity.ps1', 'run-elevated-provision.ps1')) {
+        $path = Join-Path $repositoryRoot (Join-Path 'scripts' $script)
+        $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+        $defined = @($ast.FindAll({ $args[0] -is [Management.Automation.Language.FunctionDefinitionAst] }, $true) | ForEach-Object { $_.Name })
+        foreach ($call in $ast.FindAll({ $args[0] -is [Management.Automation.Language.CommandAst] }, $true)) {
+            $name = $call.GetCommandName()
+            if (-not $name -or $defined -contains $name) { continue }
+            # Cmdlet AND Function: New-NetFirewallRule is a CDXML function, not a
+            # cmdlet, and a check that asked only for cmdlets skipped the very call
+            # this guard exists for.
+            $command = Get-Command -Name $name -CommandType Cmdlet, Function -ErrorAction SilentlyContinue
+            if (-not $command -or -not $command.Parameters -or $command.Parameters.Count -eq 0) { continue }
+            $known = @($command.Parameters.Keys) + @($command.Parameters.Values | ForEach-Object { $_.Aliases })
+            foreach ($element in $call.CommandElements) {
+                if ($element -isnot [Management.Automation.Language.CommandParameterAst]) { continue }
+                $used = $element.ParameterName
+                if (-not ($known | Where-Object { $_ -and $_.StartsWith($used, [StringComparison]::OrdinalIgnoreCase) })) {
+                    $unknownParameters += "$script line $($element.Extent.StartLineNumber): $name has no parameter -$used"
+                }
+            }
+        }
+    }
+    if ($unknownParameters.Count) { throw "a hardening script passes a parameter that does not exist:`r`n$($unknownParameters -join "`r`n")" }
+    Write-Host 'PROOF hardening parameters: every parameter these scripts pass exists on the cmdlet they pass it to'
 } catch {
     # Item 2ft: a failing scenario keeps its root for evidence and says where.
     Write-Host "KEPT for evidence: $testRoot"
@@ -1847,6 +1878,15 @@ if (-not ($serviceGateOptIn -and $serviceGateElevated)) {
         $outcome = (Get-Content -LiteralPath $gateResult -Raw | ConvertFrom-Json)
         if ($gateExit -ne 0 -or $outcome.outcome -ne 'ready') {
             throw "Repair did not end ready: exit $gateExit, outcome $($outcome.outcome), message $($outcome.message)"
+        }
+        # Item 2nl (c): READY IS NOT ENOUGH. The operator's Repair on 2026-09-28 created
+        # the account, applied every ACL and then died in the firewall step, and a case
+        # that asserted only the account would have called that run a pass. The
+        # orchestration's own completion marker is what says all three parts ran.
+        $captured = Get-Content -LiteralPath $gateLog -Raw
+        if ($captured -notmatch 'AGENTB_HARDENING_COMPLETE=Apply') {
+            $firstError = ($captured -split "`r?`n" | Where-Object { $_ -match 'AGENTB_CHILD_ERROR' } | Select-Object -First 1)
+            throw "Repair ended ready but the hardening orchestration never completed (no AGENTB_HARDENING_COMPLETE=Apply in $gateLog). $firstError"
         }
         # The credential the run stored actually authenticates, which is the point.
         $storedPassword = & (Get-WindowsPowerShell) -NoLogo -NoProfile -NonInteractive -Command "

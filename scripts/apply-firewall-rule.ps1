@@ -292,11 +292,17 @@ if ($correct -and -not $legacyPresent) {
 }
 
 if (Test-ConfirmationPromptExpected) { Assert-SafeConfirmationInput }
+# Item 2nl (b): -Profile Any, not -Connection Any. New-NetFirewallRule has no
+# -Connection parameter -- its profile selector is -Profile -- and because both calls
+# below sit inside ShouldProcess, every -WhatIf run bound cleanly and said so while
+# every real Apply died here with "A parameter cannot be found that matches parameter
+# name 'Connection'." The account step and the ACL step had already succeeded, so what
+# the operator saw was a Repair that got most of the way and then refused.
 if ($PSCmdlet.ShouldProcess($ruleName, 'Create or repair Agent_b user-scoped outbound Block rule')) {
     Get-NetFirewallRule -Name $ruleName, $legacyAllowRuleName, $LANICMPRuleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-    $null = New-NetFirewallRule -Name $ruleName -DisplayName $ruleName -Description $policyDescription -Direction Outbound -Action Block -Enabled True -Connection Any -LocalUser $localUserSddl -RemoteAddress $blockedRanges
+    $null = New-NetFirewallRule -Name $ruleName -DisplayName $ruleName -Description $policyDescription -Direction Outbound -Action Block -Enabled True -Profile Any -LocalUser $localUserSddl -RemoteAddress $blockedRanges
     if ($AllowLocalNetwork) {
-        $null = New-NetFirewallRule -Name $LANICMPRuleName -DisplayName $LANICMPRuleName -Description 'Allows outbound ICMPv4 echo to operator-confirmed LAN subnets for the Agent_b service identity.' -Direction Outbound -Action Allow -Enabled True -Connection Any -LocalUser $localUserSddl -Protocol ICMPv4 -IcmpType 8 -RemoteAddress $confirmedLANSubnets
+        $null = New-NetFirewallRule -Name $LANICMPRuleName -DisplayName $LANICMPRuleName -Description 'Allows outbound ICMPv4 echo to operator-confirmed LAN subnets for the Agent_b service identity.' -Direction Outbound -Action Allow -Enabled True -Profile Any -LocalUser $localUserSddl -Protocol ICMPv4 -IcmpType 8 -RemoteAddress $confirmedLANSubnets
     }
     Write-Host "APPLIED: $ruleName"
 }

@@ -49,11 +49,36 @@ function Write-CapturedLine {
 
 Write-CapturedLine "AGENTB_ELEVATED_WRAPPER_STARTED $(Get-Date -Format o)"
 
-# Every stream of the child, line by line. A binding error appears here because it is
-# the INNER process that fails to bind, and 2>&1 brings its stderr into the pipeline
-# with the rest.
-& $powershell -NoLogo -NoProfile -NonInteractive -File $Script @Arguments 2>&1 |
-    Out-String -Stream |
+# Item 2nl (a): WHOLE MESSAGES, ON ONE LINE.
+#
+# `-File` was the obvious way to run the child and it truncates the only sentence that
+# matters. A console-less `powershell -File` formats its own error records against an
+# 80-column host, so a binding error leaves the child's stderr already broken in two --
+# and each physical line arrives here as its own record, with the first one's decoration
+# printed between the halves. The operator's Repair on 2026-09-28 said "A parameter
+# cannot be found that" and stopped there; the rest of it, "matches parameter name
+# 'Connection'.", was four lines further down the log and nothing joined them.
+#
+# The child runs through a `-Command` shim instead. A parameter that will not bind is a
+# terminating error inside that shim, so it is caught where its Exception.Message is
+# still one whole string, and it is written as one line that names the parameter. The
+# arguments are passed as single-quoted literals, doubling any quote of their own, which
+# is exactly how a path with spaces or a subnet list has to arrive.
+# A parameter NAME has to stay a name: quoting `-NoPrompt` would hand the child a
+# positional string and every real call would fail differently than it does today.
+# Names pass through verbatim -- they can hold nothing that needs quoting -- and every
+# value is single-quoted with its own quotes doubled.
+$literals = ($Arguments | ForEach-Object {
+    if ($_ -match '^-[A-Za-z][A-Za-z0-9]*(:.*)?$') { $_ } else { "'" + ($_ -replace "'", "''") + "'" }
+}) -join ' '
+$shim = @"
+`$ErrorActionPreference = 'Stop'
+try { & '$($Script -replace "'", "''")' $literals; exit `$LASTEXITCODE }
+catch { Write-Output ('AGENTB_CHILD_ERROR ' + (`$_.Exception.Message -replace '?
+', ' ')); exit 1 }
+"@
+& $powershell -NoLogo -NoProfile -NonInteractive -Command $shim 2>&1 |
+    Out-String -Stream -Width 4096 |
     ForEach-Object { Write-CapturedLine $_ }
 $childExit = $LASTEXITCODE
 

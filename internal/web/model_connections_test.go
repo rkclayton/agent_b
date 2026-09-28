@@ -171,7 +171,15 @@ func postConfigPatch(t *testing.T, server *Server, body string) *httptest.Respon
 // connection it is about. The operator's config carried "model" on two connections and
 // every fix so far only stopped new ones getting it; writing it back is how it stayed.
 func TestSavingTheModelPlaceholderIsRefusedByName2nq(t *testing.T) {
-	root := t.TempDir()
+	// Its own root, removed best-effort rather than by t.TempDir(): this case saves the
+	// configuration, which creates directories under the root, and t.TempDir()'s cleanup
+	// FAILS THE TEST when anything is left behind. It did exactly that on the Linux CI
+	// job while passing everywhere else.
+	root, err := os.MkdirTemp("", "agentb-model-placeholder-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	path := filepath.Join(root, "harness.json")
 	cfg := config.Defaults(root)
 	cfg.Connections[0] = runnableTestConnection("server-2")
@@ -180,8 +188,8 @@ func TestSavingTheModelPlaceholderIsRefusedByName2nq(t *testing.T) {
 	other.Label = "server-3"
 	cfg.Connections = append(cfg.Connections, other)
 	cfg.Agents = []config.Agent{{Name: "server-2", B: "server-2", Toolset: config.FullToolset()}}
-	if err := cfg.Save(path); err != nil {
-		t.Fatal(err)
+	if saveErr := cfg.Save(path); saveErr != nil {
+		t.Fatal(saveErr)
 	}
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 

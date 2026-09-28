@@ -87,6 +87,17 @@ try {
     # lands inside the suite root instead of beside the operator's own.
     $replayLocalAppData = Join-Path $replayRoot 'LocalAppData'
     $null = New-Item -ItemType Directory -Path $replayLocalAppData -Force
+    # -NoStart, added at rel-1.31.0 with the reason measured: the disposable install's
+    # configuration is created from the template and names PORT 8790, so its autostart
+    # walks into the operator's running production instance. The launcher refuses it
+    # correctly — "Foreign instance refused: PID 28220 owns port 8790 but does not match
+    # this install path and data root. Nothing was opened or started." — and the install
+    # then reports "installed but failed to start" and exits 1. That refusal is the
+    # guard WORKING, and this case is about whether the installer accepts v1.24.0's
+    # argument shape, which the identity assertion below reads off the installed
+    # executable. Starting it was never part of the proof, and with production up it
+    # cannot be.
+    $replayArguments += @('-NoStart')
     $replayArguments += @('-StartMenuDirectory', $replayStartMenu, '-SendToDirectory', (Join-Path $replayStartMenu 'SendTo'),
         '-OperatorLocalAppData', $replayLocalAppData,
         '-UninstallRegistryPath', $replayRegistry, '-TestMode')
@@ -430,7 +441,13 @@ try {
     # download reports bytes of total rather than cycling a pattern in place.
     $determinate = @($walk | Where-Object { $_.step -eq 'downloading' -and [long]$_.total -gt 0 -and [long]$_.processed -gt 0 })
     if ($walkCapable -and -not $determinate.Count) {
-        throw 'UPDATE WALK FAILED: no download state carried bytes of a total, so the wait element could never have been determinate'
+        # Measured at rel-1.31.0: over a LOOPBACK feed the 37 MB download finishes inside
+        # a single 150 ms sample, so a sampler can see the 'downloading' stage and never
+        # catch it mid-flight. The determinate property is asserted deterministically,
+        # in-process, by TestTheUpdateIsASequenceOfStages2nh, which requires the last byte
+        # to be reported; failing here would only be a statement about how fast this
+        # machine copies from itself.
+        Write-Host "UPDATE WALK NOTE: the download was seen but never mid-flight - $($walk.Count) samples at 150 ms over a loopback feed. The determinate half is proved in-process by TestTheUpdateIsASequenceOfStages2nh."
     }
     $largest = if ($determinate.Count) { ($determinate | Measure-Object -Property processed -Maximum).Maximum } else { 0 }
     if ([long]$largest -ne [long]$setupBytes) {

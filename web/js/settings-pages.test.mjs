@@ -23,7 +23,7 @@ function pageContext() {
       config: { workspace: "C:\\workspace", context: { soft_pct: 0.75, summary_pct: 0.85, accounting: "auto" }, chat: {}, run: {}, approval: {}, deliver: {}, memory: {}, tools: {}, shell: { service_account: {} }, signing: {}, sandbox: {} },
       shell_credential: {}, shell_identity: {}, sandbox: {}, serving_facts: {}, signature: { files: [{ status: "Valid", timestamped: true }] },
     },
-    expanded: new Set(), armed: new Set(), drafts: new Map(), errors: new Map(), probeMessages: new Map(), typedModels: new Set(),
+    expanded: new Set(), armed: new Set(), drafts: new Map(), errors: new Map(), probeMessages: new Map(), typedModels: new Set(), advancedConnections: new Set(),
     workspaceState: [], operatorFileState: { attachment_files: 0, attachment_bytes: 0, instruction_found: [] },
     shellCredentialMessage: "", shellCredentialAlarm: false,
     serviceAccountStatus: { loaded: false, supported: true, exists: false, administrator: false },
@@ -207,4 +207,41 @@ test("the configuration route refuses an API key that still holds the mask", () 
 	assert.match(source, /still holds the placeholder for a stored key/);
 	// A refusal, not a delete: the old merge dropped an exact match and stored anything else.
 	assert.match(source, /strings\.Contains\(value, maskedKeySentinel\)/);
+});
+
+// Item 2nb (b) and (i): while the walk runs, the sheet says which address is being
+// tried and what it found, in item 2m4's ONE waiting element — determinate, addresses
+// tried of the candidate total. It sat idle and unexplained for the length of the walk
+// before this, which is why the operator thought Test had done nothing.
+test("a running endpoint walk leaves a seat for the one waiting element, not a second indicator", () => {
+	const context = pageContext();
+	context.connectionList = () => [{ id: "walk", label: "Walk", base_url: "http://walk:8080/", sampling: { thinking: {}, nonthinking: {} }, context: {}, reasoning: {}, capabilities: {} }];
+	context.expanded.add("walk");
+	context.probeMessages.set("walk", { walking: { line: "http://walk:8080 — wants an API key", processed: 2, total: 16 } });
+	const page = renderConnectionsPage(context);
+	assert.match(page, /data-connection-wait="walk"/, "no seat was left for the waiting element");
+	// The page must NOT build its own indicator: item 2m4 says there is one element.
+	assert.doesNotMatch(page, /class="wait"/, "the page built its own waiting element");
+	assert.doesNotMatch(page, /discovery-note/, "the note and the wait are both shown");
+});
+
+test("the controller mounts the one waiting element into that seat, determinate", () => {
+	const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
+	assert.match(controller, /import \{ waitElement \} from "\.\/wait\.js"/);
+	assert.match(controller, /data-connection-wait/);
+	assert.match(controller, /waitElement\(document, \{ line: walking\.line, processed: walking\.processed, total: walking\.total \}\)/);
+	// (b): the walk's own report is what fills it, and it is cleared when Test answers.
+	assert.match(controller, /event\.type === "connection\.discovering"/);
+	assert.match(controller, /walking: null/);
+});
+
+// (d): picking a model fills the rest, and never overwrites a label the operator chose.
+test("picking a model proposes the label only when the connection was never named", () => {
+	const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
+	const filler = controller.slice(controller.indexOf("function fillFromPickedModel"), controller.indexOf("function applyProposedValues"));
+	assert.match(filler, /!drafts\.has\(prefix \+ "label"\)/, "a label edited this session is not protected");
+	assert.match(filler, /!connection\.label \|\| connection\.label === connection\.id/, "a label the operator chose is not protected");
+	assert.match(filler, /applyProposedValues\(id, probeMessages\.get\(id\)\)/, "the values Test learned are not re-proposed");
+	// The display name, not the path: a file-based model must not put a path in the label.
+	assert.ok(filler.includes("split(/[\\\\/]/"), "the display name is not split on either separator");
 });

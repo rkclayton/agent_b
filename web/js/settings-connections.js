@@ -195,7 +195,13 @@ function connectionFields(connection, reason, discovery) {
 	const measurementResult = measurement ? renderMeasurement(measurement) : "";
 	// The one note: the result of the last Test, or what discovery found.
 	const noteText = discovery?.message || (discovery?.base_url ? (discovery.found || `found ${discovery.base_url}`) : "");
-	const discoveryNote = noteText ? `<p class="settings-note discovery-note ${discovery?.alarm ? "alarm" : ""}">${html(noteText)}</p>` : "";
+	// Item 2nb (b) and (i): while the walk runs, the seat below holds item 2m4's ONE
+	// waiting element, mounted by the controller. A second indicator is not built here,
+	// and the note is replaced by it rather than sitting beside it.
+	const walking = discovery?.walking;
+	const discoveryNote = walking
+	  ? `<div class="discovery-wait" data-connection-wait="${attr(id)}"></div>`
+	  : noteText ? `<p class="settings-note discovery-note ${discovery?.alarm ? "alarm" : ""}">${html(noteText)}</p>` : "";
 	const state = reason || (caps.probed_at ? "ready" : "not tested");
 	return `<div class="connection-fieldset connection-identity">${text(`${p}.label`, "label", connection.label, "text", "The name this connection is shown by.")}
     ${text(`${p}.base_url`, "base_url", connection.base_url, "text", "The server address; Test and fill discovers its API path and port, lists models and proposes the rest.")}${discoveryNote}

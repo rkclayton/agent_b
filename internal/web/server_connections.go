@@ -212,7 +212,18 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	}
 	discoveryContext, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	discovered, discoverErr := probe.DiscoverEndpoint(discoveryContext, &tested)
+	// Item 2nb (b): each address is published as it lands, so the sheet says what is
+	// being tried and what it found instead of sitting idle for the length of the walk.
+	discovered, discoverErr := probe.DiscoverEndpointReporting(discoveryContext, &tested, func(attempt probe.DiscoveryAttempt, tried, total int) {
+		s.bus.Publish(events.New(events.ConnectionDiscovering, "", "", map[string]any{
+			"connection_id": id,
+			"base_url":      attempt.BaseURL,
+			"result":        attempt.Result,
+			"answered":      attempt.Answered,
+			"tried":         tried,
+			"total":         total,
+		}))
+	})
 	for _, attempt := range discovered.Attempts {
 		s.bus.Publish(events.New(events.ProbeRequest, "", "", map[string]any{
 			"connection_id": id, "base_url": attempt.BaseURL, "guard": "operator_typed_host_only", "allowed": attempt.Allowed, "result": attempt.Result,

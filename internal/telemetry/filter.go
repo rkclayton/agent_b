@@ -78,7 +78,10 @@ var allowList = map[string]Classification{
 	"memory.noted": dropped, "memory.cleared": dropped, "memory.flushed": dropped,
 	"project.instructions_loaded": dropped,
 	"connection.probed":           dropped, "probe.request": dropped, "config.changed": dropped,
-	"shell.identity": dropped, "shell.credential": dropped, "shell.grant": dropped,
+	// Item 2nb (b): one per address an endpoint walk tries. It names the operator's own
+	// server and what it answered, which is exactly the kind of thing that never leaves.
+	"connection.discovering": dropped,
+	"shell.identity":         dropped, "shell.credential": dropped, "shell.grant": dropped,
 	"shell.grant_lapsed": dropped, "service.identity_unavailable": dropped,
 	"file.grant": dropped, "file.grant_lapsed": dropped, "signing.applied": dropped,
 	"operator.context": dropped, "ui.error": dropped, "subscriber.dropped": dropped,

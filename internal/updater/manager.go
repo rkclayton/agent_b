@@ -45,6 +45,18 @@ type State struct {
 	CheckedAt      string `json:"checked_at,omitempty"`
 	Error          string `json:"error,omitempty"`
 	Installing     bool   `json:"installing"`
+	// Item 2nh (a): the sequence, while it runs. Step names which of the five
+	// stages is in hand, Line is the sentence the one wait element shows, and
+	// Processed/Total make it determinate while the download is the stage — the
+	// only part of an update whose size is known in advance.
+	Step      string `json:"step,omitempty"`
+	Line      string `json:"line,omitempty"`
+	Processed int64  `json:"processed,omitempty"`
+	Total     int64  `json:"total,omitempty"`
+	// Item 2nh (b): what the LAST update did, so the instance that came back after
+	// the restart can say so where the control was rather than flipping silently
+	// back to "up to date".
+	Outcome *Outcome `json:"outcome,omitempty"`
 }
 
 type releaseAsset struct {
@@ -151,6 +163,11 @@ func New(options Options) *Manager {
 	}
 	manager := &Manager{client: client, latestURL: latest, dataRoot: options.DataRoot, enabled: enabled, launch: launch, verify: verify, changed: options.Changed, now: time.Now, checkInterval: interval}
 	manager.state = State{Enabled: enabled(), CurrentVersion: normalizeVersion(options.CurrentVersion)}
+	// Item 2nh (b): THIS PROCESS MAY BE THE RESULT OF AN UPDATE. The installer
+	// stopped the instance that pressed Update and started this one, so the only
+	// account of what happened is the file the installer wrote. Read it once, here,
+	// and the About row can state the outcome instead of saying nothing.
+	manager.state.Outcome = outcomeFor(options.DataRoot, manager.state.CurrentVersion)
 	return manager
 }
 
@@ -271,6 +288,8 @@ func (m *Manager) beginCheck(minimumInterval time.Duration) (bool, error) {
 		return false, nil
 	}
 	m.state.Enabled, m.state.Checking, m.state.Error = true, true, ""
+	// Item 2nh (b): the outcome stands UNTIL THE NEXT CHECK, and this is that check.
+	m.state.Outcome = nil
 	m.lastCheck = now
 	checking := m.state
 	m.mu.Unlock()
@@ -396,19 +415,22 @@ func (m *Manager) Install(ctx context.Context, sessionID string) (string, error)
 		m.mu.Unlock()
 		return "", errors.New("no verified update is available")
 	}
-	m.state.Installing, m.state.Error = true, ""
+	m.state.Installing, m.state.Error, m.state.Outcome = true, "", nil
 	state := m.state
 	m.mu.Unlock()
 	m.publish(state)
+	m.setStep("downloading", "downloading Agent_b "+release.Version, 0, 0)
 
 	path, err := m.download(ctx, release)
 	if err == nil {
+		m.setStep("installing", "starting the installer", 0, 0)
 		err = m.launch(path, sessionID)
 	}
 	m.mu.Lock()
 	m.state.Installing = false
 	if err != nil {
 		m.state.Error = err.Error()
+		m.state.Step, m.state.Line, m.state.Processed, m.state.Total = "", "", 0, 0
 	}
 	state = m.state
 	m.mu.Unlock()
@@ -425,8 +447,19 @@ func (m *Manager) Install(ctx context.Context, sessionID string) (string, error)
 	return path, nil
 }
 
+// setStep names the stage in hand for the one wait element. It is a publish, not a
+// promise: an update that dies between two steps leaves the last one it reached,
+// which is more than the control used to say at any point.
+func (m *Manager) setStep(step, line string, processed, total int64) {
+	m.mu.Lock()
+	m.state.Step, m.state.Line, m.state.Processed, m.state.Total = step, line, processed, total
+	state := m.state
+	m.mu.Unlock()
+	m.publish(state)
+}
+
 func (m *Manager) download(ctx context.Context, release availableRelease) (string, error) {
-	manifestBytes, err := m.getBounded(ctx, release.ManifestURL, maxMetadata)
+	manifestBytes, err := m.getBounded(ctx, release.ManifestURL, maxMetadata, nil)
 	if err != nil {
 		return "", fmt.Errorf("download release.json: %w", err)
 	}
@@ -440,7 +473,9 @@ func (m *Manager) download(ctx context.Context, release availableRelease) (strin
 	if normalizeVersion(manifest.EXEIdentity.Tag) != release.Version || !strings.EqualFold(manifest.EXEIdentity.Commit, manifest.Commit) || manifest.EXEIdentity.Dirty {
 		return "", errors.New("release.json executable identity does not match the release")
 	}
-	setupBytes, err := m.getBounded(ctx, release.SetupURL, manifest.Bytes)
+	setupBytes, err := m.getBounded(ctx, release.SetupURL, manifest.Bytes, func(read, total int64) {
+		m.setStep("downloading", "downloading Agent_b "+release.Version, read, total)
+	})
 	if err != nil {
 		return "", fmt.Errorf("download Agent_b-setup.exe: %w", err)
 	}
@@ -469,6 +504,7 @@ func (m *Manager) download(ctx context.Context, release availableRelease) (strin
 		_ = os.Remove(part)
 		return "", fmt.Errorf("publish verified setup: %w", err)
 	}
+	m.setStep("verifying", "verifying the download's checksum and signature", 0, 0)
 	if err := m.verify(ctx, final); err != nil {
 		_ = os.Remove(final)
 		return "", fmt.Errorf("setup Authenticode verification: %w", err)
@@ -476,7 +512,7 @@ func (m *Manager) download(ctx context.Context, release availableRelease) (strin
 	return final, nil
 }
 
-func (m *Manager) getBounded(ctx context.Context, raw string, max int64) ([]byte, error) {
+func (m *Manager) getBounded(ctx context.Context, raw string, max int64, progress func(read, total int64)) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
 		return nil, err
@@ -490,7 +526,7 @@ func (m *Manager) getBounded(ctx context.Context, raw string, max int64) ([]byte
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", response.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, max+1))
+	data, err := readReported(io.LimitReader(response.Body, max+1), max, progress)
 	if err != nil {
 		return nil, err
 	}
@@ -498,6 +534,37 @@ func (m *Manager) getBounded(ctx context.Context, raw string, max int64) ([]byte
 		return nil, fmt.Errorf("response exceeds %d bytes", max)
 	}
 	return data, nil
+}
+
+// readReported is io.ReadAll with a report of how far it has got. Item 2nh (a)
+// wants the download determinate, and the release manifest already says the size,
+// so this is the one part of an update that can honestly show a fraction.
+func readReported(reader io.Reader, total int64, progress func(read, total int64)) ([]byte, error) {
+	if progress == nil {
+		return io.ReadAll(reader)
+	}
+	data := make([]byte, 0, 1<<20)
+	buffer := make([]byte, 256*1024)
+	reported := int64(-1)
+	for {
+		count, err := reader.Read(buffer)
+		if count > 0 {
+			data = append(data, buffer[:count]...)
+			// Report on a boundary rather than on every read: a publish per 256 KB
+			// of a 13 MB download is fifty events, and a publish per read would be
+			// thousands for the same twelve cells.
+			if read := int64(len(data)); read != reported {
+				reported = read
+				progress(read, total)
+			}
+		}
+		if err == io.EOF {
+			return data, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
 }
 
 func (m *Manager) publish(state State) {

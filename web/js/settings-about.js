@@ -47,9 +47,34 @@ function about() {
       ? `${update.version} available · update failed · ${update.error}`
       : `Check failed · ${update.error}`
     : "";
-  const status = update.installing ? "Downloading and verifying…"
+  // Item 2nh (b): THE OUTCOME IS STATED WHERE THE CONTROL WAS.
+  //
+  // The operator's update to v1.29.0 worked, and he reported it as a failure: his
+  // window closed under him and the new one came back on the old chat with nothing
+  // saying what had happened. The instance reading this line IS the result of that
+  // update, and the updater read the installer's own finish before this page loaded,
+  // so the row can say so until the next check replaces it.
+  const outcome = update.outcome || null;
+  const outcomeAt = outcome?.at ? new Date(outcome.at) : null;
+  const outcomeTime = outcomeAt && !Number.isNaN(outcomeAt.getTime())
+    ? outcomeAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "";
+  const outcomeLine = !outcome ? ""
+    : outcome.ok
+      ? `updated to ${outcome.version}${outcomeTime ? ` at ${outcomeTime}` : ""}`
+      : `update to ${outcome.version || "the new version"} failed at ${outcome.phase || "install"}: ${outcome.error}${outcome.transcript && !String(outcome.error || "").includes(outcome.transcript) ? ` · ${outcome.transcript}` : ""}`;
+  // (c): a warning is a note under the outcome, not the result. The migration line
+  // the installer wrote after the finish is the one this exists for.
+  const notes = Array.isArray(outcome?.warnings) ? outcome.warnings : [];
+  const noteMarkup = notes.map((note) => `<span class="settings-update-note">${html(note)}</span>`).join("");
+  // (a): ONE WAIT ELEMENT, and the line on it is the stage in hand — download with
+  // bytes of total, verify, stopping, the installer's own phases, restart. The seat
+  // is filled by settings.js, because the element is built, not written as markup.
+  const waiting = update.installing || (update.step && !update.error);
+  const status = waiting ? (update.line || "starting the update")
     : update.checking ? "Checking…"
     : failure ? failure
+    : outcomeLine ? outcomeLine
     : update.available ? `${update.version} available${update.notes ? ` · ${update.notes}` : ""}`
     : update.checked_at ? "Up to date" : "Not checked yet";
   const installAction = update.available
@@ -61,7 +86,7 @@ function about() {
     ${row("server", `<span class="settings-server-value">server started <time class="settings-server-started">${html(started)}</time>, ${html(tag)}</span>`, "", "The process this window is attached to.")}
     ${toggle("updates.auto_check", "check for updates", store.config.updates?.auto_check !== false, "At startup, every hour, and on window attach (at most once per 15 minutes), sends one anonymous GET to api.github.com for rkclayton/agent_b's latest release. It sends no Agent_b data.")}
     ${row("checked", `<span>checked <time class="settings-update-checked">${html(checked)}</time></span><button type="button" data-action="check-update" ${update.checking ? "disabled" : ""}>${update.checking ? "Checking…" : "Check now"}</button>`, update.error ? "invalid" : "", "The most recent completed release check.")}
-    ${row("update", `<span>${html(status)}</span>${installAction}`, update.error ? "invalid" : "", "An update is downloaded only when you press Update. Agent_b verifies release.json and the setup SHA-256 before starting the per-user installer without elevation.")}
+    ${row("update", `<span${waiting ? ` data-update-wait="1" data-update-line="${attrOf(status)}" data-update-processed="${Number(update.processed || 0)}" data-update-total="${Number(update.total || 0)}"` : ""}>${html(status)}</span>${noteMarkup}${installAction}`, (update.error || outcome?.ok === false) ? "invalid" : "", "An update is downloaded only when you press Update. Agent_b verifies release.json and the setup SHA-256 before starting the per-user installer without elevation. While it runs, the line names the stage in hand; when the app comes back, this row says what the update did.")}
     ${row("diagnostics", `<span>one file describing this installation</span><button type="button" data-action="export-diagnostics">Export diagnostics</button>`, "", "Gathers what Agent_b already knows — build, update state, the last install attempt, connection test results and recent log lines — into one file. Nothing new is measured. Paths outside the installation, account names, addresses and anything token-shaped are replaced, so the file is safe to send to whoever is helping.")}
     ${telemetry()}`;
 }

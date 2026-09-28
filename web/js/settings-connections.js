@@ -53,7 +53,13 @@ function connections() {
       const ready = !reason && !!connection.capabilities?.probed_at;
       const lamp = failed || feedback?.alarm || (reason && reason !== "context length unknown") ? "alarm" : connection._probing || ready || feedback ? "live" : "";
       const removeKey = `connection:${connection.id}`;
-      return `<div class="connection-row ${isOpen ? "selected" : ""}">
+      // Item 2nc (a) and (d): A REFUSAL IS VISIBLE WHEREVER THE CLICK WAS. The server
+      // has always sent the row as the field, and the handler has always kept it, but
+      // only the fields inside the EXPANDED body rendered it — so pressing Remove on a
+      // collapsed row left the screen unchanged and the reason unread. The row itself
+      // carries it now, expanded or not.
+      const refusal = errors.get(`connections.${connection.id}`) || "";
+      return `<div class="connection-row ${isOpen ? "selected" : ""} ${refusal ? "refused" : ""}">
           <button type="button" class="connection-summary" data-action="connection-toggle" data-id="${attr(connection.id)}">
             <span class="lamp ${lamp}"></span><span>${html(connection.label)}</span><span class="connection-url">${html(connection.base_url)}</span><span class="connection-state">${testState}</span>
           </button>
@@ -63,6 +69,7 @@ function connections() {
             <button type="button" class="row-action" data-action="duplicate-connection" data-id="${attr(connection.id)}" aria-label="Duplicate ${attr(connection.label)}" title="Duplicate ${attr(connection.label)}">${connectionIcons.duplicate}</button>
             <button type="button" class="row-action" data-action="remove-connection" data-id="${attr(connection.id)}" data-confirm="${attr(connection.label)}" aria-label="Remove ${attr(connection.label)}" title="Remove ${attr(connection.label)}">${connectionIcons.trash}</button>
           </span>
+          ${refusal ? `<p class="connection-refusal alarm" role="status">${html(refusal)}</p>` : ""}
       </div>`;
     })
     .join("");

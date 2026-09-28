@@ -274,8 +274,8 @@ function render() {
       <nav class="settings-nav" aria-label="Settings sections">
         ${sectionLabels.map(([id, name]) => `<button type="button" class="${id === activeSection ? "selected" : ""}" data-action="settings-section" data-id="${id}" aria-current="${id === activeSection ? "page" : "false"}">${name}</button>`).join("")}
       </nav>
-      <div class="settings-content" tabindex="-1">${group(label, content[activeSection](), activeSection)}</div>
-    </div>${confirmPopover()}`;
+      <div class="settings-content" tabindex="-1">${group(label, content[activeSection](), activeSection)}${confirmPopover()}</div>
+    </div>`;
   adoptPanels();
   const contentNode = sheet.querySelector(".settings-content");
   contentNode.scrollTop = scrollTop;
@@ -628,9 +628,25 @@ function removalQuestion(button) {
   return String(label).replace(/^Confirm\s+/i, "").trim() || "this";
 }
 
+// Item 2nc (c): THE POPOVER ANCHORS TO ITS CONTROL, in the settings scroller's own
+// coordinate space rather than the viewport's. It was fixed to the viewport and its
+// position captured once, so scrolling the sheet left the question floating away from
+// the control that raised it. The rect is the scroller's content space now, and it is
+// clamped so the popover cannot land outside the sheet.
+const POPOVER_WIDTH = 232;
 function rectOf(button) {
   const box = button.getBoundingClientRect();
-  return { top: box.bottom, left: box.left, right: box.right };
+  const scroller = sheet.querySelector(".settings-content");
+  if (!scroller) return { top: box.bottom, left: box.left, right: box.right };
+  const host = scroller.getBoundingClientRect();
+  const top = box.bottom - host.top + scroller.scrollTop;
+  const right = box.right - host.left + scroller.scrollLeft;
+  const widest = Math.max(POPOVER_WIDTH + 16, scroller.scrollWidth);
+  return {
+    top: Math.max(0, top),
+    left: box.left - host.left + scroller.scrollLeft,
+    right: Math.min(right, widest - 8),
+  };
 }
 
 function cancelConfirmation() {
@@ -1345,13 +1361,19 @@ async function removeConnection(id) {
   }
   try {
     await api(`/api/connections/${encodeURIComponent(id)}`, undefined, "DELETE");
+    errors.delete(`connections.${id}`);
     armed.delete(key);
   } catch (error) {
     // Item 2mb (c): USE THE FIELD THE SERVER SENT. It is what lets the refusal
     // land on the row that was clicked; a handler that discards it is how the
     // message went missing. The per-row key stays as the fallback, so a refusal
     // from an older build still lands where the operator is looking.
+    // Item 2nc (a): the row is EXPANDED when a refusal lands, so the reason and the
+    // fields it is about are on screen together. (d): after Remove there are exactly
+    // two outcomes, and both are visible in this render — the row gone, or the refusal
+    // on it. An unchanged screen is not one of them.
     errors.set(error.field || `connections.${id}`, error.message);
+    expanded.add(id);
     armed.delete(key);
     render();
   }

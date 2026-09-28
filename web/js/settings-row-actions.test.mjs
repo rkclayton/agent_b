@@ -14,10 +14,12 @@ const all = Object.values(sources).join("\n");
 // robot heads layered on each other) but all these icons in the line on the right
 // side of [the connection]".
 test("each connection row carries save, Test, duplicate and delete at its right", () => {
-  const row = sources["settings-connections.js"].slice(
-    sources["settings-connections.js"].indexOf('<span class="connection-actions">'),
-    sources["settings-connections.js"].indexOf("</span>\n      </div>"),
-  );
+  // The slice ends at the actions span's OWN close rather than at the row's closing
+  // div: item 2nc (a) puts a refusal line between the two, and an end marker that
+  // assumed they were adjacent silently swallowed the editor's markup with it.
+  const source = sources["settings-connections.js"];
+  const start = source.indexOf('<span class="connection-actions">');
+  const row = source.slice(start, source.indexOf("</span>", start));
   assert.ok(row, "the connection row has no actions span");
   for (const action of ["save-connection", "probe", "duplicate-connection", "remove-connection"]) {
     assert.match(row, new RegExp(`data-action="${action}"`), `${action} is not on the connection's own line`);

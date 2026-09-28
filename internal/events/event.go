@@ -240,6 +240,13 @@ type CompactionSummaryData struct {
 	Usage                 ModelUsage `json:"usage"`
 	DurationMS            int64      `json:"duration_ms"`
 	Trigger               string     `json:"trigger,omitempty"`
+	// Item 2mm (d): the bytes the harness carried into the note itself, reported
+	// beside the model's own accounting so the two halves of a compaction are
+	// visible separately. CarriedDropped is 2mm (c)'s condition, stated rather
+	// than folded into a summary that then silently violates its cap.
+	CarriedBytes        int `json:"carried_bytes,omitempty"`
+	CarriedDropped      int `json:"carried_dropped,omitempty"`
+	CarriedDroppedBytes int `json:"carried_dropped_bytes,omitempty"`
 }
 
 func New(eventType, sessionID, runID string, data any) Event {

@@ -24,9 +24,18 @@ const compactionEvidenceEnd = "[END COMPACTION EVIDENCE]"
 
 const compactionNoteHeaderPrefix = "Progress note (auto-summary of "
 
+// Item 2mm (a) and (b): THE NOTE ASKED ONE OUTPUT TO SATISFY THREE CONSTRAINTS —
+// under 400 words, under an 800-token cap, and containing every user message of the
+// span VERBATIM. Those are not jointly satisfiable in general, and the constraint
+// that gives way when they collide is the one that matters most: the task the
+// operator set, which is what a compaction exists to preserve.
+//
+// So the harness carries the user messages itself, into the note, where no model
+// output can omit or paraphrase them - and the prompt is left asking only for a
+// summary, which it can produce under its cap.
 const compactionInstruction = "Summarize the work so far for your own future reference, under these headings exactly:\n" +
 	"INTENT: the task you were asked to do, in the operator's terms.\n" +
-	"USER MESSAGES: every user message in the span, verbatim, in order. Copy them; do not paraphrase or omit any.\n" +
+	"The user messages of the span are carried into the note verbatim by Agent_b itself: they are not yours to reproduce, and not yours to summarize away.\n" +
 	"FILES: each file touched and what changed in it.\n" +
 	"ERRORS AND FIXES: each error observed and what resolved it, or that it is unresolved.\n" +
 	"PENDING: what remains unfinished.\n" +
@@ -110,10 +119,15 @@ func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID strin
 	cached := nullableInt(response.Usage.CachedTokens)
 	source := events.CompactionSummaryData{Role: role, ConnectionID: connection.ID, Model: connection.Model, FallbackReason: fallback, Dispatched: true, EstimatedPromptTokens: estimatedPromptTokens, Estimated: estimated, NCtx: connection.Context.NCtx, Usage: events.ModelUsage{PromptTokens: response.Usage.PromptTokens, CompletionTokens: response.Usage.CompletionTokens, CachedTokens: cached}, DurationMS: response.DurationMS, Trigger: compactionTrigger(ctx)}
 	s.RecordCompactionModel(response.Usage.PromptTokens, response.Usage.CompletionTokens)
-	summaryContent := compactionNoteHeader(s) + response.Content
+	// Item 2mm (a): THE TASK CONTRACT IS CARRIED, NOT ASKED FOR. The user messages of
+	// the span go into the note here, between its header and the model's summary, so
+	// what the operator asked for survives a compaction whatever the model wrote.
+	carried, carriedBytes, dropped, droppedBytes := carriedUserMessages(s.MessagesCopy(), s.RunPin(), carryLimitBytes(&connection))
+	summaryContent := compactionNoteHeader(s) + carried + response.Content
 	if evidence := summaryEvidenceAppendix(s.MessagesCopy()); evidence != "" {
 		summaryContent += "\n\n" + evidence
 	}
+	source.CarriedBytes, source.CarriedDroppedBytes, source.CarriedDropped = carriedBytes, droppedBytes, dropped
 	message, _ := r.makeMessage(ctx, sessionConnection, llm.RoleHarness, summaryContent, "summary", 0)
 	if !r.compact.Summarize(s, runID, message, source) {
 		return false, "rejected"
@@ -142,9 +156,6 @@ func (r *Runner) summaryMessages(connection *config.Connection, s *session.Sessi
 		}
 	}
 	instruction := compactionInstruction
-	if verbatim := spanUserMessages(records, s.RunPin()); verbatim != "" {
-		instruction = instruction + "\n\n" + verbatim
-	}
 	if evidence := summaryToolEvidence(records); evidence != "" {
 		instruction = evidence + "\n\n" + instruction
 	}
@@ -179,26 +190,63 @@ func compactionNoteHeader(s *session.Session) string {
 	return fmt.Sprintf("%sturns %d-%d):\n", compactionNoteHeaderPrefix, low, high)
 }
 
-// spanUserMessages copies every user message inside the span verbatim into the
-// instruction. The model is being asked to carry them forward exactly, and the
-// surest way to get that is to hand it the text rather than hope it scrolls back.
-func spanUserMessages(records []events.Message, pin string) string {
+// carryLimitBytes is what item 2mm (c) bounds the carried block by: a quarter of the
+// connection's context, in bytes at this product's usual 3.6 bytes per token. A
+// window that cannot say how big it is gets a fixed 24 KB, which is far more than
+// any span of user messages measured on the operator's own chats — the largest
+// there is 331 words across a whole chat.
+func carryLimitBytes(connection *config.Connection) int {
+	if connection != nil && connection.Context.NCtx > 0 {
+		return int(float64(connection.Context.NCtx) * 0.25 * 3.6)
+	}
+	return 24 * 1024
+}
+
+// carriedUserMessages builds the block the note carries, newest first so that what
+// survives a bound is the most recent instruction rather than the oldest. It returns
+// the block, its bytes, and how many messages did not fit with their bytes — item
+// 2mm (c) states that as its own condition, with the numbers, rather than letting a
+// summary quietly violate a cap.
+func carriedUserMessages(records []events.Message, pin string, limit int) (string, int, int, int) {
 	foldEnd, ok := contextmgr.SummarizeSpan(records, pin)
 	if !ok {
-		return ""
+		return "", 0, 0, 0
 	}
-	lines := []string{}
+	type carried struct {
+		turn int
+		text string
+	}
+	all := []carried{}
 	for index := 1; index < foldEnd && index < len(records); index++ {
 		message := records[index]
 		if message.Role != "user" || message.Elided || message.Category != "history" {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("(turn %d) %s", message.Turn, message.Content))
+		all = append(all, carried{turn: message.Turn, text: message.Content})
 	}
-	if len(lines) == 0 {
-		return ""
+	if len(all) == 0 {
+		return "", 0, 0, 0
 	}
-	return "USER MESSAGES in the span, verbatim, to copy into the note:\n" + strings.Join(lines, "\n\n")
+	kept, used, dropped, droppedBytes := []carried{}, 0, 0, 0
+	for index := len(all) - 1; index >= 0; index-- {
+		entry := fmt.Sprintf("(turn %d) %s", all[index].turn, all[index].text)
+		if used+len(entry) > limit && len(kept) > 0 {
+			dropped++
+			droppedBytes += len(all[index].text)
+			continue
+		}
+		used += len(entry)
+		kept = append([]carried{all[index]}, kept...)
+	}
+	lines := make([]string, 0, len(kept))
+	for _, entry := range kept {
+		lines = append(lines, fmt.Sprintf("(turn %d) %s", entry.turn, entry.text))
+	}
+	block := "USER MESSAGES in the span, carried forward verbatim by Agent_b:\n" + strings.Join(lines, "\n\n")
+	if dropped > 0 {
+		block += fmt.Sprintf("\n\n[%d earlier user message(s), %d bytes, did not fit the %d-byte carry limit for this context window and are not in this note; the chat's journal holds them in full.]", dropped, droppedBytes, limit)
+	}
+	return block + "\n\n", used, dropped, droppedBytes
 }
 
 func summaryHistoryContent(message events.Message) string {

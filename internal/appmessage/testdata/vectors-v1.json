@@ -16,7 +16,8 @@
     "approve",
     "tool",
     "state",
-    "resync"
+    "resync",
+    "chat.create"
   ],
   "vectors": [
     {
@@ -132,6 +133,42 @@
       "bytes": "{\"body\":{\"error\":\"a run is already active\"},\"id\":\"fedcba9876543210fedcba9876543210\",\"kind\":\"response\",\"status\":409,\"v\":1}",
       "byte_length": 121,
       "sha256": "ac61e27ed0609ee734f2b17e2fad00a33f73987fcc9313ebee4189aadbe6f992"
+    },
+    {
+      "name": "chat.create request",
+      "note": "Item 2my: the one route added after version 1 was published. It carries a label and nothing else — no connection_id, no role, no source_session_id — so a device cannot choose the model or open a planner chat.",
+      "decoded": {
+        "v": 1,
+        "kind": "request",
+        "id": "00112233445566778899aabbccddeeff",
+        "route": "chat.create",
+        "body": {
+          "label": "from my phone"
+        }
+      },
+      "bytes": "{\"body\":{\"label\":\"from my phone\"},\"id\":\"00112233445566778899aabbccddeeff\",\"kind\":\"request\",\"route\":\"chat.create\",\"v\":1}",
+      "byte_length": 119,
+      "sha256": "3a707b5603c5ba960c9691907444f0cbe68660526ddbb22ea43486212cc6fc21"
+    },
+    {
+      "name": "chat.create response",
+      "note": "The route's own answer, 201 with the created session, so the phone's next message can carry the new session_id.",
+      "decoded": {
+        "v": 1,
+        "kind": "response",
+        "id": "00112233445566778899aabbccddeeff",
+        "status": 201,
+        "body": {
+          "session": {
+            "id": "s7",
+            "label": "from my phone",
+            "role": "b"
+          }
+        }
+      },
+      "bytes": "{\"body\":{\"session\":{\"id\":\"s7\",\"label\":\"from my phone\",\"role\":\"b\"}},\"id\":\"00112233445566778899aabbccddeeff\",\"kind\":\"response\",\"status\":201,\"v\":1}",
+      "byte_length": 144,
+      "sha256": "45f655017dcb60c1eac8c5ba497f23d16de55d76dd58a37e33fc69e591b30ccc"
     }
   ],
   "split": {

@@ -128,8 +128,20 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 | `tool` | `POST /api/tools/{name}` | `{name,session_id,enabled}` |
 | `state` | `GET /api/state` | `{}` |
 | `resync` | `GET /api/state` for one session | `{session_id}` |
+| `chat.create` | `POST /api/sessions` | `{label?}` — added 2026-09-27 |
 
 `tool` carries the path segment as a `name` field for the same reason: the route set is closed.
+
+`chat.create` carries a `label` and NOTHING ELSE. It does not carry `connection_id`, `role` or
+`source_session_id`: the desktop fills the default agent's connection exactly as its own new-chat
+control does when there is no chat to copy, so a device cannot choose which model it talks to or
+open a planner or worker chat. A body with any other field is refused; a body with no `label` is a
+chat the desktop names as it names any unlabelled one.
+
+**Version stays 1.** A device that does not know a route never tunnels it and is answered `501` by
+the rule above, so ADDING a route is compatible by this document's own terms: an older device
+behaves exactly as it did, and a newer one gets an answer only from a desktop that published the
+route. Each added route carries the date it was added, in the table.
 
 The mutation token of `INTERFACES.md`'s "HTTP API" is a per-launch browser/CSRF secret and is **not**
 carried here. Authority on this transport is the pairing, established by the broker's pairing flow
@@ -169,14 +181,22 @@ including, explicitly:
   frame is not such a request and cannot become one.
 - `POST /api/update` — no install is startable from a device.
 - `POST /api/host-window`, `/api/plans`, `/api/plan/accept`, `/api/plan/marker`, `/api/plan/go`,
-  `/api/sessions` and every session-lifecycle route, `/api/notifications`,
+  every session-lifecycle route EXCEPT the creation `chat.create` stands for — close, reopen,
+  rename, delete and the rest remain refused — `/api/notifications`,
   `/api/operator-files`, `/api/workspaces` and its policy routes, `/api/standing-grants`.
 - Anything reached by a path rather than a name: there is no generic passthrough, and `route` is
   matched against the closed set above by exact string equality.
 
 A stolen paired phone can therefore send a message, stop a run, answer an approval card, toggle a
-tool for the next request, and read state. It cannot change the machine, install anything, register
-a plan, create or delete a chat, or reach a credential.
+tool for the next request, read state, and **create a chat**. It cannot change the machine, install
+anything, register a plan, close, rename or delete a chat, choose which model a chat talks to, or
+reach a credential.
+
+**The exposure `chat.create` adds, stated plainly:** a stolen paired phone can open empty chats,
+as many as it likes, each on the default connection. That costs disk and clutters the chat list,
+and it is visible — every one appears on the desktop like any other chat. It reaches no new data:
+a new chat starts empty, and reading anything still requires `state` or `resync`, which the phone
+already had. Revocation remains the answer, and it is immediate.
 
 ## What is not in this version
 

@@ -252,7 +252,10 @@ func TestDocumentAndVectorsAgree(t *testing.T) {
 		}
 	}
 	// The document's route table, read from the table rows themselves.
-	rows := regexp.MustCompile("(?m)^\\| `([a-z]+)` \\| `(?:POST|GET) /api/").FindAllStringSubmatch(document, -1)
+	// Item 2my: a route name may carry a dot now (`chat.create`), so the pattern admits
+	// one. It stays strict otherwise: the route set is closed and a name is still only
+	// lower-case letters and dots, never a path.
+	rows := regexp.MustCompile("(?m)^\\| `([a-z.]+)` \\| `(?:POST|GET) /api/").FindAllStringSubmatch(document, -1)
 	published := map[string]bool{}
 	for _, row := range rows {
 		published[row[1]] = true
@@ -307,5 +310,96 @@ func TestASeededDisagreementFails(t *testing.T) {
 	}
 	if fmt.Sprintf("%x", sha256.Sum256([]byte(corrupted.Bytes))) == corrupted.SHA256 {
 		t.Fatal("a corrupted vector still matched its digest")
+	}
+}
+
+// Item 2my: EXACTLY ONE ROUTE WAS ADDED, and the refusals it does not touch still stand.
+//
+// The route set is a security statement, so the thing worth testing is not that
+// `chat.create` works — it has no dispatcher on this side yet — but that adding it
+// changed nothing else. A creation route that quietly brought close, delete or a choice
+// of model with it would be a different item.
+func TestOnlyChatCreateWasAddedAndTheRestStayRefused2my(t *testing.T) {
+	file, document := load(t)
+
+	// The closed set, exactly.
+	want := []string{"message", "stop", "approve", "tool", "state", "resync", "chat.create"}
+	if len(file.Routes) != len(want) {
+		t.Fatalf("the route set is %v, want %v", file.Routes, want)
+	}
+	for index, route := range want {
+		if file.Routes[index] != route {
+			t.Fatalf("route %d is %q, want %q; the five original routes must stay byte-for-byte in place", index, file.Routes[index], route)
+		}
+	}
+
+	// (a): the body is a label and nothing else. These field names are the ones a device
+	// must not be able to send, because each would let it choose something.
+	for _, forbidden := range []string{"connection_id", "role", "source_session_id", "agent_id"} {
+		if strings.Contains(document, "`chat.create`") && strings.Contains(document, "`"+forbidden+"`") {
+			// The document may mention them only to say they are NOT carried.
+			if !strings.Contains(document, "It does not carry `connection_id`, `role` or") {
+				t.Errorf("the document names %q without saying chat.create does not carry it", forbidden)
+			}
+		}
+	}
+
+	// (c): the lifecycle routes other than creation are still refused, and the exposure is
+	// stated rather than left for a reader to infer.
+	for _, wanted := range []string{
+		"every session-lifecycle route EXCEPT",
+		"close, reopen,",
+		"The exposure `chat.create` adds",
+		"open empty chats",
+	} {
+		if !strings.Contains(document, wanted) {
+			t.Errorf("the document does not say %q", wanted)
+		}
+	}
+	// It must NOT claim a phone cannot create a chat any more.
+	if strings.Contains(document, "create or delete a chat") {
+		t.Error("the refused list still claims a phone cannot create a chat")
+	}
+
+	// (d): version stays 1, and the addition is dated.
+	if file.Version != 1 {
+		t.Errorf("version = %d; an additive route is compatible and must not bump it", file.Version)
+	}
+	if !strings.Contains(document, "added 2026-09-27") {
+		t.Error("the added route is not dated in the table")
+	}
+	if !strings.Contains(document, "**Version stays 1.**") {
+		t.Error("the document does not say why the version is unchanged")
+	}
+
+	// (b): the pair is the request and its 201, under one id.
+	var request, response *vector
+	for index := range file.Vectors {
+		switch file.Vectors[index].Name {
+		case "chat.create request":
+			request = &file.Vectors[index]
+		case "chat.create response":
+			response = &file.Vectors[index]
+		}
+	}
+	if request == nil || response == nil {
+		t.Fatal("the request/201 pair is not in the vectors")
+	}
+	var decodedRequest, decodedResponse map[string]any
+	if err := json.Unmarshal(request.Decoded, &decodedRequest); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(response.Decoded, &decodedResponse); err != nil {
+		t.Fatal(err)
+	}
+	if decodedRequest["id"] != decodedResponse["id"] {
+		t.Error("the response does not name the request's id")
+	}
+	if status, _ := decodedResponse["status"].(float64); status != 201 {
+		t.Errorf("the response status is %v, want 201", decodedResponse["status"])
+	}
+	body, _ := decodedRequest["body"].(map[string]any)
+	if len(body) != 1 || body["label"] == nil {
+		t.Errorf("the request body is %v; it carries a label and nothing else", body)
 	}
 }

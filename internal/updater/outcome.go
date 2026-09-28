@@ -96,11 +96,32 @@ func (m *Manager) watchInstallOutcome(started time.Time) {
 			}
 		}
 		outcome := outcomeFor(m.dataRoot, m.State().CurrentVersion)
-		if outcome == nil || outcome.OK {
+		if outcome == nil {
 			continue
+		}
+		if outcome.OK && outcome.Running == "" {
+			continue
+		}
+		if outcome.OK {
+			// Item 2mk (a): AN INSTALL THAT FINISHED WITHOUT REPLACING THIS PROCESS
+			// IS NOT A SUCCESS THIS WINDOW CAN CLAIM. outcomeFor only returns an OK
+			// for the version this process is running, so reaching here at all means
+			// the installer finished and something else is still serving — which is
+			// exactly what happened on 2026-09-26: v1.22.0 was written to the
+			// per-user root while the window went on being answered by another
+			// instance, and nothing said so for eleven releases.
+			m.mu.Lock()
+			m.state.Step, m.state.Line, m.state.Processed, m.state.Total = "", "", 0, 0
+			outcome.ApplicationRoot = m.applicationRoot
+			m.state.Outcome = outcome
+			state := m.state
+			m.mu.Unlock()
+			m.publish(state)
+			return
 		}
 		m.mu.Lock()
 		// Installing is already false: Install cleared it when the setup launched.
+		outcome.ApplicationRoot = m.applicationRoot
 		m.state.Error = outcome.Error
 		m.state.Step, m.state.Line, m.state.Processed, m.state.Total = "", "", 0, 0
 		m.state.Outcome = outcome

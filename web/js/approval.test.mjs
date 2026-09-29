@@ -32,7 +32,7 @@ test("approval wording stays direct and identifies the operation", () => {
 });
 
 test("connector approval shows the proposed entry verbatim", () => {
-	const connector = { operation: "add", entry: { name: "deploy-broker", url: "https://broker.test/mcp", kind: "mcp", auth: "exec:helper headers" } };
+	const connector = { operation: "add", entry: { name: "acme-services", url: "https://broker.test/mcp", kind: "mcp", auth: "exec:helper headers" } };
 	const wording = approvalText({ name: "call_service", args: { connector } });
 	assert.match(wording.request, /add connector/);
 	assert.deepEqual(JSON.parse(wording.detail), connector);

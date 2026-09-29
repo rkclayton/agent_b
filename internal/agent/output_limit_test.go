@@ -14,9 +14,9 @@ import (
 // operator was shown "The run stopped because of length." The stop must name the
 // cap, its value and where it is set.
 func TestATruncatedAnswerNamesTheCapAndWhereItIsSet2l9(t *testing.T) {
-	connection := &config.Connection{ID: "server", Label: "Slumberland", Context: config.Context{NCtx: 200000, ReserveOutput: 10240}}
+	connection := &config.Connection{ID: "server", Label: "Acmeholding", Context: config.Context{NCtx: 200000, ReserveOutput: 10240}}
 	detail := truncationDetail(connection, llm.Response{Content: "a partial answer", FinishReason: "length"})
-	for _, want := range []string{"10240", "reserve_output", "Slumberland", "cut short"} {
+	for _, want := range []string{"10240", "reserve_output", "Acmeholding", "cut short"} {
 		if !strings.Contains(detail, want) {
 			t.Fatalf("the stop line does not say %q: %s", want, detail)
 		}
@@ -29,7 +29,7 @@ func TestATruncatedAnswerNamesTheCapAndWhereItIsSet2l9(t *testing.T) {
 // (d): thinking taking the whole allowance is a different sentence from the
 // answer being cut short, because the operator fixes them differently.
 func TestThinkingUsingTheBudgetSaysSo2l9(t *testing.T) {
-	connection := &config.Connection{ID: "server", Label: "Slumberland", Reasoning: config.Reasoning{Enabled: true}, Context: config.Context{NCtx: 200000, ReserveOutput: 10240}}
+	connection := &config.Connection{ID: "server", Label: "Acmeholding", Reasoning: config.Reasoning{Enabled: true}, Context: config.Context{NCtx: 200000, ReserveOutput: 10240}}
 	detail := truncationDetail(connection, llm.Response{Reasoning: "a very long think", FinishReason: "length"})
 	if !strings.Contains(detail, "thinking used the output allowance") {
 		t.Fatalf("thinking exhausting the budget is not distinguished: %s", detail)
@@ -81,7 +81,7 @@ func TestAReserveBeyondTheSanityBoundIsRefusedAtSave2l9(t *testing.T) {
 
 // (e2): the ceiling is a soft, per-answer value and defaults to no ceiling.
 func TestTheAnswerCeilingIsOptionalAndNamedWhenItFires2l9(t *testing.T) {
-	connection := &config.Connection{ID: "server", Label: "Slumberland"}
+	connection := &config.Connection{ID: "server", Label: "Acmeholding"}
 	if answerCeiling(connection) != 0 {
 		t.Fatal("an unset ceiling is not no ceiling")
 	}

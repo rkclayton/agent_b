@@ -1751,7 +1751,7 @@ try {
     # A seed lands, and the connection it names is present and complete.
     $seedOk = New-SeedRoot 'ok'
     $seedFile = Join-Path $seedOk 'seed.json'
-    @{ connections = @(@{ id = 'slumberland'; label = 'Slumberland'; base_url = 'https://ai.slumberland.com/v1'; model = ''; credential = 'slumberland' }) } |
+    @{ connections = @(@{ id = 'acmeholding'; label = 'Acmeholding'; base_url = 'https://ai.acmeholding.example/v1'; model = ''; credential = 'acmeholding' }) } |
         ConvertTo-Json -Depth 8 | Set-Content $seedFile -Encoding utf8
 
     $seeded = Invoke-SeedInstall -Root $seedOk -KeySuffix 'Ok' -Extra @('-SeedConfiguration', $seedFile)
@@ -1760,11 +1760,11 @@ try {
     $seedConfigPath = Join-Path $seedOk 'Data\Agent_b\harness.json'
     if (Test-Path -LiteralPath $seedConfigPath) {
         $seedConfig = Get-Content -Raw -LiteralPath $seedConfigPath | ConvertFrom-Json
-        $seedConnection = @($seedConfig.connections | Where-Object { $_.id -eq 'slumberland' })
+        $seedConnection = @($seedConfig.connections | Where-Object { $_.id -eq 'acmeholding' })
         Assert-Seed 'the seeded connection is present' ($seedConnection.Count -eq 1) "connections: $(@($seedConfig.connections).Count)"
         if ($seedConnection.Count -eq 1) {
-            Assert-Seed 'the seeded base_url survived the merge' ($seedConnection[0].base_url -eq 'https://ai.slumberland.com/v1') "$($seedConnection[0].base_url)"
-            Assert-Seed 'the seeded credential reference survived' ($seedConnection[0].credential -eq 'slumberland') "$($seedConnection[0].credential)"
+            Assert-Seed 'the seeded base_url survived the merge' ($seedConnection[0].base_url -eq 'https://ai.acmeholding.example/v1') "$($seedConnection[0].base_url)"
+            Assert-Seed 'the seeded credential reference survived' ($seedConnection[0].credential -eq 'acmeholding') "$($seedConnection[0].credential)"
         }
     } else {
         Assert-Seed 'the seeded install wrote a configuration' $false "missing $seedConfigPath"

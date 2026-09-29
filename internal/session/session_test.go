@@ -319,7 +319,7 @@ func TestRestoreKeepsThreeChatBindingsAndFallsBackOnlyWhenEmpty(t *testing.T) {
 	}
 	defer writers.Close()
 	connections := map[string]*config.Connection{
-		"server": {ID: "server", Label: "Slumberland", Model: "main", Context: config.Context{NCtx: 32768}},
+		"server": {ID: "server", Label: "Acmeholding", Model: "main", Context: config.Context{NCtx: 32768}},
 		"local":  {ID: "local", Label: "Local", Model: "local", Context: config.Context{NCtx: 32768}},
 	}
 	cfg := config.Config{Context: config.GlobalContext{Accounting: "estimated"}, Agents: []config.Agent{{Name: "Agent", B: "server", Toolset: config.FullToolset()}}}

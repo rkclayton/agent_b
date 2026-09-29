@@ -24,28 +24,28 @@ func TestApprovedConnectorMutationValidatesPersistsAndRemoves(t *testing.T) {
 	cfg := config.Defaults(root)
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	service := config.Service{Kind: "mcp", BaseURL: "https://broker.test/mcp", Auth: "exec:helper headers", AllowedMethods: []string{"POST"}, TimeoutS: 60, MaxBodyKB: 64}
-	if err := server.ApplyConnector(tools.ConnectorChange{Operation: "add", Name: "deploy-broker", Service: service}); err != nil {
+	if err := server.ApplyConnector(tools.ConnectorChange{Operation: "add", Name: "acme-services", Service: service}); err != nil {
 		t.Fatal(err)
 	}
-	if got := server.ConfigSnapshot().Services["deploy-broker"]; got.Kind != "mcp" || got.Auth != service.Auth {
+	if got := server.ConfigSnapshot().Services["acme-services"]; got.Kind != "mcp" || got.Auth != service.Auth {
 		t.Fatalf("service=%+v", got)
 	}
 	persisted, err := os.ReadFile(path)
-	if err != nil || !bytes.Contains(persisted, []byte(`"deploy-broker"`)) {
+	if err != nil || !bytes.Contains(persisted, []byte(`"acme-services"`)) {
 		t.Fatalf("persisted=%s err=%v", persisted, err)
 	}
 	bad := service
 	bad.Auth = "pasted-secret"
-	if err := server.ApplyConnector(tools.ConnectorChange{Operation: "edit", Name: "deploy-broker", Service: bad}); err == nil {
+	if err := server.ApplyConnector(tools.ConnectorChange{Operation: "edit", Name: "acme-services", Service: bad}); err == nil {
 		t.Fatal("bad auth was written")
 	}
-	if server.ConfigSnapshot().Services["deploy-broker"].Auth != service.Auth {
+	if server.ConfigSnapshot().Services["acme-services"].Auth != service.Auth {
 		t.Fatal("bad edit changed config")
 	}
-	if err := server.ApplyConnector(tools.ConnectorChange{Operation: "remove", Name: "deploy-broker"}); err != nil {
+	if err := server.ApplyConnector(tools.ConnectorChange{Operation: "remove", Name: "acme-services"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := server.ConfigSnapshot().Services["deploy-broker"]; ok {
+	if _, ok := server.ConfigSnapshot().Services["acme-services"]; ok {
 		t.Fatal("removed connector remains")
 	}
 }

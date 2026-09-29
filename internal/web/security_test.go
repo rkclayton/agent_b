@@ -3,9 +3,11 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -307,4 +309,60 @@ func phoneTestBearer(t *testing.T, server *Server) string {
 		t.Fatalf("enrolling a device answered %d", status)
 	}
 	return token
+}
+
+// Item 2o9 CHECKS 2-4 at the registry: the toggle writes the one Run entry Windows'
+// Startup page lists; Windows turning it off reads back Off; on, the entry starts
+// the app through the hidden host WITH its window, never -NoBrowser. The keys are
+// pointed at a scratch path, so the operator's own Run key is never touched.
+func TestSignInStartIsWindowsOwnSwitch2o9(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the Run entry is Windows'")
+	}
+	scratch := fmt.Sprintf(`Software\AgentB-test-2o9-%d`, os.Getpid())
+	savedRun, savedApproved := signInRunKey, signInApprovedKey
+	signInRunKey, signInApprovedKey = scratch+`\Run`, scratch+`\StartupApproved\Run`
+	t.Cleanup(func() {
+		signInRunKey, signInApprovedKey = savedRun, savedApproved
+		_ = exec.Command("reg.exe", "delete", `HKCU\`+scratch, "/f").Run()
+	})
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	call := func(method, body string) bool {
+		request := httptest.NewRequest(method, "/api/sign-in-start", strings.NewReader(body))
+		authorizeMutation(request, server)
+		request.Host = "example.com"
+		request.Header.Set("Origin", "http://example.com")
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		var result struct{ Enabled bool }
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &result) != nil {
+			t.Fatalf("%s status=%d body=%s", method, response.Code, response.Body)
+		}
+		return result.Enabled
+	}
+	if call(http.MethodGet, "") {
+		t.Fatal("nothing is registered, yet the switch reads On")
+	}
+	if !call(http.MethodPost, `{"enabled":true}`) {
+		t.Fatal("turning it on did not read back On")
+	}
+	command, err := exec.Command("reg.exe", "query", `HKCU\`+signInRunKey, "/v", signInValue).Output()
+	if err != nil || !strings.Contains(string(command), "launch-hidden.vbs") || !strings.Contains(string(command), " -window ") || strings.Contains(string(command), "NoBrowser") {
+		t.Fatalf("the Run entry does not start the app with its window: %s (%v)", command, err)
+	}
+	// Windows' Startup page switching it off writes 03 to StartupApproved.
+	if err := exec.Command("reg.exe", "add", `HKCU\`+signInApprovedKey, "/v", signInValue, "/t", "REG_BINARY", "/d", "030000000000000000000000", "/f").Run(); err != nil {
+		t.Fatal(err)
+	}
+	if call(http.MethodGet, "") {
+		t.Fatal("Windows turned it off, yet AgentB reads On")
+	}
+	if call(http.MethodPost, `{"enabled":false}`) {
+		t.Fatal("turning it off did not read back Off")
+	}
+	if exec.Command("reg.exe", "query", `HKCU\`+signInRunKey, "/v", signInValue).Run() == nil {
+		t.Fatal("the Run entry survived turning it off")
+	}
 }

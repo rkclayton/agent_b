@@ -938,9 +938,12 @@ function New-EntryPointDataRoot {
     ($entryConfig | ConvertTo-Json -Depth 12) | Set-Content -LiteralPath (Join-Path $root 'harness.json') -Encoding UTF8
     return $root
 }
+# Item 2o9 CHECK 1: the install places no sign-in start at all.
+if (Test-Path -LiteralPath (Join-Path $testStart 'Startup\Agent_b.lnk')) { throw 'the install placed a sign-in shortcut (item 2o9: nothing starts at sign-in unless switched on)' }
+if ((Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Agent_b' -ErrorAction SilentlyContinue).Agent_b -match [regex]::Escape($testApplication)) { throw 'the install wrote a Run entry for this install' }
+Write-Host 'PROOF no sign-in start: no Startup shortcut and no Run entry after install'
 $entryPoints = @(
-    @{ Label = 'Start Menu shortcut'; Path = (Join-Path $testStart 'Agent_b.lnk') },
-    @{ Label = 'At sign-in shortcut'; Path = (Join-Path $testStart 'Startup\Agent_b.lnk') }
+    @{ Label = 'Start Menu shortcut'; Path = (Join-Path $testStart 'Agent_b.lnk') }
 )
 $entryResults = @()
 foreach ($entry in $entryPoints) {
@@ -1776,7 +1779,12 @@ try {
         $seedConfig.connections[0].label = 'the user renamed this'
         $seedConfig | ConvertTo-Json -Depth 100 | Set-Content $seedConfigPath -Encoding utf8
         $seedBefore = (Get-FileHash $seedConfigPath -Algorithm SHA256).Hash
+        # Item 2o9 CHECK 1 (update): the sign-in shortcut an earlier version placed is removed.
+        $earlierStartup = Join-Path $seedOk 'StartMenu\Startup\Agent_b.lnk'
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $earlierStartup)
+        [IO.File]::WriteAllBytes($earlierStartup, [byte[]](0))
         $redeployed = Invoke-SeedInstall -Root $seedOk -KeySuffix 'Ok' -Extra @('-SeedConfiguration', $seedFile)
+        Assert-Seed '2o9: an update removes the earlier sign-in shortcut' (-not (Test-Path -LiteralPath $earlierStartup)) $earlierStartup
         Assert-Seed 'a redeploy over an existing machine completes' ($redeployed.exit -eq 0) "exit $($redeployed.exit); $($redeployed.text)"
         Assert-Seed '(a) the redeploy changed nothing the user set' ($seedBefore -eq (Get-FileHash $seedConfigPath -Algorithm SHA256).Hash) 'the configuration changed'
         Assert-Seed 'the redeploy says it skipped the seed' ((Get-SeedTranscript -Root $seedOk) -match 'SEED SKIPPED') 'no SEED SKIPPED line'

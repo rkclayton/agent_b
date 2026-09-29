@@ -58,6 +58,11 @@ var scopes = map[string]Scope{
 	"operator_files": ScopeMachine, // the mailbox lives in the data root
 	"approval":       ScopeMachine, // what may run unattended is a safety decision
 	"tools":          ScopeMachine, // limits and guards on what tools may do
+	// Item 2kq (f): the broker this machine dials out to. It is the machine's because
+	// the pairing it carries is this INSTALL's pairing with one phone, and because a
+	// second operator on the same computer reaching a different broker would be a
+	// second outbound connection nobody asked for.
+	"broker": ScopeMachine,
 
 	// ------------------------------------------------------------- per-profile
 	"chat":       ScopeProfile, // item 2lj (d): typography and density

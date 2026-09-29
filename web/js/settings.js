@@ -38,6 +38,10 @@ let serviceAccountMessage = "";
 // Item 2np (b): the log path is SECONDARY TEXT under the one sentence, not a second
 // message and not a paragraph of its own.
 let serviceAccountLog = "";
+// Item 2kq (b) and (e): the broker's own state, refreshed while the sheet is open.
+let brokerStatus = {};
+let brokerMessage = "";
+let brokerAlarm = false;
 let serviceAccountAlarm = false;
 let hardeningStatus = { loaded: false, supported: true, applied: false };
 let hardeningBusy = false;
@@ -215,6 +219,7 @@ export function openSettings(section = "") {
 	refreshPhoneAccess();
   refreshWorkspaceState();
   refreshOperatorFileState();
+  void refreshBrokerStatus().then(() => { if (open) render(); });
   requestAnimationFrame(() => sheet.querySelector(".settings-nav button.selected")?.focus());
   recordViewMount("settings", performance.now() - started);
 }
@@ -421,6 +426,7 @@ function settingsPageContext(active) {
   return {
     active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, phoneAccess, standingGrants: store.standing_grants || [],
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog,
+    brokerStatus, brokerMessage, brokerAlarm,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList,
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm,
@@ -1100,6 +1106,25 @@ async function dispatchAction(event, button, action, id) {
 		return render();
 	}
 	if (action === "refresh-service-account") return refreshServiceAccountStatus();
+	// Item 2kq (b): pairing a phone is three presses — Pair, compare, They match — and
+	// each one is an action rather than a setting, because none of them is a value.
+	if (action === "broker-pair" || action === "broker-confirm" || action === "broker-revoke") {
+		const verb = { "broker-pair": "pair", "broker-confirm": "confirm", "broker-revoke": "revoke" }[action];
+		if (verb === "revoke" && !armed.has("broker:revoke")) { armed.add("broker:revoke"); return render(); }
+		armed.delete("broker:revoke");
+		brokerMessage = verb === "pair" ? "asking the broker for a pairing code…" : "";
+		brokerAlarm = false;
+		render();
+		try {
+			await api("/api/broker", { action: verb });
+			brokerMessage = verb === "pair" ? "type the code into the phone, then compare the fingerprint" : verb === "confirm" ? "paired" : "the pairing is revoked";
+		} catch (error) {
+			brokerMessage = error.message;
+			brokerAlarm = true;
+		}
+		await refreshBrokerStatus();
+		return render();
+	}
 	if (action === "phone-enrol") {
 		try { phoneAccess = { ...phoneAccess, ...await api("/api/phone/enrolment") }; } catch (error) { phoneAccess = { ...phoneAccess, error: error.message }; }
 		return render();
@@ -1177,6 +1202,11 @@ async function refreshMeasurement(id) {
     if (open && activeSection === "connections") render();
     return;
   }
+}
+
+async function refreshBrokerStatus() {
+	try { brokerStatus = await api("/api/broker/status", undefined, "GET"); }
+	catch { brokerStatus = { state: "unknown" }; }
 }
 
 async function refreshServiceAccountStatus(preserveMessage = false) {

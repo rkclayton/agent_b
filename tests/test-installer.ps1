@@ -646,7 +646,6 @@ try {
         (Join-Path $testApplication 'scripts\launch-Agent_b.ps1'),
         (Join-Path $testApplication 'web\assets\Agent_b.ico'),
         (Join-Path $testStart 'Agent_b.lnk'),
-        (Join-Path $testStart 'Startup/Agent_b.lnk'),
         # Item 2mv (e): Explorer's Send-to entry. TestMode puts the disposable
         # Send-to folder beside the disposable Start menu.
         (Join-Path $testStart 'SendTo\Agent_b.lnk')

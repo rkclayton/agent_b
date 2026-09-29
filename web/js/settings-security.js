@@ -186,9 +186,12 @@ function brokerRows() {
 		// insane" — the code is unchanged, because its length is its margin and three
 		// repositories agree on it; what changed is that he never types it. The code
 		// stays beneath in small plain text for a phone with no camera.
-		? `<span class="pairing-offer">${offer.qr ? `<img class="pairing-qr" src="${attr(offer.qr)}" width="220" height="220" alt="Pairing QR code">` : ""}<span class="account-status mono pairing-code">${html(offer.code)}</span></span>`
+		// Item 2nz (a): the square stays until the phone pairs or he presses Cancel, and
+		// a code the broker expires is replaced under it without a blank moment. Cancel
+		// is this row's own button, reading differently while a pairing is under way.
+		? `<span class="pairing-offer">${offer.qr ? `<img class="pairing-qr" src="${attr(offer.qr)}" width="220" height="220" alt="Pairing QR code">` : ""}<span class="account-status mono pairing-code">${html(offer.code)}</span><button type="button" data-action="broker-cancel">Cancel</button></span>`
 		: `<span class="account-status">${status.paired_device ? "paired" : "not paired"}</span><button type="button" data-action="broker-pair">Pair a phone</button>`,
-		"", "Point the phone's camera at this and tap Pair. It expires in ten minutes and works once.")}
+		"", "Point the phone's camera at this and tap Pair. It works once.")}
 	${offer.fingerprint ? row("fingerprint", `<span class="account-status mono">${html(offer.fingerprint)}</span><button type="button" data-action="broker-confirm">They match</button>`, "", "Compare all ten groups with the phone before confirming.") : ""}
 	${row("device", `<span class="account-status">${paired}</span>`)}
 	${feedback(brokerMessage, brokerAlarm)}`;

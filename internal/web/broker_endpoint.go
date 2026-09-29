@@ -30,6 +30,7 @@ type BrokerHost interface {
 	PairingOffer() (broker.PairingOffer, bool)
 	BeginPairing() (broker.PairingOffer, error)
 	ConfirmPairing() error
+	CancelPairing() error
 	RevokePairing() error
 }
 
@@ -108,6 +109,15 @@ func (s *Server) brokerAction(w http.ResponseWriter, r *http.Request) {
 		// judgement is his; this only carries it.
 		if err := host.ConfirmPairing(); err != nil {
 			writeError(w, http.StatusBadGateway, err.Error(), "broker")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	case "cancel":
+		// Item 2nz (a): the operator taking the square away, which is one of the two
+		// things that end a pairing. It is the same control as Pair, which reads Cancel
+		// while one is under way — not a new one.
+		if err := host.CancelPairing(); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error(), "broker")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})

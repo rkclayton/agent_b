@@ -100,5 +100,6 @@ func (countingBrokerHost) BeginPairing() (broker.PairingOffer, error) {
 	return broker.PairingOffer{}, nil
 }
 func (countingBrokerHost) ConfirmPairing() error  { return nil }
+func (countingBrokerHost) CancelPairing() error   { return nil }
 func (countingBrokerHost) RevokePairing() error   { return nil }
 func (countingBrokerHost) IdentityKey() []byte    { return make([]byte, 32) }

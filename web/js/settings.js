@@ -1115,8 +1115,8 @@ async function dispatchAction(event, button, action, id) {
 	if (action === "refresh-service-account") return refreshServiceAccountStatus();
 	// Item 2kq (b): pairing a phone is three presses — Pair, compare, They match — and
 	// each one is an action rather than a setting, because none of them is a value.
-	if (action === "broker-pair" || action === "broker-confirm" || action === "broker-revoke") {
-		const verb = { "broker-pair": "pair", "broker-confirm": "confirm", "broker-revoke": "revoke" }[action];
+	if (action === "broker-pair" || action === "broker-confirm" || action === "broker-revoke" || action === "broker-cancel") {
+		const verb = { "broker-pair": "pair", "broker-confirm": "confirm", "broker-revoke": "revoke", "broker-cancel": "cancel" }[action];
 		if (verb === "revoke" && !armed.has("broker:revoke")) { armed.add("broker:revoke"); return render(); }
 		armed.delete("broker:revoke");
 		brokerMessage = verb === "pair" ? "asking the broker for a pairing code…" : "";
@@ -1124,7 +1124,10 @@ async function dispatchAction(event, button, action, id) {
 		render();
 		try {
 			await api("/api/broker", { action: verb });
-			brokerMessage = verb === "pair" ? "type the code into the phone, then compare the fingerprint" : verb === "confirm" ? "paired" : "the pairing is revoked";
+			brokerMessage = verb === "pair" ? "scan the square with the phone, then compare the fingerprint"
+				: verb === "confirm" ? "paired"
+				: verb === "cancel" ? "pairing cancelled"
+				: "the pairing is revoked";
 		} catch (error) {
 			brokerMessage = error.message;
 			brokerAlarm = true;

@@ -90,11 +90,15 @@ type pairWaitingPayload struct {
 	ExpiresAt string `json:"expires_at"`
 }
 
+// The field names are the LIVE broker's, read off the wire rather than guessed: the
+// document's frame registry says PAIR_PEER carries "both peer public keys" without
+// naming the fields, and the broker calls them peer_ed25519_public and
+// peer_x25519_public. Measured against wss://…:8444 at rel-1.36.0/W5.
 type pairPeerPayload struct {
 	PairingID string `json:"pairing_id"`
 	PeerKeyID string `json:"peer_key_id"`
-	Ed25519   string `json:"ed25519_public"`
-	X25519    string `json:"x25519_public"`
+	Ed25519   string `json:"peer_ed25519_public"`
+	X25519    string `json:"peer_x25519_public"`
 }
 
 type pairConfirmPayload struct {

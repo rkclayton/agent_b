@@ -605,7 +605,6 @@ func runHostWindow(url, userDataDir, title, applicationRoot string) (err error) 
 		}
 		hostWindowState.Unlock()
 	}()
-	watchActivationEvent(applicationRoot, window.hwnd)
 	if err := window.startWebView(); err != nil {
 		return err
 	}
@@ -630,15 +629,23 @@ func runHostWindow(url, userDataDir, title, applicationRoot string) (err error) 
 			if readyErr != nil {
 				return readyErr
 			}
-			log.Printf("host window: opened")
+			recordWindowFate("host window: opened")
 		default:
 		}
 	}
 }
 
-func watchActivationEvent(applicationRoot string, hwnd uintptr) {
+// watchActivation owns the activation event for the life of the server, not
+// of one window (item 2o0): a server started without a window must still
+// answer a later launch. Only this user and SYSTEM may signal it.
+func watchActivation(applicationRoot string, activated func()) {
+	attributes, release := userOnlyAttributes()
+	if attributes == nil {
+		return
+	}
+	defer release()
 	name, _ := syscall.UTF16PtrFromString(activateEventName(applicationRoot, os.Getpid()))
-	event, _, createErr := procCreateEvent.Call(0, 0, 0, uintptr(unsafe.Pointer(name)))
+	event, _, createErr := procCreateEvent.Call(uintptr(unsafe.Pointer(attributes)), 0, 0, uintptr(unsafe.Pointer(name)))
 	if event == 0 || createErr == syscall.ERROR_ALREADY_EXISTS {
 		if event != 0 {
 			syscall.CloseHandle(syscall.Handle(event))
@@ -651,12 +658,31 @@ func watchActivationEvent(applicationRoot string, hwnd uintptr) {
 			if wait, _ := syscall.WaitForSingleObject(syscall.Handle(event), syscall.INFINITE); wait != syscall.WAIT_OBJECT_0 {
 				return
 			}
-			procPostMessage.Call(hwnd, wmHostActivate, 0, 0)
+			activated()
 		}
 	}()
 }
 
-var procTranslateMessage = user32.NewProc("TranslateMessage")
+// raiseHostWindow brings an existing window to the front; false when there is
+// no window to raise.
+func raiseHostWindow() bool {
+	hostWindowState.RLock()
+	hwnd := hostWindowState.hwnd
+	hostWindowState.RUnlock()
+	if hwnd == 0 {
+		return false
+	}
+	ok, _, _ := procPostMessage.Call(hwnd, wmHostActivate, 0, 0)
+	if ok != 0 {
+		recordWindowFate("host window: brought to the front for a later launch")
+	}
+	return ok != 0
+}
+
+var (
+	procTranslateMessage = user32.NewProc("TranslateMessage")
+	procUnregisterClass  = user32.NewProc("UnregisterClassW")
+)
 
 func (w *hostWindow) create(title string) error {
 	appID, _ := syscall.UTF16PtrFromString(agentBAppUserModelID)
@@ -822,5 +848,11 @@ func (w *hostWindow) dispose() {
 	if w.hwnd != 0 {
 		procDestroyWindow.Call(w.hwnd)
 		w.hwnd = 0
+	}
+	// A retried window registers its class again, bound to its own procedure.
+	if w.classAtom != 0 {
+		instance, _, _ := procGetModuleHandle.Call(0)
+		procUnregisterClass.Call(w.classAtom, instance)
+		w.classAtom = 0
 	}
 }

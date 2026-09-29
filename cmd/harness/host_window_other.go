@@ -15,3 +15,7 @@ func requestHostWindowAction(string) bool { return false }
 func hostWindowAvailable() (string, error) {
 	return "", fmt.Errorf("the host window needs WebView2, which exists only on Windows")
 }
+
+func watchActivation(string, func()) {}
+
+func raiseHostWindow() bool { return false }

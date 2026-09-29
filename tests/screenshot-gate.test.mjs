@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { compareMasked, decodePNG, encodePNG, gate, maskedArea, mergeMasks, trustedMasks } from "./screenshot-gate.mjs";
+import { CAPTURE_TIMING_FIXTURES } from "./screenshot-masks.mjs";
 
 const image = (width, height, paint = () => [20, 22, 26, 255]) => {
   const data = new Uint8Array(width * height * 4);
@@ -16,6 +17,12 @@ const withPixel = (source, x, y, rgba) => {
   return copy;
 };
 const masks = [{ name: "duration", reason: "measured", rects: [[10, 10, 8, 4]] }];
+
+test("capture timing fixtures have fixed widths before pixels are measured", () => {
+  const input = "9 ms · 12.8 s · 9 / ~12 · 8 in · 13 out · 68/1/0 · 7.1% · 1,234 tokens";
+  const fixed = CAPTURE_TIMING_FIXTURES.reduce((text, fixture) => text.replace(new RegExp(fixture.pattern, "g"), fixture.replacement), input);
+  assert.equal(fixed, "100 ms · 100 ms · 100 / 100 · 100 in · 100 out · 50/25/25 · 50.0% · 100 tokens");
+});
 
 test("a PNG round-trips through the gate's decoder", () => {
   const source = image(17, 9, (x, y) => [x * 13, y * 29, (x + y) * 7, 255]);

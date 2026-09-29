@@ -74,6 +74,18 @@ export const LIVE_VALUES = [
   { name: "context-rail", reason: "the Console rail's segments and numbers follow measured token counts", selector: "#rail .meter, #rail .rail-labels .number, #rail .rail-readout" },
 ];
 
+// Release captures draw measured values from fixed-width fixtures. The real
+// values remain in state and are restored immediately after the screenshot;
+// only the capture's layout is made repeatable.
+export const CAPTURE_TIMING_FIXTURES = [
+  { selector: "body", pattern: String.raw`(?<![\w.,])\d[\d,]*(?:\.\d+)? (?:ms|s)\b`, replacement: "100 ms" },
+  { selector: "body", pattern: String.raw`(?<![\w.,])~?\d[\d,]* / ~?\d[\d,]*`, replacement: "100 / 100" },
+  { selector: "body", pattern: String.raw`(?<![\w.,])~?\d[\d,]* in · \d[\d,]* out`, replacement: "100 in · 100 out" },
+  { selector: "body", pattern: String.raw`(?<![\w.,/])\d{1,3}/\d{1,3}/\d{1,3}(?![\w./])`, replacement: "50/25/25" },
+  { selector: "#panel-lifetime", pattern: String.raw`(?<![\w.])\d+(?:\.\d+)?%`, replacement: "50.0%" },
+  { selector: "#panel-lifetime", pattern: String.raw`(?<![\w.,])\d[\d,]* tokens`, replacement: "100 tokens" },
+];
+
 // OTHER_CHAT_STATE is declared by the shell-state captures only: they set the
 // first chat's robot to each state; another chat's robot shows that chat's
 // own state as the server last reported it.
@@ -215,6 +227,20 @@ export async function captureWithMasks(target, path, { specs = LIVE_VALUES } = {
     window.__agentbCaptureDateNow ??= Date.now;
     Date.now = () => 946684800000;
   });
+  const stabilizeTimingValues = () => page.evaluate((fixtures) => {
+    const saved = window.__agentbCaptureText ||= [], seen = new Set(saved.map(([node]) => node));
+    for (const fixture of fixtures) for (const root of document.querySelectorAll(fixture.selector)) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const next = node.data.replace(new RegExp(fixture.pattern, "g"), fixture.replacement);
+        if (next !== node.data) { if (!seen.has(node)) { saved.push([node, node.data]); seen.add(node); } node.data = next; }
+      }
+    }
+    const log = document.querySelector("#chat-log"), notice = document.querySelector("#chat-notice")?.textContent || "";
+    if (log && notice.startsWith("tool executing")) log.scrollTop = log.scrollHeight;
+    const settings = document.querySelector(".settings-content");
+    if (settings?.offsetParent) settings.scrollTop = 0;
+  }, CAPTURE_TIMING_FIXTURES);
   let image, box, ratio, found;
   try {
     // Put pointer hover on the known blank lower-center capture seat. A prior
@@ -223,6 +249,7 @@ export async function captureWithMasks(target, path, { specs = LIVE_VALUES } = {
     await page.mouse.move(625, 400);
     await page.waitForTimeout(1100);
     await stabilizeHostValues();
+    await stabilizeTimingValues();
     box = page === target ? null : await target.boundingBox();
     [ratio, found] = await Promise.all([page.evaluate(() => devicePixelRatio), page.evaluate(liveValueRects, specs)]);
     // Finite CSS transitions are finished first: a capture taken mid-transition
@@ -230,10 +257,12 @@ export async function captureWithMasks(target, path, { specs = LIVE_VALUES } = {
     // compositor once, then wait through a paint boundary.
     await target.screenshot({ animations: "disabled" });
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    await stabilizeTimingValues();
     image = await target.screenshot({ path, animations: "disabled" });
     const stability = { requested: repetitions, byte_identical: 1, rounding_pixels: 0, unexplained_pixels: 0 };
     for (let attempt = 2; attempt <= repetitions; attempt++) {
       await stabilizeHostValues();
+      await stabilizeTimingValues();
       const repeated = await target.screenshot({ animations: "disabled" });
       if (image.equals(repeated)) { stability.byte_identical++; continue; }
       const outcome = compareMasked(decodePNG(image), decodePNG(repeated), [], { tolerance: 2 });
@@ -247,6 +276,8 @@ export async function captureWithMasks(target, path, { specs = LIVE_VALUES } = {
     await writeFile(`${path}.stability.json`, `${JSON.stringify(stability, null, 1)}\n`);
   } finally {
     await page.evaluate(() => {
+      for (const [node, text] of window.__agentbCaptureText || []) node.data = text;
+      delete window.__agentbCaptureText;
       if (window.__agentbCaptureDateNow) Date.now = window.__agentbCaptureDateNow;
       delete window.__agentbCaptureDateNow;
     });

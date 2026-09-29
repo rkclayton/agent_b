@@ -25,6 +25,11 @@ if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) {
 # release instead of being discovered on the releases page afterwards.
 & node (Join-Path $repository 'tools\check-release-notes.mjs') $notesPath
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the release notes do not pass the notes gate; see the lines above." }
+# Item 2o5 (e): no client name in the tracked tree, these notes or the published
+# release pages. The deny-list is the operator's, outside the repository, named by
+# AGENTB_CLIENT_TERMS; without it the release does not run.
+& node (Join-Path $repository 'tools\check-client-terms.mjs') --releases $notesPath
+if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the client-terms gate did not pass (exit $LASTEXITCODE); see the lines above." }
 $commitOutput = @(& git -C $repository rev-parse "$Tag^{commit}" 2>&1)
 $commitExit = $LASTEXITCODE
 $commit = [string]($commitOutput | Select-Object -First 1)

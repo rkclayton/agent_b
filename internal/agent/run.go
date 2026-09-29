@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"harness/internal/config"
-	"harness/internal/credential"
 	contextmgr "harness/internal/context"
+	"harness/internal/credential"
 	"harness/internal/delivery"
 	"harness/internal/events"
 	"harness/internal/llm"
@@ -380,7 +380,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	templateRetryTried := false
 	softLineChecked := false
 	messageLimitRetried := false
-	byteLimitRetried := false
+	byteLimitRetries := 0
 	guards := newRunGuards(runCfg.CycleWindow, runCfg.MaxConsecutiveToolErrors)
 	currentReasoning := map[string]bool{}
 	for {
@@ -664,13 +664,16 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				// Item 2l8 (d): a retry that would send the same bytes is not made.
 				// The refusal is acted on once -- compacted against the limit it
 				// named -- and only a genuinely smaller body is sent again.
+				// Item 2o8 (d): each pass makes the body genuinely smaller -- a cut or
+				// a summary -- so it is retried until nothing is left to cut; the
+				// bound only guards against a server whose limit keeps moving.
 				before := llm.SerializedBytes(connection, request, true)
-				if !byteLimitRetried && r.compactForByteLimit(ctx, s, runID, connection, limit, request) {
-					byteLimitRetried = true
+				if byteLimitRetries < maxByteLimitRetries && r.compactForByteLimit(ctx, s, runID, connection, limit, request) {
+					byteLimitRetries++
 					turn--
 					continue
 				}
-				return "model_error", sentence + fmt.Sprintf("; the request was %d bytes and could not be made smaller", before), turn
+				return "model_error", sentence + fmt.Sprintf("; the request was %d bytes and could not be made smaller", before) + largestRequestMessage(request), turn
 			}
 			if limit, sentence, matched := messageLimitError(callErr); matched {
 				r.messageLimits.Store(connection.ID, limit)
@@ -877,6 +880,10 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				item.content, item.ok, item.metadata, resultTokens = r.fitWindowResult(
 					ctx, s, connection, item.call.Name, item.args, item.content, item.ok, item.metadata, resultTokens, remainingResultTokens, item.operatorContext,
 				)
+				if limit := connection.Capabilities.ObservedByteLimit; limit > 0 && len(item.content) > limit/4 {
+					item.content, item.ok, item.metadata = r.byteCapResult(item.call.Name, item.args, item.content, item.ok, item.metadata, limit)
+					resultTokens = r.textTokens(ctx, connection, item.content)
+				}
 				if _, batch := item.args["windows"]; item.call.Name == "read_file" && !batch {
 					if tooLarge, _ := item.metadata["result_too_large"].(bool); tooLarge {
 						if refusedTurn >= 0 && refusedTurn == turn-1 {
@@ -1022,6 +1029,14 @@ func byteLimitTarget(limit int) int {
 // made when there is something new to send.
 func (r *Runner) compactForByteLimit(ctx context.Context, s *session.Session, runID string, connection *config.Connection, limit int, request llm.Request) bool {
 	before := llm.SerializedBytes(connection, request, true)
+	// Item 2o8 (a): TRIM BEFORE SUMMARY. A summary needs more than seven messages
+	// and a request the server itself accepts; cutting the largest tool results in
+	// place needs neither, so it goes first and summary runs only if it was not
+	// enough.
+	if trimmed := trimToolResults(s, before-byteLimitTarget(limit), limit); trimmed > 0 {
+		r.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"trigger": "byte_limit_trim", "limit_bytes": limit, "bytes_before": before, "trimmed_results": trimmed, "connection_id": connection.ID}))
+		return true
+	}
 	changed := false
 	for attempts := 0; attempts < 3; attempts++ {
 		if !r.summarize(withCompactionTrigger(ctx, "byte_limit"), s, runID, connection) {
@@ -1037,6 +1052,81 @@ func (r *Runner) compactForByteLimit(ctx context.Context, s *session.Session, ru
 	}
 	r.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"trigger": "byte_limit", "limit_bytes": limit, "bytes_before": before, "connection_id": connection.ID}))
 	return true
+}
+
+// byteTrimFloor is what a trimmed result keeps at least; a result no larger is
+// never cut. byteTrimMarkerRoom covers the marker the cut adds.
+const (
+	byteTrimFloor       = 2048
+	byteTrimMarkerRoom  = 400
+	maxByteLimitRetries = 8
+)
+
+// trimToolResults cuts the largest tool results in the session, largest first,
+// until over bytes are gone, and reports how many it cut. A serialized request
+// only grows by escaping, so removing N content bytes removes at least N.
+func trimToolResults(s *session.Session, over, limit int) int {
+	if over <= 0 {
+		return 0
+	}
+	messages := s.MessagesCopy()
+	contents := []*string{}
+	for index := range messages {
+		if messages[index].Role == llm.RoleTool && !messages[index].Elided {
+			contents = append(contents, &messages[index].Content)
+		}
+	}
+	trimmed := trimLargest(contents, over, limit)
+	if trimmed > 0 {
+		s.ReplaceMessages(messages)
+	}
+	return trimmed
+}
+
+// trimLargest keeps each cut result's head and tail and names what was dropped
+// in the "read was cut short" language 2l8 uses, with how to read it back.
+func trimLargest(contents []*string, over, limit int) int {
+	trimmed := 0
+	for over > 0 {
+		var largest *string
+		for _, content := range contents {
+			if len(*content) > byteTrimFloor+byteTrimMarkerRoom && (largest == nil || len(*content) > len(*largest)) {
+				largest = content
+			}
+		}
+		if largest == nil {
+			break
+		}
+		original := *largest
+		keep := max(byteTrimFloor, len(original)-over-byteTrimMarkerRoom)
+		head := strings.ToValidUTF8(original[:keep*2/3], "")
+		tail := strings.ToValidUTF8(original[len(original)-(keep-keep*2/3):], "")
+		dropped := len(original) - len(head) - len(tail)
+		*largest = head + fmt.Sprintf("\n\n[note: the read was cut short: %d bytes of this tool result were dropped to fit the server's %d-byte request limit; the start and end are kept. Re-read the dropped span with read_file windows (offset and limit) if it is needed.]\n\n", dropped, limit) + tail
+		over -= len(original) - len(*largest)
+		trimmed++
+	}
+	return trimmed
+}
+
+// largestRequestMessage names the message that makes a request the size it is,
+// for the one stop that remains when nothing is left to cut.
+func largestRequestMessage(request llm.Request) string {
+	index, size := -1, 0
+	for i, message := range request.Messages {
+		if n := len(fmt.Sprint(message.Content)); n > size {
+			index, size = i, n
+		}
+	}
+	if index < 0 {
+		return ""
+	}
+	message := request.Messages[index]
+	what := message.Role
+	if message.Name != "" {
+		what += " " + message.Name
+	}
+	return fmt.Sprintf("; the largest part is message %d of %d (%s, %d bytes) and nothing in it can be cut", index+1, len(request.Messages), what, size)
 }
 
 func (r *Runner) compactForMessageLimit(ctx context.Context, s *session.Session, runID string, connection *config.Connection, limit int) bool {

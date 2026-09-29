@@ -1251,7 +1251,7 @@ function renderComposer(session) {
   // Live state, not decoration: the robot runs beside the live line for exactly
   // as long as the run is live, and is absent otherwise. Its eyes take the same
   // state colour the tab robot uses.
-  const running = isRunning(session);
+  const running = !!activity;
   // Item 2m4: THE ONE WAITING ELEMENT, EARNING ITS PLACE.
   //
   // The model wait is the case the operator described — "chatting and hoping the

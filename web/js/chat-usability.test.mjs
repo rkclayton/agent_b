@@ -79,7 +79,7 @@ test("the composer stop state wins the send button's transparent background", ()
 test("Pending approval is pinned above the composer with zero idle space", () => {
 	assert.match(html, /id="chat-pending-approval" class="pending-approval" hidden[\s\S]*class="chat-composer-row"/);
 	assert.match(chat, /session\?\.pending_approval \|\| session\?\.pending_repo_policy \? "waiting for you"/);
-	assert.match(chat, /pendingApproval\.hidden = !\(session\?\.pending_approval \|\| session\?\.pending_repo_policy \|\| worker\)/);
+	assert.match(chat, /setProperty\(pendingApproval, "hidden", !\(session\?\.pending_approval \|\| session\?\.pending_repo_policy \|\| worker\)\)/);
 	assert.match(css, /\.pending-approval\[hidden\]\s*\{\s*display:\s*none/);
 	assert.match(tokens, /\.agent-tab-robot\.waiting\{color:var\(--alarm\)/);
 });
@@ -171,7 +171,8 @@ test("New chat uses the fixed left plus and history uses the agent right-click m
   assert.match(shell, /source_session_id: source\.id/);
   assert.match(shell, /agent_d · \$\{name\} — plan/);
   assert.match(shell, /role: "d"/);
-  assert.match(shell, /button\("", name, `agent-tab/);
+  // rel-1.42.0 (2o2): the tab is built once and its name is updated in place.
+  assert.match(shell, /button\("", "", "agent-tab"\)[\s\S]*setAttr\(tab, "title", name\)/);
   assert.match(shell, /Stop it before closing the chat/);
 });
 

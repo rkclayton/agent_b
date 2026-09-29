@@ -8,12 +8,11 @@ const styles = readFileSync(new URL("../css/chat.css", import.meta.url), "utf8")
 test("the running robot is live state, present only while a run is live", () => {
   // Bound to the live activity line, which is empty unless run.status is running.
   assert.match(chat, /const running = !!activity;/);
-  assert.match(chat, /if \(running\) \{[\s\S]{0,400}chat-run-robot/);
-  // Nothing renders it on any other condition: the class name appears only in
-  // the guarded block (once on the element, once on its eyes).
+  // rel-1.42.0 (2o2): the robot node is built once and kept; it takes its class
+  // only while a run is live and is hidden on every other condition.
+  assert.match(chat, /if \(running && !promptOnly\) \{[\s\S]{0,400}chat-run-robot/);
   assert.equal([...chat.matchAll(/chat-run-robot/g)].length, 2);
-  const guarded = chat.slice(chat.indexOf("if (running) {"), chat.indexOf("const text = document.createElement"));
-  assert.equal([...guarded.matchAll(/chat-run-robot/g)].length, 2);
+  assert.match(chat, /setProperty\(composerRobot, "hidden", !running \|\| promptOnly\)/);
 });
 
 test("the running robot takes the strip's existing height and adds no chrome", () => {
@@ -58,6 +57,6 @@ test("reduced motion freezes the robot without removing it", () => {
 });
 
 test("the live line's own text is unchanged beside the glyph", () => {
-  assert.match(chat, /text\.className = "chat-notice-text";/);
-  assert.match(chat, /text\.textContent = message;/);
+  assert.match(chat, /composerText\.className = "chat-notice-text";/);
+  assert.match(chat, /setText\(composerText, message\);/);
 });

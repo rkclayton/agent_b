@@ -2,12 +2,18 @@ let serviceAccountLog = "";
 let brokerStatus = {};
 let brokerMessage = "";
 let brokerAlarm = false;
+let credentialList = [];
+let credentialMessage = "";
+let credentialAlarm = false;
 let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess, standingGrants, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
 function useSettingsContext(context) {
   serviceAccountLog = context.serviceAccountLog || "";
   brokerStatus = context.brokerStatus || {};
   brokerMessage = context.brokerMessage || "";
   brokerAlarm = !!context.brokerAlarm;
+  credentialList = context.credentialList || [];
+  credentialMessage = context.credentialMessage || "";
+  credentialAlarm = !!context.credentialAlarm;
   ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess = { devices: [] }, standingGrants = [], connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
 }
 
@@ -136,7 +142,23 @@ function shell(active) {
 	${row("devices", phoneDevices())}
 	${row("push", `<button type="button" role="switch" aria-checked="${!!phoneAccess.push_enabled}" class="switch ${phoneAccess.push_enabled ? "on" : ""}" data-action="phone-push-toggle"></button><span class="account-status">${phoneAccess.push_enabled ? "enabled" : "off"}</span>`, "", "Push carries only the notice line and chat name.")}
 	${brokerRows()}
+	${credentialRows()}
     `;
+}
+
+// Item 2nv (c): TRUSTED MANAGEMENT, in the one place the operator already trusts. A
+// credential is typed here and nowhere else: not in a chat, not by the model, not from
+// the phone. What is listed is the name, where it may go, how it is sent and when it was
+// stored — never the value, which this page cannot read back either.
+function credentialRows() {
+	const entries = Array.isArray(credentialList) ? credentialList : [];
+	const listed = entries.length
+		? `<span class="settings-actions vertical">${entries.map((entry) => `<span>${html(entry.name)} · ${html(entry.origin)}${entry.header ? ` · ${html(entry.header)}` : " · bearer"} · stored ${html((entry.stored_at || "").slice(0, 10))} <button type="button" data-action="credential-remove" data-id="${attr(entry.name)}" data-confirm="the credential ${attr(entry.name)}">Remove</button></span>`).join("")}</span>`
+		: '<span class="account-status">none stored</span>';
+	return `${subhead("Credentials", "Keys this machine holds for the services you connect to. Each one goes only to the address you approve for it — scheme, host and port — and to nothing else. A connector names a credential; it never carries its value.")}
+	${row("stored", listed)}
+	${row("add", `<span class="settings-actions"><input id="credential-name" type="text" placeholder="name" autocomplete="off" spellcheck="false"><input id="credential-origin" type="text" placeholder="https://host:port" autocomplete="off" spellcheck="false"><input id="credential-header" type="text" placeholder="header (blank = bearer)" autocomplete="off" spellcheck="false"><input id="credential-secret" type="password" placeholder="the key" autocomplete="new-password" spellcheck="false"><button type="button" data-action="credential-add">Add</button></span>`, "", "The key is never shown again once stored, and never leaves this machine except to the address above. Windows protects it for your account: that is protection at rest and from other users, not from programs running as you.")}
+	${feedback(credentialMessage, credentialAlarm)}`;
 }
 
 // Item 2kq (b) and (e): PAIRING AND STATUS WHERE THE OPERATOR LOOKS. Away from home the

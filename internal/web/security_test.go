@@ -13,6 +13,7 @@ import (
 
 	"harness/internal/buildinfo"
 	"harness/internal/config"
+	"harness/internal/credential"
 	"harness/internal/events"
 )
 
@@ -221,4 +222,84 @@ func TestSnapshotExposesBuildIdentity(t *testing.T) {
 	if info.Commit != buildinfo.Commit || info.Display != "abcdef012345+dirty" || !info.Dirty {
 		t.Fatalf("build identity = %+v", info)
 	}
+}
+
+// Item 2nv (c): CREDENTIALS ARE THE OPERATOR'S PAGE AND NOTHING ELSE. A caller without
+// the page's session and mutation token, and a caller carrying a phone bearer, are both
+// refused — for the listing as well as for a change, because the listing names what is
+// stored and where it may go.
+func TestOnlyTheOperatorsPageTouchesCredentials2nv(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	SetCredentialVault(credential.NewVault(root))
+	t.Cleanup(func() { SetCredentialVault(nil) })
+
+	add := `{"action":"add","name":"depot","origin":"https://api.example.test:8443","secret":"planted"}`
+	for _, test := range []struct {
+		name    string
+		build   func() *http.Request
+		wantNot int
+	}{
+		{"no token", func() *http.Request {
+			request := httptest.NewRequest(http.MethodPost, "/api/credentials", strings.NewReader(add))
+			request.AddCookie(&http.Cookie{Name: browserSessionCookie, Value: server.browserSession})
+			return request
+		}, http.StatusOK},
+		{"no session", func() *http.Request {
+			request := httptest.NewRequest(http.MethodPost, "/api/credentials", strings.NewReader(add))
+			request.Header.Set("X-AgentB-Mutation-Token", server.mutationToken)
+			return request
+		}, http.StatusOK},
+		{"listing without the session", func() *http.Request {
+			return httptest.NewRequest(http.MethodGet, "/api/credentials", nil)
+		}, http.StatusOK},
+		{"a phone bearer", func() *http.Request {
+			request := httptest.NewRequest(http.MethodGet, "/api/credentials", nil)
+			request.Header.Set("Authorization", "Bearer "+phoneTestBearer(t, server))
+			return request
+		}, http.StatusOK},
+		{"a phone bearer changing one", func() *http.Request {
+			request := httptest.NewRequest(http.MethodPost, "/api/credentials", strings.NewReader(add))
+			request.Header.Set("Authorization", "Bearer "+phoneTestBearer(t, server))
+			return request
+		}, http.StatusOK},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			server.Handler().ServeHTTP(response, test.build())
+			if response.Code == test.wantNot {
+				t.Fatalf("the caller was served: %d %s", response.Code, response.Body)
+			}
+			if strings.Contains(response.Body.String(), "planted") {
+				t.Fatal("the refusal echoed the secret")
+			}
+		})
+	}
+
+	// And the operator's own page can, with the listing carrying no value.
+	request := httptest.NewRequest(http.MethodPost, "/api/credentials", strings.NewReader(add))
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("the operator's page was refused: %d %s", response.Code, response.Body)
+	}
+	if strings.Contains(response.Body.String(), "planted") {
+		t.Fatalf("the answer carries the secret: %s", response.Body)
+	}
+	if !strings.Contains(response.Body.String(), "https://api.example.test:8443") {
+		t.Fatalf("the answer does not list the credential: %s", response.Body)
+	}
+}
+
+// phoneTestBearer enrols a device the way the phone does and returns its bearer.
+func phoneTestBearer(t *testing.T, server *Server) string {
+	t.Helper()
+	code, _ := server.phoneDevices.offer()
+	token, _, status := server.phoneDevices.redeem(code, "case", "192.0.2.9:1000")
+	if status != http.StatusOK {
+		t.Fatalf("enrolling a device answered %d", status)
+	}
+	return token
 }

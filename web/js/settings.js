@@ -40,6 +40,11 @@ let serviceAccountMessage = "";
 let serviceAccountLog = "";
 // Item 2kq (b) and (e): the broker's own state, refreshed while the sheet is open.
 let brokerStatus = {};
+// Item 2nv (c): the credential listing. It carries names, origins and dates and never a
+// value, because the endpoint that answers it has none to give.
+let credentialList = [];
+let credentialMessage = "";
+let credentialAlarm = false;
 let brokerMessage = "";
 let brokerAlarm = false;
 let serviceAccountAlarm = false;
@@ -220,6 +225,7 @@ export function openSettings(section = "") {
   refreshWorkspaceState();
   refreshOperatorFileState();
   void refreshBrokerStatus().then(() => { if (open) render(); });
+  void refreshCredentials().then(() => { if (open) render(); });
   requestAnimationFrame(() => sheet.querySelector(".settings-nav button.selected")?.focus());
   recordViewMount("settings", performance.now() - started);
 }
@@ -427,6 +433,7 @@ function settingsPageContext(active) {
     active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, phoneAccess, standingGrants: store.standing_grants || [],
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog,
     brokerStatus, brokerMessage, brokerAlarm,
+    credentialList, credentialMessage, credentialAlarm,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList,
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm,
@@ -1126,6 +1133,43 @@ async function dispatchAction(event, button, action, id) {
 		if (verb === "pair" || verb === "confirm") watchBrokerPairing();
 		return render();
 	}
+	// Item 2nv (c): adding a credential is a masked field that never echoes, and removing
+	// one is immediate. The value goes straight to the endpoint and is never held in the
+	// page's state, so a re-render cannot put it back on the screen.
+	if (action === "credential-add") {
+		const field = (id) => sheet.querySelector(id)?.value || "";
+		const secret = field("#credential-secret");
+		credentialMessage = "";
+		credentialAlarm = false;
+		try {
+			credentialList = (await api("/api/credentials", {
+				action: "add", name: field("#credential-name").trim(), origin: field("#credential-origin").trim(),
+				header: field("#credential-header").trim(), secret,
+			})).credentials || [];
+			for (const id of ["#credential-name", "#credential-origin", "#credential-header", "#credential-secret"]) {
+				const input = sheet.querySelector(id);
+				if (input) input.value = "";
+			}
+			credentialMessage = "stored";
+		} catch (error) {
+			credentialMessage = error.message;
+			credentialAlarm = true;
+		}
+		return render();
+	}
+	if (action === "credential-remove") {
+		if (!armed.has("credential:" + id)) { armed.add("credential:" + id); return render(); }
+		armed.delete("credential:" + id);
+		try {
+			credentialList = (await api("/api/credentials", { action: "remove", name: id })).credentials || [];
+			credentialMessage = "removed";
+			credentialAlarm = false;
+		} catch (error) {
+			credentialMessage = error.message;
+			credentialAlarm = true;
+		}
+		return render();
+	}
 	if (action === "phone-enrol") {
 		try { phoneAccess = { ...phoneAccess, ...await api("/api/phone/enrolment") }; } catch (error) { phoneAccess = { ...phoneAccess, error: error.message }; }
 		return render();
@@ -1225,6 +1269,11 @@ function watchBrokerPairing() {
 		}
 		if (open && activeSection === "shell") render();
 	}, 1500);
+}
+
+async function refreshCredentials() {
+	try { credentialList = (await api("/api/credentials", undefined, "GET")).credentials || []; }
+	catch (error) { credentialList = []; credentialMessage = error.message; credentialAlarm = true; }
 }
 
 async function refreshBrokerStatus() {

@@ -54,22 +54,26 @@ export function waitElement(document, { line, processed = null, total = null } =
 export function setWaitProgress(root, { processed = null, total = null } = {}) {
   const known = Number.isFinite(Number(total)) && Number(total) > 0 && Number.isFinite(Number(processed));
   if (!known) {
-    root.dataset.mode = "indeterminate";
-    root.removeAttribute("aria-valuenow");
+    if (root.dataset.mode !== "indeterminate") root.dataset.mode = "indeterminate";
+    if (root.hasAttribute("aria-valuenow")) root.removeAttribute("aria-valuenow");
     // `delete` on a dataset removes the attribute, which removeAttribute would
     // also do — but this keeps the read and the write in one vocabulary.
-    root.querySelectorAll(".wait-cell").forEach((cell) => { delete cell.dataset.lit; });
+    root.querySelectorAll(".wait-cell").forEach((cell) => { if (cell.hasAttribute("data-lit")) delete cell.dataset.lit; });
     return root;
   }
   const fraction = Math.max(0, Math.min(1, Number(processed) / Number(total)));
   const lit = Math.round(fraction * CELLS);
-  root.dataset.mode = "determinate";
+  if (root.dataset.mode !== "determinate") root.dataset.mode = "determinate";
   // Lit per cell rather than through a custom property, because CSS cannot read
   // a var() inside :nth-child and a rule that silently matches nothing is worse
   // than no rule.
   const cells = root.querySelectorAll(".wait-cell");
-  cells.forEach((cell, index) => { cell.dataset.lit = index < lit ? "1" : "0"; });
-  root.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
+  cells.forEach((cell, index) => {
+    const value = index < lit ? "1" : "0";
+    if (cell.dataset.lit !== value) cell.dataset.lit = value;
+  });
+  const now = String(Math.round(fraction * 100));
+  if (root.getAttribute("aria-valuenow") !== now) root.setAttribute("aria-valuenow", now);
   return root;
 }
 

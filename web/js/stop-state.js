@@ -29,14 +29,14 @@ export function projectSendStopState(session, replay = false) {
 // renderSendStop draws whichever state it is on the one button.
 export function renderSendStop(button, session, replay = false) {
   const state = projectSendStopState(session, replay);
-  button.disabled = state.disabled;
+  setProperty(button, "disabled", state.disabled);
   button.classList.toggle("stop-sign", state.mode === "stop");
   button.classList.toggle("active", state.state === "active");
   button.classList.toggle("stopping", state.state === "stopping");
-  button.dataset.state = state.state;
-  button.dataset.mode = state.mode;
-  button.setAttribute("aria-label", state.mode === "stop" ? state.label : "Send");
-  button.setAttribute("title", state.label);
+  setAttribute(button, "data-state", state.state);
+  setAttribute(button, "data-mode", state.mode);
+  setAttribute(button, "aria-label", state.mode === "stop" ? state.label : "Send");
+  setAttribute(button, "title", state.label);
   // The glyph IS the state: the enter mark when it sends, and the octagon with
   // its inner square while a run is live. Item 2ha: the enter mark is an SVG in
   // the document, one of the three controls that are now one family, so it is
@@ -57,11 +57,19 @@ export function renderSendStop(button, session, replay = false) {
 
 export function renderStopState(button, session, replay = false) {
   const state = projectStopState(session, replay);
-  button.disabled = state.disabled;
+  setProperty(button, "disabled", state.disabled);
   button.classList.toggle("active", state.state === "active");
   button.classList.toggle("stopping", state.state === "stopping");
-  button.dataset.state = state.state;
-  button.setAttribute("aria-label", state.label);
-  button.setAttribute("title", state.label);
+  setAttribute(button, "data-state", state.state);
+  setAttribute(button, "aria-label", state.label);
+  setAttribute(button, "title", state.label);
   return state;
+}
+
+function setAttribute(node, name, value) {
+  if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+}
+
+function setProperty(node, name, value) {
+  if (node[name] !== value) node[name] = value;
 }

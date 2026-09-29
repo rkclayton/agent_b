@@ -168,9 +168,11 @@ func TestTheV2VectorsAreReDerivedInBothRoles2kq(t *testing.T) {
 		t.Fatalf("the initiator refused a valid ready: %v", err)
 	}
 
-	// One transport message, agent to device: its AAD and its ciphertext.
+	// One transport message, agent to device: its AAD and its ciphertext. The counter
+	// is 1, not 0: the document says the declared counter must equal the CipherState
+	// nonce, and the agent's first transport message was the sealed finish.
 	aad := TransportAAD(mustHex(t, in["pairing_id_hex"]), mustHex(t, want["session_id_hex"]), 0, DirectionAgentToDevice,
-		agent.KeyID(), device.KeyID(), mustHex(t, in["message_id_hex"]), 0)
+		agent.KeyID(), device.KeyID(), mustHex(t, in["message_id_hex"]), 1)
 	if got := hex.EncodeToString(aad); got != want["message_aad_hex"] {
 		t.Errorf("message aad = %s, want %s", got, want["message_aad_hex"])
 	}
@@ -187,13 +189,19 @@ func TestTheV2VectorsAreReDerivedInBothRoles2kq(t *testing.T) {
 	}
 
 	// And the rekey: the same message under the next epoch's key.
+	// The nonce keeps increasing across a rekey, as Noise specifies, so this is 2.
 	rekeyAAD := TransportAAD(mustHex(t, in["pairing_id_hex"]), mustHex(t, want["session_id_hex"]), 1, DirectionAgentToDevice,
-		agent.KeyID(), device.KeyID(), mustHex(t, in["message_id_hex"]), 0)
+		agent.KeyID(), device.KeyID(), mustHex(t, in["message_id_hex"]), 2)
 	if got := hex.EncodeToString(rekeyAAD); got != want["rekey_aad_hex"] {
 		t.Errorf("rekey aad = %s, want %s", got, want["rekey_aad_hex"])
 	}
+	// The rekey vector seals a different plaintext, "after rekey", which the file does
+	// not carry as an input. It was read out of the expected ciphertext by opening it
+	// with this implementation's own rekeyed state — which is itself the proof that the
+	// rekey and the counter are right, since a wrong key or nonce could not have opened
+	// it at all.
 	initiator.Rekey(DirectionAgentToDevice)
-	rekeyed, err := initiator.SealMessage(rekeyAAD, []byte(in["plaintext_utf8"]))
+	rekeyed, err := initiator.SealMessage(rekeyAAD, []byte("after rekey"))
 	if err != nil {
 		t.Fatal(err)
 	}

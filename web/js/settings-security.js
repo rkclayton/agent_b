@@ -1,7 +1,13 @@
 let serviceAccountLog = "";
+let brokerStatus = {};
+let brokerMessage = "";
+let brokerAlarm = false;
 let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess, standingGrants, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
 function useSettingsContext(context) {
   serviceAccountLog = context.serviceAccountLog || "";
+  brokerStatus = context.brokerStatus || {};
+  brokerMessage = context.brokerMessage || "";
+  brokerAlarm = !!context.brokerAlarm;
   ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess = { devices: [] }, standingGrants = [], connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
 }
 
@@ -129,7 +135,38 @@ function shell(active) {
 	${row("enrolment", `<span class="account-status mono">${phoneAccess.code ? html(phoneAccess.code) : "no active code"}</span><button type="button" data-action="phone-enrol">New code</button>`, "", phoneAccess.expires_at ? `Expires ${phoneAccess.expires_at}` : "The code expires in five minutes and works once.")}
 	${row("devices", phoneDevices())}
 	${row("push", `<button type="button" role="switch" aria-checked="${!!phoneAccess.push_enabled}" class="switch ${phoneAccess.push_enabled ? "on" : ""}" data-action="phone-push-toggle"></button><span class="account-status">${phoneAccess.push_enabled ? "enabled" : "off"}</span>`, "", "Push carries only the notice line and chat name.")}
+	${brokerRows()}
     `;
+}
+
+// Item 2kq (b) and (e): PAIRING AND STATUS WHERE THE OPERATOR LOOKS. Away from home the
+// phone reaches this AgentB through the broker, and everything he needs for that is
+// here: the address, the code to type into the phone, the fingerprint to compare on the
+// two screens, the paired device, Revoke, and what the connection is doing right now.
+//
+// The broker carries ciphertext and cannot read any of it. The fingerprint is the whole
+// of the operator's part in that: if the two screens differ, the pairing is not his.
+function brokerRows() {
+	const url = store.config.broker?.url || "";
+	const status = brokerStatus || {};
+	const offer = status.offer || {};
+	const state = !url
+		? "off — no broker address"
+		: status.state || "not connected";
+	const lamp = status.state === "connected" ? "live" : url && status.state === "reconnecting" ? "alarm" : "";
+	const paired = status.paired_device
+		? `${html(status.paired_device)}<button type="button" data-action="broker-revoke" data-confirm="the paired phone">Revoke</button>`
+		: "none paired";
+	return `${subhead("Phone away from home", "One phone, paired through the broker. It carries ciphertext and can read none of it; the fingerprint below is how you check that for yourself.")}
+	${text("broker.url", "broker", url, "text", "The broker this AgentB dials out to. Empty means nothing dials.")}
+	${row("connection", `<span class="account-status"><span class="lamp ${lamp}"></span>${html(state)}${status.broker_build ? ` · build ${html(status.broker_build)}` : ""}</span>`)}
+	${row("pairing", offer.code
+		? `<span class="account-status mono">${html(offer.code)}</span>`
+		: `<span class="account-status">${status.paired_device ? "paired" : "not paired"}</span><button type="button" data-action="broker-pair" ${url ? "" : "disabled"}>Pair a phone</button>`,
+		"", "Type this code into the phone. It expires in ten minutes and works once.")}
+	${offer.fingerprint ? row("fingerprint", `<span class="account-status mono">${html(offer.fingerprint)}</span><button type="button" data-action="broker-confirm">They match</button>`, "", "Compare all ten groups with the phone before confirming.") : ""}
+	${row("device", `<span class="account-status">${paired}</span>`)}
+	${feedback(brokerMessage, brokerAlarm)}`;
 }
 
 function phoneDevices() {

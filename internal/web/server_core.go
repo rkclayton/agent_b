@@ -46,7 +46,10 @@ type Server struct {
 	roots      RuntimeRoots
 	bus        *events.Bus
 	// Item 2jg: the telemetry sender and its subscription, or nothing at all.
-	telemetry          telemetryHost
+	telemetry telemetryHost
+	// Item 2kq: the broker client, or nothing when broker.url is empty.
+	brokerMu           sync.RWMutex
+	broker             BrokerHost
 	registry           *session.Registry
 	webDir             string
 	worker             *worker.Driver
@@ -323,6 +326,8 @@ func (s *Server) Handler() http.Handler {
 	// Item 2mv: one read-only export of what this installation already knows.
 	mux.HandleFunc("/api/diagnostics", s.diagnostics)
 	mux.HandleFunc("/api/browser-session", s.browserSessionEndpoint)
+	mux.HandleFunc("/api/broker/status", s.brokerStatus)
+	mux.HandleFunc("/api/broker", s.replayGuard(s.brokerAction))
 	mux.HandleFunc("/api/phone/enrolment", s.phoneEnrolment)
 	mux.HandleFunc(phoneRedeemPath, s.phoneEnrolmentRedeem)
 	mux.HandleFunc("/api/phone/devices", s.phoneDeviceList)

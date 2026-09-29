@@ -48,15 +48,14 @@ function Get-LogLines {
     return @(Get-Content -LiteralPath $launcherLog -Encoding UTF8)
 }
 
-$startupShortcut = Join-Path $StartMenuDirectory 'Startup\Agent_b.lnk'
-if (-not (Test-Path -LiteralPath $startupShortcut -PathType Leaf)) { throw "Installer did not register a sign-in start: $startupShortcut" }
-$shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($startupShortcut)
-if (-not $shortcut.TargetPath.Equals((Join-Path $env:SystemRoot 'System32\wscript.exe'), [StringComparison]::OrdinalIgnoreCase) -or
-    $shortcut.Arguments -notmatch [regex]::Escape((Join-Path $ApplicationDirectory 'scripts\launch-hidden.vbs')) -or
-    $shortcut.Arguments -notmatch [regex]::Escape((Join-Path $ApplicationDirectory 'Agent_b.cmd')) -or
-    $shortcut.Arguments -notmatch '-Detached' -or $shortcut.Arguments -notmatch '-NoBrowser' -or
-    $shortcut.Arguments -notmatch ('-DataDirectory "' + [regex]::Escape($DataDirectory) + '"')) {
-    throw "Sign-in shortcut does not start the installed launcher hidden, detached and without a browser: $($shortcut.TargetPath) $($shortcut.Arguments)"
+# Item 2o9: the install no longer places a sign-in shortcut. This scenario is about
+# the background server's lifetime, so it makes the same hidden, detached start
+# directly: the hidden host, the installed launcher, -Detached -NoBrowser -NoPause.
+if (Test-Path -LiteralPath (Join-Path $StartMenuDirectory 'Startup\Agent_b.lnk')) { throw 'The install placed a sign-in shortcut (item 2o9).' }
+$shortcut = [pscustomobject]@{
+    TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
+    Arguments = '//B "' + (Join-Path $ApplicationDirectory 'scripts\launch-hidden.vbs') + '" "' + (Join-Path $ApplicationDirectory 'Agent_b.cmd') + '" -Detached -NoBrowser -NoPause -DataDirectory "' + $DataDirectory + '"'
+    WorkingDirectory = $DataDirectory
 }
 if (Get-Running) { throw 'A disposable Agent_b is already running before the lifetime scenario.' }
 

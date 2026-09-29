@@ -1018,29 +1018,16 @@ $shortcut.IconLocation = "$iconPath,0"
 $shortcut.Description = 'Open Agent_b'
 $shortcut.Save()
 
-# Production returns at the operator's next sign-in without a Start menu click
-# (item 2em). A Fast Startup shutdown logs the user off, which ends every process
-# in the session. The launcher starts nothing when Agent_b is already running.
-$startupDirectory = Join-Path $StartMenuDirectory 'Startup'
-$null = New-Item -ItemType Directory -Path $startupDirectory -Force
-$startupPath = Join-Path $startupDirectory 'Agent_b.lnk'
-$startup = $shell.CreateShortcut($startupPath)
-$startup.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
-$batchLauncher = Join-Path $applicationRoot 'Agent_b.cmd'
-# v0.65.0/W9: the arguments pass through WScript.Shell.Run and cmd's `call`, and
-# both expand %VAR%. The default data root is the launcher's own default, so it
-# is not passed at all; any other root is passed only when it holds no `%`.
-$startupArguments = '//B "' + $hiddenLauncher + '" "' + $batchLauncher + '" -Detached -NoBrowser -NoPause'
-$defaultDataRoot = [IO.Path]::GetFullPath((Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Agent_b')).TrimEnd('\')
-if (-not $dataRoot.Equals($defaultDataRoot, [StringComparison]::OrdinalIgnoreCase)) {
-    if ($dataRoot.Contains('%')) { throw "The data directory contains '%', which the sign-in start would expand as a variable: $dataRoot" }
-    $startupArguments += ' -DataDirectory "' + $dataRoot + '"'
+# Item 2o9: NOTHING STARTS AT SIGN-IN UNLESS THE OPERATOR TURNS IT ON. 2em placed a
+# hidden, windowless Startup shortcut on every install; it was never asked for and it
+# was the path behind 2o0's five windowless mornings. The install places none and an
+# update removes the one an earlier version placed. Start-at-sign-in is now a per-user
+# Run entry that Settings writes and Windows' own Startup page lists and switches.
+$startupPath = Join-Path (Join-Path $StartMenuDirectory 'Startup') 'Agent_b.lnk'
+if (Test-Path -LiteralPath $startupPath -PathType Leaf) {
+    Remove-Item -LiteralPath $startupPath -Force
+    Write-Host "Removed the earlier sign-in start: $startupPath"
 }
-$startup.Arguments = $startupArguments
-$startup.WorkingDirectory = $dataRoot
-$startup.IconLocation = "$iconPath,0"
-$startup.Description = 'Start Agent_b in the background at sign-in'
-$startup.Save()
 
 # Item 2mv (e): SEND TO -> AGENT_B. Explorer hands the selected paths to the link,
 # which copies them into the exchange folder Agent_b already reads. Placing it is

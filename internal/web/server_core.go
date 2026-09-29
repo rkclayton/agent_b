@@ -389,6 +389,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/runs/", s.replayGuard(s.runBrief))
 	mux.HandleFunc("/api/stop", s.replayGuard(s.stop))
 	mux.HandleFunc("/api/host-window", s.replayGuard(s.hostWindow))
+	mux.HandleFunc("/api/sign-in-start", s.replayGuard(s.signInStart))
 	// Item 2ge: the composer microphone asks the host what it can do.
 	mux.HandleFunc("/api/speech", s.speechHandler)
 	mux.HandleFunc("/api/speech/stream", s.speechStreamHandler)

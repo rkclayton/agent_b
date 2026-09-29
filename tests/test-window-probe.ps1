@@ -45,9 +45,10 @@ try {
     $config.listen = "127.0.0.1:$port"
     [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 
-    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $testStart 'Startup\Agent_b.lnk'))
-    # Item 2na (b): started through the one helper, so it cannot take the screen.
-    $null = Start-Quiet -FilePath $shortcut.TargetPath -ArgumentList $shortcut.Arguments -WorkingDirectory $shortcut.WorkingDirectory
+    # Item 2o9: the install no longer places a sign-in shortcut; the same hidden,
+    # detached start is made directly. Item 2na (b): through the one helper.
+    $backgroundArguments = '//B "' + (Join-Path $testApplication 'scripts\launch-hidden.vbs') + '" "' + (Join-Path $testApplication 'Agent_b.cmd') + '" -Detached -NoBrowser -NoPause -DataDirectory "' + $testData + '"'
+    $null = Start-Quiet -FilePath (Join-Path $env:SystemRoot 'System32\wscript.exe') -ArgumentList $backgroundArguments -WorkingDirectory $testData
     $deadline = [DateTime]::UtcNow.AddSeconds(60)
     do {
         Start-Sleep -Milliseconds 500

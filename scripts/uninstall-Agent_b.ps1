@@ -216,6 +216,14 @@ if (Test-Path -LiteralPath $startupShortcutPath) {
     $removalPath = Assert-RemovalWithinAllowedRoots -Path $startupShortcutPath -AllowedRoots @($startMenuRoot) -Purpose 'sign-in shortcut cleanup'
     Remove-Item -LiteralPath $removalPath -Force
 }
+# Item 2o9: the start-at-sign-in Run entry goes with the application, and only when it
+# starts THIS install, so a disposable uninstall never clears the operator's own.
+$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$runCommand = (Get-ItemProperty -LiteralPath $runKey -Name 'Agent_b' -ErrorAction SilentlyContinue).Agent_b
+if ($runCommand -and $runCommand.IndexOf($applicationRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+    Remove-ItemProperty -LiteralPath $runKey -Name 'Agent_b' -ErrorAction SilentlyContinue
+    Remove-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run' -Name 'Agent_b' -ErrorAction SilentlyContinue
+}
 # Item 2mv (e): the Send-to link goes with the application. Only ours, only from the
 # Send-to folder, and its absence is not a failure.
 if (Test-Path -LiteralPath $sendToShortcutPath) {

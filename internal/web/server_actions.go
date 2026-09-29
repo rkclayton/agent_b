@@ -1,7 +1,9 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -378,4 +380,54 @@ func (s *Server) agentAction(w http.ResponseWriter, r *http.Request) {
 	s.registry.ClearWorkspaceMemory(workspace)
 	s.bus.Publish(events.New(events.MemoryFlushed, "", "", map[string]any{"agent_id": agentID, "workspace": workspace, "agent_entries": agentEntries, "workspace_entries": workspaceEntries}))
 	writeJSON(w, http.StatusOK, map[string]any{"agent_id": agentID, "workspace": workspace, "agent_entries": agentEntries, "workspace_entries": workspaceEntries})
+}
+
+// Item 2o9: START WHEN I SIGN IN is Windows' own switch. The one entry is a per-user
+// Run value that Settings -> Apps -> Startup lists as Agent_b and can turn off; this
+// reads and writes that same entry, so the two switches never disagree. On, it starts
+// exactly as the Start-menu shortcut does: through the hidden host, with its window.
+func (s *Server) signInStart(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+	case http.MethodPost:
+		var body struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		if body.Enabled == nil {
+			writeError(w, http.StatusBadRequest, "enabled is required", "enabled")
+			return
+		}
+		if err := setSignInStart(*body.Enabled, s.signInCommand()); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "enabled")
+			return
+		}
+	default:
+		method(w)
+		return
+	}
+	enabled, err := signInStartEnabled()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "enabled")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"enabled": enabled})
+}
+
+// Item 2o9: the start-at-sign-in entry. The key paths are variables only so tests
+// can point them at a scratch key; nothing else changes them.
+const signInValue = "Agent_b"
+
+var (
+	signInRunKey      = `Software\Microsoft\Windows\CurrentVersion\Run`
+	signInApprovedKey = `Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`
+)
+
+func (s *Server) signInCommand() string {
+	application := s.roots.Application
+	return fmt.Sprintf(`"%s" //B "%s" "%s" -window -config "%s" -app-root "%s" -data-root "%s"`,
+		filepath.Join(os.Getenv("SystemRoot"), "System32", "wscript.exe"), filepath.Join(application, "scripts", "launch-hidden.vbs"),
+		filepath.Join(application, "Agent_b.exe"), s.configPath, application, s.roots.Data)
 }

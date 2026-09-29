@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -155,5 +156,78 @@ func TestTheDispatcherCarriesNoMutationToken2kq(t *testing.T) {
 	response := dispatch(t, server, `{"v":1,"kind":"request","id":"gg","route":"chat.create","body":{"label":"paired"}}`)
 	if response.Status != 200 && response.Status != 201 {
 		t.Fatalf("a mutating route as the phone = %d %s", response.Status, response.Body)
+	}
+}
+
+
+type appVector struct {
+	Name    string          `json:"name"`
+	Decoded json.RawMessage `json:"decoded"`
+	Bytes   string          `json:"bytes"`
+}
+
+func loadAppVectors(t *testing.T) (file struct {
+	Vectors []appVector `json:"vectors"`
+	Split   struct {
+		UnitMax    int         `json:"unit_max"`
+		ChunkBytes int         `json:"chunk_bytes"`
+		Unit       appVector   `json:"unit"`
+		Parts      []appVector `json:"parts"`
+	} `json:"split"`
+}) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "appmessage", "testdata", "vectors-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
+// Item 2o7: the encoder that sends these units reproduces every committed vector
+// byte for byte, splits the oversize one exactly as the vector does, and
+// reassembles it by its digest; a split against any budget fits that budget.
+func TestTheEncoderReproducesEveryVector2o7(t *testing.T) {
+	file := loadAppVectors(t)
+	for _, entry := range append(append([]appVector{}, file.Vectors...), file.Split.Unit) {
+		var decoded any
+		decoder := json.NewDecoder(bytes.NewReader(entry.Decoded))
+		decoder.UseNumber()
+		if err := decoder.Decode(&decoded); err != nil {
+			t.Fatal(err)
+		}
+		if encoded, err := appCanonical(decoded); err != nil || string(encoded) != entry.Bytes {
+			t.Errorf("%s: encoder gave %s (%v)", entry.Name, encoded, err)
+		}
+	}
+	var first struct {
+		UnitID string `json:"unit_id"`
+	}
+	_ = json.Unmarshal(file.Split.Parts[0].Decoded, &first)
+	parts, err := appSplitWith([]byte(file.Split.Unit.Bytes), first.UnitID, file.Split.ChunkBytes)
+	if err != nil || len(parts) != len(file.Split.Parts) {
+		t.Fatalf("split gave %d parts (%v), the vector has %d", len(parts), err, len(file.Split.Parts))
+	}
+	for index, part := range parts {
+		if string(part) != file.Split.Parts[index].Bytes {
+			t.Errorf("part %d differs from the vector", index)
+		}
+	}
+	if whole, err := appReassemble(parts); err != nil || string(whole) != file.Split.Unit.Bytes {
+		t.Fatalf("reassembly: %v", err)
+	}
+	if _, err := appReassemble(parts[1:]); err == nil {
+		t.Fatal("a missing part was not treated as a gap")
+	}
+	fresh, err := appSplit([]byte(file.Split.Unit.Bytes), file.Split.UnitMax)
+	if err != nil || len(fresh) < 2 {
+		t.Fatalf("split against the budget: %d parts, %v", len(fresh), err)
+	}
+	for index, part := range fresh {
+		if len(part) > file.Split.UnitMax {
+			t.Errorf("part %d is %d bytes, over %d", index, len(part), file.Split.UnitMax)
+		}
 	}
 }

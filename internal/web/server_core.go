@@ -335,6 +335,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/diagnostics", s.diagnostics)
 	mux.HandleFunc("/api/browser-session", s.browserSessionEndpoint)
 	mux.HandleFunc("/api/broker/status", s.brokerStatus)
+	mux.HandleFunc("/api/credentials", s.credentialsEndpoint)
 	mux.HandleFunc("/api/broker", s.replayGuard(s.brokerAction))
 	mux.HandleFunc("/api/phone/enrolment", s.phoneEnrolment)
 	mux.HandleFunc(phoneRedeemPath, s.phoneEnrolmentRedeem)
@@ -507,7 +508,10 @@ const browserSessionCookie = "agentb_browser"
 
 func (s *Server) browserSessionGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		protectedRead := r.Method == http.MethodGet && (r.URL.Path == "/api/state" || r.URL.Path == "/api/events" || r.URL.Path == "/api/phone/devices" || r.URL.Path == "/api/phone/push")
+		// Item 2nv (c): the credential listing joins the protected reads. It carries no
+		// value, but it names what is stored and where it may go, and only the operator's
+		// own page may see that.
+		protectedRead := r.Method == http.MethodGet && (r.URL.Path == "/api/state" || r.URL.Path == "/api/events" || r.URL.Path == "/api/phone/devices" || r.URL.Path == "/api/phone/push" || r.URL.Path == "/api/credentials")
 		mutation := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
 		if (protectedRead || mutation) && r.URL.Path != "/api/browser-session" && r.URL.Path != phoneRedeemPath && !phoneAuthenticated(r) {
 			cookie, err := r.Cookie(browserSessionCookie)

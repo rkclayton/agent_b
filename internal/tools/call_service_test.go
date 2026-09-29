@@ -216,7 +216,9 @@ func TestCallServiceExecCredentialSuccessBearerAndCacheExpiry(t *testing.T) {
 	expires := "2099-01-01T00:10:00Z"
 	auth := "exec:" + helperCredentialCommand("json", counter, expires)
 	var requests int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Item 2nv (f): a credential — including a helper's output — goes only to an https
+	// origin, so this case's stub is TLS. It was plain http until then.
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		if r.Header.Get("Authorization") != "Bearer exec-secret" {
 			t.Fatalf("authorization=%q", r.Header.Get("Authorization"))
@@ -225,6 +227,7 @@ func TestCallServiceExecCredentialSuccessBearerAndCacheExpiry(t *testing.T) {
 	}))
 	defer server.Close()
 	tool := NewCallService(map[string]config.Service{"svc": testService(server.URL, auth)})
+	tool.SetHTTPClientForTest(server.Client())
 	clock := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
 	tool.now = func() time.Time { return clock }
 	args := map[string]any{"service": "svc", "method": "GET", "path": "check"}
@@ -241,6 +244,7 @@ func TestCallServiceExecCredentialSuccessBearerAndCacheExpiry(t *testing.T) {
 	}
 
 	prefixed := NewCallService(map[string]config.Service{"svc": testService(server.URL, "exec:"+helperCredentialCommand("bearer"))})
+	prefixed.SetHTTPClientForTest(server.Client())
 	if detail := prefixed.CallDetailed(context.Background(), &session.Session{}, args); detail.Err != nil || !detail.OperatorContext {
 		t.Fatalf("prefixed=%+v", detail)
 	}
@@ -343,7 +347,8 @@ func TestCallServiceConnectorChangeAndExecHeaders(t *testing.T) {
 		t.Fatalf("bad auth error=%v", err)
 	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// TLS for the same reason: 2nv (f) binds helper output to an https origin.
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer header-secret" || r.Header.Get("X-Broker") != "ready" {
 			t.Fatalf("headers=%v", r.Header)
 		}
@@ -352,7 +357,9 @@ func TestCallServiceConnectorChangeAndExecHeaders(t *testing.T) {
 	defer server.Close()
 	service := testService(server.URL, "exec:"+helperCredentialCommand("headers"))
 	service.Kind, service.AllowedMethods = "mcp", []string{"POST"}
-	detail := NewCallService(map[string]config.Service{"broker": service}).CallDetailed(context.Background(), &session.Session{}, map[string]any{"service": "broker", "method": "POST", "body": map[string]any{"method": "tools/list"}})
+	headerTool := NewCallService(map[string]config.Service{"broker": service})
+	headerTool.SetHTTPClientForTest(server.Client())
+	detail := headerTool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"service": "broker", "method": "POST", "body": map[string]any{"method": "tools/list"}})
 	if detail.Err != nil || !detail.OperatorContext || strings.Contains(detail.Content, "header-secret") {
 		t.Fatalf("detail=%+v", detail)
 	}

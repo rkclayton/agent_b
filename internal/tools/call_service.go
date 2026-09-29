@@ -19,6 +19,8 @@ import (
 	"unicode/utf8"
 
 	"harness/internal/config"
+	"harness/internal/credential"
+	"harness/internal/quietproc"
 	"harness/internal/session"
 )
 
@@ -48,6 +50,17 @@ type CallService struct {
 	now      func() time.Time
 	listener string
 	change   func(ConnectorChange) error
+	// Item 2nv: the named-credential store, and a client a test can hand in so an
+	// https stub can be reached without loosening anything in the product path.
+	vault      *credential.Vault
+	testClient *http.Client
+}
+
+// SetHTTPClientForTest lets a case dial its own TLS stub. Nothing in the product sets it.
+func (c *CallService) SetHTTPClientForTest(client *http.Client) {
+	c.mu.Lock()
+	c.testClient = client
+	c.mu.Unlock()
 }
 
 type ConnectorChange struct {
@@ -363,12 +376,18 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 
 	authorization, token, operatorContext := "", "", false
 	credentialHeaders := http.Header{}
+	// Item 2nv (f): the origin the credential is approved for, resolved BEFORE any
+	// credential is acquired. A connector with no credential is untouched by this.
+	credentialOrigin := ""
 	if registered {
 		var err error
-		authorization, token, credentialHeaders, operatorContext, err = c.authorization(ctx, serviceName, service)
+		authorization, token, credentialHeaders, operatorContext, err = c.authorization(ctx, serviceName, service, target)
 		if err != nil {
 			detail.Err = err
 			return detail
+		}
+		if authorization != "" || len(credentialHeaders) > 0 {
+			credentialOrigin = credential.OriginOf(target)
 		}
 	}
 	detail.OperatorContext = operatorContext
@@ -388,7 +407,7 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 	}
 
 	started := c.now()
-	client := serviceHTTPClient(service, credentialHost)
+	client := c.serviceClient(service, credentialHost, credentialOrigin)
 	response, err := client.Do(request)
 	duration := c.now().Sub(started).Milliseconds()
 	if err != nil {
@@ -454,10 +473,24 @@ func (c *CallService) service(name string) (config.Service, bool) {
 	return service, ok
 }
 
-func (c *CallService) authorization(ctx context.Context, name string, service config.Service) (authorization, token string, headers http.Header, operatorContext bool, err error) {
+func (c *CallService) authorization(ctx context.Context, name string, service config.Service, target *url.URL) (authorization, token string, headers http.Header, operatorContext bool, err error) {
 	auth := strings.TrimSpace(service.Auth)
 	if auth == "none" {
 		return "", "", nil, false, nil
+	}
+	// Item 2nv (b): a stored credential, by reference. Its binding carries the origin and
+	// the header, and the origin is checked before the secret is read.
+	if strings.HasPrefix(auth, "stored:") {
+		attached, storedErr := c.storedCredential(auth, target)
+		if storedErr != nil {
+			return "", "", nil, false, storedErr
+		}
+		if strings.EqualFold(attached.name, "Authorization") {
+			return attached.value, attached.secret, nil, false, nil
+		}
+		header := http.Header{}
+		header.Set(attached.name, attached.value)
+		return "", attached.secret, header, false, nil
 	}
 	if strings.HasPrefix(auth, "static_bearer:") {
 		value := strings.TrimSpace(os.Getenv(strings.TrimSpace(strings.TrimPrefix(auth, "static_bearer:"))))
@@ -484,7 +517,19 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 	}
 	credentialContext, cancel := context.WithTimeout(ctx, time.Duration(service.TimeoutS)*time.Second)
 	defer cancel()
+	// Item 2nv (f): a helper's output is a credential like any other, so the request's
+	// destination must be the connector's own approved origin before the helper is run.
+	origin, originErr := approvedOrigin(service.BaseURL)
+	if originErr != nil {
+		return "", "", nil, true, fmt.Errorf("auth_error: this connector's address is not an https origin, so a credential cannot be bound to it")
+	}
+	if destinationErr := enforceDestination(origin, target); destinationErr != nil {
+		return "", "", nil, true, destinationErr
+	}
 	command := exec.CommandContext(credentialContext, argv[0], argv[1:]...)
+	// (g): no window on the operator's desktop, ever. Measured at W0: this child had
+	// none of the quiet-start flags, so a console helper flashed a window.
+	quietproc.Quiet(command)
 	output, runErr := command.Output()
 	if credentialContext.Err() == context.DeadlineExceeded {
 		return "", "", nil, true, fmt.Errorf("auth_error: credential command timed out")
@@ -732,11 +777,30 @@ func parseServiceHeaders(raw any) (http.Header, error) {
 	return headers, nil
 }
 
-func serviceHTTPClient(service config.Service, credentialHost string) *http.Client {
-	transport := &http.Transport{Proxy: nil, DisableKeepAlives: true}
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   time.Duration(service.TimeoutS) * time.Second,
+// serviceClient is the request's client. Item 2nv (f): when a credential is attached, a
+// redirect that leaves the approved ORIGIN — another scheme, another port, another host —
+// is refused rather than followed, because the credential travels with the redirect.
+// The host-only rule stays for a connector with no credential.
+func (c *CallService) serviceClient(service config.Service, credentialHost, credentialOrigin string) *http.Client {
+	c.mu.Lock()
+	client := c.testClient
+	c.mu.Unlock()
+	if client == nil {
+		client = &http.Client{Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}
+	} else {
+		copied := *client
+		client = &copied
+	}
+	client.Timeout = time.Duration(service.TimeoutS) * time.Second
+	client.CheckRedirect = nil
+	if credentialOrigin != "" {
+		client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+			if err := credential.AllowsOrigin(credentialOrigin, request.URL); err != nil {
+				return fmt.Errorf("the redirect was not followed: %w", err)
+			}
+			return nil
+		}
+		return client
 	}
 	if credentialHost != "" {
 		client.CheckRedirect = func(request *http.Request, via []*http.Request) error {

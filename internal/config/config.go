@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"slices"
 	"strings"
 
@@ -989,6 +990,8 @@ func clearBytes(value []byte) {
 }
 
 var slug = regexp.MustCompile(`^[a-z0-9-]+$`)
+var storedCredentialName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+
 var serviceEnvironmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func (c Config) Validate() error {
@@ -1540,17 +1543,24 @@ func ValidateServiceAuth(value string) error {
 	if value == "none" {
 		return nil
 	}
-	if strings.HasPrefix(value, "static_bearer:") {
-		name := strings.TrimSpace(strings.TrimPrefix(value, "static_bearer:"))
-		if name == "" || !serviceEnvironmentName.MatchString(name) {
-			return fmt.Errorf("static_bearer requires an environment variable name")
+	// Item 2nv (b): a connector's auth is a REFERENCE to a stored credential. The value
+	// itself is never in the configuration.
+	if strings.HasPrefix(value, "stored:") {
+		name := strings.TrimSpace(strings.TrimPrefix(value, "stored:"))
+		if !storedCredentialName.MatchString(name) {
+			return fmt.Errorf("stored requires a credential name of lower-case letters, digits and hyphens")
 		}
 		return nil
+	}
+	// (h): static_bearer is RETIRED. It is still read by the migration, which moves each
+	// one into the store on load, but it can no longer be written.
+	if strings.HasPrefix(value, "static_bearer:") {
+		return fmt.Errorf("static_bearer is retired; add the credential in Settings → Security and use stored:<name>")
 	}
 	if strings.HasPrefix(value, "exec:") && strings.TrimSpace(strings.TrimPrefix(value, "exec:")) != "" {
 		return nil
 	}
-	return fmt.Errorf("must be none, static_bearer:<env>, or exec:<argv>")
+	return fmt.Errorf("must be none, stored:<name>, or exec:<argv>")
 }
 func oneOf(v string, values ...string) bool {
 	for _, x := range values {
@@ -1654,4 +1664,75 @@ func reserveOutputBound(nCtx int) int {
 		return 0
 	}
 	return max(nCtx/2, DefaultReserveOutput)
+}
+
+// MigrateConnectorCredentials is item 2nv (h). Each `static_bearer:<ENV>` connector is
+// moved into the credential store ONCE, on load: the variable is read, stored, bound to
+// the connector's own origin, and READ BACK — and only then is the connector rewritten to
+// `stored:<name>`. If the variable is empty, or the value does not read back, the
+// connector is left unauthenticated with one line saying so. There is no fallback to the
+// environment: a secret that lives in a variable any child process inherits is the thing
+// this item removes, so leaving it there "just for now" would be the whole failure.
+//
+// It returns one notice per connector it changed, naming the connector and never the
+// value. Running it again is silent, because there is nothing left to migrate.
+func MigrateConnectorCredentials(cfg *Config, dataRoot string) []string {
+	notices := []string{}
+	if cfg == nil || len(cfg.Services) == 0 {
+		return notices
+	}
+	vault := credential.NewVault(dataRoot)
+	names := make([]string, 0, len(cfg.Services))
+	for name := range cfg.Services {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		service := cfg.Services[name]
+		auth := strings.TrimSpace(service.Auth)
+		if !strings.HasPrefix(auth, "static_bearer:") {
+			continue
+		}
+		variable := strings.TrimSpace(strings.TrimPrefix(auth, "static_bearer:"))
+		value := strings.TrimSpace(os.Getenv(variable))
+		if value == "" {
+			service.Auth = "none"
+			cfg.Services[name] = service
+			notices = append(notices, fmt.Sprintf("connector %q: %s is empty, so its credential could not be moved into the store and the connector is left unauthenticated", name, variable))
+			continue
+		}
+		if !storedCredentialName.MatchString(name) {
+			service.Auth = "none"
+			cfg.Services[name] = service
+			notices = append(notices, fmt.Sprintf("connector %q: its name cannot be a credential name, so it is left unauthenticated; add the credential in Settings and bind it", name))
+			continue
+		}
+		origin, err := credential.NormalizeOrigin(service.BaseURL)
+		if err != nil {
+			service.Auth = "none"
+			cfg.Services[name] = service
+			notices = append(notices, fmt.Sprintf("connector %q: %v, so its credential was not moved and the connector is left unauthenticated", name, err))
+			continue
+		}
+		if err := vault.Put(name, origin, "", value); err != nil {
+			service.Auth = "none"
+			cfg.Services[name] = service
+			notices = append(notices, fmt.Sprintf("connector %q: its credential could not be stored (%v), so the connector is left unauthenticated", name, err))
+			continue
+		}
+		// Put already reads the value back; this is the second half of (h)'s rule — the
+		// connector is rewritten only after the store has answered with what was written.
+		stored, _, err := vault.Secret(name)
+		if err != nil || stored != value {
+			_ = vault.Delete(name)
+			service.Auth = "none"
+			cfg.Services[name] = service
+			notices = append(notices, fmt.Sprintf("connector %q: the stored credential did not verify, so the connector is left unauthenticated", name))
+			continue
+		}
+		service.Auth = "stored:" + name
+		cfg.Services[name] = service
+		notices = append(notices, fmt.Sprintf("connector %q: its credential moved from %s into the credential store and is bound to %s", name, variable, origin))
+	}
+	return notices
 }

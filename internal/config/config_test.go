@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"harness/internal/credential"
 )
 
 func TestSaveSkipsByteIdenticalConfig2l0(t *testing.T) {
@@ -408,7 +410,8 @@ func TestServiceAllowlistValidation(t *testing.T) {
 	}{
 		{"base_url", func(service *Service) { service.BaseURL = "file:///tmp/broker" }, "base_url"},
 		{"auth", func(service *Service) { service.Auth = "oauth:magic" }, "auth"},
-		{"static_env", func(service *Service) { service.Auth = "static_bearer:not-valid" }, "environment variable"},
+		// Item 2nv (h): static_bearer is retired — the migration reads one, nothing writes one.
+		{"static_env", func(service *Service) { service.Auth = "static_bearer:DEPOT_KEY" }, "retired"},
 		{"methods", func(service *Service) { service.AllowedMethods = nil }, "allowed_methods"},
 		{"timeout", func(service *Service) { service.TimeoutS = 0 }, "timeout_s"},
 		{"body_limit", func(service *Service) { service.MaxBodyKB = 0 }, "max_body_kb"},
@@ -1281,5 +1284,60 @@ func TestModelIsNeverAModel2nq(t *testing.T) {
 	connection := Connection{BaseURL: "http://127.0.0.1:8080", Model: "a-real-model"}
 	if reason := ConnectionSetupReason(&connection); reason != "" {
 		t.Errorf("a real model is refused: %q", reason)
+	}
+}
+
+// Item 2nv (h): MIGRATION, with verification and no plaintext fallback. Each
+// static_bearer connector is moved into the store on load; a variable that is empty, or a
+// value that does not read back, leaves the connector unauthenticated and says why.
+func TestStaticBearerConnectorsMigrateIntoTheStore2nv(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("SKIPPED: credential storage is DPAPI, so this case is Windows-only.")
+	}
+	root := t.TempDir()
+	t.Setenv("AGENTB_2NV_DEPOT", "migrated-secret-2nv")
+	t.Setenv("AGENTB_2NV_EMPTY", "")
+	cfg := Config{Services: map[string]Service{
+		"depot":   {Kind: "http", BaseURL: "https://api.example.test:8443", Auth: "static_bearer:AGENTB_2NV_DEPOT", AllowedMethods: []string{"GET"}, TimeoutS: 30, MaxBodyKB: 64},
+		"hollow":  {Kind: "http", BaseURL: "https://other.example.test", Auth: "static_bearer:AGENTB_2NV_EMPTY", AllowedMethods: []string{"GET"}, TimeoutS: 30, MaxBodyKB: 64},
+		"helper":  {Kind: "http", BaseURL: "https://third.example.test", Auth: "exec:helper token", AllowedMethods: []string{"GET"}, TimeoutS: 30, MaxBodyKB: 64},
+	}}
+	notices := MigrateConnectorCredentials(&cfg, root)
+
+	if got := cfg.Services["depot"].Auth; got != "stored:depot" {
+		t.Fatalf("the migrated connector's auth is %q", got)
+	}
+	// NO PLAINTEXT FALLBACK: an empty variable leaves it unauthenticated, not on the env.
+	if got := cfg.Services["hollow"].Auth; got != "none" {
+		t.Fatalf("the connector with an empty variable is %q", got)
+	}
+	if got := cfg.Services["helper"].Auth; got != "exec:helper token" {
+		t.Fatalf("a helper connector was touched: %q", got)
+	}
+	if len(notices) != 2 {
+		t.Fatalf("notices: %v", notices)
+	}
+	joined := strings.Join(notices, " | ")
+	if !strings.Contains(joined, "depot") || !strings.Contains(joined, "hollow") {
+		t.Fatalf("the notices do not name the connectors: %s", joined)
+	}
+	if strings.Contains(joined, "migrated-secret-2nv") {
+		t.Fatal("a notice carries the secret")
+	}
+	// The value is in the store, bound to the connector's own origin, and read back.
+	vault := credential.NewVault(root)
+	value, entry, err := vault.Secret("depot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "migrated-secret-2nv" || entry.Origin != "https://api.example.test:8443" {
+		t.Fatalf("%q %+v", value, entry)
+	}
+	if vault.Has("hollow") {
+		t.Fatal("a connector with an empty variable stored something")
+	}
+	// Running it again changes nothing and says nothing.
+	if again := MigrateConnectorCredentials(&cfg, root); len(again) != 0 {
+		t.Fatalf("a second load migrated again: %v", again)
 	}
 }

@@ -13,6 +13,9 @@ function fakeDocument() {
       append(...kids) { this.children.push(...kids); },
       setAttribute(name, value) { this.attributes[name] = value; },
       removeAttribute(name) { delete this.attributes[name]; },
+      getAttribute(name) { return name in this.attributes ? this.attributes[name] : null; },
+      // As in a real DOM, a data- attribute and its dataset entry are one value.
+      hasAttribute(name) { return name.startsWith("data-") ? name.slice(5) in this.dataset : name in this.attributes; },
       querySelectorAll(selector) {
         const want = selector.replace(".", "");
         const out = [];

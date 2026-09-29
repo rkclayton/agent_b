@@ -32,6 +32,10 @@ class FakeElement {
   getAttribute(name) {
     return this.attributes.get(name) ?? null;
   }
+
+  hasAttribute(name) {
+    return this.attributes.has(name);
+  }
 }
 
 const fakeDocument = { createElement: (tagName) => new FakeElement(tagName) };

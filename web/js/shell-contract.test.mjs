@@ -43,11 +43,12 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   assert.match(shell, /const open = Object\.values\(store\.sessions\)[\s\S]{0,40}\.filter/);
   assert.match(shell, /!session\.closed \|\| session\.id === store\.selection\.session_id/);
   assert.match(shell, /for \(const session of rendered\)/);
-  assert.match(shell, /wrap\.dataset\.session = session\.id/);
+  assert.match(shell, /setOptionalAttr\(wrap, "data-session", session\?\.id\)/);
   assert.match(shell, /return "waiting"[\s\S]*return "running"[\s\S]*return "idle"/);
   assert.doesNotMatch(shell, /class="agent-state/);
-  assert.match(shell, /agent-tab-robot-\$\{robot\} \$\{glyphState\}/);
-  assert.match(shell, /<span class="agent-tab-eyes"><\/span>/);
+  // rel-1.42.0 (2o2): the tab's nodes are built once; the state is a class update.
+  assert.match(shell, /agent-tab-robot-\$\{agentID\.slice\(-1\)\} \$\{glyphState\}/);
+  assert.match(shell, /node\("span", "agent-tab-eyes"\)/);
   assert.match(tokens, /\.agent-tab-robot\.running\{color:var\(--trace\)\}/);
   assert.match(tokens, /\.agent-tab-robot\.offline\{color:var\(--alarm\)\}/);
   assert.match(tokens, /\.agent-tab-robot\.waiting\{color:var\(--alarm\)\}/);
@@ -56,7 +57,7 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   assert.match(shell, /left\.append\(newChatButton, newChatMenu, tabs\)/);
   assert.match(shell, /newChatButton\.onclick = \(\) => hasD \? showRoleMenu/);
   assert.doesNotMatch(shell, /wrap\.append\([^\n]*(?:agent-tab-new|newChatButton)/);
-  assert.match(shell, /newChatButton\.disabled = store\.replay \|\| !\(store\.config\.agents \|\| \[\]\)\.length/);
+  assert.match(shell, /setProperty\(newChatButton, "disabled", store\.replay \|\| !\(store\.config\.agents \|\| \[\]\)\.length\)/);
   assert.match(tokens, /--agent-tab-width:118px/);
   assert.match(tokens, /\.agent-tab-wrap\{[^}]*flex:0 0 var\(--agent-tab-width\)/);
   assert.match(tokens, /\.agent-tab\{[^}]*flex:1 1 auto;[^}]*min-width:69px/);
@@ -71,14 +72,15 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   // Item 2gk removed the second side; item 2go put the chat's NAME on the tab,
   // with a fixed width and an ellipsis for a long one.
   assert.match(tokens, /\.agent-tab-name\{[^}]*text-overflow:ellipsis/);
-  assert.match(shell, /class="agent-tab-name"/);
+  assert.match(shell, /node\("span", "agent-tab-name"\)/);
   assert.match(tokens, /\.agent-tab-wrap\.selected\.side-console\{background:rgba\(216,221,227,.16\)\}/);
-  assert.match(shell, /button\("", name, `agent-tab/);
+  assert.match(shell, /button\("", "", "agent-tab"\)[\s\S]*setAttr\(tab, "title", name\)/);
   // Item 2go: the tab reads the chat name; the role is the robot glyph and its
   // hover text, which is where it was always readable.
-  assert.match(shell, /class="agent-tab-name">\$\{escapeHTML\(name\)\}<\/span>/);
-  assert.match(shell, /title="\$\{escapeHTML\(agentID\)\}"/);
-  assert.match(shell, /button\("×", `Close \$\{name\}`/);
+  // rel-1.42.0 (2o2): written as text into kept nodes, so nothing needs escaping.
+  assert.match(shell, /if \(nameNode\.textContent !== name\) nameNode\.textContent = name;/);
+  assert.match(shell, /robot\.title = agentID;/);
+  assert.match(shell, /setAttr\(view\.close, "title", `Close \$\{name\}`\)/);
   assert.match(shell, /const agentID = `agent_\$\{session\?\.role === "d" \? "d" : "b"\}`/);
   // Item 2gl (v1.2.6): the window title names the CHAT; the header beside the
   // tab strip still reads the connection only (2eo).

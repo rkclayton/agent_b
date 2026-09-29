@@ -295,3 +295,32 @@ func TestAConnectorProposalCarriesTheDocument2nr(t *testing.T) {
 		t.Fatal("parsing reached for the document; the fetch belongs to the approval path")
 	}
 }
+
+// The document is fetched once, over https — or over plain http only when it is on this
+// machine, which is what makes a local stub testable without a certificate.
+func TestTheDocumentIsFetchedOnceAndOnlyOverHTTPSOrLoopback2nr(t *testing.T) {
+	fetches := 0
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetches++
+		_, _ = w.Write([]byte(syntheticDocument))
+	}))
+	defer stub.Close()
+	for attempt := 0; attempt < 3; attempt++ {
+		raw, document, err := LoadServiceDocument(context.Background(), stub.URL+"/openapi.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(document.Operations) != 3 || DocumentDigest(raw) != DocumentDigest([]byte(syntheticDocument)) {
+			t.Fatalf("%d operations", len(document.Operations))
+		}
+	}
+	if fetches != 1 {
+		t.Fatalf("the document was fetched %d times; the card and the approval share one fetch", fetches)
+	}
+	if _, _, err := LoadServiceDocument(context.Background(), "http://depot.invalid/openapi.json"); err == nil {
+		t.Error("a plain http document on another machine was accepted")
+	}
+	if _, _, err := LoadServiceDocument(context.Background(), "relative/openapi.json"); err == nil {
+		t.Error("a relative file path was accepted")
+	}
+}

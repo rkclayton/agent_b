@@ -422,3 +422,12 @@ test("the client-terms gate catches a planted term", () => {
   const output = execFileSync(process.execPath, [join(repoRoot, "tools", "check-client-terms.mjs"), "--self-test"]).toString();
   assert.match(output, /a planted term was caught/);
 });
+
+// rel-1.42.0 Misses: the tag is refused unless buildinfo and the installer name it.
+test("the tag gate refuses a tag the tree's build does not report", async () => {
+  const { releaseIdentity, tagRefusal } = await import("../tools/tag-release.mjs");
+  const identity = releaseIdentity();
+  assert.equal(tagRefusal(identity.buildinfo, identity), "");
+  assert.match(tagRefusal("v0.0.1", identity), /buildinfo reports/);
+  assert.match(tagRefusal(identity.buildinfo, { ...identity, display: "0.0.1" }), /installer displays/);
+});

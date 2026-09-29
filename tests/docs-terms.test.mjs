@@ -415,3 +415,10 @@ test("no script passes a PowerShell switch as quoted text", async () => {
   const dataUse = "Assert-SafeInteractiveInput -NonInteractiveParameter '-Confirm:$false'";
   assert.equal(/@\(|\+=|-Argument(?:List)?\b|\bArguments\b/.test(dataUse), false);
 });
+
+// Item 2o5 (e): CI has no client deny-list (it lives outside the repository), so it
+// proves only that the gate catches a term planted in a temporary fixture.
+test("the client-terms gate catches a planted term", () => {
+  const output = execFileSync(process.execPath, [join(repoRoot, "tools", "check-client-terms.mjs"), "--self-test"]).toString();
+  assert.match(output, /a planted term was caught/);
+});

@@ -445,10 +445,11 @@ func LoadServiceDocument(ctx context.Context, source string) ([]byte, ServiceDoc
 }
 
 func readServiceDocument(ctx context.Context, source string) ([]byte, error) {
-	if strings.HasPrefix(strings.ToLower(source), "http://") {
+	lowered := strings.ToLower(source)
+	if strings.HasPrefix(lowered, "http://") && !loopbackDocument(source) {
 		return nil, fmt.Errorf("an OpenAPI document must be fetched over https, or given as a file")
 	}
-	if strings.HasPrefix(strings.ToLower(source), "https://") {
+	if strings.HasPrefix(lowered, "https://") || strings.HasPrefix(lowered, "http://") {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
 		if err != nil {
 			return nil, fmt.Errorf("the document address is invalid")
@@ -468,4 +469,16 @@ func readServiceDocument(ctx context.Context, source string) ([]byte, error) {
 		return nil, fmt.Errorf("a document file must be given by its full path")
 	}
 	return os.ReadFile(source)
+}
+
+// loopbackDocument allows plain http for a document on THIS machine and nowhere else: a
+// service the operator is running locally is not a network hop, and refusing it would
+// mean the acceptance could only be run against something remote.
+func loopbackDocument(source string) bool {
+	parsed, err := url.Parse(source)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	return host == "127.0.0.1" || host == "::1" || strings.EqualFold(host, "localhost")
 }

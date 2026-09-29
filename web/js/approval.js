@@ -12,36 +12,42 @@ export function approvalChoices(data = {}) {
 	return [...(data.standing_grant ? [["approve", "Always allow this exact scope"]] : []), ["session", "Yes, for this chat"], ["once", "Just once"], ["deny", "No"]];
 }
 
+// Item 2nr (b): the operations an imported OpenAPI document would enable, written for
+// the card. It is the DETAIL of whichever connector card is drawn — the harness's own
+// human wording wins the title and the reason, as it does for every other tool — so
+// there is one card, not two.
+function importedOperations(data) {
+	if (!(data.name === "call_service" && data.args?.connector)) return "";
+	const operations = Array.isArray(data.args.connector_operations) ? data.args.connector_operations : [];
+	if (!operations.length) return "";
+	return [
+		"Operations this would enable:",
+		...operations.map((line) => `  ${line}`),
+		"",
+		`The document says its own authentication wants: ${data.args.connector_document_auth || "nothing"}`,
+		"Agent_b sends the connector's own credential, never the document's.",
+		"",
+		"",
+	].join("\n");
+}
+
 export function approvalText(data = {}) {
 	const human = data.human && typeof data.human === "object" ? data.human : null;
+	const imported = importedOperations(data);
 	if (human?.happened && human?.harness_action) return {
 		title: data.kind === "cycle" || data.name === "run.cycle" ? "Loop check" : (data.boundary_escape ? "Run as you" : "Allow this"),
 		request: human.happened,
 		reason: `${human.harness_action} If declined, the action will not run.`,
 		question: data.standing_grant ? `Affected ${data.standing_grant.kind}: ${data.standing_grant.subject}` : (human.question || ""),
-		detail: data.args?.path ?? data.args?.command ?? data.args?.source ?? data.args?.pattern ?? "",
+		detail: imported
+			? imported + JSON.stringify(data.args.connector, null, 2)
+			: (data.args?.path ?? data.args?.command ?? data.args?.source ?? data.args?.pattern ?? ""),
 	};
 	const boundary = typeof data.boundary_escape === "boolean"
 		? data.boundary_escape
 		: data.name?.endsWith(".operator_override");
 	const value = data.args?.path ?? data.args?.command ?? data.args?.pattern ?? "";
 	if (data.name === "call_service" && data.args?.connector) {
-		// Item 2nr (b): when the proposal imports an OpenAPI document, THIS card shows the
-		// operations it would enable and what the document says its own auth wants. No
-		// second card and no Settings control: the connector card is still the only way a
-		// connector changes.
-		const operations = Array.isArray(data.args.connector_operations) ? data.args.connector_operations : [];
-		const imported = operations.length
-			? [
-				"Operations this would enable:",
-				...operations.map((line) => `  ${line}`),
-				"",
-				`The document says its own authentication wants: ${data.args.connector_document_auth || "nothing"}`,
-				"Agent_b sends the connector's own credential, never the document's.",
-				"",
-				"",
-			].join("\n")
-			: "";
 		return {
 			title: "Allow this",
 			request: `${data.args.connector.operation || "change"} connector configuration?`,

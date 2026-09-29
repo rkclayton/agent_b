@@ -490,19 +490,30 @@ func TestLivePairedDesktopAnswersItsPhone2o7(t *testing.T) {
 	_ = join.transport.Close(1000, "paired")
 	t.Logf("E2E 1 paired %s", peer.PairingID)
 
+	// Make one chat through the page's own handler before the phone connects. Its
+	// presence is what makes the initial downstream snapshot observable; an empty
+	// disposable instance can truthfully send zero per-chat snapshot units.
+	var desktopChat struct {
+		Session struct {
+			ID    string
+			Label string
+		} `json:"session"`
+	}
+	desktop.post(t, "/api/sessions", `{}`, &desktopChat)
+
 	// 2. The device connects and ANSWERS the desktop's session: the desktop dials on
-	// its own, because a pairing now exists (2o7 (a)).
+	// its own, because a pairing now exists (2o7 (a)). The chat created above must
+	// arrive without a request from the phone: this is the initial snapshot path.
 	phone := connectPhone(t, ctx, address, device, peer.PeerKeyID, pairingID, agentSigning, agentKeyID)
-	snapshotBefore := phone.count("snapshot")
-	t.Logf("E2E 2 session %s established by the desktop; %d snapshot units on connect", phone.sessionID, snapshotBefore)
+	phone.wait(t, "the desktop chat in the initial snapshot", func(unit map[string]any) bool {
+		encoded, _ := json.Marshal(unit)
+		return unit["kind"] == "snapshot" && unit["session_id"] == desktopChat.Session.ID && bytes.Contains(encoded, []byte(desktopChat.Session.ID))
+	})
+	t.Logf("E2E 2 session %s established by the desktop; initial snapshot contains chat %s", phone.sessionID, desktopChat.Session.ID)
 
 	// 3. chat.create with no label makes a chat named as the desktop names one.
 	created := phone.request(t, "chat.create", `{}`, 201)
 	sessionID := created["body"].(map[string]any)["session"].(map[string]any)["id"].(string)
-	var desktopChat struct {
-		Session struct{ Label string } `json:"session"`
-	}
-	desktop.post(t, "/api/sessions", `{}`, &desktopChat)
 	phoneLabel := created["body"].(map[string]any)["session"].(map[string]any)["label"].(string)
 	if strings.TrimRight(phoneLabel, "0123456789 ") != strings.TrimRight(desktopChat.Session.Label, "0123456789 ") {
 		t.Fatalf("the phone's chat is named %q, the desktop names one %q", phoneLabel, desktopChat.Session.Label)

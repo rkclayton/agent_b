@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -277,7 +278,11 @@ func TestOnlyTheOperatorsPageTouchesCredentials2nv(t *testing.T) {
 		})
 	}
 
-	// And the operator's own page can, with the listing carrying no value.
+	// And the operator's own page can, with the listing carrying no value. Storing is
+	// DPAPI, so only this half is Windows-only; every refusal above is not.
+	if runtime.GOOS != "windows" {
+		t.Skip("SKIPPED the storing half: credential storage is DPAPI. The refusals above ran.")
+	}
 	request := httptest.NewRequest(http.MethodPost, "/api/credentials", strings.NewReader(add))
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()

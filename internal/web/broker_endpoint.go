@@ -37,6 +37,9 @@ type BrokerHost interface {
 // SetBrokerHost hands the server the running client. Nil means the feature is off,
 // which is what an empty broker.url leaves.
 func (s *Server) SetBrokerHost(host BrokerHost) {
+	if client, ok := host.(*BrokerClient); ok {
+		client.attach(s)
+	}
 	s.brokerMu.Lock()
 	s.broker = host
 	s.brokerMu.Unlock()

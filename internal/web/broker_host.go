@@ -35,6 +35,9 @@ type BrokerClient struct {
 	// Item 2nz: the pairing runs until it succeeds or the operator cancels. cancel is
 	// closed by CancelPairing and is the only thing besides success that ends it.
 	cancel chan struct{}
+	// Item 2o7: the server whose handlers answer the phone, and the paired session's stop.
+	server      *Server
+	stopSession context.CancelFunc
 }
 
 // NewBrokerClient generates this install's identity and prepares to dial. The address is
@@ -178,6 +181,7 @@ func (c *BrokerClient) beginOnce(cancel chan struct{}) (broker.PairingOffer, err
 			c.status = broker.Status{State: "paired"}
 			c.cancel = nil
 			c.mu.Unlock()
+			c.startSession(pairing)
 			return
 		}
 		select {
@@ -264,6 +268,7 @@ func (c *BrokerClient) RevokePairing() error {
 		return err
 	}
 	c.mu.Lock()
+	c.stopSessionLocked()
 	c.pairing = nil
 	c.device = ""
 	c.status = broker.Status{State: "not paired"}

@@ -90,6 +90,49 @@ type Client struct {
 	// delivers the same answer instead of running the work twice. Item 2kq (c)'s
 	// deduplication at the execution boundary.
 	handled map[string][]byte
+	// Item 2o7: sendMu keeps sealed frames on the wire in counter order when the
+	// answer to a request and the downstream stream send at the same time, and
+	// connected is told each time a session is up, with a context that ends with it.
+	sendMu    sync.Mutex
+	connected func(context.Context)
+}
+
+// OnConnected is called, on its own goroutine, each time a session is established;
+// its context is cancelled when that connection ends. Set it before Run.
+func (c *Client) OnConnected(connected func(context.Context)) { c.connected = connected }
+
+// Deliver sends one downstream unit under a fresh message id on the live session.
+func (c *Client) Deliver(plaintext []byte) error {
+	transport, messageID, err := c.live()
+	if err != nil {
+		return err
+	}
+	return c.Send(messageID, plaintext, transport)
+}
+
+// Notify sends one sealed push hint on the live session.
+func (c *Client) Notify(kind, chatID, notice string) error {
+	transport, messageID, err := c.live()
+	if err != nil {
+		return err
+	}
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	return c.Push(transport, messageID, kind, chatID, notice)
+}
+
+func (c *Client) live() (Transport, []byte, error) {
+	c.mu.Lock()
+	transport, session := c.transport, c.session
+	c.mu.Unlock()
+	if transport == nil || session == nil {
+		return nil, nil, errors.New("broker: no session")
+	}
+	messageID := make([]byte, 16)
+	if _, err := rand.Read(messageID); err != nil {
+		return nil, nil, err
+	}
+	return transport, messageID, nil
 }
 
 // NewClient builds one. handle is the application boundary: it is given a decrypted
@@ -179,6 +222,11 @@ func (c *Client) once(ctx context.Context) error {
 		return err
 	}
 	c.setState("connected", nil)
+	if c.connected != nil {
+		connection, ended := context.WithCancel(ctx)
+		defer ended()
+		go c.connected(connection)
+	}
 	return c.serve(ctx, transport)
 }
 
@@ -537,6 +585,8 @@ func (c *Client) deliver(frame Frame, transport Transport) error {
 // Send seals one application message to the device and retains it until it is
 // acknowledged.
 func (c *Client) Send(messageID, plaintext []byte, transport Transport) error {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
 	c.mu.Lock()
 	session := c.session
 	counter := c.sendCount

@@ -1,7 +1,7 @@
 import { installComposerResize } from "./composer-resize.js";
 import { api, reduce, setSelection, store, subscribe } from "./bus.js";
 import { renderMarkdown } from "./markdown.js";
-import { waitElement } from "./wait.js";
+import { setWaitProgress, waitElement } from "./wait.js";
 import { operatorLogEntry } from "./operator-log.js";
 import { createThinkingRenderer } from "./reasoning.js";
 import { formatDuration } from "./duration.js";
@@ -83,6 +83,11 @@ const entryViews = new Map();
 const fileStates = new Map();
 const fileViews = new Map();
 const toolViews = new Map();
+const composerFileViews = new Map();
+const composerApprovalViews = new Map();
+let composerWait = null;
+let composerRobot = null;
+let composerText = null;
 let usedEntryViews = new Set();
 let usedFileViews = new Set();
 let usedToolViews = new Set();
@@ -247,9 +252,11 @@ function renderBudget(session) {
   const used = value.used_measured || value.used_est || 0;
   const ceiling = value.ceiling || 0;
   const ratio = ceiling ? used / ceiling : 0;
-  budget.className = `chat-budget ${ratio > 1 ? "over" : ratio > 0.85 ? "warn" : ""}`;
-  budget.querySelector(".chat-budget-fill").style.width = `${Math.min(100, ratio * 100)}%`;
-  budget.querySelector(".chat-budget-tip").textContent = `${value.estimated ? "estimated · " : ""}${format(used)} / ${format(ceiling)}`;
+  setAttribute(budget, "class", `chat-budget ${ratio > 1 ? "over" : ratio > 0.85 ? "warn" : ""}`);
+  const width = `${Math.min(100, ratio * 100)}%`;
+  const fill = budget.querySelector(".chat-budget-fill");
+  if (fill.style.width !== width) fill.style.width = width;
+  setText(budget.querySelector(".chat-budget-tip"), `${value.estimated ? "estimated · " : ""}${format(used)} / ${format(ceiling)}`);
 }
 
 function renderLog(session) {
@@ -322,12 +329,12 @@ function renderLog(session) {
     nodes.push(earlierButton);
   }
   for (const [index, entry] of entries.slice(start, end).entries()) nodes.push(renderEntrySafely(session, entry, start + index));
-  jumpButton.hidden = follow && page === 0;
+  setProperty(jumpButton, "hidden", follow && page === 0);
   nodes.push(jumpButton);
   finishLogRender(nodes);
   requestAnimationFrame(() => {
     if (wasBottom && page === 0) log.scrollTop = log.scrollHeight;
-    jumpButton.hidden = follow && page === 0;
+    setProperty(jumpButton, "hidden", follow && page === 0);
   });
 }
 
@@ -340,11 +347,13 @@ function finishLogRender(nodes) {
 }
 
 function reconcileChildren(parent, nodes) {
-  for (let index = 0; index < nodes.length; index++) {
-    if (parent.children[index] !== nodes[index])
-      parent.insertBefore(nodes[index], parent.children[index] || null);
+  const wanted = new Set(nodes);
+  for (const child of [...parent.children]) if (!wanted.has(child)) child.remove();
+  let cursor = parent.firstElementChild;
+  for (const node of nodes) {
+    if (node === cursor) cursor = cursor.nextElementSibling;
+    else parent.insertBefore(node, cursor);
   }
-  while (parent.children.length > nodes.length) parent.lastElementChild.remove();
 }
 
 function buildEntries(session) {
@@ -460,9 +469,9 @@ function renderEntry(session, entry) {
     entryViews.set(viewKey, view);
   }
   usedEntryViews.add(viewKey);
-  view.row.dataset.entryKey = entry.key;
-  view.author.lastElementChild.textContent = entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entryRole(entry));
-  view.row.className = `chat-entry ${entry.type === "user" ? "chat-user" : entry.type === "summary" ? "chat-summary" : entry.type === "tool" ? "tool-entry" : "chat-agent"}`;
+  setAttribute(view.row, "data-entry-key", entry.key);
+  setText(view.author.lastElementChild, entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entryRole(entry)));
+  setAttribute(view.row, "class", `chat-entry ${entry.type === "user" ? "chat-user" : entry.type === "summary" ? "chat-summary" : entry.type === "tool" ? "tool-entry" : "chat-agent"}`);
   const content = view.content;
   if (entry.type === "user") {
     const nodes = [];
@@ -559,7 +568,7 @@ function renderResponseProse(view, item) {
     view.answer = document.createElement("div");
     view.answer.className = "chat-response-answer";
   }
-  view.prose.dataset.entryKey = item.key;
+  setAttribute(view.prose, "data-entry-key", item.key);
   if (view.proseText !== item.text) renderMarkdown(view.answer, item.text);
   view.proseText = item.text;
   const nodes = [view.answer];
@@ -595,7 +604,7 @@ function renderResponseStepFold(session, view, block, active, directThoughts) {
   // inert control. Thought-only rows never need a grouping disclosure either.
   const headerless = active || directThoughts || isHeaderlessSteps(block.steps);
   const open = active || headerless || expanded.has(block.key);
-  view.head.hidden = headerless;
+  setProperty(view.head, "hidden", headerless);
   view.fold.classList.toggle("headerless", headerless);
   view.fold.classList.toggle("alarm", totals.failed > 0);
   setAttribute(view.head, "aria-expanded", String(open));
@@ -721,20 +730,25 @@ function renderResponseToolGroup(session, view, group) {
 function renderResponseItem(session, view, item, key, forceToolOpen = false) {
   if (!item || typeof item !== "object") throw new Error("entry is missing or is not an object");
   if (!item.key) throw new Error("entry key is missing");
-  if (item.type === "notice") {
-    const notice = noticeContent(session, item, false);
-    notice.classList.add("chat-response-notice");
-    notice.dataset.entryKey = item.key;
-    return notice;
-  }
   let itemView = view.items.get(key);
+  if (item.type === "notice") {
+    const fingerprint = JSON.stringify(item);
+    if (!itemView || itemView.fingerprint !== fingerprint) {
+      const notice = noticeContent(session, item, false);
+      notice.classList.add("chat-response-notice");
+      notice.dataset.entryKey = item.key;
+      itemView = { step: notice, fingerprint };
+      view.items.set(key, itemView);
+    }
+    return itemView.step;
+  }
     if (!itemView) {
       const step = document.createElement("div");
       step.className = `chat-response-step ${item.type === "tool" || item.type === "streaming-tool" ? "chat-response-tool" : ""}`;
       itemView = { step, answer: null, caret: null, answerText: "" };
       view.items.set(key, itemView);
     }
-    itemView.step.dataset.entryKey = item.key;
+    setAttribute(itemView.step, "data-entry-key", item.key);
     const stepNodes = [];
     if (item.type === "agent") {
       const tokens = item.reasoningTokens || Math.ceil(Array.from(item.reasoning || "").length / 3.6);
@@ -756,11 +770,13 @@ function renderResponseItem(session, view, item, key, forceToolOpen = false) {
         stepNodes.push(itemView.caret);
       }
     } else if (item.type === "streaming-tool") {
-      const tick = document.createElement("div");
-      tick.className = "tool-tick chat-streaming-tool";
+      if (!itemView.tick) {
+        itemView.tick = document.createElement("div");
+        itemView.tick.className = "tool-tick chat-streaming-tool";
+      }
       const elapsed = Math.max(0, Number(item.last_chunk_at || 0) - Number(item.started_at || 0));
-      tick.textContent = `${item.name || "tool call"} · ${formatArgumentBytes(item.argument_bytes)} · ~${format(item.argument_tokens)} tokens · ${formatDuration(elapsed) || "0s"}`;
-      stepNodes.push(tick);
+      setText(itemView.tick, `${item.name || "tool call"} · ${formatArgumentBytes(item.argument_bytes)} · ~${format(item.argument_tokens)} tokens · ${formatDuration(elapsed) || "0s"}`);
+      stepNodes.push(itemView.tick);
     } else if (item.type === "tool") {
       stepNodes.push(toolTick(item, forceToolOpen));
     } else {
@@ -942,6 +958,10 @@ function setAttribute(node, name, value) {
   if (node.getAttribute(name) !== value) node.setAttribute(name, value);
 }
 
+function setProperty(node, name, value) {
+  if (node[name] !== value) node[name] = value;
+}
+
 function formatThoughtSeconds(milliseconds) {
   if (!Number.isFinite(milliseconds)) return "";
   const seconds = Math.max(0, milliseconds) / 1000;
@@ -949,16 +969,24 @@ function formatThoughtSeconds(milliseconds) {
 }
 
 function renderNotice(session, entry) {
-  const row = document.createElement("div");
-  row.className = "chat-entry chat-notice-row";
-	const content = noticeContent(session, entry, false);
-  if (content.classList.contains("alarm")) row.classList.add("alarm");
-  row.append(content);
+  const viewKey = viewKeyFor(entry);
+  const fingerprint = JSON.stringify(entry);
+  let view = entryViews.get(viewKey);
+  if (!view || view.fingerprint !== fingerprint) {
+    const row = document.createElement("div");
+    row.className = "chat-entry chat-notice-row";
+	  const content = noticeContent(session, entry, false);
+    if (content.classList.contains("alarm")) row.classList.add("alarm");
+    row.append(content);
+    view = { row, content, fingerprint };
+    entryViews.set(viewKey, view);
+  }
+  usedEntryViews.add(viewKey);
   const reason = entry.event?.data?.reason;
-  setTranscriptCopyRecord(row, entry.event?.type === "run.stopped"
+  setTranscriptCopyRecord(view.row, entry.event?.type === "run.stopped"
     ? `stopped: ${String(reason || "").replaceAll("_", " ")}`
-    : `— harness —\n${content.innerText || content.textContent || entry.text || ""}`);
-  return row;
+    : `— harness —\n${view.content.innerText || view.content.textContent || entry.text || ""}`);
+  return view.row;
 }
 
 function noticeContent(session, entry, actionable) {
@@ -1129,8 +1157,8 @@ let micNotice = "";
 function renderMic(session) {
   if (!mic) return;
   const usable = !!session && !store.replay && micState.available !== false;
-  mic.disabled = !usable;
-  mic.dataset.state = micState.listening ? "listening" : "idle";
+  setProperty(mic, "disabled", !usable);
+  setAttribute(mic, "data-state", micState.listening ? "listening" : "idle");
   mic.classList.toggle("listening", micState.listening);
   // Item 2ge: the hover says which engine is listening and whether anything
   // would leave the machine if it did. The host answers that; this draws the
@@ -1139,8 +1167,8 @@ function renderMic(session) {
     ? (micState.reason || "dictation is unavailable on this host")
     : (micState.reason || (micState.offline === false ? "online" : "offline"));
   const label = micState.listening ? "Stop dictating" : "Dictate";
-  mic.setAttribute("aria-label", label);
-  mic.setAttribute("title", label + " \u00b7 " + where);
+  setAttribute(mic, "aria-label", label);
+  setAttribute(mic, "title", label + " \u00b7 " + where);
 }
 
 // The host finding is asked for once, and never blocks the composer: an
@@ -1164,13 +1192,13 @@ function renderUpdateBanner(session) {
   const update = store.update || {};
   const version = String(update.version || "");
   const visible = !!session && !store.replay && update.available === true && !!version && version !== dismissedUpdateVersion;
-  updateBanner.hidden = !visible;
+  setProperty(updateBanner, "hidden", !visible);
   if (!visible) return;
   const running = isRunning(session);
   updateCopy.textContent = running ? `${version} available — finish or stop the run first` : `${version} available —`;
-  updateInstall.hidden = running;
-  updateInstall.disabled = !!update.installing;
-  updateInstall.textContent = update.installing ? "Starting…" : "Install";
+  setProperty(updateInstall, "hidden", running);
+  setProperty(updateInstall, "disabled", !!update.installing);
+  setText(updateInstall, update.installing ? "Starting…" : "Install");
 }
 
 updateDismiss?.addEventListener("click", () => {
@@ -1223,8 +1251,7 @@ function renderComposer(session) {
   // Live state, not decoration: the robot runs beside the live line for exactly
   // as long as the run is live, and is absent otherwise. Its eyes take the same
   // state colour the tab robot uses.
-  const running = !!activity;
-  notice.replaceChildren();
+  const running = isRunning(session);
   // Item 2m4: THE ONE WAITING ELEMENT, EARNING ITS PLACE.
   //
   // The model wait is the case the operator described — "chatting and hoping the
@@ -1239,27 +1266,39 @@ function renderComposer(session) {
   // toward a finish it does not know.
   const progress = session?.activity?.progress || {};
   const promptOnly = running && /^prompt /.test(activity);
+  if (!composerWait) composerWait = waitElement(document, { line: "waiting for the model" });
+  if (!composerRobot) {
+    composerRobot = document.createElement("span");
+    composerRobot.setAttribute("aria-hidden", "true");
+    composerRobot.innerHTML = '<img src="/static/assets/agent.svg" alt=""><span class="chat-run-robot-eyes"></span>';
+  }
   if (promptOnly) {
-    notice.append(waitElement(document, {
-      line: unreachable ? "waiting for the model to come back" : activity,
+    const line = unreachable ? "waiting for the model to come back" : activity;
+    setText(composerWait.querySelector(".wait-line"), line);
+    setWaitProgress(composerWait, {
       processed: progress.processed ?? null,
       total: progress.total ?? null,
-    }));
-  } else if (running) {
-    const glyph = document.createElement("span");
-    glyph.className = `chat-run-robot ${session?.model_unreachable ? "offline" : session?.pending_approval || session?.pending_repo_policy ? "waiting" : "running"}`;
-    glyph.setAttribute("aria-hidden", "true");
-    glyph.innerHTML = '<img src="/static/assets/agent.svg" alt=""><span class="chat-run-robot-eyes"></span>';
-    notice.append(glyph);
+    });
   }
-  const text = document.createElement("span");
-  text.className = "chat-notice-text";
-  text.textContent = message;
-  if (modelLine && message === modelLine) text.title = unreachable?.host || "";
-  notice.append(text);
-  notice.className = `chat-notice ${localAlarm || micNotice || unreachable || (session && !session.runnable) ? "alarm" : ""}`;
-	pendingFiles.replaceChildren(...queuedAttachments.map((file) => {
-    const row = document.createElement("span");
+  setProperty(composerWait, "hidden", !promptOnly);
+  if (running && !promptOnly) {
+    setAttribute(composerRobot, "class", `chat-run-robot ${session?.model_unreachable ? "offline" : session?.pending_approval || session?.pending_repo_policy ? "waiting" : "running"}`);
+  }
+  setProperty(composerRobot, "hidden", !running || promptOnly);
+  if (!composerText) {
+    composerText = document.createElement("span");
+    composerText.className = "chat-notice-text";
+  }
+  setText(composerText, message);
+  const title = modelLine && message === modelLine ? unreachable?.host || "" : "";
+  setAttribute(composerText, "title", title);
+  reconcileChildren(notice, [composerWait, composerRobot, composerText]);
+  setAttribute(notice, "class", `chat-notice ${localAlarm || micNotice || unreachable || (session && !session.runnable) ? "alarm" : ""}`);
+  const fileNodes = queuedAttachments.map((file) => {
+    const key = `${file.path}|${file.bytes}|${file.reused}|${file.sidecar}|${file.tier}`;
+    let row = composerFileViews.get(key);
+    if (row) return row;
+    row = document.createElement("span");
     row.className = "chat-pending-file";
     const label = document.createElement("span");
     const sidecar = file.sidecar ? ` · ${file.tier === "ocr" ? "OCR" : "extracted"}: ${file.sidecar.split("/").pop()}` : "";
@@ -1272,24 +1311,40 @@ function renderComposer(session) {
       reason.textContent = warning;
       row.append(reason);
     }
+    composerFileViews.set(key, row);
     return row;
-	}));
+	});
+  reconcileChildren(pendingFiles, fileNodes);
+	for (const [key, row] of composerFileViews) if (!fileNodes.includes(row)) composerFileViews.delete(key);
 	const worker = workerApproval(store.sessions, session);
-	pendingApproval.hidden = !(session?.pending_approval || session?.pending_repo_policy || worker);
-	const policyCard = session?.pending_repo_policy ? createPolicyCard(session) : null;
-	const workerCard = worker ? [createApprovalCard(document, worker.pending_approval, {
+	setProperty(pendingApproval, "hidden", !(session?.pending_approval || session?.pending_repo_policy || worker));
+	const approvalNodes = [];
+	if (session?.pending_approval) approvalNodes.push(cachedComposerApproval(`session:${session.id}`, session.pending_approval, () => createApprovalCard(document, session.pending_approval, {
+		replay: store.replay,
+		decide: (callID, decision) => api("/api/approve", { session_id: session.id, call_id: callID, decision }),
+	})));
+	else if (session?.pending_repo_policy) approvalNodes.push(cachedComposerApproval(`policy:${session.id}`, session.pending_repo_policy, () => createPolicyCard(session)));
+	if (worker) approvalNodes.push(cachedComposerApproval(`worker:${worker.id}`, worker.pending_approval, () => createApprovalCard(document, worker.pending_approval, {
 		replay: store.replay,
 		author: agentAuthor(worker, "c"),
 		decide: (callID, decision) => api("/api/approve", { session_id: worker.id, call_id: callID, decision }),
-	})] : [];
-	pendingApproval.replaceChildren(...(session?.pending_approval ? [createApprovalCard(document, session.pending_approval, {
-		replay: store.replay,
-		decide: (callID, decision) => api("/api/approve", { session_id: session.id, call_id: callID, decision }),
-	})] : policyCard ? [policyCard] : []), ...workerCard);
+	})));
+	reconcileChildren(pendingApproval, approvalNodes);
+	for (const key of composerApprovalViews.keys()) if (!approvalNodes.includes(composerApprovalViews.get(key).node)) composerApprovalViews.delete(key);
   renderSendStop(send, session, store.replay);
   renderMic(session);
-  retryModel.hidden = !unreachable;
-  retryModel.disabled = !session || store.replay;
+  setProperty(retryModel, "hidden", !unreachable);
+  setProperty(retryModel, "disabled", !session || store.replay);
+}
+
+function cachedComposerApproval(key, value, create) {
+  const fingerprint = JSON.stringify(value);
+  let view = composerApprovalViews.get(key);
+  if (!view || view.fingerprint !== fingerprint) {
+    view = { node: create(), fingerprint };
+    composerApprovalViews.set(key, view);
+  }
+  return view.node;
 }
 
 function createPolicyCard(session) {
@@ -1539,6 +1594,11 @@ input.addEventListener("keydown", (event) => {
 });
 log.addEventListener("scroll", () => {
   follow = log.scrollHeight - log.clientHeight - log.scrollTop <= 24;
+});
+// Pointing at transcript controls means the operator is reading there. Do not
+// pull that control out from under the pointer merely because a later row grew.
+log.addEventListener("pointerover", (event) => {
+  if (event.target.closest?.("button")) follow = false;
 });
 document.addEventListener("keydown", (event) => {
   if (!mounted) return;

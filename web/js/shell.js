@@ -29,6 +29,7 @@ export function initShell(options = {}) {
   newChatMenu.hidden = true;
   const tabs = node("nav", "agent-tabs");
   tabs.setAttribute("aria-label", "Chats");
+  const tabViews = new Map();
   left.append(newChatButton, newChatMenu, tabs);
 
   const right = node("div", "shell-right");
@@ -208,12 +209,6 @@ export function initShell(options = {}) {
     // nothing while the model was thinking. The strip still rebuilds; a menu
     // that is open moves, as the same element, into its tab's new wrap, so the
     // entry being pointed at is never replaced underneath the pointer.
-    const openMenus = new Map();
-    for (const wrap of tabs.querySelectorAll(".agent-tab-wrap")) {
-      const open = wrap.querySelector(":scope > .agent-chat-menu");
-      if (open && !open.hidden) openMenus.set(wrap.dataset.session || wrap.dataset.agent, open);
-    }
-    tabs.replaceChildren();
     // A worker has no chat: role c never appears in the tab strip.
     // Item 2gn: a closed chat the operator opened by name gets a tab, so the
     // chat he is looking at is the one the strip shows selected. Without it he
@@ -235,29 +230,51 @@ export function initShell(options = {}) {
     const selectedSession = store.sessions[store.selection.session_id];
     const configured = configuredAgent(selectedSession);
     const hasD = !!String(configured?.d || "").trim();
-    newChatButton.title = hasD ? "New chat or plan" : "New chat with agent_b";
-    newChatButton.setAttribute("aria-label", newChatButton.title);
-    newChatButton.disabled = store.replay || !(store.config.agents || []).length;
+    setAttr(newChatButton, "title", hasD ? "New chat or plan" : "New chat with agent_b");
+    setAttr(newChatButton, "aria-label", newChatButton.title);
+    setProperty(newChatButton, "disabled", store.replay || !(store.config.agents || []).length);
     newChatButton.onclick = () => hasD ? showRoleMenu(newChatMenu, newChatButton, configured) : void createChat("agent_b");
     const rendered = open.length ? open : [null];
+    const nodes = [];
+    const used = new Set();
     for (const session of rendered) {
       const agentID = `agent_${session?.role === "d" ? "d" : "b"}`;
-      const wrap = node("div", "agent-tab-wrap");
-      wrap.dataset.agent = agentID;
-      if (session) wrap.dataset.session = session.id;
+      const key = session?.id || agentID;
+      used.add(key);
+      let view = tabViews.get(key);
+      if (!view) {
+        const wrap = node("div", "agent-tab-wrap");
+        const tab = button("", "", "agent-tab");
+        const robot = node("span", `agent-tab-robot agent-tab-robot-${agentID.slice(-1)}`);
+        robot.setAttribute("aria-hidden", "true");
+        robot.title = agentID;
+        const image = document.createElement("img"); image.src = "/static/assets/agent.svg"; image.alt = "";
+        robot.append(image, node("span", "agent-tab-eyes"));
+        const nameNode = node("span", "agent-tab-name");
+        tab.append(robot, nameNode);
+        const menu = node("div", "shell-menu agent-chat-menu"); menu.hidden = true;
+        wrap.append(tab, menu);
+        view = { wrap, tab, robot, nameNode, menu, close: null };
+        tabViews.set(key, view);
+      }
+      const { wrap, tab, robot, nameNode, menu } = view;
+      if (menu.hidden && menu.childElementCount) menu.replaceChildren();
+      setAttr(wrap, "data-agent", agentID);
+      setOptionalAttr(wrap, "data-session", session?.id);
       const selected = !!session && store.selection.session_id === session.id;
-      if (selected) wrap.classList.add("selected");
+      wrap.classList.toggle("selected", selected);
       // Item 2go: the tab carries the chat's NAME. The role is on the robot
       // glyph and in its hover text, which is where it was always readable; a
       // tab that says agent_b tells the operator nothing about the chat.
       const name = session ? chatName(session) : agentName(agentID);
-      const tab = button("", name, `agent-tab ${selected ? "selected" : ""}`);
       const glyphState = session ? chatState(session) : agentState(agentID);
-      tab.dataset.agent = agentID;
-      if (session) tab.dataset.session = session.id;
-      tab.setAttribute("aria-label", `${name} · ${agentID}`);
-      const robot = agentID.slice(-1);
-      tab.innerHTML = `<span class="agent-tab-robot agent-tab-robot-${robot} ${glyphState}" aria-hidden="true" title="${escapeHTML(agentID)}"><img src="/static/assets/agent.svg" alt=""><span class="agent-tab-eyes"></span></span><span class="agent-tab-name">${escapeHTML(name)}</span>`;
+      setAttr(tab, "class", `agent-tab ${selected ? "selected" : ""}`);
+      setAttr(tab, "title", name);
+      setAttr(tab, "data-agent", agentID);
+      setOptionalAttr(tab, "data-session", session?.id);
+      setAttr(tab, "aria-label", `${name} · ${agentID}`);
+      setAttr(robot, "class", `agent-tab-robot agent-tab-robot-${agentID.slice(-1)} ${glyphState}`);
+      if (nameNode.textContent !== name) nameNode.textContent = name;
       // Left click selects the chat. From any surface that is NOT this chat -
       // Settings, Plan, any later page - it also shows it, which is what 2gf
       // asked for: the Plan page had no way back at all, its tab click only
@@ -281,9 +298,6 @@ export function initShell(options = {}) {
         // there. Everywhere else it shows the chat.
         if (page !== "chat") openSide(agentID, session.id, "chat");
       };
-      const kept = openMenus.get(session ? session.id : agentID);
-      const menu = kept || node("div", "shell-menu agent-chat-menu");
-      if (!kept) menu.hidden = true;
       tab.oncontextmenu = (event) => {
         event.preventDefault();
         for (const other of tabs.querySelectorAll(".shell-menu")) if (other !== menu) other.hidden = true;
@@ -293,19 +307,26 @@ export function initShell(options = {}) {
         renderAgentMenu(menu, agentID);
         revealMenu(menu, tab, { x: event.clientX, y: event.clientY });
       };
-      wrap.append(tab);
       if (session) {
         // The close mark overlays the tab's own trailing edge rather than sitting
         // beside it, so the tab's width is its label's width. It stays a sibling
         // of the tab because a button inside a button is not valid HTML.
-        const close = button("×", `Close ${name}`, "agent-tab-close");
-        close.disabled = store.replay || isRunning(session);
-        close.onclick = (event) => { event.stopPropagation(); void closeChat(session, menu, agentID); };
-        wrap.append(close);
+        if (!view.close) {
+          view.close = button("×", "", "agent-tab-close");
+          wrap.insertBefore(view.close, menu);
+        }
+        setAttr(view.close, "title", `Close ${name}`);
+        setAttr(view.close, "aria-label", `Close ${name}`);
+        setProperty(view.close, "disabled", store.replay || isRunning(session));
+        view.close.onclick = (event) => { event.stopPropagation(); void closeChat(session, menu, agentID); };
+      } else if (view.close) {
+        view.close.remove();
+        view.close = null;
       }
-      wrap.append(menu);
-      tabs.append(wrap);
+      nodes.push(wrap);
     }
+    reconcileNodes(tabs, nodes);
+    for (const key of tabViews.keys()) if (!used.has(key)) tabViews.delete(key);
   }
 
   // Item 2ni: THE PLAN IS NOT A TAB ANY MORE, so the strip's static-surface pass,
@@ -533,7 +554,7 @@ export function initShell(options = {}) {
     // do is say which chat is in the window instead of naming the connection,
     // which the header beside the tab strip already says.
     document.title = session ? `Agent_b · ${chatName(session)}` : "Agent_b";
-    sessionHeading.hidden = !session;
+    setProperty(sessionHeading, "hidden", !session);
     const heading = session ? (session.runnable === false ? session.not_runnable_reason : sessionTitle(session)) : "";
     if (sessionHeading.textContent !== heading) {
       sessionHeading.textContent = heading;
@@ -570,12 +591,12 @@ export function initShell(options = {}) {
     // reads as closed-able and returns to the view the gear was clicked from,
     // which is the only way back the Plan needs now that its tab is gone.
     if (page !== "chat" && openedFromSettings) {
-      settings.setAttribute("aria-expanded", "true");
-      settings.setAttribute("aria-label", "Close settings");
-      settings.title = "Close settings";
-      settings.dataset.target = `/chat${suffix}`;
+      setAttr(settings, "aria-expanded", "true");
+      setAttr(settings, "aria-label", "Close settings");
+      setAttr(settings, "title", "Close settings");
+      setAttr(settings, "data-target", `/chat${suffix}`);
     } else {
-      settings.dataset.target = `/chat${suffix}${suffix ? "&" : "?"}from=${page}#settings/connections`;
+      setAttr(settings, "data-target", `/chat${suffix}${suffix ? "&" : "?"}from=${page}#settings/connections`);
     }
     options.syncLocation?.(page);
   }
@@ -613,6 +634,25 @@ function button(text, title, className) {
   value.textContent = text;
   value.title = title;
   return value;
+}
+function setAttr(node, name, value) {
+  if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+}
+function setOptionalAttr(node, name, value) {
+  if (value) setAttr(node, name, value);
+  else if (node.hasAttribute(name)) node.removeAttribute(name);
+}
+function setProperty(node, name, value) {
+  if (node[name] !== value) node[name] = value;
+}
+function reconcileNodes(parent, nodes) {
+  const wanted = new Set(nodes);
+  for (const child of [...parent.children]) if (!wanted.has(child)) child.remove();
+  let cursor = parent.firstElementChild;
+  for (const node of nodes) {
+    if (node === cursor) cursor = cursor.nextElementSibling;
+    else parent.insertBefore(node, cursor);
+  }
 }
 function escapeHTML(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);

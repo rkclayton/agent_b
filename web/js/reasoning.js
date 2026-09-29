@@ -73,10 +73,10 @@ function updateView(view, entry, tokens, options) {
   // mark (Mute closed, Ink open, Trace while live); the caret node stays, hidden,
   // so the row keeps its structure and hit target.
   setText(view.caret, open ? "▾" : "▸");
-  view.caret.hidden = true;
+  setProperty(view.caret, "hidden", true);
   setAttribute(view.glyph, "data-open", String(open));
-  view.active.hidden = entry.done;
-  view.summary.hidden = !entry.done;
+  setProperty(view.active, "hidden", entry.done);
+  setProperty(view.summary, "hidden", !entry.done);
   if (entry.done) {
     const duration = options.formatDuration(entry.thinkingMS);
     const elapsed = duration ? ` ${entry.thinkingEstimated ? "~" : ""}${duration}` : "";
@@ -90,9 +90,10 @@ function updateView(view, entry, tokens, options) {
   // it from the find. `until-found` keeps it out of the layout but inside the
   // search, and the browser reveals it when it matches, which is what 2gg's
   // "find reaches every kind" asks for without adding a control.
-  if (open) view.body.removeAttribute("hidden");
-  else view.body.setAttribute("hidden", "until-found");
-  view.collapse.hidden = !open;
+  if (open) {
+    if (view.body.hasAttribute("hidden")) view.body.removeAttribute("hidden");
+  } else setAttribute(view.body, "hidden", "until-found");
+  setProperty(view.collapse, "hidden", !open);
   const body = entry.reasoning || (entry.done
     ? "Reasoning text is unavailable in this recording."
     : "Waiting for reasoning text…");
@@ -105,4 +106,8 @@ function setText(node, value) {
 
 function setAttribute(node, name, value) {
   if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+}
+
+function setProperty(node, name, value) {
+  if (node[name] !== value) node[name] = value;
 }

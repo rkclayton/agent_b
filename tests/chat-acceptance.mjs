@@ -212,7 +212,7 @@ const fakeHandler = async (request, response) => {
   }
   if (user.includes("acceptance: prose stream")) {
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
-    response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "VISIBLE PARTIAL" }, finish_reason: null }] })}\n\n`);
+    response.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "EARLIER COMPLETED THOUGHT", content: "VISIBLE PARTIAL" }, finish_reason: null }] })}\n\n`);
     await sleep(700);
     response.end(`data: ${JSON.stringify({ choices: [{ delta: { content: " COMPLETE" }, finish_reason: "stop" }], usage: { prompt_tokens: response.agentbPromptTokens || 120, completion_tokens: 12, prompt_tokens_details: { cached_tokens: 80 } } })}\n\ndata: [DONE]\n\n`);
     return;
@@ -1087,7 +1087,104 @@ if (realModel) {
   await page.locator("#chat-send").click();
   const lifecycleRunStarted = await waitEvent(sessionID, (event) => event.type === "run.started", "tool-tick lifecycle run started");
   await waitProjectedChatText(sessionID, "menu-stream-0", "first projected lifecycle tool");
+  await page.evaluate(() => {
+    const describe = (node) => node instanceof Element
+      ? `${node.parentElement?.id ? `#${node.parentElement.id}` : node.parentElement?.className || node.parentElement?.tagName || "detached"} > ${node.dataset.entryKey || node.id || node.className || node.tagName}`
+      : "text";
+    const stableKey = (node) => node instanceof Element
+      ? node.dataset.entryKey || node.id || (node.matches(".agent-tab-wrap") ? `tab:${node.dataset.session || node.dataset.agent}` : "")
+      : "";
+    const evidence = window.__agentbPageStability = {
+      started: performance.now(), moved: 0, replaced: 0, movedLists: {}, unchangedAttributes: 0,
+      unchangedAttributeLists: {}, animationRestarts: 0, animationSamples: [], samples: [], removed: new Map(),
+      removedKeys: new Map(), runningAnimations: new WeakMap(), composerChildMutations: 0, tabChildMutations: 0,
+    };
+    for (const animation of document.getAnimations()) {
+      const target = animation.effect?.target;
+      if (!target) continue;
+      const names = evidence.runningAnimations.get(target) || new Set();
+      names.add(animation.animationName);
+      evidence.runningAnimations.set(target, names);
+    }
+    evidence.observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "attributes" && record.oldValue === record.target.getAttribute(record.attributeName)) {
+          evidence.unchangedAttributes++;
+          const write = `${describe(record.target)} @${record.attributeName}`;
+          evidence.unchangedAttributeLists[write] = (evidence.unchangedAttributeLists[write] || 0) + 1;
+        }
+        if (record.type !== "childList") continue;
+        const elementChanges = [...record.addedNodes, ...record.removedNodes].filter((node) => node.nodeType === Node.ELEMENT_NODE).length;
+        if (record.target.closest?.("#chat-composer")) evidence.composerChildMutations += elementChanges;
+        if (record.target.closest?.(".agent-tabs")) evidence.tabChildMutations += elementChanges;
+        for (const node of record.removedNodes) {
+          evidence.removed.set(node, describe(node));
+          const key = stableKey(node);
+          if (key) evidence.removedKeys.set(key, node);
+        }
+        for (const node of record.addedNodes) {
+          const key = stableKey(node);
+          if (key && evidence.removedKeys.has(key) && evidence.removedKeys.get(key) !== node) evidence.replaced++;
+          const from = evidence.removed.get(node);
+          if (!from) continue;
+          evidence.removed.delete(node);
+          const list = `${from} -> ${describe(node)}`;
+          evidence.moved++;
+          evidence.movedLists[list] = (evidence.movedLists[list] || 0) + 1;
+          if (evidence.samples.length < 20) evidence.samples.push(list);
+        }
+      }
+    });
+    evidence.animation = (event) => {
+      if (!evidence.runningAnimations.get(event.target)?.has(event.animationName)) return;
+      evidence.animationRestarts++;
+      if (evidence.animationSamples.length < 20) evidence.animationSamples.push(`${describe(event.target)} ${event.animationName}`);
+    };
+    document.addEventListener("animationstart", evidence.animation, true);
+    evidence.observer.observe(document.body, { attributes: true, attributeOldValue: true, childList: true, subtree: true });
+  });
+  await page.waitForTimeout(1000);
+  const pageStability = await page.evaluate(() => {
+    const evidence = window.__agentbPageStability;
+    evidence.observer.disconnect();
+    document.removeEventListener("animationstart", evidence.animation, true);
+    return {
+      seconds: (performance.now() - evidence.started) / 1000,
+      moved: evidence.moved,
+      replaced: evidence.replaced,
+      movedPerSecond: Math.round(evidence.moved / ((performance.now() - evidence.started) / 1000)),
+      movedLists: evidence.movedLists,
+      unchangedAttributes: evidence.unchangedAttributes,
+      unchangedAttributeLists: evidence.unchangedAttributeLists,
+      animationRestarts: evidence.animationRestarts,
+      animationSamples: evidence.animationSamples,
+      composerChildMutations: evidence.composerChildMutations,
+      tabChildMutations: evidence.tabChildMutations,
+      samples: evidence.samples,
+    };
+  });
+  assert.equal(pageStability.moved, 0, `unchanged keyed nodes moved during streaming: ${JSON.stringify(pageStability)}`);
+  assert.equal(pageStability.replaced, 0, `unchanged keyed nodes replaced during streaming: ${JSON.stringify(pageStability)}`);
+  assert.equal(pageStability.unchangedAttributes, 0, `attributes were rewritten without changing: ${JSON.stringify(pageStability)}`);
+  assert.equal(pageStability.animationRestarts, 0, `running CSS animations restarted: ${JSON.stringify(pageStability)}`);
+  assert.equal(pageStability.composerChildMutations, 0, `composer children changed during stable streaming: ${JSON.stringify(pageStability)}`);
+  assert.equal(pageStability.tabChildMutations, 0, `tab children changed during stable streaming: ${JSON.stringify(pageStability)}`);
   assert.equal(await page.locator(".chat-tool-group-head").count(), 0, "active responses must not regroup live tool nodes");
+  for (const [label, target] of [
+    ["completed tool", page.locator('[data-entry-key="tool:scratch-write"] button.tool-tick')],
+    ["completed thought", page.locator("button.thinking-line.thought-line").first()],
+  ]) {
+    await target.hover();
+    const handle = await target.elementHandle();
+    const box = await target.boundingBox();
+    assert.ok(handle && box, `${label} must have a stable actionable node`);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(1000);
+    assert.equal(await handle.evaluate((node) => node.isConnected && node.matches(":hover") && node.matches(":active")), true, `${label} lost hover or press while another row streamed`);
+    assert.ok(await page.locator('[data-entry-key*="menu-stream-0"]').count(), `${label} hold must overlap the different streaming row`);
+    await page.mouse.up();
+  }
   const toolButton = page.locator('[data-entry-key*="menu-stream-0"] button.tool-tick');
   await toolButton.waitFor({ state: "visible" });
   assert.equal(await toolButton.evaluate((node) => node.closest('.chat-response')?.querySelector('.chat-step-summary')?.hidden), true, "the active pinned rows have no inert Steps disclosure");

@@ -179,8 +179,11 @@ func main() {
 	} else if facts.TokenizeBlocksOnSlot == "yes" {
 		log.Printf("tokenize blocks on the generation slot (%d ms measured busy); context.accounting: \"estimated\" avoids it", facts.TokenizeBusyMS)
 	}
-	if *window {
-		hostWindowMode = true
+	// Item 2o0: every server can host its window, not only one started with
+	// -window, because a later launch may ask a background server for it.
+	hostWindowMode = *window
+	hostWindowDataRoot = paths.Data
+	{
 		// The WebView2 user-data folder holds cache, cookies and crash dumps.
 		// It belongs in the operator's data root: the application directory is
 		// deliberately not writable by the running identity, and the workspace
@@ -978,9 +981,7 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime, application
 		})
 		stopped = life.stopped
 	}
-	if hostWindowMode {
-		startHostWindow(cfg.Listen, applicationRoot, browserBootstrap, closeRequests)
-	}
+	startHostWindow(cfg.Listen, applicationRoot, browserBootstrap, closeRequests)
 	errors := make(chan error, 1)
 	go func() {
 		log.Printf("Agent_b listening on http://%s", cfg.Listen)
@@ -1059,28 +1060,93 @@ func readServingFacts(path string) servingFacts {
 //
 // A missing or unusable WebView2 runtime is NOT a failure: the server keeps
 // serving, the reason is logged, and the browser window remains the way in.
+//
+// Item 2o0: the window's fate is written to the startup log AND launcher.log
+// for every launch, and the window is supervised rather than attempted once.
+// Five mornings the sign-in start (-Detached -NoBrowser, so no -window) left a
+// server with no window and, because only a window owned the activation event,
+// nothing a later launch could signal: the Start menu handoff failed silently.
+// The server now owns that event for its whole life; a request with no window
+// creates one, and a failed creation is retried with a bounded backoff.
 var (
-	hostWindowMode     bool
-	hostWindowUserData string
+	hostWindowMode         bool
+	hostWindowUserData     string
+	hostWindowDataRoot     string
+	hostWindowRunner       = runHostWindow
+	hostWindowRetryDelays  = []time.Duration{time.Second, 3 * time.Second}
+	hostWindowAvailability = hostWindowAvailable
 )
 
 func startHostWindow(listen, applicationRoot, browserBootstrap string, closeRequests chan struct{}) {
-	go func() {
-		url := "http://" + listen + "/chat#agentb-bootstrap=" + browserBootstrap
-		if version, err := hostWindowAvailable(); err != nil {
-			log.Printf("host window: unavailable, using the browser instead (%v)", err)
-			return
-		} else {
-			log.Printf("host window: WebView2 runtime %s", version)
-		}
-		if err := runHostWindow(url, hostWindowUserData, "Agent_b", applicationRoot); err != nil {
-			log.Printf("host window: could not open, using the browser instead (%v)", err)
+	requests := make(chan struct{}, 1)
+	watchActivation(applicationRoot, func() {
+		if raiseHostWindow() {
 			return
 		}
-		log.Printf("host window: closed")
 		select {
-		case closeRequests <- struct{}{}:
+		case requests <- struct{}{}:
 		default:
 		}
-	}()
+	})
+	url := "http://" + listen + "/chat#agentb-bootstrap=" + browserBootstrap
+	go superviseHostWindow(url, applicationRoot, hostWindowMode, requests, closeRequests)
+}
+
+func superviseHostWindow(url, applicationRoot string, wanted bool, requests <-chan struct{}, closeRequests chan<- struct{}) {
+	if !wanted {
+		recordWindowFate("host window: not requested by this launch (a background start); the next launch opens it")
+		<-requests
+	}
+	for {
+		if openHostWindow(url, applicationRoot) {
+			log.Printf("host window: closed")
+			select {
+			case closeRequests <- struct{}{}:
+			default:
+			}
+			return
+		}
+		<-requests
+	}
+}
+
+// openHostWindow reports whether a window opened and was then closed by the
+// operator. Every other outcome is recorded and leaves the server serving.
+func openHostWindow(url, applicationRoot string) bool {
+	if version, err := hostWindowAvailability(); err != nil {
+		recordWindowFate(fmt.Sprintf("host window: unavailable, using the browser instead (%v)", err))
+		return false
+	} else {
+		log.Printf("host window: WebView2 runtime %s", version)
+	}
+	for attempt := 1; ; attempt++ {
+		err := hostWindowRunner(url, hostWindowUserData, "Agent_b", applicationRoot)
+		if err == nil {
+			return true
+		}
+		if attempt > len(hostWindowRetryDelays) {
+			recordWindowFate(fmt.Sprintf("host window: could not open after %d attempts, using the browser instead (%v); the next launch tries again", attempt, err))
+			return false
+		}
+		delay := hostWindowRetryDelays[attempt-1]
+		recordWindowFate(fmt.Sprintf("host window: attempt %d failed (%v); retrying in %s", attempt, err, delay))
+		time.Sleep(delay)
+	}
+}
+
+// recordWindowFate writes one window line to the startup log and to the
+// launcher log the operator reads, in the launcher's own line format.
+func recordWindowFate(message string) {
+	log.Print(message)
+	if hostWindowDataRoot == "" {
+		return
+	}
+	path := filepath.Join(hostWindowDataRoot, "logs", "launcher.log")
+	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
+		return
+	}
+	if file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
+		_, _ = fmt.Fprintf(file, "%s %s\r\n", time.Now().Format("2006-01-02 15:04:05 -07:00"), printable(message))
+		file.Close()
+	}
 }

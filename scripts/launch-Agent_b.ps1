@@ -199,11 +199,11 @@ function Invoke-AgentBActivation {
     if ($LASTEXITCODE -ne 0) {
         throw "Agent_b is running at $appUrl, but its host window could not be activated (handoff exited $LASTEXITCODE). Open $appUrl in a browser."
     }
-    Write-LauncherRecord "activated existing window (PID $($running[0].ProcessId))"
+    Write-LauncherRecord "asked running PID $($running[0].ProcessId) for its window; it raises or creates it and records which"
 }
 
 function Wait-AgentBHostWindow {
-    param([string]$StartupLogPath, [Diagnostics.Process]$Process, [int]$Seconds = 15)
+    param([string]$StartupLogPath, [Diagnostics.Process]$Process, [int]$Seconds = 30)
     $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
     while ([DateTime]::UtcNow -lt $deadline) {
         $lines = if (Test-Path -LiteralPath $StartupLogPath -PathType Leaf) { @(Get-Content -LiteralPath $StartupLogPath -ErrorAction SilentlyContinue) } else { @() }

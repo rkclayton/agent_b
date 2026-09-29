@@ -305,28 +305,13 @@ func sentMessage() bool {
 // already exists (someone created it first), the channel is not used, since
 // its creator would control it.
 func watchStopEvent(applicationRoot string, closeRequested func()) {
-	token, err := syscall.OpenCurrentProcessToken()
-	if err != nil {
+	attributes, release := userOnlyAttributes()
+	if attributes == nil {
 		return
 	}
-	user, err := token.GetTokenUser()
-	token.Close()
-	if err != nil {
-		return
-	}
-	sid, err := user.User.Sid.String()
-	if err != nil {
-		return
-	}
-	sddl, _ := syscall.UTF16PtrFromString("D:P(A;;GA;;;" + sid + ")(A;;GA;;;SY)")
-	var descriptor uintptr
-	if ok, _, _ := procConvertSecurityDescriptor.Call(uintptr(unsafe.Pointer(sddl)), 1, uintptr(unsafe.Pointer(&descriptor)), 0); ok == 0 {
-		return
-	}
-	defer syscall.LocalFree(syscall.Handle(descriptor))
-	attributes := syscall.SecurityAttributes{Length: uint32(unsafe.Sizeof(syscall.SecurityAttributes{})), SecurityDescriptor: descriptor}
+	defer release()
 	name, _ := syscall.UTF16PtrFromString(stopEventName(applicationRoot, os.Getpid()))
-	event, _, createErr := procCreateEvent.Call(uintptr(unsafe.Pointer(&attributes)), 1, 0, uintptr(unsafe.Pointer(name)))
+	event, _, createErr := procCreateEvent.Call(uintptr(unsafe.Pointer(attributes)), 1, 0, uintptr(unsafe.Pointer(name)))
 	if event == 0 {
 		return
 	}
@@ -339,6 +324,31 @@ func watchStopEvent(applicationRoot string, closeRequested func()) {
 			closeRequested()
 		}
 	}()
+}
+
+// userOnlyAttributes admits only this process's user and SYSTEM; nil when the
+// descriptor cannot be built, and the caller then creates no channel at all.
+func userOnlyAttributes() (*syscall.SecurityAttributes, func()) {
+	token, err := syscall.OpenCurrentProcessToken()
+	if err != nil {
+		return nil, nil
+	}
+	user, err := token.GetTokenUser()
+	token.Close()
+	if err != nil {
+		return nil, nil
+	}
+	sid, err := user.User.Sid.String()
+	if err != nil {
+		return nil, nil
+	}
+	sddl, _ := syscall.UTF16PtrFromString("D:P(A;;GA;;;" + sid + ")(A;;GA;;;SY)")
+	var descriptor uintptr
+	if ok, _, _ := procConvertSecurityDescriptor.Call(uintptr(unsafe.Pointer(sddl)), 1, uintptr(unsafe.Pointer(&descriptor)), 0); ok == 0 {
+		return nil, nil
+	}
+	attributes := &syscall.SecurityAttributes{Length: uint32(unsafe.Sizeof(syscall.SecurityAttributes{})), SecurityDescriptor: descriptor}
+	return attributes, func() { syscall.LocalFree(syscall.Handle(descriptor)) }
 }
 
 func sessionEndReason(flags uintptr) string {

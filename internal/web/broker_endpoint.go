@@ -47,15 +47,16 @@ func (s *Server) brokerHost() BrokerHost {
 	return s.broker
 }
 
+// Item 2nu (b): NO ADDRESS LEAVES THE PROCESS. The page cannot show, edit or leak what it
+// is never sent, so the status says what the connection is doing and nothing about where.
 type brokerStatusResponse struct {
 	broker.Status
-	URL   string               `json:"url"`
 	Offer *broker.PairingOffer `json:"offer,omitempty"`
 }
 
 func (s *Server) brokerStatus(w http.ResponseWriter, r *http.Request) {
 	url := strings.TrimSpace(s.ConfigSnapshot().Broker.URL)
-	response := brokerStatusResponse{URL: url}
+	response := brokerStatusResponse{}
 	host := s.brokerHost()
 	if host == nil || url == "" {
 		response.State = "off"
@@ -91,7 +92,7 @@ func (s *Server) brokerAction(w http.ResponseWriter, r *http.Request) {
 	}
 	host := s.brokerHost()
 	if host == nil || strings.TrimSpace(s.ConfigSnapshot().Broker.URL) == "" {
-		writeError(w, http.StatusBadRequest, "set the broker address in Settings → Security before pairing a phone", "broker.url")
+		writeError(w, http.StatusBadRequest, "this build has no broker address, so a phone cannot be paired", "broker.url")
 		return
 	}
 	switch body.Action {

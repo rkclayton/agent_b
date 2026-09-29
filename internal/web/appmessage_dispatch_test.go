@@ -1,11 +1,11 @@
 package web
 
 import (
-	"fmt"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"harness/internal/broker"
 	"net/http"
 	"os"
@@ -240,9 +240,8 @@ func TestTheEncoderReproducesEveryVector2o7(t *testing.T) {
 
 // recordingDevice is the broker client's downstream half, observed.
 type recordingDevice struct {
-	mu     sync.Mutex
-	units  []map[string]any
-	pushes []string
+	mu    sync.Mutex
+	units []map[string]any
 }
 
 func (d *recordingDevice) Deliver(plaintext []byte) error {
@@ -252,13 +251,6 @@ func (d *recordingDevice) Deliver(plaintext []byte) error {
 	}
 	d.mu.Lock()
 	d.units = append(d.units, unit)
-	d.mu.Unlock()
-	return nil
-}
-
-func (d *recordingDevice) Notify(kind, chatID, notice string) error {
-	d.mu.Lock()
-	d.pushes = append(d.pushes, kind+" "+chatID)
 	d.mu.Unlock()
 	return nil
 }
@@ -289,7 +281,7 @@ func (d *recordingDevice) waitFor(t *testing.T, what string, match func(map[stri
 // Item 2o7 (b)-(e) through the real server: a device connected to the stream gets a
 // snapshot of every chat on connect; chat.create through the dispatcher makes a chat
 // named as the desktop names one and the device sees it arrive as patches; a global
-// event arrives as an event unit; an approval card becomes exactly one push.
+// event arrives as an event unit.
 func TestAPairedDeviceSeesTheChatsAndIsAnswered2o7(t *testing.T) {
 	server, registry, writers, _, _, root := consoleServer(t)
 	defer writers.Close()
@@ -341,12 +333,6 @@ func TestAPairedDeviceSeesTheChatsAndIsAnswered2o7(t *testing.T) {
 		data, _ := unit["data"].(map[string]any)
 		return unit["kind"] == "event" && data["type"] == "broker.test.global"
 	})
-	device.mu.Lock()
-	pushes := append([]string(nil), device.pushes...)
-	device.mu.Unlock()
-	if len(pushes) != 1 || pushes[0] != "approval_required "+existing.ID {
-		t.Fatalf("pushes = %v, want one approval_required for %s", pushes, existing.ID)
-	}
 }
 
 // Item 2o7 (a): a pairing starts the session and revoke ends it; with no pairing

@@ -309,6 +309,14 @@ func (s *Server) Connection(id string) (*config.Connection, bool) {
 	return s.cfg.Connection(id)
 }
 func (s *Server) Handler() http.Handler {
+	return s.securityHeaders(s.phoneSessionGuard(s.browserSessionGuard(s.mutationGuard(s.routes()))))
+}
+
+// routes is the mux itself. Item 2kq (c) needs it without the browser and mutation
+// guards — those two are a browser page's CSRF and cookie, and the broker transport has
+// neither; its authority is the pairing. Splitting it here is what lets the app-message
+// dispatcher call THE SAME HANDLERS rather than a second implementation of them.
+func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.page)
 	mux.HandleFunc("/chat", s.page)
@@ -391,7 +399,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tools/", s.replayGuard(s.toggleTool))
 	mux.HandleFunc("/api/stats/", s.replayGuard(s.stats))
 	mux.HandleFunc("/api/agents/", s.replayGuard(s.agentAction))
-	return s.securityHeaders(s.phoneSessionGuard(s.browserSessionGuard(s.mutationGuard(mux))))
+	return mux
 }
 
 func (s *Server) hardeningRequest(connectionID string) (hardening.Request, error) {

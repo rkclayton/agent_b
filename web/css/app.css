@@ -1671,6 +1671,15 @@
     gap: 8px;
     padding: 3px 0;
   }
+  /* Item 2ns (b): at the narrowest window the frame allows, the pairing row gives the
+     QR the whole pane rather than the control column. A camera needs the modules big
+     enough to resolve, and 145 px of a 45-module code is about two and a half pixels
+     each — measured, when the decoder could read the full-width shot and not that one. */
+  .setting-row:has(.pairing-offer) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* The QR's own size rule lives with the rest of it, below: a copy here was overridden
+     by the later one and quietly did nothing. */
   .setting-row > div {
     justify-content: flex-start;
   }
@@ -2209,10 +2218,17 @@
    the one white rectangle in the product and it is white for a machine, not a person. */
 .pairing-offer { display: inline-flex; flex-direction: column; align-items: flex-start; gap: var(--s2); }
 .pairing-qr {
-  width: min(220px, 60vw);
+  /* Sized to the cell it is in rather than to the viewport, so the narrowest window the
+     frame allows shows it whole instead of clipping it. The encoder already draws the
+     four-module quiet zone the format requires, so this adds no padding of its own —
+     padding here became part of an element screenshot and cost the decoder its
+     bearings. */
+  /* It must fit the pane's WIDTH and the window's HEIGHT: at the frame's minimum the
+     client is 254 px tall and a 220 px code ran off the bottom — measured, from the
+     screenshot this release decodes. */
+  width: min(220px, 100%, 52vh);
   height: auto;
   image-rendering: pixelated;
   background: #fff;
-  padding: var(--s2);
 }
 .pairing-code { font-size: 11px; overflow-wrap: anywhere; }

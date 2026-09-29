@@ -110,17 +110,6 @@ func (c *Client) Deliver(plaintext []byte) error {
 	return c.Send(messageID, plaintext, transport)
 }
 
-// Notify sends one sealed push hint on the live session.
-func (c *Client) Notify(kind, chatID, notice string) error {
-	transport, messageID, err := c.live()
-	if err != nil {
-		return err
-	}
-	c.sendMu.Lock()
-	defer c.sendMu.Unlock()
-	return c.Push(transport, messageID, kind, chatID, notice)
-}
-
 func (c *Client) live() (Transport, []byte, error) {
 	c.mu.Lock()
 	transport, session := c.transport, c.session
@@ -189,6 +178,7 @@ func (c *Client) Run(ctx context.Context) error {
 		c.mu.Lock()
 		c.status.Reconnects++
 		c.mu.Unlock()
+		log.Printf("broker: the session dropped, reconnecting: %v", err)
 		c.setState("reconnecting", err)
 		select {
 		case <-ctx.Done():
@@ -365,7 +355,7 @@ func (c *Client) establish(ctx context.Context, transport Transport) error {
 	if err := transport.Send(init); err != nil {
 		return err
 	}
-	frame, err := c.read(ctx, transport)
+	frame, err := c.readHandshake(ctx, transport)
 	if err != nil {
 		return err
 	}
@@ -404,7 +394,7 @@ func (c *Client) establish(ctx context.Context, transport Transport) error {
 	if err := transport.Send(finishFrame); err != nil {
 		return err
 	}
-	frame, err = c.read(ctx, transport)
+	frame, err = c.readHandshake(ctx, transport)
 	if err != nil {
 		return err
 	}
@@ -664,6 +654,42 @@ func (c *Client) Pending() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.pending)
+}
+
+// readHandshake is read for the session handshake (item 2o7). A phone that is offline
+// or asleep when the desktop connects is the ordinary case, not an error: the broker
+// answers the init with QUEUED and holds it until the phone returns, and it keeps the
+// connection alive with PING meanwhile. Both are waited through; anything else is the
+// handshake's to judge.
+func (c *Client) readHandshake(ctx context.Context, transport Transport) (Frame, error) {
+	for {
+		frame, err := c.read(ctx, transport)
+		if err == nil && frame.Type == FrameError {
+			var problem errorPayload
+			if err := DecodeInto(frame.Payload, &problem); err != nil {
+				return Frame{}, err
+			}
+			return Frame{}, fmt.Errorf("broker refused the handshake: %s (%s)", problem.Code, problem.Detail)
+		}
+		if err != nil || (frame.Type != FrameQueued && frame.Type != FramePing) {
+			return frame, err
+		}
+		if frame.Type == FramePing {
+			var ping struct {
+				Token string `json:"token"`
+			}
+			if err := DecodeInto(frame.Payload, &ping); err != nil {
+				return Frame{}, err
+			}
+			pong, err := Encode(FramePong, ping)
+			if err != nil {
+				return Frame{}, err
+			}
+			if err := transport.Send(pong); err != nil {
+				return Frame{}, err
+			}
+		}
+	}
 }
 
 func (c *Client) read(ctx context.Context, transport Transport) (Frame, error) {

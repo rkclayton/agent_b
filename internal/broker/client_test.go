@@ -36,6 +36,10 @@ type scriptedBroker struct {
 	acked    []string
 	received []string
 	sessions []string
+	// offline makes the broker answer the init as it does for a phone that is not
+	// connected: QUEUED, then a keepalive PING, and only later the phone's response.
+	offline bool
+	ponged  bool
 }
 
 func newScriptedBroker(t *testing.T, agent, device Identity, pairing Pairing) *scriptedBroker {
@@ -174,6 +178,10 @@ func (b *scriptedBroker) handshake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if b.offline {
+		b.push(FrameQueued, idOnlyFrame{PairingID: initFrame.PairingID, MessageID: initFrame.HandshakeID})
+		b.push(FramePing, map[string]string{"token": "keepalive"})
+	}
 	b.push(FrameSessionResp, sessionFrame{
 		PairingID: initFrame.PairingID, HandshakeID: initFrame.HandshakeID,
 		SenderKeyID: hexID(b.device.KeyID()), RecipientID: hexID(b.agent.KeyID()),
@@ -181,6 +189,10 @@ func (b *scriptedBroker) handshake(t *testing.T) {
 		Signature: base64.RawURLEncoding.EncodeToString(responder.ConfirmSignature()),
 	})
 	finish := b.next(t)
+	if b.offline && finish.Type == FramePong {
+		b.ponged = true
+		finish = b.next(t)
+	}
 	if finish.Type != FrameSessionFinish {
 		t.Fatalf("expected SESSION_FINISH, got 0x%02x", finish.Type)
 	}
@@ -334,6 +346,29 @@ func TestARequestRoundTripsOverTheSession2kq(t *testing.T) {
 	}
 	if executions != 1 {
 		t.Fatalf("the request executed %d times", executions)
+	}
+}
+
+// Item 2o7: a phone that is offline when the desktop connects is the ordinary case.
+// The broker answers the init with QUEUED and keeps the line alive with PING; the
+// handshake waits through both and completes when the phone answers. Before, QUEUED
+// ended the connection ("expected SESSION_RESPONSE, got frame 0x22") on every retry.
+func TestTheHandshakeWaitsForAnOfflinePhone2o7(t *testing.T) {
+	agent, device, pairing := testPair(t)
+	broker := newScriptedBroker(t, agent, device, pairing)
+	broker.offline = true
+	client := NewClient(agent, pairing, func(context.Context) (Transport, error) { return broker, nil },
+		func([]byte, []byte) []byte { return nil })
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	go func() { _ = client.Run(ctx) }()
+	broker.handshake(t)
+	waitConnected(t, client)
+	if !broker.ponged {
+		t.Fatal("the keepalive during the handshake was not answered")
+	}
+	if status := client.Status(); status.Reconnects != 0 {
+		t.Fatalf("the handshake gave up and reconnected %d times", status.Reconnects)
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"log"
 
 	"harness/internal/broker"
-	"harness/internal/events"
 	"harness/internal/projection"
 )
 
@@ -14,8 +13,13 @@ import (
 // boxes and wired none of them, so a paired phone's every request timed out. While a
 // pairing exists, one authenticated broker session is held with the existing client:
 // every request is answered by DispatchAppMessage (the same handlers the page calls),
-// the device receives the same snapshot, patches and global events the tailnet client
-// does, and approval, stop and stuck-item notices are pushed through the broker.
+// and the device receives the same snapshot, patches and global events the tailnet
+// client does.
+//
+// NO PUSHES YET. The live broker refused the push frame this client seals as
+// "malformed (frame rejected)", and that refusal is fatal to the whole session, so a
+// push would cost the phone its connection at the end of every run. The frame's shape
+// belongs to the broker repository; until it is confirmed there, nothing is pushed.
 //
 // It lives as long as the pairing does IN THIS PROCESS. The pairing and this launch's
 // identity are held in memory only (the security decision recorded at the top of
@@ -73,20 +77,12 @@ func (c *BrokerClient) stopSessionLocked() {
 	c.client, c.stopSession = nil, nil
 }
 
-// pushKinds maps the events a phone is woken for to the broker's three push kinds.
-var pushKinds = map[string]string{
-	events.ApprovalRequired: "approval_required",
-	events.RunStopped:       "run_stopped",
-	events.ItemStuck:        "item_stuck",
-}
-
 // streamToDevice is the tailnet client's view, unit by unit: a snapshot of every
 // session on connect, then its projection patches and the global durable events,
 // until the connection ends. A device that sees a gap resyncs by cursor.
 // deviceSink is the part of the broker client the stream uses.
 type deviceSink interface {
 	Deliver(plaintext []byte) error
-	Notify(kind, chatID, notice string) error
 }
 
 func (s *Server) streamToDevice(ctx context.Context, client deviceSink) {
@@ -132,28 +128,11 @@ func (s *Server) streamToDevice(ctx context.Context, client deviceSink) {
 			if !ok {
 				return
 			}
-			if kind, wake := pushKinds[event.Type]; wake {
-				if err := client.Notify(kind, event.SessionID, pushNotice(event)); err != nil {
-					log.Printf("broker: the %s push was not sent: %v", kind, err)
-				}
-			}
 			if event.SessionID == "" {
 				send(map[string]any{"v": 1, "kind": "event", "data": event})
 			}
 		case <-ctx.Done():
 			return
 		}
-	}
-}
-
-// pushNotice is the one line a push carries; the broker's client trims it to 200 bytes.
-func pushNotice(event events.Event) string {
-	switch event.Type {
-	case events.ApprovalRequired:
-		return "Agent_b is waiting for your approval"
-	case events.RunStopped:
-		return "Agent_b stopped"
-	default:
-		return "An item is stuck"
 	}
 }

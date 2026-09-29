@@ -3,23 +3,15 @@ function useSettingsContext(context) {
   ({ store, row, toggle, html } = context);
 }
 
-// Item 2jg (d): the switch, one line of what is and is not sent, and the last
-// batches exactly as they left. The last of those is the point: the claim above
-// it can be checked rather than believed.
+// Item 2ny: THE TOGGLE, AND NOTHING ELSE. Item 2jg (d) also showed the receiver's state
+// and the last twenty batches exactly as they left, so the claim above could be checked
+// rather than believed. The operator asked for it to go — "we just need the toggle thats
+// it" — and what the toggle does is unchanged: off detaches the collector, deletes the
+// queue, and on issues a new install id.
 function telemetry() {
   const config = store.config.telemetry || {};
   const on = config.enabled !== false;
-  const batches = Array.isArray(store.telemetry_sent) ? store.telemetry_sent : [];
-  const endpoint = String(config.endpoint || "");
-  const state = !endpoint ? "no receiver configured — nothing is collected"
-    : on ? `sending to a receiver you run`
-    : "off — nothing is collected and the queue is deleted";
-  const sent = !batches.length
-    ? row("what was sent", `<span class="settings-telemetry-empty">nothing yet</span>`, "", "The last 20 batches, exactly as they left this machine.")
-    : row("what was sent", `<span class="settings-telemetry-list">${batches.slice(-20).reverse().map((batch) => `<span class="settings-telemetry-batch" title="${attrOf(batch.body || "")}">${html(batch.sent_at || "")} · ${Number(batch.events || 0)} events · ${Number(batch.bytes || 0)} B · ${batch.ok ? "sent" : "queued"}</span>`).join("")}</span>`, "", "The last 20 batches, exactly as they left this machine.");
-  return `${toggle("telemetry.enabled", "send diagnostic telemetry", on, "Counts, durations and error classes only — never message text, tool output, paths, hostnames or file names. Off detaches the collector and deletes the queue; it does not send less. Turning it on issues a new install id.")}
-    ${row("telemetry", `<span>${html(state)}</span>`, "", "The receiver is a service you run; Agent_b ships only the sender.")}
-    ${sent}`;
+  return toggle("telemetry.enabled", "send diagnostic telemetry", on, "Counts, durations and error classes only — never message text, tool output, paths, hostnames or file names. Off detaches the collector and deletes the queue; it does not send less. Turning it on issues a new install id.");
 }
 
 function attrOf(value) {

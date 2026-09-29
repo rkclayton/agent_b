@@ -64,9 +64,6 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 		"server_started_at":        s.startedAt,
 		"agent_connection_changes": s.agentConnectionChanges(),
 		"build":                    buildinfo.Current(),
-		// Item 2jg (d): the last batches exactly as they left, so About can show
-		// what was sent rather than describe it.
-		"telemetry_sent":   s.TelemetryRecords(),
 		"update":           updateState,
 		"plans":            s.planList(),
 		"signature":        s.signingState(),

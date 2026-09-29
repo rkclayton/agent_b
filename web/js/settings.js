@@ -1123,6 +1123,7 @@ async function dispatchAction(event, button, action, id) {
 			brokerAlarm = true;
 		}
 		await refreshBrokerStatus();
+		if (verb === "pair" || verb === "confirm") watchBrokerPairing();
 		return render();
 	}
 	if (action === "phone-enrol") {
@@ -1202,6 +1203,28 @@ async function refreshMeasurement(id) {
     if (open && activeSection === "connections") render();
     return;
   }
+}
+
+// Item 2ns (b): while an offer is live the phone can join at any moment, and the
+// fingerprint that follows arrives from the broker rather than from a press. Measured
+// without it, twice: the QR was scanned and the fingerprint row stayed hidden, and then
+// "They match" was pressed and the paired device stayed hidden — both until the operator
+// happened to touch something else. So the page watches while a pairing is under way, and
+// stops once the offer is gone and the outcome is known, or past the code's ten minutes.
+let brokerWatch = null;
+function watchBrokerPairing() {
+	if (brokerWatch) return;
+	const stopAt = Date.now() + 11 * 60 * 1000;
+	brokerWatch = setInterval(async () => {
+		await refreshBrokerStatus();
+		const offer = brokerStatus && brokerStatus.offer;
+		const settled = !offer && (brokerStatus.paired_device || brokerStatus.last_error);
+		if (settled || Date.now() > stopAt) {
+			clearInterval(brokerWatch);
+			brokerWatch = null;
+		}
+		if (open && activeSection === "shell") render();
+	}, 1500);
 }
 
 async function refreshBrokerStatus() {

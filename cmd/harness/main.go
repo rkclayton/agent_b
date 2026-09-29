@@ -264,6 +264,15 @@ func main() {
 	registry.SetMachineMemoryLoader(memoryManager.LoadMachine)
 	registry.SetWorkspaceManager(workspaceManager)
 	web.SetRegistry(registry)
+	// Item 2kq (f): ONE KEY, AND EMPTY MEANS OFF. Nothing dials, nothing is generated
+	// and no identity exists unless the operator has set a broker address.
+	if address := strings.TrimSpace(cfg.Broker.URL); address != "" {
+		if brokerClient, brokerErr := webserver.NewBrokerClient(address); brokerErr != nil {
+			log.Printf("broker: %v", brokerErr)
+		} else {
+			web.SetBrokerHost(brokerClient)
+		}
+	}
 	notificationStore, err := credential.NewNamed(profileRoot, cfg.Notifications.DiscordCredential)
 	if err != nil {
 		log.Fatal(err)

@@ -47,32 +47,69 @@ func decodeQRImage(t *testing.T, img image.Image) string {
 		r, g, b, _ := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
 		return r+g+b < 3*0x8000
 	}
-	// The module size: the finder pattern's top-left bar is seven modules wide, so the
-	// first run of dark pixels along the top edge of the code is 7 modules.
-	top, left := 0, 0
-	for top < bounds.Dy() && !rowHasDark(img, bounds, top) {
-		top++
+	// The dark area's bounding box is the code; the quiet zone around it is light. The
+	// modules are sampled by PROPORTION rather than by an integer scale, because a
+	// screenshot of the page has resized the image and a module is no longer a whole
+	// number of pixels — measured, on a browser screenshot whose finder run came out as
+	// one pixel under the integer assumption.
+	// The code's bounding box, found by looking for RUNS rather than single dark pixels:
+	// a screenshot of the page carries a hairline edge around the element, and a
+	// bounding box that counted one dark pixel took the whole image — measured, on the
+	// first screenshot this case ever decoded.
+	// FINDING THE CODE IS A SEARCH, not a measurement. A screenshot of the page carries
+	// an antialiased edge where the element meets the page behind it, and at these
+	// scales a module is only two or three pixels, so no single erosion rule separates
+	// the two — measured, repeatedly, on the narrow shot. So the box and the size are
+	// searched together: trim a few pixels, try every legal size, and take the first
+	// pair that puts a finder pattern in all three corners. A wrong pair cannot.
+	finderAt := func(at func(int, int) bool, originX, originY, size int) bool {
+		for row := 0; row < 7; row++ {
+			for column := 0; column < 7; column++ {
+				edge := row == 0 || row == 6 || column == 0 || column == 6
+				core := row >= 2 && row <= 4 && column >= 2 && column <= 4
+				if at(originX+column, originY+row) != (edge || core) {
+					return false
+				}
+			}
+		}
+		return true
 	}
-	for left < bounds.Dx() && !columnHasDark(img, bounds, left) {
-		left++
+	var module func(int, int) bool
+	size := 0
+	for trim := 0; trim <= 6 && size == 0; trim++ {
+		left, top := trim, trim
+		right, bottom := bounds.Dx()-1-trim, bounds.Dy()-1-trim
+		// Then shrink to the dark content inside that, which removes the quiet zone.
+		for top <= bottom && !rowHasDark(img, bounds, top) {
+			top++
+		}
+		for bottom > top && !rowHasDark(img, bounds, bottom) {
+			bottom--
+		}
+		for left <= right && !columnHasDark(img, bounds, left) {
+			left++
+		}
+		for right > left && !columnHasDark(img, bounds, right) {
+			right--
+		}
+		width := float64(right - left + 1)
+		height := float64(bottom - top + 1)
+		if width < 21 || height < 21 {
+			continue
+		}
+		for candidate := 21; candidate <= 57; candidate += 4 {
+			at := func(x, y int) bool {
+				return dark(left+int((float64(x)+0.5)*width/float64(candidate)), top+int((float64(y)+0.5)*height/float64(candidate)))
+			}
+			if finderAt(at, 0, 0, candidate) && finderAt(at, candidate-7, 0, candidate) && finderAt(at, 0, candidate-7, candidate) {
+				size, module = candidate, at
+				break
+			}
+		}
 	}
-	run := 0
-	for left+run < bounds.Dx() && dark(left+run, top) {
-		run++
+	if size == 0 {
+		t.Fatal("no trim and size put a finder pattern in all three corners")
 	}
-	if run == 0 || run%7 != 0 {
-		t.Fatalf("the finder pattern is %d pixels wide, which is not seven modules", run)
-	}
-	scale := run / 7
-	// The code is centred in its quiet zone, so the first dark pixel gives the border
-	// and the span between the two borders is the code. Counting dark columns instead
-	// stops at the first light column INSIDE the code, which is the separator beside
-	// the finder — measured, on a version-1 code that reported seven modules.
-	size := (bounds.Dx() - 2*left) / scale
-	if size < 21 || (size-21)%4 != 0 {
-		t.Fatalf("the code measures %d modules, which is not a QR size", size)
-	}
-	module := func(x, y int) bool { return dark(left+x*scale+scale/2, top+y*scale+scale/2) }
 
 	// The mask is READ BY TRYING, not by decoding the format information: there are
 	// eight of them, and exactly one produces a byte-mode segment whose text is the

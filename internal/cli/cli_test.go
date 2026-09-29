@@ -13,11 +13,11 @@ import (
 // quietly running without JSON is worse than refusing, because a script would
 // never find out.
 func TestParseArgs2iz(t *testing.T) {
-	options, err := ParseArgs([]string{"--profile", "acme", "--json", "add a test", "and run it"})
+	options, err := ParseArgs([]string{"--profile", "acmeholding", "--json", "add a test", "and run it"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.Profile != "acme" || !options.JSON {
+	if options.Profile != "acmeholding" || !options.JSON {
 		t.Fatalf("options=%+v", options)
 	}
 	// Loose words join into one task, so the shell's quoting is forgiving.

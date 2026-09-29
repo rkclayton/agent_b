@@ -100,7 +100,7 @@ func TestS13LegacyCreationRecordRestoresServerBinding(t *testing.T) {
 	record := Record{Cursor: Cursor{Generation: "s13-20260924T132321.jsonl", Offset: 1}, Event: events.Event{
 		SessionID: "s13", Type: events.SessionCreated,
 		Data: map[string]any{"session": map[string]any{
-			"id": "s13", "agent_id": "agent-b", "server_id": "server", legacyLabel: "acme",
+			"id": "s13", "agent_id": "agent-b", "server_id": "server", legacyLabel: "Acmeholding",
 			"created_at": "2026-09-23T21:21:00.033258Z", "run": map[string]any{"status": "idle"}, "runnable": true,
 		}},
 	}}
@@ -108,7 +108,7 @@ func TestS13LegacyCreationRecordRestoresServerBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.ConnectionID != "server" || state.BConnection != "acme" || !state.Runnable {
+	if state.ConnectionID != "server" || state.BConnection != "Acmeholding" || !state.Runnable {
 		t.Fatalf("s13 replay = %+v", state)
 	}
 }

@@ -119,7 +119,7 @@
     {
      "op": "replace",
      "path": "/b_connection",
-     "value": "acme"
+     "value": "Acme LAB"
     },
     {
      "op": "replace",
@@ -236,7 +236,7 @@
         "id": "s2",
         "label": "s2",
         "log_path": "session-close.events",
-        "main_connection": "acme",
+        "main_connection": "Acme LAB",
         "memory_content": "- pinned memory\n",
         "memory_path": "memory\\workspace.md",
         "messages": [],

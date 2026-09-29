@@ -20,11 +20,11 @@
   ],
   "connections": [
     {
-      "id": "acme",
-      "label": "acme",
-      "base_url": "https://ai.acme.com/v1",
+      "id": "acmeholding",
+      "label": "Acmeholding",
+      "base_url": "https://ai.acmeholding.example/v1",
       "model": "",
-      "credential": "acme"
+      "credential": "acmeholding"
     }
   ]
 }

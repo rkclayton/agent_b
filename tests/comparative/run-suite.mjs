@@ -76,7 +76,7 @@ function writeExclusive(target, content) {
 }
 
 const args = argumentsOf(process.argv.slice(2));
-assert.ok(["acme", "acme", "installed-local"].includes(args.connection), "--connection must be acme, acme or installed-local");
+assert.ok(["acme", "remote", "installed-local"].includes(args.connection), "--connection must be acme, remote or installed-local");
 const cacheProbeOnly = args["cache-probe-only"] === "true";
 const plannerReplayOnly = args["planner-replay-only"] === "true";
 const delegateEvalOnly = args["delegate-eval-only"] === "true";
@@ -92,16 +92,19 @@ assert.ok(args.evidence, "--evidence is required");
 fs.mkdirSync(evidenceRoot, { recursive: true });
 const sourceConfigPath = path.resolve(args["source-config"] || path.join(process.env.LOCALAPPDATA, "Agent_b", "harness.json"));
 const sourceConfig = JSON.parse(fs.readFileSync(sourceConfigPath, "utf8"));
+// A remote connection's base URL is the operator's, supplied at run time (item 2o5).
+const remoteBaseURL = process.env.AGENTB_REMOTE_BASE_URL || "";
+assert.ok(args.connection !== "remote" || remoteBaseURL, "--connection remote needs AGENTB_REMOTE_BASE_URL");
 const sourceConnection = args.connection === "acme"
   ? sourceConfig.connections.find((connection) => connection.id === "acme" || connection.label === "acme")
   : args.connection === "installed-local" ? sourceConfig.connections.find((connection) => connection.id === "installed-local")
-    : sourceConfig.connections.find((connection) => connection.label === "acme" || connection.id === "acme" || connection.id === "server");
+    : sourceConfig.connections.find((connection) => connection.id === "remote" || connection.id === "server");
 assert.ok(sourceConnection, `${args.connection} connection is missing from ${sourceConfigPath}`);
 if (directProbeOnly) {
   const credentialPath = path.join(path.dirname(sourceConfigPath), `.agentb-connection-credential-${sourceConnection.credential}.dpapi`);
   const decrypt = `Add-Type -AssemblyName System.Security; $p=[Environment]::GetEnvironmentVariable('AGENTB_EVAL_CREDENTIAL'); [Text.Encoding]::UTF8.GetString([System.Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($p), $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser))`;
   const secret = sourceConnection.credential ? mustRun("powershell.exe", ["-NoLogo", "-NoProfile", "-Command", decrypt], { env: { ...process.env, AGENTB_EVAL_CREDENTIAL: credentialPath } }).stdout.trim() : "";
-  const baseURL = (args.connection === "acme" ? "https://ai.acme.com/vllm/v1" : sourceConnection.base_url).replace(/\/$/, "");
+  const baseURL = (args.connection === "remote" ? remoteBaseURL : sourceConnection.base_url).replace(/\/$/, "");
   const endpoint = `${baseURL}${baseURL.endsWith("/v1") ? "" : "/v1"}/chat/completions`;
   const headers = { "Content-Type": "application/json", ...(secret ? { Authorization: `Bearer ${secret}` } : {}) };
   const complete = async (messages, maxTokens = 512) => {
@@ -248,9 +251,9 @@ try {
   const port = await freePort();
   const connection = structuredClone(sourceConnection);
   connection.id = args.connection;
-  connection.label = args.connection === "acme" ? "acme" : "acme";
-  if (args.connection === "acme") connection.base_url = "https://ai.acme.com/vllm/v1";
-  connection.probe_mode = args.connection === "acme" ? "full" : "off";
+  connection.label = args.connection === "acme" ? "acme" : "Remote";
+  if (args.connection === "remote") connection.base_url = remoteBaseURL;
+  connection.probe_mode = args.connection === "remote" ? "full" : "off";
   connection.system_prompt_override = EVAL_SYSTEM_PROMPT;
   const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell"];
   const config = {
@@ -284,8 +287,8 @@ try {
   const token = state.mutation_token;
   const headers = { "Content-Type": "application/json", "X-AgentB-Mutation-Token": token };
 
-  if (args.connection === "acme" || !connection.capabilities?.tool_calls) {
-    if (args.connection !== "acme") await json(`${base}/api/connections/${connection.id}/probe`, { method: "POST", headers, body: "{}" });
+  if (args.connection === "remote" || !connection.capabilities?.tool_calls) {
+    if (args.connection !== "remote") await json(`${base}/api/connections/${connection.id}/probe`, { method: "POST", headers, body: "{}" });
     state = await waitState(base, (value) => {
       const capabilities = value.connections?.find((item) => item.id === connection.id)?.capabilities;
       return capabilities?.probed_at !== connection.capabilities?.probed_at || JSON.stringify(capabilities?.findings || []) !== JSON.stringify(connection.capabilities?.findings || []);

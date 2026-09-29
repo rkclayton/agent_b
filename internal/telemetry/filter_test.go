@@ -88,8 +88,8 @@ func TestRedactionRemovesEverythingTheContractForbids2jg(t *testing.T) {
 	}{
 		{"a windows path", `open C:\work\acme\AppData\Local\Temp\secret.txt failed`, []string{"acme", "AppData", "secret"}, "<path>"},
 		{"a UNC path", `\\fileserver\share\payroll.xlsx is locked`, []string{"fileserver", "payroll"}, "<path>"},
-		{"a URL", `GET https://ai.acme.com/v1/chat returned 500`, []string{"acme", "/v1/chat"}, "<host>"},
-		{"a bare host", `dial tcp ai.acme.com:443: refused`, []string{"acme"}, "<host>"},
+		{"a URL", `GET https://ai.acmeholding.example/v1/chat returned 500`, []string{"acmeholding", "/v1/chat"}, "<host>"},
+		{"a bare host", `dial tcp ai.acmeholding.example:443: refused`, []string{"acmeholding"}, "<host>"},
 		{"an address", `dial tcp 192.168.1.10:8080: refused`, []string{"192.168.1.10"}, "<host>"},
 		{"an email", `notify someone@example.org failed`, []string{"acme", "gmail"}, "<email>"},
 		{"a token", `Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz0123456789`, []string{"sk-abcdefghijklmnop"}, "<token>"},

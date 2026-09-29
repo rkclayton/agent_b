@@ -398,7 +398,7 @@ func TestUpdateCheckDefaultsOnButPersistsOff(t *testing.T) {
 func TestServiceAllowlistValidation(t *testing.T) {
 	valid := Service{BaseURL: "https://broker.example/api", Auth: "exec:entra-token --scope broker", AllowedMethods: []string{"GET", "post"}, TimeoutS: 30, MaxBodyKB: 256, RequireConfirmation: true}
 	cfg := Defaults(t.TempDir())
-	cfg.Services["acme"] = valid
+	cfg.Services["acme-services"] = valid
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +420,7 @@ func TestServiceAllowlistValidation(t *testing.T) {
 			candidate := cfg
 			service := valid
 			test.mutate(&service)
-			candidate.Services = map[string]Service{"acme": service}
+			candidate.Services = map[string]Service{"acme-services": service}
 			if err := candidate.Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error=%v, want %q", err, test.want)
 			}

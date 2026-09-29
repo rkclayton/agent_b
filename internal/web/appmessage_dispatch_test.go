@@ -1,12 +1,19 @@
 package web
 
 import (
+	"fmt"
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"harness/internal/broker"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"harness/internal/config"
 	"harness/internal/events"
@@ -159,7 +166,6 @@ func TestTheDispatcherCarriesNoMutationToken2kq(t *testing.T) {
 	}
 }
 
-
 type appVector struct {
 	Name    string          `json:"name"`
 	Decoded json.RawMessage `json:"decoded"`
@@ -229,5 +235,156 @@ func TestTheEncoderReproducesEveryVector2o7(t *testing.T) {
 		if len(part) > file.Split.UnitMax {
 			t.Errorf("part %d is %d bytes, over %d", index, len(part), file.Split.UnitMax)
 		}
+	}
+}
+
+// recordingDevice is the broker client's downstream half, observed.
+type recordingDevice struct {
+	mu     sync.Mutex
+	units  []map[string]any
+	pushes []string
+}
+
+func (d *recordingDevice) Deliver(plaintext []byte) error {
+	var unit map[string]any
+	if err := json.Unmarshal(plaintext, &unit); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	d.units = append(d.units, unit)
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *recordingDevice) Notify(kind, chatID, notice string) error {
+	d.mu.Lock()
+	d.pushes = append(d.pushes, kind+" "+chatID)
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *recordingDevice) waitFor(t *testing.T, what string, match func(map[string]any) bool) map[string]any {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		d.mu.Lock()
+		for _, unit := range d.units {
+			if match(unit) {
+				d.mu.Unlock()
+				return unit
+			}
+		}
+		d.mu.Unlock()
+	}
+	d.mu.Lock()
+	kinds := []string{}
+	for _, unit := range d.units {
+		data, _ := unit["data"].(map[string]any)
+		kinds = append(kinds, fmt.Sprintf("%v/%v/%v", unit["kind"], unit["session_id"], data["session_id"]))
+	}
+	d.mu.Unlock()
+	t.Fatalf("the device never received %s; it received %v", what, kinds)
+	return nil
+}
+
+// Item 2o7 (b)-(e) through the real server: a device connected to the stream gets a
+// snapshot of every chat on connect; chat.create through the dispatcher makes a chat
+// named as the desktop names one and the device sees it arrive as patches; a global
+// event arrives as an event unit; an approval card becomes exactly one push.
+func TestAPairedDeviceSeesTheChatsAndIsAnswered2o7(t *testing.T) {
+	server, registry, writers, _, _, root := consoleServer(t)
+	defer writers.Close()
+	// As main.go wires it: durable records feed the projection the stream reads.
+	server.bus.SetSink(nil)
+	server.bus.SetDurableSink(writers.WriteRecord, server.projector.Apply, server.projector.MarkStale)
+	existing, err := registry.Create("existing chat", server.ConfigSnapshot().DefaultAgentID(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	device := &recordingDevice{}
+	ctx, stop := context.WithCancel(context.Background())
+	streamed := make(chan struct{})
+	defer func() { stop(); <-streamed }()
+	go func() { server.streamToDevice(ctx, device); close(streamed) }()
+	device.waitFor(t, "a snapshot of the existing chat", func(unit map[string]any) bool {
+		return unit["kind"] == "snapshot" && unit["session_id"] == existing.ID && unit["v"] == float64(1)
+	})
+
+	answer := server.DispatchAppMessage("broker:test", []byte(`{"v":1,"kind":"request","id":"00112233445566778899aabbccddeeff","route":"chat.create","body":{}}`))
+	var response struct {
+		Kind   string `json:"kind"`
+		ID     string `json:"id"`
+		Status int    `json:"status"`
+		Body   struct {
+			Session struct {
+				ID    string `json:"id"`
+				Label string `json:"label"`
+			} `json:"session"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(answer, &response); err != nil || response.Kind != "response" || response.ID != "00112233445566778899aabbccddeeff" || response.Status != http.StatusCreated || response.Body.Session.ID == "" {
+		t.Fatalf("chat.create answered %s (%v)", answer, err)
+	}
+	device.waitFor(t, "a patch for the new chat", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		return unit["kind"] == "patch" && data["session_id"] == response.Body.Session.ID
+	})
+	for _, route := range []string{"config", "update", "plan.go", "../api/config"} {
+		refused := server.DispatchAppMessage("broker:test", []byte(`{"v":1,"kind":"request","id":"ffeeddccbbaa99887766554433221100","route":"`+route+`","body":{}}`))
+		if !strings.Contains(string(refused), `"status":501`) {
+			t.Fatalf("route %q was not refused 501: %s", route, refused)
+		}
+	}
+
+	server.bus.Publish(events.New(events.ApprovalRequired, existing.ID, "r1", map[string]any{"call_id": "c1"}))
+	server.bus.Publish(events.New("broker.test.global", "", "", map[string]any{"note": "global"}))
+	device.waitFor(t, "the global event", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		return unit["kind"] == "event" && data["type"] == "broker.test.global"
+	})
+	device.mu.Lock()
+	pushes := append([]string(nil), device.pushes...)
+	device.mu.Unlock()
+	if len(pushes) != 1 || pushes[0] != "approval_required "+existing.ID {
+		t.Fatalf("pushes = %v, want one approval_required for %s", pushes, existing.ID)
+	}
+}
+
+// Item 2o7 (a): a pairing starts the session and revoke ends it; with no pairing
+// nothing is started.
+func TestThePairedSessionStartsWithThePairingAndEndsWithRevoke2o7(t *testing.T) {
+	server, _, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	dialed := make(chan struct{}, 8)
+	client := &BrokerClient{status: broker.Status{State: "not paired"}, dial: func(context.Context) (broker.Transport, error) {
+		dialed <- struct{}{}
+		return nil, errors.New("scripted: no network in this test")
+	}}
+	server.SetBrokerHost(client)
+	select {
+	case <-dialed:
+		t.Fatal("a connection was attempted with no pairing")
+	case <-time.After(100 * time.Millisecond):
+	}
+	client.startSession(broker.Pairing{DeviceKeyID: []byte{1, 2, 3}})
+	select {
+	case <-dialed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the paired session never dialed")
+	}
+	client.mu.Lock()
+	running := client.client != nil
+	client.stopSessionLocked()
+	stopped := client.client == nil
+	client.mu.Unlock()
+	if !running || !stopped {
+		t.Fatalf("running=%v stopped=%v", running, stopped)
+	}
+	for len(dialed) > 0 {
+		<-dialed
+	}
+	select {
+	case <-dialed:
+		t.Fatal("the session dialed again after it was stopped")
+	case <-time.After(1500 * time.Millisecond):
 	}
 }

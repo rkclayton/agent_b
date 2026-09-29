@@ -198,7 +198,14 @@ and it is visible — every one appears on the desktop like any other chat. It r
 a new chat starts empty, and reading anything still requires `state` or `resync`, which the phone
 already had. Revocation remains the answer, and it is immediate.
 
-## What is not in this version
+## What the desktop does today (item 2o7)
 
-No broker client, no pairing UI, no Settings entry, and no code that opens a socket. This document
-and its vectors are the contract that work is written against later.
+While a pairing exists, the desktop holds one broker session and answers every `request` through
+the same handlers the page uses; on each connection the device receives a `snapshot` of every chat,
+then `patch` and `event` units, split into `part` units over the budget. The pairing and the
+desktop's identity live in memory only, so a restart of Agent_b ends the pairing and the phone
+pairs again.
+
+Not yet: **pushes**. The live broker refuses the sealed push frame the desktop builds as
+`malformed`, and that refusal ends the whole session, so no push is sent until the frame's shape is
+confirmed with the broker repository.

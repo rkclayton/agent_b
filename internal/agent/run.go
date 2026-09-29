@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/credential"
 	contextmgr "harness/internal/context"
 	"harness/internal/delivery"
 	"harness/internal/events"
@@ -1266,6 +1267,23 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	if connectorChange {
 		if connectorErr != nil {
 			eventArgs["validation_error"] = connectorErr.Error()
+		}
+		// Item 2nv (e): a proposal that BINDS A CREDENTIAL, or that moves a bound
+		// connector to another address, says so on this card in those words — the
+		// credential's name and the exact origin it would be sent to. Nothing binds or
+		// moves silently, and the card is the existing one.
+		if connectorErr == nil && strings.HasPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "stored:") {
+			eventArgs["connector_credential"] = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "stored:"))
+			if origin, originErr := credential.NormalizeOrigin(proposedConnector.Service.BaseURL); originErr == nil {
+				eventArgs["connector_origin"] = origin
+				if existing, present := cfg.Services[proposedConnector.Name]; present {
+					if previous, previousErr := credential.NormalizeOrigin(existing.BaseURL); previousErr == nil && previous != origin {
+						eventArgs["connector_previous_origin"] = previous
+					}
+				}
+			} else {
+				eventArgs["validation_error"] = originErr.Error()
+			}
 		}
 		// Item 2nr (b): a proposal that names an OpenAPI document is shown on THIS card,
 		// with the operations it would enable and what the document says its own auth

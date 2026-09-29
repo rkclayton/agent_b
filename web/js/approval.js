@@ -12,10 +12,23 @@ export function approvalChoices(data = {}) {
 	return [...(data.standing_grant ? [["approve", "Always allow this exact scope"]] : []), ["session", "Yes, for this chat"], ["once", "Just once"], ["deny", "No"]];
 }
 
+// Item 2nv (e): what a card says when a proposal binds a credential or moves a bound
+// connector. The name and the exact origin, in the operator's own words: he is approving
+// where his key goes, which is the only question that matters here.
+function boundCredential(data) {
+	if (!(data.name === "call_service" && data.args?.connector && data.args.connector_credential)) return "";
+	const lines = [`This binds the credential "${data.args.connector_credential}" to ${data.args.connector_origin || "an address it cannot read"}.`];
+	if (data.args.connector_previous_origin) {
+		lines.push(`It was approved for ${data.args.connector_previous_origin}, and this moves it.`);
+	}
+	lines.push("The key is sent to that address and to nothing else — not another port, not another host, and not a redirect off it.", "", "");
+	return lines.join("\n");
+}
+
 // Item 2nr (b): the operations an imported OpenAPI document would enable, written for
-// the card. It is the DETAIL of whichever connector card is drawn — the harness's own
-// human wording wins the title and the reason, as it does for every other tool — so
-// there is one card, not two.
+// the card. Both of these are the DETAIL of whichever connector card is drawn — the
+// harness's own human wording wins the title and the reason, as it does for every other
+// tool — so there is one card, not two.
 function importedOperations(data) {
 	if (!(data.name === "call_service" && data.args?.connector)) return "";
 	const operations = Array.isArray(data.args.connector_operations) ? data.args.connector_operations : [];
@@ -33,7 +46,7 @@ function importedOperations(data) {
 
 export function approvalText(data = {}) {
 	const human = data.human && typeof data.human === "object" ? data.human : null;
-	const imported = importedOperations(data);
+	const imported = boundCredential(data) + importedOperations(data);
 	if (human?.happened && human?.harness_action) return {
 		title: data.kind === "cycle" || data.name === "run.cycle" ? "Loop check" : (data.boundary_escape ? "Run as you" : "Allow this"),
 		request: human.happened,

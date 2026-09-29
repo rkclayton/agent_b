@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/credential"
 	"harness/internal/events"
 	"harness/internal/llm"
 	"harness/internal/probe"
@@ -641,6 +642,19 @@ func (s *Server) ApplyConnector(change tools.ConnectorChange) error {
 		imported.Snapshot = snapshot
 		imported.SHA256 = tools.DocumentDigest(change.Document)
 		change.Service.OpenAPI = &imported
+	}
+	// Item 2nv (b) and (f): a binding is refused here unless the credential exists and
+	// the connector's address is an https origin. The operator approved a name and an
+	// origin on the card; saving something else would make that approval a lie.
+	if auth := strings.TrimSpace(change.Service.Auth); strings.HasPrefix(auth, "stored:") {
+		name := strings.TrimSpace(strings.TrimPrefix(auth, "stored:"))
+		vault := vaultOrNil()
+		if vault == nil || !vault.Has(name) {
+			return fmt.Errorf("no credential named %q is stored; add it in Settings → Security first", name)
+		}
+		if _, err := credential.NormalizeOrigin(change.Service.BaseURL); err != nil {
+			return fmt.Errorf("connector %q: %w", change.Name, err)
+		}
 	}
 	_, exists := next.Services[change.Name]
 	switch change.Operation {

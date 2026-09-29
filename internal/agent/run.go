@@ -1262,10 +1262,28 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	}
 	decision := "approve"
 	var gateErr error
-	_, connectorChange, connectorErr := tools.ParseConnectorChange(args)
+	proposedConnector, connectorChange, connectorErr := tools.ParseConnectorChange(args)
 	if connectorChange {
 		if connectorErr != nil {
 			eventArgs["validation_error"] = connectorErr.Error()
+		}
+		// Item 2nr (b): a proposal that names an OpenAPI document is shown on THIS card,
+		// with the operations it would enable and what the document says its own auth
+		// wants. The fetch happens once and is read again when the operator approves.
+		if connectorErr == nil && proposedConnector.Service.OpenAPI != nil {
+			_, document, loadErr := tools.LoadServiceDocument(ctx, proposedConnector.Service.OpenAPI.Source)
+			if loadErr != nil {
+				eventArgs["validation_error"] = loadErr.Error()
+			} else if enabled, enabledErr := document.Enabled(proposedConnector.Service.OpenAPI.Operations); enabledErr != nil {
+				eventArgs["validation_error"] = enabledErr.Error()
+			} else {
+				lines := make([]string, 0, len(enabled))
+				for _, operation := range enabled {
+					lines = append(lines, operation.Line())
+				}
+				eventArgs["connector_operations"] = lines
+				eventArgs["connector_document_auth"] = document.Auth
+			}
 		}
 		decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
 	} else if name == "run_script" && cfg.Shell.ServiceAccount.Enabled && !r.hasPolicyChatGrant(s.ID, name) {

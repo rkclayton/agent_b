@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,6 +54,9 @@ type ConnectorChange struct {
 	Operation string
 	Name      string
 	Service   config.Service
+	// Document is the OpenAPI document this change imported, carried from the approval
+	// to the snapshot the server writes. It is never part of the configuration.
+	Document []byte
 }
 
 func NewCallService(services map[string]config.Service) *CallService {
@@ -67,11 +71,19 @@ func (*CallService) Description() string {
 	return "Call a registered service, or when the operator asks, draft a connector add/edit/remove for approval. Never propose a connector unsolicited or ask for a token when an auth helper exists."
 }
 
-func (*CallService) Schema() map[string]any {
+// Schema is built from the CONFIGURED CONNECTORS each time it is asked for. Item 2nr (d):
+// a connector that has imported a document lists its enabled operations and their
+// parameters here, so the model needs no prose note and no second tool. The definition is
+// assembled per request (internal/agent/run.go calls Registry.Schemas), so a connector
+// approved mid-chat is callable on the next turn; tool order is the registry's and is
+// untouched.
+func (c *CallService) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"connector": map[string]any{"type": "object", "description": "Operator-requested connector change: operation add, edit, or remove; entry has name, url, kind (mcp or http), auth, and allowed_methods for http"},
+			"connector": map[string]any{"type": "object", "description": "Operator-requested connector change: operation add, edit, or remove; entry has name, url, kind (mcp or http), auth, allowed_methods for http, and openapi {document, operations} to import an OpenAPI document"},
+			"operation": map[string]any{"type": "string", "description": c.operationsDescription()},
+			"params":    map[string]any{"type": "object", "description": "Parameters for operation, by the document's own names", "additionalProperties": true},
 			"service":   map[string]any{"type": "string", "description": "Registered service name or absolute HTTP(S) URL"},
 			"method":    map[string]any{"type": "string", "description": "HTTP method allowed by the service"},
 			"path":      map[string]any{"type": "string", "description": "Relative path for a registered service, or an absolute URL whose host must match that service"},
@@ -81,7 +93,7 @@ func (*CallService) Schema() map[string]any {
 			"offset":    map[string]any{"type": "integer", "description": "One-based response-body byte offset for a repeated request", "default": 1},
 			"limit":     map[string]any{"type": "integer", "description": "Maximum response-body bytes, capped by the configured service maximum"},
 		},
-		"anyOf": []any{map[string]any{"required": []string{"connector"}}, map[string]any{"required": []string{"service", "method"}}},
+		"anyOf": []any{map[string]any{"required": []string{"connector"}}, map[string]any{"required": []string{"service", "operation"}}, map[string]any{"required": []string{"service", "method"}}},
 	}
 }
 
@@ -140,6 +152,31 @@ func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
 		}
 	}
 	change.Service.TimeoutS, change.Service.MaxBodyKB = 60, 64
+	// Item 2nr (b): the proposal may name an OpenAPI document and the operations to
+	// enable. NOTHING IS FETCHED HERE — parsing a proposal does no I/O; the approval path
+	// fetches the document once, shows it on the same card, and records the snapshot.
+	if raw, present := entry["openapi"]; present && raw != nil {
+		imported, ok := raw.(map[string]any)
+		if !ok {
+			return ConnectorChange{}, true, fmt.Errorf("connector.entry.openapi must be an object")
+		}
+		source, _ := imported["document"].(string)
+		source = strings.TrimSpace(source)
+		if source == "" {
+			return ConnectorChange{}, true, fmt.Errorf("connector.entry.openapi.document is required")
+		}
+		operations := []string{}
+		values, _ := imported["operations"].([]any)
+		for _, value := range values {
+			if name, ok := value.(string); ok && strings.TrimSpace(name) != "" {
+				operations = append(operations, strings.TrimSpace(name))
+			}
+		}
+		if len(operations) == 0 {
+			return ConnectorChange{}, true, fmt.Errorf("connector.entry.openapi.operations must name at least one operation")
+		}
+		change.Service.OpenAPI = &config.ServiceOpenAPI{Source: source, Operations: operations}
+	}
 	return change, true, nil
 }
 
@@ -183,6 +220,21 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 			detail.Err = fmt.Errorf("connector changes are unavailable")
 			return detail
 		}
+		// Item 2nr (b): the document the operator approved is fetched once — this reads
+		// the same five-minute entry the approval card was drawn from — and the
+		// operations he enabled must be operations it declares.
+		if change.Service.OpenAPI != nil {
+			raw, document, loadErr := LoadServiceDocument(ctx, change.Service.OpenAPI.Source)
+			if loadErr != nil {
+				detail.Err = loadErr
+				return detail
+			}
+			if _, enabledErr := document.Enabled(change.Service.OpenAPI.Operations); enabledErr != nil {
+				detail.Err = enabledErr
+				return detail
+			}
+			change.Document = raw
+		}
 		if err := c.change(change); err != nil {
 			detail.Err = err
 			return detail
@@ -193,6 +245,19 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 	serviceName, ok := requiredString(args, "service")
 	if !ok {
 		detail.Err = fmt.Errorf("service is required")
+		return detail
+	}
+	// Item 2nr (a) and (c): the operation form, and the document as the allow-list. Both
+	// end as the ordinary call below — one code path from here down, which is (f).
+	if service, registered := c.service(serviceName); registered && service.OpenAPI != nil {
+		rewritten, err := c.operationArgs(serviceName, service, args)
+		if err != nil {
+			detail.Err = err
+			return detail
+		}
+		args = rewritten
+	} else if _, asked := args["operation"]; asked {
+		detail.Err = fmt.Errorf("service %q has no imported document, so it takes method and path", serviceName)
 		return detail
 	}
 	method, ok := requiredString(args, "method")
@@ -751,4 +816,115 @@ func requiredString(args map[string]any, key string) (string, bool) {
 	value, ok := args[key].(string)
 	value = strings.TrimSpace(value)
 	return value, ok && value != ""
+}
+
+// --- item 2nr: the imported document, the operations it offers, and the call ---
+
+// enabledOperations reads the connector's snapshot, checks it against the hash recorded
+// when the operator approved it, and returns the operations he enabled. (g): a snapshot
+// that no longer matches refuses the connector's operations with one line, because a
+// document changed on disk is a document nobody approved.
+func (c *CallService) enabledOperations(name string, service config.Service) ([]ServiceOperation, error) {
+	imported := service.OpenAPI
+	if imported == nil {
+		return nil, fmt.Errorf("service %q has no imported document", name)
+	}
+	raw, err := os.ReadFile(imported.Snapshot)
+	if err != nil {
+		return nil, fmt.Errorf("service %q: its approved document is unreadable, so its operations are refused", name)
+	}
+	if digest := DocumentDigest(raw); !strings.EqualFold(digest, imported.SHA256) {
+		return nil, fmt.Errorf("service %q: its approved document has changed since it was approved, so its operations are refused; import it again", name)
+	}
+	document, err := ParseServiceDocument(raw)
+	if err != nil {
+		return nil, fmt.Errorf("service %q: %w", name, err)
+	}
+	return document.Enabled(imported.Operations)
+}
+
+// operationArgs turns {service, operation, params} into the ordinary {service, method,
+// path, query, body} call, and refuses everything the document does not offer.
+func (c *CallService) operationArgs(name string, service config.Service, args map[string]any) (map[string]any, error) {
+	operations, err := c.enabledOperations(name, service)
+	if err != nil {
+		return nil, err
+	}
+	offered := []string{}
+	for _, operation := range operations {
+		offered = append(offered, operation.ID)
+	}
+	wanted, _ := args["operation"].(string)
+	wanted = strings.TrimSpace(wanted)
+	if wanted == "" {
+		return nil, fmt.Errorf("service %q answers only its imported operations: %s", name, strings.Join(offered, ", "))
+	}
+	var chosen *ServiceOperation
+	for index := range operations {
+		if operations[index].ID == wanted {
+			chosen = &operations[index]
+		}
+	}
+	if chosen == nil {
+		return nil, fmt.Errorf("service %q offers no operation %q; it offers %s", name, wanted, strings.Join(offered, ", "))
+	}
+	params := map[string]any{}
+	if raw, present := args["params"]; present && raw != nil {
+		values, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("params must be an object")
+		}
+		params = values
+	}
+	path, query, body, err := chosen.Fill(params)
+	if err != nil {
+		return nil, err
+	}
+	rewritten := map[string]any{"service": name, "method": chosen.Method, "path": strings.TrimPrefix(path, "/")}
+	if len(query) > 0 {
+		values := map[string]any{}
+		for key := range query {
+			values[key] = query.Get(key)
+		}
+		rewritten["query"] = values
+	}
+	if len(body) > 0 {
+		rewritten["body"] = body
+	}
+	for _, carried := range []string{"offset", "limit", "headers"} {
+		if value, present := args[carried]; present {
+			rewritten[carried] = value
+		}
+	}
+	return rewritten, nil
+}
+
+// operationsDescription is what the model reads in the tool's own definition.
+func (c *CallService) operationsDescription() string {
+	c.mu.Lock()
+	names := make([]string, 0, len(c.services))
+	services := make(map[string]config.Service, len(c.services))
+	for name, service := range c.services {
+		if service.OpenAPI != nil {
+			names = append(names, name)
+			services[name] = service
+		}
+	}
+	c.mu.Unlock()
+	if len(names) == 0 {
+		return "Operation name, for a service that has imported an OpenAPI document"
+	}
+	sort.Strings(names)
+	lines := []string{"Operation name for a service that has imported an OpenAPI document. Such a service answers ONLY these operations, called with params rather than method and path:"}
+	for _, name := range names {
+		operations, err := c.enabledOperations(name, services[name])
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("%s: unavailable — %v", name, err))
+			continue
+		}
+		for _, operation := range operations {
+			lines = append(lines, name+"."+operation.Line())
+		}
+	}
+	return strings.Join(lines, "\n")
 }

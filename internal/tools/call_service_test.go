@@ -398,7 +398,11 @@ func TestCallServiceToolsBlockByteDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const wantDelta = 1396
+	// Item 2nr moved this from 1396 to 1734: the operation form costs two properties and
+	// one more anyOf branch in every request's tools block, WITH NO CONNECTOR CONFIGURED.
+	// A connector that has imported a document adds its operations on top, which is the
+	// point of (d) and is paid for only by the installs that have one.
+	const wantDelta = 1734
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("call_service tools-block byte delta=%d, want %d", delta, wantDelta)
 	}

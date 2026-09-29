@@ -351,6 +351,19 @@ type Service struct {
 	TimeoutS            int      `json:"timeout_s"`
 	MaxBodyKB           int      `json:"max_body_kb"`
 	RequireConfirmation bool     `json:"require_confirmation"`
+	// Item 2nr: the one key a connector gains when it has imported an OpenAPI
+	// document. Its presence is what makes the document the allow-list.
+	OpenAPI *ServiceOpenAPI `json:"openapi,omitempty"`
+}
+
+// ServiceOpenAPI records the document a connector imported: where it came from, the
+// snapshot kept under the operator data root, that snapshot's SHA-256, and which
+// operations the operator enabled on the approval card.
+type ServiceOpenAPI struct {
+	Source     string   `json:"source"`
+	Snapshot   string   `json:"snapshot"`
+	SHA256     string   `json:"sha256"`
+	Operations []string `json:"operations"`
 }
 
 func defaultConnection() Connection {

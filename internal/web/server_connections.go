@@ -625,6 +625,23 @@ func (s *Server) ApplyConnector(change tools.ConnectorChange) error {
 	for name, service := range s.cfg.Services {
 		next.Services[name] = service
 	}
+	// Item 2nr (b) and (4) of its W0: the approved document is kept as a SNAPSHOT under
+	// the operator data root, beside the connection credentials — never in the repository
+	// and never in the workspace, which is what tools reach. Its SHA-256 goes into the
+	// configuration, and (g) refuses the connector's operations if the two ever disagree.
+	if change.Service.OpenAPI != nil && len(change.Document) > 0 {
+		snapshot := filepath.Join(s.roots.Data, "connectors", change.Name+".openapi.json")
+		if err := os.MkdirAll(filepath.Dir(snapshot), 0o755); err != nil {
+			return fmt.Errorf("connector %q: its document could not be kept: %w", change.Name, err)
+		}
+		if err := os.WriteFile(snapshot, change.Document, 0o600); err != nil {
+			return fmt.Errorf("connector %q: its document could not be kept: %w", change.Name, err)
+		}
+		imported := *change.Service.OpenAPI
+		imported.Snapshot = snapshot
+		imported.SHA256 = tools.DocumentDigest(change.Document)
+		change.Service.OpenAPI = &imported
+	}
 	_, exists := next.Services[change.Name]
 	switch change.Operation {
 	case "add":

@@ -465,6 +465,42 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		t.Log("contract=changed-by-2jy: run_script receives 401 for control-plane state and mutation")
 	})
 
+	// Item 2kq: A TOOL PROCESS CANNOT OBTAIN THE BROKER SESSION. The broker client is a
+	// CONTROL-PLANE client under item 2jy: its keys, its pairing and its session live in
+	// the harness process and are reachable through no tool. This arm asks for them the
+	// three ways a tool could and gets nothing each time.
+	t.Run("broker_session_is_unreachable_from_a_tool_2kq", func(t *testing.T) {
+		base := "http://" + cfg.Listen
+		// The status route the Settings page reads: refused like every control-plane
+		// route, so a tool cannot even learn whether a phone is paired.
+		detail := toolRegistry.CallDetailed(context.Background(), item, "call_service", map[string]any{"service": base + "/api/broker/status", "method": "GET"})
+		if detail.OK || !strings.Contains(detail.Content, "refused the Agent_b listener") {
+			t.Fatalf("call_service reached the broker status: %+v", detail)
+		}
+		// And nothing on disk under the data root carries a broker private key: the
+		// identity is generated and held in the process.
+		var found []string
+		_ = filepath.WalkDir(dataRoot, func(path string, entry os.DirEntry, err error) error {
+			if err != nil || entry.IsDir() {
+				return nil
+			}
+			body, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return nil
+			}
+			for _, marker := range []string{"agentb-session-v2", "SigningSeed", "broker_private"} {
+				if strings.Contains(string(body), marker) {
+					found = append(found, path+" carries "+marker)
+				}
+			}
+			return nil
+		})
+		if len(found) > 0 {
+			t.Fatalf("broker key material is on disk where a tool could read it: %v", found)
+		}
+		t.Log("contract=2kq: the broker session is not reachable through call_service and no broker key material is on disk")
+	})
+
 	t.Run("control_plane_call_service_refused_2jy", func(t *testing.T) {
 		detail := toolRegistry.CallDetailed(context.Background(), item, "call_service", map[string]any{"service": "http://" + cfg.Listen + "/api/state", "method": "GET"})
 		if detail.OK || !strings.Contains(detail.Content, "refused the Agent_b listener") {

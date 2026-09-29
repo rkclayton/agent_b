@@ -161,9 +161,13 @@ function brokerRows() {
 	${text("broker.url", "broker", url, "text", "The broker this AgentB dials out to. Empty means nothing dials.")}
 	${row("connection", `<span class="account-status"><span class="lamp ${lamp}"></span>${html(state)}${status.broker_build ? ` · build ${html(status.broker_build)}` : ""}</span>`)}
 	${row("pairing", offer.code
-		? `<span class="account-status mono">${html(offer.code)}</span>`
+		// Item 2ns (b): THE QR IS THE PAIRING DISPLAY. "this code is waaay too long its
+		// insane" — the code is unchanged, because its length is its margin and three
+		// repositories agree on it; what changed is that he never types it. The code
+		// stays beneath in small plain text for a phone with no camera.
+		? `<span class="pairing-offer">${offer.qr ? `<img class="pairing-qr" src="${attr(offer.qr)}" width="220" height="220" alt="Pairing QR code">` : ""}<span class="account-status mono pairing-code">${html(offer.code)}</span></span>`
 		: `<span class="account-status">${status.paired_device ? "paired" : "not paired"}</span><button type="button" data-action="broker-pair" ${url ? "" : "disabled"}>Pair a phone</button>`,
-		"", "Type this code into the phone. It expires in ten minutes and works once.")}
+		"", "Point the phone's camera at this and tap Pair. It expires in ten minutes and works once.")}
 	${offer.fingerprint ? row("fingerprint", `<span class="account-status mono">${html(offer.fingerprint)}</span><button type="button" data-action="broker-confirm">They match</button>`, "", "Compare all ten groups with the phone before confirming.") : ""}
 	${row("device", `<span class="account-status">${paired}</span>`)}
 	${feedback(brokerMessage, brokerAlarm)}`;

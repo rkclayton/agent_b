@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -120,7 +121,12 @@ type revokePayload struct {
 // PairingOffer is what Settings shows while a pairing is under way: the code to type
 // into the phone, and — once the phone has arrived — the fingerprint to compare.
 type PairingOffer struct {
-	Code        string `json:"code"`
+	Code string `json:"code"`
+	// Item 2ns (b): the link and its QR, present only while the code is live and kept
+	// nowhere. They are not persisted with an offer; the endpoint fills them per
+	// response.
+	Link        string `json:"link,omitempty"`
+	QR          string `json:"qr,omitempty"`
 	ExpiresAt   string `json:"expires_at,omitempty"`
 	Fingerprint string `json:"fingerprint,omitempty"`
 	PairingID   string `json:"pairing_id,omitempty"`
@@ -263,4 +269,53 @@ func Revoke(transport Transport, identity Identity, pairingID []byte) error {
 		return err
 	}
 	return transport.Send(frame)
+}
+
+// Item 2ns (a): THE PAIRING LINK, defined by docs/pairing-link-v1.md and built in one
+// place. The operator never types the code: "this code is waaay too long its insane",
+// "we dont need to have them enter a code do we?". The code itself is unchanged — its
+// length is its margin, and shortening it would be a wire change in three repositories.
+//
+// BOTH VALUES GO IN THE FRAGMENT, which is never sent to a server. A phone with no app
+// that opens this link reaches agentb.app with the path and nothing else.
+const pairingLinkPrefix = "https://agentb.app/pair#"
+
+// PairingLink renders the link for a live code and this AgentB's identity key.
+func PairingLink(code string, agentSigning []byte) string {
+	return pairingLinkPrefix + "c=" + code + "&k=" + base64.RawURLEncoding.EncodeToString(agentSigning)
+}
+
+// ReadPairingLink is the document's reading rule, here so the one definition includes
+// what a reader must do: the scheme, host and path are exact; c and k are required; any
+// other field is IGNORED, which is what lets the version stay 1; and the key is exactly
+// 32 bytes of unpadded base64url. A link that fails any of that is refused whole.
+func ReadPairingLink(link string) (string, []byte, error) {
+	parsed, err := url.Parse(strings.TrimSpace(link))
+	if err != nil {
+		return "", nil, fmt.Errorf("pairing link: %w", err)
+	}
+	if parsed.Scheme != "https" || parsed.Host != "agentb.app" || parsed.Path != "/pair" {
+		return "", nil, errors.New("pairing link: not an agentb.app pairing link")
+	}
+	code, key := "", ""
+	for _, pair := range strings.Split(parsed.Fragment, "&") {
+		name, value, found := strings.Cut(pair, "=")
+		if !found {
+			continue
+		}
+		switch name {
+		case "c":
+			code = value
+		case "k":
+			key = value
+		}
+	}
+	if code == "" || key == "" {
+		return "", nil, errors.New("pairing link: it carries no code or no key")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(key)
+	if err != nil || len(raw) != 32 {
+		return "", nil, errors.New("pairing link: the key is not 32 bytes of unpadded base64url")
+	}
+	return code, raw, nil
 }

@@ -146,7 +146,7 @@ func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
 	if change.Service.Kind != "http" && change.Service.Kind != "mcp" {
 		return ConnectorChange{}, true, fmt.Errorf("connector.entry.kind must be mcp or http")
 	}
-	if err := config.ValidateServiceAuth(change.Service.Auth); err != nil {
+	if err := config.ValidateNewServiceAuth(change.Service.Auth); err != nil {
 		return ConnectorChange{}, true, fmt.Errorf("connector.entry.auth: %w", err)
 	}
 	if strings.HasPrefix(strings.TrimSpace(change.Service.Auth), "exec:") {

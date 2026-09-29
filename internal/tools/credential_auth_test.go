@@ -272,7 +272,12 @@ func TestStoredIsValidAuthAndStaticBearerIsRefusedForNewConnectors2nv(t *testing
 	if err := config.ValidateServiceAuth("stored:Depot Key"); err == nil {
 		t.Error("stored: accepted a name that is not a slug")
 	}
-	if err := config.ValidateServiceAuth("static_bearer:DEPOT_KEY"); err == nil {
+	// A configuration carrying one must still LOAD — the migration reads it — but nothing
+	// may create or save one.
+	if err := config.ValidateServiceAuth("static_bearer:DEPOT_KEY"); err != nil {
+		t.Errorf("an existing static_bearer connector no longer loads: %v", err)
+	}
+	if err := config.ValidateNewServiceAuth("static_bearer:DEPOT_KEY"); err == nil {
 		t.Error("static_bearer: is still accepted for a new connector")
 	}
 	change, present, err := ParseConnectorChange(map[string]any{"connector": map[string]any{

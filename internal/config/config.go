@@ -938,6 +938,13 @@ func (c Config) Save(path string) error {
 	if err := persisted.Validate(); err != nil {
 		return err
 	}
+	// Item 2nv (h): a retired auth mode is never written back. The migration rewrites
+	// each one before this is reached, so getting here means something tried to keep it.
+	for name, service := range persisted.Services {
+		if err := ValidateNewServiceAuth(service.Auth); err != nil {
+			return fmt.Errorf("services.%s.auth: %w", name, err)
+		}
+	}
 	persisted.Shell.OperatorContext = false
 	persisted.Shell.OperatorContextExpiresAt = ""
 	data, err := json.MarshalIndent(persisted, "", "  ")
@@ -1552,15 +1559,30 @@ func ValidateServiceAuth(value string) error {
 		}
 		return nil
 	}
-	// (h): static_bearer is RETIRED. It is still read by the migration, which moves each
-	// one into the store on load, but it can no longer be written.
+	// (h): static_bearer is RETIRED, but a configuration that still carries one must LOAD
+	// — that is what the migration reads. So it is accepted here and refused in the two
+	// places that would let a new one exist: a connector proposal, and Save.
 	if strings.HasPrefix(value, "static_bearer:") {
-		return fmt.Errorf("static_bearer is retired; add the credential in Settings → Security and use stored:<name>")
+		name := strings.TrimSpace(strings.TrimPrefix(value, "static_bearer:"))
+		if name == "" || !serviceEnvironmentName.MatchString(name) {
+			return fmt.Errorf("static_bearer requires an environment variable name")
+		}
+		return nil
 	}
 	if strings.HasPrefix(value, "exec:") && strings.TrimSpace(strings.TrimPrefix(value, "exec:")) != "" {
 		return nil
 	}
 	return fmt.Errorf("must be none, stored:<name>, or exec:<argv>")
+}
+
+// ValidateNewServiceAuth is the rule for auth that is being WRITTEN: a connector the
+// model proposes, or a configuration being saved. Item 2nv (h): static_bearer cannot be
+// created any more, only migrated away.
+func ValidateNewServiceAuth(value string) error {
+	if strings.HasPrefix(strings.TrimSpace(value), "static_bearer:") {
+		return fmt.Errorf("static_bearer is retired; add the credential in Settings → Security and use stored:<name>")
+	}
+	return ValidateServiceAuth(value)
 }
 func oneOf(v string, values ...string) bool {
 	for _, x := range values {

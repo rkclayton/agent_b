@@ -410,8 +410,7 @@ func TestServiceAllowlistValidation(t *testing.T) {
 	}{
 		{"base_url", func(service *Service) { service.BaseURL = "file:///tmp/broker" }, "base_url"},
 		{"auth", func(service *Service) { service.Auth = "oauth:magic" }, "auth"},
-		// Item 2nv (h): static_bearer is retired — the migration reads one, nothing writes one.
-		{"static_env", func(service *Service) { service.Auth = "static_bearer:DEPOT_KEY" }, "retired"},
+		{"static_env", func(service *Service) { service.Auth = "static_bearer:not a name" }, "environment variable"},
 		{"methods", func(service *Service) { service.AllowedMethods = nil }, "allowed_methods"},
 		{"timeout", func(service *Service) { service.TimeoutS = 0 }, "timeout_s"},
 		{"body_limit", func(service *Service) { service.MaxBodyKB = 0 }, "max_body_kb"},

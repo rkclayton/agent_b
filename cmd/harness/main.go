@@ -134,6 +134,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Item 2nv (h): every static_bearer connector moves into the credential store here,
+	// once, before anything can use one. A connector whose variable is empty or whose
+	// value does not verify is left unauthenticated and says so; nothing falls back to
+	// the environment.
+	if notices := config.MigrateConnectorCredentials(cfg, paths.Data); len(notices) > 0 {
+		for _, notice := range notices {
+			log.Printf("credentials: %s", notice)
+		}
+		if err := cfg.Save(paths.Config); err != nil {
+			log.Printf("credentials: the migrated configuration could not be saved: %v", err)
+		}
+	}
 	profileManager, profileMigrated, err := profiles.Open(paths.Data, paths.Config, cfg)
 	if err != nil {
 		log.Fatal(err)
@@ -403,6 +415,9 @@ func main() {
 	fetchTool := tools.NewFetch(cfg.Tools.Fetch)
 	delegateTool := tools.NewDelegate()
 	callServiceTool := tools.NewCallService(cfg.Services)
+	// Item 2nv: the named-credential store lives beside the connection credentials, under
+	// the operator data root, and the tool reads it through one seam.
+	callServiceTool.SetVault(credential.NewVault(paths.Data))
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
@@ -427,6 +442,7 @@ func main() {
 	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Connection, web.ConfigSnapshot)
 	runner.Gate().SetStandingGrantStore(filepath.Join(paths.Data, "standing-grants.json"))
 	callServiceTool.SetConnectorWriter(web.ApplyConnector)
+	webserver.SetCredentialVault(credential.NewVault(paths.Data))
 	runner.BindDelegate(delegateTool)
 	runner.SetSessionRenamer(registry.RenameBy)
 	deliveryManager := delivery.New(bus, web.ConfigSnapshot)

@@ -278,7 +278,7 @@ func TestAConnectorProposalCarriesTheDocument2nr(t *testing.T) {
 		"operation": "add",
 		"entry": map[string]any{
 			"name": "depot", "url": "https://depot.invalid", "kind": "http",
-			"auth": "static_bearer:DEPOT_KEY", "allowed_methods": []any{"GET"},
+			"auth": "stored:depot-key", "allowed_methods": []any{"GET"},
 			"openapi": map[string]any{"document": "https://depot.invalid/openapi.json", "operations": []any{"listWidgets"}},
 		},
 	}})

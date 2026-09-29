@@ -938,12 +938,8 @@ if ($AllUsers -and -not $TestMode -and $config.shell.service_account -and [bool]
 	$serviceAccountName = if ($config.shell.service_account.account) { [string]$config.shell.service_account.account } else { 'agentb-svc' }
 	$credentialPath = Join-Path $dataRoot '.agentb-shell-credential.dpapi'
 	$serviceAccountExists = [bool](Get-LocalUser -Name $serviceAccountName -ErrorAction SilentlyContinue)
-	$modelAddress, $modelPort = '127.0.0.1', 8080
-	if ($config.connections -and $config.connections.Count -gt 0 -and $config.connections[0].base_url) {
-		$modelUri = [Uri]([string]$config.connections[0].base_url)
-		$modelAddress = $modelUri.Host
-		$modelPort = if ($modelUri.IsDefaultPort) { if ($modelUri.Scheme -eq 'https') { 443 } else { 80 } } else { $modelUri.Port }
-	}
+	# Item 2nx: the service identity's rule names no model address, so the installer
+	# reads no connection to provision it.
 	if (-not $serviceAccountExists -or -not (Test-Path -LiteralPath $credentialPath -PathType Leaf)) {
 		$random = [byte[]]::new(32)
 		$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
@@ -957,13 +953,13 @@ if ($AllUsers -and -not $TestMode -and $config.shell.service_account -and [bool]
 			[Array]::Clear($plain, 0, $plain.Length)
 			[Array]::Clear($random, 0, $random.Length)
 		}
-		$provisionArguments = @('-AccountName', $serviceAccountName, '-CredentialStore', $credentialPath, '-ApplicationDirectory', $applicationRoot, '-DataDirectory', $dataRoot, '-WorkspaceDirectory', $workspaceRoot, '-ExchangeDirectory', $exchangeRoot, '-ModelAddress', $modelAddress, '-ModelPort', $modelPort)
+		$provisionArguments = @('-AccountName', $serviceAccountName, '-CredentialStore', $credentialPath, '-ApplicationDirectory', $applicationRoot, '-DataDirectory', $dataRoot, '-WorkspaceDirectory', $workspaceRoot, '-ExchangeDirectory', $exchangeRoot)
 		if ($serviceAccountExists) { $provisionArguments += '-ResetPassword' }
 		& (Join-Path $applicationRoot 'scripts\provision-service-identity.ps1') @provisionArguments
 		Assert-ScriptExitCode -Purpose 'Service identity provisioning' -Code $LASTEXITCODE
 		Write-Host 'PASS: service identity provisioned during elevated install'
 	} else {
-		& (Join-Path $applicationRoot 'scripts\apply-hardening.ps1') -Mode Apply -AccountName $serviceAccountName -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $exchangeRoot -ModelAddress $modelAddress -ModelPort $modelPort
+		& (Join-Path $applicationRoot 'scripts\apply-hardening.ps1') -Mode Apply -AccountName $serviceAccountName -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $exchangeRoot
 		Assert-ScriptExitCode -Purpose 'Existing service identity protection repair' -Code $LASTEXITCODE
 		Write-Host 'PASS: existing service identity and credential preserved; protections repaired'
 	}

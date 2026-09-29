@@ -35,7 +35,7 @@ func TestStatusReportsAbsentAccountWithoutMutation(t *testing.T) {
 	// allowing the absent-account result to be observed on a cold runner.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	status, err := manager.Status(ctx, Request{AccountName: "agentb-test-account-that-does-not-exist", ApplicationDirectory: application, DataDirectory: data, WorkspaceDirectory: workspace, ExchangeDirectory: exchange, ModelAddress: "127.0.0.1", ModelPort: 8080})
+	status, err := manager.Status(ctx, Request{AccountName: "agentb-test-account-that-does-not-exist", ApplicationDirectory: application, DataDirectory: data, WorkspaceDirectory: workspace, ExchangeDirectory: exchange})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestStatusAcceptsTheScratchWorkspaceInsideTheDataRoot(t *testing.T) {
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	request := Request{AccountName: "agentb-test-account-that-does-not-exist", ApplicationDirectory: application, DataDirectory: data, WorkspaceDirectory: filepath.Join(data, "scratch"), ExchangeDirectory: exchange, ModelAddress: "127.0.0.1", ModelPort: 8080}
+	request := Request{AccountName: "agentb-test-account-that-does-not-exist", ApplicationDirectory: application, DataDirectory: data, WorkspaceDirectory: filepath.Join(data, "scratch"), ExchangeDirectory: exchange}
 	if status, err := manager.Status(ctx, request); err != nil || !status.Supported {
 		t.Fatalf("a scratch workspace must inspect: %+v %v", status, err)
 	}

@@ -13,8 +13,6 @@ type Request struct {
 	DataDirectory        string
 	WorkspaceDirectory   string
 	ExchangeDirectory    string
-	ModelAddress         string
-	ModelPort            int
 	AllowLocalNetwork    bool
 	LocalSubnets         []string
 	AllowedModelRanges   []string
@@ -26,7 +24,6 @@ type ComponentStatus struct {
 	Applied           bool        `json:"applied"`
 	Drift             int         `json:"drift,omitempty"`
 	Summary           string      `json:"summary"`
-	ResolvedAddresses []string    `json:"resolved_addresses,omitempty"`
 	ResolutionChanged bool        `json:"resolution_changed,omitempty"`
 	Items             []DriftItem `json:"items,omitempty"`
 }
@@ -41,8 +38,6 @@ type DriftItem struct {
 type Status struct {
 	Supported             bool            `json:"supported"`
 	HarnessElevated       bool            `json:"harness_elevated"`
-	ModelAddress          string          `json:"model_address"`
-	ModelPort             int             `json:"model_port"`
 	ACL                   ComponentStatus `json:"acl"`
 	Firewall              ComponentStatus `json:"firewall"`
 	Applied               bool            `json:"applied"`

@@ -49,8 +49,6 @@ func (m *windowsManager) Status(ctx context.Context, request Request) (Status, e
 	}
 	firewallArguments := []string{
 		"-AccountName", request.AccountName,
-		"-ModelAddress", request.ModelAddress,
-		"-ModelPort", fmt.Sprint(request.ModelPort),
 	}
 	if request.AllowLocalNetwork {
 		firewallArguments = append(firewallArguments, "-AllowLocalNetwork")
@@ -67,8 +65,7 @@ func (m *windowsManager) Status(ctx context.Context, request Request) (Status, e
 		return Status{}, fmt.Errorf("inspect firewall policy: %w", err)
 	}
 	return Status{
-		Supported: true, HarnessElevated: isUserAnAdmin(), ModelAddress: request.ModelAddress, ModelPort: request.ModelPort,
-		ACL: acl, Firewall: firewall, Applied: acl.Applied && firewall.Applied,
+		Supported: true, HarnessElevated: isUserAnAdmin(), ACL: acl, Firewall: firewall, Applied: acl.Applied && firewall.Applied,
 		AllowLocalNetwork: request.AllowLocalNetwork, ConfirmedLocalSubnets: append([]string(nil), request.LocalSubnets...),
 		AllowedModelRanges: append([]string(nil), request.AllowedModelRanges...),
 	}, nil
@@ -128,8 +125,6 @@ func (m *windowsManager) Run(ctx context.Context, action string, request Request
 		"-DataDirectory", request.DataDirectory,
 		"-WorkspaceDirectory", request.WorkspaceDirectory,
 		"-ExchangeDirectory", request.ExchangeDirectory,
-		"-ModelAddress", request.ModelAddress,
-		"-ModelPort", fmt.Sprint(request.ModelPort),
 	}
 	if request.AllowLocalNetwork {
 		arguments = append(arguments, "-AllowLocalNetwork")

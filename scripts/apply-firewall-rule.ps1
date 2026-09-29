@@ -2,9 +2,6 @@
 param(
     [ValidatePattern('^[A-Za-z0-9._-]+$')]
     [string]$AccountName = 'agentb-svc',
-    [string]$ModelAddress = '127.0.0.1',
-    [ValidateRange(1, 65535)]
-    [int]$ModelPort = 8080,
     [ValidatePattern('^[A-Za-z0-9._-]+$')]
     [string]$RuleName = 'AgentB-Svc-Outbound-Block',
     [ValidatePattern('^[A-Za-z0-9._-]+$')]
@@ -74,15 +71,6 @@ function Resolve-ConfiguredRange {
     return [pscustomobject]@{ Start = $start; End = $end; Prefix = "$(ConvertFrom-IPv4Number $start)/$bits" }
 }
 
-function Resolve-ModelAddresses {
-    param([string]$Name)
-    $literal = $null
-    if ([Net.IPAddress]::TryParse($Name, [ref]$literal)) { return @($literal) }
-    try { $addresses = @([Net.Dns]::GetHostAddresses($Name)) } catch { throw "Model host '$Name' could not be resolved: $($_.Exception.Message)" }
-    if ($addresses.Count -eq 0) { throw "Model host '$Name' resolved to no addresses." }
-    return @($addresses | Sort-Object -Property IPAddressToString -Unique)
-}
-
 function Resolve-BlockedRanges {
     param([object[]]$Allowed)
     $ranges = @([pscustomobject]@{ Start = [uint64]0; End = [uint64]4294967295 })
@@ -103,16 +91,11 @@ function Resolve-BlockedRanges {
     return $result + @('::', '::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')
 }
 
-$resolvedModelAddresses = @(Resolve-ModelAddresses -Name $ModelAddress)
-$resolvedIPv4 = @($resolvedModelAddresses | Where-Object { $_.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork })
-$unsupportedIPv6 = @($resolvedModelAddresses | Where-Object { $_.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetworkV6 -and -not $_.Equals([Net.IPAddress]::IPv6Loopback) })
-if ($resolvedIPv4.Count -eq 0 -and $unsupportedIPv6.Count -gt 0) { throw "Model host '$ModelAddress' resolved only to IPv6 addresses; this policy currently requires an IPv4 address or loopback." }
-$resolvedAddressText = @($resolvedModelAddresses | ForEach-Object { $_.IPAddressToString } | Sort-Object -Unique)
+# Item 2nx (a): A STATIC RULE. Loopback, plus the operator's own explicit exceptions --
+# his confirmed LAN prefixes and shell.allowed_model_ranges -- and nothing derived from a
+# model connection. Nothing here resolves a name, so applying protection cannot fail
+# because a host is unreachable, and changing the active connection changes nothing.
 $allowedRanges = @([pscustomobject]@{ Start = [uint64]2130706432; End = [uint64]2147483647; Prefix = '127.0.0.0/8' })
-foreach ($address in $resolvedIPv4) {
-    $number = ConvertTo-IPv4Number $address
-    $allowedRanges += [pscustomobject]@{ Start = $number; End = $number; Prefix = $address.IPAddressToString }
-}
 $configuredRanges = @()
 foreach ($prefix in $AllowedRange) { $configuredRanges += Resolve-ConfiguredRange $prefix }
 $allowedRanges += $configuredRanges
@@ -128,7 +111,7 @@ $confirmedLANSubnets = @($allowedLANRanges | ForEach-Object { $_.Prefix } | Sort
 if ($AllowLocalNetwork) { $allowedRanges += $allowedLANRanges }
 $configuredRangeText = @($configuredRanges | ForEach-Object { $_.Prefix } | Sort-Object -Unique)
 $blockedRanges = Resolve-BlockedRanges $allowedRanges
-$policyDescription = "Agent_b model=$ModelAddress addresses=$($resolvedAddressText -join ',') allowed=$($configuredRangeText -join ',') lan=$($confirmedLANSubnets -join ',')"
+$policyDescription = "Agent_b allowed=$($configuredRangeText -join ',') lan=$($confirmedLANSubnets -join ',')"
 $script:confirmationSuppressed = $NoPrompt -or ($PSBoundParameters.ContainsKey('Confirm') -and -not [bool]$PSBoundParameters['Confirm'])
 if ($NoPrompt) { $ConfirmPreference = 'None' }
 
@@ -196,7 +179,7 @@ function Test-RuleIntent {
     $rule = Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue
     if (-not $rule) { return $false }
     if ($rule.Direction -ne 'Outbound' -or $rule.Action -ne 'Block' -or $rule.Enabled -ne 'True' -or $rule.Connection -ne 'Any') { return $false }
-    if ($rule.Description -ne $policyDescription) { $script:resolutionChanged = $true; return $false }
+    if ($rule.Description -ne $policyDescription) { return $false }
     # LocalUser is stored on the associated network-layer security filter,
     # not on the MSFT_NetFirewallRule object returned by Get-NetFirewallRule.
     $security = Get-NetFirewallSecurityFilter -AssociatedNetFirewallRule $rule
@@ -219,8 +202,7 @@ if (($Verify.IsPresent -and $Remove.IsPresent) -or ($Inspect.IsPresent -and ($Ve
 }
 Write-Host 'Agent_b service-account outbound firewall policy'
 Write-Host "Account: $env:COMPUTERNAME\$AccountName"
-Write-Host "Model endpoint: $ModelAddress`:$ModelPort -> $($resolvedAddressText -join ', ')"
-Write-Host "Policy: one user-scoped outbound Block rule; spare loopback and the configured model server$(if ($configuredRangeText.Count) { ", configured ranges $($configuredRangeText -join ', ')" } else { '' })$(if ($AllowLocalNetwork) { ", and confirmed LAN $($confirmedLANSubnets -join ', ')" } else { '' })."
+Write-Host "Policy: one user-scoped outbound Block rule; spare loopback$(if ($configuredRangeText.Count) { ", configured ranges $($configuredRangeText -join ', ')" } else { '' })$(if ($AllowLocalNetwork) { ", and confirmed LAN $($confirmedLANSubnets -join ', ')" } else { '' })."
 Write-Host "$(if ($AllowLocalNetwork) { 'One account-scoped outbound ICMPv4 echo Allow rule is created for the confirmed LAN subnets.' } else { 'No Allow rule is created.' }) Machine-wide DefaultOutboundAction is not changed."
 
 if (-not (Test-IsAdministrator) -and -not $WhatIfPreference -and -not $Verify -and -not $Inspect) {
@@ -264,16 +246,17 @@ try { $sid = Resolve-LocalUserSid -Name $AccountName } catch {
     exit 1
 }
 $localUserSddl = "D:(A;;CC;;;$sid)"
-$script:resolutionChanged = $false
 $correct = Test-RuleIntent -LocalUserSddl $localUserSddl
 $legacyPresent = [bool](Get-NetFirewallRule -Name $legacyAllowRuleName -ErrorAction SilentlyContinue)
 
 if ($Inspect) {
-    $summary = if ($correct -and -not $legacyPresent) { 'user-scoped outbound policy verified' } elseif ($script:resolutionChanged) { "model host resolution changed; apply protection again ($ModelAddress -> $($resolvedAddressText -join ', '))" } else { 'firewall rule missing or drifted' }
+    # Item 2nx (c) and (d): there is no model address to drift, so the only two answers
+    # are that the rule is right or that it is missing or different from the policy.
+    $summary = if ($correct -and -not $legacyPresent) { 'user-scoped outbound policy verified' } elseif ($legacyPresent) { 'a conflicting legacy Allow rule is present; apply protection again to remove it' } else { 'the outbound rule is missing or differs from this policy; apply protection again' }
     $items = @()
-    if (-not $correct) { $items += [ordered]@{ rule = $ruleName; expected = "outbound Block except loopback and $ModelAddress`:$ModelPort"; found = $(if (Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue) { 'rule differs from configured identity or destinations' } else { 'rule missing' }) } }
+    if (-not $correct) { $items += [ordered]@{ rule = $ruleName; expected = 'outbound Block except loopback and the operator-approved ranges'; found = $(if (Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue) { 'rule differs from configured identity or destinations' } else { 'rule missing' }) } }
     if ($legacyPresent) { $items += [ordered]@{ rule = $legacyAllowRuleName; expected = 'absent'; found = 'conflicting legacy Allow rule present' } }
-    $status = [ordered]@{ supported = $true; account_exists = $true; applied = ($correct -and -not $legacyPresent); summary = $summary; resolved_addresses = $resolvedAddressText; resolution_changed = $script:resolutionChanged; items = $items }
+    $status = [ordered]@{ supported = $true; account_exists = $true; applied = ($correct -and -not $legacyPresent); summary = $summary; items = $items }
     Write-Output ($statusMarker + ($status | ConvertTo-Json -Compress))
     exit 0
 }

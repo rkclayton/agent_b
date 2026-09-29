@@ -8,8 +8,6 @@ param(
     [string]$DataDirectory,
     [string]$WorkspaceDirectory,
     [string]$ExchangeDirectory,
-    [string]$ModelAddress,
-    [ValidateRange(1, 65535)][int]$ModelPort,
     [switch]$AllowLocalNetwork,
     [string[]]$LocalSubnet = @(),
     [string[]]$AllowedRange = @(),
@@ -151,7 +149,7 @@ if ($RemoveMachineCredential) {
 # ------------------------------------------------------------- (c) unattended
 
 if ($Unattended) {
-    foreach ($required in @('ApplicationDirectory', 'DataDirectory', 'WorkspaceDirectory', 'ExchangeDirectory', 'ModelAddress')) {
+    foreach ($required in @('ApplicationDirectory', 'DataDirectory', 'WorkspaceDirectory', 'ExchangeDirectory')) {
         if ([string]::IsNullOrWhiteSpace((Get-Variable -Name $required -ValueOnly))) {
             Write-ProvisionResult -Outcome 'refused' -Message "-$required is required."
             exit 1
@@ -214,8 +212,7 @@ if ($Unattended) {
     $protectionArguments = @(
         '-Mode', 'Apply', '-AccountName', $AccountName,
         '-ApplicationDirectory', $ApplicationDirectory, '-DataDirectory', $DataDirectory,
-        '-WorkspaceDirectory', $WorkspaceDirectory, '-ExchangeDirectory', $ExchangeDirectory,
-        '-ModelAddress', $ModelAddress, '-ModelPort', $ModelPort.ToString()
+        '-WorkspaceDirectory', $WorkspaceDirectory, '-ExchangeDirectory', $ExchangeDirectory
     )
     if ($AllowLocalNetwork) { $protectionArguments += '-AllowLocalNetwork' }
     if ($LocalSubnet.Count) { $protectionArguments += @('-LocalSubnet', ($LocalSubnet -join ',')) }
@@ -246,7 +243,7 @@ if ($Unattended) {
 
 # Item 2li (e): unchanged. Settings still provisions user-scoped for someone with
 # admin rights, through exactly the arguments it always passed.
-foreach ($required in @('CredentialStore', 'ApplicationDirectory', 'DataDirectory', 'WorkspaceDirectory', 'ExchangeDirectory', 'ModelAddress')) {
+foreach ($required in @('CredentialStore', 'ApplicationDirectory', 'DataDirectory', 'WorkspaceDirectory', 'ExchangeDirectory')) {
     if ([string]::IsNullOrWhiteSpace((Get-Variable -Name $required -ValueOnly))) {
         throw "-$required is required."
     }
@@ -262,8 +259,7 @@ Invoke-AgentBScript -Path (Join-Path $PSScriptRoot 'setup-service-account.ps1') 
 $protectionArguments = @(
     '-Mode', 'Apply', '-AccountName', $AccountName,
     '-ApplicationDirectory', $ApplicationDirectory, '-DataDirectory', $DataDirectory,
-    '-WorkspaceDirectory', $WorkspaceDirectory, '-ExchangeDirectory', $ExchangeDirectory,
-    '-ModelAddress', $ModelAddress, '-ModelPort', $ModelPort.ToString()
+    '-WorkspaceDirectory', $WorkspaceDirectory, '-ExchangeDirectory', $ExchangeDirectory
 )
 if ($AllowLocalNetwork) { $protectionArguments += '-AllowLocalNetwork' }
 if ($LocalSubnet.Count) { $protectionArguments += @('-LocalSubnet', ($LocalSubnet -join ',')) }

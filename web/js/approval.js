@@ -25,12 +25,30 @@ export function approvalText(data = {}) {
 		? data.boundary_escape
 		: data.name?.endsWith(".operator_override");
 	const value = data.args?.path ?? data.args?.command ?? data.args?.pattern ?? "";
-	if (data.name === "call_service" && data.args?.connector) return {
-		title: "Allow this",
-		request: `${data.args.connector.operation || "change"} connector configuration?`,
-		reason: data.args.validation_error || "Agent_b will validate, save, and hot-reload this entry.",
-		detail: JSON.stringify(data.args.connector, null, 2),
-	};
+	if (data.name === "call_service" && data.args?.connector) {
+		// Item 2nr (b): when the proposal imports an OpenAPI document, THIS card shows the
+		// operations it would enable and what the document says its own auth wants. No
+		// second card and no Settings control: the connector card is still the only way a
+		// connector changes.
+		const operations = Array.isArray(data.args.connector_operations) ? data.args.connector_operations : [];
+		const imported = operations.length
+			? [
+				"Operations this would enable:",
+				...operations.map((line) => `  ${line}`),
+				"",
+				`The document says its own authentication wants: ${data.args.connector_document_auth || "nothing"}`,
+				"Agent_b sends the connector's own credential, never the document's.",
+				"",
+				"",
+			].join("\n")
+			: "";
+		return {
+			title: "Allow this",
+			request: `${data.args.connector.operation || "change"} connector configuration?`,
+			reason: data.args.validation_error || "Agent_b will validate, save, and hot-reload this entry.",
+			detail: imported + JSON.stringify(data.args.connector, null, 2),
+		};
+	}
 	if (data.kind === "cycle" || data.name === "run.cycle") return {
 		title: "Loop check",
 		request: "You’re repeating — continue or stop?",

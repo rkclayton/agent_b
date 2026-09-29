@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -403,50 +402,15 @@ func (s *Server) routes() http.Handler {
 	return mux
 }
 
+// hardeningRequest is what the protection scripts are given. Item 2nx: NOTHING IN IT
+// COMES FROM A MODEL CONNECTION any more — the service identity's outbound rule is
+// loopback plus the operator's own approved ranges, so no host is resolved, nothing fails
+// because a connection is unreachable, and switching connections changes nothing. The
+// connectionID argument stays because callers pass one; it is no longer read.
 func (s *Server) hardeningRequest(connectionID string) (hardening.Request, error) {
 	s.mu.RLock()
 	cfg := *s.cfg
 	s.mu.RUnlock()
-	if connectionID == "" {
-		if agent, ok := cfg.Agent(cfg.DefaultAgentID()); ok {
-			connectionID = agent.B
-		}
-	}
-	var connection *config.Connection
-	for index := range cfg.Connections {
-		if cfg.Connections[index].ID == connectionID {
-			value := cfg.Connections[index]
-			connection = &value
-			break
-		}
-	}
-	if connection == nil {
-		return hardening.Request{}, fmt.Errorf("model connection not found")
-	}
-	endpoint, err := url.Parse(connection.BaseURL)
-	if err != nil || endpoint.Hostname() == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
-		return hardening.Request{}, fmt.Errorf("model connection base_url is invalid")
-	}
-	host := endpoint.Hostname()
-	if strings.EqualFold(host, "localhost") {
-		host = "127.0.0.1"
-	}
-	if net.ParseIP(host) == nil && !validModelHostname(host) {
-		return hardening.Request{}, fmt.Errorf("model connection host %q is not a valid hostname or IP address", host)
-	}
-	port := 0
-	if endpoint.Port() != "" {
-		if _, err := fmt.Sscanf(endpoint.Port(), "%d", &port); err != nil {
-			return hardening.Request{}, fmt.Errorf("model connection port is invalid")
-		}
-	} else if endpoint.Scheme == "https" {
-		port = 443
-	} else {
-		port = 80
-	}
-	if port < 1 || port > 65535 {
-		return hardening.Request{}, fmt.Errorf("model connection port must be between 1 and 65535")
-	}
 	exchange, err := cfg.ResolvedExchangeFolder()
 	if err != nil {
 		return hardening.Request{}, err
@@ -454,28 +418,12 @@ func (s *Server) hardeningRequest(connectionID string) (hardening.Request, error
 	return hardening.Request{
 		AccountName: cfg.Shell.ServiceAccount.Account, ApplicationDirectory: s.roots.Application,
 		DataDirectory: s.roots.Data, WorkspaceDirectory: s.roots.Workspace, ExchangeDirectory: exchange,
-		ModelAddress: host, ModelPort: port, AllowLocalNetwork: cfg.Shell.AllowLocalNetwork,
+		AllowLocalNetwork:  cfg.Shell.AllowLocalNetwork,
 		LocalSubnets:       append([]string(nil), cfg.Shell.ConfirmedLocalSubnets...),
 		AllowedModelRanges: append([]string(nil), cfg.Shell.AllowedModelRanges...),
 	}, nil
 }
 
-func validModelHostname(host string) bool {
-	if len(host) == 0 || len(host) > 253 {
-		return false
-	}
-	for _, label := range strings.Split(strings.TrimSuffix(host, "."), ".") {
-		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return false
-		}
-		for _, ch := range label {
-			if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') && ch != '-' {
-				return false
-			}
-		}
-	}
-	return true
-}
 
 func newMutationToken() string {
 	value := make([]byte, 32)

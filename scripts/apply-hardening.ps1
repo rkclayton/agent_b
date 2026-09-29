@@ -12,10 +12,6 @@ param(
     [string]$WorkspaceDirectory,
     [Parameter(Mandatory = $true)]
     [string]$ExchangeDirectory,
-    [Parameter(Mandatory = $true)]
-    [string]$ModelAddress,
-    [ValidateRange(1, 65535)]
-	[int]$ModelPort,
 	[switch]$AllowLocalNetwork,
 	[string[]]$LocalSubnet = @(),
 	[string[]]$AllowedRange = @(),
@@ -51,9 +47,15 @@ function Invoke-HardeningScript {
     $exitCode = $LASTEXITCODE
     foreach ($line in $output) { Write-Host $line }
     if ($exitCode -ne 0) {
+        # Item 2nx (d): THE CAUSE COMES FIRST. What reaches Settings is the first line of
+        # this message, and "apply-hardening.ps1 exited 1" told the operator nothing --
+        # the sentence that mattered was twenty lines down in the log. The last non-empty
+        # line a failing child writes is its reason, so it leads.
         $detail = ($output | Select-Object -Last 20) -join [Environment]::NewLine
         if ([string]::IsNullOrWhiteSpace($detail)) { $detail = 'no diagnostic output was returned' }
-        throw "$(Split-Path -Leaf $Path) exited $exitCode`n$detail"
+        $causeLines = @($output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $causeText = if ($causeLines.Count) { ([string]$causeLines[-1]).Trim() } else { 'no diagnostic output was returned' }
+        throw "$causeText ($(Split-Path -Leaf $Path) exited $exitCode)`n$detail"
     }
 }
 
@@ -66,7 +68,7 @@ if ($requiresElevation -and -not (Test-IsAdministrator)) {
 $aclScript = Join-Path $PSScriptRoot 'apply-acls.ps1'
 $firewallScript = Join-Path $PSScriptRoot 'apply-firewall-rule.ps1'
 $aclArguments = @('-AccountName', $AccountName, '-ApplicationDirectory', $ApplicationDirectory, '-DataDirectory', $DataDirectory, '-WorkspaceDirectory', $WorkspaceDirectory, '-ExchangeDirectory', $ExchangeDirectory, '-NoPrompt')
-$firewallArguments = @('-AccountName', $AccountName, '-ModelAddress', $ModelAddress, '-ModelPort', $ModelPort.ToString(), '-NoPrompt')
+$firewallArguments = @('-AccountName', $AccountName, '-NoPrompt')
 if ($AllowLocalNetwork) { $firewallArguments += '-AllowLocalNetwork' }
 if ($LocalSubnet.Count) { $firewallArguments += @('-LocalSubnet', ($LocalSubnet -join ',')) }
 if ($AllowedRange.Count) { $firewallArguments += @('-AllowedRange', ($AllowedRange -join ',')) }
@@ -87,7 +89,6 @@ Write-Host "Application: $ApplicationDirectory"
 Write-Host "Operator data: $DataDirectory"
 Write-Host "Workspace: $WorkspaceDirectory"
 Write-Host "Exchange: $ExchangeDirectory"
-Write-Host "Model endpoint: $ModelAddress`:$ModelPort"
 
 # Item 2nl (d): EACH HALF SAYS WHEN IT IS DONE, so a repair that gets part of the way
 # can be described as the part it got. The operator's run applied every folder
@@ -107,7 +108,7 @@ if ($Mode -eq 'Remove') {
 
 if ($Mode -eq 'Apply' -and -not $WhatIfPreference) {
     Invoke-HardeningScript -Path $aclScript -Arguments @('-AccountName', $AccountName, '-ApplicationDirectory', $ApplicationDirectory, '-DataDirectory', $DataDirectory, '-WorkspaceDirectory', $WorkspaceDirectory, '-ExchangeDirectory', $ExchangeDirectory, '-Verify')
-    $firewallVerifyArguments = @('-AccountName', $AccountName, '-ModelAddress', $ModelAddress, '-ModelPort', $ModelPort.ToString(), '-Verify')
+    $firewallVerifyArguments = @('-AccountName', $AccountName, '-Verify')
     if ($AllowLocalNetwork) { $firewallVerifyArguments += '-AllowLocalNetwork' }
     if ($LocalSubnet.Count) { $firewallVerifyArguments += @('-LocalSubnet', ($LocalSubnet -join ',')) }
     if ($AllowedRange.Count) { $firewallVerifyArguments += @('-AllowedRange', ($AllowedRange -join ',')) }

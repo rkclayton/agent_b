@@ -94,8 +94,6 @@ func (m *windowsManager) Setup(ctx context.Context, account, credentialPath stri
 			"-DataDirectory", protection.DataDirectory,
 			"-WorkspaceDirectory", protection.WorkspaceDirectory,
 			"-ExchangeDirectory", protection.ExchangeDirectory,
-			"-ModelAddress", protection.ModelAddress,
-			"-ModelPort", fmt.Sprint(protection.ModelPort),
 		}
 		if protection.AllowLocalNetwork {
 			arguments = append(arguments, "-AllowLocalNetwork")

@@ -123,8 +123,6 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 		DataDirectory:        protectionRequest.DataDirectory,
 		WorkspaceDirectory:   protectionRequest.WorkspaceDirectory,
 		ExchangeDirectory:    protectionRequest.ExchangeDirectory,
-		ModelAddress:         protectionRequest.ModelAddress,
-		ModelPort:            protectionRequest.ModelPort,
 		AllowLocalNetwork:    protectionRequest.AllowLocalNetwork,
 		LocalSubnets:         protectionRequest.LocalSubnets,
 		AllowedModelRanges:   protectionRequest.AllowedModelRanges,

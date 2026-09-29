@@ -66,8 +66,6 @@ type Protection struct {
 	DataDirectory        string
 	WorkspaceDirectory   string
 	ExchangeDirectory    string
-	ModelAddress         string
-	ModelPort            int
 	AllowLocalNetwork    bool
 	LocalSubnets         []string
 	AllowedModelRanges   []string

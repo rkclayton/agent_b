@@ -146,12 +146,12 @@ try {
 
     Write-Host "VERIFY firewall apply and verify with LAN switch on: $confirmedSubnet"
     $firewallAttempted = $true
-    & (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\apply-firewall-rule.ps1') -AccountName $account -ModelAddress 127.0.0.1 -ModelPort 8080 -RuleName $firewallRule -LegacyAllowRuleName $legacyRule -LANICMPRuleName $icmpRule -AllowLocalNetwork -LocalSubnet $confirmedSubnet -NoPrompt -Confirm:$false
-    & (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\apply-firewall-rule.ps1') -AccountName $account -ModelAddress 127.0.0.1 -ModelPort 8080 -RuleName $firewallRule -LegacyAllowRuleName $legacyRule -LANICMPRuleName $icmpRule -AllowLocalNetwork -LocalSubnet $confirmedSubnet -Verify
+    & (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\apply-firewall-rule.ps1') -AccountName $account -RuleName $firewallRule -LegacyAllowRuleName $legacyRule -LANICMPRuleName $icmpRule -AllowLocalNetwork -LocalSubnet $confirmedSubnet -NoPrompt -Confirm:$false
+    & (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\apply-firewall-rule.ps1') -AccountName $account -RuleName $firewallRule -LegacyAllowRuleName $legacyRule -LANICMPRuleName $icmpRule -AllowLocalNetwork -LocalSubnet $confirmedSubnet -Verify
 
 	Write-Host 'VERIFY firewall apply and verify with LAN switch off'
-    & (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\apply-firewall-rule.ps1') -AccountName $account -ModelAddress 127.0.0.1 -ModelPort 8080 -RuleName $firewallRule -LegacyAllowRuleName $legacyRule -LANICMPRuleName $icmpRule -NoPrompt -Confirm:$false
-    & (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\apply-firewall-rule.ps1') -AccountName $account -ModelAddress 127.0.0.1 -ModelPort 8080 -RuleName $firewallRule -LegacyAllowRuleName $legacyRule -LANICMPRuleName $icmpRule -Verify
+    & (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\apply-firewall-rule.ps1') -AccountName $account -RuleName $firewallRule -LegacyAllowRuleName $legacyRule -LANICMPRuleName $icmpRule -NoPrompt -Confirm:$false
+    & (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\apply-firewall-rule.ps1') -AccountName $account -RuleName $firewallRule -LegacyAllowRuleName $legacyRule -LANICMPRuleName $icmpRule -Verify
 
     Write-Host 'PASS: Step 4 live account, credential, ACL, shell, and firewall verification'
 } finally {
@@ -161,7 +161,7 @@ try {
     Remove-Item Env:\AGENTB_STEP4_LIVE_PLANS_ROOT -ErrorAction SilentlyContinue
     Remove-Item Env:\AGENTB_STEP4_LIVE_WORKSPACE_ROOT -ErrorAction SilentlyContinue
     if ($firewallAttempted) {
-        & (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\apply-firewall-rule.ps1') -AccountName $account -ModelAddress 127.0.0.1 -ModelPort 8080 -RuleName $firewallRule -LegacyAllowRuleName $legacyRule -LANICMPRuleName $icmpRule -Remove -NoPrompt -Confirm:$false
+        & (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\apply-firewall-rule.ps1') -AccountName $account -RuleName $firewallRule -LegacyAllowRuleName $legacyRule -LANICMPRuleName $icmpRule -Remove -NoPrompt -Confirm:$false
     }
     if ($aclAttempted -and $accountCreated) {
         & (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\apply-acls.ps1') -AccountName $account -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $exchangeRoot -Remove -NoPrompt -Confirm:$false

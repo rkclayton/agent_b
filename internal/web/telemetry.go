@@ -120,17 +120,6 @@ func (s *Server) TelemetryRunning() bool {
 	return s.telemetry.state != nil
 }
 
-// TelemetryRecords is the "what was sent" view: the last batches exactly as they
-// left the machine.
-func (s *Server) TelemetryRecords() []telemetry.Record {
-	s.telemetry.mu.Lock()
-	sender := (*telemetry.Sender)(nil)
-	if s.telemetry.state != nil {
-		sender = s.telemetry.state.sender
-	}
-	s.telemetry.mu.Unlock()
-	return sender.Records()
-}
 
 // NewInstallID is issued when the switch goes off then on, so two runs of
 // telemetry from one machine cannot be joined.

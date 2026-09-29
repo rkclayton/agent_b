@@ -2202,3 +2202,17 @@
   0%, 24% { background: var(--trace); }
   25%, 100% { background: var(--bezel); }
 }
+
+/* Item 2ns (b): the pairing QR, sized to scan from a phone at arm's length and still
+   whole at the smallest window item 2nm allows (a 304 px client). It is drawn on white
+   because a QR reader needs the quiet zone and the contrast the format assumes; this is
+   the one white rectangle in the product and it is white for a machine, not a person. */
+.pairing-offer { display: inline-flex; flex-direction: column; align-items: flex-start; gap: var(--s2); }
+.pairing-qr {
+  width: min(220px, 60vw);
+  height: auto;
+  image-rendering: pixelated;
+  background: #fff;
+  padding: var(--s2);
+}
+.pairing-code { font-size: 11px; overflow-wrap: anywhere; }

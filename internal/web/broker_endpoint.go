@@ -1,11 +1,15 @@
 package web
 
 import (
+	"encoding/base64"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"harness/internal/broker"
+
+	"rsc.io/qr"
 )
 
 // Item 2kq (b) and (e): the three things Settings asks the product about the broker —
@@ -20,6 +24,9 @@ import (
 // the harness rather than by an HTTP handler.
 type BrokerHost interface {
 	Status() broker.Status
+	// IdentityKey is this AgentB's Ed25519 identity public key, which the pairing link
+	// carries so the phone can compare it with what the broker sends it.
+	IdentityKey() []byte
 	PairingOffer() (broker.PairingOffer, bool)
 	BeginPairing() (broker.PairingOffer, error)
 	ConfirmPairing() error
@@ -57,6 +64,15 @@ func (s *Server) brokerStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	response.Status = host.Status()
 	if offer, ok := host.PairingOffer(); ok {
+		// Item 2ns (b): while a code is LIVE the page gets the link as a QR code. It is
+		// built here, for this response, and kept nowhere: (c) says the link is never
+		// stored and never logged, and a value that exists only in one response body
+		// cannot be either.
+		if offer.Code != "" {
+			if link, image, err := pairingQR(offer.Code, host.IdentityKey()); err == nil {
+				offer.Link, offer.QR = link, image
+			}
+		}
 		response.Offer = &offer
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -123,4 +139,20 @@ func (s *Server) brokerDiagnostics() map[string]any {
 	section["paired"] = status.PairedDevice != ""
 	// Deliberately absent: the URL, the session id, the pairing id, the device name.
 	return section
+}
+
+// pairingQR renders the link as a PNG data URI. The encoder is rsc.io/qr: pure Go,
+// BSD-3-Clause from the Go Authors, no network and no cgo in the package imported here.
+// Medium correction, because this is read off a screen at arm's length rather than
+// printed on a box.
+func pairingQR(code string, identityKey []byte) (string, string, error) {
+	if len(identityKey) != 32 {
+		return "", "", errors.New("the identity key is not 32 bytes")
+	}
+	link := broker.PairingLink(code, identityKey)
+	encoded, err := qr.Encode(link, qr.M)
+	if err != nil {
+		return "", "", err
+	}
+	return link, "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.PNG()), nil
 }

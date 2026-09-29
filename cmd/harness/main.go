@@ -264,8 +264,10 @@ func main() {
 	registry.SetMachineMemoryLoader(memoryManager.LoadMachine)
 	registry.SetWorkspaceManager(workspaceManager)
 	web.SetRegistry(registry)
-	// Item 2kq (f): ONE KEY, AND EMPTY MEANS OFF. Nothing dials, nothing is generated
-	// and no identity exists unless the operator has set a broker address.
+	// Item 2kq (f) as item 2nu left it: the address is built in, so this is normally
+	// broker.DefaultURL and a phone can be paired on a fresh install. Constructing the
+	// client opens NOTHING — it generates this launch's identity and prepares to dial;
+	// the socket is opened only while a pairing is under way (2nu (d)).
 	if address := strings.TrimSpace(cfg.Broker.URL); address != "" {
 		if brokerClient, brokerErr := webserver.NewBrokerClient(address); brokerErr != nil {
 			log.Printf("broker: %v", brokerErr)

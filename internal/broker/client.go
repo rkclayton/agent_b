@@ -12,6 +12,15 @@ import (
 	"time"
 )
 
+// DefaultURL is THE broker address, and this is the one place it is written. Item 2nu:
+// the operator asked "cant you just have the broker url hard coded in the app? we dont
+// need to manipulate it or even expose it" once the broker went public, because a fresh
+// install could not pair a phone until someone found and typed an address. A broker.url
+// in the configuration file still wins — for tests and for anyone running their own —
+// but nothing in the page shows or edits it.
+const DefaultURL = "wss://broker.agentb.app/v1/connect"
+
+
 // Item 2kq (a): DIAL OUT AND HOLD.
 //
 // Nothing listens. This client dials the broker, authenticates as the agent endpoint,

@@ -147,18 +147,17 @@ function shell(active) {
 // The broker carries ciphertext and cannot read any of it. The fingerprint is the whole
 // of the operator's part in that: if the two screens differ, the pairing is not his.
 function brokerRows() {
-	const url = store.config.broker?.url || "";
+	// Item 2nu (b): the address is built into the build and is not in this page — no
+	// field, no label, no read-out. The section is the pairing, the paired device and
+	// Revoke; "off" is now a build without a broker, which the status says for itself.
 	const status = brokerStatus || {};
 	const offer = status.offer || {};
-	const state = !url
-		? "off — no broker address"
-		: status.state || "not connected";
-	const lamp = status.state === "connected" ? "live" : url && status.state === "reconnecting" ? "alarm" : "";
+	const state = status.state || "not connected";
+	const lamp = status.state === "connected" ? "live" : status.state === "reconnecting" ? "alarm" : "";
 	const paired = status.paired_device
 		? `${html(status.paired_device)}<button type="button" data-action="broker-revoke" data-confirm="the paired phone">Revoke</button>`
 		: "none paired";
 	return `${subhead("Phone away from home", "One phone, paired through the broker. It carries ciphertext and can read none of it; the fingerprint below is how you check that for yourself.")}
-	${text("broker.url", "broker", url, "text", "The broker this AgentB dials out to. Empty means nothing dials.")}
 	${row("connection", `<span class="account-status"><span class="lamp ${lamp}"></span>${html(state)}${status.broker_build ? ` · build ${html(status.broker_build)}` : ""}</span>`)}
 	${row("pairing", offer.code
 		// Item 2ns (b): THE QR IS THE PAIRING DISPLAY. "this code is waaay too long its
@@ -166,7 +165,7 @@ function brokerRows() {
 		// repositories agree on it; what changed is that he never types it. The code
 		// stays beneath in small plain text for a phone with no camera.
 		? `<span class="pairing-offer">${offer.qr ? `<img class="pairing-qr" src="${attr(offer.qr)}" width="220" height="220" alt="Pairing QR code">` : ""}<span class="account-status mono pairing-code">${html(offer.code)}</span></span>`
-		: `<span class="account-status">${status.paired_device ? "paired" : "not paired"}</span><button type="button" data-action="broker-pair" ${url ? "" : "disabled"}>Pair a phone</button>`,
+		: `<span class="account-status">${status.paired_device ? "paired" : "not paired"}</span><button type="button" data-action="broker-pair">Pair a phone</button>`,
 		"", "Point the phone's camera at this and tap Pair. It expires in ten minutes and works once.")}
 	${offer.fingerprint ? row("fingerprint", `<span class="account-status mono">${html(offer.fingerprint)}</span><button type="button" data-action="broker-confirm">They match</button>`, "", "Compare all ten groups with the phone before confirming.") : ""}
 	${row("device", `<span class="account-status">${paired}</span>`)}

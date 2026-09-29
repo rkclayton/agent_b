@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 
+	"harness/internal/broker"
 	"harness/internal/credential"
 )
 
@@ -532,7 +533,11 @@ type Notifications struct {
 	DiscordCredential string `json:"discord_credential"`
 }
 
-// Broker is item 2kq (f)'s one config key. A client that finds it empty dials nothing.
+// Broker is item 2kq (f)'s one config key. Item 2nu made it a key with a BUILT-IN
+// default — broker.DefaultURL, written once in internal/broker — so a fresh install can
+// pair a phone without anybody finding and typing an address. A url in the file still
+// wins, for tests and for anyone running their own broker; the page neither shows nor
+// edits it.
 type Broker struct {
 	URL string `json:"url"`
 }
@@ -1450,6 +1455,9 @@ func applyDefaults(c *Config) {
 	if !c.Shell.ServiceAccount.initialized {
 		c.Shell.ServiceAccount.Enabled = d.Shell.ServiceAccount.Enabled
 		c.Shell.ServiceAccount.initialized = true
+	}
+	if strings.TrimSpace(c.Broker.URL) == "" {
+		c.Broker.URL = broker.DefaultURL
 	}
 	if c.Shell.ServiceAccount.Account == "" {
 		c.Shell.ServiceAccount.Account = d.Shell.ServiceAccount.Account

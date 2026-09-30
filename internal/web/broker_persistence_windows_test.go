@@ -10,6 +10,8 @@ import (
 	"errors"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +21,37 @@ import (
 
 type persistenceTransport struct {
 	sent chan []byte
+}
+
+type pairingLogTransport struct {
+	incoming chan []byte
+	onSend   func(broker.Frame)
+}
+
+func (p *pairingLogTransport) Send(raw []byte) error {
+	frame, err := broker.Decode(raw)
+	if err == nil {
+		p.onSend(frame)
+	}
+	return err
+}
+func (p *pairingLogTransport) Receive(ctx context.Context) ([]byte, error) {
+	select {
+	case raw := <-p.incoming:
+		return raw, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+func (*pairingLogTransport) Close(int, string) error { return nil }
+
+func encodedFrame(t *testing.T, kind byte, payload any) []byte {
+	t.Helper()
+	raw, err := broker.Encode(kind, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 
 func (p *persistenceTransport) Send(frame []byte) error {
@@ -169,5 +202,110 @@ func TestRevokeDeletesOnlyTheStoredPairingAndNextStartDialsNothing2ob(t *testing
 	case <-dials:
 		t.Fatal("a restart dialed after the pairing was revoked")
 	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+func TestPairingRefusalIsShownAndLoggedWithoutSecrets2op(t *testing.T) {
+	root := t.TempDir()
+	client, err := NewBrokerClient(broker.DefaultURL, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &pairingLogTransport{incoming: make(chan []byte, 4)}
+	transport.onSend = func(frame broker.Frame) {
+		if frame.Type == broker.FramePairBegin {
+			transport.incoming <- encodedFrame(t, broker.FrameError, map[string]any{"code": "malformed", "detail": "pairing_id", "fatal": true})
+		}
+	}
+	client.dial = func(context.Context) (broker.Transport, error) { return transport, nil }
+	offer, err := client.BeginPairing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for client.Status().LastError == "" && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	status := client.Status()
+	if status.LastError != "refused by the broker — malformed: pairing_id" {
+		t.Fatalf("status = %+v", status)
+	}
+	if status.LogPath != filepath.Join(root, "logs", "pairing.log") {
+		t.Fatalf("log path = %q", status.LogPath)
+	}
+	_ = client.CancelPairing()
+	logBytes, err := os.ReadFile(status.LogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(logBytes)), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("log has %d lines, want 4:\n%s", len(lines), logBytes)
+	}
+	for _, want := range []string{"started", "sent PAIR_BEGIN", "received ERROR malformed: pairing_id", "outcome refused by the broker — malformed: pairing_id"} {
+		if !strings.Contains(string(logBytes), want) {
+			t.Fatalf("log lacks %q:\n%s", want, logBytes)
+		}
+	}
+	if strings.Contains(string(logBytes), offer.Code) || strings.Contains(string(logBytes), "agentb://") {
+		t.Fatalf("log exposes a code or link:\n%s", logBytes)
+	}
+}
+
+func TestSuccessfulPairingWritesItsFrameSequenceAndOutcome2op(t *testing.T) {
+	root := t.TempDir()
+	client, err := NewBrokerClient(broker.DefaultURL, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceSeed := bytes.Repeat([]byte{0x51}, 32)
+	deviceAgreement := bytes.Repeat([]byte{0x52}, 32)
+	device := broker.Identity{SigningSeed: deviceSeed, Agreement: deviceAgreement}
+	pairingID := bytes.Repeat([]byte{0x53}, 16)
+	transport := &pairingLogTransport{incoming: make(chan []byte, 8)}
+	transport.onSend = func(frame broker.Frame) {
+		switch frame.Type {
+		case broker.FramePairBegin:
+			transport.incoming <- encodedFrame(t, broker.FramePairWaiting, map[string]any{"expires_at": "2026-09-30T16:00:00Z"})
+			transport.incoming <- encodedFrame(t, broker.FramePairPeer, map[string]any{"pairing_id": hex.EncodeToString(pairingID), "peer_key_id": hex.EncodeToString(device.KeyID()), "peer_ed25519_public": base64.RawURLEncoding.EncodeToString(device.SigningPublic()), "peer_x25519_public": base64.RawURLEncoding.EncodeToString(device.AgreementPublic())})
+		case broker.FramePairConfirm:
+			transport.incoming <- encodedFrame(t, broker.FramePairComplete, map[string]any{"pairing_id": hex.EncodeToString(pairingID)})
+		}
+	}
+	client.dial = func(context.Context) (broker.Transport, error) { return transport, nil }
+	offer, err := client.BeginPairing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		current, _ := client.PairingOffer()
+		if current.Fingerprint != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("fingerprint was not offered")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := client.ConfirmPairing(); err != nil {
+		t.Fatal(err)
+	}
+	for client.Status().PairedDevice == "" && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	logBytes, err := os.ReadFile(filepath.Join(root, "logs", "pairing.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"sent PAIR_BEGIN", "received PAIR_WAITING", "received PAIR_PEER", "sent PAIR_CONFIRM", "received PAIR_COMPLETE", "outcome paired"} {
+		if !strings.Contains(string(logBytes), want) {
+			t.Fatalf("log lacks %q:\n%s", want, logBytes)
+		}
+	}
+	for _, secret := range []string{offer.Code, hex.EncodeToString(pairingID), base64.RawURLEncoding.EncodeToString(device.SigningPublic())} {
+		if strings.Contains(string(logBytes), secret) {
+			t.Fatalf("log exposes pairing material %q:\n%s", secret, logBytes)
+		}
 	}
 }

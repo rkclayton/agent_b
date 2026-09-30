@@ -68,7 +68,20 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 		}
 		return nil
 	})
-	client.OnConnected(func(connection context.Context) { server.streamToDevice(connection, client) })
+	client.OnConnected(func(connection context.Context) {
+		c.mu.Lock()
+		c.lastRefusal = ""
+		c.mu.Unlock()
+		server.streamToDevice(connection, client)
+	})
+	client.OnRefused(func(code, detail string) {
+		outcome := "refused by the broker — " + code + ": " + detail
+		c.recordPairing("session refusal " + code + ": " + detail)
+		c.recordPairing("session outcome " + outcome)
+		c.mu.Lock()
+		c.lastRefusal = outcome
+		c.mu.Unlock()
+	})
 	c.mu.Lock()
 	c.client, c.stopSession = client, stop
 	c.mu.Unlock()

@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -45,14 +47,17 @@ type BrokerClient struct {
 	client        *broker.Client
 	identityStore *credential.Store
 	pairingStore  *credential.Store
+	pairingLog    string
+	logMu         sync.Mutex
 
-	mu      sync.Mutex
-	offer   *broker.PairingOffer
-	pairing *broker.Pairing
-	confirm chan bool
-	frames  chan broker.Frame
-	status  broker.Status
-	device  string
+	mu          sync.Mutex
+	offer       *broker.PairingOffer
+	pairing     *broker.Pairing
+	confirm     chan bool
+	frames      chan broker.Frame
+	status      broker.Status
+	device      string
+	lastRefusal string
 	// Item 2nz: the pairing runs until it succeeds or the operator cancels. cancel is
 	// closed by CancelPairing and is the only thing besides success that ends it.
 	cancel chan struct{}
@@ -122,6 +127,7 @@ func NewBrokerClient(address string, dataRoot ...string) (*BrokerClient, error) 
 		return nil, errors.New("one broker data root is allowed")
 	}
 	if len(dataRoot) == 1 {
+		client.pairingLog = filepath.Join(dataRoot[0], "logs", "pairing.log")
 		identityStore, err := credential.NewNamed(dataRoot[0], "broker-identity")
 		if err != nil {
 			return nil, err
@@ -238,11 +244,73 @@ func (c *BrokerClient) Status() broker.Status {
 	if c.client != nil {
 		status := c.client.Status()
 		status.PairedDevice = c.device
+		status.LogPath = c.pairingLog
+		if status.State == "broker unreachable" && c.lastRefusal != "" {
+			status.LastError = c.lastRefusal
+		}
 		return status
 	}
 	status := c.status
 	status.PairedDevice = c.device
+	status.LogPath = c.pairingLog
 	return status
+}
+
+func pairingFrameName(kind byte) string {
+	switch kind {
+	case broker.FramePairBegin:
+		return "PAIR_BEGIN"
+	case broker.FramePairWaiting:
+		return "PAIR_WAITING"
+	case broker.FramePairPeer:
+		return "PAIR_PEER"
+	case broker.FramePairConfirm:
+		return "PAIR_CONFIRM"
+	case broker.FramePairComplete:
+		return "PAIR_COMPLETE"
+	case broker.FrameError:
+		return "ERROR"
+	default:
+		return fmt.Sprintf("0x%02x", kind)
+	}
+}
+
+func (c *BrokerClient) recordPairing(message string) {
+	if c.pairingLog == "" {
+		return
+	}
+	c.logMu.Lock()
+	defer c.logMu.Unlock()
+	if os.MkdirAll(filepath.Dir(c.pairingLog), 0o700) != nil {
+		return
+	}
+	file, err := os.OpenFile(c.pairingLog, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = fmt.Fprintf(file, "%s %s\n", time.Now().UTC().Format(time.RFC3339Nano), message)
+}
+
+func refusalText(err error) string {
+	var problem *broker.Problem
+	if errors.As(err, &problem) {
+		return "refused by the broker — " + problem.Code + ": " + problem.Detail
+	}
+	return err.Error()
+}
+
+type pairingTraceTransport struct {
+	broker.Transport
+	record func(string)
+}
+
+func (t pairingTraceTransport) Send(raw []byte) error {
+	err := t.Transport.Send(raw)
+	if frame, decodeErr := broker.Decode(raw); err == nil && decodeErr == nil {
+		t.record("sent " + pairingFrameName(frame.Type))
+	}
+	return err
 }
 
 // PairingOffer is the live offer, if there is one. Item 2ns (b): the QR exists only
@@ -278,6 +346,7 @@ func (c *BrokerClient) BeginPairing() (broker.PairingOffer, error) {
 
 	offer, err := c.beginOnce(cancel)
 	if err != nil {
+		c.recordPairing("outcome " + refusalText(err))
 		c.mu.Lock()
 		c.offer, c.cancel = nil, nil
 		c.mu.Unlock()
@@ -294,6 +363,7 @@ func (c *BrokerClient) beginOnce(cancel chan struct{}) (broker.PairingOffer, err
 	if err != nil {
 		return broker.PairingOffer{}, err
 	}
+	c.recordPairing("started")
 	transport, err := c.dial(context.Background())
 	if err != nil {
 		return broker.PairingOffer{}, err
@@ -327,9 +397,23 @@ func (c *BrokerClient) beginOnce(cancel chan struct{}) (broker.PairingOffer, err
 			if !ok {
 				return broker.Frame{}, errors.New("the pairing connection ended")
 			}
-			return broker.Decode(message)
+			frame, decodeErr := broker.Decode(message)
+			if decodeErr == nil {
+				line := "received " + pairingFrameName(frame.Type)
+				if frame.Type == broker.FrameError {
+					var problem struct {
+						Code   string `json:"code"`
+						Detail string `json:"detail"`
+					}
+					if json.Unmarshal(frame.Payload, &problem) == nil {
+						line += " " + problem.Code + ": " + problem.Detail
+					}
+				}
+				c.recordPairing(line)
+			}
+			return frame, decodeErr
 		}
-		pairing, pairErr := broker.BeginPairing(transport, c.identity, code, receive, func(offer broker.PairingOffer) bool {
+		pairing, pairErr := broker.BeginPairing(pairingTraceTransport{Transport: transport, record: c.recordPairing}, c.identity, code, receive, func(offer broker.PairingOffer) bool {
 			c.mu.Lock()
 			c.offer = &offer
 			c.mu.Unlock()
@@ -349,6 +433,7 @@ func (c *BrokerClient) beginOnce(cancel chan struct{}) (broker.PairingOffer, err
 				c.cancel = nil
 				c.status = broker.Status{State: "not paired", LastError: storeErr.Error()}
 				c.mu.Unlock()
+				c.recordPairing("outcome failed: " + storeErr.Error())
 				return
 			}
 			c.mu.Lock()
@@ -358,9 +443,15 @@ func (c *BrokerClient) beginOnce(cancel chan struct{}) (broker.PairingOffer, err
 			c.status = broker.Status{State: "broker unreachable"}
 			c.cancel = nil
 			c.mu.Unlock()
+			c.recordPairing("outcome paired")
 			c.startSession(pairing)
 			return
 		}
+		outcome := refusalText(pairErr)
+		c.recordPairing("outcome " + outcome)
+		c.mu.Lock()
+		c.status = broker.Status{State: "not paired", LastError: outcome}
+		c.mu.Unlock()
 		select {
 		case <-cancel:
 			// His Cancel: the offer is already gone, and nothing is asked for again.
@@ -378,10 +469,11 @@ func (c *BrokerClient) beginOnce(cancel chan struct{}) (broker.PairingOffer, err
 			}
 		}
 		if _, retryErr := c.beginOnce(cancel); retryErr != nil {
+			c.recordPairing("outcome " + refusalText(retryErr))
 			c.mu.Lock()
 			c.offer = nil
 			c.cancel = nil
-			c.status = broker.Status{State: "not paired", LastError: retryErr.Error()}
+			c.status = broker.Status{State: "not paired", LastError: refusalText(retryErr)}
 			c.mu.Unlock()
 		}
 	}()

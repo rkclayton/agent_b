@@ -203,10 +203,12 @@ function brokerRows() {
 	}[status.state] || String(status.state || "NOT PAIRED").toUpperCase();
 	const lamp = status.state === "phone connected" ? "live" : status.state === "broker unreachable" ? "alarm" : "";
 	const connectionEvidence = [
+		status.last_error ? html(status.last_error) : "",
 		status.next_attempt_at ? `next try ${html(status.next_attempt_at)}` : "",
 		status.last_message_at ? `last phone message ${html(status.last_message_at)}` : "",
 		status.ended_reason ? `ended: ${html(status.ended_reason)}` : "",
 	].filter(Boolean).join(" · ");
+	const pairingLogHref = status.log_path ? encodeURI(`file:///${status.log_path.replaceAll("\\", "/")}`) : "";
 	const paired = status.paired_device
 		? `${html(status.paired_device)}<button type="button" data-action="broker-revoke" data-confirm="the paired phone">Revoke</button>`
 		: "none paired";
@@ -225,6 +227,7 @@ function brokerRows() {
 		"", "Point the phone's camera at this and tap Pair. It works once.")}
 	${offer.fingerprint ? row("fingerprint", `<span class="account-status mono">${html(offer.fingerprint)}</span><button type="button" data-action="broker-confirm">They match</button>`, "", "Compare all ten groups with the phone before confirming.") : ""}
 	${row("device", `<span class="account-status">${paired}</span>`)}
+	${status.log_path ? `<p class="account-status"><a href="${attr(pairingLogHref)}">open pairing log</a> · ${html(status.log_path)}</p>` : ""}
 	${feedback(brokerMessage, brokerAlarm)}`;
 }
 

@@ -543,6 +543,8 @@ func TestCloseReplacedStopsRatherThanReconnecting2kq(t *testing.T) {
 		dials++
 		return broker, nil
 	}, nil)
+	refused := make(chan string, 1)
+	client.OnRefused(func(code, detail string) { refused <- code + ": " + detail })
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	done := make(chan error, 1)
@@ -568,5 +570,13 @@ func TestCloseReplacedStopsRatherThanReconnecting2kq(t *testing.T) {
 	}
 	if status.EndedReason != "connection_replaced: a newer connection for this key" {
 		t.Fatalf("ended reason = %q", status.EndedReason)
+	}
+	select {
+	case got := <-refused:
+		if got != "connection_replaced: a newer connection for this key" {
+			t.Fatalf("refusal callback = %q", got)
+		}
+	default:
+		t.Fatal("structured session refusal was not reported")
 	}
 }

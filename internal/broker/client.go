@@ -71,6 +71,7 @@ type Status struct {
 	LastMessageAt string `json:"last_message_at,omitempty"`
 	Reconnects    int    `json:"reconnects"`
 	PairedDevice  string `json:"paired_device,omitempty"`
+	LogPath       string `json:"log_path,omitempty"`
 }
 
 // Client holds the one session.
@@ -97,6 +98,7 @@ type Client struct {
 	// connected is told each time a session is up, with a context that ends with it.
 	sendMu    sync.Mutex
 	connected func(context.Context)
+	refused   func(code, detail string)
 }
 
 // OnConnected is called, on its own goroutine, each time a session is established;
@@ -179,9 +181,13 @@ func formatEndedReason(code, detail string) string {
 	return code + ": " + detail
 }
 
-type brokerProblem struct{ code, detail string }
+// Problem preserves an ERROR frame's code and detail for the host that reports it.
+type Problem struct{ Code, Detail string }
 
-func (e *brokerProblem) Error() string { return formatEndedReason(e.code, e.detail) }
+func (e *Problem) Error() string { return formatEndedReason(e.Code, e.Detail) }
+
+// OnRefused observes structured broker refusals without exposing any frame payload.
+func (c *Client) OnRefused(fn func(code, detail string)) { c.refused = fn }
 
 // Run dials and holds, reconnecting with backoff until the context ends. Each
 // reconnection is a NEW session: fresh ephemerals, a fresh handshake id, a new session
@@ -193,8 +199,11 @@ func (c *Client) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		var problem *brokerProblem
-		if errors.As(err, &problem) && problem.code == "connection_replaced" {
+		var problem *Problem
+		if errors.As(err, &problem) && c.refused != nil {
+			c.refused(problem.Code, problem.Detail)
+		}
+		if errors.As(err, &problem) && problem.Code == "connection_replaced" {
 			// Item 2kq (a): 4001 newest-wins. Another connection for this key took
 			// over; this one stops rather than fighting it.
 			c.mu.Lock()
@@ -212,7 +221,7 @@ func (c *Client) Run(ctx context.Context) error {
 		c.status.LastError = err.Error()
 		c.status.NextAttemptAt = c.now().Add(backoff).UTC().Format(time.RFC3339)
 		if errors.As(err, &problem) {
-			c.status.EndedReason = formatEndedReason(problem.code, problem.detail)
+			c.status.EndedReason = formatEndedReason(problem.Code, problem.Detail)
 		}
 		c.mu.Unlock()
 		select {
@@ -539,7 +548,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 				return err
 			}
 			if problem.Fatal {
-				return &brokerProblem{code: problem.Code, detail: problem.Detail}
+				return &Problem{Code: problem.Code, Detail: problem.Detail}
 			}
 			log.Printf("broker: %s (%s)", problem.Code, problem.Detail)
 		case FrameRevoked:
@@ -547,7 +556,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 			if err := DecodeInto(frame.Payload, &revoked); err != nil {
 				return err
 			}
-			return &brokerProblem{code: "revoked", detail: "pairing revoked"}
+			return &Problem{Code: "revoked", Detail: "pairing revoked"}
 		default:
 			return fmt.Errorf("broker: unexpected frame 0x%02x", frame.Type)
 		}
@@ -709,7 +718,7 @@ func (c *Client) readHandshake(ctx context.Context, transport Transport) (Frame,
 			if err := DecodeInto(frame.Payload, &problem); err != nil {
 				return Frame{}, err
 			}
-			return Frame{}, &brokerProblem{code: problem.Code, detail: problem.Detail}
+			return Frame{}, &Problem{Code: problem.Code, Detail: problem.Detail}
 		}
 		if err != nil || (frame.Type != FrameQueued && frame.Type != FramePing) {
 			return frame, err

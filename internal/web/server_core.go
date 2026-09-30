@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"harness/internal/agent"
+	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/credential"
 	"harness/internal/detection"
@@ -125,6 +126,10 @@ type Server struct {
 	tryAgentIdle      func(string) bool
 	hostWindowAction  func(string) bool
 	startedAt         string
+	chatMu            sync.RWMutex
+	chatStore         *chatstore.Store
+	chatEntries       []chatstore.Entry
+	chatCancel        context.CancelFunc
 }
 
 type probeRun struct{ cancel context.CancelFunc }
@@ -182,6 +187,14 @@ func (s *Server) SetRegistry(registry *session.Registry) {
 	registry.SetPlansRoot(filepath.Join(s.profileRoot(), "plans"))
 	registry.SetSkillsRoot(filepath.Join(s.profileRoot(), "skills"))
 	s.registry = registry
+	if s.chatCancel != nil { s.chatCancel() }
+	s.chatStore = chatstore.New(filepath.Join(s.profileRoot(), "chats"))
+	ctx, cancel := context.WithCancel(context.Background())
+	s.chatCancel = cancel
+	go func() { _ = s.chatStore.Watch(ctx, func(entries []chatstore.Entry) {
+		s.chatMu.Lock(); s.chatEntries = entries; s.chatMu.Unlock()
+		registry.ReconcileChatHomes(entries)
+	}) }()
 }
 func (s *Server) SetProfiles(manager *profiles.Manager) { s.profiles = manager }
 func (s *Server) SetProfileChanged(change func(string) error) {

@@ -1,12 +1,36 @@
 package chatstore
 
 import (
+	"context"
 	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestWatchRescansExplorerMoveByIdentity(t *testing.T) {
+	store := New(filepath.Join(t.TempDir(), "chats"))
+	path, err := store.Create("stable", "Before", time.Now())
+	if err != nil { t.Fatal(err) }
+	changes := make(chan []Entry, 4)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = store.Watch(ctx, func(entries []Entry) { changes <- entries }) }()
+	select { case <-changes: case <-time.After(2*time.Second): t.Fatal("initial scan timed out") }
+	folder := filepath.Join(store.Root(), "Moved")
+	if err := os.Mkdir(folder, 0o700); err != nil { t.Fatal(err) }
+	moved := filepath.Join(folder, "After")
+	if err := os.Rename(path, moved); err != nil { t.Fatal(err) }
+	deadline := time.After(2*time.Second)
+	for {
+		select {
+		case entries := <-changes:
+			for _, entry := range entries { if entry.Metadata.ID == "stable" && entry.Path == moved { return } }
+		case <-deadline: t.Fatal("move was not rescanned by identity")
+		}
+	}
+}
 
 func TestCreateWritesChatMetadataInNamedDirectory(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "chats")

@@ -5,6 +5,7 @@ go 1.24.1
 require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1
 	github.com/flynn/noise v1.1.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/ledongthuc/pdf v0.0.0-20260907135840-6c8c28e0e8a0
 	github.com/refraction-networking/utls v1.8.2
 	golang.org/x/crypto v0.48.0

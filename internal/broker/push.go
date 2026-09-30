@@ -3,7 +3,6 @@ package broker
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -23,10 +22,8 @@ type pushRegisterPayload struct {
 
 type pushPayload struct {
 	PairingID      string `json:"pairing_id"`
-	SessionID      string `json:"session_id"`
-	MessageID      string `json:"message_id"`
-	SenderKeyID    string `json:"sender_key_id"`
 	RecipientKeyID string `json:"recipient_key_id"`
+	MessageID      string `json:"message_id"`
 	Ciphertext     string `json:"ciphertext"`
 }
 
@@ -79,18 +76,10 @@ func (c *Client) Push(transport Transport, messageID []byte, kind, chatID, notic
 	if err != nil {
 		return err
 	}
-	c.mu.Lock()
-	session := c.session
-	c.mu.Unlock()
-	if session == nil {
-		return errors.New("push: no session")
-	}
 	frame, err := Encode(FramePush, pushPayload{
 		PairingID:      hexID(c.pairing.PairingID),
-		SessionID:      session.SessionID(),
-		MessageID:      hexID(messageID),
-		SenderKeyID:    hexID(c.identity.KeyID()),
 		RecipientKeyID: hexID(c.pairing.DeviceKeyID),
+		MessageID:      hexID(messageID),
 		Ciphertext:     base64.RawURLEncoding.EncodeToString(box),
 	})
 	if err != nil {

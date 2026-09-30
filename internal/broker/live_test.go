@@ -148,6 +148,13 @@ func (e *liveEndpoint) send(t *testing.T, frameType byte, payload any) {
 
 func (e *liveEndpoint) next(t *testing.T, timeout time.Duration) Frame {
 	t.Helper()
+	// A broker may write a final ERROR and immediately close. Prefer the decoded frame
+	// already queued by the receiver over the EOF it observed on its following read.
+	select {
+	case frame := <-e.frames:
+		return frame
+	default:
+	}
 	select {
 	case frame := <-e.frames:
 		if frame.Type == FrameError {

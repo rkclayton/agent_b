@@ -16,10 +16,11 @@ import (
 // and the device receives the same snapshot, patches and global events the tailnet
 // client does.
 //
-// NO PUSHES YET. The live broker refused the push frame this client seals as
-// "malformed (frame rejected)", and that refusal is fatal to the whole session, so a
-// push would cost the phone its connection at the end of every run. The frame's shape
-// belongs to the broker repository; until it is confirmed there, nothing is pushed.
+// NO PUSHES YET. Item 2of removed this client's undocumented session_id and
+// sender_key_id, so its frame now matches the broker's four-field document and sealed
+// vectors exactly. The public broker still answers that corrected frame with fatal
+// "malformed (frame rejected)" and closes the session. Until the broker accepts its own
+// documented shape, no run event risks disconnecting the phone.
 //
 // It lives as long as the stored pairing does. A restart loads the identity and pairing,
 // then attach starts this session after the real server is available; without a pairing

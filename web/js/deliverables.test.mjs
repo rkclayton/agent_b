@@ -16,18 +16,20 @@ class FakeNode {
 
 const document = { createElement: (tag) => new FakeNode(tag) };
 
-test("file chips derive only successful writes from a canned projected response", () => {
+test("file chips derive only successful file-producing tools from a canned projected response", () => {
   const items = [
-    { type: "agent", run_id: "r7", toolCallIDs: ["write", "read", "script", "edit"] },
+    { type: "agent", run_id: "r7", toolCallIDs: ["write", "read", "script", "edit", "service"] },
     { type: "tool", callID: "write", name: "write_file", args: { path: "draft.txt" }, result: { ok: true, file: { path: "reports/final.txt", bytes: 1536 } } },
     { type: "tool", callID: "read", name: "read_file", args: { path: "input.txt" }, result: { ok: true } },
     { type: "tool", callID: "script", name: "run_script", args: { language: "python" }, result: { ok: true } },
     { type: "tool", callID: "edit", name: "edit_file", args: { path: "legacy.md" }, result: { ok: true } },
+    { type: "tool", callID: "service", name: "call_service", args: { service: "depot", operation: "exportReport" }, result: { ok: true, file: { path: "depot-report.xlsx", bytes: 2048 } } },
   ];
   const files = filesFromResponse(items);
   assert.deepEqual(files, [
     { path: "reports/final.txt", bytes: 1536, callID: "write", runID: "r7", openScope: "workspace", openPath: "reports/final.txt" },
     { path: "legacy.md", bytes: null, callID: "edit", runID: "r7", openScope: "workspace", openPath: "legacy.md" },
+    { path: "depot-report.xlsx", bytes: 2048, callID: "service", runID: "r7", openScope: "workspace", openPath: "depot-report.xlsx" },
   ]);
   const chip = createFileChip(document, files[0], { state: "ready", bytes: 1536 }, { openFolder() {} });
   assert.equal(chip.children[0].textContent, "final.txt");

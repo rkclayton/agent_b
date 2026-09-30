@@ -3,14 +3,17 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,6 +21,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"harness/internal/attachment"
 	"harness/internal/config"
 	"harness/internal/credential"
 	"harness/internal/quietproc"
@@ -97,6 +101,7 @@ func (c *CallService) Schema() map[string]any {
 		"properties": map[string]any{
 			"connector": map[string]any{"type": "object", "description": "Operator-requested connector change: operation add, edit, or remove; entry has name, url, kind (mcp or http), auth, allowed_methods for http, and openapi {document, operations} to import an OpenAPI document"},
 			"operation": map[string]any{"type": "string", "description": c.operationsDescription()},
+			"accept":    map[string]any{"type": "string", "description": "One response content type declared by the chosen imported operation"},
 			"params":    map[string]any{"type": "object", "description": "Parameters for operation, by the document's own names", "additionalProperties": true},
 			"service":   map[string]any{"type": "string", "description": "Registered service name or absolute HTTP(S) URL"},
 			"method":    map[string]any{"type": "string", "description": "HTTP method allowed by the service"},
@@ -224,7 +229,7 @@ func (c *CallService) Call(ctx context.Context, item *session.Session, args map[
 	return detail.Content, detail.Err
 }
 
-func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args map[string]any) (detail CallDetail) {
+func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, args map[string]any) (detail CallDetail) {
 	if change, present, err := ParseConnectorChange(args); present {
 		if err != nil {
 			detail.Err = err
@@ -261,6 +266,7 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 		detail.Err = fmt.Errorf("service is required")
 		return detail
 	}
+	operationName, _ := args["operation"].(string)
 	// Item 2nr (a) and (c): the operation form, and the document as the allow-list. Both
 	// end as the ordinary call below — one code path from here down, which is (f).
 	if service, registered := c.service(serviceName); registered && service.OpenAPI != nil {
@@ -417,6 +423,19 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 		return detail
 	}
 	defer response.Body.Close()
+	contentType, rendered := renderedServiceType(response.Header.Get("Content-Type"))
+	if !rendered {
+		file, saveErr := c.saveServiceFile(response.Body, item, operationName, contentType, response.Header.Get("Content-Disposition"), service.MaxBodyKB, authorization, token, credentialHeaders)
+		if saveErr != nil {
+			detail.Err = saveErr
+			return detail
+		}
+		encoded, _ := json.Marshal(file)
+		detail.Content = string(encoded)
+		detail.Metadata = map[string]any{"service": serviceName, "method": method, "path": requestedPath, "status": response.StatusCode, "duration_ms": duration, "file": file}
+		log.Printf("call_service: service=%q method=%s path=%q status=%d duration_ms=%d file_bytes=%d", serviceName, method, requestedPath, response.StatusCode, duration, file["bytes"])
+		return detail
+	}
 
 	window, err := readServiceWindow(response.Body, offset, limit)
 	if err != nil {
@@ -465,6 +484,108 @@ func (c *CallService) CallDetailed(ctx context.Context, _ *session.Session, args
 	}
 	log.Printf("call_service: service=%q method=%s path=%q status=%d duration_ms=%d bytes=%d more=%t", serviceName, method, requestedPath, response.StatusCode, duration, window.Bytes, window.More)
 	return detail
+}
+
+func renderedServiceType(value string) (string, bool) {
+	mediaType, _, err := mime.ParseMediaType(value)
+	if err != nil || mediaType == "" {
+		return strings.TrimSpace(strings.SplitN(value, ";", 2)[0]), true
+	}
+	mediaType = strings.ToLower(mediaType)
+	rendered := strings.HasPrefix(mediaType, "text/") || strings.HasSuffix(mediaType, "+json") || strings.HasSuffix(mediaType, "+xml") || mediaType == "application/json" || mediaType == "application/xml" || mediaType == "application/x-www-form-urlencoded"
+	return mediaType, rendered
+}
+
+func (c *CallService) saveServiceFile(body io.Reader, item *session.Session, operation, contentType, disposition string, maxKB int, authorization, token string, headers http.Header) (map[string]any, error) {
+	if item == nil || item.Workspace == "" {
+		return nil, fmt.Errorf("file response needs a chat workspace; nothing was saved")
+	}
+	name := serviceResponseName(disposition, operation, contentType, c.now())
+	limit := int64(maxKB) << 10
+	content, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("save file response: %w", err)
+	}
+	if int64(len(content)) > limit {
+		return nil, fmt.Errorf("file response exceeds this service's max_body_kb (%d KB); nothing was saved", maxKB)
+	}
+	secrets := []string{authorization, token}
+	for _, values := range headers {
+		secrets = append(secrets, values...)
+	}
+	for _, secret := range secrets {
+		if secret != "" && bytes.Contains(content, []byte(secret)) {
+			return nil, fmt.Errorf("file response contained a credential and was not saved")
+		}
+	}
+	temporary, err := os.CreateTemp(item.Workspace, ".agentb-service-*")
+	if err != nil {
+		return nil, fmt.Errorf("save file response: %w", err)
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	written, writeErr := temporary.Write(content)
+	if writeErr == nil && written != len(content) {
+		writeErr = io.ErrShortWrite
+	}
+	if writeErr == nil {
+		writeErr = temporary.Sync()
+	}
+	if closeErr := temporary.Close(); writeErr == nil {
+		writeErr = closeErr
+	}
+	if writeErr != nil || written != len(content) {
+		return nil, fmt.Errorf("save file response: %v", writeErr)
+	}
+	path, err := unusedServicePath(item.Workspace, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Link(temporaryName, path); err != nil {
+		return nil, fmt.Errorf("save file response: %w", err)
+	}
+	relative := filepath.ToSlash(filepath.Base(path))
+	digest := sha256.Sum256(content)
+	return map[string]any{"path": relative, "bytes": int64(written), "sha256": fmt.Sprintf("%x", digest), "content_type": contentType}, nil
+}
+
+func serviceResponseName(disposition, operation, contentType string, now time.Time) string {
+	if _, params, err := mime.ParseMediaType(disposition); err == nil {
+		if name, err := attachment.SanitizeName(params["filename"]); err == nil {
+			return name
+		}
+	}
+	stem, err := attachment.SanitizeName(strings.TrimSpace(operation))
+	if err != nil {
+		stem = "response"
+	}
+	extensions, _ := mime.ExtensionsByType(contentType)
+	sort.Strings(extensions)
+	extension := ".bin"
+	if len(extensions) > 0 {
+		extension = extensions[0]
+	}
+	return fmt.Sprintf("%s-%s%s", stem, now.UTC().Format("20060102-150405"), extension)
+}
+
+func unusedServicePath(root, name string) (string, error) {
+	extension, stem := filepath.Ext(name), strings.TrimSuffix(name, filepath.Ext(name))
+	for suffix := 1; suffix < 10000; suffix++ {
+		candidate := name
+		if suffix > 1 {
+			candidate = fmt.Sprintf("%s (%d)%s", stem, suffix, extension)
+		}
+		path, err := Resolve(root, candidate)
+		if err != nil {
+			return "", err
+		}
+		if _, err := os.Lstat(path); os.IsNotExist(err) {
+			return path, nil
+		} else if err != nil {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("save file response: no unused name for %s", name)
 }
 
 func (c *CallService) service(name string) (config.Service, bool) {
@@ -987,6 +1108,19 @@ func (c *CallService) operationArgs(name string, service config.Service, args ma
 		if value, present := args[carried]; present {
 			rewritten[carried] = value
 		}
+	}
+	accept, _ := args["accept"].(string)
+	accept = strings.ToLower(strings.TrimSpace(accept))
+	if accept != "" {
+		if !containsString(chosen.ResponseTypes, accept) {
+			return nil, fmt.Errorf("operation %s does not declare %s; it declares %s", chosen.ID, accept, strings.Join(chosen.ResponseTypes, ", "))
+		}
+		headers, _ := rewritten["headers"].(map[string]any)
+		if headers == nil {
+			headers = map[string]any{}
+		}
+		headers["Accept"] = accept
+		rewritten["headers"] = headers
 	}
 	return rewritten, nil
 }

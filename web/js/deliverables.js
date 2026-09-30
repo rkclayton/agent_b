@@ -1,4 +1,4 @@
-const producingTools = new Set(["write_file", "edit_file"]);
+const producingTools = new Set(["write_file", "edit_file", "call_service"]);
 
 export function filesFromResponse(items) {
   const callRuns = new Map();

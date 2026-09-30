@@ -102,7 +102,9 @@ earlierButton.onclick = () => {
 const jumpButton = document.createElement("button");
 jumpButton.type = "button";
 jumpButton.className = "chat-jump";
-jumpButton.textContent = "Jump to latest";
+jumpButton.textContent = "↓";
+jumpButton.ariaLabel = "Jump to latest";
+jumpButton.title = "Jump to latest";
 jumpButton.onclick = () => {
   follow = true;
   page = 0;

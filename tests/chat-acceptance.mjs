@@ -1877,6 +1877,22 @@ if (realModel) {
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
 	await browser.wait(`document.querySelector('#chat-task')`, "chat restored after settings");
 	await browser.wait(`document.querySelector('.agent-tab-wrap.selected')?.dataset.session === ${JSON.stringify(sessionID)} && document.querySelector('#chat-task') && !document.querySelector('#chat-task').disabled`, "UI error relay session projection ready");
+	const jumpGeometry = await page.evaluate(() => {
+		const jump = document.querySelector(".chat-jump"), log = document.querySelector("#chat-log"), composer = document.querySelector("#chat-composer");
+		jump.hidden = false; jump.style.setProperty("display", "block", "important");
+		const box = (node) => { const value = node.getBoundingClientRect(); return { left: value.left, right: value.right, top: value.top, bottom: value.bottom, width: value.width, height: value.height }; };
+		return { jump: box(jump), log: box(log), composer: box(composer), contentRight: box(log).left + log.clientWidth, text: jump.textContent, name: jump.ariaLabel, title: jump.title };
+	});
+	assert.equal(jumpGeometry.text, "↓");
+	assert.equal(jumpGeometry.name, "Jump to latest");
+	assert.equal(jumpGeometry.title, "Jump to latest");
+	assert.ok(jumpGeometry.jump.width >= 32 && jumpGeometry.jump.height >= 32, JSON.stringify(jumpGeometry));
+	assert.ok(jumpGeometry.contentRight - jumpGeometry.jump.right >= 0 && jumpGeometry.contentRight - jumpGeometry.jump.right <= 16, JSON.stringify(jumpGeometry));
+	assert.ok(jumpGeometry.jump.bottom <= jumpGeometry.composer.top, JSON.stringify(jumpGeometry));
+	await page.screenshot({ path: join(args.evidence, "rel-1.46.0-w4-jump-arrow.png") });
+	await page.evaluate(() => { const jump = document.querySelector(".chat-jump"); jump.style.removeProperty("display"); jump.click(); });
+	await browser.wait(`document.querySelector('.chat-jump').hidden`, "jump arrow returns to latest and hides");
+	record("jump-arrow-right-edge-and-behaviour");
 	events = await sessionEvents(sessionID);
 	const beforeUIError = events.at(-1)?.seq || 0;
 	await browser.evaluate(`(() => { console.error('acceptance UI relay'); return true; })()`);

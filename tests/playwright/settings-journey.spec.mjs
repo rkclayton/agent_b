@@ -202,6 +202,33 @@ test("Phone shows all four wire states and follows presence without a reload", a
 	await page.close();
 });
 
+test("telemetry consent is shared by Setup and About and persists both choices", async () => {
+	const evidence = join(repo, "candidate", "rel-1.45.0-w2-telemetry");
+	await mkdir(evidence, { recursive: true });
+	const page = await harness.context.newPage();
+	for (const enabled of [false, true]) {
+		await page.goto(`${harness.base}/setup`);
+		await page.locator('[data-action="later"]').click();
+		await expect(page.locator("h1")).toHaveText("Send anonymous data to help improve Agent_b");
+		await expect(page.locator("#setup-step")).toContainText("3 of 4");
+		await expect(page.locator(".setup-note")).toHaveText("Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts.");
+		const consent = page.locator('[data-action="toggle-telemetry"]');
+		if ((await consent.getAttribute("aria-checked")) !== String(enabled)) await consent.click();
+		if (!enabled) await page.screenshot({ path: join(evidence, "setup-anonymous-data.png"), fullPage: true });
+		await page.locator('[data-action="telemetry-next"]').click();
+		await expect(page.locator("h1")).toHaveText("Done");
+		expect((await harness.getState()).config.telemetry.enabled).toBe(enabled);
+	}
+	await page.goto(`${harness.base}/chat`);
+	await expect(page).toHaveURL(/\/chat/);
+	await expect(page.locator("#setup")).toHaveCount(0);
+	await page.locator(".shell-settings").click();
+	await page.locator('.settings-nav [data-id="about"]').click();
+	await expect(page.getByText("Send anonymous data to help improve Agent_b", { exact: true })).toBeVisible();
+	await page.screenshot({ path: join(evidence, "settings-about-anonymous-data.png"), fullPage: true });
+	await page.close();
+});
+
 // Item 2nc (c), carried into the journey: the confirmation belongs to its control, and
 // the sheet scrolls. A popover that opens at the top of a scrolled sheet points at
 // nothing, and the operator has to guess what he is confirming.

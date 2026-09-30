@@ -10,10 +10,12 @@ const styles = fs.readFileSync(new URL("../css/setup.css", import.meta.url), "ut
 const detector = fs.readFileSync(new URL("../../scripts/detect-local-capabilities.ps1", import.meta.url), "utf8");
 const template = JSON.parse(fs.readFileSync(new URL("../../harness.example.json", import.meta.url), "utf8"));
 
-test("Fresh template has no connections and setup asks connection, evaluation, then done", () => {
+test("Fresh template has no connections and setup asks connection, evaluation, telemetry, then done", () => {
   assert.deepEqual(template.connections, []);
   assert.deepEqual(template.agents, []);
-  for (const label of ["Where is your model?", "Evaluation Harness", "Done"]) assert.match(script, new RegExp(label.replaceAll("?", "\\?")));
+  for (const label of ["Where is your model?", "Evaluation Harness", "Send anonymous data to help improve Agent_b", "Done"]) assert.match(script, new RegExp(label.replaceAll("?", "\\?")));
+	assert.match(script, /Only diagnostic data is sent — counts, durations and error classes\. Never your chats, files or prompts\./);
+	assert.match(script, /telemetry:\s*\{[\s\S]*enabled: telemetryChoice/);
   for (const label of ["Test", "Install one here", "Later", "Measure it"]) assert.match(script, new RegExp(label));
   assert.doesNotMatch(script, /Who does what\?|rolesScreen|data-role=/);
   assert.doesNotMatch(`${html}\n${script}`, /\b(?:PKI|accounting)\b/i);
@@ -51,10 +53,10 @@ test("Test assigns the first passing connection to b, the second to c, and never
   assert.match(script, /toolset: current\.toolset \|\| fullTools/);
 });
 
-test("Measurement button becomes Stop and completion advances without Skip or Back", () => {
+test("Measurement button becomes Stop and completion advances to telemetry without Skip or Back", () => {
   assert.match(script, /measuring \? "Stop" : "Measure it"/);
   assert.match(script, /"DELETE"/);
-  assert.match(script, /go\("done"\)/);
+  assert.match(script, /afterCapability\(\)/);
   assert.match(script, /measurement[\s\S]*Continue[\s\S]*: `[\s\S]*Skip[\s\S]*Back/);
 });
 

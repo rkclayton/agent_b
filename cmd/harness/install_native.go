@@ -53,9 +53,6 @@ func verifyNativeCandidate(source string) error {
 	return nil
 }
 
-// installPerUserNative owns the non-elevated install.  It intentionally has no
-// process-launching seam: copying, first-config creation, links and HKCU
-// registration remain usable even when every PowerShell script is refused.
 func installPerUserNative(plan nativeInstallPlan, platform nativeInstallPlatform) error {
 	for label, root := range map[string]string{"source": plan.Source, "application": plan.Application, "data": plan.Data} {
 		if strings.TrimSpace(root) == "" {
@@ -113,7 +110,6 @@ func installPerUserNative(plan nativeInstallPlan, platform nativeInstallPlatform
 	} else if err != nil {
 		return err
 	}
-
 	executable := filepath.Join(application, "Agent_b.exe")
 	if platform.shortcut != nil {
 		start := shortcutSpec{Path: filepath.Join(plan.StartMenu, "Agent_b.lnk"), Target: executable,
@@ -141,12 +137,10 @@ func installPerUserNative(plan nativeInstallPlan, platform nativeInstallPlatform
 	}
 	return nil
 }
-
 func pathWithin(child, parent string) bool {
 	relative, err := filepath.Rel(parent, child)
 	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator))
 }
-
 func replaceDirectory(source, destination string) error {
 	info, err := os.Stat(source)
 	if err != nil || !info.IsDir() {
@@ -170,7 +164,6 @@ func replaceDirectory(source, destination string) error {
 		return copyNativeFile(path, target)
 	})
 }
-
 func copyNativeFile(source, destination string) error {
 	input, err := os.Open(source)
 	if err != nil {
@@ -198,7 +191,6 @@ func copyNativeFile(source, destination string) error {
 	_ = os.Remove(destination)
 	return os.Rename(temporary, destination)
 }
-
 func createNativeConfig(template, destination, workspace, data string) error {
 	encoded, err := os.ReadFile(template)
 	if err != nil {
@@ -218,7 +210,6 @@ func createNativeConfig(template, destination, workspace, data string) error {
 	encoded, _ = json.MarshalIndent(config, "", "  ")
 	return os.WriteFile(destination, append(encoded, '\n'), 0o600)
 }
-
 func treeBytes(root string) (int64, error) {
 	var total int64
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -236,7 +227,6 @@ func treeBytes(root string) (int64, error) {
 	})
 	return total, err
 }
-
 func quoteWindowsArgument(value string) string {
 	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }

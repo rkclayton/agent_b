@@ -78,6 +78,9 @@ func main() {
 	uninstall := flag.Bool("uninstall", false, "remove the per-user Agent_b installation")
 	uninstallWorker := flag.Bool("uninstall-worker", false, "complete a native uninstall after the installed process exits")
 	uninstallParent := flag.Int("uninstall-parent", 0, "parent process to await before native uninstall")
+	uninstallRegistry := flag.String("uninstall-registry-path", "", "with --uninstall: exact per-user registration to remove")
+	startMenuRoot := flag.String("start-menu-root", "", "with --uninstall: exact Start-menu root used by the install")
+	sendToRoot := flag.String("send-to-root", "", "with --uninstall: exact SendTo root used by the install")
 	purgeData := flag.Bool("purge-data", false, "with --uninstall: remove operator data")
 	serviceHelper := flag.String("service-helper", "", "elevated native service-identity request")
 	serviceResult := flag.String("service-result", "", "elevated native service-identity result")
@@ -96,7 +99,7 @@ func main() {
 		}, passthrough))
 	}
 	if *uninstall || *uninstallWorker {
-		if err := runNativeUninstall(*applicationOverride, *dataOverride, *purgeData, *uninstallWorker, *uninstallParent); err != nil {
+		if err := runNativeUninstall(*applicationOverride, *dataOverride, *startMenuRoot, *sendToRoot, *uninstallRegistry, *purgeData, *uninstallWorker, *uninstallParent); err != nil {
 			log.Fatal(err)
 		}
 		return

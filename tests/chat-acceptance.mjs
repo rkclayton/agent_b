@@ -1213,7 +1213,11 @@ if (realModel) {
   await page.locator("#chat-send").click();
   const lifecycleRunStarted = await waitEvent(sessionID, (event) => event.type === "run.started", "tool-tick lifecycle run started");
   await waitProjectedChatText(sessionID, "menu-stream-1", "two projected lifecycle tools");
-  await browser.wait(`document.querySelector('#chat-notice .chat-run-robot:not([hidden])')`, "held lifecycle response reached its stable composer state");
+  // The server-owned lifecycle is authoritative. A failed read can pause on
+  // its approval boundary while the response is held, and the notice seat may
+  // be empty between projections, so its DOM contents are not a lifecycle signal.
+  const heldLifecycleStatus = (await state()).sessions[sessionID]?.run.status;
+  assert.ok(["running", "paused", "stopping", "held"].includes(heldLifecycleStatus), `held lifecycle response must still be active, got ${heldLifecycleStatus}`);
   await page.waitForTimeout(250);
   await page.evaluate(async () => {
     await Promise.all(document.getAnimations().map((animation) => animation.ready.catch(() => {})));

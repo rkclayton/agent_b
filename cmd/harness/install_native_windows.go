@@ -30,7 +30,8 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 	application := installerArgument(arguments, "ApplicationDirectory", expectedApplication)
 	data := installerArgument(arguments, "DataDirectory", expectedData)
 	workspace := installerArgument(arguments, "WorkspaceDirectory", expectedWorkspace)
-	if !installerFlagPresent(arguments, "TestMode") {
+	nativeTestMode := installerFlagPresent(arguments, "NativeTestMode")
+	if !nativeTestMode {
 		if !strings.EqualFold(filepath.Clean(application), filepath.Clean(expectedApplication)) {
 			return fmt.Errorf("ApplicationDirectory must be the canonical per-user LocalAppData location: %s", expectedApplication)
 		}
@@ -55,8 +56,12 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 	plan := nativeInstallPlan{Source: source, Application: application, Data: data, Workspace: workspace,
 		StartMenu: installerArgument(arguments, "StartMenuDirectory", filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs")),
 		SendTo:    installerArgument(arguments, "SendToDirectory", filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "SendTo")),
+		Registry:  installerArgument(arguments, "UninstallRegistryPath", `HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b`),
 		Version:   version, OperatorSID: operatorSID}
-	platform := nativeInstallPlatform{shortcut: writeShellLink, register: writeUninstallRegistration, secure: secureInstallDirectory}
+	if nativeTestMode && !strings.HasPrefix(strings.ToLower(plan.Registry), `hkcu:\software\agent_b-installer-test-`) {
+		return fmt.Errorf("NativeTestMode registry must be beneath HKCU:\\Software\\Agent_b-Installer-Test-*")
+	}
+	platform := nativeInstallPlatform{shortcut: writeShellLink, register: func(values map[string]any) error { return writeUninstallRegistration(plan.Registry, values) }, secure: secureInstallDirectory}
 	policy := effectiveExecutionPolicy()
 	log.printf("execution policy: %s from %s", policy.Policy, policy.Scope)
 	policyPath := filepath.Join(data, "execution-policy.txt")
@@ -128,8 +133,9 @@ func secureInstallDirectory(path, sid string, _ bool) error {
 	}
 	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
 }
-func writeUninstallRegistration(values map[string]any) error {
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b`, registry.SET_VALUE)
+func writeUninstallRegistration(path string, values map[string]any) error {
+	path = strings.TrimPrefix(strings.TrimPrefix(path, `HKCU:\`), `HKEY_CURRENT_USER\`)
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, path, registry.SET_VALUE)
 	if err != nil {
 		return err
 	}
@@ -256,7 +262,7 @@ func stopNativeInstalledProcess(application, data string, log *installLog) error
 	return nil
 }
 
-func runNativeUninstall(application, data string, purge, worker bool, parent int) error {
+func runNativeUninstall(application, data, startMenu, sendTo, uninstallRegistry string, purge, worker bool, parent int) error {
 	local := os.Getenv("LOCALAPPDATA")
 	if strings.TrimSpace(application) == "" {
 		application = filepath.Join(local, "Programs", "Agent_b")
@@ -264,9 +270,16 @@ func runNativeUninstall(application, data string, purge, worker bool, parent int
 	if strings.TrimSpace(data) == "" {
 		data = filepath.Join(local, "Agent_b")
 	}
-	plan := nativeInstallPlan{Application: application, Data: data,
-		StartMenu: filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
-		SendTo:    filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "SendTo")}
+	if strings.TrimSpace(startMenu) == "" {
+		startMenu = filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs")
+	}
+	if strings.TrimSpace(sendTo) == "" {
+		sendTo = filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "SendTo")
+	}
+	if strings.TrimSpace(uninstallRegistry) == "" {
+		uninstallRegistry = `HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b`
+	}
+	plan := nativeInstallPlan{Application: application, Data: data, StartMenu: startMenu, SendTo: sendTo, Registry: uninstallRegistry}
 	if !worker {
 		log := openInstallLog(data, true)
 		defer log.close()
@@ -282,6 +295,7 @@ func runNativeUninstall(application, data string, purge, worker bool, parent int
 			return err
 		}
 		arguments := []string{"--uninstall-worker", "--uninstall-parent", fmt.Sprint(os.Getpid()), "--app-root", application, "--data-root", data}
+		arguments = append(arguments, "--start-menu-root", startMenu, "--send-to-root", sendTo, "--uninstall-registry-path", uninstallRegistry)
 		if purge {
 			arguments = append(arguments, "--purge-data")
 		}
@@ -297,7 +311,8 @@ func runNativeUninstall(application, data string, purge, worker bool, parent int
 		}
 	}
 	return uninstallPerUserNative(plan, purge, func() error {
-		err := registry.DeleteKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b`)
+		path := strings.TrimPrefix(strings.TrimPrefix(uninstallRegistry, `HKCU:\`), `HKEY_CURRENT_USER\`)
+		err := registry.DeleteKey(registry.CURRENT_USER, path)
 		if err == registry.ErrNotExist {
 			return nil
 		}

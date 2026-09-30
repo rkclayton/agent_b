@@ -1212,7 +1212,7 @@ if (realModel) {
   await page.locator("#chat-task").fill("acceptance: menu stream");
   await page.locator("#chat-send").click();
   const lifecycleRunStarted = await waitEvent(sessionID, (event) => event.type === "run.started", "tool-tick lifecycle run started");
-  await waitProjectedChatText(sessionID, "menu-stream-0", "first projected lifecycle tool");
+  await waitProjectedChatText(sessionID, "menu-stream-1", "two projected lifecycle tools");
   await page.evaluate(async () => {
     await Promise.all(document.getAnimations().map((animation) => animation.ready.catch(() => {})));
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));

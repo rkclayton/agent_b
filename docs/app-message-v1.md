@@ -129,6 +129,9 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 | `state` | `GET /api/state` | `{}` |
 | `resync` | `GET /api/state` for one session | `{session_id}` |
 | `chat.create` | `POST /api/sessions` | `{label?}` — added 2026-09-27 |
+| `chat.mirror` | append one owner's journal event to its mirror | `MirrorAppend` — added 2026-09-30 |
+| `chat.mirror.since` | ask a mirror for its durable per-chat cursor | `{chat_id}` — added 2026-09-30 |
+| `chat.mirror.take` | transfer ownership to the requesting peer | `{chat_id,after_seq}` — added 2026-09-30 |
 
 `tool` carries the path segment as a `name` field for the same reason: the route set is closed.
 
@@ -137,6 +140,60 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 control does when there is no chat to copy, so a device cannot choose which model it talks to or
 open a planner or worker chat. A body with any other field is refused; a body with no `label` is a
 chat the desktop names as it names any unlabelled one.
+
+## Mirrored chats
+
+The three `chat.mirror` routes are the one bidirectional exception to the upstream heading: either
+peer may send them, and the receiver owes the ordinary single `response`. All older routes remain
+device → desktop. A chat has one `origin` (`phone` or `pc`), one `owner` (`phone` or `pc`), and one
+append sequence shared across ownership transfers. The peer named by `owner` is the only peer that
+may append. The other peer is a read-only mirror.
+
+`chat.mirror` carries exactly one append:
+
+```
+{"chat_id":"<stable id>","origin":"phone","owner":"phone","seq":4,
+ "event":{"ts":"<RFC3339>","run_id":"r1","type":"message.appended","data":{…}},
+ "files":[{"path":"attachments/photo.jpg","bytes":1234,"sha256":"<64 lower-case hex>",
+           "content":"<base64url, unpadded>"},
+          {"path":"attachments/photo.jpg.txt","bytes":321,"sha256":"<64 lower-case hex>",
+           "content":"<base64url, unpadded>"}]}
+```
+
+This body is `MirrorAppend`. `files` is optional and is present only on the first event that names
+those files. It carries an attachment and its extraction sidecar as separate entries. Each `path`
+is a canonical direct child of `attachments/`, each digest and byte count MUST match the decoded
+content, and a receiver writes neither file until every entry validates. The event deliberately
+omits `seq` and `session_id`: `seq` is this append's outer sequence, and the receiver assigns its
+own durable event sequence and the `chat_id`. `body` and `raw` diagnostic fields are not carried.
+
+Binary bytes do not introduce another framing rule. The sender base64url-encodes them in `files`,
+canonical-encodes the complete request unit, and applies the existing `part` rule when that unit
+exceeds `UNIT_MAX`. Thus an attachment and sidecar can span any number of `part` units, but nothing
+is decoded, written or journalled until the whole request has passed the part count, length and
+SHA-256 checks. A gap discards the whole partial request and recovery starts at `chat.mirror.since`.
+
+The first accepted append for a chat MUST be sequence 1 and a `session.created` seed. The receiver
+stores `origin` and `owner` with that chat and appends the event to the same retained journal shape
+as a local chat. Later sequences are accepted only from the current owner and only at the next
+number. Success is `200 {chat_id,seq}`. Repeating the last accepted sequence with byte-identical
+content is an idempotent success; reusing a sequence with different content, sending a gap, or
+appending as the non-owner is `409`, with `body.expected_seq`. A non-owner append is also logged
+locally as a refusal.
+
+`chat.mirror.since {chat_id}` returns `200 {chat_id,last_seq,origin,owner}`. An owner calls it after
+connecting and sends its durable appends from `last_seq + 1`; the mirror applies them strictly in
+order. Until that drain reaches the owner's current sequence, the mirror exposes only the durable
+prefix it has. The owner retains unsent appends across disconnects, so reconnect never depends on
+an in-memory queue.
+
+`chat.mirror.take {chat_id,after_seq}` is sent by the mirror to the owner. `after_seq` MUST equal the
+owner's current sequence, which prevents ownership moving to a peer that is missing an append. The
+owner first durably changes `owner`, then answers `200 {chat_id,owner,next_seq}`; only that response
+makes the requester the writer, starting at `next_seq`. A retry after a lost response is idempotent.
+If the owner's run is not idle it answers `409 {error:"the phone is mid-turn"}` when the phone owns
+the chat (and the corresponding `pc` wording when the PC owns it). No event from the old owner is
+accepted after the transfer. These rules make concurrent writers impossible rather than reconciled.
 
 **Version stays 1.** A device that does not know a route never tunnels it and is answered `501` by
 the rule above, so ADDING a route is compatible by this document's own terms: an older device
@@ -188,9 +245,10 @@ including, explicitly:
   matched against the closed set above by exact string equality.
 
 A stolen paired phone can therefore send a message, stop a run, answer an approval card, toggle a
-tool for the next request, read state, and **create a chat**. It cannot change the machine, install
-anything, register a plan, close, rename or delete a chat, choose which model a chat talks to, or
-reach a credential.
+tool for the next request, read state, **create a chat**, mirror its own chats and their attachment
+bytes onto this machine, and request ownership of an already mirrored chat. It cannot change the
+machine, install anything, register a plan, close, rename or delete a chat, choose which model a
+chat talks to, or reach a credential.
 
 **The exposure `chat.create` adds, stated plainly:** a stolen paired phone can open empty chats,
 as many as it likes, each on the default connection. That costs disk and clutters the chat list,

@@ -19,7 +19,10 @@ func TestInspectAccountReadsNativeAccountAndGroupState(t *testing.T) {
 	if err != nil {
 		t.Skipf("operator service account is unavailable: %v", err)
 	}
-	if !status.Exists || !status.Enabled || status.Administrator || !status.UsersMember {
+	if !status.Exists {
+		t.Skip("operator service account is absent")
+	}
+	if !status.Enabled || status.Administrator || !status.UsersMember {
 		t.Fatalf("service account policy=%+v", status)
 	}
 }

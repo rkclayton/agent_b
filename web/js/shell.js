@@ -374,6 +374,7 @@ export function initShell(options = {}) {
 
   function renderAgentMenu(menu, agentID) {
     const sessions = sessionsFor(agentID, true);
+    const sourceID = menu.closest(".agent-tab-wrap")?.dataset.session || "";
     menu.replaceChildren();
     // Item 2go, the operator: "i want the chat summary removed from the top of
     // chats... i want it to display like this: MM:DD · Chat name · × , nothing
@@ -392,36 +393,32 @@ export function initShell(options = {}) {
       return;
     }
     for (const session of sessions) {
-      const row = node("div", `agent-chat-row ${session.closed ? "closed" : "open"}`);
+      const row = node("div", `agent-chat-row ${session.closed ? "closed" : "open"} ${session.id === sourceID ? "selected" : ""}`);
       row.dataset.session = session.id;
       const summary = node("span", "agent-chat-summary");
       summary.textContent = chatRowText(session);
       // The full name on hover, because the row is one line and a long name
       // ends in an ellipsis (2go).
       summary.title = chatName(session);
-      // Item 2gx: the row IS the control. One click makes the tab that was
-      // right-clicked show this chat - it does not open a second tab and it
-      // does not change which tab is selected out from under the pointer.
+      // Item 2oh: a choice replaces the chat in the tab that opened this menu.
+      // Close that source, reopen the choice when needed, then select it.
       summary.onclick = async () => {
-        if (session.closed) {
-          try {
-            await api(`/api/sessions/${encodeURIComponent(session.id)}/reopen`, {});
-            reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-          } catch (error) { return report(error.message); }
-        }
-        menu.hidden = true;
-        openSide(agentID, session.id, "chat");
+        const previous = store.sessions[sourceID];
+        if (previous?.id !== session.id && isRunning(previous)) return report("This chat has a running run. Stop it before switching the tab.");
+        try {
+          if (previous?.id !== session.id) await api(`/api/sessions/${encodeURIComponent(previous.id)}/close`, {});
+          if (session.closed) await api(`/api/sessions/${encodeURIComponent(session.id)}/reopen`, {});
+          reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+          menu.hidden = true;
+          openSide(agentID, session.id, "chat");
+        } catch (error) { report(error.message); }
       };
       const rename = button("Rename", `Rename ${chatName(session)}`, "agent-chat-rename");
       rename.onclick = () => showRename(row, session, menu, agentID);
-      const remove = button("Delete", `Delete ${chatName(session)}`, "agent-chat-delete");
+      const remove = button("×", `Delete ${chatName(session)}`, "agent-chat-delete");
       remove.onclick = () => void deleteChat(session, menu, agentID);
-      const close = button("×", `Close ${chatName(session)}`, "agent-chat-close");
-      close.disabled = session.closed || store.replay;
-      close.onclick = () => void closeChat(session, menu, agentID);
-      row.append(summary, rename);
-      if (session.closed) row.append(remove);
-      row.append(close);
+      remove.disabled = store.replay || isRunning(session);
+      row.append(summary, rename, remove);
       menu.append(row);
     }
   }
@@ -508,11 +505,14 @@ export function initShell(options = {}) {
   }
 
   async function deleteChat(session, menu, agentID) {
-    if (!session.closed) return report("Close this chat before deleting it.");
+    if (isRunning(session)) return report("This chat has a running run. Stop it before deleting the chat.");
     if (!window.confirm(deleteConfirmText)) return;
+    const wasSelected = store.selection.session_id === session.id;
     try {
+      if (!session.closed) await api(`/api/sessions/${encodeURIComponent(session.id)}/close`, {});
       await api(`/api/sessions/${encodeURIComponent(session.id)}`, undefined, "DELETE");
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+      if (wasSelected) selectAfterClose(session, agentID);
       renderAgentMenu(menu, agentID);
     } catch (error) { report(error.message); }
   }

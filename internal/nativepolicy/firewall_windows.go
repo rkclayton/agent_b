@@ -18,7 +18,7 @@ import (
 type dispatch struct{ vtable *[7]uintptr }
 type variant struct {
 	VT, r1, r2, r3 uint16
-	Value          int64
+	value          [8]byte
 }
 type dispatchParams struct {
 	Args              *variant
@@ -118,16 +118,31 @@ func (d *dispatch) invoke(name string, flags uint16, arguments []variant) (varia
 func bstrVariant(value string) variant {
 	wide, _ := windows.UTF16PtrFromString(value)
 	ptr, _, _ := procSysAllocStringFW.Call(uintptr(unsafe.Pointer(wide)))
-	return variant{VT: 8, Value: int64(ptr)}
+	result := variant{VT: 8}
+	*(*uintptr)(unsafe.Pointer(&result.value[0])) = ptr
+	return result
 }
-func i4Variant(value int32) variant { return variant{VT: 3, Value: int64(value)} }
+func i4Variant(value int32) variant {
+	result := variant{VT: 3}
+	*(*int32)(unsafe.Pointer(&result.value[0])) = value
+	return result
+}
 func boolVariant(value bool) variant {
+	result := variant{VT: 11}
 	if value {
-		return variant{VT: 11, Value: -1}
+		*(*int16)(unsafe.Pointer(&result.value[0])) = -1
 	}
-	return variant{VT: 11}
+	return result
 }
 func clearVariant(value *variant) { procVariantClearFW.Call(uintptr(unsafe.Pointer(value))) }
+
+func (value *variant) pointer() unsafe.Pointer {
+	return *(*unsafe.Pointer)(unsafe.Pointer(&value.value[0]))
+}
+
+func (value *variant) int32() int32 {
+	return *(*int32)(unsafe.Pointer(&value.value[0]))
+}
 
 func (d *dispatch) getDispatch(name string, args ...variant) (*dispatch, uintptr, error) {
 	flags := uint16(2)
@@ -138,11 +153,11 @@ func (d *dispatch) getDispatch(name string, args ...variant) (*dispatch, uintptr
 	if err != nil {
 		return nil, hr, err
 	}
-	if value.VT != 9 || value.Value == 0 {
+	if value.VT != 9 || value.pointer() == nil {
 		clearVariant(&value)
 		return nil, hr, fmt.Errorf("COM %s did not return IDispatch", name)
 	}
-	return (*dispatch)(unsafe.Pointer(uintptr(value.Value))), hr, nil
+	return (*dispatch)(value.pointer()), hr, nil
 }
 
 func (d *dispatch) stringProperty(name string) (string, error) {
@@ -151,11 +166,11 @@ func (d *dispatch) stringProperty(name string) (string, error) {
 		return "", err
 	}
 	defer clearVariant(&value)
-	if value.VT != 8 || value.Value == 0 {
+	if value.VT != 8 || value.pointer() == nil {
 		return "", nil
 	}
-	length, _, _ := procSysStringLenFW.Call(uintptr(value.Value))
-	return windows.UTF16ToString(unsafe.Slice((*uint16)(unsafe.Pointer(uintptr(value.Value))), int(length))), nil
+	length, _, _ := procSysStringLenFW.Call(uintptr(value.pointer()))
+	return windows.UTF16ToString(unsafe.Slice((*uint16)(value.pointer()), int(length))), nil
 }
 func (d *dispatch) intProperty(name string) (int32, error) {
 	value, _, err := d.invoke(name, 2, nil)
@@ -163,7 +178,7 @@ func (d *dispatch) intProperty(name string) (int32, error) {
 		return 0, err
 	}
 	defer clearVariant(&value)
-	return int32(value.Value), nil
+	return value.int32(), nil
 }
 func (d *dispatch) boolProperty(name string) (bool, error) {
 	value, _, err := d.invoke(name, 2, nil)
@@ -171,7 +186,7 @@ func (d *dispatch) boolProperty(name string) (bool, error) {
 		return false, err
 	}
 	defer clearVariant(&value)
-	return value.Value != 0, nil
+	return value.int32() != 0, nil
 }
 
 func (d *dispatch) set(name string, value variant) error {
@@ -289,7 +304,10 @@ func writeFirewallRule(spec firewallRule) error {
 	if err := rule.set("Enabled", boolVariant(spec.Enabled)); err != nil {
 		return err
 	}
-	_, _, err = rules.invoke("Add", 1, []variant{{VT: 9, Value: int64(uintptr(unsafe.Pointer(rule)))}})
+	ruleVariant := variant{VT: 9}
+	*(*unsafe.Pointer)(unsafe.Pointer(&ruleVariant.value[0])) = unsafe.Pointer(rule)
+	_, _, err = rules.invoke("Add", 1, []variant{ruleVariant})
+	runtime.KeepAlive(rule)
 	return err
 }
 

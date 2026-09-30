@@ -126,7 +126,7 @@ func runInstall(options installOptions, args []string) int {
 	appendProgress(dataRoot, installProgress{Phase: "starting", Text: "Installing Agent_b " + marker.Version})
 
 	var waitInstaller func() error
-	nativeInstall := !options.allUsers && !installerFlagPresent(args, "WhatIf") && !installerFlagPresent(args, "TestMode")
+	nativeInstall := !options.allUsers && !installerFlagPresent(args, "WhatIf") && (!installerFlagPresent(args, "TestMode") || installerFlagPresent(args, "NativeTestMode"))
 	if nativeInstall {
 		waitInstaller = func() error {
 			err := runNativePerUserInstall(source, args, dataRoot, log)

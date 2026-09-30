@@ -173,15 +173,15 @@ func EnsureAccount(name string, password []byte, reset bool) error {
 }
 
 func accountLocalGroups(user *uint16) (map[string]bool, error) {
-	var buffer uintptr
+	var buffer *localGroupUsersInfo0
 	var read, total uint32
 	result, _, _ := procNetUserGetLocalGroups.Call(0, uintptr(unsafe.Pointer(user)), 0, 1, uintptr(unsafe.Pointer(&buffer)), ^uintptr(0), uintptr(unsafe.Pointer(&read)), uintptr(unsafe.Pointer(&total)))
 	if result != 0 {
 		return nil, fmt.Errorf("NetUserGetLocalGroups: %w", syscall.Errno(result))
 	}
-	defer procNetApiBufferFree.Call(buffer)
+	defer procNetApiBufferFree.Call(uintptr(unsafe.Pointer(buffer)))
 	groups := map[string]bool{}
-	for _, item := range unsafe.Slice((*localGroupUsersInfo0)(unsafe.Pointer(buffer)), read) {
+	for _, item := range unsafe.Slice(buffer, read) {
 		groups[strings.ToLower(windows.UTF16PtrToString(item.Name))] = true
 	}
 	return groups, nil

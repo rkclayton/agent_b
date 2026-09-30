@@ -139,6 +139,10 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
+	if body.Decision == "folder" && phoneAuthenticated(r) {
+		writeError(w, http.StatusForbidden, "trusted folders require the local page", "decision")
+		return
+	}
 	if s.runner == nil {
 		writeError(w, 409, "runtime unavailable", "call_id")
 		return

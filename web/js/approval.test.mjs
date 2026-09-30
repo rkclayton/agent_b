@@ -18,6 +18,21 @@ test("file escape and policy cards stay within the same three-button vocabulary"
 	assert.deepEqual(approvalChoices({ name: "write_file", boundary_escape: false }), [["session", "Yes, for this chat"], ["once", "Just once"], ["deny", "No"]]);
 });
 
+test("outside-folder cards name the boundary and offer persistent folder trust", () => {
+	const data = { name: "read_file.operator_override", boundary_escape: true, args: {
+		path: "C:\\shared\\notes.txt", outside_folder_card: true,
+		outside_folders: ["C:\\shared"],
+	}, human: { happened: "identity wording", harness_action: "identity reason" } };
+	assert.deepEqual(approvalChoices(data), [
+		["session", "Yes, for this chat"], ["once", "Just once"],
+		["folder", "Never ask for C:\\shared"], ["deny", "No"],
+	]);
+	const wording = approvalText(data);
+	assert.equal(wording.title, "Outside this chat's folder");
+	assert.match(wording.request, /C:\\shared\\notes\.txt/);
+	assert.match(wording.reason, /C:\\shared/);
+});
+
 test("approval wording stays direct and identifies the operation", () => {
 	const identity = approvalText({ name: "shell.operator_command", boundary_escape: true, args: { reason: "git runs as you", command: "git diff" } });
 	assert.equal(identity.title, "Run as you");

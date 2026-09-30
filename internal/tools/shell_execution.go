@@ -158,15 +158,19 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	var process runningShellProcess
 	var usedService bool
 	var err error
+	outside := outsideCommandDecision(command, item, cfg.TrustedFolders)
+	if !forceOperator && outside.trusted && outside.card == "" && outside.missing == "" && cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
+		forceOperator = true
+	}
 	// Item 2fi: with no service identity a command naming a path outside the
 	// folder raises the same operator decision as read_file, so a file cannot be
 	// read around the card.
 	if !forceOperator && !cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
 		// Item 2fz: directory changes and listings run; an existing outside
 		// read raises the card; a missing one is a plain error.
-		decision := outsideCommandDecision(command, item)
+		decision := outside
 		if decision.card != "" {
-			return CallDetail{Content: "command was not started: " + decision.card, OperatorOverrideReason: decision.card}
+			return CallDetail{Content: "command was not started: " + decision.card, OperatorOverrideReason: decision.card, Metadata: outsideMetadata(decision.folders, true)}
 		}
 		if decision.missing != "" {
 			return CallDetail{Err: fmt.Errorf("command was not started: %s; there is nothing for the operator to allow — check the path, or use a file inside your folder", decision.missing)}
@@ -189,11 +193,19 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 			return CallDetail{
 				Content:                "service-account shell was not started: " + required.reason,
 				OperatorOverrideReason: required.reason,
+				Metadata:               outsideMetadata(outside.folders, false),
 			}
 		}
 		return CallDetail{Err: err}
 	}
 	return waitShellProcess(ctx, process, usedService, timeout, cfg, &output, command)
+}
+
+func outsideMetadata(folders []string, boundary bool) map[string]any {
+	if len(folders) == 0 {
+		return nil
+	}
+	return map[string]any{"outside_folders": folders, "outside_folder_card": boundary}
 }
 
 func waitShellProcess(ctx context.Context, process runningShellProcess, usedService bool, timeout int, cfg config.Shell, output *lockedBuffer, operatorCommand string) CallDetail {

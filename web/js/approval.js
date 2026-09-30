@@ -9,7 +9,9 @@ export function shellGrantApproval(data = {}) {
 
 export function approvalChoices(data = {}) {
 	if (data.kind === "cycle" || data.name === "run.cycle") return [["continue", "Continue"], ["stop", "Stop"]];
-	return [...(data.standing_grant ? [["approve", "Always allow this exact scope"]] : []), ["session", "Yes, for this chat"], ["once", "Just once"], ["deny", "No"]];
+	const folders = Array.isArray(data.args?.outside_folders) ? data.args.outside_folders : [];
+	const trust = folders.length ? [["folder", `Never ask for ${folders.join(", ")}`]] : [];
+	return [...(data.standing_grant ? [["approve", "Always allow this exact scope"]] : []), ["session", "Yes, for this chat"], ["once", "Just once"], ...trust, ["deny", "No"]];
 }
 
 // Item 2nv (e): what a card says when a proposal binds a credential or moves a bound
@@ -47,6 +49,10 @@ function importedOperations(data) {
 export function approvalText(data = {}) {
 	const human = data.human && typeof data.human === "object" ? data.human : null;
 	const imported = boundCredential(data) + importedOperations(data);
+	if (data.args?.outside_folder_card) {
+		const value = data.args?.path ?? data.args?.command ?? data.args?.source ?? "", folders = data.args.outside_folders || [];
+		return { title: "Outside this chat's folder", request: `${data.name || "This operation"} would reach ${value}.`, reason: `Allow access, or trust ${folders.join(", ")} for every chat.`, detail: value };
+	}
 	if (human?.happened && human?.harness_action) return {
 		title: data.kind === "cycle" || data.name === "run.cycle" ? "Loop check" : (data.boundary_escape ? "Run as you" : "Allow this"),
 		request: human.happened,
@@ -103,6 +109,7 @@ export function approvalDecisionText(decision) {
 		once: "allowed once",
 		approve: "allowed",
 		run: "allowed for this run",
+		folder: "folder trusted",
 		operator_mode: "Run as you enabled",
 		deny: "denied",
 		superseded: "superseded",

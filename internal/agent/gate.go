@@ -25,6 +25,7 @@ type approvalWait struct {
 	callID    string
 	decided   bool
 	grant     StandingGrant
+	folder    bool
 }
 type StandingGrant struct {
 	ID      string `json:"id"`
@@ -166,6 +167,7 @@ func (g *Gate) WaitBoundaryDecision(ctx context.Context, s *session.Session, run
 	}
 	g.sequenceMu.Lock()
 	wait, cleanup := g.beginWait(s, runID, callID, kind, grant)
+	_, wait.folder = args["outside_folders"]
 	g.publishApprovalRequired(s, runID, callID, name, args, true, grant)
 	g.sequenceMu.Unlock()
 	defer cleanup()
@@ -322,7 +324,7 @@ func (g *Gate) Decide(sessionID, callID, decision string) error {
 
 func (g *Gate) DecideWith(sessionID, callID, decision string, before func()) error {
 	if !validApprovalDecision(decision) {
-		return fmt.Errorf("decision must be approve, once, run, session, operator_mode, or deny")
+		return fmt.Errorf("decision must be approve, once, run, session, folder, operator_mode, or deny")
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -338,6 +340,9 @@ func (g *Gate) DecideWith(sessionID, callID, decision string, before func()) err
 	}
 	if decision == "operator_mode" && wait.scopeKind != approvalShellScopes {
 		return fmt.Errorf("decision %s is only valid for a shell approval", decision)
+	}
+	if decision == "folder" && !wait.folder {
+		return fmt.Errorf("decision folder requires an outside-folder approval")
 	}
 	if (decision == "continue" || decision == "stop") && wait.scopeKind != approvalCycle {
 		return fmt.Errorf("decision %s is only valid for a cycle decision", decision)
@@ -458,7 +463,7 @@ func (g *Gate) RevokeStandingGrant(id string) error {
 
 func validApprovalDecision(decision string) bool {
 	switch decision {
-	case "approve", "once", "run", "session", "operator_mode", "deny", "continue", "stop":
+	case "approve", "once", "run", "session", "folder", "operator_mode", "deny", "continue", "stop":
 		return true
 	default:
 		return false
@@ -466,5 +471,5 @@ func validApprovalDecision(decision string) bool {
 }
 
 func approvalGranted(decision string) bool {
-	return decision == "approve" || decision == "once" || decision == "run" || decision == "session" || decision == "operator_mode"
+	return decision == "approve" || decision == "once" || decision == "run" || decision == "session" || decision == "folder" || decision == "operator_mode"
 }

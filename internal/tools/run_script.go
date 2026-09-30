@@ -115,20 +115,6 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	default:
 		return CallDetail{Err: fmt.Errorf("language must be powershell, python, node, or bash")}
 	}
-	// Item 2fi: with no service identity a script naming a path outside the
-	// folder raises the same operator decision as read_file (the walk read
-	// C:Windowswin.ini through [System.IO.File] with no card).
-	if !forceOperator && !cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
-		// Item 2fz: directory changes and listings run; an existing outside
-		// read raises the card; a missing one is a plain error.
-		decision := outsideCommandDecision(source, item)
-		if decision.card != "" {
-			return CallDetail{Content: "script was not started: " + decision.card, OperatorOverrideReason: decision.card}
-		}
-		if decision.missing != "" {
-			return CallDetail{Err: fmt.Errorf("script was not started: %s; there is nothing for the operator to allow — check the path, or use a file inside your folder", decision.missing)}
-		}
-	}
 	timeout := number(args["timeout_s"], cfg.TimeoutS)
 	if timeout <= 0 {
 		timeout = cfg.TimeoutS
@@ -137,11 +123,23 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 		timeout = cfg.MaxTimeoutS
 	}
 	var output lockedBuffer
+	outside := outsideCommandDecision(source, item, cfg.TrustedFolders)
+	if !forceOperator && outside.trusted && outside.card == "" && outside.missing == "" && cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
+		forceOperator = true
+	}
+	if !forceOperator && !cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
+		if outside.card != "" {
+			return CallDetail{Content: "script was not started: " + outside.card, OperatorOverrideReason: outside.card, Metadata: outsideMetadata(outside.folders, true)}
+		}
+		if outside.missing != "" {
+			return CallDetail{Err: fmt.Errorf("script was not started: %s; there is nothing for the operator to allow — check the path, or use a file inside your folder", outside.missing)}
+		}
+	}
 	process, usedService, err := t.shell.startInput(cfg, executable, argv, []byte(source), item.Workspace, &output, forceOperator)
 	if err != nil {
 		var required *operatorOverrideRequired
 		if errors.As(err, &required) {
-			return CallDetail{Content: "service-account script was not started: " + required.reason, OperatorOverrideReason: required.reason}
+			return CallDetail{Content: "service-account script was not started: " + required.reason, OperatorOverrideReason: required.reason, Metadata: outsideMetadata(outside.folders, false)}
 		}
 		return CallDetail{Err: err}
 	}

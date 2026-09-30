@@ -59,6 +59,7 @@ type Runner struct {
 	messageLimits      sync.Map
 	byteLimits         sync.Map
 	identityInvitation atomic.Bool
+	trustFolders       func([]string) error
 }
 
 type BoundaryAction struct {
@@ -89,6 +90,7 @@ func (r *Runner) SetMailboxBoundary(fn func(context.Context, string, bool) Bound
 func (r *Runner) SetModelUnreachable(fn func(string, string))        { r.modelUnreachable = fn }
 func (r *Runner) SetMessageLimitRecorder(fn func(string, int) error) { r.recordMessageLimit = fn }
 func (r *Runner) SetByteLimitRecorder(fn func(string, int) error)    { r.recordByteLimit = fn }
+func (r *Runner) SetTrustedFolderWriter(fn func([]string) error)     { r.trustFolders = fn }
 func (r *Runner) BindDelegate(tool *tools.Delegate)                  { tool.SetRunner(r.runDelegate) }
 func (r *Runner) AcceptPlanEdit(ctx context.Context, s *session.Session, path, oldText, newText string) tools.CallOutcome {
 	if !s.BeginPlanAccept() {
@@ -1450,6 +1452,14 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	if path != "" {
 		overrideArgs["path"] = path
 	}
+	outsideFolders, _ := outcome.Metadata["outside_folders"].([]string)
+	if len(outsideFolders) > 0 {
+		overrideArgs["outside_folders"] = outsideFolders
+	}
+	outsideCard, _ := outcome.Metadata["outside_folder_card"].(bool)
+	if outsideCard {
+		overrideArgs["outside_folder_card"] = true
+	}
 	// v0.69.0/W12 cold review: run_script has no command or path argument, so
 	// its card showed nothing of what would run as the operator.
 	if source, _ := args["source"].(string); name == "run_script" && source != "" {
@@ -1463,7 +1473,6 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	// The identity grants below apply only with the service identity on, so
 	// storing them here left a grant that woke up if the posture changed. The
 	// sandbox card keeps its own handling.
-	outsideCard := !cfg.Shell.ServiceAccount.Enabled && strings.Contains(outcome.OperatorOverrideReason, "outside the folder")
 	overrideDecision := "deny"
 	var overrideErr error
 	if outsideCard && r.hasPolicyChatGrant(s.ID, outsideFolderChatGrant) {
@@ -1484,11 +1493,20 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		outcome.Content = withModelNote(outcome.Content, "operator-identity override was offered and denied by the user")
 		return outcome
 	}
-	if outsideCard {
-		if overrideDecision == "session" {
+	outsideScope := overrideDecision
+	if len(outsideFolders) > 0 {
+		if outsideScope == "folder" {
+			if r.trustFolders == nil || r.trustFolders(outsideFolders) != nil {
+				outcome.Content = withModelNote(outcome.Content, "the folder could not be trusted; outside-folder access was not run")
+				return outcome
+			}
+		}
+		if outsideCard && overrideDecision == "session" {
 			r.grantPolicyChat(s.ID, outsideFolderChatGrant)
 		}
-		overrideDecision = "once"
+		if outsideCard || outsideScope == "folder" {
+			overrideDecision = "once"
+		}
 	}
 	if name == "shell" && overrideDecision == "run" {
 		r.grantShellRun(s, runID, shellRunGrant{Rule: shellGrantBoundary, Identity: "operator"})
@@ -1512,7 +1530,12 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 			overrideContent = "the tool completed with no output"
 		}
 		outcome.Content, outcome.OK, outcome.OperatorContext = overrideContent, true, true
-		outcome.Metadata = withHarnessNote(mergeResultMetadata(outcome.Metadata, sandboxResultMetadata(cfg, s, name, args)), "operator-identity override succeeded; exact "+subject+" rerun once")
+		note := "operator-identity override succeeded; exact " + subject + " rerun once"
+		if outsideCard || outsideScope == "folder" {
+			scope := map[string]string{"approve": "just once", "once": "just once", "session": "for this chat", "folder": "folder trusted"}[outsideScope]
+			note = "outside-folder access allowed (" + scope + ")"
+		}
+		outcome.Metadata = withHarnessNote(mergeResultMetadata(outcome.Metadata, sandboxResultMetadata(cfg, s, name, args)), note)
 		return outcome
 	}
 	outcome.Content, outcome.OK, outcome.OperatorContext = overrideContent, false, true

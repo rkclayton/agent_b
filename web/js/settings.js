@@ -926,6 +926,19 @@ async function dispatchAction(event, button, action, id) {
 		try { await api("/api/standing-grants",{id}); reduce({type:"snapshot",data:await api("/api/state",undefined,"GET")}); } catch(error) { errors.set("shell",error.message); render(); }
 		return;
 	}
+	if (action.startsWith("trusted-folder-")) {
+		const folders = [...(store.config.shell?.trusted_folders || [])];
+		if (action === "trusted-folder-delete") folders.splice(Number(id), 1);
+		else {
+			const input = sheet.querySelector(action === "trusted-folder-add" ? "#trusted-folder-new" : `#trusted-folder-${CSS.escape(id)}`);
+			const path = input?.value.trim(); if (!path) return;
+			const entry = { path, added_at: new Date().toISOString(), source: "settings" };
+			if (action === "trusted-folder-add") folders.push(entry); else folders[Number(id)] = entry;
+		}
+		try { const config = await api("/api/config", {shell:{trusted_folders:folders}}); reduce({type:"config.changed",data:{config}}); }
+		catch (error) { errors.set("shell.trusted_folders", error.message); }
+		return render();
+	}
   if (action === "operator-context") {
     try { await api("/api/config", {shell:{operator_context:!store.shell_identity?.operator_context}}); }
     catch (error) { errors.set("shell", error.message); render(); }

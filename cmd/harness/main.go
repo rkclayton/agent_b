@@ -443,6 +443,7 @@ func main() {
 	// than read from its extracted text.
 	agent.SetInlineDocumentLimit(cfg.Tools.Attachments.InlineDocumentLimit())
 	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Connection, web.ConfigSnapshot)
+	runner.SetTrustedFolderWriter(web.TrustFolders)
 	runner.Gate().SetStandingGrantStore(filepath.Join(paths.Data, "standing-grants.json"))
 	callServiceTool.SetConnectorWriter(web.ApplyConnector)
 	webserver.SetCredentialVault(credential.NewVault(paths.Data))

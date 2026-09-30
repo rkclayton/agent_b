@@ -53,7 +53,8 @@
 	"confirmed_local_subnets": [],
     "service_account": { "enabled": true, "account": "agentb-svc", "domain": "." },
     "allowed_model_ranges": [],
-    "deny": ["rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"]
+    "deny": ["rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"],
+    "trusted_folders": []
   },
   "sandbox": { "enabled": true },
   "signing": {

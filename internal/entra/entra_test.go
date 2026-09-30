@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -64,6 +65,9 @@ func (r *identityRecording) handler(w http.ResponseWriter, req *http.Request) {
 }
 
 func TestInteractiveDeviceRefreshRevocationSwitchAndSignOut2nw(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the protected credential cache uses Windows DPAPI")
+	}
 	recording := &identityRecording{account: "first@example.test"}
 	idp := httptest.NewTLSServer(http.HandlerFunc(recording.handler))
 	defer idp.Close()

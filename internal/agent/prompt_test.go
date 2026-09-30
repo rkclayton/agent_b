@@ -1,12 +1,30 @@
 package agent
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"harness/internal/config"
 	"harness/internal/session"
 )
+
+func TestPromptNamesTrustedFoldersAndSaysWhenThereAreNone(t *testing.T) {
+	left, right := filepath.Join(t.TempDir(), "notes"), filepath.Join(t.TempDir(), "projects")
+	trusted := []config.TrustedFolder{{Path: left}, {Path: right}}
+	renderer := &PromptRenderer{text: "folders={{folders}}"}
+	renderer.SetTrustedFolders(func() []config.TrustedFolder { return trusted })
+	value := renderer.Render(&config.Connection{}, &session.Session{}, nil, "")
+	for _, want := range []string{"notes (" + left + ")", "projects (" + right + ")"} {
+		if !strings.Contains(value, want) {
+			t.Fatalf("prompt %q does not contain %q", value, want)
+		}
+	}
+	trusted = nil
+	if value = renderer.Render(&config.Connection{}, &session.Session{}, nil, ""); value != "folders=none yet" {
+		t.Fatalf("empty trusted folders prompt=%q", value)
+	}
+}
 
 func TestPromptIncludesOSDateAndContextWithoutInventingCity(t *testing.T) {
 	renderer := &PromptRenderer{text: "date={{date}} context={{os_context}}"}

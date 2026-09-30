@@ -22,10 +22,7 @@ type skillRequest struct {
 	Enabled            bool
 }
 
-func (s *Server) skillState() []skills.Skill {
-	list, _ := s.skillCatalog()
-	return list
-}
+func (s *Server) skillState() []skills.Skill { list, _ := s.skillCatalog(); return list }
 
 func (s *Server) skillCatalog() ([]skills.Skill, string) {
 	s.mu.RLock()
@@ -34,10 +31,7 @@ func (s *Server) skillCatalog() ([]skills.Skill, string) {
 	return skills.Scan(filepath.Join(s.profileRoot(), "skills"), settings)
 }
 
-func (s *Server) Index() string {
-	_, block := s.skillCatalog()
-	return block
-}
+func (s *Server) Index() string { _, block := s.skillCatalog(); return block }
 
 func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -61,10 +55,10 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 		value.Enabled = request.Enabled
 		s.cfg.Skills[request.Name] = value
 	case "import":
-		var item skills.Skill
-		item, _, _, err = skills.Inspect(request.Path)
+		var value config.SkillSetting
+		value, err = skills.Import(filepath.Join(s.profileRoot(), "skills"), request.Path, s.cfg.Tools.Attachments.MaxBytes)
 		if err == nil {
-			s.cfg.Skills[item.Name], err = skills.Import(filepath.Join(s.profileRoot(), "skills"), request.Path)
+			s.cfg.Skills[value.Name] = value
 		}
 	case "rescan":
 	default:
@@ -110,7 +104,7 @@ func (s *Server) Proposal(ctx context.Context, chat *session.Session, runID stri
 		if !item.Valid {
 			return "skill proposal refused: " + item.Reason, nil
 		}
-		setting, err := skills.Import(filepath.Join(s.profileRoot(), "skills"), source)
+		setting, err := skills.Import(filepath.Join(s.profileRoot(), "skills"), source, s.cfg.Tools.Attachments.MaxBytes)
 		if err != nil {
 			return "", err
 		}
@@ -132,12 +126,8 @@ func (s *Server) Proposal(ctx context.Context, chat *session.Session, runID stri
 }
 
 func (s *Server) Read(path string) {
-	abs, err := filepath.Abs(filepath.FromSlash(path))
-	if err != nil {
-		return
-	}
 	root := filepath.Join(s.profileRoot(), "skills")
-	rel, err := filepath.Rel(root, abs)
+	rel, err := filepath.Rel(root, filepath.FromSlash(path))
 	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
 		return
 	}

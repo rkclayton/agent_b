@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"harness/internal/attachment"
 	"harness/internal/config"
 	"harness/internal/session"
 )
@@ -108,7 +109,7 @@ func outsideCommandDecision(source string, s *session.Session, trusted []config.
 				continue
 			}
 			if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-				missing = append(missing, path)
+				missing = append(missing, missingPathHint(path))
 			} else {
 				cards = append(cards, path)
 				folders = appendUniquePath(folders, holdingFolder(path))
@@ -121,6 +122,26 @@ func outsideCommandDecision(source string, s *session.Session, trusted []config.
 		folders: folders,
 		trusted: len(seen) > len(cards)+len(missing),
 	}
+}
+
+func missingPathHint(missing string) string {
+	for folder := filepath.Dir(missing); folder != filepath.Dir(folder); folder = filepath.Dir(folder) {
+		candidate := folder + ".zip"
+		archive, _, err := attachment.ReadZIP(candidate, 8<<20)
+		if err != nil {
+			continue
+		}
+		member, _ := filepath.Rel(filepath.Dir(folder), missing)
+		wanted := filepath.ToSlash(member)
+		if file, ok := archive[wanted]; ok && file.Refused == "" {
+			return missing + " (probably inside " + candidate + "; read " + candidate + string(filepath.Separator) + filepath.FromSlash(wanted) + ")"
+		}
+	}
+	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(missing), "*", filepath.Base(missing)))
+	if len(matches) > 0 {
+		return missing + " (probably at " + matches[0] + ")"
+	}
+	return missing
 }
 
 func trustedPath(path string, entries []config.TrustedFolder) bool {

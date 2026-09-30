@@ -7,22 +7,25 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
+	"harness/internal/attachment"
 	"harness/internal/config"
 	"harness/internal/session"
 )
 
 type ReadFile struct {
-	mu  sync.RWMutex
-	cfg config.ReadFileTool
+	mu     sync.RWMutex
+	cfg    config.ReadFileTool
+	maxZIP int64
 }
 
-func NewReadFile(cfg config.ReadFileTool) *ReadFile { return &ReadFile{cfg: cfg} }
+func NewReadFile(cfg config.ReadFileTool) *ReadFile { return &ReadFile{cfg: cfg, maxZIP: 8 << 20} }
 func (*ReadFile) Name() string                      { return "read_file" }
 func (*ReadFile) Description() string {
-	return "Read numbered local UTF-8 text. Use byte mode with byte offset/limit, line mode with one-based line/lines, or windows for multiple ordered labelled windows on one file. In byte mode, when more is true, pass returned next_offset as offset to advance; in line mode, pass returned next_line as line. Unlike fetch_url, it reads the filesystem."
+	return "Read numbered local UTF-8 text or list a .zip and read its members in memory. Use byte mode with byte offset/limit, line mode with one-based line/lines, or windows for multiple ordered labelled windows on one file. When more is true, pass returned next_offset as offset to advance or continue at next_line."
 }
 func (r *ReadFile) Schema() map[string]any {
 	cfg := r.config()
@@ -32,24 +35,54 @@ func (r *ReadFile) Schema() map[string]any {
 }
 func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string]any) (string, error) {
 	cfg := r.config()
+	maxZIP := r.zipLimit()
 	path, ok := args["path"].(string)
 	if !ok || path == "" {
 		return "", fmt.Errorf("path is required")
 	}
-	root, rootErr := s.ReadRoot(path)
+	archivePath, member, zipped := splitZIPPath(path)
+	if !zipped {
+		archivePath = path
+	}
+	root, rootErr := s.ReadRoot(archivePath)
 	if rootErr != nil {
 		return "", rootErr
 	}
-	resolved, err := resolveForSessionTool(ctx, s, root, path)
+	resolved, err := resolveForSessionTool(ctx, s, root, archivePath)
 	if err != nil {
 		return "", err
 	}
 	if info, statErr := os.Stat(resolved); statErr == nil && info.IsDir() {
 		return "path is a folder; use list_dir to inspect it.", nil
 	}
-	data, err := os.ReadFile(resolved)
-	if err != nil {
-		return "", err
+	var data []byte
+	if zipped {
+		files, listing, zipErr := attachment.ReadZIP(resolved, maxZIP)
+		if zipErr != nil {
+			return "", zipErr
+		}
+		if member == "" {
+			s.Touch(session.FileKey(resolved))
+			return listing, nil
+		}
+		file, present := files[filepath.ToSlash(member)]
+		if !present {
+			return "", fmt.Errorf("zip member not found: %s", member)
+		}
+		if file.Refused != "" {
+			return "", fmt.Errorf("zip member refused: %s", member)
+		}
+		data = file.Data
+	} else {
+		data, err = os.ReadFile(resolved)
+		if err != nil {
+			return "", err
+		}
+	}
+	if zipped && attachment.Classify(member) == attachment.Office {
+		if data, err = attachment.ExtractOfficeBytes(member, data, maxZIP); err != nil {
+			return "", err
+		}
 	}
 	sample := data
 	if len(sample) > 8192 {
@@ -219,9 +252,24 @@ func numberedReadFileWindow(text string, window byteWindow) string {
 func (r *ReadFile) Configure(value config.Config) {
 	r.mu.Lock()
 	r.cfg = value.Tools.ReadFile
+	r.maxZIP = value.Tools.Attachments.MaxBytes
 	r.mu.Unlock()
 }
+
+func splitZIPPath(value string) (string, string, bool) {
+	slash := strings.ReplaceAll(value, `\`, "/")
+	end := strings.Index(strings.ToLower(slash), ".zip/")
+	if end < 0 && strings.HasSuffix(strings.ToLower(slash), ".zip") {
+		end = len(slash) - 4
+	}
+	if end < 0 {
+		return "", "", false
+	}
+	end += 4
+	return filepath.FromSlash(slash[:end]), strings.TrimPrefix(slash[end:], "/"), true
+}
 func (r *ReadFile) config() config.ReadFileTool { r.mu.RLock(); defer r.mu.RUnlock(); return r.cfg }
+func (r *ReadFile) zipLimit() int64             { r.mu.RLock(); defer r.mu.RUnlock(); return r.maxZIP }
 func number(value any, fallback int) int {
 	if value == nil {
 		return fallback

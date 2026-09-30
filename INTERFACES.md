@@ -166,3 +166,4 @@ The listener remains on `127.0.0.1`, and Agent_b provides no remote reachability
 ## Implementation status
 
 Every `[prompt N]` tag and every record/API shape above now has an implementation. Session state has one pure versioned projector shared by live snapshots, live patches, and replay; browser-local expansion, scrolling, tab selection, and Settings drafts remain view state.
+`read_file` lists bounded `.zip` archives in memory and reads `<archive>.zip/<member>` only after resolving the archive through the normal file jail; unsafe member names and over-limit archives are refused.

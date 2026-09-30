@@ -423,7 +423,8 @@ func main() {
 	// the operator data root, and the tool reads it through one seam.
 	vault := credential.NewVault(paths.Data)
 	callServiceTool.SetVault(vault)
-	callServiceTool.SetTokenProvider("entra", entra.New(vault))
+	entraManager := entra.New(vault)
+	callServiceTool.SetTokenProvider("entra", entraManager)
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
@@ -450,6 +451,7 @@ func main() {
 	runner.Gate().SetStandingGrantStore(filepath.Join(paths.Data, "standing-grants.json"))
 	callServiceTool.SetConnectorWriter(web.ApplyConnector)
 	webserver.SetCredentialVault(vault)
+	webserver.SetIdentityProvider("entra", entraManager)
 	runner.BindDelegate(delegateTool)
 	runner.SetSessionRenamer(registry.RenameBy)
 	deliveryManager := delivery.New(bus, web.ConfigSnapshot)

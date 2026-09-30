@@ -16,7 +16,7 @@
 // a product defect and not a model mood.
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -154,6 +154,30 @@ test("the settings journey: type a host, Test, pick a model, save, chat, close, 
   await page.locator('.confirm-popover [data-action="confirm-proceed"]').click();
   await expect(page.locator(`.connection-summary[data-id="${id}"]`)).toHaveCount(0);
   await expect(page.locator(".connection-row")).toHaveCount(rowsBefore);
+});
+
+test("Entra credentials show account controls and configuration without defaults", async () => {
+	const page = await harness.context.newPage();
+	await page.route("**/api/credentials", async (route) => route.fulfill({
+		status: 200,
+		contentType: "application/json",
+		body: JSON.stringify({ credentials: [{ name: "work-api", kind: "entra", origin: "https://api.example.test", stored_at: "2026-09-29T00:00:00Z", account: "person@example.test", sign_in_needed: false }] }),
+	}));
+	await page.goto(`${harness.base}/chat`);
+	await page.locator(".shell-settings").click();
+	await page.locator('.settings-nav [data-id="shell"]').click();
+	await expect(page.getByText("signed in as person@example.test")).toBeVisible();
+	await expect(page.locator('[data-action="credential-sign-in"][data-id="work-api"]')).toHaveText("Switch account");
+	await expect(page.locator('[data-action="credential-device-code"][data-id="work-api"]')).toBeVisible();
+	await expect(page.locator('[data-action="credential-sign-out"][data-id="work-api"]')).toBeVisible();
+	await page.getByText("Add Microsoft Entra").click();
+	for (const selector of ["#credential-entra-name", "#credential-entra-origin", "#credential-tenant", "#credential-client-id", "#credential-scopes"]) {
+		await expect(page.locator(selector)).toHaveValue("");
+	}
+	const evidence = join(repo, "candidate", "rel-1.44.0-w7-entra", "settings-credentials.png");
+	await mkdir(join(repo, "candidate", "rel-1.44.0-w7-entra"), { recursive: true });
+	await page.screenshot({ path: evidence, fullPage: true });
+	await page.close();
 });
 
 // Item 2nc (c), carried into the journey: the confirmation belongs to its control, and

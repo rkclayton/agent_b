@@ -149,7 +149,7 @@ func TestInteractiveDeviceRefreshRevocationSwitchAndSignOut2nw(t *testing.T) {
 	if device.UserCode != "ABCD-EFGH" {
 		t.Fatalf("device=%+v", device)
 	}
-	if account, err := device.Complete(context.Background()); err != nil || account != recording.account {
+	if account, err := device.Wait(context.Background()); err != nil || account != recording.account {
 		t.Fatalf("device account=%q err=%v", account, err)
 	}
 	if account, _ := manager.Account(context.Background(), "work-api"); account != recording.account {

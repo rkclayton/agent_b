@@ -20,7 +20,6 @@ import (
 // but nothing in the page shows or edits it.
 const DefaultURL = "wss://broker.agentb.app/v1/connect"
 
-
 // Item 2kq (a): DIAL OUT AND HOLD.
 //
 // Nothing listens. This client dials the broker, authenticates as the agent endpoint,
@@ -63,12 +62,15 @@ type Delivery struct {
 
 // Status is what Settings shows. Item 2kq (e).
 type Status struct {
-	State        string `json:"state"`
-	BrokerBuild  string `json:"broker_build,omitempty"`
-	SessionID    string `json:"session_id,omitempty"`
-	LastError    string `json:"last_error,omitempty"`
-	Reconnects   int    `json:"reconnects"`
-	PairedDevice string `json:"paired_device,omitempty"`
+	State         string `json:"state"`
+	BrokerBuild   string `json:"broker_build,omitempty"`
+	SessionID     string `json:"session_id,omitempty"`
+	LastError     string `json:"last_error,omitempty"`
+	EndedReason   string `json:"ended_reason,omitempty"`
+	NextAttemptAt string `json:"next_attempt_at,omitempty"`
+	LastMessageAt string `json:"last_message_at,omitempty"`
+	Reconnects    int    `json:"reconnects"`
+	PairedDevice  string `json:"paired_device,omitempty"`
 }
 
 // Client holds the one session.
@@ -133,7 +135,7 @@ func NewClient(identity Identity, pairing Pairing, dial Dialer, handle func(mess
 		dial:     dial,
 		handle:   handle,
 		now:      time.Now,
-		status:   Status{State: "not configured"},
+		status:   Status{State: "broker unreachable"},
 		pending:  map[string]*Delivery{},
 		handled:  map[string][]byte{},
 	}
@@ -154,10 +156,22 @@ func (c *Client) setState(state string, err error) {
 		c.status.LastError = err.Error()
 		return
 	}
-	if state == "connected" {
+	if state == "holding" || state == "phone connected" {
 		c.status.LastError = ""
+		c.status.NextAttemptAt = ""
 	}
 }
+
+func formatEndedReason(code, detail string) string {
+	if detail == "" {
+		return code
+	}
+	return code + ": " + detail
+}
+
+type brokerProblem struct{ code, detail string }
+
+func (e *brokerProblem) Error() string { return formatEndedReason(e.code, e.detail) }
 
 // Run dials and holds, reconnecting with backoff until the context ends. Each
 // reconnection is a NEW session: fresh ephemerals, a fresh handshake id, a new session
@@ -169,17 +183,28 @@ func (c *Client) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if errors.Is(err, errReplaced) {
+		var problem *brokerProblem
+		if errors.As(err, &problem) && problem.code == "connection_replaced" {
 			// Item 2kq (a): 4001 newest-wins. Another connection for this key took
 			// over; this one stops rather than fighting it.
-			c.setState("replaced", nil)
+			c.mu.Lock()
+			c.status.State = "broker unreachable"
+			c.status.EndedReason = err.Error()
+			c.mu.Unlock()
 			return nil
 		}
 		c.mu.Lock()
 		c.status.Reconnects++
 		c.mu.Unlock()
 		log.Printf("broker: the session dropped, reconnecting: %v", err)
-		c.setState("reconnecting", err)
+		c.mu.Lock()
+		c.status.State = "broker unreachable"
+		c.status.LastError = err.Error()
+		c.status.NextAttemptAt = c.now().Add(backoff).UTC().Format(time.RFC3339)
+		if errors.As(err, &problem) {
+			c.status.EndedReason = formatEndedReason(problem.code, problem.detail)
+		}
+		c.mu.Unlock()
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -191,8 +216,6 @@ func (c *Client) Run(ctx context.Context) error {
 	}
 	return ctx.Err()
 }
-
-var errReplaced = errors.New("broker: this connection was replaced by a newer one")
 
 // once is one connection's whole life: dial, authenticate, establish, serve.
 func (c *Client) once(ctx context.Context) error {
@@ -208,10 +231,11 @@ func (c *Client) once(ctx context.Context) error {
 	if err := c.authenticate(ctx, transport); err != nil {
 		return err
 	}
+	c.setState("holding", nil)
 	if err := c.establish(ctx, transport); err != nil {
 		return err
 	}
-	c.setState("connected", nil)
+	c.setState("phone connected", nil)
 	if c.connected != nil {
 		connection, ended := context.WithCancel(ctx)
 		defer ended()
@@ -504,13 +528,16 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 			if err := DecodeInto(frame.Payload, &problem); err != nil {
 				return err
 			}
-			if problem.Code == "connection_replaced" {
-				return errReplaced
-			}
 			if problem.Fatal {
-				return fmt.Errorf("broker refused: %s (%s)", problem.Code, problem.Detail)
+				return &brokerProblem{code: problem.Code, detail: problem.Detail}
 			}
 			log.Printf("broker: %s (%s)", problem.Code, problem.Detail)
+		case FrameRevoked:
+			var revoked revokePayload
+			if err := DecodeInto(frame.Payload, &revoked); err != nil {
+				return err
+			}
+			return &brokerProblem{code: "revoked", detail: revoked.Reason}
 		default:
 			return fmt.Errorf("broker: unexpected frame 0x%02x", frame.Type)
 		}
@@ -547,6 +574,9 @@ func (c *Client) deliver(frame Frame, transport Transport) error {
 	if err != nil {
 		return err
 	}
+	c.mu.Lock()
+	c.status.LastMessageAt = c.now().UTC().Format(time.RFC3339)
+	c.mu.Unlock()
 	ack, err := Encode(FrameAck, idOnlyFrame{PairingID: payload.PairingID, SessionID: payload.SessionID, MessageID: payload.MessageID})
 	if err != nil {
 		return err
@@ -669,7 +699,7 @@ func (c *Client) readHandshake(ctx context.Context, transport Transport) (Frame,
 			if err := DecodeInto(frame.Payload, &problem); err != nil {
 				return Frame{}, err
 			}
-			return Frame{}, fmt.Errorf("broker refused the handshake: %s (%s)", problem.Code, problem.Detail)
+			return Frame{}, &brokerProblem{code: problem.Code, detail: problem.Detail}
 		}
 		if err != nil || (frame.Type != FrameQueued && frame.Type != FramePing) {
 			return frame, err

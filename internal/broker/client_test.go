@@ -256,12 +256,37 @@ func waitConnected(t *testing.T, client *Client) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if client.Status().State == "connected" {
+		if client.Status().State == "phone connected" {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("the client never reported connected: %+v", client.Status())
+}
+
+func TestStatusNamesBrokerUnreachableAndTheNextAttempt2oe(t *testing.T) {
+	agent, _, pairing := testPair(t)
+	client := NewClient(agent, pairing, func(context.Context) (Transport, error) {
+		return nil, errors.New("recorded broker unavailable")
+	}, func([]byte, []byte) []byte { return nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = client.Run(ctx) }()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		status := client.Status()
+		if status.State == "broker unreachable" && status.NextAttemptAt != "" {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("status never carried a retry time: %+v", client.Status())
+}
+
+func TestEndedSessionReasonKeepsTheFrameWords2oe(t *testing.T) {
+	if got := formatEndedReason("revoked", "pairing removed by peer"); got != "revoked: pairing removed by peer" {
+		t.Fatalf("reason=%q", got)
+	}
 }
 
 func testPair(t *testing.T) (Identity, Identity, Pairing) {
@@ -537,7 +562,11 @@ func TestCloseReplacedStopsRatherThanReconnecting2kq(t *testing.T) {
 	if dials != 1 {
 		t.Fatalf("the client dialled %d times after being replaced", dials)
 	}
-	if state := client.Status().State; state != "replaced" {
-		t.Fatalf("status = %q", state)
+	status := client.Status()
+	if status.State != "broker unreachable" {
+		t.Fatalf("status = %q", status.State)
+	}
+	if status.EndedReason != "connection_replaced: a newer connection for this key" {
+		t.Fatalf("ended reason = %q", status.EndedReason)
 	}
 }

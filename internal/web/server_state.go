@@ -52,6 +52,10 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 	if s.updater != nil {
 		updateState = s.updater.State()
 	}
+	brokerState := any(map[string]any{"state": "not paired"})
+	if host := s.brokerHost(); host != nil {
+		brokerState = host.Status()
+	}
 	standingGrants := any([]any{})
 	if s.runner != nil {
 		standingGrants = s.runner.Gate().StandingGrants()
@@ -64,10 +68,11 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 		"server_started_at":        s.startedAt,
 		"agent_connection_changes": s.agentConnectionChanges(),
 		"build":                    buildinfo.Current(),
-		"update":           updateState,
-		"plans":            s.planList(),
-		"signature":        s.signingState(),
-		"shell_credential": credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,
+		"update":                   updateState,
+		"broker":                   brokerState,
+		"plans":                    s.planList(),
+		"signature":                s.signingState(),
+		"shell_credential":         credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,
 		"serving_facts": servingFacts(filepath.Join(s.roots.Application, "SERVING.md")),
 		"flow":          map[string]any{"stages": events.Stages, "edges": [][2]string{{"assemble", "call_model"}, {"call_model", "parse"}, {"parse", "dispatch"}, {"dispatch", "execute"}, {"execute", "append"}, {"append", "assemble"}}},
 		"tools": []map[string]string{

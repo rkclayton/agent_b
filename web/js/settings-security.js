@@ -192,13 +192,23 @@ function brokerRows() {
 	// Revoke; "off" is now a build without a broker, which the status says for itself.
 	const status = brokerStatus || {};
 	const offer = status.offer || {};
-	const state = status.state || "not connected";
-	const lamp = status.state === "connected" ? "live" : status.state === "reconnecting" ? "alarm" : "";
+	const state = {
+		"not paired": "NOT PAIRED",
+		"broker unreachable": "PAIRED — BROKER UNREACHABLE",
+		"holding": "PAIRED — HOLDING, PHONE NOT CONNECTED",
+		"phone connected": "PAIRED — PHONE CONNECTED",
+	}[status.state] || String(status.state || "NOT PAIRED").toUpperCase();
+	const lamp = status.state === "phone connected" ? "live" : status.state === "broker unreachable" ? "alarm" : "";
+	const connectionEvidence = [
+		status.next_attempt_at ? `next try ${html(status.next_attempt_at)}` : "",
+		status.last_message_at ? `last phone message ${html(status.last_message_at)}` : "",
+		status.ended_reason ? `ended: ${html(status.ended_reason)}` : "",
+	].filter(Boolean).join(" · ");
 	const paired = status.paired_device
 		? `${html(status.paired_device)}<button type="button" data-action="broker-revoke" data-confirm="the paired phone">Revoke</button>`
 		: "none paired";
 	return `${subhead("Phone away from home", "One phone, paired through the broker. It carries ciphertext and can read none of it; the fingerprint below is how you check that for yourself.")}
-	${row("connection", `<span class="account-status"><span class="lamp ${lamp}"></span>${html(state)}${status.broker_build ? ` · build ${html(status.broker_build)}` : ""}</span>`)}
+	${row("connection", `<span class="account-status"><span class="lamp ${lamp}"></span>${html(state)}${status.broker_build ? ` · build ${html(status.broker_build)}` : ""}${connectionEvidence ? `<small>${connectionEvidence}</small>` : ""}</span>`)}
 	${row("pairing", offer.code
 		// Item 2ns (b): THE QR IS THE PAIRING DISPLAY. "this code is waaay too long its
 		// insane" — the code is unchanged, because its length is its margin and three

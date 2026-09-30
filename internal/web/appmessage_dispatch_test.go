@@ -76,6 +76,19 @@ func TestTheStateRouteIsTheSameSnapshotThePageReads2kq(t *testing.T) {
 			t.Errorf("the snapshot has no %s", field)
 		}
 	}
+	for _, state := range []string{"not paired", "broker unreachable", "holding", "phone connected"} {
+		server.SetBrokerHost(statusBrokerHost{state: state})
+		response = dispatch(t, server, `{"v":1,"kind":"request","id":"aa","route":"state","body":{}}`)
+		var body struct {
+			Broker broker.Status `json:"broker"`
+		}
+		if err := json.Unmarshal(response.Body, &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Broker.State != state {
+			t.Fatalf("phone state=%q, local state=%q", body.Broker.State, state)
+		}
+	}
 	// And the response carries the request's own id, because one response per id is the
 	// whole of the return path.
 	if response.ID != "aa" {

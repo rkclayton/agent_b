@@ -62,7 +62,7 @@ type BrokerClient struct {
 // NewBrokerClient loads or creates this install's identity and prepares to dial. The
 // optional data root is omitted only by isolated tests that need an ephemeral identity.
 func NewBrokerClient(address string, dataRoot ...string) (*BrokerClient, error) {
-	client := &BrokerClient{dial: broker.Dial(address), status: broker.Status{State: "not connected"}}
+	client := &BrokerClient{dial: broker.Dial(address), status: broker.Status{State: "not paired"}}
 	if len(dataRoot) > 1 {
 		return nil, errors.New("one broker data root is allowed")
 	}
@@ -88,7 +88,7 @@ func NewBrokerClient(address string, dataRoot ...string) (*BrokerClient, error) 
 		if err == nil {
 			client.pairing = &pairing
 			client.device = "phone"
-			client.status = broker.Status{State: "paired"}
+			client.status = broker.Status{State: "broker unreachable"}
 		}
 		return client, nil
 	}
@@ -300,7 +300,7 @@ func (c *BrokerClient) beginOnce(cancel chan struct{}) (broker.PairingOffer, err
 			c.offer = nil
 			c.pairing = &pairing
 			c.device = "phone"
-			c.status = broker.Status{State: "paired"}
+			c.status = broker.Status{State: "broker unreachable"}
 			c.cancel = nil
 			c.mu.Unlock()
 			c.startSession(pairing)

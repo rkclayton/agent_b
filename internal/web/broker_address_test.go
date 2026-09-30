@@ -94,12 +94,21 @@ func TestTheClientDialsOnlyWhilePairingOrPaired2nu(t *testing.T) {
 
 type countingBrokerHost struct{}
 
-func (countingBrokerHost) Status() broker.Status                     { return broker.Status{State: "not paired"} }
-func (countingBrokerHost) PairingOffer() (broker.PairingOffer, bool) { return broker.PairingOffer{}, false }
+func (countingBrokerHost) Status() broker.Status { return broker.Status{State: "not paired"} }
+func (countingBrokerHost) PairingOffer() (broker.PairingOffer, bool) {
+	return broker.PairingOffer{}, false
+}
 func (countingBrokerHost) BeginPairing() (broker.PairingOffer, error) {
 	return broker.PairingOffer{}, nil
 }
-func (countingBrokerHost) ConfirmPairing() error  { return nil }
-func (countingBrokerHost) CancelPairing() error   { return nil }
-func (countingBrokerHost) RevokePairing() error   { return nil }
-func (countingBrokerHost) IdentityKey() []byte    { return make([]byte, 32) }
+func (countingBrokerHost) ConfirmPairing() error { return nil }
+func (countingBrokerHost) CancelPairing() error  { return nil }
+func (countingBrokerHost) RevokePairing() error  { return nil }
+func (countingBrokerHost) IdentityKey() []byte   { return make([]byte, 32) }
+
+type statusBrokerHost struct {
+	countingBrokerHost
+	state string
+}
+
+func (h statusBrokerHost) Status() broker.Status { return broker.Status{State: h.state} }

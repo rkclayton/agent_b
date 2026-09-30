@@ -142,9 +142,10 @@ func (s *Server) knownFolders() []workspaceinfo.Entry {
 	entries := make([]workspaceinfo.Entry, 0)
 	seen := map[string]bool{}
 	scratch := filepath.Clean(filepath.Join(s.profileRoot(), "scratch"))
+	chats := filepath.Clean(filepath.Join(s.profileRoot(), "chats"))
 	for _, entry := range s.workspaceState.List() {
 		clean := filepath.Clean(entry.Dir)
-		if withinRoot(scratch, clean) || (entry.MemoryCount == 0 && entry.Policy == nil) {
+		if withinRoot(scratch, clean) || withinRoot(chats, clean) || (entry.MemoryCount == 0 && entry.Policy == nil) {
 			continue
 		}
 		key := strings.ToLower(clean)

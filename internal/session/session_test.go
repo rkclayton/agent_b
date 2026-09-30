@@ -118,7 +118,7 @@ func TestCreateLikePreservesToolsetButCreatesFreshScratch(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := second.Snapshot()
-	if !snapshot.Scratch || snapshot.WorkspaceDir == first.Snapshot().WorkspaceDir || !strings.HasPrefix(snapshot.WorkspaceDir, filepath.Join(data, "scratch")) {
+	if !snapshot.Scratch || snapshot.WorkspaceDir == first.Snapshot().WorkspaceDir || !strings.HasPrefix(snapshot.WorkspaceDir, filepath.Join(data, "chats")) {
 		t.Fatalf("scratch snapshot=%+v", snapshot)
 	}
 	if !second.EnabledTools()["shell"] {

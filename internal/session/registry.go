@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/events"
 	workspaceinfo "harness/internal/workspace"
@@ -33,6 +34,7 @@ type Registry struct {
 	plansRoot     string
 	skillsRoot    string
 	scratchRoot   string
+	chatRoot      string
 	planGrant     func(string) error
 }
 
@@ -68,11 +70,13 @@ func (r *Registry) SwitchProfile(writers *events.Writers, memory, agentMemory fu
 	r.memory, r.agentMemory, r.workspaces = memory, agentMemory, manager
 	r.plansRoot = filepath.Clean(plansRoot)
 	r.scratchRoot = filepath.Join(filepath.Dir(r.plansRoot), "scratch")
+	r.chatRoot = filepath.Join(filepath.Dir(r.plansRoot), "chats")
 	return nil
 }
 func (r *Registry) SetPlansRoot(root string) {
 	r.plansRoot = filepath.Clean(root)
 	r.scratchRoot = filepath.Join(filepath.Dir(r.plansRoot), "scratch")
+	r.chatRoot = filepath.Join(filepath.Dir(r.plansRoot), "chats")
 }
 func (r *Registry) SetSkillsRoot(root string)             { r.skillsRoot = filepath.Clean(root) }
 func (r *Registry) SetPlanGrant(grant func(string) error) { r.planGrant = grant }
@@ -167,7 +171,17 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 	workspace := firstNonempty(saved.WorkspaceDir, saved.Workspace)
 	workspaceMissing, runnable, notRunnableReason := saved.WorkspaceMissing, connectionRunnable, connectionReason
 	if saved.Scratch {
-		if r.scratchRoot != "" {
+		chatHome := false
+		if r.chatRoot != "" {
+			entry, found, findErr := chatstore.New(r.chatRoot).Find(saved.ID)
+			if findErr != nil {
+				return nil, fmt.Errorf("restore chat storage: %w", findErr)
+			}
+			if found {
+				workspace, chatHome = entry.Path, true
+			}
+		}
+		if !chatHome && r.scratchRoot != "" {
 			workspace = filepath.Join(r.scratchRoot, saved.ID)
 		}
 		if err := os.MkdirAll(workspace, 0o700); err != nil {
@@ -289,6 +303,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		id = fmt.Sprintf("s%d", r.next)
 		r.next++
 	}
+	createdAt := time.Now().UTC()
 	// Item 2go (v1.2.5): a chat with no name has NO NAME. It used to be called
 	// after its own id - s14 - which told the operator nothing and was never
 	// something he wrote. The tab reads "new chat" until his first message
@@ -315,23 +330,13 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	}
 	scratch := workspace == ""
 	if scratch {
-		if r.scratchRoot == "" {
-			return nil, fmt.Errorf("scratch storage is unavailable")
+		if r.chatRoot == "" {
+			return nil, fmt.Errorf("chat storage is unavailable")
 		}
-		for {
-			workspace = filepath.Join(r.scratchRoot, id)
-			_, statErr := os.Lstat(workspace)
-			if os.IsNotExist(statErr) {
-				break
-			}
-			if statErr != nil {
-				return nil, statErr
-			}
-			id = fmt.Sprintf("s%d", r.next)
-			r.next++
-		}
-		if err := os.MkdirAll(workspace, 0o700); err != nil {
-			return nil, err
+		var createErr error
+		workspace, createErr = chatstore.New(r.chatRoot).Create(id, label, createdAt)
+		if createErr != nil {
+			return nil, createErr
 		}
 	}
 	abs, err := filepath.Abs(workspace)
@@ -421,7 +426,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 	}
 	settings := r.config()
-	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: time.Now().UTC(), LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		session.ProjectTouch = r.projectTouch(session)
 	}

@@ -28,6 +28,13 @@ func (s *Server) chatTree(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) writeChatTree(w http.ResponseWriter) {
+	// Replay has projected sessions but deliberately has no writable chat store.
+	// Settings still asks for the global chat tree, so answer with the honest
+	// empty filesystem view instead of dereferencing the absent store.
+	if s.chatStore == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"root": "", "folders": []string{}, "chats": []map[string]string{}})
+		return
+	}
 	root := s.chatStore.Root()
 	entries, err := s.chatStore.Scan(); if err != nil { writeError(w, 500, err.Error(), "chats"); return }
 	folders := []string{}

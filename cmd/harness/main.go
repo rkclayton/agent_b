@@ -495,6 +495,7 @@ func main() {
 			web.ApplyTelemetry()
 			return switchErr
 		}
+		web.SetRegistry(registry)
 		nextProjector := projection.NewStore()
 		bus.SetDurableSink(nextWriters.WriteRecord, nextProjector.Apply, nextProjector.MarkStale)
 		web.SetProjection(nextProjector, nextWriters)

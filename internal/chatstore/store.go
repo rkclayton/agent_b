@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -158,4 +159,49 @@ func (s *Store) Migrate(legacy, id, label string, created time.Time) (string, bo
 		}
 		return destination, true, nil
 	}
+}
+
+func (s *Store) folder(relative string) (string, error) {
+	relative = filepath.Clean(relative)
+	if relative == "." { return s.root, nil }
+	if filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) { return "", fmt.Errorf("folder is outside chats") }
+	return filepath.Join(s.root, relative), nil
+}
+
+func (s *Store) AddFolder(parent, name string) (string, error) {
+	path, err := s.folder(parent); if err != nil { return "", err }
+	name, err = AvailableName(path, name); if err != nil { return "", err }
+	path = filepath.Join(path, name); return path, os.Mkdir(path, 0o700)
+}
+
+func (s *Store) RenameFolder(relative, name string) (string, error) {
+	path, err := s.folder(relative); if err != nil || path == s.root { return "", errors.Join(err, fmt.Errorf("cannot rename chats root")) }
+	name, err = AvailableName(filepath.Dir(path), name); if err != nil { return "", err }
+	destination := filepath.Join(filepath.Dir(path), name)
+	return destination, os.Rename(path, destination)
+}
+
+func (s *Store) DeleteFolder(relative string) error {
+	path, err := s.folder(relative); if err != nil { return err }
+	if path == s.root { return fmt.Errorf("cannot delete chats root") }
+	if err := os.Remove(path); err != nil { return fmt.Errorf("folder must be empty: %w", err) }
+	return nil
+}
+
+func (s *Store) Move(id, folder string) (string, error) {
+	entry, found, err := s.Find(id); if err != nil || !found { return "", errors.Join(err, fmt.Errorf("chat not found")) }
+	parent, err := s.folder(folder); if err != nil { return "", err }
+	if info, err := os.Stat(parent); err != nil || !info.IsDir() { return "", fmt.Errorf("folder not found") }
+	name, err := AvailableName(parent, filepath.Base(entry.Path)); if err != nil { return "", err }
+	destination := filepath.Join(parent, name); return destination, os.Rename(entry.Path, destination)
+}
+
+func (s *Store) Rename(id, label string) (string, error) {
+	entry, found, err := s.Find(id); if err != nil || !found { return "", errors.Join(err, fmt.Errorf("chat not found")) }
+	name, err := AvailableName(filepath.Dir(entry.Path), label); if err != nil { return "", err }
+	destination := filepath.Join(filepath.Dir(entry.Path), name)
+	if err := os.Rename(entry.Path, destination); err != nil { return "", err }
+	entry.Metadata.Label = label
+	if err := WriteMetadata(destination, entry.Metadata); err != nil { return "", errors.Join(err, os.Rename(destination, entry.Path)) }
+	return destination, nil
 }

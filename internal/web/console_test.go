@@ -41,6 +41,16 @@ func consoleServer(t *testing.T) (*Server, *session.Registry, *events.Writers, *
 	return server, registry, writers, memories, &cfg, root
 }
 
+func TestChatTreeOperationsAreFilesystemOperations(t *testing.T) {
+	server, registry, writers, _, _, root := consoleServer(t); defer writers.Close()
+	chat, err := registry.Create("one", "coder", ""); if err != nil { t.Fatal(err) }
+	if response := postConsole(t, server, "/api/chats/tree", `{"action":"add","name":"Work"}`); response.Code != 200 { t.Fatalf("add: %d %s", response.Code, response.Body.String()) }
+	if response := postConsole(t, server, "/api/chats/tree", `{"action":"move","id":"`+chat.ID+`","folder":"Work"}`); response.Code != 200 { t.Fatalf("move: %d %s", response.Code, response.Body.String()) }
+	if _, err := os.Stat(filepath.Join(root, "chats", "Work", "one", "chat.json")); err != nil { t.Fatal(err) }
+	response := postConsole(t, server, "/api/chats/tree", `{"action":"delete","path":"Work"}`)
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "folder must be empty") { t.Fatalf("non-empty delete: %d %s", response.Code, response.Body.String()) }
+}
+
 // Item 2hq (v1.6.2): intentional deletion of an already-closed chat removes
 // the chat, while what it produced elsewhere stays.
 func TestDeletingAClosedChatRemovesItAndKeepsWhatItProduced(t *testing.T) {

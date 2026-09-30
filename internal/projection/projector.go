@@ -293,6 +293,7 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 			next.NamePinned = true
 		}
 	case events.SessionUpdated:
+		if value := stringValue(data["workspace"]); value != "" { next.Workspace, next.WorkspaceDir, next.WorkspaceMissing = value, value, false }
 		next.AgentID = firstString(stringValue(data["agent_id"]), next.AgentID)
 		next.ConnectionID = firstString(connectionField(data, "connection_id"), next.ConnectionID)
 		next.Role = firstString(stringValue(data["role"]), next.Role)

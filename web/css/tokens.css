@@ -134,6 +134,9 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .shell-new-menu{width:min(34rem,calc(100vw - 16px))}
 .shell-new-choice{display:block;width:100%;min-height:24px;padding:2px 5px;overflow:hidden;background:transparent;text-align:left;text-overflow:ellipsis;white-space:nowrap;font:12px/20px var(--mono)}
 .agent-chat-count{padding:2px 5px;color:var(--mute);font:12px/20px var(--mono)}
+.agent-chat-folder-root,.agent-chat-folder summary{display:flex;align-items:center;gap:6px;min-height:24px;padding:1px 5px;font:12px/20px var(--mono)}
+.agent-chat-folder-root strong{margin-right:auto}.agent-chat-folder summary span{margin-right:auto}.agent-chat-folder>.agent-chat-row{padding-left:12px}
+.agent-chat-folder-action{min-height:22px;padding:1px 5px;background:transparent;font-size:12px}
 .agent-chat-row{display:grid;grid-template-columns:minmax(0,1fr) auto 22px;align-items:center;min-height:24px}
 .agent-chat-row.closed{color:var(--mute)}
 .agent-chat-row.selected .agent-chat-summary{font-weight:500;text-decoration:underline}

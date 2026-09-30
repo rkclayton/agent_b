@@ -62,6 +62,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 	}
 	return map[string]any{
 		"sessions": sessions, "connections": masked.Connections, "config": masked, "replay": replay,
+		"chat_root":                filepath.Join(s.profileRoot(), "chats"),
 		"profiles":                 s.profileState(),
 		"skills":                   s.skillState(),
 		"standing_grants":          standingGrants,

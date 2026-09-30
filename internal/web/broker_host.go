@@ -1,29 +1,48 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"harness/internal/broker"
+	"harness/internal/credential"
 )
 
 // Item 2kq (a), (b) and (f): the running broker client, and the three things Settings
 // asks it to do. Nothing here starts unless broker.url is set.
 //
-// THE IDENTITY LIVES IN THIS PROCESS AND NOWHERE ELSE. It is generated at start and held
-// in memory: no file under the data root carries it, which is what the capability arm
-// asserts and what keeps a tool process away from it. The cost is stated rather than
-// hidden — a pairing does not survive a restart of Agent_b, because the identity it was
-// made with is gone. Persisting it is a security decision that has not been made.
+// The identity and completed pairing are separate named user-scoped DPAPI blobs under
+// the data root. They never enter configuration, events, logs, prompts, or tool results.
+
+const brokerBlobVersion = 1
+
+type storedBrokerIdentity struct {
+	Version     int    `json:"version"`
+	SigningSeed []byte `json:"signing_seed"`
+	Agreement   []byte `json:"agreement"`
+}
+
+type storedBrokerPairing struct {
+	Version         int    `json:"version"`
+	PairingID       []byte `json:"pairing_id"`
+	DeviceKeyID     []byte `json:"device_key_id"`
+	DeviceSigning   []byte `json:"device_signing"`
+	DeviceAgreement []byte `json:"device_agreement"`
+}
 
 // BrokerClient is the live host Settings talks to.
 type BrokerClient struct {
-	identity broker.Identity
-	dial     broker.Dialer
-	client   *broker.Client
+	identity      broker.Identity
+	dial          broker.Dialer
+	client        *broker.Client
+	identityStore *credential.Store
+	pairingStore  *credential.Store
 
 	mu      sync.Mutex
 	offer   *broker.PairingOffer
@@ -40,9 +59,40 @@ type BrokerClient struct {
 	stopSession context.CancelFunc
 }
 
-// NewBrokerClient generates this install's identity and prepares to dial. The address is
-// the operator's broker.url; an empty one never reaches here.
-func NewBrokerClient(address string) (*BrokerClient, error) {
+// NewBrokerClient loads or creates this install's identity and prepares to dial. The
+// optional data root is omitted only by isolated tests that need an ephemeral identity.
+func NewBrokerClient(address string, dataRoot ...string) (*BrokerClient, error) {
+	client := &BrokerClient{dial: broker.Dial(address), status: broker.Status{State: "not connected"}}
+	if len(dataRoot) > 1 {
+		return nil, errors.New("one broker data root is allowed")
+	}
+	if len(dataRoot) == 1 {
+		identityStore, err := credential.NewNamed(dataRoot[0], "broker-identity")
+		if err != nil {
+			return nil, err
+		}
+		pairingStore, err := credential.NewNamed(dataRoot[0], "broker-pairing")
+		if err != nil {
+			return nil, err
+		}
+		client.identityStore, client.pairingStore = identityStore, pairingStore
+		identity, err := loadBrokerIdentity(identityStore)
+		if err != nil {
+			return nil, err
+		}
+		client.identity = identity
+		pairing, err := loadBrokerPairing(pairingStore)
+		if err != nil && !errors.Is(err, credential.ErrNotStored) {
+			return nil, err
+		}
+		if err == nil {
+			client.pairing = &pairing
+			client.device = "phone"
+			client.status = broker.Status{State: "paired"}
+		}
+		return client, nil
+	}
+
 	seed := make([]byte, 32)
 	agreement := make([]byte, 32)
 	if _, err := rand.Read(seed); err != nil {
@@ -51,11 +101,75 @@ func NewBrokerClient(address string) (*BrokerClient, error) {
 	if _, err := rand.Read(agreement); err != nil {
 		return nil, err
 	}
-	return &BrokerClient{
-		identity: broker.Identity{SigningSeed: seed, Agreement: agreement},
-		dial:     broker.Dial(address),
-		status:   broker.Status{State: "not connected"},
-	}, nil
+	client.identity = broker.Identity{SigningSeed: seed, Agreement: agreement}
+	return client, nil
+}
+
+func loadBrokerIdentity(store *credential.Store) (broker.Identity, error) {
+	raw, err := store.Read()
+	if errors.Is(err, credential.ErrNotStored) {
+		identity := broker.Identity{SigningSeed: make([]byte, 32), Agreement: make([]byte, 32)}
+		if _, err = rand.Read(identity.SigningSeed); err != nil {
+			return broker.Identity{}, err
+		}
+		if _, err = rand.Read(identity.Agreement); err != nil {
+			return broker.Identity{}, err
+		}
+		record := storedBrokerIdentity{Version: brokerBlobVersion, SigningSeed: identity.SigningSeed, Agreement: identity.Agreement}
+		encoded, marshalErr := json.Marshal(record)
+		if marshalErr != nil {
+			return broker.Identity{}, marshalErr
+		}
+		if err = store.Write(encoded); err != nil {
+			return broker.Identity{}, fmt.Errorf("store broker identity: %w", err)
+		}
+		readBack, readErr := store.Read()
+		if readErr != nil || !bytes.Equal(readBack, encoded) {
+			_ = store.Clear()
+			return broker.Identity{}, errors.New("the broker identity did not read back as written")
+		}
+		return identity, nil
+	}
+	if err != nil {
+		return broker.Identity{}, fmt.Errorf("read broker identity: %w", err)
+	}
+	var record storedBrokerIdentity
+	if json.Unmarshal(raw, &record) != nil || record.Version != brokerBlobVersion || len(record.SigningSeed) != 32 || len(record.Agreement) != 32 {
+		return broker.Identity{}, errors.New("the stored broker identity is invalid")
+	}
+	return broker.Identity{SigningSeed: record.SigningSeed, Agreement: record.Agreement}, nil
+}
+
+func loadBrokerPairing(store *credential.Store) (broker.Pairing, error) {
+	raw, err := store.Read()
+	if err != nil {
+		return broker.Pairing{}, err
+	}
+	var record storedBrokerPairing
+	if json.Unmarshal(raw, &record) != nil || record.Version != brokerBlobVersion || len(record.PairingID) != 16 || len(record.DeviceKeyID) != 16 || len(record.DeviceSigning) != 32 || len(record.DeviceAgreement) != 32 {
+		return broker.Pairing{}, errors.New("the stored broker pairing is invalid")
+	}
+	return broker.Pairing{PairingID: record.PairingID, DeviceKeyID: record.DeviceKeyID, DeviceSigning: record.DeviceSigning, DeviceAgreement: record.DeviceAgreement}, nil
+}
+
+func (c *BrokerClient) savePairing(pairing broker.Pairing) error {
+	if c.pairingStore == nil {
+		return nil
+	}
+	record := storedBrokerPairing{Version: brokerBlobVersion, PairingID: pairing.PairingID, DeviceKeyID: pairing.DeviceKeyID, DeviceSigning: pairing.DeviceSigning, DeviceAgreement: pairing.DeviceAgreement}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	if err := c.pairingStore.Write(encoded); err != nil {
+		return fmt.Errorf("store broker pairing: %w", err)
+	}
+	readBack, err := c.pairingStore.Read()
+	if err != nil || !bytes.Equal(readBack, encoded) {
+		_ = c.pairingStore.Clear()
+		return errors.New("the broker pairing did not read back as written")
+	}
+	return nil
 }
 
 // IdentityKey is the Ed25519 identity public key the pairing link carries, so the phone
@@ -174,6 +288,14 @@ func (c *BrokerClient) beginOnce(cancel chan struct{}) (broker.PairingOffer, err
 		_ = transport.Close(1000, "pairing ended")
 
 		if pairErr == nil {
+			if storeErr := c.savePairing(pairing); storeErr != nil {
+				c.mu.Lock()
+				c.offer = nil
+				c.cancel = nil
+				c.status = broker.Status{State: "not paired", LastError: storeErr.Error()}
+				c.mu.Unlock()
+				return
+			}
 			c.mu.Lock()
 			c.offer = nil
 			c.pairing = &pairing
@@ -266,6 +388,11 @@ func (c *BrokerClient) RevokePairing() error {
 	defer func() { _ = transport.Close(1000, "revoked") }()
 	if err := broker.Revoke(transport, c.identity, pairing.PairingID); err != nil {
 		return err
+	}
+	if c.pairingStore != nil {
+		if err := c.pairingStore.Clear(); err != nil {
+			return err
+		}
 	}
 	c.mu.Lock()
 	c.stopSessionLocked()

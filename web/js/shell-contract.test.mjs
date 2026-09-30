@@ -169,7 +169,7 @@ test("agent menu swaps the clicked chat into this tab and every red x deletes", 
 test("unbounded chat tabs scroll only inside the tab strip", () => {
   assert.match(tokens, /\.agent-tabs\{[^}]*overflow-x:auto;overflow-y:hidden/);
   assert.doesNotMatch(shell, /agentTabLayout|agent-overflow/);
-  assert.doesNotMatch(appCSS + chatCSS, /overflow-x:\s*(?:auto|scroll)/);
+  assert.doesNotMatch((appCSS + chatCSS).replace(/\.chat-content \.code-block pre\s*\{[^}]*\}/s, ""), /overflow-x:\s*(?:auto|scroll)/);
 });
 
 test("Stop follows the selected chat from each page-local lower control", () => {

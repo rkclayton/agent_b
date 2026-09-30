@@ -253,7 +253,7 @@
 }
 .chat-content code {
   padding: 0 2px;
-  background: var(--bezel);
+  background: var(--well);
 }
 .chat-content pre {
   margin: 4px 0 8px;
@@ -265,15 +265,35 @@
   white-space: pre-wrap;
 }
 .code-block {
-  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "language copy" "code code";
+  min-width: 0;
+  margin: 4px 0 8px;
+  overflow: hidden;
+  background: var(--bezel);
+  border: 1px solid rgba(125, 135, 148, .28);
+  border-radius: 2px;
+}
+.chat-content .code-block pre {
+  grid-area: code;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 8px;
+  overflow-x: auto;
+  overflow-y: auto;
+  background: var(--well);
+  white-space: pre;
 }
 .chat-page > :where(:not(.app-shell)) .code-copy {
-  position: absolute;
+  grid-area: copy;
+  position: static;
   z-index: 1;
-  top: 4px;
-  right: 4px;
+  align-self: center;
   width: 20px;
   min-height: 20px;
+  margin: 2px 4px;
   padding: 0;
   color: var(--mute);
   background: transparent !important;
@@ -973,7 +993,6 @@
   font-weight: 500;
 }
 
-/* Item 2m8 (b): the fence's language, quietly. It names what the block is
-   without competing with it — muted, small, in the monospace the block uses. */
-.code-block { position: relative; }
-.code-language { position: absolute; top: 2px; left: 8px; font: var(--ct)/1.2 var(--mono); color: var(--mute); pointer-events: none; }
+/* Item 2m8 (b): the fence's language, quietly. Item 2ol gives it a real
+   header row beside the copy control so it never overlaps the code. */
+.code-language { grid-area: language; padding: 4px 8px; font: var(--ct)/1.2 var(--mono); color: var(--mute); pointer-events: none; }

@@ -22,6 +22,13 @@ test("Chat has fence-only copy and documents composer keys", () => {
   assert.match(html, /title="Send · Enter sends · Shift\+Enter newline"/);
 });
 
+test("fenced code is one aligned panel with a header row and internal overflow", () => {
+  assert.match(css, /\.code-block\s*\{[^}]*display:\s*grid[^}]*grid-template-areas:\s*"language copy"\s*"code code"[^}]*background:\s*var\(--bezel\)[^}]*border:\s*1px solid rgba\(125,\s*135,\s*148,\s*\.28\)[^}]*border-radius:\s*2px/s);
+  assert.match(css, /\.chat-content \.code-block pre\s*\{[^}]*grid-area:\s*code[^}]*margin:\s*0[^}]*overflow-x:\s*auto[^}]*white-space:\s*pre/s);
+  assert.match(css, /\.code-language\s*\{[^}]*grid-area:\s*language[^}]*padding:\s*4px 8px/s);
+  assert.match(css, /\.chat-page > :where\(:not\(\.app-shell\)\) \.code-copy\s*\{[^}]*grid-area:\s*copy[^}]*position:\s*static/s);
+});
+
 test("Chat selection excludes chrome while preserving message content", () => {
   for (const selector of [".chat-speaker", ".thinking-line", ".tool-tick", ".chat-notice-row", ".chat-jump"]) {
     const at = css.indexOf(selector);

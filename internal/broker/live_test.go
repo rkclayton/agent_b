@@ -55,6 +55,61 @@ type liveEndpoint struct {
 	errs      chan error
 }
 
+// livePairingTeardown owns every pairing a non-local proof creates. The ID is written
+// immediately, rather than only through testing's buffered log, so a killed proof leaves
+// the operator something that can be revoked by hand. Cleanup uses the normal authenticated
+// REVOKE and does not call the pairing complete until the broker acknowledges REVOKED.
+type livePairingTeardown struct {
+	t         *testing.T
+	address   string
+	role      string
+	identity  Identity
+	pairingID []byte
+	revoked   bool
+}
+
+func announceLivePairing(writer io.Writer, pairingID string) {
+	fmt.Fprintf(writer, "LIVE pairing %s pending teardown\n", pairingID)
+}
+
+func trackLivePairing(t *testing.T, address, role string, identity Identity, pairingID []byte) *livePairingTeardown {
+	t.Helper()
+	guard := &livePairingTeardown{t: t, address: address, role: role, identity: identity, pairingID: append([]byte(nil), pairingID...)}
+	announceLivePairing(os.Stderr, hex.EncodeToString(pairingID))
+	t.Cleanup(guard.cleanup)
+	return guard
+}
+
+func (g *livePairingTeardown) cleanup() {
+	if g.revoked {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	endpoint := dialLive(g.t, ctx, g.address, g.role, g.identity)
+	defer func() { _ = endpoint.transport.Close(1000, "pairing teardown") }()
+	endpoint.authenticate(g.t)
+	g.revokeOn(endpoint)
+}
+
+func (g *livePairingTeardown) revokeOn(endpoint *liveEndpoint) {
+	g.t.Helper()
+	if g.revoked {
+		return
+	}
+	if err := Revoke(endpoint.transport, g.identity, g.pairingID); err != nil {
+		g.t.Fatalf("pairing %x could not be revoked: %v", g.pairingID, err)
+	}
+	endpoint.waitFor(g.t, FrameRevoked, 20*time.Second)
+	g.acknowledged()
+}
+
+func (g *livePairingTeardown) acknowledged() {
+	g.t.Helper()
+	g.revoked = true
+	fmt.Fprintf(os.Stderr, "LIVE pairing %x revoked\n", g.pairingID)
+}
+
 func dialLive(t *testing.T, ctx context.Context, address, role string, identity Identity) *liveEndpoint {
 	t.Helper()
 	transport, err := Dial(address)(ctx)
@@ -172,6 +227,23 @@ func newLiveIdentity(t *testing.T) Identity {
 	return Identity{SigningSeed: seed, Agreement: agreement}
 }
 
+func TestLivePairingIDIsPrintedBeforeAForcedAbort2od(t *testing.T) {
+	const pairingID = "00112233445566778899aabbccddeeff"
+	if os.Getenv("AGENTB_FORCED_PAIRING_ABORT") == "1" {
+		announceLivePairing(os.Stderr, pairingID)
+		os.Exit(23)
+	}
+	command := exec.Command(os.Args[0], "-test.run=^TestLivePairingIDIsPrintedBeforeAForcedAbort2od$")
+	command.Env = append(os.Environ(), "AGENTB_FORCED_PAIRING_ABORT=1")
+	output, err := command.CombinedOutput()
+	if err == nil {
+		t.Fatal("the forced-abort helper exited successfully")
+	}
+	if !bytes.Contains(output, []byte("pairing "+pairingID+" pending teardown")) {
+		t.Fatalf("forced-abort output did not preserve the pairing id: %s", output)
+	}
+}
+
 // The whole acceptance, in order, against the live broker.
 func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	address := liveAddress(t)
@@ -217,6 +289,7 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	teardown := trackLivePairing(t, address, "agent", agent, pairingID)
 	// The key id the broker labels the peer with is DERIVED here, not believed.
 	if got := hex.EncodeToString(Identity{}.keyIDFor(mustDecode64(t, peer.Ed25519), mustDecode64(t, peer.X25519))); got != peer.PeerKeyID {
 		t.Fatalf("the broker named key id %s for keys that derive %s", peer.PeerKeyID, got)
@@ -385,10 +458,7 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 
 	// 5. REVOKE from the agent, and nothing is left paired: a new connection with the
 	// same key is refused.
-	if err := Revoke(liveAgent.transport, agent, pairingID); err != nil {
-		t.Fatal(err)
-	}
-	liveAgent.waitFor(t, FrameRevoked, 20*time.Second)
+	teardown.revokeOn(liveAgent)
 	t.Log("LIVE 5 revoked")
 	_ = liveAgent.transport.Close(1000, "done")
 	_ = liveDevice.transport.Close(1000, "done")
@@ -473,6 +543,7 @@ func TestLivePairedDesktopAnswersItsPhone2o7(t *testing.T) {
 		t.Fatal(err)
 	}
 	pairingID := mustDecodeHex(t, peer.PairingID)
+	teardown := trackLivePairing(t, address, "device", device, pairingID)
 	agentSigning, agentAgreement := mustDecode64(t, peer.Ed25519), mustDecode64(t, peer.X25519)
 	agentKeyID := Identity{}.keyIDFor(agentSigning, agentAgreement)
 	transcript := TranscriptHash(pairingID, agentSigning, agentAgreement, device.SigningPublic(), device.AgreementPublic())
@@ -565,6 +636,11 @@ func TestLivePairedDesktopAnswersItsPhone2o7(t *testing.T) {
 	t.Log("E2E 8 unknown and refused routes answered 501")
 
 	// 9. Revoke from the desktop: the session closes and stays closed.
+	// The synthetic device first performs the shared teardown's acknowledged REVOKE.
+	// The broker does not broadcast that acknowledgement to a peer when the desktop's
+	// short revoke connection sends it, so this is the assertion that it accepted it;
+	// the desktop action then clears the same pairing from its own durable state.
+	teardown.revokeOn(phone.endpoint)
 	desktop.post(t, "/api/broker", `{"action":"revoke"}`, nil)
 	status := func() string {
 		response, err := desktop.client.Get(base + "/api/broker/status")

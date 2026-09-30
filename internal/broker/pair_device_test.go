@@ -71,6 +71,7 @@ func TestLiveSyntheticDevicePairsFromTheLink2ns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	trackLivePairing(t, address, "device", device, pairingID)
 	transcript := TranscriptHash(pairingID, agentKey, mustDecode64(t, peer.X25519), device.SigningPublic(), device.AgreementPublic())
 	pairDevice.send(t, FramePairConfirm, pairConfirmPayload{
 		PairingID: peer.PairingID, TranscriptHash: hex.EncodeToString(transcript),

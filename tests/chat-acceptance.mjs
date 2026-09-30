@@ -1213,6 +1213,8 @@ if (realModel) {
   await page.locator("#chat-send").click();
   const lifecycleRunStarted = await waitEvent(sessionID, (event) => event.type === "run.started", "tool-tick lifecycle run started");
   await waitProjectedChatText(sessionID, "menu-stream-1", "two projected lifecycle tools");
+  await browser.wait(`document.querySelector('#chat-notice .chat-run-robot:not([hidden])')`, "held lifecycle response reached its stable composer state");
+  await page.waitForTimeout(250);
   await page.evaluate(async () => {
     await Promise.all(document.getAnimations().map((animation) => animation.ready.catch(() => {})));
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));

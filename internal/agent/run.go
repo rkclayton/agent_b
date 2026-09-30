@@ -79,6 +79,9 @@ type BoundaryAction struct {
 const minimumOutputFloor = 4096
 
 func NewRunner(bus *events.Bus, registry *tools.Registry, prompt *PromptRenderer, connection func(string) (*config.Connection, bool), cfg func() config.Config) *Runner {
+	if prompt != nil {
+		prompt.SetTrustedFolders(func() []config.TrustedFolder { return cfg().Shell.TrustedFolders })
+	}
 	return &Runner{bus: bus, tools: registry, prompt: prompt, connection: connection, cfg: cfg, gate: NewGate(bus, cfg), budget: NewBudgeter(), compact: contextmgr.New(bus), flights: newFlightBook()}
 }
 func (r *Runner) Configure(cfg config.Config) {

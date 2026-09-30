@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,13 @@ type PromptRenderer struct {
 	planner    string
 	worker     string
 	delegate   string
+	folders    func() []config.TrustedFolder
+}
+
+func (r *PromptRenderer) SetTrustedFolders(folders func() []config.TrustedFolder) {
+	r.mu.Lock()
+	r.folders = folders
+	r.mu.Unlock()
 }
 
 func (r *PromptRenderer) LoadDelegate(path string) error {
@@ -85,6 +93,7 @@ func (r *PromptRenderer) RenderSkillParts(connection *config.Connection, s *sess
 	template := r.text
 	planner := r.planner
 	delegate := r.delegate
+	folders := r.folders
 	r.mu.RUnlock()
 	if s.Role == "e" && delegate != "" {
 		template, planner = delegate, ""
@@ -105,6 +114,18 @@ func (r *PromptRenderer) RenderSkillParts(connection *config.Connection, s *sess
 	}
 	value := strings.ReplaceAll(template, "{{workspace}}", s.Workspace)
 	value = strings.ReplaceAll(value, "{{folder}}", s.Workspace)
+	folderText := "none yet"
+	if folders != nil {
+		entries := folders()
+		if len(entries) > 0 {
+			items := make([]string, 0, len(entries))
+			for _, entry := range entries {
+				items = append(items, filepath.Base(entry.Path)+" ("+entry.Path+")")
+			}
+			folderText = strings.Join(items, "; ")
+		}
+	}
+	value = strings.ReplaceAll(value, "{{folders}}", folderText)
 	value = strings.ReplaceAll(value, "{{plans}}", s.PlansRoot)
 	value = strings.ReplaceAll(value, "{{network_boundary}}", s.NetworkBoundary)
 	value = strings.ReplaceAll(value, "{{media_capabilities}}", s.MediaCapabilities)

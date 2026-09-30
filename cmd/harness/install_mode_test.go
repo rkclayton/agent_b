@@ -410,3 +410,35 @@ func TestPerUserInstallIsNativeAndComplete2or(t *testing.T) {
 		t.Fatalf("native config=%s err=%v", config, err)
 	}
 }
+
+func TestNativeUninstallPreservesDataUnlessPurgeIsRequested2or(t *testing.T) {
+	root := t.TempDir()
+	plan := nativeInstallPlan{Application: filepath.Join(root, "app"), Data: filepath.Join(root, "data"), StartMenu: filepath.Join(root, "start"), SendTo: filepath.Join(root, "send")}
+	for _, path := range []string{filepath.Join(plan.Application, "Agent_b.exe"), filepath.Join(plan.Data, "harness.json"), filepath.Join(plan.StartMenu, "Agent_b.lnk"), filepath.Join(plan.SendTo, "Agent_b.lnk")} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unregistered := false
+	if err := uninstallPerUserNative(plan, false, func() error { unregistered = true; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if !unregistered {
+		t.Fatal("uninstall registration was not removed")
+	}
+	if _, err := os.Stat(plan.Application); !os.IsNotExist(err) {
+		t.Fatalf("application remains: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(plan.Data, "harness.json")); err != nil {
+		t.Fatalf("data was not preserved: %v", err)
+	}
+	if err := uninstallPerUserNative(plan, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(plan.Data); !os.IsNotExist(err) {
+		t.Fatalf("purged data remains: %v", err)
+	}
+}

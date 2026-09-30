@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+	"harness/internal/quietproc"
 )
 
 func runNativePerUserInstall(source string, arguments []string, dataRoot string, log *installLog) error {
@@ -251,4 +253,53 @@ func stopNativeInstalledProcess(application, data string, log *installLog) error
 		return fmt.Errorf("Agent_b PID %d did not exit after the graceful stop signal; installation was not changed", marker.PID)
 	}
 	return nil
+}
+
+func runNativeUninstall(application, data string, purge, worker bool, parent int) error {
+	local := os.Getenv("LOCALAPPDATA")
+	if strings.TrimSpace(application) == "" {
+		application = filepath.Join(local, "Programs", "Agent_b")
+	}
+	if strings.TrimSpace(data) == "" {
+		data = filepath.Join(local, "Agent_b")
+	}
+	plan := nativeInstallPlan{Application: application, Data: data,
+		StartMenu: filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs"),
+		SendTo:    filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "SendTo")}
+	if !worker {
+		log := openInstallLog(data, true)
+		defer log.close()
+		if err := stopNativeInstalledProcess(application, data, log); err != nil {
+			return err
+		}
+		self, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		helper := filepath.Join(os.TempDir(), fmt.Sprintf("Agent_b-uninstall-%d.exe", os.Getpid()))
+		if err := copyNativeFile(self, helper); err != nil {
+			return err
+		}
+		arguments := []string{"--uninstall-worker", "--uninstall-parent", fmt.Sprint(os.Getpid()), "--app-root", application, "--data-root", data}
+		if purge {
+			arguments = append(arguments, "--purge-data")
+		}
+		command := exec.Command(helper, arguments...)
+		quietproc.Quiet(command)
+		detachChild(command)
+		return command.Start()
+	}
+	if parent > 0 {
+		if handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(parent)); err == nil {
+			_, _ = windows.WaitForSingleObject(handle, 30000)
+			windows.CloseHandle(handle)
+		}
+	}
+	return uninstallPerUserNative(plan, purge, func() error {
+		err := registry.DeleteKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b`)
+		if err == registry.ErrNotExist {
+			return nil
+		}
+		return err
+	})
 }

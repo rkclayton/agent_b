@@ -153,6 +153,26 @@ func installPerUserNative(plan nativeInstallPlan, platform nativeInstallPlatform
 	}
 	return nil
 }
+
+func uninstallPerUserNative(plan nativeInstallPlan, purgeData bool, unregister func() error) error {
+	for _, link := range []string{filepath.Join(plan.StartMenu, "Agent_b.lnk"), filepath.Join(plan.SendTo, "Agent_b.lnk")} {
+		if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if err := os.RemoveAll(plan.Application); err != nil {
+		return err
+	}
+	if unregister != nil {
+		if err := unregister(); err != nil {
+			return err
+		}
+	}
+	if purgeData {
+		return os.RemoveAll(plan.Data)
+	}
+	return nil
+}
 func pathWithin(child, parent string) bool {
 	relative, err := filepath.Rel(parent, child)
 	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator))

@@ -11,19 +11,15 @@ import (
 	"harness/internal/events"
 )
 
-// Item 2jg (d): off means off, asserted at the level that matters — the BUS.
-//
-// internal/telemetry proves the sender does nothing when it does not exist. This
-// proves it does not exist: with the switch off, the bus's subscriber count is
-// unchanged, so there is no path from an event to a batch at all. That is the
-// difference between "sends less" and "off", and it is the reason the assertion
-// is about the bus rather than about a flag.
+// Off is asserted at the bus boundary: no subscriber means no request can leave.
 func TestOffLeavesNoSubscriberOnTheBus2jg(t *testing.T) {
 	bus := events.NewBus()
 	before := bus.SubscriberCount()
 
 	server := &Server{bus: bus, cfg: &config.Config{}}
 	server.roots.Profile = t.TempDir()
+	sent := 0
+	server.telemetry.transport = func([]byte) error { sent++; return nil }
 
 	off := config.Config{Telemetry: config.Telemetry{Enabled: false, Endpoint: "https://receiver.invalid/ingest"}}
 	server.applyTelemetry(off)
@@ -33,17 +29,20 @@ func TestOffLeavesNoSubscriberOnTheBus2jg(t *testing.T) {
 	if server.TelemetryRunning() {
 		t.Fatal("telemetry off reports itself running")
 	}
+	bus.Publish(events.New(events.RunStopped, "s1", "r1", map[string]any{"reason": "done"}))
+	if sent != 0 {
+		t.Fatalf("telemetry off sent %d request(s)", sent)
+	}
 
-	// And on with no endpoint is equally off, because there is nowhere to send:
-	// collecting into a queue nobody drains is not a service to anyone.
 	noEndpoint := config.Config{Telemetry: config.Telemetry{Enabled: true}}
 	server.applyTelemetry(noEndpoint)
-	if got := bus.SubscriberCount(); got != before {
-		t.Fatalf("telemetry with no endpoint subscribed: %d subscribers, was %d", got, before)
+	if got := bus.SubscriberCount(); got != before+1 {
+		t.Fatalf("default telemetry did not subscribe: %d subscribers, was %d", got, before)
 	}
-	if server.TelemetryRunning() {
-		t.Fatal("telemetry with no endpoint reports itself running")
+	if !server.TelemetryRunning() {
+		t.Fatal("default telemetry does not report itself running")
 	}
+	server.applyTelemetry(off)
 }
 
 // The positive control: with the switch on and an endpoint set, there IS a

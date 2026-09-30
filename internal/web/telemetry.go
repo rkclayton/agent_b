@@ -43,11 +43,15 @@ func (s *Server) applyTelemetry(cfg config.Config) {
 	s.telemetry.mu.Lock()
 	defer s.telemetry.mu.Unlock()
 	s.stopTelemetryLocked()
-	if !cfg.Telemetry.Enabled || cfg.Telemetry.Endpoint == "" {
+	if !cfg.Telemetry.Enabled {
 		return
 	}
+	endpoint := cfg.Telemetry.Endpoint
+	if endpoint == "" {
+		endpoint = telemetry.DefaultEndpoint
+	}
 	options := telemetry.Options{
-		Endpoint:     cfg.Telemetry.Endpoint,
+		Endpoint:     endpoint,
 		InstallID:    cfg.Telemetry.InstallID,
 		AgentVersion: buildinfo.Current().Tag,
 		DataRoot:     s.profileRoot(),
@@ -119,7 +123,6 @@ func (s *Server) TelemetryRunning() bool {
 	defer s.telemetry.mu.Unlock()
 	return s.telemetry.state != nil
 }
-
 
 // NewInstallID is issued when the switch goes off then on, so two runs of
 // telemetry from one machine cannot be joined.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -23,6 +24,8 @@ const (
 	BacklogMaxAge  = 24 * time.Hour
 	queueDirectory = "telemetry"
 )
+
+const DefaultEndpoint = "https://broker.agentb.app/v1/telemetry"
 
 // Event is one allow-listed event, ready to leave.
 type Event struct {
@@ -54,10 +57,6 @@ type Batch struct {
 	Events       []Event `json:"events"`
 }
 
-// Options configure a sender. A zero Endpoint means there is nowhere to send,
-// and the sender does not start: item 2jg (c) has no default endpoint, because
-// this repository does not know the operator's receiver and inventing one would
-// send his counts to a stranger.
 type Options struct {
 	Endpoint     string
 	InstallID    string
@@ -76,6 +75,7 @@ type Sender struct {
 	options   Options
 	pending   []Event
 	sentIndex []Record
+	refused   int
 	stop      chan struct{}
 	stopped   bool
 	wg        sync.WaitGroup
@@ -208,9 +208,22 @@ func (s *Sender) deliver(body []byte) {
 		Body:   string(body),
 	})
 	if err != nil {
+		var refused *receiverRefusal
+		if errors.As(err, &refused) {
+			s.mu.Lock()
+			s.refused++
+			total := s.refused
+			s.mu.Unlock()
+			log.Printf("telemetry: dropped receiver-refused batch (HTTP %d); refused total %d", refused.status, total)
+			return
+		}
 		s.enqueue(body)
 	}
 }
+
+type receiverRefusal struct{ status int }
+
+func (e *receiverRefusal) Error() string { return fmt.Sprintf("receiver answered %d", e.status) }
 
 func (s *Sender) post(body []byte) error {
 	if s.options.Transport != nil {
@@ -229,9 +242,21 @@ func (s *Sender) post(body []byte) error {
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if response.StatusCode >= 400 && response.StatusCode < 500 {
+			return &receiverRefusal{status: response.StatusCode}
+		}
 		return fmt.Errorf("receiver answered %d", response.StatusCode)
 	}
 	return nil
+}
+
+func (s *Sender) Refused() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.refused
 }
 
 func countEvents(body []byte) int {
@@ -319,7 +344,15 @@ func (s *Sender) drainQueue() {
 			continue
 		}
 		if err := s.post(body); err != nil {
-			return // still unreachable; the rest stays queued, in order
+			var refused *receiverRefusal
+			if !errors.As(err, &refused) {
+				return
+			} // still unreachable; the rest stays queued, in order
+			s.mu.Lock()
+			s.refused++
+			total := s.refused
+			s.mu.Unlock()
+			log.Printf("telemetry: dropped queued receiver-refused batch (HTTP %d); refused total %d", refused.status, total)
 		}
 		_ = os.Remove(full)
 	}

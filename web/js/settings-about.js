@@ -2,15 +2,13 @@ let store, row, toggle, html, signInStart;
 function useSettingsContext(context) {
   ({ store, row, toggle, html, signInStart } = context);
 }
-// Item 2ny: THE TOGGLE, AND NOTHING ELSE. Item 2jg (d) also showed the receiver's state
-// and the last twenty batches exactly as they left, so the claim above could be checked
-// rather than believed. The operator asked for it to go — "we just need the toggle thats
-// it" — and what the toggle does is unchanged: off detaches the collector, deletes the
-// queue, and on issues a new install id.
+// The toggle remains the only control; the destination host is disclosure, not a setting.
 function telemetry() {
   const config = store.config.telemetry || {};
   const on = config.enabled !== false;
-  return `${toggle("telemetry.enabled", "Send anonymous data to help improve Agent_b", on)}<p class="settings-subhead-note">Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts.</p>`;
+  let destination = "broker.agentb.app";
+  try { destination = new URL(config.endpoint || "https://broker.agentb.app/v1/telemetry").host; } catch { destination = "configured receiver"; }
+  return `${toggle("telemetry.enabled", "Send anonymous data to help improve Agent_b", on)}<p class="settings-subhead-note">Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts. Sent to ${html(destination)}.</p>`;
 }
 
 function attrOf(value) {

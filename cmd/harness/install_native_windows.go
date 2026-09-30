@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+	"harness/internal/nativepolicy"
 	"harness/internal/quietproc"
 )
 
@@ -302,4 +303,28 @@ func runNativeUninstall(application, data string, purge, worker bool, parent int
 		}
 		return err
 	})
+}
+
+func runServiceHelper(requestPath, resultPath string) error {
+	encoded, err := os.ReadFile(requestPath)
+	if err != nil {
+		return err
+	}
+	var request nativepolicy.HelperRequest
+	if err := json.Unmarshal(encoded, &request); err != nil {
+		return err
+	}
+	result := nativepolicy.ExecuteHelper(request)
+	encoded, _ = json.Marshal(result)
+	temporary := resultPath + ".writing"
+	if err := os.WriteFile(temporary, encoded, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, resultPath); err != nil {
+		return err
+	}
+	if !result.OK {
+		return fmt.Errorf("%s", result.Message)
+	}
+	return nil
 }

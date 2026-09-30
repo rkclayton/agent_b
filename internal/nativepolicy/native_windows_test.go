@@ -76,3 +76,26 @@ func TestFirewallCOMReportsAnAbsentDisposableRule(t *testing.T) {
 		t.Fatalf("unexpected rule: %+v", rule)
 	}
 }
+
+func TestElevatedHelperRefusesUnsignedExecutable(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyAuthenticode(executable); err == nil {
+		t.Fatal("unsigned Go test executable was trusted for elevation")
+	}
+}
+
+func TestFirewallCOMReadsTypedExistingRule(t *testing.T) {
+	rule, found, err := readFirewallRule(firewallBlockName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Skip("operator firewall rule is absent")
+	}
+	if rule.Direction != 2 || rule.Action != 0 || !rule.Enabled || rule.Profiles == 0 || rule.LocalUsers == "" || rule.RemoteAddresses == "" {
+		t.Fatalf("typed rule was incomplete: %+v", rule)
+	}
+}

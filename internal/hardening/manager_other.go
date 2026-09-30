@@ -7,6 +7,7 @@ import "context"
 type unsupportedManager struct{}
 
 func New(string, string, string) Manager { return unsupportedManager{} }
+func NewNative() Manager                 { return unsupportedManager{} }
 func (unsupportedManager) Status(context.Context, Request) (Status, error) {
 	return Status{Supported: false}, nil
 }

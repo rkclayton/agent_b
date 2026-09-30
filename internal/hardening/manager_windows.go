@@ -36,6 +36,8 @@ func New(aclScript, firewallScript, orchestrationScript string) Manager {
 	return &windowsManager{aclScript: aclScript, firewallScript: firewallScript, orchestrationScript: orchestrationScript, powershell: powershell}
 }
 
+func NewNative() Manager { return &windowsManager{} }
+
 func (m *windowsManager) Status(ctx context.Context, request Request) (Status, error) {
 	account, err := nativepolicy.InspectAccount(request.AccountName)
 	if err != nil {
@@ -119,67 +121,37 @@ func inspectComponent(ctx context.Context, powershell, script, marker string, ar
 }
 
 func (m *windowsManager) Run(ctx context.Context, action string, request Request) (RunResult, error) {
-	mode := map[string]string{"apply": "Apply", "verify": "Verify", "remove": "Remove"}[action]
-	if mode == "" {
+	if action != "apply" && action != "verify" && action != "remove" {
 		return RunResult{}, fmt.Errorf("hardening action must be apply, verify, or remove")
 	}
-	// Status performs the same read-only policy inspection and returns structured
-	// component summaries. Avoid wrapping expected drift in PowerShell stack text.
 	if action == "verify" {
 		return RunResult{Attempted: true}, nil
 	}
-	script, err := filepath.Abs(m.orchestrationScript)
+	directory, err := os.MkdirTemp("", "agentb-hardening-*")
 	if err != nil {
-		return RunResult{}, fmt.Errorf("resolve hardening script: %w", err)
+		return RunResult{}, err
 	}
-	arguments := []string{
-		"-NoLogo", "-NoProfile", "-NonInteractive",
-		"-File", script,
-		"-Mode", mode,
-		"-AccountName", request.AccountName,
-		"-ApplicationDirectory", request.ApplicationDirectory,
-		"-DataDirectory", request.DataDirectory,
-		"-WorkspaceDirectory", request.WorkspaceDirectory,
-		"-ExchangeDirectory", request.ExchangeDirectory,
+	defer os.RemoveAll(directory)
+	requestPath, resultPath := filepath.Join(directory, "request.json"), filepath.Join(directory, "result.json")
+	native := nativepolicy.HelperRequest{Operation: "hardening", Action: action, Account: request.AccountName,
+		ACL:      nativepolicy.ACLRequest{Application: request.ApplicationDirectory, Data: request.DataDirectory, Workspace: request.WorkspaceDirectory, Exchange: request.ExchangeDirectory},
+		Firewall: nativepolicy.FirewallRequest{AllowLocalNetwork: request.AllowLocalNetwork, LocalSubnets: request.LocalSubnets, AllowedRanges: request.AllowedModelRanges}}
+	if err := nativepolicy.WriteHelperRequest(requestPath, &native); err != nil {
+		return RunResult{}, err
 	}
-	if request.AllowLocalNetwork {
-		arguments = append(arguments, "-AllowLocalNetwork")
+	if err := nativepolicy.LaunchElevatedHelper(ctx, requestPath, resultPath); err != nil {
+		return RunResult{}, err
 	}
-	if len(request.LocalSubnets) > 0 {
-		arguments = append(arguments, "-LocalSubnet", strings.Join(request.LocalSubnets, ","))
-	}
-	if len(request.AllowedModelRanges) > 0 {
-		arguments = append(arguments, "-AllowedRange", strings.Join(request.AllowedModelRanges, ","))
-	}
-	resultFile, err := os.CreateTemp("", "agentb-hardening-result-*.txt")
+	encoded, err := os.ReadFile(resultPath)
 	if err != nil {
-		return RunResult{}, fmt.Errorf("create hardening result channel: %w", err)
+		return RunResult{Attempted: true}, err
 	}
-	resultPath := resultFile.Name()
-	if err := resultFile.Close(); err != nil {
-		os.Remove(resultPath)
-		return RunResult{}, fmt.Errorf("prepare hardening result channel: %w", err)
+	var result nativepolicy.HelperResult
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		return RunResult{Attempted: true}, err
 	}
-	defer os.Remove(resultPath)
-	arguments = append(arguments, "-ResultPath", resultPath)
-	command := elevatedCommand(m.powershell, arguments)
-	launcher := exec.CommandContext(ctx, m.powershell,
-		"-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encode(command),
-	)
-	launcher.Env = systemPowerShellEnvironment(os.Environ(), m.powershell)
-	output, runErr := launcher.CombinedOutput()
-	attempted := strings.Contains(string(output), "AGENTB_ELEVATED_STARTED")
-	if runErr != nil {
-		if strings.Contains(string(output), "AGENTB_ELEVATION_NOT_STARTED") {
-			return RunResult{}, fmt.Errorf("Windows elevation was canceled or could not be started")
-		}
-		if detail := hardeningResult(resultPath); detail != "" {
-			return RunResult{Attempted: attempted}, fmt.Errorf("elevated hardening failed: %s", detail)
-		}
-		return RunResult{Attempted: attempted}, fmt.Errorf("elevated hardening failed: %s", safeError(output, runErr))
-	}
-	if !attempted {
-		return RunResult{}, fmt.Errorf("elevated hardening did not start")
+	if !result.OK {
+		return RunResult{Attempted: true}, fmt.Errorf("elevated hardening failed: %s", result.Message)
 	}
 	return RunResult{Attempted: true}, nil
 }

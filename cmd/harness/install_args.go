@@ -32,6 +32,7 @@ var installModeFlags = map[string]bool{
 	// appeared to do nothing at all.
 	"window":    true,
 	"uninstall": true, "uninstall-worker": true, "uninstall-parent": true, "purge-data": true,
+	"service-helper": true, "service-result": true,
 }
 
 // flagName reads the name out of -name, --name or --name=value; it returns ""
@@ -50,7 +51,7 @@ func flagName(argument string) string {
 // takesValue is true for this mode's flags that are followed by a value.
 func takesValue(name string) bool {
 	switch name {
-	case "install-source", "install-data", "reopen-session", "config", "app-root", "data-root", "replay", "startup-log", "uninstall-parent":
+	case "install-source", "install-data", "reopen-session", "config", "app-root", "data-root", "replay", "startup-log", "uninstall-parent", "service-helper", "service-result":
 		return true
 	}
 	return false

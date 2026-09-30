@@ -57,3 +57,22 @@ func TestManagedACLRuleRoundTripOnDisposableDirectory(t *testing.T) {
 		t.Fatalf("rule remains=%t err=%v", ok, err)
 	}
 }
+
+func TestFirewallAddressesCompareAsTypedRanges(t *testing.T) {
+	if !addressSetsEqual("127.0.0.0/8,192.168.1.0/24", "127.0.0.0-127.255.255.255,192.168.1.0-192.168.1.255") {
+		t.Fatal("equivalent address representations drifted")
+	}
+	if addressSetsEqual("10.0.0.0/8", "10.0.0.0/9") {
+		t.Fatal("different address ranges compared equal")
+	}
+}
+
+func TestFirewallCOMReportsAnAbsentDisposableRule(t *testing.T) {
+	rule, found, err := readFirewallRule(fmt.Sprintf("AgentB-disposable-missing-%d", os.Getpid()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Fatalf("unexpected rule: %+v", rule)
+	}
+}

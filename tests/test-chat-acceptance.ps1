@@ -5,12 +5,14 @@ param(
     [string]$RealModelName,
     [string]$ReplayPath,
     [string]$ReplayApplicationDirectory,
+    [string]$SeedDataDirectory,
     [string]$EvidenceDirectory,
     [string]$ExpectedCommit,
     [string]$ExpectedDirty,
     [switch]$SkipBuild,
     [switch]$ReplayOnly,
     [switch]$W6Only,
+    [switch]$W7Only,
     [switch]$ExpectStableShell,
     [ValidateSet('true', 'false')]
     [string]$Headless = 'true'
@@ -74,6 +76,21 @@ $hostLoad = Start-Job -ScriptBlock {
 } -ArgumentList $hostLoadPath
 
 try {
+    $seedProfile = ''
+    if (-not [string]::IsNullOrWhiteSpace($SeedDataDirectory)) {
+        $resolvedSeed = [IO.Path]::GetFullPath($SeedDataDirectory)
+        $resolvedData = [IO.Path]::GetFullPath($data)
+        if (-not (Test-Path -LiteralPath $resolvedSeed -PathType Container)) { throw "SeedDataDirectory does not exist: $resolvedSeed" }
+        if ($resolvedSeed.Equals($resolvedData, [StringComparison]::OrdinalIgnoreCase)) { throw 'SeedDataDirectory must not be the disposable data directory.' }
+        $null = New-Item -ItemType Directory -Force -Path $data
+        Get-ChildItem -LiteralPath $resolvedSeed -Force | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $data -Recurse -Force
+        }
+        $seedConfig = Join-Path $resolvedSeed 'harness.json'
+        if (Test-Path -LiteralPath $seedConfig) {
+            $seedProfile = [string]((Get-Content -Raw -LiteralPath $seedConfig | ConvertFrom-Json).profiles.active)
+        }
+    }
     $installArguments = @{
         SourceDirectory = $sourceRoot
         ApplicationDirectory = $application
@@ -111,6 +128,8 @@ try {
             $arguments += @('--real-model-url', $RealModelUrl, '--real-model-name', $RealModelName)
         }
         if ($W6Only) { $arguments += @('--w6-only', 'true') }
+        if ($W7Only) { $arguments += @('--w7-only', 'true') }
+        if (-not [string]::IsNullOrWhiteSpace($seedProfile)) { $arguments += @('--seed-profile', $seedProfile) }
         & (Get-Command node.exe -ErrorAction Stop).Source @arguments
         if ($LASTEXITCODE -ne 0) { throw "Chat acceptance failed with exit code $LASTEXITCODE." }
 

@@ -555,6 +555,7 @@ const config = {
   shell: { command: ["powershell", "-NoProfile", "-NonInteractive", "-Command"], timeout_s: 60, max_timeout_s: 600, max_output_lines_head: 60, max_output_lines_tail: 40, file_routing_guard: true, operator_context: false, operator_context_idle_timeout_minutes: 20, service_account: { enabled: false, account: "agentb-svc", domain: "." }, deny: [] },
   signing: { thumbprint: "", timestamp_url: "http://timestamp.digicert.com" }
 };
+if (args["seed-profile"]) config.profiles = { active: args["seed-profile"], names: [args["seed-profile"]] };
 await writeFile(join(args.data, "harness.json"), JSON.stringify(config, null, 2));
 app = spawn(join(args.app, "Agent_b.exe"), ["-config", join(args.data, "harness.json"), "-app-root", args.app, "-data-root", args.data], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: appEnvironment });
 children.push(app);
@@ -693,6 +694,41 @@ if (realModel) {
   await waitProjectedChatText((await state()).active, "REAL MODEL ACCEPTANCE OK", "real model answer", 120000);
   record("real-model-answer");
 } else {
+  if (args["w7-only"] === "true") {
+    const beforeMove = await state();
+    const migrated = Object.values(beforeMove.sessions).find((item) => item.workspace_dir?.startsWith(join(profileData, "chats")));
+    assert.ok(migrated, "copied real root must expose a migrated chat");
+    const chatRoot = beforeMove.chat_root, explorerFolder = join(chatRoot, "W7 Explorer");
+    await mkdir(explorerFolder, { recursive: true });
+    const movedPath = join(explorerFolder, migrated.workspace_dir.split(/[\\/]/).at(-1));
+    const keptPath = join(migrated.workspace_dir, "w7-kept.txt");
+    await writeFile(keptPath, "keep");
+    await rename(migrated.workspace_dir, movedPath);
+    for (const deadline = Date.now() + 5000; Date.now() < deadline && (await state()).sessions[migrated.id]?.workspace_dir !== movedPath;) await sleep(40);
+    assert.equal((await state()).sessions[migrated.id]?.workspace_dir, movedPath, "filesystem move did not reach the watcher");
+    const listing = (await readdir(chatRoot, { recursive: true })).sort();
+    await writeFile(join(args.evidence, "w7-chats-directory-listing.txt"), listing.join("\n") + "\n");
+    console.log(`W7 EXPLORER PATH: ${chatRoot}`);
+    console.log(listing.join("\n"));
+    await page.goto(`http://127.0.0.1:${appPort}/chat?session=${migrated.id}`);
+    await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
+    const explorerRow = page.locator(".agent-chat-folder", { hasText: "W7 Explorer" });
+    await explorerRow.waitFor({ state: "visible" });
+    assert.equal(await explorerRow.locator(`[data-session="${migrated.id}"]`).count(), 1, "moved chat missing from menu folder");
+    await page.locator(".shell-settings").click();
+    assert.equal(await clickText(".settings-nav button", "Chats"), true);
+    const count = Object.keys((await state()).sessions).length, dialogs = [];
+    const acceptDeleteAll = async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); };
+    page.on("dialog", acceptDeleteAll);
+    await page.locator(".delete-all-chats").click();
+    for (let attempt = 0; attempt < 200 && Object.keys((await state()).sessions).length; attempt++) await sleep(50);
+    page.off("dialog", acceptDeleteAll);
+    assert.equal(dialogs.at(-1), `Delete all ${count} chats? Memory notes, plans and files stay.`);
+    assert.equal(Object.keys((await state()).sessions).length, 0);
+    assert.equal(await readFile(join(movedPath, "w7-kept.txt"), "utf8"), "keep");
+    record("real-root-migrate-filesystem-move-menu-delete-all");
+    process.stdout.write(`CHAT ACCEPTANCE PASS ${Date.now() - startedAt} ms\n`); await edgeContext?.close(); terminateChildren(); await stopFake(); process.exit(0);
+  }
   await page.locator(".agent-tab-new").click();
   let snapshot;
   await browser.wait(`new URLSearchParams(location.search).get('session')?.startsWith('s')`, "new session selected");

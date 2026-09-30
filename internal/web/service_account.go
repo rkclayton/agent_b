@@ -7,6 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"harness/internal/credential"
@@ -36,6 +39,9 @@ func (s *Server) serviceAccount(w http.ResponseWriter, r *http.Request) {
 		s.accountMu.Lock()
 		status = s.serviceAccountState(r.Context(), status)
 		s.accountMu.Unlock()
+		if message, readErr := os.ReadFile(filepath.Join(s.roots.Data, "execution-policy.txt")); readErr == nil {
+			status.ExecutionPolicyMessage = strings.TrimSpace(string(message))
+		}
 		writeJSON(w, http.StatusOK, status)
 	case http.MethodPost:
 		s.setupServiceAccount(w, r, account)

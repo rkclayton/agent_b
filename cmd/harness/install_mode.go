@@ -443,10 +443,6 @@ func extractInstallBundle(executable string) (string, func(), bool, error) {
 	if err != nil || info.Size() < installBundleFooterSize {
 		return "", nil, false, err
 	}
-	// Authenticode appends the PE certificate table after the bytes it signs.
-	// An unsigned build therefore ends at our footer while a signed setup has
-	// its certificate after it. Search only a bounded tail for the last footer;
-	// the bundle length and SHA below still authenticate the selected payload.
 	tailSize := info.Size()
 	if tailSize > 4<<20 {
 		tailSize = 4 << 20

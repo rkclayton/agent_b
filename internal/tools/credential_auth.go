@@ -1,12 +1,24 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
 
 	"harness/internal/credential"
 )
+
+type TokenProvider interface {
+	Origin(string) (string, error)
+	Token(context.Context, string) (string, error)
+}
+
+func (c *CallService) SetTokenProvider(scheme string, provider TokenProvider) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.providers[strings.ToLower(strings.TrimSpace(scheme))] = provider
+}
 
 // Item 2nv (a): AUTH PROVIDERS, behind one seam. A provider is asked for a credential for
 // one request and answers with a header, or refuses. It never decides where the request

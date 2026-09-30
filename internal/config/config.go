@@ -1574,6 +1574,13 @@ func ValidateServiceAuth(value string) error {
 		}
 		return nil
 	}
+	if strings.HasPrefix(value, "entra:") {
+		name := strings.TrimSpace(strings.TrimPrefix(value, "entra:"))
+		if !storedCredentialName.MatchString(name) {
+			return fmt.Errorf("entra requires a credential name of lower-case letters, digits and hyphens")
+		}
+		return nil
+	}
 	// (h): static_bearer is RETIRED, but a configuration that still carries one must LOAD
 	// — that is what the migration reads. So it is accepted here and refused in the two
 	// places that would let a new one exist: a connector proposal, and Save.
@@ -1587,7 +1594,7 @@ func ValidateServiceAuth(value string) error {
 	if strings.HasPrefix(value, "exec:") && strings.TrimSpace(strings.TrimPrefix(value, "exec:")) != "" {
 		return nil
 	}
-	return fmt.Errorf("must be none, stored:<name>, or exec:<argv>")
+	return fmt.Errorf("must be none, stored:<name>, entra:<name>, or exec:<argv>")
 }
 
 // ValidateNewServiceAuth is the rule for auth that is being WRITTEN: a connector the

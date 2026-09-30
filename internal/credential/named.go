@@ -38,6 +38,12 @@ type Entry struct {
 	StoredAt string `json:"stored_at"`
 }
 
+type EntraDefinition struct {
+	Tenant   string   `json:"tenant"`
+	ClientID string   `json:"client_id"`
+	Scopes   []string `json:"scopes"`
+}
+
 // Vault is the named-credential store under one data root.
 type Vault struct {
 	root string
@@ -149,6 +155,64 @@ func (v *Vault) Put(name, origin, header, secret string) error {
 	return v.writeRecords(records)
 }
 
+func (v *Vault) PutEntra(name, origin, tenant, clientID string, scopes []string) error {
+	definition := EntraDefinition{Tenant: strings.TrimSpace(tenant), ClientID: strings.TrimSpace(clientID)}
+	for _, scope := range scopes {
+		if scope = strings.TrimSpace(scope); scope != "" {
+			definition.Scopes = append(definition.Scopes, scope)
+		}
+	}
+	if definition.Tenant == "" || definition.ClientID == "" || len(definition.Scopes) == 0 {
+		return errors.New("tenant, client id and at least one scope are required")
+	}
+	encoded, err := json.Marshal(definition)
+	if err != nil {
+		return err
+	}
+	if err := v.Put(name, origin, "", string(encoded)); err != nil {
+		return err
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	records, err := v.readRecords()
+	if err != nil {
+		return err
+	}
+	entry := records[name]
+	entry.Kind = "entra"
+	records[name] = entry
+	if err := v.writeRecords(records); err != nil {
+		return err
+	}
+	cache, err := v.EntraCache(name)
+	if err != nil {
+		return err
+	}
+	if err := cache.Clear(); err != nil && !errors.Is(err, ErrNotStored) {
+		return err
+	}
+	return nil
+}
+
+func (v *Vault) Entra(name string) (EntraDefinition, Entry, error) {
+	secret, entry, err := v.Secret(name)
+	if err != nil {
+		return EntraDefinition{}, Entry{}, err
+	}
+	if entry.Kind != "entra" {
+		return EntraDefinition{}, Entry{}, fmt.Errorf("credential %q is not an Entra credential", name)
+	}
+	var definition EntraDefinition
+	if json.Unmarshal([]byte(secret), &definition) != nil {
+		return EntraDefinition{}, Entry{}, fmt.Errorf("Entra credential %q is unreadable", name)
+	}
+	return definition, entry, nil
+}
+
+func (v *Vault) EntraCache(name string) (*Store, error) {
+	return NewNamed(v.root, "entra-"+name+"-cache")
+}
+
 // Rebind changes where a credential may go, without touching the secret. (e) means the
 // operator has approved this before it is called.
 func (v *Vault) Rebind(name, origin, header string) error {
@@ -189,6 +253,11 @@ func (v *Vault) Delete(name string) error {
 	records, err := v.readRecords()
 	if err != nil {
 		return err
+	}
+	if records[name].Kind == "entra" {
+		if cache, cacheErr := v.EntraCache(name); cacheErr == nil {
+			_ = cache.Clear()
+		}
 	}
 	delete(records, name)
 	return v.writeRecords(records)

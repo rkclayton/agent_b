@@ -54,6 +54,7 @@ type CallService struct {
 	// https stub can be reached without loosening anything in the product path.
 	vault      *credential.Vault
 	testClient *http.Client
+	providers  map[string]TokenProvider
 }
 
 // SetHTTPClientForTest lets a case dial its own TLS stub. Nothing in the product sets it.
@@ -73,7 +74,7 @@ type ConnectorChange struct {
 }
 
 func NewCallService(services map[string]config.Service) *CallService {
-	tool := &CallService{cache: map[string]cachedServiceCredential{}, now: time.Now}
+	tool := &CallService{cache: map[string]cachedServiceCredential{}, providers: map[string]TokenProvider{}, now: time.Now}
 	tool.setServices(services)
 	return tool
 }
@@ -491,6 +492,33 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 		header := http.Header{}
 		header.Set(attached.name, attached.value)
 		return "", attached.secret, header, false, nil
+	}
+	if scheme, reference, ok := strings.Cut(auth, ":"); ok {
+		c.mu.Lock()
+		provider := c.providers[strings.ToLower(scheme)]
+		c.mu.Unlock()
+		if provider != nil {
+			origin, originErr := approvedOrigin(service.BaseURL)
+			if originErr != nil {
+				return "", "", nil, false, fmt.Errorf("auth_error: this connector's address is not an https origin, so a credential cannot be bound to it")
+			}
+			if err := enforceDestination(origin, target); err != nil {
+				return "", "", nil, false, err
+			}
+			bound, boundErr := provider.Origin(strings.TrimSpace(reference))
+			if boundErr != nil {
+				return "", "", nil, false, fmt.Errorf("auth_error: %w", boundErr)
+			}
+			if err := enforceDestination(bound, target); err != nil {
+				return "", "", nil, false, err
+			}
+			value, tokenErr := provider.Token(ctx, strings.TrimSpace(reference))
+			if tokenErr != nil {
+				return "", "", nil, false, tokenErr
+			}
+			authorization, token, err = bearerAuthorization(value)
+			return authorization, token, nil, false, err
+		}
 	}
 	if strings.HasPrefix(auth, "static_bearer:") {
 		value := strings.TrimSpace(os.Getenv(strings.TrimSpace(strings.TrimPrefix(auth, "static_bearer:"))))

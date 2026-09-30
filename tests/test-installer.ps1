@@ -524,6 +524,9 @@ try {
     }
     if ($freshExit -ne 0) { throw "First single-file install exited $freshExit.`n$freshOutput" }
     Assert-InstalledSignatures -Application $testApplication -PolicyRoot $repositoryRoot -Phase 'install'
+    if ($freshOutput -notmatch '(?m)^At sign-in: off\r?$' -or $freshOutput -match '(?m)^At sign-in: .*Startup\\Agent_b\.lnk') {
+        throw "The install transcript did not say truthfully that sign-in start is off.`n$freshOutput"
+    }
     $freshTranscript = Get-Content -Raw -LiteralPath $freshTranscriptPath
     if ($freshTranscript -notmatch 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval') {
         throw "Per-user install did not preserve the first-launch provisioning arm.`n$freshOutput"

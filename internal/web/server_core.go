@@ -429,6 +429,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/navigation-suppressions", s.replayGuard(s.navigationSuppression))
 	mux.HandleFunc("/api/sessions", s.replayGuard(s.sessions))
 	mux.HandleFunc("/api/chats/tree", s.replayGuard(s.chatTree))
+	mux.HandleFunc("/api/chats/delete-all", s.replayGuard(s.deleteAllChats))
 	mux.HandleFunc("/api/plans", s.replayGuard(s.plans))
 	mux.HandleFunc("/api/plans/build", s.replayGuard(s.buildPlanRoute))
 	mux.HandleFunc("/api/plan", s.replayGuard(s.planSurface))

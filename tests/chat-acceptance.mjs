@@ -248,6 +248,7 @@ const fakeHandler = async (request, response) => {
     return stream(response, { content: "Menu stream completed." });
   }
   // Item 2fc: one chat holds the model while another waits behind it.
+  if (user.includes("acceptance: bulk hold")) { await sleep(12000); return stream(response, { content: "BULK HELD ANSWER" }); }
   if (user.includes("acceptance: hold the model")) {
     await sleep(4000);
     return stream(response, { content: "HELD ANSWER" });
@@ -709,6 +710,24 @@ if (realModel) {
   record("new-chat");
 
   const fixtureSessionID = sessionID;
+	if (args["w6-only"] === "true") {
+		const bulkBusy = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
+		const beforeBulk = await state(), bulkCount = Object.keys(beforeBulk.sessions).length;
+		const bulkKept = join(beforeBulk.sessions[bulkBusy.id].workspace_dir, "bulk-kept.txt"); await writeFile(bulkKept, "keep");
+		await page.goto(`http://127.0.0.1:${appPort}/chat?session=${bulkBusy.id}`); await page.locator(".shell-settings").click(); assert.equal(await clickText(".settings-nav button", "Chats"), true);
+		await json(`http://127.0.0.1:${appPort}/api/message`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: bulkBusy.id, text: "acceptance: bulk hold" }) });
+		for (let attempt = 0; attempt < 100 && (await state()).sessions[bulkBusy.id].run.status !== "running"; attempt++) await sleep(10);
+		assert.equal((await state()).sessions[bulkBusy.id].run.status, "running");
+		const bulkDialogs = [], acceptBulk = async (dialog) => { bulkDialogs.push(dialog.message()); await dialog.accept(); }; page.on("dialog", acceptBulk);
+		await page.locator(".delete-all-chats").click(); await browser.wait(`document.querySelector('.settings-content')?.innerText.includes('is running')`, "bulk delete names running chat");
+		assert.equal(Object.keys((await state()).sessions).length, bulkCount);
+		await json(`http://127.0.0.1:${appPort}/api/stop`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ session_id: bulkBusy.id }) });
+		await waitEvent(bulkBusy.id, (event) => event.type === "run.stopped", "bulk-delete fixture stopped");
+		await page.locator(".delete-all-chats").click(); for (let attempt = 0; attempt < 100 && Object.keys((await state()).sessions).length; attempt++) await sleep(50); page.off("dialog", acceptBulk);
+		assert.equal(bulkDialogs.at(-1), `Delete all ${bulkCount} chats? Memory notes, plans and files stay.`); assert.equal(Object.keys((await state()).sessions).length, 0); assert.equal(await readFile(bulkKept, "utf8"), "keep");
+		await page.locator(".chat-empty").waitFor({ state: "visible" }); record("settings-delete-all-refuses-running-then-keeps-files");
+		process.stdout.write(`CHAT ACCEPTANCE PASS ${Date.now() - startedAt} ms\n`); await edgeContext?.close(); terminateChildren(); await stopFake(); process.exit(0);
+	}
   await setTask("acceptance: scratch file");
   await waitProjectedChatText(sessionID, "SCRATCH FILE COMPLETE", "scratch file tool");
   assert.equal(await readFile(join(session.workspace_dir, "scratch-proof.txt"), "utf8"), "scratch tool passed\n");

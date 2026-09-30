@@ -878,6 +878,13 @@ function confirmPopover() {
 // dispatchAction is the original body of click, unchanged.
 async function dispatchAction(event, button, action, id) {
 	if (action === "close") return void leaveSettingsForChat();
+	if (action === "delete-all-chats") {
+		const count = Object.keys(store.sessions || {}).length;
+		if (!confirm(`Delete all ${count} chat${count === 1 ? "" : "s"}? Memory notes, plans and files stay.`)) return;
+		try { await api("/api/chats/delete-all", { confirm: true }); reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); leaveSettingsForChat(); }
+		catch (error) { errors.set("chat_root", error.message); render(); }
+		return;
+	}
   // Item 2l6 (c): the save that belongs to one setting, beside it.
   if (action === "save-setting") return void applySetting(button.dataset.savePath);
   // Item 2l5 (d): the row save commits THAT connection pending changes and nothing

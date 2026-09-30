@@ -518,32 +518,31 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "session must be closed before deletion", "session")
 			return
 		}
-		if s.runner != nil {
-			s.runner.LapseSessionGrants(id)
-		}
-		if s.operatorFiles != nil {
-			if path, err := s.operatorFiles.ExportChat(item.Snapshot()); err != nil {
-				s.bus.Publish(events.New(events.Error, id, "", map[string]any{"where": "chat_export", "message": err.Error()}))
-			} else {
-				s.bus.Publish(events.New(events.ChatExported, id, "", map[string]any{"path": path}))
-			}
-		}
 		// Item 2hq: deletion is intentional and can only follow close. The journal, the
 		// scratch folder, its attachments, its history entry and its tab go;
 		// what the chat produced elsewhere - memory notes, plans, reflection
 		// rows, files written into a repository - is not the chat and stays.
 		// The export above runs first, so the markdown of what was said
 		// survives the chat itself.
-		inventory, err := s.registry.Delete(id)
+		inventory, err := s.deleteChat(item)
 		if err != nil {
 			writeError(w, http.StatusConflict, err.Error(), "session")
 			return
-		}
-		if s.projector != nil {
-			s.projector.Delete(id)
 		}
 		writeJSON(w, 200, map[string]any{"session_id": id, "inventory": inventory})
 	default:
 		method(w)
 	}
+}
+
+func (s *Server) deleteChat(item *session.Session) (events.SessionInventory, error) {
+	id := item.ID
+	if s.runner != nil { s.runner.LapseSessionGrants(id) }
+	if s.operatorFiles != nil {
+		if path, err := s.operatorFiles.ExportChat(item.Snapshot()); err != nil { s.bus.Publish(events.New(events.Error, id, "", map[string]any{"where": "chat_export", "message": err.Error()}))
+		} else { s.bus.Publish(events.New(events.ChatExported, id, "", map[string]any{"path": path})) }
+	}
+	inventory, err := s.registry.Delete(id)
+	if err == nil && s.projector != nil { s.projector.Delete(id) }
+	return inventory, err
 }

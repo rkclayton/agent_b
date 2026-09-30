@@ -10,6 +10,7 @@ param(
     [string]$ExpectedDirty,
     [switch]$SkipBuild,
     [switch]$ReplayOnly,
+    [switch]$W6Only,
     [switch]$ExpectStableShell,
     [ValidateSet('true', 'false')]
     [string]$Headless = 'true'
@@ -109,6 +110,7 @@ try {
             }
             $arguments += @('--real-model-url', $RealModelUrl, '--real-model-name', $RealModelName)
         }
+        if ($W6Only) { $arguments += @('--w6-only', 'true') }
         & (Get-Command node.exe -ErrorAction Stop).Source @arguments
         if ($LASTEXITCODE -ne 0) { throw "Chat acceptance failed with exit code $LASTEXITCODE." }
 

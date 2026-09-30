@@ -51,6 +51,20 @@ func TestChatTreeOperationsAreFilesystemOperations(t *testing.T) {
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "folder must be empty") { t.Fatalf("non-empty delete: %d %s", response.Code, response.Body.String()) }
 }
 
+func TestDeleteAllChatsRefusesRunningThenKeepsFiles(t *testing.T) {
+	server, registry, writers, _, _, _ := consoleServer(t); defer writers.Close()
+	first, _ := registry.Create("busy", "coder", "")
+	_, _ = registry.Create("idle", "coder", "")
+	kept := filepath.Join(first.Workspace, "kept.txt"); if err := os.WriteFile(kept, []byte("keep"), 0o600); err != nil { t.Fatal(err) }
+	first.SetRun(session.RunState{Status: "running"})
+	response := postConsole(t, server, "/api/chats/delete-all", `{"confirm":true}`)
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "busy is running") || len(registry.List()) != 2 { t.Fatalf("refusal: %d %s", response.Code, response.Body.String()) }
+	first.SetRun(session.RunState{Status: "idle"})
+	response = postConsole(t, server, "/api/chats/delete-all", `{"confirm":true}`)
+	if response.Code != 200 || len(registry.List()) != 0 { t.Fatalf("delete: %d %s", response.Code, response.Body.String()) }
+	if content, err := os.ReadFile(kept); err != nil || string(content) != "keep" { t.Fatalf("kept file = %q, %v", content, err) }
+}
+
 // Item 2hq (v1.6.2): intentional deletion of an already-closed chat removes
 // the chat, while what it produced elsewhere stays.
 func TestDeletingAClosedChatRemovesItAndKeepsWhatItProduced(t *testing.T) {

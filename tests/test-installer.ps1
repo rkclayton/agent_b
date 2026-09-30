@@ -468,9 +468,6 @@ try {
     $whatIfBefore = Get-RootFingerprint -Roots $whatIfRoots
     $whatIfOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer -SourceDirectory (Split-Path -Parent $PSScriptRoot) -ApplicationDirectory $whatIfApplication -DataDirectory $whatIfData -WorkspaceDirectory $whatIfWorkspace -StartMenuDirectory (Join-Path $testRoot 'WhatIf\StartMenu') -UninstallRegistryPath ($testRegistry + '-WhatIf') -TestMode -WhatIf | Out-String)
     if ($LASTEXITCODE -ne 0) { throw "WhatIf install exited $LASTEXITCODE.`n$whatIfOutput" }
-    if ($whatIfOutput -notmatch '(?m)^At sign-in: off\r?$' -or $whatIfOutput -match '(?m)^At sign-in: .*Startup\\Agent_b\.lnk') {
-        throw "The install summary did not say truthfully that sign-in start is off.`n$whatIfOutput"
-    }
     $whatIfAfter = Get-RootFingerprint -Roots $whatIfRoots
     if ($whatIfAfter -cne $whatIfBefore) { throw "WhatIf changed a target root.`nBEFORE $whatIfBefore`nAFTER $whatIfAfter" }
     $whatIfTranscript = if ($whatIfOutput -match '(?m)^Transcript: (.+)$') { $Matches[1].Trim() } else { '' }
@@ -1470,8 +1467,13 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
         throw 'Preserving uninstall did not keep only local data.'
     }
 
-    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode
-    if ($LASTEXITCODE -ne 0) { throw "Reinstall exited $LASTEXITCODE." }
+    $reinstallOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer -ApplicationDirectory $testApplication -DataDirectory $testData -WorkspaceDirectory $testWorkspace -StartMenuDirectory $testStart -UninstallRegistryPath $testRegistry -TestMode 2>&1 | Out-String)
+    $reinstallExit = $LASTEXITCODE
+    Write-Host $reinstallOutput.TrimEnd()
+    if ($reinstallExit -ne 0) { throw "Reinstall exited $reinstallExit." }
+    if ($reinstallOutput -notmatch '(?m)^At sign-in: off\r?$' -or $reinstallOutput -match '(?m)^At sign-in: .*Startup\\Agent_b\.lnk') {
+        throw "The reinstall summary did not say truthfully that sign-in start is off.`n$reinstallOutput"
+    }
     if ((Get-StableConfigFingerprint -Path $configPath) -cne $configFingerprint) {
         throw 'Reinstall changed preserved connection configuration.'
     }

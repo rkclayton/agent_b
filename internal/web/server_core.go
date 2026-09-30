@@ -424,6 +424,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/open-file", s.openDeliveredFile)
 	mux.HandleFunc("/api/attachments", s.replayGuard(s.attachments))
 	mux.HandleFunc("/api/attachments/stop", s.replayGuard(s.stopAttachment))
+	mux.HandleFunc("/api/chat-mirror/take", s.replayGuard(s.takeMirrorHTTP))
 	mux.HandleFunc("/api/exchange-files", s.exchangeFiles)
 	mux.HandleFunc("/api/operator-attachments", s.operatorAttachments)
 	mux.HandleFunc("/api/operator-files", s.replayGuard(s.operatorFileState))

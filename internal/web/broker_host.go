@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -55,8 +57,61 @@ type BrokerClient struct {
 	// closed by CancelPairing and is the only thing besides success that ends it.
 	cancel chan struct{}
 	// Item 2o7: the server whose handlers answer the phone, and the paired session's stop.
-	server      *Server
-	stopSession context.CancelFunc
+	server        *Server
+	stopSession   context.CancelFunc
+	mirrorPending map[string]chan appResponseUnit
+}
+
+func (c *BrokerClient) RequestMirrorTake(ctx context.Context, chatID string, afterSeq int) error {
+	idBytes := make([]byte, 16)
+	if _, err := rand.Read(idBytes); err != nil {
+		return err
+	}
+	id := hex.EncodeToString(idBytes)
+	body, _ := json.Marshal(map[string]any{"chat_id": chatID, "after_seq": afterSeq})
+	unit, _ := json.Marshal(appRequestUnit{V: 1, Kind: "request", ID: id, Route: "chat.mirror.take", Body: body})
+	answer := make(chan appResponseUnit, 1)
+	c.mu.Lock()
+	if c.client == nil {
+		c.mu.Unlock()
+		return errors.New("the phone is not connected")
+	}
+	if c.mirrorPending == nil {
+		c.mirrorPending = map[string]chan appResponseUnit{}
+	}
+	c.mirrorPending[id] = answer
+	client := c.client
+	c.mu.Unlock()
+	defer func() { c.mu.Lock(); delete(c.mirrorPending, id); c.mu.Unlock() }()
+	if err := client.Deliver(unit); err != nil {
+		return err
+	}
+	select {
+	case response := <-answer:
+		if response.Status != http.StatusOK {
+			return fmt.Errorf("phone refused ownership: %s", response.Body)
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *BrokerClient) deliverMirrorResponse(unit []byte) bool {
+	var response appResponseUnit
+	if json.Unmarshal(unit, &response) != nil || response.Kind != "response" || response.ID == "" {
+		return false
+	}
+	c.mu.Lock()
+	waiting := c.mirrorPending[response.ID]
+	c.mu.Unlock()
+	if waiting != nil {
+		select {
+		case waiting <- response:
+		default:
+		}
+	}
+	return true
 }
 
 // NewBrokerClient loads or creates this install's identity and prepares to dial. The

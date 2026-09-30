@@ -225,13 +225,9 @@ func (f *ReflectionFloor) UnmarshalJSON(data []byte) error {
 
 // Item 2jg: diagnostic telemetry. Three keys and no more.
 //
-// There is NO DEFAULT ENDPOINT, and that is deliberate. This repository does not
-// know the operator's receiver -- item 2lr puts it on the VPS -- and shipping a
-// guess would send his counts to a stranger. Until Endpoint is set, nothing is
-// collected and nothing is queued, because there is nowhere for it to go.
-//
-// InstallID identifies an install, never a person, and is regenerated whenever
-// the switch goes off and on again.
+// An empty Endpoint selects telemetry.DefaultEndpoint at runtime. Keeping the
+// stored value empty preserves the distinction between the product default and
+// an operator override without adding another configuration key.
 type Telemetry struct {
 	Enabled     bool   `json:"enabled"`
 	Endpoint    string `json:"endpoint"`

@@ -134,9 +134,10 @@ Any remaining string is cut to 200 characters.
 - When the endpoint is unreachable the batch is queued on disk under the data
   root. The backlog is bounded to **24 hours**; older batches are dropped oldest
   first, with a log line saying how many.
-- The endpoint comes from configuration. **There is no default endpoint**: until
-  one is set, nothing is collected and nothing is queued, because there is
-  nowhere for it to go.
+- With no endpoint override, batches go without a credential to
+  `https://broker.agentb.app/v1/telemetry`. An operator-set endpoint wins.
+- A receiver refusal (any 4xx, including 429) is dropped and counted rather
+  than queued for retry. The count is present only in Export diagnostics.
 
 ## Off means off
 
@@ -155,7 +156,5 @@ handed to the transport.
 
 Turning it back on issues a **new** install id.
 
-## What was sent
-
-Settings → About lists the last 20 batches exactly as they left the machine, so
-the claim above can be checked rather than believed.
+Settings → About shows the destination host beside the toggle. Export
+diagnostics carries the count of receiver-refused batches, not their contents.

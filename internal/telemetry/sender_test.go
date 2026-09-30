@@ -3,6 +3,8 @@ package telemetry
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,27 @@ import (
 	"testing"
 	"time"
 )
+
+func TestReceiverRefusalIsCountedDroppedAndNeverRetried2ov(t *testing.T) {
+	requests := 0
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		http.Error(w, "rate_limited", http.StatusTooManyRequests)
+	}))
+	defer receiver.Close()
+	root := t.TempDir()
+	sender := New(Options{Endpoint: receiver.URL, InstallID: "id", DataRoot: root, AgentVersion: "v1.51.0"})
+	defer sender.Close()
+	sender.Observe("tool.result", time.Now().UTC().Format(time.RFC3339), map[string]any{"name": "read_file", "ok": true, "ms": 1})
+	sender.Flush()
+	sender.drainQueue()
+	if requests != 1 || sender.Refused() != 1 {
+		t.Fatalf("requests=%d refused=%d", requests, sender.Refused())
+	}
+	if entries, err := os.ReadDir(filepath.Join(root, queueDirectory)); err == nil && len(entries) != 0 {
+		t.Fatalf("refused batch was queued: %v", entries)
+	}
+}
 
 type capture struct {
 	mu     sync.Mutex

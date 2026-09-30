@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -18,36 +19,55 @@ import (
 // The code authorizes the exchange and is not input to any key. What he compares on the
 // two screens afterwards is the fingerprint, and nothing routes until both ends confirm.
 
-// crockford is the alphabet the code is written in. Only indices 0-15 are valid in a v1
-// code: each byte is one high nibble and one low nibble, so the twenty random bytes
-// become exactly forty digits.
+// crockford is the unambiguous alphabet the code is written in.
 const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-// NewPairingCode draws 20 random bytes and renders them as eight groups of five, which
-// is how the operator reads it off the screen.
+// NewPairingCode draws 60 random bits and renders three groups of four.
 func NewPairingCode() (string, []byte, error) {
-	raw := make([]byte, 20)
+	raw := make([]byte, 8)
 	if _, err := rand.Read(raw); err != nil {
 		return "", nil, err
 	}
-	digits := make([]byte, 0, 40)
-	for _, value := range raw {
-		digits = append(digits, crockford[value>>4], crockford[value&0x0f])
+	raw[0] &= 0x0f
+	value := binary.BigEndian.Uint64(raw)
+	digits := make([]byte, 12)
+	for index := range digits {
+		digits[index] = crockford[(value>>uint(55-index*5))&31]
 	}
-	groups := make([]string, 0, 8)
-	for index := 0; index+5 <= len(digits); index += 5 {
-		groups = append(groups, string(digits[index:index+5]))
-	}
-	return strings.Join(groups, "-"), raw, nil
+	return string(digits[:4]) + "-" + string(digits[4:8]) + "-" + string(digits[8:]), raw, nil
 }
 
 // DecodePairingCode is the other side of that, written here because the refusals are
-// part of the protocol: hyphens are removed, ASCII is upper-cased, anything outside the
-// first sixteen Crockford digits is refused, and exactly forty digits are required.
+// part of the protocol: separators and case are folded, as are Crockford confusables.
 func DecodePairingCode(code string) ([]byte, error) {
-	cleaned := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(code), "-", ""))
+	cleaned := strings.Map(func(value rune) rune {
+		if value == '-' || value == ' ' {
+			return -1
+		}
+		value = []rune(strings.ToUpper(string(value)))[0]
+		if value == 'O' {
+			return '0'
+		}
+		if value == 'I' || value == 'L' {
+			return '1'
+		}
+		return value
+	}, strings.TrimSpace(code))
+	if len(cleaned) == 12 {
+		var value uint64
+		for _, digit := range []byte(cleaned) {
+			index := strings.IndexByte(crockford, digit)
+			if index < 0 {
+				return nil, fmt.Errorf("pairing code: %q is not a Crockford digit", digit)
+			}
+			value = value<<5 | uint64(index)
+		}
+		raw := make([]byte, 8)
+		binary.BigEndian.PutUint64(raw, value)
+		return raw, nil
+	}
 	if len(cleaned) != 40 {
-		return nil, fmt.Errorf("pairing code: %d digits, want 40", len(cleaned))
+		return nil, fmt.Errorf("pairing code: %d digits, want 12 or 40", len(cleaned))
 	}
 	raw := make([]byte, 0, 20)
 	for index := 0; index < len(cleaned); index += 2 {

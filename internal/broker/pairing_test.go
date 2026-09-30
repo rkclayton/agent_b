@@ -11,21 +11,21 @@ import (
 
 // Item 2kq (b): PAIRING FROM SETTINGS, and the operator's part in it is the fingerprint.
 
-func TestThePairingCodeIsFortyCrockfordDigits2kq(t *testing.T) {
+func TestThePairingCodeIsTwelveCrockfordDigits2o1(t *testing.T) {
 	code, raw, err := NewPairingCode()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(raw) != 20 {
-		t.Fatalf("the code carries %d bytes, want 20", len(raw))
+	if len(raw) != 8 || raw[0]&0xf0 != 0 {
+		t.Fatalf("the code carries invalid 60-bit bytes %x", raw)
 	}
 	groups := strings.Split(code, "-")
-	if len(groups) != 8 {
-		t.Fatalf("the code reads as %d groups, want 8: %q", len(groups), code)
+	if len(groups) != 3 {
+		t.Fatalf("the code reads as %d groups, want 3: %q", len(groups), code)
 	}
 	for _, group := range groups {
-		if len(group) != 5 {
-			t.Fatalf("group %q is %d characters, want 5", group, len(group))
+		if len(group) != 4 {
+			t.Fatalf("group %q is %d characters, want 4", group, len(group))
 		}
 	}
 	decoded, err := DecodePairingCode(code)
@@ -35,18 +35,33 @@ func TestThePairingCodeIsFortyCrockfordDigits2kq(t *testing.T) {
 	if hex.EncodeToString(decoded) != hex.EncodeToString(raw) {
 		t.Fatalf("the code did not round trip: %x then %x", raw, decoded)
 	}
-	// It reads the way the operator will type it: hyphens optional, case ignored.
-	loose, err := DecodePairingCode(strings.ToLower(strings.ReplaceAll(code, "-", "")))
+	// It reads the way the operator will type it: spaces/hyphens optional, case ignored.
+	loose, err := DecodePairingCode(strings.ToLower(strings.ReplaceAll(code, "-", " ")))
 	if err != nil || hex.EncodeToString(loose) != hex.EncodeToString(raw) {
 		t.Fatalf("a hyphen-free lower-case code did not decode: %v", err)
 	}
-	// And the refusals the document states: a wrong length, and a digit outside the
-	// sixteen a v1 code may use.
-	if _, err := DecodePairingCode(code + "0"); err == nil {
-		t.Error("a 41-digit code was accepted")
+	// The broker still accepts legacy 40-symbol codes, but new codes do not use them.
+	if _, err := DecodePairingCode(strings.Repeat("0", 40)); err != nil {
+		t.Fatalf("legacy code: %v", err)
 	}
-	if _, err := DecodePairingCode(strings.Repeat("Z", 40)); err == nil {
-		t.Error("a code of index-31 digits was accepted")
+	if _, err := DecodePairingCode(code + "0"); err == nil {
+		t.Error("a 13-digit code was accepted")
+	}
+	if _, err := DecodePairingCode("UUUU-UUUU-UUUU"); err == nil {
+		t.Error("a code with an excluded Crockford digit was accepted")
+	}
+}
+
+func TestTheBrokersTwelveSymbolVectors2o1(t *testing.T) {
+	for _, vector := range []struct{ code, typed, decoded, hash string }{
+		{"7K3M-9QXA-2HDR", "7k3m9qxa2hdr", "03cc744dfaa145b8", "309283ccda968494956e6fcdccc3eb09d9d7024dec2be3e938cac58ce23f75a4"},
+		{"4V8E-B1TN-6WGP", "4v8e bitn 6wgp", "026d0e5875537216", "6bf7a7affa53ca6ea7fe5f86e7cd3fa4e9ccb91e2f6f227702e273c704354ff1"},
+		{"ZZZZ-ZZZZ-ZZZZ", "zzzz-zzzz-zzzz", "0fffffffffffffff", "559d90520d81deac7c86a54835f31fd529bae8f6920410dc70abb059af474cd1"},
+	} {
+		raw, err := DecodePairingCode(vector.typed)
+		if err != nil || hex.EncodeToString(raw) != vector.decoded || hex.EncodeToString(CodeHash(raw)) != vector.hash {
+			t.Errorf("%s: raw=%x hash=%x err=%v", vector.code, raw, CodeHash(raw), err)
+		}
 	}
 }
 

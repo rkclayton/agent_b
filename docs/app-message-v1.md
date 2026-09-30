@@ -128,18 +128,25 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 | `tool` | `POST /api/tools/{name}` | `{name,session_id,enabled}` |
 | `state` | `GET /api/state` | `{}` |
 | `resync` | `GET /api/state` for one session | `{session_id}` |
-| `chat.create` | `POST /api/sessions` | `{label?}` — added 2026-09-27 |
+| `chat.create` | `POST /api/sessions` | `{label?,connection_id?}` — connection selection added 2026-09-30 |
 | `chat.mirror` | append one owner's journal event to its mirror | `MirrorAppend` — added 2026-09-30 |
 | `chat.mirror.since` | ask a mirror for its durable per-chat cursor | `{chat_id}` — added 2026-09-30 |
 | `chat.mirror.take` | transfer ownership to the requesting peer | `{chat_id,after_seq}` — added 2026-09-30 |
 
 `tool` carries the path segment as a `name` field for the same reason: the route set is closed.
 
-`chat.create` carries a `label` and NOTHING ELSE. It does not carry `connection_id`, `role` or
-`source_session_id`: the desktop fills the default agent's connection exactly as its own new-chat
-control does when there is no chat to copy, so a device cannot choose which model it talks to or
-open a planner or worker chat. A body with any other field is refused; a body with no `label` is a
-chat the desktop names as it names any unlabelled one.
+`state.connections` is the PC's ordered Connection sheet. Each entry is exactly
+`{id,label,model,host,vision,docs,tools,ctx}`: `host` is only the URL host (and optional port),
+`vision` is the probed vision class, `docs` and `tools` are booleans, and `ctx` is the effective
+context-token count. It carries no URL path, credential, API key, system prompt, sampling value or
+probe finding.
+
+`chat.create` carries an optional `label` and optional `connection_id`, and NOTHING ELSE. With no
+`connection_id`, the desktop uses the default agent's connection as before. A known id creates the
+same ordinary PC chat as choosing that Connection in Settings. An unknown id returns the ordinary
+`400 {error,field:"connection_id"}` refusal and creates nothing. It still cannot carry `role` or
+`source_session_id`, so a device cannot open a planner or worker chat. With no `label`, the desktop
+names the chat as it names any unlabelled one.
 
 ## Mirrored chats
 
@@ -247,11 +254,11 @@ including, explicitly:
 A stolen paired phone can therefore send a message, stop a run, answer an approval card, toggle a
 tool for the next request, read state, **create a chat**, mirror its own chats and their attachment
 bytes onto this machine, and request ownership of an already mirrored chat. It cannot change the
-machine, install anything, register a plan, close, rename or delete a chat, choose which model a
-chat talks to, or reach a credential.
+  machine, install anything, register a plan, close, rename or delete a chat, or reach a credential.
 
-**The exposure `chat.create` adds, stated plainly:** a stolen paired phone can open empty chats,
-as many as it likes, each on the default connection. That costs disk and clutters the chat list,
+**The exposure `chat.create` adds, stated plainly:** a stolen paired phone can see the safe
+Connection sheet and open empty chats, as many as it likes, on any listed connection. That can incur
+model cost, costs disk and clutters the chat list,
 and it is visible — every one appears on the desktop like any other chat. It reaches no new data:
 a new chat starts empty, and reading anything still requires `state` or `resync`, which the phone
 already had. Revocation remains the answer, and it is immediate.

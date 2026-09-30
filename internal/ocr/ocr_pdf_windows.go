@@ -3,6 +3,7 @@
 package ocr
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -21,40 +22,39 @@ var (
 // ExtractPDF renders each page of a PDF with the Windows inbox PDF renderer
 // (Windows.Data.Pdf) and recognizes it with the same OCR engine as images
 // (item 2fj): the route for a scanned PDF, one with no text layer. Pages are
-// joined under "## Page n" headings; a page with no text is skipped, and only
-// the first maxPages pages are read.
-func ExtractPDF(path string, maxPages int) (string, error) {
+// joined under "## Page n" headings; a page with no text is skipped.
+func ExtractPDF(ctx context.Context, path string, progress func(int, int)) (string, int, int, bool, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	hr, _, _ := roInitialize.Call(1) // RO_INIT_MULTITHREADED
 	if failed(hr) {
-		return "", fmt.Errorf("initialize Windows Runtime: HRESULT 0x%08x", uint32(hr))
+		return "", 0, 0, false, fmt.Errorf("initialize Windows Runtime: HRESULT 0x%08x", uint32(hr))
 	}
 	defer roUninitialize.Call()
 	engine, err := newEngine()
 	if err != nil {
-		return "", err
+		return "", 0, 0, false, err
 	}
 	defer release(engine)
 
 	absolute, err := filepath.Abs(path)
 	if err != nil {
-		return "", err
+		return "", 0, 0, false, err
 	}
 	wide, err := syscall.UTF16PtrFromString(absolute)
 	if err != nil {
-		return "", err
+		return "", 0, 0, false, err
 	}
 	var file *inspectable
 	hr, _, _ = createRandomAccessOnFile.Call(uintptr(unsafe.Pointer(wide)), 0, uintptr(unsafe.Pointer(&iidRandomAccessStream)), uintptr(unsafe.Pointer(&file)))
 	if failed(hr) {
-		return "", fmt.Errorf("open PDF for OCR: HRESULT 0x%08x", uint32(hr))
+		return "", 0, 0, false, fmt.Errorf("open PDF for OCR: HRESULT 0x%08x", uint32(hr))
 	}
 	defer release(file)
 
 	statics, err := activationFactory("Windows.Data.Pdf.PdfDocument", &iidPdfDocumentStatics)
 	if err != nil {
-		return "", err
+		return "", 0, 0, false, err
 	}
 	defer release(statics)
 	// IPdfDocumentStatics: LoadFromFileAsync 6, LoadFromFileWithPasswordAsync 7,
@@ -62,38 +62,46 @@ func ExtractPDF(path string, maxPages int) (string, error) {
 	var loading *inspectable
 	hr, _, _ = syscall.SyscallN(statics.vtable[8], uintptr(unsafe.Pointer(statics)), uintptr(unsafe.Pointer(file)), uintptr(unsafe.Pointer(&loading)))
 	if failed(hr) {
-		return "", fmt.Errorf("load PDF for OCR: HRESULT 0x%08x", uint32(hr))
+		return "", 0, 0, false, fmt.Errorf("load PDF for OCR: HRESULT 0x%08x", uint32(hr))
 	}
 	defer release(loading)
 	document, err := asyncResult(loading)
 	if err != nil {
-		return "", err
+		return "", 0, 0, false, err
 	}
 	defer release(document)
 	// IPdfDocument: GetPage 6, get_PageCount 7.
 	var count uint32
 	hr, _, _ = syscall.SyscallN(document.vtable[7], uintptr(unsafe.Pointer(document)), uintptr(unsafe.Pointer(&count)))
 	if failed(hr) {
-		return "", fmt.Errorf("count PDF pages: HRESULT 0x%08x", uint32(hr))
+		return "", 0, 0, false, fmt.Errorf("count PDF pages: HRESULT 0x%08x", uint32(hr))
 	}
 	var output strings.Builder
-	for index := uint32(0); index < count && int(index) < maxPages; index++ {
+	read, stopped := 0, false
+	for index := uint32(0); index < count; index++ {
+		if ctx.Err() != nil {
+			stopped = true
+			break
+		}
 		text, pageErr := recognizePDFPage(engine, document, index)
-		if errors.Is(pageErr, ErrNoText) {
-			continue
+		if pageErr != nil && !errors.Is(pageErr, ErrNoText) {
+			return "", read, int(count), false, fmt.Errorf("page %d: %w", index+1, pageErr)
 		}
-		if pageErr != nil {
-			return "", fmt.Errorf("page %d: %w", index+1, pageErr)
+		read = int(index + 1)
+		if pageErr == nil {
+			fmt.Fprintf(&output, "## Page %d\n\n%s\n\n", index+1, text)
 		}
-		fmt.Fprintf(&output, "## Page %d\n\n%s\n\n", index+1, text)
+		if progress != nil {
+			progress(read, int(count))
+		}
+	}
+	if ctx.Err() != nil && read < int(count) {
+		stopped = true
 	}
 	if output.Len() == 0 {
-		return "", ErrNoText
+		return "", read, int(count), stopped, ErrNoText
 	}
-	if int(count) > maxPages {
-		fmt.Fprintf(&output, "[OCR stopped after %d of %d pages]\n", maxPages, count)
-	}
-	return output.String(), nil
+	return output.String(), read, int(count), stopped, nil
 }
 
 // recognizePDFPage renders one page to an in-memory PNG stream and recognizes it.

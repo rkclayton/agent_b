@@ -5,7 +5,21 @@ import { expect, test } from "@playwright/test";
 const webRoot = fileURLToPath(new URL("../../web/", import.meta.url));
 
 const appCSS = await readFile(new URL("../../web/css/app.css", import.meta.url), "utf8");
+const chatJS = await readFile(new URL("../../web/js/chat.js", import.meta.url), "utf8");
 const indexHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
+
+test("OCR progress and Stop remain visible on the attachment chip", async ({ page }) => {
+  expect(chatJS).toContain("OCR · page ${activeUpload.page} of ${activeUpload.total}");
+  expect(chatJS).toContain('/api/attachments/stop');
+  await page.setViewportSize({ width: 320, height: 180 });
+  await page.setContent(`<!doctype html><style>:root{--ink:#D8DDE3;--well:#15181C;--trace:#F2B233;--alarm:#E4624F;--sans:sans-serif}${chatCSS}</style>
+    <div class="chat-pending-attachments"><span class="chat-pending-file"><span>phone-scan.pdf · OCR · page 10 of 60</span><button>Stop</button></span></div>`);
+  await expect(page.getByText("phone-scan.pdf · OCR · page 10 of 60")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+  const shot = await page.screenshot();
+  expect(shot.length, "the off-screen OCR chip screenshot is empty").toBeGreaterThan(0);
+  expect(await page.locator(".chat-pending-file").evaluate((node) => node.getBoundingClientRect().right <= innerWidth)).toBe(true);
+});
 
 // The standing UI contract, in the operator's words: "nothing scrolls inside
 // something that already scrolls — the chat transcript scrolls because it must, and

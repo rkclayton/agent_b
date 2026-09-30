@@ -54,7 +54,7 @@ function tools(active) {
     ${number("tools.read_file.default_limit", "default bytes", cfg.tools?.read_file?.default_limit, "1", false, "", false, "number", "Bytes read_file returns when a call names no limit.")}
     ${number("tools.read_file.max_limit", "max bytes per call", cfg.tools?.read_file?.max_limit, "1", false, "", false, "number", "The most bytes one read_file call may return.")}
 	<div class="settings-subhead">Attachment ingest</div>
-	${number("tools.attachments.max_bytes", "max upload bytes", cfg.tools?.attachments?.max_bytes, "1", false, "", false, "number", "The largest file you can attach to a chat.")}
+	${number("tools.attachments.max_bytes", "max upload bytes", cfg.tools?.attachments?.max_bytes, "1", false, "", false, "number", "disk; not a prompt limit")}
     ${head("list_dir")}
     ${number("tools.list_dir.max_entries", "max entries", cfg.tools?.list_dir?.max_entries, "1", false, "", false, "number", "The most entries one list_dir call returns.")}
     ${text("tools.list_dir.ignore", "ignore", (cfg.tools?.list_dir?.ignore || []).join(", "), "list", "Folder names list_dir skips, comma separated.")}

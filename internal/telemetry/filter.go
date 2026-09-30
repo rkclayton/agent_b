@@ -93,7 +93,7 @@ var allowList = map[string]Classification{
 	"navigation.document_completed": dropped,
 	"notification.failed":           dropped, "notification.changed": dropped,
 	"update.changed": dropped, "progress.shadow": dropped, "progress.aux": dropped,
-	"speech": dropped, "agent.connection_change": dropped,
+	"speech": dropped, "attachment.ocr_progress": dropped, "agent.connection_change": dropped,
 	// projection.patch and snapshot are the same material: the whole conversation
 	// as a client reads it. Dropped, emphatically.
 	"projection.patch": dropped, "snapshot": dropped,

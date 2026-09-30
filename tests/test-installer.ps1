@@ -468,6 +468,9 @@ try {
     $whatIfBefore = Get-RootFingerprint -Roots $whatIfRoots
     $whatIfOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer -SourceDirectory (Split-Path -Parent $PSScriptRoot) -ApplicationDirectory $whatIfApplication -DataDirectory $whatIfData -WorkspaceDirectory $whatIfWorkspace -StartMenuDirectory (Join-Path $testRoot 'WhatIf\StartMenu') -UninstallRegistryPath ($testRegistry + '-WhatIf') -TestMode -WhatIf | Out-String)
     if ($LASTEXITCODE -ne 0) { throw "WhatIf install exited $LASTEXITCODE.`n$whatIfOutput" }
+    if ($whatIfOutput -notmatch '(?m)^At sign-in: off\r?$' -or $whatIfOutput -match '(?m)^At sign-in: .*Startup\\Agent_b\.lnk') {
+        throw "The install summary did not say truthfully that sign-in start is off.`n$whatIfOutput"
+    }
     $whatIfAfter = Get-RootFingerprint -Roots $whatIfRoots
     if ($whatIfAfter -cne $whatIfBefore) { throw "WhatIf changed a target root.`nBEFORE $whatIfBefore`nAFTER $whatIfAfter" }
     $whatIfTranscript = if ($whatIfOutput -match '(?m)^Transcript: (.+)$') { $Matches[1].Trim() } else { '' }
@@ -524,9 +527,6 @@ try {
     }
     if ($freshExit -ne 0) { throw "First single-file install exited $freshExit.`n$freshOutput" }
     Assert-InstalledSignatures -Application $testApplication -PolicyRoot $repositoryRoot -Phase 'install'
-    if ($freshOutput -notmatch '(?m)^At sign-in: off\r?$' -or $freshOutput -match '(?m)^At sign-in: .*Startup\\Agent_b\.lnk') {
-        throw "The install transcript did not say truthfully that sign-in start is off.`n$freshOutput"
-    }
     $freshTranscript = Get-Content -Raw -LiteralPath $freshTranscriptPath
     if ($freshTranscript -notmatch 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval') {
         throw "Per-user install did not preserve the first-launch provisioning arm.`n$freshOutput"

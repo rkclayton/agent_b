@@ -253,8 +253,9 @@ func TestTheEncoderReproducesEveryVector2o7(t *testing.T) {
 
 // recordingDevice is the broker client's downstream half, observed.
 type recordingDevice struct {
-	mu    sync.Mutex
-	units []map[string]any
+	mu     sync.Mutex
+	units  []map[string]any
+	pushes []string
 }
 
 func (d *recordingDevice) Deliver(plaintext []byte) error {
@@ -264,6 +265,13 @@ func (d *recordingDevice) Deliver(plaintext []byte) error {
 	}
 	d.mu.Lock()
 	d.units = append(d.units, unit)
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *recordingDevice) Notify(kind, chatID, notice string) error {
+	d.mu.Lock()
+	d.pushes = append(d.pushes, kind+" "+chatID)
 	d.mu.Unlock()
 	return nil
 }
@@ -341,11 +349,20 @@ func TestAPairedDeviceSeesTheChatsAndIsAnswered2o7(t *testing.T) {
 	}
 
 	server.bus.Publish(events.New(events.ApprovalRequired, existing.ID, "r1", map[string]any{"call_id": "c1"}))
+	server.bus.Publish(events.New(events.RunStopped, existing.ID, "r1", map[string]any{"reason": "done"}))
+	server.bus.Publish(events.New(events.ItemStuck, existing.ID, "r1", map[string]any{"item": "2ok"}))
 	server.bus.Publish(events.New("broker.test.global", "", "", map[string]any{"note": "global"}))
 	device.waitFor(t, "the global event", func(unit map[string]any) bool {
 		data, _ := unit["data"].(map[string]any)
 		return unit["kind"] == "event" && data["type"] == "broker.test.global"
 	})
+	device.mu.Lock()
+	pushes := append([]string(nil), device.pushes...)
+	device.mu.Unlock()
+	want := []string{"approval_required " + existing.ID, "run_stopped " + existing.ID, "item_stuck " + existing.ID}
+	if strings.Join(pushes, "|") != strings.Join(want, "|") {
+		t.Fatalf("pushes = %v, want %v", pushes, want)
+	}
 }
 
 // Item 2o7 (a): a pairing starts the session and revoke ends it; with no pairing

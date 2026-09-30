@@ -113,9 +113,10 @@ type pairCompletePayload struct {
 }
 
 type revokePayload struct {
-	PairingID string `json:"pairing_id"`
-	Reason    string `json:"reason"`
-	Signature string `json:"signature"`
+	PairingID   string `json:"pairing_id"`
+	Reason      string `json:"reason,omitempty"`
+	Signature   string `json:"signature,omitempty"`
+	EffectiveAt string `json:"effective_at,omitempty"`
 }
 
 // PairingOffer is what Settings shows while a pairing is under way: the code to type

@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"harness/internal/broker"
+	"harness/internal/events"
 	"harness/internal/projection"
 )
 
@@ -16,11 +17,9 @@ import (
 // and the device receives the same snapshot, patches and global events the tailnet
 // client does.
 //
-// NO PUSHES YET. Item 2of removed this client's undocumented session_id and
-// sender_key_id, so its frame now matches the broker's four-field document and sealed
-// vectors exactly. The public broker still answers that corrected frame with fatal
-// "malformed (frame rejected)" and closes the session. Until the broker accepts its own
-// documented shape, no run event risks disconnecting the phone.
+// Item 2ok restored the three push hooks after the public broker accepted the
+// document-conformant four-field frame. Push-provider refusals are non-fatal and do
+// not end this session.
 //
 // It lives as long as the stored pairing does. A restart loads the identity and pairing,
 // then attach starts this session after the real server is available; without a pairing
@@ -85,12 +84,19 @@ func (c *BrokerClient) stopSessionLocked() {
 	c.client, c.stopSession = nil, nil
 }
 
+var pushKinds = map[string]string{
+	events.ApprovalRequired: "approval_required",
+	events.RunStopped:       "run_stopped",
+	events.ItemStuck:        "item_stuck",
+}
+
 // streamToDevice is the tailnet client's view, unit by unit: a snapshot of every
 // session on connect, then its projection patches and the global durable events,
 // until the connection ends. A device that sees a gap resyncs by cursor.
 // deviceSink is the part of the broker client the stream uses.
 type deviceSink interface {
 	Deliver(plaintext []byte) error
+	Notify(kind, chatID, notice string) error
 }
 
 func (s *Server) streamToDevice(ctx context.Context, client deviceSink) {
@@ -136,11 +142,27 @@ func (s *Server) streamToDevice(ctx context.Context, client deviceSink) {
 			if !ok {
 				return
 			}
+			if kind, wake := pushKinds[event.Type]; wake {
+				if err := client.Notify(kind, event.SessionID, pushNotice(event)); err != nil {
+					log.Printf("broker: the %s push was not sent: %v", kind, err)
+				}
+			}
 			if event.SessionID == "" {
 				send(map[string]any{"v": 1, "kind": "event", "data": event})
 			}
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func pushNotice(event events.Event) string {
+	switch event.Type {
+	case events.ApprovalRequired:
+		return "Agent_b is waiting for your approval"
+	case events.RunStopped:
+		return "Agent_b stopped"
+	default:
+		return "An item is stuck"
 	}
 }

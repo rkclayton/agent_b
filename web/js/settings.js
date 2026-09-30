@@ -45,6 +45,7 @@ let brokerStatus = {};
 let credentialList = [];
 let credentialMessage = "";
 let credentialAlarm = false;
+let credentialDevice = {};
 let brokerMessage = "";
 let brokerAlarm = false;
 let serviceAccountAlarm = false;
@@ -433,7 +434,7 @@ function settingsPageContext(active) {
     active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, phoneAccess, standingGrants: store.standing_grants || [],
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog,
     brokerStatus, brokerMessage, brokerAlarm,
-    credentialList, credentialMessage, credentialAlarm,
+    credentialList, credentialMessage, credentialAlarm, credentialDevice,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList,
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm, signInStart,
@@ -1173,6 +1174,48 @@ async function dispatchAction(event, button, action, id) {
 		}
 		return render();
 	}
+	if (action === "credential-entra-add") {
+		const field = (selector) => sheet.querySelector(selector)?.value?.trim() || "";
+		credentialMessage = "";
+		credentialAlarm = false;
+		try {
+			credentialList = (await api("/api/credentials", {
+				action: "add_entra", name: field("#credential-entra-name"), origin: field("#credential-entra-origin"),
+				tenant: field("#credential-tenant"), client_id: field("#credential-client-id"), scopes: field("#credential-scopes"),
+			})).credentials || [];
+			for (const selector of ["#credential-entra-name", "#credential-entra-origin", "#credential-tenant", "#credential-client-id", "#credential-scopes"]) {
+				const input = sheet.querySelector(selector);
+				if (input) input.value = "";
+			}
+			credentialMessage = "Entra credential added — sign in when ready";
+		} catch (error) {
+			credentialMessage = error.message;
+			credentialAlarm = true;
+		}
+		return render();
+	}
+	if (action === "credential-sign-in" || action === "credential-device-code" || action === "credential-sign-out") {
+		const verb = { "credential-sign-in": "sign_in", "credential-device-code": "device_code", "credential-sign-out": "sign_out" }[action];
+		credentialMessage = verb === "sign_in" ? "Finish sign-in in the browser…" : verb === "device_code" ? "Requesting a device code…" : "Signing out…";
+		credentialAlarm = false;
+		render();
+		try {
+			const result = await api("/api/credentials", { action: verb, name: id });
+			if (verb === "device_code") {
+				credentialDevice = { name: id, ...result };
+				credentialMessage = result.message || "Use the code shown above";
+				void watchCredentialSignIn(id);
+			} else {
+				credentialList = result.credentials || [];
+				credentialDevice = {};
+				credentialMessage = verb === "sign_out" ? "signed out" : "signed in";
+			}
+		} catch (error) {
+			credentialMessage = error.message;
+			credentialAlarm = true;
+		}
+		return render();
+	}
 	if (action === "credential-remove") {
 		if (!armed.has("credential:" + id)) { armed.add("credential:" + id); return render(); }
 		armed.delete("credential:" + id);
@@ -1296,6 +1339,21 @@ function watchBrokerPairing() {
 async function refreshCredentials() {
 	try { credentialList = (await api("/api/credentials", undefined, "GET")).credentials || []; }
 	catch (error) { credentialList = []; credentialMessage = error.message; credentialAlarm = true; }
+}
+
+async function watchCredentialSignIn(name) {
+	for (let attempt = 0; attempt < 300; attempt += 1) {
+		await new Promise((resolve) => setTimeout(resolve, 1000));
+		await refreshCredentials();
+		const entry = credentialList.find((item) => item.name === name);
+		if (entry?.account) {
+			credentialDevice = {};
+			credentialMessage = `signed in as ${entry.account}`;
+			credentialAlarm = false;
+			if (open) render();
+			return;
+		}
+	}
 }
 
 async function refreshBrokerStatus() {

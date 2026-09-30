@@ -1,18 +1,15 @@
 package tools
 
 import (
-	"context"
 	"fmt"
 	"net/url"
 	"strings"
 
 	"harness/internal/credential"
+	"harness/internal/identity"
 )
 
-type TokenProvider interface {
-	Origin(string) (string, error)
-	Token(context.Context, string) (string, error)
-}
+type TokenProvider = identity.TokenProvider
 
 func (c *CallService) SetTokenProvider(scheme string, provider TokenProvider) {
 	c.mu.Lock()

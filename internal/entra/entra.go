@@ -14,6 +14,7 @@ import (
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
 
 	"harness/internal/credential"
+	"harness/internal/identity"
 )
 
 type protectedCache struct {
@@ -94,9 +95,9 @@ func (m *Manager) client(name string) (public.Client, error) {
 	if err != nil {
 		return public.Client{}, err
 	}
-	options := []public.Option{public.WithAuthority(m.authority(definition)), public.WithCache(&protectedCache{store: store}), public.WithInstanceDiscovery(false)}
+	options := []public.Option{public.WithAuthority(m.authority(definition)), public.WithCache(&protectedCache{store: store})}
 	if m.httpClient != nil {
-		options = append(options, public.WithHTTPClient(m.httpClient))
+		options = append(options, public.WithInstanceDiscovery(false), public.WithHTTPClient(m.httpClient))
 	}
 	client, err := public.New(definition.ClientID, options...)
 	if err == nil {
@@ -127,6 +128,14 @@ func (m *Manager) clear(name string) error {
 }
 
 func (m *Manager) Interactive(ctx context.Context, name string, openURL func(string) error) (string, error) {
+	return m.interactive(ctx, name, openURL)
+}
+
+func (m *Manager) SignIn(ctx context.Context, name string) (string, error) {
+	return m.interactive(ctx, name, nil)
+}
+
+func (m *Manager) interactive(ctx context.Context, name string, openURL func(string) error) (string, error) {
 	if err := m.clear(name); err != nil {
 		return "", err
 	}
@@ -135,7 +144,11 @@ func (m *Manager) Interactive(ctx context.Context, name string, openURL func(str
 		return "", err
 	}
 	definition, _, _ := m.vault.Entra(name)
-	result, err := client.AcquireTokenInteractive(ctx, definition.Scopes, public.WithOpenURL(openURL))
+	options := []public.AcquireInteractiveOption{}
+	if openURL != nil {
+		options = append(options, public.WithOpenURL(openURL))
+	}
+	result, err := client.AcquireTokenInteractive(ctx, definition.Scopes, options...)
 	if err != nil {
 		_ = m.clear(name)
 		return "", err
@@ -143,36 +156,30 @@ func (m *Manager) Interactive(ctx context.Context, name string, openURL func(str
 	return accountName(result.Account), nil
 }
 
-type DeviceCode struct {
-	UserCode, VerificationURL, Message string
-	value                              public.DeviceCode
-	manager                            *Manager
-	name                               string
-}
-
-func (m *Manager) DeviceCode(ctx context.Context, name string) (DeviceCode, error) {
+func (m *Manager) DeviceCode(ctx context.Context, name string) (identity.DeviceAuthorization, error) {
 	if err := m.clear(name); err != nil {
-		return DeviceCode{}, err
+		return identity.DeviceAuthorization{}, err
 	}
 	client, err := m.client(name)
 	if err != nil {
-		return DeviceCode{}, err
+		return identity.DeviceAuthorization{}, err
 	}
 	definition, _, _ := m.vault.Entra(name)
 	value, err := client.AcquireTokenByDeviceCode(ctx, definition.Scopes)
 	if err != nil {
-		return DeviceCode{}, err
+		return identity.DeviceAuthorization{}, err
 	}
-	return DeviceCode{UserCode: value.Result.UserCode, VerificationURL: value.Result.VerificationURL, Message: value.Result.Message, value: value, manager: m, name: name}, nil
-}
-
-func (d DeviceCode) Complete(ctx context.Context) (string, error) {
-	result, err := d.value.AuthenticationResult(ctx)
-	if err != nil {
-		_ = d.manager.clear(d.name)
-		return "", err
-	}
-	return accountName(result.Account), nil
+	return identity.DeviceAuthorization{
+		UserCode: value.Result.UserCode, VerificationURL: value.Result.VerificationURL, Message: value.Result.Message,
+		Wait: func(waitContext context.Context) (string, error) {
+			result, waitErr := value.AuthenticationResult(waitContext)
+			if waitErr != nil {
+				_ = m.clear(name)
+				return "", waitErr
+			}
+			return accountName(result.Account), nil
+		},
+	}, nil
 }
 
 func (m *Manager) Account(ctx context.Context, name string) (string, error) {
@@ -196,19 +203,22 @@ func (m *Manager) Origin(name string) (string, error) {
 }
 
 func (m *Manager) Token(ctx context.Context, name string) (string, error) {
+	if _, _, err := m.vault.Entra(name); err != nil {
+		return "", fmt.Errorf("auth_error: sign in in Settings → Security → Credentials")
+	}
 	client, err := m.client(name)
 	if err != nil {
-		return "", fmt.Errorf("auth_error: sign in in Settings → Security")
+		return "", fmt.Errorf("auth_error: sign in in Settings → Security → Credentials")
 	}
 	accounts, err := client.Accounts(ctx)
 	if err != nil || len(accounts) != 1 {
-		return "", fmt.Errorf("auth_error: sign in in Settings → Security")
+		return "", fmt.Errorf("auth_error: sign in in Settings → Security → Credentials")
 	}
 	definition, _, _ := m.vault.Entra(name)
 	result, err := client.AcquireTokenSilent(ctx, definition.Scopes, public.WithSilentAccount(accounts[0]))
 	if err != nil {
 		_ = m.clear(name)
-		return "", fmt.Errorf("auth_error: sign in in Settings → Security")
+		return "", fmt.Errorf("auth_error: sign in in Settings → Security → Credentials")
 	}
 	return strings.TrimSpace(result.AccessToken), nil
 }

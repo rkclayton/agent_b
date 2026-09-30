@@ -39,3 +39,14 @@ test("Settings carries a Credentials section whose key field is masked", () => {
 	const section = security.slice(security.indexOf("function credentialRows"), security.indexOf("function credentialRows") + 2000);
 	assert.doesNotMatch(section, /entry\.secret|entry\.value/);
 });
+
+test("Settings exposes explicit Entra browser, device-code, account, and sign-out controls without defaults", () => {
+	const security = readFileSync(new URL("./settings-security.js", import.meta.url), "utf8");
+	const controller = readFileSync(new URL("./settings.js", import.meta.url), "utf8");
+	for (const action of ["credential-entra-add", "credential-sign-in", "credential-device-code", "credential-sign-out"]) {
+		assert.match(security + controller, new RegExp(`data-action=["']${action}|action === ["']${action}`));
+	}
+	for (const field of ["credential-tenant", "credential-client-id", "credential-scopes"]) assert.match(security, new RegExp(`id=["']${field}`));
+	assert.match(security, /entry\.account/);
+	assert.doesNotMatch(security, /common|organizations|consumers|api:\/\/|00000000-0000/);
+});

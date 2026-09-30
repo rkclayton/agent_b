@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,12 +14,44 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"harness/internal/buildinfo"
 	"harness/internal/config"
 	"harness/internal/credential"
 	"harness/internal/events"
+	"harness/internal/identity"
 )
+
+type recordedIdentityProvider struct {
+	origin, account            string
+	signIns, devices, signOuts int
+}
+
+func (p *recordedIdentityProvider) Origin(string) (string, error) { return p.origin, nil }
+func (p *recordedIdentityProvider) Token(context.Context, string) (string, error) {
+	return "planted-token", nil
+}
+func (p *recordedIdentityProvider) SignIn(context.Context, string) (string, error) {
+	p.signIns++
+	p.account = "someone@example.org"
+	return p.account, nil
+}
+func (p *recordedIdentityProvider) DeviceCode(context.Context, string) (identity.DeviceAuthorization, error) {
+	p.devices++
+	return identity.DeviceAuthorization{UserCode: "ABCD-EFGH", VerificationURL: "https://verify.example.test", Message: "Use the code", Wait: func(context.Context) (string, error) {
+		p.account = "someone@example.org"
+		return p.account, nil
+	}}, nil
+}
+func (p *recordedIdentityProvider) Account(context.Context, string) (string, error) {
+	return p.account, nil
+}
+func (p *recordedIdentityProvider) SignOut(string) error {
+	p.signOuts++
+	p.account = ""
+	return nil
+}
 
 func authorizeMutation(request *http.Request, server *Server) {
 	request.Header.Set("X-AgentB-Mutation-Token", server.mutationToken)
@@ -297,6 +330,46 @@ func TestOnlyTheOperatorsPageTouchesCredentials2nv(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "https://api.example.test:8443") {
 		t.Fatalf("the answer does not list the credential: %s", response.Body)
+	}
+}
+
+func TestOperatorsPageManagesEntraSignIn2nw(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the credential store is DPAPI")
+	}
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	vault := credential.NewVault(root)
+	SetCredentialVault(vault)
+	t.Cleanup(func() { SetCredentialVault(nil); SetIdentityProvider("entra", nil) })
+	provider := &recordedIdentityProvider{origin: "https://api.example.test"}
+	SetIdentityProvider("entra", provider)
+
+	post := func(body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/credentials", strings.NewReader(body))
+		authorizeMutation(request, server)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		return response
+	}
+	added := post(`{"action":"add_entra","name":"work-api","origin":"https://api.example.test","tenant":"tenant-placeholder","client_id":"client-placeholder","scopes":"api.read api.write"}`)
+	if added.Code != http.StatusOK || !strings.Contains(added.Body.String(), `"kind":"entra"`) || strings.Contains(added.Body.String(), "tenant-placeholder") {
+		t.Fatalf("add response=%d %s", added.Code, added.Body)
+	}
+	provider.signOuts = 0
+	signed := post(`{"action":"sign_in","name":"work-api"}`)
+	if signed.Code != http.StatusOK || provider.signIns != 1 || !strings.Contains(signed.Body.String(), "someone@example.org") {
+		t.Fatalf("sign-in response=%d %s calls=%d", signed.Code, signed.Body, provider.signIns)
+	}
+	device := post(`{"action":"device_code","name":"work-api"}`)
+	if device.Code != http.StatusOK || provider.devices != 1 || !strings.Contains(device.Body.String(), "ABCD-EFGH") || !strings.Contains(device.Body.String(), "https://verify.example.test") {
+		t.Fatalf("device response=%d %s calls=%d", device.Code, device.Body, provider.devices)
+	}
+	time.Sleep(10 * time.Millisecond)
+	signedOut := post(`{"action":"sign_out","name":"work-api"}`)
+	if signedOut.Code != http.StatusOK || provider.signOuts != 1 || !strings.Contains(signedOut.Body.String(), `"sign_in_needed":true`) {
+		t.Fatalf("sign-out response=%d %s calls=%d", signedOut.Code, signedOut.Body, provider.signOuts)
 	}
 }
 

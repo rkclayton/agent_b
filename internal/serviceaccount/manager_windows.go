@@ -7,6 +7,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/sys/windows"
+	"harness/internal/nativepolicy"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,24 +44,23 @@ func New(scriptPath string) Manager {
 }
 
 func (m *windowsManager) Status(ctx context.Context, account string) (Status, error) {
-	output, err := exec.CommandContext(ctx, m.powershell,
-		"-NoLogo", "-NoProfile", "-NonInteractive",
-		"-File", m.scriptPath, "-Inspect", "-AccountName", account,
-	).CombinedOutput()
+	if err := ctx.Err(); err != nil {
+		return Status{}, err
+	}
+	native, err := nativepolicy.InspectAccount(account)
 	if err != nil {
-		return Status{}, fmt.Errorf("inspect local service account: %s", safePowerShellError(output, err))
+		return Status{}, fmt.Errorf("inspect local service account: %w", err)
 	}
-	for _, line := range strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n") {
-		if !strings.HasPrefix(line, statusMarker) {
-			continue
-		}
-		var status Status
-		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, statusMarker)), &status); err != nil {
-			return Status{}, fmt.Errorf("decode local service-account status: %w", err)
-		}
-		return status, nil
+	return Status{Supported: true, Account: account, Exists: native.Exists, Enabled: native.Enabled, Administrator: native.Administrator, UsersMember: native.UsersMember, LockedOut: native.LockedOut, HarnessElevated: isElevated()}, nil
+}
+
+func isElevated() bool {
+	sid, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		return false
 	}
-	return Status{}, fmt.Errorf("inspect local service account: status was not returned")
+	member, _ := windows.GetCurrentProcessToken().IsMember(sid)
+	return member
 }
 
 func (m *windowsManager) Setup(ctx context.Context, account, credentialPath string, reset bool, protection *Protection) (SetupResult, error) {

@@ -87,6 +87,51 @@ func windowsPowerShell() string {
 	return filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 }
 
+const agentBReleaseThumbprint = "8C7AB22A989F6B99B867868A52920119C3EDFFEB"
+
+func installSignatureSubjects(outer, payload string, testMode bool) (string, string, error) {
+	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
+	script := strings.Join([]string{
+		"$ProgressPreference='SilentlyContinue'", "$WarningPreference='SilentlyContinue'", "$ErrorActionPreference='Stop'",
+		"$outer=Get-AuthenticodeSignature -LiteralPath " + quote(outer),
+		"$payload=Get-AuthenticodeSignature -LiteralPath " + quote(payload),
+		"if($outer.Status -ne 'Valid' -or -not $outer.SignerCertificate){throw ('outer signature is '+$outer.Status+': '+$outer.StatusMessage)}",
+		"if(-not $payload.SignerCertificate){throw ('payload signature is '+$payload.Status+': '+$payload.StatusMessage)}",
+		"[pscustomobject]@{outer=$outer.SignerCertificate.Subject;payload=$payload.SignerCertificate.Subject;payload_status=[string]$payload.Status;payload_thumbprint=$payload.SignerCertificate.Thumbprint}|ConvertTo-Json -Compress",
+	}, ";")
+	powershell := windowsPowerShell()
+	command := exec.Command(powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script)
+	for _, variable := range os.Environ() {
+		if !strings.EqualFold(strings.SplitN(variable, "=", 2)[0], "PSModulePath") {
+			command.Env = append(command.Env, variable)
+		}
+	}
+	command.Env = append(command.Env, "PSModulePath="+filepath.Join(filepath.Dir(powershell), "Modules"))
+	quietproc.Quiet(command)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return "", "", fmt.Errorf("signature inspection failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	var result struct {
+		Outer             string `json:"outer"`
+		Payload           string `json:"payload"`
+		PayloadStatus     string `json:"payload_status"`
+		PayloadThumbprint string `json:"payload_thumbprint"`
+	}
+	if err := json.Unmarshal(output, &result); err != nil {
+		return "", "", fmt.Errorf("signature inspection returned invalid JSON: %w", err)
+	}
+	if result.Outer == "" || result.Payload == "" {
+		return "", "", errors.New("signature inspection returned an incomplete result")
+	}
+	badStatus := result.PayloadStatus == "HashMismatch" || result.PayloadStatus == "NotSigned"
+	testSigner := testMode && result.PayloadStatus == "Valid" && result.Payload == "CN=Agent_b Disposable Test Signing"
+	if badStatus || (!testSigner && !strings.EqualFold(result.PayloadThumbprint, agentBReleaseThumbprint)) {
+		return "", "", fmt.Errorf("payload signer %q (%s, %s) is not the pinned AgentB release key", result.Payload, result.PayloadThumbprint, result.PayloadStatus)
+	}
+	return result.Outer, result.Payload, nil
+}
+
 func runInstall(options installOptions, args []string) int {
 	dataRoot := installDataRoot(options.dataRoot, args)
 	log := openInstallLog(dataRoot, options.quiet)
@@ -110,6 +155,11 @@ func runInstall(options installOptions, args []string) int {
 			embeddedBundle = true
 			defer removeSource()
 			log.printf("install: verified and extracted the embedded application payload")
+			outerSigner, payloadSigner, signatureErr := installSignatureSubjects(executable, filepath.Join(source, "agentb.exe"), installerFlagPresent(args, "TestMode"))
+			if signatureErr != nil {
+				return log.fail("installer signature verification failed: %v", signatureErr)
+			}
+			log.printf("outer signature: %s, payload signature: AgentB release key (%s) — verified", outerSigner, payloadSigner)
 		}
 	}
 	log.printf("install: source %s", source)

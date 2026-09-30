@@ -2,15 +2,37 @@ package llm
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"harness/internal/config"
 )
+
+func TestConnectionTLSUsesSystemTrustAndNamesUnknownAuthority(t *testing.T) {
+	if os.Getenv("AGENTB_TLS_MACHINE_STORE_LIVE") != "1" {
+		t.Skip("set AGENTB_TLS_MACHINE_STORE_LIVE=1 for the Windows machine-store acceptance")
+	}
+	trusted, err := (&http.Client{Timeout: 15 * time.Second, Transport: sharedTransport}).Head("https://broker.agentb.app/")
+	if err != nil {
+		t.Fatalf("machine-store trusted endpoint failed: %v", err)
+	}
+	trusted.Body.Close()
+
+	untrusted := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	untrusted.TLS = &tls.Config{MinVersion: tls.VersionTLS12}
+	untrusted.StartTLS()
+	defer untrusted.Close()
+	_, err = (&http.Client{Timeout: 5 * time.Second, Transport: sharedTransport}).Get(untrusted.URL)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "certificate") || !strings.Contains(strings.ToLower(err.Error()), "unknown authority") {
+		t.Fatalf("untrusted chain error=%v", err)
+	}
+}
 
 func TestChatStreamRejectsMalformedChunk(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

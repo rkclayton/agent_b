@@ -93,6 +93,7 @@ func TestSetupFilenameSelectsInstallMode(t *testing.T) {
 }
 
 func TestUpdateFixtureURLAcceptsOnlyLoopback(t *testing.T) {
+	t.Setenv("AGENTB_UPDATE_SOURCE_URL", "")
 	t.Setenv("AGENTB_UPDATE_FIXTURE_URL", "http://127.0.0.1:4321/latest")
 	if got := updateLatestURL(); got != "http://127.0.0.1:4321/latest" {
 		t.Fatalf("loopback fixture URL=%q", got)
@@ -100,6 +101,18 @@ func TestUpdateFixtureURLAcceptsOnlyLoopback(t *testing.T) {
 	t.Setenv("AGENTB_UPDATE_FIXTURE_URL", "https://example.com/latest")
 	if got := updateLatestURL(); got != updater.LatestReleaseURL {
 		t.Fatalf("public override was accepted: %q", got)
+	}
+}
+
+func TestOrganizationUpdateSourceRequiresHTTPS(t *testing.T) {
+	t.Setenv("AGENTB_UPDATE_FIXTURE_URL", "")
+	t.Setenv("AGENTB_UPDATE_SOURCE_URL", "https://updates.example.test/releases/latest")
+	if got := updateLatestURL(); got != "https://updates.example.test/releases/latest" {
+		t.Fatalf("organization source URL=%q", got)
+	}
+	t.Setenv("AGENTB_UPDATE_SOURCE_URL", "http://updates.example.test/releases/latest")
+	if got := updateLatestURL(); got != updater.LatestReleaseURL {
+		t.Fatalf("insecure organization source was accepted: %q", got)
 	}
 }
 

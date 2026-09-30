@@ -3,8 +3,11 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Path,
     [string]$Thumbprint,
+    [string]$PfxPath,
+    [string]$PfxPasswordEnvironment = 'AGENTB_ORG_PFX_PASSWORD',
     [string]$TimestampUrl = 'http://timestamp.digicert.com',
     [string]$ReportPath,
+    [switch]$Organization,
     [switch]$PayloadOnly,
     # Item 2lt: agentb.exe alone. The release path signs the payload BEFORE the
     # build, so the CLI does not exist yet when the payload pass runs -- and the
@@ -17,6 +20,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\signing-key-policy.ps1')
+if ($Thumbprint -and $PfxPath) { throw 'supply either Thumbprint or PfxPath, not both' }
 
 # Sixteen releases reported "No provider was specified for the store or object"
 # for every signable file while Settings signed the same certificate happily.
@@ -32,6 +36,15 @@ $ErrorActionPreference = 'Stop'
 
 function Get-ReleaseCertificate {
     param([string]$Value)
+    if (-not [string]::IsNullOrWhiteSpace($PfxPath)) {
+        $resolvedPfx = [IO.Path]::GetFullPath($PfxPath)
+        if (-not (Test-Path -LiteralPath $resolvedPfx -PathType Leaf)) { throw "PFX not found: $resolvedPfx" }
+        $password = [Environment]::GetEnvironmentVariable($PfxPasswordEnvironment)
+        if ($null -eq $password) { throw "set $PfxPasswordEnvironment to the PFX password (an empty value is allowed)" }
+        $flags = [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+        $candidate = [Security.Cryptography.X509Certificates.X509Certificate2]::new($resolvedPfx, $password, $flags)
+        return [pscustomobject]@{ Certificate = $candidate; Store = "PFX:$resolvedPfx" }
+    }
     if ([string]::IsNullOrWhiteSpace($Value)) { throw 'no signing thumbprint was configured or supplied' }
     $clean = ($Value -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
     foreach ($store in @('Cert:\LocalMachine\My', 'Cert:\CurrentUser\My')) {
@@ -68,6 +81,15 @@ function Test-PrivateKeyUsable {
 function Get-SignableFiles {
     param([string]$Root)
     if ($PayloadOnly -and $BinaryOnly) { throw 'PayloadOnly and BinaryOnly are mutually exclusive.' }
+    if ($Organization) {
+        $files = @()
+        foreach ($name in @('Agent_b-setup.exe', 'Agent_b.exe', 'agentb.exe')) {
+            $candidate = Join-Path $Root $name
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) { $files += $candidate }
+        }
+        if (-not $files.Count) { throw 'no Agent_b PE files were found in the staged release' }
+        return $files
+    }
     if ($CliOnly) {
         $cli = Join-Path $Root 'agentb.exe'
         if (-not (Test-Path -LiteralPath $cli -PathType Leaf)) { throw "agentb.exe not found: $cli" }
@@ -98,8 +120,9 @@ function Get-SignableFiles {
 
 $root = [IO.Path]::GetFullPath($Path)
 if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw "staged candidate root not found: $root" }
+if ($Organization -and -not $ReportPath) { $ReportPath = Join-Path $root 'org-signing-manifest.json' }
 
-if ([string]::IsNullOrWhiteSpace($Thumbprint)) {
+if ([string]::IsNullOrWhiteSpace($Thumbprint) -and [string]::IsNullOrWhiteSpace($PfxPath)) {
     $configPath = Join-Path $root 'harness.json'
     if (Test-Path -LiteralPath $configPath -PathType Leaf) {
         $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
@@ -122,7 +145,7 @@ if ($certificate.NotAfter -le [DateTime]::Now.AddDays(30)) {
     Write-Host "SIGNING REFUSED: certificate $($certificate.Thumbprint) expires $($certificate.NotAfter.ToString('yyyy-MM-dd')); publisher keys must have more than 30 days remaining."
     exit 4
 }
-$null = Assert-SigningKeyNonInteractive -Certificate $certificate -Store $resolved.Store
+if (-not $PfxPath) { $null = Assert-SigningKeyNonInteractive -Certificate $certificate -Store $resolved.Store }
 $usable = Test-PrivateKeyUsable -Certificate $certificate
 
 $report = [ordered]@{
@@ -136,6 +159,7 @@ $report = [ordered]@{
     outcome      = ''
     reason       = ''
     timestamp_url = $TimestampUrl
+    files        = @()
 }
 
 if (-not $usable.Usable) {
@@ -172,6 +196,14 @@ foreach ($file in $targets) {
     $status = Get-AuthenticodeSignature -LiteralPath $file
     if (-not $status.SignerCertificate) { throw "verification found no signature on $file after signing" }
     if (-not $status.TimeStamperCertificate) { throw "no timestamp on $file" }
+    $report.files += [ordered]@{
+        path = $file.Substring($root.TrimEnd('\').Length + 1).Replace('\', '/')
+        sha256 = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+        subject = $status.SignerCertificate.Subject
+        thumbprint = $status.SignerCertificate.Thumbprint
+        timestamped = $true
+        timestamp_by = $status.TimeStamperCertificate.Subject
+    }
 }
 
 # A signature changes Agent_b.exe's bytes but not the tag and commit in its build

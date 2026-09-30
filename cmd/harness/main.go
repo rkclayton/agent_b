@@ -677,10 +677,19 @@ func setupExecutable(path string) bool {
 	return true
 }
 
+// AGENTB_UPDATE_SOURCE_URL lets an organisation publish the same release API
+// shape at its own HTTPS endpoint. The downloaded release.json digest and the
+// Authenticode verification remain mandatory on that path.
 // AGENTB_UPDATE_FIXTURE_URL is an acceptance-only seam. It is deliberately
 // limited to loopback so an inherited environment cannot redirect the product's
 // release trust path to another public host.
 func updateLatestURL() string {
+	if raw := strings.TrimSpace(os.Getenv("AGENTB_UPDATE_SOURCE_URL")); raw != "" {
+		endpoint, err := url.Parse(raw)
+		if err == nil && endpoint.Scheme == "https" && endpoint.Hostname() != "" && endpoint.User == nil && endpoint.Fragment == "" {
+			return endpoint.String()
+		}
+	}
 	raw := strings.TrimSpace(os.Getenv("AGENTB_UPDATE_FIXTURE_URL"))
 	if raw == "" {
 		return updater.LatestReleaseURL

@@ -3,17 +3,14 @@
 // and the height is remembered for this surface so it is set once rather than every
 // time. What is typed is untouched, the transcript is never scrolled, and neither
 // area can be dragged away: the composer stops between COMPOSER_MIN and the space
-// the window can spare above TRANSCRIPT_MIN.
+// the window can spare above TRANSCRIPT_MIN. The status strip is outside that height,
+// so a zero-height composer is still reversible from the same handle.
 //
 // It lives in its own module because a drag is only proven by dragging it, and the
 // gate needs to load this behaviour without loading the whole chat surface.
-// Item 2me (a): the floor was 48 and the operator asked to shrink the input
-// "nearly to the bottom of the app". MEASURED in the running app: the composer's
-// textarea has a 20px line and 7px of padding above and below, so ONE LINE of
-// input is 34px. That is the floor. It is not zero: a composer that can be
-// dragged shut is a composer that can be lost, and the drag must stay reversible
-// without the operator hunting for the handle.
-export const COMPOSER_MIN = 34;
+// Item 2oc: zero is now a remembered position. The strip does not collapse with
+// the input row, so the operator can drag it open again without another control.
+export const COMPOSER_MIN = 0;
 export const TRANSCRIPT_MIN = 120;
 export const HEIGHT_KEY = "agentb.composer-height";
 

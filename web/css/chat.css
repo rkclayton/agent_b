@@ -912,8 +912,15 @@
    it the composer keeps the height it has always had. */
 .chat-composer[style*="--composer-height"] textarea {
   height: var(--composer-height);
+  min-height: var(--composer-height);
   max-height: var(--composer-height);
 }
+/* Item 2oc: at the remembered zero position there is no input row or footer
+   spacing below the handle. The strip is not in the row, so it stays unchanged
+   and remains the reversible drag target. */
+.chat-composer[style*="--composer-height: 0px"] { gap:0; padding-block:0; }
+.chat-composer[style*="--composer-height: 0px"] textarea { padding-block:0; }
+.chat-composer[style*="--composer-height: 0px"] .chat-composer-row { height:0; min-height:0; overflow:hidden; }
 #chat-send {
   width: 24px;
   height: 24px;

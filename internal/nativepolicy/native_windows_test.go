@@ -37,3 +37,23 @@ func TestEnsureAccountRefusesOperatorIdentityBeforeMutation(t *testing.T) {
 		t.Fatal("operator identity was accepted as the service account")
 	}
 }
+
+func TestManagedACLRuleRoundTripOnDisposableDirectory(t *testing.T) {
+	account, err := InspectAccount("agentb-svc")
+	if err != nil || !account.Exists {
+		t.Skip("operator service account is unavailable")
+	}
+	path := t.TempDir()
+	if err := SetManagedACLRule(path, account.SID, 0x301bf, 3, false); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := HasManagedACLRule(path, account.SID, 0x301bf, 3, false); err != nil || !ok {
+		t.Fatalf("rule present=%t err=%v", ok, err)
+	}
+	if err := RemoveManagedACLRules(path, account.SID); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := HasManagedACLRule(path, account.SID, 0x301bf, 3, false); err != nil || ok {
+		t.Fatalf("rule remains=%t err=%v", ok, err)
+	}
+}

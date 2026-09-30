@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"harness/internal/nativepolicy"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,16 +37,30 @@ func New(aclScript, firewallScript, orchestrationScript string) Manager {
 }
 
 func (m *windowsManager) Status(ctx context.Context, request Request) (Status, error) {
-	acl, err := inspectComponent(ctx, m.powershell, m.aclScript, aclStatusMarker, []string{
-		"-AccountName", request.AccountName,
-		"-ApplicationDirectory", request.ApplicationDirectory,
-		"-DataDirectory", request.DataDirectory,
-		"-WorkspaceDirectory", request.WorkspaceDirectory,
-		"-ExchangeDirectory", request.ExchangeDirectory,
-		"-Inspect",
-	})
+	account, err := nativepolicy.InspectAccount(request.AccountName)
 	if err != nil {
-		return Status{}, fmt.Errorf("inspect ACL policy: %w", err)
+		return Status{}, err
+	}
+	acl := ComponentStatus{Supported: true, AccountExists: account.Exists}
+	if !account.Exists {
+		if err := nativepolicy.ValidateACLPolicy(nativepolicy.ACLRequest{Application: request.ApplicationDirectory, Data: request.DataDirectory, Workspace: request.WorkspaceDirectory, Exchange: request.ExchangeDirectory}); err != nil {
+			return Status{}, fmt.Errorf("inspect ACL policy: %w", err)
+		}
+		acl.Summary = "local service account is missing"
+	} else {
+		drift, inspectErr := nativepolicy.InspectACLPolicy(nativepolicy.ACLRequest{Application: request.ApplicationDirectory, Data: request.DataDirectory, Workspace: request.WorkspaceDirectory, Exchange: request.ExchangeDirectory, SID: account.SID})
+		if inspectErr != nil {
+			return Status{}, fmt.Errorf("inspect ACL policy: %w", inspectErr)
+		}
+		acl.Applied, acl.Drift = len(drift) == 0, len(drift)
+		if acl.Applied {
+			acl.Summary = "root, plans, scratch, workspace, and exchange-folder ACL policy verified"
+		} else {
+			acl.Summary = fmt.Sprintf("%d ACL drift item(s)", len(drift))
+		}
+		for _, item := range drift {
+			acl.Items = append(acl.Items, DriftItem{Path: item.Subject, Expected: item.Expected, Found: item.Found})
+		}
 	}
 	firewallArguments := []string{
 		"-AccountName", request.AccountName,
@@ -169,14 +184,17 @@ func (m *windowsManager) Run(ctx context.Context, action string, request Request
 }
 
 func (m *windowsManager) GrantPlan(ctx context.Context, account, repository string) error {
-	script := filepath.Join(filepath.Dir(m.aclScript), "grant-plan-access.ps1")
-	command := exec.CommandContext(ctx, m.powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", script, "-AccountName", account, "-Repository", repository)
-	command.Env = systemPowerShellEnvironment(os.Environ(), m.powershell)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("grant service identity access to plan repo: %s", safeError(output, err))
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	return nil
+	status, err := nativepolicy.InspectAccount(account)
+	if err != nil {
+		return err
+	}
+	if !status.Exists {
+		return fmt.Errorf("service account is missing")
+	}
+	return nativepolicy.SetManagedACLRule(repository, status.SID, 0x301bf, 3, false)
 }
 
 func hardeningResult(path string) string {

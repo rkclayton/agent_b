@@ -256,7 +256,7 @@ func BeginPairing(transport Transport, identity Identity, code string, receive f
 			if err := DecodeInto(frame.Payload, &problem); err != nil {
 				return Pairing{}, err
 			}
-			return Pairing{}, fmt.Errorf("pairing refused: %s (%s)", problem.Code, problem.Detail)
+			return Pairing{}, &Problem{Code: problem.Code, Detail: problem.Detail}
 
 		default:
 			return Pairing{}, fmt.Errorf("pairing: unexpected frame 0x%02x", frame.Type)

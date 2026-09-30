@@ -407,6 +407,14 @@ test("service identity shows truthful per-step outcomes and an openable log link
   assert.doesNotMatch(page, /network[^<]*applied[^<]*exit 1/i);
 });
 
+test("a broker refusal shows its code and detail with the pairing log link", () => {
+  const context = pageContext();
+  context.brokerStatus = { state: "not paired", last_error: "refused by the broker — malformed: pairing_id", log_path: "C:\\Data\\logs\\pairing.log" };
+  const page = renderSecurityPage("shell", null, context);
+  assert.match(page, /refused by the broker — malformed: pairing_id/);
+  assert.match(page, /<a[^>]+href="file:\/\/\/C:\/Data\/logs\/pairing\.log"[^>]*>open pairing log<\/a>/i);
+});
+
 // (e), as a rule rather than one example: every failure sentence the setup path can
 // produce is checked against the controls the section actually renders.
 test("no service identity message names a control the section does not render", () => {

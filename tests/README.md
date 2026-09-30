@@ -13,6 +13,7 @@ path-specific failure exists, the gate remains `always`.
 | Gate | Trigger paths | Evidence |
 | --- | --- | --- |
 | Plan lint and reconciliation | `always`; `PLAN.md`, `plan/**`, `tools/plan-*` | rel-1.7.2 plan reconciliation; catalogue failures are otherwise easy to defer |
+| Order policy | `always`; `node tools/order-policy.mjs <order-evidence.json>` | The enforceable standing rules are fields in one order record; 27 planted negatives prove that each refusal fires |
 | Go vet | `always` | rel-1.7.2; no path-specific failure history, so always-run |
 | Production-incarnation guard | `always`, around every non-installer suite | build-1.8a/2ix W0 inventory |
 | Go unit/build-tag suites | CI on every push; local only when `*.go`, `go.mod`, `go.sum`, or Go test inputs change, or CI is unavailable | rel-1.7.1 caught release-identity inconsistency; rel-1.7.2 exercised run-loop restore |

@@ -240,6 +240,7 @@ func TestOversizeUnitSplitsAndReassembles(t *testing.T) {
 // adding a route to one and not the other fails here.
 func TestDocumentAndVectorsAgree(t *testing.T) {
 	file, document := load(t)
+	document = strings.ReplaceAll(document, "\r\n", "\n")
 	if !strings.Contains(document, file.Document) && !strings.Contains(file.Document, "app-message-v1.md") {
 		t.Errorf("the vectors name document %q", file.Document)
 	}

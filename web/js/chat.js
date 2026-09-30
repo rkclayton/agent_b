@@ -1328,12 +1328,13 @@ function renderComposer(session) {
     composerFileViews.set(key, row);
     return row;
 	});
-	if (activeUpload?.sessionID === session?.id) {
+	const upload = activeUpload;
+	if (upload && session && upload.sessionID === session.id) {
 		const row = document.createElement("span"); row.className = "chat-pending-file";
 		const label = document.createElement("span");
-		label.textContent = activeUpload.total ? `${activeUpload.name} · OCR · page ${activeUpload.page} of ${activeUpload.total}` : `${activeUpload.name} · uploading`;
+		label.textContent = upload.total ? `${upload.name} · OCR · page ${upload.page} of ${upload.total}` : `${upload.name} · uploading`;
 		row.append(label);
-		if (activeUpload.total) { const stop = document.createElement("button"); stop.type = "button"; stop.textContent = activeUpload.stopping ? "Stopping…" : "Stop"; stop.disabled = activeUpload.stopping; stop.onclick = () => void stopAttachmentOCR(); row.append(stop); }
+		if (upload.total) { const stop = document.createElement("button"); stop.type = "button"; stop.textContent = upload.stopping ? "Stopping…" : "Stop"; stop.disabled = upload.stopping; stop.onclick = () => void stopAttachmentOCR(); row.append(stop); }
 		fileNodes.unshift(row);
 	}
   reconcileChildren(pendingFiles, fileNodes);

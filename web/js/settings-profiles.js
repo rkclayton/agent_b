@@ -29,6 +29,6 @@ export function renderProfilesPage(context) {
     <div class="setting-row" title="Create an empty operator profile; connections stay shared."><label for="new-profile-name">name</label><div class="settings-actions"><input id="new-profile-name" maxlength="64"><button type="button" data-action="create-profile">Create</button></div></div>
     ${subhead("Skills", "Imported and dropped-in skills remain disabled until you enable them. Their scripts use the ordinary approval policy.")}
     ${skills || '<p class="settings-note inline">No skills found.</p>'}
-    <div class="setting-row"><label for="skill-import-path">folder to import</label><div class="settings-actions"><input id="skill-import-path" placeholder="C:\\path\\to\\skill"><button type="button" data-action="skill-import">Import</button><button type="button" data-action="skill-rescan">Rescan</button></div></div>
+    <div class="setting-row" title="Import one skill folder or ZIP archive into this profile."><label for="skill-import-path">folder to import</label><div class="settings-actions"><input id="skill-import-path" placeholder="C:\\path\\to\\skill"><button type="button" data-action="skill-import">Import</button><button type="button" data-action="skill-rescan">Rescan</button></div></div>
     ${subhead("Agent memory", "Durable notes loaded by every chat of this agent. Remove deletes only the named entry.")}${memory}`;
 }

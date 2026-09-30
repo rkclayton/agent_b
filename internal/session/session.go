@@ -65,9 +65,9 @@ type Snapshot struct {
 	QueuedMessages    int                        `json:"queued_messages"`
 	// rel-1.23.0 card 5: the queue itself, not only its length, so a restart can
 	// put the messages back in the order they were accepted.
-	QueuedMessageIDs  []string                   `json:"queued_message_ids,omitempty"`
-	Runnable          bool                       `json:"runnable"`
-	NotRunnableReason string                     `json:"not_runnable_reason"`
+	QueuedMessageIDs  []string `json:"queued_message_ids,omitempty"`
+	Runnable          bool     `json:"runnable"`
+	NotRunnableReason string   `json:"not_runnable_reason"`
 	// Item 2gy (v1.2.5): what this connection cannot do, for the strip to say once.
 	// A missing capability gates the feature that needs it, never the chat.
 	DegradedNotes         []string `json:"degraded_notes,omitempty"`
@@ -94,9 +94,9 @@ type Snapshot struct {
 	CompactionCompletion  int      `json:"compaction_completion_tokens"`
 }
 type Session struct {
-	ID, Label, AgentID, ConnectionID, Workspace          string
-	Role, PlanID, PlanName, PlanDir, PlanRepo, PlansRoot string
-	ParentSessionID                                      string
+	ID, Label, AgentID, ConnectionID, Workspace                      string
+	Role, PlanID, PlanName, PlanDir, PlanRepo, PlansRoot, SkillsRoot string
+	ParentSessionID                                                  string
 	// Item 5f (v1.2.5): cards refused while unattended, for this run.
 	boundaryHits           []string
 	WorkspaceMissing       bool
@@ -245,6 +245,9 @@ func (s *Session) ReadRoot(path string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	candidate := filepath.FromSlash(path)
+	if filepath.IsAbs(candidate) && s.SkillsRoot != "" && pathWithin(s.SkillsRoot, candidate) {
+		return s.SkillsRoot, nil
+	}
 	if filepath.IsAbs(candidate) && s.PlansRoot != "" && pathWithin(s.PlansRoot, candidate) {
 		return s.PlansRoot, nil
 	}
@@ -270,10 +273,20 @@ func (s *Session) ReadRoot(path string) (string, error) {
 	return s.Workspace, nil
 }
 
+func (s *Session) IsSkillPath(path string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	candidate := filepath.FromSlash(path)
+	return filepath.IsAbs(candidate) && s.SkillsRoot != "" && pathWithin(s.SkillsRoot, candidate)
+}
+
 func (s *Session) WriteRoot(path string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	candidate := filepath.FromSlash(path)
+	if filepath.IsAbs(candidate) && s.SkillsRoot != "" && pathWithin(s.SkillsRoot, candidate) {
+		return "", fmt.Errorf("skill folders are read-only")
+	}
 	// The worker never writes plan text. d writes its own plan folder; c is bound
 	// to a plan but may only ever write the repo, so the plans root is closed to
 	// it exactly as it is to b. Markers are the harness's writes, not the model's.
@@ -718,7 +731,7 @@ func (s *Session) QueuedMessageIDs() []string {
 	defer s.mu.Unlock()
 	return append([]string(nil), s.queuedMessageIDs...)
 }
-func (s *Session) RecordModelTurn()               { s.mu.Lock(); s.modelTurns++; s.mu.Unlock() }
+func (s *Session) RecordModelTurn() { s.mu.Lock(); s.modelTurns++; s.mu.Unlock() }
 func (s *Session) RecordCompaction(delta int) {
 	s.mu.Lock()
 	s.compactionCount++

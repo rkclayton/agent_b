@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -46,6 +48,43 @@ func TestProfilesEndpointCreatesRenamesAndSwitches(t *testing.T) {
 	profilesState := state["profiles"].(map[string]any)
 	if profilesState["active"] != "Work" {
 		t.Fatalf("state profiles=%+v", profilesState)
+	}
+}
+
+func TestSkillImportArrivesDisabledAndCanBeEnabled(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(t.TempDir())
+	path := filepath.Join(root, "harness.json")
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	manager, _, err := profiles.Open(root, path, &cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(&cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, events.NewBus())
+	server.SetProfiles(manager)
+	source := filepath.Join(t.TempDir(), "report-kit")
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("---\nname: report-kit\ndescription: Builds invented fixture reports.\n---\nProcedure.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"action":"import","path":` + strconv.Quote(source) + `}`
+	response := httptest.NewRecorder()
+	server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(body)))
+	if response.Code != 200 {
+		t.Fatalf("import=%d %s", response.Code, response.Body.String())
+	}
+	state := server.skillState()
+	if len(state) != 1 || state[0].Enabled || !strings.Contains(state[0].Source, source) {
+		t.Fatalf("state=%+v", state)
+	}
+	response = httptest.NewRecorder()
+	server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"action":"enable","name":"report-kit","enabled":true}`)))
+	if response.Code != 200 || !server.skillState()[0].Enabled {
+		t.Fatalf("enable=%d %s state=%+v", response.Code, response.Body.String(), server.skillState())
 	}
 }
 

@@ -77,6 +77,10 @@ func (r *PromptRenderer) RenderParts(connection *config.Connection, s *session.S
 // arguments: item 2mw added a third, `machine`, and a list means a layer joins the
 // prompt without every caller having to be told about it.
 func (r *PromptRenderer) RenderMemoryParts(connection *config.Connection, s *session.Session, toolNames []string, project string, layers ...string) string {
+	return r.RenderSkillParts(connection, s, toolNames, project, "", layers...)
+}
+
+func (r *PromptRenderer) RenderSkillParts(connection *config.Connection, s *session.Session, toolNames []string, project, skills string, layers ...string) string {
 	r.mu.RLock()
 	template := r.text
 	planner := r.planner
@@ -107,7 +111,10 @@ func (r *PromptRenderer) RenderMemoryParts(connection *config.Connection, s *ses
 	value = strings.ReplaceAll(value, "{{tools}}", strings.Join(toolNames, ", "))
 	value = strings.ReplaceAll(value, "{{agent}}", agentBlock)
 	value = strings.ReplaceAll(value, "{{project}}", project)
-	present := make([]string, 0, len(layers))
+	present := make([]string, 0, len(layers)+1)
+	if trimmed := strings.TrimSpace(skills); trimmed != "" {
+		present = append(present, trimmed)
+	}
 	for _, layer := range layers {
 		if trimmed := strings.TrimSpace(layer); trimmed != "" {
 			present = append(present, trimmed)

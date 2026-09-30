@@ -918,6 +918,16 @@ async function dispatchAction(event, button, action, id) {
     catch (error) { errors.set("profiles", error.message); }
     return render();
   }
+	if (action === "skill-toggle") {
+		try { await api("/api/skills", {action:"enable", name:id, enabled:button.dataset.value === "true"}); reduce({type:"snapshot", data:await api("/api/state",undefined,"GET")}); }
+		catch(error) { errors.set("profiles",error.message); }
+		return render();
+	}
+	if (action === "skill-import" || action === "skill-rescan") {
+		try { await api("/api/skills", action === "skill-import" ? {action:"import", path:sheet.querySelector("#skill-import-path")?.value || ""} : {action:"rescan"}); reduce({type:"snapshot",data:await api("/api/state",undefined,"GET")}); }
+		catch(error) { errors.set("profiles",error.message); }
+		return render();
+	}
 	if (action === "remove-agent-memory") {
 		const key = `agent-memory:${id}`;
 		if (!armed.has(key)) { armed.add(key); return render(); }

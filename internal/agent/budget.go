@@ -21,12 +21,12 @@ import (
 var fallbackOverhead = map[string]int{"system": 4, "user": 4, "assistant": 4, "assistant_tools": 12, "tool": 5}
 
 type budgetInput struct {
-	SystemBase, SystemProject, SystemWorkspaceMemory, System string
-	WithoutToolSystems                                       map[string]string
-	Schemas                                                  []any
-	AllSchemas                                               map[string]any
-	Messages                                                 []llm.Message
-	Records                                                  []events.Message
+	SystemBase, SystemProject, SystemSkills, SystemWorkspaceMemory, System string
+	WithoutToolSystems                                                     map[string]string
+	Schemas                                                                []any
+	AllSchemas                                                             map[string]any
+	Messages                                                               []llm.Message
+	Records                                                                []events.Message
 }
 type budgetState struct {
 	cpt                    float64
@@ -227,11 +227,14 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 	if in.SystemProject == "" {
 		in.SystemProject = in.SystemBase
 	}
+	if in.SystemSkills == "" {
+		in.SystemSkills = in.SystemProject
+	}
 	if in.SystemWorkspaceMemory == "" {
-		in.SystemWorkspaceMemory = in.SystemProject
+		in.SystemWorkspaceMemory = in.SystemSkills
 	}
 	state := b.state(s.ID)
-	categories := map[string]int{"system": 0, "project": 0, "workspace_memory": 0, "agent_memory": 0, "tools": 0, "history": 0, "files": 0, "results": 0, "fetched": 0, "summary": 0}
+	categories := map[string]int{"system": 0, "project": 0, "skills": 0, "workspace_memory": 0, "agent_memory": 0, "tools": 0, "history": 0, "files": 0, "results": 0, "fetched": 0, "summary": 0}
 	estimated := []string{}
 	messageCounts := map[string]session.MessageCount{}
 	forceEstimate := global.Accounting == "estimated" || !connection.Capabilities.Tokenize
@@ -249,18 +252,20 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 	client := llm.New(connection)
 	if forceEstimate {
 		mode = "estimated"
-		estimated = []string{"system", "project", "workspace_memory", "agent_memory", "tools", "history", "files", "results", "fetched", "summary"}
+		estimated = []string{"system", "project", "skills", "workspace_memory", "agent_memory", "tools", "history", "files", "results", "fetched", "summary"}
 		cpt := state.cpt
 		if cpt <= 0 {
 			cpt = 3.6
 		}
 		baseChars := float64(len([]rune(in.SystemBase)))
 		projectChars := float64(len([]rune(in.SystemProject)))
+		skillChars := float64(len([]rune(in.SystemSkills)))
 		workspaceMemoryChars := float64(len([]rune(in.SystemWorkspaceMemory)))
 		fullChars := float64(len([]rune(in.System)))
 		categories["system"] = estimateChars(baseChars, cpt)
 		categories["project"] = estimateChars(math.Max(0, projectChars-baseChars), cpt)
-		categories["workspace_memory"] = estimateChars(math.Max(0, workspaceMemoryChars-projectChars), cpt)
+		categories["skills"] = estimateChars(math.Max(0, skillChars-projectChars), cpt)
+		categories["workspace_memory"] = estimateChars(math.Max(0, workspaceMemoryChars-skillChars), cpt)
 		categories["agent_memory"] = estimateChars(math.Max(0, fullChars-workspaceMemoryChars), cpt)
 		toolData, _ := json.Marshal(in.Schemas)
 		toolChars := float64(len([]rune(string(toolData)))) * 1.1
@@ -287,7 +292,7 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 			}
 		}
 	} else if !connection.Capabilities.ApplyTemplate {
-		estimated = []string{"system", "project", "workspace_memory", "agent_memory", "tools", "history", "files", "results", "fetched", "summary"}
+		estimated = []string{"system", "project", "skills", "workspace_memory", "agent_memory", "tools", "history", "files", "results", "fetched", "summary"}
 		count := func(text string) int {
 			value, err := client.Tokenize(ctx, text, false)
 			if err != nil {
@@ -297,7 +302,8 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 		}
 		categories["system"] = count(in.SystemBase) + fallbackOverhead["system"]
 		categories["project"] = max(0, count(in.SystemProject)-count(in.SystemBase))
-		categories["workspace_memory"] = max(0, count(in.SystemWorkspaceMemory)-count(in.SystemProject))
+		categories["skills"] = max(0, count(in.SystemSkills)-count(in.SystemProject))
+		categories["workspace_memory"] = max(0, count(in.SystemWorkspaceMemory)-count(in.SystemSkills))
 		categories["agent_memory"] = max(0, count(in.System)-count(in.SystemWorkspaceMemory))
 		toolData, _ := json.Marshal(in.Schemas)
 		categories["tools"] = int(math.Ceil(float64(count(string(toolData))) * 1.1))
@@ -390,6 +396,13 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 				return events.Budget{}, err
 			}
 		}
+		withSkills := withProject
+		if in.SystemSkills != in.SystemProject {
+			withSkills, err = renderSystem(in.SystemSkills, nil)
+			if err != nil {
+				return events.Budget{}, err
+			}
+		}
 		withWorkspaceMemory, err := renderSystem(in.SystemWorkspaceMemory, nil)
 		if err != nil {
 			return events.Budget{}, err
@@ -399,7 +412,8 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 			return events.Budget{}, err
 		}
 		categories["system"], categories["project"] = base, max(0, withProject-base)
-		categories["workspace_memory"], categories["agent_memory"] = max(0, withWorkspaceMemory-withProject), max(0, withMemory-withWorkspaceMemory)
+		categories["skills"] = max(0, withSkills-withProject)
+		categories["workspace_memory"], categories["agent_memory"] = max(0, withWorkspaceMemory-withSkills), max(0, withMemory-withWorkspaceMemory)
 		previous := withMemory
 		activeTools := []any(nil)
 		if connection.Capabilities.ApplyTemplateTools {

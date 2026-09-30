@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -215,7 +216,7 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		ProjectBlock: saved.ProjectContent, ProjectFiles: append([]string(nil), saved.ProjectFiles...), ProjectNotes: append([]string(nil), saved.ProjectNotes...),
 		PendingRepoPolicy: clonePolicyState(saved.PendingRepoPolicy), RepoPolicy: clonePolicyState(saved.RepoPolicy),
 		Run: run, ToolsEnabled: tools, ToolCalls: calls, LastSeen: map[string]time.Time{}, CreatedAt: createdAt,
-		Closed: saved.Closed, NamePinned: saved.NamePinned, Messages: append([]events.Message(nil), saved.Messages...), Budget: saved.Budget,
+		Closed: saved.Closed, NamePinned: saved.NamePinned, Origin: saved.Origin, Owner: saved.Owner, Messages: append([]events.Message(nil), saved.Messages...), Budget: saved.Budget,
 		LogPath: logPath, Runnable: runnable, NotRunnableReason: notRunnableReason,
 		LoadFolderMemory: r.folderLoader(connectionID), MemoryBlock: saved.MemoryContent, MemoryPath: saved.MemoryPath, AgentMemoryBlock: saved.AgentMemoryContent, AgentMemoryPath: saved.AgentMemoryPath,
 		SchemaTokens: schemaTokens, MarginalTokens: marginalTokens, queuedMessages: saved.QueuedMessages, queuedMessageIDs: append([]string(nil), saved.QueuedMessageIDs...),
@@ -596,6 +597,44 @@ func (r *Registry) Get(id string) (*Session, bool) {
 	defer r.mu.Unlock()
 	s, ok := r.sessions[id]
 	return s, ok
+}
+
+// ApplyMirrored keeps the operational session in step with externally journalled
+// events so that, after ownership moves here, the next model turn sees the same chat.
+func (r *Registry) ApplyMirrored(event events.Event) error {
+	item, ok := r.Get(event.SessionID)
+	if !ok {
+		return fmt.Errorf("session not found")
+	}
+	item.mu.Lock()
+	defer item.mu.Unlock()
+	raw, _ := json.Marshal(event.Data)
+	var data struct {
+		Message events.Message `json:"message"`
+		Reason  string         `json:"reason"`
+	}
+	_ = json.Unmarshal(raw, &data)
+	switch event.Type {
+	case events.MessageAppended:
+		item.Messages = append(item.Messages, data.Message)
+	case events.RunStarted:
+		item.Run.Status, item.Run.RunID = "running", event.RunID
+	case events.RunStopped, events.RunAborted:
+		item.Run.Status, item.Run.RunID, item.Run.LastStopReason = "idle", "", data.Reason
+	}
+	return nil
+}
+
+func (r *Registry) SetMirrorOwner(id, owner string) error {
+	item, ok := r.Get(id)
+	if !ok {
+		return fmt.Errorf("session not found")
+	}
+	item.mu.Lock()
+	item.Owner = owner
+	item.mu.Unlock()
+	r.bus.Publish(events.New(events.SessionUpdated, id, "", map[string]any{"owner": owner}))
+	return nil
 }
 func (r *Registry) Label(id string) string {
 	if s, ok := r.Get(id); ok {

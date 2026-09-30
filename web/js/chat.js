@@ -89,6 +89,7 @@ const composerApprovalViews = new Map();
 let composerWait = null;
 let composerRobot = null;
 let composerText = null;
+let mirrorTakeButton = null;
 let usedEntryViews = new Set();
 let usedFileViews = new Set();
 let usedToolViews = new Set();
@@ -1233,9 +1234,10 @@ updateInstall?.addEventListener("click", async () => {
 function renderComposer(session) {
   renderChatProposals(chatProposals, session, input);
 	document.body.classList.toggle("no-open-chats", !session);
-  send.disabled = !session || !!store.replay;
-  input.disabled = !session || !!store.replay;
-  attachButton.disabled = !session || !!store.replay || attachmentsBusy;
+  const phoneOwned = session?.origin === "phone" && session?.owner === "phone";
+  send.disabled = !session || !!store.replay || phoneOwned;
+  input.disabled = !session || !!store.replay || phoneOwned;
+  attachButton.disabled = !session || !!store.replay || attachmentsBusy || phoneOwned;
   renderUpdateBanner(session);
   input.removeAttribute("placeholder");
   const queued = session?.queued_messages || 0;
@@ -1253,7 +1255,7 @@ function renderComposer(session) {
   const measuredActivity = /^(?:prompt|thinking|writing|calling) /.test(activity) ? activity : "";
   const busyLine = busy ? measuredActivity || "prompt 0 tokens processing" : activity;
   const primary = modelLine || busyLine || (session && !session.runnable ? session.not_runnable_reason : state);
-  const message = localNotice || micNotice || (modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil].filter(Boolean).join(" · "));
+  const message = localNotice || micNotice || (phoneOwned ? "from phone · read-only while the phone owns this chat" : modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil].filter(Boolean).join(" · "));
   // Live state, not decoration: the robot runs beside the live line for exactly
   // as long as the run is live, and is absent otherwise. Its eyes take the same
   // state colour the tab robot uses.
@@ -1298,7 +1300,13 @@ function renderComposer(session) {
   setText(composerText, message);
   const title = modelLine && message === modelLine ? unreachable?.host || "" : "";
   setAttribute(composerText, "title", title);
-  reconcileChildren(notice, [composerWait, composerRobot, composerText]);
+  if (!mirrorTakeButton) {
+    mirrorTakeButton = document.createElement("button"); mirrorTakeButton.type = "button"; mirrorTakeButton.textContent = "Continue here";
+    mirrorTakeButton.onclick = () => void takeMirroredChat();
+  }
+  setProperty(mirrorTakeButton, "hidden", !phoneOwned);
+  setProperty(mirrorTakeButton, "disabled", !phoneOwned || store.replay);
+  reconcileChildren(notice, [composerWait, composerRobot, composerText, mirrorTakeButton]);
   setAttribute(notice, "class", `chat-notice ${localAlarm || micNotice || unreachable || (session && !session.runnable) ? "alarm" : ""}`);
   const fileNodes = queuedAttachments.map((file) => {
     const key = `${file.path}|${file.bytes}|${file.reused}|${file.sidecar}|${file.tier}`;
@@ -1349,6 +1357,14 @@ function renderComposer(session) {
   renderMic(session);
   setProperty(retryModel, "hidden", !unreachable);
   setProperty(retryModel, "disabled", !session || store.replay);
+}
+
+async function takeMirroredChat() {
+  const session = store.sessions[selectedID()];
+  if (!session || session.owner !== "phone") return;
+  try { await api("/api/chat-mirror/take", { chat_id: session.id }); localNotice = "Continuing on this PC"; localAlarm = false; }
+  catch (error) { localNotice = error.message || String(error); localAlarm = true; }
+  renderComposer(store.sessions[selectedID()]);
 }
 
 function cachedComposerApproval(key, value, create) {

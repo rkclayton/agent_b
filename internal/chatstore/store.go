@@ -14,9 +14,13 @@ import (
 const MetadataFile = "chat.json"
 
 type Metadata struct {
-	ID      string    `json:"id"`
-	Created time.Time `json:"created"`
-	Label   string    `json:"label"`
+	ID           string    `json:"id"`
+	Created      time.Time `json:"created"`
+	Label        string    `json:"label"`
+	Origin       string    `json:"origin,omitempty"`
+	Owner        string    `json:"owner,omitempty"`
+	MirrorSeq    int       `json:"mirror_seq,omitempty"`
+	MirrorHashes []string  `json:"mirror_hashes,omitempty"`
 }
 
 type Entry struct {

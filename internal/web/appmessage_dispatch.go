@@ -32,13 +32,16 @@ var appMessageRoutes = map[string]struct {
 	method string
 	path   string
 }{
-	"message":     {http.MethodPost, "/api/message"},
-	"stop":        {http.MethodPost, "/api/stop"},
-	"approve":     {http.MethodPost, "/api/approve"},
-	"tool":        {http.MethodPost, "/api/tools/"},
-	"state":       {http.MethodGet, "/api/state"},
-	"resync":      {http.MethodGet, "/api/state"},
-	"chat.create": {http.MethodPost, "/api/sessions"},
+	"message":           {http.MethodPost, "/api/message"},
+	"stop":              {http.MethodPost, "/api/stop"},
+	"approve":           {http.MethodPost, "/api/approve"},
+	"tool":              {http.MethodPost, "/api/tools/"},
+	"state":             {http.MethodGet, "/api/state"},
+	"resync":            {http.MethodGet, "/api/state"},
+	"chat.create":       {http.MethodPost, "/api/sessions"},
+	"chat.mirror":       {http.MethodPost, ""},
+	"chat.mirror.since": {http.MethodPost, ""},
+	"chat.mirror.take":  {http.MethodPost, ""},
 }
 
 type appRequestUnit struct {
@@ -67,6 +70,12 @@ func (s *Server) DispatchAppMessage(deviceID string, unit []byte) []byte {
 	}
 	if request.V != 1 || request.Kind != "request" || request.ID == "" {
 		return s.appProblem(request.ID, http.StatusBadRequest, "the unit is not an app-message v1 request")
+	}
+	if strings.HasPrefix(request.Route, "chat.mirror") {
+		if _, known := appMessageRoutes[request.Route]; !known {
+			return s.appProblem(request.ID, http.StatusNotImplemented, "this desktop does not publish the route "+request.Route)
+		}
+		return s.dispatchMirror(request)
 	}
 	route, known := appMessageRoutes[request.Route]
 	if !known {

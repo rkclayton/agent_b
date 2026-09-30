@@ -17,7 +17,10 @@
     "tool",
     "state",
     "resync",
-    "chat.create"
+    "chat.create",
+    "chat.mirror",
+    "chat.mirror.since",
+    "chat.mirror.take"
   ],
   "vectors": [
     {

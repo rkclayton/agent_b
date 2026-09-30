@@ -52,6 +52,9 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 	ctx, stop := context.WithCancel(context.Background())
 	var client *broker.Client
 	client = broker.NewClient(c.identity, pairing, c.dial, func(_ []byte, plaintext []byte) []byte {
+		if c.deliverMirrorResponse(plaintext) {
+			return nil
+		}
 		answer := server.DispatchAppMessage(device, plaintext)
 		parts, err := appSplit(answer, appUnitMax)
 		if err != nil || len(parts) == 1 {
@@ -146,6 +149,9 @@ func (s *Server) streamToDevice(ctx context.Context, client deviceSink) {
 				if err := client.Notify(kind, event.SessionID, pushNotice(event)); err != nil {
 					log.Printf("broker: the %s push was not sent: %v", kind, err)
 				}
+			}
+			if unit, mirrored := s.outboundMirror(event); mirrored {
+				send(unit)
 			}
 			if event.SessionID == "" {
 				send(map[string]any{"v": 1, "kind": "event", "data": event})

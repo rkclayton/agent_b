@@ -255,9 +255,21 @@ func TestDocumentAndVectorsAgree(t *testing.T) {
 	// Item 2my: a route name may carry a dot now (`chat.create`), so the pattern admits
 	// one. It stays strict otherwise: the route set is closed and a name is still only
 	// lower-case letters and dots, never a path.
-	rows := regexp.MustCompile("(?m)^\\| `([a-z.]+)` \\| `(?:POST|GET) /api/").FindAllStringSubmatch(document, -1)
+	start := strings.Index(document, "| `route` |")
+	if start < 0 {
+		t.Fatal("the route table heading is missing")
+	}
+	end := strings.Index(document[start:], "\n\n")
+	if end < 0 {
+		t.Fatal("the route table does not end")
+	}
+	routeTable := document[start : start+end]
+	rows := regexp.MustCompile("(?m)^\\| `([a-z.]+)` \\|").FindAllStringSubmatch(routeTable, -1)
 	published := map[string]bool{}
 	for _, row := range rows {
+		if row[1] == "route" {
+			continue
+		}
 		published[row[1]] = true
 	}
 	if len(published) == 0 {
@@ -323,7 +335,7 @@ func TestOnlyChatCreateWasAddedAndTheRestStayRefused2my(t *testing.T) {
 	file, document := load(t)
 
 	// The closed set, exactly.
-	want := []string{"message", "stop", "approve", "tool", "state", "resync", "chat.create"}
+	want := []string{"message", "stop", "approve", "tool", "state", "resync", "chat.create", "chat.mirror", "chat.mirror.since", "chat.mirror.take"}
 	if len(file.Routes) != len(want) {
 		t.Fatalf("the route set is %v, want %v", file.Routes, want)
 	}

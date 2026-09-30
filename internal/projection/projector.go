@@ -182,6 +182,8 @@ type Snapshot struct {
 	RunAsYou             bool               `json:"run_as_you,omitempty"`
 	Closed               bool               `json:"closed"`
 	NamePinned           bool               `json:"name_pinned,omitempty"`
+	Origin               string             `json:"origin,omitempty"`
+	Owner                string             `json:"owner,omitempty"`
 	Stale                bool               `json:"projection_stale,omitempty"`
 	StaleReason          string             `json:"projection_stale_reason,omitempty"`
 }
@@ -293,7 +295,9 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 			next.NamePinned = true
 		}
 	case events.SessionUpdated:
-		if value := stringValue(data["workspace"]); value != "" { next.Workspace, next.WorkspaceDir, next.WorkspaceMissing = value, value, false }
+		if value := stringValue(data["workspace"]); value != "" {
+			next.Workspace, next.WorkspaceDir, next.WorkspaceMissing = value, value, false
+		}
 		next.AgentID = firstString(stringValue(data["agent_id"]), next.AgentID)
 		next.ConnectionID = firstString(connectionField(data, "connection_id"), next.ConnectionID)
 		next.Role = firstString(stringValue(data["role"]), next.Role)
@@ -317,6 +321,9 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 		}
 		if _, ok := data["memory_content"]; ok {
 			next.MemoryContent = stringValue(data["memory_content"])
+		}
+		if value := stringValue(data["owner"]); value != "" {
+			next.Owner = value
 		}
 	case events.ProjectInstructions:
 		if boolValue(data["lazy"]) {
@@ -908,6 +915,8 @@ type seed struct {
 	CreatedAt            string                     `json:"created_at"`
 	Closed               bool                       `json:"closed"`
 	NamePinned           bool                       `json:"name_pinned,omitempty"`
+	Origin               string                     `json:"origin,omitempty"`
+	Owner                string                     `json:"owner,omitempty"`
 	Workspace            string                     `json:"workspace"`
 	WorkspaceDir         string                     `json:"workspace_dir"`
 	WorkspaceMissing     bool                       `json:"workspace_missing"`
@@ -959,7 +968,7 @@ func (value *seed) UnmarshalJSON(data []byte) error {
 func (value seed) snapshot(cursor Cursor) Snapshot {
 	return Snapshot{
 		SchemaVersion: SchemaVersion, Cursor: cursor, Complete: true,
-		ID: value.ID, Label: value.Label, AgentID: value.AgentID, ConnectionID: value.ConnectionID, AgentName: value.AgentName, BConnection: value.BConnection, Role: firstString(value.Role, "b"), PlanID: value.PlanID, PlanName: value.PlanName, PlanDir: value.PlanDir, PlanRepo: value.PlanRepo, CreatedAt: value.CreatedAt, Closed: value.Closed, NamePinned: value.NamePinned, Workspace: value.Workspace, WorkspaceDir: firstString(value.WorkspaceDir, value.Workspace), WorkspaceMissing: value.WorkspaceMissing, Scratch: value.Scratch, ProjectContent: value.ProjectContent, ProjectFiles: append([]string(nil), value.ProjectFiles...), ProjectNotes: append([]string(nil), value.ProjectNotes...), PendingRepoPolicy: value.PendingRepoPolicy, RepoPolicy: value.RepoPolicy,
+		ID: value.ID, Label: value.Label, AgentID: value.AgentID, ConnectionID: value.ConnectionID, AgentName: value.AgentName, BConnection: value.BConnection, Role: firstString(value.Role, "b"), PlanID: value.PlanID, PlanName: value.PlanName, PlanDir: value.PlanDir, PlanRepo: value.PlanRepo, CreatedAt: value.CreatedAt, Closed: value.Closed, NamePinned: value.NamePinned, Origin: value.Origin, Owner: value.Owner, Workspace: value.Workspace, WorkspaceDir: firstString(value.WorkspaceDir, value.Workspace), WorkspaceMissing: value.WorkspaceMissing, Scratch: value.Scratch, ProjectContent: value.ProjectContent, ProjectFiles: append([]string(nil), value.ProjectFiles...), ProjectNotes: append([]string(nil), value.ProjectNotes...), PendingRepoPolicy: value.PendingRepoPolicy, RepoPolicy: value.RepoPolicy,
 		Run: value.Run, Tools: cloneTools(value.Tools), Messages: cloneMessages(value.Messages), Budget: value.Budget,
 		QueuedMessages: value.QueuedMessages, QueuedMessageIDs: append([]string(nil), value.QueuedMessageIDs...), Runnable: value.Runnable, NotRunnableReason: value.NotRunnableReason,
 		MemoryPath: value.MemoryPath, MemoryContent: value.MemoryContent, AgentMemoryPath: value.AgentMemoryPath, AgentMemoryContent: value.AgentMemoryContent, LogPath: value.LogPath,
@@ -989,7 +998,7 @@ func diff(before, after Snapshot) Patch {
 		{"compaction_model_calls", before.CompactionModelCalls, after.CompactionModelCalls},
 		{"compaction_prompt_tokens", before.CompactionPrompt, after.CompactionPrompt},
 		{"compaction_completion_tokens", before.CompactionCompletion, after.CompactionCompletion},
-		{"activity", before.Activity, after.Activity}, {"pending_approval", before.PendingApproval, after.PendingApproval}, {"model_unreachable", before.ModelUnreachable, after.ModelUnreachable}, {"model_busy", before.ModelBusy, after.ModelBusy}, {"run_as_you", before.RunAsYou, after.RunAsYou}, {"closed", before.Closed, after.Closed}, {"name_pinned", before.NamePinned, after.NamePinned},
+		{"activity", before.Activity, after.Activity}, {"pending_approval", before.PendingApproval, after.PendingApproval}, {"model_unreachable", before.ModelUnreachable, after.ModelUnreachable}, {"model_busy", before.ModelBusy, after.ModelBusy}, {"run_as_you", before.RunAsYou, after.RunAsYou}, {"closed", before.Closed, after.Closed}, {"name_pinned", before.NamePinned, after.NamePinned}, {"origin", before.Origin, after.Origin}, {"owner", before.Owner, after.Owner},
 		{"projection_stale", before.Stale, after.Stale}, {"projection_stale_reason", before.StaleReason, after.StaleReason},
 	}
 	patch.Operations = append(patch.Operations, diffRun(before.Run, after.Run)...)

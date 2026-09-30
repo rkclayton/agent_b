@@ -57,6 +57,12 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 201, map[string]any{"session": item.Snapshot()})
 			return
 		}
+		if body.ConnectionID != "" {
+			if runnable, reason := s.registry.ConnectionRunnable(body.ConnectionID); !runnable {
+				writeError(w, http.StatusBadRequest, reason, "connection_id")
+				return
+			}
+		}
 		if body.AgentID == "" && body.ConnectionID != "" {
 			s.mu.RLock()
 			for _, candidate := range s.cfg.Agents {
@@ -88,6 +94,12 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, 400, err.Error(), "session")
 			return
+		}
+		if body.ConnectionID != "" && item.ConnectionID != body.ConnectionID {
+			if err := s.registry.SetConnection(item.ID, body.ConnectionID); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error(), "connection_id")
+				return
+			}
 		}
 		if s.runner != nil {
 			s.runner.PublishBudget(r.Context(), item)
@@ -462,17 +474,6 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "label or agent_id is required", "session")
 			return
 		}
-		if body.AgentID == nil && body.ConnectionID != nil {
-			s.mu.RLock()
-			for _, candidate := range s.cfg.Agents {
-				if candidate.B == *body.ConnectionID {
-					value := config.AgentID(candidate.Name)
-					body.AgentID = &value
-					break
-				}
-			}
-			s.mu.RUnlock()
-		}
 		if body.AgentID != nil {
 			if err := s.registry.SetAgent(id, *body.AgentID); err != nil {
 				status := http.StatusBadRequest
@@ -486,9 +487,25 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if body.ConnectionID != nil {
+			if err := s.registry.SetConnection(id, *body.ConnectionID); err != nil {
+				status := http.StatusBadRequest
+				field := "connection_id"
+				if strings.Contains(err.Error(), "session not found") {
+					status, field = http.StatusNotFound, "session"
+				} else if strings.Contains(err.Error(), "running") || strings.Contains(err.Error(), "closed") {
+					status, field = http.StatusConflict, "session"
+				}
+				writeError(w, status, err.Error(), field)
+				return
+			}
+		}
 		if body.Label != nil {
 			if item, ok := s.registry.Get(id); ok && item.Snapshot().Scratch {
-				if _, err := s.chatStore.Rename(id, *body.Label); err != nil { writeError(w, http.StatusConflict, err.Error(), "label"); return }
+				if _, err := s.chatStore.Rename(id, *body.Label); err != nil {
+					writeError(w, http.StatusConflict, err.Error(), "label")
+					return
+				}
 			}
 			if err := s.registry.Rename(id, *body.Label); err != nil {
 				status := http.StatusNotFound
@@ -504,7 +521,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 404, "session not found", "session")
 			return
 		}
-		if body.AgentID != nil && s.runner != nil {
+		if (body.AgentID != nil || body.ConnectionID != nil) && s.runner != nil {
 			s.runner.PublishBudget(r.Context(), item)
 		}
 		writeJSON(w, 200, map[string]any{"session": item.Snapshot()})
@@ -537,12 +554,19 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteChat(item *session.Session) (events.SessionInventory, error) {
 	id := item.ID
-	if s.runner != nil { s.runner.LapseSessionGrants(id) }
+	if s.runner != nil {
+		s.runner.LapseSessionGrants(id)
+	}
 	if s.operatorFiles != nil {
-		if path, err := s.operatorFiles.ExportChat(item.Snapshot()); err != nil { s.bus.Publish(events.New(events.Error, id, "", map[string]any{"where": "chat_export", "message": err.Error()}))
-		} else { s.bus.Publish(events.New(events.ChatExported, id, "", map[string]any{"path": path})) }
+		if path, err := s.operatorFiles.ExportChat(item.Snapshot()); err != nil {
+			s.bus.Publish(events.New(events.Error, id, "", map[string]any{"where": "chat_export", "message": err.Error()}))
+		} else {
+			s.bus.Publish(events.New(events.ChatExported, id, "", map[string]any{"path": path}))
+		}
 	}
 	inventory, err := s.registry.Delete(id)
-	if err == nil && s.projector != nil { s.projector.Delete(id) }
+	if err == nil && s.projector != nil {
+		s.projector.Delete(id)
+	}
 	return inventory, err
 }

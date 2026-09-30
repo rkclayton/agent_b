@@ -33,6 +33,10 @@ func dispatchServer(t *testing.T) *Server {
 	path := filepath.Join(root, "harness.json")
 	cfg := config.Defaults(root)
 	cfg.Connections[0] = runnableTestConnection("local")
+	remote := runnableTestConnection("remote")
+	remote.Label, remote.Model, remote.BaseURL, remote.APIKey = "Remote GPU", "model-r", "https://models.example.test:8443/private/v1", "PLANTED-SECRET"
+	remote.Capabilities.Vision, remote.Capabilities.DocumentInput, remote.Capabilities.ToolCalls, remote.Capabilities.NCtx = config.VisionReadsImages, true, true, 65536
+	cfg.Connections = append(cfg.Connections, remote)
 	cfg.Agents = []config.Agent{{Name: "local", B: "local", Toolset: config.FullToolset()}}
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
@@ -60,8 +64,7 @@ func dispatch(t *testing.T, server *Server, unit string) appResponseUnit {
 	return response
 }
 
-// state goes through GET /api/state and comes back as the same snapshot the page reads.
-func TestTheStateRouteIsTheSameSnapshotThePageReads2kq(t *testing.T) {
+func TestPhoneStateCarriesOnlyTheSafeConnectionSheet2ow(t *testing.T) {
 	server := dispatchServer(t)
 	response := dispatch(t, server, `{"v":1,"kind":"request","id":"aa","route":"state","body":{}}`)
 	if response.Status != 200 {
@@ -71,9 +74,31 @@ func TestTheStateRouteIsTheSameSnapshotThePageReads2kq(t *testing.T) {
 	if err := json.Unmarshal(response.Body, &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"sessions", "config", "connections"} {
+	for _, field := range []string{"sessions", "connections"} {
 		if _, ok := snapshot[field]; !ok {
 			t.Errorf("the snapshot has no %s", field)
+		}
+	}
+	var connections []map[string]any
+	if err := json.Unmarshal(snapshot["connections"], &connections); err != nil || len(connections) != 2 {
+		t.Fatalf("connections=%v err=%v", connections, err)
+	}
+	remote := connections[1]
+	if len(remote) != 8 {
+		t.Errorf("connection carries fields outside the safe sheet: %v", remote)
+	}
+	for _, field := range []string{"id", "label", "model", "host", "vision", "docs", "tools", "ctx"} {
+		if _, ok := remote[field]; !ok {
+			t.Errorf("connection has no %s: %v", field, remote)
+		}
+	}
+	if remote["host"] != "models.example.test:8443" || remote["ctx"] != float64(32768) {
+		t.Errorf("safe remote=%v", remote)
+	}
+	rawConnections := string(snapshot["connections"])
+	for _, secret := range []string{"PLANTED-SECRET", "/private/v1", "api_key", "credential", "base_url"} {
+		if strings.Contains(rawConnections, secret) {
+			t.Errorf("phone connection sheet leaked %q", secret)
 		}
 	}
 	for _, state := range []string{"not paired", "broker unreachable", "holding", "phone connected"} {
@@ -96,8 +121,7 @@ func TestTheStateRouteIsTheSameSnapshotThePageReads2kq(t *testing.T) {
 	}
 }
 
-// chat.create carries a label and NOTHING else.
-func TestChatCreateCarriesALabelAndNothingElse2kq(t *testing.T) {
+func TestChatCreateAcceptsOneConnectionAndRefusesUnknownWithoutCreating2ow(t *testing.T) {
 	server := dispatchServer(t)
 	created := dispatch(t, server, `{"v":1,"kind":"request","id":"bb","route":"chat.create","body":{"label":"from the phone"}}`)
 	if created.Status != 200 && created.Status != 201 {
@@ -106,10 +130,16 @@ func TestChatCreateCarriesALabelAndNothingElse2kq(t *testing.T) {
 	if !strings.Contains(string(created.Body), "from the phone") {
 		t.Errorf("the created chat does not carry the label: %s", created.Body)
 	}
-	// Anything else in the body is refused, so a phone cannot choose its model, its
-	// role, or a chat to copy.
+	selected := dispatch(t, server, `{"v":1,"kind":"request","id":"bc","route":"chat.create","body":{"label":"on remote","connection_id":"remote"}}`)
+	if selected.Status != 201 || !strings.Contains(string(selected.Body), `"connection_id":"remote"`) {
+		t.Fatalf("selected=%d %s", selected.Status, selected.Body)
+	}
+	before := len(server.registry.List())
+	unknown := dispatch(t, server, `{"v":1,"kind":"request","id":"bd","route":"chat.create","body":{"connection_id":"missing"}}`)
+	if unknown.Status != 400 || !strings.Contains(string(unknown.Body), `"field":"connection_id"`) || len(server.registry.List()) != before {
+		t.Fatalf("unknown=%d %s sessions=%d->%d", unknown.Status, unknown.Body, before, len(server.registry.List()))
+	}
 	for _, body := range []string{
-		`{"label":"x","connection_id":"local"}`,
 		`{"role":"d"}`,
 		`{"source_session_id":"main"}`,
 	} {

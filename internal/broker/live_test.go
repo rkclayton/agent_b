@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"harness/internal/credential"
+	"harness/internal/quietproc"
 	"io"
 	"net"
 	"net/http"
@@ -164,6 +166,11 @@ func (e *liveEndpoint) next(t *testing.T, timeout time.Duration) Frame {
 		}
 		return frame
 	case err := <-e.errs:
+		select {
+		case frame := <-e.frames:
+			return frame
+		default:
+		}
 		t.Fatalf("%s connection ended: %v", e.role, err)
 		return Frame{}
 	case <-time.After(timeout):
@@ -423,6 +430,39 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	}
 	t.Logf("LIVE 3 session established through the broker: %s", initiator.SessionID())
 
+	liveDevice.send(t, FramePushRegister, pushRegisterPayload{
+		PairingID: peer.PairingID, DeviceToken: strings.Repeat("0", 64),
+	})
+	liveDevice.send(t, FramePing, map[string]string{"token": "push-register-barrier"})
+	liveDevice.waitFor(t, FramePong, 20*time.Second)
+	pushID := bytes.Repeat([]byte{0x2a}, 16)
+	pushClient := NewClient(agent, Pairing{
+		PairingID: pairingID, DeviceKeyID: device.KeyID(),
+		DeviceAgreement: device.AgreementPublic(),
+	}, nil, nil)
+	if err := pushClient.Push(liveAgent.transport, pushID, "approval_required", "synthetic-chat", "Agent_b is waiting for your approval"); err != nil {
+		t.Fatal(err)
+	}
+	pushAnswer := liveAgent.next(t, 20*time.Second)
+	switch pushAnswer.Type {
+	case FramePushAccepted:
+		t.Log("LIVE PUSH accepted by the provider")
+	case FrameError:
+		var problem errorPayload
+		if err := DecodeInto(pushAnswer.Payload, &problem); err != nil {
+			t.Fatal(err)
+		}
+		if problem.Code == "malformed" {
+			t.Fatalf("STOP: the broker rejected the conformant PUSH field %q as malformed", problem.Detail)
+		}
+		if problem.Code != "push_provider" || problem.Fatal {
+			t.Fatalf("PUSH refusal = %s %q fatal=%t, want non-fatal push_provider", problem.Code, problem.Detail, problem.Fatal)
+		}
+		t.Logf("LIVE PUSH parsed; provider refused the synthetic token: %s (fatal=%t)", problem.Detail, problem.Fatal)
+	default:
+		t.Fatalf("PUSH answer frame 0x%02x, want PUSH_ACCEPTED or ERROR push_provider", pushAnswer.Type)
+	}
+
 	// 4. ROUND TRIP one message end to end, and the broker never sees the plaintext.
 	messageID := make([]byte, 16)
 	if _, err := rand.Read(messageID); err != nil {
@@ -519,7 +559,7 @@ func TestLivePairedDesktopAnswersItsPhone2o7(t *testing.T) {
 	defer cancel()
 
 	model := newStubModel(t)
-	base := startDisposableAgent(t, ctx, app, address, model.server.URL)
+	base, dataRoot := startDisposableAgent(t, ctx, app, address, model.server.URL)
 	desktop := newDesktopClient(t, base)
 	defer func() {
 		if t.Failed() {
@@ -618,12 +658,21 @@ func TestLivePairedDesktopAnswersItsPhone2o7(t *testing.T) {
 	phone.waitText(t, sessionID, "done after approval")
 	t.Logf("E2E 5 card %s approved on the phone; the run continued", callID)
 
-	// 6. stop stops a live run.
 	phone.request(t, "message", fmt.Sprintf(`{"session_id":%q,"text":"long"}`, sessionID), 202)
 	time.Sleep(2 * time.Second)
+	_ = phone.endpoint.transport.Close(1000, "test severs the phone before replacing the desktop connection")
+	desktopIdentity := loadDisposableIdentity(t, dataRoot)
+	replacement := dialLive(t, ctx, address, "agent", desktopIdentity)
+	replacement.authenticate(t)
+	_ = replacement.transport.Close(1000, "release the desktop identity")
+	phone = connectPhone(t, ctx, address, device, peer.PeerKeyID, pairingID, agentSigning, agentKeyID)
+	stateAfterReconnect := phone.request(t, "state", `{}`, 200)
+	if !strings.Contains(fmt.Sprint(stateAfterReconnect["body"]), sessionID) {
+		t.Fatalf("the next request after reconnect did not return chat %s", sessionID)
+	}
 	phone.request(t, "stop", fmt.Sprintf(`{"session_id":%q}`, sessionID), 200)
 	phone.waitStopped(t, sessionID)
-	t.Log("E2E 6 stop stopped the run")
+	t.Log("E2E 6 desktop connection severed mid-run and restored; next state/stop requests answered")
 
 	// 7. A deliberately dropped patch is recovered by resync, which returns a fresh
 	// state no older than the patch that was dropped.
@@ -726,6 +775,7 @@ func connectPhone(t *testing.T, ctx context.Context, address string, device Iden
 	endpoint.send(t, FrameSessionReady, sessionFrame{PairingID: forwarded.PairingID, HandshakeID: forwarded.HandshakeID,
 		SenderKeyID: hex.EncodeToString(device.KeyID()), RecipientID: hex.EncodeToString(agentKeyID),
 		SessionID: responder.SessionID(), Confirmation: base64.RawURLEncoding.EncodeToString(ready)})
+	endpoint.send(t, FramePushRegister, pushRegisterPayload{PairingID: forwarded.PairingID, DeviceToken: strings.Repeat("0", 64)})
 	phone := &connectedPhone{endpoint: endpoint, device: device, pairing: pairingID, agentKey: agentKeyID, responder: responder, sessionID: responder.SessionID(), counter: 1}
 	go phone.receive(t)
 	return phone
@@ -996,7 +1046,7 @@ func newStubModel(t *testing.T) *stubModel {
 }
 
 // startDisposableAgent runs the built Agent_b on a free port with its own data root.
-func startDisposableAgent(t *testing.T, ctx context.Context, app, broker, model string) string {
+func startDisposableAgent(t *testing.T, ctx context.Context, app, broker, model string) (string, string) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1023,6 +1073,7 @@ func startDisposableAgent(t *testing.T, ctx context.Context, app, broker, model 
 	}
 	var output bytes.Buffer
 	command := exec.CommandContext(ctx, filepath.Join(app, "Agent_b.exe"), "-config", configPath, "-app-root", app, "-data-root", data)
+	quietproc.Quiet(command)
 	command.Stdout, command.Stderr = &output, &output
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
@@ -1039,12 +1090,31 @@ func startDisposableAgent(t *testing.T, ctx context.Context, app, broker, model 
 		if response, err := http.Get(base + "/chat"); err == nil {
 			response.Body.Close()
 			if response.StatusCode == http.StatusOK {
-				return base
+				return base, data
 			}
 		}
 	}
 	t.Fatalf("the disposable Agent_b never answered:\n%s", output.String())
-	return ""
+	return "", ""
+}
+
+func loadDisposableIdentity(t *testing.T, dataRoot string) Identity {
+	t.Helper()
+	store, err := credential.NewNamed(dataRoot, "broker-identity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, readErr := store.Read()
+	var record struct {
+		Version     int    `json:"version"`
+		SigningSeed []byte `json:"signing_seed"`
+		Agreement   []byte `json:"agreement"`
+	}
+	decodeErr := json.Unmarshal(raw, &record)
+	if readErr != nil || decodeErr != nil || record.Version != 1 || len(record.SigningSeed) != 32 || len(record.Agreement) != 32 {
+		t.Fatalf("invalid disposable broker identity: read=%v decode=%v", readErr, decodeErr)
+	}
+	return Identity{SigningSeed: record.SigningSeed, Agreement: record.Agreement}
 }
 
 // desktopClient is the operator's own page: a browser session and its mutation token.

@@ -112,6 +112,16 @@ func (c *Client) Deliver(plaintext []byte) error {
 	return c.Send(messageID, plaintext, transport)
 }
 
+func (c *Client) Notify(kind, chatID, notice string) error {
+	transport, messageID, err := c.live()
+	if err != nil {
+		return err
+	}
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	return c.Push(transport, messageID, kind, chatID, notice)
+}
+
 func (c *Client) live() (Transport, []byte, error) {
 	c.mu.Lock()
 	transport, session := c.transport, c.session
@@ -537,7 +547,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 			if err := DecodeInto(frame.Payload, &revoked); err != nil {
 				return err
 			}
-			return &brokerProblem{code: "revoked", detail: revoked.Reason}
+			return &brokerProblem{code: "revoked", detail: "pairing revoked"}
 		default:
 			return fmt.Errorf("broker: unexpected frame 0x%02x", frame.Type)
 		}

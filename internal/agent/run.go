@@ -60,6 +60,13 @@ type Runner struct {
 	byteLimits         sync.Map
 	identityInvitation atomic.Bool
 	trustFolders       func([]string) error
+	skills             SkillHost
+}
+
+type SkillHost interface {
+	Index() string
+	Proposal(context.Context, *session.Session, string) (string, error)
+	Read(string)
 }
 
 type BoundaryAction struct {
@@ -91,6 +98,7 @@ func (r *Runner) SetModelUnreachable(fn func(string, string))        { r.modelUn
 func (r *Runner) SetMessageLimitRecorder(fn func(string, int) error) { r.recordMessageLimit = fn }
 func (r *Runner) SetByteLimitRecorder(fn func(string, int) error)    { r.recordByteLimit = fn }
 func (r *Runner) SetTrustedFolderWriter(fn func([]string) error)     { r.trustFolders = fn }
+func (r *Runner) SetSkillHost(host SkillHost)                        { r.skills = host }
 func (r *Runner) BindDelegate(tool *tools.Delegate)                  { tool.SetRunner(r.runDelegate) }
 func (r *Runner) AcceptPlanEdit(ctx context.Context, s *session.Session, path, oldText, newText string) tools.CallOutcome {
 	if !s.BeginPlanAccept() {
@@ -138,7 +146,7 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, task,
 		ID: parent.ID + "-delegate-" + r.id("e"), Label: "delegate", Role: "e", AgentID: parentState.AgentID,
 		ParentSessionID: parent.ID,
 		ConnectionID:    parentState.ConnectionID, Workspace: parentState.WorkspaceDir, PlanID: parentState.PlanID,
-		PlanDir: parent.PlanDir, PlanRepo: parent.PlanRepo, PlansRoot: parent.PlansRoot, PlanRepos: parent.PlanRepos,
+		PlanDir: parent.PlanDir, PlanRepo: parent.PlanRepo, PlansRoot: parent.PlansRoot, SkillsRoot: parent.SkillsRoot, PlanRepos: parent.PlanRepos,
 		NetworkBoundary: parentState.NetworkBoundary, NetworkBoundarySet: true,
 		MediaCapabilities: parentState.MediaCapabilities, MediaCapabilitiesSet: true, Runnable: true,
 		Run: session.RunState{Status: "idle", MaxTurns: turns}, ToolsEnabled: map[string]bool{
@@ -439,10 +447,15 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		s.BeginTurnTrust()
 		r.stage(s, runID, turn, "assemble", func() {
 			records := s.MessagesCopy()
-			systemBase := r.prompt.RenderParts(connection, s, toolNames, "", "")
-			systemProject := r.prompt.RenderParts(connection, s, toolNames, s.ProjectBlock, "")
-			systemWorkspaceMemory := r.prompt.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, s.MemoryBlock, "")
-			system = r.prompt.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, s.MemoryBlock, s.AgentMemoryBlock, s.MachineMemoryBlock)
+			skills := ""
+			if r.skills != nil {
+				skills = r.skills.Index()
+			}
+			systemBase := r.prompt.RenderSkillParts(connection, s, toolNames, "", "")
+			systemProject := r.prompt.RenderSkillParts(connection, s, toolNames, s.ProjectBlock, "")
+			systemSkills := r.prompt.RenderSkillParts(connection, s, toolNames, s.ProjectBlock, skills)
+			systemWorkspaceMemory := r.prompt.RenderSkillParts(connection, s, toolNames, s.ProjectBlock, skills, s.MemoryBlock, "")
+			system = r.prompt.RenderSkillParts(connection, s, toolNames, s.ProjectBlock, skills, s.MemoryBlock, s.AgentMemoryBlock, s.MachineMemoryBlock)
 			messages := []llm.Message{}
 			requestRecords := make([]events.Message, 0, len(records))
 			current := runningTurnIDs(records, s.RunPin())
@@ -488,7 +501,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			if readCutShort {
 				request.ToolChoice = "none"
 			}
-			budget, budgetErr = r.budget.MeasureWithBusy(ctx, connection, s, r.cfg().Context, budgetInput{SystemBase: systemBase, SystemProject: systemProject, SystemWorkspaceMemory: systemWorkspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(connection, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages[1:], Records: requestRecords}, false, func(err error) {
+			budget, budgetErr = r.budget.MeasureWithBusy(ctx, connection, s, r.cfg().Context, budgetInput{SystemBase: systemBase, SystemProject: systemProject, SystemSkills: systemSkills, SystemWorkspaceMemory: systemWorkspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(connection, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages[1:], Records: requestRecords}, false, func(err error) {
 				budgetBusy = true
 				r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(connection), "detail": err.Error()}))
 			})
@@ -798,6 +811,13 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			if handled, detail := r.handleModelPlanProposal(ctx, s, runID, finalText); handled {
 				return "done", detail, turn
 			}
+			if r.skills != nil {
+				if detail, err := r.skills.Proposal(ctx, s, runID); err != nil {
+					return "done", "skill proposal: " + err.Error(), turn
+				} else if detail != "" {
+					return "done", detail, turn
+				}
+			}
 			return "done", "", turn
 		}
 		visible, proposals := planProposalsFor(s, response.Content)
@@ -914,6 +934,11 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			s.Append(assistant)
 			r.bus.Publish(events.New(events.MessageAppended, s.ID, runID, map[string]any{"message": assistant}))
 			for _, item := range results {
+				if item.ok && item.call.Name == "read_file" && r.skills != nil {
+					if path, ok := item.args["path"].(string); ok {
+						r.skills.Read(path)
+					}
+				}
 				category := item.category
 				if category == "" {
 					category = "results"
@@ -1311,6 +1336,8 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	}
 	cfg := r.cfg()
 	eventArgs := sanitizedToolArguments(name, args)
+	path, _ := args["path"].(string)
+	skillRead := (name == "read_file" || name == "list_dir" || name == "search" || name == "search_text" || name == "find_files") && s.IsSkillPath(path)
 	if cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext {
 		if err := r.tools.PreflightServiceIdentity(); err != nil {
 			if s.Role == "e" {
@@ -1428,12 +1455,16 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	if name == "shell" && repoRunGrantMatches(s.Policy().Shell.RunGrantDefaults, args) {
 		args = resolveRepoGrantedExecutable(cfg, args)
 	}
-	outcome := r.callDetailed(ctx, s, name, args)
+	var outcome tools.CallOutcome
+	if skillRead {
+		outcome = r.callFileAsOperator(ctx, s, name, args)
+	} else {
+		outcome = r.callDetailed(ctx, s, name, args)
+	}
 	if !outcome.OperatorOverrideAvailable {
 		return outcome
 	}
 	command, _ := args["command"].(string)
-	path, _ := args["path"].(string)
 	subject := "tool call"
 	scope := "rerun this exact tool call once"
 	if name == "shell" || name == "run_script" {
@@ -1801,10 +1832,15 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *se
 	enabled := s.EnabledTools()
 	toolNames := r.tools.Names(enabled)
 	schemas := r.tools.Schemas(enabled)
-	base := r.prompt.RenderParts(p, s, toolNames, "", "")
-	project := r.prompt.RenderParts(p, s, toolNames, s.ProjectBlock, "")
-	workspaceMemory := r.prompt.RenderMemoryParts(p, s, toolNames, s.ProjectBlock, s.MemoryBlock, "")
-	system := r.prompt.RenderMemoryParts(p, s, toolNames, s.ProjectBlock, s.MemoryBlock, s.AgentMemoryBlock, s.MachineMemoryBlock)
+	base := r.prompt.RenderSkillParts(p, s, toolNames, "", "")
+	project := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, "")
+	skillsBlock := ""
+	if r.skills != nil {
+		skillsBlock = r.skills.Index()
+	}
+	skillsSystem := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock)
+	workspaceMemory := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock, s.MemoryBlock, "")
+	system := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock, s.MemoryBlock, s.AgentMemoryBlock, s.MachineMemoryBlock)
 	// As the run's own assembly does, harness abort records lead the list: a
 	// system-role record mid-history is refused by chat templates (item 2fg).
 	all := s.MessagesCopy()
@@ -1829,7 +1865,7 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *se
 		messages = append(messages, converted)
 	}
 	messages, records, _ = normalizeAdjacentAssistants(messages, records)
-	return r.budget.Measure(ctx, p, s, r.cfg().Context, budgetInput{SystemBase: base, SystemProject: project, SystemWorkspaceMemory: workspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(p, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages, Records: records}, mark)
+	return r.budget.Measure(ctx, p, s, r.cfg().Context, budgetInput{SystemBase: base, SystemProject: project, SystemSkills: skillsSystem, SystemWorkspaceMemory: workspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(p, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages, Records: records}, mark)
 }
 
 func (r *Runner) withoutToolSystems(p *config.Connection, s *session.Session, enabled map[string]bool, memory string) map[string]string {

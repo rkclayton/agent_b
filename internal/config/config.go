@@ -21,28 +21,29 @@ import (
 )
 
 type Config struct {
-	ConfigVersion int                `json:"config_version"`
-	Listen        string             `json:"listen"`
-	Workspace     string             `json:"workspace"`
-	LogDir        string             `json:"log_dir"`
-	Connections   []Connection       `json:"connections"`
-	Profiles      ProfileCatalog     `json:"profiles"`
-	Services      map[string]Service `json:"services"`
-	Agents        []Agent            `json:"agents"`
-	Chat          Chat               `json:"chat"`
-	Run           RunConfig          `json:"run"`
-	Approval      Approval           `json:"approval"`
-	Context       GlobalContext      `json:"context"`
-	Memory        Memory             `json:"memory"`
-	Tools         Tools              `json:"tools"`
-	Shell         Shell              `json:"shell"`
-	Sandbox       Sandbox            `json:"sandbox"`
-	Deliver       Deliver            `json:"deliver"`
-	OperatorFiles OperatorFiles      `json:"operator_files"`
-	Notifications Notifications      `json:"notifications"`
-	Updates       Updates            `json:"updates"`
-	Telemetry     Telemetry          `json:"telemetry"`
-	Reflection    Reflection         `json:"reflection"`
+	ConfigVersion int                     `json:"config_version"`
+	Listen        string                  `json:"listen"`
+	Workspace     string                  `json:"workspace"`
+	LogDir        string                  `json:"log_dir"`
+	Connections   []Connection            `json:"connections"`
+	Profiles      ProfileCatalog          `json:"profiles"`
+	Services      map[string]Service      `json:"services"`
+	Agents        []Agent                 `json:"agents"`
+	Chat          Chat                    `json:"chat"`
+	Run           RunConfig               `json:"run"`
+	Approval      Approval                `json:"approval"`
+	Context       GlobalContext           `json:"context"`
+	Memory        Memory                  `json:"memory"`
+	Tools         Tools                   `json:"tools"`
+	Shell         Shell                   `json:"shell"`
+	Sandbox       Sandbox                 `json:"sandbox"`
+	Deliver       Deliver                 `json:"deliver"`
+	OperatorFiles OperatorFiles           `json:"operator_files"`
+	Notifications Notifications           `json:"notifications"`
+	Updates       Updates                 `json:"updates"`
+	Telemetry     Telemetry               `json:"telemetry"`
+	Reflection    Reflection              `json:"reflection"`
+	Skills        map[string]SkillSetting `json:"skills"`
 	// Item 2mx: the one chat a voice request lands in when it names none. One key, not
 	// a section: a voice assistant has no screen to choose a chat on, so it needs a
 	// default and nothing else.
@@ -53,6 +54,12 @@ type Config struct {
 	Broker      Broker   `json:"broker,omitempty"`
 	Signing     Signing  `json:"signing"`
 	LoadNotices []string `json:"-"`
+}
+
+type SkillSetting struct {
+	Enabled  bool   `json:"enabled"`
+	Source   string `json:"source,omitempty"`
+	LastRead string `json:"last_read,omitempty"`
 }
 
 // ProfileCatalog selects the operator-owned namespace. Connections and host

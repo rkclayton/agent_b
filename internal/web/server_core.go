@@ -180,6 +180,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 }
 func (s *Server) SetRegistry(registry *session.Registry) {
 	registry.SetPlansRoot(filepath.Join(s.profileRoot(), "plans"))
+	registry.SetSkillsRoot(filepath.Join(s.profileRoot(), "skills"))
 	s.registry = registry
 }
 func (s *Server) SetProfiles(manager *profiles.Manager) { s.profiles = manager }
@@ -231,6 +232,7 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 		}
 	}
 	if runner != nil {
+		runner.SetSkillHost(s)
 		runner.SetMessageLimitRecorder(s.recordObservedMessageLimit)
 		runner.SetByteLimitRecorder(s.recordObservedByteLimit)
 		runner.SetModelUnreachable(func(sessionID, connectionID string) {
@@ -434,6 +436,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/connections", s.connections)
 	mux.HandleFunc("/api/connections/", s.replayGuard(s.connection))
 	mux.HandleFunc("/api/profiles", s.replayGuard(s.profileEndpoint))
+	mux.HandleFunc("/api/skills", s.replayGuard(s.skillsEndpoint))
 	mux.HandleFunc("/api/config", s.replayGuard(s.config))
 	mux.HandleFunc("/api/notifications", s.replayGuard(s.notificationSettings))
 	mux.HandleFunc("/api/update", s.replayGuard(s.updateEndpoint))

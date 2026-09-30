@@ -31,6 +31,7 @@ type Registry struct {
 	machineMemory func(context.Context, string) (string, string, error)
 	workspaces    *workspaceinfo.Manager
 	plansRoot     string
+	skillsRoot    string
 	scratchRoot   string
 	planGrant     func(string) error
 }
@@ -73,6 +74,7 @@ func (r *Registry) SetPlansRoot(root string) {
 	r.plansRoot = filepath.Clean(root)
 	r.scratchRoot = filepath.Join(filepath.Dir(r.plansRoot), "scratch")
 }
+func (r *Registry) SetSkillsRoot(root string)             { r.skillsRoot = filepath.Clean(root) }
 func (r *Registry) SetPlanGrant(grant func(string) error) { r.planGrant = grant }
 func (r *Registry) Create(label, agentID, workspace string) (*Session, error) {
 	return r.create(label, agentID, workspace, nil, "b", "")
@@ -189,7 +191,7 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 	}
 	s := &Session{
 		ID: saved.ID, Label: saved.Label, AgentID: saved.AgentID, ConnectionID: connectionID,
-		AgentName: saved.AgentName, BConnection: connectionLabel, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: saved.NetworkBoundary, NetworkBoundarySet: saved.NetworkBoundarySet, MediaCapabilities: saved.MediaCapabilities, MediaCapabilitiesSet: saved.MediaCapabilitiesSet,
+		AgentName: saved.AgentName, BConnection: connectionLabel, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: saved.NetworkBoundary, NetworkBoundarySet: saved.NetworkBoundarySet, MediaCapabilities: saved.MediaCapabilities, MediaCapabilitiesSet: saved.MediaCapabilitiesSet,
 		Workspace: workspace, WorkspaceMissing: workspaceMissing, Scratch: saved.Scratch,
 		ProjectBlock: saved.ProjectContent, ProjectFiles: append([]string(nil), saved.ProjectFiles...), ProjectNotes: append([]string(nil), saved.ProjectNotes...),
 		PendingRepoPolicy: clonePolicyState(saved.PendingRepoPolicy), RepoPolicy: clonePolicyState(saved.RepoPolicy),
@@ -419,7 +421,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 	}
 	settings := r.config()
-	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: time.Now().UTC(), LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: time.Now().UTC(), LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		session.ProjectTouch = r.projectTouch(session)
 	}

@@ -44,7 +44,7 @@ func resolveForSessionTool(ctx context.Context, s *session.Session, root, path s
 // reparse point cannot reach the plans folder under another name.
 func resolveForWorkerWrite(ctx context.Context, s *session.Session, root, path string) (string, error) {
 	resolved, err := resolveForSessionTool(ctx, s, root, path)
-	if err != nil || s.PlansRoot == "" {
+	if err != nil {
 		return resolved, err
 	}
 	// Each side is compared both as written and as the file system resolves
@@ -71,6 +71,12 @@ func resolveForWorkerWrite(ctx context.Context, s *session.Session, root, path s
 		return false
 	}
 	targets := forms(resolved)
+	if s.SkillsRoot != "" && inside(forms(s.SkillsRoot), targets) {
+		return "", fmt.Errorf("skill folders are read-only")
+	}
+	if s.PlansRoot == "" {
+		return resolved, nil
+	}
 	if !inside(forms(s.PlansRoot), targets) {
 		return resolved, nil
 	}

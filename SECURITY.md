@@ -2,6 +2,8 @@
 
 Agent_b executes shell commands selected by a model. Use it only where that authority is acceptable.
 
+Profile skills are operator-owned instructions. The harness reads their enabled index and serves explicit read-only file-tool requests inside the active profile's `skills` folder with its own non-elevated identity; canonical path checks refuse file-tool writes before dispatch. This routing is not containment. Enabling a third-party skill trusts its instructions, while scripts it names retain the ordinary shell identity and approval policy.
+
 ## Workspace and shell boundary
 
 A plan chooses a file tool's working directory; it is not a reach allow-list. Relative paths start in the session's scratch or selected repository, while absolute paths and relative climbs proceed to the filesystem under the identity running the tool. Plan files under `<data-root>/plans` remain readable by every B and D session but writable only by the D session bound to that plan; the internal `plan.json` repository manifest and a repository's `.agentb` policy remain model-immutable. Operator identity does not disable those ownership rules: write_file and edit_file compare a target with the plans and policy folders both as written and as the file system resolves them, so a junction, symbolic link or reparse point cannot reach protected files under another name (item 2fq). D still cannot enable `shell` or `run_script`, and a repository policy's `default_toolset` cannot turn them on. These application guards protect ownership and routing only; Windows identity, ACLs and firewall policy are the reach boundary.

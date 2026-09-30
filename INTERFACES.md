@@ -2,6 +2,8 @@
 
 This document is the stable runtime contract. Bracketed prompt numbers are historical provenance only and carry no sequencing authority.
 
+The current `Budget.categories` set is `{system,project,skills,workspace_memory,agent_memory,tools,history,files,results,fetched,summary}`. `skills` is the enabled profile-skill index inserted into the same system message between project instructions and memory; an empty index costs zero and adds no block. The older compact schema description below predates these additive fixed-prefix categories.
+
 ## Event envelope and transport
 
 Every durable domain event is `{"seq":int,"ts":"RFC3339 with milliseconds","session_id":"","run_id":"","type":"","data":{}}`. Sessionless events are global. JSONL additionally permits `body` on `model.request` and `raw` on `model.response`; those fields are excluded from transport. Each session has its own log and global events use the Agent_b log. SSE sends top-level global events in that envelope, but session updates are `projection.patch` envelopes rather than raw domain events. A comment ping is sent every 15 seconds.

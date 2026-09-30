@@ -51,7 +51,7 @@ type Manager struct {
 	machine config.Overlay
 }
 
-var profileDirectories = []string{"attachments", "chats", "logs", "memory", "plans", "reflection", "scratch", "stats"}
+var profileDirectories = []string{"attachments", "chats", "logs", "memory", "plans", "reflection", "scratch", "skills", "stats"}
 var profileFiles = []string{"INBOX.md", "OUTBOX.md", "STATE.md", "workspace-state.json"}
 
 func Open(dataRoot, configPath string, cfg *config.Config) (*Manager, bool, error) {

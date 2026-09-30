@@ -26,7 +26,7 @@ func TestBudgetAccountsFetchedResultsSeparately(t *testing.T) {
 	item := &session.Session{ID: "fetch-budget", SchemaTokens: map[string]int{}}
 	message := llm.Message{Role: "tool", Content: "untrusted fetched text"}
 	record := events.Message{ID: "m-fetch", Role: "tool", Content: "untrusted fetched text", Category: "fetched"}
-	budget, err := NewBudgeter().Measure(context.Background(), &connection, item, config.GlobalContext{Accounting: "estimated"}, budgetInput{SystemBase: "system", System: "system", Messages: []llm.Message{message}, Records: []events.Message{record}}, false)
+	budget, err := NewBudgeter().Measure(context.Background(), &connection, item, config.GlobalContext{Accounting: "estimated"}, budgetInput{SystemBase: "system", SystemProject: "system", SystemSkills: "system skill-index", System: "system skill-index", Messages: []llm.Message{message}, Records: []events.Message{record}}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,6 +35,9 @@ func TestBudgetAccountsFetchedResultsSeparately(t *testing.T) {
 	}
 	if budget.Categories["results"] != 0 {
 		t.Fatalf("fetch leaked into results: %+v", budget.Categories)
+	}
+	if budget.Categories["skills"] == 0 {
+		t.Fatalf("skill index has no category: %+v", budget.Categories)
 	}
 }
 

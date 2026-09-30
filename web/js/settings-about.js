@@ -1,8 +1,7 @@
-let store, row, toggle, html;
+let store, row, toggle, html, signInStart;
 function useSettingsContext(context) {
-  ({ store, row, toggle, html } = context);
+  ({ store, row, toggle, html, signInStart } = context);
 }
-
 // Item 2ny: THE TOGGLE, AND NOTHING ELSE. Item 2jg (d) also showed the receiver's state
 // and the last twenty batches exactly as they left, so the claim above could be checked
 // rather than believed. The operator asked for it to go — "we just need the toggle thats
@@ -88,17 +87,16 @@ function about() {
     ? `<button type="button" data-action="install-update" ${update.installing ? "disabled" : ""}>${update.installing ? "Starting…" : "Update"}</button>`
     : "";
   const checked = update.checked_at ? new Date(update.checked_at).toLocaleString() : "never";
-  const started = store.server_started_at ? new Date(store.server_started_at).toLocaleString() : "unknown";
+  const started = store.server_started_at ? new Date(store.server_started_at).toLocaleString() : "unknown", signInEnabled = !!signInStart?.enabled, signInError = signInStart?.error || "", signInSwitch = `<button type="button" role="switch" aria-checked="${signInEnabled}" aria-label="Start when I sign in" class="switch ${signInEnabled ? "on" : ""}" data-action="sign-in-start" ${signInStart?.busy || !signInStart?.loaded ? "disabled" : ""}></button>`;
   return `${row("version", `<code class="settings-build-text">${html(`${tag} · ${commit}${build.dirty ? " · dirty" : ""} · ${signatureWord}`)}</code>`, "", "Build identity and the running executable's signature status.")}
     ${row("server", `<span class="settings-server-value">server started <time class="settings-server-started">${html(started)}</time>, ${html(tag)}</span>`, "", "The process this window is attached to.")}
     ${toggle("updates.auto_check", "check for updates", store.config.updates?.auto_check !== false, "At startup, every hour, and on window attach (at most once per 15 minutes), sends one anonymous GET to api.github.com for acme/agent_b's latest release. It sends no Agent_b data.")}
     ${row("checked", `<span>checked <time class="settings-update-checked">${html(checked)}</time></span><button type="button" data-action="check-update" ${update.checking ? "disabled" : ""}>${update.checking ? "Checking…" : "Check now"}</button>`, update.error ? "invalid" : "", "The most recent completed release check.")}
     ${row("update", `<span${waiting ? ` data-update-wait="1" data-update-line="${attrOf(status)}" data-update-processed="${Number(update.processed || 0)}" data-update-total="${Number(update.total || 0)}"` : ""}>${html(status)}</span>${outcomeLine && update.available ? `<span class="settings-update-note">${html(outcomeLine)}</span>` : ""}${noteMarkup}${installAction}`, (update.error || outcome?.ok === false || outcome?.running) ? "invalid" : "", `An update is downloaded only when you press Update. Agent_b verifies release.json and the setup SHA-256 before starting the per-user installer without elevation. While it runs, the line names the stage in hand; when the app comes back, this row says what the update did. This installation is ${html(String(update.application_root || "at an unnamed path"))}.`)}
+    ${row("Start when I sign in", `${signInSwitch}${signInError ? `<span class="settings-update-note">${html(signInError)}</span>` : ""}`, signInError ? "invalid" : "", "Uses the same Agent_b entry shown in Windows Settings → Apps → Startup. When on, sign-in opens the ordinary Agent_b window.")}
     ${row("diagnostics", `<span>one file describing this installation</span><button type="button" data-action="export-diagnostics">Export diagnostics</button>`, "", "Gathers what Agent_b already knows — build, update state, the last install attempt, connection test results and recent log lines — into one file. Nothing new is measured. Paths outside the installation, account names, addresses and anything token-shaped are replaced, so the file is safe to send to whoever is helping.")}
     ${telemetry()}`;
 }
-
-
 export function renderAboutPage(context) {
   useSettingsContext(context);
   return about();

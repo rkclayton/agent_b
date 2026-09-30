@@ -359,3 +359,22 @@ func TestARealInstallStillOpensItsWindow2m6(t *testing.T) {
 		t.Fatal("the override was not readable")
 	}
 }
+
+func TestInstallIdentityIsTheTokenSIDAndNeverANameLookup2or(t *testing.T) {
+	lookupCalled := false
+	got, err := installOperatorSID(
+		func() (string, error) { return "S-1-5-21-100", nil },
+		func() (string, error) { lookupCalled = true; return "S-1-12-1-200", nil },
+	)
+	if err != nil || got != "S-1-5-21-100" || lookupCalled {
+		t.Fatalf("operator identity = %q, %v; name lookup called=%v", got, err, lookupCalled)
+	}
+
+	source, err := os.ReadFile(filepath.Join("..", "..", "scripts", "install-Agent_b.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(source, []byte("SetOwner")) {
+		t.Fatal("the installer still changes directory ownership")
+	}
+}

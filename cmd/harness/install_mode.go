@@ -49,6 +49,14 @@ type installOptions struct {
 	passThough    []string
 }
 
+// installOperatorSID deliberately accepts the old name-lookup seam only so the
+// hybrid-identity regression can prove it is never used.  The process token is
+// the authority: an Entra display name can resolve to a different SID than the
+// on-premises identity actually held by this process.
+func installOperatorSID(tokenUser func() (string, error), _ func() (string, error)) (string, error) {
+	return tokenUser()
+}
+
 // installProgress is one line of the progress file: the Setup page renders
 // these in order and the last one is the result.
 type installProgress struct {

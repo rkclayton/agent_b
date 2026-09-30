@@ -30,6 +30,7 @@ export function initShell(options = {}) {
   const tabs = node("nav", "agent-tabs");
   tabs.setAttribute("aria-label", "Chats");
   const tabViews = new Map();
+  let chatTree = { folders: [], chats: [] };
   left.append(newChatButton, newChatMenu, tabs);
 
   const right = node("div", "shell-right");
@@ -372,10 +373,31 @@ export function initShell(options = {}) {
     revealMenu(menu, anchor);
   }
 
-  function renderAgentMenu(menu, agentID) {
+  function renderAgentMenu(menu, agentID, refresh = true) {
     const sessions = sessionsFor(agentID, true);
     const sourceID = menu.closest(".agent-tab-wrap")?.dataset.session || "";
     menu.replaceChildren();
+	const tree = chatTree;
+	const act = async (body) => { try { chatTree = await api("/api/chats/tree", body); renderAgentMenu(menu, agentID, false); } catch (error) { report(error.message); } };
+	const root = node("div", "agent-chat-folder-root");
+	const rootName = node("strong", ""); rootName.textContent = "chats"; root.append(rootName);
+	const add = button("New folder", "New folder", "agent-chat-folder-action");
+	add.onclick = () => { const name = prompt("New folder name"); if (name) void act({ action: "add", name }); };
+	root.append(add); menu.append(root);
+	root.ondragover = (event) => event.preventDefault();
+	root.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: "" }); };
+	const targets = new Map([["", menu]]);
+	for (const path of tree.folders || []) {
+		const details = document.createElement("details"); details.className = "agent-chat-folder";
+		const heading = document.createElement("summary"); const folderName = node("span", ""); folderName.textContent = path; heading.append(folderName);
+		const rename = button("Rename", `Rename ${path}`, "agent-chat-folder-action");
+		rename.onclick = (event) => { event.preventDefault(); const name = prompt("Folder name", path.split("/").at(-1)); if (name) void act({ action: "rename", path, name }); };
+		const remove = button("×", `Delete ${path}`, "agent-chat-delete");
+		remove.onclick = (event) => { event.preventDefault(); void act({ action: "delete", path }); };
+		heading.append(rename, remove); details.append(heading); menu.append(details); targets.set(path, details);
+		details.ondragover = (event) => event.preventDefault();
+		details.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: path }); };
+	}
     // Item 2go, the operator: "i want the chat summary removed from the top of
     // chats... i want it to display like this: MM:DD · Chat name · × , nothing
     // more." So there is no summary line, and the row below carries nothing
@@ -395,6 +417,7 @@ export function initShell(options = {}) {
     for (const session of sessions) {
       const row = node("div", `agent-chat-row ${session.closed ? "closed" : "open"} ${session.id === sourceID ? "selected" : ""}`);
       row.dataset.session = session.id;
+	  row.draggable = true; row.ondragstart = (event) => event.dataTransfer.setData("text/plain", session.id);
       const summary = node("span", "agent-chat-summary");
       summary.textContent = chatRowText(session);
       // The full name on hover, because the row is one line and a long name
@@ -419,8 +442,10 @@ export function initShell(options = {}) {
       remove.onclick = () => void deleteChat(session, menu, agentID);
       remove.disabled = store.replay || isRunning(session);
       row.append(summary, rename, remove);
-      menu.append(row);
+	  const chat = (tree.chats || []).find((item) => item.id === session.id);
+	  (targets.get(chat?.folder || "") || menu).append(row);
     }
+	if (refresh) void api("/api/chats/tree", undefined, "GET").then((value) => { chatTree = value; renderAgentMenu(menu, agentID, false); }).catch(() => {});
   }
 
   function showRename(row, session, menu, agentID) {

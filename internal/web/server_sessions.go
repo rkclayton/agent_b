@@ -487,6 +487,9 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if body.Label != nil {
+			if item, ok := s.registry.Get(id); ok && item.Snapshot().Scratch {
+				if _, err := s.chatStore.Rename(id, *body.Label); err != nil { writeError(w, http.StatusConflict, err.Error(), "label"); return }
+			}
 			if err := s.registry.Rename(id, *body.Label); err != nil {
 				status := http.StatusNotFound
 				if strings.Contains(err.Error(), "closed") {

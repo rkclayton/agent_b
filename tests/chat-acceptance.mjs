@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { chromium } from "playwright";
 import { LIVE_VALUES, OTHER_CHAT_STATE, captureWithMasks } from "./screenshot-masks.mjs";
@@ -703,7 +703,7 @@ if (realModel) {
   const session = snapshot.sessions[sessionID];
   assert.equal(session?.id, sessionID, "selected new chat must exist in the server snapshot");
   assert.equal(session?.scratch, true);
-  assert.equal(session?.workspace_dir, join(profileData, "scratch", sessionID));
+  assert.ok(session?.workspace_dir.startsWith(join(profileData, "chats")), "new chat must live under chats");
   await browser.wait(`document.querySelector('.shell-session-title')?.innerText === 'Acceptance'`, "connection-name title (item 2eo)");
   assert.equal(await page.locator(".shell-session-title").getAttribute("title"), "Switch model");
   record("new-chat");
@@ -711,7 +711,7 @@ if (realModel) {
   const fixtureSessionID = sessionID;
   await setTask("acceptance: scratch file");
   await waitProjectedChatText(sessionID, "SCRATCH FILE COMPLETE", "scratch file tool");
-  assert.equal(await readFile(join(profileData, "scratch", sessionID, "scratch-proof.txt"), "utf8"), "scratch tool passed\n");
+  assert.equal(await readFile(join(session.workspace_dir, "scratch-proof.txt"), "utf8"), "scratch tool passed\n");
   record("scratch-chat-title-and-file-tool");
 
   await setTask("acceptance: absolute list");
@@ -866,6 +866,34 @@ if (realModel) {
   assert.equal(await toggleMenu.locator(".agent-chat-delete").first().evaluate((node) => getComputedStyle(node).color), "rgb(228, 98, 79)");
   await page.screenshot({ path: join(args.evidence, "rel-1.46.0-w2-menu.png") });
   console.log(`W2 menu contrast ${menuPalette.ratio.toFixed(2)}:1 (${menuPalette.color} on ${menuPalette.background})`);
+  const treeAction = (body) => page.evaluate(async (value) => {
+    const url = new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href;
+    return (await import(url)).api("/api/chats/tree", value);
+  }, body);
+  const chatRoot = (await state()).chat_root, folder = "Acceptance folder", renamedFolder = "Renamed folder";
+  await treeAction({ action: "add", name: folder });
+  assert.equal((await stat(join(chatRoot, folder))).isDirectory(), true);
+  await treeAction({ action: "rename", path: folder, name: renamedFolder });
+  await treeAction({ action: "move", id: sessionID, folder: renamedFolder });
+  const explorerPath = join(chatRoot, renamedFolder, "Explorer name");
+  await rename(join(chatRoot, renamedFolder, "chat"), explorerPath);
+  for (const deadline = Date.now() + 2000; Date.now() < deadline && (await state()).sessions[sessionID].workspace_dir !== explorerPath;) await sleep(40);
+  assert.equal((await state()).sessions[sessionID].workspace_dir, explorerPath, "watcher did not keep chat identity after Explorer rename");
+  await toggleMenu.evaluate((menu) => { menu.hidden = true; });
+  await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
+  const folderRow = toggleMenu.locator(".agent-chat-folder", { hasText: renamedFolder });
+  await folderRow.waitFor({ state: "visible" });
+  assert.equal(await folderRow.getAttribute("open"), null, "folders must be collapsed by default");
+  assert.equal(await folderRow.locator(`[data-session="${sessionID}"]`).count(), 1);
+  await folderRow.locator("summary > .agent-chat-delete").click();
+  await browser.wait(`document.querySelector('#app-shell')?.dataset.error?.includes('folder must be empty') || document.body.innerText.includes('folder must be empty')`, "non-empty folder reason");
+  await treeAction({ action: "move", id: sessionID, folder: "" });
+  await treeAction({ action: "delete", path: renamedFolder });
+  assert.equal((await readdir(chatRoot)).includes(renamedFolder), false);
+	await toggleMenu.evaluate((menu) => { menu.hidden = true; });
+	await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
+	await toggleMenu.locator(".agent-chat-summary").first().waitFor({ state: "visible" });
+  record("chat-folders-app-explorer-and-nonempty-refusal");
   const codePanel = await page.evaluate(async () => {
     const moduleURL = new URL("markdown.js", document.querySelector("script[src*='/js/build-check.js']").src).href;
     const { renderMarkdown } = await import(moduleURL);
@@ -2513,7 +2541,7 @@ if (realModel) {
   const dSession = Object.values(dState.sessions).find((session) => session.role === "d" && !session.plan_id);
   assert.ok(dSession, JSON.stringify(dState.sessions));
   assert.equal(dSession.connection_id, "acceptance");
-  assert.equal(dSession.workspace_dir, join(profileData, "scratch", dSession.id));
+  assert.ok(dSession.workspace_dir.startsWith(join(profileData, "chats")), "new d chat must live under chats");
   // Item 2gl (v1.2.6): the WINDOW title names the chat, because the overlay
   // could not be made to activate and the system strip stays. 2eo's rule is
   // about the header beside the tab strip, which still reads the connection only.

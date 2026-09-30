@@ -49,7 +49,9 @@ function voiceRow(context) {
 }
 
 export function renderChatsPage(active, context) {
-  return `${context.subhead("Reading", "How the transcript and the message box are drawn.")}
+  return `${context.subhead("Chats", "The directory Explorer and the chat menu share.")}
+	${context.field("chat_root", "root path", `<span class="path">${context.html(context.store.chat_root || "")}</span>`, false, "Read-only. Open this path in Explorer to see the same chat tree.")}
+	${context.subhead("Reading", "How the transcript and the message box are drawn.")}
     ${context.choices("chat.text_size", "text size", TEXT_SIZES, context.store.config.chat?.text_size || "normal", "Scales the transcript, the message box and the step rows together. Nothing else in the product changes size.")}
     ${context.choices("chat.typeface", "typeface", TYPEFACES, context.store.config.chat?.typeface || "IBM Plex Sans", "Applies to the text of a message. Code, tool output and paths stay monospaced.")}
     ${context.subhead("Voice", "Where a spoken request lands when it names no chat.")}

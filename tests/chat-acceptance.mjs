@@ -866,6 +866,40 @@ if (realModel) {
   assert.equal(await toggleMenu.locator(".agent-chat-delete").first().evaluate((node) => getComputedStyle(node).color), "rgb(228, 98, 79)");
   await page.screenshot({ path: join(args.evidence, "rel-1.46.0-w2-menu.png") });
   console.log(`W2 menu contrast ${menuPalette.ratio.toFixed(2)}:1 (${menuPalette.color} on ${menuPalette.background})`);
+  const codePanel = await page.evaluate(async () => {
+    const moduleURL = new URL("markdown.js", document.querySelector("script[src*='/js/build-check.js']").src).href;
+    const { renderMarkdown } = await import(moduleURL);
+    const fixture = Object.assign(document.createElement("div"), { id: "w3-code-panel-fixture", className: "chat-entry" });
+    fixture.style.cssText = "position:fixed;z-index:100;left:92px;right:24px;top:100px;background:var(--well)";
+    const speaker = Object.assign(document.createElement("div"), { className: "chat-speaker", textContent: "agent_b" });
+    const host = document.createElement("div");
+    host.className = "chat-content";
+    fixture.append(speaker, host); document.body.append(fixture);
+    const widthBefore = host.getBoundingClientRect().width;
+    renderMarkdown(host, `Use this command to connect.\n\n\`\`\`powershell\nssh -p 22 someone@example.org\n\`\`\`\n\n\`\`\`\n${"x".repeat(300)}\n\`\`\``);
+    host.scrollIntoView({ block: "center" });
+    const paragraph = host.querySelector("p"), blocks = [...host.querySelectorAll(".code-block")];
+    const [labelled, longBlock] = blocks;
+    const label = labelled.querySelector(".code-language"), pre = labelled.querySelector("pre"), longPre = longBlock.querySelector("pre");
+    const rect = (node) => { const value = node.getBoundingClientRect(); return { left: value.left, right: value.right, top: value.top, bottom: value.bottom, width: value.width }; };
+    const blockStyle = getComputedStyle(labelled), transcriptStyle = getComputedStyle(document.querySelector("#chat-log"));
+    return {
+      paragraph: rect(paragraph), block: rect(labelled), label: rect(label), pre: rect(pre),
+      widthBefore, widthAfter: host.getBoundingClientRect().width,
+      long: { clientWidth: longPre.clientWidth, scrollWidth: longPre.scrollWidth, block: rect(longBlock), host: rect(host) },
+      panelBackground: blockStyle.backgroundColor, transcriptBackground: transcriptStyle.backgroundColor,
+      borderWidth: blockStyle.borderTopWidth, borderStyle: blockStyle.borderTopStyle,
+    };
+  });
+  await page.screenshot({ path: join(args.evidence, args["w3-baseline"] === "true" ? "rel-1.46.0-w3-baseline.png" : "rel-1.46.0-w3-code-panel.png") });
+  assert.ok(codePanel.label.bottom <= codePanel.pre.top, JSON.stringify(codePanel));
+  assert.ok(Math.abs(codePanel.block.left - codePanel.paragraph.left) <= 1 && Math.abs(codePanel.block.right - codePanel.paragraph.right) <= 1, JSON.stringify(codePanel));
+  assert.notEqual(codePanel.panelBackground, codePanel.transcriptBackground);
+  assert.equal(`${codePanel.borderWidth} ${codePanel.borderStyle}`, "1px solid");
+  assert.ok(codePanel.long.scrollWidth > codePanel.long.clientWidth, JSON.stringify(codePanel.long));
+  assert.ok(Math.abs(codePanel.widthBefore - codePanel.widthAfter) <= 1 && codePanel.long.block.right <= codePanel.long.host.right + 1, JSON.stringify(codePanel.long));
+  await page.evaluate(() => document.querySelector("#w3-code-panel-fixture")?.remove());
+  console.log(`W3 code panel ${codePanel.panelBackground}, ${codePanel.borderWidth} ${codePanel.borderStyle}`);
   assert.equal(await toggleMenu.locator(".agent-chat-count").count(), 0);
   const historyRow = await toggleMenu.locator(".agent-chat-summary").first().innerText();
   assert.match(historyRow, /^\d{2}:\d{2} · \S/, historyRow);

@@ -326,7 +326,8 @@ func TestASeededDisagreementFails(t *testing.T) {
 	}
 }
 
-// Item 2my: EXACTLY ONE ROUTE WAS ADDED, and the refusals it does not touch still stand.
+// Items 2my and 2ow: chat.create is the only lifecycle route exposed, and its
+// additive connection choice does not widen the rest of the lifecycle surface.
 //
 // The route set is a security statement, so the thing worth testing is not that
 // `chat.create` works — it has no dispatcher on this side yet — but that adding it
@@ -346,14 +347,14 @@ func TestOnlyChatCreateWasAddedAndTheRestStayRefused2my(t *testing.T) {
 		}
 	}
 
-	// (a): the body is a label and nothing else. These field names are the ones a device
-	// must not be able to send, because each would let it choose something.
-	for _, forbidden := range []string{"connection_id", "role", "source_session_id", "agent_id"} {
-		if strings.Contains(document, "`chat.create`") && strings.Contains(document, "`"+forbidden+"`") {
-			// The document may mention them only to say they are NOT carried.
-			if !strings.Contains(document, "It does not carry `connection_id`, `role` or") {
-				t.Errorf("the document names %q without saying chat.create does not carry it", forbidden)
-			}
+	// 2ow adds only connection_id. Role/source copying and agent selection remain
+	// unavailable, while the safe connection sheet is exact.
+	for _, wanted := range []string{
+		"{label?,connection_id?}", "It still cannot carry `role` or", "`source_session_id`",
+		"`{id,label,model,host,vision,docs,tools,ctx}`", "no URL path, credential, API key",
+	} {
+		if !strings.Contains(document, wanted) {
+			t.Errorf("the connection-selection contract does not say %q", wanted)
 		}
 	}
 
@@ -378,7 +379,7 @@ func TestOnlyChatCreateWasAddedAndTheRestStayRefused2my(t *testing.T) {
 	if file.Version != 1 {
 		t.Errorf("version = %d; an additive route is compatible and must not bump it", file.Version)
 	}
-	if !strings.Contains(document, "added 2026-09-27") {
+	if !strings.Contains(document, "connection selection added 2026-09-30") {
 		t.Error("the added route is not dated in the table")
 	}
 	if !strings.Contains(document, "**Version stays 1.**") {

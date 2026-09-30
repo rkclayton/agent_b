@@ -387,6 +387,26 @@ test("the toggle is the setup and its failure is one sentence in one place", () 
   }
 });
 
+test("service identity shows truthful per-step outcomes and an openable log link", () => {
+  const context = pageContext();
+  context.serviceAccountStatus = { loaded: true, supported: true, administrator: false, exists: true, state: "disabled" };
+  context.store.config.shell.service_account = { enabled: false, account: "agentb-svc" };
+  context.serviceAccountMessage = "service identity not set up";
+  context.serviceAccountAlarm = true;
+  context.serviceAccountLog = "C:\\Temp\\service-identity.log";
+  context.serviceAccountSteps = [
+    "account — PASS",
+    "protections — PASS",
+    "network — FAILED exit 1: DRIFT RemoteAddress",
+  ];
+  context.connectionList = () => [{ id: "local", label: "Local", base_url: "http://127.0.0.1:8080" }];
+  context.selectedHardeningConnectionID = () => "local";
+  const page = renderSecurityPage("shell", null, context);
+  for (const line of context.serviceAccountSteps) assert.match(page, new RegExp(line.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(page, /<a[^>]+href="file:\/\/\/C:\/Temp\/service-identity\.log"[^>]*>open log<\/a>/i);
+  assert.doesNotMatch(page, /network[^<]*applied[^<]*exit 1/i);
+});
+
 // (e), as a rule rather than one example: every failure sentence the setup path can
 // produce is checked against the controls the section actually renders.
 test("no service identity message names a control the section does not render", () => {

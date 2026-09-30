@@ -6,7 +6,7 @@ let credentialList = [];
 let credentialMessage = "";
 let credentialAlarm = false;
 let credentialDevice = {};
-let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess, standingGrants, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
+let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess, standingGrants, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
 function useSettingsContext(context) {
   serviceAccountLog = context.serviceAccountLog || "";
   brokerStatus = context.brokerStatus || {};
@@ -16,7 +16,7 @@ function useSettingsContext(context) {
   credentialMessage = context.credentialMessage || "";
   credentialAlarm = !!context.credentialAlarm;
   credentialDevice = context.credentialDevice || {};
-  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess = { devices: [] }, standingGrants = [], connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
+  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps = [], hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess = { devices: [] }, standingGrants = [], connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
 }
 
 function shell(active) {
@@ -112,6 +112,8 @@ function shell(active) {
 	const identityOn = !!service.enabled;
 	const setupOpen = (identityOn || serviceAccountBusy) && serviceAccountStatus.state !== "ready";
 	const identityAlarm = (identityOn || serviceAccountBusy) && serviceAccountStatus.loaded && serviceAccountStatus.state !== "ready";
+	const serviceLogHref = serviceAccountLog ? encodeURI(`file:///${serviceAccountLog.replaceAll("\\", "/")}`) : "";
+	const serviceStepLines = serviceAccountSteps.map((line) => `<p class="account-status">${html(line)}</p>`).join("");
   return `${subhead("Operator mode", "Run everything as you for 20 minutes. This is the one line that stays visible because misreading it is dangerous.")}
 	${row("identity", `<button type="button" class="settings-operator-status" data-action="operator-context" aria-pressed="${operatorView.active}" aria-label="${attr(operatorView.label)}"><img src="${operatorView.src}" srcset="${operatorView.srcset}" width="24" height="24" alt=""><span>${operatorView.active ? "Stop running everything as me" : "Run everything as me for 20 minutes"}</span></button>`, "", "Runs every tool as you, without the service account's limits, for 20 minutes or until you stop it.")}
 	<p class="settings-note">This defeats the service-account OS boundary for every tool in every chat until it expires.</p>
@@ -127,7 +129,8 @@ function shell(active) {
 	${subhead("Service identity", "Use the restricted Windows account for tools. Switching it on sets the account up and asks Windows once; switching it off takes effect immediately.")}
 	${row("Service identity", `<button type="button" role="switch" aria-checked="${identityOn}" aria-label="Service identity" class="switch ${identityOn ? "on" : ""}" data-action="service-identity-toggle" ${serviceAccountBusy ? "disabled" : ""}></button><span class="account-status">${serviceAccountBusy ? "Turning on — Windows will ask once" : identityOn ? "on" : "off"}</span>`, "", "Off: tools run as the account that launched Agent_b. On: Agent_b runs tools as its own restricted Windows account.")}
 	${feedback(serviceAccountMessage, serviceAccountAlarm)}
-	${serviceAccountMessage && serviceAccountLog ? `<p class="account-status">${html(serviceAccountLog)}</p>` : ""}
+	${serviceStepLines}
+	${serviceAccountMessage && serviceAccountLog ? `<p class="account-status"><a href="${attr(serviceLogHref)}">open log</a> · ${html(serviceAccountLog)}</p>` : ""}
 	<details class="settings-advanced"${setupOpen ? " open" : ""}>
 	  <summary>Set up service identity</summary>
 	  <p class="settings-note">Agent_b generates and stores the password. One Windows approval creates or repairs the account, folder access and outbound policy, then tests the credential before enabling it.</p>

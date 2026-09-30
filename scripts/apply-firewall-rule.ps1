@@ -174,26 +174,84 @@ function Resolve-LocalUserSid {
     return $user.SID.Value
 }
 
+function ConvertTo-AddressInterval {
+    param([string]$Text)
+    $text = $Text.Trim()
+    $parts = @($text -split '-', 2)
+    $prefix = $null
+    if ($parts.Count -eq 1 -and $text -match '^(.+)/([0-9]{1,3})$') {
+        $parts = @($Matches[1])
+        $prefix = [int]$Matches[2]
+    }
+    $first = [Net.IPAddress]::Parse($parts[0]).GetAddressBytes()
+    $last = if ($parts.Count -eq 2) { [Net.IPAddress]::Parse($parts[1]).GetAddressBytes() } else { [byte[]]$first.Clone() }
+    if ($first.Length -ne $last.Length) { throw "Address range mixes IPv4 and IPv6: '$Text'" }
+    if ($null -ne $prefix) {
+        if ($prefix -lt 0 -or $prefix -gt ($first.Length * 8)) { throw "Address prefix is invalid: '$Text'" }
+        for ($index = 0; $index -lt $first.Length; $index++) {
+            $remaining = $prefix - ($index * 8)
+            $mask = if ($remaining -ge 8) { 255 } elseif ($remaining -le 0) { 0 } else { (256 - [math]::Pow(2, 8 - $remaining)) }
+            $first[$index] = $first[$index] -band [byte]$mask
+            $last[$index] = $first[$index] -bor [byte](255 - $mask)
+        }
+    }
+    $family = if ($first.Length -eq 4) { '4' } else { '6' }
+    $firstHex = [BitConverter]::ToString($first).Replace('-', '')
+    $lastHex = [BitConverter]::ToString($last).Replace('-', '')
+    return "$family`:$firstHex-$lastHex"
+}
+
 function Test-RuleIntent {
-    param([string]$LocalUserSddl)
+    param([string]$LocalUserSddl, [switch]$Emit)
+    $drifts = [Collections.Generic.List[string]]::new()
+    function Compare-Property {
+        param([string]$Name, $Expected, $Actual, [switch]$Addresses)
+        $expectedValues = @($Expected | ForEach-Object { [string]$_ })
+        $actualValues = @($Actual | ForEach-Object { [string]$_ })
+        $expectedText = if ($expectedValues.Count) { $expectedValues -join ', ' } else { '<absent>' }
+        $actualText = if ($actualValues.Count) { $actualValues -join ', ' } else { '<absent>' }
+        if ($Addresses) {
+            $expectedCompare = @($expectedValues | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { ConvertTo-AddressInterval $_ } | Sort-Object -Unique)
+            $actualCompare = @($actualValues | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { ConvertTo-AddressInterval $_ } | Sort-Object -Unique)
+        } else {
+            $expectedCompare = @($expectedValues)
+            $actualCompare = @($actualValues)
+        }
+        $same = $expectedCompare.Count -eq $actualCompare.Count -and -not (Compare-Object -ReferenceObject $expectedCompare -DifferenceObject $actualCompare)
+        if (-not $same) { [void]$drifts.Add($Name) }
+        if ($Emit) { Write-Host "$(if ($same) { 'PASS' } else { 'DRIFT' }) $Name`: expected $expectedText got $actualText" }
+    }
+
     $rule = Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue
-    if (-not $rule) { return $false }
-    if ($rule.Direction -ne 'Outbound' -or $rule.Action -ne 'Block' -or $rule.Enabled -ne 'True' -or $rule.Connection -ne 'Any') { return $false }
-    if ($rule.Description -ne $policyDescription) { return $false }
-    # LocalUser is stored on the associated network-layer security filter,
-    # not on the MSFT_NetFirewallRule object returned by Get-NetFirewallRule.
-    $security = Get-NetFirewallSecurityFilter -AssociatedNetFirewallRule $rule
-    if ($security.LocalUser -ne $LocalUserSddl) { return $false }
-    $actual = @((Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule).RemoteAddress | Sort-Object)
-    $expected = @($blockedRanges | Sort-Object)
-    $blockCorrect = ($actual.Count -eq $expected.Count -and -not (Compare-Object -ReferenceObject $expected -DifferenceObject $actual))
+    $security = if ($rule) { Get-NetFirewallSecurityFilter -AssociatedNetFirewallRule $rule } else { $null }
+    $addresses = if ($rule) { @((Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule).RemoteAddress) } else { @() }
+    Compare-Property Rule 'present' $(if ($rule) { 'present' } else { $null })
+    Compare-Property Direction 'Outbound' $(if ($rule) { $rule.Direction } else { $null })
+    Compare-Property Action 'Block' $(if ($rule) { $rule.Action } else { $null })
+    Compare-Property Enabled 'True' $(if ($rule) { $rule.Enabled } else { $null })
+    Compare-Property Profile 'Any' $(if ($rule) { $rule.Profile } else { $null })
+    Compare-Property Description $policyDescription $(if ($rule) { $rule.Description } else { $null })
+    Compare-Property LocalUser $LocalUserSddl $(if ($security) { $security.LocalUser } else { $null })
+    Compare-Property RemoteAddress $blockedRanges $addresses -Addresses
+
     $icmp = Get-NetFirewallRule -Name $LANICMPRuleName -ErrorAction SilentlyContinue
-    if (-not $AllowLocalNetwork) { return $blockCorrect -and -not $icmp }
-    if (-not $icmp -or $icmp.Direction -ne 'Outbound' -or $icmp.Action -ne 'Allow' -or $icmp.Enabled -ne 'True' -or $icmp.Connection -ne 'Any') { return $false }
-    $icmpSecurity = Get-NetFirewallSecurityFilter -AssociatedNetFirewallRule $icmp
-    $icmpPort = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $icmp
-    $icmpAddresses = @((Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $icmp).RemoteAddress | Sort-Object)
-    return $blockCorrect -and $icmpSecurity.LocalUser -eq $LocalUserSddl -and $icmpPort.Protocol -eq 'ICMPv4' -and $icmpPort.IcmpType -eq '8' -and $icmpAddresses.Count -eq $confirmedLANSubnets.Count -and -not (Compare-Object -ReferenceObject $confirmedLANSubnets -DifferenceObject $icmpAddresses)
+    if (-not $AllowLocalNetwork) {
+        Compare-Property ICMP '<absent>' $(if ($icmp) { 'present' } else { '<absent>' })
+    } else {
+        $icmpSecurity = if ($icmp) { Get-NetFirewallSecurityFilter -AssociatedNetFirewallRule $icmp } else { $null }
+        $icmpPort = if ($icmp) { Get-NetFirewallPortFilter -AssociatedNetFirewallRule $icmp } else { $null }
+        $icmpAddresses = if ($icmp) { @((Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $icmp).RemoteAddress) } else { @() }
+        Compare-Property ICMP.Rule 'present' $(if ($icmp) { 'present' } else { $null })
+        Compare-Property ICMP.Direction 'Outbound' $(if ($icmp) { $icmp.Direction } else { $null })
+        Compare-Property ICMP.Action 'Allow' $(if ($icmp) { $icmp.Action } else { $null })
+        Compare-Property ICMP.Enabled 'True' $(if ($icmp) { $icmp.Enabled } else { $null })
+        Compare-Property ICMP.Profile 'Any' $(if ($icmp) { $icmp.Profile } else { $null })
+        Compare-Property ICMP.LocalUser $LocalUserSddl $(if ($icmpSecurity) { $icmpSecurity.LocalUser } else { $null })
+        Compare-Property ICMP.Protocol 'ICMPv4' $(if ($icmpPort) { $icmpPort.Protocol } else { $null })
+        Compare-Property ICMP.IcmpType '8' $(if ($icmpPort) { $icmpPort.IcmpType } else { $null })
+        Compare-Property ICMP.RemoteAddress $confirmedLANSubnets $icmpAddresses -Addresses
+    }
+    return [pscustomobject]@{ Correct = ($drifts.Count -eq 0); Drifts = @($drifts) }
 }
 
 if (($Verify.IsPresent -and $Remove.IsPresent) -or ($Inspect.IsPresent -and ($Verify.IsPresent -or $Remove.IsPresent))) {
@@ -246,7 +304,8 @@ try { $sid = Resolve-LocalUserSid -Name $AccountName } catch {
     exit 1
 }
 $localUserSddl = "D:(A;;CC;;;$sid)"
-$correct = Test-RuleIntent -LocalUserSddl $localUserSddl
+$verification = Test-RuleIntent -LocalUserSddl $localUserSddl -Emit:$Verify
+$correct = $verification.Correct
 $legacyPresent = [bool](Get-NetFirewallRule -Name $legacyAllowRuleName -ErrorAction SilentlyContinue)
 
 if ($Inspect) {
@@ -261,8 +320,10 @@ if ($Inspect) {
     exit 0
 }
 if ($Verify) {
-    Write-Host "$(if ($correct) { 'PASS' } else { 'DRIFT' }): $ruleName"
-    Write-Host "$(if (-not $legacyPresent) { 'PASS' } else { 'DRIFT' }): no conflicting legacy Allow rule"
+    Write-Host "$(if (-not $legacyPresent) { 'PASS' } else { 'DRIFT' }) LegacyAllow: expected <absent> got $(if ($legacyPresent) { $legacyAllowRuleName } else { '<absent>' })"
+    $drifted = @($verification.Drifts)
+    if ($legacyPresent) { $drifted += 'LegacyAllow' }
+    Write-Host "$(if ($drifted.Count) { 'DRIFT' } else { 'PASS' }) $ruleName$(if ($drifted.Count) { ': ' + ($drifted -join ', ') } else { '' })"
     Write-Summary -Changed @() -NotChanged @('firewall rules', 'firewall connection defaults') -Next @($(if ($correct -and -not $legacyPresent) { 'firewall verification complete' } else { 'apply again to repair drift' }))
     if (-not $correct -or $legacyPresent) { exit 1 }
     exit 0
@@ -287,7 +348,13 @@ if ($PSCmdlet.ShouldProcess($ruleName, 'Create or repair Agent_b user-scoped out
     if ($AllowLocalNetwork) {
         $null = New-NetFirewallRule -Name $LANICMPRuleName -DisplayName $LANICMPRuleName -Description 'Allows outbound ICMPv4 echo to operator-confirmed LAN subnets for the Agent_b service identity.' -Direction Outbound -Action Allow -Enabled True -Profile Any -LocalUser $localUserSddl -Protocol ICMPv4 -IcmpType 8 -RemoteAddress $confirmedLANSubnets
     }
-    Write-Host "APPLIED: $ruleName"
+    $appliedVerification = Test-RuleIntent -LocalUserSddl $localUserSddl -Emit
+    if (-not $appliedVerification.Correct) {
+        Write-Host "FAILED: $ruleName drifted after write: $($appliedVerification.Drifts -join ', ')"
+        Write-Summary -Changed @('firewall rule written but not verified') -NotChanged @('firewall connection defaults') -Next @('review the named drift above')
+        exit 1
+    }
+    Write-Host "APPLIED: $ruleName (verified)"
 }
 Write-Summary -Changed @('user-scoped outbound Block rule applied') -NotChanged @('firewall connection defaults') -Next @('verify from Settings', 'run the RBAC network check')
 exit 0

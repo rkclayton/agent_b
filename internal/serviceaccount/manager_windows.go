@@ -134,6 +134,7 @@ func (m *windowsManager) Setup(ctx context.Context, account, credentialPath stri
 	// ordinary noise; reading it as failure text is the defect this item exists
 	// for, and it cost the operator a provisioning run on v1.11.0.
 	m.writeLauncherLog(logPath, output)
+	steps := setupStepLines(logPath, runErr != nil)
 
 	launch := LaunchStarted
 	if strings.Contains(string(output), "AGENTB_ELEVATION_NOT_STARTED") || !strings.Contains(string(output), "AGENTB_ELEVATED_STARTED") {
@@ -143,7 +144,7 @@ func (m *windowsManager) Setup(ctx context.Context, account, credentialPath stri
 
 	// (e): a launch that never happened is its own message and its own state.
 	if launch == LaunchDeclined {
-		return SetupResult{Launch: LaunchDeclined, LogPath: logPath},
+		return SetupResult{Launch: LaunchDeclined, LogPath: logPath, Steps: steps},
 			fmt.Errorf("Windows elevation was declined or could not be started, so no account operation ran")
 	}
 
@@ -160,14 +161,52 @@ func (m *windowsManager) Setup(ctx context.Context, account, credentialPath stri
 			// child's own first error line instead.
 			message = first
 		}
-		return SetupResult{Attempted: true, Launch: LaunchStarted, Result: result, LogPath: logPath},
+		return SetupResult{Attempted: true, Launch: LaunchStarted, Result: result, LogPath: logPath, Steps: steps},
 			fmt.Errorf("%s (full output: %s)", partialRepairNote(logPath, message), logPath)
 	}
 	if result != nil && !result.Ok {
-		return SetupResult{Attempted: true, Launch: LaunchStarted, Result: result, LogPath: logPath},
+		return SetupResult{Attempted: true, Launch: LaunchStarted, Result: result, LogPath: logPath, Steps: steps},
 			fmt.Errorf("%s (full output: %s)", partialRepairNote(logPath, result.Message), logPath)
 	}
-	return SetupResult{Attempted: true, Launch: LaunchStarted, Result: result, LogPath: logPath}, nil
+	return SetupResult{Attempted: true, Launch: LaunchStarted, Result: result, LogPath: logPath, Steps: steps}, nil
+}
+
+func setupStepLines(path string, failed bool) []string {
+	data, _ := os.ReadFile(path)
+	logText := strings.ReplaceAll(string(data), "\r\n", "\n")
+	status := map[string]string{}
+	if strings.Contains(logText, "VALIDATED: the supplied credential") {
+		status["account"] = "PASS"
+	}
+	exitCode := "1"
+	for _, line := range strings.Split(logText, "\n") {
+		if strings.HasPrefix(line, "AGENTB_ELEVATED_WRAPPER_EXIT ") {
+			exitCode = strings.TrimSpace(strings.TrimPrefix(line, "AGENTB_ELEVATED_WRAPPER_EXIT "))
+		}
+		for _, step := range []string{"protections", "network"} {
+			prefix := "AGENTB_HARDENING_STEP=" + step + " "
+			if strings.HasPrefix(line, prefix) {
+				status[step] = strings.TrimSpace(strings.TrimPrefix(line, prefix))
+			}
+		}
+	}
+	reason := firstErrorLine(path)
+	if reason == "" {
+		reason = "step result missing from the log"
+	}
+	lines := make([]string, 0, 3)
+	for _, step := range []string{"account", "protections", "network"} {
+		outcome := status[step]
+		if outcome == "" {
+			if failed {
+				outcome = "FAILED exit " + exitCode + ": " + reason
+			} else {
+				outcome = "FAILED exit 0: step result missing from the log"
+			}
+		}
+		lines = append(lines, step+" — "+outcome)
+	}
+	return lines
 }
 
 // partialRepairNote is item 2nl (d): A PARTIAL REPAIR IS SAID PLAINLY.
@@ -184,8 +223,17 @@ func partialRepairNote(logPath, reason string) string {
 	}
 	log := string(data)
 	account := strings.Contains(log, "VALIDATED: the supplied credential")
-	protections := strings.Contains(log, "AGENTB_HARDENING_STEP=protections")
-	network := strings.Contains(log, "AGENTB_HARDENING_STEP=network")
+	stepPassed := func(step string) bool {
+		marker := "AGENTB_HARDENING_STEP=" + step
+		for _, line := range strings.Split(strings.ReplaceAll(log, "\r\n", "\n"), "\n") {
+			if strings.TrimSpace(line) == marker || strings.TrimSpace(line) == marker+" PASS" {
+				return true
+			}
+		}
+		return false
+	}
+	protections := stepPassed("protections")
+	network := stepPassed("network")
 	if !account && !protections {
 		// Nothing got far enough for a part-by-part sentence to say more than the reason.
 		return reason

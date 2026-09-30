@@ -276,6 +276,15 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	typedCode := code
+	if os.Getenv("AGENTB_BROKER_CODE_FORM") == "link" {
+		typedCode, _, err = ReadPairingLink(PairingLink(code, agent.SigningPublic()))
+		if err != nil {
+			t.Fatal(err)
+		}
+	} else if os.Getenv("AGENTB_BROKER_CODE_FORM") == "lower" {
+		typedCode = strings.ToLower(strings.ReplaceAll(code, "-", ""))
+	}
 	pairAgent.send(t, FramePairBegin, pairBeginPayload{
 		Role: "agent", CodeHash: hex.EncodeToString(CodeHash(raw)),
 		Ed25519: base64.RawURLEncoding.EncodeToString(agent.SigningPublic()),
@@ -288,7 +297,7 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 		X25519  string `json:"x25519_public"`
 		Code    string `json:"code"`
 	}{
-		Role: "device", Code: strings.ReplaceAll(code, "-", ""),
+		Role: "device", Code: typedCode,
 		Ed25519: base64.RawURLEncoding.EncodeToString(device.SigningPublic()),
 		X25519:  base64.RawURLEncoding.EncodeToString(device.AgreementPublic()),
 	})

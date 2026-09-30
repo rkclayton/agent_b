@@ -32,7 +32,12 @@ func TestThePushTheBrokerForwardsIsSealedToTheDevice2kq(t *testing.T) {
 	if frame.Type != FramePush {
 		t.Fatalf("expected PUSH, got 0x%02x", frame.Type)
 	}
-	var payload pushPayload
+	var payload struct {
+		PairingID      string `json:"pairing_id"`
+		RecipientKeyID string `json:"recipient_key_id"`
+		MessageID      string `json:"message_id"`
+		Ciphertext     string `json:"ciphertext"`
+	}
 	if err := DecodeInto(frame.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}

@@ -19,9 +19,6 @@ import (
 	"harness/internal/quietproc"
 )
 
-// Agent_b-setup.exe is this binary with an embedded payload. Ordinary per-user
-// installs are native; TestMode/WhatIf and the elevated compatibility path keep
-// the legacy script until their remaining machine operations move to Go.
 type installOptions struct {
 	quiet         bool
 	sourceDir     string
@@ -32,16 +29,10 @@ type installOptions struct {
 	passThough    []string
 }
 
-// installOperatorSID deliberately accepts the old name-lookup seam only so the
-// hybrid-identity regression can prove it is never used.  The process token is
-// the authority: an Entra display name can resolve to a different SID than the
-// on-premises identity actually held by this process.
 func installOperatorSID(tokenUser func() (string, error), _ func() (string, error)) (string, error) {
 	return tokenUser()
 }
 
-// installProgress is one line of the progress file: the Setup page renders
-// these in order and the last one is the result.
 type installProgress struct {
 	At    string `json:"at"`
 	Phase string `json:"phase"`
@@ -60,8 +51,6 @@ func installProgressPath(dataRoot string) string {
 	return filepath.Join(dataRoot, installProgressName)
 }
 
-// appendProgress writes one line. A failure to write progress never fails the
-// install: the install is the point, the readout is not.
 func appendProgress(dataRoot string, entry installProgress) {
 	entry.At = time.Now().UTC().Format(time.RFC3339)
 	encoded, err := json.Marshal(entry)
@@ -76,9 +65,6 @@ func appendProgress(dataRoot string, entry installProgress) {
 	_, _ = file.Write(append(encoded, '\n'))
 }
 
-// phaseFor reads the installer's own transcript lines and names the phase from
-// them, so the phases the operator sees are the installer's, not a second
-// vocabulary invented here.
 func phaseFor(line string) string {
 	switch {
 	case strings.HasPrefix(line, "PREFLIGHT"):
@@ -97,27 +83,11 @@ func phaseFor(line string) string {
 	return ""
 }
 
-// windowsPowerShell is Windows PowerShell 5.1 by absolute path (item 2gc:
-// never a bare name, so a PATH that reaches another shell first cannot change
-// what the installer runs).
 func windowsPowerShell() string {
 	return filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 }
 
-// runInstall is `--install`. It returns the exit code.
 func runInstall(options installOptions, args []string) int {
-	// Item 2gv (v1.2.5): THE LOG IS THE FIRST THING. Before the source is
-	// resolved, before the marker, before any check — because a failure before
-	// the log is a failure nobody can read, which is exactly what the operator
-	// met when a double-clicked setup did nothing at all.
-	// Item 2ll: an instance's install writes ITS OWN records. This one line was
-	// the leak rel-1.14.0/W8 found: it fell straight to the operator's
-	// LocalAppData whatever instance asked for the update, so a disposable
-	// instance's self-update left its log, its in-progress marker and its
-	// progress file in the operator's data root. The two other resolutions in
-	// this file already prefer the installer's own -DataDirectory, and so does
-	// this one now -- which fixes it for every caller, not only for an updater
-	// that remembers to pass --install-data.
 	dataRoot := installDataRoot(options.dataRoot, args)
 	log := openInstallLog(dataRoot, options.quiet)
 	defer log.close()
@@ -148,9 +118,6 @@ func runInstall(options installOptions, args []string) int {
 		return log.fail("%s is missing; run this from the candidate folder", script)
 	}
 
-	// The marker goes down BEFORE anything is touched, so a failure from here
-	// on is recorded no matter how the process ends — including a window the
-	// operator closes.
 	marker := InstallMarker{Phase: "starting", Version: currentDisplayVersion(source), Source: source, Quiet: options.quiet}
 	if err := writeInstallMarker(dataRoot, marker); err != nil {
 		return log.fail("could not record that the install began: %v", err)
@@ -161,8 +128,6 @@ func runInstall(options installOptions, args []string) int {
 	var waitInstaller func() error
 	nativeInstall := !options.allUsers && !installerFlagPresent(args, "WhatIf") && !installerFlagPresent(args, "TestMode")
 	if nativeInstall {
-		// Item 2or: the ordinary install runs in this Go process.  There is no
-		// PowerShell process to be blocked by execution policy.
 		waitInstaller = func() error {
 			err := runNativePerUserInstall(source, args, dataRoot, log)
 			if err != nil {
@@ -199,8 +164,6 @@ func runInstall(options installOptions, args []string) int {
 		waitInstaller = command.Wait
 	}
 
-	// The marker follows the phases the installer reports in its own progress
-	// file, so this wrapper reads the same record the Setup page does.
 	lastPhase := "starting"
 	followed := make(chan struct{})
 	go func() {
@@ -235,8 +198,6 @@ func runInstall(options installOptions, args []string) int {
 
 	finish := installProgress{Phase: "finished", Text: "Agent_b " + marker.Version + " is installed.", Done: true, OK: true}
 	if code == 0 {
-		// The marker is cleared ONLY on success. That is what makes its
-		// presence at the next launch mean something.
 		if err := clearInstallMarker(dataRoot); err != nil {
 			log.printf("install: the install finished but its marker could not be cleared: %v", err)
 		}
@@ -245,16 +206,10 @@ func runInstall(options installOptions, args []string) int {
 			log.printf("AUTOSTART SKIPPED: -NoStart was requested. Log: %s", log.location())
 			return 0
 		}
-		// Item 2nh (a): THE RESTART IS PART OF THE SEQUENCE. The operator's window
-		// closed under him and a new one opened with nothing said; the phase that
-		// covers that gap was the one phase nobody wrote.
 		appendProgress(dataRoot, installProgress{Phase: "restarting", Text: "Starting Agent_b " + marker.Version})
 		applicationRoot := installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers))
 		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
 		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, nativeInstall, log); err != nil {
-			// Item 2nh (b): the finish is written below, after the restart, so a
-			// restart that fails must write its own end — otherwise the page that is
-			// watching waits for a line that is never coming.
 			appendProgress(dataRoot, installProgress{Phase: "restarting", Text: fmt.Sprintf("Agent_b %s was installed but failed to start: %v. Transcript: %s", marker.Version, err, log.location()), Done: true})
 			return log.fail("Agent_b was installed but failed to start: %v", err)
 		}
@@ -265,12 +220,6 @@ func runInstall(options installOptions, args []string) int {
 		}
 		if leftInPlace != "" {
 			log.printf("%s", leftInPlace)
-			// Item 2nh (c): A WARNING IS NOT A FAILURE, AND IT IS NOT THE FINISH.
-			// This line used to be written as "finished ok:true" AFTER the finish,
-			// so the last line of the progress file — the line a reader takes as the
-			// result — was "MIGRATION LEFT IN PLACE: access denied", and a successful
-			// update read as an error. It is a note now, and the finish below is the
-			// last line.
 			appendProgress(dataRoot, installProgress{Phase: "warning", Text: leftInPlace, OK: true})
 		}
 		appendProgress(dataRoot, finish)
@@ -290,10 +239,6 @@ func runInstall(options installOptions, args []string) int {
 			log.printf("RESTARTED: %s after %s.", version, reason)
 		}
 	}
-	// Item 2nf (c): THE CONTROL SHOWS THE INSTALLER'S OWN REASON. "The install stopped
-	// during starting (exit 1)" is what the operator saw three times, while the
-	// transcript said plainly that the three directories must be disjoint trees. The
-	// installer already writes its reason; nothing carried it to where he was looking.
 	failureText := fmt.Sprintf("The install stopped during %s (exit %d). It is safe to run again.", lastPhase, code)
 	if reason := installerFailureReason(log.location()); reason != "" {
 		failureText = reason + " It is safe to run again."
@@ -302,9 +247,6 @@ func runInstall(options installOptions, args []string) int {
 	appendProgress(dataRoot, installProgress{Phase: lastPhase, Text: failureText, Done: true})
 	marker.Phase = lastPhase
 	_ = writeInstallMarker(dataRoot, marker)
-	// Item 2gv: this exit is logged too. The Setup page shows the same thing
-	// when it is up; from Explorer with no page yet, the box and the log are
-	// the whole of the report.
 	log.printf("install: the installer exited %d during %s", code, lastPhase)
 	if !options.quiet {
 		showInstallFailure("Agent_b install failed", failureText)

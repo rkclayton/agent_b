@@ -38,14 +38,6 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 			return fmt.Errorf("WorkspaceDirectory must be the canonical per-user LocalAppData location: %s", expectedWorkspace)
 		}
 	}
-	if installerFlagPresent(arguments, "WhatIf") {
-		log.printf("PREFLIGHT COMPLETE: native source and identity accepted")
-		log.printf("Mode: WhatIf; no registration or installation action ran.")
-		if installerFlagPresent(arguments, "RootValidationOnly") {
-			log.printf("ROOT VALIDATION COMPLETE: non-TestMode defaults accepted; no registration or installation action ran.")
-		}
-		return nil
-	}
 	operatorSID, err := installOperatorSID(currentTokenSID, func() (string, error) { return "", fmt.Errorf("name lookup is forbidden") })
 	if err != nil {
 		return fmt.Errorf("read process-token user SID: %w", err)
@@ -70,7 +62,6 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 	log.printf("INSTALLATION COMPLETE")
 	return nil
 }
-
 func currentTokenSID() (string, error) {
 	token := windows.GetCurrentProcessToken()
 	user, err := token.GetTokenUser()
@@ -79,7 +70,6 @@ func currentTokenSID() (string, error) {
 	}
 	return user.User.Sid.String(), nil
 }
-
 func secureInstallDirectory(path, sid string, _ bool) error {
 	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;OICI;FA;;;" + sid + ")(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)")
 	if err != nil {
@@ -91,7 +81,6 @@ func secureInstallDirectory(path, sid string, _ bool) error {
 	}
 	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
 }
-
 func writeUninstallRegistration(values map[string]any) error {
 	key, _, err := registry.CreateKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b`, registry.SET_VALUE)
 	if err != nil {
@@ -120,9 +109,7 @@ type comInterface struct{ vtable **uintptr }
 func comMethod(object *comInterface, index uintptr) uintptr {
 	return *(*uintptr)(unsafe.Pointer(uintptr(unsafe.Pointer(object.vtable)) + index*unsafe.Sizeof(uintptr(0))))
 }
-
 func failedHRESULT(value uintptr) bool { return int32(value) < 0 }
-
 func writeShellLink(spec shortcutSpec) error {
 	if err := os.MkdirAll(filepath.Dir(spec.Path), 0o700); err != nil {
 		return err
@@ -185,7 +172,6 @@ func writeShellLink(spec shortcutSpec) error {
 	}
 	return nil
 }
-
 func stopNativeInstalledProcess(application, data string, log *installLog) error {
 	encoded, err := readMarker(filepath.Join(data, "agent_b-run.json"))
 	if os.IsNotExist(err) {

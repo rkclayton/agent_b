@@ -114,11 +114,9 @@ test("the Plan header carries the artwork and three lines about planning", async
 // Item 2ld. The operator, 2026-09-26: "can we make it where if you grab this
 // little part at the top of the chat window in between where you type and it
 // displays that you can resize the chat input? and remove the [expand control]".
-// Item 2me (a): the floor came down from 48 to ONE LINE of input, measured in the
-// running app at 34px — a 20px line with the textarea's own 7px above and below.
-// It does not go to zero: a composer that can be dragged shut is a composer that
-// can be lost, and the strip must stay grabbable at the smallest size.
-test("the composer shrinks to a single line and cannot be dragged shut", async ({ page }) => {
+// Item 2oc: the input row goes all the way to zero while the strip stays as the
+// reversible handle, and zero is remembered just like every other height.
+test("the composer collapses to zero, remembers it, and opens from the same handle", async ({ page }) => {
   const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8");
   const body = `<!doctype html><html><head><style>
     :root { --bezel:#2A2E35; --well:#15181C; --ink:#D8DDE3; --mute:#7D8794; --mono:monospace; }
@@ -126,8 +124,10 @@ test("the composer shrinks to a single line and cannot be dragged shut", async (
     #chat-log { overflow-y:auto } ${chatCSS}
   </style></head><body><div id="wrap">
     <main id="chat-log"><p>transcript</p></main>
-    <div id="chat-status-strip" class="chat-status-strip" role="separator" title="Drag to resize the message box">ready</div>
-    <footer id="chat-composer" class="chat-composer"><textarea id="chat-input"></textarea></footer>
+    <footer id="chat-composer" class="chat-composer">
+      <div id="chat-status-strip" class="chat-status-strip" role="separator" title="Drag to resize the message box">ready</div>
+      <div class="chat-composer-row"><div class="chat-input-wrap"><textarea id="chat-input"></textarea><span class="chat-input-actions"><button id="chat-mic" class="composer-control">mic</button><button id="chat-send" class="composer-control">send</button></span></div></div>
+    </footer>
   </div>
   <script type="module">
     import { installComposerResize, COMPOSER_MIN } from "/js/composer-resize.js";
@@ -143,7 +143,7 @@ test("the composer shrinks to a single line and cannot be dragged shut", async (
   await page.fill("#chat-input", "still here");
 
   const floor = await page.evaluate(() => window.COMPOSER_MIN);
-  expect(floor, "the floor is one line of input plus the textarea's padding").toBe(34);
+  expect(floor, "the floor is a true zero").toBe(0);
 
   // Drag far past the bottom of the window: the clamp, not the pointer, decides.
   const strip = await page.locator("#chat-status-strip").boundingBox();
@@ -153,22 +153,33 @@ test("the composer shrinks to a single line and cannot be dragged shut", async (
   await page.mouse.up();
 
   const applied = await page.evaluate(() => Number.parseFloat(document.getElementById("chat-composer").style.getPropertyValue("--composer-height")));
-  expect(applied, "the composer went below its floor").toBe(floor);
-  // Not shut, and what was typed is still shown.
-  expect(applied).toBeGreaterThan(0);
+  expect(applied, "the composer did not reach its zero floor").toBe(floor);
+  // The row and its controls are truly gone, while the typed value is retained.
   await expect(page.locator("#chat-input")).toHaveValue("still here");
-  expect((await page.locator("#chat-input").boundingBox()).height).toBeGreaterThan(0);
+  expect((await page.locator("#chat-input").boundingBox()).height).toBe(0);
+  expect((await page.locator(".chat-composer-row").boundingBox()).height, "the controls still occupied a row").toBe(0);
+  const collapsed = await page.locator("#chat-composer").boundingBox();
+  const collapsedStrip = await page.locator("#chat-status-strip").boundingBox();
+  expect(collapsed.y + collapsed.height, "space remained below the handle").toBe(collapsedStrip.y + collapsedStrip.height);
   // The handle is still findable: the strip is still there and still the target.
   const smallest = await page.locator("#chat-status-strip").boundingBox();
   expect(smallest.height, "the handle disappeared at the smallest size").toBeGreaterThanOrEqual(20);
 
+  await page.reload();
+  expect(await page.evaluate(() => Number.parseFloat(document.getElementById("chat-composer").style.getPropertyValue("--composer-height"))), "zero was not restored after reload").toBe(0);
+  expect((await page.locator("#chat-input").boundingBox()).height).toBe(0);
+  expect((await page.locator(".chat-composer-row").boundingBox()).height).toBe(0);
+
   // And it comes back: the drag is reversible from the floor.
-  await page.mouse.move(smallest.x + 40, smallest.y + smallest.height / 2);
+  const restoredStrip = await page.locator("#chat-status-strip").boundingBox();
+  await page.mouse.move(restoredStrip.x + 40, restoredStrip.y + restoredStrip.height / 2);
   await page.mouse.down();
-  await page.mouse.move(smallest.x + 40, smallest.y + smallest.height / 2 - 100, { steps: 6 });
+  await page.mouse.move(restoredStrip.x + 40, restoredStrip.y + restoredStrip.height / 2 - 100, { steps: 6 });
   await page.mouse.up();
   const back = await page.evaluate(() => Number.parseFloat(document.getElementById("chat-composer").style.getPropertyValue("--composer-height")));
   expect(back, "the composer could not be dragged back up from the floor").toBeGreaterThan(floor);
+  await page.fill("#chat-input", "usable again");
+  await expect(page.locator("#chat-input")).toHaveValue("usable again");
 });
 
 test("dragging the strip resizes the composer, keeps what is typed, and persists", async ({ page }) => {

@@ -3,14 +3,21 @@
 package nativepolicy
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"harness/internal/credential"
 )
 
 type ACLRequest struct{ Application, Data, Workspace, Exchange, SID string }
@@ -392,4 +399,143 @@ func aclTargets(request ACLRequest, create bool) ([]aclTarget, error) {
 func sameOrWithin(child, parent string) bool {
 	relative, err := filepath.Rel(parent, child)
 	return err == nil && (relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)))
+}
+
+func ExecuteHelper(request HelperRequest) HelperResult {
+	sha, err := SelfSHA256()
+	if err != nil || !strings.EqualFold(sha, request.ExpectedSHA) {
+		return HelperResult{Message: "elevated helper identity does not match the verified executable"}
+	}
+	steps := []string{}
+	if request.Operation == "provision" {
+		password, readErr := credential.New(filepath.Dir(request.CredentialPath)).Read()
+		if readErr != nil {
+			return HelperResult{Message: "read service credential: " + readErr.Error()}
+		}
+		if err := EnsureAccount(request.Account, password, request.Reset); err != nil {
+			return HelperResult{Message: err.Error(), Steps: steps}
+		}
+		steps = append(steps, "account — PASS")
+	}
+	account, err := InspectAccount(request.Account)
+	if err != nil || !account.Exists {
+		return HelperResult{Message: "service account is missing", Steps: steps}
+	}
+	request.ACL.SID, request.Firewall.SID = account.SID, account.SID
+	remove := request.Action == "remove"
+	if err := ApplyACLPolicy(request.ACL, remove); err != nil {
+		return HelperResult{Message: "ACL policy: " + err.Error(), Steps: steps}
+	}
+	if !remove {
+		if drift, err := InspectACLPolicy(request.ACL); err != nil || len(drift) > 0 {
+			return HelperResult{Message: firstDrift("ACL", drift, err), Steps: steps}
+		}
+	}
+	steps = append(steps, "protections — PASS")
+	if err := ApplyFirewallPolicy(request.Firewall, remove); err != nil {
+		return HelperResult{Message: "firewall policy: " + err.Error(), Steps: steps}
+	}
+	if !remove {
+		if drift, err := InspectFirewallPolicy(request.Firewall); err != nil || len(drift) > 0 {
+			return HelperResult{Message: firstDrift("firewall", drift, err), Steps: steps}
+		}
+	}
+	steps = append(steps, "network — PASS")
+	return HelperResult{OK: true, Message: "service identity account, protections, and network policy verified", Steps: steps}
+}
+
+func firstDrift(component string, drift []Drift, err error) string {
+	if err != nil {
+		return component + " verification: " + err.Error()
+	}
+	if len(drift) == 0 {
+		return component + " verification failed"
+	}
+	return fmt.Sprintf("DRIFT %s: expected %s got %s", drift[0].Subject, drift[0].Expected, drift[0].Found)
+}
+
+func SelfSHA256() (string, error) {
+	path, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err = io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func WriteHelperRequest(path string, request *HelperRequest) error {
+	sha, err := SelfSHA256()
+	if err != nil {
+		return err
+	}
+	request.ExpectedSHA = sha
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, encoded, 0o600)
+}
+
+func LaunchElevatedHelper(ctx context.Context, requestPath, resultPath string) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if err := verifyAuthenticode(executable); err != nil {
+		return err
+	}
+	verb, _ := windows.UTF16PtrFromString("runas")
+	file, _ := windows.UTF16PtrFromString(executable)
+	parameters, _ := windows.UTF16PtrFromString(`--service-helper "` + strings.ReplaceAll(requestPath, `"`, `\"`) + `" --service-result "` + strings.ReplaceAll(resultPath, `"`, `\"`) + `"`)
+	if err := windows.ShellExecute(0, verb, file, parameters, nil, 0); err != nil {
+		return fmt.Errorf("Windows elevation was declined or could not be started: %w", err)
+	}
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if _, err := os.Stat(resultPath); err == nil {
+				return nil
+			}
+		}
+	}
+}
+
+func verifyAuthenticode(path string) error {
+	type fileInfo struct {
+		Size    uint32
+		Path    *uint16
+		File    windows.Handle
+		Subject *windows.GUID
+	}
+	type trustData struct {
+		Size                              uint32
+		Policy, Client                    uintptr
+		UIChoice, Revocation, UnionChoice uint32
+		Info                              uintptr
+		StateAction                       uint32
+		State                             windows.Handle
+		URL                               uintptr
+		ProviderFlags, UIContext          uint32
+	}
+	wide, _ := windows.UTF16PtrFromString(path)
+	info := fileInfo{Size: uint32(unsafe.Sizeof(fileInfo{})), Path: wide}
+	data := trustData{Size: uint32(unsafe.Sizeof(trustData{})), UIChoice: 2, UnionChoice: 1, Info: uintptr(unsafe.Pointer(&info)), ProviderFlags: 0x1000}
+	action := windows.GUID{Data1: 0x00aac56b, Data2: 0xcd44, Data3: 0x11d0, Data4: [8]byte{0x8c, 0xc2, 0, 0xc0, 0x4f, 0xc2, 0x95, 0xee}}
+	result, _, _ := windows.NewLazySystemDLL("wintrust.dll").NewProc("WinVerifyTrust").Call(^uintptr(0), uintptr(unsafe.Pointer(&action)), uintptr(unsafe.Pointer(&data)))
+	if int32(result) != 0 {
+		return fmt.Errorf("elevated helper Authenticode verification failed: 0x%x", result)
+	}
+	return nil
 }

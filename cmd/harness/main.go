@@ -79,6 +79,8 @@ func main() {
 	uninstallWorker := flag.Bool("uninstall-worker", false, "complete a native uninstall after the installed process exits")
 	uninstallParent := flag.Int("uninstall-parent", 0, "parent process to await before native uninstall")
 	purgeData := flag.Bool("purge-data", false, "with --uninstall: remove operator data")
+	serviceHelper := flag.String("service-helper", "", "elevated native service-identity request")
+	serviceResult := flag.String("service-result", "", "elevated native service-identity result")
 	passthrough := installPassthrough(os.Args[1:])
 	if err := flag.CommandLine.Parse(installFlagArgs(os.Args[1:])); err != nil {
 		log.Fatal(err)
@@ -95,6 +97,12 @@ func main() {
 	}
 	if *uninstall || *uninstallWorker {
 		if err := runNativeUninstall(*applicationOverride, *dataOverride, *purgeData, *uninstallWorker, *uninstallParent); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if *serviceHelper != "" {
+		if err := runServiceHelper(*serviceHelper, *serviceResult); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -393,12 +401,8 @@ func main() {
 		bus.Publish(events.New(events.ShellIdentity, "", "", status))
 	})
 	web.SetShellSecurity(credentialStore, shellTool)
-	web.SetServiceAccountManager(serviceaccount.New(filepath.Join(paths.Application, "scripts", "setup-service-account.ps1")))
-	hardeningManager := hardening.New(
-		filepath.Join(paths.Application, "scripts", "apply-acls.ps1"),
-		filepath.Join(paths.Application, "scripts", "apply-firewall-rule.ps1"),
-		filepath.Join(paths.Application, "scripts", "apply-hardening.ps1"),
-	)
+	web.SetServiceAccountManager(serviceaccount.NewNative())
+	hardeningManager := hardening.NewNative()
 	web.SetHardeningManager(hardeningManager)
 	registry.SetPlanGrant(func(repository string) error {
 		if !web.ConfigSnapshot().Shell.ServiceAccount.Enabled {

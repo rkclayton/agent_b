@@ -43,6 +43,8 @@ func New(scriptPath string) Manager {
 	return manager
 }
 
+func NewNative() Manager { return &windowsManager{workDir: os.TempDir()} }
+
 func (m *windowsManager) Status(ctx context.Context, account string) (Status, error) {
 	if err := ctx.Err(); err != nil {
 		return Status{}, err
@@ -64,6 +66,45 @@ func isElevated() bool {
 }
 
 func (m *windowsManager) Setup(ctx context.Context, account, credentialPath string, reset bool, protection *Protection) (SetupResult, error) {
+	if m.scriptPath != "" && !strings.EqualFold(filepath.Base(m.scriptPath), "setup-service-account.ps1") {
+		return m.setupLegacy(ctx, account, credentialPath, reset, protection)
+	}
+	resultPath, logPath := m.resultPaths()
+	requestPath := resultPath + ".request.json"
+	defer os.Remove(requestPath)
+	request := nativepolicy.HelperRequest{Operation: "provision", Action: "apply", Account: account, CredentialPath: credentialPath, Reset: reset}
+	if protection != nil {
+		request.ACL = nativepolicy.ACLRequest{Application: protection.ApplicationDirectory, Data: protection.DataDirectory, Workspace: protection.WorkspaceDirectory, Exchange: protection.ExchangeDirectory}
+		request.Firewall = nativepolicy.FirewallRequest{AllowLocalNetwork: protection.AllowLocalNetwork, LocalSubnets: protection.LocalSubnets, AllowedRanges: protection.AllowedModelRanges}
+	}
+	if err := nativepolicy.WriteHelperRequest(requestPath, &request); err != nil {
+		return SetupResult{}, err
+	}
+	if err := nativepolicy.LaunchElevatedHelper(ctx, requestPath, resultPath); err != nil {
+		launch := LaunchStarted
+		if strings.Contains(err.Error(), "declined") {
+			launch = LaunchDeclined
+		}
+		return SetupResult{Attempted: launch == LaunchStarted, Launch: launch, LogPath: logPath}, err
+	}
+	encoded, err := os.ReadFile(resultPath)
+	if err != nil {
+		return SetupResult{Attempted: true, Launch: LaunchStarted, LogPath: logPath}, err
+	}
+	var native nativepolicy.HelperResult
+	if err := json.Unmarshal(encoded, &native); err != nil {
+		return SetupResult{Attempted: true, Launch: LaunchStarted, LogPath: logPath}, err
+	}
+	_ = os.WriteFile(logPath, []byte(strings.Join(append(native.Steps, native.Message), "\r\n")+"\r\n"), 0o600)
+	result := &ElevatedResult{Ok: native.OK, Message: native.Message, Outcome: "ready", Account: account}
+	setup := SetupResult{Attempted: true, Launch: LaunchStarted, Result: result, LogPath: logPath, Steps: native.Steps}
+	if !native.OK {
+		return setup, fmt.Errorf("%s (full output: %s)", native.Message, logPath)
+	}
+	return setup, nil
+}
+
+func (m *windowsManager) setupLegacy(ctx context.Context, account, credentialPath string, reset bool, protection *Protection) (SetupResult, error) {
 	scriptPath, err := filepath.Abs(m.scriptPath)
 	if err != nil {
 		return SetupResult{}, fmt.Errorf("resolve service-account setup script: %w", err)

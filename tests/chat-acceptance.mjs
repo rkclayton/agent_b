@@ -2085,7 +2085,10 @@ if (realModel) {
   await page.locator("#chat-attach-exchange").click();
   await browser.wait(`[...document.querySelectorAll('#chat-exchange-files button')].some(item=>item.innerText.includes('phone-note.txt'))`, "operator attachment listed");
   assert.equal(await clickText("#chat-exchange-files button", "phone-note.txt · 26 B"), true);
-  await browser.wait(`document.querySelector('.chat-pending-file')`, "pending attachment");
+  // The active upload and the ready attachment intentionally share this row
+  // class. Wait for the byte-count form so Enter cannot race the copy and send
+  // the text before the attachment has joined the queue.
+  await browser.wait(`[...document.querySelectorAll('.chat-pending-file')].some(item=>item.innerText.includes('phone-note.txt · 26 B'))`, "pending attachment ready");
   await setTask("acceptance: attachment");
   await waitProjectedChatText(sessionID, "Attachment received and rendered.", "attachment answer");
   await waitEvent(sessionID, (event) => event.type === "message.appended" && event.data.message?.attachments?.length === 1, "attachment JSONL");
@@ -2093,7 +2096,7 @@ if (realModel) {
   record("attachment-screen-jsonl");
   const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><text>TEXT SVG ACCEPTANCE</text></svg>');
   await page.locator("#chat-file-picker").setInputFiles({ name: "agent.svg", mimeType: "image/svg+xml", buffer: svg });
-  await browser.wait(`[...document.querySelectorAll('.chat-pending-file')].some(item=>item.innerText.includes('agent.svg'))`, "SVG pending attachment");
+  await browser.wait(`[...document.querySelectorAll('.chat-pending-file')].some(item=>item.innerText.includes('agent.svg') && !item.innerText.includes('uploading'))`, "SVG pending attachment ready");
   assert.equal(await page.locator(".chat-pending-file .chat-attachment-warning").count(), 0);
   const beforeSVG = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
   await setTask("acceptance: attachment SVG");
@@ -2128,8 +2131,8 @@ if (realModel) {
     return canvas.toDataURL("image/png").split(",")[1];
   });
   await page.locator("#chat-file-picker").setInputFiles({ name: "ocr-acceptance.png", mimeType: "image/png", buffer: Buffer.from(ocrPNG, "base64") });
+  await browser.wait(`[...document.querySelectorAll('.chat-pending-file')].some(item=>item.innerText.includes('OCR: ocr-acceptance.png.txt'))`, "OCR attachment ready");
   const ocrAttachment = page.locator(".chat-pending-file").filter({ hasText: "ocr-acceptance.png" });
-  await ocrAttachment.waitFor({ state: "visible" });
   assert.match(await ocrAttachment.innerText(), /OCR: ocr-acceptance\.png\.txt/);
   assert.doesNotMatch(await ocrAttachment.innerText(), /cannot read images/);
   // Item 2ga: a capture of a finished run waits until the page shows it

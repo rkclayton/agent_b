@@ -40,9 +40,11 @@ function Test-IsAdministrator {
 }
 
 function Invoke-HardeningScript {
-    param([string]$Path, [string[]]$Arguments)
+    param([string]$Step, [string]$Path, [string[]]$Arguments)
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $all = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $Path) + $Arguments
+    $version = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.Substring(0, 12).ToLowerInvariant()
+    Write-Host "AGENTB_HARDENING_HEADER step=$Step script=$(Split-Path -Leaf $Path) version=sha256:$version parameters=$($Arguments -join ' ')"
     $output = @(& $powershell @all 2>&1 | ForEach-Object { [string]$_ })
     $exitCode = $LASTEXITCODE
     foreach ($line in $output) { Write-Host $line }
@@ -53,10 +55,13 @@ function Invoke-HardeningScript {
         # line a failing child writes is its reason, so it leads.
         $detail = ($output | Select-Object -Last 20) -join [Environment]::NewLine
         if ([string]::IsNullOrWhiteSpace($detail)) { $detail = 'no diagnostic output was returned' }
-        $causeLines = @($output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $causeLines = @($output | Where-Object { $_ -match '^(DRIFT|FAILED|ERROR|.*failed:)' })
+        if (-not $causeLines.Count) { $causeLines = @($output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) }
         $causeText = if ($causeLines.Count) { ([string]$causeLines[-1]).Trim() } else { 'no diagnostic output was returned' }
+        Write-Host "AGENTB_HARDENING_STEP=$Step FAILED exit $exitCode`: $causeText"
         throw "$causeText ($(Split-Path -Leaf $Path) exited $exitCode)`n$detail"
     }
+    Write-Host "AGENTB_HARDENING_STEP=$Step PASS"
 }
 
 $requiresElevation = $Mode -ne 'Verify' -and -not $WhatIfPreference
@@ -95,24 +100,20 @@ Write-Host "Exchange: $ExchangeDirectory"
 # protection and then refused on the network policy, and all he was told was that the
 # protections "were not applied".
 if ($Mode -eq 'Remove') {
-    Invoke-HardeningScript -Path $firewallScript -Arguments $firewallArguments
-    Write-Host 'AGENTB_HARDENING_STEP=network'
-    Invoke-HardeningScript -Path $aclScript -Arguments $aclArguments
-    Write-Host 'AGENTB_HARDENING_STEP=protections'
+    Invoke-HardeningScript -Step network -Path $firewallScript -Arguments $firewallArguments
+    Invoke-HardeningScript -Step protections -Path $aclScript -Arguments $aclArguments
 } else {
-    Invoke-HardeningScript -Path $aclScript -Arguments $aclArguments
-    Write-Host 'AGENTB_HARDENING_STEP=protections'
-    Invoke-HardeningScript -Path $firewallScript -Arguments $firewallArguments
-    Write-Host 'AGENTB_HARDENING_STEP=network'
+    Invoke-HardeningScript -Step protections -Path $aclScript -Arguments $aclArguments
+    Invoke-HardeningScript -Step network -Path $firewallScript -Arguments $firewallArguments
 }
 
 if ($Mode -eq 'Apply' -and -not $WhatIfPreference) {
-    Invoke-HardeningScript -Path $aclScript -Arguments @('-AccountName', $AccountName, '-ApplicationDirectory', $ApplicationDirectory, '-DataDirectory', $DataDirectory, '-WorkspaceDirectory', $WorkspaceDirectory, '-ExchangeDirectory', $ExchangeDirectory, '-Verify')
+    Invoke-HardeningScript -Step protections -Path $aclScript -Arguments @('-AccountName', $AccountName, '-ApplicationDirectory', $ApplicationDirectory, '-DataDirectory', $DataDirectory, '-WorkspaceDirectory', $WorkspaceDirectory, '-ExchangeDirectory', $ExchangeDirectory, '-Verify')
     $firewallVerifyArguments = @('-AccountName', $AccountName, '-Verify')
     if ($AllowLocalNetwork) { $firewallVerifyArguments += '-AllowLocalNetwork' }
     if ($LocalSubnet.Count) { $firewallVerifyArguments += @('-LocalSubnet', ($LocalSubnet -join ',')) }
     if ($AllowedRange.Count) { $firewallVerifyArguments += @('-AllowedRange', ($AllowedRange -join ',')) }
-    Invoke-HardeningScript -Path $firewallScript -Arguments $firewallVerifyArguments
+    Invoke-HardeningScript -Step network -Path $firewallScript -Arguments $firewallVerifyArguments
 }
 
 Write-Host "AGENTB_HARDENING_COMPLETE=$Mode"

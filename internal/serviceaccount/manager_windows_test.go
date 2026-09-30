@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -69,5 +70,27 @@ func TestElevatedCommandUsesUACAndHiddenHelper(t *testing.T) {
 		if !strings.Contains(command, wanted) {
 			t.Fatalf("elevation command does not contain %q:\n%s", wanted, command)
 		}
+	}
+}
+
+func TestSetupStepLinesReportPassAndNamedFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "service-identity.log")
+	log := strings.Join([]string{
+		"VALIDATED: the supplied credential successfully authenticated with LogonUser.",
+		"AGENTB_HARDENING_STEP=protections PASS",
+		"AGENTB_HARDENING_STEP=network FAILED exit 1: DRIFT AgentB-Svc-Outbound-Block: RemoteAddress",
+		"AGENTB_ELEVATED_WRAPPER_EXIT 1",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(log), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"account — PASS",
+		"protections — PASS",
+		"network — FAILED exit 1: DRIFT AgentB-Svc-Outbound-Block: RemoteAddress",
+	}
+	got := setupStepLines(path, true)
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("step lines = %#v, want %#v", got, want)
 	}
 }

@@ -35,6 +35,7 @@ let shellCredentialAlarm = false;
 let serviceAccountStatus = { loaded: false, supported: true, exists: false, administrator: false };
 let serviceAccountBusy = false;
 let serviceAccountMessage = "";
+let serviceAccountSteps = [];
 // Item 2np (b): the log path is SECONDARY TEXT under the one sentence, not a second
 // message and not a paragraph of its own.
 let serviceAccountLog = "";
@@ -437,7 +438,7 @@ function adoptPanels() {
 function settingsPageContext(active) {
   return {
     active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, phoneAccess, standingGrants: store.standing_grants || [],
-    shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog,
+    shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog, serviceAccountSteps,
     brokerStatus, brokerMessage, brokerAlarm,
     credentialList, credentialMessage, credentialAlarm, credentialDevice,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
@@ -1542,6 +1543,7 @@ async function setupServiceAccount() {
 	}
 	serviceAccountBusy = true;
 	serviceAccountAlarm = false;
+	serviceAccountSteps = [];
 	serviceAccountMessage = "Agent_b sets up its service identity now; Windows will ask once";
 	render();
 	try {
@@ -1555,11 +1557,13 @@ async function setupServiceAccount() {
 		if (result.config) reduce({ type: "config.changed", data: { config: result.config } });
 		serviceAccountMessage = result.message;
 		serviceAccountLog = result.log || "";
+		serviceAccountSteps = result.steps || [];
 		serviceAccountAlarm = !result.ok;
 		await refreshHardeningStatus();
 	} catch (error) {
 		if (error.data?.credential) store.shell_credential = error.data.credential;
 		serviceAccountLog = error.data?.log || "";
+		serviceAccountSteps = error.data?.steps || [];
 		serviceAccountMessage = error.message;
 		serviceAccountAlarm = true;
 		await refreshServiceAccountStatus(true);

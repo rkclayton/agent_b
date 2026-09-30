@@ -25,6 +25,53 @@ function Check([string]$name, [scriptblock]$body) {
     }
 }
 
+function Invoke-FirewallDouble([ValidateSet('Verify', 'Apply')][string]$Mode) {
+    $fixture = [IO.Path]::GetTempFileName() + '.ps1'
+    $stdout = [IO.Path]::GetTempFileName()
+    $stderr = [IO.Path]::GetTempFileName()
+    $source = @'
+$scriptPath = '__FIREWALL__'
+function Get-LocalUser { [pscustomobject]@{ SID = [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-1009' } } }
+function Get-NetFirewallRule {
+    param([string[]]$Name, [object]$ErrorAction)
+    if ($Name -contains 'AgentB-Svc-Outbound-Block') {
+        [pscustomobject]@{ Name = 'AgentB-Svc-Outbound-Block'; Direction = 'Outbound'; Action = 'Block'; Enabled = 'True'; Profile = 'Any'; Description = 'Agent_b allowed= lan=' }
+    }
+}
+function Get-NetFirewallSecurityFilter { param([object]$AssociatedNetFirewallRule) [pscustomobject]@{ LocalUser = 'D:(A;;CC;;;S-1-5-21-1-2-3-1009)' } }
+function Get-NetFirewallAddressFilter { param([object]$AssociatedNetFirewallRule) [pscustomobject]@{ RemoteAddress = @('192.168.1.10-192.168.1.10') } }
+function Get-NetFirewallPortFilter { param([object]$AssociatedNetFirewallRule) [pscustomobject]@{ Protocol = 'ICMPv4'; IcmpType = '8' } }
+function Remove-NetFirewallRule { process { } }
+function New-NetFirewallRule { param([Parameter(ValueFromRemainingArguments=$true)]$Rest) [pscustomobject]@{ Name = 'created' } }
+if ('__MODE__' -eq 'Verify') {
+    & $scriptPath -Verify
+} else {
+    $text = Get-Content -LiteralPath $scriptPath -Raw
+    $text = $text.Replace("if (-not (Test-IsAdministrator) -and -not `$WhatIfPreference -and -not `$Verify -and -not `$Inspect) {", 'if ($false) {')
+    & ([scriptblock]::Create($text)) -NoPrompt
+}
+exit $LASTEXITCODE
+'@
+    $source = $source.Replace('__FIREWALL__', $firewall.Replace("'", "''")).Replace('__MODE__', $Mode)
+    try {
+        Set-Content -LiteralPath $fixture -Value $source -Encoding UTF8
+        $info = [Diagnostics.ProcessStartInfo]::new()
+        $info.FileName = (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
+        $info.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$fixture`""
+        $info.UseShellExecute = $false
+        $info.CreateNoWindow = $true
+        $info.RedirectStandardOutput = $true
+        $info.RedirectStandardError = $true
+        $process = [Diagnostics.Process]::Start($info)
+        $out = $process.StandardOutput.ReadToEnd()
+        $err = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        return [pscustomobject]@{ ExitCode = $process.ExitCode; Text = ($out + $err) }
+    } finally {
+        Remove-Item -LiteralPath $fixture, $stdout, $stderr -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # (a) The scripts take no model address or port at all: a parameter that does not exist
 # cannot be resolved, and cannot fail an apply because a name is unreachable.
 Check 'the firewall script has no model parameters' {
@@ -80,6 +127,22 @@ Check 'a failing step names its cause first' {
     $text = Get-Content -LiteralPath $hardening -Raw
     if ($text -match 'throw "\$\(Split-Path -Leaf \$Path\) exited') { throw 'the failure message still leads with the script name and exit code' }
     if ($text -notmatch 'causeText') { throw "the failure message does not lead with the child's own last line" }
+}
+
+# Item 2oq: the verifier must name the differing property and Apply must run that
+# same verifier against the rule it just wrote.
+Check 'a planted RemoteAddress drift is named' {
+    $result = Invoke-FirewallDouble Verify
+    if ($result.ExitCode -ne 1) { throw "verify exited $($result.ExitCode), expected 1`n$($result.Text)" }
+    if ($result.Text -notmatch 'DRIFT RemoteAddress: expected .* got 10\.0\.0\.0-10\.0\.0\.1') {
+        throw "named RemoteAddress drift missing:`n$($result.Text)"
+    }
+}
+Check 'apply verifies its read-back and never advises applying again' {
+    $result = Invoke-FirewallDouble Apply
+    if ($result.ExitCode -ne 1) { throw "apply exited $($result.ExitCode), expected 1`n$($result.Text)" }
+    if ($result.Text -notmatch 'DRIFT RemoteAddress:') { throw "apply did not name its read-back drift:`n$($result.Text)" }
+    if ($result.Text -match 'apply again') { throw "apply told the operator to apply again:`n$($result.Text)" }
 }
 
 if ($failures.Count -gt 0) {

@@ -59,6 +59,8 @@ type SetupResult struct {
 	// LogPath is where the launcher's own streams were kept, named in the
 	// message the operator sees so the detail is one click away. (d).
 	LogPath string
+	// Steps are the three operator-facing outcomes recovered from the captured log.
+	Steps []string
 }
 
 type Protection struct {

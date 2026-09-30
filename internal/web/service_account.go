@@ -188,6 +188,7 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 			"credential": credentialStatus,
 			"attempted":  true,
 			"log":        result.LogPath,
+			"steps":      result.Steps,
 		})
 		return
 	}
@@ -235,6 +236,8 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 		"credential": credentialStatus,
 		"identity":   s.shell.IdentityStatus(),
 		"config":     masked,
+		"log":        result.LogPath,
+		"steps":      result.Steps,
 	}
 	writeJSON(w, http.StatusOK, response)
 }

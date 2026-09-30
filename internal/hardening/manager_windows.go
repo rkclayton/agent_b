@@ -4,41 +4,28 @@ package hardening
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"harness/internal/nativepolicy"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
-	"unicode/utf16"
-)
 
-const (
-	aclStatusMarker      = "AGENTB_ACL_STATUS="
-	firewallStatusMarker = "AGENTB_FIREWALL_STATUS="
+	"harness/internal/nativepolicy"
 )
 
 var procIsUserAnAdmin = syscall.NewLazyDLL("shell32.dll").NewProc("IsUserAnAdmin")
 
-type windowsManager struct {
-	aclScript, firewallScript, orchestrationScript string
-	powershell                                     string
-}
+type windowsManager struct{}
 
-func New(aclScript, firewallScript, orchestrationScript string) Manager {
-	powershell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-	if _, err := os.Stat(powershell); err != nil {
-		powershell = "powershell.exe"
-	}
-	return &windowsManager{aclScript: aclScript, firewallScript: firewallScript, orchestrationScript: orchestrationScript, powershell: powershell}
-}
-
-func NewNative() Manager { return &windowsManager{} }
+// New keeps the cross-platform constructor stable. The former script paths are
+// ignored because Windows host policy is now inspected and applied natively.
+func New(string, string, string) Manager { return NewNative() }
+func NewNative() Manager                 { return &windowsManager{} }
 
 func (m *windowsManager) Status(ctx context.Context, request Request) (Status, error) {
+	if err := ctx.Err(); err != nil {
+		return Status{}, err
+	}
 	account, err := nativepolicy.InspectAccount(request.AccountName)
 	if err != nil {
 		return Status{}, err
@@ -82,43 +69,10 @@ func (m *windowsManager) Status(ctx context.Context, request Request) (Status, e
 			firewall.Items = append(firewall.Items, DriftItem{Rule: item.Subject, Expected: item.Expected, Found: item.Found})
 		}
 	}
-	return Status{
-		Supported: true, HarnessElevated: isUserAnAdmin(), ACL: acl, Firewall: firewall, Applied: acl.Applied && firewall.Applied,
-		AllowLocalNetwork: request.AllowLocalNetwork, ConfirmedLocalSubnets: append([]string(nil), request.LocalSubnets...),
-		AllowedModelRanges: append([]string(nil), request.AllowedModelRanges...),
-	}, nil
+	return Status{Supported: true, HarnessElevated: isUserAnAdmin(), ACL: acl, Firewall: firewall, Applied: acl.Applied && firewall.Applied, AllowLocalNetwork: request.AllowLocalNetwork, ConfirmedLocalSubnets: append([]string(nil), request.LocalSubnets...), AllowedModelRanges: append([]string(nil), request.AllowedModelRanges...)}, nil
 }
 
-func isUserAnAdmin() bool {
-	result, _, _ := procIsUserAnAdmin.Call()
-	return result != 0
-}
-
-func inspectComponent(ctx context.Context, powershell, script, marker string, arguments []string) (ComponentStatus, error) {
-	absolute, err := filepath.Abs(script)
-	if err != nil {
-		return ComponentStatus{}, err
-	}
-	args := []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-File", absolute}
-	args = append(args, arguments...)
-	command := exec.CommandContext(ctx, powershell, args...)
-	command.Env = systemPowerShellEnvironment(os.Environ(), powershell)
-	output, runErr := command.CombinedOutput()
-	if runErr != nil {
-		return ComponentStatus{}, fmt.Errorf("%s", safeError(output, runErr))
-	}
-	for _, line := range strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n") {
-		if !strings.HasPrefix(line, marker) {
-			continue
-		}
-		var status ComponentStatus
-		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, marker)), &status); err != nil {
-			return ComponentStatus{}, fmt.Errorf("decode status: %w", err)
-		}
-		return status, nil
-	}
-	return ComponentStatus{}, fmt.Errorf("status marker was not returned")
-}
+func isUserAnAdmin() bool { result, _, _ := procIsUserAnAdmin.Call(); return result != 0 }
 
 func (m *windowsManager) Run(ctx context.Context, action string, request Request) (RunResult, error) {
 	if action != "apply" && action != "verify" && action != "remove" {
@@ -133,9 +87,7 @@ func (m *windowsManager) Run(ctx context.Context, action string, request Request
 	}
 	defer os.RemoveAll(directory)
 	requestPath, resultPath := filepath.Join(directory, "request.json"), filepath.Join(directory, "result.json")
-	native := nativepolicy.HelperRequest{Operation: "hardening", Action: action, Account: request.AccountName,
-		ACL:      nativepolicy.ACLRequest{Application: request.ApplicationDirectory, Data: request.DataDirectory, Workspace: request.WorkspaceDirectory, Exchange: request.ExchangeDirectory},
-		Firewall: nativepolicy.FirewallRequest{AllowLocalNetwork: request.AllowLocalNetwork, LocalSubnets: request.LocalSubnets, AllowedRanges: request.AllowedModelRanges}}
+	native := nativepolicy.HelperRequest{Operation: "hardening", Action: action, Account: request.AccountName, ACL: nativepolicy.ACLRequest{Application: request.ApplicationDirectory, Data: request.DataDirectory, Workspace: request.WorkspaceDirectory, Exchange: request.ExchangeDirectory}, Firewall: nativepolicy.FirewallRequest{AllowLocalNetwork: request.AllowLocalNetwork, LocalSubnets: request.LocalSubnets, AllowedRanges: request.AllowedModelRanges}}
 	if err := nativepolicy.WriteHelperRequest(requestPath, &native); err != nil {
 		return RunResult{}, err
 	}
@@ -168,89 +120,4 @@ func (m *windowsManager) GrantPlan(ctx context.Context, account, repository stri
 		return fmt.Errorf("service account is missing")
 	}
 	return nativepolicy.SetManagedACLRule(repository, status.SID, 0x301bf, 3, false)
-}
-
-func hardeningResult(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil || len(data) == 0 {
-		return ""
-	}
-	const limit = 8 << 10
-	if len(data) > limit {
-		data = data[len(data)-limit:]
-	}
-	return strings.TrimSpace(strings.ReplaceAll(string(data), "\r\n", "\n"))
-}
-
-// Windows PowerShell can inherit a PSModulePath headed by PowerShell 7's
-// incompatible built-in modules. Put its own module directory first so Get-Acl,
-// LocalAccounts, and NetSecurity autoload consistently from the web process.
-func systemPowerShellEnvironment(environment []string, powershell string) []string {
-	systemModules := filepath.Clean(filepath.Join(filepath.Dir(powershell), "Modules"))
-	result := append([]string(nil), environment...)
-	found := false
-	for index, entry := range result {
-		key, value, ok := strings.Cut(entry, "=")
-		if !ok || !strings.EqualFold(key, "PSModulePath") {
-			continue
-		}
-		found = true
-		paths := []string{systemModules}
-		for _, candidate := range filepath.SplitList(value) {
-			if candidate != "" && !strings.EqualFold(filepath.Clean(candidate), systemModules) {
-				paths = append(paths, candidate)
-			}
-		}
-		result[index] = key + "=" + strings.Join(paths, string(os.PathListSeparator))
-	}
-	if !found {
-		result = append(result, "PSModulePath="+systemModules)
-	}
-	return result
-}
-
-func elevatedCommand(executable string, arguments []string) string {
-	quoted := make([]string, 0, len(arguments))
-	for _, argument := range arguments {
-		quoted = append(quoted, `"`+strings.ReplaceAll(argument, `"`, `\"`)+`"`)
-	}
-	return fmt.Sprintf(`
-$ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
-try {
-  $process = Start-Process -FilePath '%s' -ArgumentList '%s' -Verb RunAs -WindowStyle Hidden -PassThru
-  Write-Output 'AGENTB_ELEVATED_STARTED'
-  $process.WaitForExit()
-  if ($process.ExitCode -ne 0) { exit $process.ExitCode }
-} catch {
-  Write-Output 'AGENTB_ELEVATION_NOT_STARTED'
-  exit 1
-}
-`, strings.ReplaceAll(executable, "'", "''"), strings.ReplaceAll(strings.Join(quoted, " "), "'", "''"))
-}
-
-func encode(command string) string {
-	encoded := utf16.Encode([]rune(command))
-	data := make([]byte, len(encoded)*2)
-	for index, value := range encoded {
-		data[index*2], data[index*2+1] = byte(value), byte(value>>8)
-	}
-	return base64.StdEncoding.EncodeToString(data)
-}
-
-func safeError(output []byte, err error) string {
-	text := strings.TrimSpace(strings.ReplaceAll(string(output), "\r\n", "\n"))
-	if strings.Contains(text, "#< CLIXML") {
-		// Progress records from a hidden Windows PowerShell process serialize as
-		// CLIXML and are not useful operator-facing diagnostics.
-		return err.Error()
-	}
-	if text == "" {
-		return err.Error()
-	}
-	lines := strings.Split(text, "\n")
-	if len(lines) > 5 {
-		lines = lines[len(lines)-5:]
-	}
-	return strings.Join(lines, " ")
 }

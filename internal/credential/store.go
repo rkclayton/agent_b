@@ -231,7 +231,7 @@ func (s *Store) WriteMachine(password []byte) error {
 // elevated tool that wrote it.
 // ClearMachine removes the machine-scoped blob. It is the in-process half of
 // (f) and has no caller in the running product: an administrator removes the
-// credential through provision-service-identity.ps1 -RemoveMachineCredential.
+// credential through the signed native service helper's removal operation.
 func (s *Store) ClearMachine() error {
 	if s.machinePath == "" {
 		return ErrScopeNotAvailable

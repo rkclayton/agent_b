@@ -28,32 +28,11 @@ The setup guide's interpreter list reports the resolved executable path and whet
 
 In Settings → Security, open **Set up service identity**, confirm the model route, and choose its one setup action. Agent_b generates the password; the operator never types or sees it. Respond if Windows presents a UAC prompt. The default local account is `agentb-svc`.
 
-The one helper pass creates or repairs the non-administrator local account, retains ordinary Users membership, applies folder and outbound firewall policy, validates the generated DPAPI credential with Windows, and verifies the identity split. An elevated fresh install performs that pass inside the install elevation it already owns; a per-user update defers it to this first-launch action.
+The one signed native helper pass creates or repairs the non-administrator local account through Netapi32, retains ordinary Users membership, applies folder policy through Windows security APIs and typed outbound firewall objects through COM, validates the generated DPAPI credential with `LogonUserW`, and verifies the identity split. Install and update leave this one explicit approval to Settings.
 
 Canceling UAC starts no account operation and restores the previous stored credential. A failure after the elevated helper starts is reported as potentially partial; choose **Set up service identity** again to repair it. Supplying different administrator credentials at UAC will fail safely because another Windows user cannot decrypt the operator-scoped DPAPI blob.
 
 Run an approved `whoami` shell command and require the returned identity to end in `\agentb-svc`. Confirm the process owner externally with Task Manager or Process Explorer. If alternate-identity spawning fails, Agent_b does not silently run the command as the operator: it returns the reason and requires **Run as you**.
-
-### Provisioning without an administrator at the keyboard
-
-Fleet endpoints whose users have no admin rights cannot use the Settings action
-above. Run, as SYSTEM, from the installed `scripts` folder:
-
-    provision-service-identity.ps1 -Unattended `
-      -ApplicationDirectory <app> -DataDirectory <data> -WorkspaceDirectory <workspace> `
-      -ExchangeDirectory <exchange> -ModelAddress <host> -ModelPort <port>
-
-It prints one line beginning `AGENTB_PROVISION_RESULT` followed by JSON:
-`outcome` is `ready`, `refused` or `failed`, and `changed` says whether this pass
-did anything. Exit code 0 means the identity is ready, 1 that the invocation was
-refused before any change, 2 that a change was attempted and did not complete.
-Running it again on an already-provisioned machine changes nothing.
-
-**Read the machine-scope trade in [SECURITY.md](../SECURITY.md) before using
-this.** In short: the credential it stores is decryptable by anything running on
-that machine, and the file's access list — Administrators, SYSTEM and
-`agentb-svc`, checked on every read — is what protects it. Undo it with
-`provision-service-identity.ps1 -RemoveMachineCredential -DataDirectory <data>`.
 
 ## 3. Apply host protections
 
@@ -93,68 +72,8 @@ Run these through Agent_b after **Apply protection** succeeds:
 
 File-tool denials come directly from Windows while Agent_b is impersonating the service account. Shell permission classification reads command output heuristically, so a shell prompt is not proof of an OS decision: always inspect the exact displayed operation.
 
-## Manual script fallback
-
-Run prompting commands one at a time. The scripts detect and reject buffered or redirected input because a pasted following line could otherwise be consumed as a password or confirmation.
-
-Account preview and creation:
-
-```powershell
-.\scripts\setup-service-account.ps1 -WhatIf
-```
-
-```powershell
-.\scripts\setup-service-account.ps1
-```
-
-Recover an existing account whose password is unknown:
-
-```powershell
-.\scripts\setup-service-account.ps1 -ResetPassword
-```
-
-After storing/testing that credential in Settings, preview, apply, and verify ACLs. Substitute the same four explicit roots for each invocation:
-
-```powershell
-.\scripts\apply-acls.ps1 -ApplicationDirectory "$env:LOCALAPPDATA\Programs\Agent_b" -DataDirectory "$env:LOCALAPPDATA\Agent_b" -WorkspaceDirectory "$env:LOCALAPPDATA\Agent_b-workspace" -ExchangeDirectory "$env:USERPROFILE\Agent_b" -WhatIf
-```
-
-```powershell
-.\scripts\apply-acls.ps1 -ApplicationDirectory "$env:LOCALAPPDATA\Programs\Agent_b" -DataDirectory "$env:LOCALAPPDATA\Agent_b" -WorkspaceDirectory "$env:LOCALAPPDATA\Agent_b-workspace" -ExchangeDirectory "$env:USERPROFILE\Agent_b"
-```
-
-```powershell
-.\scripts\apply-acls.ps1 -ApplicationDirectory "$env:LOCALAPPDATA\Programs\Agent_b" -DataDirectory "$env:LOCALAPPDATA\Agent_b" -WorkspaceDirectory "$env:LOCALAPPDATA\Agent_b-workspace" -ExchangeDirectory "$env:USERPROFILE\Agent_b" -Verify
-```
-
-Preview, apply, and verify the firewall rule, substituting the numeric model address and port:
-
-```powershell
-.\scripts\apply-firewall-rule.ps1 -ModelAddress 127.0.0.1 -ModelPort 8080 -WhatIf
-```
-
-```powershell
-.\scripts\apply-firewall-rule.ps1 -ModelAddress 127.0.0.1 -ModelPort 8080
-```
-
-```powershell
-.\scripts\apply-firewall-rule.ps1 -ModelAddress 127.0.0.1 -ModelPort 8080 -Verify
-```
-
 ## Rollback
 
 Stop active tasks, disable `shell.service_account.enabled`, then select **Remove** twice under Host protections and approve UAC. Clear the stored credential afterward. Remove the local account only after the ACL and firewall removal verifies successfully and any service-owned workspace data has been copied out. Windows Installed apps removes the application, shortcut, and registration but deliberately leaves these machine-level controls because another checkout or installation may share them.
 
-Manual rollback uses the scripts before deleting the account:
-
-```powershell
-.\scripts\apply-firewall-rule.ps1 -Remove
-```
-
-```powershell
-.\scripts\apply-acls.ps1 -ApplicationDirectory "$env:LOCALAPPDATA\Programs\Agent_b" -DataDirectory "$env:LOCALAPPDATA\Agent_b" -WorkspaceDirectory "$env:LOCALAPPDATA\Agent_b-workspace" -ExchangeDirectory "$env:USERPROFILE\Agent_b" -Remove
-```
-
-```powershell
-Remove-LocalUser -Name 'agentb-svc'
-```
+The native helper is the only supported removal path for managed ACLs and firewall rules. After it reports PASS, an administrator may remove the local `agentb-svc` account with the normal Windows account-management UI.

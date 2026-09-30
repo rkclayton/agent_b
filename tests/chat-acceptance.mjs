@@ -853,10 +853,19 @@ if (realModel) {
   await toggleMenu.waitFor({ state: "visible" });
   assert.equal(await toggleMenu.locator(".agent-chat-console").count(), 0);
   assert.ok(await toggleMenu.locator(".agent-chat-row").count() >= 2);
-  assert.equal(await toggleMenu.locator(".agent-chat-close").count(), await toggleMenu.locator(".agent-chat-row").count());
-  // Item 2hq: Delete exists on closed rows only. Item 2go: the row remains the
-  // date and the name rather than growing another summary line.
-  assert.equal(await toggleMenu.locator(".agent-chat-delete").count(), await toggleMenu.locator(".agent-chat-row.closed").count());
+  assert.equal(await toggleMenu.locator(".agent-chat-close").count(), 0);
+  assert.equal(await toggleMenu.locator(".agent-chat-delete").count(), await toggleMenu.locator(".agent-chat-row").count());
+  assert.equal((await toggleMenu.innerText()).includes("Delete"), false);
+  const menuPalette = await toggleMenu.evaluate((menu) => {
+    const rgb = (value) => value.match(/[\d.]+/g).slice(0, 3).map(Number);
+    const luminance = (value) => rgb(value).map((part) => part / 255).map((part) => part <= .04045 ? part / 12.92 : ((part + .055) / 1.055) ** 2.4).reduce((sum, part, index) => sum + part * [.2126, .7152, .0722][index], 0);
+    const style = getComputedStyle(menu), text = luminance(style.color), background = luminance(style.backgroundColor);
+    return { color: style.color, background: style.backgroundColor, border: style.borderTopColor, ratio: (Math.max(text, background) + .05) / (Math.min(text, background) + .05) };
+  });
+  assert.ok(menuPalette.ratio >= 4.5, JSON.stringify(menuPalette));
+  assert.equal(await toggleMenu.locator(".agent-chat-delete").first().evaluate((node) => getComputedStyle(node).color), "rgb(228, 98, 79)");
+  await page.screenshot({ path: join(args.evidence, "rel-1.46.0-w2-menu.png") });
+  console.log(`W2 menu contrast ${menuPalette.ratio.toFixed(2)}:1 (${menuPalette.color} on ${menuPalette.background})`);
   assert.equal(await toggleMenu.locator(".agent-chat-count").count(), 0);
   const historyRow = await toggleMenu.locator(".agent-chat-summary").first().innerText();
   assert.match(historyRow, /^\d{2}:\d{2} · \S/, historyRow);
@@ -2347,7 +2356,7 @@ if (realModel) {
   await page.locator(".agent-tab").first().click({ button: "right" });
   const closedRow = page.locator(`.agent-chat-row[data-session="${idleCloseID}"]`);
   await closedRow.waitFor({ state: "visible" });
-  assert.equal(await closedRow.locator(".agent-chat-delete").count(), 1, "closed row must expose Delete");
+  assert.equal(await closedRow.locator(".agent-chat-delete").count(), 1, "every row must expose the delete x");
 	for (const width of [1250, 320]) {
 		await page.setViewportSize({ width, height: 975 });
 		const menuRows = await page.evaluate(() => [...document.querySelectorAll(".agent-chat-row")].map((row) => {
@@ -2363,15 +2372,16 @@ if (realModel) {
 		}
 	}
 	await page.setViewportSize({ width: 1250, height: 975 });
+  const tabCountBeforeSwap = await page.locator(".agent-tab-wrap[data-session]").count();
+  const sourceTabID = await page.locator(".agent-tab-wrap.selected").getAttribute("data-session");
   await closedRow.locator(".agent-chat-summary").click();
   await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"]`).waitFor({ state: "visible" });
   assert.equal((await state()).sessions[idleCloseID]?.closed, false, "closed row click must reopen the chat");
+  assert.equal(await page.locator(".agent-tab-wrap[data-session]").count(), tabCountBeforeSwap, "row click must replace rather than add a tab");
+  assert.equal(await page.locator(".agent-tab-wrap.selected").getAttribute("data-session"), idleCloseID, "the clicked chat must own the selected tab");
+  assert.equal((await state()).sessions[sourceTabID]?.closed, true, "the chat previously shown by that tab must close");
 
   await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"] .agent-tab`).click({ button: "right" });
-  await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-close`).click();
-  await page.waitForFunction((id) => !document.querySelector(`.agent-tab-wrap[data-session="${id}"]`), idleCloseID);
-  assert.equal((await state()).sessions[idleCloseID]?.closed, true, "row close must retain a closed chat");
-  await page.locator(".agent-tab").first().click({ button: "right" });
   await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-delete`).waitFor({ state: "visible" });
   const dismiss = async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); };
   page.on("dialog", dismiss);

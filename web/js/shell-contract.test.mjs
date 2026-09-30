@@ -131,18 +131,18 @@ test("compact window controls continue the top strip", () => {
   assert.match(tokens, /\.shell-window-control-glyph\{[^}]*width:9px;height:9px/);
 });
 
-// Items 2go, 2gx and 2hq: the row switches/reopens the chat; close retains it;
-// and only a closed row receives the intentional Delete control.
-test("agent menu separates close, reopen and delete", () => {
+test("agent menu swaps the clicked chat into this tab and every red x deletes", () => {
   assert.match(shell, /sessionsFor\(agentID, true\)/);
   assert.match(shell, /oncontextmenu/);
   assert.match(shell, /\/reopen`/);
-  assert.match(shell, /button\("×"/);
+  assert.match(shell, /button\("×", `Delete \$\{chatName\(session\)\}`, "agent-chat-delete"\)/);
   assert.match(shell, /button\("Rename"/);
   assert.match(shell, /agent-chat-rename-form/);
   assert.match(shell, /\{ label \}/);
   assert.match(shell, /summary\.onclick/);
-  assert.match(shell, /if \(session\.closed\) row\.append\(remove\)/);
+  assert.match(shell, /row\.append\(summary, rename, remove\)/);
+  assert.doesNotMatch(shell, /button\("Delete"/);
+  assert.doesNotMatch(shell, /agent-chat-close/);
   assert.doesNotMatch(shell, /button\("Open"/);
   assert.doesNotMatch(shell, /button\("🗑"/);
   assert.doesNotMatch(shell, /agent-chat-count/);
@@ -150,12 +150,20 @@ test("agent menu separates close, reopen and delete", () => {
   assert.match(shell, /await api\(`\/api\/sessions\/\$\{encodeURIComponent\(session\.id\)\}\/close`, \{\}\)/);
   assert.match(shell, /window\.confirm\(deleteConfirmText\)/);
   assert.match(shell, /Delete this chat\? Its memory notes, plans and files stay\./);
+  assert.match(shell, /previous\?\.id !== session\.id/);
+  assert.match(shell, /encodeURIComponent\(previous\.id\)\}\/close/);
+  assert.match(shell, /encodeURIComponent\(session\.id\)\}\/reopen/);
+  assert.match(shell, /openSide\(agentID, session\.id, "chat"\)/);
   // Item 2gh: the tab menu opens AT THE POINTER, so the reveal carries the
   // event's coordinates. It used to be revealMenu(menu, tab), which placed it
   // at the tab and put its left edge 41 px from the pointer (W5's measurement).
   assert.match(shell, /revealMenu\(menu, tab, \{ x: event\.clientX, y: event\.clientY \}\)/);
   assert.match(tokens, /\.shell-menu\{position:fixed/);
   assert.match(tokens, /max-height:calc\(100vh - 50px\);overflow-x:hidden;overflow-y:auto/);
+  assert.match(tokens, /\.agent-chat-menu\{[^}]*color:var\(--ink\);background:var\(--well\);border:1px solid rgba\(125,135,148,\.28\);border-radius:2px/);
+  assert.match(tokens, /\.agent-chat-delete\{[^}]*color:var\(--alarm\)/);
+  assert.match(tokens, /\.agent-chat-row\.selected[^}]*font-weight:500/);
+  assert.match(tokens, /\.agent-chat-summary:hover[^}]*box-shadow:/);
 });
 
 test("unbounded chat tabs scroll only inside the tab strip", () => {

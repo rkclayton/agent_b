@@ -30,10 +30,10 @@ func TestStatusReportsAbsentAccountWithoutMutation(t *testing.T) {
 		filepath.Join(root, "scripts", "apply-firewall-rule.ps1"),
 		filepath.Join(root, "scripts", "apply-hardening.ps1"),
 	)
-	// Hosted Windows runners can spend most of 15 seconds starting the two
-	// read-only Windows PowerShell inspections. Keep the assertion bounded while
-	// allowing the absent-account result to be observed on a cold runner.
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Hosted Windows runners have taken more than 30 seconds just to cold-start
+	// the first read-only Windows PowerShell inspection. Keep the assertion
+	// bounded without turning runner startup time into a product failure.
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	status, err := manager.Status(ctx, Request{AccountName: "agentb-test-account-that-does-not-exist", ApplicationDirectory: application, DataDirectory: data, WorkspaceDirectory: workspace, ExchangeDirectory: exchange})
 	if err != nil {
@@ -134,7 +134,7 @@ func TestStatusAcceptsTheScratchWorkspaceInsideTheDataRoot(t *testing.T) {
 		filepath.Join(root, "scripts", "apply-firewall-rule.ps1"),
 		filepath.Join(root, "scripts", "apply-hardening.ps1"),
 	)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	request := Request{AccountName: "agentb-test-account-that-does-not-exist", ApplicationDirectory: application, DataDirectory: data, WorkspaceDirectory: filepath.Join(data, "scratch"), ExchangeDirectory: exchange}
 	if status, err := manager.Status(ctx, request); err != nil || !status.Supported {

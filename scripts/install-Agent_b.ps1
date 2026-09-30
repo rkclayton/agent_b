@@ -544,25 +544,24 @@ function Remove-InstallerRollbackRoot {
 }
 
 function Set-PrivateDirectoryAcl {
-    param([string]$Path, [Security.Principal.SecurityIdentifier]$Owner)
+    param([string]$Path, [Security.Principal.SecurityIdentifier]$TokenUser)
     $acl = [Security.AccessControl.DirectorySecurity]::new()
     $acl.SetAccessRuleProtection($true, $false)
     $inherit = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
     $propagate = [Security.AccessControl.PropagationFlags]::None
     $allow = [Security.AccessControl.AccessControlType]::Allow
     foreach ($sid in @(
-        $Owner,
+        $TokenUser,
         [Security.Principal.SecurityIdentifier]::new([Security.Principal.WellKnownSidType]::LocalSystemSid, $null),
         [Security.Principal.SecurityIdentifier]::new([Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)
     )) {
         $null = $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, [Security.AccessControl.FileSystemRights]::FullControl, $inherit, $propagate, $allow))
     }
-    $acl.SetOwner($Owner)
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 
 function Set-ApplicationDirectoryAcl {
-    param([string]$Path, [Security.Principal.SecurityIdentifier]$Owner)
+    param([string]$Path, [Security.Principal.SecurityIdentifier]$TokenUser)
     $acl = [Security.AccessControl.DirectorySecurity]::new()
     $acl.SetAccessRuleProtection($true, $false)
     $inherit = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
@@ -577,10 +576,8 @@ function Set-ApplicationDirectoryAcl {
     $users = [Security.Principal.SecurityIdentifier]::new([Security.Principal.WellKnownSidType]::BuiltinUsersSid, $null)
     $null = $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($users, [Security.AccessControl.FileSystemRights]::ReadAndExecute, $inherit, $propagate, $allow))
     if ($TestMode) {
-        $null = $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($Owner, [Security.AccessControl.FileSystemRights]::FullControl, $inherit, $propagate, $allow))
+        $null = $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($TokenUser, [Security.AccessControl.FileSystemRights]::FullControl, $inherit, $propagate, $allow))
     }
-    $applicationOwner = if ($TestMode) { $Owner } else { [Security.Principal.SecurityIdentifier]::new([Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null) }
-    $acl.SetOwner($applicationOwner)
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 
@@ -860,7 +857,7 @@ if ($installedProcesses.Count) { $script:stoppedInstalledVersion = $true }
 $applicationCreated = -not (Test-Path -LiteralPath $applicationRoot -PathType Container)
 $dataCreated = -not (Test-Path -LiteralPath $dataRoot -PathType Container)
 $null = New-Item -ItemType Directory -Path $applicationRoot -Force
-if ($applicationCreated) { Set-ApplicationDirectoryAcl -Path $applicationRoot -Owner $currentSid }
+if ($applicationCreated) { Set-ApplicationDirectoryAcl -Path $applicationRoot -TokenUser $currentSid }
 foreach ($directory in @('web', 'prompts', 'scripts', 'docs')) {
     Copy-ProgramDirectory -Name $directory -Source $sourceRoot -Destination $applicationRoot -AllowedRemovalRoots @($applicationRoot)
 }
@@ -885,7 +882,7 @@ Assert-CandidateIdentity -SourceRoot $sourceRoot -Binary $installedBinary -Versi
 $null = Assert-WebView2Loader -SourceRoot $applicationRoot -AfterStop
 
 $null = New-Item -ItemType Directory -Path $dataRoot -Force
-if ($dataCreated) { Set-PrivateDirectoryAcl -Path $dataRoot -Owner $currentSid }
+if ($dataCreated) { Set-PrivateDirectoryAcl -Path $dataRoot -TokenUser $currentSid }
 foreach ($directory in @('logs', 'memory')) { $null = New-Item -ItemType Directory -Path (Join-Path $dataRoot $directory) -Force }
 
 $configPath = Join-Path $dataRoot 'harness.json'

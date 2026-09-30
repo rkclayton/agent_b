@@ -22,6 +22,13 @@ test("Chat has fence-only copy and documents composer keys", () => {
   assert.match(html, /title="Send · Enter sends · Shift\+Enter newline"/);
 });
 
+test("Jump to latest is one accessible down-arrow at the transcript edge", () => {
+  assert.match(chat, /jumpButton\.textContent = "↓";\s*jumpButton\.ariaLabel = "Jump to latest";\s*jumpButton\.title = "Jump to latest";/);
+  assert.match(css, /\.chat-jump\s*\{[^}]*float:\s*right[^}]*bottom:\s*8px[^}]*width:\s*32px[^}]*min-height:\s*32px[^}]*padding:\s*0/s);
+  assert.match(chat, /follow = log\.scrollHeight - log\.clientHeight - log\.scrollTop <= 24/);
+  assert.match(chat, /jumpButton\.onclick = \(\) => \{\s*follow = true;\s*page = 0;\s*renderLog/);
+});
+
 test("fenced code is one aligned panel with a header row and internal overflow", () => {
   assert.match(css, /\.code-block\s*\{[^}]*display:\s*grid[^}]*grid-template-areas:\s*"language copy"\s*"code code"[^}]*background:\s*var\(--bezel\)[^}]*border:\s*1px solid rgba\(125,\s*135,\s*148,\s*\.28\)[^}]*border-radius:\s*2px/s);
   assert.match(css, /\.chat-content \.code-block pre\s*\{[^}]*grid-area:\s*code[^}]*margin:\s*0[^}]*overflow-x:\s*auto[^}]*white-space:\s*pre/s);

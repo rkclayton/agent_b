@@ -1241,6 +1241,9 @@ if (realModel) {
           const write = `${describe(record.target)} @${record.attributeName}`;
           evidence.unchangedAttributeLists[write] = (evidence.unchangedAttributeLists[write] || 0) + 1;
         }
+        if (record.type === "attributes" && record.oldValue !== record.target.getAttribute(record.attributeName) && ["class", "hidden"].includes(record.attributeName)) {
+          evidence.runningAnimations.delete(record.target);
+        }
         if (record.type !== "childList") continue;
         const elementChanges = [...record.addedNodes, ...record.removedNodes].filter((node) => node.nodeType === Node.ELEMENT_NODE).length;
         if (record.target.closest?.("#chat-composer")) evidence.composerChildMutations += elementChanges;

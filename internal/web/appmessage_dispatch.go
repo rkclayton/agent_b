@@ -101,16 +101,16 @@ func (s *Server) DispatchAppMessage(deviceID string, unit []byte) []byte {
 		}
 		path += named.Name
 	case "chat.create":
-		// (c) and item 2my: a label and NOTHING ELSE. A body with any other field is
-		// refused, so a phone cannot choose a connection, a role, or a chat to copy.
+		// Item 2ow: a phone may choose one advertised connection for a new chat. It
+		// still cannot choose a role, copy another chat, or send any local setting.
 		if len(body) > 0 && string(body) != "null" {
 			var fields map[string]json.RawMessage
 			if err := json.Unmarshal(body, &fields); err != nil {
 				return s.appProblem(request.ID, http.StatusBadRequest, "the chat.create body is not an object")
 			}
 			for name := range fields {
-				if name != "label" {
-					return s.appProblem(request.ID, http.StatusBadRequest, "chat.create carries a label and nothing else; it does not carry "+name)
+				if name != "label" && name != "connection_id" {
+					return s.appProblem(request.ID, http.StatusBadRequest, "chat.create carries label and connection_id only; it does not carry "+name)
 				}
 			}
 		}

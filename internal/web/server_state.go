@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -105,7 +106,36 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	// reflection proposed can be put to them as an ordinary card. This returns
 	// at once unless something is pending (v1.1.1/W3).
 	s.OfferReflectionProposals()
-	writeJSON(w, 200, s.snapshot())
+	snapshot := s.snapshot()
+	if phoneAuthenticated(r) {
+		// Item 2ow: a stolen paired phone can choose between connections, but it
+		// never receives credentials, paths, prompts, or the rest of local config.
+		snapshot["connections"] = s.phoneConnections()
+		delete(snapshot, "config")
+	}
+	writeJSON(w, 200, snapshot)
+}
+
+func (s *Server) phoneConnections() []map[string]any {
+	cfg := s.ConfigSnapshot()
+	connections := make([]map[string]any, 0, len(cfg.Connections))
+	for _, connection := range cfg.Connections {
+		host := ""
+		if parsed, err := url.Parse(connection.BaseURL); err == nil {
+			host = parsed.Host
+		}
+		ctx := connection.Context.NCtx
+		if ctx == 0 {
+			ctx = connection.Capabilities.NCtx
+		}
+		connections = append(connections, map[string]any{
+			"id": connection.ID, "label": connection.Label, "model": connection.Model,
+			"host": host, "vision": connection.Capabilities.Vision,
+			"docs": connection.NativeDocumentInput(), "tools": connection.Capabilities.ToolCalls,
+			"ctx": ctx,
+		})
+	}
+	return connections
 }
 func (s *Server) sse(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

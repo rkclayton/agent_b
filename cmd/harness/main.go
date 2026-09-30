@@ -75,6 +75,10 @@ func main() {
 	installAllUsers := flag.Bool("all-users", false, "with --install: install machine-wide under Program Files (requires elevation)")
 	reopenSession := flag.String("reopen-session", "", "with --install: reopen this chat after the installed app starts")
 	noStart := flag.Bool("NoStart", false, "with --install: install without starting Agent_b")
+	uninstall := flag.Bool("uninstall", false, "remove the per-user Agent_b installation")
+	uninstallWorker := flag.Bool("uninstall-worker", false, "complete a native uninstall after the installed process exits")
+	uninstallParent := flag.Int("uninstall-parent", 0, "parent process to await before native uninstall")
+	purgeData := flag.Bool("purge-data", false, "with --uninstall: remove operator data")
 	passthrough := installPassthrough(os.Args[1:])
 	if err := flag.CommandLine.Parse(installFlagArgs(os.Args[1:])); err != nil {
 		log.Fatal(err)
@@ -88,6 +92,12 @@ func main() {
 			allUsers:      *installAllUsers,
 			reopenSession: *reopenSession,
 		}, passthrough))
+	}
+	if *uninstall || *uninstallWorker {
+		if err := runNativeUninstall(*applicationOverride, *dataOverride, *purgeData, *uninstallWorker, *uninstallParent); err != nil {
+			log.Fatal(err)
+		}
+		return
 	}
 	if *version {
 		if err := json.NewEncoder(os.Stdout).Encode(buildinfo.Current()); err != nil {

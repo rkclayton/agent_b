@@ -30,7 +30,8 @@ var installModeFlags = map[string]bool{
 	// flags the process interprets, so a flag missing here is silently dropped
 	// before flag.Parse ever sees it - which is exactly how -window first
 	// appeared to do nothing at all.
-	"window": true,
+	"window":    true,
+	"uninstall": true, "uninstall-worker": true, "uninstall-parent": true, "purge-data": true,
 }
 
 // flagName reads the name out of -name, --name or --name=value; it returns ""
@@ -49,7 +50,7 @@ func flagName(argument string) string {
 // takesValue is true for this mode's flags that are followed by a value.
 func takesValue(name string) bool {
 	switch name {
-	case "install-source", "install-data", "reopen-session", "config", "app-root", "data-root", "replay", "startup-log":
+	case "install-source", "install-data", "reopen-session", "config", "app-root", "data-root", "replay", "startup-log", "uninstall-parent":
 		return true
 	}
 	return false

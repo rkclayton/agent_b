@@ -1131,7 +1131,7 @@ Write-Host ''
 Write-InstallProgress -Phase 'finished' -Text "Agent_b $displayVersion is installed." -Done -OK
 Write-Host 'INSTALLATION COMPLETE'
 Write-Host "Start Menu: $shortcutPath"
-Write-Host "At sign-in: $startupPath"
+Write-Host 'At sign-in: off'
 $registrationHive = if ($resolvedRoots.UninstallRegistryPath -match '^(?i)HKLM:') { 'HKLM' } else { 'HKCU' }
 Write-Host "Registration: $registrationHive at $($resolvedRoots.UninstallRegistryPath) and the operator Start Menu, matching the LocalAppData configuration and user-scoped DPAPI owner."
 Write-Host 'Settings: created once in LocalAppData and preserved on upgrades'

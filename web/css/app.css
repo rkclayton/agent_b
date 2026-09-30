@@ -981,6 +981,7 @@
 	background: transparent;
 }
 .pending-approval button:last-child { color: var(--alarm); }
+.delete-all-chats{color:var(--alarm)}
 .timeline-attachment-chips {
   display: grid;
   gap: 4px;

@@ -41,3 +41,16 @@ func (s *Server) writeChatTree(w http.ResponseWriter) {
 	for _, chat := range chats { if chat["folder"] == "." { chat["folder"] = "" } }
 	writeJSON(w, 200, map[string]any{"root": root, "folders": folders, "chats": chats})
 }
+
+func (s *Server) deleteAllChats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost { method(w); return }
+	var body struct { Confirm bool `json:"confirm"` }; if !decode(w, r, &body) { return }
+	if !body.Confirm { writeError(w, 400, "confirmation is required", "confirm"); return }
+	items := s.registry.List()
+	for _, item := range items { if item.IsRunning() { writeError(w, http.StatusConflict, item.Snapshot().Label+" is running", "chat"); return } }
+	for _, item := range items {
+		if !item.IsClosed() { if err := s.registry.Close(item.ID); err != nil { writeError(w, 409, err.Error(), "chat"); return } }
+		if _, err := s.deleteChat(item); err != nil { writeError(w, 409, err.Error(), "chat"); return }
+	}
+	writeJSON(w, 200, map[string]any{"deleted": len(items)})
+}

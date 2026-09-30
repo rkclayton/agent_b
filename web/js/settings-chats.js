@@ -49,6 +49,7 @@ function voiceRow(context) {
 }
 
 export function renderChatsPage(active, context) {
+  const chatCount = Object.keys(context.store.sessions || {}).length;
   return `${context.subhead("Chats", "The directory Explorer and the chat menu share.")}
 	${context.field("chat_root", "root path", `<span class="path">${context.html(context.store.chat_root || "")}</span>`, false, "Read-only. Open this path in Explorer to see the same chat tree.")}
 	${context.subhead("Reading", "How the transcript and the message box are drawn.")}
@@ -62,5 +63,7 @@ export function renderChatsPage(active, context) {
     ${renderRunPage(context)}
     ${context.number("run.max_concurrent", "max concurrent", context.store.config.run?.max_concurrent, "1", false, "", false, "number", "How many chats may run at the same time; the rest wait in the queue.")}
     ${context.subhead("Context", "Compaction thresholds and the active connection's measured limits.")}
-    ${renderContextPage(active, context)}`;
+    ${renderContextPage(active, context)}
+	${context.subhead("Delete", "Deletes chats while keeping memory notes, plans and files.")}
+	${context.row("all chats", `<button type="button" class="delete-all-chats" data-action="delete-all-chats" ${chatCount ? "" : "disabled"}>Delete all chats</button>`, "", `${chatCount} chat${chatCount === 1 ? "" : "s"}`)}`;
 }

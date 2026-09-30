@@ -10,7 +10,7 @@ function useSettingsContext(context) {
 function telemetry() {
   const config = store.config.telemetry || {};
   const on = config.enabled !== false;
-  return toggle("telemetry.enabled", "send diagnostic telemetry", on, "Counts, durations and error classes only — never message text, tool output, paths, hostnames or file names. Off detaches the collector and deletes the queue; it does not send less. Turning it on issues a new install id.");
+  return `${toggle("telemetry.enabled", "Send anonymous data to help improve Agent_b", on)}<p class="settings-subhead-note">Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts.</p>`;
 }
 
 function attrOf(value) {

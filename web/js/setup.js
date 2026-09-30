@@ -16,6 +16,8 @@ let alarm = false;
 let discoveredModels = [];
 let discoveryNote = "";
 let connectionDraft;
+let addingFromSettings = false;
+let telemetryChoice = true;
 const mutationToken = await acquireBrowserSessionToken();
 
 root.addEventListener("click", click);
@@ -33,8 +35,9 @@ void load();
 async function load() {
   try {
     snapshot = await request("/api/state", undefined, "GET");
-    const addingFromSettings = new URLSearchParams(location.search).get("from") === "settings";
+    addingFromSettings = new URLSearchParams(location.search).get("from") === "settings";
     connectionID = addingFromSettings ? "" : snapshot.config?.agents?.[0]?.b || snapshot.connections?.[0]?.id || "";
+    telemetryChoice = snapshot.config?.telemetry?.enabled !== false;
     render();
   } catch (error) {
     connection.textContent = error.message;
@@ -44,9 +47,10 @@ async function load() {
 
 function render() {
   if (!snapshot) return;
-  const names = { where: "Where is your model?", capability: "Evaluation Harness", done: "Done" };
-  document.getElementById("setup-step").textContent = names[step];
-  root.innerHTML = step === "where" ? whereScreen() : step === "capability" ? capabilityScreen() : doneScreen();
+  const names = { where: "Where is your model?", capability: "Evaluation Harness", telemetry: "Send anonymous data to help improve Agent_b", done: "Done" };
+  const steps = addingFromSettings ? ["where", "capability", "done"] : ["where", "capability", "telemetry", "done"];
+  document.getElementById("setup-step").textContent = `${steps.indexOf(step) + 1} of ${steps.length} · ${names[step]}`;
+  root.innerHTML = step === "where" ? whereScreen() : step === "capability" ? capabilityScreen() : step === "telemetry" ? telemetryScreen() : doneScreen();
 }
 
 function whereScreen() {
@@ -105,6 +109,13 @@ function capabilityScreen() {
       : `<button data-action="measure" ${!connection ? "disabled" : ""}>${measuring ? "Stop" : "Measure it"}</button><button data-action="capability-next" class="quiet">Skip</button><button data-action="where" class="quiet">Back</button>`}</div>${feedback()}</section>`;
 }
 
+function telemetryScreen() {
+  return `<section class="setup-section"><h1 id="telemetry-title">Send anonymous data to help improve Agent_b</h1>
+    <button type="button" class="setup-switch ${telemetryChoice ? "on" : ""}" role="switch" aria-checked="${telemetryChoice}" aria-labelledby="telemetry-title" data-action="toggle-telemetry"></button>
+    <p class="setup-note">Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts.</p>
+    <div class="setup-actions"><button data-action="telemetry-next">Next</button></div>${feedback()}</section>`;
+}
+
 function doneScreen() {
   return `<section class="setup-section"><h1>Done</h1><p>Your model connection is saved.</p><div class="setup-actions"><button data-action="finish">Open Chat</button></div>${feedback()}</section>`;
 }
@@ -119,9 +130,11 @@ async function click(event) {
   if (action === "query-models") return queryModels();
   if (action === "test") return testConnection();
   if (action === "install") return installModel();
-  if (action === "later") return go("done");
+  if (action === "later") return afterCapability();
   if (action === "where") return go("where");
-  if (action === "capability-next") return go("done");
+  if (action === "capability-next") return afterCapability();
+  if (action === "toggle-telemetry") { telemetryChoice = !telemetryChoice; return render(); }
+  if (action === "telemetry-next") return saveTelemetry();
   if (action === "measure") return measuring ? stopMeasurement() : measure();
   if (action === "finish") return finish();
 }
@@ -263,7 +276,7 @@ async function measure() {
         snapshot = await request("/api/state", undefined, "GET");
         measuring = false;
         busy = false;
-        go("done");
+        afterCapability();
         break;
       }
       render();
@@ -320,6 +333,15 @@ function remoteGuide() {
 }
 
 function go(next) { step = next; message = ""; alarm = false; render(); }
+function afterCapability() { go(addingFromSettings ? "done" : "telemetry"); }
+async function saveTelemetry() {
+  setBusy("Saving your choice…");
+  try {
+    snapshot.config = await request("/api/config", { telemetry: { ...(snapshot.config.telemetry || {}), enabled: telemetryChoice } });
+    snapshot = await request("/api/state", undefined, "GET");
+    go("done");
+  } catch (error) { fail(error); } finally { busy = false; render(); }
+}
 function setBusy(text) { busy = true; message = text; alarm = false; render(); }
 function fail(error) { message = error.message || String(error); alarm = true; render(); }
 function selectedConnection() { return snapshot.connections?.find((item) => item.id === connectionID); }

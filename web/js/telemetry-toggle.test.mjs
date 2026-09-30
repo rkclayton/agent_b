@@ -9,8 +9,9 @@ import test from "node:test";
 const about = readFileSync(new URL("./settings-about.js", import.meta.url), "utf8");
 
 test("About carries the toggle and nothing else about telemetry", () => {
-  assert.match(about, /toggle\("telemetry\.enabled", "send diagnostic telemetry"/);
-  assert.match(about, /Counts, durations and error classes only/);
+  assert.match(about, /toggle\("telemetry\.enabled", "Send anonymous data to help improve Agent_b"/);
+  assert.match(about, /class="settings-subhead-note"/);
+  assert.match(about, /Only diagnostic data is sent — counts, durations and error classes\. Never your chats, files or prompts\./);
   for (const gone of ["what was sent", "telemetry_sent", "settings-telemetry-batch", "settings-telemetry-list", "settings-telemetry-empty", "config.endpoint", "no receiver configured"]) {
     assert.doesNotMatch(about, new RegExp(gone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Settings still shows ${gone}`);
   }

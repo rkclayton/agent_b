@@ -148,8 +148,12 @@ try {
   }
   assert.ok(Date.now() < measurementDeadline, "measurement did not become running before the stop request");
   await page.locator('[data-action="measure"]', { hasText: "Stop" }).click();
+  await page.locator("h1").filter({ hasText: "Send anonymous data to help improve Agent_b" }).waitFor();
+  assert.equal(await page.locator(".setup-note").textContent(), "Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts.");
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-4-anonymous-data.png") });
+  await page.locator('[data-action="telemetry-next"]').click();
   await page.locator("h1").filter({ hasText: "Done" }).waitFor();
-  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-4-done-after-stop.png") });
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-5-done-after-stop.png") });
   let state = await waitJSON(`${baseURL}/api/state`);
   assert.equal(state.config.agents?.[0]?.b, "setup-model");
   assert.equal(state.config.agents?.[0]?.c || "", "");

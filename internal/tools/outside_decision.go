@@ -131,8 +131,7 @@ func missingPathHint(missing string) string {
 		if err != nil {
 			continue
 		}
-		member, _ := filepath.Rel(filepath.Dir(folder), missing)
-		wanted := filepath.ToSlash(member)
+		wanted := filepath.ToSlash(strings.TrimPrefix(missing, filepath.Dir(folder)+string(filepath.Separator)))
 		if file, ok := archive[wanted]; ok && file.Refused == "" {
 			return missing + " (probably inside " + candidate + "; read " + candidate + string(filepath.Separator) + filepath.FromSlash(wanted) + ")"
 		}

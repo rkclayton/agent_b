@@ -1213,7 +1213,9 @@ if (realModel) {
   await page.locator("#chat-send").click();
   const lifecycleRunStarted = await waitEvent(sessionID, (event) => event.type === "run.started", "tool-tick lifecycle run started");
   await waitProjectedChatText(sessionID, "menu-stream-0", "first projected lifecycle tool");
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
+    await Promise.all(document.getAnimations().map((animation) => animation.ready.catch(() => {})));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const describe = (node) => node instanceof Element
       ? `${node.parentElement?.id ? `#${node.parentElement.id}` : node.parentElement?.className || node.parentElement?.tagName || "detached"} > ${node.dataset.entryKey || node.id || node.className || node.tagName}`
       : "text";

@@ -19,26 +19,9 @@ import (
 	"harness/internal/quietproc"
 )
 
-// Item 2gl (v1.2.0/W2): `Agent_b.exe --install` — the app installs itself.
-//
-// The operator: "i'm sick of using .cmd and powershell windows i thought we had
-// an actual installer in the plan." This is that entry point, shipped in the
-// candidate as `Agent_b-setup.exe` (the same binary under another name).
-//
-// What it does NOT do is reimplement the install. `scripts/install-Agent_b.ps1`
-// is the install — ACLs, the service account, the manifest-bound exe identity,
-// verify-before-stop, restart-on-failure, the HKCU Add/Remove Programs entry
-// and the data-preserving uninstall are all already there and already proved by
-// the installer suite. W1 measured that and said so: verify and reuse, do not
-// rebuild. This mode wraps it, so the operator gets a window instead of a
-// console and an interrupted run is visible afterwards.
-//
-// Progress is a FILE the Setup page reads, not a loopback socket. W1's other
-// correction: an elevated process opening a socket can raise a Windows Firewall
-// prompt, and a prompt is exactly what this item is removing.
-
-// installOptions is what --install accepts. Everything it does not name is
-// left to the PowerShell installer's own defaults, so the two cannot drift.
+// Agent_b-setup.exe is this binary with an embedded payload. Ordinary per-user
+// installs are native; TestMode/WhatIf and the elevated compatibility path keep
+// the legacy script until their remaining machine operations move to Go.
 type installOptions struct {
 	quiet         bool
 	sourceDir     string
@@ -175,52 +158,46 @@ func runInstall(options installOptions, args []string) int {
 	_ = os.Remove(installProgressPath(dataRoot))
 	appendProgress(dataRoot, installProgress{Phase: "starting", Text: "Installing Agent_b " + marker.Version})
 
-	powershell := windowsPowerShell()
-	// Item 2gl (v1.2.6): the installer writes the progress file ITSELF, so the
-	// readout survives this wrapper. Closing the window this process lives in
-	// used to freeze the Setup page for an install that was still running.
-	scriptArgs := []string{"-NoLogo", "-NoProfile", "-File", script, "-ProgressFile", installProgressPath(dataRoot)}
-	if embeddedBundle {
-		scriptArgs = append(scriptArgs, "-EmbeddedBundle")
-	}
-	if options.allUsers {
-		scriptArgs = append(scriptArgs, "-AllUsers")
-	}
-	scriptArgs = append(scriptArgs, args...)
-	command := exec.Command(powershell, scriptArgs...)
-	// Item 2nf (d) and 2na (a): NO CONSOLE. His Update attempt left a window behind
-	// after the installer had exited, with nothing readable in it. A child started
-	// with no console cannot leave one open, and the transcript is where the account
-	// of the install lives either way.
-	quietproc.Quiet(command)
-	command.Dir = source
-	// A setup launched from PowerShell 7 inherits its PSModulePath. Windows
-	// PowerShell 5.1 can then discover PowerShell 7's modules first and fail to
-	// load its own Microsoft.PowerShell.Security type data. Let 5.1 construct
-	// its native module path, just as it does when setup is launched by Explorer.
-	for _, variable := range os.Environ() {
-		if strings.EqualFold(strings.SplitN(variable, "=", 2)[0], "PSModulePath") {
-			continue
+	var waitInstaller func() error
+	nativeInstall := !options.allUsers && !installerFlagPresent(args, "WhatIf") && !installerFlagPresent(args, "TestMode")
+	if nativeInstall {
+		// Item 2or: the ordinary install runs in this Go process.  There is no
+		// PowerShell process to be blocked by execution policy.
+		waitInstaller = func() error {
+			err := runNativePerUserInstall(source, args, dataRoot, log)
+			if err != nil {
+				log.printf("INSTALLATION FAILED: %v", err)
+			}
+			return err
 		}
-		command.Env = append(command.Env, variable)
+		log.printf("install: native per-user installer selected")
+	} else {
+		powershell := windowsPowerShell()
+		scriptArgs := []string{"-NoLogo", "-NoProfile", "-File", script, "-ProgressFile", installProgressPath(dataRoot)}
+		if options.allUsers {
+			scriptArgs = append(scriptArgs, "-AllUsers")
+		}
+		if embeddedBundle {
+			scriptArgs = append(scriptArgs, "-EmbeddedBundle")
+		}
+		scriptArgs = append(scriptArgs, args...)
+		command := exec.Command(powershell, scriptArgs...)
+		quietproc.Quiet(command)
+		command.Dir = source
+		for _, variable := range os.Environ() {
+			if strings.EqualFold(strings.SplitN(variable, "=", 2)[0], "PSModulePath") {
+				continue
+			}
+			command.Env = append(command.Env, variable)
+		}
+		command.Stdout, command.Stderr = log.writer(), log.writer()
+		detachChild(command)
+		if err := command.Start(); err != nil {
+			return log.fail("could not start the installer: %v", err)
+		}
+		log.printf("install: the elevated installer is running as PID %d; it does not depend on this window", command.Process.Pid)
+		waitInstaller = command.Wait
 	}
-	// Item 2gl (v1.2.6): THE INSTALLER'S OUTPUT GOES TO A FILE, NOT A PIPE.
-	// Measured before the change: ending this wrapper killed the install. Not
-	// because Windows kills the child - it does not - but because the child was
-	// writing to a pipe whose other end had just died, and a write to a broken
-	// pipe ends a PowerShell whose ErrorActionPreference is Stop. So closing the
-	// window closed the install with it.
-	//
-	// Writing to the log file removes the dependency entirely, and the progress
-	// the Setup page reads is written by the INSTALLER itself, so the readout
-	// survives this process too.
-	command.Stdout = log.writer()
-	command.Stderr = log.writer()
-	detachChild(command)
-	if err := command.Start(); err != nil {
-		return log.fail("could not start the installer: %v", err)
-	}
-	log.printf("install: the installer is running as PID %d; it does not depend on this window", command.Process.Pid)
 
 	// The marker follows the phases the installer reports in its own progress
 	// file, so this wrapper reads the same record the Setup page does.
@@ -244,7 +221,7 @@ func runInstall(options installOptions, args []string) int {
 			}
 		}
 	}()
-	waitErr := command.Wait()
+	waitErr := waitInstaller()
 	close(installDone)
 	<-followed
 	code := 0
@@ -274,7 +251,7 @@ func runInstall(options installOptions, args []string) int {
 		appendProgress(dataRoot, installProgress{Phase: "restarting", Text: "Starting Agent_b " + marker.Version})
 		applicationRoot := installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers))
 		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
-		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, log); err != nil {
+		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, nativeInstall, log); err != nil {
 			// Item 2nh (b): the finish is written below, after the restart, so a
 			// restart that fails must write its own end — otherwise the page that is
 			// watching waits for a line that is never coming.
@@ -297,13 +274,17 @@ func runInstall(options installOptions, args []string) int {
 			appendProgress(dataRoot, installProgress{Phase: "warning", Text: leftInPlace, OK: true})
 		}
 		appendProgress(dataRoot, finish)
-		log.printf("AUTOSTART COMPLETE: Agent_b started through %s. Log: %s", filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1"), log.location())
+		if nativeInstall {
+			log.printf("AUTOSTART COMPLETE: Agent_b started natively from %s. Log: %s", filepath.Join(applicationRoot, "Agent_b.exe"), log.location())
+		} else {
+			log.printf("AUTOSTART COMPLETE: Agent_b started through %s. Log: %s", filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1"), log.location())
+		}
 		return 0
 	}
 	if version, reason, restart := installRestartDetails(log.location()); restart {
 		applicationRoot := installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers))
 		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
-		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, log); err != nil {
+		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, nativeInstall, log); err != nil {
 			log.printf("RESTART FAILED: %s after %s: %v", version, reason, err)
 		} else {
 			log.printf("RESTARTED: %s after %s.", version, reason)
@@ -475,7 +456,31 @@ func installerArgument(arguments []string, name, fallback string) string {
 	return fallback
 }
 
-func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, log *installLog) error {
+func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, native bool, log *installLog) error {
+	if native {
+		executable := filepath.Join(applicationRoot, "Agent_b.exe")
+		arguments := []string{"-window", "-config", filepath.Join(dataRoot, "harness.json"), "-app-root", applicationRoot, "-data-root", dataRoot}
+		if sessionID != "" {
+			arguments = append(arguments, "-reopen-session", sessionID)
+		}
+		command := quietproc.Quiet(exec.Command(executable, arguments...))
+		command.Dir = dataRoot
+		command.Stdout, command.Stderr = log.writer(), log.writer()
+		if err := command.Start(); err != nil {
+			return err
+		}
+		exited := make(chan error, 1)
+		go func() { exited <- command.Wait() }()
+		select {
+		case err := <-exited:
+			if err == nil {
+				return fmt.Errorf("installed Agent_b exited before startup completed")
+			}
+			return err
+		case <-time.After(time.Second):
+			return nil
+		}
+	}
 	launcher := filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1")
 	if info, err := os.Stat(launcher); err != nil || info.IsDir() {
 		return fmt.Errorf("installed launcher is missing: %s", launcher)

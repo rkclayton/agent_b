@@ -378,3 +378,49 @@ func TestInstallIdentityIsTheTokenSIDAndNeverANameLookup2or(t *testing.T) {
 		t.Fatal("the installer still changes directory ownership")
 	}
 }
+
+func TestPerUserInstallIsNativeAndComplete2or(t *testing.T) {
+	source, application, data := t.TempDir(), t.TempDir(), t.TempDir()
+	for _, directory := range []string{"web", "prompts", "scripts", "docs"} {
+		if err := os.MkdirAll(filepath.Join(source, directory), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(source, directory, directory+".txt"), []byte(directory), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(source, "scripts", "launch-installed.cmd"), []byte("launcher"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"Agent_b.exe", "agentb.exe", "WebView2Loader.dll", "harness.example.json", "SECURITY.md", "LICENSE", "NOTICE"} {
+		body := []byte(name)
+		if name == "harness.example.json" {
+			body = []byte(`{"workspace":"","log_dir":"","memory":{"dir":""}}`)
+		}
+		if err := os.WriteFile(filepath.Join(source, name), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	links, registration := 0, map[string]any{}
+	plan := nativeInstallPlan{Source: source, Application: application, Data: data, Workspace: filepath.Join(data, "scratch"), StartMenu: filepath.Join(data, "start"), SendTo: filepath.Join(data, "sendto"), Version: "1.50.0", OperatorSID: "S-1-5-21-100"}
+	platform := nativeInstallPlatform{
+		shortcut: func(shortcutSpec) error { links++; return nil },
+		register: func(values map[string]any) error { registration = values; return nil },
+	}
+	if err := installPerUserNative(plan, platform); err != nil {
+		t.Fatal(err)
+	}
+	for _, relative := range []string{"web/web.txt", "prompts/prompts.txt", "scripts/scripts.txt", "docs/docs.txt", "Agent_b.exe", "agentb.exe", "WebView2Loader.dll"} {
+		if _, err := os.Stat(filepath.Join(application, filepath.FromSlash(relative))); err != nil {
+			t.Fatalf("missing %s: %v", relative, err)
+		}
+	}
+	if links != 2 || registration["DisplayVersion"] != "1.50.0" || registration["OperatorSid"] != plan.OperatorSID {
+		t.Fatalf("links=%d registration=%v", links, registration)
+	}
+	config, err := os.ReadFile(filepath.Join(data, "harness.json"))
+	var decoded map[string]any
+	if err != nil || json.Unmarshal(config, &decoded) != nil || decoded["workspace"] != filepath.Join(data, "scratch") {
+		t.Fatalf("native config=%s err=%v", config, err)
+	}
+}

@@ -62,22 +62,23 @@ func (m *windowsManager) Status(ctx context.Context, request Request) (Status, e
 			acl.Items = append(acl.Items, DriftItem{Path: item.Subject, Expected: item.Expected, Found: item.Found})
 		}
 	}
-	firewallArguments := []string{
-		"-AccountName", request.AccountName,
-	}
-	if request.AllowLocalNetwork {
-		firewallArguments = append(firewallArguments, "-AllowLocalNetwork")
-	}
-	if len(request.LocalSubnets) > 0 {
-		firewallArguments = append(firewallArguments, "-LocalSubnet", strings.Join(request.LocalSubnets, ","))
-	}
-	if len(request.AllowedModelRanges) > 0 {
-		firewallArguments = append(firewallArguments, "-AllowedRange", strings.Join(request.AllowedModelRanges, ","))
-	}
-	firewallArguments = append(firewallArguments, "-Inspect")
-	firewall, err := inspectComponent(ctx, m.powershell, m.firewallScript, firewallStatusMarker, firewallArguments)
-	if err != nil {
-		return Status{}, fmt.Errorf("inspect firewall policy: %w", err)
+	firewall := ComponentStatus{Supported: true, AccountExists: account.Exists}
+	if !account.Exists {
+		firewall.Summary = "local service account is missing"
+	} else {
+		drift, inspectErr := nativepolicy.InspectFirewallPolicy(nativepolicy.FirewallRequest{SID: account.SID, AllowLocalNetwork: request.AllowLocalNetwork, LocalSubnets: request.LocalSubnets, AllowedRanges: request.AllowedModelRanges})
+		if inspectErr != nil {
+			return Status{}, fmt.Errorf("inspect firewall policy: %w", inspectErr)
+		}
+		firewall.Applied, firewall.Drift = len(drift) == 0, len(drift)
+		if firewall.Applied {
+			firewall.Summary = "user-scoped outbound policy verified"
+		} else {
+			firewall.Summary = "the outbound rule is missing or differs from this policy; apply protection again"
+		}
+		for _, item := range drift {
+			firewall.Items = append(firewall.Items, DriftItem{Rule: item.Subject, Expected: item.Expected, Found: item.Found})
+		}
 	}
 	return Status{
 		Supported: true, HarnessElevated: isUserAnAdmin(), ACL: acl, Firewall: firewall, Applied: acl.Applied && firewall.Applied,

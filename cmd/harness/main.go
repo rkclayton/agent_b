@@ -281,10 +281,10 @@ func main() {
 	web.SetRegistry(registry)
 	// Item 2kq (f) as item 2nu left it: the address is built in, so this is normally
 	// broker.DefaultURL and a phone can be paired on a fresh install. Constructing the
-	// client opens NOTHING — it generates this launch's identity and prepares to dial;
-	// the socket is opened only while a pairing is under way (2nu (d)).
+	// client loads this install's protected identity and any durable pairing. It opens
+	// nothing unless a pairing is under way or already exists (2nu (d), 2ob).
 	if address := strings.TrimSpace(cfg.Broker.URL); address != "" {
-		if brokerClient, brokerErr := webserver.NewBrokerClient(address); brokerErr != nil {
+		if brokerClient, brokerErr := webserver.NewBrokerClient(address, paths.Data); brokerErr != nil {
 			log.Printf("broker: %v", brokerErr)
 		} else {
 			web.SetBrokerHost(brokerClient)

@@ -21,16 +21,23 @@ import (
 // push would cost the phone its connection at the end of every run. The frame's shape
 // belongs to the broker repository; until it is confirmed there, nothing is pushed.
 //
-// It lives as long as the pairing does IN THIS PROCESS. The pairing and this launch's
-// identity are held in memory only (the security decision recorded at the top of
-// broker_host.go), so after a restart there is nothing to reconnect with and the phone
-// pairs again; a session is never opened without a pairing (2nu).
+// It lives as long as the stored pairing does. A restart loads the identity and pairing,
+// then attach starts this session after the real server is available; without a pairing
+// no connection is opened (2nu, 2ob).
 
 // attach gives the client the server whose handlers answer the phone.
 func (c *BrokerClient) attach(server *Server) {
 	c.mu.Lock()
 	c.server = server
+	var pairing *broker.Pairing
+	if c.pairing != nil && c.client == nil {
+		copy := *c.pairing
+		pairing = &copy
+	}
 	c.mu.Unlock()
+	if pairing != nil {
+		c.startSession(*pairing)
+	}
 }
 
 // startSession runs the paired session until revoke stops it.

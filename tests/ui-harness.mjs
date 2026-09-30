@@ -46,7 +46,7 @@ async function stopChild(child) {
 
 const TOOLSET = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
 
-function configFor({ appPort, modelPort, data, workspace, agents = [], connectionModel = "ui-harness" }) {
+function configFor({ appPort, modelPort, data, workspace, agents = [], connectionModel = "ui-harness", brokerURL = "" }) {
   return {
     config_version: 10, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(data, "logs"),
     connections: [{
@@ -66,13 +66,14 @@ function configFor({ appPort, modelPort, data, workspace, agents = [], connectio
     tools: { read_file: { default_limit: 16384, max_limit: 65536 }, attachments: { max_bytes: 8388608 }, list_dir: { max_entries: 300, ignore: [".git"] }, grep: { max_matches: 50, max_line_chars: 200 }, shell: { operator_commands: [] }, fetch: { timeout_s: 20, max_bytes: 2097152, max_redirects: 5, default_limit: 16384, max_limit: 65536, allow_domains: [], deny_domains: [], allow_internal_hosts: [] }, find_files: { skip_roots: [] } },
     shell: { command: ["powershell", "-NoProfile", "-NonInteractive", "-Command"], timeout_s: 60, max_timeout_s: 600, max_output_lines_head: 60, max_output_lines_tail: 40, file_routing_guard: true, operator_context: false, operator_context_idle_timeout_minutes: 20, service_account: { enabled: false, account: "agentb-svc", domain: "." }, deny: [] },
     signing: { thumbprint: "", timestamp_url: "http://timestamp.digicert.com" },
+    broker: { url: brokerURL },
   };
 }
 
 // start brings up the harness. `reachable: false` leaves the model port unbound,
 // which is what the operator had. `routeFailures` is a set of API path prefixes
 // the browser context fails, so a scenario can break `/api/plan` alone.
-export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness" }) {
+export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "" }) {
   const dataRoot = resolve(data);
   const workspace = join(dataRoot, "workspace");
   await mkdir(workspace, { recursive: true });
@@ -96,7 +97,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
 
   const appPort = await freePort();
   const configPath = join(dataRoot, "harness.json");
-  await writeFile(configPath, JSON.stringify(configFor({ appPort, modelPort, data: dataRoot, workspace, agents, connectionModel }), null, 2));
+  await writeFile(configPath, JSON.stringify(configFor({ appPort, modelPort, data: dataRoot, workspace, agents, connectionModel, brokerURL }), null, 2));
 
   let stderr = "";
   const app = spawn(resolve(exe), ["-config", configPath, "-app-root", resolve(appRoot), "-data-root", dataRoot], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });

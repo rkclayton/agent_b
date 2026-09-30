@@ -466,9 +466,11 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	})
 
 	// Item 2kq: A TOOL PROCESS CANNOT OBTAIN THE BROKER SESSION. The broker client is a
-	// CONTROL-PLANE client under item 2jy: its keys, its pairing and its session live in
-	// the harness process and are reachable through no tool. This arm asks for them the
-	// three ways a tool could and gets nothing each time.
+	// CONTROL-PLANE client under item 2jy: its active keys, pairing and session live in
+	// the harness process and are reachable through no tool. Its durable identity and
+	// pairing are named user-scope DPAPI blobs under the data root, which the service
+	// identity cannot reach. This arm asks through tool surfaces and also verifies that
+	// anything visible on disk is the protected blob, never its plaintext record.
 	t.Run("broker_session_is_unreachable_from_a_tool_2kq", func(t *testing.T) {
 		base := "http://" + cfg.Listen
 		// The status route the Settings page reads: refused like every control-plane
@@ -477,8 +479,8 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		if detail.OK || !strings.Contains(detail.Content, "refused the Agent_b listener") {
 			t.Fatalf("call_service reached the broker status: %+v", detail)
 		}
-		// And nothing on disk under the data root carries a broker private key: the
-		// identity is generated and held in the process.
+		// The durable files are protected blobs. Even the operator-side inspection this
+		// host gate performs cannot find their plaintext JSON schema or protocol marker.
 		var found []string
 		_ = filepath.WalkDir(dataRoot, func(path string, entry os.DirEntry, err error) error {
 			if err != nil || entry.IsDir() {
@@ -488,7 +490,7 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 			if readErr != nil {
 				return nil
 			}
-			for _, marker := range []string{"agentb-session-v2", "SigningSeed", "broker_private"} {
+			for _, marker := range []string{"agentb-session-v2", "signing_seed", "device_signing", "broker_private"} {
 				if strings.Contains(string(body), marker) {
 					found = append(found, path+" carries "+marker)
 				}
@@ -498,7 +500,7 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		if len(found) > 0 {
 			t.Fatalf("broker key material is on disk where a tool could read it: %v", found)
 		}
-		t.Log("contract=2kq: the broker session is not reachable through call_service and no broker key material is on disk")
+		t.Log("contract=2ob: broker state is unreachable through call_service; durable broker files expose only user-DPAPI blobs")
 	})
 
 	t.Run("control_plane_call_service_refused_2jy", func(t *testing.T) {

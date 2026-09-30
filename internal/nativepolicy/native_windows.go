@@ -4,12 +4,28 @@ package nativepolicy
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+type ACLRequest struct{ Application, Data, Workspace, Exchange, SID string }
+type Drift struct{ Subject, Expected, Found string }
+type aclTarget struct {
+	path, intent string
+	rights       uint32
+	inheritance  uint8
+	deny         bool
+}
+
+func ValidateACLPolicy(request ACLRequest) error {
+	_, err := aclTargets(request, false)
+	return err
+}
 
 type AccountStatus struct {
 	Exists, Enabled, Administrator, UsersMember, LockedOut bool
@@ -171,4 +187,209 @@ func builtinGroupName(kind windows.WELL_KNOWN_SID_TYPE) (string, error) {
 	}
 	name, _, _, err := sid.LookupAccount("")
 	return name, err
+}
+
+func SetManagedACLRule(path, sidText string, rights uint32, inheritance uint32, deny bool) error {
+	sid, err := windows.StringToSid(sidText)
+	if err != nil {
+		return err
+	}
+	mode := windows.ACCESS_MODE(windows.SET_ACCESS)
+	if deny {
+		mode = windows.ACCESS_MODE(windows.DENY_ACCESS)
+	}
+	return mergeACL(path, windows.EXPLICIT_ACCESS{AccessPermissions: windows.ACCESS_MASK(rights), AccessMode: mode, Inheritance: inheritance,
+		Trustee: windows.TRUSTEE{TrusteeForm: windows.TRUSTEE_IS_SID, TrusteeType: windows.TRUSTEE_IS_USER, TrusteeValue: windows.TrusteeValueFromSID(sid)}})
+}
+
+func RemoveManagedACLRules(path, sidText string) error {
+	sid, err := windows.StringToSid(sidText)
+	if err != nil {
+		return err
+	}
+	return mergeACL(path, windows.EXPLICIT_ACCESS{AccessMode: windows.REVOKE_ACCESS,
+		Trustee: windows.TRUSTEE{TrusteeForm: windows.TRUSTEE_IS_SID, TrusteeType: windows.TRUSTEE_IS_USER, TrusteeValue: windows.TrusteeValueFromSID(sid)}})
+}
+
+func mergeACL(path string, entry windows.EXPLICIT_ACCESS) error {
+	descriptor, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return err
+	}
+	merged, err := windows.BuildSecurityDescriptor(nil, nil, []windows.EXPLICIT_ACCESS{entry}, nil, descriptor)
+	if err != nil {
+		return err
+	}
+	dacl, _, err := merged.DACL()
+	if err != nil {
+		return err
+	}
+	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+}
+
+func HasManagedACLRule(path, sidText string, rights uint32, inheritance uint8, deny bool) (bool, error) {
+	sid, err := windows.StringToSid(sidText)
+	if err != nil {
+		return false, err
+	}
+	descriptor, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return false, err
+	}
+	dacl, _, err := descriptor.DACL()
+	if err != nil {
+		return false, err
+	}
+	wantType := uint8(windows.ACCESS_ALLOWED_ACE_TYPE)
+	if deny {
+		wantType = windows.ACCESS_DENIED_ACE_TYPE
+	}
+	matches := 0
+	for index := uint32(0); index < uint32(dacl.AceCount); index++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, index, &ace); err != nil {
+			return false, err
+		}
+		aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+		if ace.Header.AceType == wantType && ace.Header.AceFlags&0x13 == inheritance && ace.Mask == windows.ACCESS_MASK(rights) && aceSID.Equals(sid) {
+			matches++
+		}
+	}
+	return matches == 1, nil
+}
+
+func InspectACLPolicy(request ACLRequest) ([]Drift, error) {
+	targets, err := aclTargets(request, false)
+	if err != nil {
+		return nil, err
+	}
+	var drift []Drift
+	for _, target := range targets {
+		if _, err := os.Stat(target.path); err != nil {
+			if os.IsNotExist(err) {
+				drift = append(drift, Drift{target.path, target.intent, "path missing"})
+				continue
+			}
+			return nil, err
+		}
+		ok, err := HasManagedACLRule(target.path, request.SID, target.rights, target.inheritance, target.deny)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			drift = append(drift, Drift{target.path, target.intent, "managed rule missing or different"})
+		}
+	}
+	return drift, nil
+}
+
+func ApplyACLPolicy(request ACLRequest, remove bool) error {
+	targets, err := aclTargets(request, !remove)
+	if err != nil {
+		return err
+	}
+	for _, target := range targets {
+		if _, err := os.Stat(target.path); err != nil {
+			if remove && os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		if remove {
+			err = RemoveManagedACLRules(target.path, request.SID)
+		} else {
+			err = SetManagedACLRule(target.path, request.SID, target.rights, uint32(target.inheritance), target.deny)
+		}
+		if err != nil {
+			return fmt.Errorf("%s: %w", target.path, err)
+		}
+	}
+	return nil
+}
+
+func aclTargets(request ACLRequest, create bool) ([]aclTarget, error) {
+	clean := func(path string) string {
+		absolute, _ := filepath.Abs(os.ExpandEnv(path))
+		return filepath.Clean(absolute)
+	}
+	request.Application, request.Data, request.Workspace, request.Exchange = clean(request.Application), clean(request.Data), clean(request.Workspace), clean(request.Exchange)
+	for _, path := range []string{request.Application, request.Data} {
+		if info, err := os.Stat(path); err != nil || !info.IsDir() {
+			return nil, fmt.Errorf("required directory does not exist: %s", path)
+		}
+	}
+	profiles, _ := os.ReadDir(filepath.Join(request.Data, "profiles"))
+	plans, scratch := []string{}, []string{}
+	for _, profile := range profiles {
+		if profile.IsDir() {
+			plans = append(plans, filepath.Join(request.Data, "profiles", profile.Name(), "plans"))
+			scratch = append(scratch, filepath.Join(request.Data, "profiles", profile.Name(), "scratch"))
+		}
+	}
+	basePlans, baseScratch := filepath.Join(request.Data, "plans"), filepath.Join(request.Data, "scratch")
+	if len(plans) == 0 {
+		plans = append(plans, basePlans)
+	} else if _, err := os.Stat(basePlans); err == nil {
+		plans = append([]string{basePlans}, plans...)
+	}
+	if len(scratch) == 0 {
+		scratch = append(scratch, baseScratch)
+	} else if _, err := os.Stat(baseScratch); err == nil {
+		scratch = append([]string{baseScratch}, scratch...)
+	}
+	workspaceScratch := false
+	for _, path := range scratch {
+		if sameOrWithin(request.Workspace, path) {
+			workspaceScratch = true
+		}
+	}
+	trees := []string{request.Application, request.Data, request.Exchange}
+	if !workspaceScratch {
+		trees = append(trees, request.Workspace)
+	}
+	for i := range trees {
+		for j := i + 1; j < len(trees); j++ {
+			if sameOrWithin(trees[i], trees[j]) || sameOrWithin(trees[j], trees[i]) {
+				return nil, fmt.Errorf("application, operator-data, workspace, and exchange directories must be disjoint trees")
+			}
+		}
+	}
+	if create {
+		for _, path := range append(append(plans, scratch...), request.Exchange) {
+			if err := os.MkdirAll(path, 0o700); err != nil {
+				return nil, err
+			}
+		}
+	}
+	reachable := append([]string{request.Application, request.Workspace, request.Exchange}, append(plans, scratch...)...)
+	seen, targets := map[string]bool{}, []aclTarget{}
+	programFiles, programData := clean(os.Getenv("ProgramFiles")), clean(os.Getenv("ProgramData"))
+	for _, path := range reachable {
+		for parent := filepath.Dir(path); filepath.Dir(parent) != parent && filepath.Dir(filepath.Dir(parent)) != filepath.Dir(parent); parent = filepath.Dir(parent) {
+			key := strings.ToLower(parent)
+			if parent != programFiles && parent != programData && !seen[key] {
+				seen[key] = true
+				targets = append(targets, aclTarget{parent, "grant parent-directory traverse", 0x20, 0, false})
+			}
+		}
+	}
+	targets = append(targets, aclTarget{request.Application, "deny application-tree mutation", 0xd0156, 3, true}, aclTarget{request.Application, "grant application-tree read and execute", 0x200a9, 3, false}, aclTarget{request.Data, "deny service identity access to operator data except traversal", 0x1f01df, 3, true})
+	for _, path := range plans {
+		targets = append(targets, aclTarget{path, "grant plans-folder Modify", 0x301bf, 3, false})
+	}
+	for _, path := range scratch {
+		targets = append(targets, aclTarget{path, "grant scratch-folder Modify", 0x301bf, 3, false})
+	}
+	if !workspaceScratch {
+		if _, err := os.Stat(request.Workspace); err == nil {
+			targets = append(targets, aclTarget{request.Workspace, "grant legacy workspace Modify", 0x301bf, 3, false})
+		}
+	}
+	targets = append(targets, aclTarget{request.Exchange, "grant exchange-folder Modify", 0x301bf, 3, false})
+	return targets, nil
+}
+
+func sameOrWithin(child, parent string) bool {
+	relative, err := filepath.Rel(parent, child)
+	return err == nil && (relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)))
 }

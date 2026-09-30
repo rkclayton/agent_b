@@ -103,6 +103,20 @@ func TestUpdateFixtureURLAcceptsOnlyLoopback(t *testing.T) {
 	}
 }
 
+func TestExecutionPolicyPrecedenceAndBlockedState(t *testing.T) {
+	got := resolveExecutionPolicy(map[string]string{
+		"LocalMachine": "RemoteSigned", "CurrentUser": "Unrestricted",
+		"UserPolicy": "AllSigned", "MachinePolicy": "Restricted",
+	})
+	if got.Policy != "Restricted" || got.Scope != "MachinePolicy" || !got.BlocksScripts {
+		t.Fatalf("effective policy=%+v", got)
+	}
+	got = resolveExecutionPolicy(map[string]string{"LocalMachine": "RemoteSigned", "Process": "Bypass"})
+	if got.Policy != "Bypass" || got.Scope != "Process" || got.BlocksScripts {
+		t.Fatalf("process policy=%+v", got)
+	}
+}
+
 func TestSingleFileSetupRefusesTamperedPayload(t *testing.T) {
 	executable := writeBundleFixture(t, map[string]string{"scripts/install-Agent_b.ps1": "ok"})
 	file, err := os.OpenFile(executable, os.O_RDWR, 0)
@@ -142,9 +156,6 @@ func TestSingleFileSetupFindsBundleBeforeAuthenticodeCertificate(t *testing.T) {
 	}
 }
 
-// Item 2gl (v1.2.0/W2). The marker is the answer to "should i re-run?", so
-// these pin what makes its presence mean something.
-
 func TestAnInstallMarkerSurvivesUntilAnInstallFinishes(t *testing.T) {
 	root := t.TempDir()
 	if _, found, err := readInstallMarker(root); err != nil || found {
@@ -163,8 +174,6 @@ func TestAnInstallMarkerSurvivesUntilAnInstallFinishes(t *testing.T) {
 	if marker.StartedAt == "" || marker.UpdatedAt == "" || marker.PID == 0 {
 		t.Fatalf("marker is missing when/who: %+v", marker)
 	}
-	// A later phase keeps the start time: the operator is told when the
-	// install began, not when it last moved.
 	started := marker.StartedAt
 	marker.Phase = "copying the application"
 	if err := writeInstallMarker(root, marker); err != nil {
@@ -177,15 +186,12 @@ func TestAnInstallMarkerSurvivesUntilAnInstallFinishes(t *testing.T) {
 	if next.StartedAt != started || next.Phase != "copying the application" {
 		t.Fatalf("phase move rewrote the start: %+v", next)
 	}
-	// Only a finished install clears it.
 	if err := clearInstallMarker(root); err != nil {
 		t.Fatal(err)
 	}
 	if _, found, _ := readInstallMarker(root); found {
 		t.Fatal("the marker outlived the install that cleared it")
 	}
-	// Clearing again is not an error: an install that never wrote one still
-	// finishes cleanly.
 	if err := clearInstallMarker(root); err != nil {
 		t.Fatalf("clearing an absent marker is not a failure: %v", err)
 	}
@@ -209,14 +215,11 @@ func TestTheInterruptedInstallLineAnswersTheOperatorsQuestion(t *testing.T) {
 			t.Fatalf("the line must say %q: %s", want, line)
 		}
 	}
-	// It must never be blank, whatever the marker holds.
 	if bare := describeInterruptedInstall(InstallMarker{}); len(bare) < 40 {
 		t.Fatalf("an empty marker still gets a sentence: %q", bare)
 	}
 }
 
-// The installer's own parameters are passed through untouched, so the two
-// vocabularies cannot drift.
 func TestInstallArgumentsSplitByWhoOwnsThem(t *testing.T) {
 	arguments := []string{
 		"--install", "--quiet", "--all-users", "--install-data", `C:\data`, "--reopen-session", "s17", "-NoStart",
@@ -235,8 +238,6 @@ func TestInstallArgumentsSplitByWhoOwnsThem(t *testing.T) {
 			t.Fatalf("the installer keeps %q: %v", want, theirs)
 		}
 	}
-	// Nothing this mode owns may reach the installer, and nothing of the
-	// installer's may be eaten here.
 	for _, unwanted := range []string{"--install", "--quiet", `C:\data`} {
 		if contains(theirs, unwanted) {
 			t.Fatalf("%q leaked into the installer's arguments: %v", unwanted, theirs)
@@ -245,7 +246,6 @@ func TestInstallArgumentsSplitByWhoOwnsThem(t *testing.T) {
 	if contains(mine, "-TestMode") {
 		t.Fatalf("-TestMode is the installer's: %v", mine)
 	}
-	// Order is preserved, because -Name value pairs depend on it.
 	if len(theirs) != 5 || theirs[0] != "-SourceDirectory" || theirs[1] != `C:\candidate` {
 		t.Fatalf("the installer's arguments lost their order: %v", theirs)
 	}
@@ -296,9 +296,6 @@ func contains(values []string, want string) bool {
 	return false
 }
 
-// Item 2ll (a) and (b): the install's OWN records -- its log, its in-progress
-// marker, its progress file -- follow the instance that asked for the install,
-// and production's do not move because production passes its own root.
 func TestTheInstallsRecordsFollowTheAskingInstance2ll(t *testing.T) {
 	operator := filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b")
 	for _, testCase := range []struct {
@@ -320,14 +317,6 @@ func TestTheInstallsRecordsFollowTheAskingInstance2ll(t *testing.T) {
 	}
 }
 
-// Item 2m6 (a), (c) and (e): a disposable install never opens a window, and the
-// test would fail if one could.
-//
-// The check is on the decision rather than on an observed window, because a
-// window that appears on the operator's desktop during a suite run is exactly
-// what nobody is watching for at the time. rel-1.24.0/W1 enumerated six suite
-// paths that install; only one of them set the environment variable that used
-// to be the whole mechanism.
 func TestADisposableInstallIsHeadlessByConstruction2m6(t *testing.T) {
 	t.Setenv("AGENT_B_INSTALL_NO_BROWSER", "")
 	for _, probe := range []struct {
@@ -346,14 +335,11 @@ func TestADisposableInstallIsHeadlessByConstruction2m6(t *testing.T) {
 	}
 }
 
-// (b): a REAL install still starts with its window, because starting after
-// install is what the operator wants and is not the defect.
 func TestARealInstallStillOpensItsWindow2m6(t *testing.T) {
 	t.Setenv("AGENT_B_INSTALL_NO_BROWSER", "")
 	if !canonicalInstallRoot(defaultInstallRoot(false)) {
 		t.Fatal("the canonical per-user root was treated as disposable, which would silence a real install")
 	}
-	// And the override still works for a canonical root that wants no window.
 	t.Setenv("AGENT_B_INSTALL_NO_BROWSER", "1")
 	if os.Getenv("AGENT_B_INSTALL_NO_BROWSER") == "" {
 		t.Fatal("the override was not readable")

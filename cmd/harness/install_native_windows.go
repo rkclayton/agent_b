@@ -54,13 +54,44 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 		SendTo:    installerArgument(arguments, "SendToDirectory", filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "SendTo")),
 		Version:   version, OperatorSID: operatorSID}
 	platform := nativeInstallPlatform{shortcut: writeShellLink, register: writeUninstallRegistration, secure: secureInstallDirectory}
-	log.printf("execution policy: native install; no script consulted")
+	policy := effectiveExecutionPolicy()
+	log.printf("execution policy: %s from %s", policy.Policy, policy.Scope)
 	appendProgress(data, installProgress{Phase: "copying the application", Text: "Application: " + application})
 	if err := installPerUserNative(plan, platform); err != nil {
 		return err
 	}
 	log.printf("INSTALLATION COMPLETE")
 	return nil
+}
+
+func effectiveExecutionPolicy() executionPolicyState {
+	values := map[string]string{"Process": os.Getenv("PSExecutionPolicyPreference")}
+	for scope, item := range map[string]struct {
+		root registry.Key
+		path string
+		gpo  bool
+	}{
+		"MachinePolicy": {registry.LOCAL_MACHINE, `SOFTWARE\Policies\Microsoft\Windows\PowerShell`, true},
+		"UserPolicy":    {registry.CURRENT_USER, `SOFTWARE\Policies\Microsoft\Windows\PowerShell`, true},
+		"CurrentUser":   {registry.CURRENT_USER, `SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell`, false},
+		"LocalMachine":  {registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell`, false},
+	} {
+		key, err := registry.OpenKey(item.root, item.path, registry.QUERY_VALUE|registry.WOW64_64KEY)
+		if err != nil {
+			continue
+		}
+		if item.gpo {
+			if enabled, _, err := key.GetIntegerValue("EnableScripts"); err == nil && enabled == 0 {
+				values[scope] = "Restricted"
+			} else if err == nil {
+				values[scope], _, _ = key.GetStringValue("ExecutionPolicy")
+			}
+		} else {
+			values[scope], _, _ = key.GetStringValue("ExecutionPolicy")
+		}
+		key.Close()
+	}
+	return resolveExecutionPolicy(values)
 }
 func currentTokenSID() (string, error) {
 	token := windows.GetCurrentProcessToken()

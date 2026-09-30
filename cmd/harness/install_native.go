@@ -25,6 +25,22 @@ type nativeInstallPlatform struct {
 	secure   func(string, string, bool) error
 }
 
+type executionPolicyState struct {
+	Policy, Scope string
+	BlocksScripts bool
+}
+
+func resolveExecutionPolicy(values map[string]string) executionPolicyState {
+	for _, scope := range []string{"MachinePolicy", "UserPolicy", "Process", "CurrentUser", "LocalMachine"} {
+		policy := strings.TrimSpace(values[scope])
+		if policy == "" || strings.EqualFold(policy, "Undefined") {
+			continue
+		}
+		return executionPolicyState{Policy: policy, Scope: scope, BlocksScripts: strings.EqualFold(policy, "Restricted") || strings.EqualFold(policy, "AllSigned")}
+	}
+	return executionPolicyState{Policy: "Undefined", Scope: "none"}
+}
+
 func verifyNativeCandidate(source string) error {
 	encoded, err := os.ReadFile(filepath.Join(source, "candidate-final.json"))
 	if err != nil {

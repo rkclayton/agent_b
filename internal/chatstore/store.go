@@ -2,6 +2,7 @@ package chatstore
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -116,4 +117,45 @@ func (s *Store) Find(id string) (Entry, bool, error) {
 		return Entry{}, false, err
 	}
 	return found, found.Path != "", nil
+}
+
+// Migrate moves one legacy scratch directory into the visible tree. The old
+// path is the marker: once it is absent and chat.json is found, the move is done.
+func (s *Store) Migrate(legacy, id, label string, created time.Time) (string, bool, error) {
+	if entry, found, err := s.Find(id); err != nil {
+		return "", false, err
+	} else if found {
+		if _, legacyErr := os.Lstat(legacy); legacyErr == nil {
+			return "", false, fmt.Errorf("chat %s exists at both %s and %s", id, legacy, entry.Path)
+		} else if !os.IsNotExist(legacyErr) {
+			return "", false, legacyErr
+		}
+		return entry.Path, false, nil
+	}
+	info, err := os.Lstat(legacy)
+	if err != nil {
+		return "", false, err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", false, fmt.Errorf("legacy chat path is not a directory: %s", legacy)
+	}
+	if err := os.MkdirAll(s.root, 0o700); err != nil {
+		return "", false, err
+	}
+	for {
+		name, err := AvailableName(s.root, label)
+		if err != nil {
+			return "", false, err
+		}
+		destination := filepath.Join(s.root, name)
+		if err := os.Rename(legacy, destination); os.IsExist(err) {
+			continue
+		} else if err != nil {
+			return "", false, err
+		}
+		if err := WriteMetadata(destination, Metadata{ID: id, Created: created.UTC(), Label: label}); err != nil {
+			return "", false, errors.Join(err, os.Rename(destination, legacy))
+		}
+		return destination, true, nil
+	}
 }

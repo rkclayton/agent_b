@@ -1,6 +1,7 @@
 package chatstore
 
 import (
+	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"testing"
@@ -50,5 +51,40 @@ func TestFindUsesChatJSONIdentityRatherThanDirectoryName(t *testing.T) {
 	entry, found, err := store.Find("stable-id")
 	if err != nil || !found || entry.Path != moved || entry.Metadata.ID != "stable-id" {
 		t.Fatalf("Find = %+v, %v, %v", entry, found, err)
+	}
+}
+
+func TestMigrateMovesLegacyBytesOnceAndWritesIdentity(t *testing.T) {
+	root := t.TempDir()
+	legacy := filepath.Join(root, "scratch", "s7")
+	if err := os.MkdirAll(filepath.Join(legacy, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("byte-for-byte migration proof\x00\xff")
+	file := filepath.Join(legacy, "nested", "proof.bin")
+	if err := os.WriteFile(file, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wantHash := sha256.Sum256(original)
+	created := time.Date(2026, 9, 29, 21, 17, 0, 0, time.UTC)
+	store := New(filepath.Join(root, "chats"))
+	destination, migrated, err := store.Migrate(legacy, "s7", "Existing chat", created)
+	if err != nil || !migrated {
+		t.Fatalf("Migrate = %q, %v, %v", destination, migrated, err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy remains: %v", err)
+	}
+	moved, err := os.ReadFile(filepath.Join(destination, "nested", "proof.bin"))
+	if err != nil || sha256.Sum256(moved) != wantHash {
+		t.Fatalf("moved bytes changed: %v", err)
+	}
+	metadata, err := ReadMetadata(destination)
+	if err != nil || metadata.ID != "s7" || metadata.Label != "Existing chat" || !metadata.Created.Equal(created) {
+		t.Fatalf("metadata = %+v, %v", metadata, err)
+	}
+	again, migrated, err := store.Migrate(legacy, "s7", "Existing chat", created)
+	if err != nil || migrated || again != destination {
+		t.Fatalf("second Migrate = %q, %v, %v", again, migrated, err)
 	}
 }

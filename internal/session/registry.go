@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -171,17 +172,21 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 	workspace := firstNonempty(saved.WorkspaceDir, saved.Workspace)
 	workspaceMissing, runnable, notRunnableReason := saved.WorkspaceMissing, connectionRunnable, connectionReason
 	if saved.Scratch {
-		chatHome := false
 		if r.chatRoot != "" {
-			entry, found, findErr := chatstore.New(r.chatRoot).Find(saved.ID)
-			if findErr != nil {
-				return nil, fmt.Errorf("restore chat storage: %w", findErr)
+			store := chatstore.New(r.chatRoot)
+			legacy := filepath.Join(r.scratchRoot, saved.ID)
+			var migrated bool
+			workspace, migrated, err = store.Migrate(legacy, saved.ID, saved.Label, createdAt)
+			if os.IsNotExist(err) {
+				workspace, err = store.Create(saved.ID, saved.Label, createdAt)
 			}
-			if found {
-				workspace, chatHome = entry.Path, true
+			if err != nil {
+				return nil, fmt.Errorf("restore chat storage: %w", err)
 			}
-		}
-		if !chatHome && r.scratchRoot != "" {
+			if migrated {
+				log.Printf("migrated chat %s from %s to %s", saved.ID, legacy, workspace)
+			}
+		} else if r.scratchRoot != "" {
 			workspace = filepath.Join(r.scratchRoot, saved.ID)
 		}
 		if err := os.MkdirAll(workspace, 0o700); err != nil {

@@ -142,7 +142,7 @@ func TestRetainedChatRestoresPreviousFolder(t *testing.T) {
 	}
 }
 
-func TestRestoreRebasesAndRecreatesMissingScratchAfterProfileMigration(t *testing.T) {
+func TestRestoreRebasesAndRecreatesMissingChatHomeAfterProfileMigration(t *testing.T) {
 	registry, _, connection := testPlanRegistry(t)
 	created, err := registry.Create("", connection, "")
 	if err != nil {
@@ -162,13 +162,13 @@ func TestRestoreRebasesAndRecreatesMissingScratchAfterProfileMigration(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(profileRoot, "scratch", saved.ID)
+	want := filepath.Join(profileRoot, "chats", "chat")
 	got := restored.Snapshot()
 	if got.Workspace != want || got.WorkspaceMissing || !got.Runnable {
-		t.Fatalf("restored scratch=%+v want workspace %q", got, want)
+		t.Fatalf("restored chat=%+v want workspace %q", got, want)
 	}
 	if info, err := os.Stat(want); err != nil || !info.IsDir() {
-		t.Fatalf("restored scratch folder: %v", err)
+		t.Fatalf("restored chat folder: %v", err)
 	}
 }
 

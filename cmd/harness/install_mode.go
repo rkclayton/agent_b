@@ -155,7 +155,8 @@ func runInstall(options installOptions, args []string) int {
 			embeddedBundle = true
 			defer removeSource()
 			log.printf("install: verified and extracted the embedded application payload")
-			outerSigner, payloadSigner, signatureErr := installSignatureSubjects(executable, filepath.Join(source, "agentb.exe"), installerFlagPresent(args, "TestMode"))
+			acceptDisposable := installerFlagPresent(args, "TestMode") || installerFlagPresent(args, "WhatIf")
+			outerSigner, payloadSigner, signatureErr := installSignatureSubjects(executable, filepath.Join(source, "agentb.exe"), acceptDisposable)
 			if signatureErr != nil {
 				return log.fail("installer signature verification failed: %v", signatureErr)
 			}

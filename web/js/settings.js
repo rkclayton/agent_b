@@ -55,7 +55,7 @@ let hardeningAlarm = false;
 let notificationStatus = { configured: false, host: "" };
 let notificationBusy = false;
 let notificationMessage = "";
-let notificationAlarm = false;
+let notificationAlarm = false, signInStart = { loaded: false, enabled: false, busy: false, error: "" };
 let settingsSaving = false;
 let settingsSaveMessage = "All changes saved";
 let settingsSaveAlarm = false;
@@ -220,7 +220,7 @@ export function openSettings(section = "") {
   render();
   refreshServiceAccountStatus();
 	refreshHardeningStatus();
-	refreshNotificationStatus();
+	refreshNotificationStatus(); refreshSignInStart();
 	refreshPhoneAccess();
   refreshWorkspaceState();
   refreshOperatorFileState();
@@ -436,7 +436,7 @@ function settingsPageContext(active) {
     credentialList, credentialMessage, credentialAlarm,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList,
-    notificationStatus, notificationBusy, notificationMessage, notificationAlarm,
+    notificationStatus, notificationBusy, notificationMessage, notificationAlarm, signInStart,
     row, subhead, field, text, number, numberControl, textarea, secret, toggle, choices, selectSetting, approvalChoices,
     copyRow, currentValue, issue, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView,
   };
@@ -1198,6 +1198,12 @@ async function dispatchAction(event, button, action, id) {
 	if (action === "clear-notification") return notificationAction("clear");
 	if (action === "install-update") return installUpdate();
 	if (action === "check-update") return checkUpdate();
+	if (action === "sign-in-start") {
+		signInStart = { ...signInStart, busy: true, error: "" }; render();
+		try { signInStart = { loaded: true, busy: false, error: "", ...await api("/api/sign-in-start", { enabled: !signInStart.enabled }) }; }
+		catch (error) { signInStart = { ...signInStart, busy: false, error: error.message }; }
+		return render();
+	}
 	// Item 2mv: the export is a plain read, saved through the browser. No new probe,
 	// no elevation, and the file is already redacted by the time it arrives here.
 	if (action === "export-diagnostics") {
@@ -1304,6 +1310,12 @@ async function refreshPhoneAccess() {
 	try { phoneAccess = { ...phoneAccess, ...await api("/api/phone/devices", undefined, "GET") }; }
 	catch (error) { phoneAccess = { devices: [], error: error.message, push_enabled: false }; }
 	if (open && activeSection === "shell") render();
+}
+
+async function refreshSignInStart() {
+	try { signInStart = { loaded: true, busy: false, error: "", ...await api("/api/sign-in-start", undefined, "GET") }; }
+	catch (error) { signInStart = { ...signInStart, loaded: true, busy: false, error: error.message }; }
+	if (open && activeSection === "about") render();
 }
 
 function selectedHardeningConnectionID() {

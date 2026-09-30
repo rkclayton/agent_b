@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { renderAboutPage } from "./settings-about.js";
 
 const chat = readFileSync(new URL("./chat.js", import.meta.url), "utf8");
+const settings = readFileSync(new URL("./settings.js", import.meta.url), "utf8");
 const htmlSource = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
 test("the update notice is a dismissible banner beside Attach, not strip text", () => {
@@ -28,4 +29,19 @@ test("About exposes attach-aware timestamps, release note, and operator actions"
 	assert.match(html, /checked /);
 	assert.match(html, /data-action="check-update"/);
   assert.match(html, /data-action="install-update"/);
+});
+
+test("About carries Windows' Start when I sign in switch beside update controls", () => {
+  const html = renderAboutPage({
+    store: { build: {}, config: { updates: {} }, update: {} },
+    signInStart: { loaded: true, enabled: true },
+    row: (label, control, extra = "", hint = "") => `<div class="${extra}" title="${hint}">${label}:${control}</div>`,
+    toggle: () => "",
+    html: (value) => String(value),
+  });
+  assert.match(html, /Start when I sign in/);
+  assert.match(html, /data-action="sign-in-start"/);
+  assert.match(html, /role="switch" aria-checked="true"/);
+  assert.match(settings, /api\("\/api\/sign-in-start", undefined, "GET"\)/);
+  assert.match(settings, /api\("\/api\/sign-in-start", \{ enabled: !signInStart\.enabled \}\)/);
 });

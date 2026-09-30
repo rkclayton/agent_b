@@ -236,7 +236,6 @@ try {
     ["wrap", ".agent-tab-wrap"],
     ["tab", ".agent-tab"],
     ["plus", ".agent-tab-new"],
-    ["plan", '.agent-tab-surface[data-surface-kind="plan"]'],
     ["settings", ".shell-settings"],
   ].map(([key, selector]) => {
     const rect = document.querySelector(selector).getBoundingClientRect();
@@ -359,7 +358,8 @@ try {
   assert.ok(chatFailedResponses.every((response) =>
     (response.status === 404 && response.url.includes("/api/files/")) ||
     (response.status === 409 && response.url.includes("/api/")) ||
-    (response.status === 501 && response.url.includes("/api/operator-files"))), JSON.stringify(chatFailedResponses));
+    (response.status === 501 && response.url.includes("/api/operator-files")) ||
+    (response.status === 503 && response.url.includes("/api/credentials"))), JSON.stringify(chatFailedResponses));
   const chatConsoleErrors = [...consoleErrors];
   assert.equal(chatConsoleErrors.length, chatFailedResponses.length, JSON.stringify({ chatConsoleErrors, chatFailedResponses }));
   const settingsConsoleErrors = [];

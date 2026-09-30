@@ -51,6 +51,14 @@ func TestChatTreeOperationsAreFilesystemOperations(t *testing.T) {
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "folder must be empty") { t.Fatalf("non-empty delete: %d %s", response.Code, response.Body.String()) }
 }
 
+func TestReplayChatTreeWithoutWritableStoreIsEmpty(t *testing.T) {
+	response := httptest.NewRecorder()
+	(&Server{}).chatTree(response, httptest.NewRequest(http.MethodGet, "/api/chats/tree", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"root":""`) || !strings.Contains(response.Body.String(), `"chats":[]`) {
+		t.Fatalf("replay chat tree: %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestDeleteAllChatsRefusesRunningThenKeepsFiles(t *testing.T) {
 	server, registry, writers, _, _, _ := consoleServer(t); defer writers.Close()
 	first, _ := registry.Create("busy", "coder", "")

@@ -388,7 +388,7 @@ test("no script passes a PowerShell switch as quoted text", async () => {
         // A comment explaining the mistake is not the mistake.
         if (trimmed.startsWith("#")) continue;
         // Only where an argument LIST is being built. A quoted switch passed as DATA is
-        // fine and there is one: setup-service-account.ps1 hands the name of a parameter
+        // fine and there is one: the service-account setup path hands the name of a parameter
         // to an error message, which is not an argument being forwarded to anything.
         if (!/@\(|\+=|-Argument(?:List)?\b|\bArguments\b/.test(trimmed)) continue;
         // `'-Switch:$true'` or `"-Switch:$false"` inside that list.

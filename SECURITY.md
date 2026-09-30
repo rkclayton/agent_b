@@ -124,16 +124,9 @@ instead of borrowing one from Edge.
 
 ## Machine-scoped service credentials, and the trade they make
 
-Implemented in `internal/credential/machine_windows.go` (the access list and its check), `internal/credential/store.go` (the scope and which secrets may use it) and `scripts/provision-service-identity.ps1` (the unattended mode).
+Implemented in `internal/credential/machine_windows.go` (the access list and its check), `internal/credential/store.go` (the scope and which secrets may use it), and the signed native helper in `internal/nativepolicy`.
 
-A machine wide management tool can provision the service identity for the people
-who use the machine, which non-administrator users cannot do for themselves.
-`scripts\provision-service-identity.ps1 -Unattended`, run as SYSTEM, creates or
-adopts `agentb-svc`, generates a password nobody types or sees, stores it
-**machine-scoped**, applies the ACLs and firewall rule, verifies the identity by a
-real logon, and reports one structured `AGENTB_PROVISION_RESULT` line. It is
-idempotent: run it on every machine on every pass. `-RemoveMachineCredential`
-undoes it.
+The current native setup is the operator-approved Settings action; it stores a user-scoped credential and performs account, ACL, firewall, and logon verification through Windows APIs. Existing machine-scoped credentials from managed deployments remain readable under the strict access-list check below. This release does not publish an unattended provisioning command; a management deployment must not attempt to recreate the removed PowerShell path.
 
 **The trade, stated plainly.** A machine-scoped DPAPI blob is encrypted under a
 key held by the machine, not by any user. **Anything running on that machine can

@@ -55,8 +55,14 @@ var (
 
 func createDispatch(progID string) (*dispatch, func(), error) {
 	runtime.LockOSThread()
-	cleanup := func() { procCoUninitializeFW.Call(); runtime.UnlockOSThread() }
 	hr, _, _ := procCoInitializeExFW.Call(0, 2)
+	initialized := int32(hr) >= 0
+	cleanup := func() {
+		if initialized {
+			procCoUninitializeFW.Call()
+		}
+		runtime.UnlockOSThread()
+	}
 	if int32(hr) < 0 && uint32(hr) != 0x80010106 {
 		cleanup()
 		return nil, func() {}, fmt.Errorf("CoInitializeEx HRESULT 0x%x", hr)
@@ -196,16 +202,36 @@ func readFirewallRule(name string) (firewallRule, bool, error) {
 	}
 	defer rule.release()
 	result := firewallRule{}
-	result.Name, _ = rule.stringProperty("Name")
-	result.Description, _ = rule.stringProperty("Description")
-	result.RemoteAddresses, _ = rule.stringProperty("RemoteAddresses")
-	result.LocalUsers, _ = rule.stringProperty("LocalUserAuthorizedList")
-	result.ICMP, _ = rule.stringProperty("IcmpTypesAndCodes")
-	result.Direction, _ = rule.intProperty("Direction")
-	result.Action, _ = rule.intProperty("Action")
-	result.Profiles, _ = rule.intProperty("Profiles")
-	result.Protocol, _ = rule.intProperty("Protocol")
-	result.Enabled, _ = rule.boolProperty("Enabled")
+	if result.Name, err = rule.stringProperty("Name"); err != nil {
+		return firewallRule{}, false, err
+	}
+	if result.Description, err = rule.stringProperty("Description"); err != nil {
+		return firewallRule{}, false, err
+	}
+	if result.RemoteAddresses, err = rule.stringProperty("RemoteAddresses"); err != nil {
+		return firewallRule{}, false, err
+	}
+	if result.LocalUsers, err = rule.stringProperty("LocalUserAuthorizedList"); err != nil {
+		return firewallRule{}, false, err
+	}
+	if result.ICMP, err = rule.stringProperty("IcmpTypesAndCodes"); err != nil {
+		return firewallRule{}, false, err
+	}
+	if result.Direction, err = rule.intProperty("Direction"); err != nil {
+		return firewallRule{}, false, err
+	}
+	if result.Action, err = rule.intProperty("Action"); err != nil {
+		return firewallRule{}, false, err
+	}
+	if result.Profiles, err = rule.intProperty("Profiles"); err != nil {
+		return firewallRule{}, false, err
+	}
+	if result.Protocol, err = rule.intProperty("Protocol"); err != nil {
+		return firewallRule{}, false, err
+	}
+	if result.Enabled, err = rule.boolProperty("Enabled"); err != nil {
+		return firewallRule{}, false, err
+	}
 	return result, true, nil
 }
 
@@ -335,6 +361,30 @@ func ApplyFirewallPolicy(request FirewallRequest, remove bool) error {
 }
 
 func firewallIntent(request FirewallRequest) (firewallRule, firewallRule, error) {
+	metadata := net.ParseIP("169.254.169.254")
+	for _, text := range request.AllowedRanges {
+		ip, network, err := net.ParseCIDR(strings.TrimSpace(text))
+		if err != nil || ip.To4() == nil {
+			return firewallRule{}, firewallRule{}, fmt.Errorf("invalid IPv4 CIDR %q", text)
+		}
+		if network.Contains(metadata) {
+			return firewallRule{}, firewallRule{}, fmt.Errorf("allowed range must not include the metadata endpoint: %q", text)
+		}
+	}
+	for _, text := range request.LocalSubnets {
+		ip, network, err := net.ParseCIDR(strings.TrimSpace(text))
+		if err != nil || ip.To4() == nil {
+			return firewallRule{}, firewallRule{}, fmt.Errorf("invalid local IPv4 CIDR %q", text)
+		}
+		ones, bits := network.Mask.Size()
+		last := append(net.IP(nil), network.IP.To4()...)
+		for bit := ones; bit < bits; bit++ {
+			last[bit/8] |= 1 << uint(7-bit%8)
+		}
+		if !isPrivateIPv4(network.IP) || !isPrivateIPv4(last) {
+			return firewallRule{}, firewallRule{}, fmt.Errorf("local subnet must be wholly RFC1918: %q", text)
+		}
+	}
 	allowed := []string{"127.0.0.0/8"}
 	allowed = append(allowed, request.AllowedRanges...)
 	if request.AllowLocalNetwork {
@@ -353,6 +403,11 @@ func firewallIntent(request FirewallRequest) (firewallRule, firewallRule, error)
 	block := firewallRule{Name: firewallBlockName, Description: description, RemoteAddresses: strings.Join(blocked, ","), LocalUsers: localUsers, Direction: 2, Action: 0, Profiles: 0x7fffffff, Protocol: 256, Enabled: true}
 	icmp := firewallRule{Name: firewallICMPName, Description: "Allows outbound ICMPv4 echo to operator-confirmed LAN subnets for the Agent_b service identity.", RemoteAddresses: strings.Join(request.LocalSubnets, ","), LocalUsers: localUsers, ICMP: "8:*", Direction: 2, Action: 1, Profiles: 0x7fffffff, Protocol: 1, Enabled: true}
 	return block, icmp, nil
+}
+
+func isPrivateIPv4(ip net.IP) bool {
+	ip = ip.To4()
+	return ip != nil && ip.IsPrivate()
 }
 
 func compareFirewallRule(want, got firewallRule, prefix string) []Drift {

@@ -831,18 +831,6 @@ if ($WhatIfPreference) {
 
 $installedProcesses = @(Get-InstalledProcesses $installedBinary)
 $legacyProcesses = if ($legacyMigrationRoot -and -not $legacyMigrationRoot.Equals($applicationRoot, [StringComparison]::OrdinalIgnoreCase)) { @(Get-InstalledProcesses (Join-Path $legacyMigrationRoot 'Agent_b.exe')) } else { @() }
-$preflightAclEnabled = $preflightConfig -and $preflightConfig.shell.service_account -and [bool]$preflightConfig.shell.service_account.enabled
-if ($AllUsers -and $preflightAclEnabled -and (Test-Path -LiteralPath $applicationRoot -PathType Container) -and (Get-LocalUser -Name $(if ($preflightConfig.shell.service_account.account) { [string]$preflightConfig.shell.service_account.account } else { 'agentb-svc' }) -ErrorAction SilentlyContinue)) {
-    $preflightAclAccount = if ($preflightConfig.shell.service_account.account) { [string]$preflightConfig.shell.service_account.account } else { 'agentb-svc' }
-    $preflightExchangeRoot = Get-FullPath $(if ($preflightConfig.deliver -and $preflightConfig.deliver.exchange_folder) { [string]$preflightConfig.deliver.exchange_folder } else { '%USERPROFILE%\Agent_b' })
-    $sourceAclScript = Join-Path $sourceRoot 'scripts\apply-acls.ps1'
-    Write-Host 'PRESTOP POLICY: applying and verifying host policy before stopping Agent_b.'
-    & $sourceAclScript -AccountName $preflightAclAccount -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $preflightExchangeRoot -NoPrompt -Confirm:$false
-    Assert-ScriptExitCode -Purpose 'Pre-stop ACL policy apply' -Code $LASTEXITCODE
-    & $sourceAclScript -AccountName $preflightAclAccount -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $preflightExchangeRoot -Verify
-    Assert-ScriptExitCode -Purpose 'Pre-stop ACL policy verification' -Code $LASTEXITCODE
-    Write-Host 'PRESTOP POLICY PASS: Agent_b is still running.'
-}
 if ($installedProcesses.Count) {
     $script:rollbackRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-install-rollback-' + [Guid]::NewGuid().ToString('N'))
     $script:rollbackVersion = Get-InstalledDisplayVersion -ApplicationRoot $applicationRoot
@@ -928,39 +916,7 @@ if ($writeConfig) {
 	[IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 }
 
-# Item 2jz: an elevated fresh/all-users install can provision in the elevation
-# it already owns. Per-user/updater installs deliberately defer this one pass to
-# first launch, where the operator sees the single service-identity approval.
-if ($AllUsers -and -not $TestMode -and $config.shell.service_account -and [bool]$config.shell.service_account.enabled) {
-	$serviceAccountName = if ($config.shell.service_account.account) { [string]$config.shell.service_account.account } else { 'agentb-svc' }
-	$credentialPath = Join-Path $dataRoot '.agentb-shell-credential.dpapi'
-	$serviceAccountExists = [bool](Get-LocalUser -Name $serviceAccountName -ErrorAction SilentlyContinue)
-	# Item 2nx: the service identity's rule names no model address, so the installer
-	# reads no connection to provision it.
-	if (-not $serviceAccountExists -or -not (Test-Path -LiteralPath $credentialPath -PathType Leaf)) {
-		$random = [byte[]]::new(32)
-		$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
-		try { $rng.GetBytes($random) } finally { $rng.Dispose() }
-		$plain = [Text.Encoding]::UTF8.GetBytes([Convert]::ToBase64String($random))
-		try {
-			$protected = [Security.Cryptography.ProtectedData]::Protect($plain, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)
-			[IO.File]::WriteAllBytes($credentialPath, $protected)
-		} finally {
-			if ($protected) { [Array]::Clear($protected, 0, $protected.Length) }
-			[Array]::Clear($plain, 0, $plain.Length)
-			[Array]::Clear($random, 0, $random.Length)
-		}
-		$provisionArguments = @('-AccountName', $serviceAccountName, '-CredentialStore', $credentialPath, '-ApplicationDirectory', $applicationRoot, '-DataDirectory', $dataRoot, '-WorkspaceDirectory', $workspaceRoot, '-ExchangeDirectory', $exchangeRoot)
-		if ($serviceAccountExists) { $provisionArguments += '-ResetPassword' }
-		& (Join-Path $applicationRoot 'scripts\provision-service-identity.ps1') @provisionArguments
-		Assert-ScriptExitCode -Purpose 'Service identity provisioning' -Code $LASTEXITCODE
-		Write-Host 'PASS: service identity provisioned during elevated install'
-	} else {
-		& (Join-Path $applicationRoot 'scripts\apply-hardening.ps1') -Mode Apply -AccountName $serviceAccountName -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $exchangeRoot
-		Assert-ScriptExitCode -Purpose 'Existing service identity protection repair' -Code $LASTEXITCODE
-		Write-Host 'PASS: existing service identity and credential preserved; protections repaired'
-	}
-} elseif (-not $AllUsers -and $config.shell.service_account -and [bool]$config.shell.service_account.enabled) {
+if ($config.shell.service_account -and [bool]$config.shell.service_account.enabled) {
 	Write-Host 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval'
 }
 if (-not $TestMode) {
@@ -969,21 +925,6 @@ if (-not $TestMode) {
 	Write-Host "VERIFIED SIGNATURE: Agent_b.exe signed by $($installedSignature.SignerCertificate.Thumbprint)"
 }
 
-if ($AllUsers -and -not $TestMode -and $config.shell.service_account -and [bool]$config.shell.service_account.enabled) {
-	$aclAccount = if ($config.shell.service_account.account) { [string]$config.shell.service_account.account } else { 'agentb-svc' }
-	if (Get-LocalUser -Name $aclAccount -ErrorAction SilentlyContinue) {
-		$installedAclScript = Join-Path $applicationRoot 'scripts\apply-acls.ps1'
-		& $installedAclScript -AccountName $aclAccount -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $exchangeRoot -NoPrompt -Confirm:$false
-		Write-Host 'VERIFY: installed root, plans/scratch exceptions, workspace, and exchange-folder ACL policy'
-		& $installedAclScript -AccountName $aclAccount -ApplicationDirectory $applicationRoot -DataDirectory $dataRoot -WorkspaceDirectory $workspaceRoot -ExchangeDirectory $exchangeRoot -Verify
-		if ($LASTEXITCODE -ne 0) { throw "Installed ACL policy verification failed with exit code $LASTEXITCODE." }
-		Write-Host 'PASS: installed root, plans/scratch exceptions, workspace, and exchange-folder ACL policy'
-	} else {
-		throw 'Service identity provisioning completed without creating the configured local account.'
-	}
-} elseif ($config.shell.service_account -and [bool]$config.shell.service_account.enabled) {
-	Write-Host 'DEFERRED: service identity account and protections await the single first-launch approval'
-}
 if ($ForcePostStopVerificationFailure) { throw 'Forced post-stop verification failure.' }
 
 $iconPath = Join-Path $applicationRoot 'web\assets\Agent_b.ico'

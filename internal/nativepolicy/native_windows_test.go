@@ -99,3 +99,21 @@ func TestFirewallCOMReadsTypedExistingRule(t *testing.T) {
 		t.Fatalf("typed rule was incomplete: %+v", rule)
 	}
 }
+
+func TestFirewallIntentRejectsUnsafeNetworkExceptions(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		request FirewallRequest
+		want    string
+	}{
+		{"public local subnet", FirewallRequest{SID: "S-1-5-21-1", AllowLocalNetwork: true, LocalSubnets: []string{"8.8.8.0/24"}}, "RFC1918"},
+		{"partly public local subnet", FirewallRequest{SID: "S-1-5-21-1", AllowLocalNetwork: true, LocalSubnets: []string{"172.0.0.0/8"}}, "RFC1918"},
+		{"metadata allowed range", FirewallRequest{SID: "S-1-5-21-1", AllowedRanges: []string{"169.254.169.254/32"}}, "metadata endpoint"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, _, err := firewallIntent(test.request); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("firewallIntent error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}

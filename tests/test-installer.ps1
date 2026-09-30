@@ -690,22 +690,14 @@ try {
     if (($expectedRuntimeScripts -join "`n") -cne ($installedRuntimeScripts -join "`n")) {
         throw "Installed scripts do not exactly match runtime-scripts.txt. Expected: $($expectedRuntimeScripts -join ', '); installed: $($installedRuntimeScripts -join ', ')."
     }
-    if ($installedInstallerSource -notmatch '\$installedAclScript[^\r\n]+apply-acls\.ps1' -or
-        $installedInstallerSource -notmatch '& \$installedAclScript[^\r\n]+-Verify' -or
-        $installedInstallerSource -notmatch 'PASS: installed root, plans/scratch exceptions, workspace, and exchange-folder ACL policy' -or
-        $installedInstallerSource -notmatch 'if \(\$AllUsers -and -not \$TestMode -and \$config\.shell\.service_account') {
-		throw 'Installed elevated installer does not self-verify the plans/scratch host-policy exceptions.'
+    $removedPolicyScripts = @('apply-acls.ps1', 'apply-firewall-rule.ps1', 'apply-hardening.ps1', 'grant-plan-access.ps1', 'provision-service-identity.ps1', 'run-elevated-provision.ps1', 'setup-service-account.ps1')
+    if ($installedRuntimeScripts | Where-Object { $removedPolicyScripts -contains $_ }) {
+        throw 'A retired PowerShell host-policy script is still installed.'
     }
-    if ($installedInstallerSource -notmatch '\$AllUsers -and -not \$TestMode' -or
-        $installedInstallerSource -notmatch 'provision-service-identity\.ps1' -or
-        $installedInstallerSource -notmatch 'PASS: service identity provisioned during elevated install' -or
+    $removedPolicyPattern = [string]::Join('|', @($removedPolicyScripts | ForEach-Object { [regex]::Escape($_) }))
+    if ($installedInstallerSource -match $removedPolicyPattern -or
         $installedInstallerSource -notmatch 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval') {
-        throw 'Installer matrix lost its elevated provisioning or per-user first-launch arm.'
-    }
-    $preStopPolicyPosition = $installedInstallerSource.IndexOf("Write-Host 'PRESTOP POLICY: applying and verifying host policy before stopping Agent_b.'")
-    $stopCallPosition = $installedInstallerSource.LastIndexOf('Stop-InstalledProcesses -Processes $installedProcesses')
-    if ($preStopPolicyPosition -lt 0 -or $stopCallPosition -lt 0 -or $preStopPolicyPosition -ge $stopCallPosition) {
-        throw 'Installed elevated installer does not apply and verify host policy before its process-stop call.'
+		throw 'Installer still invokes retired PowerShell host policy or lost its native first-launch arm.'
     }
     $sourceBatchLauncher = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'start-Agent_b.cmd')
     if ($sourceBatchLauncher -notmatch 'AGENTB_HIDDEN_REENTRY' -or
@@ -1634,8 +1626,8 @@ try {
 }
 
 # --- Scenario: the pre-stop gate fails closed on a missing exit code.
-# apply-acls used to fall off its success path, leaving $LASTEXITCODE null,
-# and $null -ne 0 threw with an empty code in the message. Every install failed.
+# A child script can fall off its success path, leaving $LASTEXITCODE null;
+# the gate must treat that as failure and preserve real nonzero codes.
 # The helper is lifted out of the shipped installer and exercised directly, so
 # the scenario proves the code that runs rather than a copy of it.
 $installerText = Get-Content -Raw -LiteralPath $installer
@@ -1657,48 +1649,13 @@ try {
     if ($zeroProbe -notmatch 'gate-ok') { throw "the gate rejects a successful exit code: $zeroProbe" }
     $twoProbe = Invoke-ExitGateProbe -Body "Assert-ScriptExitCode -Purpose 'probe' -Code 2"
     if ($twoProbe -notmatch 'exit code 2') { throw "the gate loses the real exit code: $twoProbe" }
-    foreach ($required in @('apply-acls.ps1', 'install-Agent_b.ps1', 'uninstall-Agent_b.ps1', 'apply-firewall-rule.ps1', 'provision-service-identity.ps1', 'grant-plan-access.ps1')) {
+    foreach ($required in @('install-Agent_b.ps1', 'uninstall-Agent_b.ps1')) {
         $text = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot (Join-Path 'scripts' $required))
         if ($text.TrimEnd() -notmatch 'exit 0$') { throw "$required no longer ends with an explicit exit code." }
     }
-    $provisionText = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'scripts\provision-service-identity.ps1')
-    if ($provisionText -match 'RandomNumberGenerator\]::Fill' -or
-        $provisionText -notmatch 'RandomNumberGenerator\]::Create\(\)' -or
-        $provisionText -notmatch '\.GetBytes\(\$bytes\)') {
-        throw 'unattended credential generation must use the Windows PowerShell 5.1 RandomNumberGenerator instance API.'
-    }
-    Write-Host 'PROOF unattended credential generation uses the Windows PowerShell 5.1 RNG API'
-
-    # Item 2nl (b), as a guard rather than a fix: EVERY PARAMETER THESE SCRIPTS PASS
-    # HAS TO EXIST. `-Connection Any` sat in the firewall script's Apply branch for
-    # weeks; because both calls are inside ShouldProcess, every -WhatIf run bound
-    # cleanly and only a real Repair ever hit it. This reads the scripts rather than
-    # running them, so the branch nobody can run unelevated is still checked.
-    $unknownParameters = @()
-    foreach ($script in @('apply-acls.ps1', 'apply-firewall-rule.ps1', 'apply-hardening.ps1', 'setup-service-account.ps1', 'provision-service-identity.ps1', 'run-elevated-provision.ps1')) {
-        $path = Join-Path $repositoryRoot (Join-Path 'scripts' $script)
-        $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
-        $defined = @($ast.FindAll({ $args[0] -is [Management.Automation.Language.FunctionDefinitionAst] }, $true) | ForEach-Object { $_.Name })
-        foreach ($call in $ast.FindAll({ $args[0] -is [Management.Automation.Language.CommandAst] }, $true)) {
-            $name = $call.GetCommandName()
-            if (-not $name -or $defined -contains $name) { continue }
-            # Cmdlet AND Function: New-NetFirewallRule is a CDXML function, not a
-            # cmdlet, and a check that asked only for cmdlets skipped the very call
-            # this guard exists for.
-            $command = Get-Command -Name $name -CommandType Cmdlet, Function -ErrorAction SilentlyContinue
-            if (-not $command -or -not $command.Parameters -or $command.Parameters.Count -eq 0) { continue }
-            $known = @($command.Parameters.Keys) + @($command.Parameters.Values | ForEach-Object { $_.Aliases })
-            foreach ($element in $call.CommandElements) {
-                if ($element -isnot [Management.Automation.Language.CommandParameterAst]) { continue }
-                $used = $element.ParameterName
-                if (-not ($known | Where-Object { $_ -and $_.StartsWith($used, [StringComparison]::OrdinalIgnoreCase) })) {
-                    $unknownParameters += "$script line $($element.Extent.StartLineNumber): $name has no parameter -$used"
-                }
-            }
-        }
-    }
-    if ($unknownParameters.Count) { throw "a hardening script passes a parameter that does not exist:`r`n$($unknownParameters -join "`r`n")" }
-    Write-Host 'PROOF hardening parameters: every parameter these scripts pass exists on the cmdlet they pass it to'
+    $retired = @('apply-acls.ps1', 'apply-firewall-rule.ps1', 'apply-hardening.ps1', 'grant-plan-access.ps1', 'provision-service-identity.ps1', 'run-elevated-provision.ps1', 'setup-service-account.ps1')
+    $manifest = @(Get-Content -LiteralPath (Join-Path $repositoryRoot 'runtime-scripts.txt') | ForEach-Object { Split-Path -Leaf $_ })
+    if ($manifest | Where-Object { $retired -contains $_ }) { throw 'runtime-scripts.txt still publishes retired PowerShell host policy.' }
 } catch {
     # Item 2ft: a failing scenario keeps its root for evidence and says where.
     Write-Host "KEPT for evidence: $testRoot"
@@ -1853,80 +1810,4 @@ if ($LASTEXITCODE -ne 0) { throw "Chat acceptance release gate exited $LASTEXITC
 & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-install-registration.ps1')
 if ($LASTEXITCODE -ne 0) { throw "The singleton Installed apps registration suite exited $LASTEXITCODE." }
 
-# Item 2ng (e): REPAIR, PROVED THE WAY THE OPERATOR PRESSES IT.
-#
-# The case is a real Repair against a DISPOSABLE account name: result `ready`, the
-# credential test green, then the account removed. That needs a local Windows account
-# created and deleted, which is elevation and machine state — a hard stop for an
-# unattended worker, and this order's own DO NOT forbids leaving a disposable account
-# behind. So the case is written, it is here, and it REFUSES TO GUESS: without elevation
-# and an explicit opt-in it says what it would have done and why it did not, rather than
-# passing silently and implying a proof nobody performed.
-#
-# To run it, from an elevated console:
-#   $env:AGENTB_SERVICE_ACCOUNT_GATE = '1'; pwsh -File tests/test-installer.ps1
-$serviceGateOptIn = $env:AGENTB_SERVICE_ACCOUNT_GATE -eq '1'
-$serviceGateElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not ($serviceGateOptIn -and $serviceGateElevated)) {
-    $why = @()
-    if (-not $serviceGateOptIn) { $why += 'AGENTB_SERVICE_ACCOUNT_GATE is not 1' }
-    if (-not $serviceGateElevated) { $why += 'this console is not elevated' }
-    Write-Host "SKIPPED service-account Repair case: $($why -join '; '). It creates and removes a disposable local account, which is elevation and machine state; run it from an elevated console with the opt-in set."
-} else {
-    $disposableAccount = 'agentb-gate-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
-    $serviceGateRoot = Join-Path ([IO.Path]::GetTempPath()) ('agentb-service-gate-' + [Guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $serviceGateRoot -Force
-    $serviceGateStore = Join-Path $serviceGateRoot 'credential.dpapi'
-    Set-Content -LiteralPath $serviceGateStore -Value 'seed' -Encoding utf8
-    try {
-        $provision = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\provision-service-identity.ps1'
-        $wrapper = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\run-elevated-provision.ps1'
-        if (-not (Test-Path -LiteralPath $wrapper -PathType Leaf)) { throw "the elevated wrapper is missing: $wrapper" }
-        $gateLog = Join-Path $serviceGateRoot 'service-identity.log'
-        $gateResult = Join-Path $serviceGateRoot 'service-identity.result.json'
-        # Through the WRAPPER, exactly as the console now elevates it.
-        & (Get-WindowsPowerShell) -NoLogo -NoProfile -NonInteractive -File $wrapper -Log $gateLog -Script $provision `
-            -AccountName $disposableAccount -CredentialStore $serviceGateStore `
-            -ApplicationDirectory (Join-Path $serviceGateRoot 'Application') `
-            -DataDirectory (Join-Path $serviceGateRoot 'Data') `
-            -WorkspaceDirectory (Join-Path $serviceGateRoot 'Workspace') `
-            -ExchangeDirectory (Join-Path $serviceGateRoot 'Exchange') `
-            -ModelAddress '127.0.0.1' -ModelPort 8000 -ResultFile $gateResult
-        $gateExit = $LASTEXITCODE
-        if (-not (Test-Path -LiteralPath $gateResult -PathType Leaf)) {
-            throw "Repair wrote no result (exit $gateExit). The captured log is $gateLog and its first lines are:`n$((Get-Content -LiteralPath $gateLog -First 6) -join "`n")"
-        }
-        $outcome = (Get-Content -LiteralPath $gateResult -Raw | ConvertFrom-Json)
-        if ($gateExit -ne 0 -or $outcome.outcome -ne 'ready') {
-            throw "Repair did not end ready: exit $gateExit, outcome $($outcome.outcome), message $($outcome.message)"
-        }
-        # Item 2nl (c): READY IS NOT ENOUGH. The operator's Repair on 2026-09-28 created
-        # the account, applied every ACL and then died in the firewall step, and a case
-        # that asserted only the account would have called that run a pass. The
-        # orchestration's own completion marker is what says all three parts ran.
-        $captured = Get-Content -LiteralPath $gateLog -Raw
-        if ($captured -notmatch 'AGENTB_HARDENING_COMPLETE=Apply') {
-            $firstError = ($captured -split "`r?`n" | Where-Object { $_ -match 'AGENTB_CHILD_ERROR' } | Select-Object -First 1)
-            throw "Repair ended ready but the hardening orchestration never completed (no AGENTB_HARDENING_COMPLETE=Apply in $gateLog). $firstError"
-        }
-        # The credential the run stored actually authenticates, which is the point.
-        $storedPassword = & (Get-WindowsPowerShell) -NoLogo -NoProfile -NonInteractive -Command "
-            Add-Type -AssemblyName System.Security
-            `$bytes = [IO.File]::ReadAllBytes('$serviceGateStore')
-            [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect(`$bytes, `$null, 'CurrentUser'))"
-        if ([string]::IsNullOrWhiteSpace($storedPassword)) { throw 'the credential store held nothing after a ready Repair' }
-        Add-Type -AssemblyName System.DirectoryServices.AccountManagement
-        $context = New-Object System.DirectoryServices.AccountManagement.PrincipalContext('Machine')
-        if (-not $context.ValidateCredentials($disposableAccount, $storedPassword)) {
-            throw 'the credential a ready Repair stored does not authenticate, which is the defect 2ng exists for'
-        }
-        Write-Host "PASS service-account Repair: $disposableAccount ended ready and its stored credential authenticates"
-    } finally {
-        # The disposable account never survives this gate, whatever happened.
-        try { Remove-LocalUser -Name $disposableAccount -ErrorAction Stop; Write-Host "REMOVED disposable account $disposableAccount" }
-        catch { Write-Host "NOTE: $disposableAccount was not present to remove" }
-        # Through the guard, like every other tree this suite removes.
-        try { Remove-TreeWithinAllowedRoots -Path $serviceGateRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'service-account gate cleanup' }
-        catch { Write-Warning $_.Exception.Message }
-    }
-}
+Write-Host 'SKIPPED native service-account mutation gate: it requires an elevated signed candidate and is exercised only by the staged release acceptance.'

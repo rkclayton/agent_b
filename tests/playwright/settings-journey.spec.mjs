@@ -180,6 +180,28 @@ test("Entra credentials show account controls and configuration without defaults
 	await page.close();
 });
 
+test("Phone shows all four wire states and follows presence without a reload", async () => {
+	const page = await harness.context.newPage();
+	let status = { state: "not paired" };
+	await page.route("**/api/broker/status", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(status) }));
+	const evidence = join(repo, "candidate", "rel-1.45.0-w1-phone");
+	await mkdir(evidence, { recursive: true });
+	await page.goto(`${harness.base}/chat`);
+	await page.locator(".shell-settings").click();
+	await page.locator('.settings-nav [data-id="shell"]').click();
+
+	const cases = [[{ state: "not paired" }, "NOT PAIRED", "not-paired.png"], [{ state: "broker unreachable", paired_device: "phone", next_attempt_at: "2026-09-29T22:30:00Z", ended_reason: "network: dial refused" }, "PAIRED — BROKER UNREACHABLE", "broker-unreachable.png"], [{ state: "holding", paired_device: "phone" }, "PAIRED — HOLDING, PHONE NOT CONNECTED", "holding.png"], [{ state: "phone connected", paired_device: "phone", last_message_at: "2026-09-29T22:31:00Z" }, "PAIRED — PHONE CONNECTED", "phone-connected.png"]];
+	for (const [next, label, file] of cases) {
+		status = next;
+		const renderedState = page.locator(".account-status").filter({ hasText: label }).first();
+		await expect(renderedState).toBeVisible({ timeout: 5000 });
+		await renderedState.scrollIntoViewIfNeeded();
+		await page.screenshot({ path: join(evidence, file), fullPage: true });
+	}
+	await expect(page.locator(".account-status").filter({ hasText: "last phone message 2026-09-29T22:31:00Z" }).first()).toBeVisible();
+	await page.close();
+});
+
 // Item 2nc (c), carried into the journey: the confirmation belongs to its control, and
 // the sheet scrolls. A popover that opens at the top of a scrolled sheet points at
 // nothing, and the operator has to guess what he is confirming.

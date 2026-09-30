@@ -63,7 +63,7 @@ func (s *Server) brokerStatus(w http.ResponseWriter, r *http.Request) {
 	response := brokerStatusResponse{}
 	host := s.brokerHost()
 	if host == nil || url == "" {
-		response.State = "off"
+		response.State = "not paired"
 		writeJSON(w, http.StatusOK, response)
 		return
 	}

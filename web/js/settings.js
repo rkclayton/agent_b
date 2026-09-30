@@ -226,6 +226,7 @@ export function openSettings(section = "") {
   refreshWorkspaceState();
   refreshOperatorFileState();
   void refreshBrokerStatus().then(() => { if (open) render(); });
+  watchBrokerPairing();
   void refreshCredentials().then(() => { if (open) render(); });
   requestAnimationFrame(() => sheet.querySelector(".settings-nav button.selected")?.focus());
   recordViewMount("settings", performance.now() - started);
@@ -234,6 +235,10 @@ export function openSettings(section = "") {
 export function closeSettings(surface = "chat") {
   if (!open) return;
   open = false;
+  if (brokerWatch) {
+    clearInterval(brokerWatch);
+    brokerWatch = null;
+  }
   // The panels go home before the sheet is hidden, so they are never left
   // inside a hidden surface where the next render would wipe them.
   returnAdoptedPanels();
@@ -1314,24 +1319,14 @@ async function refreshMeasurement(id) {
   }
 }
 
-// Item 2ns (b): while an offer is live the phone can join at any moment, and the
-// fingerprint that follows arrives from the broker rather than from a press. Measured
-// without it, twice: the QR was scanned and the fingerprint row stayed hidden, and then
-// "They match" was pressed and the paired device stayed hidden — both until the operator
-// happened to touch something else. So the page watches while a pairing is under way, and
-// stops once the offer is gone and the outcome is known, or past the code's ten minutes.
+// Item 2ns (b) and 2oe: pairing and phone presence both change independently of a press.
+// Keep watching for the whole time Settings is open so an absent phone becomes present,
+// or a live phone becomes absent, without a reload.
 let brokerWatch = null;
 function watchBrokerPairing() {
 	if (brokerWatch) return;
-	const stopAt = Date.now() + 11 * 60 * 1000;
 	brokerWatch = setInterval(async () => {
 		await refreshBrokerStatus();
-		const offer = brokerStatus && brokerStatus.offer;
-		const settled = !offer && (brokerStatus.paired_device || brokerStatus.last_error);
-		if (settled || Date.now() > stopAt) {
-			clearInterval(brokerWatch);
-			brokerWatch = null;
-		}
 		if (open && activeSection === "shell") render();
 	}, 1500);
 }

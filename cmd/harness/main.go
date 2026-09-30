@@ -27,6 +27,7 @@ import (
 	contextmgr "harness/internal/context"
 	"harness/internal/credential"
 	"harness/internal/delivery"
+	"harness/internal/entra"
 	"harness/internal/events"
 	"harness/internal/hardening"
 	"harness/internal/llm"
@@ -420,7 +421,9 @@ func main() {
 	callServiceTool := tools.NewCallService(cfg.Services)
 	// Item 2nv: the named-credential store lives beside the connection credentials, under
 	// the operator data root, and the tool reads it through one seam.
-	callServiceTool.SetVault(credential.NewVault(paths.Data))
+	vault := credential.NewVault(paths.Data)
+	callServiceTool.SetVault(vault)
+	callServiceTool.SetTokenProvider("entra", entra.New(vault))
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
@@ -446,7 +449,7 @@ func main() {
 	runner.SetTrustedFolderWriter(web.TrustFolders)
 	runner.Gate().SetStandingGrantStore(filepath.Join(paths.Data, "standing-grants.json"))
 	callServiceTool.SetConnectorWriter(web.ApplyConnector)
-	webserver.SetCredentialVault(credential.NewVault(paths.Data))
+	webserver.SetCredentialVault(vault)
 	runner.BindDelegate(delegateTool)
 	runner.SetSessionRenamer(registry.RenameBy)
 	deliveryManager := delivery.New(bus, web.ConfigSnapshot)

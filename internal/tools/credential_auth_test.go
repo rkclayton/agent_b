@@ -269,6 +269,12 @@ func TestStoredIsValidAuthAndStaticBearerIsRefusedForNewConnectors2nv(t *testing
 	if err := config.ValidateServiceAuth("stored:depot"); err != nil {
 		t.Errorf("stored: was refused: %v", err)
 	}
+	if err := config.ValidateServiceAuth("entra:work-api"); err != nil {
+		t.Errorf("entra: was refused: %v", err)
+	}
+	if err := config.ValidateServiceAuth("entra:Work API"); err == nil {
+		t.Error("entra: accepted a name that is not a slug")
+	}
 	if err := config.ValidateServiceAuth("stored:Depot Key"); err == nil {
 		t.Error("stored: accepted a name that is not a slug")
 	}

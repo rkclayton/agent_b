@@ -686,6 +686,20 @@ func (r *Registry) List() []*Session {
 	sort.Slice(values, func(i, j int) bool { return values[i].ID < values[j].ID })
 	return values
 }
+
+// ReconcileChatHomes follows chat.json identities after Explorer moves them.
+func (r *Registry) ReconcileChatHomes(entries []chatstore.Entry) {
+	paths := make(map[string]string, len(entries))
+	for _, entry := range entries { paths[entry.Metadata.ID] = entry.Path }
+	for _, item := range r.List() {
+		path := paths[item.ID]
+		if path == "" || !item.Snapshot().Scratch || filepath.Clean(item.Workspace) == filepath.Clean(path) { continue }
+		item.mu.Lock()
+		item.Workspace, item.WorkspaceMissing = path, false
+		item.mu.Unlock()
+		r.bus.Publish(events.New(events.SessionUpdated, item.ID, "", map[string]any{"session_id": item.ID, "workspace": path}))
+	}
+}
 func (r *Registry) Rename(id, label string) error { return r.RenameBy(id, label, "user") }
 func (r *Registry) RenameBy(id, label, by string) error {
 	s, ok := r.Get(id)

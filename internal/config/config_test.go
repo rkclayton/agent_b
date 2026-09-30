@@ -1102,7 +1102,7 @@ func TestSchema4APIKeyMovesToNamedDPAPIStore(t *testing.T) {
 
 func TestAttachmentConfigIsAdditiveCurrentSchema(t *testing.T) {
 	cfg := Defaults(t.TempDir())
-	if cfg.ConfigVersion != CurrentConfigVersion || cfg.Tools.Attachments.MaxBytes != 8<<20 {
+	if cfg.ConfigVersion != CurrentConfigVersion || cfg.Tools.Attachments.MaxBytes != 256<<20 {
 		t.Fatalf("defaults: version=%d attachments=%+v", cfg.ConfigVersion, cfg.Tools.Attachments)
 	}
 	data, err := os.ReadFile(filepath.Join("..", "..", "harness.example.json"))
@@ -1121,12 +1121,16 @@ func TestAttachmentConfigIsAdditiveCurrentSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	ApplyDefaults(&loaded)
-	if loaded.ConfigVersion != CurrentConfigVersion || loaded.Tools.Attachments.MaxBytes != 8<<20 {
+	if loaded.ConfigVersion != CurrentConfigVersion || loaded.Tools.Attachments.MaxBytes != 256<<20 {
 		t.Fatalf("omitted attachment defaults=%+v version=%d", loaded.Tools.Attachments, loaded.ConfigVersion)
 	}
 	loaded.Tools.Attachments.MaxBytes = 0
 	if err := loaded.Validate(); err == nil || !strings.Contains(err.Error(), "tools.attachments.max_bytes") {
 		t.Fatalf("zero limit validation=%v", err)
+	}
+	loaded.Tools.Attachments.MaxBytes = 512 << 20
+	if err := loaded.Validate(); err != nil {
+		t.Fatalf("512 MiB: %v", err)
 	}
 }
 
@@ -1297,9 +1301,9 @@ func TestStaticBearerConnectorsMigrateIntoTheStore2nv(t *testing.T) {
 	t.Setenv("AGENTB_2NV_DEPOT", "migrated-secret-2nv")
 	t.Setenv("AGENTB_2NV_EMPTY", "")
 	cfg := Config{Services: map[string]Service{
-		"depot":   {Kind: "http", BaseURL: "https://api.example.test:8443", Auth: "static_bearer:AGENTB_2NV_DEPOT", AllowedMethods: []string{"GET"}, TimeoutS: 30, MaxBodyKB: 64},
-		"hollow":  {Kind: "http", BaseURL: "https://other.example.test", Auth: "static_bearer:AGENTB_2NV_EMPTY", AllowedMethods: []string{"GET"}, TimeoutS: 30, MaxBodyKB: 64},
-		"helper":  {Kind: "http", BaseURL: "https://third.example.test", Auth: "exec:helper token", AllowedMethods: []string{"GET"}, TimeoutS: 30, MaxBodyKB: 64},
+		"depot":  {Kind: "http", BaseURL: "https://api.example.test:8443", Auth: "static_bearer:AGENTB_2NV_DEPOT", AllowedMethods: []string{"GET"}, TimeoutS: 30, MaxBodyKB: 64},
+		"hollow": {Kind: "http", BaseURL: "https://other.example.test", Auth: "static_bearer:AGENTB_2NV_EMPTY", AllowedMethods: []string{"GET"}, TimeoutS: 30, MaxBodyKB: 64},
+		"helper": {Kind: "http", BaseURL: "https://third.example.test", Auth: "exec:helper token", AllowedMethods: []string{"GET"}, TimeoutS: 30, MaxBodyKB: 64},
 	}}
 	notices := MigrateConnectorCredentials(&cfg, root)
 

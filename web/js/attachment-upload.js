@@ -2,6 +2,7 @@ export async function uploadAttachment(file, sessionID, options = {}) {
   const fetchImpl = options.fetchImpl || fetch;
   const form = new FormData();
   form.append("session_id", sessionID);
+  if (options.uploadID) form.append("upload_id", options.uploadID);
   form.append("file", file, file.name || fallbackName(file.type));
   const response = await fetchImpl("/api/attachments", {
     method: "POST",

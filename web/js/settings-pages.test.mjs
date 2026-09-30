@@ -52,6 +52,13 @@ test("every Settings page renderer accepts the controller context", () => {
   for (const page of pages) assert.equal(typeof page, "string");
 });
 
+test("Attachment ingest shows the editable disk limit and its reason", () => {
+  const context = pageContext();
+  context.store.config.tools = { attachments: { max_bytes: 268435456 } };
+  context.number = (path, label, value, _min, _allowEmpty, _suffix, _disabled, _kind, hint) => `${path}|${label}|${value}|${hint}`;
+  assert.match(renderGeneralPage("tools", null, context), /tools\.attachments\.max_bytes\|max upload bytes\|268435456\|disk; not a prompt limit/);
+});
+
 test("Profiles lists agent-layer memory with a named remove action", () => {
 	const context = pageContext();
 	context.store.active = "s1";

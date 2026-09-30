@@ -110,6 +110,7 @@ export function reduce(event) {
     case "shell.identity": store.shell_identity = data; operatorReconciler.observed(); break;
     case "shell.credential": store.shell_credential = data; break;
     case "update.changed": store.update = data; break;
+    case "attachment.ocr_progress": break;
     // Item 2bq: a plan created, rewritten or removed by any route. The list
     // follows, and every subscriber (the Plan panel) re-reads its plan.
     case "plan.created":

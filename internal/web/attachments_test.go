@@ -3,6 +3,7 @@ package web
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -75,6 +76,9 @@ func TestAttachmentsRefusesOversizeAndZIP(t *testing.T) {
 		server.Handler().ServeHTTP(response, request)
 		if response.Code != item.want {
 			t.Fatalf("%s status=%d body=%s", item.name, response.Code, response.Body)
+		}
+		if item.name == "large.txt" && (!strings.Contains(response.Body.String(), "5") || !strings.Contains(response.Body.String(), "4")) {
+			t.Fatalf("oversize refusal does not name file and limit: %s", response.Body)
 		}
 	}
 }
@@ -300,19 +304,33 @@ func TestAttachmentsPDFTextLayerAndScanAreReadLocally(t *testing.T) {
 		t.Fatalf("text-layer sidecar=%q, %v", text, err)
 	}
 
-	pages := 0
-	server.ocrPDF = func(_ string, limit int) (string, error) { pages = limit; return "## Page 1\n\nscanned words", nil }
+	server.ocrPDF = func(_ context.Context, _ string, progress func(int, int)) (string, int, int, bool, error) {
+		for page := 1; page <= 60; page++ {
+			progress(page, 60)
+		}
+		return strings.Repeat("## Page 1\n\nscanned words\n", 60), 60, 60, false, nil
+	}
 	scan := []byte("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]/Contents 4 0 R>>endobj\n4 0 obj<</Length 11>>stream\n0 0 m 1 1 l\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
 	result = postAttachment(t, server, "scan.pdf", scan)
-	if result.Tier != "ocr" || !strings.Contains(result.Note, "read by OCR page by page") || pages != pdfOCRPageLimit {
-		t.Fatalf("scan result=%+v pages=%d", result, pages)
+	if result.Tier != "ocr" || result.Pages != 60 || result.TotalPages != 60 || !strings.Contains(result.Note, "read by OCR page by page") {
+		t.Fatalf("scan result=%+v", result)
 	}
 	text, err = os.ReadFile(filepath.Join(workspace, "attachments", "scan.pdf.txt"))
 	if err != nil || !strings.Contains(string(text), "scanned words") || !strings.Contains(string(text), "by OCR") {
 		t.Fatalf("scan sidecar=%q, %v", text, err)
 	}
+	server.ocrPDF = func(context.Context, string, func(int, int)) (string, int, int, bool, error) {
+		return strings.Repeat("## Page 1\n\nwords\n", 10), 10, 60, true, nil
+	}
+	stopped := postAttachment(t, server, "stopped.pdf", scan)
+	text, err = os.ReadFile(filepath.Join(workspace, filepath.FromSlash(stopped.Sidecar)))
+	if err != nil || !strings.HasSuffix(string(text), "stopped by the operator after page 10 of 60\n") {
+		t.Fatalf("stopped sidecar=%q err=%v", text, err)
+	}
 
-	server.ocrPDF = func(string, int) (string, error) { return "", ocr.ErrNoText }
+	server.ocrPDF = func(context.Context, string, func(int, int)) (string, int, int, bool, error) {
+		return "", 0, 1, false, ocr.ErrNoText
+	}
 	result = postAttachment(t, server, "blank.pdf", scan)
 	if result.Tier != "binary" || !strings.Contains(result.Note, "no text layer") {
 		t.Fatalf("unreadable scan result=%+v", result)

@@ -95,7 +95,9 @@ type Server struct {
 	openFile         func(string) error
 	extractClient    *http.Client
 	ocrExtract       func(string) (string, error)
-	ocrPDF           func(string, int) (string, error)
+	ocrPDF           func(context.Context, string, func(int, int)) (string, int, int, bool, error)
+	attachmentMu     sync.Mutex
+	attachmentStops  map[string]context.CancelFunc
 	detectLocal      func(context.Context, string) (any, error)
 	workspaceState   *workspaceinfo.Manager
 	memoryState      *memory.Manager
@@ -168,6 +170,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		measurements:     map[string]measureState{},
 		measureCancels:   map[string]context.CancelFunc{},
 		extractClient:    &http.Client{},
+		attachmentStops:  map[string]context.CancelFunc{},
 		ocrExtract:       ocr.Extract,
 		ocrPDF:           ocr.ExtractPDF,
 		detectLocal: func(ctx context.Context, account string) (any, error) {
@@ -420,6 +423,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/open-folder", s.openFileFolder)
 	mux.HandleFunc("/api/open-file", s.openDeliveredFile)
 	mux.HandleFunc("/api/attachments", s.replayGuard(s.attachments))
+	mux.HandleFunc("/api/attachments/stop", s.replayGuard(s.stopAttachment))
 	mux.HandleFunc("/api/exchange-files", s.exchangeFiles)
 	mux.HandleFunc("/api/operator-attachments", s.operatorAttachments)
 	mux.HandleFunc("/api/operator-files", s.replayGuard(s.operatorFileState))

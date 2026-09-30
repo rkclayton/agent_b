@@ -10,6 +10,7 @@ test("attachment upload sends multipart session and file under mutation guard", 
   let request;
   const result = await uploadAttachment(file, "main", {
     token: "mutation",
+    uploadID: "ocr-1",
     fetchImpl: async (url, options) => {
       request = { url, options };
       return { ok: true, json: async () => ({ path: "attachments/note.txt", bytes: 5, sha256: "abc" }) };
@@ -18,6 +19,7 @@ test("attachment upload sends multipart session and file under mutation guard", 
   assert.equal(request.url, "/api/attachments");
   assert.equal(request.options.headers["X-AgentB-Mutation-Token"], "mutation");
   assert.equal(request.options.body.get("session_id"), "main");
+  assert.equal(request.options.body.get("upload_id"), "ocr-1");
   assert.equal(request.options.body.get("file").name, "note.txt");
   assert.deepEqual(attachmentMetadata(result), { path: "attachments/note.txt", bytes: 5, sha256: "abc" });
 });

@@ -177,6 +177,45 @@ func TestAnOperationCallReachesTheStubAsTheDocumentSaysIt2nr(t *testing.T) {
 	}
 }
 
+func TestOperationSendsOnlyADeclaredResponseType2o4(t *testing.T) {
+	document := strings.Replace(syntheticDocument, `"summary": "List the widgets on a shelf",`, `"summary": "List the widgets on a shelf", "responses": {"200": {"content": {"application/json": {}, "application/pdf": {}}}},`, 1)
+	parsed, err := ParseServiceDocument([]byte(document))
+	if err != nil || strings.Join(parsed.Operations[0].ResponseTypes, ",") != "application/json,application/pdf" {
+		t.Fatalf("types=%v err=%v", parsed.Operations[0].ResponseTypes, err)
+	}
+	reached, accept := 0, ""
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached++
+		accept = r.Header.Get("Accept")
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = w.Write([]byte("%PDF-invented"))
+	}))
+	defer stub.Close()
+	root := t.TempDir()
+	snapshot := filepath.Join(root, "openapi.json")
+	if err := os.WriteFile(snapshot, []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := testService(stub.URL, "none")
+	service.OpenAPI = &config.ServiceOpenAPI{Snapshot: snapshot, SHA256: DocumentDigest([]byte(document)), Operations: []string{"listWidgets"}}
+	tool := NewCallService(map[string]config.Service{"depot": service})
+	item := &session.Session{Workspace: filepath.Join(root, "workspace")}
+	if err := os.MkdirAll(item.Workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	detail := tool.CallDetailed(context.Background(), item, map[string]any{"service": "depot", "operation": "listWidgets", "params": map[string]any{"shelf": "north"}, "accept": "application/pdf"})
+	if detail.Err != nil || accept != "application/pdf" {
+		t.Fatalf("detail=%+v accept=%q", detail, accept)
+	}
+	file, _ := detail.Metadata["file"].(map[string]any)
+	if name, _ := file["path"].(string); !strings.HasPrefix(name, "listWidgets-") || !strings.HasSuffix(name, ".pdf") {
+		t.Fatalf("fallback file=%#v", file)
+	}
+	if detail := tool.CallDetailed(context.Background(), item, map[string]any{"service": "depot", "operation": "listWidgets", "params": map[string]any{"shelf": "north"}, "accept": "application/zip"}); detail.Err == nil || reached != 1 {
+		t.Fatalf("undeclared detail=%+v reached=%d", detail, reached)
+	}
+}
+
 // (c) THE DOCUMENT IS THE ALLOW-LIST.
 func TestTheDocumentIsTheAllowList2nr(t *testing.T) {
 	tool, reached, _ := documentConnector(t, "listWidgets", "getWidget")

@@ -867,7 +867,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 					if item.ok {
 						fileMetadata := producedFileMetadata(s, item.call.Name, item.args)
 						item.metadata = mergeResultMetadata(item.metadata, fileMetadata)
-						if file, ok := fileMetadata["file"].(map[string]any); ok {
+						if file, ok := item.metadata["file"].(map[string]any); ok {
 							path, _ := file["path"].(string)
 							bytes, _ := file["bytes"].(int64)
 							produced[strings.ToLower(path)] = delivery.Source{Path: path, Bytes: bytes}

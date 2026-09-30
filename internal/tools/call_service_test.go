@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -173,6 +174,70 @@ func TestCallServiceResponseCursor(t *testing.T) {
 	second := callServiceResult(t, tool, map[string]any{"service": "svc", "method": "GET", "path": "body", "offset": float64(5), "limit": float64(4)})
 	if second["body"] != "efgh" || second["cursor"].(map[string]any)["next_offset"] != float64(9) {
 		t.Fatalf("second=%#v", second)
+	}
+}
+
+func TestCallServiceSavesBinaryResponseWithoutShowingItsBytes2o4(t *testing.T) {
+	payload := []byte("invented-workbook-bytes\x00\x01")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/large" {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write(make([]byte, 1025))
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+		w.Header().Set("Content-Disposition", `attachment; filename="../Quarter:*?.xlsx"`)
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+	service := testService(server.URL, "none")
+	service.MaxBodyKB = 1
+	tool := NewCallService(map[string]config.Service{"depot": service})
+	workspace := t.TempDir()
+	item := &session.Session{Workspace: workspace}
+	detail := tool.CallDetailed(context.Background(), item, map[string]any{"service": "depot", "method": "GET", "path": "report"})
+	if detail.Err != nil {
+		t.Fatal(detail.Err)
+	}
+	var result map[string]any
+	if json.Unmarshal([]byte(detail.Content), &result) != nil || len(result) != 4 || result["path"] != "Quarter.xlsx" || result["bytes"] != float64(len(payload)) || strings.Contains(detail.Content, "invented-workbook") {
+		t.Fatalf("result=%s", detail.Content)
+	}
+	sum := fmt.Sprintf("%x", sha256.Sum256(payload))
+	if result["sha256"] != sum || result["content_type"] != "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" {
+		t.Fatalf("result=%#v", result)
+	}
+	stored, err := os.ReadFile(filepath.Join(workspace, "Quarter.xlsx"))
+	if err != nil || string(stored) != string(payload) {
+		t.Fatalf("stored=%q err=%v", stored, err)
+	}
+	if file, ok := detail.Metadata["file"].(map[string]any); !ok || file["path"] != "Quarter.xlsx" || file["bytes"] != int64(len(payload)) {
+		t.Fatalf("metadata=%#v", detail.Metadata)
+	}
+
+	over := tool.CallDetailed(context.Background(), item, map[string]any{"service": "depot", "method": "GET", "path": "large"})
+	if over.Err == nil || !strings.Contains(over.Err.Error(), "nothing was saved") {
+		t.Fatalf("oversize=%+v", over)
+	}
+	entries, _ := os.ReadDir(workspace)
+	if len(entries) != 1 {
+		t.Fatalf("oversize left files: %v", entries)
+	}
+}
+
+func TestCallServiceRefusesABinaryResponseThatReflectsItsCredential2o4(t *testing.T) {
+	t.Setenv("AGENTB_TEST_SERVICE_TOKEN", "file-secret")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte("prefix-" + r.Header.Get("Authorization") + "-suffix"))
+	}))
+	defer server.Close()
+	tool := NewCallService(map[string]config.Service{"depot": testService(server.URL, "static_bearer:AGENTB_TEST_SERVICE_TOKEN")})
+	workspace := t.TempDir()
+	detail := tool.CallDetailed(context.Background(), &session.Session{Workspace: workspace}, map[string]any{"service": "depot", "method": "GET", "path": "report"})
+	entries, _ := os.ReadDir(workspace)
+	if detail.Err == nil || !strings.Contains(detail.Err.Error(), "contained a credential") || strings.Contains(detail.Err.Error(), "file-secret") || len(entries) != 0 {
+		t.Fatalf("detail=%+v entries=%v", detail, entries)
 	}
 }
 
@@ -405,11 +470,11 @@ func TestCallServiceToolsBlockByteDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Item 2nr moved this from 1396 to 1734: the operation form costs two properties and
-	// one more anyOf branch in every request's tools block, WITH NO CONNECTOR CONFIGURED.
+	// Item 2nr moved this from 1396 to 1734; 2o4's declared response selector makes it
+	// 1845. The operation form is present WITH NO CONNECTOR CONFIGURED.
 	// A connector that has imported a document adds its operations on top, which is the
 	// point of (d) and is paid for only by the installs that have one.
-	const wantDelta = 1734
+	const wantDelta = 1845
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("call_service tools-block byte delta=%d, want %d", delta, wantDelta)
 	}

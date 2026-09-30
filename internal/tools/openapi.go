@@ -43,11 +43,12 @@ type ServiceOperationParam struct {
 
 // ServiceOperation is one callable operation.
 type ServiceOperation struct {
-	ID      string
-	Method  string
-	Path    string
-	Summary string
-	Params  []ServiceOperationParam
+	ID            string
+	Method        string
+	Path          string
+	Summary       string
+	Params        []ServiceOperationParam
+	ResponseTypes []string
 }
 
 // ServiceDocument is what an imported document says.
@@ -95,6 +96,9 @@ type rawOperation struct {
 			Schema rawSchema `json:"schema"`
 		} `json:"content"`
 	} `json:"requestBody"`
+	Responses map[string]struct {
+		Content map[string]json.RawMessage `json:"content"`
+	} `json:"responses"`
 }
 
 type rawDocument struct {
@@ -175,6 +179,12 @@ func documentAuth(document rawDocument) string {
 
 func buildOperation(document rawDocument, id, method, path string, operation rawOperation) (ServiceOperation, error) {
 	built := ServiceOperation{ID: id, Method: strings.ToUpper(method), Path: path, Summary: strings.TrimSpace(operation.Summary)}
+	if response, present := operation.Responses["200"]; present {
+		for contentType := range response.Content {
+			built.ResponseTypes = append(built.ResponseTypes, strings.ToLower(strings.TrimSpace(contentType)))
+		}
+		sort.Strings(built.ResponseTypes)
+	}
 	for _, parameter := range operation.Parameters {
 		if parameter.Ref != "" {
 			resolved, err := resolveParameter(document, parameter.Ref)
@@ -384,6 +394,9 @@ func (o ServiceOperation) Line() string {
 	line := fmt.Sprintf("%s — %s %s", o.ID, o.Method, o.Path)
 	if o.Summary != "" {
 		line += " — " + o.Summary
+	}
+	if len(o.ResponseTypes) > 0 {
+		line += " — returns: " + strings.Join(o.ResponseTypes, ", ")
 	}
 	if len(o.Params) == 0 {
 		return line

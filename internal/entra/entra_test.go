@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -67,8 +69,18 @@ func TestInteractiveDeviceRefreshRevocationSwitchAndSignOut2nw(t *testing.T) {
 	defer idp.Close()
 	recording.host = strings.TrimPrefix(idp.URL, "https://")
 	seenBearer := ""
+	workbook := []byte("invented-workbook\x00bytes")
 	api := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seenBearer = r.Header.Get("Authorization")
+		if r.URL.Path == "/reports/export" {
+			if r.Header.Get("Accept") != "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" {
+				t.Errorf("Accept=%q", r.Header.Get("Accept"))
+			}
+			w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+			w.Header().Set("Content-Disposition", `attachment; filename="depot-report.xlsx"`)
+			_, _ = w.Write(workbook)
+			return
+		}
 		fmt.Fprintf(w, `{"echo":%q}`, seenBearer)
 	}))
 	defer api.Close()
@@ -116,6 +128,22 @@ func TestInteractiveDeviceRefreshRevocationSwitchAndSignOut2nw(t *testing.T) {
 	}
 	if result, err := connector.Call(context.Background(), &session.Session{}, map[string]any{"service": "depot", "method": "GET", "path": "items"}); err != nil || !strings.HasPrefix(seenBearer, "Bearer someone@example.org-") || strings.Contains(result, "access-first") {
 		t.Fatalf("connector bearer=%q err=%v", seenBearer, err)
+	}
+	document := []byte(`{"openapi":"3.1.0","info":{"title":"Depot","version":"1"},"paths":{"/reports/export":{"post":{"operationId":"exportReport","responses":{"200":{"content":{"application/json":{},"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":{}}}}}}}}`)
+	documentRoot := t.TempDir()
+	snapshot := filepath.Join(documentRoot, "openapi.json")
+	if err := os.WriteFile(snapshot, document, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fileService := config.Service{BaseURL: api.URL, Auth: "entra:work-api", AllowedMethods: []string{"POST"}, TimeoutS: 5, MaxBodyKB: 16, OpenAPI: &config.ServiceOpenAPI{Snapshot: snapshot, SHA256: tools.DocumentDigest(document), Operations: []string{"exportReport"}}}
+	fileConnector := tools.NewCallService(map[string]config.Service{"depot": fileService})
+	fileConnector.SetTokenProvider("entra", manager)
+	fileConnector.SetHTTPClientForTest(api.Client())
+	workspace := t.TempDir()
+	detail := fileConnector.CallDetailed(context.Background(), &session.Session{Workspace: workspace}, map[string]any{"service": "depot", "operation": "exportReport", "accept": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"})
+	stored, readErr := os.ReadFile(filepath.Join(workspace, "depot-report.xlsx"))
+	if detail.Err != nil || readErr != nil || string(stored) != string(workbook) || strings.Contains(detail.Content, "access-first") || strings.Contains(string(stored), "access-first") {
+		t.Fatalf("file detail=%+v stored=%q read=%v", detail, stored, readErr)
 	}
 	manager.ForgetMemoryForTest("work-api")
 	if token, err := manager.Token(context.Background(), "work-api"); err != nil || !strings.HasPrefix(token, "someone@example.org-") {

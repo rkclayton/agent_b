@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/events"
 	workspaceinfo "harness/internal/workspace"
@@ -30,18 +31,22 @@ func testPlanRegistry(t *testing.T) (*Registry, string, string) {
 	return registry, data, config.AgentID("Coder")
 }
 
-func TestChatWithoutFolderOwnsScratch(t *testing.T) {
+func TestChatWithoutFolderOwnsNamedChatDirectory(t *testing.T) {
 	registry, data, connection := testPlanRegistry(t)
 	item, err := registry.Create("", connection, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(data, "scratch", item.ID)
+	want := filepath.Join(data, "chats", "chat")
 	if !item.Scratch || item.Workspace != want {
-		t.Fatalf("scratch=%v folder=%q want %q", item.Scratch, item.Workspace, want)
+		t.Fatalf("chat-owned=%v folder=%q want %q", item.Scratch, item.Workspace, want)
 	}
 	if info, err := os.Stat(want); err != nil || !info.IsDir() {
-		t.Fatalf("scratch folder: %v", err)
+		t.Fatalf("chat folder: %v", err)
+	}
+	metadata, err := chatstore.ReadMetadata(want)
+	if err != nil || metadata.ID != item.ID || metadata.Label != item.Label {
+		t.Fatalf("chat.json = %+v, %v", metadata, err)
 	}
 }
 
@@ -60,7 +65,7 @@ func TestScratchNeverReusesAnOrphanedChatFolder(t *testing.T) {
 	}
 	// Item 2go (v1.2.5): a chat created with no label HAS no label - it is named
 	// by the operator's first message, not after its own id.
-	if item.ID == "main" || item.Workspace == orphan || item.Label != "" {
+	if item.Workspace == orphan || item.Label != "" || !strings.HasPrefix(item.Workspace, filepath.Join(data, "chats")) {
 		t.Fatalf("scratch reused orphan: id=%q label=%q folder=%q", item.ID, item.Label, item.Workspace)
 	}
 	if got, err := os.ReadFile(filepath.Join(orphan, "retained.txt")); err != nil || string(got) != "keep" {

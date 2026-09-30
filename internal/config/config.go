@@ -57,6 +57,7 @@ type Config struct {
 }
 
 type SkillSetting struct {
+	Name     string `json:"-"`
 	Enabled  bool   `json:"enabled"`
 	Source   string `json:"source,omitempty"`
 	LastRead string `json:"last_read,omitempty"`

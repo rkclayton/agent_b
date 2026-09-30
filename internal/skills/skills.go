@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
+	"harness/internal/attachment"
 	"harness/internal/config"
 )
 
@@ -155,7 +157,10 @@ func indexLine(s Skill) string {
 }
 func estimateTokens(text string) int { n := len([]rune(text)); return (n + 3) / 4 }
 
-func Import(root, source string) (Setting, error) {
+func Import(root, source string, max int64) (Setting, error) {
+	if strings.EqualFold(filepath.Ext(source), ".zip") {
+		return importZIP(root, source, max)
+	}
 	data, err := os.ReadFile(filepath.Join(source, "SKILL.md"))
 	if err != nil {
 		return Setting{}, err
@@ -168,33 +173,59 @@ func Import(root, source string) (Setting, error) {
 	if _, err := os.Stat(destination); !os.IsNotExist(err) {
 		return Setting{}, fmt.Errorf("skill %q already exists", name)
 	}
-	if err := copyTree(source, destination); err != nil {
+	if err := os.CopyFS(destination, os.DirFS(source)); err != nil {
 		return Setting{}, err
 	}
 	absolute, _ := filepath.Abs(source)
-	return Setting{Source: "imported from " + absolute}, nil
+	return Setting{Name: name, Source: "imported from " + absolute}, nil
 }
 
-func copyTree(source, destination string) error {
-	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+func importZIP(root, source string, max int64) (Setting, error) {
+	files, _, err := attachment.ReadZIP(source, max)
+	if err != nil {
+		return Setting{}, err
+	}
+	top, skill := "", ""
+	for entryName, entry := range files {
+		if entry.Refused != "" {
+			return Setting{}, fmt.Errorf("zip member refused: %s", entryName)
 		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("skill imports cannot contain links")
+		clean := path.Clean(strings.ReplaceAll(entryName, `\`, "/"))
+		folder, relative, present := strings.Cut(strings.Trim(clean, "/"), "/")
+		if !present {
+			continue
 		}
-		rel, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
+		if top == "" {
+			top = folder
 		}
-		target := filepath.Join(destination, rel)
-		if entry.IsDir() {
-			return os.MkdirAll(target, 0o700)
+		if folder != top {
+			return Setting{}, fmt.Errorf("zip must contain one skill folder")
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
+		if relative == "SKILL.md" {
+			skill = string(entry.Data)
 		}
-		return os.WriteFile(target, data, 0o600)
-	})
+	}
+	name, _, reason := frontmatter(skill)
+	if reason != "" {
+		return Setting{}, fmt.Errorf("%s", reason)
+	}
+	destination := filepath.Join(root, name)
+	if _, err = os.Stat(destination); !os.IsNotExist(err) {
+		return Setting{}, fmt.Errorf("skill %q already exists", name)
+	}
+	for entryName, entry := range files {
+		_, relative, present := strings.Cut(strings.Trim(path.Clean(strings.ReplaceAll(entryName, `\`, "/")), "/"), "/")
+		if !present || strings.HasSuffix(entryName, "/") {
+			continue
+		}
+		target := filepath.Join(destination, filepath.FromSlash(relative))
+		if err = os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return Setting{}, err
+		}
+		if err = os.WriteFile(target, entry.Data, 0o600); err != nil {
+			return Setting{}, err
+		}
+	}
+	absolute, _ := filepath.Abs(source)
+	return Setting{Name: name, Source: "imported from " + absolute}, nil
 }

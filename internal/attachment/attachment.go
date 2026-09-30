@@ -107,7 +107,18 @@ func ExtractOffice(path string, maxBytes int64) ([]byte, error) {
 		return nil, fmt.Errorf("open office document: %w", err)
 	}
 	defer reader.Close()
-	wanted := officeXMLFiles(reader.File, strings.ToLower(filepath.Ext(path)))
+	return extractOffice(reader.File, path, maxBytes)
+}
+
+func ExtractOfficeBytes(path string, data []byte, maxBytes int64) ([]byte, error) {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
+	}
+	return extractOffice(reader.File, path, maxBytes)
+}
+func extractOffice(files []*zip.File, path string, maxBytes int64) ([]byte, error) {
+	wanted := officeXMLFiles(files, strings.ToLower(filepath.Ext(path)))
 	var output bytes.Buffer
 	remaining := maxBytes
 	for _, file := range wanted {

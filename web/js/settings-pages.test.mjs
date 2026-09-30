@@ -108,8 +108,6 @@ test("Security renders the LAN switch and detected confirmation list", () => {
 	const context = pageContext();
 	context.store.config.shell.allow_local_network = false;
 	context.hardeningStatus.detected_local_subnets = ["192.168.50.0/24"];
-	// The explanatory sentence is hover text now rather than a visible line, so
-	// the stub renders the hint the real row renders as a title attribute.
 	context.row = (label, value, _extra, hint) => `${label}:${value}${hint ? ` title=${hint}` : ""}`;
 	const page = renderSecurityPage("shell", null, context);
 	assert.match(page, /Allow my local network/);
@@ -132,6 +130,15 @@ test("Security names each service identity state and offers only Set up or Repai
 		context.selectedHardeningConnectionID = () => "local";
 		assert.match(renderSecurityPage("shell", null, context), expected);
 	}
+});
+
+test("Security says when Windows policy blocks service identity setup", () => {
+	const context = pageContext();
+	context.serviceAccountStatus = {
+		loaded: true, supported: true, exists: false, state: "missing",
+		execution_policy_message: "Windows policy on this machine disables PowerShell scripts (AllSigned, set by MachinePolicy); the service identity cannot be set up here",
+	};
+	assert.match(renderSecurityPage("shell", null, context), /Windows policy on this machine disables PowerShell scripts \(AllSigned, set by MachinePolicy\); the service identity cannot be set up here/);
 });
 
 test("Security restores the service identity toggle and names a locked Repair dead end", () => {

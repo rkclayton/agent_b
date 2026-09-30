@@ -21,7 +21,8 @@ type Status struct {
 	CredentialStored bool   `json:"credential_stored,omitempty"`
 	// Item 2li (e): a machine-provisioned identity must read as ready without
 	// offering to redo it. "machine" is how Settings knows not to.
-	CredentialScope string `json:"credential_scope,omitempty"`
+	CredentialScope        string `json:"credential_scope,omitempty"`
+	ExecutionPolicyMessage string `json:"execution_policy_message,omitempty"`
 }
 
 // Item 2kk (e): a launch that never happened is its own state, distinct from a

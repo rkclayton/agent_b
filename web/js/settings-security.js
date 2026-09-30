@@ -129,6 +129,7 @@ function shell(active) {
 	${subhead("Service identity", "Use the restricted Windows account for tools. Switching it on sets the account up and asks Windows once; switching it off takes effect immediately.")}
 	${row("Service identity", `<button type="button" role="switch" aria-checked="${identityOn}" aria-label="Service identity" class="switch ${identityOn ? "on" : ""}" data-action="service-identity-toggle" ${serviceAccountBusy ? "disabled" : ""}></button><span class="account-status">${serviceAccountBusy ? "Turning on — Windows will ask once" : identityOn ? "on" : "off"}</span>`, "", "Off: tools run as the account that launched Agent_b. On: Agent_b runs tools as its own restricted Windows account.")}
 	${feedback(serviceAccountMessage, serviceAccountAlarm)}
+	${serviceAccountStatus.execution_policy_message ? `<p class="settings-feedback alarm" role="status">${html(serviceAccountStatus.execution_policy_message)}</p>` : ""}
 	${serviceStepLines}
 	${serviceAccountMessage && serviceAccountLog ? `<p class="account-status"><a href="${attr(serviceLogHref)}">open log</a> · ${html(serviceAccountLog)}</p>` : ""}
 	<details class="settings-advanced"${setupOpen ? " open" : ""}>

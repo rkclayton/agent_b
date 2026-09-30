@@ -56,6 +56,19 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 	platform := nativeInstallPlatform{shortcut: writeShellLink, register: writeUninstallRegistration, secure: secureInstallDirectory}
 	policy := effectiveExecutionPolicy()
 	log.printf("execution policy: %s from %s", policy.Policy, policy.Scope)
+	policyPath := filepath.Join(data, "execution-policy.txt")
+	if policy.BlocksScripts {
+		message := fmt.Sprintf("Windows policy on this machine disables PowerShell scripts (%s, set by %s); the service identity cannot be set up here", policy.Policy, policy.Scope)
+		log.printf("%s", message)
+		if err := os.MkdirAll(data, 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(policyPath, []byte(message+"\n"), 0o600); err != nil {
+			return fmt.Errorf("record execution policy: %w", err)
+		}
+	} else if err := os.Remove(policyPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("clear execution policy record: %w", err)
+	}
 	appendProgress(data, installProgress{Phase: "copying the application", Text: "Application: " + application})
 	if err := installPerUserNative(plan, platform); err != nil {
 		return err

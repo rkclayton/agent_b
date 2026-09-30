@@ -1661,6 +1661,13 @@ try {
         $text = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot (Join-Path 'scripts' $required))
         if ($text.TrimEnd() -notmatch 'exit 0$') { throw "$required no longer ends with an explicit exit code." }
     }
+    $provisionText = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'scripts\provision-service-identity.ps1')
+    if ($provisionText -match 'RandomNumberGenerator\]::Fill' -or
+        $provisionText -notmatch 'RandomNumberGenerator\]::Create\(\)' -or
+        $provisionText -notmatch '\.GetBytes\(\$bytes\)') {
+        throw 'unattended credential generation must use the Windows PowerShell 5.1 RandomNumberGenerator instance API.'
+    }
+    Write-Host 'PROOF unattended credential generation uses the Windows PowerShell 5.1 RNG API'
 
     # Item 2nl (b), as a guard rather than a fix: EVERY PARAMETER THESE SCRIPTS PASS
     # HAS TO EXIST. `-Connection Any` sat in the firewall script's Apply branch for

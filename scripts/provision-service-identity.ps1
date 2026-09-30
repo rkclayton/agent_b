@@ -97,7 +97,11 @@ function Set-MachineCredentialAccessList {
 function New-MachineCredential {
     param([Parameter(Mandatory)][string]$Path, [string]$AccountSid)
     $bytes = [byte[]]::new(24)
-    [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    # Windows PowerShell 5.1 runs elevated provisioning and its .NET Framework
+    # surface does not have the newer static RandomNumberGenerator.Fill method.
+    # The instance API is present there and in current PowerShell.
+    $random = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $random.GetBytes($bytes) } finally { $random.Dispose() }
     # Base64 of 24 bytes is 32 characters, comfortably past the 14-character
     # floor setup-service-account.ps1 enforces, and it cannot look like a pasted
     # command.

@@ -254,18 +254,6 @@ func runInstall(options installOptions, args []string) int {
 	return code
 }
 
-// installerFailureReason is item 2nf (c): the installer's OWN words, read back out of
-// the transcript it just wrote.
-//
-// The installer ends a refusal with a line that begins "INSTALLATION FAILED:" and says
-// exactly what was wrong — "Application, operator-data, and workspace directories must
-// be three disjoint trees." The update control showed none of it: it showed "The
-// install stopped during starting (exit 1)", three times, while the answer sat in a
-// file nobody was pointed at.
-//
-// The last such line wins, because the transcript is appended to and the final refusal
-// is the one that ended the run. A transcript that cannot be read gives an empty
-// string and the generic sentence stands, since a missing log is not a reason.
 func installerFailureReason(transcript string) string {
 	if strings.TrimSpace(transcript) == "" {
 		return ""
@@ -281,8 +269,6 @@ func installerFailureReason(transcript string) string {
 		if at < 0 {
 			continue
 		}
-		// The marker's own text is kept, so the operator reads the same sentence the
-		// transcript carries rather than a paraphrase of it.
 		if text := strings.TrimSpace(line[at:]); text != marker {
 			reason = text
 		}
@@ -290,9 +276,6 @@ func installerFailureReason(transcript string) string {
 	return reason
 }
 
-// installDataRoot resolves where the install writes its own records: the
-// explicit --install-data if the caller gave one, then the -DataDirectory the
-// installer itself was handed, and only then the operator's own location.
 func installDataRoot(explicit string, args []string) string {
 	if strings.TrimSpace(explicit) != "" {
 		return explicit
@@ -343,8 +326,6 @@ func completeInstallMigration(applicationRoot, dataRoot string, testMode bool, l
 	command.Stderr = &output
 	if err := command.Run(); err != nil {
 		text := output.String()
-		// Windows PowerShell may select UTF-16 for a redirected native child;
-		// strip its interleaved NUL bytes before classifying the stable error text.
 		lower := strings.ToLower(strings.ReplaceAll(text, "\x00", ""))
 		if strings.Contains(text, "UnauthorizedAccessException") ||
 			strings.Contains(lower, "access to the path") && strings.Contains(lower, "denied") ||
@@ -604,8 +585,6 @@ func copyFile(source, destination string) error {
 	return closeErr
 }
 
-// currentDisplayVersion reads the version the installer will report, from the
-// installer script itself, so the marker never names a different one.
 func currentDisplayVersion(source string) string {
 	content, err := os.ReadFile(filepath.Join(source, "scripts", "install-Agent_b.ps1"))
 	if err != nil {
@@ -625,7 +604,6 @@ func currentDisplayVersion(source string) string {
 	return ""
 }
 
-// readInstallProgress is what the Setup page reads.
 func readInstallProgress(dataRoot string) ([]installProgress, error) {
 	file, err := os.Open(installProgressPath(dataRoot))
 	if err != nil {
@@ -648,9 +626,6 @@ func readInstallProgress(dataRoot string) ([]installProgress, error) {
 	return entries, nil
 }
 
-// canonicalInstallRoot reports whether a path is one of the two locations a real
-// install uses. Item 2m6: everything else is disposable, and a disposable
-// install is never allowed to put a window on the operator's desktop.
 func canonicalInstallRoot(applicationRoot string) bool {
 	resolved, err := filepath.Abs(applicationRoot)
 	if err != nil {

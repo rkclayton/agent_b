@@ -35,7 +35,6 @@ func (r *ReadFile) Schema() map[string]any {
 }
 func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string]any) (string, error) {
 	cfg := r.config()
-	maxZIP := r.zipLimit()
 	path, ok := args["path"].(string)
 	if !ok || path == "" {
 		return "", fmt.Errorf("path is required")
@@ -57,7 +56,7 @@ func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string
 	}
 	var data []byte
 	if zipped {
-		files, listing, zipErr := attachment.ReadZIP(resolved, maxZIP)
+		files, listing, zipErr := attachment.ReadZIP(resolved, r.zipLimit())
 		if zipErr != nil {
 			return "", zipErr
 		}
@@ -80,7 +79,7 @@ func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string
 		}
 	}
 	if zipped && attachment.Classify(member) == attachment.Office {
-		if data, err = attachment.ExtractOfficeBytes(member, data, maxZIP); err != nil {
+		if data, err = attachment.ExtractOfficeBytes(member, data, r.zipLimit()); err != nil {
 			return "", err
 		}
 	}

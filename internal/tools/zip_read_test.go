@@ -35,7 +35,6 @@ func makeZip(path string, files map[string]string) {
 }
 func TestReadZipSafetyHintsAndSkillImport(t *testing.T) {
 	require := func(ok bool, format string, args ...any) {
-		t.Helper()
 		if !ok {
 			t.Fatalf(format, args...)
 		}
@@ -44,8 +43,7 @@ func TestReadZipSafetyHintsAndSkillImport(t *testing.T) {
 	archive := filepath.Join(root, "report-kit.zip")
 	skill := "---\nname: report-kit\ndescription: Builds invented fixture reports.\n---\nProcedure.\n"
 	makeZip(archive, map[string]string{"report-kit/SKILL.md": skill, "report-kit/scripts/build.ps1": "'fixture'", "report-kit/README.md": "fixture", "report-kit/openapi.json": "{}"})
-	cfg := config.Defaults(root)
-	read := NewReadFile(cfg.Tools.ReadFile)
+	read := NewReadFile(config.Defaults(root).Tools.ReadFile)
 	chat := &session.Session{Workspace: root, LastSeen: map[string]time.Time{}}
 	listing, err := read.Call(context.Background(), chat, map[string]any{"path": archive})
 	require(err == nil && strings.Count(listing, "report-kit/") == 4, "listing=%q err=%v", listing, err)
@@ -66,7 +64,7 @@ func TestReadZipSafetyHintsAndSkillImport(t *testing.T) {
 	}
 	decision := outsideCommandDecision(`Get-Content "`+filepath.Join(root, "report-kit", "SKILL.md")+`"`, &session.Session{Workspace: t.TempDir()}, nil)
 	require(strings.Contains(decision.missing, archive+string(filepath.Separator)+"report-kit"), "hint=%q", decision.missing)
-	setting, err := skills.Import(filepath.Join(root, "skills"), archive, cfg.Tools.Attachments.MaxBytes)
+	setting, err := skills.Import(filepath.Join(root, "skills"), archive, config.Defaults(root).Tools.Attachments.MaxBytes)
 	require(err == nil && !setting.Enabled, "import=%+v err=%v", setting, err)
 	data, err := os.ReadFile(filepath.Join(root, "skills", "report-kit", "SKILL.md"))
 	require(err == nil && string(data) == skill, "imported=%q err=%v", data, err)

@@ -195,12 +195,10 @@ func importZIP(root, source string, max int64) (Setting, error) {
 		if !present {
 			continue
 		}
-		if top == "" {
-			top = folder
-		}
-		if folder != top {
+		if top != "" && folder != top {
 			return Setting{}, fmt.Errorf("zip must contain one skill folder")
 		}
+		top = folder
 		if relative == "SKILL.md" {
 			skill = string(entry.Data)
 		}

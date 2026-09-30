@@ -12,8 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"slices"
+	"sort"
 	"strings"
 
 	"harness/internal/broker"
@@ -689,6 +689,13 @@ type Shell struct {
 	ConfirmedLocalSubnets             []string            `json:"confirmed_local_subnets"`
 	AllowedModelRanges                []string            `json:"allowed_model_ranges"`
 	Deny                              []string            `json:"deny"`
+	TrustedFolders                    []TrustedFolder     `json:"trusted_folders"`
+}
+
+type TrustedFolder struct {
+	Path    string `json:"path"`
+	AddedAt string `json:"added_at"`
+	Source  string `json:"source"`
 }
 
 type ShellServiceAccount struct {
@@ -1010,6 +1017,14 @@ func (c Config) Validate() error {
 	}
 	if c.Workspace == "" {
 		return fmt.Errorf("workspace: required")
+	}
+	for i, folder := range c.Shell.TrustedFolders {
+		if !filepath.IsAbs(folder.Path) {
+			return fmt.Errorf("shell.trusted_folders[%d].path: absolute path required", i)
+		}
+		if folder.Source != "card" && folder.Source != "settings" {
+			return fmt.Errorf("shell.trusted_folders[%d].source: must be card or settings", i)
+		}
 	}
 	// Item 2lj (c): a face that is not on the list is not a face this build can
 	// promise to render, so it is refused rather than written and silently

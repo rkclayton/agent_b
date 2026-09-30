@@ -13,6 +13,23 @@ import (
 	"harness/internal/session"
 )
 
+func TestTrustedFolderChoicePersistsCanonicalFolder(t *testing.T) {
+	root, folder := t.TempDir(), t.TempDir()
+	cfg := config.Defaults(root)
+	path := filepath.Join(root, "harness.json")
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Profile: root, Workspace: root}, events.NewBus())
+	if err := server.TrustFolders([]string{folder}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, _, err := config.Load(path)
+	if err != nil || len(loaded.Shell.TrustedFolders) != 1 || loaded.Shell.TrustedFolders[0].Source != "card" {
+		t.Fatalf("loaded=%+v err=%v", loaded.Shell.TrustedFolders, err)
+	}
+}
+
 // Item 2mb (b), (c) and (d): a refused delete says which role holds the
 // connection, on the row that was clicked, and a delete that is refused or not
 // found leaves the configuration exactly as it was.

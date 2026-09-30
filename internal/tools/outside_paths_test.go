@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -133,7 +135,7 @@ func TestTheRoutingGuardInterceptsReadsNotDirectoryChanges(t *testing.T) {
 		{`type C:\nope-2fz\missing.txt`, "missing"},
 		{`Get-Content C:\nope-2fz\missing.txt`, "missing"},
 	} {
-		decision := outsideCommandDecision(c.source, item)
+		decision := outsideCommandDecision(c.source, item, nil)
 		got := "run"
 		if decision.card != "" {
 			got = "card"
@@ -143,5 +145,35 @@ func TestTheRoutingGuardInterceptsReadsNotDirectoryChanges(t *testing.T) {
 		if got != c.want {
 			t.Errorf("%q: %s, want %s (%+v)", c.source, got, c.want, decision)
 		}
+	}
+}
+
+func TestTrustedFoldersUseResolvedPaths(t *testing.T) {
+	workspace, trusted := t.TempDir(), t.TempDir()
+	file := filepath.Join(trusted, "child", "note.txt")
+	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("trusted"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	item := &session.Session{Workspace: workspace}
+	entries := []config.TrustedFolder{{Path: trusted}}
+	if decision := outsideCommandDecision(`Get-Content "`+file+`"`, item, entries); decision.card != "" || !decision.trusted {
+		t.Fatalf("trusted descendant asked: %+v", decision)
+	}
+	other := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(other, []byte("other"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if decision := outsideCommandDecision(`Get-Content "`+other+`"`, item, entries); decision.card == "" {
+		t.Fatalf("sibling folder did not ask: %+v", decision)
+	}
+	link := filepath.Join(trusted, "escape")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, filepath.Dir(other)).CombinedOutput(); err != nil {
+		t.Fatalf("junction: %v %s", err, out)
+	}
+	if decision := outsideCommandDecision(`Get-Content "`+filepath.Join(link, filepath.Base(other))+`"`, item, entries); decision.card == "" {
+		t.Fatalf("junction escaping the trusted folder did not ask: %+v", decision)
 	}
 }

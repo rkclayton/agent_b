@@ -302,6 +302,62 @@ func (s *Server) ConfigSnapshot() config.Config {
 	s.operatorMu.Unlock()
 	return result
 }
+
+func normalizeTrustedFolders(cfg *config.Config, source string) error {
+	now, seen, out := time.Now().UTC().Format(time.RFC3339), map[string]bool{}, make([]config.TrustedFolder, 0, len(cfg.Shell.TrustedFolders))
+	for _, entry := range cfg.Shell.TrustedFolders {
+		if strings.TrimSpace(entry.Path) == "" {
+			return fmt.Errorf("folder is required")
+		}
+		real, err := session.RealPath(strings.TrimSpace(entry.Path))
+		if err != nil {
+			return err
+		}
+		key := strings.ToLower(real)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		entry.Path = real
+		if entry.Source == "" {
+			entry.Source = source
+		}
+		if entry.AddedAt == "" {
+			entry.AddedAt = now
+		}
+		out = append(out, entry)
+	}
+	cfg.Shell.TrustedFolders = out
+	return nil
+}
+
+func (s *Server) TrustFolders(paths []string) error {
+	s.mu.Lock()
+	next := *s.cfg
+	next.Shell.TrustedFolders = append([]config.TrustedFolder(nil), s.cfg.Shell.TrustedFolders...)
+	for _, path := range paths {
+		next.Shell.TrustedFolders = append(next.Shell.TrustedFolders, config.TrustedFolder{Path: path})
+	}
+	if err := normalizeTrustedFolders(&next, "card"); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if err := next.Validate(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if err := s.saveMachineConfig(next); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	*s.cfg = next
+	s.mu.Unlock()
+	if s.runner != nil {
+		s.runner.Configure(s.ConfigSnapshot())
+	}
+	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": s.ConfigSnapshot().Masked()}))
+	return nil
+}
 func (s *Server) Connection(id string) (*config.Connection, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -424,7 +480,6 @@ func (s *Server) hardeningRequest(connectionID string) (hardening.Request, error
 		AllowedModelRanges: append([]string(nil), cfg.Shell.AllowedModelRanges...),
 	}, nil
 }
-
 
 func newMutationToken() string {
 	value := make([]byte, 32)

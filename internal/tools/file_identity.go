@@ -22,6 +22,7 @@ type FileIdentity struct {
 	mu              sync.RWMutex
 	service         config.ShellServiceAccount
 	operatorContext bool
+	trusted         []config.TrustedFolder
 	unavailable     string
 	credential      shellCredentialReader
 	run             serviceFileRunner
@@ -42,6 +43,7 @@ func (p *FileIdentity) Configure(cfg config.Config) {
 	p.mu.Lock()
 	p.service = cfg.Shell.ServiceAccount
 	p.operatorContext = cfg.Shell.OperatorContext
+	p.trusted = append([]config.TrustedFolder(nil), cfg.Shell.TrustedFolders...)
 	p.unavailable = ""
 	p.mu.Unlock()
 }
@@ -50,10 +52,10 @@ func (p *FileIdentity) Wrap(tool Tool) Tool {
 	return &identityFileTool{tool: tool, identity: p}
 }
 
-func (p *FileIdentity) snapshot() (config.ShellServiceAccount, bool, shellCredentialReader, serviceFileRunner) {
+func (p *FileIdentity) snapshot() (config.ShellServiceAccount, bool, []config.TrustedFolder, shellCredentialReader, serviceFileRunner) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return p.service, p.operatorContext, p.credential, p.run
+	return p.service, p.operatorContext, append([]config.TrustedFolder(nil), p.trusted...), p.credential, p.run
 }
 
 type identityFileTool struct {
@@ -81,11 +83,16 @@ func (t *identityFileTool) Call(ctx context.Context, s *session.Session, args ma
 }
 
 func (t *identityFileTool) CallDetailed(ctx context.Context, s *session.Session, args map[string]any) CallDetail {
-	service, operatorContext, credential, runner := t.identity.snapshot()
+	service, operatorContext, trusted, credential, runner := t.identity.snapshot()
 	t.identity.mu.RLock()
 	unavailable := t.identity.unavailable
 	t.identity.mu.RUnlock()
 	if operatorContext {
+		result, err := t.tool.Call(withOSPathPolicy(ctx), s, args)
+		return CallDetail{Content: result, Err: err, OperatorContext: true}
+	}
+	target := outsideTarget(s, t.tool.Name(), args)
+	if trustedPath(target, trusted) {
 		result, err := t.tool.Call(withOSPathPolicy(ctx), s, args)
 		return CallDetail{Content: result, Err: err, OperatorContext: true}
 	}
@@ -103,7 +110,8 @@ func (t *identityFileTool) CallDetailed(ctx context.Context, s *session.Session,
 			} else if processCanRead(target) && t.tool.Name() != "write_file" && t.tool.Name() != "edit_file" {
 				return CallDetail{Err: err}
 			}
-			return CallDetail{Content: "file operation was not completed: path is outside the folder", OperatorOverrideReason: "path is outside the folder"}
+			folder := holdingFolder(target)
+			return CallDetail{Content: "file operation was not completed: path is outside the folder", OperatorOverrideReason: "path is outside the folder", Metadata: outsideMetadata([]string{folder}, true)}
 		}
 		return CallDetail{Content: result, Err: err}
 	}
@@ -143,7 +151,9 @@ func (t *identityFileTool) CallDetailed(ctx context.Context, s *session.Session,
 		return fileIdentityOverride("service account was denied permission for the requested path")
 	}
 	if strings.Contains(strings.ToLower(err.Error()), "path is outside the folder") {
-		return fileIdentityOverride("bound-directory jail: path is outside the folder")
+		detail := fileIdentityOverride("bound-directory jail: path is outside the folder")
+		detail.Metadata = outsideMetadata([]string{holdingFolder(target)}, false)
+		return detail
 	}
 	return CallDetail{Err: err}
 }
@@ -168,7 +178,7 @@ func processCanRead(path string) bool {
 }
 
 func (t *identityFileTool) PreflightServiceIdentity() error {
-	service, operatorContext, credential, runner := t.identity.snapshot()
+	service, operatorContext, _, credential, runner := t.identity.snapshot()
 	if !service.Enabled || operatorContext {
 		return nil
 	}

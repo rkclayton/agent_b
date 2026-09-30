@@ -96,6 +96,8 @@ function shell(active) {
 	const sandboxEnabled = store.config.sandbox?.enabled !== false;
 	const sandboxStatus = store.sandbox || {};
 	const sandboxState = sandboxStatus.available ? "ready" : `inert · ${sandboxStatus.reason || "Docker Sandbox is unavailable"}`;
+	const trustedFolders = Array.isArray(store.config.shell?.trusted_folders) ? store.config.shell.trusted_folders : [];
+	const trustedRows = trustedFolders.map((entry, index) => `<span class="settings-actions"><input id="trusted-folder-${index}" value="${attr(entry.path)}" aria-label="Trusted folder"><span>${html((entry.added_at || "").slice(0, 10))} · ${entry.source === "card" ? "from a card" : "in Settings"}</span><button type="button" data-action="trusted-folder-change" data-id="${index}">Change</button><button type="button" data-action="trusted-folder-delete" data-id="${index}">Delete</button></span>`).join("");
 	const confirmedSubnets = new Set(store.config.shell?.confirmed_local_subnets || []);
 	const detectedSubnets = hardeningStatus.detected_local_subnets || [];
 	const subnetChoices = detectedSubnets.length
@@ -118,6 +120,8 @@ function shell(active) {
 	${subhead("Docker Sandbox", "Install-wide: routes shell and bash through Docker Sandbox. When Docker Sandbox is unavailable the setting stays on but is inert and reports why.")}
 	${toggle("sandbox.enabled", "Docker Sandbox", sandboxEnabled, "Install-wide: routes shell and bash through Docker Sandbox.")}
 	${row("status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`, "", "Inert means the setting is on but Docker Sandbox is unavailable; the reason is shown here.")}
+	${subhead("Folders that don't ask", "A folder and its descendants skip outside-folder prompts; with Service identity on they run as you.")}
+	${row("folders", `<span class="settings-actions vertical">${trustedRows || '<span class="account-status">none</span>'}<span class="settings-actions"><input id="trusted-folder-new" placeholder="C:\\folder" aria-label="Add trusted folder"><button type="button" data-action="trusted-folder-add">Add</button></span></span>`)}
 	${subhead("Service identity", "Use the restricted Windows account for tools. Switching it on sets the account up and asks Windows once; switching it off takes effect immediately.")}
 	${row("Service identity", `<button type="button" role="switch" aria-checked="${identityOn}" aria-label="Service identity" class="switch ${identityOn ? "on" : ""}" data-action="service-identity-toggle" ${serviceAccountBusy ? "disabled" : ""}></button><span class="account-status">${serviceAccountBusy ? "Turning on — Windows will ask once" : identityOn ? "on" : "off"}</span>`, "", "Off: tools run as the account that launched Agent_b. On: Agent_b runs tools as its own restricted Windows account.")}
 	${feedback(serviceAccountMessage, serviceAccountAlarm)}

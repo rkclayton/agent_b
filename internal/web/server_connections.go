@@ -509,6 +509,15 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		config.ApplyDefaults(&next)
+		if shell, ok := patch["shell"].(map[string]any); ok {
+			if _, changed := shell["trusted_folders"]; changed {
+				if err := normalizeTrustedFolders(&next, "settings"); err != nil {
+					s.mu.Unlock()
+					writeError(w, 400, err.Error(), "shell.trusted_folders")
+					return
+				}
+			}
+		}
 		if err := next.Validate(); err != nil {
 			s.mu.Unlock()
 			writeError(w, 400, err.Error(), configField(err, next))

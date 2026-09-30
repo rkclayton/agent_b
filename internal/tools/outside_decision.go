@@ -5,19 +5,18 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
+	"harness/internal/config"
 	"harness/internal/session"
 )
 
-// outsideDecision is what the routing guard does with a command or script
-// (item 2fz): card names existing outside paths it would read (the operator's
-// decision, as 2fi); missing names outside paths it would read that do not
-// exist (a plain error, no card). Both empty: the command runs as the shell
-// always has, under the OS boundary — the shell stays unjailed.
 type outsideDecision struct {
 	card, missing string
+	folders       []string
+	trusted       bool
 }
 
 // statementBreak splits a command line into statements: && and || before the
@@ -27,7 +26,6 @@ type outsideDecision struct {
 // /d C:\ & type <outside file>` was one statement headed by cd).
 var statementBreak = regexp.MustCompile(`&&|\|\||[;|&\r\n]`)
 
-// navigationVerbs change or list a directory; they read no file's content.
 var navigationVerbs = map[string]bool{
 	"cd": true, "chdir": true, "pushd": true, "set-location": true, "sl": true,
 	"push-location": true, "dir": true, "ls": true, "gci": true, "get-childitem": true, "tree": true,
@@ -42,7 +40,6 @@ var navigationVerbs = map[string]bool{
 // and any [IO.*] class.
 var laterRead = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])(type|cat|gc|get-content|more|less|head|tail|select-string|sls|findstr|copy|cp|copy-item|move|mv|move-item|import-\w+|get-filehash|format-hex|readall\w*|open|certutil|robocopy|xcopy|fc|comp|print|tar|7z|expand|expand-archive|compress-archive|makecab|iex|invoke-expression|invoke-command|icm|powershell|pwsh|cmd|start|start-process|saps|invoke-item|ii|notepad|curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod|bitsadmin|streamreader)([^a-z0-9_-]|$)|\[(system\.)?io\.\w+\]|<`)
 
-// pathListReason names every path, up to a bound, so one cannot hide behind three.
 func pathListReason(prefix string, paths []string) string {
 	if len(paths) == 0 {
 		return ""
@@ -53,8 +50,6 @@ func pathListReason(prefix string, paths []string) string {
 	return prefix + strings.Join(paths, ", ")
 }
 
-// statementVerb is a statement's command word, lower-cased, without a call
-// operator, a leading parenthesis or quotes.
 func statementVerb(statement string) string {
 	fields := strings.Fields(strings.TrimLeft(strings.TrimSpace(statement), "&( "))
 	if len(fields) == 0 {
@@ -78,7 +73,7 @@ func statementArguments(statement string) string {
 // a read — the card when it exists (a denied or unknown stat counts as
 // existing, 2fy's rule), a plain error when it does not. Forms the guard cannot
 // see — paths built at runtime, in variables — are as before: not seen.
-func outsideCommandDecision(source string, s *session.Session) outsideDecision {
+func outsideCommandDecision(source string, s *session.Session, trusted []config.TrustedFolder) outsideDecision {
 	outside := map[string]bool{}
 	for _, path := range outsideLiteralPaths(source, s) {
 		outside[strings.ToLower(path)] = true
@@ -86,7 +81,7 @@ func outsideCommandDecision(source string, s *session.Session) outsideDecision {
 	if len(outside) == 0 {
 		return outsideDecision{}
 	}
-	cards, missing := []string{}, []string{}
+	cards, missing, folders := []string{}, []string{}, []string{}
 	seen := map[string]bool{}
 	bounds := statementBreak.FindAllStringIndex(source, -1)
 	start := 0
@@ -109,15 +104,57 @@ func outsideCommandDecision(source string, s *session.Session) outsideDecision {
 				continue
 			}
 			seen[key] = true
+			if trustedPath(path, trusted) {
+				continue
+			}
 			if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 				missing = append(missing, path)
 			} else {
 				cards = append(cards, path)
+				folders = appendUniquePath(folders, holdingFolder(path))
 			}
 		}
 	}
 	return outsideDecision{
 		card:    pathListReason("names a path outside the folder: ", cards),
 		missing: pathListReason("no such file or directory outside the folder: ", missing),
+		folders: folders,
+		trusted: len(seen) > len(cards)+len(missing),
 	}
+}
+
+func trustedPath(path string, entries []config.TrustedFolder) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	real, err := session.RealPath(path)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		root, err := session.RealPath(entry.Path)
+		if err == nil {
+			rel, relErr := filepath.Rel(root, real)
+			if relErr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func holdingFolder(path string) string {
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		return filepath.Clean(path)
+	}
+	return filepath.Dir(path)
+}
+
+func appendUniquePath(paths []string, path string) []string {
+	for _, existing := range paths {
+		if strings.EqualFold(existing, path) {
+			return paths
+		}
+	}
+	return append(paths, path)
 }

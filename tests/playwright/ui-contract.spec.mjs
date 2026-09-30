@@ -9,7 +9,7 @@ const chatJS = await readFile(new URL("../../web/js/chat.js", import.meta.url), 
 const indexHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
 
 test("OCR progress and Stop remain visible on the attachment chip", async ({ page }) => {
-  expect(chatJS).toContain("OCR · page ${activeUpload.page} of ${activeUpload.total}");
+  expect(chatJS).toContain("OCR · page ${upload.page} of ${upload.total}");
   expect(chatJS).toContain('/api/attachments/stop');
   await page.setViewportSize({ width: 320, height: 180 });
   await page.setContent(`<!doctype html><style>:root{--ink:#D8DDE3;--well:#15181C;--trace:#F2B233;--alarm:#E4624F;--sans:sans-serif}${chatCSS}</style>

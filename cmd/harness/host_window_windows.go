@@ -111,6 +111,7 @@ const (
 )
 
 var (
+	procRtlMoveMemory       = syscall.NewLazyDLL("kernel32.dll").NewProc("RtlMoveMemory")
 	procDestroyWindow       = user32.NewProc("DestroyWindow")
 	procPostQuitMessage     = user32.NewProc("PostQuitMessage")
 	procShowWindow          = user32.NewProc("ShowWindow")
@@ -303,11 +304,9 @@ func isMinimized(hwnd uintptr) bool {
 // windowProcedure is the whole of the frame. Everything it does is either
 // "give the client area the caption's band" or "tell Windows which part of the
 // frame this point is", and Windows does the rest.
-// lParam arrives as unsafe.Pointer, not uintptr, because WM_NCCALCSIZE hands
-// us a NCCALCSIZE_PARAMS to write through. Taking it as a pointer and deriving
-// the integer where coordinates are wanted keeps every conversion in the
-// direction go vet accepts; the reverse would be a uintptr the GC never saw.
-func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsafe.Pointer) uintptr {
+// lParam is an integer message parameter. Only messages whose contract says it
+// names a Windows-owned structure convert it to a pointer, at the point of use.
+func (w *hostWindow) windowProcedure(hwnd, message, wParam, lParam uintptr) uintptr {
 	switch message {
 	case wmNCCalcSize:
 		// BOTH forms matter. With wParam TRUE lParam is an NCCALCSIZE_PARAMS,
@@ -322,7 +321,8 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsaf
 		// edge and corner keeps the normal OS resize cursor and behavior. Only
 		// the caption band is reclaimed: the page's 32 px strip is the top edge.
 		hostFrameDebug("NCCALCSIZE wParam=%d", wParam)
-		params := (*rect)(lParam)
+		var params rect
+		procRtlMoveMemory.Call(uintptr(unsafe.Pointer(&params)), lParam, unsafe.Sizeof(params))
 		borderX := systemMetric(32) + systemMetric(92) // SM_CXFRAME + SM_CXPADDEDBORDER
 		borderY := systemMetric(33) + systemMetric(92)
 		// A MAXIMISED window is the exception: without insetting by the frame
@@ -338,6 +338,7 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsaf
 			params.right -= borderX
 			params.bottom -= borderY
 		}
+		procRtlMoveMemory.Call(lParam, uintptr(unsafe.Pointer(&params)), unsafe.Sizeof(params))
 		return 0
 
 	case wmNCHitTest:
@@ -345,7 +346,7 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsaf
 		// are. The page paints the button glyphs and never sees these clicks.
 		var window rect
 		procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&window)))
-		position := uintptr(lParam)
+		position := lParam
 		x := int32(int16(position & 0xFFFF))
 		y := int32(int16((position >> 16) & 0xFFFF))
 		relativeX, relativeY := x-window.left, y-window.top
@@ -362,8 +363,10 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsaf
 		// Declared since v1.3.0 and never answered until item 2nm. Answering it is
 		// what lets the bottom and right edges drag all the way to the stated
 		// minimum and no further, and it is the only clamp this window has.
-		info := (*minMaxInfo)(lParam)
+		var info minMaxInfo
+		procRtlMoveMemory.Call(uintptr(unsafe.Pointer(&info)), lParam, unsafe.Sizeof(info))
 		info.minTrackSize.x, info.minTrackSize.y = hostMinimumTrack(hwnd)
+		procRtlMoveMemory.Call(lParam, uintptr(unsafe.Pointer(&info)), unsafe.Sizeof(info))
 		return 0
 
 	case wmExitSizeMove:
@@ -396,7 +399,7 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsaf
 		procPostQuitMessage.Call(0)
 		return 0
 	}
-	result, _, _ := procDefWindowProc.Call(hwnd, message, wParam, uintptr(lParam))
+	result, _, _ := procDefWindowProc.Call(hwnd, message, wParam, lParam)
 	return result
 }
 
@@ -704,7 +707,7 @@ func (w *hostWindow) create(title string) error {
 	if icon == 0 || iconSmall == 0 {
 		return fmt.Errorf("loading the embedded Agent_b icon failed")
 	}
-	w.windowProc = syscall.NewCallback(func(hwnd, message, wParam uintptr, lParam unsafe.Pointer) uintptr {
+	w.windowProc = syscall.NewCallback(func(hwnd, message, wParam, lParam uintptr) uintptr {
 		// Item 2mt (a): THE ONE BOUNDARY WINDOWS CALLS INTO GO, and until now it
 		// had no recover() at all. A panic here takes the whole process with it —
 		// server and window together — which is what the operator saw when he

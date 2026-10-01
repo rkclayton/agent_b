@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -70,6 +71,7 @@ var crashRecord = &crashContext{state: map[string]any{}}
 // TEST binary's stderr into a temp file and held the handle open. Only the
 // detached host-window launch has nowhere for stderr to go, so only it asks.
 func installCrashRecord(dataRoot string, build map[string]any, keepTraceback bool) {
+	reportRuntimeFatalTrace(dataRoot)
 	crashRecord.mu.Lock()
 	crashRecord.dataRoot = dataRoot
 	crashRecord.build = build
@@ -81,6 +83,37 @@ func installCrashRecord(dataRoot string, build map[string]any, keepTraceback boo
 	if keepTraceback {
 		keepRuntimeTraceback(filepath.Join(dataRoot, "logs", crashStderrName))
 	}
+}
+
+func reportRuntimeFatalTrace(dataRoot string) {
+	path := filepath.Join(dataRoot, "logs", crashStderrName)
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(file, 256<<10))
+	file.Close()
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(body), "\n")
+	fatal, frame := "", ""
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if fatal == "" && strings.HasPrefix(line, "fatal error:") {
+			fatal = line
+			continue
+		}
+		if fatal != "" && frame == "" && strings.Contains(line, "(") && !strings.HasPrefix(line, "runtime.") {
+			frame = line[:strings.LastIndex(line, "(")]
+			break
+		}
+	}
+	if fatal == "" || frame == "" {
+		return
+	}
+	appendLauncherMessage(dataRoot, "Agent_b runtime "+printable(fatal)+"; top frame "+printable(frame))
+	_ = os.WriteFile(path, nil, 0o600)
 }
 
 // note records something the next crash should carry. Callers are surfaces, not

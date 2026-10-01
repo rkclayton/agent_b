@@ -6,10 +6,32 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"unsafe"
 )
+
+func TestWindowsCallbacksKeepIntegerParametersOutOfPointerSlots2p5(t *testing.T) {
+	source, err := os.ReadFile("host_window_windows.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	if strings.Contains(text, "func (w *hostWindow) windowProcedure(hwnd, message, wParam uintptr, lParam unsafe.Pointer)") ||
+		strings.Contains(text, "func(hwnd, message, wParam uintptr, lParam unsafe.Pointer)") {
+		t.Fatal("lParam is an integer for most window messages but is held in a pointer-typed callback slot")
+	}
+	for _, want := range []string{
+		"func(this uintptr, iid unsafe.Pointer, object *uintptr)",
+		"func(this, errorCode uintptr, result unsafe.Pointer)",
+		"func(hwnd, message, wParam, lParam uintptr)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("callback inventory is missing %q", want)
+		}
+	}
+}
 
 // Item 2nm: "i still can't drag the bottom chat window all the way down to collapse the
 // window ... i want to be able to shrink it down."
@@ -25,11 +47,11 @@ func TestTheFrameStatesItsMinimum2nm(t *testing.T) {
 	class, _ := syscall.UTF16PtrFromString("AgentBMinimumProbe")
 	title, _ := syscall.UTF16PtrFromString("probe")
 	instance, _, _ := syscall.NewLazyDLL("kernel32.dll").NewProc("GetModuleHandleW").Call(0)
-	proc := syscall.NewCallback(func(hwnd, message, wParam uintptr, lParam unsafe.Pointer) uintptr {
+	proc := syscall.NewCallback(func(hwnd, message, wParam, lParam uintptr) uintptr {
 		if message == wmGetMinMaxInfo {
 			return window.windowProcedure(hwnd, message, wParam, lParam)
 		}
-		result, _, _ := procDefWindowProc.Call(hwnd, message, wParam, uintptr(lParam))
+		result, _, _ := procDefWindowProc.Call(hwnd, message, wParam, lParam)
 		return result
 	})
 	registration := wndClassEx{wndProc: proc, instance: syscall.Handle(instance), className: class}

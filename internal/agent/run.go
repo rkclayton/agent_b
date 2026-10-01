@@ -63,6 +63,8 @@ type Runner struct {
 	skills             SkillHost
 }
 
+var resolveNamedPath = tools.ResolveNamedPath
+
 type SkillHost interface {
 	Index() string
 	Proposal(context.Context, *session.Session, string) (string, error)
@@ -974,6 +976,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 					return "cycle", err.Error(), turn
 				}
 				if decision == "continue" {
+					if r.gate.noticeOnly(s) {
+						r.appendHarnessLine(ctx, connection, s, runID, turn, cycleNotice(turn))
+					}
 					guards.ResetCycle()
 					continue
 				}
@@ -1337,6 +1342,12 @@ func toolResultEventData(turn int, callID, name, content string, ok, operatorCon
 func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) tools.CallOutcome {
 	if name == "remember" && rememberEchoesPreviousTool(s, args) {
 		return tools.CallOutcome{Content: "error: remember refused: this restates the immediately preceding tool result; the chat already records it"}
+	}
+	if path, ok := args["path"].(string); ok {
+		if resolved := resolveNamedPath(path); resolved != path {
+			args = cloneMetadata(args)
+			args["path"] = resolved
+		}
 	}
 	cfg := r.cfg()
 	eventArgs := sanitizedToolArguments(name, args)
@@ -2162,4 +2173,8 @@ func answerCeiling(connection *config.Connection) time.Duration {
 func answerCeilingDetail(connection *config.Connection, elapsed time.Duration) string {
 	return fmt.Sprintf("the answer ran past the %d-second ceiling for one answer (%.0f seconds elapsed) and was stopped; what it produced is kept above, marked truncated. The ceiling is the %s connection's context.answer_ceiling_seconds and is yours to change",
 		connection.Context.AnswerCeilingSeconds, elapsed.Seconds(), connection.Label)
+}
+
+func cycleNotice(turn int) string {
+	return fmt.Sprintf("stopped a loop after %d turns, continuing differently", turn)
 }

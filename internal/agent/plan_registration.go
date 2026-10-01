@@ -69,12 +69,14 @@ func (r *Runner) registerPlan(ctx context.Context, item *session.Session, runID,
 		args["resolves_to"] = resolved
 	}
 	callID := r.id("plan-registration")
-	approved, err := r.gate.WaitPolicyRequired(ctx, item, runID, callID, name, args)
-	if err != nil {
-		return "plan registration approval ended: " + err.Error()
-	}
-	if !approved {
-		return "plan registration declined"
+	if !r.gate.noticeOnly(item) {
+		approved, err := r.gate.WaitPolicyRequired(ctx, item, runID, callID, name, args)
+		if err != nil {
+			return "plan registration approval ended: " + err.Error()
+		}
+		if !approved {
+			return "plan registration declined"
+		}
 	}
 	plan, created, err := item.RegisterPlan(path)
 	if err != nil {
@@ -82,6 +84,11 @@ func (r *Runner) registerPlan(ctx context.Context, item *session.Session, runID,
 	}
 	if !created {
 		return "plan already exists: " + plan.Name
+	}
+	if r.gate.noticeOnly(item) {
+		if connection, ok := r.connection(item.ConnectionID); ok {
+			r.appendHarnessLine(ctx, connection, item, runID, 0, "registered "+plan.Name+" as a plan")
+		}
 	}
 	return "plan registered: " + plan.Name
 }

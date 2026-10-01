@@ -38,6 +38,7 @@ func TestModelProposedPlanRegistrationRaisesTheOperatorsCard(t *testing.T) {
 			}))
 			defer model.Close()
 			cfg := config.Defaults(root)
+			cfg.Approval.Mode = config.ApprovalModeMutating
 			cfg.Context.Accounting = "estimated"
 			connection := cfg.Connections[0]
 			connection.ID, connection.BaseURL = "main", model.URL

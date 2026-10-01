@@ -34,6 +34,7 @@ func TestAddPlanSentenceUsesAllowThisAndApprovalControlsRegistration(t *testing.
 				t.Fatal(err)
 			}
 			cfg := config.Defaults(root)
+			cfg.Approval.Mode = config.ApprovalModeMutating
 			connection := cfg.Connections[0]
 			connection.ID, connection.BaseURL = "main", model.URL
 			connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
@@ -100,5 +101,38 @@ func TestAddPlanSentenceUsesAllowThisAndApprovalControlsRegistration(t *testing.
 				t.Fatalf("model requests=%d", got)
 			}
 		})
+	}
+}
+
+func TestBoundaryOnlyRegistersAPlanWithOneLineAndNoCard2pi(t *testing.T) {
+	root, repo := t.TempDir(), filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(root)
+	connection := cfg.Connections[0]
+	bus := events.NewBus()
+	eventsCh, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	item := &session.Session{ID: "default", ConnectionID: connection.ID, Role: "b", Workspace: root, Runnable: true, Run: session.RunState{Status: "running"}, RegisterPlan: func(path string) (session.Plan, bool, error) {
+		return session.Plan{Name: "repo", Repo: path}, true, nil
+	}}
+	runner := NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
+	if detail := runner.registerPlan(context.Background(), item, "run", repo, "plan registration"); detail != "plan registered: repo" {
+		t.Fatalf("detail=%q", detail)
+	}
+	found := false
+	for _, message := range item.MessagesCopy() {
+		found = found || message.Content == "registered repo as a plan"
+	}
+	if !found {
+		t.Fatal("registration line missing")
+	}
+	select {
+	case event := <-eventsCh:
+		if event.Type == events.ApprovalRequired {
+			t.Fatalf("card=%+v", event)
+		}
+	default:
 	}
 }

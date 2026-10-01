@@ -47,3 +47,14 @@ func TestJail(t *testing.T) {
 		}
 	})
 }
+
+func TestNamedDownloadsUsesTheSystemKnownFolder2pi(t *testing.T) {
+	want := filepath.Join(t.TempDir(), "redirected-downloads")
+	prior := knownFolderPath
+	knownFolderPath = func(name string) (string, bool) { return want, name == "downloads" }
+	defer func() { knownFolderPath = prior }()
+	got, err := resolvePath(t.TempDir(), "my Downloads", false)
+	if err != nil || got != filepath.Clean(want) {
+		t.Fatalf("resolved=%q err=%v", got, err)
+	}
+}

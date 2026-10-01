@@ -66,6 +66,20 @@ func TestRecallReadsRememberEntryAndRememberStillDetectsDuplicate(t *testing.T) 
 	}
 }
 
+func TestRememberRefusesRulesAboutItsOwnTools2p3(t *testing.T) {
+	remember, recall, item, _ := memoryTools(t)
+	result, err := remember.Call(context.Background(), item, map[string]any{"note": "do not search outside the workspace, the approval wedges", "scope": "user"})
+	if err != nil || result != "error: remember refused: notes about the agent's own tools are not kept; the operator decides what the agent may do" {
+		t.Fatalf("refusal=%q err=%v", result, err)
+	}
+	if recalled, _ := recall.Call(context.Background(), item, nil); recalled != "No saved notes for this folder." {
+		t.Fatalf("refused note was saved: %q", recalled)
+	}
+	if result, err = remember.Call(context.Background(), item, map[string]any{"note": "the operator prefers tabs", "scope": "user"}); err != nil || !strings.HasPrefix(result, "ok: noted") {
+		t.Fatalf("ordinary preference=%q err=%v", result, err)
+	}
+}
+
 func TestRecallEmptyStoreIgnoresModelSuppliedPath(t *testing.T) {
 	_, recall, item, baseDir := memoryTools(t)
 	outside := filepath.Join(baseDir, "outside.md")

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/memory"
 	"harness/internal/session"
 )
 
@@ -137,7 +138,7 @@ func (r *PromptRenderer) RenderSkillParts(connection *config.Connection, s *sess
 		present = append(present, trimmed)
 	}
 	for _, layer := range layers {
-		if trimmed := strings.TrimSpace(layer); trimmed != "" {
+		if trimmed := memory.FilterRecall(layer); trimmed != "" {
 			present = append(present, trimmed)
 		}
 	}

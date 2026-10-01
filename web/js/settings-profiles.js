@@ -19,7 +19,8 @@ export function renderProfilesPage(context) {
   const notes = String(activeSession?.agent_memory_content || "").split(/\r?\n/).map((line) => line.trim()).filter((line) => line.startsWith("- ")).map((line) => line.slice(2));
   const memory = notes.length ? notes.map((note) => {
     const key = `agent-memory:${note}`;
-    return `<div class="setting-row"><label>${html(note)}</label><div><button type="button" data-action="remove-agent-memory" data-id="${attr(note)}" data-confirm="this memory note">Remove</button></div></div>`;
+    const label = note.replace("about-agent: yes", "about the agent");
+    return `<div class="setting-row"><label>${html(label)}</label><div><button type="button" data-action="remove-agent-memory" data-id="${attr(note)}" data-confirm="this memory note">Remove</button></div></div>`;
   }).join("") : '<p class="settings-note inline">No agent-layer memory entries.</p>';
   const skills = (store.skills || []).map((skill) => `<div class="setting-row" title="${attr((skill.warnings || []).join(" · ") || skill.reason || "Profile skill")}">
     <label><strong>${html(skill.name || "invalid")}</strong><span class="settings-note inline">${html(skill.description || skill.reason || "invalid")}</span></label>

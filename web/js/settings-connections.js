@@ -117,6 +117,7 @@ function parseNotes(content, layer) {
         scope: marks.scope || "",
         layer,
         untrusted_in_turn: marks["untrusted-in-turn"] === "yes",
+		about_agent: marks["about-agent"] === "yes",
       };
     });
 }
@@ -146,7 +147,8 @@ function memoryFinding() {
   for (const note of notes.slice(0, 40)) {
     const marks = [note.scope, note.date].filter(Boolean).join(" · ");
     const beside = note.untrusted_in_turn ? " · written beside untrusted content" : "";
-    lines.push(`<li class="settings-memory-note${note.untrusted_in_turn ? " invalid" : ""}">${html(note.text || "")}<span class="settings-memory-mark"> — ${html(marks)}${html(beside)}</span></li>`);
+    const about = note.about_agent ? " · about the agent" : "";
+    lines.push(`<li class="settings-memory-note${note.untrusted_in_turn || note.about_agent ? " invalid" : ""}">${html(note.text || "")}<span class="settings-memory-mark"> — ${html(marks)}${html(beside)}${html(about)}</span></li>`);
   }
   if (notes.length > 40) lines.push(`<li>… and ${count(notes.length - 40)} more note(s)</li>`);
   return lines;

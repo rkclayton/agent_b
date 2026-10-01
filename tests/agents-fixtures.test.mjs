@@ -16,8 +16,7 @@ const checks = {
 test("agents-1 valid fixtures match every documented record shape", async () => { const f = await load("valid"); assert.deepEqual(Object.keys(f).sort(), Object.keys(checks).sort()); for (const [n,c] of Object.entries(checks)) assert.ok(c(f[n]), n); });
 test("agents-1 invalid fixtures fail for every documented reason", async () => { const f = await load("invalid"); assert.deepEqual(Object.keys(f).sort(), Object.keys(checks).sort()); for (const [n,c] of Object.entries(checks)) { assert.match(f[n]._reason, /\S/); assert.equal(Boolean(c(f[n])), false, `${n}: ${f[n]._reason}`); } });
 test("the shipped baseline is byte-identical to the approved model after its harness header", async () => {
-  const model = await readFile(new URL("../plan/AGENTS-MODEL.md", import.meta.url), "utf8"), prompt = await readFile(new URL("../prompts/system.md", import.meta.url), "utf8");
-  const approved = model.match(/## Baseline text[\s\S]*?```\r?\n([\s\S]*?)\r?\n```/)[1].replace(/\r\n/g, "\n") + "\n";
+  const approved = (await readFile(new URL("../docs/agents-fixtures/baseline.txt", import.meta.url), "utf8")).replace(/\r\n/g, "\n"), prompt = await readFile(new URL("../prompts/system.md", import.meta.url), "utf8");
   const shipped = prompt.replace(/^<!-- Harness blocks: ([^>]+) -->\r?\n/, "").replace(/\r\n/g, "\n");
   assert.equal(shipped, approved);
   assert.deepEqual([...prompt.matchAll(/\{\{([a-z_]+)\}\}/g)].map(x => x[1]).slice(0, 10), ["date","os_context","folders","workspace","tools","network_boundary","media_capabilities","agent","project","memory"]);

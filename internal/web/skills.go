@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -79,50 +81,75 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) Proposal(ctx context.Context, chat *session.Session, runID string) (string, error) {
+	messages := chat.MessagesCopy()
+	if len(messages) > 0 && messages[len(messages)-1].Role == "assistant" {
+		if source, ok := requestedSkillPath(messages[len(messages)-1].Content); ok {
+			return s.proposeSkill(ctx, chat, runID, source)
+		}
+	}
 	root := filepath.Join(chat.Workspace, "skill-proposals")
 	entries, _ := os.ReadDir(root)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		source := filepath.Join(root, entry.Name())
-		item, body, files, err := skills.Inspect(source)
-		if err != nil {
-			continue
-		}
-		args := map[string]any{"skill_md": body, "files": files}
-		if !item.Valid {
-			args["validation_error"] = item.Reason
-		}
-		approved, gateErr := s.runner.Gate().WaitPolicyRequired(ctx, chat, runID, "skill-proposal-"+entry.Name(), "Add skill "+item.Name+"?", args)
-		if gateErr != nil {
-			return "", gateErr
-		}
-		if !approved {
-			return "skill proposal declined", nil
-		}
-		if !item.Valid {
-			return "skill proposal refused: " + item.Reason, nil
-		}
-		setting, err := skills.Import(filepath.Join(s.profileRoot(), "skills"), source, s.cfg.Tools.Attachments.MaxBytes)
-		if err != nil {
-			return "", err
-		}
-		setting.Enabled = true
-		setting.Source = "proposed in chat " + chat.ID
-		s.mu.Lock()
-		if s.cfg.Skills == nil {
-			s.cfg.Skills = map[string]config.SkillSetting{}
-		}
-		s.cfg.Skills[item.Name] = setting
-		err = s.saveProfileConfig(*s.cfg)
-		s.mu.Unlock()
-		if err != nil {
-			return "", err
-		}
-		return "skill " + item.Name + " added", nil
+		return s.proposeSkill(ctx, chat, runID, filepath.Join(root, entry.Name()))
 	}
 	return "", nil
+}
+
+var addSkillPattern = regexp.MustCompile(`(?i)^\s*add\s+(.+?)\s+as\s+a\s+skill[.!]?\s*$`)
+
+func requestedSkillPath(text string) (string, bool) {
+	match := addSkillPattern.FindStringSubmatch(strings.TrimSpace(text))
+	if len(match) != 2 {
+		return "", false
+	}
+	value := strings.Trim(strings.TrimSpace(match[1]), `"'`)
+	if !filepath.IsAbs(filepath.FromSlash(value)) {
+		return "", false
+	}
+	return filepath.Clean(filepath.FromSlash(value)), true
+}
+
+func (s *Server) proposeSkill(ctx context.Context, chat *session.Session, runID, source string) (string, error) {
+	item, body, files, err := skills.InspectSource(source, s.cfg.Tools.Attachments.MaxBytes)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "skill proposal refused: SKILL.md is missing", nil
+		}
+		return "skill proposal refused: " + err.Error(), nil
+	}
+	if !item.Valid {
+		return "skill proposal refused: " + item.Reason, nil
+	}
+	if _, err := os.Stat(filepath.Join(s.profileRoot(), "skills", item.Name)); !os.IsNotExist(err) {
+		return fmt.Sprintf("skill proposal refused: skill %q already exists", item.Name), nil
+	}
+	args := map[string]any{"skill_md": body, "files": files, "warnings": item.Warnings}
+	approved, err := s.runner.Gate().WaitPolicyRequired(ctx, chat, runID, "skill-proposal-"+item.Name, "Add skill "+item.Name+"?", args)
+	if err != nil || !approved {
+		if err != nil {
+			return "", err
+		}
+		return "skill proposal declined", nil
+	}
+	setting, err := skills.Import(filepath.Join(s.profileRoot(), "skills"), source, s.cfg.Tools.Attachments.MaxBytes)
+	if err != nil {
+		return "", err
+	}
+	setting.Enabled, setting.Source = true, "added in chat from "+source
+	s.mu.Lock()
+	if s.cfg.Skills == nil {
+		s.cfg.Skills = map[string]config.SkillSetting{}
+	}
+	s.cfg.Skills[item.Name] = setting
+	err = s.saveProfileConfig(*s.cfg)
+	s.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	return "skill " + item.Name + " added", nil
 }
 
 func (s *Server) Read(path string) {

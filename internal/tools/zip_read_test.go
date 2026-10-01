@@ -43,6 +43,8 @@ func TestReadZipSafetyHintsAndSkillImport(t *testing.T) {
 	archive := filepath.Join(root, "report-kit.zip")
 	skill := "---\nname: report-kit\ndescription: Builds invented fixture reports.\n---\nProcedure.\n"
 	makeZip(archive, map[string]string{"report-kit/SKILL.md": skill, "report-kit/scripts/build.ps1": "'fixture'", "report-kit/README.md": "fixture", "report-kit/openapi.json": "{}"})
+	preview, previewBody, previewFiles, previewErr := skills.InspectSource(archive, config.Defaults(root).Tools.Attachments.MaxBytes)
+	require(previewErr == nil && preview.Name == "report-kit" && preview.Valid && previewBody == skill && len(previewFiles) == 4, "preview=%+v files=%v err=%v", preview, previewFiles, previewErr)
 	read := NewReadFile(config.Defaults(root).Tools.ReadFile)
 	chat := &session.Session{Workspace: root, LastSeen: map[string]time.Time{}}
 	listing, err := read.Call(context.Background(), chat, map[string]any{"path": archive})

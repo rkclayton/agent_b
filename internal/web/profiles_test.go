@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,10 +11,12 @@ import (
 	"strings"
 	"testing"
 
+	"harness/internal/agent"
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/profiles"
 	"harness/internal/session"
+	"harness/internal/tools"
 )
 
 func TestProfilesEndpointCreatesRenamesAndSwitches(t *testing.T) {
@@ -48,6 +51,75 @@ func TestProfilesEndpointCreatesRenamesAndSwitches(t *testing.T) {
 	profilesState := state["profiles"].(map[string]any)
 	if profilesState["active"] != "Work" {
 		t.Fatalf("state profiles=%+v", profilesState)
+	}
+}
+
+func TestChatSkillRequestRaisesTheExistingCard2pc(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	cfg := config.Defaults(root)
+	configPath := filepath.Join(root, "harness.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus()
+	server := New(&cfg, configPath, t.TempDir(), RuntimeRoots{Data: root, Profile: root}, bus)
+	runner := agent.NewRunner(bus, tools.New(), nil, cfg.Connection, server.ConfigSnapshot)
+	server.SetRuntime(nil, runner, nil)
+	source := filepath.Join(t.TempDir(), "report-kit")
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("---\nname: report-kit\ndescription: Builds invented fixture reports.\n---\nProcedure.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	chat := &session.Session{ID: "chat", Workspace: workspace}
+	offer := func(path, name, decision string) (map[string]any, string) {
+		chat.Append(events.Message{Role: "assistant", Content: "Add " + path + " as a skill"})
+		eventsCh, unsubscribe := bus.Subscribe()
+		defer unsubscribe()
+		done := make(chan string, 1)
+		go func() { detail, _ := server.Proposal(context.Background(), chat, "run"); done <- detail }()
+		event := <-eventsCh
+		data := event.Data.(map[string]any)
+		if err := runner.Gate().Decide(chat.ID, "skill-proposal-"+name, decision); err != nil {
+			t.Fatal(err)
+		}
+		return data, <-done
+	}
+	card, detail := offer(source, "report-kit", "approve")
+	if card["name"] != "Add skill report-kit?" || !strings.Contains(card["args"].(map[string]any)["skill_md"].(string), "Builds invented") || detail != "skill report-kit added" {
+		t.Fatalf("card=%+v detail=%q", card, detail)
+	}
+	state := server.skillState()
+	if len(state) != 1 || !state[0].Enabled || state[0].Source != "added in chat from "+source || !strings.Contains(server.Index(), "report-kit | Builds invented fixture reports.") {
+		t.Fatalf("skills=%+v", state)
+	}
+	declined := filepath.Join(t.TempDir(), "declined-skill")
+	_ = os.MkdirAll(declined, 0o700)
+	_ = os.WriteFile(filepath.Join(declined, "SKILL.md"), []byte("---\nname: declined-skill\ndescription: Must not be copied.\n---\n"), 0o600)
+	before, _ := os.ReadFile(filepath.Join(root, "skills", "report-kit", "SKILL.md"))
+	_, detail = offer(declined, "declined-skill", "deny")
+	after, _ := os.ReadFile(filepath.Join(root, "skills", "report-kit", "SKILL.md"))
+	_, copiedErr := os.Stat(filepath.Join(root, "skills", "declined-skill"))
+	if detail != "skill proposal declined" || string(before) != string(after) || !os.IsNotExist(copiedErr) {
+		t.Fatalf("decline changed profile: %q", detail)
+	}
+	bad := filepath.Join(t.TempDir(), "bad")
+	_ = os.MkdirAll(bad, 0o700)
+	_ = os.WriteFile(filepath.Join(bad, "SKILL.md"), []byte("---\nname: BAD\ndescription: invalid\n---\n"), 0o600)
+	missing := filepath.Join(t.TempDir(), "missing")
+	_ = os.MkdirAll(missing, 0o700)
+	for path, want := range map[string]string{missing: "SKILL.md is missing", bad: "name must be", source: "already exists"} {
+		chat.Append(events.Message{Role: "assistant", Content: "Add " + path + " as a skill"})
+		got, err := server.Proposal(context.Background(), chat, "run")
+		if err != nil || !strings.Contains(got, want) {
+			t.Fatalf("invalid %s: %q %v", path, got, err)
+		}
+	}
+	prompt, _ := os.ReadFile(filepath.Join("..", "..", "prompts", "system.md"))
+	line := "To add a folder or zip as a skill, reply exactly “Add <absolute path> as a skill”; Agent_b will show its existing skill card."
+	if !strings.Contains(string(prompt), line) || len(strings.Fields(line)) > 40 {
+		t.Fatalf("missing or long prompt rule")
 	}
 }
 

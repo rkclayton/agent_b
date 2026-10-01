@@ -818,6 +818,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				if detail, err := r.skills.Proposal(ctx, s, runID); err != nil {
 					return "done", "skill proposal: " + err.Error(), turn
 				} else if detail != "" {
+					r.appendHarnessLine(ctx, connection, s, runID, turn, detail)
 					return "done", detail, turn
 				}
 			}

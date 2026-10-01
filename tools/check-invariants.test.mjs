@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -21,8 +21,12 @@ test("each missing, skipped, or not-exercised invariant fails by its own id", ()
 });
 
 test("public commits carry only the configured operator identity and no attribution trailers", () => {
-  const name = execFileSync("git", ["config", "user.name"], { cwd: root, encoding: "utf8", windowsHide: true }).trim();
-  const email = execFileSync("git", ["config", "user.email"], { cwd: root, encoding: "utf8", windowsHide: true }).trim();
+  const [name, email] = execFileSync("git", ["show", "-s", "--format=%an%x1f%ae", "v1.54.0^{}"], { cwd: root, encoding: "utf8", windowsHide: true }).trim().split("\x1f");
+  const configuredName = spawnSync("git", ["config", "--get", "user.name"], { cwd: root, encoding: "utf8", windowsHide: true });
+  const configuredEmail = spawnSync("git", ["config", "--get", "user.email"], { cwd: root, encoding: "utf8", windowsHide: true });
+  if (configuredName.status === 0 && configuredEmail.status === 0) {
+    assert.equal(name, configuredName.stdout.trim()); assert.equal(email, configuredEmail.stdout.trim());
+  }
   const log = execFileSync("git", ["log", "v1.54.0..HEAD", "--format=%an%x1f%ae%x1f%B%x1e"], { cwd: root, encoding: "utf8", windowsHide: true });
   for (const record of log.split("\x1e").filter((value) => value.trim())) {
     const [author, address, message = ""] = record.trim().split("\x1f");

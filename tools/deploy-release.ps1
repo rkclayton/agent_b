@@ -30,6 +30,9 @@ if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the release notes do not pass 
 # Item 2o5 (e): no client name in the tracked tree, these notes or the published
 # release pages. The deny-list is the operator's, outside the repository, named by
 # AGENTB_CLIENT_TERMS; without it the release does not run.
+$agentBHome = [Environment]::GetEnvironmentVariable('AGENTB_HOME', 'User')
+if ([string]::IsNullOrWhiteSpace($agentBHome)) { $agentBHome = Join-Path $env:USERPROFILE '.agentb' }
+$env:AGENTB_CLIENT_TERMS = Join-Path $agentBHome 'client-terms.txt'
 & node (Join-Path $repository 'tools\check-client-terms.mjs') --releases $notesPath
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the client-terms gate did not pass (exit $LASTEXITCODE); see the lines above." }
 $commitOutput = @(& git -C $repository rev-parse "$Tag^{commit}" 2>&1)

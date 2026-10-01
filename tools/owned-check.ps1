@@ -2,7 +2,8 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$ownedRoot = Join-Path $env:USERPROFILE '.agentb'
+$ownedRoot = [Environment]::GetEnvironmentVariable('AGENTB_HOME', 'User')
+if ([string]::IsNullOrWhiteSpace($ownedRoot)) { $ownedRoot = Join-Path $env:USERPROFILE '.agentb' }
 $listPath = Join-Path $ownedRoot 'OWNED-agent_b.md'
 
 function Complete-OwnedCheck([string]$Line, [int]$Code) {
@@ -41,7 +42,11 @@ foreach ($row in $rows) {
                     $present = (Get-FileHash -LiteralPath $row.Where -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $row.Sha256.ToLowerInvariant()
                 }
             }
-            'env' { $present = -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($row.Where)) }
+            'env' {
+                $value = [Environment]::GetEnvironmentVariable($row.Where, 'User')
+                if ([string]::IsNullOrWhiteSpace($value)) { $value = [Environment]::GetEnvironmentVariable($row.Where) }
+                $present = -not [string]::IsNullOrWhiteSpace($value)
+            }
             'cert' {
                 $certificate = $row.Where -split '/', 3
                 if ($certificate.Count -eq 3) {

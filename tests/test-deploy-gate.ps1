@@ -20,19 +20,32 @@ if ($ownedCall -lt 0 -or $notesCall -lt 0 -or $ownedCall -gt $notesCall) { throw
 
 $ownedFixture = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-owned-check-' + [Guid]::NewGuid().ToString('N'))
 try {
-    $ownedHome = Join-Path $ownedFixture '.agentb'
-    $null = New-Item -ItemType Directory -Path $ownedHome -Force
+    $defaultHome = Join-Path $ownedFixture '.agentb'
+    $selectedHome = Join-Path $ownedFixture 'chosen'
+    $null = New-Item -ItemType Directory -Path $defaultHome -Force
+    $null = New-Item -ItemType Directory -Path $selectedHome -Force
     $first = Join-Path $ownedFixture 'first.dat'; $second = Join-Path $ownedFixture 'second.dat'
     $plantedValue = 'owned-secret-' + [Guid]::NewGuid().ToString('N')
     [IO.File]::WriteAllText($first, $plantedValue); [IO.File]::WriteAllText($second, 'fixture-two')
-    $list = Join-Path $ownedHome 'OWNED-agent_b.md'
+    $list = Join-Path $defaultHome 'OWNED-agent_b.md'
     $heading = "# OWNED $([char]0x2014) agent_b"
     $table = "$heading`n`n| name | kind | where | what | read by | stops | recreate | sha256 |`n| --- | --- | --- | --- | --- | --- | --- | --- |`n| first-file | file | $first | fixture | test:1 | test | recreate | |`n| second-file | file | $second | fixture | test:2 | test | recreate | |`n"
     [IO.File]::WriteAllText($list, $table, [Text.UTF8Encoding]::new($false))
     $savedProfile = $env:USERPROFILE; $env:USERPROFILE = $ownedFixture
+    $savedHome = [Environment]::GetEnvironmentVariable('AGENTB_HOME', 'User')
+    [Environment]::SetEnvironmentVariable('AGENTB_HOME', $null, 'User')
     function Invoke-OwnedFixture { $out = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -File $ownedCheck 2>&1); return @{ Output=($out -join "`n"); Exit=$LASTEXITCODE } }
     $complete = Invoke-OwnedFixture
     if ($complete.Exit -ne 0 -or $complete.Output -cne 'owned: ok 2 rows') { throw "complete owned fixture differed: $($complete.Exit) $($complete.Output)" }
+    $list = Join-Path $selectedHome 'OWNED-agent_b.md'
+    [IO.File]::Move((Join-Path $defaultHome 'OWNED-agent_b.md'), $list)
+    $signal = Join-Path $ownedFixture 'read-now'; $lateOutput = Join-Path $ownedFixture 'late.txt'
+    $lateCommand = "while (-not (Test-Path -LiteralPath '$signal')) { Start-Sleep -Milliseconds 20 }; & '$ownedCheck'"
+    $late = Start-Process powershell.exe -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-Command',$lateCommand) -WindowStyle Hidden -RedirectStandardOutput $lateOutput -PassThru
+    [Environment]::SetEnvironmentVariable('AGENTB_HOME', $selectedHome, 'User')
+    [IO.File]::WriteAllText($signal, '')
+    $late.WaitForExit()
+    if ($late.ExitCode -ne 0 -or [IO.File]::ReadAllText($lateOutput).Trim() -cne 'owned: ok 2 rows') { throw 'A process started before AGENTB_HOME was set did not find the selected HOME.' }
     [IO.File]::Move($second, "$second.renamed")
     $missing = Invoke-OwnedFixture
     if ($missing.Exit -ne 1 -or $missing.Output -cne 'owned: missing second-file') { throw "missing owned fixture differed: $($missing.Exit) $($missing.Output)" }
@@ -45,6 +58,7 @@ try {
     if ($LASTEXITCODE -ne 2 -or ($deployOutput -join "`n") -cne $expectedAbsent) { throw 'Deploy did not relay the no-list refusal exactly.' }
     if ($candidateBefore -or (Test-Path -LiteralPath (Join-Path $repository 'candidates\v9.9.9'))) { throw 'Deploy staged after the owned check refused.' }
 } finally {
+    [Environment]::SetEnvironmentVariable('AGENTB_HOME', $savedHome, 'User')
     $env:USERPROFILE = $savedProfile
     if (Test-Path -LiteralPath $ownedFixture) { Remove-TreeWithinAllowedRoots -Path $ownedFixture -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'owned-check fixture cleanup' }
 }

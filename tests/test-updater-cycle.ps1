@@ -22,14 +22,36 @@
 [CmdletBinding()]
 param(
     # The setup the disposable instance starts from, and the one the feed offers.
-    [Parameter(Mandatory)][string]$FromSetup,
-    [Parameter(Mandatory)][string]$ToSetup,
-    [Parameter(Mandatory)][ValidatePattern('^v\d+\.\d+\.\d+$')][string]$ToVersion,
-    [string]$EvidenceDirectory
+    [string]$FromSetup,
+    [string]$ToSetup,
+    [ValidatePattern('^$|^v\d+\.\d+\.\d+$')][string]$ToVersion,
+    [string]$EvidenceDirectory,
+    [string]$ClassifierFixture,
+    [string]$ExpectedApplication,
+    [string]$OperatorApplication
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 . (Join-Path $PSScriptRoot 'suite-production-guard.ps1')
+
+function Get-LoggedApplicationRoot([string]$Text) {
+    $match = [regex]::Match($Text, '(?m)install: application root (.+?)\r?$')
+    if ($match.Success) { return [IO.Path]::GetFullPath($match.Groups[1].Value.Trim()) }
+    return $null
+}
+if ($ClassifierFixture) {
+    $target = Get-LoggedApplicationRoot (Get-Content -Raw -LiteralPath $ClassifierFixture)
+    if (-not $target) { throw 'UPDATER CYCLE FAILED: installer transcript recorded no application root' }
+    $operator = if ($OperatorApplication) { [IO.Path]::GetFullPath($OperatorApplication) } else { '' }
+    if ($operator -and $target.StartsWith($operator + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "UPDATER CYCLE FAILED: installer targeted operator application root $target"
+    }
+    $expected = [IO.Path]::GetFullPath($ExpectedApplication)
+    if ($target -cne $expected) { throw "UPDATER CYCLE FAILED: installer targeted $target, expected disposable root $expected" }
+    Write-Host "UPDATER CLASSIFIER PASS: $target"
+    return
+}
+if (-not $FromSetup -or -not $ToSetup -or -not $ToVersion) { throw 'FromSetup, ToSetup and ToVersion are required' }
 
 foreach ($path in @($FromSetup, $ToSetup)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "UPDATER CYCLE REFUSED: missing setup $path" }
@@ -520,26 +542,22 @@ try {
         # The launch happened and the installer decided. It must have decided about
         # THIS instance's roots, not the operator's: that is 2lh (a).
         #
-        # The decision TEXT is not the proof: a refusal can name the disposable path
-        # because it found the disposable REGISTRATION, with no root passed at all.
-        # The installer's own transcript records the command line it was invoked
-        # with, so the proof is a transcript beneath this suite root carrying
-        # -ApplicationDirectory <this instance>.
+        # The decision text is not proof: the native transcript's structured
+        # application-root line is the setup's own record of its target.
         $transcripts = @(Get-ChildItem (Join-Path $data 'logs') -Filter 'installer-*.log' -File -ErrorAction SilentlyContinue |
             Where-Object { $_.LastWriteTime -ge $launchedAt })
-        $named = @($transcripts | Where-Object {
-            (Get-Content -Raw -LiteralPath $_.FullName) -match ("(?i)-ApplicationDirectory\s+" + [regex]::Escape($application))
-        })
+        $named = @($transcripts | Where-Object { (Get-LoggedApplicationRoot (Get-Content -Raw -LiteralPath $_.FullName)) -ceq [IO.Path]::GetFullPath($application) })
         if (-not $named.Count) {
             $why = if ($preFix) { " -- $($before.tag) predates item 2lh, so its updater passed no roots and the setup resolved the operator's own locations" } else { '' }
             # Say what was actually there: a failure that names only what it
             # wanted sends the reader hunting for a directory that is already gone.
             $seen = @(Get-ChildItem (Join-Path $data 'logs') -Filter 'installer-*.log' -File -ErrorAction SilentlyContinue |
                 ForEach-Object { "$($_.Name) @ $($_.LastWriteTime.ToString('o'))" }) -join '; '
-            throw ("UPDATER CYCLE FAILED: no transcript beneath the suite root shows the setup being invoked with this instance's application root$why." +
-                   " Looked for -ApplicationDirectory $application in transcripts newer than $($launchedAt.ToString('o')); found: $seen. " + $decision)
+            $recorded = @($transcripts | ForEach-Object { Get-LoggedApplicationRoot (Get-Content -Raw -LiteralPath $_.FullName) } | Where-Object { $_ }) | Select-Object -Last 1
+            $target = if ($recorded) { "installer targeted $recorded" } else { 'installer transcript recorded no application root' }
+            throw ("UPDATER CYCLE FAILED: $target; expected disposable root $application$why. Transcripts: $seen. " + $decision)
         }
-        Write-Host "PROOF launch target: $($named[0].FullName) records -ApplicationDirectory $application, so the setup the updater launched targeted this instance and not the operator location"
+        Write-Host "PROOF launch target: $($named[0].FullName) records application root $application, so the setup targeted this instance and not the operator location"
         # Item 2mr (d): THE INSTALLER MUST NOT REFUSE THE WORKSPACE IT WAS GIVEN.
         # This is the step that failed on the operator's machine at 02:01 on
         # 2026-09-27 while this gate was green, and the refusal is the one thing the

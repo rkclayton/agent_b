@@ -12,9 +12,11 @@ import (
 // failure nobody can read - which is what a double-clicked setup produced.
 func TestInstallLogIsWrittenBeforeAnythingElse(t *testing.T) {
 	root := t.TempDir()
+	application := filepath.Join(root, "application")
 	// No source directory holds the installer script, so this fails at the
 	// earliest check there is - and must still leave a log saying so.
-	code := runInstall(installOptions{quiet: true, dataRoot: root, sourceDir: filepath.Join(root, "nowhere")}, nil)
+	source := filepath.Join(root, "nowhere")
+	code := runInstall(installOptions{quiet: true, dataRoot: root, sourceDir: source}, []string{"-ApplicationDirectory", application, "-Token", "fixture-secret", "-Address", "fixture.example"})
 	if code != 1 {
 		t.Fatalf("exit=%d", code)
 	}
@@ -30,6 +32,16 @@ func TestInstallLogIsWrittenBeforeAnythingElse(t *testing.T) {
 	for _, want := range []string{"log opened at", "install: starting", "install FAILED:", "is missing; run this from the candidate folder"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("log does not say %q:\n%s", want, text)
+		}
+	}
+	for _, want := range []string{"install: application root " + application, "install: source " + source} {
+		if strings.Count(text, want) != 1 {
+			t.Errorf("log needs one %q:\n%s", want, text)
+		}
+	}
+	for _, forbidden := range []string{"fixture-secret", "fixture.example", "-Token", "-Address"} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("log exposed %q:\n%s", forbidden, text)
 		}
 	}
 }

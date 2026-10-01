@@ -9,6 +9,13 @@ import (
 	"strings"
 )
 
+type pairedDeviceContextKey struct{}
+
+func pairedDeviceAuthenticated(r *http.Request) bool {
+	_, ok := r.Context().Value(pairedDeviceContextKey{}).(string)
+	return ok
+}
+
 // Item 2kq (c): THE DISPATCHER.
 //
 // Every route docs/app-message-v1.md names is served by calling THE SAME HANDLER the
@@ -17,9 +24,9 @@ import (
 // and its response becomes a unit again. If the desktop's behaviour changes, the phone's
 // changes with it, because it is the same code.
 //
-// THE PHONE'S IDENTITY, not the operator's browser. The request carries the paired
-// device's id in its context exactly as an enrolled phone's HTTP request does, and it
-// carries no mutation token — the document is explicit that a device never learns one.
+// THE PHONE'S IDENTITY, not the operator's browser. The request carries the broker-paired
+// device's id in its context and no mutation token — the document is explicit that a
+// device never learns one.
 // Authority on this transport is the pairing, and revoking it ends every request.
 //
 // A CONTROL-PLANE PATH under item 2jy: this runs in the harness process, and no tool
@@ -138,9 +145,8 @@ func (s *Server) serveAsPhone(deviceID string, request appRequestUnit, method, p
 	}
 	httpRequest := httptest.NewRequest(method, path, reader)
 	httpRequest.Header.Set("Content-Type", "application/json")
-	// The phone's identity, exactly as the phone session guard sets it for an enrolled
-	// device's HTTP request. No mutation token: a device never learns one.
-	httpRequest = httpRequest.WithContext(context.WithValue(httpRequest.Context(), phoneDeviceContextKey{}, deviceID))
+	// The broker-paired phone's identity. No mutation token: a device never learns one.
+	httpRequest = httpRequest.WithContext(context.WithValue(httpRequest.Context(), pairedDeviceContextKey{}, deviceID))
 	recorder := httptest.NewRecorder()
 	s.appMessageHandler().ServeHTTP(recorder, httpRequest)
 

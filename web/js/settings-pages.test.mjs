@@ -195,17 +195,13 @@ test("Security restores the service identity toggle and names a locked Repair de
 	assert.match(page, /data-action="revoke-standing-grant"/);
 });
 
-test("Security has one Phone access entry and the PWA stays transcript composer push only", () => {
+test("Security draws exactly one phone section: broker pairing titled Phone 2pl", () => {
 	const context = pageContext();
-	context.phoneAccess = { devices: [{ id: "one", name: "Phone", last_seen: "now" }], push_enabled: false };
+	context.brokerStatus = { state: "holding", paired_device: "Phone" };
 	const security = renderSecurityPage("shell", null, context);
-	assert.equal([...security.matchAll(/Phone access/g)].length, 1);
-	for (const action of ["phone-enrol", "phone-revoke", "phone-push-toggle"]) assert.match(security, new RegExp(`data-action="${action}"`));
-	const html = fs.readFileSync(new URL("../phone.html", import.meta.url), "utf8");
-	assert.match(html, /id="phone-transcript"/);
-	assert.match(html, /id="phone-composer"/);
-	assert.match(html, /id="phone-push"/);
-	assert.doesNotMatch(html, /settings|tools|plan|attachment/i);
+	assert.equal([...security.matchAll(/settings-subhead[^>]*>Phone</g)].length, 1);
+	assert.doesNotMatch(security, /Phone access|away from home|phone-enrol|phone-revoke|phone-push-toggle/i);
+	for (const action of ["broker-pair", "broker-revoke"]) assert.match(security, new RegExp(`data-action="${action}"`));
 });
 
 test("Connections summary row never renders decoder detail verbatim", () => {

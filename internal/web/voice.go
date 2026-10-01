@@ -29,13 +29,9 @@ import (
 //   - ONE CHAT TO LAND IN. A spoken request names no chat, so the server keeps one and
 //     creates it once.
 //
-// The listener stays on loopback. Reachability from a phone is `tailscale serve`, which
-// is the operator's to configure and is written down in docs/SIRI.md — the product never
-// binds anywhere else.
-//
-// One credential is enough: W0 confirmed the phone bearer short-circuits both the
-// mutation-token guard and the browser-session guard, so a Shortcut carries the bearer
-// and nothing else.
+// The listener stays on loopback. The retired phone bearer and Tailscale Shortcut path
+// are gone; phones use broker pairing and app-message v1. These endpoints remain useful
+// to the authenticated desktop page and keep their idempotent submission contract.
 
 // idempotentWindow is how long a submission key is remembered. Long enough to cover a
 // phone's retries on a bad connection, short enough that it is not a second store.

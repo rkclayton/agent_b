@@ -145,25 +145,21 @@ test("the active chat tab returns from Plan and three Settings depths", async ()
 	await page.close();
 });
 
-test("the phone viewport enrols into the shared chat surface without horizontal overflow", async () => {
-	const desktop = await harness.context.newPage();
-	await desktop.goto(`${harness.base}/chat`);
-	const token = await desktop.locator('meta[name="agentb-mutation-token"]').getAttribute("content");
-	const offer = await desktop.evaluate(async (mutationToken) => {
-		const response = await fetch("/api/phone/enrolment", { method: "POST", headers: { "X-AgentB-Mutation-Token": mutationToken } });
-		return response.json();
-	}, token);
-	const phoneContext = await harness.browser.newContext({ viewport: { width: 390, height: 844 } });
-	const phone = await phoneContext.newPage();
-	await phone.goto(`${harness.base}/phone`);
-	await expect(phone.locator("#phone-enrol")).toBeVisible();
-	await phone.locator("#phone-name").fill("Playwright phone");
-	await phone.locator("#phone-code").fill(offer.code);
-	await phone.locator("#phone-enrol-form button").click();
-	await expect(phone.locator("#phone-chat")).toBeVisible();
-	await expect(phone.locator("#phone-composer")).toBeVisible();
-	expect(await phone.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-	await phoneContext.close();
+test("Security shows one Phone section and retired browser phone routes are absent", async () => {
+	const page = await harness.context.newPage();
+	await page.goto(`${harness.base}/chat`);
+	await page.locator(".shell-settings").click();
+	await page.locator('.settings-nav [data-id="shell"]').click();
+	const phoneHeading = page.locator(".settings-subhead", { hasText: /^Phone$/ });
+	await expect(phoneHeading).toHaveCount(1);
+	await expect(page.getByText("Phone access", { exact: true })).toHaveCount(0);
+	await expect(page.getByText("Phone away from home", { exact: true })).toHaveCount(0);
+	await expect(page.locator('[data-action="broker-pair"], [data-action="broker-cancel"]')).toHaveCount(1);
+	for (const path of ["/phone", "/phone-sw.js", "/api/phone/enrolment", "/api/phone/enrolment/redeem", "/api/phone/devices", "/api/phone/push"]) {
+		const status = await page.evaluate(async (value) => (await fetch(value, { method: "GET" })).status, path);
+		expect(status, path).toBe(404);
+	}
+	await page.close();
 });
 
 // Item 2ms: CLOSING THE SELECTED CHAT MOVES THE SELECTION OFF IT.

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,6 @@ import (
 	"harness/internal/operatorfiles"
 	"harness/internal/profiles"
 	"harness/internal/projection"
-	"harness/internal/push"
 	"harness/internal/serviceaccount"
 	"harness/internal/session"
 	"harness/internal/signing"
@@ -89,8 +89,6 @@ type Server struct {
 	operatorNow      func() time.Time
 	operatorAfter    func(time.Duration, func()) operatorTimer
 	browserSession   string
-	phoneDevices     *phoneDevices
-	push             *push.Manager
 	openFolder       func(string) error
 	openFile         func(string) error
 	extractClient    *http.Client
@@ -150,7 +148,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 	cfg.Shell.OperatorContext = false
 	cfg.Shell.OperatorContextExpiresAt = ""
 	server := &Server{
-		cfg: cfg, configPath: path, webDir: webDir, roots: roots, bus: bus, mutationToken: newMutationToken(), browserSession: newMutationToken(), phoneDevices: newPhoneDevices(), submissions: newIdempotentSubmissions(),
+		cfg: cfg, configPath: path, webDir: webDir, roots: roots, bus: bus, mutationToken: newMutationToken(), browserSession: newMutationToken(), submissions: newIdempotentSubmissions(),
 		startedAt:       time.Now().UTC().Format(time.RFC3339),
 		operatorRequest: requireOperatorHTTPClient,
 		operatorNow:     time.Now,
@@ -177,27 +175,41 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 			return detection.Local(ctx, filepath.Join(roots.Application, "scripts", "detect-local-capabilities.ps1"), account)
 		},
 	}
+	_ = removeLegacyPhoneAccess(server.profileRoot())
 	server.initModelInstaller()
-	server.push = push.New(server.profileRoot(), bus, func(sessionID string) string {
-		if server.registry == nil {
-			return ""
-		}
-		return server.registry.Label(sessionID)
-	})
 	return server
+}
+
+func removeLegacyPhoneAccess(root string) error {
+	store, err := credential.NewNamed(root, "web-push-vapid")
+	if err != nil {
+		return err
+	}
+	for _, path := range []string{filepath.Join(root, "phone-push.json"), store.Path()} {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 func (s *Server) SetRegistry(registry *session.Registry) {
 	registry.SetPlansRoot(filepath.Join(s.profileRoot(), "plans"))
 	registry.SetSkillsRoot(filepath.Join(s.profileRoot(), "skills"))
 	s.registry = registry
-	if s.chatCancel != nil { s.chatCancel() }
+	if s.chatCancel != nil {
+		s.chatCancel()
+	}
 	s.chatStore = chatstore.New(filepath.Join(s.profileRoot(), "chats"))
 	ctx, cancel := context.WithCancel(context.Background())
 	s.chatCancel = cancel
-	go func() { _ = s.chatStore.Watch(ctx, func(entries []chatstore.Entry) {
-		s.chatMu.Lock(); s.chatEntries = entries; s.chatMu.Unlock()
-		registry.ReconcileChatHomes(entries)
-	}) }()
+	go func() {
+		_ = s.chatStore.Watch(ctx, func(entries []chatstore.Entry) {
+			s.chatMu.Lock()
+			s.chatEntries = entries
+			s.chatMu.Unlock()
+			registry.ReconcileChatHomes(entries)
+		})
+	}()
 }
 func (s *Server) SetProfiles(manager *profiles.Manager) { s.profiles = manager }
 func (s *Server) SetProfileChanged(change func(string) error) {
@@ -382,7 +394,23 @@ func (s *Server) Connection(id string) (*config.Connection, bool) {
 	return s.cfg.Connection(id)
 }
 func (s *Server) Handler() http.Handler {
-	return s.securityHeaders(s.phoneSessionGuard(s.browserSessionGuard(s.mutationGuard(s.routes()))))
+	return s.securityHeaders(retiredPhoneRoutes(s.browserSessionGuard(s.mutationGuard(s.routes()))))
+}
+
+func retiredPhoneRoutes(next http.Handler) http.Handler {
+	retired := map[string]bool{
+		"/phone": true, "/phone-sw.js": true, "/static/phone.js": true, "/static/phone.css": true,
+		"/api/phone/enrolment": true, "/api/phone/enrolment/redeem": true,
+		"/api/phone/devices": true, "/api/phone/devices/revoke": true, "/api/phone/devices/revoke-all": true,
+		"/api/phone/push": true, "/api/phone/push/subscriptions": true,
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if retired[r.URL.Path] {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // routes is the mux itself. Item 2kq (c) needs it without the browser and mutation
@@ -395,8 +423,6 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/chat", s.page)
 	mux.HandleFunc("/plan", s.page)
 	mux.HandleFunc("/setup", s.page)
-	mux.HandleFunc("/phone", s.phoneAsset)
-	mux.HandleFunc("/phone-sw.js", s.phoneAsset)
 	// Item 2fo: a page that names no icon still asks for /favicon.ico.
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, filepath.Join(s.webDir, "assets", "Agent_b.ico"))
@@ -410,13 +436,6 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/broker/status", s.brokerStatus)
 	mux.HandleFunc("/api/credentials", s.credentialsEndpoint)
 	mux.HandleFunc("/api/broker", s.replayGuard(s.brokerAction))
-	mux.HandleFunc("/api/phone/enrolment", s.phoneEnrolment)
-	mux.HandleFunc(phoneRedeemPath, s.phoneEnrolmentRedeem)
-	mux.HandleFunc("/api/phone/devices", s.phoneDeviceList)
-	mux.HandleFunc("/api/phone/devices/revoke", s.phoneDeviceRevoke)
-	mux.HandleFunc("/api/phone/devices/revoke-all", s.phoneDeviceRevoke)
-	mux.HandleFunc("/api/phone/push", s.phonePush)
-	mux.HandleFunc("/api/phone/push/subscriptions", s.phonePushSubscription)
 	mux.HandleFunc("/api/local-detection", s.localDetection)
 	mux.HandleFunc("/api/reflection", s.replayGuard(s.reflectionEndpoint))
 	mux.HandleFunc("/api/files/", s.file)
@@ -514,7 +533,7 @@ func newMutationToken() string {
 
 func (s *Server) mutationGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions || r.URL.Path == "/api/browser-session" || r.URL.Path == phoneRedeemPath || phoneAuthenticated(r) {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions || r.URL.Path == "/api/browser-session" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -538,9 +557,9 @@ func (s *Server) browserSessionGuard(next http.Handler) http.Handler {
 		// Item 2nv (c): the credential listing joins the protected reads. It carries no
 		// value, but it names what is stored and where it may go, and only the operator's
 		// own page may see that.
-		protectedRead := r.Method == http.MethodGet && (r.URL.Path == "/api/state" || r.URL.Path == "/api/events" || r.URL.Path == "/api/phone/devices" || r.URL.Path == "/api/phone/push" || r.URL.Path == "/api/credentials")
+		protectedRead := r.Method == http.MethodGet && (r.URL.Path == "/api/state" || r.URL.Path == "/api/events" || r.URL.Path == "/api/credentials")
 		mutation := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
-		if (protectedRead || mutation) && r.URL.Path != "/api/browser-session" && r.URL.Path != phoneRedeemPath && !phoneAuthenticated(r) {
+		if (protectedRead || mutation) && r.URL.Path != "/api/browser-session" {
 			cookie, err := r.Cookie(browserSessionCookie)
 			if err != nil || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(s.browserSession)) != 1 {
 				w.WriteHeader(http.StatusUnauthorized)

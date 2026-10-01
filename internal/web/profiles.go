@@ -69,7 +69,7 @@ func (s *Server) profileEndpoint(w http.ResponseWriter, r *http.Request) {
 			if s.registry != nil {
 				s.registry.SetSkillsRoot(filepath.Join(s.roots.Profile, "skills"))
 			}
-			s.push.SetRoot(s.roots.Profile)
+			_ = removeLegacyPhoneAccess(s.roots.Profile)
 			if !filepath.IsAbs(s.cfg.Workspace) {
 				s.roots.Workspace = filepath.Clean(filepath.Join(s.roots.Profile, s.cfg.Workspace))
 			}
@@ -78,7 +78,7 @@ func (s *Server) profileEndpoint(w http.ResponseWriter, r *http.Request) {
 		err = s.profiles.Rename(request.Name, request.New)
 		if err == nil {
 			s.roots.Profile = s.profiles.Root(s.profiles.Active())
-			s.push.SetRoot(s.roots.Profile)
+			_ = removeLegacyPhoneAccess(s.roots.Profile)
 			if !filepath.IsAbs(s.cfg.Workspace) {
 				s.roots.Workspace = filepath.Clean(filepath.Join(s.roots.Profile, s.cfg.Workspace))
 			}

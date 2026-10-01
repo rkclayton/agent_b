@@ -292,12 +292,12 @@ func TestOnlyTheOperatorsPageTouchesCredentials2nv(t *testing.T) {
 		}, http.StatusOK},
 		{"a phone bearer", func() *http.Request {
 			request := httptest.NewRequest(http.MethodGet, "/api/credentials", nil)
-			request.Header.Set("Authorization", "Bearer "+phoneTestBearer(t, server))
+			request.Header.Set("Authorization", "Bearer retired-browser-credential")
 			return request
 		}, http.StatusOK},
 		{"a phone bearer changing one", func() *http.Request {
 			request := httptest.NewRequest(http.MethodPost, "/api/credentials", strings.NewReader(add))
-			request.Header.Set("Authorization", "Bearer "+phoneTestBearer(t, server))
+			request.Header.Set("Authorization", "Bearer retired-browser-credential")
 			return request
 		}, http.StatusOK},
 	} {
@@ -371,17 +371,6 @@ func TestOperatorsPageManagesEntraSignIn2nw(t *testing.T) {
 	if signedOut.Code != http.StatusOK || provider.signOuts != 1 || !strings.Contains(signedOut.Body.String(), `"sign_in_needed":true`) {
 		t.Fatalf("sign-out response=%d %s calls=%d", signedOut.Code, signedOut.Body, provider.signOuts)
 	}
-}
-
-// phoneTestBearer enrols a device the way the phone does and returns its bearer.
-func phoneTestBearer(t *testing.T, server *Server) string {
-	t.Helper()
-	code, _ := server.phoneDevices.offer()
-	token, _, status := server.phoneDevices.redeem(code, "case", "192.0.2.9:1000")
-	if status != http.StatusOK {
-		t.Fatalf("enrolling a device answered %d", status)
-	}
-	return token
 }
 
 // Item 2o9 CHECKS 2-4 at the registry: the toggle writes the one Run entry Windows'

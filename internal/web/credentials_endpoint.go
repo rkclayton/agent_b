@@ -16,7 +16,7 @@ import (
 // These endpoints are reachable only with the operator's page session cookie AND the
 // mutation token, which the server's own guards enforce for every mutation and, for the
 // listing, through the protected-read set — so a tool process, the model, a chat, or a
-// phone bearer cannot create, read, list or change a credential. The value never travels
+// broker-paired phone cannot create, read, list or change a credential. The value never travels
 // outward: the listing carries name, kind, origin and date, and the only way in is a
 // masked field in Settings.
 
@@ -82,11 +82,11 @@ func credentialEntry(entries []credential.Entry, name string) (credential.Entry,
 }
 
 func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
-	// (c) and (d): secret entry is the OPERATOR'S PAGE and nothing else. A paired phone
+	// (c) and (d): secret entry is the OPERATOR'S PAGE and nothing else. A broker-paired phone
 	// is a full-authority surface for chatting, deliberately — but it is not where a
 	// credential is typed, read or removed, so it is refused here by name rather than
 	// left to the guards that admit it everywhere else.
-	if phoneAuthenticated(r) {
+	if pairedDeviceAuthenticated(r) {
 		writeError(w, http.StatusForbidden, "credentials are managed in Settings on this machine", "credentials")
 		return
 	}

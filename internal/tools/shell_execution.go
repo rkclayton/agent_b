@@ -253,7 +253,7 @@ func waitShellProcess(ctx context.Context, process runningShellProcess, usedServ
 			return CallDetail{Err: fmt.Errorf("command failed\n%s", content), Metadata: metadata}
 		}
 		if body == "" {
-			return CallDetail{Content: "exit=0", Metadata: metadata}
+			return CallDetail{Content: "exit=0, no output", Metadata: metadata}
 		}
 		return CallDetail{Content: "exit=0\n" + body, Metadata: metadata}
 	}

@@ -1572,6 +1572,15 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		outcome.Metadata = withHarnessNote(mergeResultMetadata(outcome.Metadata, sandboxResultMetadata(cfg, s, name, args)), note)
 		return outcome
 	}
+	// A shell or script that started as the operator and returned a non-zero
+	// exit is an execution failure, not a failed identity override. Preserve the
+	// interpreter's own error without teaching the model that the retry itself
+	// could not be made. Launch/identity failures do not have this shape and keep
+	// the harness note below.
+	if (name == "shell" || name == "run_script") && strings.HasPrefix(overrideContent, "error: command failed\nexit=") {
+		outcome.Content, outcome.OK, outcome.OperatorContext = overrideContent, false, true
+		return outcome
+	}
 	outcome.Content, outcome.OK, outcome.OperatorContext = overrideContent, false, true
 	outcome.Metadata = withHarnessNote(outcome.Metadata, "operator-identity override was attempted but failed")
 	outcome.Content = withModelNote(outcome.Content, "operator-identity override was attempted but failed")

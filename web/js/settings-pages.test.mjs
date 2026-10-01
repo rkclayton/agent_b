@@ -77,6 +77,20 @@ test("Profiles lists agent-layer memory with a named remove action", () => {
 	assert.match(page, /data-action="remove-agent-memory" data-id="ping output"/);
 });
 
+test("Profiles renders the Hermes preview with one import action and include rows", () => {
+	const context = pageContext();
+	context.hermesPreview = { rows: [
+		{ id: "persona:SOUL.md", name: "SOUL.md", kind: "persona", detail: "not imported — it becomes an agent of your own when agents ship", included: false, selectable: false },
+		{ id: "memory:MEMORY.md", name: "MEMORY.md", kind: "memory", detail: "18 bytes", included: true, selectable: true },
+		{ id: "secret:FIRST_KEY", name: "FIRST_KEY", kind: "secret", detail: "imported in the next step", included: false, selectable: false },
+	] };
+	const page = renderProfilesPage(context);
+	assert.match(page, /Import from Hermes/);
+	assert.match(page, /SOUL\.md[\s\S]*not imported/);
+	assert.match(page, /MEMORY\.md[\s\S]*data-action="hermes-toggle"/);
+	assert.match(page, /FIRST_KEY[\s\S]*imported in the next step/);
+});
+
 test("all rendered Settings rows have one direct label and one control cell", () => {
   const context = pageContext();
   const pages = [

@@ -15,6 +15,7 @@ import (
 
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/hermes"
 	"harness/internal/session"
 	"harness/internal/skills"
 )
@@ -22,6 +23,7 @@ import (
 type skillRequest struct {
 	Action, Name, Path string
 	Enabled            bool
+	Include            []string
 }
 
 func (s *Server) skillState() []skills.Skill { list, _ := s.skillCatalog(); return list }
@@ -51,6 +53,8 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 		s.cfg.Skills = map[string]config.SkillSetting{}
 	}
 	var err error
+	var response any
+	persist, publish := true, true
 	switch request.Action {
 	case "enable":
 		value := s.cfg.Skills[request.Name]
@@ -74,10 +78,26 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 			s.cfg.Skills[value.Name] = value
 		}
 	case "rescan":
+	case "hermes-preview":
+		persist, publish = false, false
+		request.Path = normalizeHermesPath(request.Path)
+		response, err = hermes.PreviewHome(request.Path)
+	case "hermes-import":
+		request.Path = normalizeHermesPath(request.Path)
+		var report hermes.Report
+		report, err = hermes.Import(request.Path, s.profileRoot(), s.cfg.DefaultAgentID(), s.cfg.Memory.MaxTokens, request.Include)
+		if err == nil {
+			for _, item := range report.Skills {
+				if item.Changed {
+					s.cfg.Skills[item.Name] = config.SkillSetting{Enabled: item.Enabled, Source: "imported from Hermes"}
+				}
+			}
+			response = report
+		}
 	default:
-		err = errors.New("skill action must be enable, import or rescan")
+		err = errors.New("skill action must be enable, import, rescan, hermes-preview or hermes-import")
 	}
-	if err == nil {
+	if err == nil && persist {
 		err = s.saveProfileConfig(*s.cfg)
 	}
 	masked := s.cfg.Masked()
@@ -87,8 +107,20 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := s.skillState()
-	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked, "skills": state}))
-	writeJSON(w, 200, map[string]any{"ok": true, "skills": state})
+	if publish {
+		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked, "skills": state}))
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "skills": state, "hermes": response})
+}
+
+func normalizeHermesPath(value string) string {
+	value = normalizeSkillImportPath(value)
+	if value == "~" || strings.HasPrefix(value, "~/") || strings.HasPrefix(value, `~\`) {
+		if home, err := os.UserHomeDir(); err == nil {
+			value = filepath.Join(home, strings.TrimLeft(value[1:], `/\`))
+		}
+	}
+	return filepath.Clean(value)
 }
 
 func normalizeSkillImportPath(value string) string {

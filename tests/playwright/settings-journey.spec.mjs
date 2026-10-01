@@ -16,7 +16,7 @@
 // a product defect and not a model mood.
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,12 +29,38 @@ const run = promisify(execFile);
 const repo = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 let root;
 let harness;
+let hermesHome;
 
 test.beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "agentb-settings-journey-"));
+	hermesHome = join(root, "hermes");
+	await mkdir(join(hermesHome, "memories"), { recursive: true });
+	await mkdir(join(hermesHome, "skills", "writing", "portable"), { recursive: true });
+	await mkdir(join(hermesHome, "cron"), { recursive: true });
+	await mkdir(join(hermesHome, "sessions"), { recursive: true });
+	await writeFile(join(hermesHome, "SOUL.md"), "fixture persona");
+	await writeFile(join(hermesHome, "memories", "MEMORY.md"), "fixture memory");
+	await writeFile(join(hermesHome, "memories", "USER.md"), "fixture user");
+	await writeFile(join(hermesHome, "skills", "writing", "portable", "SKILL.md"), "---\nname: portable\ndescription: Portable preview fixture.\n---\nRead the request.\n");
+	await writeFile(join(hermesHome, ".env"), "FIRST_KEY=\nSECOND_KEY=\n");
   const exe = join(root, "Agent_b.exe");
   await run(join(repo, ".tools", "go", "bin", "go.exe"), ["build", "-o", exe, "./cmd/harness"], { cwd: repo, windowsHide: true });
   harness = await start({ exe, appRoot: repo, data: join(root, "data"), modelIDs: ["journey-model", "second-model"] });
+});
+
+test("Hermes import shows the complete preview before writing", async () => {
+	const page = await harness.context.newPage();
+	await page.goto(`${harness.base}/chat`);
+	await page.locator(".shell-settings").click();
+	await page.locator('.settings-nav [data-id="profiles"]').click();
+	await page.locator("#hermes-import-path").fill(hermesHome);
+	await page.locator('[data-action="hermes-preview"]').click();
+	await expect(page.locator(".hermes-row")).toHaveCount(8);
+	for (const name of ["SOUL.md", "MEMORY.md", "USER.md", "portable", "FIRST_KEY", "SECOND_KEY", "cron", "sessions"]) await expect(page.locator("#settings-page")).toContainText(name);
+	await expect(page.locator("#settings-page")).toContainText("preview only · nothing written");
+	const evidence = join(repo, "logs", "evidence", "rel-1.58.0"); await mkdir(evidence, { recursive: true });
+	await page.screenshot({ path: join(evidence, "hermes-preview.png"), fullPage: true });
+	await page.close();
 });
 
 test.afterAll(async () => {

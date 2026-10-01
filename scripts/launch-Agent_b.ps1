@@ -333,53 +333,10 @@ try {
         $configArgument += ' -startup-log "' + $startupCapture.Replace('"', '\"') + '"'
     }
     if ($Detached -or -not $Console) {
-        # Item 2hg (v1.3.0/W6): a background server gets NO CONSOLE WINDOW and
-        # INHERITS NO HANDLES. Both halves matter, and each was learned the
-        # hard way.
-        #
-        # No console window, because -WindowStyle Hidden still gives a console
-        # application one; taskkill without /F posts WM_CLOSE to every top-level
-        # window, a WM_CLOSE on a console becomes CTRL_CLOSE_EVENT, and Go
-        # delivers that as SIGTERM - so the server stopped even though item
-        # 2eq's own window ignores WM_CLOSE. Measured: killed before the guard
-        # window existed it died 12 times out of 12.
-        #
-        # No inherited handles, because the first fix used
-        # [Diagnostics.Process]::Start with UseShellExecute=$false, and .NET
-        # then hands the child the parent's stdout. A detached server therefore
-        # held its launcher's output pipe open for as long as it ran, and any
-        # caller capturing the launcher's output - the installer's own upgrade
-        # path does exactly that - blocked until the server exited. The suite
-        # hung there. Start-Process -WindowStyle Hidden never had that problem
-        # because ShellExecute does not inherit; CreateProcess with
-        # bInheritHandles = $false does not either, and unlike ShellExecute it
-        # can also say CREATE_NO_WINDOW.
-        Add-Type -Namespace AgentB -Name Spawn -MemberDefinition @'
-[StructLayout(LayoutKind.Sequential)] public struct STARTUPINFO {
-  public int cb; public string lpReserved, lpDesktop, lpTitle;
-  public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
-  public short wShowWindow, cbReserved2; public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
-}
-[StructLayout(LayoutKind.Sequential)] public struct PROCESS_INFORMATION {
-  public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId;
-}
-[DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-public static extern bool CreateProcess(string app, string commandLine, IntPtr pa, IntPtr ta,
-  bool inherit, uint flags, IntPtr env, string cwd, ref STARTUPINFO si, out PROCESS_INFORMATION pi);
-[DllImport("kernel32.dll", SetLastError=true)] public static extern bool CloseHandle(IntPtr h);
-'@ -ErrorAction SilentlyContinue
-        $startupInfo = New-Object AgentB.Spawn+STARTUPINFO
-        $startupInfo.cb = [Runtime.InteropServices.Marshal]::SizeOf([type][AgentB.Spawn+STARTUPINFO])
-        $processInfo = New-Object AgentB.Spawn+PROCESS_INFORMATION
-        $commandLine = '"' + $executable + '" ' + $configArgument
-        $CREATE_NO_WINDOW = 0x08000000
-        if (-not [AgentB.Spawn]::CreateProcess($executable, $commandLine, [IntPtr]::Zero, [IntPtr]::Zero,
-                $false, $CREATE_NO_WINDOW, [IntPtr]::Zero, $dataRoot, [ref]$startupInfo, [ref]$processInfo)) {
-            throw "Starting Agent_b failed: CreateProcess reported $([Runtime.InteropServices.Marshal]::GetLastWin32Error())."
-        }
-        $null = [AgentB.Spawn]::CloseHandle($processInfo.hThread)
-        $null = [AgentB.Spawn]::CloseHandle($processInfo.hProcess)
-        $process = Get-Process -Id $processInfo.dwProcessId
+        # The GUI-subsystem executable cannot acquire a console. Start-Process
+        # uses ShellExecute here, so the detached child also inherits no output
+        # handles from a caller that is capturing the launcher.
+        $process = Start-Process -FilePath $executable -ArgumentList $configArgument -WorkingDirectory $dataRoot -WindowStyle Hidden -PassThru
     } else {
         # The foreground console start is unchanged: its window is the
         # operator's, and closing it is meant to stop the server.

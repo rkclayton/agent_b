@@ -374,6 +374,39 @@ func TestARequestRoundTripsOverTheSession2kq(t *testing.T) {
 	}
 }
 
+func TestSessionEventsNameConnectPeerDropAndReconnect2p0(t *testing.T) {
+	agent, device, pairing := testPair(t)
+	first, second := newScriptedBroker(t, agent, device, pairing), newScriptedBroker(t, agent, device, pairing)
+	dials, events := 0, make(chan string, 16)
+	client := NewClient(agent, pairing, func(context.Context) (Transport, error) {
+		dials++
+		if dials == 1 {
+			return first, nil
+		}
+		return second, nil
+	}, nil)
+	client.OnSessionEvent(func(event string) { events <- event })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() { _ = client.Run(ctx) }()
+	first.handshake(t)
+	waitConnected(t, client)
+	first.closeErr = errors.New("scripted close " + hexID(pairing.PairingID))
+	close(first.closed)
+	second.handshake(t)
+	want := []string{"connected", "PEER_QUERY sent", "PEER received connected=true", "disconnected reason=scripted close " + hexID(pairing.PairingID)[:8], "reconnect attempt backoff=1s", "connected"}
+	for index, expected := range want {
+		select {
+		case got := <-events:
+			if got != expected {
+				t.Fatalf("event %d = %q, want %q", index, got, expected)
+			}
+		case <-ctx.Done():
+			t.Fatalf("missing event %d (%q)", index, expected)
+		}
+	}
+}
+
 // Item 2o7: a phone that is offline when the desktop connects is the ordinary case.
 // The broker answers the init with QUEUED and keeps the line alive with PING; the
 // handshake waits through both and completes when the phone answers. Before, QUEUED

@@ -43,7 +43,10 @@ func (c *Client) RegisterPush(transport Transport, deviceToken string) error {
 	if err != nil {
 		return err
 	}
-	return transport.Send(frame)
+	if err := transport.Send(frame); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Push seals one notice to the device and sends it. The kind is one of the three fixed
@@ -85,7 +88,11 @@ func (c *Client) Push(transport Transport, messageID []byte, kind, chatID, notic
 	if err != nil {
 		return err
 	}
-	return transport.Send(frame)
+	if err := transport.Send(frame); err != nil {
+		return err
+	}
+	c.recordEvent("PUSH sent")
+	return nil
 }
 
 func validPushKind(kind string) bool {

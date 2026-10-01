@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -99,11 +100,36 @@ type Client struct {
 	sendMu    sync.Mutex
 	connected func(context.Context)
 	refused   func(code, detail string)
+	event     func(string)
 }
 
 // OnConnected is called, on its own goroutine, each time a session is established;
 // its context is cancelled when that connection ends. Set it before Run.
 func (c *Client) OnConnected(connected func(context.Context)) { c.connected = connected }
+
+func (c *Client) OnSessionEvent(event func(string)) { c.event = event }
+
+func (c *Client) recordEvent(message string) {
+	if c.event != nil {
+		c.event(message)
+	}
+}
+
+func (c *Client) safeReason(err error) string {
+	reason := err.Error()
+	c.mu.Lock()
+	secrets := []string{hexID(c.pairing.PairingID), hexID(c.pairing.DeviceKeyID), hexID(c.identity.KeyID())}
+	if c.session != nil {
+		secrets = append(secrets, c.session.SessionID())
+	}
+	c.mu.Unlock()
+	for _, secret := range secrets {
+		if len(secret) > 8 {
+			reason = strings.ReplaceAll(reason, secret, secret[:8])
+		}
+	}
+	return reason
+}
 
 // Deliver sends one downstream unit under a fresh message id on the live session.
 func (c *Client) Deliver(plaintext []byte) error {
@@ -199,6 +225,12 @@ func (c *Client) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		c.mu.Lock()
+		wasConnected := c.status.State == "holding" || c.status.State == "phone connected"
+		c.mu.Unlock()
+		if wasConnected {
+			c.recordEvent("disconnected reason=" + c.safeReason(err))
+		}
 		var problem *Problem
 		if errors.As(err, &problem) && c.refused != nil {
 			c.refused(problem.Code, problem.Detail)
@@ -224,6 +256,7 @@ func (c *Client) Run(ctx context.Context) error {
 			c.status.EndedReason = formatEndedReason(problem.Code, problem.Detail)
 		}
 		c.mu.Unlock()
+		c.recordEvent("reconnect attempt backoff=" + backoff.String())
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -251,10 +284,13 @@ func (c *Client) once(ctx context.Context) error {
 		return err
 	}
 	c.setState("holding", nil)
+	c.recordEvent("connected")
+	c.recordEvent("PEER_QUERY sent")
 	if err := c.establish(ctx, transport); err != nil {
 		return err
 	}
 	c.setState("phone connected", nil)
+	c.recordEvent("PEER received connected=true")
 	if c.connected != nil {
 		connection, ended := context.WithCancel(ctx)
 		defer ended()
@@ -548,8 +584,10 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 				return err
 			}
 			if problem.Fatal {
+				c.recordEvent("ERROR code=" + problem.Code + " detail=" + problem.Detail)
 				return &Problem{Code: problem.Code, Detail: problem.Detail}
 			}
+			c.recordEvent("ERROR code=" + problem.Code + " detail=" + problem.Detail)
 			log.Printf("broker: %s (%s)", problem.Code, problem.Detail)
 		case FrameRevoked:
 			var revoked revokePayload
@@ -718,6 +756,7 @@ func (c *Client) readHandshake(ctx context.Context, transport Transport) (Frame,
 			if err := DecodeInto(frame.Payload, &problem); err != nil {
 				return Frame{}, err
 			}
+			c.recordEvent("ERROR code=" + problem.Code + " detail=" + problem.Detail)
 			return Frame{}, &Problem{Code: problem.Code, Detail: problem.Detail}
 		}
 		if err != nil || (frame.Type != FrameQueued && frame.Type != FramePing) {

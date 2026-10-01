@@ -68,6 +68,7 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 		}
 		return nil
 	})
+	client.OnSessionEvent(func(message string) { c.recordSession(pairing, message) })
 	client.OnConnected(func(connection context.Context) {
 		c.mu.Lock()
 		c.lastRefusal = ""

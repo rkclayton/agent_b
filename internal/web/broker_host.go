@@ -284,12 +284,30 @@ func (c *BrokerClient) recordPairing(message string) {
 	if os.MkdirAll(filepath.Dir(c.pairingLog), 0o700) != nil {
 		return
 	}
+	if info, err := os.Stat(c.pairingLog); err == nil && info.Size() >= pairingLogMaxBytes {
+		if err := os.Remove(c.pairingLog + ".1"); err != nil && !os.IsNotExist(err) {
+			return
+		}
+		if os.Rename(c.pairingLog, c.pairingLog+".1") != nil {
+			return
+		}
+	}
 	file, err := os.OpenFile(c.pairingLog, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
 	defer file.Close()
 	_, _ = fmt.Fprintf(file, "%s %s\n", time.Now().UTC().Format(time.RFC3339Nano), message)
+}
+
+const pairingLogMaxBytes = 256 << 10
+
+func (c *BrokerClient) recordSession(pairing broker.Pairing, message string) {
+	id := hex.EncodeToString(pairing.PairingID)
+	if len(id) > 8 {
+		id = id[:8]
+	}
+	c.recordPairing("session " + id + " " + message)
 }
 
 func refusalText(err error) string {

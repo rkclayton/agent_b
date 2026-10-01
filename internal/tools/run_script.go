@@ -96,7 +96,12 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	case "powershell":
 		// Item 2gb: the same interpreter the shell tool resolves.
 		executable = shellHostFor(cfg).Executable
-		argv = []string{"-NoProfile", "-NonInteractive", "-Command", "-"}
+		// -Command - consumes standard input as an interactive command stream.
+		// Windows PowerShell accepts a line at a time there and silently leaves a
+		// multiline construct unexecuted at EOF. Read the complete source first,
+		// compile it as one script block, and invoke that block. The source itself
+		// still travels on stdin and no script file is created.
+		argv = []string{"-NoProfile", "-NonInteractive", "-Command", `$source = [Console]::In.ReadToEnd(); & ([scriptblock]::Create($source))`}
 		if reason := forbiddenShellCommand(source, item, t.shell.fileCoordinatorSnapshot()); reason != "" {
 			return CallDetail{Err: fmt.Errorf("source blocked: %s", reason)}
 		}

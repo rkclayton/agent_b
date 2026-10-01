@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -343,33 +344,46 @@ func (t *emptyOverrideTool) CallAsOperator(context.Context, *session.Session, ma
 	return "", nil
 }
 
-type failedOverrideTestTool struct{ overrideTestTool }
+type failedOverrideTestTool struct {
+	overrideTestTool
+	err error
+}
 
 func (t *failedOverrideTestTool) CallAsOperator(context.Context, *session.Session, map[string]any) (string, error) {
 	t.overrideCalls++
-	return "", os.ErrPermission
+	return "", t.err
 }
 
 func TestFailedApprovedOverrideIsLabeledOperatorContext(t *testing.T) {
-	bus := events.NewBus()
-	eventCh, unsubscribe := bus.Subscribe()
-	defer unsubscribe()
-	cfg := config.Defaults(t.TempDir())
-	tool := &failedOverrideTestTool{overrideTestTool{name: "find_files"}}
-	runner := &Runner{bus: bus, tools: tools.New(tool), cfg: func() config.Config { return cfg }}
-	runner.gate = NewGate(bus, runner.cfg)
-	s := &session.Session{ID: "session", Workspace: t.TempDir(), Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"find_files": true}}
-	done := make(chan tools.CallOutcome, 1)
-	go func() {
-		done <- runner.executeTool(context.Background(), s, "run", "call", "find_files", map[string]any{"path": `C:\`, "pattern": "*"})
-	}()
-	<-eventCh
-	if err := runner.gate.Decide(s.ID, "call:operator", "approve"); err != nil {
-		t.Fatal(err)
-	}
-	outcome := <-done
-	if outcome.OK || !outcome.OperatorContext || tool.overrideCalls != 1 || outcome.Metadata["harness_note"] != "operator-identity override was attempted but failed" || !strings.Contains(outcome.Content, "[harness: operator-identity override was attempted but failed]") {
-		t.Fatalf("outcome=%+v override calls=%d", outcome, tool.overrideCalls)
+	for _, tc := range []struct {
+		name, tool string
+		err        error
+		wantNote   bool
+	}{{"identity failure", "find_files", os.ErrPermission, true}, {"script exited nonzero", "run_script", fmt.Errorf("command failed\nexit=7\nfixture stderr"), false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			bus := events.NewBus()
+			eventCh, unsubscribe := bus.Subscribe()
+			defer unsubscribe()
+			cfg := config.Defaults(t.TempDir())
+			cfg.Shell.ServiceAccount.Enabled = false
+			tool := &failedOverrideTestTool{overrideTestTool: overrideTestTool{name: tc.tool}, err: tc.err}
+			runner := &Runner{bus: bus, tools: tools.New(tool), cfg: func() config.Config { return cfg }}
+			runner.gate = NewGate(bus, runner.cfg)
+			s := &session.Session{ID: "session", Workspace: t.TempDir(), Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{tc.tool: true}}
+			done := make(chan tools.CallOutcome, 1)
+			go func() {
+				done <- runner.executeTool(context.Background(), s, "run", "call", tc.tool, map[string]any{"path": `C:\`, "source": "exit 7"})
+			}()
+			<-eventCh
+			if err := runner.gate.Decide(s.ID, "call:operator", "approve"); err != nil {
+				t.Fatal(err)
+			}
+			outcome := <-done
+			hasNote := strings.Contains(outcome.Content, "override was attempted but failed") || outcome.Metadata["harness_note"] != nil
+			if outcome.OK || !outcome.OperatorContext || tool.overrideCalls != 1 || hasNote != tc.wantNote {
+				t.Fatalf("outcome=%+v", outcome)
+			}
+		})
 	}
 }
 

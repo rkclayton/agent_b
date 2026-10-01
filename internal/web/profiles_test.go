@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -262,15 +263,17 @@ func TestHermesPreviewAndImport2nd(t *testing.T) {
 	if err != nil || strings.Contains(string(memoryBody), "HERMES_HOME") || !strings.Contains(string(memoryBody), "imported from Hermes") {
 		t.Fatalf("memory=%q err=%v", memoryBody, err)
 	}
-	run := exec.Command("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-File", filepath.Join(destination, "scripts", "run.ps1"))
-	run.Dir = destination
 	renamed := source + "-renamed"
 	if err := os.Rename(source, renamed); err != nil {
 		t.Fatal(err)
 	}
-	output, err := run.CombinedOutput()
-	if err != nil || !strings.Contains(string(output), "stub-ok") || strings.Contains(string(output), "HERMES_HOME") {
-		t.Fatalf("stub=%q err=%v", output, err)
+	if runtime.GOOS == "windows" {
+		run := exec.Command("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-File", filepath.Join(destination, "scripts", "run.ps1"))
+		run.Dir = destination
+		output, err := run.CombinedOutput()
+		if err != nil || !strings.Contains(string(output), "stub-ok") || strings.Contains(string(output), "HERMES_HOME") {
+			t.Fatalf("stub=%q err=%v", output, err)
+		}
 	}
 	if err := os.Rename(renamed, source); err != nil {
 		t.Fatal(err)

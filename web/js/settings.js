@@ -71,7 +71,6 @@ let planRequestedByAddress = false;
 let hardeningConnectionID = "";
 let workspaceState = [];
 let operatorFileState = { attachment_files: 0, attachment_bytes: 0, instruction_found: [] };
-let phoneAccess = { devices: [], code: "", expires_at: "", push_enabled: false };
 const connectionList = () => Array.isArray(store.connections) ? store.connections : [];
 
 // Item 2gk: Agents and Activity are where the page that used to stand on its
@@ -226,7 +225,6 @@ export function openSettings(section = "") {
   refreshServiceAccountStatus();
 	refreshHardeningStatus();
 	refreshNotificationStatus(); refreshSignInStart();
-	refreshPhoneAccess();
   refreshWorkspaceState();
   refreshOperatorFileState();
   void refreshBrokerStatus().then(() => { if (open) render(); });
@@ -444,7 +442,7 @@ function adoptPanels() {
 
 function settingsPageContext(active) {
   return {
-    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, phoneAccess, standingGrants: store.standing_grants || [], hermesPreview, hermesReport, actionDrafts,
+    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, standingGrants: store.standing_grants || [], hermesPreview, hermesReport, actionDrafts,
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog, serviceAccountSteps,
     brokerStatus, brokerMessage, brokerAlarm,
     credentialList, credentialMessage, credentialAlarm, credentialDevice,
@@ -1279,23 +1277,6 @@ async function dispatchAction(event, button, action, id) {
 		}
 		return render();
 	}
-	if (action === "phone-enrol") {
-		try { phoneAccess = { ...phoneAccess, ...await api("/api/phone/enrolment") }; } catch (error) { phoneAccess = { ...phoneAccess, error: error.message }; }
-		return render();
-	}
-	if (action === "phone-revoke") {
-		await api("/api/phone/devices/revoke", { id });
-		return refreshPhoneAccess();
-	}
-	if (action === "phone-revoke-all") {
-		await api("/api/phone/devices/revoke-all", {});
-		return refreshPhoneAccess();
-	}
-	if (action === "phone-push-toggle") {
-		try { const result = await api("/api/phone/push", { enabled: !phoneAccess.push_enabled }); phoneAccess = { ...phoneAccess, ...result }; }
-		catch (error) { phoneAccess = { ...phoneAccess, error: error.message }; }
-		return render();
-	}
 	if (action === "apply-hardening") return hardeningAction("apply");
 	if (action === "verify-hardening") return hardeningAction("verify");
 	if (action === "refresh-hardening") return refreshHardeningStatus();
@@ -1415,12 +1396,6 @@ async function refreshServiceAccountStatus(preserveMessage = false) {
 		serviceAccountAlarm = true;
 	}
 	if (open) render();
-}
-
-async function refreshPhoneAccess() {
-	try { phoneAccess = { ...phoneAccess, ...await api("/api/phone/devices", undefined, "GET") }; }
-	catch (error) { phoneAccess = { devices: [], error: error.message, push_enabled: false }; }
-	if (open && activeSection === "shell") render();
 }
 
 async function refreshSignInStart() {

@@ -233,8 +233,8 @@ A `response` may be split by the `part` rule like any other downstream unit.
 
 ## What a device may NOT reach through the broker
 
-A phone bearer has full desktop authority by design (`INTERFACES.md`, "Phone authentication and
-push"), which makes the list of what it cannot reach a security statement rather than a convenience.
+A broker-paired phone has full desktop authority by design (`INTERFACES.md`, "Phone pairing and
+application messages"), which makes the list of what it cannot reach a security statement rather than a convenience.
 **The route table above is exhaustive.** Anything else is answered `501` and is not proxied,
 including, explicitly:
 

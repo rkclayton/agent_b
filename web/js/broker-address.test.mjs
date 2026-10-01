@@ -19,7 +19,7 @@ test("Settings carries no broker field and no broker address", () => {
 });
 
 test("the section says what it is for without naming an address", () => {
-  const phone = security.slice(security.indexOf("Phone away from home"));
+  const phone = security.slice(security.indexOf('subhead("Phone"'));
   assert.match(phone, /One phone/);
   assert.doesNotMatch(phone.slice(0, 2000), /agentb\.app/, "the subhead names the broker's host");
 });

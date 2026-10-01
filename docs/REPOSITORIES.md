@@ -73,7 +73,7 @@ item.
 | `serve/` — 18 files of llama.cpp start scripts and reliability probes | **Has no home in the four.** It is model-server operations: not the harness, not the installer, and not one of the VPS's three jobs. It stays here until it is given one, and this line is the record that it is unplaced. |
 | Release **serving** — `internal/updater/manager.go` asks `https://api.github.com/repos/acme/agent_b/releases/latest` | **Moves to the VPS when the VPS exists**, under job 3. One constant. The release *notes* and the release *build* stay here. |
 | `internal/telemetry` | Does not exist yet. Under 2jg only the **sender** is built here; the receiver is the VPS's. |
-| `web/phone.html`, `phone.js`, `phone.css`, `phone-sw.js` — 130 lines | **Stays.** It fetches only relative paths off this host. 130 lines is not a repository. |
+| Phone connection UI | **Lives in the phone client repository.** This Windows harness exposes only broker pairing in Settings and the versioned app-message contract; it no longer ships a browser phone client. |
 | `internal/projection/testdata/tapes/`, `tools/projection-tape/` | **Stays, and is published.** This is *What crosses a boundary* working as intended, not something awaiting a move. |
 | Anything Apple or Android | **None exists here.** |
 

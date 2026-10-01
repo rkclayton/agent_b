@@ -139,7 +139,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	if body.Decision == "folder" && phoneAuthenticated(r) {
+	if body.Decision == "folder" && pairedDeviceAuthenticated(r) {
 		writeError(w, http.StatusForbidden, "trusted folders require the local page", "decision")
 		return
 	}

@@ -516,13 +516,14 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 			t.Skip(reason)
 		}
 		base := "http://" + cfg.Listen
-		for _, command := range []string{`curl.exe -s -o NUL -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "{\"name\":\"tool\"}" ` + quotePowerShell(base+"/api/phone/enrolment/redeem"), `curl.exe -s -o NUL -w "%{http_code}" -H "Authorization: Bearer not-a-device-credential" ` + quotePowerShell(base+"/api/state")} {
+		for index, command := range []string{`curl.exe -s -o NUL -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "{\"name\":\"tool\"}" ` + quotePowerShell(base+"/api/phone/enrolment/redeem"), `curl.exe -s -o NUL -w "%{http_code}" -H "Authorization: Bearer not-a-device-credential" ` + quotePowerShell(base+"/api/state")} {
 			detail := shell.CallDetailed(context.Background(), item, map[string]any{"command": command})
-			if detail.Err != nil || strings.TrimSpace(detail.Content) != "401" {
+			want := []string{"404", "401"}[index]
+			if detail.Err != nil || strings.TrimSpace(detail.Content) != want {
 				t.Fatalf("detail=%+v", detail)
 			}
 		}
-		t.Log("contract=unchanged-by-2kl: shell gets 401 at enrolment and device-authenticated state")
+		t.Log("contract=2pl: shell gets 404 at retired enrolment and 401 at authenticated state")
 	})
 
 	t.Run("phone_control_plane_run_script_refused_2kl", func(t *testing.T) {
@@ -535,10 +536,10 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 			`curl.exe -s -o NUL -w "%{http_code}" -H "Authorization: Bearer not-a-device-credential" ` + quotePowerShell(base+"/api/state")
 		detail := NewRunScript(shell).CallDetailed(context.Background(), item, map[string]any{"language": "powershell", "source": source})
 		statuses := strings.Fields(detail.Content)
-		if detail.Err != nil || len(statuses) != 2 || statuses[0] != "401" || statuses[1] != "401" {
+		if detail.Err != nil || len(statuses) != 2 || statuses[0] != "404" || statuses[1] != "401" {
 			t.Fatalf("detail=%+v", detail)
 		}
-		t.Log("contract=unchanged-by-2kl: run_script gets 401 at enrolment and device-authenticated state")
+		t.Log("contract=2pl: run_script gets 404 at retired enrolment and 401 at authenticated state")
 	})
 
 	t.Run("phone_control_plane_call_service_refused_2kl", func(t *testing.T) {
@@ -552,13 +553,14 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		if address := phoneControlAddress(cfg); !somethingIsListening(address) {
 			t.Skipf("not exercised: prerequisite — nothing is listening on %s (production is the only listener there, and a worker never starts it)", address)
 		}
-		for _, args := range []map[string]any{{"service": "phone-control", "method": "POST", "path": "phone/enrolment/redeem", "body": map[string]any{"name": "tool"}}, {"service": "phone-control", "method": "GET", "path": "state"}} {
+		for index, args := range []map[string]any{{"service": "phone-control", "method": "POST", "path": "phone/enrolment/redeem", "body": map[string]any{"name": "tool"}}, {"service": "phone-control", "method": "GET", "path": "state"}} {
 			detail := toolRegistry.CallDetailed(context.Background(), item, "call_service", args)
-			if !detail.OK || detail.Metadata["status"] != http.StatusUnauthorized || !strings.Contains(detail.Content, `"status":401`) {
+			want := []int{http.StatusNotFound, http.StatusUnauthorized}[index]
+			if !detail.OK || detail.Metadata["status"] != want || !strings.Contains(detail.Content, fmt.Sprintf(`"status":%d`, want)) {
 				t.Fatalf("detail=%+v", detail)
 			}
 		}
-		t.Log("contract=unchanged-by-2kl: call_service gets 401 at enrolment and device-authenticated state through a localhost alias; the exact-listener pre-dial refusal remains")
+		t.Log("contract=2pl: call_service gets 404 at retired enrolment and 401 at authenticated state through a localhost alias; the exact-listener pre-dial refusal remains")
 	})
 
 	t.Run("boundary_file_tool_operator_decision", func(t *testing.T) {

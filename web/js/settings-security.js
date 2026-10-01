@@ -6,7 +6,7 @@ let credentialList = [];
 let credentialMessage = "";
 let credentialAlarm = false;
 let credentialDevice = {};
-let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess, standingGrants, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
+let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, standingGrants, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
 function useSettingsContext(context) {
   serviceAccountLog = context.serviceAccountLog || "";
   brokerStatus = context.brokerStatus || {};
@@ -16,7 +16,7 @@ function useSettingsContext(context) {
   credentialMessage = context.credentialMessage || "";
   credentialAlarm = !!context.credentialAlarm;
   credentialDevice = context.credentialDevice || {};
-  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps = [], hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, phoneAccess = { devices: [] }, standingGrants = [], connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
+  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps = [], hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, standingGrants = [], connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
 }
 
 function shell(active) {
@@ -147,10 +147,6 @@ function shell(active) {
 	  ${row("actions", `<div class="settings-actions"><button type="button" data-action="setup-service-account" ${setupDisabled ? "disabled" : ""}>${setupLabel}</button></div>`)}
 	${feedback(hardeningMessage, hardeningAlarm)}
 	</details>
-	${subhead("Phone access", "One-time enrolment and revocable phone sessions. The phone uses the same chat endpoints as this page.")}
-	${row("enrolment", `<span class="account-status mono">${phoneAccess.code ? html(phoneAccess.code) : "no active code"}</span><button type="button" data-action="phone-enrol">New code</button>`, "", phoneAccess.expires_at ? `Expires ${phoneAccess.expires_at}` : "The code expires in five minutes and works once.")}
-	${row("devices", phoneDevices())}
-	${row("push", `<button type="button" role="switch" aria-checked="${!!phoneAccess.push_enabled}" class="switch ${phoneAccess.push_enabled ? "on" : ""}" data-action="phone-push-toggle"></button><span class="account-status">${phoneAccess.push_enabled ? "enabled" : "off"}</span>`, "", "Push carries only the notice line and chat name.")}
 	${brokerRows()}
 	${credentialRows()}
     `;
@@ -213,7 +209,7 @@ function brokerRows() {
 	const paired = status.paired_device
 		? `${html(status.paired_device)}<button type="button" data-action="broker-revoke" data-confirm="the paired phone">Revoke</button>`
 		: "none paired";
-	return `${subhead("Phone away from home", "One phone, paired through the broker. It carries ciphertext and can read none of it; the fingerprint below is how you check that for yourself.")}
+	return `${subhead("Phone", "One phone, paired through the broker. It carries ciphertext and can read none of it; the fingerprint below is how you check that for yourself.")}
 	${row("connection", `<span class="account-status"><span class="lamp ${lamp}"></span>${html(state)}${status.broker_build ? ` · build ${html(status.broker_build)}` : ""}${connectionEvidence ? `<small>${connectionEvidence}</small>` : ""}</span>`)}
 	${row("pairing", offer.code
 		// Item 2ns (b): THE QR IS THE PAIRING DISPLAY. "this code is waaay too long its
@@ -230,12 +226,6 @@ function brokerRows() {
 	${row("device", `<span class="account-status">${paired}</span>`)}
 	${status.log_path ? `<p class="account-status"><a href="${attr(pairingLogHref)}">open pairing log</a> · ${html(status.log_path)}</p>` : ""}
 	${feedback(brokerMessage, brokerAlarm)}`;
-}
-
-function phoneDevices() {
-	const devices = phoneAccess.devices || [];
-	if (!devices.length) return '<span class="account-status">none enrolled</span>';
-	return `<span class="settings-actions vertical">${devices.map((device) => `<span>${html(device.name)} · ${html(device.last_seen || "never")} <button type="button" data-action="phone-revoke" data-id="${attr(device.id)}">Revoke</button></span>`).join("")}<button type="button" data-action="phone-revoke-all">Revoke all</button></span>`;
 }
 
 function feedback(message, alarm, fallback) {

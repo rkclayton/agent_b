@@ -107,7 +107,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	// at once unless something is pending (v1.1.1/W3).
 	s.OfferReflectionProposals()
 	snapshot := s.snapshot()
-	if phoneAuthenticated(r) {
+	if pairedDeviceAuthenticated(r) {
 		// Item 2ow: a stolen paired phone can choose between connections, but it
 		// never receives credentials, paths, prompts, or the rest of local config.
 		snapshot["connections"] = s.phoneConnections()

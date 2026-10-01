@@ -31,7 +31,7 @@ func (s schedulerSeam) Stop(sessionID string, all bool) int {
 
 // With the service split disabled, a process-readable outside path stays a
 // plain workspace refusal and never raises the obsolete identity card. The
-// repeating model is eventually held by the ordinary cycle decision.
+// repeating model continues without a card until the worker's own wall clock.
 func TestUnattendedDisabledSplitDoesNotRaiseIdentityCard(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "notes.txt")
 	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
@@ -111,16 +111,13 @@ func TestUnattendedDisabledSplitDoesNotRaiseIdentityCard(t *testing.T) {
 	driver := New(bus, schedulerSeam{scheduler}, nil)
 	driver.deadline = 600 * time.Millisecond
 	outcome := driver.runItem(context.Background(), worker, Item{Text: "read the notes", ID: "1"})
-	if outcome.Marker != "!" || outcome.Reason != "waited for approval" {
-		t.Fatalf("outcome = %+v, want [!] waited for approval", outcome)
+	if outcome.Marker != "!" || outcome.Reason != "worker wall clock" {
+		t.Fatalf("outcome = %+v, want [!] worker wall clock", outcome)
 	}
 	select {
 	case name := <-carded:
-		if name == "read_file.operator_override" {
-			t.Fatalf("disabled split raised an identity card: %q", name)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("no card was raised")
+		t.Fatalf("boundary-only run raised a card: %q", name)
+	case <-time.After(100 * time.Millisecond):
 	}
 	for deadline := time.Now().Add(5 * time.Second); scheduler.Active(worker.ID) && time.Now().Before(deadline); {
 		time.Sleep(10 * time.Millisecond)

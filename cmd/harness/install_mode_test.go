@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"harness/internal/updater"
 )
@@ -438,6 +440,80 @@ func TestPerUserInstallIsNativeAndComplete2or(t *testing.T) {
 	var decoded map[string]any
 	if err != nil || json.Unmarshal(config, &decoded) != nil || decoded["workspace"] != filepath.Join(data, "scratch") {
 		t.Fatalf("native config=%s err=%v", config, err)
+	}
+}
+
+func TestNativeExecutableSwapRestoresOldBytesOnSecondRenameFailure2oz(t *testing.T) {
+	directory := t.TempDir()
+	destination := filepath.Join(directory, "Agent_b.exe")
+	temporary := destination + ".installing"
+	if err := os.WriteFile(destination, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(temporary, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	renames := 0
+	err := swapNativeFile(temporary, destination, func(old, new string) error {
+		renames++
+		if renames == 2 {
+			return syscall.Errno(5)
+		}
+		return os.Rename(old, new)
+	}, os.Remove)
+	if err == nil || !strings.Contains(err.Error(), destination) || !strings.Contains(err.Error(), "code 5") {
+		t.Fatalf("swap error = %v", err)
+	}
+	got, readErr := os.ReadFile(destination)
+	if readErr != nil || string(got) != "old" {
+		t.Fatalf("restored destination = %q, %v", got, readErr)
+	}
+	if _, statErr := os.Stat(destination + ".replacing"); !os.IsNotExist(statErr) {
+		t.Fatalf("old-byte backup remains: %v", statErr)
+	}
+}
+
+func TestNativeCopyReusesOnlyMatchingStaleInstallingBytes2oz(t *testing.T) {
+	for _, test := range []struct {
+		name, stale string
+		reused      bool
+	}{
+		{name: "matching", stale: "release", reused: true},
+		{name: "wrong", stale: "other", reused: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			source := filepath.Join(directory, "source.exe")
+			destination := filepath.Join(directory, "Agent_b.exe")
+			temporary := destination + ".installing"
+			if err := os.WriteFile(source, []byte("release"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(destination, []byte("old"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(temporary, []byte(test.stale), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			stamp := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
+			if err := os.Chtimes(temporary, stamp, stamp); err != nil {
+				t.Fatal(err)
+			}
+			if err := copyNativeFile(source, destination); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(destination)
+			if err != nil || string(got) != "release" {
+				t.Fatalf("installed bytes = %q, %v", got, err)
+			}
+			info, err := os.Stat(destination)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.ModTime().Equal(stamp) != test.reused {
+				t.Fatalf("stale reuse by timestamp = %v, want %v", info.ModTime().Equal(stamp), test.reused)
+			}
+		})
 	}
 }
 

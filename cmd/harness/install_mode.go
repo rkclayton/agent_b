@@ -314,6 +314,9 @@ func runInstall(options installOptions, args []string) int {
 	marker.Phase = lastPhase
 	_ = writeInstallMarker(dataRoot, marker)
 	log.printf("install: the installer exited %d during %s", code, lastPhase)
+	if nativeInstall && waitErr != nil {
+		log.printf("INSTALLATION FAILED: %v", waitErr)
+	}
 	if !options.quiet {
 		showInstallFailure("Agent_b install failed", failureText)
 	}

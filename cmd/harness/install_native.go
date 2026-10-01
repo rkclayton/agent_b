@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 type nativeInstallPlan struct {
@@ -201,31 +203,84 @@ func replaceDirectory(source, destination string) error {
 	})
 }
 func copyNativeFile(source, destination string) error {
-	input, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
 	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
 		return err
 	}
 	temporary := destination + ".installing"
-	output, err := os.OpenFile(temporary, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	sourceDigest, err := fileSHA256(source)
 	if err != nil {
 		return err
 	}
-	_, copyErr := io.Copy(output, input)
-	closeErr := output.Close()
-	if copyErr != nil {
-		_ = os.Remove(temporary)
-		return copyErr
+	stagedDigest, stagedErr := fileSHA256(temporary)
+	if stagedErr != nil || !strings.EqualFold(sourceDigest, stagedDigest) {
+		if err := os.Remove(temporary); err != nil && !os.IsNotExist(err) {
+			return nativeFileFailure{"remove stale staging file", temporary, err}
+		}
+		input, err := os.Open(source)
+		if err != nil {
+			return err
+		}
+		output, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			input.Close()
+			return nativeFileFailure{"create staging file", temporary, err}
+		}
+		_, copyErr := io.Copy(output, input)
+		input.Close()
+		closeErr := output.Close()
+		if copyErr != nil || closeErr != nil {
+			_ = os.Remove(temporary)
+			if copyErr != nil {
+				return nativeFileFailure{"copy staging file", temporary, copyErr}
+			}
+			return nativeFileFailure{"close staging file", temporary, closeErr}
+		}
 	}
-	if closeErr != nil {
-		_ = os.Remove(temporary)
-		return closeErr
+	return swapNativeFile(temporary, destination, os.Rename, os.Remove)
+}
+
+type nativeFileFailure struct {
+	operation, path string
+	err             error
+}
+
+func (failure nativeFileFailure) Error() string {
+	var code syscall.Errno
+	if errors.As(failure.err, &code) {
+		return fmt.Sprintf("%s: Win32 code %d, path %s: %v", failure.operation, uintptr(code), failure.path, failure.err)
 	}
-	_ = os.Remove(destination)
-	return os.Rename(temporary, destination)
+	return fmt.Sprintf("%s: path %s: %v", failure.operation, failure.path, failure.err)
+}
+func (failure nativeFileFailure) Unwrap() error { return failure.err }
+
+func swapNativeFile(temporary, destination string, rename func(string, string) error, remove func(string) error) error {
+	backup := destination + ".replacing"
+	_, destinationErr := os.Stat(destination)
+	oldExists := destinationErr == nil
+	if destinationErr != nil && !os.IsNotExist(destinationErr) {
+		return nativeFileFailure{"inspect installed file", destination, destinationErr}
+	}
+	if oldExists {
+		if err := remove(backup); err != nil && !os.IsNotExist(err) {
+			return nativeFileFailure{"remove stale replacement backup", backup, err}
+		}
+		if err := rename(destination, backup); err != nil {
+			return nativeFileFailure{"rename installed file aside", destination, err}
+		}
+	}
+	if err := rename(temporary, destination); err != nil {
+		failure := nativeFileFailure{"rename staged file into place", destination, err}
+		if oldExists {
+			if restoreErr := rename(backup, destination); restoreErr != nil {
+				return fmt.Errorf("%w; restore failed: %v", failure, nativeFileFailure{"restore installed file", destination, restoreErr})
+			}
+		}
+		return failure
+	}
+	if oldExists {
+		_ = remove(backup)
+	}
+	return nil
 }
 func createNativeConfig(template, destination, workspace, data string) error {
 	encoded, err := os.ReadFile(template)

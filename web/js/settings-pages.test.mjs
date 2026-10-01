@@ -52,6 +52,14 @@ test("every Settings page renderer accepts the controller context", () => {
   for (const page of pages) assert.equal(typeof page, "string");
 });
 
+test("button-owned text survives a Settings redraw and Skills explains arrival", () => {
+  const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
+  const profiles = fs.readFileSync(new URL("settings-profiles.js", import.meta.url), "utf8");
+  assert.match(controller, /actionDrafts\.set\(event\.target\.id, event\.target\.value\)/);
+  assert.match(controller, /for \(const \[id, value\] of actionDrafts\)/);
+  assert.match(profiles, /Skills are on when added; use the switch to turn one off/);
+});
+
 test("Attachment ingest shows the editable disk limit and its reason", () => {
   const context = pageContext();
   context.store.config.tools = { attachments: { max_bytes: 268435456 } };

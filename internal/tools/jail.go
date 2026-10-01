@@ -72,7 +72,7 @@ func resolveForWorkerWrite(ctx context.Context, s *session.Session, root, path s
 	}
 	targets := forms(resolved)
 	if s.SkillsRoot != "" && inside(forms(s.SkillsRoot), targets) {
-		return "", fmt.Errorf("skill folders are read-only")
+		return "", fmt.Errorf("skills folder is read-only: %s", s.SkillsRoot)
 	}
 	if s.PlansRoot == "" {
 		return resolved, nil

@@ -123,7 +123,7 @@ func TestChatSkillRequestRaisesTheExistingCard2pc(t *testing.T) {
 	}
 }
 
-func TestSkillImportArrivesDisabledAndCanBeEnabled(t *testing.T) {
+func TestSkillImportUsesNormalizedPathAndArrivesEnabled2pe(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(t.TempDir())
 	path := filepath.Join(root, "harness.json")
@@ -143,20 +143,52 @@ func TestSkillImportArrivesDisabledAndCanBeEnabled(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("---\nname: report-kit\ndescription: Builds invented fixture reports.\n---\nProcedure.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"action":"import","path":` + strconv.Quote(source) + `}`
+	body := `{"action":"import","path":` + strconv.Quote(`  "`+source+`" `) + `}`
 	response := httptest.NewRecorder()
 	server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(body)))
 	if response.Code != 200 {
 		t.Fatalf("import=%d %s", response.Code, response.Body.String())
 	}
 	state := server.skillState()
-	if len(state) != 1 || state[0].Enabled || !strings.Contains(state[0].Source, source) {
+	if len(state) != 1 || !state[0].Enabled || !strings.Contains(state[0].Source, source) {
 		t.Fatalf("state=%+v", state)
 	}
 	response = httptest.NewRecorder()
-	server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"action":"enable","name":"report-kit","enabled":true}`)))
-	if response.Code != 200 || !server.skillState()[0].Enabled {
-		t.Fatalf("enable=%d %s state=%+v", response.Code, response.Body.String(), server.skillState())
+	server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"action":"enable","name":"report-kit","enabled":false}`)))
+	server.skillsEndpoint(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"action":"rescan"}`)))
+	if response.Code != 200 || server.skillState()[0].Enabled {
+		t.Fatalf("disable/rescan=%d %s state=%+v", response.Code, response.Body.String(), server.skillState())
+	}
+	restarted, _, _, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, _, err := profiles.Open(root, path, restarted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterRestart := New(restarted, path, t.TempDir(), RuntimeRoots{Data: root, Profile: reopened.Root(reopened.Active())}, events.NewBus())
+	if afterRestart.skillState()[0].Enabled {
+		t.Fatal("disabled skill came back on after restart")
+	}
+}
+
+func TestSkillImportErrorsNameTheTriedPath2pe(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := New(&cfg, filepath.Join(root, "harness.json"), t.TempDir(), RuntimeRoots{Data: root, Profile: root}, events.NewBus())
+	noSkill := t.TempDir()
+	for _, tried := range []string{"", filepath.Join(root, "missing"), noSkill} {
+		body := `{"action":"import","path":` + strconv.Quote(tried) + `}`
+		response := httptest.NewRecorder()
+		server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(body)))
+		var result struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(response.Body.Bytes(), &result)
+		if response.Code != 400 || !strings.Contains(result.Error, displaySkillPath(tried)) || strings.Contains(result.Error, "open SKILL.md") {
+			t.Errorf("tried=%q decoded=%q want=%q response=%d %s", tried, result.Error, displaySkillPath(tried), response.Code, response.Body.String())
+		}
 	}
 }
 

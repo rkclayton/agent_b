@@ -65,6 +65,9 @@ func Open(dataRoot, configPath string, cfg *config.Config) (*Manager, bool, erro
 		if err := manager.loadLocked(cfg.Profiles.Active); err != nil {
 			return nil, false, err
 		}
+		if err := ensureProfileDirectories(manager.Root(cfg.Profiles.Active)); err != nil {
+			return nil, false, err
+		}
 		manager.reportDrift(cfg.Profiles.Active)
 		return manager, false, nil
 	}
@@ -80,6 +83,9 @@ func Open(dataRoot, configPath string, cfg *config.Config) (*Manager, bool, erro
 		return nil, false, err
 	}
 	if err := migrateExistingRoot(dataRoot, root); err != nil {
+		return nil, false, err
+	}
+	if err := ensureProfileDirectories(root); err != nil {
 		return nil, false, err
 	}
 	cfg.LogDir = profileRelativePath(dataRoot, cfg.LogDir)
@@ -141,12 +147,24 @@ func (manager *Manager) Create(name string) error {
 	if err := os.MkdirAll(manager.Root(name), 0o700); err != nil {
 		return err
 	}
+	if err := ensureProfileDirectories(manager.Root(name)); err != nil {
+		return err
+	}
 	if err := manager.writeSettings(settings); err != nil {
 		return err
 	}
 	manager.cfg.Profiles.Names = append(manager.cfg.Profiles.Names, name)
 	sort.Strings(manager.cfg.Profiles.Names)
 	return manager.cfg.Save(manager.configPath)
+}
+
+func ensureProfileDirectories(root string) error {
+	for _, name := range profileDirectories {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (manager *Manager) Switch(name string) error {

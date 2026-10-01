@@ -57,6 +57,39 @@ func TestOpenMigratesProfileDataAndLeavesSharedState(t *testing.T) {
 	}
 }
 
+func TestEveryProfileHasItsSkillsFolder2pe(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		root := t.TempDir()
+		if existing {
+			_ = os.MkdirAll(filepath.Join(root, "profiles", "Existing"), 0o700)
+		}
+		cfg := config.Defaults(t.TempDir())
+		if existing {
+			cfg.Profiles = config.ProfileCatalog{Active: "Existing", Names: []string{"Existing"}}
+			_ = os.WriteFile(filepath.Join(root, "profiles", "Existing", settingsFile), []byte("{\"name\":\"Existing\"}\n"), 0o600)
+		}
+		path := filepath.Join(root, "harness.json")
+		if err := cfg.Save(path); err != nil {
+			t.Fatal(err)
+		}
+		manager, _, err := Open(root, path, &cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info, err := os.Stat(filepath.Join(manager.Root(manager.Active()), "skills")); err != nil || !info.IsDir() {
+			t.Fatalf("existing=%t skills=%v info=%v", existing, err, info)
+		}
+		if !existing {
+			if err := manager.Create("Created"); err != nil {
+				t.Fatal(err)
+			}
+			if info, err := os.Stat(filepath.Join(manager.Root("Created"), "skills")); err != nil || !info.IsDir() {
+				t.Fatalf("created skills=%v info=%v", err, info)
+			}
+		}
+	}
+}
+
 func homeDirectory(t *testing.T) string {
 	t.Helper()
 	value, err := os.UserHomeDir()

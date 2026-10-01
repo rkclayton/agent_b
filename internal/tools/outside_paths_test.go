@@ -53,6 +53,42 @@ func TestOutsideReadsInScriptsAndCommandsRaiseTheCardWithNoServiceIdentity(t *te
 	}
 }
 
+func TestSkillFolderWritesAreNeverSilent2pe(t *testing.T) {
+	workspace, profile := t.TempDir(), t.TempDir()
+	skillsRoot := filepath.Join(profile, "skills")
+	target := filepath.Join(skillsRoot, "fixture", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	item := &session.Session{ID: "skill-fence", Role: "b", Workspace: workspace, SkillsRoot: skillsRoot}
+	cfg := config.Defaults(workspace)
+	cfg.Shell.ServiceAccount.Enabled = false
+	shell := NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	check := func(name string, detail CallDetail) {
+		t.Helper()
+		text := detail.Content
+		if detail.Err != nil {
+			text += detail.Err.Error()
+		}
+		if !strings.Contains(strings.ToLower(text+" "+detail.OperatorOverrideReason), strings.ToLower(skillsRoot)) {
+			t.Errorf("%s silently reached skills: %+v", name, detail)
+		}
+	}
+	_, writeErr := NewWriteFile(nil).Call(context.Background(), item, map[string]any{"path": target, "content": "changed"})
+	check("write_file", CallDetail{Err: writeErr})
+	_, editErr := NewEditFile(nil).Call(context.Background(), item, map[string]any{"path": target, "old_string": "original", "new_string": "changed"})
+	check("edit_file", CallDetail{Err: editErr})
+	check("shell", shell.CallDetailed(context.Background(), item, map[string]any{"command": `Set-Content -LiteralPath "` + target + `" -Value changed`}))
+	check("run_script", NewRunScript(shell).CallDetailed(context.Background(), item, map[string]any{"language": "powershell", "source": `Set-Content -LiteralPath "` + target + `" -Value changed`}))
+	if data, _ := os.ReadFile(target); string(data) != "original" {
+		t.Fatalf("skills file changed to %q", data)
+	}
+}
+
 // With the service identity on, the OS decides; the literal-path card is not
 // raised (behaviour unchanged).
 func TestOutsidePathCardIsNotRaisedWithTheServiceIdentityOn(t *testing.T) {

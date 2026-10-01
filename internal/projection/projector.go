@@ -258,6 +258,39 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 // and paid 96.6 s of a 101.6 s launch for them on the operator's 19 MB of
 // journals. Anything that only needs the state calls this.
 func NextState(previous Snapshot, record Record) (Snapshot, error) {
+	return nextState(previous, record, false)
+}
+
+// nextLive is Store's single-owner fold. It may reuse transcript and timeline
+// storage because no prior Store snapshot is exposed; Next/NextState stay pure.
+func nextLive(previous Snapshot, record Record) (Snapshot, Patch, error) {
+	next, err := nextState(previous, record, true)
+	if err != nil {
+		return previous, Patch{}, err
+	}
+	comparison := previous
+	comparison.Chat = next.Chat
+	patch := diff(comparison, next)
+	data := eventMap(record.Event.Data)
+	if record.Event.Type == events.ModelDelta {
+		if entry := chatTurn(next.Chat, record.Event.RunID, intValue(data["turn"])); entry != nil && stringValue(data["text"]) != "" {
+			field := "text"
+			if stringValue(data["kind"]) == "reasoning" {
+				field = "reasoning"
+			}
+			value, _ := json.Marshal(stringValue(data["text"]))
+			patch.Operations = append(patch.Operations, Operation{Op: "append", Path: "/chat/" + pointer(entry.Key) + "/" + field, Value: value})
+		}
+	} else if record.Event.Type == events.ToolResult {
+		if entry := chatCall(next.Chat, stringValue(data["call_id"])); entry != nil {
+			value, _ := json.Marshal(entry)
+			patch.Operations = append(patch.Operations, Operation{Op: "upsert", Path: "/chat/" + pointer(entry.Key), Value: value})
+		}
+	}
+	return next, patch, nil
+}
+
+func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 	next := previous
 	next.SchemaVersion = SchemaVersion
 	next.Cursor = record.Cursor
@@ -501,7 +534,11 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 		// was gone. The other entries are shared with the previous snapshot
 		// and are never mutated without being cloned first, so Next stays pure.
 		var entry *ChatEntry
-		next.Chat, entry = chatWithMutableTurn(next.Chat, record.Event.RunID, intValue(data["turn"]))
+		if live {
+			entry = chatTurn(next.Chat, record.Event.RunID, intValue(data["turn"]))
+		} else {
+			next.Chat, entry = chatWithMutableTurn(next.Chat, record.Event.RunID, intValue(data["turn"]))
+		}
 		if entry != nil {
 			if stringValue(data["kind"]) == "reasoning" {
 				if entry.ThinkingStartedMS == 0 {
@@ -528,7 +565,9 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 		next.Activity.Stream.Done = true
 		next.Activity.Stream.ReasoningTokens = intValue(data["reasoning_tokens"])
 		next.Activity.Stream.Timings = mapValue(data["timings"])
-		next.Chat = cloneChat(next.Chat)
+		if !live {
+			next.Chat = cloneChat(next.Chat)
+		}
 		entry := chatTurn(next.Chat, record.Event.RunID, intValue(data["turn"]))
 		if entry == nil {
 			next.Chat = append(next.Chat, ChatEntry{Type: "agent", Key: "turn:" + turnKey(record.Event, data), RunID: record.Event.RunID, Turn: intValue(data["turn"]), AgentRole: "b"})
@@ -783,7 +822,11 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 	// Timeline is an unbounded durable operational view. Streaming fragments are
 	// retained only while their turn is live; completed response content lives in
 	// messages/model.response and cannot evict operational history.
-	next.Timeline = append(append([]events.Event(nil), next.Timeline...), stripDiagnostic(record.Event))
+	if live {
+		next.Timeline = append(next.Timeline, stripDiagnostic(record.Event))
+	} else {
+		next.Timeline = append(append([]events.Event(nil), next.Timeline...), stripDiagnostic(record.Event))
+	}
 	if record.Event.Type == events.ModelResponse {
 		next.Timeline = discardStream(next.Timeline, record.Event.RunID, intValue(data["turn"]))
 	} else if record.Event.Type == events.RunStopped {
@@ -1010,14 +1053,12 @@ func diff(before, after Snapshot) Patch {
 		value, _ := json.Marshal(field.now)
 		patch.Operations = append(patch.Operations, Operation{Op: "replace", Path: "/" + field.path, Value: value})
 	}
-	if !reflect.DeepEqual(before.Timeline, after.Timeline) {
-		if len(after.Timeline) == len(before.Timeline)+1 && reflect.DeepEqual(before.Timeline, after.Timeline[:len(before.Timeline)]) {
-			value, _ := json.Marshal(after.Timeline[len(after.Timeline)-1])
-			patch.Operations = append(patch.Operations, Operation{Op: "append", Path: "/timeline", Value: value})
-		} else {
-			value, _ := json.Marshal(after.Timeline)
-			patch.Operations = append(patch.Operations, Operation{Op: "replace", Path: "/timeline", Value: value})
-		}
+	if len(after.Timeline) == len(before.Timeline)+1 {
+		value, _ := json.Marshal(after.Timeline[len(after.Timeline)-1])
+		patch.Operations = append(patch.Operations, Operation{Op: "append", Path: "/timeline", Value: value})
+	} else if !reflect.DeepEqual(before.Timeline, after.Timeline) {
+		value, _ := json.Marshal(after.Timeline)
+		patch.Operations = append(patch.Operations, Operation{Op: "replace", Path: "/timeline", Value: value})
 	}
 	return patch
 }

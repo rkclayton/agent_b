@@ -48,14 +48,21 @@ func (s *Store) Apply(event events.Event, cursor events.LogCursor) {
 	if previous.Cursor.Generation == cursor.Generation && previous.Cursor.Offset >= cursor.Offset {
 		return
 	}
-	next, _, err := Next(previous, Record{Cursor: fromLogCursor(cursor), Event: event})
+	record := Record{Cursor: fromLogCursor(cursor), Event: event}
+	var next Snapshot
+	var patch Patch
+	var err error
+	if event.Type == events.ModelDelta || event.Type == events.ToolResult {
+		next, patch, err = nextLive(previous, record)
+	} else {
+		next, patch, err = Next(previous, record)
+	}
 	if err != nil {
 		s.stale[event.SessionID] = err.Error()
 		return
 	}
 	next.Stale, next.StaleReason = false, ""
 	delete(s.stale, event.SessionID)
-	patch := diff(previous, next)
 	s.states[event.SessionID] = next
 	s.broadcastLocked(patch)
 }

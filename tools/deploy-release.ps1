@@ -74,6 +74,9 @@ if (Test-Path -LiteralPath $signingReport -PathType Leaf) {
 }
 if ($signingExit -ne 0) { throw "DEPLOY REFUSED: release signing is not available to this ordinary console; run the recorded one-time key grant first." }
 
+& node (Join-Path $repository 'tools\check-invariants.mjs') --candidate $candidate
+if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: a product invariant was missing, skipped, not exercised, or failed." }
+
 & $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'tools\verify-deploy-candidate.ps1') -CandidateDirectory $candidate -ExpectedTag $Tag -ExpectedCommit $commit
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate verification exited $LASTEXITCODE." }
 

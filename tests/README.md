@@ -13,6 +13,7 @@ path-specific failure exists, the gate remains `always`.
 | Gate | Trigger paths | Evidence |
 | --- | --- | --- |
 | Plan lint and reconciliation | `always`; `PLAN.md`, `plan/**`, `tools/plan-*` | rel-1.7.2 plan reconciliation; catalogue failures are otherwise easy to defer |
+| Product invariants | `always`; `node tools/check-invariants.mjs --candidate CANDIDATE` on every release commit | Twelve operator decisions; every named proof must run and may not skip or report `not exercised` |
 | Order policy | `always`; `node tools/order-policy.mjs <order-evidence.json>` | The enforceable standing rules are fields in one order record; 27 planted negatives prove that each refusal fires |
 | Go vet | `always` | rel-1.7.2; no path-specific failure history, so always-run |
 | Production-incarnation guard | `always`, around every non-installer suite | build-1.8a/2ix W0 inventory |
@@ -35,6 +36,7 @@ path-specific failure exists, the gate remains `always`.
 | Gate | Entry point | Proves | Needs |
 | --- | --- | --- | --- |
 | Go unit and build-tag suites | Workflow package lists in `.github/workflows/ci.yml` | Runner-compatible product packages compile and unit contracts hold | Go 1.24+; see exclusions below |
+| Product invariants | `node tools/check-invariants.mjs --candidate CANDIDATE` | Every line of `INVARIANTS.md` has an existing green proof and a per-id run record | Signed disposable candidate; invisible desktop, no operator desktop |
 | Go vet | `go vet ./...` | Standard static checks pass | Go 1.24+ |
 | Event race gate | `go test -race ./internal/events` | Event publication and subscriber shutdown are race-safe | Race-capable Go runner |
 | Node unit suites | `node tests/run-node-tests.mjs` | Browser, plan-tool, helper, and workflow contracts hold | Node 24; no model or network |

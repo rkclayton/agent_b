@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -48,6 +49,9 @@ func NewWriters(dir string) (*Writers, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
+	if err := retainLogs(dir, time.Now(), 1); err != nil {
+		return nil, err
+	}
 	chatDir := filepath.Join(filepath.Dir(dir), "chats")
 	if err := os.MkdirAll(chatDir, 0o700); err != nil {
 		return nil, err
@@ -58,6 +62,79 @@ func NewWriters(dir string) (*Writers, error) {
 		return nil, err
 	}
 	return &Writers{dir: dir, chatDir: chatDir, start: stamp, global: file, sessions: map[string]*os.File{}, chats: map[string]*os.File{}, paths: map[string]string{}, sizes: map[string]int64{}, history: map[string]*historyIndex{}}, nil
+}
+
+const retainedLogCount = 128
+const retainedLogAge = 30 * 24 * time.Hour
+
+// retainLogs bounds only disposable top-level logs. Retained chat journals live
+// in chats/ and are never candidates; the newest file of every log kind survives.
+func retainLogs(dir string, now time.Time, reserve int) error {
+	type item struct {
+		path, kind string
+		mod        time.Time
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	items := make([]item, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		name := entry.Name()
+		lower, kind := strings.ToLower(name), strings.ToLower(filepath.Ext(name))
+		for _, fixed := range []string{"launcher.log", "launcher-errors.log", "crash-stderr.log", "pairing.log"} {
+			if lower == fixed {
+				kind = fixed
+				break
+			}
+		}
+		for _, prefix := range []string{"agent_b-", "installer-", "startup-", "crash-", "pairing-"} {
+			if strings.HasPrefix(lower, prefix) {
+				kind = prefix
+				break
+			}
+		}
+		items = append(items, item{filepath.Join(dir, name), kind, info.ModTime()})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].mod.Equal(items[j].mod) {
+			return items[i].path > items[j].path
+		}
+		return items[i].mod.After(items[j].mod)
+	})
+	limit := retainedLogCount - reserve
+	if limit < 0 {
+		limit = 0
+	}
+	keep, kinds := map[string]bool{}, map[string]bool{}
+	for _, value := range items {
+		if !kinds[value.kind] {
+			keep[value.path], kinds[value.kind] = true, true
+		}
+	}
+	for _, value := range items {
+		if len(keep) >= limit {
+			break
+		}
+		if now.Sub(value.mod) <= retainedLogAge {
+			keep[value.path] = true
+		}
+	}
+	for _, value := range items {
+		if !keep[value.path] {
+			if err := os.Remove(value.path); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // ProjectionCacheDir is where item 2m5's projected chat states are kept: beside

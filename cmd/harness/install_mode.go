@@ -153,6 +153,7 @@ func runInstall(options installOptions, args []string) int {
 	defer log.close()
 	installDone := make(chan struct{})
 	log.printf("install: starting; data root %s", dataRoot)
+	log.printf("install: application root %s", installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers)))
 
 	source := options.sourceDir
 	var removeSource func()

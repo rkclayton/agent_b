@@ -602,7 +602,11 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 				break
 			}
 		}
-		next.Chat = cloneChat(next.Chat)
+		// Store owns its live snapshot. A tool result changes one already-indexable
+		// row, so copying every retained chat would make this event grow with history.
+		if !live {
+			next.Chat = cloneChat(next.Chat)
+		}
 		if entry := chatCall(next.Chat, stringValue(data["call_id"])); entry != nil {
 			entry.Result = cloneMap(data)
 			entry.Content = stringValue(data["preview"])

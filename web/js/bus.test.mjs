@@ -47,13 +47,26 @@ test("projection patch cost stays constant at a full stored bound 2pd", () => {
   const measure = (count) => {
     const chat = Array.from({ length: count }, (_, index) => ({ key: String(index), text: "" }));
     snapshot({ chat });
+    let entryReads = 0;
+    store.sessions.main.chat = new Proxy(store.sessions.main.chat, { get(target, key, receiver) {
+      if (/^\d+$/.test(String(key))) entryReads++;
+      return Reflect.get(target, key, receiver);
+    }});
     let offset = 10;
     const started = performance.now();
     for (let index = 0; index < 2000; index++) patch(++offset, [{ op: "append", path: `/chat/${count - 1}/text`, value: "x" }], offset - 1);
-    return performance.now() - started;
+    return { ms: performance.now() - started, entryReads };
   };
   const one = measure(1), full = measure(2000);
-  assert.ok(full < 2 * one, `one=${one.toFixed(3)}ms full=${full.toFixed(3)}ms ratio=${(full / one).toFixed(2)}`);
+  console.log(`projection.patch wall one=${one.ms.toFixed(3)}ms full=${full.ms.toFixed(3)}ms; verdict entry_reads one=${one.entryReads} full=${full.entryReads}`);
+  assert.equal(full.entryReads, one.entryReads, `projection.patch work grew: one_chat=${one.entryReads} entry reads full_2000_chats=${full.entryReads} entry reads`);
+  const planted = (count) => {
+    const chat = Array.from({ length: count }, (_, index) => ({ key: String(index) }));
+    let inspected = 0;
+    chat.find((entry) => { inspected++; return entry.key === String(count - 1); });
+    return inspected;
+  };
+  assert.ok(planted(2000) > planted(1), `pre-v1.57 full-copy projection was not rejected: one_chat=${planted(1)} full_2000_chats=${planted(2000)} entry reads`);
 });
 
 test("projection replacement cannot merge stale budget/tool fields", () => {

@@ -1,11 +1,45 @@
 package events
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestLogRetentionBoundsCountAndAgeAndKeepsNewestKind2pd(t *testing.T) {
+	dir, now := t.TempDir(), time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	kinds := []string{"Agent_b", "installer", "startup", "crash", "chat"}
+	newest := map[string]string{}
+	for i := 0; i < 500; i++ {
+		kind := kinds[i%len(kinds)]
+		path := filepath.Join(dir, kind+"-"+fmt.Sprintf("%03d", i)+".log")
+		if err := os.WriteFile(path, []byte("fixture\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		at := now.Add(-time.Duration(500-i) * 24 * time.Hour)
+		_ = os.Chtimes(path, at, at)
+		newest[kind] = path
+	}
+	writers, err := NewWriters(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writers.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) > 128 {
+		t.Fatalf("retained %d logs, want at most 128", len(entries))
+	}
+	for kind, path := range newest {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("newest %s log was removed", kind)
+		}
+	}
+}
 
 func TestCloseSessionReleasesWriter(t *testing.T) {
 	writers, err := NewWriters(t.TempDir())

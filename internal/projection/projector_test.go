@@ -14,45 +14,61 @@ import (
 )
 
 func TestLiveProjectionPerEventCostDoesNotGrowWithStoredEvents2pd(t *testing.T) {
-	seed := func(count int) Snapshot {
+	seed := func(count int, kind string) Snapshot {
 		state := Empty("main")
 		for i := 0; i < count; i++ {
-			kind := events.ModelDelta
-			if i == 0 {
-				kind = events.ModelRequest
-			}
-			state, _ = NextState(state, Record{Cursor: Cursor{Generation: "main.jsonl", Offset: int64(i + 1)}, Event: events.New(kind, "main", "run", map[string]any{"turn": 1, "kind": "content", "text": "x"})})
+			state.Chat = append(state.Chat, ChatEntry{Type: "agent", Key: fmt.Sprintf("turn:run:%d", i), RunID: "run", Turn: i})
 		}
-		state, _ = NextState(state, Record{Cursor: Cursor{Generation: "main.jsonl", Offset: int64(count + 1)}, Event: events.New(events.ToolCallEvent, "main", "run", map[string]any{"call_id": "call", "name": "shell"})})
+		state.Chat[len(state.Chat)-1].Key = "turn:active"
+		state.Chat[len(state.Chat)-1].Turn = 1
+		if kind == events.ToolResult {
+			state.Chat[len(state.Chat)-1] = ChatEntry{Type: "tool", Key: "tool:call", CallID: "call", Name: "shell"}
+			state.Tools = []Tool{{Name: "shell", Enabled: true}}
+		}
+		state.Cursor = Cursor{Generation: "main.jsonl", Offset: int64(count)}
 		return state
 	}
-	measure := func(count int, kind string) time.Duration {
-		best := time.Hour
-		for range 3 {
-			state := seed(count)
-			store := NewStore()
-			store.states["main"], store.sources["main"], store.initialized["main"] = state, events.LogCursor{Generation: "main.jsonl", Offset: int64(count + 1)}, true
-			start := time.Now()
-			for i := 0; i < 500; i++ {
-				data := map[string]any{"turn": 1, "kind": "content", "text": "x"}
-				if kind == events.ToolResult {
-					data = map[string]any{"call_id": "call", "name": "shell", "preview": "ok"}
-				}
-				store.Apply(events.New(kind, "main", "run", data), events.LogCursor{Generation: "main.jsonl", Offset: int64(count + 2 + i)})
-			}
-			if elapsed := time.Since(start) / 500; elapsed < best {
-				best = elapsed
-			}
+	measure := func(count int, kind string) (float64, time.Duration) {
+		state := seed(count, kind)
+		store := NewStore()
+		data := map[string]any{"turn": 1, "kind": "content", "text": "x"}
+		if kind == events.ToolResult {
+			data = map[string]any{"call_id": "call", "name": "shell", "preview": "ok"}
 		}
-		return best
+		event := events.New(kind, "main", "run", data)
+		cursor := events.LogCursor{Generation: "main.jsonl", Offset: int64(count + 1)}
+		apply := func() {
+			store.states["main"], store.initialized["main"] = state, true
+			store.Apply(event, cursor)
+		}
+		allocations := testing.AllocsPerRun(100, apply)
+		started := time.Now()
+		for range 500 {
+			apply()
+		}
+		return allocations, time.Since(started)
 	}
 	for _, kind := range []string{events.ModelDelta, events.ToolResult} {
-		small, full := measure(1, kind), measure(2000, kind)
-		t.Logf("%s one=%s full=%s ratio=%.2f", kind, small, full, float64(full)/float64(small))
-		if full >= 2*small {
-			t.Errorf("%s per-event cost grew from %s to %s", kind, small, full)
+		one, oneWall := measure(1, kind)
+		full, fullWall := measure(200, kind)
+		t.Logf("%s wall one=%s full=%s; verdict allocations/event one=%.0f full=%.0f", kind, oneWall, fullWall, one, full)
+		if full != one {
+			t.Errorf("%s per-event work grew: one_chat=%.0f allocations/event full_200_chats=%.0f allocations/event", kind, one, full)
 		}
 	}
+	plant := func(count int) float64 {
+		state := seed(count, events.ModelDelta)
+		return testing.AllocsPerRun(10, func() {
+			raw, _ := json.Marshal(state.Chat)
+			var copied []ChatEntry
+			_ = json.Unmarshal(raw, &copied)
+		})
+	}
+	one, full := plant(1), plant(200)
+	if full <= one {
+		t.Fatalf("pre-v1.57 full-copy projection was not rejected: one_chat=%.0f allocations/event full_200_chats=%.0f allocations/event", one, full)
+	}
+	t.Logf("pre-v1.57 full-copy projection rejected: one_chat=%.0f allocations/event full_200_chats=%.0f allocations/event", one, full)
 }
 
 func TestNextIsPureAndEmitsVersionedCursorPatch(t *testing.T) {

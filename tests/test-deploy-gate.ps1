@@ -45,7 +45,13 @@ try {
     [Environment]::SetEnvironmentVariable('AGENTB_HOME', $selectedHome, 'User')
     [IO.File]::WriteAllText($signal, '')
     $late.WaitForExit()
-    if ($late.ExitCode -ne 0 -or [IO.File]::ReadAllText($lateOutput).Trim() -cne 'owned: ok 2 rows') { throw 'A process started before AGENTB_HOME was set did not find the selected HOME.' }
+    $late.Refresh()
+    $lateText = [IO.File]::ReadAllText($lateOutput).Trim()
+    # Windows PowerShell can leave ExitCode unset on a Start-Process object
+    # after redirected output, even though WaitForExit completed. The exact
+    # success line is emitted only by Complete-OwnedCheck immediately before
+    # it exits zero, so pair it with HasExited instead of a nullable property.
+    if (-not $late.HasExited -or $lateText -cne 'owned: ok 2 rows') { throw "A process started before AGENTB_HOME was set did not find the selected HOME: exited=$($late.HasExited), output '$lateText'." }
     [IO.File]::Move($second, "$second.renamed")
     $missing = Invoke-OwnedFixture
     if ($missing.Exit -ne 1 -or $missing.Output -cne 'owned: missing second-file') { throw "missing owned fixture differed: $($missing.Exit) $($missing.Output)" }

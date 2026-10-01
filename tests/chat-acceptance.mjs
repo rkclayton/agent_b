@@ -1209,6 +1209,17 @@ if (realModel) {
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
   await page.locator("#chat-task").waitFor({ state: "visible" });
 
+  // This lifecycle case deliberately keeps one model request open while it
+  // exercises pointer holds, captures, and scrolling. Give only this request
+  // enough time; the slow-accounting case below still owns the fixture's
+  // three-second timeout and verifies that it was restored.
+  const lifecycleConfigState = await state();
+  const lifecycleConnection = lifecycleConfigState.config.connections.find((connection) => connection.id === "acceptance");
+  await json(`http://127.0.0.1:${appPort}/api/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": lifecycleConfigState.mutation_token },
+    body: JSON.stringify({ connections: [{ ...lifecycleConnection, request_timeout_s: 30 }] }),
+  });
   await page.locator("#chat-task").fill("acceptance: menu stream");
   await page.locator("#chat-send").click();
   const lifecycleRunStarted = await waitEvent(sessionID, (event) => event.type === "run.started", "tool-tick lifecycle run started");
@@ -1320,6 +1331,10 @@ if (realModel) {
     await page.waitForTimeout(1000);
     assert.equal(await handle.evaluate((node) => node.isConnected && node.matches(":hover") && node.matches(":active")), true, `${label} lost hover or press while another row streamed`);
     assert.ok(await page.locator('[data-entry-key*="menu-stream-0"]').count(), `${label} hold must overlap the different streaming row`);
+    // Release away from the control: this loop proves pointer-hold stability,
+    // not activation. Releasing on the completed tool toggled it and forced a
+    // render between the two independent hold checks.
+    await page.mouse.move(0, 0);
     await page.mouse.up();
   }
   const toolButton = page.locator('[data-entry-key*="menu-stream-0"] button.tool-tick');
@@ -1408,6 +1423,13 @@ if (realModel) {
   await page.locator("#chat-send").click();
   await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > lifecycleRunStarted.seq, "tool-tick lifecycle run stopped");
   await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'send'`, "tool-tick lifecycle stop projected");
+  const restoreLifecycleState = await state();
+  const restoreLifecycleConnection = restoreLifecycleState.config.connections.find((connection) => connection.id === "acceptance");
+  await json(`http://127.0.0.1:${appPort}/api/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": restoreLifecycleState.mutation_token },
+    body: JSON.stringify({ connections: [{ ...restoreLifecycleConnection, request_timeout_s: 3 }] }),
+  });
 
   await settleSession(sessionID, "a transcript fixture");
 
@@ -1854,14 +1876,14 @@ if (realModel) {
   events = await sessionEvents(sessionID);
   const beforePlanRegistration = events.at(-1)?.seq || 0;
   await setTask(`Add ${bound} as a plan`);
-	const planRegistrationApproval = await waitEvent(sessionID, (event) => event.seq > beforePlanRegistration && event.type === "approval.required" && event.data?.name === "plan registration", "plan registration approval.required");
-	await page.reload();
-	await browser.wait(`performance.getEntriesByType('navigation')[0]?.type==='reload' && document.querySelector('#chat-task')`, "pending approval refresh");
-	await waitFileContains(join(profileData, "OUTBOX.md"), "needs you: approval is waiting");
-	record("outbox-line-on-pause");
-	await browser.wait(`document.querySelector('.approval-card')`, "plan registration approval");
-	assert.equal(await clickText(".approval-card button", "Yes, for this chat"), true);
-	await waitEvent(sessionID, (event) => event.seq > planRegistrationApproval.seq && event.type === "run.stopped", "plan registration completed");
+	const planRegistrationNotice = await waitEvent(sessionID, (event) => event.seq > beforePlanRegistration && event.type === "message.appended" && event.data?.message?.content === "registered acceptance-bound as a plan", "default plan registration notice");
+	assert.equal(planRegistrationNotice.data.message.role, "harness");
+	const planRegistrationStopped = await waitEvent(sessionID, (event) => event.seq > planRegistrationNotice.seq && event.type === "run.stopped", "plan registration completed");
+	assert.equal(planRegistrationStopped.data.detail, "plan registered: acceptance-bound");
+	events = await sessionEvents(sessionID);
+	assert.equal(events.some((event) => event.seq > beforePlanRegistration && event.type === "approval.required" && event.data?.name === "plan registration"), false);
+	assert.equal(await page.locator(".approval-card").count(), 0);
+	record("default-plan-registration-notice-without-card");
 	events = await sessionEvents(sessionID);
 	const beforeInspectionApproval = events.at(-1)?.seq || 0;
 	await setTask(`Please inspect acceptance directory "${bound}" and report.`);
@@ -2876,7 +2898,14 @@ if (realModel) {
 
   // Item 2fs, the walk's reproduction: chat A pauses on a card nobody answers;
   // chat B on the same model runs to its answer meanwhile; answering A's card
-  // lets A take the model back and finish.
+  // lets A take the model back and finish. Boundary-only is notice-only now,
+  // so this card-specific scenario explicitly uses the unchanged mutating mode.
+  const cardPolicyState = await state();
+  await json(`http://127.0.0.1:${appPort}/api/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": cardPolicyState.mutation_token },
+    body: JSON.stringify({ approval: { mode: "mutating" } }),
+  });
   const carded = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
   const beside = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
 	const pausedPlanDir = join(args.data, "paused-card-plan");
@@ -2900,6 +2929,12 @@ if (realModel) {
   }
 	await post(carded.id, "acceptance: card released");
   await waitProjectedChatText(carded.id, "CARD RELEASED ANSWER", "chat A finished once its card was answered", 20000);
+  const restoreCardPolicyState = await state();
+  await json(`http://127.0.0.1:${appPort}/api/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": restoreCardPolicyState.mutation_token },
+    body: JSON.stringify({ approval: { mode: "boundary-only" } }),
+  });
   record("card-nobody-answers-does-not-hold-the-model");
 
   // Item 2fc: no horizontal scrollbar on the Plan page at any supported width,

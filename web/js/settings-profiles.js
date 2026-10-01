@@ -36,6 +36,6 @@ export function renderProfilesPage(context) {
     ${skills || '<p class="settings-note inline">No skills found.</p>'}
     <div class="setting-row" title="Import one skill folder or ZIP archive into this profile."><label for="skill-import-path">folder to import</label><div class="settings-actions"><input id="skill-import-path" placeholder="C:\\path\\to\\skill"><button type="button" data-action="skill-import">Import</button><button type="button" data-action="skill-rescan">Rescan</button></div></div>
     ${subhead("Import from Hermes", "Preview memory, skills and excluded data before anything is written.")}
-    <div class="setting-row"><label for="hermes-import-path">Hermes folder</label><div class="settings-actions"><input id="hermes-import-path" value="${attr(actionDrafts?.get?.("hermes-import-path") || "~/.hermes")}"><button type="button" data-action="hermes-preview">Import from Hermes</button></div></div>${hermesPreviewBlock}${hermesReportBlock}
+    <div class="setting-row" title="Choose the Hermes folder to preview before importing memory and skills into this profile."><label for="hermes-import-path">Hermes folder</label><div class="settings-actions"><input id="hermes-import-path" value="${attr(actionDrafts?.get?.("hermes-import-path") || "~/.hermes")}"><button type="button" data-action="hermes-preview">Import from Hermes</button></div></div>${hermesPreviewBlock}${hermesReportBlock}
     ${subhead("Agent memory", "Durable notes loaded by every chat of this agent. Remove deletes only the named entry.")}${memory}`;
 }

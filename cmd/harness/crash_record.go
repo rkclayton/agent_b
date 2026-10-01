@@ -17,8 +17,7 @@ import (
 	"harness/internal/session"
 )
 
-// Item 2mt (a): A CRASH LEAVES A RECORD, and this lands before the fix because
-// the next crash has to be readable.
+// Item 2mt (a): A CRASH LEAVES A RECORD.
 //
 // The operator, 2026-09-27 03:11: "i dragged the window while he was thinking, it
 // crashed." What his data root actually holds: chat s34's journal stops on a
@@ -27,28 +26,7 @@ import (
 // nothing. The whole process died, server and host window together, and NOTHING
 // SAID SO.
 //
-// Two separate silences, and only one of them was already covered:
-//
-//  1. THAT it died. `lifetime.begin` already notices a previous marker whose PID
-//     is gone and appends "ended without recording a reason" — but only on the
-//     NEXT START, and he has not started it since, which is why his
-//     launcher-errors.log still ends at 03:03:51. That mechanism is kept and is
-//     not duplicated here.
-//  2. WHERE it died. Nothing wrote a stack, a build, a window state or a journal
-//     position — and a Go panic prints its traceback to STDERR, which the
-//     launcher detaches and does not persist (AGENTS.md says so in as many
-//     words). So the one artefact that would name the faulting line was thrown
-//     away by design.
-//
-// This file closes the second. It does two things a panic cannot do for itself:
-// it keeps the runtime's own traceback by giving stderr somewhere to land when
-// there is no console to print to, and it writes a structured record from a
-// recover() at every boundary where Windows calls back into Go.
-//
-// There is no recover() anywhere in the window procedure today, and a panic in a
-// syscall callback takes the process with it, which is consistent with everything
-// above.
-
+// Recovery runs at every boundary where Windows calls back into Go.
 const crashStderrName = "crash-stderr.log"
 
 type crashContext struct {
@@ -128,6 +106,10 @@ func noteForCrash(key string, value any) {
 // boundary that caught it, so a reader knows whether Windows called us or we
 // called ourselves.
 func (c *crashContext) writeCrashRecord(where string, recovered any, stack []byte) string {
+	return c.writeCrashRecordWithPCs(where, recovered, stack, nil)
+}
+
+func (c *crashContext) writeCrashRecordWithPCs(where string, recovered any, stack []byte, pcs []uint64) string {
 	c.mu.Lock()
 	dataRoot, build := c.dataRoot, c.build
 	state := make(map[string]any, len(c.state))
@@ -146,17 +128,22 @@ func (c *crashContext) writeCrashRecord(where string, recovered any, stack []byt
 	}
 	sort.Strings(keys)
 	record := map[string]any{
-		"at":         time.Now().UTC().Format(time.RFC3339Nano),
-		"where":      where,
-		"panic":      fmt.Sprintf("%v", recovered),
-		"stack":      string(stack),
-		"build":      build,
-		"pid":        os.Getpid(),
-		"goos":       runtime.GOOS,
-		"go":         runtime.Version(),
-		"routines":   runtime.NumGoroutine(),
-		"state":      state,
-		"state_keys": keys,
+		"at":          time.Now().UTC().Format(time.RFC3339Nano),
+		"where":       where,
+		"panic":       fmt.Sprintf("%v", recovered),
+		"stack":       string(stack),
+		"build":       build,
+		"pid":         os.Getpid(),
+		"goos":        runtime.GOOS,
+		"go":          runtime.Version(),
+		"routines":    runtime.NumGoroutine(),
+		"state":       state,
+		"state_keys":  keys,
+		"stack_pcs":   pcs,
+		"module_base": executableModuleBase(),
+	}
+	if executable, err := os.Executable(); err == nil {
+		record["executable"] = filepath.Base(executable)
 	}
 	body, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
@@ -179,7 +166,7 @@ func recoverCrash(where string, lifetimeLog func(string)) {
 		return
 	}
 	stack := debug.Stack()
-	path := crashRecord.writeCrashRecord(where, recovered, stack)
+	path := crashRecord.writeCrashRecordWithPCs(where, recovered, stack, crashProgramCounters())
 	if lifetimeLog != nil {
 		if path != "" {
 			lifetimeLog(fmt.Sprintf("Agent_b PID %d crashed in %s: %v — the stack, the build and the last known window and journal state are in %s", os.Getpid(), where, recovered, path))
@@ -188,6 +175,86 @@ func recoverCrash(where string, lifetimeLog func(string)) {
 		}
 	}
 	panic(recovered)
+}
+
+func crashProgramCounters() []uint64 {
+	callers := make([]uintptr, 64)
+	n := runtime.Callers(3, callers)
+	frames, out := runtime.CallersFrames(callers[:n]), make([]uint64, 0, 50)
+	for len(out) < 51 {
+		frame, more := frames.Next()
+		if !strings.HasPrefix(frame.Function, "runtime.") && !strings.Contains(frame.Function, "recoverCrash") && !strings.Contains(frame.Function, "crashProgramCounters") {
+			out = append(out, uint64(frame.PC))
+		}
+		if !more {
+			break
+		}
+	}
+	return out
+}
+
+type pendingCrashReport struct {
+	Path, At string
+	Data     map[string]any
+}
+
+func pendingCrashReports(dataRoot string) []pendingCrashReport {
+	dir := filepath.Join(dataRoot, "logs")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var reports []pendingCrashReport
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "crash-") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if _, err := os.Stat(path + ".telemetry-reported"); err == nil {
+			continue
+		}
+		var record struct {
+			At, Where, Executable string
+			StackPCs              []uint64       `json:"stack_pcs"`
+			ModuleBase            uint64         `json:"module_base"`
+			Build                 map[string]any `json:"build"`
+		}
+		body, err := os.ReadFile(path)
+		if err != nil || json.Unmarshal(body, &record) != nil || len(record.StackPCs) == 0 {
+			continue
+		}
+		digest, _ := record.Build["executable_sha256"].(string)
+		if len(digest) < 32 || record.Executable == "" {
+			continue
+		}
+		frames := make([]map[string]any, 0, len(record.StackPCs))
+		for index, pc := range record.StackPCs {
+			if index == 50 {
+				break
+			}
+			if pc >= record.ModuleBase {
+				frames = append(frames, map[string]any{"binary": 0, "offset": pc - record.ModuleBase, "address": pc})
+			}
+		}
+		if len(frames) == 0 {
+			continue
+		}
+		uuid := fmt.Sprintf("%s-%s-%s-%s-%s", digest[:8], digest[8:12], digest[12:16], digest[16:20], digest[20:32])
+		tree := map[string]any{"binaries": []any{map[string]any{"uuid": strings.ToLower(uuid), "name": filepath.Base(record.Executable), "text_offset": 0}}, "threads": []any{map[string]any{"frames": frames}}, "exception_type": 0, "signal": 0, "termination_reason": "go.panic", "truncated": len(record.StackPCs) > 50}
+		reports = append(reports, pendingCrashReport{Path: path, At: record.At, Data: map[string]any{"where": crashWhere(record.Where), "class": "crash", "stack_tree": tree}})
+	}
+	return reports
+}
+
+func crashWhere(value string) string {
+	value = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), " ", "_"))
+	if value == "" {
+		return "runtime"
+	}
+	return value
+}
+func markCrashReported(path string) error {
+	return os.WriteFile(path+".telemetry-reported", nil, 0o600)
 }
 
 // crashLauncherLine puts the crash where the operator already looks. The data

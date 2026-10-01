@@ -124,6 +124,16 @@ func (s *Server) TelemetryRunning() bool {
 	return s.telemetry.state != nil
 }
 
+func (s *Server) QueueStartupTelemetry(eventType, at string, data map[string]any) bool {
+	s.telemetry.mu.Lock()
+	defer s.telemetry.mu.Unlock()
+	if s.telemetry.state == nil || !s.telemetry.state.sender.Observe(eventType, at, data) {
+		return false
+	}
+	s.telemetry.state.sender.Flush()
+	return true
+}
+
 // NewInstallID is issued when the switch goes off then on, so two runs of
 // telemetry from one machine cannot be joined.
 func NewInstallID() string { return telemetry.NewInstallID() }

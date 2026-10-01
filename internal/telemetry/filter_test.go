@@ -150,6 +150,39 @@ func TestPickDropsEverythingFromADroppedType2jg(t *testing.T) {
 	}
 }
 
+func validCrashTree2p7() map[string]any {
+	return map[string]any{
+		"binaries": []any{map[string]any{
+			"uuid": "01234567-89ab-cdef-0123-456789abcdef", "name": "Agent_b.exe", "text_offset": 0,
+		}},
+		"threads": []any{map[string]any{
+			"frames": []any{map[string]any{"binary": 0, "offset": 4660, "address": 140700000001234}},
+		}},
+		"exception_type": 0, "signal": 0, "termination_reason": "go.panic", "truncated": false,
+	}
+}
+
+func TestCrashTreeHasAClosedContentFreeShape2p7(t *testing.T) {
+	class, _ := Classify("error")
+	good := Pick(class, map[string]any{"where": "host_window", "class": "crash", "stack_tree": validCrashTree2p7()})
+	if good["stack_tree"] == nil {
+		t.Fatal("a bounded crash tree was dropped")
+	}
+	for name, mutate := range map[string]func(map[string]any){
+		"free text":        func(tree map[string]any) { tree["message"] = "C:\\Users\\person\\secret.go panic" },
+		"too many threads": func(tree map[string]any) { tree["threads"] = make([]any, 17) },
+		"bad reason":       func(tree map[string]any) { tree["termination_reason"] = "the panic message" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			tree := validCrashTree2p7()
+			mutate(tree)
+			if got := Pick(class, map[string]any{"where": "runtime", "class": "crash", "stack_tree": tree}); got != nil {
+				t.Fatalf("invalid crash event survived: %#v", got)
+			}
+		})
+	}
+}
+
 // docs/TELEMETRY.md is the contract and the allow-list is generated against it,
 // so the two agreeing is not decoration: a field added to one and not the other
 // is exactly how a document stops describing the product.

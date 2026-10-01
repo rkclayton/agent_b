@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -90,18 +91,35 @@ func TestMemorySentenceAgreesWithTheRememberAndRecallDescriptions(t *testing.T) 
 
 func TestAgentAvoidanceNoteDoesNotPreventTheExistingOutsideFolderCard2p3(t *testing.T) {
 	badNote := "STAY IN WORKSPACE: do not search outside it because the approval wedges"
+	wantPath := filepath.Join(t.TempDir(), "redirected-downloads")
+	priorResolver := resolveNamedPath
+	resolveNamedPath = func(value string) string {
+		if value == "my Downloads" {
+			return wantPath
+		}
+		return priorResolver(value)
+	}
+	defer func() { resolveNamedPath = priorResolver }()
 	requestBody := make(chan string, 1)
+	var requests atomic.Int32
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
 		encoded, _ := json.Marshal(body)
-		requestBody <- string(encoded)
+		if requests.Add(1) == 1 {
+			requestBody <- string(encoded)
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		if requests.Load() > 1 {
+			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "done"}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 1}})
+			fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
+			return
+		}
 		delta := map[string]any{"tool_calls": []any{map[string]any{
 			"index": 0, "id": "list-downloads", "type": "function",
-			"function": map[string]any{"name": "list_dir", "arguments": `{"path":"C:\\outside\\Downloads"}`},
+			"function": map[string]any{"name": "list_dir", "arguments": `{"path":"my Downloads"}`},
 		}}}
 		chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": "tool_calls"}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 5}})
 		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
@@ -131,9 +149,8 @@ func TestAgentAvoidanceNoteDoesNotPreventTheExistingOutsideFolderCard2p3(t *test
 	if _, err := runner.AddUser(context.Background(), item, "how many folders are in my Downloads"); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { _, _, _ = runner.Run(ctx, item, "run-memory"); close(done) }()
+	go func() { _, _, _ = runner.Run(context.Background(), item, "run-memory"); close(done) }()
 	select {
 	case body := <-requestBody:
 		if strings.Contains(body, badNote) {
@@ -152,11 +169,20 @@ func TestAgentAvoidanceNoteDoesNotPreventTheExistingOutsideFolderCard2p3(t *test
 			if data["name"] != "list_dir.operator_override" {
 				t.Fatalf("unexpected card: %+v", data)
 			}
-			cancel()
-			if err := runner.Gate().Decide(item.ID, data["call_id"].(string), "deny"); err != nil {
+			if data["args"].(map[string]any)["path"] != wantPath {
+				t.Fatalf("card path=%q want=%q", data["args"].(map[string]any)["path"], wantPath)
+			}
+			if err := runner.Gate().Decide(item.ID, data["call_id"].(string), "approve"); err != nil {
 				t.Fatal(err)
 			}
-			<-done
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("run did not finish after the redirected tool call")
+			}
+			if tool.lastArgs["path"] != wantPath {
+				t.Fatalf("tool path=%q want=%q", tool.lastArgs["path"], wantPath)
+			}
 			return
 		case <-time.After(5 * time.Second):
 			t.Fatal("the existing outside-folder card was not raised")

@@ -40,6 +40,7 @@ type overrideTestTool struct {
 	name          string
 	normalCalls   int
 	overrideCalls int
+	lastArgs      map[string]any
 }
 
 func (t *overrideTestTool) Name() string {
@@ -53,12 +54,14 @@ func (*overrideTestTool) Schema() map[string]any { return map[string]any{} }
 func (*overrideTestTool) Call(context.Context, *session.Session, map[string]any) (string, error) {
 	return "unused", nil
 }
-func (t *overrideTestTool) CallDetailed(context.Context, *session.Session, map[string]any) tools.CallDetail {
+func (t *overrideTestTool) CallDetailed(_ context.Context, _ *session.Session, args map[string]any) tools.CallDetail {
 	t.normalCalls++
+	t.lastArgs = args
 	return tools.CallDetail{Content: "exit=1\nAccess to the path is denied.", OperatorOverrideReason: "service account was denied permission"}
 }
-func (t *overrideTestTool) CallAsOperator(context.Context, *session.Session, map[string]any) (string, error) {
+func (t *overrideTestTool) CallAsOperator(_ context.Context, _ *session.Session, args map[string]any) (string, error) {
 	t.overrideCalls++
+	t.lastArgs = args
 	return "exit=0\noperator-ok", nil
 }
 

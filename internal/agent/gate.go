@@ -75,11 +75,17 @@ func (g *Gate) required(name string) bool {
 	return approvalRequired(g.cfg().Approval.Mode, name)
 }
 func (g *Gate) requiredFor(s *session.Session, name string) bool {
+	return approvalRequired(g.modeFor(s), name)
+}
+func (g *Gate) modeFor(s *session.Session) string {
 	mode := s.Policy().ApprovalMode
 	if mode == "" {
 		mode = g.cfg().Approval.Mode
 	}
-	return approvalRequired(mode, name)
+	return mode
+}
+func (g *Gate) noticeOnly(s *session.Session) bool {
+	return !g.unattended(s) && g.modeFor(s) == config.ApprovalModeBoundaryOnly
 }
 func approvalRequired(mode, name string) bool {
 	switch mode {
@@ -177,6 +183,9 @@ func (g *Gate) WaitBoundaryDecision(ctx context.Context, s *session.Session, run
 func (g *Gate) WaitCycleDecision(ctx context.Context, s *session.Session, runID, callID string, args map[string]any) (string, error) {
 	if g.unattended(s) {
 		return g.refuseUnattended(s, runID, callID, boundaryCycle, "run.cycle", args), nil
+	}
+	if g.noticeOnly(s) {
+		return "continue", nil
 	}
 	g.sequenceMu.Lock()
 	wait, cleanup := g.beginWait(s, runID, callID, approvalCycle, StandingGrant{})

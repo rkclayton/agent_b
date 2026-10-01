@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -335,6 +337,7 @@ func TestCycleDecisionPausesAndAcceptsOnlyContinueOrStop(t *testing.T) {
 	eventsCh, unsubscribe := bus.Subscribe()
 	defer unsubscribe()
 	cfg := config.Defaults(t.TempDir())
+	cfg.Approval.Mode = config.ApprovalModeMutating
 	gate := NewGate(bus, func() config.Config { return cfg })
 	s := &session.Session{ID: "session", Run: session.RunState{Status: "running"}}
 	done := make(chan string, 1)
@@ -355,6 +358,60 @@ func TestCycleDecisionPausesAndAcceptsOnlyContinueOrStop(t *testing.T) {
 	}
 	if got := <-done; got != "continue" {
 		t.Fatalf("decision=%q", got)
+	}
+}
+
+func TestBoundaryOnlyRunRecordsCycleNoticeAndContinues2pi(t *testing.T) {
+	var requests atomic.Int32
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		turn := requests.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		delta := map[string]any{"content": "done"}
+		finish := "stop"
+		if turn <= 2 {
+			delta = map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": fmt.Sprintf("repeat-%d", turn), "type": "function", "function": map[string]any{"name": "list_dir", "arguments": `{"path":"same"}`}}}}
+			finish = "tool_calls"
+		}
+		chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": finish}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 1}})
+		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
+	}))
+	defer model.Close()
+
+	cfg := config.Defaults(t.TempDir())
+	cfg.Context.Accounting = "estimated"
+	connection := cfg.Connections[0]
+	connection.ID, connection.BaseURL = "main", model.URL
+	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+	connection.Capabilities.OverflowBehavior = "error"
+	bus := events.NewBus()
+	eventCh, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	runner := NewRunner(bus, toolpkg.New(delegateFixtureTool{name: "list_dir"}), &PromptRenderer{text: "system"}, func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }, func() config.Config { return cfg })
+	item := &session.Session{ID: "cycle-notice", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{"list_dir": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	if _, err := runner.AddUser(context.Background(), item, "repeat once"); err != nil {
+		t.Fatal(err)
+	}
+	reason, detail, _ := runner.Run(context.Background(), item, "run-cycle")
+	if reason != "done" {
+		t.Fatalf("reason=%q detail=%q", reason, detail)
+	}
+	found := false
+	for _, message := range item.MessagesCopy() {
+		found = found || message.Content == "stopped a loop after 2 turns, continuing differently"
+	}
+	if !found {
+		t.Fatal("cycle notice missing")
+	}
+	for draining := true; draining; {
+		select {
+		case event := <-eventCh:
+			if event.Type == events.ApprovalRequired {
+				t.Fatalf("card=%+v", event)
+			}
+		default:
+			draining = false
+		}
 	}
 }
 

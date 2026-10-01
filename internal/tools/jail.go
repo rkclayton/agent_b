@@ -3,11 +3,40 @@ package tools
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"harness/internal/session"
 )
+
+var knownFolderPath = func(name string) (string, bool) {
+	base, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	return filepath.Join(base, strings.Title(name)), true
+}
+var driveName = regexp.MustCompile(`(?i)^(?:my |the )?([a-z])(?::| drive(?: root)?)$`)
+
+// ResolveNamedPath turns the operator's ordinary Windows folder names into paths.
+func ResolveNamedPath(value string) string {
+	trimmed := strings.TrimSpace(value)
+	name := strings.ToLower(trimmed)
+	name = strings.TrimPrefix(strings.TrimPrefix(name, "my "), "the ")
+	for _, known := range []string{"downloads", "documents", "desktop", "pictures"} {
+		if name == known {
+			if path, ok := knownFolderPath(known); ok {
+				return filepath.Clean(path)
+			}
+		}
+	}
+	if match := driveName.FindStringSubmatch(trimmed); len(match) == 2 {
+		return strings.ToUpper(match[1]) + `:\`
+	}
+	return value
+}
 
 func Resolve(workspace, path string) (string, error) {
 	return resolvePath(workspace, path, true)
@@ -100,7 +129,7 @@ func within(root, candidate string) bool {
 }
 
 func resolvePath(workspace, path string, enforceWorkspace bool) (string, error) {
-
+	path = ResolveNamedPath(path)
 	if path == "" {
 		path = "."
 	}

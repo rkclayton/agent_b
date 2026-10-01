@@ -477,10 +477,7 @@ func TestNativeCopyReusesOnlyMatchingStaleInstallingBytes2oz(t *testing.T) {
 	for _, test := range []struct {
 		name, stale string
 		reused      bool
-	}{
-		{name: "matching", stale: "release", reused: true},
-		{name: "wrong", stale: "other", reused: false},
-	} {
+	}{{"matching", "release", true}, {"wrong", "other", false}} {
 		t.Run(test.name, func(t *testing.T) {
 			directory := t.TempDir()
 			source := filepath.Join(directory, "source.exe")

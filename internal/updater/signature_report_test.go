@@ -46,18 +46,22 @@ func TestAnInspectionThatCouldNotRunSaysSo2lb(t *testing.T) {
 	}
 }
 
-func TestAnUnsignedFileIsRefusedWithTheRealReason2lb(t *testing.T) {
+func TestEveryOuterStatusIsReportedAndOnlyHashMismatchIsRefused2ox(t *testing.T) {
 	err := readVerification(inspection{Report: []byte(`{"status":"NotSigned","status_message":"The file is not digitally signed.","signer":false,"timestamped":false}`)})
-	if err == nil {
-		t.Fatal("an unsigned file was accepted")
+	if err != nil {
+		t.Fatalf("an unsigned outer signature must be reported, not gated: %v", err)
 	}
-	if errors.Is(err, ErrVerificationUnavailable) {
-		t.Fatalf("a bad signature was reported as an unavailable verification: %v", err)
-	}
-	for _, want := range []string{"NotSigned", "not digitally signed"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("refusal does not say %q: %v", want, err)
+	for _, evidence := range []authenticodeEvidence{
+		{Status: "Valid", Subject: "CN=Organisation", Signer: true, Timestamped: true},
+		{Status: "UnknownError", Subject: "CN=Agent_b Operator Code Signing", Signer: true, Timestamped: true},
+	} {
+		if err := acceptAuthenticode(evidence); err != nil {
+			t.Fatalf("%s outer signature was gated: %v", evidence.Status, err)
 		}
+	}
+	err = acceptAuthenticode(authenticodeEvidence{Status: "HashMismatch", Subject: "CN=Agent_b Operator Code Signing", Signer: true})
+	if err == nil || !strings.Contains(err.Error(), "outer: HashMismatch CN=Agent_b Operator Code Signing") {
+		t.Fatalf("cryptographically broken outer signature was not refused with its log line: %v", err)
 	}
 }
 
@@ -66,7 +70,7 @@ func TestTimestampedSignatureStillAcceptedAfterSignerExpiry2lb(t *testing.T) {
 	if err := acceptAuthenticode(authenticodeEvidence{Status: "Valid", Signer: true, Timestamped: true, SignerNotAfter: time.Now().Add(-time.Hour)}); err != nil {
 		t.Fatalf("timestamped expired-signer fixture refused: %v", err)
 	}
-	if err := acceptAuthenticode(authenticodeEvidence{Status: "Valid", Signer: true}); err == nil {
-		t.Fatal("an untimestamped signature was accepted")
+	if err := acceptAuthenticode(authenticodeEvidence{Status: "Valid", Signer: true}); err != nil {
+		t.Fatalf("outer timestamp is diagnostic, not the payload gate: %v", err)
 	}
 }

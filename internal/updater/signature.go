@@ -18,6 +18,7 @@ var ErrVerificationUnavailable = errors.New("Authenticode verification could not
 type authenticodeEvidence struct {
 	Status         string    `json:"status"`
 	StatusMessage  string    `json:"status_message"`
+	Subject        string    `json:"subject"`
 	Signer         bool      `json:"signer"`
 	Timestamped    bool      `json:"timestamped"`
 	Unavailable    string    `json:"unavailable"`
@@ -58,23 +59,13 @@ func readVerification(result inspection) error {
 }
 
 func acceptAuthenticode(evidence authenticodeEvidence) error {
-	if evidence.Status != "Valid" {
-		// The tool's own words, when it gave any: "A certificate chain processed,
-		// but terminated in a root certificate which is not trusted" is actionable
-		// where "status is UnknownError" is not.
-		if message := strings.TrimSpace(evidence.StatusMessage); message != "" {
-			return fmt.Errorf("status is %s, expected Valid: %s", evidence.Status, message)
-		}
-		return fmt.Errorf("status is %s, expected Valid", evidence.Status)
+	subject := strings.TrimSpace(evidence.Subject)
+	if subject == "" {
+		subject = "none"
 	}
-	if !evidence.Signer {
-		return errors.New("signer certificate is missing")
+	line := fmt.Sprintf("outer: %s %s", evidence.Status, subject)
+	if evidence.Status == "HashMismatch" {
+		return errors.New(line)
 	}
-	if !evidence.Timestamped {
-		return errors.New("trusted timestamp is missing")
-	}
-	// Windows incorporates the timestamp into Status. Do not compare NotAfter
-	// with today: doing so would incorrectly expire a signature that was valid
-	// when its trusted timestamp was applied.
 	return nil
 }

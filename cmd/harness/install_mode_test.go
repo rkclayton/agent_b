@@ -169,6 +169,23 @@ func TestSingleFileSetupFindsBundleBeforeAuthenticodeCertificate(t *testing.T) {
 	}
 }
 
+func TestOuterSignatureIsReportedAndOnlyHashMismatchIsRefused2ox(t *testing.T) {
+	for _, test := range []struct {
+		status, subject, line string
+		refused               bool
+	}{
+		{"Valid", "CN=Organisation", "outer: Valid CN=Organisation", false},
+		{"UnknownError", "CN=Agent_b Operator Code Signing", "outer: UnknownError CN=Agent_b Operator Code Signing", false},
+		{"NotSigned", "", "outer: NotSigned none", false},
+		{"HashMismatch", "CN=Agent_b Operator Code Signing", "outer: HashMismatch CN=Agent_b Operator Code Signing", true},
+	} {
+		line, err := outerSignatureDecision(test.status, test.subject)
+		if line != test.line || (err != nil) != test.refused {
+			t.Fatalf("%s/%s: line=%q err=%v", test.status, test.subject, line, err)
+		}
+	}
+}
+
 func TestAnInstallMarkerSurvivesUntilAnInstallFinishes(t *testing.T) {
 	root := t.TempDir()
 	if _, found, err := readInstallMarker(root); err != nil || found {

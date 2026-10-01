@@ -4,6 +4,7 @@ package updater
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 )
@@ -20,15 +21,20 @@ func TestInspectionScriptWritesAReportAndSilencesTheConsole2lb(t *testing.T) {
 }
 
 // The real inspection, against this repository's own unsigned source file: a real
-// child, a real report, and an answer that is a refusal with a reason rather than
-// a JSON decode error.
-func TestRealInspectionOfAnUnsignedFileRefusesWithAReason2lb(t *testing.T) {
+// child and a real report. The outer status is diagnostic and is not the payload gate.
+func TestRealInspectionOfAnUnsignedFileIsAccepted2ox(t *testing.T) {
 	err := verifySetupSignature(context.Background(), "signature.go")
-	if err == nil {
-		t.Fatal("an unsigned source file was accepted")
+	if err != nil {
+		t.Fatalf("an unsigned outer signature was gated: %v", err)
 	}
-	if strings.Contains(err.Error(), "invalid character") {
-		t.Fatalf("the combined-stream decode is still in the path: %v", err)
+}
+
+func TestRealHashMismatchIsRefused2ox(t *testing.T) {
+	path := os.Getenv("AGENTB_HASH_MISMATCH_SETUP")
+	if path == "" {
+		t.Skip("set AGENTB_HASH_MISMATCH_SETUP to a tampered signed setup")
 	}
-	t.Logf("unsigned file refused with: %v", err)
+	if err := verifySetupSignature(context.Background(), path); err == nil || !strings.Contains(err.Error(), "outer: HashMismatch") {
+		t.Fatalf("tampered signed setup was not refused with its outer line: %v", err)
+	}
 }

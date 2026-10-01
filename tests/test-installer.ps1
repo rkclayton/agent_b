@@ -16,6 +16,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\agentb-stop.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\signing-key-policy.ps1')
 . (Join-Path $PSScriptRoot 'browser-session.ps1')
+. (Join-Path $PSScriptRoot 'suite-production-guard.ps1')
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-installer-test-' + [Guid]::NewGuid().ToString('N'))
 # Item 2gd: set at the end of the scenario block; the cleanup below keeps the
 # root when it is still false, so a failing run can be read afterwards.
@@ -28,6 +29,8 @@ $testRegistry = 'HKCU:\Software\Agent_b-Installer-Test-' + [Guid]::NewGuid().ToS
 $installer = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\install-Agent_b.ps1'
 $uninstaller = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\uninstall-Agent_b.ps1'
 $installerWrapper = Join-Path (Split-Path -Parent $PSScriptRoot) 'install-Agent_b.cmd'
+
+Assert-AgentBSuiteLaunch -ApplicationRoot $testApplication -DataRoot $testData -SuiteRoots @($testRoot)
 
 function Assert-TemporaryTestPath {
     param([string]$Path)

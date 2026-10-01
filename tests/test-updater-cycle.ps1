@@ -29,6 +29,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
+. (Join-Path $PSScriptRoot 'suite-production-guard.ps1')
 
 foreach ($path in @($FromSetup, $ToSetup)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "UPDATER CYCLE REFUSED: missing setup $path" }
@@ -59,6 +60,7 @@ $replayData = Join-Path $replayRoot 'Data\Agent_b'
 # His shape exactly: the workspace the updater sends is inside the data root.
 $replayWorkspace = Join-Path $replayData ('profiles\' + $env:USERNAME + '\scratch')
 $replayRegistry = 'HKCU:\Software\Agent_b-UpdaterReplayTest-' + [Guid]::NewGuid().ToString('N').Substring(0, 16)
+Assert-AgentBSuiteLaunch -ApplicationRoot $replayApplication -DataRoot $replayData -SuiteRoots @($replayRoot)
 try {
     foreach ($directory in @($replayApplication, $replayData, $replayWorkspace)) {
         $null = New-Item -ItemType Directory -Path $directory -Force
@@ -237,6 +239,7 @@ $data = Join-Path $root 'Data\Agent_b'
 $workspace = Join-Path $root 'workspace'
 $productionShapedWorkspace = Join-Path $data 'profiles\Operator\scratch'
 $feedRoot = Join-Path $root 'feed'
+Assert-AgentBSuiteLaunch -ApplicationRoot $application -DataRoot $data -SuiteRoots @($root)
 # install-root-policy requires a TestMode uninstall key to be recognisably
 # disposable: Agent_b followed by Test, Acceptance, or a long hex run.
 $registry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b-UpdaterCycleTest'

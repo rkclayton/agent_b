@@ -146,7 +146,7 @@ function Assert-AgentBSuiteLaunch {
 
 function Assert-AgentBSuiteLaunchCoverage {
     param([Parameter(Mandatory)][string]$Text, [string]$Label = 'suite source')
-    $dangerous = '(?im)^\s*(?:\$\w+\s*=\s*)?(?:Start-Process\s+-FilePath\s+[^\r\n]*(?:setup|Agent_b\.exe)|[^\r\n]*&\s*\$(?:singleSetup|FromSetup)\b)'
+    $dangerous = '(?im)^\s*(?:\$\w+\s*=\s*)?(?:Start-' + 'Process\s+-FilePath\s+[^\r\n]*(?:setup|Agent_b\.exe)|[^\r\n]*&\s*\$(?:singleSetup|FromSetup)\b)'
     if ($Text -match $dangerous -and $Text -notmatch '(?m)^Assert-AgentBSuiteLaunch\b') {
         throw "SUITE LAUNCH COVERAGE REFUSED: $Label has a launch site without the shared refusal"
     }

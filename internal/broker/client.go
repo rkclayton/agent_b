@@ -93,7 +93,8 @@ type Client struct {
 	// handled remembers request ids already executed, so a RESEND after a reconnect
 	// delivers the same answer instead of running the work twice. Item 2kq (c)'s
 	// deduplication at the execution boundary.
-	handled map[string][]byte
+	handled      map[string][]byte
+	handledOrder []string
 	// Item 2o7: sendMu keeps sealed frames on the wire in counter order when the
 	// answer to a request and the downstream stream send at the same time, and
 	// connected is told each time a session is up, with a context that ends with it.
@@ -650,13 +651,22 @@ func (c *Client) deliver(frame Frame, transport Transport) error {
 	if !already {
 		answer = c.handle(messageID, plaintext)
 		c.mu.Lock()
-		c.handled[payload.MessageID] = answer
+		c.rememberHandled(payload.MessageID, answer)
 		c.mu.Unlock()
 	}
 	if len(answer) == 0 {
 		return nil
 	}
 	return c.Send(messageID, answer, transport)
+}
+
+func (c *Client) rememberHandled(id string, answer []byte) {
+	c.handled[id] = answer
+	c.handledOrder = append(c.handledOrder, id)
+	if len(c.handledOrder) > 1024 {
+		delete(c.handled, c.handledOrder[0])
+		c.handledOrder = c.handledOrder[1:]
+	}
 }
 
 // Send seals one application message to the device and retains it until it is

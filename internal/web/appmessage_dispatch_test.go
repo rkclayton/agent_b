@@ -409,6 +409,14 @@ func TestOfflinePushStreamSendsEveryWakeEventExactlyOnce2pn(t *testing.T) {
 	for index := 0; index < 10; index++ {
 		server.bus.Publish(events.New(wake[index%len(wake)], fmt.Sprintf("chat-%d", index), "run", map[string]any{"notice": "PLANTED"}))
 	}
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		device.mu.Lock()
+		count := len(device.pushes)
+		device.mu.Unlock()
+		if count == 10 {
+			break
+		}
+	}
 	stop()
 	<-done
 	device.mu.Lock()

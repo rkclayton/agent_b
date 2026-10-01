@@ -11,6 +11,43 @@ if ($sign -notmatch 'NotAfter -le \[DateTime\]::Now\.AddDays\(30\)' -or $sign -n
     throw 'release signing no longer refuses a publisher key within 30 days of expiry'
 }
 $stage = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\stage-candidate.mjs')
+$repository = Split-Path -Parent $PSScriptRoot
+$ownedCheck = Join-Path $repository 'tools\owned-check.ps1'
+if (-not (Test-Path -LiteralPath $ownedCheck -PathType Leaf)) { throw 'The shared owned-things check is missing.' }
+$ownedCall = $deploy.IndexOf("'tools\owned-check.ps1'")
+$notesCall = $deploy.IndexOf("'tools\check-release-notes.mjs'")
+if ($ownedCall -lt 0 -or $notesCall -lt 0 -or $ownedCall -gt $notesCall) { throw 'Deploy must run the owned-things check before release work.' }
+
+$ownedFixture = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-owned-check-' + [Guid]::NewGuid().ToString('N'))
+try {
+    $ownedHome = Join-Path $ownedFixture '.agentb'
+    $null = New-Item -ItemType Directory -Path $ownedHome -Force
+    $first = Join-Path $ownedFixture 'first.dat'; $second = Join-Path $ownedFixture 'second.dat'
+    $plantedValue = 'owned-secret-' + [Guid]::NewGuid().ToString('N')
+    [IO.File]::WriteAllText($first, $plantedValue); [IO.File]::WriteAllText($second, 'fixture-two')
+    $list = Join-Path $ownedHome 'OWNED-agent_b.md'
+    $heading = "# OWNED $([char]0x2014) agent_b"
+    $table = "$heading`n`n| name | kind | where | what | read by | stops | recreate | sha256 |`n| --- | --- | --- | --- | --- | --- | --- | --- |`n| first-file | file | $first | fixture | test:1 | test | recreate | |`n| second-file | file | $second | fixture | test:2 | test | recreate | |`n"
+    [IO.File]::WriteAllText($list, $table, [Text.UTF8Encoding]::new($false))
+    $savedProfile = $env:USERPROFILE; $env:USERPROFILE = $ownedFixture
+    function Invoke-OwnedFixture { $out = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -File $ownedCheck 2>&1); return @{ Output=($out -join "`n"); Exit=$LASTEXITCODE } }
+    $complete = Invoke-OwnedFixture
+    if ($complete.Exit -ne 0 -or $complete.Output -cne 'owned: ok 2 rows') { throw "complete owned fixture differed: $($complete.Exit) $($complete.Output)" }
+    [IO.File]::Move($second, "$second.renamed")
+    $missing = Invoke-OwnedFixture
+    if ($missing.Exit -ne 1 -or $missing.Output -cne 'owned: missing second-file') { throw "missing owned fixture differed: $($missing.Exit) $($missing.Output)" }
+    [IO.File]::Delete($list)
+    $absent = Invoke-OwnedFixture; $expectedAbsent = "owned: no list at $list"
+    if ($absent.Exit -ne 2 -or $absent.Output -cne $expectedAbsent) { throw "absent owned fixture differed: $($absent.Exit) $($absent.Output)" }
+    if (($complete.Output + $missing.Output + $absent.Output + $table + (& git -C $repository diff)) -match [regex]::Escape($plantedValue)) { throw 'The owned check exposed a planted value.' }
+    $candidateBefore = Test-Path -LiteralPath (Join-Path $repository 'candidates\v9.9.9')
+    $deployOutput = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -File (Join-Path $repository 'tools\deploy-release.ps1') -Tag v9.9.9 -SigningThumbprint A 2>&1)
+    if ($LASTEXITCODE -ne 2 -or ($deployOutput -join "`n") -cne $expectedAbsent) { throw 'Deploy did not relay the no-list refusal exactly.' }
+    if ($candidateBefore -or (Test-Path -LiteralPath (Join-Path $repository 'candidates\v9.9.9'))) { throw 'Deploy staged after the owned check refused.' }
+} finally {
+    $env:USERPROFILE = $savedProfile
+    if (Test-Path -LiteralPath $ownedFixture) { Remove-TreeWithinAllowedRoots -Path $ownedFixture -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'owned-check fixture cleanup' }
+}
 
 foreach ($required in @('stage-candidate.mjs', 'sign-release.ps1', 'verify-deploy-candidate.ps1', 'Agent_b-setup.exe', 'DEPLOY COMPLETE')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy entry point does not require $required." }

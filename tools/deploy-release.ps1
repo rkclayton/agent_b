@@ -6,6 +6,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+& (Join-Path $repository 'tools\owned-check.ps1')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $candidate = Join-Path (Join-Path $repository 'candidates') $Tag
 $notesPath = Join-Path (Join-Path $repository 'release-notes') "$Tag.md"
 $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'

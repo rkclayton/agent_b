@@ -676,13 +676,10 @@ try {
     if ($launcherSource -notmatch '\[switch\]\$Detached' -or
         $launcherSource -notmatch '\[switch\]\$NoPause' -or
         $launcherSource -notmatch '\[switch\]\$Console' -or
-        # Item 2hg (v1.3.0/W6): a background server is started with
-        # CreateNoWindow, not -WindowStyle Hidden. Hidden still gives a console
-        # application a console window, and a taskkill WM_CLOSE landing on it
-        # became CTRL_CLOSE_EVENT and then SIGTERM, stopping the server the
-        # session-lifetime gate had just asserted would ignore it.
-        $launcherSource -notmatch 'CREATE_NO_WINDOW' -or
-        $launcherSource -notmatch '\$false, \$CREATE_NO_WINDOW' -or
+        # Item 2p8: the GUI-subsystem binary can use ShellExecute without a
+        # console; Start-Process retains the reliable Process/exit-code path.
+        $launcherSource -notmatch 'Start-Process -FilePath \$executable' -or
+        $launcherSource -notmatch '-WindowStyle Hidden' -or
         $launcherSource -notmatch 'launcher-errors\.log') {
         throw 'Installed PowerShell launcher is missing hidden-default/Console-opt-in launch behavior, detached automation, or durable failure logging.'
     }

@@ -129,7 +129,7 @@ if ([string]::IsNullOrWhiteSpace($Dirty)) { throw 'Dirty must be true or false f
 
 $go = Find-Go $sourceRoot
 if (Test-Path -LiteralPath $manifestPath) { Remove-Item -LiteralPath $manifestPath -Force }
-$ldflags = "-X harness/internal/buildinfo.Tag=$sourceTag -X harness/internal/buildinfo.Commit=$Commit -X harness/internal/buildinfo.Dirty=$Dirty"
+$ldflags = "-H=windowsgui -X harness/internal/buildinfo.Tag=$sourceTag -X harness/internal/buildinfo.Commit=$Commit -X harness/internal/buildinfo.Dirty=$Dirty"
 if ($UseExistingSignedBinary) {
     if (-not $SignForTest) { throw '-UseExistingSignedBinary requires -SignForTest.' }
     if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "Existing signed test candidate not found: $binary" }
@@ -150,6 +150,10 @@ if ($UseExistingSignedBinary) {
     Push-Location $sourceRoot
     try { & $go build -ldflags $ldflags -o $binary ./cmd/harness } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw "go build exited $LASTEXITCODE." }
+    $bytes = [IO.File]::ReadAllBytes($binary)
+    $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+    $subsystem = [BitConverter]::ToUInt16($bytes, $pe + 24 + 68)
+    if ($subsystem -ne 2) { throw "Agent_b.exe PE subsystem is $subsystem, expected 2 (WINDOWS_GUI)." }
     # Item 2lt: agentb.exe is built here, from the same source and the same
     # ldflags, so it reports the same tag and commit as the app it ships beside.
     # Removed first for the same reason the app binary is: a stale output would
@@ -158,7 +162,8 @@ if ($UseExistingSignedBinary) {
         Remove-Item -LiteralPath $cliBinary -Force
     }
     Push-Location $sourceRoot
-    try { & $go build -ldflags $ldflags -o $cliBinary ./cmd/agentb } finally { Pop-Location }
+    $cliLdflags = "-X harness/internal/buildinfo.Tag=$sourceTag -X harness/internal/buildinfo.Commit=$Commit -X harness/internal/buildinfo.Dirty=$Dirty"
+    try { & $go build -ldflags $cliLdflags -o $cliBinary ./cmd/agentb } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw "go build of cmd/agentb exited $LASTEXITCODE." }
     # Item 2lt: agentb.exe is signed HERE, between its build and the bundle
     # capture below, because the bundle is what reaches an installed machine and

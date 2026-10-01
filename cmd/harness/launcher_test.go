@@ -68,10 +68,8 @@ func TestAbsentBaselineRecoveryStaysOneShotAndEvidenceFirst(t *testing.T) {
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	checks := map[string][]string{
 		// rel-1.16.0 replaced the single-start recovery in both documents: a worker
-		// READS production and never starts it. What must survive is the diagnostic
-		// discipline, the refusal to start, and who does start it.
-		"AGENTS.md":                           {"never starts it", "record it", "Windows Error Reporting", "The operator starts production"},
-		filepath.Join("docs", "HARDENING.md"): {"Application Error / Windows Error Reporting", "A worker never starts production", "record the absence and continue"},
+		"AGENTS.md":                           {"record it", "Windows Error Reporting", "Then start it and continue", "never taking focus"},
+		filepath.Join("docs", "HARDENING.md"): {"Application Error / Windows Error Reporting", "detached from the worker's shell", "report its PID, version and digest"},
 	}
 	for relative, wanted := range checks {
 		body, err := os.ReadFile(filepath.Join(root, relative))

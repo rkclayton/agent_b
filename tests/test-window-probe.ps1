@@ -15,6 +15,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\windows-tools.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\agentb-stop.ps1')
+. (Join-Path $PSScriptRoot 'suite-production-guard.ps1')
 $repository = Split-Path -Parent $PSScriptRoot
 $go = Join-Path $repository '.tools\go\bin\go.exe'
 $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
@@ -26,6 +27,7 @@ $testStart = Join-Path $testRoot 'StartMenu'
 $testRegistry = 'HKCU:\Software\Agent_b-Window-Probe-' + [Guid]::NewGuid().ToString('N')
 $publicRoot = Join-Path 'C:\Users\Public' ('agentb-window-probe-' + [Guid]::NewGuid().ToString('N'))
 $executable = Join-Path $testApplication 'Agent_b.exe'
+Assert-AgentBSuiteLaunch -ApplicationRoot $testApplication -DataRoot $testData -SuiteRoots @($testRoot)
 
 function Get-Running {
     return @(Get-Process -Name 'Agent_b' -ErrorAction SilentlyContinue | Where-Object {

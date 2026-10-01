@@ -104,6 +104,27 @@ func TestTheCrashPathSurvivesHavingNowhereToWrite(t *testing.T) {
 	crashLauncherLine("this must not panic")
 }
 
+func TestRuntimeFatalTraceIsReportedOnceAtNextStart2p5(t *testing.T) {
+	root := t.TempDir()
+	logs := filepath.Join(root, "logs")
+	if err := os.MkdirAll(logs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	trace := "fatal error: invalid pointer found on stack\n\ngoroutine 7 [copystack]:\nmain.(*hostWindow).windowProcedure(0x1, 0x2, 0x3, 0x998)\n\tC:/agent/host_window_windows.go:399 +0x4fa\n"
+	if err := os.WriteFile(filepath.Join(logs, crashStderrName), []byte(trace), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reportRuntimeFatalTrace(root)
+	reportRuntimeFatalTrace(root)
+	body, err := os.ReadFile(filepath.Join(logs, launcherLogName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(body), "runtime fatal error: invalid pointer found on stack; top frame main.(*hostWindow).windowProcedure"); got != 1 {
+		t.Fatalf("launcher report count = %d:\n%s", got, body)
+	}
+}
+
 // Item 2mt (e): the item asked me to verify that a run cut by process death is
 // already closed as aborted_mid_model on restart. IT WAS NOT. The projector takes
 // run.status from run.started and run.stopped, so a journal that ends on a

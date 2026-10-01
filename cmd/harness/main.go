@@ -341,6 +341,13 @@ func main() {
 	// subscribes to the bus, so it is never in a run's path.
 	web.StartReflection(24 * time.Hour)
 	web.ApplyTelemetry()
+	for _, report := range pendingCrashReports(paths.Data) {
+		if web.QueueStartupTelemetry("error", report.At, report.Data) {
+			if err := markCrashReported(report.Path); err != nil {
+				log.Printf("mark crash telemetry: %v", err)
+			}
+		}
+	}
 	defer web.StopReflection()
 	operatorContext, cancelOperatorFiles := context.WithCancel(context.Background())
 	defer cancelOperatorFiles()

@@ -10,6 +10,9 @@
 package telemetry
 
 import (
+	"bytes"
+	"encoding/json"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -56,7 +59,7 @@ var allowList = map[string]Classification{
 		"model_class",
 	),
 	"tool.result": sent("name", "ok", "ms", "class"),
-	"error":       sent("where", "class"),
+	"error":       sent("where", "class", "stack_tree"),
 
 	// ------------------------------------------------------------ dropped
 	"model.delta": dropped, "model.progress": dropped, "model.request": dropped,
@@ -176,10 +179,20 @@ func Pick(class Classification, data map[string]any) map[string]any {
 	if !class.Sent {
 		return nil
 	}
+	if data["class"] == "crash" && data["stack_tree"] == nil {
+		return nil
+	}
 	out := map[string]any{}
 	for _, field := range class.Fields {
 		value, present := data[field]
 		if !present || value == nil {
+			continue
+		}
+		if field == "stack_tree" {
+			if data["class"] != "crash" || !validCrashTree(value) {
+				return nil
+			}
+			out[field] = value
 			continue
 		}
 		if text, ok := value.(string); ok {
@@ -189,4 +202,61 @@ func Pick(class Classification, data map[string]any) map[string]any {
 		out[field] = value
 	}
 	return out
+}
+
+const CrashTreeByteCap = 16 << 10
+
+type crashTree struct {
+	Binaries          []crashBinary `json:"binaries"`
+	Threads           []crashThread `json:"threads"`
+	ExceptionType     int           `json:"exception_type"`
+	Signal            int           `json:"signal"`
+	TerminationReason string        `json:"termination_reason"`
+	Truncated         bool          `json:"truncated"`
+}
+type crashBinary struct {
+	UUID       string `json:"uuid"`
+	Name       string `json:"name"`
+	TextOffset uint64 `json:"text_offset"`
+}
+type crashThread struct {
+	Frames []crashFrame `json:"frames"`
+}
+type crashFrame struct {
+	Binary  int    `json:"binary"`
+	Offset  uint64 `json:"offset"`
+	Address uint64 `json:"address"`
+}
+
+var crashUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+func validCrashTree(value any) bool {
+	body, err := json.Marshal(value)
+	if err != nil || len(body) > CrashTreeByteCap {
+		return false
+	}
+	var tree crashTree
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&tree) != nil || len(tree.Binaries) != 1 || len(tree.Threads) < 1 || len(tree.Threads) > 16 || tree.ExceptionType != 0 || tree.Signal != 0 {
+		return false
+	}
+	binary := tree.Binaries[0]
+	if !crashUUID.MatchString(binary.UUID) || binary.Name != filepath.Base(binary.Name) || strings.ContainsAny(binary.Name, `/\\`) || binary.TextOffset != 0 {
+		return false
+	}
+	if tree.TerminationReason != "go.panic" && tree.TerminationReason != "go.fatal.invalid_pointer" && tree.TerminationReason != "go.fatal.other" {
+		return false
+	}
+	for _, thread := range tree.Threads {
+		if len(thread.Frames) < 1 || len(thread.Frames) > 50 {
+			return false
+		}
+		for _, frame := range thread.Frames {
+			if frame.Binary != 0 || frame.Address < frame.Offset {
+				return false
+			}
+		}
+	}
+	return true
 }

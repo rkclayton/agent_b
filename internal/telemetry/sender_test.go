@@ -122,6 +122,18 @@ func TestADroppedTypeNeverReachesABatch2jg(t *testing.T) {
 	}
 }
 
+func TestInvalidCrashTreeIsDroppedAndCounted2p7(t *testing.T) {
+	sink := &capture{}
+	sender, _ := newSender(t, sink)
+	tree := validCrashTree2p7()
+	tree["function"] = "main.secretFunction"
+	sender.Observe("error", "2026-09-26T17:00:00Z", map[string]any{"where": "host_window", "class": "crash", "stack_tree": tree})
+	sender.Flush()
+	if sink.count() != 0 || sender.InvalidDropped() != 1 {
+		t.Fatalf("sent=%d invalid_dropped=%d", sink.count(), sender.InvalidDropped())
+	}
+}
+
 // The acceptance line: a run.stopped arrives as one allow-listed event with the
 // reason and the counts and nothing else.
 func TestARunStoppedArrivesAsCountsAndNothingElse2jg(t *testing.T) {

@@ -76,6 +76,7 @@ type Sender struct {
 	pending   []Event
 	sentIndex []Record
 	refused   int
+	invalid   int
 	stop      chan struct{}
 	stopped   bool
 	wg        sync.WaitGroup
@@ -125,15 +126,21 @@ func New(options Options) *Sender {
 
 // Observe folds one event. A type the allow-list has not classified is dropped
 // here and caught by the suite, never sent on a guess.
-func (s *Sender) Observe(eventType, at string, data map[string]any) {
+func (s *Sender) Observe(eventType, at string, data map[string]any) bool {
 	if s == nil {
-		return
+		return false
 	}
 	class, known := Classify(eventType)
 	if !known || !class.Sent {
-		return
+		return false
 	}
 	picked := Pick(class, data)
+	if picked == nil {
+		s.mu.Lock()
+		s.invalid++
+		s.mu.Unlock()
+		return false
+	}
 	s.mu.Lock()
 	s.pending = append(s.pending, Event{Type: eventType, At: at, Data: picked})
 	full := len(s.pending) >= BatchEventCap
@@ -141,6 +148,13 @@ func (s *Sender) Observe(eventType, at string, data map[string]any) {
 	if full {
 		s.Flush()
 	}
+	return true
+}
+
+func (s *Sender) InvalidDropped() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.invalid
 }
 
 func (s *Sender) loop() {

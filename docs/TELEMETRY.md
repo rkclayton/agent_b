@@ -79,6 +79,14 @@ Error classes: `not_found`, `permission`, `refused_by_guard`, `timeout`,
 |---|---|---|
 | `where` | string | the fixed subsystem label already on the event |
 | `class` | string | as above |
+| `stack_tree` | object, optional | only when `class` is `crash`; one executable identity and bounded numeric frame addresses/offsets, with no symbols or text |
+
+A crash tree contains one executable (`uuid` is the first 16 bytes of its SHA-256,
+`name` is only its file name), at most 16 threads and 50 numeric frames per thread,
+and a fixed termination-reason slug. The 16 KiB tree cannot contain a function
+name, path, message, argument, window state, journal position, chat id, or other
+free text. Resolve an offset against the matching released executable. Runtime-
+fatal stderr without absolute program counters stays local and is not sent.
 
 ## Everything else is dropped
 

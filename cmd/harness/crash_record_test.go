@@ -16,7 +16,7 @@ import (
 // operator already looks. His crash at 03:10:50 on 2026-09-27 left neither.
 func TestACrashWritesARecordAndNamesItInTheLauncherLog(t *testing.T) {
 	root := t.TempDir()
-	installCrashRecord(root, map[string]any{"tag": "v1.26.0", "commit": "abcdef1234"}, false)
+	installCrashRecord(root, map[string]any{"tag": "v1.26.0", "commit": "abcdef1234", "executable_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, false)
 	// What the surfaces would have noted while things were still fine.
 	noteForCrash("window", map[string]any{"dragging": true, "x": 100, "y": 200})
 	noteForCrash("journal", map[string]any{"session_id": "s34", "seq": 6805, "run_id": "r643"})
@@ -90,6 +90,22 @@ func TestACrashWritesARecordAndNamesItInTheLauncherLog(t *testing.T) {
 	}
 	if !strings.Contains(lines[0], "crashed in host window procedure") {
 		t.Errorf("the launcher line does not say where: %q", lines[0])
+	}
+	reports := pendingCrashReports(root)
+	if len(reports) != 1 {
+		t.Fatalf("pending reports=%d", len(reports))
+	}
+	wire, _ := json.Marshal(reports[0].Data)
+	for _, forbidden := range []string{"WM_MOVE", "TestACrash", "crash_record_test.go", "s34", "r643"} {
+		if strings.Contains(string(wire), forbidden) {
+			t.Errorf("%q escaped in %s", forbidden, wire)
+		}
+	}
+	if err := markCrashReported(reports[0].Path); err != nil {
+		t.Fatal(err)
+	}
+	if len(pendingCrashReports(root)) != 0 {
+		t.Fatal("reported crash repeated")
 	}
 }
 

@@ -58,7 +58,7 @@ func authenticodeScript(path, reportPath string) string {
 		"$report=" + quote(reportPath),
 		"try{",
 		"$s=Get-AuthenticodeSignature -LiteralPath " + quote(path),
-		"$result=[pscustomobject]@{status=[string]$s.Status;status_message=[string]$s.StatusMessage;signer=[bool]$s.SignerCertificate;timestamped=[bool]$s.TimeStamperCertificate}",
+		"$result=[pscustomobject]@{status=[string]$s.Status;status_message=[string]$s.StatusMessage;subject=if($s.SignerCertificate){$s.SignerCertificate.Subject}else{'none'};signer=[bool]$s.SignerCertificate;timestamped=[bool]$s.TimeStamperCertificate}",
 		"}catch{",
 		"$result=[pscustomobject]@{unavailable=[string]$_.Exception.Message}",
 		"}",

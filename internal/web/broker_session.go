@@ -69,11 +69,14 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 		return nil
 	})
 	client.OnSessionEvent(func(message string) { c.recordSession(pairing, message) })
+	client.OnHolding(func(connection context.Context) {
+		server.streamPushes(connection, client)
+	})
 	client.OnConnected(func(connection context.Context) {
 		c.mu.Lock()
 		c.lastRefusal = ""
 		c.mu.Unlock()
-		server.streamToDevice(connection, client)
+		server.streamUnitsToDevice(connection, client)
 	})
 	client.OnRefused(func(code, detail string) {
 		outcome := "refused by the broker — " + code + ": " + detail
@@ -117,6 +120,14 @@ type deviceSink interface {
 }
 
 func (s *Server) streamToDevice(ctx context.Context, client deviceSink) {
+	s.streamToDeviceWithPushes(ctx, client, true)
+}
+
+func (s *Server) streamUnitsToDevice(ctx context.Context, client deviceSink) {
+	s.streamToDeviceWithPushes(ctx, client, false)
+}
+
+func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink, includePushes bool) {
 	raw, unsubscribeRaw := s.bus.Subscribe()
 	defer unsubscribeRaw()
 	send := func(unit map[string]any) {
@@ -159,7 +170,7 @@ func (s *Server) streamToDevice(ctx context.Context, client deviceSink) {
 			if !ok {
 				return
 			}
-			if kind, wake := pushKinds[event.Type]; wake {
+			if kind, wake := pushKinds[event.Type]; includePushes && wake {
 				if err := client.Notify(kind, event.SessionID, pushNotice(event)); err != nil {
 					log.Printf("broker: the %s push was not sent: %v", kind, err)
 				}
@@ -169,6 +180,26 @@ func (s *Server) streamToDevice(ctx context.Context, client deviceSink) {
 			}
 			if event.SessionID == "" {
 				send(map[string]any{"v": 1, "kind": "event", "data": event})
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (s *Server) streamPushes(ctx context.Context, client deviceSink) {
+	raw, unsubscribe := s.bus.Subscribe()
+	defer unsubscribe()
+	for {
+		select {
+		case event, ok := <-raw:
+			if !ok {
+				return
+			}
+			if kind, wake := pushKinds[event.Type]; wake {
+				if err := client.Notify(kind, event.SessionID, pushNotice(event)); err != nil {
+					log.Printf("broker: the %s push was not sent: %v", kind, err)
+				}
 			}
 		case <-ctx.Done():
 			return

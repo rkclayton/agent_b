@@ -395,6 +395,29 @@ func TestAPairedDeviceSeesTheChatsAndIsAnswered2o7(t *testing.T) {
 	}
 }
 
+func TestOfflinePushStreamSendsEveryWakeEventExactlyOnce2pn(t *testing.T) {
+	server, _, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	device := &recordingDevice{}
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { server.streamPushes(ctx, device); close(done) }()
+	for deadline := time.Now().Add(time.Second); server.bus.SubscriberCount() != 1 && time.Now().Before(deadline); {
+		time.Sleep(time.Millisecond)
+	}
+	wake := []string{events.ApprovalRequired, events.RunStopped, events.ItemStuck}
+	for index := 0; index < 10; index++ {
+		server.bus.Publish(events.New(wake[index%len(wake)], fmt.Sprintf("chat-%d", index), "run", map[string]any{"notice": "PLANTED"}))
+	}
+	stop()
+	<-done
+	device.mu.Lock()
+	defer device.mu.Unlock()
+	if len(device.pushes) != 10 {
+		t.Fatalf("offline wake pushes = %d, want 10 exactly once: %v", len(device.pushes), device.pushes)
+	}
+}
+
 // Item 2o7 (a): a pairing starts the session and revoke ends it; with no pairing
 // nothing is started.
 func TestThePairedSessionStartsWithThePairingAndEndsWithRevoke2o7(t *testing.T) {

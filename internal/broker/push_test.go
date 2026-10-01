@@ -62,6 +62,48 @@ func TestThePushTheBrokerForwardsIsSealedToTheDevice2kq(t *testing.T) {
 	}
 }
 
+func TestNotifyPushDoesNotRequirePhoneSession2pn(t *testing.T) {
+	agent, device, pairing := testPair(t)
+	transport := newScriptedBroker(t, agent, device, pairing)
+	client := NewClient(agent, pairing, nil, nil)
+	client.mu.Lock()
+	client.transport = transport
+	client.mu.Unlock()
+	events := make(chan string, 3)
+	client.OnSessionEvent(func(event string) { events <- event })
+
+	cases := []struct {
+		kind, answer string
+		frame        byte
+		payload      any
+	}{
+		{"approval_required", "no_token", FrameError, errorPayload{Code: "malformed", Detail: "recipient_no_token", Fatal: false}},
+		{"run_stopped", "accepted", FramePushAccepted, nil},
+		{"item_stuck", "refused", FrameError, errorPayload{Code: "push_provider", Detail: "named reason", Fatal: false}},
+	}
+	for _, test := range cases {
+		if err := client.Notify(test.kind, strings.Repeat("a", 32), "PLANTED notice must not enter the log"); err != nil {
+			t.Fatal(err)
+		}
+		_ = transport.next(t)
+		transport.push(test.frame, test.payload)
+		transport.push(FrameSessionResp, sessionFrame{})
+		if frame, err := client.readHandshake(context.Background(), transport); err != nil || frame.Type != FrameSessionResp {
+			t.Fatalf("the nonfatal push answer ended the phone handshake: %v", err)
+		}
+		event := <-events
+		want := "PUSH kind=" + test.kind + " answer=" + test.answer
+		if event != want {
+			t.Fatalf("push event = %q, want %q", event, want)
+		}
+		for _, secret := range []string{"PLANTED", "named reason", strings.Repeat("a", 9)} {
+			if strings.Contains(event, secret) {
+				t.Fatalf("push event leaked %q: %q", secret, event)
+			}
+		}
+	}
+}
+
 func TestAPushIsOneLineAndOneOfThreeKinds2kq(t *testing.T) {
 	agent, device, pairing := testPair(t)
 	broker := newScriptedBroker(t, agent, device, pairing)

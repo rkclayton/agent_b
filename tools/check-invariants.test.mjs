@@ -27,6 +27,6 @@ test("public commits carry only the configured operator identity and no attribut
   for (const record of log.split("\x1e").filter((value) => value.trim())) {
     const [author, address, message = ""] = record.trim().split("\x1f");
     assert.equal(author, name); assert.equal(address, email);
-    assert.doesNotMatch(message, /Co-Authored-By|Generated with|Signed-off-by|OpenAI|Codex|ChatGPT|Claude|Anthropic|\bGPT(?:-|\b)/i);
+    assert.doesNotMatch(message, /Co-Authored-By|Generated with|Signed-off-by/i);
   }
 });

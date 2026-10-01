@@ -50,7 +50,7 @@ const definitions = (candidate) => [
   [node, ["--test", path.join(root, "web/js/operator-language.test.mjs"), path.join(root, "web/js/workspace-settings.test.mjs")]],
   [go, ["test", "-v", "./internal/web", "./internal/workspace", "-run", "TestControlPlaneRequiresBrowserSession2jy|TestForbiddenPolicyCapabilitiesStayOperatorFacingAndComplete"]],
   [node, ["--test", "--test-name-pattern=client-terms", path.join(root, "tests/docs-terms.test.mjs")]],
-  [node, ["--test", "--test-name-pattern=public commits", path.join(root, "tools/check-invariants.test.mjs")]],
+  [node, ["--test", "--test-name-pattern=public commits|model vendor", path.join(root, "tools/check-invariants.test.mjs"), path.join(root, "tests/docs-terms.test.mjs")]],
   [node, ["--test", path.join(root, "web/js/settings-density.test.mjs"), path.join(root, "web/js/settings-row-actions.test.mjs")]],
   [go, ["test", "-v", "./internal/agent", "-run", "TestUnattendedRefusesEveryCardKindAndRecordsIt"]],
   [node, ["--test", path.join(root, "web/js/shell-contract.test.mjs")]],

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -189,6 +190,103 @@ func TestSkillImportErrorsNameTheTriedPath2pe(t *testing.T) {
 		if response.Code != 400 || !strings.Contains(result.Error, displaySkillPath(tried)) || strings.Contains(result.Error, "open SKILL.md") {
 			t.Errorf("tried=%q decoded=%q want=%q response=%d %s", tried, result.Error, displaySkillPath(tried), response.Code, response.Body.String())
 		}
+	}
+}
+
+func TestHermesPreviewAndImport2nd(t *testing.T) {
+	root, source := t.TempDir(), filepath.Join(t.TempDir(), "hermes")
+	planted := "secret-" + strings.Repeat("x", 17)
+	plantedTwo := "secret-" + strings.Repeat("y", 17)
+	profile := filepath.Join(root, "profile")
+	for _, dir := range []string{"memories", "skills/writing/Report Kit/scripts", "skills/clean/portable", "cron", "sessions"} {
+		if err := os.MkdirAll(filepath.Join(source, filepath.FromSlash(dir)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		"SOUL.md": "persona must stay here", "memories/MEMORY.md": "remember ~/.hermes/library", "memories/USER.md": "user uses $HERMES_HOME/work",
+		"skills/writing/Report Kit/SKILL.md":        "---\nname: Report Kit\ndescription: Builds reports.\nmetadata:\n  hermes:\nrequired_environment_variables:\n  - REPORT_KEY\n---\nUse skill_view(report-kit), then memory(note).\n",
+		"skills/writing/Report Kit/scripts/run.ps1": "Write-Output 'stub-ok'; Write-Output 'HERMES_HOME/assets'", ".env": "FIRST_KEY=" + planted + "\nSECOND_KEY=" + plantedTwo + "\n",
+		"skills/clean/portable/SKILL.md": "---\nname: portable\ndescription: Portable fixture.\n---\nRead the request.\n",
+		"config.yaml":                    "model: fixture", "auth.json": "{}",
+	}
+	for name, body := range files {
+		path := filepath.Join(source, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := config.Defaults(root)
+	server := New(&cfg, filepath.Join(root, "harness.json"), t.TempDir(), RuntimeRoots{Data: root, Profile: profile}, events.NewBus())
+	call := func(action string, include []string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]any{"action": action, "path": source, "include": include})
+		response := httptest.NewRecorder()
+		server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(string(body))))
+		return response
+	}
+	preview := call("hermes-preview", nil)
+	if preview.Code != 200 || strings.Contains(preview.Body.String(), planted) || strings.Contains(preview.Body.String(), plantedTwo) {
+		t.Fatalf("preview=%d %s", preview.Code, preview.Body.String())
+	}
+	for _, text := range []string{"SOUL.md", "not imported", "MEMORY.md", "USER.md", "report-kit", "FIRST_KEY", "SECOND_KEY", "cron", "sessions"} {
+		if !strings.Contains(preview.Body.String(), text) {
+			t.Errorf("preview misses %q: %s", text, preview.Body.String())
+		}
+	}
+	if entries, _ := os.ReadDir(profile); len(entries) != 0 {
+		t.Fatalf("preview wrote profile: %v", entries)
+	}
+	imported := call("hermes-import", []string{"memory:MEMORY.md", "memory:USER.md", "skill:portable", "skill:report-kit"})
+	if imported.Code != 200 || strings.Contains(imported.Body.String(), planted) || strings.Contains(imported.Body.String(), plantedTwo) {
+		t.Fatalf("import=%d %s", imported.Code, imported.Body.String())
+	}
+	destination := filepath.Join(profile, "skills", "report-kit")
+	skill, err := os.ReadFile(filepath.Join(destination, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(skill), "~/.hermes") || strings.Contains(string(skill), "HERMES_HOME") || !strings.Contains(string(skill), "name: report-kit") {
+		t.Fatalf("skill was not portable: %s", skill)
+	}
+	if setting := cfg.Skills["report-kit"]; setting.Enabled || !strings.Contains(strings.Join(strings.Fields(imported.Body.String()), " "), "memory") {
+		t.Fatalf("setting=%+v report=%s", setting, imported.Body.String())
+	}
+	if !cfg.Skills["portable"].Enabled || !strings.Contains(server.Index(), "portable | Portable fixture.") {
+		t.Fatalf("portable skill did not arrive on: %+v index=%s", cfg.Skills["portable"], server.Index())
+	}
+	memoryPath := filepath.Join(profile, "memory", "agent-"+cfg.DefaultAgentID()+".md")
+	memoryBody, err := os.ReadFile(memoryPath)
+	if err != nil || strings.Contains(string(memoryBody), "HERMES_HOME") || !strings.Contains(string(memoryBody), "imported from Hermes") {
+		t.Fatalf("memory=%q err=%v", memoryBody, err)
+	}
+	run := exec.Command("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-File", filepath.Join(destination, "scripts", "run.ps1"))
+	run.Dir = destination
+	renamed := source + "-renamed"
+	if err := os.Rename(source, renamed); err != nil {
+		t.Fatal(err)
+	}
+	output, err := run.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "stub-ok") || strings.Contains(string(output), "HERMES_HOME") {
+		t.Fatalf("stub=%q err=%v", output, err)
+	}
+	if err := os.Rename(renamed, source); err != nil {
+		t.Fatal(err)
+	}
+	before := append([]byte(nil), skill...)
+	if err := os.WriteFile(filepath.Join(destination, "SKILL.md"), append(before, []byte("\noperator edit\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	again := call("hermes-import", []string{"memory:MEMORY.md", "memory:USER.md", "skill:portable", "skill:report-kit"})
+	after, _ := os.ReadFile(filepath.Join(destination, "SKILL.md"))
+	if again.Code != 200 || !strings.Contains(again.Body.String(), "nothing changed") || !strings.Contains(string(after), "operator edit") {
+		t.Fatalf("again=%d %s skill=%s", again.Code, again.Body.String(), after)
+	}
+	sourceEnv, _ := os.ReadFile(filepath.Join(source, ".env"))
+	if string(sourceEnv) != files[".env"] {
+		t.Fatal("source secret file changed")
 	}
 }
 

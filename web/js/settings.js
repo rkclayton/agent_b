@@ -444,7 +444,7 @@ function adoptPanels() {
 
 function settingsPageContext(active) {
   return {
-    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, phoneAccess, standingGrants: store.standing_grants || [],
+    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, phoneAccess, standingGrants: store.standing_grants || [], hermesPreview, hermesReport, actionDrafts,
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog, serviceAccountSteps,
     brokerStatus, brokerMessage, brokerAlarm,
     credentialList, credentialMessage, credentialAlarm, credentialDevice,
@@ -665,6 +665,8 @@ const proposedFields = new Set();
 // Item 2l6 (b): which rows have just taken effect, so the row can say so.
 const appliedSettings = new Map();
 const actionDrafts = new Map();
+let hermesPreview = null;
+let hermesReport = null;
 // Item 2l4: one anchored confirmation for every remove control. The operator:
 // "the delete function the confirm is goofy dont change buttons like that in the
 // same place, little pop up is fine very minimalistic." The two-click protocol the
@@ -941,6 +943,20 @@ async function dispatchAction(event, button, action, id) {
 	}
 	if (action === "skill-import" || action === "skill-rescan") {
 		try { await api("/api/skills", action === "skill-import" ? {action:"import", path:sheet.querySelector("#skill-import-path")?.value || ""} : {action:"rescan"}); if(action==="skill-import")actionDrafts.delete("skill-import-path"); reduce({type:"snapshot",data:await api("/api/state",undefined,"GET")}); }
+		catch(error) { errors.set("profiles",error.message); }
+		return render();
+	}
+	if (action === "hermes-preview") {
+		try { const result = await api("/api/skills", {action:"hermes-preview", path:sheet.querySelector("#hermes-import-path")?.value || "~/.hermes"}); hermesPreview=result.hermes; hermesReport=null; }
+		catch(error) { errors.set("profiles",error.message); }
+		return render();
+	}
+	if (action === "hermes-toggle") {
+		const row=hermesPreview?.rows?.find((item)=>item.id===id); if(row?.selectable)row.included=!row.included;
+		return render();
+	}
+	if (action === "hermes-confirm") {
+		try { const result=await api("/api/skills", {action:"hermes-import", path:sheet.querySelector("#hermes-import-path")?.value || "~/.hermes", include:(hermesPreview?.rows||[]).filter((row)=>row.included).map((row)=>row.id)}); hermesReport=result.hermes; hermesPreview=null; actionDrafts.delete("hermes-import-path"); reduce({type:"snapshot",data:await api("/api/state",undefined,"GET")}); }
 		catch(error) { errors.set("profiles",error.message); }
 		return render();
 	}

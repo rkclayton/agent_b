@@ -1958,6 +1958,11 @@
 .harness-arms { width: 100%; border-collapse: collapse; font: 12px/18px var(--mono); }
 .harness-arms th { text-align: left; color: var(--mute); font-weight: normal; }
 .harness-arms td + td, .harness-arms th + th { text-align: right; font-variant-numeric: tabular-nums; }
+.hermes-preview { width:100%; border-collapse:collapse; table-layout:fixed; font:12px/18px var(--mono); }
+.hermes-preview th { text-align:left; color:var(--mute); font-weight:normal; border-bottom:1px solid var(--line); }
+.hermes-preview th:nth-child(1) { width:18%; } .hermes-preview th:nth-child(2) { width:12%; } .hermes-preview th:nth-child(4) { width:72px; }
+.hermes-preview td { padding:4px 8px 4px 0; vertical-align:top; overflow-wrap:anywhere; border-bottom:1px solid var(--line); }
+.hermes-preview td:last-child { text-align:right; padding-right:0; }
 .panel-empty { padding: 10px; color: var(--mute); }
 /* Item 2ly (c): one line per group saying the settings below follow the
    profile. Muted, like every other note on the page; no new colour. */

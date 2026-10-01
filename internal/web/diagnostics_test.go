@@ -12,6 +12,35 @@ import (
 	"time"
 )
 
+type controlledDiagnosticsDeadline struct {
+	now      time.Time
+	deadline time.Time
+	done     chan struct{}
+}
+
+func newControlledDiagnosticsDeadline(bound time.Duration) *controlledDiagnosticsDeadline {
+	now := time.Unix(0, 0)
+	return &controlledDiagnosticsDeadline{now: now, deadline: now.Add(bound), done: make(chan struct{})}
+}
+
+func (clock *controlledDiagnosticsDeadline) Deadline() (time.Time, bool) { return clock.deadline, true }
+func (clock *controlledDiagnosticsDeadline) Done() <-chan struct{}       { return clock.done }
+func (clock *controlledDiagnosticsDeadline) Value(any) any               { return nil }
+func (clock *controlledDiagnosticsDeadline) Err() error {
+	select {
+	case <-clock.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+func (clock *controlledDiagnosticsDeadline) Advance(elapsed time.Duration) {
+	clock.now = clock.now.Add(elapsed)
+	if !clock.now.Before(clock.deadline) {
+		close(clock.done)
+	}
+}
+
 // Item 2mv (b): THE REDACTION TEST SEEDS EACH KIND. The export exists to be pasted
 // to someone else, so every class of thing that must not travel is planted and then
 // asserted absent — not sampled, not spot-checked.
@@ -174,15 +203,17 @@ func TestEveryDiagnosticsSectionSaysWhatItMeans(t *testing.T) {
 func TestADiagnosticsReadOverTheBoundIsNamedNotWaitedOn(t *testing.T) {
 	red := newRedactor(t.TempDir(), t.TempDir())
 
-	// The bound is shared by every read in one export, so the test supplies it.
-	shared, cancelShared := context.WithTimeout(context.Background(), diagnosticsProbeBound)
-	defer cancelShared()
-
+	// The bound is shared by every read in one export. Advance a clock the test
+	// owns instead of asking a loaded runner to schedule two goroutines at the
+	// same real-time deadline.
+	shared := newControlledDiagnosticsDeadline(diagnosticsProbeBound)
+	slowRelease := make(chan struct{})
 	slow := red.bounded(shared, "hardening", "what it means", func(ctx context.Context) (any, error) {
-		<-ctx.Done()
-		time.Sleep(10 * time.Millisecond)
+		shared.Advance(diagnosticsProbeBound)
+		<-slowRelease
 		return "should never be used", nil
 	})
+	close(slowRelease)
 	if !strings.Contains(slow.Skipped, "took longer than") {
 		t.Errorf("a read over the bound was not named: %+v", slow)
 	}
@@ -195,17 +226,19 @@ func TestADiagnosticsReadOverTheBoundIsNamedNotWaitedOn(t *testing.T) {
 
 	// The bound is SHARED, so once it is spent the next read is skipped by name too
 	// rather than starting a fresh two seconds of its own.
+	spentRelease := make(chan struct{})
 	spent := red.bounded(shared, "service_account", "what it means", func(ctx context.Context) (any, error) {
+		<-spentRelease
 		return "instant", nil
 	})
+	close(spentRelease)
 	if !strings.Contains(spent.Skipped, "took longer than") {
 		t.Errorf("a read after the shared bound was spent was not skipped: %+v", spent)
 	}
 
 	// A read that fails carries the failure's own words, redacted, and says the
-	// retry is safe — which is (c). Its own bound, because the shared one is gone.
-	fresh, cancelFresh := context.WithTimeout(context.Background(), diagnosticsProbeBound)
-	defer cancelFresh()
+	// retry is safe — which is (c). These reads do not exercise the bound.
+	fresh := context.Background()
 	failed := red.bounded(fresh, "hardening", "what it means", func(ctx context.Context) (any, error) {
 		return nil, errors.New(`inspect ACL policy: cannot read C:\Users\someoneelse\thing.txt`)
 	})

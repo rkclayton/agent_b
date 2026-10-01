@@ -8,9 +8,52 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"harness/internal/events"
 )
+
+func TestLiveProjectionPerEventCostDoesNotGrowWithStoredEvents2pd(t *testing.T) {
+	seed := func(count int) Snapshot {
+		state := Empty("main")
+		for i := 0; i < count; i++ {
+			kind := events.ModelDelta
+			if i == 0 {
+				kind = events.ModelRequest
+			}
+			state, _ = NextState(state, Record{Cursor: Cursor{Generation: "main.jsonl", Offset: int64(i + 1)}, Event: events.New(kind, "main", "run", map[string]any{"turn": 1, "kind": "content", "text": "x"})})
+		}
+		state, _ = NextState(state, Record{Cursor: Cursor{Generation: "main.jsonl", Offset: int64(count + 1)}, Event: events.New(events.ToolCallEvent, "main", "run", map[string]any{"call_id": "call", "name": "shell"})})
+		return state
+	}
+	measure := func(count int, kind string) time.Duration {
+		best := time.Hour
+		for range 3 {
+			state := seed(count)
+			store := NewStore()
+			store.states["main"], store.sources["main"], store.initialized["main"] = state, events.LogCursor{Generation: "main.jsonl", Offset: int64(count + 1)}, true
+			start := time.Now()
+			for i := 0; i < 500; i++ {
+				data := map[string]any{"turn": 1, "kind": "content", "text": "x"}
+				if kind == events.ToolResult {
+					data = map[string]any{"call_id": "call", "name": "shell", "preview": "ok"}
+				}
+				store.Apply(events.New(kind, "main", "run", data), events.LogCursor{Generation: "main.jsonl", Offset: int64(count + 2 + i)})
+			}
+			if elapsed := time.Since(start) / 500; elapsed < best {
+				best = elapsed
+			}
+		}
+		return best
+	}
+	for _, kind := range []string{events.ModelDelta, events.ToolResult} {
+		small, full := measure(1, kind), measure(2000, kind)
+		t.Logf("%s one=%s full=%s ratio=%.2f", kind, small, full, float64(full)/float64(small))
+		if full >= 2*small {
+			t.Errorf("%s per-event cost grew from %s to %s", kind, small, full)
+		}
+	}
+}
 
 func TestNextIsPureAndEmitsVersionedCursorPatch(t *testing.T) {
 	previous := seeded(t)

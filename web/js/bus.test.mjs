@@ -43,6 +43,19 @@ test("append initializes an omitted empty projected string", () => {
   assert.equal(store.sessions.main.cursor.offset, 11);
 });
 
+test("projection patch cost stays constant at a full stored bound 2pd", () => {
+  const measure = (count) => {
+    const chat = Array.from({ length: count }, (_, index) => ({ key: String(index), text: "" }));
+    snapshot({ chat });
+    let offset = 10;
+    const started = performance.now();
+    for (let index = 0; index < 2000; index++) patch(++offset, [{ op: "append", path: `/chat/${count - 1}/text`, value: "x" }], offset - 1);
+    return performance.now() - started;
+  };
+  const one = measure(1), full = measure(2000);
+  assert.ok(full < 2 * one, `one=${one.toFixed(3)}ms full=${full.toFixed(3)}ms ratio=${(full / one).toFixed(2)}`);
+});
+
 test("projection replacement cannot merge stale budget/tool fields", () => {
   snapshot({ tools: [{ name: "removed", marginal_tokens: 145 }], budget: { tool_marginal_tokens: { removed: 145 } } });
   patch(11, [

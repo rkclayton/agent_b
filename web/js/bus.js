@@ -18,6 +18,12 @@ export const store = {
   loaded: false,
 };
 const listeners = new Set();
+const chatIndexes = new WeakMap();
+function indexChat(session) {
+  const index = new Map((session?.chat || []).map((entry, at) => [entry.key || entry.id || entry.name, at]));
+  if (session) chatIndexes.set(session, index);
+  return index;
+}
 const operatorReconciler = createOperatorReconciler({
   readState: async () => {
     const sample = navigationStateFetchStarted("/api/state");
@@ -60,6 +66,7 @@ export function reduce(event) {
       }
     }
     Object.assign(store, data);
+    for (const session of Object.values(store.sessions || {})) indexChat(session);
     store.loaded = true;
     store.selection = selection;
     const selected = selection.session_id || active;
@@ -148,7 +155,7 @@ function applyProjectionPatch(patch) {
   // (or a new generation) needs a fresh snapshot.
   if (target && target.cursor && (target.cursor.generation || "") === (patch.cursor?.generation || "") && Number(patch.cursor?.offset || 0) <= Number(target.cursor.offset || 0)) return;
   if (target && !sameCursor(target.cursor, previous)) { void resync(); return; }
-  if (!target) target = store.sessions[patch.session_id] = { id: patch.session_id, cursor: previous };
+  if (!target) { target = store.sessions[patch.session_id] = { id: patch.session_id, cursor: previous }; indexChat(target); }
   for (const operation of patch.operations || []) {
     if (!applyOperation(target, operation)) { void resync(); return; }
   }
@@ -168,9 +175,9 @@ function applyOperation(target, operation) {
   if (!parts.length || !parts[0]) return false;
   if (parts.length === 1) {
     const key = parts[0];
-    if (operation.op === "replace") target[key] = operation.value;
+    if (operation.op === "replace") { target[key] = operation.value; if (key === "chat") indexChat(target); }
     else if (operation.op === "append") {
-      if (Array.isArray(target[key])) target[key].push(operation.value);
+      if (Array.isArray(target[key])) { target[key].push(operation.value); if (key === "chat") chatIndexes.get(target)?.set(operation.value?.key || operation.value?.id || operation.value?.name, target[key].length - 1); }
       else if (typeof target[key] === "string") target[key] += String(operation.value || "");
       else return false;
     } else if (operation.op === "delete") delete target[key];
@@ -181,9 +188,9 @@ function applyOperation(target, operation) {
     const parent = target[parts[0]];
     const key = parts[1];
     if (operation.op === "upsert" && Array.isArray(parent)) {
-      const index = parent.findIndex((value) => value.key === key || value.id === key || value.name === key);
-      if (index >= 0) parent[index] = operation.value;
-      else parent.push(operation.value);
+      const position = parts[0] === "chat" ? chatIndexes.get(target)?.get(key) : parent.findIndex((value) => value.key === key || value.id === key || value.name === key);
+      if (position !== undefined && position >= 0) parent[position] = operation.value; else parent.push(operation.value);
+      if (parts[0] === "chat") chatIndexes.get(target)?.set(key, position !== undefined && position >= 0 ? position : parent.length - 1);
       return true;
     }
     if (!parent || typeof parent !== "object") return false;
@@ -194,7 +201,7 @@ function applyOperation(target, operation) {
     return true;
   }
   let parent = target[parts[0]];
-  if (Array.isArray(parent)) parent = parent.find((value) => value.key === parts[1] || value.id === parts[1] || value.name === parts[1]);
+  if (Array.isArray(parent)) parent = parts[0] === "chat" ? parent[chatIndexes.get(target)?.get(parts[1])] : parent.find((value) => value.key === parts[1] || value.id === parts[1] || value.name === parts[1]);
   else parent = parent?.[parts[1]];
   const key = parts[2];
   if (!parent || !key) return false;

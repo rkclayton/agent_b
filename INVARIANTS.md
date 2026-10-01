@@ -13,4 +13,4 @@ I8 — Six colours, dark, no nested and no horizontal scrolling — standing sin
 I9 — Nothing the product, its installer or its tests start takes his screen or his focus — 2026-09-27 — `tests/docs-terms.test.mjs:no spawn site in the tooling can take the operator's screen`
 I10 — Installing and updating never need elevation, and signing never lands on a user — 2026-09-23 — `cmd/harness/main_test.go:TestStartupElevationGuard`
 I11 — Anonymous data is content-free and off when its switch is off — 2026-09-23 — `internal/telemetry/sender_test.go:TestTheCountsAreNotQueuedWhenTelemetryIsOff2lx`
-I12 — A per-event path costs the same however much is stored; no file work on the UI thread; nothing grows without bound — 2026-10-01 — `internal/telemetry/sender_test.go:TestBatchesAreBounded2jg`
+I12 — A per-event path costs the same however much is stored; no file work on the UI thread; nothing grows without bound — 2026-10-01 — `tools/check-invariants.mjs:I12 engineering-floor suite`

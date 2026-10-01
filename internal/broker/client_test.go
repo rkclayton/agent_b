@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -40,6 +41,18 @@ type scriptedBroker struct {
 	// connected: QUEUED, then a keepalive PING, and only later the phone's response.
 	offline bool
 	ponged  bool
+}
+
+func TestHandledRequestDeduplicationIsBounded2pd(t *testing.T) {
+	client := NewClient(Identity{}, Pairing{}, nil, nil)
+	client.mu.Lock()
+	for index := 0; index < 1100; index++ {
+		client.rememberHandled(fmt.Sprint(index), []byte("answer"))
+	}
+	client.mu.Unlock()
+	if len(client.handled) != 1024 || len(client.handledOrder) != 1024 {
+		t.Fatalf("handled=%d order=%d", len(client.handled), len(client.handledOrder))
+	}
 }
 
 func newScriptedBroker(t *testing.T, agent, device Identity, pairing Pairing) *scriptedBroker {

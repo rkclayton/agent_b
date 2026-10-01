@@ -51,6 +51,42 @@ func Inspect(source string) (Skill, string, []string, error) {
 	return item, string(data), files, err
 }
 
+// InspectSource previews either import shape without copying it. Chat proposals
+// use this before raising the same card as a proposal drafted in the workspace.
+func InspectSource(source string, max int64) (Skill, string, []string, error) {
+	if !strings.EqualFold(filepath.Ext(source), ".zip") {
+		return Inspect(source)
+	}
+	item, body, files, _, _, err := inspectZIP(source, max)
+	return item, body, files, err
+}
+
+func inspectZIP(source string, max int64) (Skill, string, []string, map[string]attachment.ZIPFile, string, error) {
+	entries, _, err := attachment.ReadZIP(source, max)
+	if err != nil {
+		return Skill{}, "", nil, nil, "", err
+	}
+	files, body, top := make([]string, 0, len(entries)), "", ""
+	for entryName, entry := range entries {
+		clean := path.Clean(strings.ReplaceAll(entryName, `\`, "/"))
+		folder, relative, present := strings.Cut(strings.Trim(clean, "/"), "/")
+		if entry.Refused != "" || !present || (top != "" && folder != top) {
+			return Skill{}, "", nil, nil, "", fmt.Errorf("zip must contain one safe skill folder")
+		}
+		top = folder
+		files = append(files, relative)
+		if relative == "SKILL.md" {
+			body = string(entry.Data)
+		}
+	}
+	if body == "" {
+		return Skill{}, "", nil, nil, "", fmt.Errorf("SKILL.md is missing")
+	}
+	sort.Strings(files)
+	name, description, reason := frontmatter(body)
+	return Skill{Name: name, Description: description, Path: source, Valid: reason == "", Reason: reason}, body, files, entries, top, nil
+}
+
 var validName = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
 
 func Scan(root string, settings map[string]Setting) ([]Skill, string) {
@@ -181,35 +217,16 @@ func Import(root, source string, max int64) (Setting, error) {
 }
 
 func importZIP(root, source string, max int64) (Setting, error) {
-	files, _, err := attachment.ReadZIP(source, max)
+	item, _, _, files, _, err := inspectZIP(source, max)
 	if err != nil {
 		return Setting{}, err
 	}
-	top, skill := "", ""
-	for entryName, entry := range files {
-		if entry.Refused != "" {
-			return Setting{}, fmt.Errorf("zip member refused: %s", entryName)
-		}
-		clean := path.Clean(strings.ReplaceAll(entryName, `\`, "/"))
-		folder, relative, present := strings.Cut(strings.Trim(clean, "/"), "/")
-		if !present {
-			continue
-		}
-		if top != "" && folder != top {
-			return Setting{}, fmt.Errorf("zip must contain one skill folder")
-		}
-		top = folder
-		if relative == "SKILL.md" {
-			skill = string(entry.Data)
-		}
+	if !item.Valid {
+		return Setting{}, fmt.Errorf("%s", item.Reason)
 	}
-	name, _, reason := frontmatter(skill)
-	if reason != "" {
-		return Setting{}, fmt.Errorf("%s", reason)
-	}
-	destination := filepath.Join(root, name)
+	destination := filepath.Join(root, item.Name)
 	if _, err = os.Stat(destination); !os.IsNotExist(err) {
-		return Setting{}, fmt.Errorf("skill %q already exists", name)
+		return Setting{}, fmt.Errorf("skill %q already exists", item.Name)
 	}
 	for entryName, entry := range files {
 		_, relative, present := strings.Cut(strings.Trim(path.Clean(strings.ReplaceAll(entryName, `\`, "/")), "/"), "/")
@@ -225,5 +242,5 @@ func importZIP(root, source string, max int64) (Setting, error) {
 		}
 	}
 	absolute, _ := filepath.Abs(source)
-	return Setting{Name: name, Source: "imported from " + absolute}, nil
+	return Setting{Name: item.Name, Source: "imported from " + absolute}, nil
 }

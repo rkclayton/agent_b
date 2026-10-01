@@ -227,6 +227,10 @@ try {
 	)
 	$null = New-Item -ItemType Directory -Path $singleDrop -Force
 	Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Agent_b.exe') -Destination $singleSetup
+	# Item 2p8: unlike the interactive window-control arm below, this proof owns
+	# an invisible desktop and is mandatory on every installer run.
+	& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'test-one-window-invariant.ps1') -Exe (Join-Path $repositoryRoot 'Agent_b.exe') -Setup $singleSetup -ApplicationRoot $repositoryRoot
+	if ($LASTEXITCODE -ne 0) { throw "The one-window invariant exited $LASTEXITCODE." }
 	$singleBefore = Get-RootFingerprint -Roots $singleTargets
 	$savedErrorAction = $ErrorActionPreference
 	$ErrorActionPreference = 'Continue'

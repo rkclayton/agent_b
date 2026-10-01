@@ -58,7 +58,18 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 		s.cfg.Skills[request.Name] = value
 	case "import":
 		var value config.SkillSetting
-		value, err = skills.Import(filepath.Join(s.profileRoot(), "skills"), request.Path, s.cfg.Tools.Attachments.MaxBytes)
+		request.Path = normalizeSkillImportPath(request.Path)
+		switch {
+		case request.Path == "":
+			err = errors.New(`skill path "(empty)" was not imported: enter a folder or ZIP path`)
+		case pathInfoMissing(request.Path):
+			err = fmt.Errorf("skill path %s was not imported: the path does not exist", request.Path)
+		default:
+			value, err = skills.Import(filepath.Join(s.profileRoot(), "skills"), request.Path, s.cfg.Tools.Attachments.MaxBytes)
+			if errors.Is(err, os.ErrNotExist) {
+				err = fmt.Errorf("skill path %s was not imported: SKILL.md is missing", request.Path)
+			}
+		}
 		if err == nil {
 			s.cfg.Skills[value.Name] = value
 		}
@@ -78,6 +89,27 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 	state := s.skillState()
 	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked, "skills": state}))
 	writeJSON(w, 200, map[string]any{"ok": true, "skills": state})
+}
+
+func normalizeSkillImportPath(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
+		value = value[1 : len(value)-1]
+	}
+	return value
+}
+
+func displaySkillPath(value string) string {
+	value = normalizeSkillImportPath(value)
+	if value == "" {
+		return "(empty)"
+	}
+	return value
+}
+
+func pathInfoMissing(path string) bool {
+	_, err := os.Stat(path)
+	return os.IsNotExist(err)
 }
 
 func (s *Server) Proposal(ctx context.Context, chat *session.Session, runID string) (string, error) {

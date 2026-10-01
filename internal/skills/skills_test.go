@@ -28,9 +28,14 @@ func TestIndexValidationTrustAndImport(t *testing.T) {
 		t.Fatalf("invalid missing: %+v", list)
 	}
 	settings = map[string]Setting{}
-	_, block = Scan(root, settings)
-	if block != "" {
-		t.Fatalf("disabled block=%q", block)
+	list, block = Scan(root, settings)
+	if !list[1].Enabled || !list[2].Enabled || list[0].Enabled || !strings.Contains(block, "alpha") {
+		t.Fatalf("discovered defaults list=%+v block=%q", list, block)
+	}
+	settings["alpha"] = Setting{Enabled: false}
+	list, _ = Scan(root, settings)
+	if list[1].Enabled {
+		t.Fatalf("explicitly disabled skill came back on: %+v", list[1])
 	}
 
 	source := filepath.Join(t.TempDir(), "report-kit")
@@ -38,7 +43,7 @@ func TestIndexValidationTrustAndImport(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(source, "scripts"), 0o700)
 	_ = os.WriteFile(filepath.Join(source, "scripts", "build.ps1"), []byte("'fixture'"), 0o600)
 	setting, err := Import(root, source, 8<<20)
-	if err != nil || setting.Enabled || !strings.Contains(setting.Source, source) {
+	if err != nil || !setting.Enabled || !strings.Contains(setting.Source, source) {
 		t.Fatalf("setting=%+v err=%v", setting, err)
 	}
 }

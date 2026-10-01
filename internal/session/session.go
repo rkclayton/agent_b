@@ -288,7 +288,7 @@ func (s *Session) WriteRoot(path string) (string, error) {
 	defer s.mu.Unlock()
 	candidate := filepath.FromSlash(path)
 	if filepath.IsAbs(candidate) && s.SkillsRoot != "" && pathWithin(s.SkillsRoot, candidate) {
-		return "", fmt.Errorf("skill folders are read-only")
+		return "", fmt.Errorf("skills folder is read-only: %s", s.SkillsRoot)
 	}
 	// The worker never writes plan text. d writes its own plan folder; c is bound
 	// to a plan but may only ever write the repo, so the plans root is closed to

@@ -133,6 +133,9 @@ export function initSettings(entry = {}) {
     event.target.open ? advancedConnections.add(event.target.dataset.connectionAdvanced) : advancedConnections.delete(event.target.dataset.connectionAdvanced);
   }, true);
   sheet.addEventListener("input", (event) => {
+    if (event.target.id && event.target.matches('input:not([type="password"]):not(.setting-input[data-path]), textarea:not(.setting-input[data-path])')) {
+      actionDrafts.set(event.target.id, event.target.value);
+    }
     if (event.target.matches(".setting-input[data-path]")) {
       const path = event.target.dataset.path;
       drafts.set(path, event.target.value);
@@ -331,6 +334,10 @@ function render() {
   for (const input of sheet.querySelectorAll('input[type="password"]')) {
     const value = secretValues.get(controlKey(input));
     if (value) input.value = value;
+  }
+  for (const [id, value] of actionDrafts) {
+    const input = sheet.querySelector(`#${CSS.escape(id)}`);
+    if (input) input.value = value;
   }
   const focusNode = [...sheet.querySelectorAll("button, input, textarea, select, summary")]
     .find((node) => controlKey(node) === focusKey);
@@ -657,6 +664,7 @@ function applyProposedValues(id, discovered) {
 const proposedFields = new Set();
 // Item 2l6 (b): which rows have just taken effect, so the row can say so.
 const appliedSettings = new Map();
+const actionDrafts = new Map();
 // Item 2l4: one anchored confirmation for every remove control. The operator:
 // "the delete function the confirm is goofy dont change buttons like that in the
 // same place, little pop up is fine very minimalistic." The two-click protocol the
@@ -911,7 +919,7 @@ async function dispatchAction(event, button, action, id) {
   if (action === "save-settings") return saveSettings();
   if (action === "create-profile") {
     const name = sheet.querySelector("#new-profile-name")?.value || "";
-    try { await api("/api/profiles", { action: "create", name }); reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); }
+    try { await api("/api/profiles", { action: "create", name }); actionDrafts.delete("new-profile-name"); reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); }
     catch (error) { errors.set("profiles", error.message); }
     return render();
   }
@@ -922,7 +930,7 @@ async function dispatchAction(event, button, action, id) {
   }
   if (action === "rename-profile") {
     const name = sheet.querySelector(`#rename-profile-${CSS.escape(id)}`)?.value || "";
-    try { await api("/api/profiles", { action: "rename", name: id, new_name: name }); reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); }
+    try { await api("/api/profiles", { action: "rename", name: id, new_name: name }); actionDrafts.delete(`rename-profile-${id}`); reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); }
     catch (error) { errors.set("profiles", error.message); }
     return render();
   }
@@ -932,7 +940,7 @@ async function dispatchAction(event, button, action, id) {
 		return render();
 	}
 	if (action === "skill-import" || action === "skill-rescan") {
-		try { await api("/api/skills", action === "skill-import" ? {action:"import", path:sheet.querySelector("#skill-import-path")?.value || ""} : {action:"rescan"}); reduce({type:"snapshot",data:await api("/api/state",undefined,"GET")}); }
+		try { await api("/api/skills", action === "skill-import" ? {action:"import", path:sheet.querySelector("#skill-import-path")?.value || ""} : {action:"rescan"}); if(action==="skill-import")actionDrafts.delete("skill-import-path"); reduce({type:"snapshot",data:await api("/api/state",undefined,"GET")}); }
 		catch(error) { errors.set("profiles",error.message); }
 		return render();
 	}
@@ -961,6 +969,7 @@ async function dispatchAction(event, button, action, id) {
 		}
 		try { const config = await api("/api/config", {shell:{trusted_folders:folders}}); reduce({type:"config.changed",data:{config}}); }
 		catch (error) { errors.set("shell.trusted_folders", error.message); }
+		for (const key of [...actionDrafts.keys()]) if (key.startsWith("trusted-folder-")) actionDrafts.delete(key);
 		return render();
 	}
   if (action === "operator-context") {
@@ -1189,6 +1198,7 @@ async function dispatchAction(event, button, action, id) {
 			for (const id of ["#credential-name", "#credential-origin", "#credential-header", "#credential-secret"]) {
 				const input = sheet.querySelector(id);
 				if (input) input.value = "";
+				actionDrafts.delete(id.slice(1));
 			}
 			credentialMessage = "stored";
 		} catch (error) {
@@ -1209,6 +1219,7 @@ async function dispatchAction(event, button, action, id) {
 			for (const selector of ["#credential-entra-name", "#credential-entra-origin", "#credential-tenant", "#credential-client-id", "#credential-scopes"]) {
 				const input = sheet.querySelector(selector);
 				if (input) input.value = "";
+				actionDrafts.delete(selector.slice(1));
 			}
 			credentialMessage = "Entra credential added — sign in when ready";
 		} catch (error) {
@@ -1828,6 +1839,7 @@ async function newSession() {
   };
   try {
     const result = await api("/api/sessions", body);
+    actionDrafts.delete("new-session-label");
     reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
     setActive(result.session.id);
   } catch (error) {

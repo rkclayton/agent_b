@@ -111,8 +111,8 @@ func Scan(root string, settings map[string]Setting) ([]Skill, string) {
 		if key == "" {
 			key = folder
 		}
-		setting := settings[key]
-		skill.Enabled, skill.LastRead = setting.Enabled && skill.Valid, setting.LastRead
+		setting, configured := settings[key]
+		skill.Enabled, skill.LastRead = (!configured || setting.Enabled) && skill.Valid, setting.LastRead
 		if setting.Source != "" {
 			skill.Source = setting.Source
 		}
@@ -213,7 +213,7 @@ func Import(root, source string, max int64) (Setting, error) {
 		return Setting{}, err
 	}
 	absolute, _ := filepath.Abs(source)
-	return Setting{Name: name, Source: "imported from " + absolute}, nil
+	return Setting{Name: name, Source: "imported from " + absolute, Enabled: true}, nil
 }
 
 func importZIP(root, source string, max int64) (Setting, error) {
@@ -242,5 +242,5 @@ func importZIP(root, source string, max int64) (Setting, error) {
 		}
 	}
 	absolute, _ := filepath.Abs(source)
-	return Setting{Name: item.Name, Source: "imported from " + absolute}, nil
+	return Setting{Name: item.Name, Source: "imported from " + absolute, Enabled: true}, nil
 }

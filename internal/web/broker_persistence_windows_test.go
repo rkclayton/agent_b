@@ -309,3 +309,25 @@ func TestSuccessfulPairingWritesItsFrameSequenceAndOutcome2op(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionLogIsRedactedAndRotatesOnce2p0(t *testing.T) {
+	root := t.TempDir()
+	client := &BrokerClient{pairingLog: filepath.Join(root, "logs", "pairing.log")}
+	pairing := broker.Pairing{PairingID: bytes.Repeat([]byte{0x53}, 16)}
+	for _, event := range []string{"connected", "PEER_QUERY sent", "PEER received connected=true", "disconnected reason=EOF", "reconnect attempt backoff=1s", "connected"} {
+		client.recordSession(pairing, event)
+	}
+	logBytes, err := os.ReadFile(client.pairingLog)
+	if err != nil || strings.Count(string(logBytes), "session 53535353") != 6 || !strings.HasSuffix(strings.TrimSpace(string(logBytes)), "connected") || strings.Contains(string(logBytes), hex.EncodeToString(pairing.PairingID)) {
+		t.Fatalf("session log = %q, %v", logBytes, err)
+	}
+	for turn := 0; turn < 2; turn++ {
+		if err := os.WriteFile(client.pairingLog, bytes.Repeat([]byte{'x'}, pairingLogMaxBytes), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		client.recordSession(pairing, "reconnect attempt backoff=1s")
+	}
+	if matches, _ := filepath.Glob(client.pairingLog + ".*"); len(matches) != 1 || matches[0] != client.pairingLog+".1" {
+		t.Fatalf("rotated logs = %v", matches)
+	}
+}

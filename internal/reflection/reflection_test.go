@@ -1,6 +1,7 @@
 package reflection
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +55,56 @@ func TestTheStoreKeepsSummariesOverviewsAndReports(t *testing.T) {
 	report, err := store.LatestReport()
 	if err != nil || report.Text != "report" || len(report.Clusters) != 1 || report.Clusters[0].Tool != "shell" {
 		t.Fatalf("report=%+v err=%v", report, err)
+	}
+}
+
+const oldestSummarySchema2pb = `CREATE TABLE summaries (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, session_id TEXT NOT NULL, run_id TEXT NOT NULL, workspace TEXT NOT NULL, plan_id TEXT NOT NULL, profile TEXT NOT NULL, aux INTEGER NOT NULL, read_files TEXT NOT NULL, written_files TEXT NOT NULL, changed TEXT NOT NULL, open TEXT NOT NULL, text TEXT NOT NULL, failed TEXT NOT NULL, duration_ms INTEGER NOT NULL)`
+
+func TestOldestReleasedReflectionStoreMigratesEveryWrittenColumnAndKeepsRows2pb(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reflection.db")
+	db, _ := sql.Open("sqlite", path)
+	if _, err := db.Exec(oldestSummarySchema2pb); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO summaries VALUES (1,1,'old-session','old-run','fixture','plan','old-profile',0,'','','','','kept row','',1)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	store, err := OpenAt(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err = store.PutSummary(Summary{At: time.Unix(2, 0), SessionID: "new-session", RunID: "new-run", Connection: "fixture", Text: "new row"}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := store.Summaries(time.Time{}, 0)
+	if err != nil || len(rows) != 2 || rows[1].RunID != "old-run" || rows[1].Text != "kept row" {
+		t.Fatalf("rows=%+v err=%v", rows, err)
+	}
+
+	query, err := store.db.Query(`SELECT name FROM pragma_table_info('summaries')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer query.Close()
+	have := map[string]bool{}
+	for query.Next() {
+		var name string
+		if err := query.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		have[name] = true
+	}
+	list, _, found := strings.Cut(strings.TrimPrefix(putSummarySQL, "INSERT INTO summaries ("), ")")
+	if !found {
+		t.Fatal("summaries insert columns not found")
+	}
+	for _, column := range strings.Split(list, ",") {
+		column = strings.TrimSpace(column)
+		if !have[column] {
+			t.Fatalf("insert column %q absent after oldest-schema migration", column)
+		}
 	}
 }
 

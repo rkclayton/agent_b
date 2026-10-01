@@ -154,6 +154,12 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("reflection schema: %w", err)
 		}
 	}
+	// v1.6.7 renamed profiles to connections. Rename the released column too:
+	// adding connection would leave profile NOT NULL and make every new insert
+	// fail because current writes no longer carry it.
+	if _, err := s.db.Exec(`ALTER TABLE summaries RENAME COLUMN profile TO connection`); err != nil && !strings.Contains(err.Error(), "no such column") {
+		return fmt.Errorf("reflection schema: %w", err)
+	}
 	return nil
 }
 
@@ -165,14 +171,15 @@ func split(value string) []string {
 	return strings.Split(value, "\n")
 }
 
+const putSummarySQL = `INSERT INTO summaries (at, session_id, run_id, workspace, plan_id, connection, aux, read_files, written_files, changed, open, text, failed, duration_ms, untrusted)
+	VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+
 // PutSummary records one run's summary.
 func (s *Store) PutSummary(summary Summary) (int64, error) {
 	if summary.At.IsZero() {
 		summary.At = time.Now().UTC()
 	}
-	result, err := s.db.Exec(
-		`INSERT INTO summaries (at, session_id, run_id, workspace, plan_id, connection, aux, read_files, written_files, changed, open, text, failed, duration_ms, untrusted)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	result, err := s.db.Exec(putSummarySQL,
 		summary.At.UTC().UnixMilli(), summary.SessionID, summary.RunID, summary.Workspace, summary.PlanID, summary.Connection,
 		boolToInt(summary.Aux), joined(summary.Read), joined(summary.Written), summary.Changed, summary.Open, summary.Text, summary.Failed, summary.Duration, boolToInt(summary.Untrusted))
 	if err != nil {

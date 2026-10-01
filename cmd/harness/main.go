@@ -121,7 +121,10 @@ func main() {
 		if openErr != nil {
 			log.Fatalf("open startup diagnostic log %s: %v", *startupLog, openErr)
 		}
-		log.SetOutput(io.MultiWriter(os.Stderr, file))
+		// A GUI-subsystem launch has no stderr handle. Put the durable file first:
+		// io.MultiWriter stops at the first failed writer, and stderr-first made a
+		// startup failure's diagnostic file empty when no console existed.
+		log.SetOutput(io.MultiWriter(file, os.Stderr))
 	}
 	paths, err := resolveStartupPaths(*configOverride, *applicationOverride, *dataOverride)
 	if err != nil {

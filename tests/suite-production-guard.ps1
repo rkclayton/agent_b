@@ -100,6 +100,58 @@ function Assert-AgentBProductionIncarnationUnchanged {
     if ($deltas.Count) { throw "PRODUCTION INCARNATION CHANGED during $Suite`: $($deltas -join ', ')" }
 }
 
+function Test-AgentBSuitePathWithin {
+    param([string]$Path, [string[]]$Roots)
+    $full = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    foreach ($root in $Roots) {
+        $allowed = [IO.Path]::GetFullPath($root).TrimEnd('\')
+        if ($full.Equals($allowed, [StringComparison]::OrdinalIgnoreCase) -or
+            $full.StartsWith($allowed + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function Assert-AgentBSuiteLaunch {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ApplicationRoot,
+        [Parameter(Mandatory)][string]$DataRoot,
+        [Parameter(Mandatory)][string[]]$SuiteRoots,
+        [int[]]$SignalProcessIds = @(),
+        [scriptblock]$Action
+    )
+    $canonicalApplication = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\Agent_b'
+    $canonicalData = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Agent_b'
+    foreach ($entry in @(
+        @{ label = 'application'; path = $ApplicationRoot; canonical = $canonicalApplication },
+        @{ label = 'data'; path = $DataRoot; canonical = $canonicalData }
+    )) {
+        $full = [IO.Path]::GetFullPath($entry.path).TrimEnd('\')
+        $canonical = [IO.Path]::GetFullPath($entry.canonical).TrimEnd('\')
+        if ($full.Equals($canonical, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "SUITE LAUNCH REFUSED: $($entry.label) root is the canonical production root $full"
+        }
+        if (-not (Test-AgentBSuitePathWithin -Path $full -Roots $SuiteRoots)) {
+            throw "SUITE LAUNCH REFUSED: $($entry.label) root is outside the suite roots: $full"
+        }
+    }
+    foreach ($id in $SignalProcessIds) {
+        $process = Get-Process -Id $id -ErrorAction Stop
+        if (-not $process.Path -or -not (Test-AgentBSuitePathWithin -Path $process.Path -Roots $SuiteRoots)) {
+            throw "SUITE LAUNCH REFUSED: PID $id is outside the suite roots"
+        }
+    }
+    if ($Action) { & $Action }
+}
+
+function Assert-AgentBSuiteLaunchCoverage {
+    param([Parameter(Mandatory)][string]$Text, [string]$Label = 'suite source')
+    $dangerous = '(?im)^\s*(?:\$\w+\s*=\s*)?(?:Start-Process\s+-FilePath\s+[^\r\n]*(?:setup|Agent_b\.exe)|[^\r\n]*&\s*\$(?:singleSetup|FromSetup)\b)'
+    if ($Text -match $dangerous -and $Text -notmatch '(?m)^Assert-AgentBSuiteLaunch\b') {
+        throw "SUITE LAUNCH COVERAGE REFUSED: $Label has a launch site without the shared refusal"
+    }
+}
+
 function Invoke-AgentBSuiteGuarded {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Suite, [Parameter(Mandatory)][scriptblock]$Action)

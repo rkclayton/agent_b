@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -49,8 +50,13 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 	if supplied := installerArgument(arguments, "OperatorSid", ""); supplied != "" && !strings.EqualFold(supplied, operatorSID) {
 		return fmt.Errorf("installation refused: operator SID %s differs from process token %s", supplied, operatorSID)
 	}
-	if err := stopNativeInstalledProcess(application, data, log); err != nil {
+	stopped, err := stopNativeInstalledProcess(application, data, log)
+	if err != nil {
 		return err
+	}
+	if stopped {
+		log.printf("RESTART VERSION: %s", currentDisplayVersion(application))
+		log.printf("RESTART REASON: installation failure")
 	}
 	version := strings.TrimPrefix(currentDisplayVersion(source), "v")
 	plan := nativeInstallPlan{Source: source, Application: application, Data: data, Workspace: workspace,
@@ -79,7 +85,7 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 	}
 	appendProgress(data, installProgress{Phase: "copying the application", Text: "Application: " + application})
 	if err := installPerUserNative(plan, platform); err != nil {
-		return err
+		return describeNativeInstallFailure(err)
 	}
 	log.printf("INSTALLATION COMPLETE")
 	return nil
@@ -225,41 +231,61 @@ func writeShellLink(spec shortcutSpec) error {
 	}
 	return nil
 }
-func stopNativeInstalledProcess(application, data string, log *installLog) error {
+func stopNativeInstalledProcess(application, data string, log *installLog) (bool, error) {
 	encoded, err := readMarker(filepath.Join(data, "agent_b-run.json"))
 	if os.IsNotExist(err) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	var marker runMarker
 	if json.Unmarshal(encoded, &marker) != nil || marker.PID <= 0 || !processRunning(marker.PID, marker.Created) {
-		return nil
+		return false, nil
 	}
 	want, _ := filepath.Abs(application)
 	got, _ := filepath.Abs(marker.Application)
 	if !strings.EqualFold(filepath.Clean(want), filepath.Clean(got)) {
-		return nil
+		return false, nil
 	}
 	name, _ := windows.UTF16PtrFromString(stopEventName(application, marker.PID))
 	event, _, _ := procOpenEvent.Call(0x0002, 0, uintptr(unsafe.Pointer(name)))
 	if event == 0 {
-		return fmt.Errorf("Agent_b PID %d could not be stopped through its scoped event; installation was not changed", marker.PID)
+		return false, fmt.Errorf("Agent_b PID %d could not be stopped through its scoped event; installation was not changed", marker.PID)
 	}
 	defer windows.CloseHandle(windows.Handle(event))
 	if ok, _, _ := procSetEvent.Call(event); ok == 0 {
-		return fmt.Errorf("signal Agent_b PID %d", marker.PID)
+		return false, fmt.Errorf("signal Agent_b PID %d", marker.PID)
 	}
 	log.printf("STOP REQUESTED: Agent_b PID %d through the scoped event", marker.PID)
+	started := time.Now()
 	deadline := time.Now().Add(15 * time.Second)
 	for processRunning(marker.PID, marker.Created) && time.Now().Before(deadline) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	if processRunning(marker.PID, marker.Created) {
-		return fmt.Errorf("Agent_b PID %d did not exit after the graceful stop signal; installation was not changed", marker.PID)
+		return false, fmt.Errorf("Agent_b PID %d did not exit after the graceful stop signal; installation was not changed", marker.PID)
 	}
-	return nil
+	log.printf("STOP COMPLETE: Agent_b PID %d exited; waited %s for its process handle to close", marker.PID, time.Since(started).Round(time.Millisecond))
+	return true, nil
+}
+
+func describeNativeInstallFailure(err error) error {
+	var failure nativeFileFailure
+	if !errors.As(err, &failure) {
+		return err
+	}
+	owner := "unknown"
+	if descriptor, ownerErr := windows.GetNamedSecurityInfo(failure.path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION); ownerErr == nil {
+		if sid, _, sidErr := descriptor.Owner(); sidErr == nil {
+			owner = sid.String()
+		}
+	}
+	caller, callerErr := currentTokenSID()
+	if callerErr != nil {
+		caller = "unknown"
+	}
+	return fmt.Errorf("%w; owner %s; caller %s", err, owner, caller)
 }
 
 func runNativeUninstall(application, data, startMenu, sendTo, uninstallRegistry string, purge, worker bool, parent int) error {
@@ -283,7 +309,7 @@ func runNativeUninstall(application, data, startMenu, sendTo, uninstallRegistry 
 	if !worker {
 		log := openInstallLog(data, true)
 		defer log.close()
-		if err := stopNativeInstalledProcess(application, data, log); err != nil {
+		if _, err := stopNativeInstalledProcess(application, data, log); err != nil {
 			return err
 		}
 		self, err := os.Executable()

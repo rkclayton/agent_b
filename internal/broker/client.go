@@ -99,10 +99,18 @@ type Client struct {
 	// answer to a request and the downstream stream send at the same time, and
 	// connected is told each time a session is up, with a context that ends with it.
 	sendMu    sync.Mutex
+	pushes    [maxPendingPushes]string
+	pushHead  int
+	pushLen   int
+	holding   func(context.Context)
 	connected func(context.Context)
 	refused   func(code, detail string)
 	event     func(string)
 }
+
+const maxPendingPushes = 128
+
+func (c *Client) OnHolding(holding func(context.Context)) { c.holding = holding }
 
 // OnConnected is called, on its own goroutine, each time a session is established;
 // its context is cancelled when that connection ends. Set it before Run.
@@ -142,13 +150,33 @@ func (c *Client) Deliver(plaintext []byte) error {
 }
 
 func (c *Client) Notify(kind, chatID, notice string) error {
-	transport, messageID, err := c.live()
-	if err != nil {
-		return err
-	}
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
-	return c.Push(transport, messageID, kind, chatID, notice)
+	messageID := make([]byte, 16)
+	if _, err := rand.Read(messageID); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	transport := c.transport
+	if transport == nil {
+		c.mu.Unlock()
+		return errors.New("broker: no connection")
+	}
+	if c.pushLen >= maxPendingPushes {
+		c.mu.Unlock()
+		return errors.New("broker: too many pushes awaiting answers")
+	}
+	c.pushes[(c.pushHead+c.pushLen)%maxPendingPushes] = kind
+	c.pushLen++
+	c.mu.Unlock()
+	err := c.Push(transport, messageID, kind, chatID, notice)
+	if err != nil {
+		c.mu.Lock()
+		c.pushLen--
+		c.mu.Unlock()
+		return err
+	}
+	return nil
 }
 
 func (c *Client) live() (Transport, []byte, error) {
@@ -279,6 +307,7 @@ func (c *Client) once(ctx context.Context) error {
 	defer func() { _ = transport.Close(1000, "done") }()
 	c.mu.Lock()
 	c.transport = transport
+	c.pushHead, c.pushLen = 0, 0
 	c.mu.Unlock()
 
 	if err := c.authenticate(ctx, transport); err != nil {
@@ -287,14 +316,17 @@ func (c *Client) once(ctx context.Context) error {
 	c.setState("holding", nil)
 	c.recordEvent("connected")
 	c.recordEvent("PEER_QUERY sent")
+	connection, ended := context.WithCancel(ctx)
+	defer ended()
+	if c.holding != nil {
+		go c.holding(connection)
+	}
 	if err := c.establish(ctx, transport); err != nil {
 		return err
 	}
 	c.setState("phone connected", nil)
 	c.recordEvent("PEER received connected=true")
 	if c.connected != nil {
-		connection, ended := context.WithCancel(ctx)
-		defer ended()
 		go c.connected(connection)
 	}
 	return c.serve(ctx, transport)
@@ -578,8 +610,16 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 				return err
 			}
 		case FramePushAccepted:
-			// Nothing to do: a push is a wake hint and never carries state.
+			if _, err := c.pushAnswer(frame); err != nil {
+				return err
+			}
 		case FrameError:
+			if handled, err := c.pushAnswer(frame); handled || err != nil {
+				if err != nil {
+					return err
+				}
+				continue
+			}
 			var problem errorPayload
 			if err := DecodeInto(frame.Payload, &problem); err != nil {
 				return err
@@ -761,6 +801,14 @@ func (c *Client) Pending() int {
 func (c *Client) readHandshake(ctx context.Context, transport Transport) (Frame, error) {
 	for {
 		frame, err := c.read(ctx, transport)
+		if err == nil && (frame.Type == FramePushAccepted || frame.Type == FrameError) {
+			if handled, answerErr := c.pushAnswer(frame); handled || answerErr != nil {
+				if answerErr != nil {
+					return Frame{}, answerErr
+				}
+				continue
+			}
+		}
 		if err == nil && frame.Type == FrameError {
 			var problem errorPayload
 			if err := DecodeInto(frame.Payload, &problem); err != nil {
@@ -788,6 +836,41 @@ func (c *Client) readHandshake(ctx context.Context, transport Transport) (Frame,
 			}
 		}
 	}
+}
+
+func (c *Client) pushAnswer(frame Frame) (bool, error) {
+	answer := ""
+	switch frame.Type {
+	case FramePushAccepted:
+		answer = "accepted"
+	case FrameError:
+		var problem errorPayload
+		if err := DecodeInto(frame.Payload, &problem); err != nil {
+			return true, err
+		}
+		if problem.Fatal {
+			return false, nil
+		}
+		if problem.Code == "malformed" && problem.Detail == "recipient_no_token" {
+			answer = "no_token"
+		} else {
+			answer = "refused"
+		}
+	default:
+		return false, nil
+	}
+	c.mu.Lock()
+	if c.pushLen == 0 {
+		c.mu.Unlock()
+		return false, nil
+	}
+	kind := c.pushes[c.pushHead]
+	c.pushes[c.pushHead] = ""
+	c.pushHead = (c.pushHead + 1) % maxPendingPushes
+	c.pushLen--
+	c.mu.Unlock()
+	c.recordEvent("PUSH kind=" + kind + " answer=" + answer)
+	return true, nil
 }
 
 func (c *Client) read(ctx context.Context, transport Transport) (Frame, error) {

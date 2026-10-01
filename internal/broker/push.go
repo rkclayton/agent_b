@@ -91,7 +91,6 @@ func (c *Client) Push(transport Transport, messageID []byte, kind, chatID, notic
 	if err := transport.Send(frame); err != nil {
 		return err
 	}
-	c.recordEvent("PUSH sent")
 	return nil
 }
 

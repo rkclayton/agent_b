@@ -105,6 +105,14 @@ func (m *Manager) load(ctx context.Context, path, connectionID, heading string) 
 		if len(parts) == 2 && len(parts[0]) == 10 && parts[0][4] == '-' && parts[0][7] == '-' {
 			line = parts[1]
 		}
+		if AboutAgentNote(line) {
+			line = strings.TrimSuffix(line, "]")
+			if strings.Contains(line, "[") {
+				line += ", about-agent: yes]"
+			} else {
+				line += "  [about-agent: yes]"
+			}
+		}
 		lines = append(lines, "- "+line)
 	}
 	if err := scanner.Err(); err != nil {
@@ -125,6 +133,26 @@ func (m *Manager) load(ctx context.Context, path, connectionID, heading string) 
 		dropped++
 	}
 	return "", path, nil
+}
+
+// AboutAgentNote identifies avoidance rules about this harness, not project facts.
+func AboutAgentNote(note string) bool {
+	value := strings.ToLower(noteTextOf(note))
+	subject := aboutAgentSubject.MatchString(value)
+	avoid := aboutAgentAvoidance.MatchString(value)
+	return subject && avoid
+}
+
+// FilterRecall removes display-marked harness notes before a model sees memory.
+func FilterRecall(block string) string {
+	lines := strings.Split(block, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if !strings.Contains(line, "about-agent: yes") && !AboutAgentNote(line) {
+			kept = append(kept, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
 func (m *Manager) Read(workspace string) (string, error) {
@@ -445,6 +473,8 @@ func noteTextOf(line string) string { return parseNote(line).Text }
 
 var notePattern = regexp.MustCompile(`^-\s*(\d{4}-\d{2}-\d{2})?\s*(.*)$`)
 var provenancePattern = regexp.MustCompile(`\s*\[([^\]]*)\]\s*$`)
+var aboutAgentSubject = regexp.MustCompile(`\b(read_file|list_dir|write_file|edit_file|search|shell|remember|recall|fetch_url|web_search|run_script|call_service|delegate|card|boundary|approval|workspace|sandbox|container|tool)s?\b`)
+var aboutAgentAvoidance = regexp.MustCompile(`\b(do not|don't|never|avoid|refuse|stay|stop using|cannot|can't|wedge[sd]?|hangs?|fails?|broken)\b`)
 
 func parseNote(line string) Note {
 	note := Note{}

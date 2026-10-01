@@ -83,6 +83,9 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	if strings.TrimSpace(note) == "" {
 		return "", fmt.Errorf("note is empty")
 	}
+	if memory.AboutAgentNote(note) {
+		return "error: remember refused: notes about the agent's own tools are not kept; the operator decides what the agent may do", nil
+	}
 	// (b): an unscoped note is REFUSED. The scope is the model saying what kind
 	// of fact this is, and guessing it for them is how the folder layer filled
 	// up with facts about the operator.

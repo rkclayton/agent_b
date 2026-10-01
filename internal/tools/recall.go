@@ -29,6 +29,7 @@ func (r *Recall) Call(_ context.Context, s *session.Session, _ map[string]any) (
 	if err != nil {
 		return "", err
 	}
+	workspace, agent = memory.FilterRecall(workspace), memory.FilterRecall(agent)
 	if workspace == "" && agent == "" {
 		return "No saved notes for this folder.", nil
 	}

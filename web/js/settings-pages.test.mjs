@@ -77,6 +77,19 @@ test("Profiles lists agent-layer memory with a named remove action", () => {
 	assert.match(page, /data-action="remove-agent-memory" data-id="ping output"/);
 });
 
+test("Memory marks notes about the agent without adding a control", () => {
+	const source = fs.readFileSync(new URL("settings-connections.js", import.meta.url), "utf8");
+	assert.match(source, /about_agent:[\s\S]*about the agent/);
+	assert.doesNotMatch(source, /data-action=["'`]keep-agent-memory/);
+	const context = pageContext();
+	context.store.active = "s1";
+	context.store.sessions.s1 = { agent_id: "agent-b", agent_memory_content: "Notes:\n- STAY IN WORKSPACE [scope: user, about-agent: yes]" };
+	const page = renderProfilesPage(context);
+	assert.match(page, /STAY IN WORKSPACE \[scope: user, about the agent\]/);
+	assert.match(page, /data-action="remove-agent-memory"/);
+	assert.doesNotMatch(page, /data-action=["'`]keep-agent-memory/);
+});
+
 test("Profiles renders the Hermes preview with one import action and include rows", () => {
 	const context = pageContext();
 	context.hermesPreview = { rows: [

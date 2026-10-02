@@ -456,9 +456,9 @@ test("the model he picks is the one the field shows, through Test and through Sa
   await page.close();
 });
 
-// (d) and (e): a refused Save keeps every draft on screen and says which connection and
-// which field it is about.
-test("a refused save keeps the drafts and names the connection", async () => {
+// (d) and (e): a refused Save keeps every draft on screen and marks only the exact
+// field the server refused. Item 2po deliberately removed the old row duplicate.
+test("a refused save keeps the drafts and marks only its field", async () => {
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
@@ -487,14 +487,14 @@ test("a refused save keeps the drafts and names the connection", async () => {
   }, id);
   await page.locator(`.connection-row [data-action="save-connection"][data-id="${id}"]`).click();
 
-  const refusal = page.locator(".connection-refusal, .settings-group .field-error, [data-save-status]");
   await expect(page.locator("[data-save-status]")).toContainText("Save failed");
-  // It names the connection, and the row it is about carries it.
+  const modelField = editor.locator(`[data-path="connections.${id}.model"]`);
+  await expect(modelField.locator("xpath=ancestor::div[contains(@class,'setting-row')]")).toHaveClass(/invalid/);
+  await expect(editor.locator(".field-error")).toContainText("model is empty");
   const row = page.locator(`.connection-row:has(.connection-summary[data-id="${id}"])`);
-  await expect(row).toContainText("model is empty");
+  await expect(row).not.toContainText("model is empty");
   // Every draft is still on screen: nothing was re-rendered back to the saved value.
   await expect(editor.locator(`[data-path="connections.${id}.label"]`)).toHaveValue("renamed while refused");
   await expect(editor.locator(`[data-path="connections.${id}.base_url"]`)).toHaveValue("127.0.0.1:9");
-  void refusal;
   await page.close();
 });

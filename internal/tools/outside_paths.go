@@ -12,11 +12,13 @@ import (
 
 // literalAbsolutePath finds Windows absolute paths written literally in a
 // command or script: a drive path or a UNC path, up to a quote, whitespace or a
-// shell separator.
-var literalAbsolutePath = regexp.MustCompile(`(?i)(?:\b[a-z]:[\\/]|\\\\[a-z0-9._$-]+[\\/])[^"'\x60\s;|<>()\[\]{},]*`)
+// shell separator. A UNC server name starts with a letter or digit and is
+// followed by one separator and a share (item 2q3): `'\\.git\\'` and
+// `'\\bTODO\\b'` are regex escapes, not servers.
+var literalAbsolutePath = regexp.MustCompile(`(?i)(?:\b[a-z]:[\\/]|\\\\[a-z0-9][a-z0-9._$-]*[\\/][^\\/"'\x60\s])[^"'\x60\s;|<>()\[\]{},]*`)
 
 // quotedAbsolutePath is an absolute path inside quotes, which may hold spaces.
-var quotedAbsolutePath = regexp.MustCompile(`(?i)["']((?:[a-z]:[\\/]|\\\\[a-z0-9._$-]+[\\/])[^"'\r\n]*)["']`)
+var quotedAbsolutePath = regexp.MustCompile(`(?i)["']((?:[a-z]:[\\/]|\\\\[a-z0-9][a-z0-9._$-]*[\\/][^\\/"'\r\n])[^"'\r\n]*)["']`)
 
 // literalPaths are the quoted absolute paths whole, then the unquoted ones.
 func literalPaths(source string) []string {

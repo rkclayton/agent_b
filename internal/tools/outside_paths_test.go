@@ -213,3 +213,59 @@ func TestTrustedFoldersUseResolvedPaths(t *testing.T) {
 		t.Fatalf("junction escaping the trusted folder did not ask: %+v", decision)
 	}
 }
+
+// Item 2q3 (a): s52's script. A regex escape and a relative path are not paths
+// outside the folder: `'\.git\'` was read as the UNC server ".git" and raised
+// a card for a folder that does not exist.
+func TestRelativePathsAndPatternsRaiseNoCard2q3(t *testing.T) {
+	root := t.TempDir()
+	item := &session.Session{ID: "s52", Workspace: root}
+	for _, source := range []string{
+		`Get-ChildItem -Recurse -File | Where-Object { $_.FullName -notmatch '\\.git\\' } | Select-Object -First 5`,
+		`Get-Content .\logs\x.txt`,
+		`Get-ChildItem -Recurse | Where-Object FullName -notmatch '\.git\'`,
+		`Select-String -Path * -Pattern '\\bTODO\\b'`,
+	} {
+		if decision := outsideCommandDecision(source, item, nil); decision.card != "" || decision.missing != "" || len(decision.folders) != 0 {
+			t.Errorf("%q raised %+v", source, decision)
+		}
+	}
+	if paths := outsideLiteralPaths(`Get-Content \\fileserver\share\notes.txt`, item); len(paths) != 1 {
+		t.Fatalf("a real UNC path must still be seen: %v", paths)
+	}
+}
+
+// Item 2q3 (c): Agent_b's own data and install folders are readable without a
+// card; writing there still asks.
+func TestOwnFoldersReadWithoutACardWriteWithOne2q3(t *testing.T) {
+	local := t.TempDir()
+	t.Setenv("LOCALAPPDATA", local)
+	logs := filepath.Join(local, "Agent_b", "logs")
+	install := filepath.Join(local, "Programs", "Agent_b")
+	for _, dir := range []string{logs, install} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(logs, "launcher.log"), []byte("started\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	item := &session.Session{ID: "own", Workspace: t.TempDir()}
+	for _, source := range []string{
+		`Get-Content "` + filepath.Join(logs, "launcher.log") + `" -Tail 5`,
+		`Get-ChildItem "` + install + `"`,
+	} {
+		if decision := outsideCommandDecision(source, item, nil); decision.card != "" {
+			t.Errorf("a read of Agent_b's own folder raised a card: %q → %s", source, decision.card)
+		}
+	}
+	for _, source := range []string{
+		`Set-Content "` + filepath.Join(logs, "launcher.log") + `" "x"`,
+		`"x" > "` + filepath.Join(logs, "new.txt") + `"`,
+		`Remove-Item "` + filepath.Join(install, "Agent_b.exe") + `"`,
+	} {
+		if decision := outsideCommandDecision(source, item, nil); decision.card == "" && decision.missing == "" {
+			t.Errorf("a write to Agent_b's own folder raised no card: %q", source)
+		}
+	}
+}

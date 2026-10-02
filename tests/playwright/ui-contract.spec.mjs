@@ -255,6 +255,75 @@ test("dragging the strip resizes the composer, keeps what is typed, and persists
   expect(shorter).toBeGreaterThanOrEqual(Number(remembered));
 });
 
+// Item 2ps / I12: retained history must not make the first usable browser frame
+// grow with what is stored. This runs the real document and modules in headless
+// Edge; only the server-authored event stream is replaced with a deterministic
+// snapshot so the two retained-size arms differ in no other way.
+test("first usable frame does not grow with retained chat history", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const fixture = (chats, entries) => {
+    const sessions = {};
+    for (let chat = 0; chat < chats; chat++) {
+      const id = `chat-${chat}`;
+      const retained = chat === 0 ? entries : 0;
+      const timeline = Array.from({ length: retained }, (_, index) => ({ type: "tool.result", session_id: id, run_id: "run", data: { call_id: index, result: "fixture" } }));
+      const transcript = Array.from({ length: retained }, (_, index) => ({ type: index % 2 ? "agent" : "user", key: `entry:${index}`, text: "fixture", done: true }));
+      sessions[id] = { schema_version: 1, cursor: { generation: `${id}.jsonl`, offset: entries + 1 }, complete: true, id, label: id,
+        role: "b", created_at: "2026-10-01T00:00:00Z", run: { status: "idle" }, tools: [], messages: [], budget: {}, activity: { completed_stages: [] },
+        timeline, chat: transcript, runnable: true, closed: false };
+    }
+    return { sessions, connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {} };
+  };
+  const measure = async (state) => {
+    const context = await browser.newContext({ viewport: { width: 1250, height: 975 } });
+    await context.addInitScript(({ snapshot }) => {
+      sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: "chat-0", surface: { kind: "chat", key: "chat-0" } }));
+      class FixtureEvents {
+        constructor() {
+          this.listeners = new Map();
+          setTimeout(() => {
+            this.onopen?.();
+            const event = { data: JSON.stringify({ type: "snapshot", data: snapshot }) };
+            for (const listener of this.listeners.get("snapshot") || []) listener(event);
+          });
+        }
+        addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); }
+        close() {}
+      }
+      globalThis.EventSource = FixtureEvents;
+    }, { snapshot: state });
+    const page = await context.newPage();
+    await page.route("**/*", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
+      if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
+      const relative = url.pathname.replace(/^\/static\//, "");
+      return route.fulfill({ path: webRoot + relative });
+    });
+    await page.goto("http://first-frame.test/chat?setup=skip&session=chat-0", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => {
+      const input = document.querySelector("#chat-task");
+      return input && !input.disabled;
+    });
+    const elapsed = await page.evaluate(() => performance.now());
+    await context.close();
+    return elapsed;
+  };
+  const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+  const smallState = fixture(1, 0);
+  const largeState = fixture(30, 3000);
+  const small = [], large = [];
+  for (let index = 0; index < 5; index++) {
+    small.push(await measure(smallState));
+    console.log(`2ps empty sample ${index + 1}=${small.at(-1).toFixed(1)}ms`);
+    large.push(await measure(largeState));
+    console.log(`2ps large sample ${index + 1}=${large.at(-1).toFixed(1)}ms`);
+  }
+  const smallMedian = median(small), largeMedian = median(large);
+  console.log(`2ps first usable frame empty=${smallMedian.toFixed(1)}ms large=${largeMedian.toFixed(1)}ms ratio=${(largeMedian / smallMedian).toFixed(2)}x`);
+  expect(largeMedian, `empty=${smallMedian.toFixed(1)}ms large=${largeMedian.toFixed(1)}ms`).toBeLessThanOrEqual(2 * smallMedian);
+});
+
 // Item 2lj (f) and (g): the standing UI contract still holds at every step. At
 // the largest size nothing overflows and nothing gains a scrollbar it did not
 // have, at the wide width and at the phone viewport both.

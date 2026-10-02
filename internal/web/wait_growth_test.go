@@ -20,6 +20,28 @@ import (
 
 var waitMeasurementSink atomic.Uint64
 
+func TestProjectorSnapshotDoesNotWaitForActiveWriter2pr(t *testing.T) {
+	store, writers, bus := projectionStore(t, 3000)
+	read := func() { mustSnapshot(t, store, writers) }
+	writer := func(stop <-chan struct{}, ready chan<- struct{}) {
+		close(ready)
+		for index := 0; ; index++ {
+			select {
+			case <-stop:
+				return
+			default:
+				bus.Publish(events.New(events.MessageQueued, "main", "writer", map[string]any{"position": index + 1}))
+			}
+		}
+	}
+	alone := medianWait(read, nil)
+	active := medianWait(read, writer)
+	t.Logf("2pr snapshot writer wait alone=%s active=%s ratio=%.2fx", alone, active, float64(active)/float64(max(alone, time.Nanosecond)))
+	if active > 2*alone {
+		t.Fatalf("snapshot waited for writer: alone=%s active=%s ratio=%.2fx", alone, active, float64(active)/float64(alone))
+	}
+}
+
 // Item 2pq: these are request waits, not throughput benchmarks. Each cell is the
 // median of ten waits against an already-built store. The writer arm repeats the
 // large read while one ordinary writer for that store is active.
@@ -38,7 +60,10 @@ func TestSevenMappedWaitsAtTwoStoredSizes2pq(t *testing.T) {
 	}
 	smallTimeline := timelineFixture(300)
 	largeTimeline := timelineFixture(3000)
-	rows = append(rows, row{"timeline copy", func() { mustJSON(t, smallTimeline) }, func() { mustJSON(t, largeTimeline) }, busyCPU})
+	readView := func(value projection.Snapshot) func() {
+		return func() { waitMeasurementSink.Add(uint64(len(projection.SnapshotForRead(value).Timeline))) }
+	}
+	rows = append(rows, row{"timeline copy", readView(smallTimeline), readView(largeTimeline), busyCPU})
 
 	smallStore, smallWriters, smallBus := projectionStore(t, 300)
 	largeStore, largeWriters, largeBus := projectionStore(t, 3000)
@@ -85,6 +110,9 @@ func TestSevenMappedWaitsAtTwoStoredSizes2pq(t *testing.T) {
 	stateRead := func(sessions map[string]projection.Snapshot) func() {
 		return func() { mustJSON(t, stateServer.snapshotWithSessions(sessions, false)) }
 	}
+	smallStateBytes := jsonSize(t, stateServer.snapshotWithSessions(smallSessions, false))
+	largeStateBytes := jsonSize(t, stateServer.snapshotWithSessions(largeSessions, false))
+	t.Logf("2pr state response scope=whole-timeline small_bytes=%d large_bytes=%d", smallStateBytes, largeStateBytes)
 	rows = append(rows, row{"state/config read", stateRead(smallSessions), stateRead(largeSessions), busyCPU})
 
 	attachmentRoot := t.TempDir()
@@ -232,11 +260,9 @@ func projectionStore(t *testing.T, count int) (*projection.Store, *events.Writer
 	return store, writers, bus
 }
 
-func mustSnapshot(t *testing.T, store *projection.Store, writers *events.Writers) {
+func mustSnapshot(t *testing.T, store *projection.Store, _ *events.Writers) {
 	t.Helper()
-	if _, err := store.Snapshot(writers.SessionCursors()); err != nil {
-		t.Fatal(err)
-	}
+	_ = store.CurrentSnapshot()
 }
 func mustJSON(t *testing.T, value any) {
 	t.Helper()
@@ -245,6 +271,15 @@ func mustJSON(t *testing.T, value any) {
 		t.Fatal(err)
 	}
 	waitMeasurementSink.Add(uint64(len(data)))
+}
+
+func jsonSize(t *testing.T, value any) int {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(data)
 }
 
 func sizedConfig(workspace string, connections int) config.Config {

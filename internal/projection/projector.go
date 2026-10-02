@@ -262,14 +262,17 @@ func NextState(previous Snapshot, record Record) (Snapshot, error) {
 }
 
 // nextLive is Store's single-owner fold. It may reuse transcript and timeline
-// storage because no prior Store snapshot is exposed; Next/NextState stay pure.
+// storage because exposed snapshots isolate the mutable chat entries and all
+// other retained values are immutable after publication. Next/NextState stay pure.
 func nextLive(previous Snapshot, record Record) (Snapshot, Patch, error) {
 	next, err := nextState(previous, record, true)
 	if err != nil {
 		return previous, Patch{}, err
 	}
 	comparison := previous
-	comparison.Chat = next.Chat
+	if record.Event.Type == events.ModelDelta || record.Event.Type == events.ToolResult {
+		comparison.Chat = next.Chat
+	}
 	patch := diff(comparison, next)
 	data := eventMap(record.Event.Data)
 	if record.Event.Type == events.ModelDelta {
@@ -565,9 +568,10 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		next.Activity.Stream.Done = true
 		next.Activity.Stream.ReasoningTokens = intValue(data["reasoning_tokens"])
 		next.Activity.Stream.Timings = mapValue(data["timings"])
-		if !live {
-			next.Chat = cloneChat(next.Chat)
-		}
+		// A response changes several fields on one entry. It is one event per
+		// turn, not the streamed-token path, and must not mutate a snapshot a
+		// reader may already hold.
+		next.Chat = cloneChat(next.Chat)
 		entry := chatTurn(next.Chat, record.Event.RunID, intValue(data["turn"]))
 		if entry == nil {
 			next.Chat = append(next.Chat, ChatEntry{Type: "agent", Key: "turn:" + turnKey(record.Event, data), RunID: record.Event.RunID, Turn: intValue(data["turn"]), AgentRole: "b"})

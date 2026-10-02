@@ -1,7 +1,6 @@
 package projection
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -13,7 +12,7 @@ import (
 // snapshot projects through a captured record boundary; later durable records are
 // folded once and emitted as versioned projection patches.
 type Store struct {
-	mu          sync.Mutex
+	mu          sync.RWMutex
 	cache       *Cache
 	states      map[string]Snapshot
 	sources     map[string]events.LogCursor
@@ -49,14 +48,7 @@ func (s *Store) Apply(event events.Event, cursor events.LogCursor) {
 		return
 	}
 	record := Record{Cursor: fromLogCursor(cursor), Event: event}
-	var next Snapshot
-	var patch Patch
-	var err error
-	if event.Type == events.ModelDelta || event.Type == events.ToolResult {
-		next, patch, err = nextLive(previous, record)
-	} else {
-		next, patch, err = Next(previous, record)
-	}
+	next, patch, err := nextLive(previous, record)
 	if err != nil {
 		s.stale[event.SessionID] = err.Error()
 		return
@@ -81,9 +73,70 @@ func (s *Store) MarkStale(event events.Event, err error) {
 }
 
 func (s *Store) Snapshot(sources map[string]events.LogCursor) (map[string]Snapshot, error) {
+	s.mu.RLock()
+	if s.snapshotCurrentLocked(sources) {
+		result := s.snapshotValuesLocked(sources)
+		s.mu.RUnlock()
+		return result, nil
+	}
+	s.mu.RUnlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.snapshotLocked(sources)
+}
+
+// Sources returns the last durably appended boundary already folded into the
+// store. A live reader uses this cut rather than contending with the journal
+// writer for a boundary which has not reached projection yet.
+func (s *Store) Sources() map[string]events.LogCursor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make(map[string]events.LogCursor, len(s.sources))
+	for id, source := range s.sources {
+		result[id] = source
+	}
+	return result
+}
+
+// CurrentSnapshot takes the already-folded live cut in one read section. Each
+// member of that cut came from a completed durable append; a concurrently
+// appended event appears wholly in this answer or wholly in the next one.
+func (s *Store) CurrentSnapshot() map[string]Snapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make(map[string]Snapshot, len(s.states))
+	for id, state := range s.states {
+		if !s.initialized[id] {
+			continue
+		}
+		if reason := s.stale[id]; reason != "" {
+			state.Stale, state.StaleReason = true, reason
+		}
+		result[id] = SnapshotForRead(state)
+	}
+	return result
+}
+
+func (s *Store) snapshotCurrentLocked(sources map[string]events.LogCursor) bool {
+	for id, source := range sources {
+		state, ok := s.states[id]
+		if !ok || !s.initialized[id] || state.Cursor.Generation != source.Generation || state.Cursor.Offset < source.Offset {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) snapshotValuesLocked(sources map[string]events.LogCursor) map[string]Snapshot {
+	result := make(map[string]Snapshot, len(sources))
+	for id := range sources {
+		state := s.states[id]
+		if reason := s.stale[id]; reason != "" {
+			state.Stale, state.StaleReason = true, reason
+		}
+		result[id] = SnapshotForRead(state)
+	}
+	return result
 }
 
 func (s *Store) Delete(sessionID string) {
@@ -188,14 +241,18 @@ func fromLogCursor(value events.LogCursor) Cursor {
 func cloneSnapshots(values map[string]Snapshot) map[string]Snapshot {
 	result := make(map[string]Snapshot, len(values))
 	for id, value := range values {
-		result[id] = copySnapshot(value)
+		result[id] = SnapshotForRead(value)
 	}
 	return result
 }
 
-func copySnapshot(value Snapshot) Snapshot {
-	encoded, _ := json.Marshal(value)
-	var result Snapshot
-	_ = json.Unmarshal(encoded, &result)
-	return result
+// SnapshotForRead isolates the only live-mutable projection collection while
+// retaining immutable history by reference.
+func SnapshotForRead(value Snapshot) Snapshot {
+	// Timeline events are immutable once appended. Sharing that backing storage
+	// makes a read independent of retained history; an append can only write
+	// beyond this slice's length. Chat is the one live-owned collection whose
+	// current entry is updated in place while tokens stream, so isolate it.
+	value.Chat = cloneChat(value.Chat)
+	return value
 }

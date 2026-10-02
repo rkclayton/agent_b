@@ -71,6 +71,18 @@ func TestLiveProjectionPerEventCostDoesNotGrowWithStoredEvents2pd(t *testing.T) 
 	t.Logf("pre-v1.57 full-copy projection rejected: one_chat=%.0f allocations/event full_200_chats=%.0f allocations/event", one, full)
 }
 
+func TestSnapshotReadCostDoesNotGrowWithTimeline2pr(t *testing.T) {
+	measure := func(count int) float64 {
+		state := Empty("main")
+		state.Timeline = make([]events.Event, count)
+		return testing.AllocsPerRun(100, func() { _ = SnapshotForRead(state) })
+	}
+	small, large := measure(300), measure(3000)
+	if large != small {
+		t.Fatalf("timeline read allocations grew: small=%.0f large=%.0f", small, large)
+	}
+}
+
 func TestNextIsPureAndEmitsVersionedCursorPatch(t *testing.T) {
 	previous := seeded(t)
 	before, _ := json.Marshal(previous)

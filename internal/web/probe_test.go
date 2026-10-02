@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,6 +28,29 @@ func newProbeServer(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	return New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+}
+
+func TestConnectionFailureLogKeepsTheWholeFailureAndDropsTheKey2po(t *testing.T) {
+	const key = "PLANTED-CONNECTION-KEY-2po"
+	full := "dial tcp 127.0.0.1:9: refused; diagnostic=" + strings.Repeat("whole ", 80) + " key=" + key
+	got := safeConnectionFailureLog(full, key)
+	if strings.Contains(got, key) {
+		t.Fatal("the API key reached the connection failure log")
+	}
+	if !strings.Contains(got, "diagnostic=") || !strings.Contains(got, strings.Repeat("whole ", 40)) {
+		t.Fatalf("the full diagnostic was shortened: %q", got)
+	}
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(previous)
+	server := newProbeServer(t)
+	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/probe", strings.NewReader(`{"base_url":"http://127.0.0.1:1","api_key":"`+key+`"}`))
+	response := httptest.NewRecorder()
+	server.connection(response, request)
+	if strings.Count(output.String(), "connection Test failed:") != 1 || strings.Contains(output.String(), key) {
+		t.Fatalf("one safe log record was not written: %q", output.String())
+	}
 }
 
 func TestReadyConnectionTestDoesNotRewriteConfig(t *testing.T) {

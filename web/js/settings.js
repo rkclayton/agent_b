@@ -1,7 +1,7 @@
 import { api, reduce, setActive, store, subscribe } from "./bus.js";
 import { operatorStatusView } from "./operator-status.js";
 import { navigationSurfaceReady, recordViewMount } from "./navigation-telemetry.js";
-import { renderConnectionsPage } from "./settings-connections.js";
+import { connectionFailureSentence, renderConnectionsPage } from "./settings-connections.js";
 import { renderAboutPage } from "./settings-about.js";
 import { renderChatsPage } from "./settings-chats.js";
 import { renderGeneralPage } from "./settings-general.js";
@@ -22,6 +22,8 @@ const armed = new Set();
 const drafts = new Map();
 const draftKinds = new Map();
 const errors = new Map();
+const detailTexts = new Map();
+let errorPanel = "";
 // Item 2nb (c): the connections whose model the operator chose to type by hand. Not a
 // draft, because a draft is a configuration path and this is a choice about the
 // control rather than a value to save.
@@ -110,6 +112,7 @@ export function initSettings(entry = {}) {
 	});
   document.addEventListener("keydown", (event) => {
 		// Item 2l4 (c): Escape answers the popover first, and cancels it.
+		if (event.key === "Escape" && open && errorPanel) { errorPanel = ""; render(); return; }
 		if (event.key === "Escape" && open && confirmPending) { cancelConfirmation(); return; }
 		if (event.key === "Escape" && open) void leaveSettingsForChat();
     if (open && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
@@ -178,7 +181,9 @@ export function initSettings(entry = {}) {
       const connectionID = event.data?.connection_id || "";
       const findings = event.data?.capabilities?.findings || event.data?.findings || [];
       const failed = findings.find((value) => String(value).startsWith("probe failed:"));
-      probeMessages.set(connectionID, { ...(probeMessages.get(connectionID) || {}), walking: null, message: failed ? `Test failed — ${String(failed).slice(13).trim()}` : "Test passed", alarm: !!failed });
+      const full = failed ? String(failed).slice(13).trim() : "";
+      const address = connectionList().find((connection) => connection.id === connectionID)?.base_url || "";
+      probeMessages.set(connectionID, { ...(probeMessages.get(connectionID) || {}), walking: null, message: failed ? connectionFailureSentence(full, address) : "Test passed", detail: full, alarm: !!failed });
     }
     if (
       open && (
@@ -207,6 +212,11 @@ export function initSettings(entry = {}) {
 
 export function openSettings(section = "") {
   const started = performance.now();
+  if (!open) {
+    errors.clear();
+    probeMessages.clear();
+    errorPanel = "";
+  }
   if (sectionLabels.some(([id]) => id === section)) activeSection = section;
   if (section === "plan") planRequestedByAddress = true;
   open = true;
@@ -289,6 +299,8 @@ function render() {
       .map((input) => [controlKey(input), input.value])
       .filter(([key, value]) => key && value),
   );
+  detailTexts.clear();
+  for (const [id, result] of probeMessages) if (result?.detail) detailTexts.set(`connection:${id}`, result.detail);
   const content = {
     // The two adopted panels are drawn by app.js, not here: this leaves the
     // seat and the nodes are moved into it below.
@@ -324,7 +336,7 @@ function render() {
       <nav class="settings-nav" aria-label="Settings sections">
         ${navSections().map(([id, name]) => `<button type="button" class="${id === activeSection ? "selected" : ""}" data-action="settings-section" data-id="${id}" aria-current="${id === activeSection ? "page" : "false"}">${sectionChip(id)}${name}</button>`).join("")}
       </nav>
-      <div class="settings-content" tabindex="-1">${group(label, content[activeSection](), activeSection)}${confirmPopover()}</div>
+      <div class="settings-content" tabindex="-1">${group(label, content[activeSection](), activeSection)}${confirmPopover()}${errorPanelMarkup()}</div>
     </div>`;
   adoptPanels();
   const contentNode = sheet.querySelector(".settings-content");
@@ -450,7 +462,7 @@ function settingsPageContext(active) {
     hardeningAlarm, connectionList,
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm, signInStart,
     row, subhead, field, text, number, numberControl, textarea, secret, toggle, choices, selectSetting, approvalChoices,
-    copyRow, currentValue, issue, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView,
+    copyRow, currentValue, issue, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView, errorMarkup,
   };
 }
 
@@ -567,7 +579,12 @@ function group(name, content, section = "") {
   const scoped = perProfileSections.has(section)
     ? `<p class="settings-scope-note">These apply to the <strong>${html(store.profiles?.active || store.config.profiles?.active || "current")}</strong> profile. Another profile keeps its own.</p>`
     : "";
-  return `<section class="settings-group"><h2>${name}</h2>${scoped}${content}</section>`;
+  const groupKeys = section === "connections" ? ["connections"]
+    : section === "profiles" ? ["profiles"]
+      : section === "shell" ? "shell shell.trusted_folders".split(" ")
+        : ["config"];
+  const groupErrors = groupKeys.map((key) => errorMarkup(errors.get(key), `group:${key}`, "settings-group-error field-error")).join("");
+  return `<section class="settings-group"><h2>${name}</h2>${scoped}${groupErrors}${content}</section>`;
 }
 
 async function refreshWorkspaceState() {
@@ -684,11 +701,21 @@ function currentValue(path, fallback) {
 }
 
 function issue(path) {
-  for (const [field, message] of errors) {
-    if (field === path || field.startsWith(`${path}.`) || path.startsWith(`${field}.`))
-      return message;
-  }
-  return "";
+  return errors.get(path) || "";
+}
+
+function firstSentence(message) {
+  const value = String(message || "").trim();
+  const sentence = value.match(/^.*?[.!?](?:\s|$)/s);
+  return (sentence ? sentence[0] : value.slice(0, 160)).trim();
+}
+
+function errorMarkup(message, key, className = "field-error") {
+  const full = String(message || "").trim();
+  if (!full) return "";
+  if (full.length <= 160) return `<p class="${attr(className)}">${html(full)}</p>`;
+  detailTexts.set(key, full);
+  return `<p class="${attr(className)}">${html(firstSentence(full))} <button type="button" class="error-details-link" data-action="error-details" data-detail-key="${attr(key)}">details</button></p>`;
 }
 
 // Item 2l6 (a) and (c): the settings that need a COMPLETE value before they mean
@@ -735,7 +762,7 @@ function field(path, label, control, alarm = false, hint = "") {
     : needsExplicitSave(path) && drafts.has(path)
       ? `<button type="button" class="setting-save" data-action="save-setting" data-save-path="${attr(path)}" title="Save this setting" aria-label="Save this setting">${saveGlyph}</button>`
       : "";
-  return `${row(label, control + state, alarm || problem ? "invalid" : "", hint)}${problem ? `<p class="field-error">${html(problem)}</p>` : ""}`;
+  return `${row(label, control + state, alarm || problem ? "invalid" : "", hint)}${problem ? errorMarkup(problem, `field:${path}`) : ""}`;
 }
 
 function text(path, label, value, kind = "text", hint = "") {
@@ -884,8 +911,17 @@ function confirmPopover() {
     </div>`;
 }
 
+function errorPanelMarkup() {
+  if (!errorPanel) return "";
+  const detail = detailTexts.get(errorPanel);
+  if (!detail) { errorPanel = ""; return ""; }
+  return `<aside class="settings-error-panel" role="dialog" aria-modal="false" aria-label="Error details"><header><strong>Details</strong><button type="button" data-action="close-error-details" aria-label="Close details">×</button></header><pre>${html(detail)}</pre></aside>`;
+}
+
 // dispatchAction is the original body of click, unchanged.
 async function dispatchAction(event, button, action, id) {
+	if (action === "error-details") { errorPanel = button.dataset.detailKey || ""; return render(); }
+	if (action === "close-error-details") { errorPanel = ""; return render(); }
 	if (action === "close") return void leaveSettingsForChat();
 	if (action === "delete-all-chats") {
 		const count = Object.keys(store.sessions || {}).length;
@@ -1068,15 +1104,17 @@ async function dispatchAction(event, button, action, id) {
       probeMessages.set(id, {
         ...discovered,
         found: discovered.message || "",
-        message: terminal ? observed.message : (needsModel ? `Test failed — ${discovered.error}` : (discovered.message || "Testing…")),
+        message: terminal ? observed.message : (needsModel ? connectionFailureSentence(discovered.error, typedAddress) : (discovered.message || "Testing…")),
+        detail: terminal ? observed.detail : (needsModel ? discovered.error : ""),
         alarm: terminal ? !!observed.alarm : needsModel,
       });
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
       render();
     } catch (error) {
       if (connection) connection._probing = false;
-      errors.set(`connections.${id}`, error.message);
-      probeMessages.set(id, { message: `Test failed — ${error.message}`, alarm: true });
+      errors.delete(`connections.${id}`);
+      const full = String(error.message || "");
+      probeMessages.set(id, { message: connectionFailureSentence(full, typedAddress), detail: full, alarm: true });
       render();
     }
     return;
@@ -1724,17 +1762,15 @@ async function saveSettings(pathPrefix = "") {
     if (changedPaths.some((path) => path === "shell.service_account.account" || path === "shell.service_account.domain"))
       await refreshServiceAccountStatus();
   } catch (error) {
-    // Item 2nq (e): a refusal about a CONNECTION is shown on that connection's row as
-    // well as under its field, and the row is expanded, so a refusal caused by one
-    // connection is never an unexplained failure about another. The drafts are
-    // untouched here by design — a refused save keeps everything he typed.
+    // Item 2po (a): an exact field refusal belongs only under that field. The row is
+    // expanded so the field is visible; group failures have their own section seat.
+    // Drafts stay untouched, so a refused save keeps everything he typed.
     errors.set(error.field || "config", error.message);
     const connection = /^connections\.([A-Za-z0-9-]+)\./.exec(error.field || "")?.[1];
     if (connection) {
-      errors.set(`connections.${connection}`, error.message);
       expanded.add(connection);
     }
-    settingsSaveMessage = `Save failed: ${error.message}`;
+    settingsSaveMessage = "Save failed";
     settingsSaveAlarm = true;
     return false;
   } finally {
@@ -1767,7 +1803,7 @@ async function addConnection() {
   } catch (error) {
     expanded.delete(id);
     errors.set("connections", error.message);
-    settingsSaveMessage = `Add failed: ${error.message}`;
+    settingsSaveMessage = "Add failed";
     settingsSaveAlarm = true;
     render();
   }

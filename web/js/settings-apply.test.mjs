@@ -44,7 +44,7 @@ test("an invalid value is reported beside its field and nothing else is sent", (
   assert.match(settings, /const ok = await saveSettings\(path\);/, "applySetting does not send exactly one path");
   assert.match(settings, /const entries = \[\.\.\.drafts\.entries\(\)\]\.filter\(\(\[path\]\) => !pathPrefix \|\| path\.startsWith\(pathPrefix\)\)/);
   assert.match(settings, /errors\.set\(error\.field \|\| "config", error\.message\)/, "a field error is not attached to its field");
-  assert.match(settings, /<p class="field-error">/, "a field error has nowhere to render");
+  assert.match(settings, /problem \? errorMarkup\(problem, `field:\$\{path\}`\) : ""/, "a field error has nowhere to render");
 });
 
 // (e). The guard narrows to the groups that still have an explicit save.

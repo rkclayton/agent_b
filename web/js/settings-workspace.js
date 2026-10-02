@@ -1,6 +1,6 @@
-let store, armed, workspaceState, operatorFileState, row, subhead, number, toggle, currentValue, html, attr;
+let store, armed, workspaceState, operatorFileState, row, subhead, number, toggle, currentValue, html, attr, errors, errorMarkup;
 function useSettingsContext(context) {
-  ({ store, armed, workspaceState, operatorFileState, row, subhead, number, toggle, currentValue, html, attr } = context);
+  ({ store, armed, workspaceState, operatorFileState, row, subhead, number, toggle, currentValue, html, attr, errors, errorMarkup } = context);
 }
 
 function folders() {
@@ -9,7 +9,7 @@ function folders() {
 		return `<div class="session-row workspace-row"><span class="path" title="${attr(item.dir)}">${html(item.dir)}</span><span>${item.memory_count} memory ${item.memory_count===1?"entry":"entries"}</span><span>${html(relativeDate(item.last_used))}</span></div>
 		${policy ? `<div class="session-row workspace-policy-row"><span class="path" title="${attr(policy.path)}">${html(policy.path)}</span><code title="${attr(policy.hash)}">${html((policy.hash||"").slice(0,12))}</code><span>${html(policy.approved_at||"not approved")}</span><button type="button" data-action="revoke-workspace-policy" data-id="${attr(item.dir)}" data-confirm="the approval for ${attr(policy.path)}" ${policy.approved?"":"disabled"}>Revoke</button></div>`:""}`;
 	}).join("") : '<p class="settings-note">No folders yet — a plan repo appears here when you add one</p>';
-	return `${operatorFilesFolder()}${subhead("Known folders", "Plan repositories and folders that carry memory or an approved policy.")}${directories}`;
+	return `${operatorFilesFolder()}${subhead("Known folders", "Plan repositories and folders that carry memory or an approved policy.")}${errors.get("workspace") ? errorMarkup(errors.get("workspace"), "group:workspace") : ""}${directories}`;
 }
 
 function operatorFilesFolder() {

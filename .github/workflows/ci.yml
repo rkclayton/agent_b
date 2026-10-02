@@ -33,7 +33,7 @@ jobs:
           )
           $packages = @(go list ./... | Where-Object { $_ -notin $excluded })
           go test @packages
-      - run: go test -race ./internal/events
+      - run: go test -race ./internal/events ./internal/projection
       - run: node tests/run-node-tests.mjs
   ubuntu:
     runs-on: ubuntu-latest
@@ -53,5 +53,5 @@ jobs:
         run: |
           mapfile -t packages < <(go list ./... | grep -vE '^harness/(internal/agent|internal/tools)$')
           go test "${packages[@]}"
-      - run: go test -race ./internal/events
+      - run: go test -race ./internal/events ./internal/projection
       - run: node tests/run-node-tests.mjs

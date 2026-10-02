@@ -24,13 +24,7 @@ func (s *Server) snapshot() map[string]any {
 		return s.snapshotWithSessions(s.replay.Sessions, true)
 	}
 	if s.projector != nil && s.writers != nil {
-		sessions, err := s.projector.Snapshot(s.writers.SessionCursors())
-		if err == nil {
-			return s.snapshotWithSessions(sessions, false)
-		}
-		result := s.snapshotWithSessions(map[string]projection.Snapshot{}, false)
-		result["projection_error"] = err.Error()
-		return result
+		return s.snapshotWithSessions(s.projector.CurrentSnapshot(), false)
 	}
 	return s.snapshotWithSessions(map[string]projection.Snapshot{}, false)
 }
@@ -186,7 +180,7 @@ func (s *Server) sse(w http.ResponseWriter, r *http.Request) {
 func (s *Server) projectionSSE(w http.ResponseWriter, r *http.Request, flusher http.Flusher) {
 	raw, unsubscribeRaw := s.bus.Subscribe()
 	defer unsubscribeRaw()
-	sessions, patches, unsubscribeProjection, err := s.projector.SubscribeSnapshot(s.writers.SessionCursors())
+	sessions, patches, unsubscribeProjection, err := s.projector.SubscribeSnapshot(s.projector.Sources())
 	if err != nil {
 		s.writeFrame(w, events.New(events.Error, "", "", map[string]any{"where": "projection", "message": err.Error()}))
 		flusher.Flush()

@@ -1,12 +1,59 @@
 package projection
 
 import (
+	"bytes"
+	"encoding/json"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"harness/internal/events"
 )
+
+func TestSnapshotReadViewKeepsBytesAndAtomicLiveEvents2pr(t *testing.T) {
+	state := Empty("main")
+	state.Cursor = Cursor{Generation: "main.jsonl", Offset: 1}
+	state.Chat = []ChatEntry{{Type: "agent", Key: "turn:run:1", RunID: "run", Turn: 1}}
+	state.Timeline = []events.Event{events.New(events.ModelRequest, "main", "run", map[string]any{"turn": 1})}
+
+	before, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := json.Marshal(SnapshotForRead(state))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("read view changed snapshot bytes")
+	}
+
+	store := NewStore()
+	store.states["main"], store.initialized["main"] = state, true
+	store.sources["main"] = events.LogCursor{Generation: "main.jsonl", Offset: 1}
+	const count = 200
+	var group sync.WaitGroup
+	group.Add(1)
+	go func() {
+		defer group.Done()
+		for index := 0; index < count; index++ {
+			event := events.New(events.ModelDelta, "main", "run", map[string]any{"turn": 1, "kind": "content", "text": "x"})
+			store.Apply(event, events.LogCursor{Generation: "main.jsonl", Offset: int64(index + 2)})
+		}
+	}()
+	for index := 0; index < count; index++ {
+		current := store.CurrentSnapshot()["main"]
+		if _, err := json.Marshal(current); err != nil {
+			t.Fatal(err)
+		}
+		if len(current.Chat) != 1 || strings.Trim(current.Chat[0].Text, "x") != "" {
+			t.Fatalf("reader saw partial event: %+v", current.Chat)
+		}
+	}
+	group.Wait()
+}
 
 func TestStoreCutsSnapshotBeforeLaterProjectionPatches(t *testing.T) {
 	writers, err := events.NewWriters(filepath.Join(t.TempDir(), "logs"))

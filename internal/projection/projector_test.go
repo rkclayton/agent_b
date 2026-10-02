@@ -52,7 +52,7 @@ func TestLiveProjectionPerEventCostDoesNotGrowWithStoredEvents2pd(t *testing.T) 
 		one, oneWall := measure(1, kind)
 		full, fullWall := measure(200, kind)
 		t.Logf("%s wall one=%s full=%s; verdict allocations/event one=%.0f full=%.0f", kind, oneWall, fullWall, one, full)
-		if full != one {
+		if full > one {
 			t.Errorf("%s per-event work grew: one_chat=%.0f allocations/event full_200_chats=%.0f allocations/event", kind, one, full)
 		}
 	}

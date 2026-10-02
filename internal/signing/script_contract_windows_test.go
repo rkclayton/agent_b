@@ -3,12 +3,39 @@
 package signing
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestSigningCheckFailureAndTimeoutStayInTheHiddenChild2pp(t *testing.T) {
+	powershell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+	for _, tc := range []struct {
+		name, script string
+		timeout      time.Duration
+		want         string
+	}{
+		{name: "failure", script: "exit 23", timeout: 5 * time.Second, want: "exit status 23"},
+		{name: "timeout", script: "Start-Sleep -Seconds 5", timeout: 50 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			script := filepath.Join(t.TempDir(), "fixture.ps1")
+			if err := os.WriteFile(script, []byte(tc.script), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
+			defer cancel()
+			_, err := (&windowsManager{script: script, powershell: powershell}).Status(ctx, Request{})
+			if err == nil || tc.want != "" && !strings.Contains(err.Error(), tc.want) || tc.want == "" && ctx.Err() != context.DeadlineExceeded {
+				t.Fatalf("hidden signing %s error = %v, want %q", tc.name, err, tc.want)
+			}
+		})
+	}
+}
 
 func TestPowerShellSigningScriptsUseHostCompatibleCodeSigningEKUCheck(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)

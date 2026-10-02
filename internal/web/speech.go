@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"harness/internal/events"
+	"harness/internal/quietproc"
 )
 
 // Item 2ge (v1.2.2/W1): what the microphone can do on this host, answered by
@@ -69,7 +70,8 @@ func (s *Server) probeSpeech(ctx context.Context) SpeechStatus {
 	powershell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 	probeContext, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(probeContext, powershell, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script).Output()
+	command := quietproc.Quiet(exec.CommandContext(probeContext, powershell, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script))
+	output, err := command.Output()
 	if err != nil {
 		return SpeechStatus{Reason: fmt.Sprintf("the host could not be asked about dictation: %v", err)}
 	}
@@ -161,6 +163,7 @@ func (s *Server) speechStreamHandler(w http.ResponseWriter, r *http.Request) {
 		commandFor = exec.CommandContext
 	}
 	command := commandFor(ctx, powershell, arguments...)
+	quietproc.Quiet(command)
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		send(map[string]any{"error": "the dictation helper could not be started", "done": true})

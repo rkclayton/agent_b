@@ -391,6 +391,7 @@ func completeInstallMigration(applicationRoot, dataRoot string, testMode bool, l
 		arguments = append(arguments, "-TestMode")
 	}
 	command := exec.Command(windowsPowerShell(), arguments...)
+	quietproc.Quiet(command)
 	var output bytes.Buffer
 	command.Stdout = &output
 	command.Stderr = &output
@@ -497,6 +498,7 @@ func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, native bo
 		arguments = append(arguments, "-NoBrowser")
 	}
 	command := exec.Command(windowsPowerShell(), arguments...)
+	quietproc.Quiet(command)
 	command.Dir = dataRoot
 	command.Stdout = log.writer()
 	command.Stderr = log.writer()

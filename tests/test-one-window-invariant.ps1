@@ -2,17 +2,15 @@
 param(
     [Parameter(Mandatory = $true)][string]$Exe,
     [Parameter(Mandatory = $true)][string]$Setup,
-    [Parameter(Mandatory = $true)][string]$ApplicationRoot
+    [Parameter(Mandatory = $true)][string]$ApplicationRoot,
+    [Parameter(Mandatory = $true)][string]$RepositoryExe,
+    [Parameter(Mandatory = $true)][string]$RepositoryRoot
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'suite-production-guard.ps1')
 $repository = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repository 'scripts\removal-guard.ps1')
 $temp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
-$root = Join-Path $temp ('Agent_b-one-window-' + [Guid]::NewGuid().ToString('N'))
-$data = Join-Path $root 'data'
-$workspace = Join-Path $root 'workspace'
-Assert-AgentBSuiteLaunch -ApplicationRoot $ApplicationRoot -DataRoot $data -SuiteRoots @($root, $ApplicationRoot)
 
 function Get-PESubsystem([string]$Path) {
     $bytes = [IO.File]::ReadAllBytes($Path)
@@ -22,6 +20,10 @@ function Get-PESubsystem([string]$Path) {
 foreach ($path in @($Exe, $Setup)) {
     $subsystem = Get-PESubsystem $path
     if ($subsystem -ne 2) { throw "$(Split-Path -Leaf $path) subsystem is $subsystem, expected WINDOWS_GUI (2)" }
+}
+$signingSource = Get-Content -Raw -LiteralPath (Join-Path $repository 'internal\signing\manager_windows.go')
+if ($signingSource -notmatch 'quietproc\.Quiet\(command\)') {
+    throw 'signing check child is not marked no-window before it starts'
 }
 
 Add-Type -Namespace AgentBInvariant -Name Desktop -MemberDefinition @'
@@ -35,6 +37,7 @@ public struct PROCESS_INFORMATION { public System.IntPtr process, thread; public
 [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr hwnd, out uint pid);
 [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr hwnd);
 [System.Runtime.InteropServices.DllImport("user32.dll", CharSet=System.Runtime.InteropServices.CharSet.Unicode)] public static extern int GetClassName(System.IntPtr hwnd, System.Text.StringBuilder value, int length);
+[System.Runtime.InteropServices.DllImport("user32.dll", CharSet=System.Runtime.InteropServices.CharSet.Unicode)] public static extern int GetWindowText(System.IntPtr hwnd, System.Text.StringBuilder value, int length);
 [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool CloseDesktop(System.IntPtr desktop);
 [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet=System.Runtime.InteropServices.CharSet.Unicode, SetLastError=true)] public static extern bool CreateProcess(string app, string command, System.IntPtr pa, System.IntPtr ta, bool inherit, uint flags, System.IntPtr environment, string cwd, ref STARTUPINFO startup, out PROCESS_INFORMATION process);
 [System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern bool TerminateProcess(System.IntPtr process, uint exitCode);
@@ -46,13 +49,20 @@ public struct PROCESS_INFORMATION { public System.IntPtr process, thread; public
 [System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern bool CloseHandle(System.IntPtr handle);
 '@
 
-$desktopName = 'AgentBInvariant-' + [Guid]::NewGuid().ToString('N')
-$desktop = [AgentBInvariant.Desktop]::CreateDesktop($desktopName, [IntPtr]::Zero, [IntPtr]::Zero, 0, 0x01ff, [IntPtr]::Zero)
-if ($desktop -eq [IntPtr]::Zero) { throw "CreateDesktop failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
-$process = [AgentBInvariant.Desktop+PROCESS_INFORMATION]::new()
-$job = [AgentBInvariant.Desktop]::CreateJobObject([IntPtr]::Zero, $null)
-if ($job -eq [IntPtr]::Zero) { throw 'CreateJobObject failed' }
-try {
+function Invoke-OneWindowCase([string]$CaseExe, [string]$CaseRoot, [string]$Label) {
+    $CaseExe = [IO.Path]::GetFullPath($CaseExe)
+    $CaseRoot = [IO.Path]::GetFullPath($CaseRoot)
+    $root = Join-Path $temp ('Agent_b-one-window-' + [Guid]::NewGuid().ToString('N'))
+    $data = Join-Path $root 'data'
+    $workspace = Join-Path $root 'workspace'
+    Assert-AgentBSuiteLaunch -ApplicationRoot $CaseRoot -DataRoot $data -SuiteRoots @($root, $CaseRoot)
+    $desktopName = 'AgentBInvariant-' + [Guid]::NewGuid().ToString('N')
+    $desktop = [AgentBInvariant.Desktop]::CreateDesktop($desktopName, [IntPtr]::Zero, [IntPtr]::Zero, 0, 0x01ff, [IntPtr]::Zero)
+    if ($desktop -eq [IntPtr]::Zero) { throw "CreateDesktop failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
+    $process = [AgentBInvariant.Desktop+PROCESS_INFORMATION]::new()
+    $job = [AgentBInvariant.Desktop]::CreateJobObject([IntPtr]::Zero, $null)
+    if ($job -eq [IntPtr]::Zero) { throw 'CreateJobObject failed' }
+    try {
     New-Item -ItemType Directory -Force -Path $data, $workspace | Out-Null
     $config = Get-Content -Raw -LiteralPath (Join-Path $repository 'harness.example.json') | ConvertFrom-Json
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
@@ -67,34 +77,50 @@ try {
     $startup = [AgentBInvariant.Desktop+STARTUPINFO]::new()
     $startup.cb = [Runtime.InteropServices.Marshal]::SizeOf($startup)
     $startup.desktop = $desktopName
-    $command = '"' + $Exe + '" -window -config "' + $configPath + '" -app-root "' + $ApplicationRoot + '" -data-root "' + $data + '"'
-    if (-not [AgentBInvariant.Desktop]::CreateProcess($Exe, $command, [IntPtr]::Zero, [IntPtr]::Zero, $false, 0x404, [IntPtr]::Zero, $data, [ref]$startup, [ref]$process)) {
+    $command = '"' + $CaseExe + '" -window -config "' + $configPath + '" -app-root "' + $CaseRoot + '" -data-root "' + $data + '"'
+    if (-not [AgentBInvariant.Desktop]::CreateProcess($CaseExe, $command, [IntPtr]::Zero, [IntPtr]::Zero, $false, 0x404, [IntPtr]::Zero, $data, [ref]$startup, [ref]$process)) {
         throw "CreateProcess failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
     }
     if (-not [AgentBInvariant.Desktop]::AssignProcessToJobObject($job, $process.process)) { throw 'AssignProcessToJobObject failed' }
     [AgentBInvariant.Desktop]::ResumeThread($process.thread) | Out-Null
     [AgentBInvariant.Desktop]::CloseHandle($process.thread) | Out-Null
-    $classes = @()
-    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    $hostSeen = $false
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
     do {
-        $script:classes = [Collections.Generic.List[string]]::new()
+        $script:windows = [Collections.Generic.List[string]]::new()
         $callback = [AgentBInvariant.Desktop+EnumDesktopProc]{ param($window,$unused)
-            $owner = 0; [void][AgentBInvariant.Desktop]::GetWindowThreadProcessId($window,[ref]$owner)
-            if ($owner -eq $process.pid -and [AgentBInvariant.Desktop]::IsWindowVisible($window)) {
-                $name = [Text.StringBuilder]::new(128); [void][AgentBInvariant.Desktop]::GetClassName($window,$name,$name.Capacity); $script:classes.Add($name.ToString())
+            if ([AgentBInvariant.Desktop]::IsWindowVisible($window)) {
+                $name = [Text.StringBuilder]::new(128); $title = [Text.StringBuilder]::new(512)
+                [void][AgentBInvariant.Desktop]::GetClassName($window,$name,$name.Capacity)
+                [void][AgentBInvariant.Desktop]::GetWindowText($window,$title,$title.Capacity)
+                $script:windows.Add($name.ToString() + ':' + $title.ToString())
             }; return $true
         }
         [void][AgentBInvariant.Desktop]::EnumDesktopWindows($desktop,$callback,[IntPtr]::Zero)
-        $classes = @($script:classes)
-        if ($classes -contains 'Agent_b-host-window') { break }
-        Start-Sleep -Milliseconds 200
+        $windows = @($script:windows)
+        $unexpected = @($windows | Where-Object { $_ -notlike 'Agent_b-host-window:*' })
+        if ($unexpected.Count) { throw "$Label signing-check/child window: $($unexpected -join ', ')" }
+        if ($windows -like 'Agent_b-host-window:*') { $hostSeen = $true }
+        Start-Sleep -Milliseconds 20
     } while ([DateTime]::UtcNow -lt $deadline)
-    if ($classes.Count -ne 1 -or $classes[0] -ne 'Agent_b-host-window') { throw "isolated desktop windows: $($classes -join ', ')" }
-    Write-Host "PASS one-window invariant: Agent_b.exe and Agent_b-setup.exe are WINDOWS_GUI; isolated desktop classes: $($classes -join ', ')"
-} finally {
+    if (-not $hostSeen) { throw "$Label never showed Agent_b-host-window" }
+    [AgentBInvariant.Desktop]::TerminateJobObject($job, 0) | Out-Null
+    Start-Sleep -Milliseconds 250
+    $script:windows = [Collections.Generic.List[string]]::new()
+    [void][AgentBInvariant.Desktop]::EnumDesktopWindows($desktop,$callback,[IntPtr]::Zero)
+    if ($script:windows.Count) { throw "$Label left a child window behind: $($script:windows -join ', ')" }
+    return $Label
+    } finally {
     if ($job -ne [IntPtr]::Zero) { [AgentBInvariant.Desktop]::TerminateJobObject($job, 0) | Out-Null }
     if ($process.process -ne [IntPtr]::Zero) { [AgentBInvariant.Desktop]::WaitForSingleObject($process.process, 15000) | Out-Null; [AgentBInvariant.Desktop]::CloseHandle($process.process) | Out-Null }
     if ($job -ne [IntPtr]::Zero) { [AgentBInvariant.Desktop]::CloseHandle($job) | Out-Null }
     [AgentBInvariant.Desktop]::CloseDesktop($desktop) | Out-Null
     if (Test-Path -LiteralPath $root) { Remove-TreeWithinAllowedRoots -Path $root -AllowedRoots @($temp) -Purpose 'one-window invariant cleanup' }
+    }
 }
+
+$cases = @(
+    Invoke-OneWindowCase -CaseExe $Exe -CaseRoot $ApplicationRoot -Label 'install path'
+    Invoke-OneWindowCase -CaseExe $RepositoryExe -CaseRoot $RepositoryRoot -Label 'repository folder'
+)
+Write-Host "PASS one-window invariant: Agent_b.exe and Agent_b-setup.exe are WINDOWS_GUI; 60 seconds each: $($cases -join ', ')"

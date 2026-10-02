@@ -86,7 +86,7 @@ trap {
                 '" -ApplicationDirectory "' + $applicationRoot.Replace('"', '\"') +
                 '" -DataDirectory "' + $dataRoot.Replace('"', '\"') +
                 '" -ConfigPath "' + $configPath.Replace('"', '\"') + '" -ShowFailure'
-            Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments | Out-Null
+            Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden | Out-Null
         } else {
             Show-AgentBLaunchFailure -Message $message
         }

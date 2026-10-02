@@ -274,10 +274,14 @@ func TestSummaryEvidenceAppendixCarriesGroundedSamples(t *testing.T) {
 	ok := true
 	records := []events.Message{{Role: "assistant", ToolCalls: []events.ToolCall{{ID: "read-1", Name: "read_file", Arguments: `{"path":"web/css/app.css","offset":1,"limit":3000}`}}}, {Role: "tool", Category: "files", Name: "read_file", ToolCallID: "read-1", Turn: 1, OK: &ok, Content: "[byte window: offset=1 bytes=3000 total=38384 more=true next_offset=3001 start_line=1]\n.header {\n  display: flex;\n}"}}
 	appendix := summaryEvidenceAppendix(records)
-	for _, want := range []string{compactionEvidenceStart, `offset=1`, `"excerpt":".header {\n  display: flex;\n}"`, compactionEvidenceEnd} {
+	for _, want := range []string{compactionEvidenceStart, `offset=1`, `web/css/app.css`, compactionEvidenceEnd} {
 		if !strings.Contains(appendix, want) {
 			t.Errorf("evidence appendix missing %q:\n%s", want, appendix)
 		}
+	}
+	// Item 2q1 (e): the note names the file and its window, never its body.
+	if strings.Contains(appendix, "display: flex") {
+		t.Errorf("evidence appendix carries a file body:\n%s", appendix)
 	}
 
 	carried := summaryEvidenceAppendix([]events.Message{{Role: "user", Category: "summary", Content: "prior\n\n" + appendix}})

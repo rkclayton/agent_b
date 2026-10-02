@@ -103,10 +103,9 @@ func newTemplateServer(t *testing.T, respond func(body map[string]any, messages 
 			}
 			finish := "stop"
 			delta := map[string]any{}
+			delta["content"] = reply["content"]
 			if calls, ok := reply["tool_calls"]; ok {
 				delta["tool_calls"], finish = calls, "tool_calls"
-			} else {
-				delta["content"] = reply["content"]
 			}
 			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": finish}}, "usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 10}})
 		default:
@@ -172,13 +171,18 @@ func loadShape(t *testing.T, name string) []events.Message {
 // read_file and find_files tools, so a replayed read returns real bytes.
 func templateRunner(t *testing.T, server *templateServer) (*Runner, *session.Session, *capturedBus) {
 	t.Helper()
+	return templateRunnerReserve(t, server, 10240)
+}
+
+func templateRunnerReserve(t *testing.T, server *templateServer, reserve int) (*Runner, *session.Session, *capturedBus) {
+	t.Helper()
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = "exact"
 	connection := cfg.Connections[0]
 	connection.ID, connection.Label, connection.BaseURL, connection.Model = "main", "main", server.server.URL, "test-model"
 	connection.RequestTimeoutS = 5
 	connection.Context.NCtx = 32768
-	connection.Context.ReserveOutput = 10240
+	connection.Context.ReserveOutput = reserve
 	connection.Capabilities.NCtx = 32768
 	connection.Capabilities.Streaming = true
 	connection.Capabilities.ToolCalls = true
@@ -192,7 +196,7 @@ func templateRunner(t *testing.T, server *templateServer) (*Runner, *session.Ses
 	registry := tools.New(tools.NewReadFile(cfg.Tools.ReadFile), tools.NewGlob(cfg.Tools.FindFiles))
 	runner := NewRunner(bus.Bus, registry, &PromptRenderer{text: "system {{workspace}} {{memory}} {{tools}}"}, cfg.Connection, func() config.Config { return cfg })
 	enabled := map[string]bool{"read_file": true, "find_files": true}
-	item := &session.Session{ID: "main", ConnectionID: "main", Workspace: t.TempDir(), Run: session.RunState{Status: "running", MaxTurns: cfg.Run.MaxTurns}, Runnable: true, ToolsEnabled: enabled, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, LastSeen: map[string]time.Time{}, Budget: events.Budget{NCtx: 32768, Reserve: 10240}}
+	item := &session.Session{ID: "main", ConnectionID: "main", Workspace: t.TempDir(), Run: session.RunState{Status: "running", MaxTurns: cfg.Run.MaxTurns}, Runnable: true, ToolsEnabled: enabled, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, LastSeen: map[string]time.Time{}, Budget: events.Budget{NCtx: 32768, Reserve: reserve}}
 	return runner, item, bus
 }
 

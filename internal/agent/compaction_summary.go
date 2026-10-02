@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"harness/internal/config"
@@ -18,6 +19,7 @@ import (
 const compactionMaxTokens = 800
 const compactionEvidenceLimit = 12
 const compactionEvidenceRunes = 320
+const compactionExcerptTotal = 400
 
 const compactionEvidenceStart = "[BEGIN COMPACTION EVIDENCE]"
 const compactionEvidenceEnd = "[END COMPACTION EVIDENCE]"
@@ -55,6 +57,11 @@ func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string
 	if len(records) <= 7 {
 		return false
 	}
+	// Item 2q1: no model is asked to summarize a span that is not there. s51 sent
+	// C and then B, about thirty seconds, to be told there was nothing to fold.
+	if _, _, ok := contextmgr.FoldSpan(records, s.RunPin()); !ok {
+		return false
+	}
 	cfg := r.cfg()
 	agent, hasAgent := cfg.Agent(s.Snapshot().AgentID)
 	if !hasAgent || agent.C == "" {
@@ -70,6 +77,11 @@ func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string
 		accepted, _ := r.trySummary(ctx, s, runID, main, worker, "c", "", 0, false)
 		return accepted
 	}
+	// Item 2q1 (c): a summarizer that failed once in this run is not asked again.
+	if r.summarizerFailed(s.ID, runID, worker.ID, false) {
+		accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "c_failed_earlier", 0, false)
+		return accepted
+	}
 
 	workerRequestConnection := summaryConnection(worker)
 	// The fit check sends the same normalized request the summary would (item
@@ -81,6 +93,7 @@ func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string
 	}
 	if err != nil {
 		r.publishSummaryAttempt(s, runID, events.CompactionSummaryData{Role: "c", ConnectionID: worker.ID, Model: worker.Model, Outcome: "error", Reason: "fit check: " + err.Error(), NCtx: worker.Context.NCtx})
+		r.summarizerFailed(s.ID, runID, worker.ID, true)
 		accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "c_fit_error", 0, false)
 		return accepted
 	}
@@ -105,6 +118,9 @@ func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string
 }
 
 func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID string, sessionConnection, servingConnection *config.Connection, role, fallback string, estimatedPromptTokens int, estimated bool) (bool, string) {
+	if r.summarizerFailed(s.ID, runID, servingConnection.ID, false) {
+		return false, "error"
+	}
 	connection := summaryConnection(servingConnection)
 	messages, err := summaryRequestMessages(&connection, r.summaryMessages(&connection, s))
 	started := time.Now()
@@ -119,6 +135,7 @@ func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID strin
 		if role == "b" {
 			r.operationalError(s, runID, "compaction_summary", err)
 		}
+		r.summarizerFailed(s.ID, runID, connection.ID, true)
 		return false, "error"
 	}
 	if response.DurationMS <= 0 {
@@ -438,11 +455,23 @@ func summaryEvidenceAppendix(records []events.Message) string {
 		if call.Name != "" {
 			name = call.Name
 		}
-		anchors = append(anchors, compactionEvidence{Tool: name, Turn: message.Turn, Args: summaryArguments(call.Arguments), Metadata: summaryResultMetadata(message), Excerpt: summaryResultExcerpt(message)})
+		// Item 2q1 (e): a note names files and states facts; it never carries a
+		// file body, and its excerpts of other results total 400 characters.
+		excerpt := ""
+		if message.Category != "files" {
+			excerpt = summaryResultExcerpt(message)
+		}
+		anchors = append(anchors, compactionEvidence{Tool: name, Turn: message.Turn, Args: summaryArguments(call.Arguments), Metadata: summaryResultMetadata(message), Excerpt: excerpt})
 	}
 	anchors = uniqueSummaryEvidence(anchors)
 	if len(anchors) > compactionEvidenceLimit {
 		anchors = sampleSummaryEvidence(anchors, compactionEvidenceLimit)
+	}
+	left := compactionExcerptTotal
+	for index := range anchors {
+		excerpt := []rune(anchors[index].Excerpt)
+		anchors[index].Excerpt = string(excerpt[:min(len(excerpt), left)])
+		left -= len([]rune(anchors[index].Excerpt))
 	}
 	if len(anchors) == 0 {
 		return ""
@@ -566,4 +595,78 @@ func estimatedLabel(estimated bool) string {
 		return " estimated (10% guard)"
 	}
 	return ""
+}
+
+// runCompaction is one chat's compaction memory for its current run (item 2q1
+// (c) and (d)): the summarizers that failed in it, and the weak compactions.
+type runCompaction struct {
+	mu          sync.Mutex
+	runID       string
+	failed      map[string]bool
+	weak        int
+	blockedTurn int
+}
+
+// compactionState is the chat's record for runID, reset when a new run starts,
+// so it holds one run per chat and never grows with the life of the process.
+func (r *Runner) compactionState(sessionID, runID string) *runCompaction {
+	value, _ := r.compactions.LoadOrStore(sessionID, &runCompaction{})
+	state := value.(*runCompaction)
+	state.mu.Lock()
+	if state.runID != runID {
+		state.runID, state.failed, state.weak, state.blockedTurn = runID, map[string]bool{}, 0, -1
+	}
+	state.mu.Unlock()
+	return state
+}
+
+// summarizerFailed reports whether connectionID failed to summarize in this run,
+// recording a failure first when mark is set.
+func (r *Runner) summarizerFailed(sessionID, runID, connectionID string, mark bool) bool {
+	state := r.compactionState(sessionID, runID)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if mark {
+		state.failed[connectionID] = true
+	}
+	return state.failed[connectionID]
+}
+
+// Item 2q1 (a): one compaction elides toward 40% of the ceiling, so it buys a long
+// stretch; one that ends above 45% did not reach that and summarizes as well.
+const (
+	elideTargetPct       = .40
+	compactionReachedPct = .45
+)
+
+// compactionBlocked reports whether a weak compaction already ran in this turn
+// (item 2q1 (d)): it is not tried again until the run has moved on.
+func (r *Runner) compactionBlocked(sessionID, runID string, turn int) bool {
+	state := r.compactionState(sessionID, runID)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.blockedTurn == turn
+}
+
+// judgeCompaction records whether a compaction freed at least a tenth of what it
+// set out to free, the distance from before to target. It reports whether two
+// weak ones have now come in a row, which ends the run.
+func (r *Runner) judgeCompaction(sessionID, runID string, turn, before, after, target int) bool {
+	state := r.compactionState(sessionID, runID)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if intended := before - target; intended > 0 && (before-after)*10 < intended {
+		state.weak++
+		state.blockedTurn = turn
+	} else {
+		state.weak = 0
+	}
+	return state.weak >= 2
+}
+
+func (r *Runner) compactionExhausted(sessionID, runID string) bool {
+	state := r.compactionState(sessionID, runID)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.weak >= 2
 }

@@ -61,6 +61,7 @@ type Runner struct {
 	identityInvitation atomic.Bool
 	trustFolders       func([]string) error
 	skills             SkillHost
+	compactions        sync.Map
 }
 
 var resolveNamedPath = tools.ResolveNamedPath
@@ -589,6 +590,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		}
 		guardUsed := guardedPromptTokens(budget)
 		floor := outputFloor(connection)
+		if r.compactionExhausted(s.ID, runID) {
+			return "context_exhausted", fmt.Sprintf("context cannot be reduced further: two compactions in a row freed less than a tenth of what they set out to; prompt count %d (%s) of ceiling %d", guardUsed, budgetCountSource(budget), budget.Ceiling), turn - 1
+		}
 		if guardUsed+floor > budget.NCtx {
 			changed, exhausted := r.compactToFit(ctx, s, runID, connection, currentReasoning, budget)
 			if changed {
@@ -599,7 +603,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				// Everything outside the running turn is already compacted. The
 				// only thing left to cut is the task itself, and answering some
 				// older message instead is what 2eg was filed for.
-				return "context_exhausted", fmt.Sprintf("prompt count %d (%s) + output floor %d exceeds context window %d (%s) after compaction; nothing outside it is left to compact%s", guardUsed, budgetCountSource(budget), floor, budget.NCtx, windowSource, keptReadsSentence(s)), turn - 1
+				return "context_exhausted", fmt.Sprintf("context cannot be reduced further: prompt count %d (%s) + output floor %d exceeds context window %d (%s) after compaction; nothing outside it is left to compact%s", guardUsed, budgetCountSource(budget), floor, budget.NCtx, windowSource, keptReadsSentence(s)), turn - 1
 			}
 			return "context_ceiling", fmt.Sprintf("prompt count %d (%s) leaves less than the %d-token output floor in context window %d (%s) after compaction", guardUsed, budgetCountSource(budget), floor, budget.NCtx, windowSource), turn - 1
 		}
@@ -1923,8 +1927,14 @@ func (r *Runner) compactAfterTurnForcing(ctx context.Context, s *session.Session
 		r.operationalError(s, runID, "compaction_budget", err)
 		return changed
 	}
-	if shouldBatchElide(budget.UsedEst, budget.Ceiling, cfg.Context, r.budget.ColdPrefill(s.ID) && !force) {
-		did, _ := r.compact.ElideOldWindow(s, runID, "soft_pct", budget.UsedEst, int(float64(budget.Ceiling)*.60), contextWindow(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
+	runTurn := s.Snapshot().Run.Turn
+	if r.compactionBlocked(s.ID, runID, runTurn) {
+		return changed
+	}
+	before, target := budget.UsedEst, int(float64(budget.Ceiling)*elideTargetPct)
+	elided := shouldBatchElide(budget.UsedEst, budget.Ceiling, cfg.Context, r.budget.ColdPrefill(s.ID) && !force)
+	if elided {
+		did, _ := r.compact.ElideOldWindow(s, runID, "soft_pct", budget.UsedEst, target, contextWindow(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
 		changed = changed || did
 		if did {
 			budget, err = r.measureSession(ctx, p, s, current, false)
@@ -1934,7 +1944,9 @@ func (r *Runner) compactAfterTurnForcing(ctx context.Context, s *session.Session
 			}
 		}
 	}
-	if budget.Ceiling > 0 && budget.UsedEst >= int(float64(budget.Ceiling)*cfg.Context.SummaryPct) {
+	// Item 2q1 (b): when eliding cannot reach the target, the run's own older
+	// steps are summarized as well.
+	if budget.Ceiling > 0 && (budget.UsedEst >= int(float64(budget.Ceiling)*cfg.Context.SummaryPct) || elided && budget.UsedEst > int(float64(budget.Ceiling)*compactionReachedPct)) {
 		changed = r.summarize(withCompactionTrigger(ctx, "summary_pct"), s, runID, p) || changed
 	}
 	if changed {
@@ -1944,6 +1956,9 @@ func (r *Runner) compactAfterTurnForcing(ctx context.Context, s *session.Session
 			return changed
 		}
 		r.bus.Publish(events.New(events.BudgetEvent, s.ID, runID, next))
+		if elided || before >= int(float64(budget.Ceiling)*cfg.Context.SummaryPct) {
+			r.judgeCompaction(s.ID, runID, runTurn, before, next.UsedEst, target)
+		}
 	}
 	return changed
 }
@@ -1975,7 +1990,14 @@ func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID str
 	cfg := r.cfg()
 	readDefaultLimit := min(cfg.Tools.ReadFile.DefaultLimit, cfg.Tools.ReadFile.MaxLimit)
 	ctx = withCompactionTrigger(ctx, "overflow")
-	changed, _ := r.compact.ElideOldWindow(s, runID, "overflow", budget.UsedEst, int(float64(budget.Ceiling)*.60), contextWindow(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
+	// Item 2q1 (d): a weak compaction in this turn is not repeated; the run ends
+	// instead of looping overflow, summarize, overflow as s51 did.
+	runTurn := s.Snapshot().Run.Turn
+	if r.compactionBlocked(s.ID, runID, runTurn) {
+		return false, true
+	}
+	target := int(float64(budget.Ceiling) * elideTargetPct)
+	changed, _ := r.compact.ElideOldWindow(s, runID, "overflow", budget.UsedEst, target, contextWindow(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
 	next, err := r.measureSession(ctx, p, s, current, false)
 	if err != nil {
 		r.operationalError(s, runID, "compaction_budget", err)
@@ -1989,11 +2011,14 @@ func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID str
 		}
 	}
 	if changed {
+		if after, err := r.measureSession(ctx, p, s, current, false); err == nil {
+			r.judgeCompaction(s.ID, runID, runTurn, budget.UsedEst, after.UsedEst, target)
+		}
 		r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "compact", "state": "enter", "turn": s.Snapshot().Run.Turn, "ms": 0}))
 		r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "compact", "state": "exit", "turn": s.Snapshot().Run.Turn, "ms": 0}))
 		return true, false
 	}
-	_, spanLeft := contextmgr.SummarizeSpan(s.MessagesCopy(), s.RunPin())
+	_, _, spanLeft := contextmgr.FoldSpan(s.MessagesCopy(), s.RunPin())
 	return false, !spanLeft
 }
 func (r *Runner) operationalError(s *session.Session, runID, where string, err error) {

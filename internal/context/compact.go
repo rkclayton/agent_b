@@ -346,22 +346,72 @@ func foldBoundary(messages []events.Message, pin string) (int, bool) {
 	return foldEnd, true
 }
 
+// FoldSpan is the span a summarize replaces with its note, messages[start:end]:
+// everything before the running turn, as SummarizeSpan says; when that is empty,
+// the running turn's own completed steps older than its newest RecentToolWindow
+// results (item 2q1 (b)), so a run that is one long turn can still be summarized.
+// The running turn's user message and its newest results are never in it. ok is
+// false when there is nothing to fold, or only an earlier note: re-summarizing a
+// note frees nothing new (item 2q1 (e); s51 re-summarized its turn-0 note each turn).
+func FoldSpan(messages []events.Message, pin string) (start, end int, ok bool) {
+	fresh := func(start, end int) bool {
+		for index := start; index < end; index++ {
+			if messages[index].Category != "summary" {
+				return true
+			}
+		}
+		return false
+	}
+	if end, ok := foldBoundary(messages, pin); ok && fresh(1, end) {
+		return 1, end, true
+	}
+	start, end, ok = runningSpan(messages, pin)
+	return start, end, ok && fresh(start, end)
+}
+
+func runningSpan(messages []events.Message, pin string) (int, int, bool) {
+	if len(messages) <= 7 || pin == "" || !pinPresent(messages, pin) {
+		return 0, 0, false
+	}
+	start := pinIndex(messages, pin) + 1
+	results := []int{}
+	for index := start; index < len(messages); index++ {
+		if messages[index].Role == "tool" {
+			results = append(results, index)
+		}
+	}
+	if len(results) <= RecentToolWindow {
+		return 0, 0, false
+	}
+	// The span ends at the assistant message that asked for the oldest kept
+	// result, so no kept result loses its call.
+	kept := messages[results[len(results)-RecentToolWindow]].ToolCallID
+	for end := results[len(results)-RecentToolWindow] - 1; end > start; end-- {
+		for _, call := range messages[end].ToolCalls {
+			if call.ID == kept {
+				return start, end, end-start >= 2
+			}
+		}
+	}
+	return 0, 0, false
+}
+
 func (c *Compactor) Summarize(s *session.Session, runID string, summary events.Message, source events.CompactionSummaryData) bool {
 	messages := s.MessagesCopy()
 	if len(messages) <= 7 {
 		return false
 	}
-	foldEnd, ok := foldBoundary(messages, s.RunPin())
+	start, end, ok := FoldSpan(messages, s.RunPin())
 	if !ok {
 		source.Outcome = "rejected"
-		source.Reason = "nothing outside the running turn left to summarize"
+		source.Reason = "nothing new left to summarize"
 		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
 		return false
 	}
 	affected := []string{}
-	out := []events.Message{messages[0], summary}
-	for index := 1; index < len(messages); index++ {
-		if index >= foldEnd {
+	out := append(append([]events.Message{}, messages[:start]...), summary)
+	for index := start; index < len(messages); index++ {
+		if index >= end {
 			out = append(out, messages[index])
 		} else {
 			affected = append(affected, messages[index].ID)

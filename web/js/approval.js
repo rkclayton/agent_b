@@ -9,6 +9,9 @@ export function shellGrantApproval(data = {}) {
 
 export function approvalChoices(data = {}) {
 	if (data.kind === "cycle" || data.name === "run.cycle") return [["continue", "Continue"], ["stop", "Stop"]];
+	// Item 2q4 (a): the folder question is three buttons; Always trusts the folder
+	// and everything under it, as the folder choice always has.
+	if (data.args?.outside_folder_card && data.args.outside_folders?.length) return [["folder", "Always"], ["once", "Once"], ["deny", "No"]];
 	const folders = Array.isArray(data.args?.outside_folders) ? data.args.outside_folders : [];
 	const trust = folders.length ? [["folder", `Never ask for ${folders.join(", ")}`]] : [];
 	return [...(data.standing_grant ? [["approve", "Always allow this exact scope"]] : []), ["session", "Yes, for this chat"], ["once", "Just once"], ...trust, ["deny", "No"]];
@@ -51,7 +54,8 @@ export function approvalText(data = {}) {
 	const imported = boundCredential(data) + importedOperations(data);
 	if (data.args?.outside_folder_card) {
 		const value = data.args?.path ?? data.args?.command ?? data.args?.source ?? "", folders = data.args.outside_folders || [];
-		return { title: "Outside this chat's folder", request: `${data.name || "This operation"} would reach ${value}.`, reason: `Allow access, or trust ${folders.join(", ")} for every chat.`, detail: value };
+		const named = folders.length > 1 ? `\n${folders.join("\n")}` : ` ${folders[0] || value}`;
+		return { title: "", request: `Allow access to${named}?`, reason: "", detail: value };
 	}
 	if (human?.happened && human?.harness_action) return {
 		title: data.kind === "cycle" || data.name === "run.cycle" ? "Loop check" : (data.boundary_escape ? "Run as you" : "Allow this"),
@@ -127,7 +131,7 @@ export function createApprovalCard(document, entry = {}, options = {}) {
 	if (entry.decision) {
 		const decided = document.createElement("div");
 		decided.className = "approval-decided";
-		decided.textContent = `${wording.title}: ${approvalDecisionText(entry.decision)}`;
+		decided.textContent = `${wording.title || "Folder access"}: ${approvalDecisionText(entry.decision)}`;
 		return decided;
 	}
 	const content = document.createElement("section");
@@ -147,7 +151,8 @@ export function createApprovalCard(document, entry = {}, options = {}) {
 	request.textContent = wording.request;
 	const reason = document.createElement("span");
 	reason.textContent = wording.reason;
-	content.append(title, request, reason);
+	// Item 2q4 (a): a card with no title or reason draws only its one line.
+	content.append(...[title, request, reason].filter((node) => node.textContent || node.children?.length));
 	if (wording.question) {
 		const question = document.createElement("span");
 		question.className = "approval-question";
@@ -168,7 +173,7 @@ export function createApprovalCard(document, entry = {}, options = {}) {
 			const button = document.createElement("button");
 			button.type = "button";
 			button.textContent = label;
-			if (decision === "session" || decision === "continue") {
+			if (decision === "session" || decision === "continue" || decision === "folder") {
 				button.className = "default";
 				button.autofocus = true;
 			}

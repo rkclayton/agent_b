@@ -269,3 +269,19 @@ func TestOwnFoldersReadWithoutACardWriteWithOne2q3(t *testing.T) {
 		}
 	}
 }
+
+// Item 2q4 (c): two outside folders under the user's profile are one question
+// about their common parent.
+func TestOutsideFoldersUnderTheProfileAskOnceForTheirParent2q4(t *testing.T) {
+	parent := t.TempDir()
+	for _, name := range []string{"a", "b"} {
+		if os.MkdirAll(filepath.Join(parent, name), 0o700) != nil || os.WriteFile(filepath.Join(parent, name, "x.txt"), []byte("x"), 0o600) != nil {
+			t.Fatal("fixture")
+		}
+	}
+	source := `Get-Content "` + filepath.Join(parent, "a", "x.txt") + `", "` + filepath.Join(parent, "b", "x.txt") + `"`
+	decision := outsideCommandDecision(source, &session.Session{ID: "c", Workspace: t.TempDir()}, nil)
+	if len(decision.folders) != 1 || !strings.EqualFold(decision.folders[0], parent) {
+		t.Fatalf("folders = %v, want [%s]", decision.folders, parent)
+	}
+}

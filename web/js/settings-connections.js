@@ -235,7 +235,9 @@ function connectionFields(connection, reason, discovery) {
 	  : `<select class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text">${options.join("")}</select>`;
 	// Item 2l1 (a2): one action, not two. Test contacts the address once and fills
 	// the picker and the connection settings from that single result.
-	const modelControl = row("model", `<span class="settings-actions">${picker}</span>`, "", "Filled by Test from what the server lists; type a name by hand when a server cannot enumerate.");
+	const modelPath = `${p}.model`;
+	const modelProblem = errors.get(modelPath) || "";
+	const modelControl = `${row("model", `<span class="settings-actions">${picker}</span>`, modelProblem ? "invalid" : "", "Filled by Test from what the server lists; type a name by hand when a server cannot enumerate.")}${modelProblem ? errorMarkup(modelProblem, `field:${modelPath}`) : ""}`;
 	// Item 2nb (g): ONE MESSAGE, ONE PLACE. The discovery result used to be rendered
 	// twice — once under base_url and once beside the Evaluation Harness button — and
 	// the operator saw three copies of one sentence. It belongs under the field it is

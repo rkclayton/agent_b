@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"harness/internal/credential"
+	"harness/internal/events"
 	"harness/internal/quietproc"
 	"io"
 	"net"
@@ -22,6 +23,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -55,6 +57,8 @@ type liveEndpoint struct {
 	transport Transport
 	frames    chan Frame
 	errs      chan error
+	// Item 2pv: what crossed the public broker to this endpoint as ciphertext.
+	wireBytes, wireFrames atomic.Int64
 }
 
 // livePairingTeardown owns every pairing a non-local proof creates. The ID is written
@@ -130,6 +134,10 @@ func dialLive(t *testing.T, ctx context.Context, address, role string, identity 
 			if err != nil {
 				endpoint.errs <- err
 				return
+			}
+			if frame.Type == FrameCiphertext {
+				endpoint.wireBytes.Add(int64(len(raw)))
+				endpoint.wireFrames.Add(1)
 			}
 			endpoint.frames <- frame
 		}
@@ -582,39 +590,9 @@ func TestLivePairedDesktopAnswersItsPhone2o7(t *testing.T) {
 
 	// 1. PAIR: the desktop offers a code as its Settings page does; the synthetic
 	// device joins with it, and both sides confirm the transcript.
-	var offer PairingOffer
-	desktop.post(t, "/api/broker", `{"action":"pair"}`, &offer)
-	device := newLiveIdentity(t)
-	join := dialLive(t, ctx, address, "device", device)
-	join.send(t, FramePairBegin, struct {
-		Role    string `json:"role"`
-		Ed25519 string `json:"ed25519_public"`
-		X25519  string `json:"x25519_public"`
-		Code    string `json:"code"`
-	}{Role: "device", Code: strings.ReplaceAll(offer.Code, "-", ""),
-		Ed25519: base64.RawURLEncoding.EncodeToString(device.SigningPublic()),
-		X25519:  base64.RawURLEncoding.EncodeToString(device.AgreementPublic())})
-	var peer pairPeerPayload
-	if err := DecodeInto(join.waitFor(t, FramePairPeer, 30*time.Second).Payload, &peer); err != nil {
-		t.Fatal(err)
-	}
-	pairingID := mustDecodeHex(t, peer.PairingID)
-	teardown := trackLivePairing(t, address, "device", device, pairingID)
-	agentSigning, agentAgreement := mustDecode64(t, peer.Ed25519), mustDecode64(t, peer.X25519)
-	agentKeyID := Identity{}.keyIDFor(agentSigning, agentAgreement)
-	transcript := TranscriptHash(pairingID, agentSigning, agentAgreement, device.SigningPublic(), device.AgreementPublic())
-	join.send(t, FramePairConfirm, pairConfirmPayload{PairingID: peer.PairingID, TranscriptHash: hex.EncodeToString(transcript),
-		Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(ed25519.NewKeyFromSeed(device.SigningSeed), transcript))})
-	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(200 * time.Millisecond) {
-		if desktop.tryPost("/api/broker", `{"action":"confirm"}`) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the desktop never reached the fingerprint step")
-		}
-	}
-	join.waitFor(t, FramePairComplete, 30*time.Second)
-	_ = join.transport.Close(1000, "paired")
+	paired := pairDisposablePhone(t, ctx, address, desktop)
+	device, peer, pairingID, teardown := paired.device, paired.peer, paired.pairingID, paired.teardown
+	agentSigning, agentKeyID := paired.agentSigning, paired.agentKeyID
 	t.Logf("E2E 1 paired %s", peer.PairingID)
 
 	// Make one chat through the page's own handler before the phone connects. Its
@@ -724,6 +702,150 @@ func TestLivePairedDesktopAnswersItsPhone2o7(t *testing.T) {
 		t.Fatalf("the session did not stay closed: %s", later)
 	}
 	t.Log("E2E 9 revoked from the desktop; the session closed and stayed closed")
+}
+
+// Item 2pv (b) and (c), through the public broker: what a joining phone is sent, and
+// what a phone that reconnects after ten new entries is sent again. The disposable
+// instance starts from journals written here, so its store is the measured size.
+func TestLivePhoneJoinBytes2pv(t *testing.T) {
+	address := liveAddress(t)
+	app := strings.TrimSpace(os.Getenv("AGENTB_E2E_APP"))
+	if app == "" {
+		t.Skip("SKIPPED: AGENTB_E2E_APP names no built Agent_b to run disposably")
+	}
+	for _, size := range []struct {
+		name          string
+		chats, events int
+	}{{"small", 3, 300}, {"large", 30, 3000}} {
+		t.Run(size.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			model := newStubModel(t)
+			base, dataRoot := startDisposableAgent(t, ctx, app, address, model.server.URL, func(data string) {
+				seedJournals(t, filepath.Join(data, "profiles", os.Getenv("USERNAME"), "chats"), size.chats, size.events)
+			})
+			paired := pairDisposablePhone(t, ctx, address, newDesktopClient(t, base))
+			join := func(what string) *connectedPhone {
+				started := time.Now()
+				phone := connectPhone(t, ctx, address, paired.device, paired.peer.PeerKeyID, paired.pairingID, paired.agentSigning, paired.agentKeyID)
+				for deadline := time.Now().Add(5 * time.Minute); phone.count("snapshot") < size.chats; time.Sleep(20 * time.Millisecond) {
+					if time.Now().After(deadline) {
+						t.Fatalf("%s: %d of %d chats arrived", what, phone.count("snapshot"), size.chats)
+					}
+				}
+				t.Logf("2pv live %s %-5s chats=%d chat0_chat_entries=%d bytes=%d frames=%d wall=%s", what, size.name, size.chats, phone.chatLength("chat-0"),
+					phone.endpoint.wireBytes.Load(), phone.endpoint.wireFrames.Load(), time.Since(started).Round(time.Millisecond))
+				return phone
+			}
+			phone := join("phone-join")
+			// Ten new entries or a few more: three messages, each about four chat entries.
+			idle := phone.waitIdle(t, "chat-0", 0)
+			for range 3 {
+				phone.request(t, "message", `{"session_id":"chat-0","text":"hi"}`, 202)
+				idle = phone.waitIdle(t, "chat-0", idle+1)
+			}
+			// Reconnect as 2o7 does: the phone goes, and the desktop's connection is replaced.
+			_ = phone.endpoint.transport.Close(1000, "test reconnects the phone")
+			replacement := dialLive(t, ctx, address, "agent", loadDisposableIdentity(t, dataRoot))
+			replacement.authenticate(t)
+			_ = replacement.transport.Close(1000, "release the desktop identity")
+			join("phone-reconnect")
+		})
+	}
+}
+
+// chatLength is how many chat entries the phone's newest snapshot of a chat holds.
+func (p *connectedPhone) chatLength(sessionID string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	length := 0
+	for _, unit := range p.units {
+		if unit["kind"] == "snapshot" && unit["session_id"] == sessionID {
+			chat, _ := unit["data"].(map[string]any)["chat"].([]any)
+			length = len(chat)
+		}
+	}
+	return length
+}
+
+func seedJournals(t *testing.T, dir string, chats, entries int) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seq := int64(0)
+	for chat := 0; chat < chats; chat++ {
+		// One journal per chat, named by its id, as the instance writes them.
+		id := fmt.Sprintf("chat-%d", chat)
+		journal := new(bytes.Buffer)
+		encoder := json.NewEncoder(journal)
+		record := func(event events.Event) {
+			seq++
+			event.Seq = seq
+			if err := encoder.Encode(event); err != nil {
+				t.Fatal(err)
+			}
+		}
+		workspace := filepath.Join(dir, id)
+		record(events.New(events.SessionCreated, id, "", map[string]any{"session": map[string]any{"id": id, "label": id, "agent_id": "phone", "agent_name": "Phone",
+			"connection_id": "stub", "b_connection": "stub", "role": "b", "created_at": time.Now().UTC().Format(time.RFC3339Nano), "workspace": workspace, "workspace_dir": workspace,
+			"scratch": true, "run": map[string]any{"status": "idle"}, "tools": []any{}, "messages": []any{}}}))
+		for index := 0; index < entries; index++ {
+			record(events.New(events.MessageAppended, id, "run", map[string]any{"message": map[string]any{
+				"id": fmt.Sprintf("m%d", index), "role": []string{"user", "assistant"}[index%2], "content": "fixture"}}))
+		}
+		if err := os.WriteFile(filepath.Join(dir, id+".jsonl"), journal.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+type disposablePairing struct {
+	device                   Identity
+	peer                     pairPeerPayload
+	pairingID                []byte
+	agentSigning, agentKeyID []byte
+	teardown                 *livePairingTeardown
+}
+
+// pairDisposablePhone: the desktop offers a code as its Settings page does; the
+// synthetic device joins with it, and both sides confirm the transcript.
+func pairDisposablePhone(t *testing.T, ctx context.Context, address string, desktop *desktopClient) disposablePairing {
+	t.Helper()
+	var offer PairingOffer
+	desktop.post(t, "/api/broker", `{"action":"pair"}`, &offer)
+	device := newLiveIdentity(t)
+	join := dialLive(t, ctx, address, "device", device)
+	join.send(t, FramePairBegin, struct {
+		Role    string `json:"role"`
+		Ed25519 string `json:"ed25519_public"`
+		X25519  string `json:"x25519_public"`
+		Code    string `json:"code"`
+	}{Role: "device", Code: strings.ReplaceAll(offer.Code, "-", ""),
+		Ed25519: base64.RawURLEncoding.EncodeToString(device.SigningPublic()),
+		X25519:  base64.RawURLEncoding.EncodeToString(device.AgreementPublic())})
+	var peer pairPeerPayload
+	if err := DecodeInto(join.waitFor(t, FramePairPeer, 30*time.Second).Payload, &peer); err != nil {
+		t.Fatal(err)
+	}
+	pairingID := mustDecodeHex(t, peer.PairingID)
+	teardown := trackLivePairing(t, address, "device", device, pairingID)
+	agentSigning, agentAgreement := mustDecode64(t, peer.Ed25519), mustDecode64(t, peer.X25519)
+	transcript := TranscriptHash(pairingID, agentSigning, agentAgreement, device.SigningPublic(), device.AgreementPublic())
+	join.send(t, FramePairConfirm, pairConfirmPayload{PairingID: peer.PairingID, TranscriptHash: hex.EncodeToString(transcript),
+		Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(ed25519.NewKeyFromSeed(device.SigningSeed), transcript))})
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+		if desktop.tryPost("/api/broker", `{"action":"confirm"}`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the desktop never reached the fingerprint step")
+		}
+	}
+	join.waitFor(t, FramePairComplete, 30*time.Second)
+	_ = join.transport.Close(1000, "paired")
+	return disposablePairing{device: device, peer: peer, pairingID: pairingID, agentSigning: agentSigning,
+		agentKeyID: Identity{}.keyIDFor(agentSigning, agentAgreement), teardown: teardown}
 }
 
 // connectedPhone is the synthetic device after its session is up.
@@ -1055,7 +1177,8 @@ func newStubModel(t *testing.T) *stubModel {
 }
 
 // startDisposableAgent runs the built Agent_b on a free port with its own data root.
-func startDisposableAgent(t *testing.T, ctx context.Context, app, broker, model string) (string, string) {
+// seed, when given, writes into the data root before the instance starts.
+func startDisposableAgent(t *testing.T, ctx context.Context, app, broker, model string, seed ...func(data string)) (string, string) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1079,6 +1202,9 @@ func startDisposableAgent(t *testing.T, ctx context.Context, app, broker, model 
 	configPath := filepath.Join(data, "harness.json")
 	if err := os.WriteFile(configPath, encoded, 0o600); err != nil {
 		t.Fatal(err)
+	}
+	for _, write := range seed {
+		write(data)
 	}
 	var output bytes.Buffer
 	command := exec.CommandContext(ctx, filepath.Join(app, "Agent_b.exe"), "-config", configPath, "-app-root", app, "-data-root", data)
@@ -1188,4 +1314,27 @@ func mustDecodeHex(t *testing.T, value string) []byte {
 		t.Fatalf("not hex: %q", value)
 	}
 	return raw
+}
+
+// waitIdle waits for the want-th patch that returns a chat's run to idle, and returns
+// how many there are. Resync cannot be the wait at the full bound: its answer for a
+// 3,000-message chat is not delivered.
+func (p *connectedPhone) waitIdle(t *testing.T, sessionID string, want int) int {
+	t.Helper()
+	for deadline := time.Now().Add(90 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		p.mu.Lock()
+		n := 0
+		for _, unit := range p.units {
+			data, _ := unit["data"].(map[string]any)
+			if encoded, _ := json.Marshal(data["operations"]); unit["kind"] == "patch" && data["session_id"] == sessionID && bytes.Contains(encoded, []byte(`"idle"`)) {
+				n++
+			}
+		}
+		p.mu.Unlock()
+		if n >= want {
+			return n
+		} else if time.Now().After(deadline) {
+			t.Fatalf("chat %s's run never returned to idle", sessionID)
+		}
+	}
 }

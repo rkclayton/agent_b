@@ -1344,3 +1344,16 @@ func TestStaticBearerConnectorsMigrateIntoTheStore2nv(t *testing.T) {
 		t.Fatalf("a second load migrated again: %v", again)
 	}
 }
+
+// Item 2q5 (e) CHECK 6: a config still holding the old defaults moves to 0.80/0.90;
+// any other choice is left alone.
+func TestOldCompactionDefaultsMoveToTheNewOnes2q5(t *testing.T) {
+	for _, row := range []struct{ soft, summary, wantSoft, wantSummary float64 }{{.75, .85, .80, .90}, {.70, .85, .70, .85}, {.75, .95, .75, .95}} {
+		cfg := Defaults(t.TempDir())
+		cfg.Context.SoftPct, cfg.Context.SummaryPct = row.soft, row.summary
+		ApplyDefaults(&cfg)
+		if cfg.Context.SoftPct != row.wantSoft || cfg.Context.SummaryPct != row.wantSummary {
+			t.Errorf("%.2f/%.2f became %.2f/%.2f", row.soft, row.summary, cfg.Context.SoftPct, cfg.Context.SummaryPct)
+		}
+	}
+}

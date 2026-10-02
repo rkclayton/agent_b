@@ -222,7 +222,7 @@ func eligibleOldElision(message events.Message) bool {
 // then the running turn's own, so one pass on a small window frees the most;
 // trigger names what asked for the pass and is recorded on the compaction event.
 func (c *Compactor) ElideOld(s *session.Session, runID, trigger string, used, target, readDefaultLimit int, count Counter) (bool, int) {
-	return c.ElideOldWindow(s, runID, trigger, used, target, 0, readDefaultLimit, count)
+	return c.ElideOldWindow(s, runID, trigger, used, target, 0, 0, readDefaultLimit, count)
 }
 
 // ElideOldWindow is ElideOld with the context window known (item 2fd rule 4).
@@ -232,7 +232,7 @@ func (c *Compactor) ElideOld(s *session.Session, runID, trigger string, used, ta
 // eligible however recent, and a single result larger than a quarter of window
 // is eligible once the model has answered after it. window 0 disables that
 // last clause. With no run in flight the whole history is touchable.
-func (c *Compactor) ElideOldWindow(s *session.Session, runID, trigger string, used, target, window, readDefaultLimit int, count Counter) (bool, int) {
+func (c *Compactor) ElideOldWindow(s *session.Session, runID, trigger string, used, target, window, keep, readDefaultLimit int, count Counter) (bool, int) {
 	messages := s.MessagesCopy()
 	toolIndexes := []int{}
 	for index, item := range messages {
@@ -250,7 +250,19 @@ func (c *Compactor) ElideOldWindow(s *session.Session, runID, trigger string, us
 		return false
 	}
 	skip := map[int]bool{}
+	// Item 2q5 (b): MASK BY BUDGET. With keep set, the newest results that fit in
+	// keep tokens stay whole, and the newest always does, whatever turn they are in;
+	// every older one is a candidate.
+	for kept, i := 0, len(toolIndexes)-1; keep > 0 && i >= 0; i-- {
+		if kept += messages[toolIndexes[i]].Tokens; kept > keep && i < len(toolIndexes)-1 {
+			break
+		}
+		skip[toolIndexes[i]] = true
+	}
 	for _, index := range toolIndexes[max(0, len(toolIndexes)-RecentToolWindow):] {
+		if keep > 0 {
+			break
+		}
 		if index < running {
 			continue
 		}

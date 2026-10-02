@@ -183,18 +183,19 @@ func TestCompactionSummaryFitsTemplateEndpoints(t *testing.T) {
 	}
 }
 
-func TestCompactionUsesFittingAuxConnection(t *testing.T) {
+// Item 2q5 (a) CHECK 2: the agent's C connection is never asked to summarize;
+// the chat's own model is, once.
+func TestCompactionNeverAsksTheCConnection2q5(t *testing.T) {
 	mainServer := newSummaryServer(t, "main summary")
 	auxServer := newSummaryServer(t, "aux summary")
 	runner, item, bus, _ := compactionRunner(t, mainServer, auxServer, 32768)
 	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
-		t.Fatal("aux summary was not accepted")
+		t.Fatal("the summary was not accepted")
 	}
-	if auxServer.chatCalls.Load() != 1 || auxServer.templateCalls.Load() != 1 || auxServer.tokenizeCalls.Load() != 1 || mainServer.chatCalls.Load() != 0 {
+	if auxServer.chatCalls.Load()+auxServer.templateCalls.Load()+auxServer.tokenizeCalls.Load() != 0 || mainServer.chatCalls.Load() != 1 {
 		t.Fatalf("aux chat/template/tokenize=%d/%d/%d main chat=%d", auxServer.chatCalls.Load(), auxServer.templateCalls.Load(), auxServer.tokenizeCalls.Load(), mainServer.chatCalls.Load())
 	}
-	attempt, compact := compactionEvents(t, bus, item.ID)
-	if attempt.Role != "c" || attempt.ConnectionID != "aux" || attempt.Estimated || compact["connection_id"] != "aux" {
+	if attempt, compact := compactionEvents(t, bus, item.ID); attempt.Role != "b" || compact["connection_id"] != "main" {
 		t.Fatalf("attempt=%+v compact=%v", attempt, compact)
 	}
 }
@@ -319,67 +320,6 @@ func TestCompactionSummaryRedactsPayloadArguments(t *testing.T) {
 	}
 }
 
-func TestCompactionSkipsSmallAuxAndFallsBackToMain(t *testing.T) {
-	mainServer := newSummaryServer(t, "main summary")
-	auxServer := newSummaryServer(t, "aux summary")
-	runner, item, bus, _ := compactionRunner(t, mainServer, auxServer, 100)
-	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
-		t.Fatal("main fallback summary was not accepted")
-	}
-	if auxServer.chatCalls.Load() != 0 || mainServer.chatCalls.Load() != 1 {
-		t.Fatalf("aux chat=%d main chat=%d", auxServer.chatCalls.Load(), mainServer.chatCalls.Load())
-	}
-	attempts := summaryAttempts(bus, item.ID)
-	if len(attempts) != 2 || attempts[0].Outcome != "skipped" || attempts[0].Dispatched || attempts[1].FallbackReason != "c_context" {
-		t.Fatalf("attempts=%+v", attempts)
-	}
-}
-
-func TestCompactionAuxErrorFallsBackToMain(t *testing.T) {
-	mainServer := newSummaryServer(t, "main summary")
-	runner, item, bus, cfg := compactionRunner(t, mainServer, nil, 32768)
-	aux := cfg.Connections[0]
-	aux.ID, aux.Label, aux.BaseURL, aux.Model = "aux", "aux", "http://127.0.0.1:1", "offline"
-	aux.RequestTimeoutS = 1
-	cfg.Connections = append(cfg.Connections, aux)
-	cfg.Agents[0].C = "aux"
-	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
-		t.Fatal("main fallback summary was not accepted")
-	}
-	if mainServer.chatCalls.Load() != 1 {
-		t.Fatalf("main chat=%d", mainServer.chatCalls.Load())
-	}
-	attempts := summaryAttempts(bus, item.ID)
-	if len(attempts) != 2 || attempts[0].Outcome != "error" || !attempts[0].Dispatched || attempts[1].FallbackReason != "c_error" {
-		t.Fatalf("attempts=%+v", attempts)
-	}
-	snapshot := item.Snapshot()
-	if snapshot.CompactionModelCalls != 2 || snapshot.CompactionPrompt != 111 || snapshot.CompactionCompletion != 22 {
-		t.Fatalf("ledger=%+v", snapshot)
-	}
-}
-
-func TestCompactionAuxFitCheckErrorFallsBackBeforeDispatch(t *testing.T) {
-	mainServer := newSummaryServer(t, "main summary")
-	auxServer := newSummaryServer(t, "aux summary")
-	runner, item, bus, _ := compactionRunner(t, mainServer, auxServer, 32768)
-	auxServer.server.Close()
-	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
-		t.Fatal("main fallback summary was not accepted")
-	}
-	if auxServer.chatCalls.Load() != 0 || mainServer.chatCalls.Load() != 1 {
-		t.Fatalf("aux chat=%d main chat=%d", auxServer.chatCalls.Load(), mainServer.chatCalls.Load())
-	}
-	attempts := summaryAttempts(bus, item.ID)
-	if len(attempts) != 2 || attempts[0].Outcome != "error" || attempts[0].Dispatched || attempts[0].Estimated || attempts[1].FallbackReason != "c_fit_error" {
-		t.Fatalf("attempts=%+v", attempts)
-	}
-	snapshot := item.Snapshot()
-	if snapshot.CompactionModelCalls != 1 || snapshot.CompactionPrompt != 111 || snapshot.CompactionCompletion != 22 {
-		t.Fatalf("ledger=%+v", snapshot)
-	}
-}
-
 func TestCompactionMainFallbackFailureLeavesContextUntouched(t *testing.T) {
 	mainServer := newSummaryServer(t, "main summary")
 	auxServer := newSummaryServer(t, "aux summary")
@@ -394,7 +334,7 @@ func TestCompactionMainFallbackFailureLeavesContextUntouched(t *testing.T) {
 		t.Fatalf("messages changed after both connections failed: before=%d after=%d", len(before), len(item.MessagesCopy()))
 	}
 	attempts := summaryAttempts(bus, item.ID)
-	if len(attempts) != 2 || attempts[0].Outcome != "error" || attempts[0].Dispatched || attempts[1].Outcome != "error" || !attempts[1].Dispatched || attempts[1].FallbackReason != "c_fit_error" {
+	if len(attempts) != 1 || attempts[0].Outcome != "error" || !attempts[0].Dispatched || attempts[0].Role != "b" {
 		t.Fatalf("attempts=%+v", attempts)
 	}
 	foundOperationalError := false
@@ -405,22 +345,6 @@ func TestCompactionMainFallbackFailureLeavesContextUntouched(t *testing.T) {
 	}
 	if !foundOperationalError {
 		t.Fatal("main fallback failure was not published as an operational error")
-	}
-}
-
-func TestCompactionRejectedAuxFallsBackToMain(t *testing.T) {
-	mainServer := newSummaryServer(t, "main summary")
-	auxServer := newSummaryServer(t, strings.Repeat("large summary ", 1000))
-	runner, item, bus, _ := compactionRunner(t, mainServer, auxServer, 32768)
-	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
-		t.Fatal("main fallback summary was not accepted")
-	}
-	if auxServer.chatCalls.Load() != 1 || mainServer.chatCalls.Load() != 1 {
-		t.Fatalf("aux chat=%d main chat=%d", auxServer.chatCalls.Load(), mainServer.chatCalls.Load())
-	}
-	attempts := summaryAttempts(bus, item.ID)
-	if len(attempts) != 2 || attempts[0].Outcome != "rejected" || attempts[1].FallbackReason != "c_rejected" {
-		t.Fatalf("attempts=%+v", attempts)
 	}
 }
 

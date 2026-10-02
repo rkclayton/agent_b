@@ -782,7 +782,7 @@ func Defaults(workspace string) Config {
 		Connections: []Connection{connection}, Agents: []Agent{{Name: connection.Label, B: "local", Toolset: FullToolset()}},
 		Services: map[string]Service{},
 		Sandbox:  Sandbox{Enabled: true, initialized: true},
-		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .75, SummaryPct: .85, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),
+		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .80, SummaryPct: .90, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),
 		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, Attachments: AttachmentTool{MaxBytes: 256 << 20, InlineMaxBytes: 2 << 20}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Shell: ShellTool{OperatorCommands: []string{"git"}}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, WebSearch: WebSearchTool{Enabled: true, Engines: []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"}, PerEngineTimeoutS: 8, BenchDurationMinutes: 30, initialized: true}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
 		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Enabled: true, Account: "agentb-svc", Domain: ".", initialized: true}},
 		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
@@ -1400,6 +1400,11 @@ func applyDefaults(c *Config) {
 	}
 	if c.Approval.Mode == "" {
 		c.Approval = d.Approval
+	}
+	// Item 2q5 (e): a config still holding the old defaults moves to the new ones;
+	// any other value is the operator's and stays.
+	if c.Context.SoftPct == .75 && c.Context.SummaryPct == .85 {
+		c.Context.SoftPct, c.Context.SummaryPct = d.Context.SoftPct, d.Context.SummaryPct
 	}
 	if c.Context.SoftPct == 0 {
 		c.Context.SoftPct = d.Context.SoftPct

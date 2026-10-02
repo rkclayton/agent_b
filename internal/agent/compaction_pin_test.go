@@ -61,8 +61,10 @@ func TestSummaryPromptIsStructuredAndCarriesSpanUserMessagesVerbatim(t *testing.
 		}
 	}
 	// Never the pinned task itself: that is not span content, it is the thing being
-	// answered, and it is still in the conversation.
-	if strings.Contains(note[strings.Index(note, "USER MESSAGES in the span"):], "the real task") {
+	// answered, and it is still in the conversation. Item 2q5 (c) re-states it after
+	// the summary, which is not the span list.
+	span := note[strings.Index(note, "USER MESSAGES in the span"):strings.Index(note, "LAST USER MESSAGE:")]
+	if strings.Contains(span, "the real task") {
 		t.Error("the pinned task must not be listed as span content")
 	}
 }

@@ -542,6 +542,13 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 	for _, value := range categories {
 		used += value
 	}
+	// Item 2q5 (d): COUNT WHAT THE SERVER COUNTS. An estimate starts from the prompt
+	// the server reported for the previous request and adds only what came since;
+	// a whole-history estimate ran 1.5k under HomePC's count and crossed the ceiling.
+	// What a compaction removed comes off the same way what was added goes on.
+	if mode == "estimated" && state.hasMeasured && state.measured > 0 && state.lastChars > 0 {
+		used = max(0, state.measured+int(math.Round((effectiveChars-state.lastChars)/max(state.cpt, 1))))
+	}
 	nctx := connection.Context.NCtx
 	budget := events.Budget{NCtx: nctx, Reserve: connection.Context.ReserveOutput, Ceiling: max(0, nctx-connection.Context.ReserveOutput), UsedEst: used, Mode: mode, Estimated: len(estimated) > 0, EstimatedCategories: estimated, Categories: categories, ToolSchemaTokens: cloneCounts(schemaCounts), ToolMarginalTokens: cloneCounts(marginalCounts)}
 	if state.hasMeasured {

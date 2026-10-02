@@ -1541,16 +1541,15 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	}
 	outsideScope := overrideDecision
 	if len(outsideFolders) > 0 {
-		if outsideScope == "folder" {
-			if r.trustFolders == nil || r.trustFolders(outsideFolders) != nil {
-				outcome.Content = withModelNote(outcome.Content, "the folder could not be trusted; outside-folder access was not run")
-				return outcome
-			}
+		// Item 2q3 (b): a yes is acted on. A folder that cannot be kept as
+		// trusted still runs this once; the note says it was not kept.
+		if outsideScope == "folder" && (r.trustFolders == nil || r.trustFolders(outsideFolders) != nil) {
+			outsideScope = "folder not kept"
 		}
 		if outsideCard && overrideDecision == "session" {
 			r.grantPolicyChat(s.ID, outsideFolderChatGrant)
 		}
-		if outsideCard || outsideScope == "folder" {
+		if outsideCard || strings.HasPrefix(outsideScope, "folder") {
 			overrideDecision = "once"
 		}
 	}
@@ -1577,8 +1576,8 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		}
 		outcome.Content, outcome.OK, outcome.OperatorContext = overrideContent, true, true
 		note := "operator-identity override succeeded; exact " + subject + " rerun once"
-		if outsideCard || outsideScope == "folder" {
-			scope := map[string]string{"approve": "just once", "once": "just once", "session": "for this chat", "folder": "folder trusted"}[outsideScope]
+		if outsideCard || strings.HasPrefix(outsideScope, "folder") {
+			scope := map[string]string{"approve": "just once", "once": "just once", "session": "for this chat", "folder": "folder trusted", "folder not kept": "just once; the folder could not be kept as trusted"}[outsideScope]
 			note = "outside-folder access allowed (" + scope + ")"
 		}
 		outcome.Metadata = withHarnessNote(mergeResultMetadata(outcome.Metadata, sandboxResultMetadata(cfg, s, name, args)), note)

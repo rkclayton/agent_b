@@ -41,6 +41,27 @@ var navigationVerbs = map[string]bool{
 // and any [IO.*] class.
 var laterRead = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])(type|cat|gc|get-content|more|less|head|tail|select-string|sls|findstr|copy|cp|copy-item|move|mv|move-item|import-\w+|get-filehash|format-hex|readall\w*|open|certutil|robocopy|xcopy|fc|comp|print|tar|7z|expand|expand-archive|compress-archive|makecab|iex|invoke-expression|invoke-command|icm|powershell|pwsh|cmd|start|start-process|saps|invoke-item|ii|notepad|curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod|bitsadmin|streamreader)([^a-z0-9_-]|$)|\[(system\.)?io\.\w+\]|<`)
 
+// laterWrite is a form that writes, moves or deletes. Item 2q3 (c): Agent_b's own
+// data and install folders are read without a card only when no such form is in
+// the statement or after it, so a path carried in a variable still asks.
+var laterWrite = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])(set-content|sc|add-content|ac|out-file|new-item|ni|remove-item|rm|ri|del|erase|rd|rmdir|mkdir|md|move|mv|move-item|copy|cp|copy-item|cpi|rename-item|ren|rni|clear-content|clc|set-item|tee|tee-object|writeall\w*|appendall\w*|streamwriter|icacls|takeown|attrib|open)([^a-z0-9_-]|$)|>`)
+
+// discardedOutput is a redirection that writes nothing: `2>$null`, `2>&1`, `>nul`.
+var discardedOutput = regexp.MustCompile(`(?i)\d?>(&\d|\s*\$null|\s*nul\b)`)
+
+// ownFolders are Agent_b's own data and install folders.
+func ownFolders() []config.TrustedFolder {
+	local := os.Getenv("LOCALAPPDATA")
+	if local == "" {
+		return nil
+	}
+	return []config.TrustedFolder{{Path: filepath.Join(local, "Agent_b")}, {Path: filepath.Join(local, "Programs", "Agent_b")}}
+}
+
+func writes(source string) bool {
+	return laterWrite.MatchString(discardedOutput.ReplaceAllString(source, " "))
+}
+
 func pathListReason(prefix string, paths []string) string {
 	if len(paths) == 0 {
 		return ""
@@ -83,7 +104,7 @@ func outsideCommandDecision(source string, s *session.Session, trusted []config.
 		return outsideDecision{}
 	}
 	cards, missing, folders := []string{}, []string{}, []string{}
-	seen := map[string]bool{}
+	seen, own := map[string]bool{}, 0
 	bounds := statementBreak.FindAllStringIndex(source, -1)
 	start := 0
 	for index := 0; index <= len(bounds); index++ {
@@ -108,6 +129,12 @@ func outsideCommandDecision(source string, s *session.Session, trusted []config.
 			if trustedPath(path, trusted) {
 				continue
 			}
+			// Not counted as trusted: with the service identity on, trusted
+			// paths run as the operator, and this exemption must not.
+			if trustedPath(path, ownFolders()) && !writes(statement) && !writes(rest) {
+				own++
+				continue
+			}
 			if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 				missing = append(missing, missingPathHint(path))
 			} else {
@@ -120,7 +147,7 @@ func outsideCommandDecision(source string, s *session.Session, trusted []config.
 		card:    pathListReason("names a path outside the folder: ", cards),
 		missing: pathListReason("no such file or directory outside the folder: ", missing),
 		folders: folders,
-		trusted: len(seen) > len(cards)+len(missing),
+		trusted: len(seen)-own > len(cards)+len(missing),
 	}
 }
 

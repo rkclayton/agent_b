@@ -156,3 +156,45 @@ func TestTheOutsideReadCardShowsTheScriptAndItsChatGrantStaysInItsPosture(t *tes
 		}
 	}
 }
+
+// Item 2q3 (b): s52's sequence. The card offered "folder", he answered it, and the
+// script was refused because the folder could not be recorded as trusted. A yes
+// is acted on: the action runs once and the reply says the folder was not kept.
+func TestACardAnsweredFolderRunsItsAction2q3(t *testing.T) {
+	workspace, outsideDir := t.TempDir(), t.TempDir()
+	outside := filepath.Join(outsideDir, "win.ini")
+	if err := os.WriteFile(outside, []byte("; for 16-bit app support\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(workspace)
+	cfg.Approval.Mode = config.ApprovalModeBoundaryOnly
+	cfg.Shell.ServiceAccount.Enabled = false
+	shell := tools.NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	bus := events.NewBus()
+	runner := &Runner{bus: bus, tools: tools.New(shell, tools.NewRunScript(shell)), cfg: func() config.Config { return cfg }}
+	runner.gate = NewGate(bus, runner.cfg)
+	runner.SetTrustedFolderWriter(func([]string) error { return os.ErrPermission })
+	s := &session.Session{ID: "s52", Workspace: workspace, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"run_script": true}, LastSeen: map[string]time.Time{}}
+	eventCh, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	done := make(chan string, 1)
+	go func() {
+		done <- runner.executeTool(context.Background(), s, "run", "card", "run_script", map[string]any{"language": "powershell", "source": `[System.IO.File]::ReadAllLines("` + outside + `")[0]`}).Content
+	}()
+	for asked := false; !asked; {
+		select {
+		case event := <-eventCh:
+			data, _ := event.Data.(map[string]any)
+			asked = data["name"] == "run_script.operator_override"
+		case <-time.After(10 * time.Second):
+			t.Fatal("no card for the script")
+		}
+	}
+	if err := runner.gate.Decide(s.ID, "card:operator", "folder"); err != nil {
+		t.Fatal(err)
+	}
+	if content := <-done; !strings.Contains(content, "16-bit app support") {
+		t.Fatalf("answering folder did not run the script: %q", content)
+	}
+}

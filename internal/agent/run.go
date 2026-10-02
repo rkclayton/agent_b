@@ -1934,7 +1934,7 @@ func (r *Runner) compactAfterTurnForcing(ctx context.Context, s *session.Session
 	before, target := budget.UsedEst, int(float64(budget.Ceiling)*elideTargetPct)
 	elided := shouldBatchElide(budget.UsedEst, budget.Ceiling, cfg.Context, r.budget.ColdPrefill(s.ID) && !force)
 	if elided {
-		did, _ := r.compact.ElideOldWindow(s, runID, "soft_pct", budget.UsedEst, target, contextWindow(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
+		did, _ := r.compact.ElideOldWindow(s, runID, "soft_pct", budget.UsedEst, target, contextWindow(budget), maskKeep(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
 		changed = changed || did
 		if did {
 			budget, err = r.measureSession(ctx, p, s, current, false)
@@ -1944,9 +1944,9 @@ func (r *Runner) compactAfterTurnForcing(ctx context.Context, s *session.Session
 			}
 		}
 	}
-	// Item 2q1 (b): when eliding cannot reach the target, the run's own older
-	// steps are summarized as well.
-	if budget.Ceiling > 0 && (budget.UsedEst >= int(float64(budget.Ceiling)*cfg.Context.SummaryPct) || elided && budget.UsedEst > int(float64(budget.Ceiling)*compactionReachedPct)) {
+	// Item 2q5 (c): THE SUMMARY IS THE LAST RESORT, only when masking cannot get the
+	// request under summary_pct; it may then fold the run's own older steps (2q1).
+	if budget.Ceiling > 0 && budget.UsedEst >= int(float64(budget.Ceiling)*cfg.Context.SummaryPct) {
 		changed = r.summarize(withCompactionTrigger(ctx, "summary_pct"), s, runID, p) || changed
 	}
 	if changed {
@@ -1997,7 +1997,7 @@ func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID str
 		return false, true
 	}
 	target := int(float64(budget.Ceiling) * elideTargetPct)
-	changed, _ := r.compact.ElideOldWindow(s, runID, "overflow", budget.UsedEst, target, contextWindow(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
+	changed, _ := r.compact.ElideOldWindow(s, runID, "overflow", budget.UsedEst, target, contextWindow(budget), maskKeep(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
 	next, err := r.measureSession(ctx, p, s, current, false)
 	if err != nil {
 		r.operationalError(s, runID, "compaction_budget", err)

@@ -27,13 +27,14 @@ import (
 // assistant messages. refuse forces that many refusals of any template call
 // first. Chat calls are answered by respond, streamed or not as asked.
 type templateServer struct {
-	server    *httptest.Server
-	refuse    atomic.Int32
-	refusals  atomic.Int32
-	templates atomic.Int32
-	mu        sync.Mutex
-	requests  []string
-	respond   func(body map[string]any, messages []map[string]any) map[string]any
+	server      *httptest.Server
+	refuse      atomic.Int32
+	refusals    atomic.Int32
+	templates   atomic.Int32
+	mu          sync.Mutex
+	requests    []string
+	respond     func(body map[string]any, messages []map[string]any) map[string]any
+	countPrompt bool
 }
 
 const templateRefusal = `{"error":{"code":400,"message":"Cannot have 2 or more assistant messages at the end of the list.","type":"invalid_request_error"}}`
@@ -107,7 +108,7 @@ func newTemplateServer(t *testing.T, respond func(body map[string]any, messages 
 			if calls, ok := reply["tool_calls"]; ok {
 				delta["tool_calls"], finish = calls, "tool_calls"
 			}
-			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": finish}}, "usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 10}})
+			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": finish}}, "usage": map[string]any{"prompt_tokens": result.promptTokens(body), "completion_tokens": 10}})
 		default:
 			http.NotFound(w, request)
 		}
@@ -177,7 +178,7 @@ func templateRunner(t *testing.T, server *templateServer) (*Runner, *session.Ses
 func templateRunnerReserve(t *testing.T, server *templateServer, reserve int) (*Runner, *session.Session, *capturedBus) {
 	t.Helper()
 	cfg := config.Defaults(t.TempDir())
-	cfg.Context.Accounting = "exact"
+	cfg.Context.Accounting = templateAccounting
 	connection := cfg.Connections[0]
 	connection.ID, connection.Label, connection.BaseURL, connection.Model = "main", "main", server.server.URL, "test-model"
 	connection.RequestTimeoutS = 5
@@ -587,4 +588,18 @@ func TestTheAbortRecordLeadsEveryMeasurement(t *testing.T) {
 			t.Fatalf("error: %v", event.Data)
 		}
 	}
+}
+
+// templateAccounting is the accounting templateRunner configures; a test that
+// replays estimated accounting sets it for its own run.
+var templateAccounting = "exact"
+
+// promptTokens is what the fake server reports a request cost: 100, or with
+// countPrompt set, the whole request at the fake tokenizer's four runes a token.
+func (s *templateServer) promptTokens(body map[string]any) int {
+	if !s.countPrompt {
+		return 100
+	}
+	raw, _ := json.Marshal(body)
+	return len([]rune(string(raw))) / 4
 }

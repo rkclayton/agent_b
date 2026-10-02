@@ -12,7 +12,7 @@
   "operator_files": { "allow_mailbox_approvals": false, "log_retention_days": 30 },
   "notifications": { "discord_credential": "discord-webhook" },
   "updates": { "auto_check": true },
-  "context": { "soft_pct": 0.75, "summary_pct": 0.85, "accounting": "auto" },
+  "context": { "soft_pct": 0.80, "summary_pct": 0.90, "accounting": "auto" },
   "memory": { "enabled": true, "dir": "memory", "max_tokens": 1500 },
   "tools": {
     "read_file": { "default_limit": 16384, "max_limit": 65536 },

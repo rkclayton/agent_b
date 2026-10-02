@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +20,7 @@ import (
 const compactionMaxTokens = 800
 const compactionEvidenceLimit = 12
 const compactionEvidenceRunes = 320
-const compactionExcerptTotal = 400
+const compactionExcerptTotal = 0
 
 const compactionEvidenceStart = "[BEGIN COMPACTION EVIDENCE]"
 const compactionEvidenceEnd = "[END COMPACTION EVIDENCE]"
@@ -62,58 +63,10 @@ func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string
 	if _, _, ok := contextmgr.FoldSpan(records, s.RunPin()); !ok {
 		return false
 	}
-	cfg := r.cfg()
-	agent, hasAgent := cfg.Agent(s.Snapshot().AgentID)
-	if !hasAgent || agent.C == "" {
-		accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "", 0, false)
-		return accepted
-	}
-	worker, ok := cfg.Connection(agent.C)
-	if !ok {
-		accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "c_connection", 0, false)
-		return accepted
-	}
-	if worker.ID == main.ID {
-		accepted, _ := r.trySummary(ctx, s, runID, main, worker, "c", "", 0, false)
-		return accepted
-	}
-	// Item 2q1 (c): a summarizer that failed once in this run is not asked again.
-	if r.summarizerFailed(s.ID, runID, worker.ID, false) {
-		accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "c_failed_earlier", 0, false)
-		return accepted
-	}
-
-	workerRequestConnection := summaryConnection(worker)
-	// The fit check sends the same normalized request the summary would (item
-	// 2o8 (b)); the operator's first refusal was this check, not the summary.
-	workerMessages, err := summaryRequestMessages(&workerRequestConnection, r.summaryMessages(&workerRequestConnection, s))
-	promptTokens, estimated := 0, false
-	if err == nil {
-		promptTokens, estimated, err = compactionPromptTokens(ctx, &workerRequestConnection, workerMessages, cfg.Context.Accounting)
-	}
-	if err != nil {
-		r.publishSummaryAttempt(s, runID, events.CompactionSummaryData{Role: "c", ConnectionID: worker.ID, Model: worker.Model, Outcome: "error", Reason: "fit check: " + err.Error(), NCtx: worker.Context.NCtx})
-		r.summarizerFailed(s.ID, runID, worker.ID, true)
-		accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "c_fit_error", 0, false)
-		return accepted
-	}
-	guard := promptTokens
-	if estimated {
-		guard = int(math.Ceil(float64(guard) * 1.10))
-	}
-	if worker.Context.NCtx <= 0 || guard+compactionMaxTokens > worker.Context.NCtx {
-		reason := fmt.Sprintf("prompt %d%s + reserve %d exceeds n_ctx %d", promptTokens, estimatedLabel(estimated), compactionMaxTokens, worker.Context.NCtx)
-		r.publishSummaryAttempt(s, runID, events.CompactionSummaryData{Role: "c", ConnectionID: worker.ID, Model: worker.Model, Outcome: "skipped", Reason: reason, EstimatedPromptTokens: promptTokens, Estimated: estimated, NCtx: worker.Context.NCtx})
-		accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "c_context", 0, false)
-		return accepted
-	}
-
-	accepted, failure := r.trySummary(ctx, s, runID, main, worker, "c", "", promptTokens, estimated)
-	if accepted {
-		return true
-	}
-	fallback := "c_" + failure
-	accepted, _ = r.trySummary(ctx, s, runID, main, main, "b", fallback, 0, false)
+	// Item 2q5 (a): ONE SUMMARIZER, the chat's own connection, as every other
+	// harness does. The agent's C connection (a small local model on another
+	// server) is never asked to summarize; its other uses are unchanged.
+	accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "", 0, false)
 	return accepted
 }
 
@@ -148,7 +101,7 @@ func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID strin
 	// the span go into the note here, between its header and the model's summary, so
 	// what the operator asked for survives a compaction whatever the model wrote.
 	carried, carriedBytes, dropped, droppedBytes := carriedUserMessages(s.MessagesCopy(), s.RunPin(), carryLimitBytes(&connection))
-	summaryContent := compactionNoteHeader(s) + carried + response.Content
+	summaryContent := compactionNoteHeader(s) + carried + response.Content + "\n\n" + restatement(s.MessagesCopy())
 	if evidence := summaryEvidenceAppendix(s.MessagesCopy()); evidence != "" {
 		summaryContent += "\n\n" + evidence
 	}
@@ -550,35 +503,6 @@ func summaryConnection(connection *config.Connection) config.Connection {
 	return result
 }
 
-func compactionPromptTokens(ctx context.Context, connection *config.Connection, messages []llm.Message, accounting string) (int, bool, error) {
-	client := llm.New(connection)
-	if accounting != "estimated" && connection.Capabilities.Tokenize {
-		if connection.Capabilities.ApplyTemplate {
-			prompt, err := client.ApplyTemplate(ctx, messages, nil)
-			if err != nil {
-				return 0, false, err
-			}
-			tokens, err := client.Tokenize(ctx, prompt, false)
-			return tokens, false, err
-		}
-		total := 0
-		for _, message := range messages {
-			tokens, err := client.Tokenize(ctx, messageText(message.Content)+message.ReasoningContent, false)
-			if err != nil {
-				return 0, true, err
-			}
-			total += tokens + fallbackOverhead[message.Role]
-		}
-		return total, true, nil
-	}
-	total := 0
-	for _, message := range messages {
-		total += int(math.Ceil(float64(len([]rune(messageText(message.Content)+message.ReasoningContent))) / 3.6))
-		total += fallbackOverhead[message.Role]
-	}
-	return total, true, nil
-}
-
 func (r *Runner) publishSummaryAttempt(s *session.Session, runID string, data events.CompactionSummaryData) {
 	r.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, data))
 }
@@ -588,13 +512,6 @@ func nullableInt(value int) *int {
 		return nil
 	}
 	return &value
-}
-
-func estimatedLabel(estimated bool) string {
-	if estimated {
-		return " estimated (10% guard)"
-	}
-	return ""
 }
 
 // runCompaction is one chat's compaction memory for its current run (item 2q1
@@ -632,12 +549,14 @@ func (r *Runner) summarizerFailed(sessionID, runID, connectionID string, mark bo
 	return state.failed[connectionID]
 }
 
-// Item 2q1 (a): one compaction elides toward 40% of the ceiling, so it buys a long
-// stretch; one that ends above 45% did not reach that and summarizes as well.
+// Item 2q5 (b): a masking pass clears to half the ceiling in one go, so it fires
+// rarely, and the newest results within 30% of the ceiling are never masked.
 const (
-	elideTargetPct       = .40
-	compactionReachedPct = .45
+	elideTargetPct = .50
+	maskKeepPct    = .30
 )
+
+func maskKeep(budget events.Budget) int { return int(float64(budget.Ceiling) * maskKeepPct) }
 
 // compactionBlocked reports whether a weak compaction already ran in this turn
 // (item 2q1 (d)): it is not tried again until the run has moved on.
@@ -669,4 +588,38 @@ func (r *Runner) compactionExhausted(sessionID, runID string) bool {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	return state.weak >= 2
+}
+
+var orderIDPattern = regexp.MustCompile("Order ID: `([^`]+)`")
+
+// restatement is what follows every summary (item 2q5 (c)): his last message, the
+// order it names, and the files changed so far, so the run that resumes from the
+// note knows what it was asked and what it has done.
+func restatement(records []events.Message) string {
+	last, files, seen := "", []string{}, map[string]bool{}
+	for _, message := range records {
+		if message.Role == "user" && message.Category == "history" && !message.Elided {
+			last = message.Content
+		}
+		for _, call := range message.ToolCalls {
+			var args struct {
+				Path string `json:"path"`
+			}
+			if (call.Name == "write_file" || call.Name == "edit_file") && json.Unmarshal([]byte(call.Arguments), &args) == nil && args.Path != "" && !seen[args.Path] {
+				seen[args.Path] = true
+				files = append(files, args.Path)
+			}
+		}
+	}
+	if runes := []rune(last); len(runes) > 4000 {
+		last = string(runes[:4000]) + " …"
+	}
+	lines := []string{"LAST USER MESSAGE: " + last}
+	if order := orderIDPattern.FindStringSubmatch(last); order != nil {
+		lines = append(lines, "ORDER: "+order[1])
+	}
+	if len(files) > 0 {
+		lines = append(lines, "FILES CHANGED: "+strings.Join(files, ", "))
+	}
+	return strings.Join(lines, "\n")
 }

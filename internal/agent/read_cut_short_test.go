@@ -59,7 +59,8 @@ func TestALongReadEndsInAnAnswerWhenTheWindowFills(t *testing.T) {
 	// the reads themselves filled the window. Here the pressure is the running
 	// turn's own request — notes the operator pasted with it — which no
 	// compaction may touch, so the protected reads fill the rest the same way.
-	request := "Read long-input.txt completely, window by window, until you reach the end, and tell me how many lines it has.\n\nMy notes so far:\n" + strings.Repeat("an earlier finding pasted in for this task. ", 1100)
+	// Item 2q5 (b) masks every older window, so the notes are larger than they were.
+	request := "Read long-input.txt completely, window by window, until you reach the end, and tell me how many lines it has.\n\nMy notes so far:\n" + strings.Repeat("an earlier finding pasted in for this task. ", 1400)
 	if _, err := runner.AddUser(context.Background(), item, request); err != nil {
 		t.Fatal(err)
 	}

@@ -299,6 +299,34 @@ export function publishPublication({ root = defaultRoot, candidate }) {
   return { proposalId: result.proposalId, files: files.map(({ relative }) => relative), warnings: result.warnings };
 }
 
+// next (planner, 2026-10-02): publish the first INBOX order in ONE step, so a
+// worker never rebuilds the candidate procedure by hand. The block, minus its
+// `# PUBLISH THEN EXECUTE` line and retitled `## Current work order — <title>`,
+// replaces the published order body; the candidate is written beside the root,
+// prepared and published by the same functions as always. INBOX is not changed.
+// Already published (the plan's Order ID equals the block's) is not an error.
+export function publishNext({ root = defaultRoot, inbox = "" }) {
+  root = path.resolve(root);
+  const inboxPath = path.resolve(inbox || path.join(root, "INBOX.md"));
+  const [first] = splitInbox(fs.readFileSync(inboxPath, "utf8"));
+  if (!first) throw new Error("INBOX.md holds no order");
+  const lines = first.block.split("\n");
+  if (!/^# PUBLISH THEN EXECUTE\s*$/.test(lines[0])) throw new Error("the first INBOX block does not open with # PUBLISH THEN EXECUTE");
+  let body = first.body ?? lines.slice(1).join("\n").replace(/^\s+/, "");
+  if (!/^## Current work order/.test(body)) body = body.replace(/^## (?:\S+\s+—\s+)?/, "## Current work order — ");
+  const orderId = orderIdOf(body);
+  if (!orderId) throw new Error("the first INBOX block has no Order ID line");
+  const published = loadPublishedProposal(root);
+  if (orderIdOf(published.planText) === orderId) return { order_id: orderId, already_published: true };
+  const candidate = path.join(root, `.plan-candidate-${orderId}`);
+  fs.rmSync(candidate, { recursive: true, force: true });
+  fs.mkdirSync(candidate, { recursive: true });
+  writeExact(path.join(candidate, "PLAN.md"), replaceCurrentOrderBody(published.planText, body));
+  const prepared = preparePublication({ root, candidate });
+  const result = publishPublication({ root, candidate });
+  return { order_id: orderId, published: result.proposalId, files: result.files, warnings: [...(prepared.warnings ?? []), ...(result.warnings ?? [])] };
+}
+
 // splitInboxTo writes each queued order's whole block and its body to --out,
 // in queue order, so each can be dry-run, prepared and published on its own.
 function splitInboxTo(inbox, out) {
@@ -330,6 +358,7 @@ function parseCLI(argv) {
     else if (argv[index] === "--out" && argv[index + 1]) out = argv[++index];
     else throw new Error(`unknown argument: ${argv[index]}`);
   }
+  if (command === "next") return { command, root, inbox };
   if (command === "split-inbox") {
     if (!inbox || !out) throw new Error("split-inbox needs --inbox and --out");
     return { command, root, candidate, body, dryRun, inbox, out };
@@ -341,12 +370,13 @@ function parseCLI(argv) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const { command, root, candidate, body, dryRun, inbox, out } = parseCLI(process.argv);
-    const result = command === "split-inbox" ? splitInboxTo(inbox, out)
+    const { command, root, candidate, body, dryRun, inbox = "", out } = parseCLI(process.argv);
+    const result = command === "next" ? publishNext({ root, inbox })
+      : command === "split-inbox" ? splitInboxTo(inbox, out)
       : dryRun ? dryRunPublication({ root, body })
       : command === "prepare" ? preparePublication({ root, candidate })
         : command === "publish" ? publishPublication({ root, candidate })
-          : (() => { throw new Error("command must be prepare, publish or split-inbox"); })();
+          : (() => { throw new Error("command must be next, prepare, publish or split-inbox"); })();
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     if (dryRun && !result.ok) process.exitCode = 1;
   } catch (error) {

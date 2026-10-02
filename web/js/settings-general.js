@@ -1,6 +1,6 @@
-let store, armed, connectionList, row, text, number, toggle, copyRow, issue, connectionReason, html, attr;
+let store, armed, connectionList, row, text, number, toggle, copyRow, issue, connectionReason, html, attr, errorMarkup, errors;
 function useSettingsContext(context) {
-  ({ store, armed, connectionList, row, text, number, toggle, copyRow, issue, connectionReason, html, attr } = context);
+  ({ store, armed, connectionList, row, text, number, toggle, copyRow, issue, connectionReason, html, attr, errorMarkup, errors } = context);
 }
 
 function sessions() {
@@ -20,7 +20,7 @@ function sessions() {
         <select data-session-connection="${attr(item.id)}" aria-label="${attr(item.id)} server" ${running || store.replay ? "disabled" : ""}>${connectionOptions}</select><span class="path" title="${attr(item.workspace)}">${html(item.workspace)}</span>
         <span>${html(item.run.status)}</span>
         <button type="button" data-action="close-session" data-id="${attr(item.id)}" data-confirm="chat ${attr(item.label)}">Close</button>
-      </div>${issue(`session.${item.id}`) ? `<p class="field-error">${html(issue(`session.${item.id}`))}</p>` : ""}`;
+      </div>${issue(`session.${item.id}`) ? errorMarkup(issue(`session.${item.id}`), `session:${item.id}`) : ""}`;
     })
     .join("");
   const defaultConnection = store.config.agents?.[0]?.b || "";
@@ -32,7 +32,7 @@ function sessions() {
     ${row("label", '<input id="new-session-label" value="new session">', "", "The name a new session starts with.")}
     ${row("connection", `<select id="new-session-connection">${options}</select>`, "", "The model connection a new session runs on.")}
     <button type="button" class="text-action" data-action="new-session" ${options ? "" : "disabled"}>New session</button>
-    ${issue("new-session") ? `<p class="field-error">${html(issue("new-session"))}</p>` : ""}
+    ${issue("new-session") ? errorMarkup(issue("new-session"), "new-session") : ""}
     ${number("run.max_concurrent", "max concurrent", store.config.run?.max_concurrent, "1", false, "", false, "number", "How many chats may run at the same time; the rest wait in the queue.")}`;
 }
 
@@ -41,7 +41,7 @@ function tools(active) {
   const tokenCount = (value) => Number(value || 0).toLocaleString("en-US");
   const head = (name) => {
     const tool = toolState[name] || {};
-    return `<div class="tool-setting-head"><code>${name}</code><span class="tool-cost"><span class="tool-cost-primary">${tokenCount(tool.marginal_tokens)} marginal</span><span>schema ${tokenCount(tool.schema_tokens)}</span></span></div>`;
+    return `<div class="tool-setting-head"><code>${name}</code><span class="tool-cost"><span class="tool-cost-primary">${tokenCount(tool.marginal_tokens)} marginal</span><span>schema ${tokenCount(tool.schema_tokens)}</span></span></div>${errors.get(`tools.${name}`) ? errorMarkup(errors.get(`tools.${name}`), `tool:${name}`) : ""}`;
   };
   const cfg = store.config;
   const availability = active

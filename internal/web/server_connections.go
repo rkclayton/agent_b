@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"harness/internal/events"
 	"harness/internal/llm"
 	"harness/internal/probe"
+	"harness/internal/telemetry"
 	"harness/internal/tools"
 )
 
@@ -242,6 +244,10 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		if friendly, ok := discoverErr.(interface{ OperatorMessage() string }); ok {
 			message = friendly.OperatorMessage()
 		}
+		if tested.APIKey != "" {
+			message = strings.ReplaceAll(message, tested.APIKey, "<api-key>")
+		}
+		logConnectionTestFailure(message, tested.APIKey)
 		writeError(w, http.StatusBadRequest, message, "connections."+id+".base_url")
 		return
 	}
@@ -283,6 +289,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		// than blaming the model -- the operator HOMEPC case, where Ollama answered
 		// 200 with no models pulled.
 		modelErr := modelRefusalMessage(updated.Model, discovered.BaseURL, discovered.Models)
+		logConnectionTestFailure(modelErr, tested.APIKey)
 		writeJSON(w, http.StatusOK, map[string]any{"status": "model_required", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL, "error": modelErr, "proposed": s.proposedConnectionValues(r.Context(), &tested, discovered.Models)})
 		return
 	}
@@ -295,6 +302,17 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	}
 	s.startProbe(&updated)
 	writeJSON(w, http.StatusAccepted, map[string]any{"status": "probing", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL, "proposed": s.proposedConnectionValues(r.Context(), &tested, discovered.Models)})
+}
+
+func safeConnectionFailureLog(message, apiKey string) string {
+	if apiKey != "" {
+		message = strings.ReplaceAll(message, apiKey, "<api-key>")
+	}
+	return telemetry.RedactFull(message)
+}
+
+func logConnectionTestFailure(message, apiKey string) {
+	log.Printf("connection Test failed: %s", safeConnectionFailureLog(message, apiKey))
 }
 
 func (s *Server) queryConnectionModels(w http.ResponseWriter, r *http.Request, id string) {
@@ -396,6 +414,18 @@ func (s *Server) runProbe(ctx context.Context, connection *config.Connection, cu
 		s.resetProbeRetries(connection.ID)
 		if err != nil {
 			caps, findings = failedProbeCapabilities(connection, err)
+		}
+	}
+	if err != nil {
+		message := err.Error()
+		if friendly, ok := err.(interface{ OperatorMessage() string }); ok {
+			message = friendly.OperatorMessage()
+		}
+		logConnectionTestFailure(message, connection.APIKey)
+		if connection.APIKey != "" {
+			for index := range findings {
+				findings[index] = strings.ReplaceAll(findings[index], connection.APIKey, "<api-key>")
+			}
 		}
 	}
 	s.mu.Lock()

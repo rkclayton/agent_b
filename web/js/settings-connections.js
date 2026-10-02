@@ -7,9 +7,36 @@ const connectionIcons = {
   trash: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M6 2h4v1h3v1H3V3h3V2Zm-2 3h8l-.7 9H4.7L4 5Zm2.2 1 .4 7h1V6H6.2Zm3.6 0H8.8v7h1l.4-7Z"/></svg>',
 };
 
-let expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store;
+let expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store, errorMarkup;
 function useSettingsContext(context) {
-  ({ expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store } = context);
+  ({ expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store, errorMarkup } = context);
+}
+
+export function connectionFailureSentence(message, address) {
+  const full = String(message || "");
+  let host = String(address || "").trim();
+  let where = host;
+  try {
+    const parsed = new URL(host);
+    host = parsed.hostname;
+    where = parsed.host;
+  } catch {
+    host = host.replace(/^https?:\/\//i, "").split(/[/?#]/)[0].split(":")[0] || "the server";
+    where = String(address || host).replace(/^https?:\/\//i, "").split(/[/?#]/)[0];
+  }
+  if (/refused (?:the )?api key|invalid api key|api key (?:was )?refused|unauthorized|\b403\b/i.test(full)) return `The server at ${where} refused the API key.`;
+  if (/wants an api key|api key (?:is )?required|missing (?:an )?api key|\b401\b/i.test(full)) return `The server at ${where} wants an API key.`;
+  if (/no such host|name or service not known|getaddrinfo|dns.+not found/i.test(full)) return `The name ${host} was not found.`;
+  if (/timed? out|timeout|deadline exceeded/i.test(full)) return `No answer from ${where}. It may be off, asleep or out of reach of this PC.`;
+  if (/connection refused|actively refused|nothing is listening/i.test(full)) return `Nothing is listening at ${where}.`;
+  if (/list(?:s|ed)? no models|no models (?:listed|found|returned)|0 models/i.test(full)) return `The server at ${where} answered but lists no models.`;
+  if (/web page|not (?:a )?model (?:api|server)|not model api json|invalid character ['\"]?</i.test(full)) return `Something answered at ${where}, but it is not a model server.`;
+  return "The test failed.";
+}
+
+function failedTestLine(discovery, id) {
+  if (!discovery?.detail) return "";
+  return `<p class="settings-note connection-test-failure alarm" role="status">${html(discovery.message)} <button type="button" class="error-details-link" data-action="error-details" data-detail-key="connection:${attr(id)}">details</button></p>`;
 }
 
 function connections() {
@@ -63,6 +90,7 @@ function connections() {
       // collapsed row left the screen unchanged and the reason unread. The row itself
       // carries it now, expanded or not.
       const refusal = errors.get(`connections.${connection.id}`) || "";
+      const failedTest = !isOpen ? failedTestLine(feedback, connection.id) : "";
       return `<div class="connection-row ${isOpen ? "selected" : ""} ${refusal ? "refused" : ""}">
           <button type="button" class="connection-summary" data-action="connection-toggle" data-id="${attr(connection.id)}">
             <span class="lamp ${lamp}"></span><span>${html(connection.label)}</span><span class="connection-url">${html(connection.base_url)}</span><span class="connection-state">${testState}</span>
@@ -73,7 +101,8 @@ function connections() {
             <button type="button" class="row-action" data-action="duplicate-connection" data-id="${attr(connection.id)}" aria-label="Duplicate ${attr(connection.label)}" title="Duplicate ${attr(connection.label)}">${connectionIcons.duplicate}</button>
             <button type="button" class="row-action" data-action="remove-connection" data-id="${attr(connection.id)}" data-confirm="${attr(connection.label)}" aria-label="Remove ${attr(connection.label)}" title="Remove ${attr(connection.label)}">${connectionIcons.trash}</button>
           </span>
-          ${refusal ? `<p class="connection-refusal alarm" role="status">${html(refusal)}</p>` : ""}
+          ${refusal ? errorMarkup(refusal, `connection:${connection.id}:refusal`, "connection-refusal alarm") : ""}
+          ${failedTest}
       </div>`;
     })
     .join("");
@@ -225,7 +254,8 @@ function connectionFields(connection, reason, discovery) {
 	// element, and the one the operator is looking at is the one he just clicked.
 	const discoveryNote = walking
 	  ? ""
-	  : noteText ? `<p class="settings-note discovery-note ${discovery?.alarm ? "alarm" : ""}">${html(noteText)}</p>` : "";
+	  : discovery?.detail ? failedTestLine(discovery, id)
+	    : noteText ? `<p class="settings-note discovery-note ${discovery?.alarm ? "alarm" : ""}">${html(noteText)}</p>` : "";
 	const state = reason || (caps.probed_at ? "ready" : "not tested");
 	// Item 2nn (d): THE SHEET READS TOP TO BOTTOM AS THE FLOW. label, address, key,
 	// Test, model, Evaluate, Save — the order an operator actually does it in. The
@@ -267,7 +297,7 @@ function connectionFields(connection, reason, discovery) {
     <div class="connection-fieldset connection-capabilities"><h4>Capabilities</h4>
     <div class="findings"><span class="settings-note">${html(caps.probed_at || "not probed")}</span><ul>${findings || "<li>no findings</li>"}</ul></div>
     ${reason && reason !== "context length unknown" ? `<p class="field-error">${html(reason)}</p>` : ""}
-    ${errors.get(p) ? `<p class="field-error">${html(errors.get(p))}</p>` : ""}</div></details>`;
+    </div></details>`;
 }
 
 

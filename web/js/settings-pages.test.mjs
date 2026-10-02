@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { renderAboutPage } from "./settings-about.js";
 import { renderChatsPage } from "./settings-chats.js";
-import { renderConnectionsPage } from "./settings-connections.js";
+import { connectionFailureSentence, renderConnectionsPage } from "./settings-connections.js";
 import { renderContextPage } from "./settings-context.js";
 import { renderGeneralPage } from "./settings-general.js";
 import { renderProfilesPage } from "./settings-profiles.js";
@@ -35,7 +35,7 @@ function pageContext() {
     connectionList: () => [], row, subhead: (label, hint = "") => `<div class="settings-subhead">${label}</div>${hint ? `<p class="settings-subhead-note">${hint}</p>` : ""}`, field: blank, text: inputRow, number: inputRow, numberControl: () => "<input>",
     textarea: inputRow, secret: inputRow, toggle: inputRow, choices: inputRow, selectSetting: inputRow, approvalChoices: () => row("approval", "<button>boundary-only</button>"), copyRow: row,
     currentValue: (_path, fallback) => fallback, issue: blank, connectionReason: blank,
-    html: String, attr: String, selectedHardeningConnectionID: blank,
+    html: String, attr: String, errorMarkup: (message, _key, className = "field-error") => `<p class="${className}">${message}</p>`, selectedHardeningConnectionID: blank,
     operatorStatusView: () => ({ active: false, label: "off", src: "", srcset: "" }),
   };
 }
@@ -232,6 +232,66 @@ test("Connections Test consumes endpoint discovery and renders its model picker"
   assert.match(connections, /<select class="setting-input"/);
   assert.match(connections, /discovery-note/);
 	assert.match(connections, /split\(\/\[\\\\\/\]\//);
+});
+
+test("connection failures use the operator's eight exact sentences", () => {
+  const cases = [
+    ["Get http://box:8080/models: context deadline exceeded", "http://box:8080", "No answer from box:8080. It may be off, asleep or out of reach of this PC."],
+    ["dial tcp 127.0.0.1:9: connectex: No connection could be made because the target machine actively refused it.", "http://127.0.0.1:9", "Nothing is listening at 127.0.0.1:9."],
+    ["dial tcp: lookup absent.test: no such host", "http://absent.test:8080", "The name absent.test was not found."],
+    ["the endpoint wants an API key", "http://box:8080", "The server at box:8080 wants an API key."],
+    ["the server refused the API key", "http://box:8080", "The server at box:8080 refused the API key."],
+    ["Connection returned a web page, not model API JSON.", "http://box:8080", "Something answered at box:8080, but it is not a model server."],
+    ["the endpoint answered but lists no models", "http://box:8080", "The server at box:8080 answered but lists no models."],
+    ["a new failure nobody classified", "http://box:8080", "The test failed."],
+  ];
+  for (const [full, address, sentence] of cases) assert.equal(connectionFailureSentence(full, address), sentence);
+});
+
+test("a failed Test is one sentence and one details link, never a field error", () => {
+  const context = pageContext();
+  const full = "dial tcp 127.0.0.1:9: connectex: No connection could be made because the target machine actively refused it. ".repeat(6).trim();
+  const connection = { id: "local", label: "Local", base_url: "http://127.0.0.1:9", model: "m", sampling: { thinking: {}, nonthinking: {} }, context: {}, reasoning: {}, capabilities: { findings: [] } };
+  context.connectionList = () => [connection];
+  context.expanded.add("local");
+  context.probeMessages.set("local", { message: "Nothing is listening at 127.0.0.1:9.", detail: full, alarm: true });
+  const page = renderConnectionsPage(context);
+  assert.equal((page.match(/Nothing is listening at 127\.0\.0\.1:9\./g) || []).length, 1);
+  assert.equal((page.match(/>details<\/button>/g) || []).length, 1);
+  assert.doesNotMatch(page, new RegExp(full.slice(0, 80).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.doesNotMatch(page, /field-error/);
+});
+
+test("field errors are exact-path only and long Settings errors use the in-window panel", () => {
+  const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
+  assert.match(controller, /function issue\(path\) \{\s*return errors\.get\(path\) \|\| "";/);
+  assert.match(controller, /class="settings-error-panel"[^>]*role="dialog"[^>]*aria-modal="false"/);
+  assert.match(controller, /data-action="error-details"/);
+  assert.match(controller, /if \(event\.key === "Escape" && open && errorPanel\)/);
+  assert.doesNotMatch(controller, /window\.open/);
+});
+
+test("600-character errors stay one sentence on every Settings page that paints errors 2po", () => {
+  const long = `First sentence. ${"diagnostic words ".repeat(45)}`;
+  const context = pageContext();
+  context.errorMarkup = (message, key, className = "field-error") => `<p class="${className}">${message.split(". ")[0]}. <button data-action="error-details" data-detail-key="${key}">details</button></p>`;
+  context.errors.set("connections.held", long);
+  context.connectionList = () => [{ id: "held", label: "Held", base_url: "http://held/", sampling: { thinking: {}, nonthinking: {} }, context: {}, reasoning: {}, capabilities: {} }];
+  context.errors.set("tools.read_file", long);
+  context.errors.set("workspace", long);
+  context.errors.set("session.s1", long);
+  context.issue = (path) => context.errors.get(path) || "";
+  context.store.sessions.s1 = { id: "s1", label: "one", workspace: "C:\\fixture", connection_id: "held", run: { status: "idle" } };
+  for (const [name, page] of [
+    ["Connections", renderConnectionsPage(context)], ["Sessions", renderGeneralPage("sessions", null, context)],
+    ["Tools", renderGeneralPage("tools", null, context)], ["Security/Folders", renderWorkspacePage(context)],
+  ]) {
+    assert.match(page, /First sentence\. <button[^>]+>details<\/button>/, name);
+    assert.doesNotMatch(page, /diagnostic words diagnostic words/, name);
+  }
+  const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
+  for (const group of ["profiles", "shell", "shell.trusted_folders", "connections", "config"]) assert.match(controller, new RegExp(`(?:\\[|\\\")${group.replaceAll(".", "\\.")}`), group);
+  assert.match(controller, /chat_root/); // Chats uses the exact field helper.
 });
 
 // Item 2nb (f): THE KEY IS NEVER TEXT. The field used to be rendered with the server's

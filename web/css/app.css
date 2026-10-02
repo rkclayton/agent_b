@@ -2100,6 +2100,11 @@
 }
 .confirm-popover p { margin: 0; color: var(--ink); font-size: 12px; line-height: 16px; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.error-details-link { min-height:0!important; padding:0!important; border:0!important; background:transparent!important; color:var(--trace)!important; font:inherit!important; text-decoration:underline; }
+.settings-error-panel { position:absolute; z-index:40; inset:var(--s2); display:grid; grid-template-rows:32px minmax(0,1fr); min-width:0; background:var(--bezel); border:1px solid var(--well); box-shadow:0 6px 18px rgba(0,0,0,.55); }
+.settings-error-panel header { display:flex; align-items:center; justify-content:space-between; padding:0 var(--s2); border-bottom:1px solid var(--line); font:12px/16px var(--mono); }
+.settings-error-panel header button { min-width:22px; min-height:22px; padding:0; background:transparent; color:var(--mute); }
+.settings-error-panel pre { min-width:0; margin:0; padding:var(--s3); overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--ink); font:12px/17px var(--mono); user-select:text; }
 /* Item 2nc (a): the refusal sits on the row it belongs to, expanded or not, so a
    Remove that could not happen is never an unchanged screen. */
 .connection-row.refused { height: auto; grid-template-rows: 36px auto; }

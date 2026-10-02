@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,6 +20,44 @@ import (
 )
 
 var waitMeasurementSink atomic.Uint64
+
+func TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt(t *testing.T) {
+	measureSearch := func(count int) (time.Duration, int) {
+		root := t.TempDir()
+		connection := config.Defaults(root).Connections[0]
+		for index := 0; index < count; index++ {
+			content := []byte(fmt.Sprintf("stored-%d", index))
+			if _, _, _, err := storeAttachment(root, "report.txt", content, &connection, attachmentfile.Text); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var serial atomic.Uint64
+		wait := medianWait(func() {
+			content := []byte(fmt.Sprintf("measured-%d", serial.Add(1)))
+			if _, _, _, err := storeAttachment(root, "report.txt", content, &connection, attachmentfile.Text); err != nil {
+				t.Fatal(err)
+			}
+		}, nil)
+		entries, err := os.ReadDir(filepath.Join(root, "attachments", ".agentb-index"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return wait, len(entries)
+	}
+	smallSearch, smallRecords := measureSearch(30)
+	largeSearch, largeRecords := measureSearch(3000)
+	server := new(Server)
+	extractText := func() {
+		if _, _, _, err := server.extractAttachment(context.Background(), config.Connection{}, "", "", attachmentfile.Text, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	smallExtraction, largeExtraction := medianWait(extractText, nil), medianWait(extractText, nil)
+	t.Logf("2pt split search small=%s (%d index records) large=%s (%d index records) ratio=%.2fx; extraction small=%s large=%s", smallSearch, smallRecords, largeSearch, largeRecords, float64(largeSearch)/float64(smallSearch), smallExtraction, largeExtraction)
+	if largeSearch > 2*smallSearch {
+		t.Fatalf("attachment storage search grows with retained files: small=%s large=%s ratio=%.2fx", smallSearch, largeSearch, float64(largeSearch)/float64(smallSearch))
+	}
+}
 
 func TestProjectorSnapshotDoesNotWaitForActiveWriter2pr(t *testing.T) {
 	store, writers, bus := projectionStore(t, 3000)
@@ -124,9 +163,9 @@ func TestSevenMappedWaitsAtTwoStoredSizes2pq(t *testing.T) {
 	if err := os.MkdirAll(attachmentDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	seedAttachments(t, attachmentDir, "small", 30)
-	seedAttachments(t, attachmentDir, "large", 300)
 	connection := largeConfig.Connections[0]
+	seedAttachments(t, attachmentRoot, "small", 30, &connection)
+	seedAttachments(t, attachmentRoot, "large", 300, &connection)
 	var attachmentSerial atomic.Uint64
 	store := func(name string) func() {
 		return func() {
@@ -300,14 +339,10 @@ func sizedConfig(workspace string, connections int) config.Config {
 	return cfg
 }
 
-func seedAttachments(t *testing.T, dir, stem string, count int) {
+func seedAttachments(t *testing.T, root, stem string, count int, connection *config.Connection) {
 	t.Helper()
 	for index := 1; index <= count; index++ {
-		name := stem + ".txt"
-		if index > 1 {
-			name = fmt.Sprintf("%s (%d).txt", stem, index)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(strconv.Itoa(index)), 0o600); err != nil {
+		if _, _, _, err := storeAttachment(root, stem+".txt", []byte(strconv.Itoa(index)), connection, attachmentfile.Text); err != nil {
 			t.Fatal(err)
 		}
 	}

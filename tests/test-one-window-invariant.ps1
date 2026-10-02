@@ -3,10 +3,12 @@ param(
     [Parameter(Mandatory = $true)][string]$Exe,
     [Parameter(Mandatory = $true)][string]$Setup,
     [Parameter(Mandatory = $true)][string]$ApplicationRoot,
-    [Parameter(Mandatory = $true)][string]$RepositoryExe,
-    [Parameter(Mandatory = $true)][string]$RepositoryRoot
+    [string]$RepositoryExe,
+    [string]$RepositoryRoot
 )
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($RepositoryExe)) { $RepositoryExe = $Exe }
+if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) { $RepositoryRoot = $ApplicationRoot }
 . (Join-Path $PSScriptRoot 'suite-production-guard.ps1')
 $repository = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repository 'scripts\removal-guard.ps1')
@@ -119,8 +121,9 @@ function Invoke-OneWindowCase([string]$CaseExe, [string]$CaseRoot, [string]$Labe
     }
 }
 
-$cases = @(
-    Invoke-OneWindowCase -CaseExe $Exe -CaseRoot $ApplicationRoot -Label 'install path'
-    Invoke-OneWindowCase -CaseExe $RepositoryExe -CaseRoot $RepositoryRoot -Label 'repository folder'
-)
+$cases = @(Invoke-OneWindowCase -CaseExe $Exe -CaseRoot $ApplicationRoot -Label 'install path')
+if (-not [IO.Path]::GetFullPath($RepositoryExe).Equals([IO.Path]::GetFullPath($Exe), [StringComparison]::OrdinalIgnoreCase) -or
+    -not [IO.Path]::GetFullPath($RepositoryRoot).Equals([IO.Path]::GetFullPath($ApplicationRoot), [StringComparison]::OrdinalIgnoreCase)) {
+    $cases += Invoke-OneWindowCase -CaseExe $RepositoryExe -CaseRoot $RepositoryRoot -Label 'repository folder'
+}
 Write-Host "PASS one-window invariant: Agent_b.exe and Agent_b-setup.exe are WINDOWS_GUI; 60 seconds each: $($cases -join ', ')"

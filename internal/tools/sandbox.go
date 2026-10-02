@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"harness/internal/quietproc"
+
 	"harness/internal/config"
 	"harness/internal/session"
 )
@@ -116,7 +118,7 @@ func findSBX() (string, error) {
 func shortCommand(executable string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, executable, args...).CombinedOutput()
+	output, err := quietproc.Quiet(exec.CommandContext(ctx, executable, args...)).CombinedOutput()
 	if err != nil {
 		return string(output), fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 	}

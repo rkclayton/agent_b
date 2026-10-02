@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+
+	"harness/internal/quietproc"
 )
 
 func Local(ctx context.Context, scriptPath, serviceAccount string) (any, error) {
@@ -16,6 +18,7 @@ func Local(ctx context.Context, scriptPath, serviceAccount string) (any, error) 
 	}
 	powershell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 	command := exec.CommandContext(ctx, powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", scriptPath, "-ServiceAccount", serviceAccount)
+	quietproc.Quiet(command)
 	output, err := command.Output()
 	if err != nil {
 		return nil, fmt.Errorf("local detection failed: %w", err)

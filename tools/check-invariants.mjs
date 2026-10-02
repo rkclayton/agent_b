@@ -46,7 +46,7 @@ export function validateRun(rows, results) {
 const go = path.join(root, ".tools", "go", "bin", "go.exe");
 const node = process.execPath;
 const definitions = (candidate) => [
-  ["powershell.exe", ["-NonInteractive", "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "tests", "test-one-window-invariant.ps1"), "-Exe", path.join(candidate, "Agent_b.exe"), "-Setup", path.join(candidate, "Agent_b-setup.exe"), "-ApplicationRoot", candidate]],
+  ["powershell.exe", ["-NonInteractive", "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "tests", "test-one-window-invariant.ps1"), "-Exe", path.join(candidate, "Agent_b.exe"), "-Setup", path.join(candidate, "Agent_b-setup.exe"), "-ApplicationRoot", candidate, "-RepositoryExe", path.join(root, "Agent_b.exe"), "-RepositoryRoot", root]],
   [node, ["--test", path.join(root, "web/js/operator-language.test.mjs"), path.join(root, "web/js/workspace-settings.test.mjs")]],
   [go, ["test", "-v", "./internal/web", "./internal/workspace", "-run", "TestControlPlaneRequiresBrowserSession2jy|TestForbiddenPolicyCapabilitiesStayOperatorFacingAndComplete"]],
   [node, ["--test", "--test-name-pattern=client-terms", path.join(root, "tests/docs-terms.test.mjs")]],

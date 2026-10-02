@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"harness/internal/quietproc"
 )
 
 type windowsManager struct {
@@ -74,6 +76,7 @@ func (m *windowsManager) run(ctx context.Context, action string, request Request
 	}
 	defer clear(payload)
 	command := exec.CommandContext(ctx, m.powershell, "-NoLogo", "-NoProfile", "-File", m.script, "-Action", action)
+	quietproc.Quiet(command)
 	command.Stdin = bytes.NewReader(payload)
 	output, runErr := command.CombinedOutput()
 	if runErr != nil {

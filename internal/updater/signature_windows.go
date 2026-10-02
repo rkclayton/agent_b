@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"harness/internal/quietproc"
 )
 
 func verifySetupSignature(ctx context.Context, path string) error {
@@ -31,6 +33,7 @@ func inspectAuthenticode(ctx context.Context, path string) inspection {
 	powershell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 	script := authenticodeScript(path, reportPath)
 	command := exec.CommandContext(ctx, powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script)
+	quietproc.Quiet(command)
 	command.Env = windowsPowerShellEnvironment(os.Environ(), powershell)
 	var console bytes.Buffer
 	command.Stdout = &console

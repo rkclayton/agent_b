@@ -12,5 +12,8 @@ import (
 // behind it. Closing the window is already survivable once the output is a
 // file rather than a pipe; this covers the other way a window ends a child.
 func detachChild(command *exec.Cmd) {
-	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
+	if command.SysProcAttr == nil {
+		command.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	command.SysProcAttr.CreationFlags |= syscall.CREATE_NEW_PROCESS_GROUP
 }

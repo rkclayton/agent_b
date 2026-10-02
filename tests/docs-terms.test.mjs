@@ -294,10 +294,6 @@ test("the notes gate catches what the item's evidence quoted, and the list is on
 // Adding one means writing down why, here, where the next reader will find it.
 const spawnExceptions = new Map([
   [
-    "scripts/launch-Agent_b.ps1:Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments | Out-Null",
-    "the failure re-entry: a hidden launch that failed re-runs itself visibly, which is the only way it can report anything at all",
-  ],
-  [
     "scripts/launch-Agent_b.ps1:Start-Process $Url",
     "opening the browser at Agent_b is the point of a launch, and -NoBrowser is how a caller declines it",
   ],
@@ -360,6 +356,29 @@ test("no spawn site in the tooling can take the operator's screen", async () => 
   // An exception that no longer matches anything is a stale note, and a stale note is
   // how the list stops being trustworthy.
   assert.deepEqual([...unusedExceptions], [], "these documented spawn exceptions match no site any more and should be removed");
+});
+
+test("every console child started by the product is no-window 2pp", async () => {
+  const checks = [
+    ["internal/signing/manager_windows.go", /exec\.CommandContext[\s\S]{0,300}quietproc\.Quiet\(command\)/],
+    ["internal/detection/detection.go", /exec\.CommandContext[\s\S]{0,300}quietproc\.Quiet\(command\)/],
+    ["internal/reflection/structure.go", /exec\.CommandContext[\s\S]{0,300}quietproc\.Quiet\(command\)/],
+    ["internal/updater/signature_windows.go", /exec\.CommandContext[\s\S]{0,300}quietproc\.Quiet\(command\)/],
+    ["internal/web/speech.go", /quietproc\.Quiet\(exec\.CommandContext[\s\S]*quietproc\.Quiet\(command\)/],
+    ["internal/tools/sandbox.go", /quietproc\.Quiet\(exec\.CommandContext/],
+    ["internal/tools/call_service.go", /exec\.CommandContext[\s\S]{0,300}quietproc\.Quiet\(command\)/],
+    ["internal/tools/proc_windows.go", /CREATE_NEW_PROCESS_GROUP \| createNoWindow[\s\S]{0,300}HideWindow: true/],
+    ["internal/modelinstall/start_windows.go", /CreationFlags: 0x08000000, HideWindow: true/],
+    ["internal/updater/manager.go", /quietproc\.Quiet\(exec\.Command/],
+    ["cmd/harness/install_native_windows.go", /exec\.Command[\s\S]{0,300}quietproc\.Quiet\(command\)/],
+    ["cmd/harness/install_detach_windows.go", /CreationFlags \|= syscall\.CREATE_NEW_PROCESS_GROUP/],
+    ["scripts/launch-Agent_b.ps1", /Start-Process -FilePath 'powershell\.exe' -ArgumentList \$arguments -WindowStyle Hidden/],
+  ];
+  for (const [relative, pattern] of checks) {
+    assert.match(await readFile(join(repoRoot, relative), "utf8"), pattern, relative);
+  }
+  const install = await readFile(join(repoRoot, "cmd/harness/install_mode.go"), "utf8");
+  assert.equal((install.match(/quietproc\.Quiet\(command\)/g) || []).length, 4, "every PowerShell installer child is quiet");
 });
 
 // Item 2nj: A SWITCH PASSED AS QUOTED TEXT IS A BINDING ERROR, AND IT KILLED EVERY RUN.

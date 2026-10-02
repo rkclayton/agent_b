@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"harness/internal/quietproc"
 )
 
 // Structure extraction (item 17-i, step 2). The shape of a repository comes
@@ -410,6 +412,7 @@ func Structure(ctx context.Context, root string) (*Graph, error) {
 		}
 		timed, cancel := context.WithTimeout(ctx, 3*time.Minute)
 		command := exec.CommandContext(timed, executable, current.Command[1:]...)
+		quietproc.Quiet(command)
 		command.Dir = root
 		command.Env = append(os.Environ(), current.Env...)
 		output, runErr := command.Output()

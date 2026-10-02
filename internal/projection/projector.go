@@ -754,6 +754,10 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		for index := len(next.Chat) - 1; index >= 0; index-- {
 			if next.Chat[index].Type == "notice" && next.Chat[index].Event != nil && stringValue(eventMap(next.Chat[index].Event.Data)["call_id"]) == stringValue(data["call_id"]) {
 				next.Chat[index].Decision = stringValue(data["decision"])
+				// Item 2q2 (b): he reads in the morning what was asked and why it was refused.
+				if data["unanswered"] == true {
+					next.Chat[index].Decision = "unanswered"
+				}
 				break
 			}
 		}

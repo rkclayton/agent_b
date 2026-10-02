@@ -112,6 +112,7 @@ export function approvalDecisionText(decision) {
 		folder: "folder trusted",
 		operator_mode: "Run as you enabled",
 		deny: "denied",
+		unanswered: "not answered — refused after 10 minutes",
 		superseded: "superseded",
 		dismissed: "dismissed",
 		continue: "continued",

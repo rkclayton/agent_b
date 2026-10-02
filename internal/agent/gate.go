@@ -26,6 +26,7 @@ type approvalWait struct {
 	decided   bool
 	grant     StandingGrant
 	folder    bool
+	name      string
 }
 type StandingGrant struct {
 	ID      string `json:"id"`
@@ -60,6 +61,8 @@ type Gate struct {
 	reacquire    func(ctx context.Context, sessionID, runID string) error
 	standingPath string
 	standingMu   sync.Mutex
+	// Item 2q2: how long a card waits for an answer before it is refused.
+	unansweredAfter time.Duration
 }
 
 func NewGate(bus *events.Bus, cfg func() config.Config) *Gate {
@@ -143,6 +146,7 @@ func (g *Gate) WaitPolicyDecision(ctx context.Context, s *session.Session, runID
 	}
 	g.sequenceMu.Lock()
 	wait, cleanup := g.beginWait(s, runID, callID, kind, grant)
+	wait.name = name
 	g.publishApprovalRequired(s, runID, callID, name, args, false, grant)
 	g.sequenceMu.Unlock()
 	defer cleanup()
@@ -173,6 +177,7 @@ func (g *Gate) WaitBoundaryDecision(ctx context.Context, s *session.Session, run
 	}
 	g.sequenceMu.Lock()
 	wait, cleanup := g.beginWait(s, runID, callID, kind, grant)
+	wait.name = name
 	_, wait.folder = args["outside_folders"]
 	g.publishApprovalRequired(s, runID, callID, name, args, true, grant)
 	g.sequenceMu.Unlock()
@@ -189,6 +194,7 @@ func (g *Gate) WaitCycleDecision(ctx context.Context, s *session.Session, runID,
 	}
 	g.sequenceMu.Lock()
 	wait, cleanup := g.beginWait(s, runID, callID, approvalCycle, StandingGrant{})
+	wait.name = "run.cycle"
 	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, events.WithHuman(events.ApprovalRequired, workerApproval(s, map[string]any{
 		"call_id": callID, "name": "run.cycle", "kind": "cycle", "args": args, "boundary_escape": false,
 	}))))
@@ -271,6 +277,15 @@ func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, cal
 		defer ticker.Stop()
 		mailbox = ticker.C
 	}
+	// Item 2q2: a card nobody answers is refused after ten minutes, as the
+	// unattended path refuses it, so a card raised while he sleeps costs the run
+	// ten minutes rather than the night.
+	limit := g.unansweredAfter
+	if limit <= 0 {
+		limit = 10 * time.Minute
+	}
+	unanswered := time.NewTimer(limit)
+	defer unanswered.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -284,6 +299,21 @@ func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, cal
 				g.publishDecision(wait, "dismissed")
 				return "dismissed", ctx.Err()
 			}
+		case <-unanswered.C:
+			g.mu.Lock()
+			if wait.decided {
+				g.mu.Unlock()
+				signal = <-wait.decision
+				break
+			}
+			wait.decided = true
+			g.mu.Unlock()
+			reason := fmt.Sprintf("[!] boundary: not answered — refused after 10 minutes (%s)", wait.name)
+			if g.bus != nil {
+				g.bus.Publish(events.New(events.ApprovalDecided, s.ID, runID, map[string]any{"call_id": callID, "name": wait.name, "decision": "deny", "unanswered": true, "boundary": reason}))
+			}
+			s.RecordBoundaryHit(reason)
+			signal = approvalSignal{decision: "deny", logged: true}
 		case signal = <-wait.decision:
 		case <-mailbox:
 			decision, err := g.mailboxDecision(s.ID)

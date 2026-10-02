@@ -116,3 +116,23 @@ func projectPin(t *testing.T, name string) Snapshot {
 	}
 	return snapshot
 }
+
+// Item 2q2 (b): a card refused because nobody answered it stays in the chat and
+// says so, so he reads in the morning what was asked.
+func TestAnUnansweredCardStaysInTheChatAsUnanswered2q2(t *testing.T) {
+	state := Empty("session")
+	for index, event := range []events.Event{
+		events.New(events.ApprovalRequired, "session", "r1", map[string]any{"call_id": "c1", "name": "shell", "args": map[string]any{"command": "Get-Process"}}),
+		events.New(events.ApprovalDecided, "session", "r1", map[string]any{"call_id": "c1", "name": "shell", "decision": "deny", "unanswered": true}),
+	} {
+		event.Seq = int64(index + 1)
+		var err error
+		state, _, err = Next(state, Record{Cursor: Cursor{Generation: "unanswered.events", Offset: int64(index + 1)}, Event: event})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if state.PendingApproval != nil || len(state.Chat) == 0 || state.Chat[len(state.Chat)-1].Decision != "unanswered" {
+		t.Fatalf("the refused card must stay, marked unanswered: pending=%+v chat=%+v", state.PendingApproval, state.Chat)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"harness/internal/config"
 	"harness/internal/events"
@@ -102,5 +103,41 @@ func TestAttendedIsUnchanged(t *testing.T) {
 	gate, _ := unattendedGate(t, false)
 	if gate.unattended(&session.Session{ID: "w1", Role: "c"}) {
 		t.Fatal("the switch is off; a worker is attended")
+	}
+}
+
+// Item 2q2: a card in a b chat that nobody answers is refused after ten minutes,
+// recorded as a boundary hit, and the run goes on; one answered before then
+// behaves as today. A fast clock stands in for the ten minutes.
+func TestAnUnansweredCardIsRefusedAfterTenMinutes2q2(t *testing.T) {
+	gate, bus := unattendedGate(t, false)
+	gate.unansweredAfter = 50 * time.Millisecond
+	stream, stop := bus.Subscribe()
+	defer stop()
+	chat := &session.Session{ID: "s51", Role: "b"}
+	started := time.Now()
+	decision, err := gate.WaitPolicyDecision(context.Background(), chat, "r1", "c1", "shell", map[string]any{"command": "Get-Process"})
+	if err != nil || decision != "deny" || time.Since(started) > 5*time.Second {
+		t.Fatalf("an unanswered card must be refused at its limit: %q %v after %s", decision, err, time.Since(started))
+	}
+	if hits := chat.BoundaryHits(); len(hits) != 1 || !strings.Contains(hits[0], "not answered — refused after 10 minutes") || !strings.Contains(hits[0], "shell") {
+		t.Fatalf("the refusal must be recorded with what was asked: %v", hits)
+	}
+	for decided := false; !decided; {
+		select {
+		case event := <-stream:
+			data, _ := event.Data.(map[string]any)
+			decided = event.Type == events.ApprovalDecided && data["decision"] == "deny" && data["unanswered"] == true
+		case <-time.After(5 * time.Second):
+			t.Fatal("no unanswered decision was published")
+		}
+	}
+	gate.unansweredAfter = 2 * time.Second
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_ = gate.Decide(chat.ID, "c2", "approve")
+	}()
+	if decision, err := gate.WaitPolicyDecision(context.Background(), chat, "r1", "c2", "shell", nil); decision != "approve" || err != nil {
+		t.Fatalf("a card answered in time must keep its answer: %q %v", decision, err)
 	}
 }

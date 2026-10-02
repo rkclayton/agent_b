@@ -36,9 +36,13 @@ func TestProjectorSnapshotDoesNotWaitForActiveWriter2pr(t *testing.T) {
 	}
 	alone := medianWait(read, nil)
 	active := medianWait(read, writer)
-	t.Logf("2pr snapshot writer wait alone=%s active=%s ratio=%.2fx", alone, active, float64(active)/float64(max(alone, time.Nanosecond)))
-	if active > 2*alone {
-		t.Fatalf("snapshot waited for writer: alone=%s active=%s ratio=%.2fx", alone, active, float64(active)/float64(alone))
+	// Once the copy is gone both arms are below useful wall-clock resolution;
+	// ratios of a few hundred nanoseconds only measure lock and timer jitter.
+	// Ten microseconds is still three orders below the red 13.8 ms baseline.
+	comparisonFloor := 10 * time.Microsecond
+	t.Logf("2pr snapshot writer wait alone=%s active=%s ratio=%.2fx", alone, active, float64(active)/float64(max(alone, comparisonFloor)))
+	if active > 2*max(alone, comparisonFloor) {
+		t.Fatalf("snapshot waited for writer: alone=%s active=%s ratio=%.2fx", alone, active, float64(active)/float64(max(alone, comparisonFloor)))
 	}
 }
 

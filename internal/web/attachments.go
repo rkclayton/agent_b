@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -186,7 +187,17 @@ func storeAttachment(workspace, name string, content []byte, connection *config.
 	digest := hex.EncodeToString(sum[:])
 	stem, extension := strings.TrimSuffix(name, filepath.Ext(name)), filepath.Ext(name)
 	needsSidecar := kind == attachmentfile.Office || (kind == attachmentfile.PDF && !connection.NativeDocumentInput()) || (kind == attachmentfile.Image && !connection.NativeImageInput())
-	for index := 1; ; index++ {
+	indexDir := filepath.Join(dir, ".agentb-index")
+	if err := os.MkdirAll(indexDir, 0o700); err != nil {
+		return attachmentResponse{}, "", false, err
+	}
+	keySum := sha256.Sum256([]byte(name))
+	key := hex.EncodeToString(keySum[:])
+	if relative, resolved, ok := indexedAttachment(workspace, indexDir, key, digest); ok {
+		return attachmentResponse{Attachment: events.Attachment{Path: relative, Bytes: int64(len(content)), SHA256: digest}, Reused: true, Note: "identical attachment reused"}, resolved, false, nil
+	}
+	index := attachmentNextIndex(indexDir, key)
+	for ; ; index++ {
 		candidate := name
 		if index > 1 {
 			candidate = fmt.Sprintf("%s (%d)%s", stem, index, extension)
@@ -201,7 +212,10 @@ func storeAttachment(workspace, name string, content []byte, connection *config.
 				continue
 			}
 			existing, hashErr := fileSHA256(resolved)
-			if hashErr == nil && existing == digest {
+			if hashErr == nil {
+				recordAttachmentIndex(indexDir, key, existing, candidate)
+			}
+			if existing == digest {
 				return attachmentResponse{Attachment: events.Attachment{Path: relative, Bytes: int64(len(content)), SHA256: digest}, Reused: true, Note: "identical attachment reused"}, resolved, false, nil
 			}
 			continue
@@ -226,8 +240,60 @@ func storeAttachment(workspace, name string, content []byte, connection *config.
 			_ = os.Remove(resolved)
 			return attachmentResponse{}, "", false, writeErr
 		}
+		recordAttachmentIndex(indexDir, key, digest, candidate)
+		_ = os.WriteFile(filepath.Join(indexDir, key+".next"), []byte(strconv.Itoa(index+1)), 0o600)
 		return attachmentResponse{Attachment: events.Attachment{Path: relative, Bytes: int64(len(content)), SHA256: digest}}, resolved, true, nil
 	}
+}
+
+func attachmentNextIndex(indexDir, key string) int {
+	file, err := os.Open(filepath.Join(indexDir, key+".next"))
+	if err != nil {
+		return 1
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, 21))
+	_ = file.Close()
+	if readErr != nil || len(data) > 20 {
+		return 1
+	}
+	next, err := strconv.Atoi(string(data))
+	if err != nil || next < 1 {
+		return 1
+	}
+	return next
+}
+
+func indexedAttachment(workspace, indexDir, key, digest string) (string, string, bool) {
+	file, err := os.Open(filepath.Join(indexDir, key+"-"+digest+".path"))
+	if err != nil {
+		return "", "", false
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, 513))
+	_ = file.Close()
+	if readErr != nil || len(data) == 0 || len(data) > 512 {
+		return "", "", false
+	}
+	name := string(data)
+	if filepath.Base(name) != name {
+		return "", "", false
+	}
+	relative := filepath.ToSlash(filepath.Join("attachments", name))
+	resolved, err := tools.Resolve(workspace, relative)
+	if err != nil {
+		return "", "", false
+	}
+	existing, err := fileSHA256(resolved)
+	return relative, resolved, err == nil && existing == digest
+}
+
+func recordAttachmentIndex(indexDir, key, digest, name string) {
+	path := filepath.Join(indexDir, key+"-"+digest+".path")
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return
+	}
+	_, _ = io.WriteString(file, name)
+	_ = file.Close()
 }
 
 func sidecarFree(workspace, relative string) bool {

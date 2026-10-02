@@ -253,8 +253,13 @@ func (s *Scheduler) startLocked(entry queuedRun) {
 	entry.s.SetRun(session.RunState{Status: "running", RunID: entry.runID, MaxTurns: s.cfg().Run.MaxTurns, ArmedDetectors: armed})
 	runCfg := s.cfg().Run
 	s.bus.Publish(events.New(events.RunStarted, entry.s.ID, entry.runID, map[string]any{"run_id": entry.runID, "user_message_id": entry.userMessageID, "armed_detectors": armed, "thresholds_are_guesses": true, "backstops": map[string]any{"wall_clock_seconds": runCfg.MaxWallClockSeconds, "tool_calls": runCfg.MaxToolCalls, "turn_ceiling": runCfg.MaxTurns}}))
+	entry.s.ResetBoundaryHits()
 	go func() {
 		reason, detail, turns := s.runner.Run(ctx, entry.s, entry.runID)
+		// Item 2q2 (c): the stop lists every card refused on this run.
+		if hits := entry.s.BoundaryHits(); len(hits) > 0 {
+			detail = strings.TrimSpace(detail + "\n" + strings.Join(hits, "\n"))
+		}
 		s.finish(entry, reason, detail, turns)
 		close(active.done)
 	}()

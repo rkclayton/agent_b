@@ -143,6 +143,19 @@ func outsideCommandDecision(source string, s *session.Session, trusted []config.
 			}
 		}
 	}
+	// Item 2q4 (c): folders that share a parent under the user's profile are one
+	// question about that parent.
+	if home, err := os.UserHomeDir(); err == nil && len(folders) > 1 {
+		parent := folders[0]
+		for _, folder := range folders[1:] {
+			for !pathInsideRoot(parent, folder) && filepath.Dir(parent) != parent {
+				parent = filepath.Dir(parent)
+			}
+		}
+		if pathInsideRoot(home, parent) && !strings.EqualFold(filepath.Clean(home), filepath.Clean(parent)) {
+			folders = []string{parent}
+		}
+	}
 	return outsideDecision{
 		card:    pathListReason("names a path outside the folder: ", cards),
 		missing: pathListReason("no such file or directory outside the folder: ", missing),
@@ -174,7 +187,12 @@ func trustedPath(path string, entries []config.TrustedFolder) bool {
 	if strings.TrimSpace(path) == "" {
 		return false
 	}
+	// Item 2q4 (b): a path that does not exist as written (s51's `logs\*.log`) is
+	// judged by the nearest folder above it that does; links resolve on that part.
 	real, err := session.RealPath(path)
+	for current := filepath.Clean(path); err != nil && filepath.Dir(current) != current; current = filepath.Dir(current) {
+		real, err = session.RealPath(filepath.Dir(current))
+	}
 	if err != nil {
 		return false
 	}

@@ -198,3 +198,50 @@ func TestACardAnsweredFolderRunsItsAction2q3(t *testing.T) {
 		t.Fatalf("answering folder did not run the script: %q", content)
 	}
 }
+
+// Item 2q4, CHECKS 2-4, on s51's 20:00 wildcard read: No refuses and returns; Once
+// runs only that action; Always covers the folder here and in a new chat after a
+// restart.
+func TestTheFolderCardAlwaysOnceNo2q4(t *testing.T) {
+	workspace, logs := t.TempDir(), filepath.Join(t.TempDir(), "logs")
+	if err := os.MkdirAll(logs, 0o700); err != nil || os.WriteFile(filepath.Join(logs, "a.log"), []byte("line from a log\n"), 0o600) != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(workspace)
+	cfg.Approval.Mode, cfg.Shell.ServiceAccount.Enabled = config.ApprovalModeBoundaryOnly, false
+	command := map[string]any{"command": `Select-String -Path "` + filepath.Join(logs, "*.log") + `" -Pattern "line"`}
+	ask := func(chat, callID, decision string) (string, bool) {
+		shell := tools.NewShell(cfg.Shell)
+		shell.Configure(cfg)
+		bus := events.NewBus()
+		runner := &Runner{bus: bus, tools: tools.New(shell), cfg: func() config.Config { return cfg }}
+		runner.gate = NewGate(bus, runner.cfg)
+		runner.SetTrustedFolderWriter(func(folders []string) error {
+			cfg.Shell.TrustedFolders = append(cfg.Shell.TrustedFolders, config.TrustedFolder{Path: folders[0], Source: "card"})
+			return nil
+		})
+		stream, stop := bus.Subscribe()
+		defer stop()
+		done := make(chan string, 1)
+		s := &session.Session{ID: chat, Workspace: workspace, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"shell": true}, LastSeen: map[string]time.Time{}}
+		go func() { done <- runner.executeTool(context.Background(), s, "run", callID, "shell", command).Content }()
+		for {
+			select {
+			case content := <-done:
+				return content, false
+			case event := <-stream:
+				if event.Type == events.ApprovalRequired && runner.gate.Decide(chat, callID+":operator", decision) == nil {
+					return <-done, true
+				}
+			}
+		}
+	}
+	for _, step := range []struct {
+		chat, call, decision string
+		asks, reads          bool
+	}{{"c", "no", "deny", true, false}, {"c", "once", "once", true, true}, {"c", "again", "folder", true, true}, {"c", "after", "deny", false, true}, {"new", "restart", "deny", false, true}} {
+		if content, asked := ask(step.chat, step.call, step.decision); asked != step.asks || strings.Contains(content, "line from a log") != step.reads {
+			t.Fatalf("%s: asked=%t read=%t, want %t %t: %q", step.call, asked, !step.reads, step.asks, step.reads, content)
+		}
+	}
+}

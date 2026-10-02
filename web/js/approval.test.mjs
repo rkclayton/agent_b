@@ -18,19 +18,23 @@ test("file escape and policy cards stay within the same three-button vocabulary"
 	assert.deepEqual(approvalChoices({ name: "write_file", boundary_escape: false }), [["session", "Yes, for this chat"], ["once", "Just once"], ["deny", "No"]]);
 });
 
-test("outside-folder cards name the boundary and offer persistent folder trust", () => {
-	const data = { name: "read_file.operator_override", boundary_escape: true, args: {
+// Item 2q4 (a): one line naming the folder, and Always, Once, No; Always has the
+// focus and the command stays behind the details link.
+test("the outside-folder card is one line and three buttons", () => {
+	const data = { call_id: "c1", name: "read_file.operator_override", boundary_escape: true, args: {
 		path: "C:\\shared\\notes.txt", outside_folder_card: true,
 		outside_folders: ["C:\\shared"],
 	}, human: { happened: "identity wording", harness_action: "identity reason" } };
-	assert.deepEqual(approvalChoices(data), [
-		["session", "Yes, for this chat"], ["once", "Just once"],
-		["folder", "Never ask for C:\\shared"], ["deny", "No"],
-	]);
-	const wording = approvalText(data);
-	assert.equal(wording.title, "Outside this chat's folder");
-	assert.match(wording.request, /C:\\shared\\notes\.txt/);
-	assert.match(wording.reason, /C:\\shared/);
+	assert.deepEqual(approvalChoices(data), [["folder", "Always"], ["once", "Once"], ["deny", "No"]]);
+	const card = createApprovalCard(fakeDocument(), { event: { data } }, { decide: () => {} });
+	const text = card.children.filter((child) => child.tag !== "details" && child.tag !== "div");
+	assert.deepEqual(text.map((child) => child.textContent), ["Allow access to C:\\shared?"]);
+	assert.equal(card.children.find((child) => child.tag === "details").children[1].textContent,"C:\\shared\\notes.txt");
+	const buttons = card.children.at(-1).children;
+	assert.deepEqual(buttons.map((button) => button.textContent), ["Always", "Once", "No"]);
+	assert.equal(buttons[0].autofocus, true);
+	const two = approvalText({ ...data, args: { ...data.args, outside_folders: ["C:\\a", "D:\\b"] } });
+	assert.equal(two.request, "Allow access to\nC:\\a\nD:\\b?");
 });
 
 test("approval wording stays direct and identifies the operation", () => {

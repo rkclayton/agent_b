@@ -18,7 +18,7 @@ const InstructionLimit = 16 << 10
 
 // ForbiddenPolicyCapabilities is the operator-facing list of capabilities a
 // repository may never control. Keep this wording aligned with SECURITY.md.
-var ForbiddenPolicyCapabilities = []string{"operator mode", "elevation", "signing", "allow_internal_hosts", "services allowlist"}
+var ForbiddenPolicyCapabilities = []string{"Run as you", "elevation", "signing", "allow_internal_hosts", "services allowlist"}
 
 var forbiddenPolicyKeys = []string{"operator_mode", "elevation", "signing", "allow_internal_hosts", "services"}
 

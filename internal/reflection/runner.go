@@ -47,7 +47,7 @@ type Runner struct {
 	NoteLimit     int
 	PassNoteLimit int
 	// NoteWritten is called for each note actually written, so the harness can
-	// publish it as a memory write and the operator's existing "drop this
+	// publish it as a memory write and the user's existing "drop this
 	// chat's memory" path can revoke it.
 	NoteWritten func(summary Summary, note string)
 }
@@ -59,7 +59,7 @@ func (r *Runner) now() time.Time {
 	return time.Now().UTC()
 }
 
-const summarySystemPrompt = `You summarise one finished run of a coding agent, for the operator's own record.
+const summarySystemPrompt = `You summarise one finished run of a coding agent, for the user's own record.
 Answer with JSON only, no prose around it, in this shape:
 {"files_read":["..."],"files_written":["..."],"changed":"one or two sentences on what changed","open":"what was left unresolved, or an empty string","text":"three sentences at most, plain and concrete"}
 Name only files the transcript shows. If the run changed nothing, say so. Never invent a file, a test result, or an outcome.`
@@ -420,7 +420,7 @@ func (r *Runner) Pass(ctx context.Context, manual bool) (PassResult, error) {
 	return result, nil
 }
 
-// RecordProposals stores this pass's plan proposals so the operator can be
+// RecordProposals stores this pass's plan proposals so the user can be
 // asked through the existing card. Reflection registers nothing itself.
 func (r *Runner) RecordProposals(candidates []PlanCandidate) error {
 	if r.Store == nil {

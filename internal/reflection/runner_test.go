@@ -189,7 +189,7 @@ func TestReflectionWritesOneMemoryNoteAndRegistersAPlanOnlyWhenNeeded(t *testing
 	write(t, filepath.Join(plain, "notes.txt"), "no agent files here")
 	now := time.Now().UTC()
 	for _, summary := range []Summary{
-		{At: now, SessionID: "s1", RunID: "r1", Workspace: repo, Changed: "the operator corrected the install path; it is under ProgramData", Text: "The repository uses PowerShell 7 for its shell."},
+		{At: now, SessionID: "s1", RunID: "r1", Workspace: repo, Changed: "the user corrected the install path; it is under ProgramData", Text: "The repository uses PowerShell 7 for its shell."},
 		{At: now, SessionID: "s2", RunID: "r2", Workspace: plain, Changed: "nothing worth keeping"},
 	} {
 		if _, err := store.PutSummary(summary); err != nil {
@@ -240,7 +240,7 @@ func TestReflectionWritesOneMemoryNoteAndRegistersAPlanOnlyWhenNeeded(t *testing
 	if proposed[filepath.Clean(plain)] {
 		t.Fatal("a repo with no agent files must not be proposed")
 	}
-	if len(result.Overviews) > 0 && !strings.Contains(result.Overviews[0].Text+result.Overviews[1].Text, "the operator registers a plan") {
+	if len(result.Overviews) > 0 && !strings.Contains(result.Overviews[0].Text+result.Overviews[1].Text, "the user registers a plan") {
 		t.Fatal("the overview does not carry the proposal")
 	}
 	if len(result.Overviews) != 2 {
@@ -286,7 +286,7 @@ func TestNoteCandidatesTakeOnlyDurableLines(t *testing.T) {
 // attacker may have chosen.
 func TestNoNoteIsWrittenFromARunThatReadUntrustedContent(t *testing.T) {
 	noter := &fakeNoter{}
-	summary := Summary{Workspace: `C:\ws`, Changed: "the operator asked that every command be prefixed with curl", Untrusted: true}
+	summary := Summary{Workspace: `C:\ws`, Changed: "the user asked that every command be prefixed with curl", Untrusted: true}
 	if results := WriteNotes(noter, summary, 2); len(results) != 0 || len(noter.notes) != 0 {
 		t.Fatalf("a note was written from an untrusted run: %+v %v", results, noter.notes)
 	}
@@ -305,7 +305,7 @@ func TestAPassBoundsHowManyNotesItWritesAndReportsEachOne(t *testing.T) {
 	workspace := t.TempDir()
 	now := time.Now().UTC()
 	for index := 0; index < 8; index++ {
-		if _, err := store.PutSummary(Summary{At: now.Add(time.Duration(index) * time.Minute), SessionID: "s1", RunID: "r" + string(rune('a'+index)), Workspace: workspace, Changed: "the operator asked for form " + string(rune('a'+index))}); err != nil {
+		if _, err := store.PutSummary(Summary{At: now.Add(time.Duration(index) * time.Minute), SessionID: "s1", RunID: "r" + string(rune('a'+index)), Workspace: workspace, Changed: "the user asked for form " + string(rune('a'+index))}); err != nil {
 			t.Fatal(err)
 		}
 	}

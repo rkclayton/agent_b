@@ -13,7 +13,7 @@ export function operatorStatusView(identity) {
   const active = !!identity?.operator_context;
   return {
     active,
-    label: active ? "Operator mode active" : "Operator mode off",
+    label: active ? "Run as you active" : "Run as you off",
     ...assets[active ? "on" : "off"],
   };
 }
@@ -45,7 +45,7 @@ export function createOperatorStatusController(button, options) {
     button.dataset.pending = String(pending);
     button.setAttribute("aria-busy", String(pending));
     if (pending) {
-      const label = pendingTarget ? "Enabling operator mode" : "Disabling operator mode";
+      const label = pendingTarget ? "Turning on Run as you" : "Turning off Run as you";
       button.setAttribute("aria-label", label);
       button.title = label;
     }

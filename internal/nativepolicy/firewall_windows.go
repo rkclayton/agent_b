@@ -419,7 +419,7 @@ func firewallIntent(request FirewallRequest) (firewallRule, firewallRule, error)
 	localUsers := "D:(A;;CC;;;" + request.SID + ")"
 	description := "Agent_b allowed=" + strings.Join(request.AllowedRanges, ",") + " lan=" + strings.Join(request.LocalSubnets, ",")
 	block := firewallRule{Name: firewallBlockName, Description: description, RemoteAddresses: strings.Join(blocked, ","), LocalUsers: localUsers, Direction: 2, Action: 0, Profiles: 0x7fffffff, Protocol: 256, Enabled: true}
-	icmp := firewallRule{Name: firewallICMPName, Description: "Allows outbound ICMPv4 echo to operator-confirmed LAN subnets for the Agent_b service identity.", RemoteAddresses: strings.Join(request.LocalSubnets, ","), LocalUsers: localUsers, ICMP: "8:*", Direction: 2, Action: 1, Profiles: 0x7fffffff, Protocol: 1, Enabled: true}
+	icmp := firewallRule{Name: firewallICMPName, Description: "Allows outbound ICMPv4 echo to user-confirmed LAN subnets for the Agent_b service identity.", RemoteAddresses: strings.Join(request.LocalSubnets, ","), LocalUsers: localUsers, ICMP: "8:*", Direction: 2, Action: 1, Profiles: 0x7fffffff, Protocol: 1, Enabled: true}
 	return block, icmp, nil
 }
 

@@ -363,7 +363,7 @@ type Service struct {
 }
 
 // ServiceOpenAPI records the document a connector imported: where it came from, the
-// snapshot kept under the operator data root, that snapshot's SHA-256, and which
+// snapshot kept under the user data root, that snapshot's SHA-256, and which
 // operations the operator enabled on the approval card.
 type ServiceOpenAPI struct {
 	Source     string   `json:"source"`
@@ -581,7 +581,7 @@ const (
 )
 
 const ApprovalDefaultMigrationNotice = "corrected inherited approval default from mutating to boundary-only; mutating can be reselected in Settings > Run & approval"
-const OperatorIdleTimeoutMigrationNotice = "migrated shell.operator_context_timeout_minutes to shell.operator_context_idle_timeout_minutes; operator mode now expires after agent inactivity"
+const OperatorIdleTimeoutMigrationNotice = "migrated shell.operator_context_timeout_minutes to shell.operator_context_idle_timeout_minutes; Run as you now expires after agent inactivity"
 const ByteWindowMigrationNotice = "migrated read_file and fetch_url limits from line counts to UTF-8 byte windows"
 const ModelRolesMigrationNotice = "migrated model connections to schema 5 with an explicit main role, optional aux role, and per-connection context size"
 
@@ -931,7 +931,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		cfg.LoadNotices = append(cfg.LoadNotices, AgentObjectsMigrationNotice)
 	}
 	// Item 2nq (a): one line, naming the connections it cleared. It says which ones
-	// because the operator's question was which ones.
+	// because the user's question was which ones.
 	if len(placeholderCleared) > 0 {
 		cfg.LoadNotices = append(cfg.LoadNotices, ModelPlaceholderMigrationNotice+strings.Join(placeholderCleared, ", "))
 	}
@@ -1114,7 +1114,7 @@ func (c Config) Validate() error {
 		// is taken from. The bound never falls below the reserve every version has
 		// shipped as its default, because a rule that refuses a configuration the
 		// product itself created is a broken rule, not a safeguard. Every other
-		// value in this area is the operator's to set.
+		// value in this area is the user's to set.
 		if bound := reserveOutputBound(p.Context.NCtx); bound > 0 && p.Context.ReserveOutput > bound {
 			return fmt.Errorf("%s.context.reserve_output: %d leaves too little of the %d-token context window for the prompt; it may not exceed %d", prefix, p.Context.ReserveOutput, p.Context.NCtx, bound)
 		}
@@ -1402,7 +1402,7 @@ func applyDefaults(c *Config) {
 		c.Approval = d.Approval
 	}
 	// Item 2q5 (e): a config still holding the old defaults moves to the new ones;
-	// any other value is the operator's and stays.
+	// any other value is the user's and stays.
 	if c.Context.SoftPct == .75 && c.Context.SummaryPct == .85 {
 		c.Context.SoftPct, c.Context.SummaryPct = d.Context.SoftPct, d.Context.SummaryPct
 	}

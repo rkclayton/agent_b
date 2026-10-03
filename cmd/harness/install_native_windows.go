@@ -37,7 +37,7 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 			return fmt.Errorf("ApplicationDirectory must be the canonical per-user LocalAppData location: %s", expectedApplication)
 		}
 		if !strings.EqualFold(filepath.Clean(data), filepath.Clean(expectedData)) {
-			return fmt.Errorf("DataDirectory must be the launching operator's LocalAppData Agent_b directory: %s", expectedData)
+			return fmt.Errorf("DataDirectory must be the launching user's LocalAppData Agent_b directory: %s", expectedData)
 		}
 		if !strings.EqualFold(filepath.Clean(workspace), filepath.Clean(expectedWorkspace)) {
 			return fmt.Errorf("WorkspaceDirectory must be the canonical per-user LocalAppData location: %s", expectedWorkspace)
@@ -48,7 +48,7 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 		return fmt.Errorf("read process-token user SID: %w", err)
 	}
 	if supplied := installerArgument(arguments, "OperatorSid", ""); supplied != "" && !strings.EqualFold(supplied, operatorSID) {
-		return fmt.Errorf("installation refused: operator SID %s differs from process token %s", supplied, operatorSID)
+		return fmt.Errorf("installation refused: user SID %s differs from process token %s", supplied, operatorSID)
 	}
 	stopped, err := stopNativeInstalledProcess(application, data, log)
 	if err != nil {

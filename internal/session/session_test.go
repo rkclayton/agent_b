@@ -72,7 +72,7 @@ func TestMediaCapabilitiesFollowConnectionAndToolset(t *testing.T) {
 	}
 	vision := config.Connection{AttachmentHandling: "native"}
 	native := MediaCapabilities(&vision, map[string]bool{"run_script": true})
-	for _, want := range []string{"render PNG or JPEG", "System.Drawing", "can see an operator-attached image"} {
+	for _, want := range []string{"render PNG or JPEG", "System.Drawing", "can see a user-attached image"} {
 		if !strings.Contains(native, want) {
 			t.Fatalf("native capabilities %q do not contain %q", native, want)
 		}

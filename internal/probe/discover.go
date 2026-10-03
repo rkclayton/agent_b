@@ -33,7 +33,7 @@ type DiscoveryResult struct {
 	Attempts []DiscoveryAttempt `json:"attempts"`
 	// NeedsKey is item 2nb (a): the typed address answered 401 or 403. That is not a
 	// failure to find a server — it is a server saying who it is, and the next move is
-	// the operator's: paste a key and Test again.
+	// the user's: paste a key and Test again.
 	NeedsKey bool `json:"needs_key,omitempty"`
 	// NoModelAPI is (a)'s 404 case: something answered, and it is not a model API.
 	NoModelAPI bool `json:"no_model_api,omitempty"`
@@ -60,7 +60,7 @@ type PortFinding struct {
 // answeredStatus reports the HTTP status an attempt's error carries, or zero when the
 // address did not answer at all. An address that answers 401 has answered: the walk
 // used to treat that as a failure and move on to another port, which is how the
-// operator's typed :8080 was abandoned in favour of an :11434 that listed nothing.
+// user's typed :8080 was abandoned in favour of an :11434 that listed nothing.
 func answeredStatus(err error) int {
 	var shape *llm.ResponseShapeError
 	if errors.As(err, &shape) {
@@ -100,7 +100,7 @@ func DiscoverEndpointReporting(ctx context.Context, connection *config.Connectio
 		if parseErr != nil {
 			reason = parseErr.Error()
 		}
-		return result, &ConnectionError{Friendly: fmt.Sprintf("base_url %q is malformed: %s.", strings.TrimSpace(connection.BaseURL), firstLine(reason, "no host was found")), Detail: "discovery refused: no operator-typed host"}
+		return result, &ConnectionError{Friendly: fmt.Sprintf("base_url %q is malformed: %s.", strings.TrimSpace(connection.BaseURL), firstLine(reason, "no host was found")), Detail: "discovery refused: no user-typed host"}
 	}
 	// (a): the candidates are split by PORT. Every path on the port he typed is tried
 	// first; only if that port says nothing at all does the walk go looking elsewhere.
@@ -156,7 +156,7 @@ func DiscoverEndpointReporting(ctx context.Context, connection *config.Connectio
 					result.NeedsKey = true
 					return &result, &ConnectionError{
 						Friendly: fmt.Sprintf("%s wants an API key — paste it and Test again.", baseURL),
-						Detail:   fmt.Sprintf("discovery stopped at the operator-typed address %s: HTTP %d", baseURL, status),
+						Detail:   fmt.Sprintf("discovery stopped at the user-typed address %s: HTTP %d", baseURL, status),
 					}, true
 				}
 			}
@@ -201,7 +201,7 @@ func DiscoverEndpointReporting(ctx context.Context, connection *config.Connectio
 		}
 		return result, &ConnectionError{
 			Friendly: fmt.Sprintf("Nothing answered at %s. Tried %s. The address is left as you typed it.", strings.TrimSpace(connection.BaseURL), strings.Join(tried, "; ")),
-			Detail:   "discovery refused to leave the operator-typed port " + typedPort,
+			Detail:   "discovery refused to leave the user-typed port " + typedPort,
 		}
 	}
 	// (a): the typed port answered but listed nothing usable. The walk stops here
@@ -215,7 +215,7 @@ func DiscoverEndpointReporting(ctx context.Context, connection *config.Connectio
 		tried := pathsTried(result.Attempts, typedPort)
 		return result, &ConnectionError{
 			Friendly: fmt.Sprintf("No model API at %s; tried %s.", result.TypedAddress, strings.Join(tried, " and ")),
-			Detail:   fmt.Sprintf("discovery stopped at the operator-typed port %s: HTTP %d", typedPort, typedStatus),
+			Detail:   fmt.Sprintf("discovery stopped at the user-typed port %s: HTTP %d", typedPort, typedStatus),
 		}
 	}
 	// No port was typed. Every common port is tried and NONE of them is chosen: (a)
@@ -227,7 +227,7 @@ func DiscoverEndpointReporting(ctx context.Context, connection *config.Connectio
 	result.Ports = portFindings(result.Attempts)
 	result.BaseURL, result.Models = "", nil
 	if len(result.Ports) == 0 {
-		return result, &ConnectionError{Friendly: fmt.Sprintf("Nothing answered for %s on any of the usual ports.", host), Detail: "discovery exhausted operator-typed host " + host}
+		return result, &ConnectionError{Friendly: fmt.Sprintf("Nothing answered for %s on any of the usual ports.", host), Detail: "discovery exhausted user-typed host " + host}
 	}
 	return result, nil
 }
@@ -394,7 +394,7 @@ func discoveryCandidates(raw string) ([]string, string, string, error) {
 }
 
 // discoveryPorts is the list of ports a host typed WITHOUT one is tried on. It is a
-// variable rather than a literal so item 2nn's acceptance can replay the operator's
+// variable rather than a literal so item 2nn's acceptance can replay the user's
 // own case — :8080 serving three models beside an :11434 serving none — against
 // servers a test can actually bind, without asking a test machine for those two
 // ports.

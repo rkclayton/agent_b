@@ -71,8 +71,8 @@ deliberately.
 ## When the report and the test disagree
 
 Establish reproduction equivalence and observe the failing path **before** using passing tests to
-reject the operator's report. Five harness runs were offered as evidence against a failure the
-operator reproduced by hand in seconds; none of them reproduced his conditions, and the difference
+reject the user's report. Five harness runs were offered as evidence against a failure the
+user reproduced by hand in seconds; none of them reproduced his conditions, and the difference
 turned out to be that every harness serialised around navigation while he did not.
 
 ## Proportionality
@@ -88,7 +88,7 @@ requirements**. A candidate list containing only causes *inside* the current str
 the answer "this structure is not required."
 
 Ten theories about the Chat/Console freeze were refuted across v0.20.0 to v0.35.0. Every candidate
-list asked "why does this navigation fail?" None asked "why is there a navigation?" The operator
+list asked "why does this navigation fail?" None asked "why is there a navigation?" The user
 exposed it in one question — *why are we doing it this way* — after nine rounds of instrumentation
 had not.
 
@@ -155,4 +155,4 @@ the report that it did not change.
 - **A pin drawn too wide.** *specific.* Failure: a pinned span covered the running turn and
   starved compaction until the run stopped for context.
 - **A target assumed instead of asked (chrome vs well).** *general.* Failure: a UI direction was
-  applied to the window chrome when the operator meant the transcript well.
+  applied to the window chrome when the user meant the transcript well.

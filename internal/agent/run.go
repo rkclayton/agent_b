@@ -258,7 +258,7 @@ func (r *Runner) QueueUserAttachments(ctx context.Context, s *session.Session, t
 func (r *Runner) AppendUser(s *session.Session, message events.Message) {
 	s.Append(message)
 	// Item 2go: the chat takes its name from this message if it has none yet.
-	// Once, from the operator's own words, and never again by the harness.
+	// Once, from the user's own words, and never again by the harness.
 	r.nameFromFirstMessage(s, message.Content)
 	r.bus.Publish(events.New(events.MessageAppended, s.ID, "", map[string]any{"message": message}))
 }
@@ -827,7 +827,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				r.bus.Publish(events.New(events.MessageAppended, s.ID, runID, map[string]any{"message": message}))
 			})
 			// Item 2fa: a final message that is exactly the registration sentence
-			// raises the operator's card; the line stays in the transcript above it.
+			// raises the user's card; the line stays in the transcript above it.
 			finalText, _ := parsePlanProposals(finalContent)
 			if stopReason != "done" {
 				return stopReason, stopDetail, turn
@@ -1048,7 +1048,7 @@ func messageLimitError(err error) (int, string, bool) {
 }
 
 // Item 2l8: the byte cap a server names in its refusal. Two currencies appear in
-// the operator's own evidence -- `prompt too large: 401628 bytes (limit 400000)`
+// the user's own evidence -- `prompt too large: 401628 bytes (limit 400000)`
 // and `conversation too long: 61 messages (limit 60)` -- and this reads the first.
 var byteLimitPattern = regexp.MustCompile(`(?i)([^\r\n"]*?(?:too large|too long|exceeds)[^\r\n"]*?\d+\s*bytes[^\r\n"]*?\(limit\s*(\d+)\))`)
 
@@ -1507,7 +1507,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	}
 	overrideID := callID + ":operator"
 	overrideArgs := map[string]any{
-		"identity": "Agent_b operator (not Administrator)",
+		"identity": "Agent_b user (not Administrator)",
 		"reason":   outcome.OperatorOverrideReason,
 		"scope":    scope,
 	}
@@ -1547,15 +1547,15 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	}
 	if overrideErr != nil {
 		outcome.OK, outcome.OperatorContext = false, false
-		outcome.Metadata = withHarnessNote(outcome.Metadata, "operator-identity override canceled")
-		outcome.Content = withModelNote(outcome.Content, "operator-identity override canceled")
+		outcome.Metadata = withHarnessNote(outcome.Metadata, "user-identity override canceled")
+		outcome.Content = withModelNote(outcome.Content, "user-identity override canceled")
 		return outcome
 	}
 	if !approvalGranted(overrideDecision) {
 		log.Printf("%s operator-identity override denied: session=%s call=%s command=%q path=%q", name, s.ID, callID, command, path)
 		outcome.OK, outcome.OperatorContext = false, false
-		outcome.Metadata = withHarnessNote(outcome.Metadata, "operator-identity override was offered and denied by the user")
-		outcome.Content = withModelNote(outcome.Content, "operator-identity override was offered and denied by the user")
+		outcome.Metadata = withHarnessNote(outcome.Metadata, "user-identity override was offered and denied by the user")
+		outcome.Content = withModelNote(outcome.Content, "user-identity override was offered and denied by the user")
 		return outcome
 	}
 	outsideScope := overrideDecision
@@ -1594,7 +1594,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 			overrideContent = "the tool completed with no output"
 		}
 		outcome.Content, outcome.OK, outcome.OperatorContext = overrideContent, true, true
-		note := "operator-identity override succeeded; exact " + subject + " rerun once"
+		note := "user-identity override succeeded; exact " + subject + " rerun once"
 		if outsideCard || strings.HasPrefix(outsideScope, "folder") {
 			scope := map[string]string{"approve": "just once", "once": "just once", "session": "for this chat", "folder": "folder trusted", "folder not kept": "just once; the folder could not be kept as trusted"}[outsideScope]
 			note = "outside-folder access allowed (" + scope + ")"
@@ -1612,8 +1612,8 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		return outcome
 	}
 	outcome.Content, outcome.OK, outcome.OperatorContext = overrideContent, false, true
-	outcome.Metadata = withHarnessNote(outcome.Metadata, "operator-identity override was attempted but failed")
-	outcome.Content = withModelNote(outcome.Content, "operator-identity override was attempted but failed")
+	outcome.Metadata = withHarnessNote(outcome.Metadata, "user-identity override was attempted but failed")
+	outcome.Content = withModelNote(outcome.Content, "user-identity override was attempted but failed")
 	return outcome
 }
 
@@ -2202,7 +2202,7 @@ func truncationDetail(connection *config.Connection, response llm.Response) stri
 	}
 	where := fmt.Sprintf("the %s connection's output reserve (Settings → Connections → reserve output, context.reserve_output = %d tokens)", connection.Label, reserve)
 	// Thinking used the budget when the model produced reasoning and no answer at
-	// all — the shape of the operator's own case — rather than a token comparison
+	// all — the shape of the user's own case — rather than a token comparison
 	// this function has no numbers for.
 	if connection.Reasoning.Enabled && connection.Reasoning.MaxTokens == 0 && strings.TrimSpace(response.Content) == "" && strings.TrimSpace(response.Reasoning) != "" {
 		return fmt.Sprintf("thinking used the output allowance of %d tokens and no answer was left; thinking now gets its own share of %d tokens. The limit is %s", reserve, config.ReasoningShareFor(reserve), where)

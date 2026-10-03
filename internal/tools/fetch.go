@@ -423,7 +423,7 @@ func validateFetchTarget(target *url.URL, cfg config.FetchTool, localSubnets ...
 				return fmt.Errorf("domain %s is not in tools.fetch.allow_domains", host)
 			}
 		} else if domainListed(host, cfg.DenyDomains) {
-			return fmt.Errorf("note: network-location rule refused domain %s; never use network tools to determine the operator's location, identity, or IP; ask for a location the OS did not provide", host)
+			return fmt.Errorf("note: network-location rule refused domain %s; never use network tools to determine the user's location, identity, or IP; ask for a location the OS did not provide", host)
 		}
 	}
 	var allowed []netip.Prefix

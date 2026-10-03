@@ -73,7 +73,7 @@ func (s *Search) CallAsOperator(ctx context.Context, item *session.Session, args
 	tool := s.pick(args)
 	override, ok := tool.(OperatorOverrideTool)
 	if !ok {
-		return "", fmt.Errorf("search target has no operator-identity override")
+		return "", fmt.Errorf("search target has no user-identity override")
 	}
 	return override.CallAsOperator(ctx, item, args)
 }

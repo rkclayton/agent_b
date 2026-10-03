@@ -569,7 +569,7 @@ function planSection() {
   return `<p class="settings-plan-note">Assign a planner in Agents to write a plan. The Plan opens on a planner chat, or on any chat when one connection serves every role.</p>`;
 }
 
-// Item 2ni: hiding the Plan hides its ENTRY, which is the operator's own choice
+// Item 2ni: hiding the Plan hides its ENTRY, which is the user's own choice
 // from Settings > Chats. The availability rule never removes an entry (2ni (b));
 // only this does.
 function navSections() {
@@ -665,7 +665,7 @@ function applyProposedValues(id, discovered) {
     propose("reasoning.max_tokens", proposed.reasoning_max_tokens, "number", connection.reasoning?.max_tokens);
   }
   if (Array.isArray(proposed.valid_efforts) && proposed.effort) propose("reasoning.effort", proposed.effort, "text", "");
-  // Item 2mh (a): and the NAME, when the operator has not given one. "server-2"
+  // Item 2mh (a): and the NAME, when the user has not given one. "server-2"
   // identifies nothing; the model it serves does. The same untouched rule as
   // fillFromPickedModel — never typed here, and still the id the Add button
   // generated — so pressing Test again never overwrites a name he chose.
@@ -1208,7 +1208,7 @@ async function dispatchAction(event, button, action, id) {
 	if (action === "setup-service-account") return setupServiceAccount();
 	// Item 2np (a): THE TOGGLE IS THE SETUP. It used to be a Save draft, and saving it
 	// was refused by the server — "turn on the service identity with its Security setup
-	// flow so the account and credential are tested first" — which pointed the operator
+	// flow so the account and credential are tested first" — which pointed the user
 	// at a panel rather than doing the thing he had just asked for. Switching it on runs
 	// the same provision Repair runs, at once; switching it off is immediate the same
 	// way. The server guard stays where it is; the UI can no longer reach it.

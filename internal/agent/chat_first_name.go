@@ -145,7 +145,7 @@ func (r *Runner) nameAfterFirstRun(item *session.Session, runID string) {
 		return
 	}
 	if item.Snapshot().NamePinned {
-		r.publishNameAttempt(item.ID, runID, "skipped", "operator renamed the chat", "")
+		r.publishNameAttempt(item.ID, runID, "skipped", "user renamed the chat", "")
 		return
 	}
 	if err := r.renameSession(item.ID, name, "c"); err != nil {

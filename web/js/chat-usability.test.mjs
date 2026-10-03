@@ -119,7 +119,7 @@ test("State strip owns queue operator pending and unreachable state without chat
 	assert.doesNotMatch(chat, /model busy · \$\{busy\.host/);
 	assert.match(chat, /session\.connection_id \|\| session\.b_connection/);
   assert.match(chat, /queued \(\$\{queued\}\).*waiting for model/);
-  assert.match(chat, /operator mode · until/);
+  assert.match(chat, /Run as you · until/);
   assert.match(chat, /filter\(\(entry\) => !\["operator\.context", "message\.queued", "run\.queued"\]/);
   // Item 2ld (d) and (f): the strip is trimmed to the height its text needs, with
   // the same small padding all round, and it is the resize handle — the cursor is

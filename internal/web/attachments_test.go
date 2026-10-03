@@ -324,7 +324,7 @@ func TestAttachmentsPDFTextLayerAndScanAreReadLocally(t *testing.T) {
 	}
 	stopped := postAttachment(t, server, "stopped.pdf", scan)
 	text, err = os.ReadFile(filepath.Join(workspace, filepath.FromSlash(stopped.Sidecar)))
-	if err != nil || !strings.HasSuffix(string(text), "stopped by the operator after page 10 of 60\n") {
+	if err != nil || !strings.HasSuffix(string(text), "stopped by the user after page 10 of 60\n") {
 		t.Fatalf("stopped sidecar=%q err=%v", text, err)
 	}
 

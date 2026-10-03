@@ -56,7 +56,7 @@ func main() {
 	startupTimer = phases
 	configOverride := flag.String("config", "", "configuration file (overrides AGENTB_CONFIG and installed/default locations)")
 	applicationOverride := flag.String("app-root", "", "application root containing web, prompts, scripts, and harness.example.json")
-	dataOverride := flag.String("data-root", "", "operator data root containing configuration, credentials, logs, and memory")
+	dataOverride := flag.String("data-root", "", "user data root containing configuration, credentials, logs, and memory")
 	replayPaths := flag.String("replay", "", "comma-separated session JSONL files to replay")
 	startupLog := flag.String("startup-log", "", "optional append-only startup diagnostic log")
 	version := flag.Bool("version", false, "print this build's identity as JSON and exit")
@@ -71,7 +71,7 @@ func main() {
 	install := flag.Bool("install", false, "install Agent_b from this folder; everything after it is passed to the installer")
 	installQuiet := flag.Bool("quiet", false, "with --install: print the installer's output to this console (the suite's path)")
 	installSource := flag.String("install-source", "", "with --install: the candidate folder to install from (default: this executable's folder)")
-	installData := flag.String("install-data", "", "with --install: the operator data root that carries the marker and progress")
+	installData := flag.String("install-data", "", "with --install: the user data root that carries the marker and progress")
 	installAllUsers := flag.Bool("all-users", false, "with --install: install machine-wide under Program Files (requires elevation)")
 	reopenSession := flag.String("reopen-session", "", "with --install: reopen this chat after the installed app starts")
 	noStart := flag.Bool("NoStart", false, "with --install: install without starting Agent_b")
@@ -81,7 +81,7 @@ func main() {
 	uninstallRegistry := flag.String("uninstall-registry-path", "", "with --uninstall: exact per-user registration to remove")
 	startMenuRoot := flag.String("start-menu-root", "", "with --uninstall: exact Start-menu root used by the install")
 	sendToRoot := flag.String("send-to-root", "", "with --uninstall: exact SendTo root used by the install")
-	purgeData := flag.Bool("purge-data", false, "with --uninstall: remove operator data")
+	purgeData := flag.Bool("purge-data", false, "with --uninstall: remove user data")
 	serviceHelper := flag.String("service-helper", "", "elevated native service-identity request")
 	serviceResult := flag.String("service-result", "", "elevated native service-identity result")
 	passthrough := installPassthrough(os.Args[1:])
@@ -147,7 +147,7 @@ func main() {
 		}
 	}
 	// Item 2gl: an install that did not finish says so, once, at the next
-	// launch — the operator asked "should i re-run?" and nothing could answer
+	// launch — the user asked "should i re-run?" and nothing could answer
 	// him. The marker is only ever cleared by an install that completed.
 	if marker, found, markerErr := readInstallMarker(paths.Data); markerErr != nil {
 		log.Printf("install marker: %v", markerErr)
@@ -210,7 +210,7 @@ func main() {
 	hostWindowDataRoot = paths.Data
 	{
 		// The WebView2 user-data folder holds cache, cookies and crash dumps.
-		// It belongs in the operator's data root: the application directory is
+		// It belongs in the user's data root: the application directory is
 		// deliberately not writable by the running identity, and the workspace
 		// is reachable by the model. Leaving it unset would default it beside
 		// the executable, which IS the application directory - not neutral,
@@ -729,7 +729,7 @@ func updateLatestURL() string {
 // STATE when the journal it came from has not changed, and project only the journals
 // that have.
 //
-// Measured on a copy of the operator's own chats before this existed: projecting all
+// Measured on a copy of the user's own chats before this existed: projecting all
 // 33 journals, 218,150,298 bytes, took 6.244s; the snapshots they produce total
 // 6,723,596 bytes and decode in 45ms. His launches were spending 6,797 ms of 8,513 ms
 // there. A journal grows with every delta ever streamed; a projection is bounded by
@@ -819,7 +819,7 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 		// Item 2mt (e): A RUN THE PROCESS DIED IN IS CLOSED HERE, and the item
 		// asked me to verify this already happened. It did not. The projector
 		// takes `run.status` from `run.started` and `run.stopped`, so a journal
-		// that stops on a `model.delta` — which is exactly what the operator's
+		// that stops on a `model.delta` — which is exactly what the user's
 		// chat s34 does, run r643 started at 08:09:04 and 6,544 deltas in when
 		// the drag killed the process — projects as STILL RUNNING, and stayed
 		// that way on every later start. A chat that claims to be thinking
@@ -941,7 +941,7 @@ func resolveStartupPaths(configOverride, applicationOverride, dataOverride strin
 	// meant the exe started from C:\ or from Explorer looked for its own assets
 	// in C:\web and found nothing; the launcher worked only because it set the
 	// working directory first. The data root and the workspace are unchanged:
-	// those are the operator's and are config-driven.
+	// those are the user's and are config-driven.
 	application := applicationOverride
 	if application == "" {
 		if executable, execErr := os.Executable(); execErr == nil {
@@ -1185,7 +1185,7 @@ func openHostWindow(url, applicationRoot string) bool {
 }
 
 // recordWindowFate writes one window line to the startup log and to the
-// launcher log the operator reads, in the launcher's own line format.
+// launcher log the user reads, in the launcher's own line format.
 func recordWindowFate(message string) {
 	log.Print(message)
 	if hostWindowDataRoot == "" {

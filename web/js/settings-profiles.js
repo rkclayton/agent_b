@@ -6,7 +6,7 @@ export function renderProfilesPage(context) {
   const state = store.profiles || store.config.profiles || { active: "", names: [] };
   const rows = (state.names || []).map((name) => {
     const active = name === state.active;
-    return `<div class="setting-row profile-row" title="Switch or rename this operator profile.">
+    return `<div class="setting-row profile-row" title="Switch or rename this profile.">
       <label>${html(name)}${active ? " · active" : ""}</label>
       <div class="settings-actions">
         <button type="button" data-action="switch-profile" data-id="${attr(name)}" ${active ? "disabled" : ""}>Switch</button>
@@ -30,8 +30,8 @@ export function renderProfilesPage(context) {
   const hermesPreviewBlock = hermesPreview ? `<p class="settings-note inline">${hermesPreview.secret_count || 0} secret names found · values are not read</p><table class="hermes-preview"><thead><tr><th>item</th><th>kind</th><th>preview</th><th>include</th></tr></thead><tbody>${hermesRows}</tbody></table><div class="setting-row"><label>preview only · nothing written</label><div><button type="button" data-action="hermes-confirm">Import selected</button></div></div>` : "";
   const hermesReportBlock = hermesReport ? `<p class="settings-note inline hermes-report">${html(hermesReport.message)}${(hermesReport.rewritten || []).length ? ` · rewritten ${html(hermesReport.rewritten.join(", "))}` : ""}${(hermesReport.unresolved || []).length ? ` · unmapped ${html(hermesReport.unresolved.join(", "))}` : ""}${(hermesReport.cut || []).length ? ` · trimmed ${html(hermesReport.cut.join(", "))}` : ""}</p>` : "";
   return `${rows || '<p class="settings-note inline">No profiles configured.</p>'}
-    ${subhead("Create profile", "Creates an empty operator profile; connections remain shared.")}
-    <div class="setting-row" title="Create an empty operator profile; connections stay shared."><label for="new-profile-name">name</label><div class="settings-actions"><input id="new-profile-name" maxlength="64"><button type="button" data-action="create-profile">Create</button></div></div>
+    ${subhead("Create profile", "Creates an empty profile; connections remain shared.")}
+    <div class="setting-row" title="Create an empty profile; connections stay shared."><label for="new-profile-name">name</label><div class="settings-actions"><input id="new-profile-name" maxlength="64"><button type="button" data-action="create-profile">Create</button></div></div>
     ${subhead("Skills", "Skills are on when added; use the switch to turn one off. Their scripts use the ordinary approval policy.")}
     ${skills || '<p class="settings-note inline">No skills found.</p>'}
     <div class="setting-row" title="Import one skill folder or ZIP archive into this profile."><label for="skill-import-path">folder to import</label><div class="settings-actions"><input id="skill-import-path" placeholder="C:\\path\\to\\skill"><button type="button" data-action="skill-import">Import</button><button type="button" data-action="skill-rescan">Rescan</button></div></div>

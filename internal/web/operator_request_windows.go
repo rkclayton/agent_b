@@ -50,7 +50,7 @@ func requireOperatorHTTPClient(r *http.Request) error {
 		return fmt.Errorf("resolve HTTP server address: %w", err)
 	}
 	if !remote.IP.IsLoopback() || !local.IP.IsLoopback() {
-		return fmt.Errorf("operator-context request was not loopback")
+		return fmt.Errorf("Run as you request was not loopback")
 	}
 	pid, err := loopbackTCPClientPID(remote, local)
 	if err != nil {

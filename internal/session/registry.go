@@ -453,15 +453,15 @@ func NetworkBoundary(settings config.Config) string {
 	}
 	reachable := "loopback and the configured model server"
 	if len(settings.Shell.AllowedModelRanges) > 0 {
-		reachable += ", plus the operator-configured ranges " + strings.Join(settings.Shell.AllowedModelRanges, ", ")
+		reachable += ", plus the user-configured ranges " + strings.Join(settings.Shell.AllowedModelRanges, ", ")
 	}
 	fetch := "public addresses and exact tools.fetch.allow_internal_hosts entries"
 	if settings.Shell.AllowLocalNetwork && len(settings.Shell.ConfirmedLocalSubnets) > 0 {
 		subnets := strings.Join(settings.Shell.ConfirmedLocalSubnets, ", ")
-		reachable += ", plus the operator-confirmed LAN subnets " + subnets
-		fetch += ", plus the operator-confirmed LAN subnets " + subnets
+		reachable += ", plus the user-confirmed LAN subnets " + subnets
+		fetch += ", plus the user-confirmed LAN subnets " + subnets
 	}
-	return "Network boundary: service-context shell may reach " + reachable + "; fetch_url may reach " + fetch + " and always refuses link-local, cloud metadata, and this Agent_b listener; when another target is needed, offer Run as you for operator approval under the operator's non-elevated identity."
+	return "Network boundary: service-context shell may reach " + reachable + "; fetch_url may reach " + fetch + " and always refuses link-local, cloud metadata, and this Agent_b listener; when another target is needed, offer Run as you for approval under the user's non-elevated identity."
 }
 
 // MediaCapabilities is captured when a chat opens so its capability claims
@@ -473,7 +473,7 @@ func MediaCapabilities(connection *config.Connection, enabled map[string]bool) s
 	}
 	read := "This connection cannot see an attached image; it can use OCR text when extraction finds any."
 	if connection != nil && connection.NativeImageInput() {
-		read = "This connection can see an operator-attached image included in the current message."
+		read = "This connection can see a user-attached image included in the current message."
 	}
 	return "Image capabilities: " + render + " " + read + " Agent_b has no image generator configured, so do not claim to generate an image from a description. Do not prefer SVG or any other format by default."
 }
@@ -644,7 +644,7 @@ func (r *Registry) Label(id string) string {
 }
 
 // ConnectionInUse names the chat holding a connection. Item 2nc (b): the LABEL comes
-// back with the id, because "in use by session s12" tells the operator nothing he can
+// back with the id, because "in use by session s12" tells the user nothing he can
 // act on — he knows his chats by their names, not by their ids.
 func (r *Registry) ConnectionInUse(connectionID string) (string, bool) {
 	id, _, used := r.ConnectionHolder(connectionID)
@@ -1103,7 +1103,7 @@ func (r *Registry) Delete(id string) (events.SessionInventory, error) {
 // Item 2gy (v1.2.5): a capability finding gates the FEATURE that needs it, not
 // the chat. A probe that could not get an answer - a busy GPU, a timeout, a 503
 // - used to be recorded as a server that cannot call tools, and that finding
-// then stopped every run with "connection not runnable". A chat the operator can
+// then stopped every run with "connection not runnable". A chat the user can
 // still talk in is not unrunnable because one capability is missing.
 //
 // "Not runnable" now means exactly what it says: there is no endpoint or no

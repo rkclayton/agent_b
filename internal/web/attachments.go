@@ -367,7 +367,7 @@ func (s *Server) extractAttachment(ctx context.Context, connection config.Connec
 			tier, note = "ocr", "no text layer; read by OCR page by page; layout not preserved; untrusted"
 			if stopped {
 				note = fmt.Sprintf("OCR stopped after %d of %d pages; layout not preserved; untrusted", pages, total)
-				stoppedLine = fmt.Sprintf("stopped by the operator after page %d of %d\n", pages, total)
+				stoppedLine = fmt.Sprintf("stopped by the user after page %d of %d\n", pages, total)
 			}
 		}
 		if extractErr != nil {

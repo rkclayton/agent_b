@@ -203,7 +203,7 @@ function toolRow(session, call, callEvent, resultEvent, state, modelEvent = null
   const serviceStatus = callServiceStatus(call.name, result);
   const executionTarget = result.target ? `${result.target} · ` : "";
   row.head.children[4].textContent = executionTarget + (serviceStatus || (result.operator_context
-    ? `Operator · ${result.ok === false ? "Failed" : "Done"}`
+    ? `Run as you · ${result.ok === false ? "Failed" : "Done"}`
     : result.ok === false
       ? "Failed"
       : "Done"));

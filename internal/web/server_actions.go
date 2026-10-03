@@ -150,7 +150,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 	var before func()
 	if body.Decision == "operator_mode" {
 		if err := s.operatorRequest(r); err != nil {
-			writeError(w, http.StatusForbidden, "operator mode can be enabled only by a local process owned by the Windows account that launched Agent_b", "decision")
+			writeError(w, http.StatusForbidden, "Run as you can be enabled only by a local process owned by the Windows account that launched Agent_b", "decision")
 			return
 		}
 		before = func() { s.setOperatorContext(true, "enabled from shell approval card", 0) }
@@ -299,7 +299,7 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "clear" {
 		if err := s.operatorRequest(r); err != nil {
-			writeError(w, http.StatusForbidden, "clearing stats requires a verified local operator process", "agent_id")
+			writeError(w, http.StatusForbidden, "clearing stats requires a verified local process of the user", "agent_id")
 			return
 		}
 		var body struct {
@@ -334,7 +334,7 @@ func (s *Server) agentAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.operatorRequest(r); err != nil {
-		writeError(w, http.StatusForbidden, "flushing memory requires a verified local operator process", "agent_id")
+		writeError(w, http.StatusForbidden, "flushing memory requires a verified local process of the user", "agent_id")
 		return
 	}
 	if s.memoryState == nil || s.registry == nil {

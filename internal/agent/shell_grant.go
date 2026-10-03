@@ -109,7 +109,7 @@ func (r *Runner) LapseSessionGrants(sessionID string) {
 }
 
 func (r *Runner) RevokeSessionGrants(sessionID string) {
-	r.lapseSessionGrants(sessionID, "revoked by operator")
+	r.lapseSessionGrants(sessionID, "revoked by the user")
 }
 
 func (r *Runner) lapseSessionGrants(sessionID, reason string) {
@@ -162,17 +162,17 @@ func (r *Runner) executeOperatorCommand(ctx context.Context, s *session.Session,
 	}
 	if !r.hasShellGrant(s.ID, runID, shellGrantOperatorCommand, command.Executable) {
 		approvalArgs := map[string]any{
-			"command": args["command"], "identity": "Agent_b operator (not Administrator)",
-			"reason": fmt.Sprintf("operator command rule: %s runs as you for this run", command.Name),
+			"command": args["command"], "identity": "Agent_b user (not Administrator)",
+			"reason": fmt.Sprintf("Run as you command rule: %s runs as you for this run", command.Name),
 			"rule":   shellGrantOperatorCommand, "executable": command.Executable,
-			"scope": "run this configured operator command",
+			"scope": "run this configured Run as you command",
 		}
 		decision, err := r.gate.WaitBoundaryDecision(ctx, s, runID, callID, name+".operator_command", approvalArgs)
 		if err != nil {
-			return tools.CallOutcome{Content: "error: operator command canceled"}
+			return tools.CallOutcome{Content: "error: Run as you command canceled"}
 		}
 		if !approvalGranted(decision) {
-			return tools.CallOutcome{Content: fmt.Sprintf("error: operator command rule: %s must run as the operator; denied by user and not run as the service account", command.Name)}
+			return tools.CallOutcome{Content: fmt.Sprintf("error: Run as you command rule: %s must run as the user; denied by user and not run as the service account", command.Name)}
 		}
 		if decision == "run" {
 			r.grantShellRun(s, runID, shellRunGrant{Rule: shellGrantOperatorCommand, Identity: "operator", Executable: command.Executable})

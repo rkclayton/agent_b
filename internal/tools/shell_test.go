@@ -508,7 +508,7 @@ func TestShellSpawnFailureDoesNotExecuteOperatorCommand(t *testing.T) {
 		t.Fatalf("detail=%+v", detail)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("operator command ran without approval: %v", err)
+		t.Fatalf("Run as you command ran without approval: %v", err)
 	}
 }
 
@@ -556,7 +556,7 @@ func TestServiceBoundaryReasonOffersOverrideOnlyForOperatorVisibleAbsoluteExecut
 		t.Fatal(err)
 	}
 	output := "The term '" + executable + "' is not recognized as the name of a \r\n cmdlet"
-	if reason := serviceBoundaryReason("& "+quotePowerShellTest(executable)+" task.py", output); !strings.Contains(reason, "operator-visible executable") {
+	if reason := serviceBoundaryReason("& "+quotePowerShellTest(executable)+" task.py", output); !strings.Contains(reason, "user-visible executable") {
 		t.Fatalf("reason=%q", reason)
 	}
 	if reason := serviceBoundaryReason("missing-command task.py", "missing-command is not recognized as the name of a cmdlet"); reason != "" {
@@ -596,7 +596,7 @@ func TestShellFileRoutingDoesNotRedirectOutsideWorkspaceWhenSplitEnabled(t *test
 	if err := json.Unmarshal([]byte(strings.TrimPrefix(detail.Err.Error(), "note: command was not executed; ")), &refusal); err != nil {
 		t.Fatal(err)
 	}
-	if refusal.Replacement != nil || !strings.Contains(refusal.Reason, "outside the folder") || !strings.Contains(refusal.Guidance, "require an operator decision") {
+	if refusal.Replacement != nil || !strings.Contains(refusal.Reason, "outside the folder") || !strings.Contains(refusal.Guidance, "require a user decision") {
 		t.Fatalf("outside-workspace refusal=%+v", refusal)
 	}
 }

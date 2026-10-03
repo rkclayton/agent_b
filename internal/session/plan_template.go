@@ -40,7 +40,7 @@ func PlanTemplate(name, repo string) string {
 	b.WriteString("## Product and end goals\n\n(what this plan is for, and what done looks like)\n\n")
 	b.WriteString("## Architecture\n\n")
 	b.WriteString(RepoMap(repo))
-	b.WriteString("\n### Invariants\n\n(what must stay true; kept by the operator or the planner)\n\n")
+	b.WriteString("\n### Invariants\n\n(what must stay true; kept by the user or the planner)\n\n")
 	b.WriteString("## Standing rules\n\n")
 	for _, rule := range seededRules {
 		fmt.Fprintf(&b, "- %s\n", rule)

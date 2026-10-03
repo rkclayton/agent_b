@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/events"
 )
 
 type reachabilityTestTimer struct{ stopped bool }
@@ -161,7 +162,24 @@ func TestTestWithNoModelListsAndPasses2px(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &answer); err != nil || answer.Status != "listed" || answer.Error != "" || len(answer.Models) != 3 || answer.Message != "choose a model to check the rest" {
 		t.Fatalf("Test without a model: %d %s", response.Code, response.Body)
 	}
-	// CHECK 2: one of the listed models is saved with no Test at all.
+	// CHECK 2: one of the listed models is saved with no Test at all. The save re-probes
+	// in the background and writes under the data root, so the test waits for that probe
+	// to end before its temp folder is removed (it failed cleanup on a hosted runner).
+	probed, unsubscribe := server.bus.Subscribe()
+	defer unsubscribe()
+	defer func() {
+		for deadline := time.After(10 * time.Second); ; {
+			select {
+			case event := <-probed:
+				if event.Type == events.ConnectionProbed || event.Type == events.Error {
+					return
+				}
+			case <-deadline:
+				t.Error("the re-probe after saving did not finish")
+				return
+			}
+		}
+	}()
 	if saved := postConfigPatch(t, server, `{"connections":[{"id":"local","base_url":"`+fixture.server.URL+`","model":"beta"}]}`); saved.Code != http.StatusOK || server.ConfigSnapshot().Connections[0].Model != "beta" {
 		t.Fatalf("saving a listed model: %d %.200s", saved.Code, saved.Body)
 	}

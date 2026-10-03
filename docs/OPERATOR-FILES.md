@@ -10,7 +10,7 @@ The active convention:
 - `OUTBOX.md` — Agent_b to operator, timestamped human sentences, rotated at 200 lines.
 - `STATE.md` — current run state, atomically replaced at each model turn.
 - `attachments\` — files offered by Chat's paperclip menu.
-- `chats\<dir-key>\` — closed-chat Markdown exports.
+- No chat copies: deleting a chat writes no export of it. Exports earlier versions left under `chats\<dir-key>\` are removed once, at the first start of v1.60.9.
 
 `INBOX.md` is read at run start, before each model turn, and while an approval card is waiting. `STOP` stops at the next boundary. `REVISE: …` adds the revision to the current chat. `TASK: …` appends a checkbox item to `PLAN.md`. `DELAY: 5m` delays the next turn, with a 24-hour maximum. Any other text is acknowledged and added to the current chat as a note. A pending approval can be answered with `ANSWER: once`, `ANSWER: session`, or `ANSWER: deny`; a repetition card accepts `ANSWER: continue` or `ANSWER: stop`. Mailbox answers work only when **Allow approvals from the mailbox** is enabled in Settings, and it is off by default. Mailbox answers cannot enable process-global operator mode or select the hidden run scope.
 

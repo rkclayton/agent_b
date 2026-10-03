@@ -150,7 +150,7 @@ test("agent menu swaps the clicked chat into this tab and every red x deletes", 
   assert.doesNotMatch(shell, /drop_memory/);
   assert.match(shell, /await api\(`\/api\/sessions\/\$\{encodeURIComponent\(session\.id\)\}\/close`, \{\}\)/);
   assert.match(shell, /window\.confirm\(deleteConfirmText\)/);
-  assert.match(shell, /Delete this chat\? Its memory notes, plans and files stay\./);
+  assert.match(shell, /Delete this chat permanently\? Memory notes it made are kept\./);
   assert.match(shell, /previous\?\.id !== session\.id/);
   assert.match(shell, /encodeURIComponent\(previous\.id\)\}\/close/);
   assert.match(shell, /encodeURIComponent\(session\.id\)\}\/reopen/);
@@ -356,4 +356,10 @@ test("a closed chat cannot stay on screen: the selection moves and the pane bind
   assert.match(shell, /new URLSearchParams\(location\.search\)\.get\("session"\) === selected\.id/);
   // And the pane's own fallback carries the strip's rule rather than a second one.
   assert.match(chat, /function newestOpenSessions\(\)[\s\S]{0,400}store\.replay \|\| session\.role !== "c"/);
+});
+
+test("Delete says what it does and works on a running chat (2py)", () => {
+  assert.match(shell, /const deleteConfirmText = "Delete this chat permanently\? Memory notes it made are kept\.";/);
+  assert.match(shell, /remove\.disabled = store\.replay;/);
+  assert.doesNotMatch(shell, /Stop it before deleting the chat/);
 });

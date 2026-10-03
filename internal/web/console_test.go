@@ -1,19 +1,26 @@
 package web
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"harness/internal/agent"
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/memory"
 	"harness/internal/projection"
 	"harness/internal/session"
+	"harness/internal/tools"
 )
 
 func consoleServer(t *testing.T) (*Server, *session.Registry, *events.Writers, *memory.Manager, *config.Config, string) {
@@ -167,36 +174,79 @@ func TestFlushMemoryNamesAndClearsAgentAndWorkspaceLayers(t *testing.T) {
 	}
 }
 
-func TestCloseRetainsChatAndDeleteRefusesAnOpenChat(t *testing.T) {
-	server, registry, writers, memories, cfg, _ := consoleServer(t)
+// Item 2py CHECKS 1 and 5: delete on an open chat and on a chat mid-run is one act
+// (the run stops, the chat closes, it is deleted), and afterwards the planted words
+// are nowhere under the data root, while the memory note the chat made is kept.
+func TestDeleteDeletesOpenAndRunningChatsAndLeavesNoCopy2py(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/chat/completions" {
+			<-r.Context().Done() // the run is mid-flight until Delete stops it
+			return
+		}
+		fmt.Fprint(w, `{"data":[{"id":"test-model"}]}`)
+	}))
+	defer model.Close()
+	server, registry, writers, memories, cfg, root := consoleServer(t)
 	defer writers.Close()
-	item, err := registry.Create("delete me", "coder", cfg.Workspace)
+	cfg.Connections[0].BaseURL = model.URL
+	prompt := filepath.Join(root, "system.md")
+	if err := os.WriteFile(prompt, []byte("system"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	renderer, err := agent.LoadTemplate(prompt)
 	if err != nil {
 		t.Fatal(err)
 	}
+	runner := agent.NewRunner(server.bus, tools.New(), renderer, server.Connection, server.ConfigSnapshot)
+	scheduler := agent.NewScheduler(runner, registry, server.bus, server.ConfigSnapshot)
+	server.SetRuntime(scheduler, runner, renderer)
+	open, err := registry.Create("open chat", "coder", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.bus.Publish(events.New(events.MessageAppended, open.ID, "", map[string]any{"message": map[string]any{"id": "m-planted", "role": "user", "content": "PLANTED-2py-OPEN words"}}))
 	path, _, err := memories.Note(cfg.Workspace, "keep project fact")
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.bus.Publish(events.New(events.MemoryNoted, item.ID, "", map[string]any{"path": path, "note": "keep project fact", "target": "workspace", "agent_id": "coder"}))
-	if response := deleteConsole(t, server, "/api/sessions/main"); response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "session must be closed before deletion") {
+	server.bus.Publish(events.New(events.MemoryNoted, open.ID, "", map[string]any{"path": path, "note": "keep project fact", "target": "workspace", "agent_id": "coder"}))
+	if response := deleteConsole(t, server, "/api/sessions/"+open.ID); response.Code != http.StatusOK {
 		t.Fatalf("open delete status=%d body=%s", response.Code, response.Body)
 	}
-	if _, ok := registry.Get(item.ID); !ok {
-		t.Fatal("refused open delete removed the registry entry")
+	running, err := registry.Create("running chat", "coder", "")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if response := postConsole(t, server, "/api/sessions/main/close", `{}`); response.Code != http.StatusOK {
-		t.Fatalf("close status=%d body=%s", response.Code, response.Body)
+	if _, err := scheduler.Submit(context.Background(), running.ID, "PLANTED-2py-RUNNING words"); err != nil {
+		t.Fatal(err)
 	}
-	retained, ok := registry.Get(item.ID)
-	if !ok || !retained.Snapshot().Closed {
-		t.Fatalf("close did not retain a closed chat: ok=%v snapshot=%+v", ok, retained)
+	for deadline := time.Now().Add(5 * time.Second); !running.IsRunning(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the run never started")
+		}
+	}
+	if response := deleteConsole(t, server, "/api/sessions/"+running.ID); response.Code != http.StatusOK {
+		t.Fatalf("running delete status=%d body=%s", response.Code, response.Body)
+	}
+	for _, id := range []string{open.ID, running.ID} {
+		if _, ok := registry.Get(id); ok {
+			t.Fatalf("chat %s survived", id)
+		}
+	}
+	found := []string{}
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() {
+			if data, readErr := os.ReadFile(path); readErr == nil && (bytes.Contains(data, []byte("PLANTED-2py-OPEN")) || bytes.Contains(data, []byte("PLANTED-2py-RUNNING"))) {
+				found = append(found, path)
+			}
+		}
+		return nil
+	})
+	if len(found) != 0 {
+		t.Fatalf("the deleted chats survive in %v", found)
 	}
 	if value, _ := memories.Read(cfg.Workspace); !strings.Contains(value, "keep project fact") {
-		t.Fatalf("memory was not kept by close: %q", value)
-	}
-	if response := deleteConsole(t, server, "/api/sessions/main"); response.Code != http.StatusOK {
-		t.Fatalf("closed delete status=%d body=%s", response.Code, response.Body)
+		t.Fatalf("the memory note was not kept: %q", value)
 	}
 }
 
@@ -218,3 +268,57 @@ func postConsole(t *testing.T, server *Server, path, body string) *httptest.Resp
 	server.Handler().ServeHTTP(response, request)
 	return response
 }
+
+// Item 2py CHECK 3, the PC's side: a paired phone is told the chat was deleted, on
+// the stream it already receives, and a phone that reconnects is not sent it again.
+func TestAPairedPhoneIsToldADeletion2py(t *testing.T) {
+	server, registry, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	item, err := registry.Create("phone chat", "coder", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Close(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	phone := &deletionPhone{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go server.streamUnitsToDevice(ctx, phone)
+	time.Sleep(100 * time.Millisecond)
+	if response := deleteConsole(t, server, "/api/sessions/"+item.ID); response.Code != http.StatusOK {
+		t.Fatalf("delete: %d %s", response.Code, response.Body)
+	}
+	for deadline := time.Now().Add(2 * time.Second); !phone.saw(`"chat.deleted"`) || !phone.saw(item.ID); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the phone was not told: %s", phone.text())
+		}
+	}
+	again := &deletionPhone{}
+	reconnect, stop := context.WithCancel(context.Background())
+	go server.streamUnitsToDevice(reconnect, again)
+	time.Sleep(100 * time.Millisecond)
+	stop()
+	if again.saw(item.ID) {
+		t.Fatal("a reconnecting phone was sent the deleted chat")
+	}
+}
+
+type deletionPhone struct {
+	mu    sync.Mutex
+	units []string
+}
+
+func (d *deletionPhone) Deliver(plaintext []byte) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.units = append(d.units, string(plaintext))
+	return nil
+}
+func (d *deletionPhone) Notify(string, string, string) error { return nil }
+func (d *deletionPhone) text() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return strings.Join(d.units, "\n")
+}
+func (d *deletionPhone) saw(fragment string) bool { return strings.Contains(d.text(), fragment) }

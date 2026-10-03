@@ -441,7 +441,9 @@ export function initShell(options = {}) {
       rename.onclick = () => showRename(row, session, menu, agentID);
       const remove = button("×", `Delete ${chatName(session)}`, "agent-chat-delete");
       remove.onclick = () => void deleteChat(session, menu, agentID);
-      remove.disabled = store.replay || isRunning(session);
+      // Item 2py (f): Delete works whatever the chat is doing; the server stops and
+      // closes it first.
+      remove.disabled = store.replay;
       row.append(summary, rename, remove);
 	  const chat = (tree.chats || []).find((item) => item.id === session.id);
 	  (targets.get(chat?.folder || "") || menu).append(row);
@@ -472,9 +474,9 @@ export function initShell(options = {}) {
     input.select();
   }
 
-  // Item 2hq (v1.6.2): close only moves the chat out of the open tabs. Delete
-  // is the intentional, confirmed act available on an already-closed row.
-  const deleteConfirmText = "Delete this chat? Its memory notes, plans and files stay.";
+  // Item 2hq (v1.6.2): close only moves the chat out of the open tabs. Delete is
+  // the intentional, confirmed act, and since 2py it leaves no copy of the chat.
+  const deleteConfirmText = "Delete this chat permanently? Memory notes it made are kept.";
 
   async function closeChat(session, menu, agentID) {
     if (isRunning(session)) return report("This chat has a running run. Stop it before closing the chat.");
@@ -531,11 +533,9 @@ export function initShell(options = {}) {
   }
 
   async function deleteChat(session, menu, agentID) {
-    if (isRunning(session)) return report("This chat has a running run. Stop it before deleting the chat.");
     if (!window.confirm(deleteConfirmText)) return;
     const wasSelected = store.selection.session_id === session.id;
     try {
-      if (!session.closed) await api(`/api/sessions/${encodeURIComponent(session.id)}/close`, {});
       await api(`/api/sessions/${encodeURIComponent(session.id)}`, undefined, "DELETE");
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
       if (wasSelected) selectAfterClose(session, agentID);

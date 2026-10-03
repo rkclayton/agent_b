@@ -26,7 +26,7 @@ const (
 	// SessionRestoreFailed records a retained chat that did not come back at
 	// startup (item 2gg). Its journal is left on disk untouched.
 	SessionRestoreFailed = "session.restore_failed"
-	ChatExported         = "chat.exported"
+	ChatDeleted          = "chat.deleted"
 	ConnectionProbed     = "connection.probed"
 	ConnectionHealth     = "connection.health"
 	// Item 2nb (b): one per address the endpoint walk tries, as it lands, so the sheet

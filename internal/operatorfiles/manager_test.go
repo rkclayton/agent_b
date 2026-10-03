@@ -1,6 +1,8 @@
 package operatorfiles
 
 import (
+	"bytes"
+	"log"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -128,12 +130,11 @@ func TestOutboxUsesHumanEventVocabulary(t *testing.T) {
 	manager.HandleEvent(events.New(events.ApprovalRequired, "s1", "r1", map[string]any{}), snapshot)
 	manager.HandleEvent(events.New(events.RunStopped, "s1", "r1", map[string]any{"reason": "done"}), snapshot)
 	manager.HandleEvent(events.New(events.RunStopped, "s1", "r2", map[string]any{"reason": "safe"}), snapshot)
-	manager.HandleEvent(events.New(events.ChatExported, "s1", "", map[string]any{"path": "chats/release.md"}), snapshot)
 	data, err := os.ReadFile(manager.OutboxPath())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"pause:", "needs you:", "done:", "stopped:", "ready to test:"} {
+	for _, want := range []string{"pause:", "needs you:", "done:", "stopped:"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("OUTBOX missing %q:\n%s", want, data)
 		}
@@ -159,55 +160,6 @@ func TestStateIsAtomicallyReplacedAtRunAndTurnBoundaries(t *testing.T) {
 	}
 	if temporary, _ := filepath.Glob(filepath.Join(manager.Root(), ".STATE-*.tmp")); len(temporary) != 0 {
 		t.Fatalf("temporary files remain: %v", temporary)
-	}
-}
-
-func TestChatExportGoldenCollapsesToolsAndReferencesAttachments(t *testing.T) {
-	manager, _ := testManager(t)
-	manager.now = func() time.Time { return time.Date(2026, 9, 8, 2, 3, 4, 0, time.UTC) }
-	ok := true
-	path, err := manager.ExportChat(session.Snapshot{ID: "s1", Label: "Review build", AgentName: "Local", Workspace: filepath.Join(manager.Root(), "repo"), Messages: []events.Message{
-		{Role: "user", Content: "Review this.", Attachments: []events.Attachment{{Path: "attachments/spec.pdf"}}},
-		{Role: "system", Category: "summary", Content: "Progress note (auto-summary of earlier turns):\nKept the requested change.\n\n[BEGIN COMPACTION EVIDENCE]\n{\"excerpt\":\"prompt only\"}\n[END COMPACTION EVIDENCE]"},
-		{Role: "assistant", Content: "Checking.", Turn: 1, ToolCalls: []events.ToolCall{{Name: "read_file"}}},
-		{Role: "tool", Name: "read_file", Turn: 1, OK: &ok, Content: "body intentionally omitted"},
-		{Role: "assistant", Content: "Done.", Turn: 1},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, _ := os.ReadFile(path)
-	want := "# Review build\n\n- chat: `s1`\n- agent: Local\n- folder: `" + filepath.Join(manager.Root(), "repo") + "`\n- closed: 2026-09-08T02:03:04Z\n\n## Transcript\n\n### You\n\nReview this.\n\n- attachment: `attachments/spec.pdf`\n\n### Summary\n\nKept the requested change.\n\n### Agent\n\nChecking.\n\n- tool `read_file` · requested · turn 1\n\n- tool `read_file` · ok · turn 1\n\n### Agent\n\nDone.\n"
-	if string(data) != want {
-		t.Fatalf("export mismatch\n--- got ---\n%s\n--- want ---\n%s", data, want)
-	}
-}
-
-func TestChatExportReadsCurrentJSONLGenerationBeforeCompaction(t *testing.T) {
-	manager, _ := testManager(t)
-	logPath := filepath.Join(manager.logDir, "s1-current.jsonl")
-	ok := true
-	event := events.New(events.MessageAppended, "s1", "r1", map[string]any{"message": events.Message{ID: "tool-1", Role: "tool", Name: "shell", Turn: 1, OK: &ok}})
-	data, err := json.Marshal(event)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(manager.logDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(logPath, append(data, '\n'), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	path, err := manager.ExportChat(session.Snapshot{ID: "s1", Label: "Compacted", AgentName: "Local", Workspace: manager.Root(), LogPath: logPath})
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(body), "- tool `shell` · ok · turn 1") {
-		t.Fatalf("export = %q", body)
 	}
 }
 
@@ -325,5 +277,53 @@ func TestRetentionRefusesARootThatIsNotAPlainDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(victim); err != nil {
 		t.Fatalf("retention followed a link: %v", err)
+	}
+}
+
+// Item 2py CHECK 2: the sweep removes what the old delete-time export wrote, and
+// nothing else — a live chat in the store, its folder, and a file someone named
+// like an export in a folder named like one all stay. One count line, no names.
+func TestTheExportSweepRemovesOnlyOldExports2py(t *testing.T) {
+	root := t.TempDir()
+	write := func(path, body string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	export := "# Review build\n\n- chat: `s1`\n- agent: Local\n- folder: `C:/x`\n- closed: 2026-09-30T10:00:00Z\n\n## Transcript\n\n### You\n\nPLANTED words\n"
+	write(filepath.Join(root, "chats", "repo-1a2b3c4d", "2026-09-30-Review-build.md"), export)
+	write(filepath.Join(root, "chats", "repo-1a2b3c4d", "2026-09-30-Review-build-2.md"), export)
+	kept := []string{
+		filepath.Join(root, "chats", "s1.jsonl"),
+		filepath.Join(root, "chats", "chat (3)", "chat.json"),
+		filepath.Join(root, "chats", "notes-0badf00d", "2026-10-01-plan.md"),
+	}
+	for _, path := range kept {
+		write(path, "his own words\n")
+	}
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(previous)
+	removed, err := SweepChatExports([]string{root})
+	if err != nil || removed != 2 {
+		t.Fatalf("removed %d, %v", removed, err)
+	}
+	if line := output.String(); !strings.Contains(line, "chat export sweep: removed 2 file(s) from 1 profile(s)") || strings.Contains(line, "Review") || strings.Contains(line, "repo-") {
+		t.Fatalf("log line = %q", line)
+	}
+	for _, path := range kept {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("%s did not survive: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "chats", "repo-1a2b3c4d")); !os.IsNotExist(err) {
+		t.Errorf("the emptied export folder stayed: %v", err)
+	}
+	if again, _ := SweepChatExports([]string{root}); again != 0 {
+		t.Errorf("a second start swept %d", again)
 	}
 }

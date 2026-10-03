@@ -531,16 +531,22 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "session not found", "session")
 			return
 		}
-		if !item.Snapshot().Closed {
-			writeError(w, http.StatusConflict, "session must be closed before deletion", "session")
-			return
+		// Item 2py (f): DELETE ON AN OPEN OR RUNNING CHAT IS ONE ACT. "if its live chat
+		// you close the chat then delete it": a running run is stopped, the chat is
+		// closed, and then it is deleted.
+		if item.IsRunning() && s.scheduler != nil {
+			s.scheduler.Stop(id, false)
 		}
-		// Item 2hq: deletion is intentional and can only follow close. The journal, the
-		// scratch folder, its attachments, its history entry and its tab go;
-		// what the chat produced elsewhere - memory notes, plans, reflection
-		// rows, files written into a repository - is not the chat and stays.
-		// The export above runs first, so the markdown of what was said
-		// survives the chat itself.
+		if !item.Snapshot().Closed {
+			if err := s.registry.Close(id); err != nil {
+				writeError(w, http.StatusConflict, err.Error(), "session")
+				return
+			}
+		}
+		// Item 2hq, as 2py changed it: the journal, the scratch folder, its
+		// attachments, its history entry and its tab go, and no copy is written;
+		// what the chat produced elsewhere - memory notes, plans, files written
+		// into a repository - is not the chat and stays.
 		inventory, err := s.deleteChat(item)
 		if err != nil {
 			writeError(w, http.StatusConflict, err.Error(), "session")
@@ -557,16 +563,14 @@ func (s *Server) deleteChat(item *session.Session) (events.SessionInventory, err
 	if s.runner != nil {
 		s.runner.LapseSessionGrants(id)
 	}
-	if s.operatorFiles != nil {
-		if path, err := s.operatorFiles.ExportChat(item.Snapshot()); err != nil {
-			s.bus.Publish(events.New(events.Error, id, "", map[string]any{"where": "chat_export", "message": err.Error()}))
-		} else {
-			s.bus.Publish(events.New(events.ChatExported, id, "", map[string]any{"path": path}))
-		}
-	}
+	// Item 2py (a): DELETE DELETES. No export is written; what was said is gone, and
+	// every client — the paired phone included — is told so it drops its copy.
 	inventory, err := s.registry.Delete(id)
 	if err == nil && s.projector != nil {
 		s.projector.Delete(id)
+	}
+	if err == nil {
+		s.bus.Publish(events.New(events.ChatDeleted, "", "", map[string]any{"session_id": id}))
 	}
 	return inventory, err
 }

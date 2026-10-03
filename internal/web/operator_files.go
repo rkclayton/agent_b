@@ -16,7 +16,7 @@ func (s *Server) operatorAttachments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.operatorFiles == nil {
-		writeError(w, http.StatusNotImplemented, "operator files are unavailable", "operator_files")
+		writeError(w, http.StatusNotImplemented, "the files folder is unavailable", "operator_files")
 		return
 	}
 	root := s.operatorFiles.AttachmentsPath()
@@ -57,7 +57,7 @@ func (s *Server) operatorAttachments(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) operatorFileState(w http.ResponseWriter, r *http.Request) {
 	if s.operatorFiles == nil {
-		writeError(w, http.StatusNotImplemented, "operator files are unavailable", "operator_files")
+		writeError(w, http.StatusNotImplemented, "the files folder is unavailable", "operator_files")
 		return
 	}
 	switch r.Method {

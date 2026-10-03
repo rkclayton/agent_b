@@ -74,7 +74,7 @@ func (m *Manager) AttachmentsPath() string { return filepath.Join(m.root, "attac
 
 func (m *Manager) Ensure() error {
 	if err := os.MkdirAll(m.AttachmentsPath(), 0o700); err != nil {
-		return fmt.Errorf("create operator attachments: %w", err)
+		return fmt.Errorf("create user attachments: %w", err)
 	}
 	for _, path := range []string{m.InboxPath(), m.OutboxPath()} {
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)

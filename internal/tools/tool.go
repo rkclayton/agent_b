@@ -199,7 +199,7 @@ func (r *Registry) CallAsOperator(ctx context.Context, s *session.Session, name 
 	}
 	override, ok := tool.(OperatorOverrideTool)
 	if !ok {
-		return fmt.Sprintf("error: tool %s has no operator-identity override", name), false
+		return fmt.Sprintf("error: tool %s has no user-identity override", name), false
 	}
 	result, err := override.CallAsOperator(ctx, s, args)
 	if err != nil {

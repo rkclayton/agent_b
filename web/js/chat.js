@@ -154,7 +154,7 @@ subscribe((_state, event) => {
     applyReadingSettings();
     const open = newestOpenSessions();
     // Item 2gn: a link that names a chat opens THAT chat, closed or open. The
-    // `!closed` test sent the operator to whatever chat happened to be
+    // `!closed` test sent the user to whatever chat happened to be
     // selected — five of five ids in the v1.1.2 probe — and nine of his ten
     // retained chats are closed, so it was his whole history.
     if (requested && store.sessions[requested]) { askedFor = requested; changeBound(requested); requested = ""; }
@@ -238,7 +238,7 @@ export function unmountChat() {
 
 // Item 2ms: THE PANE MAY ONLY FALL BACK TO A CHAT THE STRIP WOULD SHOW.
 //
-// This is the operator's sighting, found against a copy of his own restored journal
+// This is the user's sighting, found against a copy of his own restored journal
 // set: of his 34 chats, 33 are closed and the one that is not is s23, role `c` — a
 // WORKER. The strip refuses role c ("a worker has no chat"), and this fallback only
 // filtered `closed`, so with every chat of his own closed the window bound to the
@@ -1071,7 +1071,7 @@ function noticeContent(session, entry, actionable) {
     content.classList.add("alarm");
   } else if (event.type === "memory.noted") {
     // Item 2jf (e): the row says WHICH KIND of note and whether it replaced one,
-    // because "noted for next session" told the operator nothing about what the
+    // because "noted for next session" told the user nothing about what the
     // agent now believes. An untrusted turn is marked, since that is the note
     // worth a second look.
     const scope = data.scope ? ` · ${data.scope}` : "";
@@ -1093,7 +1093,7 @@ function noticeContent(session, entry, actionable) {
     const executable = data.executable ? ` · ${data.executable}` : "";
 		content.textContent = `shell grant lapsed: ${String(data.rule || "shell").replaceAll("_", " ")}${executable}`;
 	}
-	else if (event.type === "file.grant") content.textContent = `file-tool grant: operator · for this ${data.scope === "session" ? "chat" : "run"}`;
+	else if (event.type === "file.grant") content.textContent = `file-tool grant: Run as you · for this ${data.scope === "session" ? "chat" : "run"}`;
 	else if (event.type === "file.grant_lapsed") content.textContent = `file-tool grant lapsed: ${data.scope === "session" ? "chat closed" : "run ended"}`;
 	else if (event.type === "service.identity_unavailable") {
 		content.textContent = data.message || "Agent_b sets up its service identity now; Windows will ask once";
@@ -1246,7 +1246,7 @@ function renderComposer(session) {
   const state = session?.pending_approval || session?.pending_repo_policy ? "waiting for you" : queuedBehind || session?.run?.status || "idle";
   const unreachable = session?.model_unreachable;
   const busy = session?.model_busy;
-  const operatorUntil = store.shell_identity?.operator_context ? `operator mode · until ${shortTime(store.shell_identity.operator_context_expires_at)}` : "";
+  const operatorUntil = store.shell_identity?.operator_context ? `Run as you · until ${shortTime(store.shell_identity.operator_context_expires_at)}` : "";
   const queueText = queued ? `queued (${queued})${unreachable ? " · waiting for model" : ""}` : "";
   const activity = liveActivityText(session);
   // A reachable open request says what it is doing and how much it has done;
@@ -1262,7 +1262,7 @@ function renderComposer(session) {
   const running = !!activity;
   // Item 2m4: THE ONE WAITING ELEMENT, EARNING ITS PLACE.
   //
-  // The model wait is the case the operator described — "chatting and hoping the
+  // The model wait is the case the user described — "chatting and hoping the
   // model catches it" — so this is where it goes first. It appears only while a
   // run is live and nothing has been written back yet, which is exactly the
   // interval where the product previously showed a blinking glyph and a sentence

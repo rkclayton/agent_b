@@ -114,7 +114,7 @@ function shell(active) {
 	const identityAlarm = (identityOn || serviceAccountBusy) && serviceAccountStatus.loaded && serviceAccountStatus.state !== "ready";
 	const serviceLogHref = serviceAccountLog ? encodeURI(`file:///${serviceAccountLog.replaceAll("\\", "/")}`) : "";
 	const serviceStepLines = serviceAccountSteps.map((line) => `<p class="account-status">${html(line)}</p>`).join("");
-  return `${subhead("Operator mode", "Run everything as you for 20 minutes. This is the one line that stays visible because misreading it is dangerous.")}
+  return `${subhead("Run as you", "Run everything as you for 20 minutes. This is the one line that stays visible because misreading it is dangerous.")}
 	${row("identity", `<button type="button" class="settings-operator-status" data-action="operator-context" aria-pressed="${operatorView.active}" aria-label="${attr(operatorView.label)}"><img src="${operatorView.src}" srcset="${operatorView.srcset}" width="24" height="24" alt=""><span>${operatorView.active ? "Stop running everything as me" : "Run everything as me for 20 minutes"}</span></button>`, "", "Runs every tool as you, without the service account's limits, for 20 minutes or until you stop it.")}
 	<p class="settings-note">This defeats the service-account OS boundary for every tool in every chat until it expires.</p>
 	${subhead("Unattended", "Never ask. A worker or scheduled run that would have raised a card records a boundary failure on its item and carries on; the report lists every one. This changes who is asked, not who runs anything and not what the boundary permits.")}
@@ -185,7 +185,7 @@ function credentialRows() {
 // two screens, the paired device, Revoke, and what the connection is doing right now.
 //
 // The broker carries ciphertext and cannot read any of it. The fingerprint is the whole
-// of the operator's part in that: if the two screens differ, the pairing is not his.
+// of the user's part in that: if the two screens differ, the pairing is not his.
 function brokerRows() {
 	// Item 2nu (b): the address is built into the build and is not in this page — no
 	// field, no label, no read-out. The section is the pairing, the paired device and

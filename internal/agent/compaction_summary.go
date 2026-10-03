@@ -37,7 +37,7 @@ const compactionNoteHeaderPrefix = "Progress note (auto-summary of "
 // output can omit or paraphrase them - and the prompt is left asking only for a
 // summary, which it can produce under its cap.
 const compactionInstruction = "Summarize the work so far for your own future reference, under these headings exactly:\n" +
-	"INTENT: the task you were asked to do, in the operator's terms.\n" +
+	"INTENT: the task you were asked to do, in the user's terms.\n" +
 	"The user messages of the span are carried into the note verbatim by Agent_b itself: they are not yours to reproduce, and not yours to summarize away.\n" +
 	"FILES: each file touched and what changed in it.\n" +
 	"ERRORS AND FIXES: each error observed and what resolved it, or that it is unresolved.\n" +
@@ -149,7 +149,7 @@ func (r *Runner) summaryMessages(connection *config.Connection, s *session.Sessi
 // summaryRequestMessages makes the summary request a request like any other
 // (item 2o8 (b)). It is normalized at the one boundary every request uses: the
 // journal's harness notes are not roles a server's template knows, and the
-// operator's 408,109-byte stop was exactly this request refused as "Unexpected
+// user's 408,109-byte stop was exactly this request refused as "Unexpected
 // message role". And it is measured against the connection's byte limit and
 // trimmed by the same rule first, never sent over it.
 func summaryRequestMessages(connection *config.Connection, messages []llm.Message) ([]llm.Message, error) {
@@ -213,7 +213,7 @@ func compactionNoteHeader(s *session.Session) string {
 // carryLimitBytes is what item 2mm (c) bounds the carried block by: a quarter of the
 // connection's context, in bytes at this product's usual 3.6 bytes per token. A
 // window that cannot say how big it is gets a fixed 24 KB, which is far more than
-// any span of user messages measured on the operator's own chats — the largest
+// any span of user messages measured on the user's own chats — the largest
 // there is 331 words across a whole chat.
 func carryLimitBytes(connection *config.Connection) int {
 	if connection != nil && connection.Context.NCtx > 0 {

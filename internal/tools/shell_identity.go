@@ -127,7 +127,7 @@ func serviceBoundaryReason(operatorCommand, output string) string {
 		candidate := cleanShellScriptToken(token)
 		if filepath.IsAbs(candidate) {
 			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return "service account could not access an operator-visible executable"
+				return "service account could not access a user-visible executable"
 			}
 		}
 	}
@@ -370,7 +370,7 @@ func (s *Shell) configuredIdentityStatus() ShellIdentityStatus {
 	return ShellIdentityStatus{
 		OperatorContext:          true,
 		OperatorContextExpiresAt: s.config().OperatorContextExpiresAt,
-		Reason:                   "operator context is enabled; tools are running as the Windows account that launched Agent_b",
+		Reason:                   "Run as you is on; tools are running as the Windows account that launched Agent_b",
 		Since:                    time.Now().UTC().Format(time.RFC3339),
 	}
 }

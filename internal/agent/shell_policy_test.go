@@ -497,7 +497,7 @@ func TestConfiguredOperatorCommandNeverUsesServiceIdentity(t *testing.T) {
 		t.Fatalf("required=%#v", required)
 	}
 	if tool.normalCalls != 0 || tool.overrideCalls != 0 {
-		t.Fatal("operator command ran before grant")
+		t.Fatal("Run as you command ran before grant")
 	}
 	if err := runner.gate.Decide(s.ID, "git-1", "run"); err != nil {
 		t.Fatal(err)
@@ -506,7 +506,7 @@ func TestConfiguredOperatorCommandNeverUsesServiceIdentity(t *testing.T) {
 		t.Fatalf("first=%+v", outcome)
 	}
 	if got := tool.operatorArgs["command"]; got != `git status; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }` {
-		t.Fatalf("operator command=%q", got)
+		t.Fatalf("Run as you command=%q", got)
 	}
 	second := runner.executeTool(context.Background(), s, "run", "git-2", "shell", map[string]any{"command": "git status --short"})
 	if !second.OK || !second.OperatorContext || tool.normalCalls != 0 || tool.overrideCalls != 2 {
@@ -540,7 +540,7 @@ func TestConfiguredOperatorCommandDenialNamesRuleAndDoesNotFallBack(t *testing.T
 		t.Fatal(err)
 	}
 	outcome := <-done
-	if outcome.OK || !strings.Contains(outcome.Content, "operator command rule: git must run as the operator") || tool.normalCalls != 0 || tool.overrideCalls != 0 {
+	if outcome.OK || !strings.Contains(outcome.Content, "Run as you command rule: git must run as the user") || tool.normalCalls != 0 || tool.overrideCalls != 0 {
 		t.Fatalf("outcome=%+v normal=%d operator=%d", outcome, tool.normalCalls, tool.overrideCalls)
 	}
 }

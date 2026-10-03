@@ -167,7 +167,7 @@ func TestOperatorOverrideDenialDoesNotRetry(t *testing.T) {
 	select {
 	case got := <-done:
 		// Item 2eo: the denial is a harness note, not part of what the tool returned.
-		denialReported := strings.Contains(got.note, "denied by the user") && strings.Contains(got.content, "[harness: operator-identity override was offered and denied by the user]")
+		denialReported := strings.Contains(got.note, "denied by the user") && strings.Contains(got.content, "[harness: user-identity override was offered and denied by the user]")
 		if got.ok || !denialReported || !strings.Contains(got.content, "Access to the path is denied") {
 			t.Fatalf("denial result=%#v", got)
 		}

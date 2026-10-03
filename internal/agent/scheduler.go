@@ -106,7 +106,7 @@ func (s *Scheduler) notifyAgentIdleLocked(agentID string) {
 // three ordinary history messages that nothing would ever send.
 //
 // They come back HELD, not running. The queue existed because something was in the
-// way; a restart is not evidence that it has cleared, and the operator's next
+// way; a restart is not evidence that it has cleared, and the user's next
 // message releases them in order exactly as it does after a stop.
 func (s *Scheduler) RestoreQueue(item *session.Session) int {
 	if item == nil {
@@ -218,7 +218,7 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 		position := len(s.pending[sessionID])
 		item.SetQueuedMessages(position)
 		// Item 2fg: Stop holds queued messages, including one sent while the run
-		// is still stopping; only the operator's next message releases the hold.
+		// is still stopping; only the user's next message releases the hold.
 		if active := s.active[sessionID]; active != nil && active.stopReason != "" {
 			s.held[sessionID] = true
 		}
@@ -660,7 +660,7 @@ func canonicalTerminalReason(reason string) string {
 		return "tool-errors"
 	// Item 2lw (c): these four are DECLARED reasons that fell through to
 	// "harness-error", which is a wrong answer rather than a missing one. A run
-	// the operator's mailbox stopped, or that stopped because the model repeated
+	// the user's mailbox stopped, or that stopped because the model repeated
 	// itself, or that could not start because its connection is not runnable, is
 	// not a defect in the harness -- and calling it one sends anybody reading the
 	// accounting looking for a bug that is not there.

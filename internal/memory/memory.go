@@ -79,7 +79,7 @@ func (m *Manager) Load(ctx context.Context, workspace, connectionID string) (str
 }
 func (m *Manager) LoadAgent(ctx context.Context, agentID, connectionID string) (string, string, error) {
 	path := m.AgentPath(agentID)
-	return m.load(ctx, path, connectionID, "Notes about how this agent works with the operator:")
+	return m.load(ctx, path, connectionID, "Notes about how this agent works with the user:")
 }
 func (m *Manager) load(ctx context.Context, path, connectionID, heading string) (string, string, error) {
 	if !m.cfg().Memory.Enabled {

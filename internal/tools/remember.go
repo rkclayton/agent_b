@@ -50,7 +50,7 @@ func (r *Remember) SetConfig(cfg func() config.Config) { r.cfg = cfg }
 
 func (*Remember) Name() string { return "remember" }
 func (*Remember) Description() string {
-	return "Save one durable fact a future chat will need. Call recall first. Say its scope: user (about the operator), repository (about this project), or environment (about this machine). If it supersedes a note, pass that note's text as replaces and it is removed in the same write. Two notes per run; a layer that is full refuses the write and names what to do. Never save command output, tool results, transient state, or anything already recorded by this chat."
+	return "Save one durable fact a future chat will need. Call recall first. Say its scope: user (about the user), repository (about this project), or environment (about this machine). If it supersedes a note, pass that note's text as replaces and it is removed in the same write. Two notes per run; a layer that is full refuses the write and names what to do. Never save command output, tool results, transient state, or anything already recorded by this chat."
 }
 func (*Remember) Schema() map[string]any {
 	return map[string]any{
@@ -64,10 +64,10 @@ func (*Remember) Schema() map[string]any {
 	}
 }
 
-// MaxWritesPerRun is (c). Two is the operator's number.
+// MaxWritesPerRun is (c). Two is the user's number.
 const MaxWritesPerRun = 2
 
-// layerFor is (b)'s routing: user and environment are about the operator and
+// layerFor is (b)'s routing: user and environment are about the user and
 // the machine, so they follow the agent everywhere; repository is about this
 // project, so it follows the folder. A repository note with no folder in scope
 // falls to the agent layer, which is item 2fh's existing rule and is kept.
@@ -84,7 +84,7 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 		return "", fmt.Errorf("note is empty")
 	}
 	if memory.AboutAgentNote(note) {
-		return "error: remember refused: notes about the agent's own tools are not kept; the operator decides what the agent may do", nil
+		return "error: remember refused: notes about the agent's own tools are not kept; the user decides what the agent may do", nil
 	}
 	// (b): an unscoped note is REFUSED. The scope is the model saying what kind
 	// of fact this is, and guessing it for them is how the folder layer filled
@@ -93,7 +93,7 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	switch scope {
 	case "user", "repository", "environment":
 	case "":
-		return "error: scope is required: user (about the operator), repository (about this project), or environment (about this machine)", nil
+		return "error: scope is required: user (about the user), repository (about this project), or environment (about this machine)", nil
 	default:
 		return fmt.Sprintf("error: scope %q is not one of user, repository or environment", scope), nil
 	}

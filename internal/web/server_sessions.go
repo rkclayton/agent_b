@@ -345,7 +345,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 3 && parts[1] == "grants" && parts[2] == "revoke" && r.Method == http.MethodPost {
 		if err := s.operatorRequest(r); err != nil {
-			writeError(w, http.StatusForbidden, "Run as you can be revoked only by the verified local operator process", "session_id")
+			writeError(w, http.StatusForbidden, "Run as you can be revoked only by the verified local process of the user", "session_id")
 			return
 		}
 		if _, ok := s.registry.Get(id); !ok {

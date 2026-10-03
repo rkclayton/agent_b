@@ -89,7 +89,7 @@ func (s *Server) currentOperatorStatusLocked() tools.ShellIdentityStatus {
 	return tools.ShellIdentityStatus{
 		OperatorContext:          true,
 		OperatorContextExpiresAt: s.operatorExpires,
-		Reason:                   "operator context is enabled; tools are running as the Windows account that launched Agent_b",
+		Reason:                   "Run as you is on; tools are running as the Windows account that launched Agent_b",
 	}
 }
 
@@ -141,12 +141,12 @@ func (s *Server) applyOperatorContextPatch(w http.ResponseWriter, r *http.Reques
 		return false
 	}
 	if !only {
-		writeError(w, http.StatusBadRequest, "save other settings separately from the operator-context switch", "shell.operator_context")
+		writeError(w, http.StatusBadRequest, "save other settings separately from the Run as you switch", "shell.operator_context")
 		return true
 	}
-	reason := "disabled by operator request"
+	reason := "disabled by user request"
 	if enabled {
-		reason = "enabled by verified operator process"
+		reason = "enabled by verified process of the user"
 	}
 	s.setOperatorContext(enabled, reason, 0)
 	writeJSON(w, http.StatusOK, s.ConfigSnapshot().Masked())

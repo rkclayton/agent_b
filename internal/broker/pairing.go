@@ -157,7 +157,7 @@ type PairingOffer struct {
 // BeginPairing runs the agent's half of the flow over one transport: PAIR_BEGIN with
 // the code hash, then PAIR_PEER, then PAIR_CONFIRM once the caller has shown the
 // fingerprint, then PAIR_COMPLETE. The caller supplies `confirm`, which is where the
-// operator's comparison happens — this function does not decide that for him.
+// user's comparison happens — this function does not decide that for him.
 func BeginPairing(transport Transport, identity Identity, code string, receive func() (Frame, error), confirm func(offer PairingOffer) bool) (Pairing, error) {
 	raw, err := DecodePairingCode(code)
 	if err != nil {
@@ -226,7 +226,7 @@ func BeginPairing(transport Transport, identity Identity, code string, receive f
 			// THE OPERATOR'S COMPARISON. Nothing is confirmed until he says the two
 			// screens match.
 			if confirm != nil && !confirm(offer) {
-				return Pairing{}, errors.New("pairing: the operator did not confirm the fingerprint")
+				return Pairing{}, errors.New("pairing: the user did not confirm the fingerprint")
 			}
 			transcript := TranscriptHash(pairingID, identity.SigningPublic(), identity.AgreementPublic(), deviceSigning, deviceAgreement)
 			confirmFrame, err := Encode(FramePairConfirm, pairConfirmPayload{
@@ -273,7 +273,7 @@ func (Identity) keyIDFor(signing, agreement []byte) []byte {
 	return digest.Sum(nil)[:16]
 }
 
-// Revoke ends a pairing from this side. The reason is the fixed one the operator's
+// Revoke ends a pairing from this side. The reason is the fixed one the user's
 // action means: he pressed Revoke.
 func Revoke(transport Transport, identity Identity, pairingID []byte) error {
 	const reason = "operator_revoked"
@@ -293,7 +293,7 @@ func Revoke(transport Transport, identity Identity, pairingID []byte) error {
 }
 
 // Item 2ns (a): THE PAIRING LINK, defined by docs/pairing-link-v1.md and built in one
-// place. The operator never types the code: "this code is waaay too long its insane",
+// place. The user never types the code: "this code is waaay too long its insane",
 // "we dont need to have them enter a code do we?". The code itself is unchanged — its
 // length is its margin, and shortening it would be a wire change in three repositories.
 //

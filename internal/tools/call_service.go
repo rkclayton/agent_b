@@ -86,7 +86,7 @@ func NewCallService(services map[string]config.Service) *CallService {
 func (*CallService) Name() string { return "call_service" }
 
 func (*CallService) Description() string {
-	return "Call a registered service, or when the operator asks, draft a connector add/edit/remove for approval. Never propose a connector unsolicited or ask for a token when an auth helper exists."
+	return "Call a registered service, or when the user asks, draft a connector add/edit/remove for approval. Never propose a connector unsolicited or ask for a token when an auth helper exists."
 }
 
 // Schema is built from the CONFIGURED CONNECTORS each time it is asked for. Item 2nr (d):
@@ -99,7 +99,7 @@ func (c *CallService) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"connector": map[string]any{"type": "object", "description": "Operator-requested connector change: operation add, edit, or remove; entry has name, url, kind (mcp or http), auth, allowed_methods for http, and openapi {document, operations} to import an OpenAPI document"},
+			"connector": map[string]any{"type": "object", "description": "User-requested connector change: operation add, edit, or remove; entry has name, url, kind (mcp or http), auth, allowed_methods for http, and openapi {document, operations} to import an OpenAPI document"},
 			"operation": map[string]any{"type": "string", "description": c.operationsDescription()},
 			"accept":    map[string]any{"type": "string", "description": "One response content type declared by the chosen imported operation"},
 			"params":    map[string]any{"type": "object", "description": "Parameters for operation, by the document's own names", "additionalProperties": true},
@@ -676,7 +676,7 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 		return "", "", nil, true, destinationErr
 	}
 	command := exec.CommandContext(credentialContext, argv[0], argv[1:]...)
-	// (g): no window on the operator's desktop, ever. Measured at W0: this child had
+	// (g): no window on the user's desktop, ever. Measured at W0: this child had
 	// none of the quiet-start flags, so a console helper flashed a window.
 	quietproc.Quiet(command)
 	output, runErr := command.Output()

@@ -259,7 +259,7 @@ export function setSelection(agentID, sessionID = "") {
   notify({ type: "selection.changed", data: { ...store.selection } });
 }
 // Item 2mf (b): selecting a surface that is not a chat. The chat selection is
-// left exactly as it was, because the operator's chat is still his chat while he
+// left exactly as it was, because the user's chat is still his chat while he
 // is reading the Plan, and one click on its tab must return to it.
 export function setSurface(surface) {
   store.selection = { ...store.selection, surface: surface ? { kind: surface.kind, key: surface.key } : null };

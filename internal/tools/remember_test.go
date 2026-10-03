@@ -69,13 +69,13 @@ func TestRecallReadsRememberEntryAndRememberStillDetectsDuplicate(t *testing.T) 
 func TestRememberRefusesRulesAboutItsOwnTools2p3(t *testing.T) {
 	remember, recall, item, _ := memoryTools(t)
 	result, err := remember.Call(context.Background(), item, map[string]any{"note": "do not search outside the workspace, the approval wedges", "scope": "user"})
-	if err != nil || result != "error: remember refused: notes about the agent's own tools are not kept; the operator decides what the agent may do" {
+	if err != nil || result != "error: remember refused: notes about the agent's own tools are not kept; the user decides what the agent may do" {
 		t.Fatalf("refusal=%q err=%v", result, err)
 	}
 	if recalled, _ := recall.Call(context.Background(), item, nil); recalled != "No saved notes for this folder." {
 		t.Fatalf("refused note was saved: %q", recalled)
 	}
-	if result, err = remember.Call(context.Background(), item, map[string]any{"note": "the operator prefers tabs", "scope": "user"}); err != nil || !strings.HasPrefix(result, "ok: noted") {
+	if result, err = remember.Call(context.Background(), item, map[string]any{"note": "the user prefers tabs", "scope": "user"}); err != nil || !strings.HasPrefix(result, "ok: noted") {
 		t.Fatalf("ordinary preference=%q err=%v", result, err)
 	}
 }
@@ -122,8 +122,9 @@ func TestRememberToolsBlockByteDelta(t *testing.T) {
 	// Item 2kt: the description states the durable/transient boundary before a
 	// call and names the cost of falling through to the agent layer. Item 2jf
 	// rewrote it to carry scope, replaces and the per-run cap, which is why the
-	// number moved -- and the pin is why the move had to be deliberate.
-	const wantDelta = 431
+	// number moved -- and the pin is why the move had to be deliberate. Item 2pz
+	// says "the user" where it said "the operator": 431 to 427.
+	const wantDelta = 427
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("remember tools-block byte delta=%d, want %d", delta, wantDelta)
 	}
@@ -137,7 +138,7 @@ func TestTwoNotesPerRunAndTheThirdIsRefused2jf(t *testing.T) {
 	remember, _, item, _ := memoryTools(t)
 	item.Run.LastRunID = "r1"
 	ctx := context.Background()
-	for index, note := range []string{"the operator prefers focused tests", "the operator reads reports in full"} {
+	for index, note := range []string{"the user prefers focused tests", "the user reads reports in full"} {
 		result, err := remember.Call(ctx, item, map[string]any{"note": note, "scope": "user"})
 		if err != nil || !strings.HasPrefix(result, "ok: noted as user") {
 			t.Fatalf("note %d: %q %v", index+1, result, err)

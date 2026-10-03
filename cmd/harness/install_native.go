@@ -86,7 +86,7 @@ func installPerUserNative(plan nativeInstallPlan, platform nativeInstallPlatform
 		return err
 	}
 	if pathWithin(application, data) || pathWithin(data, application) {
-		return fmt.Errorf("application and operator-data directories must be disjoint")
+		return fmt.Errorf("application and user-data directories must be disjoint")
 	}
 	if err := os.MkdirAll(application, 0o700); err != nil {
 		return err
@@ -117,7 +117,7 @@ func installPerUserNative(plan nativeInstallPlan, platform nativeInstallPlatform
 	}
 	if platform.secure != nil {
 		if err := platform.secure(data, plan.OperatorSID, true); err != nil {
-			return fmt.Errorf("operator-data ACL: %w", err)
+			return fmt.Errorf("user-data ACL: %w", err)
 		}
 	}
 	configPath := filepath.Join(data, "harness.json")

@@ -94,7 +94,7 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 		sandboxed = false
 	}
 	if sandboxed && !forceOperator && !cfg.OperatorContext {
-		reason := "sandbox execution uses the operator's Docker session, outside the agentb-svc identity and firewall boundary"
+		reason := "sandbox execution uses the user's Docker session, outside the agentb-svc identity and firewall boundary"
 		return CallDetail{Content: reason, OperatorOverrideReason: reason, Metadata: map[string]any{"target": "sandbox " + sandboxID}}
 	}
 	if sandboxed {
@@ -118,7 +118,7 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 			if cfg.ServiceAccount.Enabled && refusal.Replacement.Tool == "search" && routingReplacementOutsideWorkspace(item.Workspace, refusal) {
 				refusal.Reason = "direct file discovery path is outside the folder while the service-account split is enabled"
 				refusal.Replacement = nil
-				refusal.Guidance = "paths outside the folder require an operator decision; state the need once and stop rather than retrying paths"
+				refusal.Guidance = "paths outside the folder require a user decision; state the need once and stop rather than retrying paths"
 			}
 			result, _ := json.Marshal(refusal)
 			replacement := "none"
@@ -149,7 +149,7 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	host := shellHostFor(cfg)
 	executed := shellCommandForHost(host, command)
 	if executed != command {
-		// The operator's log shows what the interpreter was actually given,
+		// The user's log shows what the interpreter was actually given,
 		// not only what the model wrote (v1.0.1/W4 cold review).
 		log.Printf("shell rewrote the model's chain operators for PowerShell 5.1: as run: %q", executed)
 	}
@@ -173,12 +173,12 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 			return CallDetail{Content: "command was not started: " + decision.card, OperatorOverrideReason: decision.card, Metadata: outsideMetadata(decision.folders, true)}
 		}
 		if decision.missing != "" {
-			return CallDetail{Err: fmt.Errorf("command was not started: %s; there is nothing for the operator to allow — check the path, or use a file inside your folder", decision.missing)}
+			return CallDetail{Err: fmt.Errorf("command was not started: %s; there is nothing for the user to allow — check the path, or use a file inside your folder", decision.missing)}
 		}
 	}
 	if !forceOperator && cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
 		if name := operatorOnlyInterpreter(command, exec.LookPath, operatorHome()); name != "" {
-			reason := name + " is operator-only; needs Run as you"
+			reason := name + " runs only as you; needs Run as you"
 			return CallDetail{Content: reason, OperatorOverrideReason: reason}
 		}
 	}

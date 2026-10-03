@@ -73,7 +73,7 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 			return CallDetail{Err: fmt.Errorf("Docker Sandbox is enabled but inert: %s", sandboxStatus.Reason)}
 		}
 		if !forceOperator && !cfg.OperatorContext {
-			reason := "sandbox execution uses the operator's Docker session, outside the agentb-svc identity and firewall boundary"
+			reason := "sandbox execution uses the user's Docker session, outside the agentb-svc identity and firewall boundary"
 			return CallDetail{Content: reason, OperatorOverrideReason: reason, Metadata: map[string]any{"target": "sandbox " + sandboxID}}
 		}
 		for _, denied := range cfg.Deny {
@@ -137,7 +137,7 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 			return CallDetail{Content: "script was not started: " + outside.card, OperatorOverrideReason: outside.card, Metadata: outsideMetadata(outside.folders, true)}
 		}
 		if outside.missing != "" {
-			return CallDetail{Err: fmt.Errorf("script was not started: %s; there is nothing for the operator to allow — check the path, or use a file inside your folder", outside.missing)}
+			return CallDetail{Err: fmt.Errorf("script was not started: %s; there is nothing for the user to allow — check the path, or use a file inside your folder", outside.missing)}
 		}
 	}
 	process, usedService, err := t.shell.startInput(cfg, executable, argv, []byte(source), item.Workspace, &output, forceOperator)

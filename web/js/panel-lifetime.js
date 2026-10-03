@@ -25,7 +25,7 @@ export function lifetimeRows(counters = {}, percentile = () => 0) {
   return [
     ["chats", counters.chats || 0], ["runs / briefs", counters.runs || 0], ["turns", counters.turns || 0],
     ["approvals raised / approved", `${counters.approvals_raised || 0} / ${counters.approvals_approved || 0}`],
-    ["operator grants", counters.operator_grants || 0], ["compactions", counters.compactions || 0],
+    ["Run as you grants", counters.operator_grants || 0], ["compactions", counters.compactions || 0],
     ["prompt / completion tokens", `${counters.prompt_tokens || 0} / ${counters.completion_tokens || 0}`],
     ["cache-hit ratio", ratio(counters.cached_tokens || 0, counters.prompt_tokens || 0)],
     ["wall time", duration(counters.wall_ms)], ["model response p50 / max", `${duration(percentile(responses, .5))} / ${duration(Math.max(0, ...responses))}`],

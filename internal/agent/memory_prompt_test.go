@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -15,6 +17,7 @@ import (
 
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/memory"
 	"harness/internal/session"
 	"harness/internal/tools"
 )
@@ -29,8 +32,8 @@ func TestShippedPromptCarriesMemoryAndResolutionGuidanceAndIsByteStable(t *testi
 	text := string(shipped)
 
 	for _, want := range []string{
-		"Remember only a correction the operator gave, a preference they stated, or a fact about their project you had to discover — avoidance of your own tools is never remembered. Recall first; one note per fact; give it a scope.",
-		"Rules: resolve a named plan or repo from the operator's words and work there; ask when more than one could match; nothing named → this chat's folder.",
+		"Remember only a correction the user gave, a preference they stated, or a fact about their project you had to discover — avoidance of your own tools is never remembered. Recall first; one note per fact; give it a scope.",
+		"Rules: resolve a named plan or repo from the user's words and work there; ask when more than one could match; nothing named → this chat's folder.",
 	} {
 		if strings.Count(text, want) != 1 {
 			t.Errorf("shipped prompt does not carry this sentence exactly once:\n%s", want)
@@ -67,7 +70,7 @@ func TestShippedPromptCarriesMemoryAndResolutionGuidanceAndIsByteStable(t *testi
 			t.Errorf("rendered prompt lost %q", want)
 		}
 	}
-	for _, removed := range []string{"repository allow-list", "File tools may use scratch and every listed plan repo", "offer to register it as a plan", "never search the operator's connection"} {
+	for _, removed := range []string{"repository allow-list", "File tools may use scratch and every listed plan repo", "offer to register it as a plan", "never search the user's connection"} {
 		if strings.Contains(first, removed) {
 			t.Errorf("rendered prompt retained removed reach guidance %q", removed)
 		}
@@ -144,7 +147,7 @@ func TestAgentAvoidanceNoteDoesNotPreventTheExistingOutsideFolderCard2p3(t *test
 		ID: "colleague", ConnectionID: connection.ID, Workspace: root, Runnable: true,
 		Run: session.RunState{Status: "running", MaxTurns: 2}, ToolsEnabled: map[string]bool{"list_dir": true},
 		ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{},
-		AgentMemoryBlock: "Notes about how this agent works with the operator:\n- " + badNote + "  [about-agent: yes]",
+		AgentMemoryBlock: "Notes about how this agent works with the user:\n- " + badNote + "  [about-agent: yes]",
 	}
 	if _, err := runner.AddUser(context.Background(), item, "how many folders are in my Downloads"); err != nil {
 		t.Fatal(err)
@@ -187,5 +190,40 @@ func TestAgentAvoidanceNoteDoesNotPreventTheExistingOutsideFolderCard2p3(t *test
 		case <-time.After(5 * time.Second):
 			t.Fatal("the existing outside-folder card was not raised")
 		}
+	}
+}
+
+// Item 2pz CHECK 3: what a chat sends -- the shipped prompt and all thirteen tools'
+// descriptions -- never calls the person the operator.
+func TestAChatRequestNeverSaysOperator2pz(t *testing.T) {
+	renderer, err := LoadTemplate(filepath.Join("..", "..", "prompts", "system.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := make(chan string, 1)
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		body <- string(raw)
+	}))
+	defer model.Close()
+	root, cfg, bus := t.TempDir(), config.Defaults(t.TempDir()), events.NewBus()
+	connection := config.Connection{ID: "main", BaseURL: model.URL, Model: "m", Context: config.Context{NCtx: 131072, ReserveOutput: 8192}}
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+	files, notes := tools.NewFileCoordinator(nil, nil, bus), memory.New(root, func() config.Config { return cfg }, nil)
+	shell, fetch := tools.NewShell(cfg.Shell), tools.NewFetch(cfg.Tools.Fetch)
+	registry := tools.New(tools.NewReadFile(cfg.Tools.ReadFile), tools.NewListDir(cfg.Tools.ListDir), tools.NewWriteFile(files), tools.NewEditFile(files),
+		tools.NewSearch(tools.NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir), tools.NewGlob(cfg.Tools.FindFiles)), shell, tools.NewRemember(notes, bus), tools.NewRecall(notes),
+		fetch, tools.NewWebSearch(fetch, cfg.Tools.WebSearch), tools.NewRunScript(shell), tools.NewCallService(cfg.Services), tools.NewDelegate())
+	item := &session.Session{ID: "word", ConnectionID: "main", Workspace: root, Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 1}, ToolsEnabled: map[string]bool{},
+		ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	for name := range registry.AllSchemas() {
+		item.ToolsEnabled[name] = true
+	}
+	runner := NewRunner(bus, registry, renderer, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
+	_, _ = runner.AddUser(context.Background(), item, "what is in this folder?")
+	go func() { _, _, _ = runner.Run(context.Background(), item, "run-word") }()
+	sent := <-body
+	if !strings.Contains(sent, `"delegate"`) || regexp.MustCompile(`(?i)(^|[^\w-])operator('s)?([^\w-]|$)`).MatchString(sent) {
+		t.Fatalf("the request lacks the tools or says operator: %s", sent)
 	}
 }

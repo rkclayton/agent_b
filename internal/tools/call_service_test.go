@@ -471,10 +471,10 @@ func TestCallServiceToolsBlockByteDelta(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Item 2nr moved this from 1396 to 1734; 2o4's declared response selector makes it
-	// 1845. The operation form is present WITH NO CONNECTOR CONFIGURED.
+	// 1845, and 2pz's "the user" for "the operator" 1837. The operation form is present WITH NO CONNECTOR CONFIGURED.
 	// A connector that has imported a document adds its operations on top, which is the
 	// point of (d) and is paid for only by the installs that have one.
-	const wantDelta = 1845
+	const wantDelta = 1837
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("call_service tools-block byte delta=%d, want %d", delta, wantDelta)
 	}

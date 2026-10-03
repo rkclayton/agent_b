@@ -121,7 +121,7 @@ func TestHardeningLANWideningRequiresVerifiedOperatorProcess(t *testing.T) {
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusForbidden || manager.runCalls != 0 || !strings.Contains(response.Body.String(), "verified local operator") {
+	if response.Code != http.StatusForbidden || manager.runCalls != 0 || !strings.Contains(response.Body.String(), "verified local browser process of the user") {
 		t.Fatalf("status=%d calls=%d body=%s", response.Code, manager.runCalls, response.Body)
 	}
 }

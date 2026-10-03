@@ -63,7 +63,7 @@ function tools(active) {
     ${number("tools.grep.max_matches", "max matches", cfg.tools?.grep?.max_matches, "1", false, "", false, "number", "The most matches one search_text call returns.")}
     ${number("tools.grep.max_line_chars", "max line chars", cfg.tools?.grep?.max_line_chars, "1", false, "", false, "number", "Longer matching lines are cut to this many characters.")}
     ${head("shell")}
-	${text("tools.shell.operator_commands", "operator commands", (cfg.tools?.shell?.operator_commands || []).join(", "), "list", "Commands that always run as you rather than the service identity, comma separated.")}
+	${text("tools.shell.operator_commands", "Run as you commands", (cfg.tools?.shell?.operator_commands || []).join(", "), "list", "Commands that always run as you rather than the service identity, comma separated.")}
     ${number("shell.timeout_s", "timeout", cfg.shell?.timeout_s, "1", false, "", false, "number", "Seconds a shell command may run when the call names no timeout.")}
     ${number("shell.max_timeout_s", "max timeout", cfg.shell?.max_timeout_s, "1", false, "", false, "number", "The longest timeout a shell call may ask for, in seconds.")}
     ${number("shell.max_output_lines_head", "head lines", cfg.shell?.max_output_lines_head, "1", false, "", false, "number", "Lines kept from the start of long shell output.")}

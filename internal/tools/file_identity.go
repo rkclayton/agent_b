@@ -17,7 +17,7 @@ import (
 
 // FileIdentity applies the same configured Windows identity to the built-in
 // file tools that Shell uses. When enabled, absolute paths are authorized by
-// that identity's OS token instead of by the harness operator's token.
+// that identity's OS token instead of by the harness user's token.
 type FileIdentity struct {
 	mu              sync.RWMutex
 	service         config.ShellServiceAccount
@@ -250,9 +250,9 @@ func targetMissing(path string) bool {
 // replay could create one.
 func missingOutside(name, path string) CallDetail {
 	if name == "write_file" || name == "edit_file" {
-		return CallDetail{Err: fmt.Errorf("path is outside the folder and does not exist: %s; a write outside the folder is refused and there is nothing for the operator to allow — write inside your folder", path)}
+		return CallDetail{Err: fmt.Errorf("path is outside the folder and does not exist: %s; a write outside the folder is refused and there is nothing for the user to allow — write inside your folder", path)}
 	}
-	return CallDetail{Err: fmt.Errorf("no such file or directory: %s; it is outside the folder, so there is nothing for the operator to allow — check the path, or use a file inside your folder", path)}
+	return CallDetail{Err: fmt.Errorf("no such file or directory: %s; it is outside the folder, so there is nothing for the user to allow — check the path, or use a file inside your folder", path)}
 }
 
 func fileIdentityOverride(reason string) CallDetail {

@@ -83,10 +83,10 @@ func probeSandboxStatusUncached() SandboxStatus {
 	_, loginErr := shortCommand(executable, "ls", "--json")
 	status.SignedIn = loginErr == nil
 	if loginErr != nil {
-		status.Reason = "sbx is installed but its operator Docker session is unavailable: " + oneLine(loginErr.Error())
+		status.Reason = "sbx is installed but its user Docker session is unavailable: " + oneLine(loginErr.Error())
 	} else {
 		status.Available = true
-		status.Reason = "ready under the operator's Docker session"
+		status.Reason = "ready under the user's Docker session"
 	}
 	version := status.Version
 	if version == "" {
@@ -96,7 +96,7 @@ func probeSandboxStatusUncached() SandboxStatus {
 	if status.SignedIn {
 		login = "signed in"
 	}
-	status.Findings = []string{"sandbox: sbx " + version + " " + login, "sandbox: Windows Hypervisor Platform " + status.Hypervisor, "sandbox: execution identity is the operator's Docker session"}
+	status.Findings = []string{"sandbox: sbx " + version + " " + login, "sandbox: Windows Hypervisor Platform " + status.Hypervisor, "sandbox: execution identity is the user's Docker session"}
 	return status
 }
 

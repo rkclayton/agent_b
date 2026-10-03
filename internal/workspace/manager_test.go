@@ -133,7 +133,7 @@ func TestPolicyTOFUChangeRevokeUnknownAndForbiddenKeys(t *testing.T) {
 }
 
 func TestForbiddenPolicyCapabilitiesStayOperatorFacingAndComplete(t *testing.T) {
-	want := []string{"operator mode", "elevation", "signing", "allow_internal_hosts", "services allowlist"}
+	want := []string{"Run as you", "elevation", "signing", "allow_internal_hosts", "services allowlist"}
 	if strings.Join(ForbiddenPolicyCapabilities, "|") != strings.Join(want, "|") {
 		t.Fatalf("forbidden capabilities=%q", ForbiddenPolicyCapabilities)
 	}

@@ -128,7 +128,7 @@ func EnsureAccount(name string, password []byte, reset bool) error {
 		return err
 	}
 	if status.Exists && (status.Administrator || strings.EqualFold(status.SID, current.User.Sid.String())) {
-		return fmt.Errorf("refusing to manage an Administrator or the current operator account")
+		return fmt.Errorf("refusing to manage an Administrator or the current user account")
 	}
 	name16, _ := windows.UTF16FromString(name)
 	password16, err := windows.UTF16FromString(string(password))
@@ -357,7 +357,7 @@ func aclTargets(request ACLRequest, create bool) ([]aclTarget, error) {
 	for i := range trees {
 		for j := i + 1; j < len(trees); j++ {
 			if sameOrWithin(trees[i], trees[j]) || sameOrWithin(trees[j], trees[i]) {
-				return nil, fmt.Errorf("application, operator-data, workspace, and exchange directories must be disjoint trees")
+				return nil, fmt.Errorf("application, user-data, workspace, and exchange directories must be disjoint trees")
 			}
 		}
 	}
@@ -380,7 +380,7 @@ func aclTargets(request ACLRequest, create bool) ([]aclTarget, error) {
 			}
 		}
 	}
-	targets = append(targets, aclTarget{request.Application, "deny application-tree mutation", 0xd0156, 3, true}, aclTarget{request.Application, "grant application-tree read and execute", 0x200a9, 3, false}, aclTarget{request.Data, "deny service identity access to operator data except traversal", 0x1f01df, 3, true})
+	targets = append(targets, aclTarget{request.Application, "deny application-tree mutation", 0xd0156, 3, true}, aclTarget{request.Application, "grant application-tree read and execute", 0x200a9, 3, false}, aclTarget{request.Data, "deny service identity access to user data except traversal", 0x1f01df, 3, true})
 	for _, path := range plans {
 		targets = append(targets, aclTarget{path, "grant plans-folder Modify", 0x301bf, 3, false})
 	}

@@ -213,7 +213,8 @@ test("Connections summary row never renders decoder detail verbatim", () => {
 	// Item 2nb (g): the collapsed row carries the STATE WORD, not the sentence. The
 	// sentence lives once, in the editor, under the field it is about — a whole message
 	// here overflowed the row, and the operator saw three copies of one of them.
-	assert.match(page, /class="connection-state">failed/);
+	// Item 2px (e): the word is the server's health state, "checking" until it has one.
+	assert.match(page, /class="connection-state">checking/);
 	assert.doesNotMatch(page, /Connection returned a web page/);
 	// And the decoder's own words never reach the page at all, which is what this test
 	// was written for.
@@ -528,4 +529,24 @@ test("no service identity message names a control the section does not render", 
   const source = fs.readFileSync(new URL("../../internal/web/service_account.go", import.meta.url), "utf8");
   const named = [...source.matchAll(/use ([A-Z][A-Za-z ]+?) (?:before|to)/g)].map((match) => match[1].trim());
   assert.deepEqual(named, [], `a failure text names ${named.join(", ")}, which is not a control on this page`);
+});
+
+// Item 2px CHECKS 2, 3 and 5: Edit shows every field before any Test or chosen
+// model; the server's three models fill the picker; the lamp and word are the
+// health state, the same in the header and the form.
+test("the connection form is whole before a Test and its models come from the server", () => {
+  const context = pageContext();
+  const connection = { id: "homepc", label: "HOMEPC", base_url: "http://homepc:8080/", model: "", api_key: "", context: { n_ctx: 32768, reserve_output: 8192 }, reasoning: { enabled: false, control: "auto", preserve: false }, sampling: { thinking: {}, nonthinking: {} }, capabilities: {} };
+  context.connectionList = () => [connection];
+  context.expanded.add("homepc");
+  context.store.connection_health = { homepc: { lamp: "amber", word: "no model chosen" } };
+  const typed = renderConnectionsPage(context);
+  for (const label of ["label", "base_url", "api_key", "model", "credential ref", "context size", "enabled", "state", "Evaluation Harness", "Advanced", "reserve"]) {
+    assert.ok(typed.includes(label), `${label} is not on the form before a Test`);
+  }
+  assert.doesNotMatch(typed, /Test to list models/);
+  assert.equal([...typed.matchAll(/class="lamp amber"/g)].length, 3, "header, form head and state row disagree");
+  context.probeMessages.set("homepc", { models: ["alpha", "beta", "gamma"] });
+  const listed = renderConnectionsPage(context);
+  for (const model of ["alpha", "beta", "gamma"]) assert.match(listed, new RegExp(`<option value="${model}"`));
 });

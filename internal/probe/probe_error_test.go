@@ -1,15 +1,19 @@
 package probe
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"harness/internal/config"
+	"harness/internal/llm"
 )
 
 func TestProbeFailureNamesMalformedBaseURL(t *testing.T) {
@@ -77,5 +81,70 @@ func TestProbeFailureNamesUnservedModelAndListedModels(t *testing.T) {
 	listed := strings.TrimPrefix(err.Error(), `Model "model" is not served; this server lists: `)
 	if strings.Count(listed, ",") != 4 {
 		t.Fatalf("expected at most five listed models, got %q", listed)
+	}
+}
+
+// Item 2px (h) CHECK 9: a negative tool verdict carries its cause in one word.
+func TestToolProbeSaysWhy2px(t *testing.T) {
+	call := func(name, args string) llm.Response {
+		return llm.Response{ToolCalls: []llm.ToolCall{{Function: llm.FunctionCall{Name: name, Arguments: args}}}}
+	}
+	for _, row := range []struct {
+		response llm.Response
+		err      error
+		timedOut bool
+		want     string
+	}{
+		{call("read_file", `{"path":"main.go"}`), nil, false, ""},
+		{llm.Response{}, nil, false, "no call"},
+		{call("write_file", `{}`), nil, false, "wrong tool"},
+		{call("read_file", `{"path":`), nil, false, "bad arguments"},
+		{llm.Response{}, context.DeadlineExceeded, true, "timed out"},
+		{llm.Response{}, &llm.ResponseShapeError{Status: 400}, false, "refused"},
+		{llm.Response{}, &llm.ResponseShapeError{Status: 500}, false, "server error"},
+	} {
+		if got := toolCallCause(row.response, row.err, row.timedOut); got != row.want {
+			t.Errorf("cause = %q, want %q", got, row.want)
+		}
+	}
+}
+
+// Item 2px (h) CHECK 9, against fixtures: a model that thinks 600 tokens before it
+// calls, one that loads for the cold-load allowance then calls, no model chosen, and
+// one that never calls. The cold load is scaled: 300 ms against a 1 s allowance
+// stands for 30 s against 120 s.
+func TestToolProbeArms2px(t *testing.T) {
+	defer func(previous time.Duration) { toolProbeTimeout = previous }(toolProbeTimeout)
+	toolProbeTimeout = time.Second
+	call := `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"main.go\"}"}}]},"finish_reason":"tool_calls"}]}`
+	answer := `{"choices":[{"message":{"role":"assistant","content":"I will not."},"finish_reason":"stop"}]}`
+	for _, arm := range []struct {
+		name, model, want string
+		reply             func(body []byte) string
+	}{
+		{"thinks 600 then calls", "m", "available", func(body []byte) string {
+			if bytes.Contains(body, []byte(`"enable_thinking":true`)) {
+				return answer // 512 tokens spent thinking, no call reached
+			}
+			return call
+		}},
+		{"cold load then calls", "m", "available", func([]byte) string { time.Sleep(300 * time.Millisecond); return call }},
+		{"no model chosen", "", "choose a model to check tool calling", func([]byte) string { return call }},
+		{"never calls", "m", "unavailable (no call)", func([]byte) string { return answer }},
+	} {
+		requests := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			body, _ := io.ReadAll(r.Body)
+			fmt.Fprint(w, arm.reply(body))
+		}))
+		connection := config.Defaults(t.TempDir()).Connections[0]
+		connection.BaseURL, connection.Model, connection.Reasoning.Control, connection.Reasoning.Enabled = server.URL, arm.model, "chat_template_kwargs", true
+		_, line := probeToolCalls(context.Background(), &connection)
+		server.Close()
+		t.Logf("2px tool probe %-22s -> %q, %d request(s)", arm.name, line, requests)
+		if line != arm.want || (arm.model == "" && requests != 0) {
+			t.Errorf("%s: %q after %d request(s), want %q", arm.name, line, requests, arm.want)
+		}
 	}
 }

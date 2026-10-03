@@ -29,6 +29,7 @@ let errorPanel = "";
 // control rather than a value to save.
 const typedModels = new Set();
 const probeMessages = new Map();
+const fieldNotes = new Map();
 const shownKeys = new Set();
 let open = false;
 let lastFocus = null;
@@ -197,6 +198,7 @@ export function initSettings(entry = {}) {
 		"shell.identity",
 		"shell.credential",
         "connection.probed",
+        "connection.health",
       ].includes(event.type) || (event.type === "projection.patch" && (event.data?.operations || []).some((operation) =>
         ["/label", "/agent_id", "/connection_id", "/agent_name", "/b_connection", "/role", "/plan_id", "/plan_name", "/runnable", "/not_runnable_reason", "/tools", "/memory_path", "/memory_content", "/agent_memory_path", "/agent_memory_content", "/budget", "/closed"].includes(operation.path))))
     )
@@ -735,10 +737,33 @@ function pendingExplicitSaves() {
 // selection, never per keystroke. An invalid value does not apply: the server says
 // which field and why, that sits beside the field, and the stored value is left
 // alone because nothing else was sent.
+// Item 2px (c): opening Edit or adding a connection lists the server's models in the
+// background from the address as typed; the picker fills when they arrive. A server
+// that cannot list leaves the typed-name field, with no failure shown.
+async function listConnectionModels(id) {
+  const prefix = `connections.${id}.`;
+  const connection = connectionList().find((item) => item.id === id);
+  const base_url = String(current(`${prefix}base_url`, connection?.base_url || "")).trim();
+  if (!base_url) return;
+  try {
+    const listed = await api(`/api/connections/${encodeURIComponent(id)}/models`, { base_url, api_key: current(`${prefix}api_key`, "") });
+    probeMessages.set(id, { ...(probeMessages.get(id) || {}), models: listed.models || [] });
+    if (open) render();
+  } catch {}
+}
+
 async function saveConnection(id) {
   const prefix = `connections.${id}.`;
   if (![...drafts.keys()].some((path) => path.startsWith(prefix))) return;
-  if (await saveSettings(prefix)) settingsSaveMessage = "";
+  // Item 2px (g): a typed reserve the window cannot hold is lowered on Save, and the
+  // field says so in one line instead of the Save being refused.
+  const reservePath = `${prefix}context.reserve_output`;
+  const typedReserve = drafts.has(reservePath) ? Number(drafts.get(reservePath)) : 0;
+  if (await saveSettings(prefix)) {
+    settingsSaveMessage = "";
+    const saved = connectionList().find((connection) => connection.id === id)?.context;
+    if (saved && typedReserve > saved.reserve_output) fieldNotes.set(reservePath, `lowered to ${saved.reserve_output}, the most a ${saved.n_ctx}-token context allows`);
+  }
   if (open) render();
 }
 
@@ -762,7 +787,8 @@ function field(path, label, control, alarm = false, hint = "") {
     : needsExplicitSave(path) && drafts.has(path)
       ? `<button type="button" class="setting-save" data-action="save-setting" data-save-path="${attr(path)}" title="Save this setting" aria-label="Save this setting">${saveGlyph}</button>`
       : "";
-  return `${row(label, control + state, alarm || problem ? "invalid" : "", hint)}${problem ? errorMarkup(problem, `field:${path}`) : ""}`;
+  const note = fieldNotes.get(path) ? `<p class="settings-note">${html(fieldNotes.get(path))}</p>` : "";
+  return `${row(label, control + state, alarm || problem ? "invalid" : "", hint)}${problem ? errorMarkup(problem, `field:${path}`) : note}`;
 }
 
 function text(path, label, value, kind = "text", hint = "") {
@@ -945,7 +971,10 @@ async function dispatchAction(event, button, action, id) {
   if (action === "connection-toggle") {
     const wasOpen = expanded.has(id);
     expanded.clear();
-    if (!wasOpen) expanded.add(id);
+    if (!wasOpen) {
+      expanded.add(id);
+      void listConnectionModels(id);
+    }
     return render();
   }
   if (action === "show-key") {

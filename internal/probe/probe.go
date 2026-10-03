@@ -129,15 +129,10 @@ func Probe(ctx context.Context, connection *config.Connection) (config.Capabilit
 		return finish(caps, findings)
 	}
 
-	check, cancel = context.WithTimeout(ctx, 20*time.Second)
-	toolResponse, toolErr := client.Chat(check, llm.Request{Messages: []llm.Message{{Role: "user", Content: "read main.go"}}, Tools: []any{map[string]any{"type": "function", "function": map[string]any{"name": "read_file", "description": "Read a file.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}, "required": []string{"path"}}}}}, ToolChoice: "required", MaxTokens: 512, Thinking: true})
-	cancel()
-	if toolErr == nil && len(toolResponse.ToolCalls) > 0 && toolResponse.ToolCalls[0].Function.Name == "read_file" {
-		var args any
-		caps.ToolCalls = json.Unmarshal([]byte(toolResponse.ToolCalls[0].Function.Arguments), &args) == nil
-	}
+	var toolLine string
+	caps.ToolCalls, toolLine = probeToolCalls(ctx, connection)
 	caps.GrammarConstrained = caps.Server == "llama.cpp" && caps.ToolCalls
-	findings = append(findings, "tool calls: "+availability(caps.ToolCalls), "grammar constrained: "+availability(caps.GrammarConstrained))
+	findings = append(findings, "tool calls: "+toolLine, "grammar constrained: "+availability(caps.GrammarConstrained))
 
 	caps.DocumentInput = probeContentPart(ctx, client, map[string]any{"type": "file", "file": map[string]any{"filename": "probe.pdf", "file_data": "data:application/pdf;base64," + base64.StdEncoding.EncodeToString(probePDF())}})
 	caps.Vision, caps.ImageInput = probeVision(ctx, client)
@@ -443,4 +438,49 @@ func availability(value bool) string {
 		return "available"
 	}
 	return "unavailable"
+}
+
+// probeToolCalls is item 2px (h): judged fairly and says why. Thinking is off, so a
+// thinking model does not spend the answer before it calls, and the wait allows a
+// cold load. With no model chosen no request is sent at all.
+func probeToolCalls(ctx context.Context, connection *config.Connection) (bool, string) {
+	if strings.TrimSpace(connection.Model) == "" {
+		return false, "choose a model to check tool calling"
+	}
+	quiet := *connection
+	quiet.Reasoning.Enabled = false
+	client := llm.New(&quiet)
+	check, cancel := context.WithTimeout(ctx, toolProbeTimeout)
+	defer cancel()
+	response, err := client.Chat(check, llm.Request{Messages: []llm.Message{{Role: "user", Content: "read main.go"}}, Tools: []any{map[string]any{"type": "function", "function": map[string]any{"name": "read_file", "description": "Read a file.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}, "required": []string{"path"}}}}}, ToolChoice: "required", MaxTokens: 512, Thinking: false})
+	if cause := toolCallCause(response, err, check.Err() != nil); cause != "" {
+		return false, availability(false) + " (" + cause + ")"
+	}
+	return true, availability(true)
+}
+
+// toolProbeTimeout allows a cold load of a large local model before its first
+// token; 20 s did not (item 2px (h)).
+var toolProbeTimeout = 120 * time.Second
+
+// toolCallCause is why a tool probe found no usable call, in one word, or "".
+func toolCallCause(response llm.Response, err error, timedOut bool) string {
+	var shape *llm.ResponseShapeError
+	switch {
+	case timedOut:
+		return "timed out"
+	case errors.As(err, &shape) && shape.Status >= 400 && shape.Status < 500:
+		return "refused"
+	case err != nil:
+		return "server error"
+	case len(response.ToolCalls) == 0:
+		return "no call"
+	case response.ToolCalls[0].Function.Name != "read_file":
+		return "wrong tool"
+	}
+	var args any
+	if json.Unmarshal([]byte(response.ToolCalls[0].Function.Arguments), &args) != nil {
+		return "bad arguments"
+	}
+	return ""
 }

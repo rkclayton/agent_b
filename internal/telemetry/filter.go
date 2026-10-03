@@ -80,7 +80,7 @@ var allowList = map[string]Classification{
 	"workspace.conflict": dropped, "workspace.bound": dropped,
 	"memory.noted": dropped, "memory.cleared": dropped, "memory.flushed": dropped,
 	"project.instructions_loaded": dropped,
-	"connection.probed":           dropped, "probe.request": dropped, "config.changed": dropped,
+	"connection.probed":           dropped, "connection.health": dropped, "probe.request": dropped, "config.changed": dropped,
 	// Item 2nb (b): one per address an endpoint walk tries. It names the operator's own
 	// server and what it answered, which is exactly the kind of thing that never leaves.
 	"connection.discovering": dropped,

@@ -13,7 +13,7 @@ const all = Object.values(sources).join("\n");
 // (no icon, small caps lettering button robotic) delete (trash can) duplicate (two
 // robot heads layered on each other) but all these icons in the line on the right
 // side of [the connection]".
-test("each connection row carries save, Test, duplicate and delete at its right", () => {
+test("each connection row carries Edit, save, duplicate and delete at its right, and no input", () => {
   // The slice ends at the actions span's OWN close rather than at the row's closing
   // div: item 2nc (a) puts a refusal line between the two, and an end marker that
   // assumed they were adjacent silently swallowed the editor's markup with it.
@@ -24,20 +24,20 @@ test("each connection row carries save, Test, duplicate and delete at its right"
   // now that one and a slice ending there stops before three of the four controls.
   const row = source.slice(start, source.indexOf("\n          </span>", start));
   assert.ok(row, "the connection row has no actions span");
-  for (const action of ["save-connection", "probe", "duplicate-connection", "remove-connection"]) {
+  for (const action of ["connection-toggle", "save-connection", "duplicate-connection", "remove-connection"]) {
     assert.match(row, new RegExp(`data-action="${action}"`), `${action} is not on the connection's own line`);
   }
-  // Test is lettering, not an icon; the other three are icons. Item 2nn (c): while
-  // the test runs the lettering gives way to the waiting element — "there are still
-  // no loading bars. i hit test and it just says testing" — so the word the row
-  // shows when idle is still "test" and the running state is a bar.
-  assert.match(row, /class="row-action test"[^>]*>\$\{connection\._probing \? `<span class="probe-wait"/);
-  assert.doesNotMatch(row, /"testing"/, "the row still shows the bare word while testing");
+  // Item 2px (a): Test has left the header for the form, and Edit is lettering.
+  assert.doesNotMatch(row, /data-action="probe"/, "Test is still in the header");
+  assert.match(row, />Edit<\/button>/);
   for (const icon of ["connectionIcons.save", "connectionIcons.duplicate", "connectionIcons.trash"]) {
     assert.ok(row.includes(icon), `${icon} is not used in the row`);
   }
-  // (g): three of four are icon-only, so every one carries a label.
-  assert.equal((row.match(/aria-label=/g) || []).length, 4, "not every row action is labelled");
+  // (g): the three icon-only actions each carry a label.
+  assert.equal((row.match(/aria-label=/g) || []).length, 3, "not every icon action is labelled");
+  // Item 2px CHECK 1: the header holds no input element.
+  const header = source.slice(source.indexOf('<div class="connection-row'), source.indexOf("\n      </div>`;", start));
+  assert.doesNotMatch(header, /<input|<select|<textarea/, "the header holds an input");
 });
 
 // (c): the controls the row replaces are gone from the editor, and the Evaluation

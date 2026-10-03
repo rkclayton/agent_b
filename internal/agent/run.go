@@ -52,12 +52,14 @@ type Runner struct {
 	renameSession      func(string, string, string) error
 	mailboxBoundary    func(context.Context, string, bool) BoundaryAction
 	modelUnreachable   func(string, string)
+	modelAnswered      func(string)
 	recordMessageLimit func(string, int) error
 	recordByteLimit    func(string, int) error
 	ids                atomic.Int64
 	nameAttempts       sync.Map
 	messageLimits      sync.Map
 	byteLimits         sync.Map
+	windows            sync.Map
 	identityInvitation atomic.Bool
 	trustFolders       func([]string) error
 	skills             SkillHost
@@ -101,6 +103,7 @@ func (r *Runner) SetMailboxBoundary(fn func(context.Context, string, bool) Bound
 	r.mailboxBoundary = fn
 }
 func (r *Runner) SetModelUnreachable(fn func(string, string))        { r.modelUnreachable = fn }
+func (r *Runner) SetModelAnswered(fn func(string))                   { r.modelAnswered = fn }
 func (r *Runner) SetMessageLimitRecorder(fn func(string, int) error) { r.recordMessageLimit = fn }
 func (r *Runner) SetByteLimitRecorder(fn func(string, int) error)    { r.recordByteLimit = fn }
 func (r *Runner) SetTrustedFolderWriter(fn func([]string) error)     { r.trustFolders = fn }
@@ -352,7 +355,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	if !ok {
 		return "connection_not_runnable", "connection " + s.ConnectionID + " no longer exists", 0
 	}
-	connection, windowSource, windowErr := resolveContextWindow(ctx, connection)
+	connection, windowSource, windowErr := r.resolveWindow(ctx, connection)
 	if windowErr != nil {
 		return "connection_not_runnable", windowErr.Error(), 0
 	}
@@ -395,7 +398,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	accountingRepairTried := false
 	templateRetryTried := false
 	softLineChecked := false
-	messageLimitRetried := false
+	messageLimitRetried, windowRetried := false, false
 	byteLimitRetries := 0
 	guards := newRunGuards(runCfg.CycleWindow, runCfg.MaxConsecutiveToolErrors)
 	currentReasoning := map[string]bool{}
@@ -414,7 +417,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		if !ok {
 			return "connection_not_runnable", "connection " + s.ConnectionID + " no longer exists", turn - 1
 		}
-		connection, windowSource, windowErr = resolveContextWindow(ctx, connection)
+		connection, windowSource, windowErr = r.resolveWindow(ctx, connection)
 		if windowErr != nil {
 			return "connection_not_runnable", windowErr.Error(), turn - 1
 		}
@@ -716,6 +719,15 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				}
 				return "model_error", sentence, turn
 			}
+			// Item 2px (i): the window is the server's. A refusal that names the
+			// window it allows is learned, and the run compacts to it and retries
+			// once rather than stopping (s48: 33,849 tokens against 32,768).
+			if window, matched := windowLimitError(callErr); matched && !windowRetried {
+				windowRetried = true
+				r.SetServerWindow(connection.ID, window)
+				turn--
+				continue
+			}
 			if r.publishModelUnreachable(s, runID, connection, callErr) {
 				publishFinalBudget = false
 				return "model_unreachable", callErr.Error(), turn
@@ -723,6 +735,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			return "model_error", callErr.Error(), turn
 		}
 		r.budget.RecordUsage(s.ID, response.Usage.PromptTokens, response.Usage.CachedTokens)
+		if r.modelAnswered != nil {
+			r.modelAnswered(connection.ID)
+		}
 		toolCalls := make([]events.ToolCall, 0, len(response.ToolCalls))
 		for _, call := range response.ToolCalls {
 			toolCalls = append(toolCalls, events.ToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
@@ -2062,6 +2077,41 @@ func keptReadsSentence(s *session.Session) string {
 		return ""
 	}
 	return "; reads kept verbatim: " + strings.Join(kept, ", ")
+}
+
+var windowLimitPattern = regexp.MustCompile(`(?i)exceeds the available context size \((\d+) tokens\)`)
+
+func windowLimitError(err error) (int, bool) {
+	match := windowLimitPattern.FindStringSubmatch(fmt.Sprint(err))
+	window := 0
+	if len(match) == 2 {
+		fmt.Sscanf(match[1], "%d", &window)
+	}
+	return window, window > 0
+}
+
+// SetServerWindow records the window a server gives one request, from its
+// health check or a refusal; zero forgets it.
+func (r *Runner) SetServerWindow(connectionID string, window int) {
+	if window <= 0 {
+		r.windows.Delete(connectionID)
+		return
+	}
+	r.windows.Store(connectionID, window)
+}
+
+// resolveWindow is resolveContextWindow, narrowed to the server's own window
+// when it gives a request less than the connection is set to.
+func (r *Runner) resolveWindow(ctx context.Context, connection *config.Connection) (*config.Connection, string, error) {
+	resolved, source, err := resolveContextWindow(ctx, connection)
+	value, known := r.windows.Load(connection.ID)
+	if err != nil || !known || value.(int) >= resolved.Context.NCtx {
+		return resolved, source, err
+	}
+	narrowed := *resolved
+	narrowed.Context.NCtx = value.(int)
+	narrowed.Context.ReserveOutput = min(narrowed.Context.ReserveOutput, narrowed.Context.NCtx/2)
+	return &narrowed, fmt.Sprintf("the server allows %d tokens per request", narrowed.Context.NCtx), nil
 }
 
 func resolveContextWindow(ctx context.Context, connection *config.Connection) (*config.Connection, string, error) {

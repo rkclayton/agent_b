@@ -24,7 +24,8 @@ test("shared shell slot order is identical on the chat and Plan", () => {
   // Item 2mf (c): the one-entry pages nav is gone and Plan is a tab in the strip
   // on the LEFT, so the right slot is one element shorter and the plan entry it
   // held is not there to assert any more.
-  assert.match(shell, /right\.append\(sessionHeading, connectionMenu, settings, windowControls\)/);
+  // Item 2px (f): the chat's connection lamp sits before the heading it belongs to.
+  assert.match(shell, /right\.append\(sessionLamp, sessionHeading, connectionMenu, settings, windowControls\)/);
   assert.doesNotMatch(shell, /shell-operator-status|right\.append\(stop/);
   assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
   // Item 2ni: and the tab is gone too. "i decided i think i want it under settings,

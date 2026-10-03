@@ -34,6 +34,14 @@ export function connectionFailureSentence(message, address) {
   return "The test failed.";
 }
 
+// Item 2px (e): every lamp and word comes from the server's one health state for
+// the connection, never from whether a Test once passed. Grey "checking" only
+// until the first answer.
+export function connectionHealth(state, id) {
+  const health = state?.connection_health?.[id];
+  return health ? { lamp: health.lamp || "", word: health.word || "" } : { lamp: "", word: "checking" };
+}
+
 function failedTestLine(discovery, id) {
   if (!discovery?.detail) return "";
   return `<p class="settings-note connection-test-failure alarm" role="status">${html(discovery.message)} <button type="button" class="error-details-link" data-action="error-details" data-detail-key="connection:${attr(id)}">details</button></p>`;
@@ -46,60 +54,21 @@ function connections() {
       const isOpen = expanded.has(connection.id);
       const hasPendingChanges = [...drafts.keys()].some((path) => path.startsWith(`connections.${connection.id}.`));
       const feedback = probeMessages.get(connection.id);
-      const reason = connectionReason(connection);
-      const failed = (connection.capabilities?.findings || []).some((x) =>
-        x.startsWith("probe failed:"),
-      );
-      // Item 2l1 (a5): Test and fill proposes values, so a successful test leaves
-      // unsaved changes by design. The result of the test is what the operator
-      // asked for and comes first; "unsaved" is appended rather than replacing it,
-      // because a bare "unsaved" hides whether the connection actually works.
-      // Item 2nb (g): THE HEADER CARRIES THE STATE WORD ONLY, never the message. A
-      // whole sentence here overflowed the row, and the same sentence was already
-      // under the field it is about. The word is derived from the message rather than
-      // being the message.
-      const stateWord = (message) => {
-        const text = String(message || "").toLowerCase();
-        if (/wants an api key|api key/.test(text)) return "wants key";
-        if (/no model|not served|lists no|0 model/.test(text)) return "no models";
-        if (/^test failed|failed|refused|timed out|malformed/.test(text)) return "failed";
-        if (/^test passed|ready/.test(text)) return "ready";
-        return "";
-      };
-      // Item 2nn (c): while the test runs the state word is BLANK, because the
-      // waiting element in the Test control beside it is the state — and because
-      // the bare word "testing" is exactly what the operator read as no progress
-      // at all. One waiting element, and it is a bar.
-      const testState = connection._probing
-        ? ""
-        : (feedback?.message && stateWord(feedback.message))
-          ? stateWord(feedback.message) + (hasPendingChanges ? " · unsaved" : "")
-          : hasPendingChanges
-            ? "unsaved"
-            : failed
-              ? "failed"
-              : !reason && connection.capabilities?.probed_at
-                ? "ready"
-                : "not tested";
-      const ready = !reason && !!connection.capabilities?.probed_at;
-      const lamp = failed || feedback?.alarm || (reason && reason !== "context length unknown") ? "alarm" : connection._probing || ready || feedback ? "live" : "";
-      const removeKey = `connection:${connection.id}`;
-      // Item 2nc (a) and (d): A REFUSAL IS VISIBLE WHEREVER THE CLICK WAS. The server
-      // has always sent the row as the field, and the handler has always kept it, but
-      // only the fields inside the EXPANDED body rendered it — so pressing Remove on a
-      // collapsed row left the screen unchanged and the reason unread. The row itself
-      // carries it now, expanded or not.
+      // Item 2px (a): THE HEADER IS DISPLAY ONLY — lamp, label, address, model and
+      // the state word — and its actions are Edit, Save, Duplicate and Delete. Test
+      // lives in the form; nothing here is typed into.
+      const health = connectionHealth(store, connection.id);
+      const word = health.word + (hasPendingChanges ? " · unsaved" : "");
+      const model = String(connection.model || "").trim().split(/[\\/]/).pop() || "no model";
       const refusal = errors.get(`connections.${connection.id}`) || "";
       const failedTest = !isOpen ? failedTestLine(feedback, connection.id) : "";
       return `<div class="connection-row ${isOpen ? "selected" : ""} ${refusal ? "refused" : ""}">
-          <button type="button" class="connection-summary" data-action="connection-toggle" data-id="${attr(connection.id)}">
-            <span class="lamp ${lamp}"></span><span>${html(connection.label)}</span><span class="connection-url">${html(connection.base_url)}</span><span class="connection-state">${testState}</span>
-          </button>
+          <span class="connection-summary"><span class="lamp ${health.lamp}"></span><span>${html(connection.label)}</span><span class="connection-url">${html(connection.base_url)} · ${html(model)}</span><span class="connection-state">${html(word)}</span></span>
           <span class="connection-actions">
+            <button type="button" class="row-action" data-action="connection-toggle" data-id="${attr(connection.id)}" aria-expanded="${isOpen}">Edit</button>
             <button type="button" class="row-action" data-action="save-connection" data-id="${attr(connection.id)}" aria-label="Save ${attr(connection.label)}" title="Save ${attr(connection.label)}" ${hasPendingChanges ? "" : "disabled"}>${connectionIcons.save}</button>
-            <button type="button" class="row-action test" data-action="probe" data-id="${attr(connection.id)}" aria-label="Test ${attr(connection.label)}" title="Test ${attr(connection.label)} and fill what it finds" ${connection._probing ? "disabled" : ""}>${connection._probing ? `<span class="probe-wait" data-probe-wait="${attr(connection.id)}"></span>` : "test"}</button>
             <button type="button" class="row-action" data-action="duplicate-connection" data-id="${attr(connection.id)}" aria-label="Duplicate ${attr(connection.label)}" title="Duplicate ${attr(connection.label)}">${connectionIcons.duplicate}</button>
-            <button type="button" class="row-action" data-action="remove-connection" data-id="${attr(connection.id)}" data-confirm="${attr(connection.label)}" aria-label="Remove ${attr(connection.label)}" title="Remove ${attr(connection.label)}">${connectionIcons.trash}</button>
+            <button type="button" class="row-action" data-action="remove-connection" data-id="${attr(connection.id)}" data-confirm="${attr(connection.label)}" aria-label="Delete ${attr(connection.label)}" title="Delete ${attr(connection.label)}">${connectionIcons.trash}</button>
           </span>
           ${refusal ? errorMarkup(refusal, `connection:${connection.id}:refusal`, "connection-refusal alarm") : ""}
           ${failedTest}
@@ -107,7 +76,7 @@ function connections() {
     })
     .join("");
   const editors = connections.filter((connection) => expanded.has(connection.id)).map((connection) => `<section class="connection-editor" aria-label="${attr(connection.label)} connection settings">
-    <div class="connection-editor-head"><div><span class="lamp ${connectionReason(connection) && connectionReason(connection) !== "context length unknown" ? "alarm" : ""}"></span><h3>${html(connection.label)}</h3><span class="connection-url">${html(connection.base_url)}</span></div></div>
+    <div class="connection-editor-head"><div><span class="lamp ${connectionHealth(store, connection.id).lamp}"></span><h3>${html(connection.label)}</h3><span class="connection-url">${html(connection.base_url)}</span></div></div>
     <div class="connection-fields">${connectionFields(connection, connectionReason(connection), probeMessages.get(connection.id))}</div>
   </section>`).join("");
   return `${row("actions", '<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add connection</button></div>')}${subhead("Connections", "Model endpoints and their current probe state.")}<div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${editors}`;
@@ -207,7 +176,9 @@ function connectionFields(connection, reason, discovery) {
 	// checked — and the literal placeholder `model` that a new connection carried was
 	// exactly such a name, saved and then refused elsewhere. Empty now says what to do
 	// instead, and a server that cannot enumerate is one explicit choice away.
-	const typedByHand = typedModels?.has(id);
+	// Item 2px (c): until the server's list arrives, or when it cannot list, the field
+	// takes a typed name; nothing waits on Test.
+	const typedByHand = typedModels?.has(id) || (!discoveredModels.length && !String(drafts.get(`${p}.model`) ?? connection.model ?? "").trim());
 	// Item 2nq (c) and (d): THE FIELD SHOWS WHAT HE PICKED. This read the SAVED model
 	// and never the draft, so every render after a choice — and Test is a render —
 	// redrew the saved value over it. The operator watched that happen with the old
@@ -219,7 +190,7 @@ function connectionFields(connection, reason, discovery) {
 	const savedModel = draftModel ?? (connection.model || "").trim();
 	const options = [];
 	if (!discoveredModels.length && !savedModel) {
-		options.push(`<option value="" selected>Test to list models</option>`);
+		options.push(`<option value="" selected>no models listed</option>`);
 	} else if (savedModel && !discoveredModels.includes(savedModel)) {
 		options.push(`<option value="${attr(savedModel)}" selected>${html(modelName(savedModel))}</option>`);
 	}
@@ -258,22 +229,15 @@ function connectionFields(connection, reason, discovery) {
 	  ? ""
 	  : discovery?.detail ? failedTestLine(discovery, id)
 	    : noteText ? `<p class="settings-note discovery-note ${discovery?.alarm ? "alarm" : ""}">${html(noteText)}</p>` : "";
-	const state = reason || (caps.probed_at ? "ready" : "not tested");
-	// Item 2nn (d): THE SHEET READS TOP TO BOTTOM AS THE FLOW. label, address, key,
-	// Test, model, Evaluate, Save — the order an operator actually does it in. The
-	// settings that only make sense once a model is chosen (the credential name it
-	// was stored under, the context size, the thinking switch, the state line) are
-	// not on screen until one is: before that they are questions about a connection
-	// that has not been established, and the operator's report was that the sheet
-	// asks too much of him at once.
-	// A model PICKED counts, not only a model saved: the draft is what he has chosen,
-	// and the rest of the sheet has to be there for him before he presses Save.
-	const chosenModel = !!String(drafts.get(`${p}.model`) ?? connection.model ?? "").trim();
-	const afterModel = chosenModel ? `${text(`${p}.credential`, "credential ref", connection.credential || "", "text", "The name the stored API key is kept under; the key itself is never in the configuration.")}
+	const state = connectionHealth(store, id);
+	// Item 2px (b): the sheet still reads top to bottom as the flow — label, address,
+	// key, Test, model, the rest, Save — but every field is on screen at once; none
+	// waits on a Test or a chosen model (2nn (d)'s gating is gone).
+	const afterModel = `${text(`${p}.credential`, "credential ref", connection.credential || "", "text", "The name the stored API key is kept under; the key itself is never in the configuration.")}
     ${row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(connection.context.n_ctx || "")}" placeholder="${attr(caps.n_ctx || "")}">`, "", "The probed context is used as the placeholder until this is saved.")}
     ${toggle(`${p}.reasoning.enabled`, "enabled", connection.reasoning.enabled, "Asks the model to think before it answers, where the server supports it.")}
-    ${row("state", `<span class="account-status"><span class="lamp ${reason && reason !== "context length unknown" ? "alarm" : ""}"></span>${html(state)}</span>`)}
-    <div class="settings-actions"><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Evaluation Harness"}</button></div>${feedback}${measurementResult}` : "";
+    ${row("state", `<span class="account-status"><span class="lamp ${state.lamp}"></span>${html(state.word)}</span>`)}
+    <div class="settings-actions"><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Evaluation Harness"}</button></div>${feedback}${measurementResult}`;
 	return `<div class="connection-fieldset connection-identity">${text(`${p}.label`, "label", connection.label, "text", "The name this connection is shown by.")}
     ${text(`${p}.base_url`, "base_url", connection.base_url, "text", "The server address; Test and fill discovers its API path and port, lists models and proposes the rest.")}${discoveryNote}
     ${secret(`${p}.api_key`, "api_key", connection.api_key, id, "API keys are stored in user-scoped DPAPI storage; configuration keeps only the credential reference.")}

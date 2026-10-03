@@ -332,6 +332,12 @@ func main() {
 	web.SetNotifications(notificationManager, notificationStore)
 	web.SetWorkspaceState(workspaceManager, memoryManager)
 	operatorFiles := operatorfiles.New(profileRoot, logDir, web.ConfigSnapshot)
+	// Item 2py (c): once per profile, the transcripts earlier versions wrote on delete.
+	if profiles, err := filepath.Glob(filepath.Join(paths.Data, "profiles", "*")); err == nil {
+		if _, err := operatorfiles.SweepChatExports(append(profiles, paths.Data)); err != nil {
+			log.Printf("chat export sweep: %v", err)
+		}
+	}
 	operatorFiles.SetEventPublisher(func(event events.Event) { bus.Publish(event) })
 	if err := operatorFiles.Ensure(); err != nil {
 		log.Fatal(err)

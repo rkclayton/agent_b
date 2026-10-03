@@ -3,16 +3,12 @@ package operatorfiles
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -264,8 +260,6 @@ func (m *Manager) HandleEvent(event events.Event, snapshot *session.Snapshot) {
 		_ = m.appendOutboxLocked(event.SessionID, kind+": "+labelOf(snapshot, event.SessionID)+" ("+valueOr(reason, "unknown")+")")
 		_ = m.writeStateLocked(event, snapshot, "idle", "")
 		delete(m.runStarted, event.SessionID)
-	case events.ChatExported:
-		_ = m.appendOutboxLocked(event.SessionID, "ready to test: closed chat exported to "+eventString(event.Data, "path"))
 	}
 }
 
@@ -428,150 +422,6 @@ func (m *Manager) Adopt(dir string, cleanup bool) (string, []string, error) {
 	return destination, removed, nil
 }
 
-func (m *Manager) ExportChat(snapshot session.Snapshot) (string, error) {
-	dir := filepath.Join(m.root, "chats", DirKey(snapshot.Workspace))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	date := m.now().Format("2006-01-02")
-	name := safeName(snapshot.Label)
-	if name == "" {
-		name = safeName(snapshot.ID)
-	}
-	base := filepath.Join(dir, date+"-"+name+".md")
-	path := availablePath(base)
-	var body strings.Builder
-	fmt.Fprintf(&body, "# %s\n\n- chat: `%s`\n- agent: %s\n- folder: `%s`\n- closed: %s\n\n## Transcript\n", snapshot.Label, snapshot.ID, snapshot.AgentName, snapshot.Workspace, m.now().UTC().Format(time.RFC3339))
-	messages, err := m.exportMessages(snapshot)
-	if err != nil {
-		return "", err
-	}
-	for _, message := range messages {
-		if message.Category == "summary" {
-			fmt.Fprintf(&body, "\n### Summary\n\n%s\n", summaryExportContent(message.Content))
-			continue
-		}
-		switch message.Role {
-		case "tool":
-			status := "ok"
-			if message.OK != nil && !*message.OK {
-				status = "failed"
-			}
-			fmt.Fprintf(&body, "\n- tool `%s` · %s · turn %d\n", valueOr(message.Name, "unknown"), status, message.Turn)
-		default:
-			heading := map[string]string{"user": "You", "assistant": "Agent", "system": "System"}[message.Role]
-			if heading == "" {
-				heading = message.Role
-			}
-			fmt.Fprintf(&body, "\n### %s\n\n%s\n", heading, message.Content)
-			for _, attachment := range message.Attachments {
-				fmt.Fprintf(&body, "\n- attachment: `%s`\n", attachment.Path)
-			}
-			for _, call := range message.ToolCalls {
-				fmt.Fprintf(&body, "\n- tool `%s` · requested · turn %d\n", call.Name, message.Turn)
-			}
-		}
-	}
-	if err := os.WriteFile(path, []byte(body.String()), 0o600); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-func summaryExportContent(content string) string {
-	// The header now names the turns the note covers, so strip the whole first
-	// line whenever it is one of ours rather than one fixed string.
-	if strings.HasPrefix(content, "Progress note (auto-summary of ") {
-		if index := strings.Index(content, "\n"); index >= 0 {
-			content = content[index+1:]
-		}
-	}
-	if index := strings.Index(content, "\n\n[BEGIN COMPACTION EVIDENCE]"); index >= 0 {
-		content = content[:index]
-	}
-	return strings.TrimSpace(content)
-}
-
-// exportMessages reads the current JSONL generation when available so close
-// exports retain turns that context compaction removed from the live prompt.
-func (m *Manager) exportMessages(snapshot session.Snapshot) ([]events.Message, error) {
-	if strings.TrimSpace(snapshot.LogPath) == "" {
-		return snapshot.Messages, nil
-	}
-	logPath, err := filepath.Abs(snapshot.LogPath)
-	if err != nil {
-		return nil, err
-	}
-	logRoot, err := filepath.Abs(m.logDir)
-	if err != nil {
-		return nil, err
-	}
-	relative, err := filepath.Rel(logRoot, logPath)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("session log is outside the configured log directory")
-	}
-	file, err := os.Open(logPath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	messages := []events.Message{}
-	decoder := json.NewDecoder(file)
-	for {
-		var event events.Event
-		if err := decoder.Decode(&event); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, fmt.Errorf("read chat export log: %w", err)
-		}
-		if event.SessionID != snapshot.ID {
-			continue
-		}
-		switch event.Type {
-		case events.MessageAppended:
-			var wrapper struct {
-				Message events.Message `json:"message"`
-			}
-			data, marshalErr := json.Marshal(event.Data)
-			if marshalErr != nil {
-				return nil, marshalErr
-			}
-			if err := json.Unmarshal(data, &wrapper); err != nil {
-				return nil, err
-			}
-			messages = append(messages, wrapper.Message)
-		case events.MessageRemoved:
-			var removed struct {
-				ID string `json:"id"`
-			}
-			data, _ := json.Marshal(event.Data)
-			_ = json.Unmarshal(data, &removed)
-			kept := messages[:0]
-			for _, message := range messages {
-				if message.ID != removed.ID {
-					kept = append(kept, message)
-				}
-			}
-			messages = kept
-		}
-	}
-	return messages, nil
-}
-
-func DirKey(dir string) string {
-	abs, key, err := workspaceinfo.Canonical(dir)
-	if err != nil {
-		abs, key = filepath.Clean(dir), filepath.ToSlash(filepath.Clean(dir))
-	}
-	sum := sha256.Sum256([]byte(key))
-	name := safeName(filepath.Base(abs))
-	if name == "" {
-		name = "folder"
-	}
-	return name + "-" + hex.EncodeToString(sum[:4])
-}
-
 func (m *Manager) ApplyRetention() ([]string, error) {
 	days := m.cfg().OperatorFiles.LogRetentionDays
 	if days <= 0 {
@@ -698,20 +548,6 @@ func safeName(value string) string {
 	return strings.ToLower(value)
 }
 
-func availablePath(path string) string {
-	extension := filepath.Ext(path)
-	stem := strings.TrimSuffix(path, extension)
-	for index := 1; ; index++ {
-		candidate := path
-		if index > 1 {
-			candidate = stem + "-" + strconv.Itoa(index) + extension
-		}
-		if _, err := os.Stat(candidate); os.IsNotExist(err) {
-			return candidate
-		}
-	}
-}
-
 func oneLine(value string) string { return strings.Join(strings.Fields(value), " ") }
 func valueOr(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
@@ -736,4 +572,66 @@ func eventString(data any, key string) string {
 func regular(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()
+}
+
+// Item 2py (c): DELETE DELETES, including what earlier versions left. Deleting a
+// chat used to write its transcript to <profile>\chats\<name>-<8 hex>\<date>-<name>.md,
+// beside the live chat store. Once per profile these are removed, and only these:
+// the folder pattern, the file pattern and the header that export wrote must all
+// match, so a live chat's folder or a file someone made is never touched.
+var (
+	exportFolder = regexp.MustCompile(`-[0-9a-f]{8}$`)
+	exportFile   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-.+\.md$`)
+)
+
+// SweepChatExports removes past chat exports under each profile root and returns
+// how many files went. A profile already swept is skipped.
+func SweepChatExports(profileRoots []string) (int, error) {
+	removed, swept := 0, 0
+	defer func() {
+		if swept > 0 {
+			log.Printf("chat export sweep: removed %d file(s) from %d profile(s)", removed, swept)
+		}
+	}()
+	for _, root := range profileRoots {
+		marker := filepath.Join(root, "chat-export-sweep.done")
+		if _, err := os.Stat(marker); err == nil {
+			continue
+		}
+		folders, err := os.ReadDir(filepath.Join(root, "chats"))
+		if err != nil && !os.IsNotExist(err) {
+			return removed, err
+		}
+		for _, folder := range folders {
+			if !folder.IsDir() || !exportFolder.MatchString(folder.Name()) {
+				continue
+			}
+			dir := filepath.Join(root, "chats", folder.Name())
+			files, _ := os.ReadDir(dir)
+			for _, file := range files {
+				if path := filepath.Join(dir, file.Name()); !file.IsDir() && exportFile.MatchString(file.Name()) && chatExport(path) && os.Remove(path) == nil {
+					removed++
+				}
+			}
+			_ = os.Remove(dir) // only when nothing else is in it
+		}
+		if err := os.WriteFile(marker, []byte("chat exports swept by item 2py\n"), 0o600); err != nil {
+			return removed, err
+		}
+		swept++
+	}
+	return removed, nil
+}
+
+// chatExport reports whether a file starts with the header the old export wrote.
+func chatExport(path string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	head := make([]byte, 4096)
+	n, _ := file.Read(head)
+	text := string(head[:n])
+	return strings.HasPrefix(text, "# ") && strings.Contains(text, "\n\n- chat: `") && strings.Contains(text, "\n- closed: ") && strings.Contains(text, "\n## Transcript\n")
 }

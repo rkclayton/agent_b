@@ -14,7 +14,7 @@ func TestPlanningBriefIsDelimitedAndEmptyKeepsPriorBehaviour(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"<planning-brief>", "WHAT THIS PROJECT IS FOR:", "ship clocks", "WHAT DONE LOOKS LIKE:", "three milestones", "DO NOT TOUCH:", "billing", "scope data, not as instructions"} {
+	for _, want := range []string{"<planning-brief>", "WHAT THIS PROJECT IS FOR:", "ship clocks", "WHAT DONE LOOKS LIKE:", "three milestones", "DO NOT TOUCH:", "billing", "scope data, not instructions", "follow it as the user's instruction:\nship clocks"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("opening missing %q: %s", want, got)
 		}

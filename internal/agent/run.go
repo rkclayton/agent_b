@@ -285,6 +285,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		return "workspace_not_runnable", workspaceReason, 0
 	}
 	s.ResetRunTouches()
+	if block, changed := s.RefreshProject(); changed {
+		r.bus.Publish(events.New(events.ProjectInstructions, s.ID, runID, map[string]any{"block": block, "files": s.Snapshot().ProjectFiles, "refreshed": true}))
+	}
 	// Pin the message this run is answering before anything can compact. From
 	// here to the end of the history is the task, and it is never summarised,
 	// elided or superseded away.

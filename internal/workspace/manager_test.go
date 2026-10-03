@@ -32,11 +32,12 @@ func TestInstructionsAncestorOrderFallbackCapAndLazySubdir(t *testing.T) {
 	if rootAt < 0 || repoAt <= rootAt {
 		t.Fatalf("ancestor order: %q", initial.Block[:min(len(initial.Block), 200)])
 	}
-	if strings.Contains(initial.Block, "ignored fallback") || len(initial.Notes) != 2 {
-		t.Fatalf("fallback/cap notes: %+v", initial.Notes)
+	if strings.Contains(initial.Block, "ignored fallback") || len(initial.Notes) != 1 {
+		t.Fatalf("fallback notes: %+v", initial.Notes)
 	}
-	if !strings.Contains(strings.Join(initial.Notes, "\n"), "truncated at 16384 bytes") {
-		t.Fatalf("cap note: %+v", initial.Notes)
+	// Item 2q0: over the cap the file is a pointer to read it, never a cut copy.
+	if strings.Contains(initial.Block, "xxxx") || !strings.Contains(initial.Block, "over the 16384-byte limit") {
+		t.Fatalf("cap pointer: %q", initial.Block)
 	}
 
 	lazy, err := LoadInstructions(bound, sub)

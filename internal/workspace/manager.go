@@ -159,7 +159,7 @@ func LoadInstructions(boundDir, touchedDir string) (Instructions, error) {
 			dirs = append(dirs, current)
 		}
 	}
-	parts, files, notes := []string{}, []string{}, []string{}
+	files, notes := []string{}, []string{}
 	for _, dir := range dirs {
 		agentB, agents, claude := filepath.Join(dir, "AGENT_B.md"), filepath.Join(dir, "AGENTS.md"), filepath.Join(dir, "CLAUDE.md")
 		selected := ""
@@ -182,22 +182,34 @@ func LoadInstructions(boundDir, touchedDir string) (Instructions, error) {
 		if len(present) > 1 {
 			notes = append(notes, dir+": "+filepath.Base(selected)+" used; "+strings.Join(present[1:], ", ")+" ignored")
 		}
-		data, readErr := os.ReadFile(selected)
-		if readErr != nil {
-			return Instructions{}, readErr
-		}
-		if len(data) > InstructionLimit {
-			data = data[:InstructionLimit]
-			notes = append(notes, selected+": truncated at 16384 bytes")
-		}
 		files = append(files, selected)
-		parts = append(parts, "# "+selected+"\n"+strings.TrimSpace(string(data)))
 	}
-	block := ""
-	if len(parts) > 0 {
-		block = "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n" + strings.Join(parts, "\n\n") + "\n--- END REPOSITORY INSTRUCTIONS ---"
+	block, err := RenderInstructions(files)
+	return Instructions{Block: block, Files: files, Notes: notes}, err
+}
+
+// RenderInstructions is the block for these instruction files as they are now. It is
+// read at the start of every run, so an edit reaches the next run (item 2q0), and a file
+// over the bound is a pointer to read it, never a copy cut mid-sentence.
+func RenderInstructions(files []string) (string, error) {
+	parts := []string{}
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return "", err
+		}
+		text := strings.TrimSpace(string(data))
+		if len(data) > InstructionLimit {
+			text = fmt.Sprintf("(%d bytes, over the 16384-byte limit, so not included here; read the whole file with read_file before acting on this repository.)", len(data))
+		}
+		parts = append(parts, "# "+file+"\n"+text)
 	}
-	return Instructions{Block: block, Files: files, Notes: notes}, nil
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n" + strings.Join(parts, "\n\n") + "\n--- END REPOSITORY INSTRUCTIONS ---", nil
 }
 
 func ancestors(dir string) []string {

@@ -96,7 +96,7 @@ test("the settings journey: type a host, Test, pick a model, save, chat, close, 
 
   // 4. Test. On screen: the note names what it found, and the model control becomes
   // a list of what that port serves.
-  await page.locator(`.connection-row [data-action="probe"][data-id="${id}"]`).click();
+  await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
   await expect(page.locator(".connection-editor .discovery-note")).toContainText(`127.0.0.1:${harness.modelPort}`);
   const model = page.locator(`[data-path="connections.${id}.model"]`);
   await expect(model).toHaveJSProperty("tagName", "SELECT");
@@ -123,7 +123,7 @@ test("the settings journey: type a host, Test, pick a model, save, chat, close, 
   // The editor opens when its row is clicked; clicking an already-open one would
   // collapse it, which is the state this step needs to be in.
   if (!await page.locator(`[data-path="connections.${id}.api_key"]`).count()) {
-    await page.locator(`.connection-summary[data-id="${id}"]`).click();
+    await page.locator(`[data-action="connection-toggle"][data-id="${id}"]`).click();
   }
   const reopened = page.locator(`[data-path="connections.${id}.api_key"]`);
   await expect(reopened).toBeVisible();
@@ -161,7 +161,7 @@ test("the settings journey: type a host, Test, pick a model, save, chat, close, 
   // 11. AND THE REFUSAL IS PART OF THE JOURNEY. Choosing this connection in the
   // switcher bound the agent's B role to it, so removing it is refused - on the row
   // that was clicked, naming what to do about it (items 2mb (b), 2nc (c) and (d)).
-  const row = page.locator(`.connection-row:has(.connection-summary[data-id="${id}"])`);
+  const row = page.locator(`.connection-row:has([data-action="connection-toggle"][data-id="${id}"])`);
   await expect(row).toContainText(/assigned to .* B role/);
   await expect(row).toContainText("Agents page");
 
@@ -178,7 +178,7 @@ test("the settings journey: type a host, Test, pick a model, save, chat, close, 
   await page.locator(`.connection-row [data-action="remove-connection"][data-id="${id}"]`).click();
   await expect(page.locator(".confirm-popover")).toBeVisible();
   await page.locator('.confirm-popover [data-action="confirm-proceed"]').click();
-  await expect(page.locator(`.connection-summary[data-id="${id}"]`)).toHaveCount(0);
+  await expect(page.locator(`.connection-row:has([data-action="connection-toggle"][data-id="${id}"]) .connection-summary`)).toHaveCount(0);
   await expect(page.locator(".connection-row")).toHaveCount(rowsBefore);
 });
 
@@ -324,7 +324,7 @@ test("a rename alone saves, with no Test and no refusal", async () => {
   await expect(save).toBeEnabled();
   await save.click();
   await expect(save).toBeDisabled();
-  await expect(page.locator(`.connection-summary[data-id="${id}"]`)).toContainText("renamed by hand");
+  await expect(page.locator(`.connection-row:has([data-action="connection-toggle"][data-id="${id}"]) .connection-summary`)).toContainText("renamed by hand");
   await expect(page.locator(".connection-refusal")).toHaveCount(0);
   expect(posts.some((url) => url.includes("/api/config")), `no save request was made: ${JSON.stringify(posts)}`).toBe(true);
   expect(posts.some((url) => url.includes("/probe")), "a rename ran a test").toBe(false);
@@ -346,7 +346,7 @@ test("the bar is on screen 100 ms after Test, and the bare word is not", async (
   const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
   await editor.locator(`[data-path="connections.${id}.base_url"]`).fill("192.0.2.1:8080");
 
-  await page.locator(`.connection-row [data-action="probe"][data-id="${id}"]`).click();
+  await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
   await page.waitForTimeout(100);
   // The viewport rather than the row: the list re-renders while the walk runs, and an
   // element screenshot of a node that was just replaced fails for a reason that has
@@ -400,14 +400,13 @@ test("the sheet reads top to bottom as the flow", async () => {
       .map((entry) => entry.name);
   }, id);
 
-  // Before a model is chosen, Evaluate is not among them: nothing but the flow is
-  // on screen until the connection has one.
-  expect(await order()).toEqual(["label", "address", "key", "Test", "model", "Save", "Advanced"]);
+  // Item 2px (b): every field is on screen before a model is chosen, Evaluate included.
+  expect(await order()).toEqual(["label", "address", "key", "Test", "model", "Evaluate", "Save", "Advanced"]);
   await expect(page.locator(".connection-advanced")).not.toHaveAttribute("open", /.*/);
 
   // With a model chosen, Evaluate takes its place between the model and Save.
   await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
-  await page.locator(`.connection-row [data-action="probe"][data-id="${id}"]`).click();
+  await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
   await expect(page.locator(`[data-path="connections.${id}.model"]`)).toHaveJSProperty("tagName", "SELECT");
   await page.locator(`[data-path="connections.${id}.model"]`).selectOption("journey-model");
   await expect(page.locator(`.connection-editor [data-action="measure-connection"][data-id="${id}"]`)).toBeVisible();
@@ -431,7 +430,7 @@ test("the model he picks is the one the field shows, through Test and through Sa
   const editor = page.locator(".connection-editor");
   const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
   await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
-  await page.locator(`.connection-row [data-action="probe"][data-id="${id}"]`).click();
+  await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
 
   const model = page.locator(`[data-path="connections.${id}.model"]`);
   await expect(model).toHaveJSProperty("tagName", "SELECT");
@@ -442,7 +441,7 @@ test("the model he picks is the one the field shows, through Test and through Sa
   await expect(model, "the field forgot the pick as soon as it was made").toHaveValue("second-model");
 
   // Test again: the field still shows what he picked, not what is saved.
-  await page.locator(`.connection-row [data-action="probe"][data-id="${id}"]`).click();
+  await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
   await expect(page.locator(".connection-editor .discovery-note")).toBeVisible();
   await expect(model, "Test drew the saved model over his pick").toHaveValue("second-model");
 
@@ -491,7 +490,7 @@ test("a refused save keeps the drafts and marks only its field", async () => {
   const modelField = editor.locator(`[data-path="connections.${id}.model"]`);
   await expect(modelField.locator("xpath=ancestor::div[contains(@class,'setting-row')]")).toHaveClass(/invalid/);
   await expect(editor.locator(".field-error")).toContainText("model is empty");
-  const row = page.locator(`.connection-row:has(.connection-summary[data-id="${id}"])`);
+  const row = page.locator(`.connection-row:has([data-action="connection-toggle"][data-id="${id}"])`);
   await expect(row).not.toContainText("model is empty");
   // Every draft is still on screen: nothing was re-rendered back to the saved value.
   await expect(editor.locator(`[data-path="connections.${id}.label"]`)).toHaveValue("renamed while refused");

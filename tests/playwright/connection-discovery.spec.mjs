@@ -53,10 +53,10 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
 
   const settings = await harness.context.newPage();
   await settings.goto(`${harness.base}/chat?from=setup#settings/connections`);
-  await settings.locator('.connection-summary[data-id="ui"]').click();
+  await settings.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   const before = await hash(join(harness.dataRoot, "harness.json"));
   // Item 2l5: Test is one of the four actions on the connection own row now.
-  await settings.locator('.connection-row [data-action="probe"][data-id="ui"]').click();
+  await settings.locator('.connection-editor [data-action="probe"][data-id="ui"]').click();
   // Item 2nb (g): ONE MESSAGE, ONE PLACE. The result of the last Test is rendered
   // under the field it is about and nowhere else. The operator saw three copies of one
   // sentence before this; the note carries the message when there is one, and what
@@ -74,7 +74,7 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   await expect(settings.locator('[data-path="connections.ui.model"] option')).toHaveText(["absent-model", "alpha-model", "beta-model", "type a name…"]);
   // (g) again, from the other side: the row header carries the STATE WORD and never
   // the message, so it cannot overflow.
-  const header = settings.locator('.connection-row:has(.connection-summary[data-id="ui"]) .connection-state');
+  const header = settings.locator('.connection-row:has([data-action="connection-toggle"][data-id="ui"]) .connection-state');
   await expect(header).not.toContainText('is not served');
   await expect(header).not.toHaveText("");
   expect(await hash(join(harness.dataRoot, "harness.json"))).toBe(before);
@@ -139,7 +139,7 @@ test("the active chat tab returns from Plan and three Settings depths", async ()
 	for (const save of [false, true]) {
 		await page.locator(".shell-settings").click();
 		await page.locator('.settings-nav [data-id="connections"]').click();
-		if (!await page.locator(".connection-editor").count()) await page.locator('.connection-summary[data-id="ui"]').click();
+		if (!await page.locator(".connection-editor").count()) await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
 		await expect(page.locator(".connection-editor")).toBeVisible();
 		await page.locator('.connection-editor [data-path$=".label"]').fill(`UI ${save ? "saved" : "discarded"}`);
 		page.once("dialog", (dialog) => save ? dialog.accept() : dialog.dismiss());
@@ -176,8 +176,8 @@ test("a failed connection Test stays one line and opens exact details in this wi
   const copyPath = await page.locator('.connection-editor [data-path$=".base_url"]').getAttribute("data-path");
   const copyID = copyPath.split(".")[1];
   await page.locator(`[data-path="connections.${copyID}.base_url"]`).fill("http://127.0.0.1:1");
-  await page.locator(`.connection-summary[data-id="${copyID}"]`).click();
-  await page.locator('.connection-summary[data-id="ui"]').click();
+  await page.locator(`[data-action="connection-toggle"][data-id="${copyID}"]`).click();
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   await page.locator('[data-path="connections.ui.base_url"]').fill("http://127.0.0.1:2");
   const evidence = process.env.AGENTB_EVIDENCE_DIR;
   if (evidence) {
@@ -188,21 +188,23 @@ test("a failed connection Test stays one line and opens exact details in this wi
   await page.route("**/api/connections/ui/probe", (route) => route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: timeoutDetail }) }));
   await page.locator('.connection-editor [data-action="probe"][data-id="ui"]').click();
   await expect(page.locator('.connection-editor .connection-test-failure')).toContainText("No answer from 127.0.0.1:2. It may be off, asleep or out of reach of this PC.");
+  // Item 2px (a): Test is in the form, so the copy is tested from its own editor;
+  // the first connection's failure stays on its collapsed row.
+  await page.locator(`[data-action="connection-toggle"][data-id="${copyID}"]`).click();
   const refusedAnswer = page.waitForResponse((response) => response.url().endsWith(`/api/connections/${copyID}/probe`));
-  await page.locator(`.connection-row [data-action="probe"][data-id="${copyID}"]`).click();
+  await page.locator(`.connection-editor [data-action="probe"][data-id="${copyID}"]`).click();
   await refusedAnswer;
-  await expect(page.locator(`.connection-row:has(.connection-summary[data-id="${copyID}"]) .connection-test-failure`)).toContainText("Nothing is listening at 127.0.0.1:1.");
+  await expect(page.locator(".connection-editor .connection-test-failure")).toContainText("Nothing is listening at 127.0.0.1:1.");
   await expect(page.locator(".connection-test-failure")).toHaveCount(2);
   if (evidence) await page.screenshot({ path: join(evidence, "settings-connection-after.png") });
   const pages = harness.context.pages().length;
-  await page.locator('.connection-editor [data-action="error-details"]').click();
+  await page.locator('.connection-row:has([data-action="connection-toggle"][data-id="ui"]) [data-action="error-details"]').click();
   await expect(page.locator(".settings-error-panel pre")).toHaveText(timeoutDetail);
   expect(harness.context.pages().length, "details opened another window").toBe(pages);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), "details added horizontal scrolling").toBe(false);
   await page.keyboard.press("Escape");
   await expect(page.locator(".settings-error-panel")).toHaveCount(0);
-  await page.locator('.connection-summary[data-id="ui"]').click();
-  await expect(page.locator('.connection-row:has(.connection-summary[data-id="ui"]) [data-action="error-details"]')).toHaveCount(1);
+  await expect(page.locator('.connection-row:has([data-action="connection-toggle"][data-id="ui"]) [data-action="error-details"]')).toHaveCount(1);
   await page.evaluate(async (id) => { await fetch(`/api/connections/${encodeURIComponent(id)}`, { method: "DELETE" }); }, copyID);
   await page.close();
 });
@@ -210,7 +212,7 @@ test("a failed connection Test stays one line and opens exact details in this wi
 test("a refused connection Test keeps today's exact full text 2po", async () => {
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat#settings/connections`);
-  if (!await page.locator('.connection-editor [data-path="connections.ui.base_url"]').count()) await page.locator('.connection-summary[data-id="ui"]').click();
+  if (!await page.locator('.connection-editor [data-path="connections.ui.base_url"]').count()) await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   await page.locator('[data-path="connections.ui.base_url"]').fill("http://127.0.0.1:1");
   const answer = page.waitForResponse((response) => response.url().endsWith("/api/connections/ui/probe"));
   await page.locator('.connection-editor [data-action="probe"][data-id="ui"]').click();
@@ -224,7 +226,7 @@ test("a refused connection Test keeps today's exact full text 2po", async () => 
   await expect(page.locator(".settings-error-panel pre")).toHaveText(body.error);
   await page.keyboard.press("Escape");
   await expect(page.locator(".settings-error-panel")).toHaveCount(0);
-  await page.locator('.connection-summary[data-id="ui"]').click();
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   await expect(page.locator('.connection-row [data-action="error-details"]')).toHaveCount(1);
   await expect(page.locator(".connection-test-failure")).toHaveCount(1);
   await expect(page.locator(".connection-test-failure")).toContainText("Nothing is listening at 127.0.0.1:1.");
@@ -234,7 +236,7 @@ test("a refused connection Test keeps today's exact full text 2po", async () => 
 test("a refused saved value marks that field only 2po", async () => {
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat#settings/connections`);
-  if (!await page.locator('.connection-editor [data-path="connections.ui.base_url"]').count()) await page.locator('.connection-summary[data-id="ui"]').click();
+  if (!await page.locator('.connection-editor [data-path="connections.ui.base_url"]').count()) await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   await page.route("**/api/config", (route) => route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "That address is refused after Save.", field: "connections.ui.base_url" }) }));
   await page.locator('[data-path="connections.ui.base_url"]').fill("http://127.0.0.1:2");
   await page.locator('.connection-editor [data-action="save-connection"]').click();

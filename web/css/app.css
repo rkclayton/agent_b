@@ -111,9 +111,6 @@
 .lamp.alarm {
   background: var(--alarm);
 }
-.shell-session-lamp {
-  margin-right: 6px;
-}
 .fault .lamp {
   background: var(--alarm);
 }

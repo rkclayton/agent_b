@@ -2424,27 +2424,15 @@ if (realModel) {
 	await json(`http://127.0.0.1:${appPort}/api/sessions/${sessionID}/close`, { method: "POST", headers: { "X-AgentB-Mutation-Token": finalState.mutation_token } });
 	assert.equal((await state()).sessions[sessionID]?.closed, true, "close must retain a closed session");
 	await json(`http://127.0.0.1:${appPort}/api/sessions/${sessionID}`, { method: "DELETE", headers: { "X-AgentB-Mutation-Token": finalState.mutation_token } });
-	// Item 2hq (v1.6.2): close retains the journal; intentional delete exports
-	// it first. The export itself is one of
-	// the things that outlives the chat, so the proof is the file on disk.
-	const exportedPath = await (async () => {
-		for (let attempt = 0; attempt < 200; attempt++) {
-			const found = [];
-			const chats = join(profileData, "chats");
-			for (const dir of await readdir(chats).catch(() => [])) {
-				for (const name of await readdir(join(chats, dir)).catch(() => [])) if (name.endsWith(".md")) found.push(join(chats, dir, name));
-			}
-			const newest = found.sort().at(-1);
-			if (newest) return newest;
-			await sleep(50);
-		}
-		throw new Error("no exported chat markdown was written");
-	})();
-	const exportedMarkdown = await readFile(exportedPath, "utf8");
-	assert.ok(exportedMarkdown.includes("## Transcript"));
-	assert.ok(exportedMarkdown.includes("- tool `shell` · ok"));
-	assert.ok(exportedMarkdown.includes("- attachment: `attachments/phone-note.txt`"));
-	record("chat-delete-markdown-export");
+	// Item 2py: DELETE DELETES. No copy of what was said is written: after a
+	// moment for any write, there is no Markdown export under chats.
+	await sleep(500);
+	const exported = [];
+	for (const dir of await readdir(join(profileData, "chats")).catch(() => [])) {
+		for (const name of await readdir(join(profileData, "chats", dir)).catch(() => [])) if (/^\d{4}-\d{2}-\d{2}-.+\.md$/.test(name)) exported.push(name);
+	}
+	assert.deepEqual(exported, [], "deleting a chat wrote a copy of it");
+	record("chat-delete-leaves-no-copy");
   const evidenceRun = join(args.evidence, `run-${new Date().toISOString().replaceAll(":", "-")}`);
   await mkdir(evidenceRun, { recursive: true });
   await writeFile(join(evidenceRun, "chat-final.png"), screenshot);
@@ -2457,8 +2445,8 @@ if (realModel) {
   assert.equal(await page.locator(`.agent-chat-row[data-session="${sessionID}"]`).count(), 0, "a deleted chat leaves no history entry");
   assert.equal((await state()).sessions[sessionID], undefined, "deleting removed the session registry entry");
   await page.screenshot({ path: join(evidenceRun, "chat-history-after-close.png") });
-  // What the chat produced elsewhere: the exported markdown of what was said,
-  // the memory it noted, and the plan it registered.
+  // What the chat produced elsewhere: the memory it noted and the plan it
+  // registered.
   const anyFileUnder = async (root) => {
     const found = [];
     const walk = async (dir, depth) => {
@@ -2473,13 +2461,10 @@ if (realModel) {
     return found;
   };
   const durable = {
-    export: exportedPath,
     plans: (await anyFileUnder(join(profileData, "plans"))).length,
     memory: (await anyFileUnder(join(profileData, "memory"))).length,
   };
-  // The markdown of what was said, the plans it registered and the memory it
-  // noted all outlived the chat.
-  assert.ok(durable.export, JSON.stringify(durable));
+  // The plans it registered and the memory it noted outlived the chat.
   assert.ok(durable.plans > 0, JSON.stringify(durable));
   record("delete-removes-the-chat-and-keeps-what-it-produced");
   await page.setViewportSize({ width: 320, height: 975 });
@@ -2557,7 +2542,7 @@ if (realModel) {
   await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-delete`).click();
   await sleep(300);
   page.off("dialog", dismiss);
-  assert.equal(dialogs.at(-1), "Delete this chat? Its memory notes, plans and files stay.");
+  assert.equal(dialogs.at(-1), "Delete this chat permanently? Memory notes it made are kept.");
   assert.ok((await state()).sessions[idleCloseID], "a dismissed delete confirm must keep the chat");
   const accept = async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); };
   page.on("dialog", accept);

@@ -122,8 +122,7 @@ func TestRememberToolsBlockByteDelta(t *testing.T) {
 	// Item 2kt: the description states the durable/transient boundary before a
 	// call and names the cost of falling through to the agent layer. Item 2jf
 	// rewrote it to carry scope, replaces and the per-run cap, which is why the
-	// number moved -- and the pin is why the move had to be deliberate. Item 2pz
-	// says "the user" where it said "the operator": 431 to 427.
+	// number moved -- and the pin is why the move had to be deliberate. 2pz: 431 to 427.
 	const wantDelta = 427
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("remember tools-block byte delta=%d, want %d", delta, wantDelta)

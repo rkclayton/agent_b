@@ -548,6 +548,22 @@ func (s *Session) TouchProject(path string) {
 		hook(path)
 	}
 }
+// RefreshProject re-reads the chat's instruction files at the start of a run and keeps
+// the block it returns when they changed (item 2q0).
+func (s *Session) RefreshProject() (string, bool) {
+	s.mu.Lock()
+	files := append([]string(nil), s.ProjectFiles...)
+	s.mu.Unlock()
+	block, err := workspaceinfo.RenderInstructions(files)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil || len(files) == 0 || block == s.ProjectBlock {
+		return s.ProjectBlock, false
+	}
+	s.ProjectBlock = block
+	return block, true
+}
+
 func (s *Session) AppendProject(block string, files, notes []string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

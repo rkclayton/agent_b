@@ -310,6 +310,8 @@ roots.form.addEventListener("submit", async (event) => {
     roots.path.value = "";
     await loadPlans();
     select(result.plan.id);
+    // Item 2q0: a repository with a planner's queue skips the brief; its chat opens idle.
+    if (result.planner_queue) { buildFor = result.plan.id; planningBrief = { purpose: "", done: "", do_not_touch: "" }; return void startPlanning(); }
     buildFor = result.created ? result.plan.id : "";
     roots.build.hidden = !buildFor;
   } catch (error) {
@@ -358,7 +360,7 @@ async function startPlanning() {
     // v0.70.1 overrule: Yes is the consent, so the server sends the fixed
     // opening request to a new planning chat. A chat already under way is only
     // opened, with the request left in its composer.
-    if (!result.sent) { try { sessionStorage.setItem(`agentb.draft.${result.session_id}`, result.draft); } catch { /* the chat opens empty */ } }
+    if (!result.sent && result.draft) { try { sessionStorage.setItem(`agentb.draft.${result.session_id}`, result.draft); } catch { /* the chat opens empty */ } }
     location.href = `/chat?session=${encodeURIComponent(result.session_id)}`;
   } catch (error) {
     roots.addError.textContent = error.message;

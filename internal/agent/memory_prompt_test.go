@@ -20,6 +20,7 @@ import (
 	"harness/internal/memory"
 	"harness/internal/session"
 	"harness/internal/tools"
+	"harness/internal/workspace"
 )
 
 // Durable-memory and working-directory guidance have to be in the shipped
@@ -225,5 +226,42 @@ func TestAChatRequestNeverSaysOperator2pz(t *testing.T) {
 	sent := <-body
 	if !strings.Contains(sent, `"delegate"`) || regexp.MustCompile(`(?i)(^|[^\w-])operator('s)?([^\w-]|$)`).MatchString(sent) {
 		t.Fatalf("the request lacks the tools or says operator: %s", sent)
+	}
+}
+
+// Item 2q0 CHECKS 2 and 3: repository instructions changed between two runs of one chat
+// reach the second run's request, and a file over the bound is a pointer, never a cut copy.
+func TestRepositoryInstructionsAreCurrentAndWholeOnEveryRun2q0(t *testing.T) {
+	stub := newByteLimitStub(t, 1<<30)
+	runner, item, _ := byteLimitRunner(t, stub)
+	runner.prompt = &PromptRenderer{text: "system\n{{project}}"}
+	file := filepath.Join(item.Workspace, "AGENTS.md")
+	run := func(text string) string {
+		if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		item.Append(events.Message{ID: fmt.Sprintf("u%d", len(stub.sizes)), Role: "user", Content: "go", Category: "history"})
+		if reason, detail, _ := runner.Run(context.Background(), item, fmt.Sprintf("r%d", len(stub.sizes))); reason != "done" {
+			t.Fatalf("run: %s %s", reason, detail)
+		}
+		return stub.last
+	}
+	if err := os.WriteFile(file, []byte("Rule one."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := workspace.LoadInstructions(item.Workspace, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item.ProjectFiles, item.ProjectBlock = loaded.Files, loaded.Block
+	if first := run("Rule one."); !strings.Contains(first, "Rule one.") {
+		t.Fatal("the first run lacks the instructions")
+	}
+	if second := run("Rule one. Rule two, written between runs."); !strings.Contains(second, "Rule two, written between runs.") {
+		t.Fatal("the second run carries the stale instructions")
+	}
+	big := "BEGIN " + strings.Repeat("a rule of the repository. ", workspace.InstructionLimit/26+10)
+	if third := run(big); strings.Contains(third, "BEGIN a rule") || !strings.Contains(third, "over the 16384-byte limit") {
+		t.Fatalf("over the bound the request carries a partial copy or no pointer: %.300s", third[strings.Index(third, "REPOSITORY"):])
 	}
 }

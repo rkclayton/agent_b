@@ -37,6 +37,8 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .app-shell{position:relative;z-index:30;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px;height:var(--app-header-height);min-width:0;padding:0 4px;background:var(--bezel)}
 .shell-left,.agent-tabs,.shell-right{display:flex;align-items:center;min-width:0;gap:2px}
 .shell-right{height:100%}
+/* Item 2px (f): the chat's connection lamp is shell, so it is styled where every page loads it. */
+.shell-session-lamp{flex:none;width:8px;height:8px;margin-right:6px;background:rgba(125,135,148,.35)}.shell-session-lamp[data-state=ready]{background:var(--ink)}.shell-session-lamp[data-state=amber]{background:var(--trace)}.shell-session-lamp[data-state=alarm]{background:var(--alarm)}
 .shell-left{overflow:hidden}
 .shell-left{width:100%}
 .shell-session-title{max-width:42vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;background:transparent;color:var(--mute);font:12px/20px var(--mono)}

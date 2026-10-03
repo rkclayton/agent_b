@@ -741,7 +741,7 @@ try {
     # must name no static surface at all, and the entry is asserted below where it
     # now lives. The assertion moves with the contract each time.
     if ($shellSource -notmatch 'root\.append\(left, right\)' -or
-        $shellSource -notmatch 'right\.append\(sessionHeading, connectionMenu, settings, windowControls\)' -or
+        $shellSource -notmatch 'right\.append\(sessionLamp, sessionHeading, connectionMenu, settings, windowControls\)' -or
         $shellSource -match 'visibleStaticSurfaces' -or
         $shellSource -match 'shell-pages' -or
         $shellSource -match 'shell-operator-status' -or

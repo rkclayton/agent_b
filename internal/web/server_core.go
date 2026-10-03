@@ -119,6 +119,9 @@ type Server struct {
 	reachabilityMu    sync.Mutex
 	reachability      map[string]*reachabilityRetry
 	reachabilityAfter func(time.Duration, func()) operatorTimer
+	healthMu          sync.Mutex
+	health            map[string]connectionHealth
+	healthEvery       time.Duration
 	navigationMu      sync.Mutex
 	navigationIDs     map[string]time.Time
 	agentConnectionMu sync.Mutex
@@ -268,6 +271,14 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 				scheduler.HoldModel(sessionID)
 			}
 			s.scheduleReachabilityProbe(connectionID)
+			s.setConnectionHealth(connectionID, connectionHealth{Lamp: "alarm", Word: "unreachable"})
+		})
+		// Item 2px (e): a real answer is the best check there is; it clears red
+		// and keeps an amber that is about the model or the window.
+		runner.SetModelAnswered(func(connectionID string) {
+			if current := s.connectionHealthState()[connectionID]; current.Lamp != "amber" {
+				s.setConnectionHealth(connectionID, connectionHealth{Lamp: "ready", Word: "ready", Window: current.Window})
+			}
 		})
 		runner.SetToolActivity(func(phase string) {
 			s.touchOperatorContext("idle window reset: tool execution " + phase)

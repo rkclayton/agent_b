@@ -282,6 +282,12 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "changes_required", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "changes": changes, "message": fmt.Sprintf("changed base_url from %s to %s", tested.BaseURL, discovered.BaseURL)})
 		return
 	}
+	// Item 2px (d): Test unlocks nothing and is not a failure without a model. It
+	// checked reach and the list, which is all it can check until one is chosen.
+	if strings.TrimSpace(updated.Model) == "" && len(discovered.Models) > 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"status": "listed", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "choose a model to check the rest", "proposed": s.proposedConnectionValues(r.Context(), &tested, discovered.Models)})
+		return
+	}
 	listed := modelListed(updated.Model, discovered.Models)
 	if !listed {
 		// Item 2l1 (b),(c),(d): the refusal names the field, the value and what is
@@ -546,6 +552,16 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 					writeError(w, 400, err.Error(), "shell.trusted_folders")
 					return
 				}
+			}
+		}
+		// Item 2px (g): THE RESERVE FOLLOWS THE WINDOW. A reserve this save did not
+		// type is recomputed from the window; one it typed that no longer fits is
+		// lowered to the most allowed, and the field says so. Neither is refused:
+		// 30240, half of an old 60480 window, refused a 60000 window's Save.
+		for index := range next.Connections {
+			connection := &next.Connections[index]
+			if bound := max(connection.Context.NCtx/2, config.DefaultReserveOutput); connection.Context.NCtx > 0 && connection.Context.ReserveOutput > bound {
+				connection.Context.ReserveOutput = bound
 			}
 		}
 		if err := next.Validate(); err != nil {

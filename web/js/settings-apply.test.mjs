@@ -44,7 +44,7 @@ test("an invalid value is reported beside its field and nothing else is sent", (
   assert.match(settings, /const ok = await saveSettings\(path\);/, "applySetting does not send exactly one path");
   assert.match(settings, /const entries = \[\.\.\.drafts\.entries\(\)\]\.filter\(\(\[path\]\) => !pathPrefix \|\| path\.startsWith\(pathPrefix\)\)/);
   assert.match(settings, /errors\.set\(error\.field \|\| "config", error\.message\)/, "a field error is not attached to its field");
-  assert.match(settings, /problem \? errorMarkup\(problem, `field:\$\{path\}`\) : ""/, "a field error has nowhere to render");
+  assert.match(settings, /problem \? errorMarkup\(problem, `field:\$\{path\}`\) : note/, "a field error has nowhere to render");
 });
 
 // (e). The guard narrows to the groups that still have an explicit save.
@@ -64,4 +64,9 @@ test("a row reports that it applied, or carries the save that belongs to it", ()
   // data-path stays the mark of a control whose VALUE is read and written, so a
   // selector for a field never also finds the save beside it.
   assert.doesNotMatch(settings, /data-action="save-setting" data-path=/);
+});
+
+test("a typed reserve the window cannot hold is lowered and the field says so (2px CHECK 8)", () => {
+  assert.match(settings, /if \(saved && typedReserve > saved\.reserve_output\) fieldNotes\.set\(reservePath, `lowered to \$\{saved\.reserve_output\}, the most a \$\{saved\.n_ctx\}-token context allows`\)/);
+  assert.match(settings, /errorMarkup\(problem, `field:\$\{path\}`\) : note/, "the note has nowhere to render");
 });

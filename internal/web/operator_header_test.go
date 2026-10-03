@@ -46,7 +46,7 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 	// Item 2mf: the one-entry page switch is gone. Plan is a pinned tab in the
 	// strip on the LEFT, so the right slot is the heading, Settings and the
 	// native-frame glyphs, and the surface list is what names the Plan tab.
-	if !strings.Contains(text, "right.append(sessionHeading, connectionMenu, settings, windowControls)") || strings.Contains(text, "folderMenu") || strings.Contains(text, "right.append(stop") || strings.Contains(text, "shell-operator-status") {
+	if !strings.Contains(text, "right.append(sessionLamp, sessionHeading, connectionMenu, settings, windowControls)") || strings.Contains(text, "folderMenu") || strings.Contains(text, "right.append(stop") || strings.Contains(text, "shell-operator-status") {
 		t.Fatalf("shared shell right slot must contain the role/connection heading, Settings, and native-frame glyphs")
 	}
 	// Item 2ni: the Plan is a top-level SETTINGS SECTION now, so the strip draws no

@@ -499,6 +499,7 @@ func main() {
 		return action.Decision, err
 	})
 	web.SetRuntime(scheduler, runner, renderer)
+	web.StartConnectionHealth(context.Background())
 	web.SetProfileChanged(func(nextRoot string) error {
 		nextLogDir := cfg.LogDir
 		if !filepath.IsAbs(nextLogDir) {

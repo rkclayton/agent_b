@@ -67,6 +67,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 		"build":                    buildinfo.Current(),
 		"update":                   updateState,
 		"broker":                   brokerState,
+		"connection_health":        s.connectionHealthState(),
 		"plans":                    s.planList(),
 		"signature":                s.signingState(),
 		"shell_credential":         credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,

@@ -100,6 +100,20 @@
 .queued .lamp {
   animation: breathe 1.6s ease-in-out infinite;
 }
+/* Item 2px (e): a connection's health, in the palette's own colours: lit ink is
+   ready, trace is a problem with the model or window, alarm is red. */
+.lamp.ready {
+  background: var(--ink);
+}
+.lamp.amber {
+  background: var(--trace);
+}
+.lamp.alarm {
+  background: var(--alarm);
+}
+.shell-session-lamp {
+  margin-right: 6px;
+}
 .fault .lamp {
   background: var(--alarm);
 }

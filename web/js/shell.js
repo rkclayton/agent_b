@@ -3,6 +3,7 @@ import { chatName, chatRowText, isRunning, sessionTitle } from "./chat-lifecycle
 import { installUIErrorRelay } from "./ui-error-relay.js";
 import { requestNavigation } from "./navigation-guard.js";
 import { surfaceForPage } from "./surfaces.js";
+import { connectionHealth } from "./settings-connections.js";
 import { beginNavigation } from "./navigation-telemetry.js";
 
 const activeRunStates = new Set(["running", "queued", "stopping"]);
@@ -72,7 +73,9 @@ export function initShell(options = {}) {
     control.append(glyph);
     windowControls.append(control);
   }
-  right.append(sessionHeading, connectionMenu, settings, windowControls);
+  // Item 2px (f): the chat's connection lamp, from the one health state.
+  const sessionLamp = node("span", "lamp shell-session-lamp");
+  right.append(sessionLamp, sessionHeading, connectionMenu, settings, windowControls);
   root.append(left, right);
   document.addEventListener("click", (event) => {
     if (!root.contains(event.target)) for (const menu of root.querySelectorAll(".shell-menu")) menu.hidden = true;
@@ -144,10 +147,8 @@ export function initShell(options = {}) {
     return "idle";
   }
 
-  function connectionState(connection, session) {
-    if (session?.connection_id === connection.id && session.model_unreachable) return "offline";
-    if ((connection.capabilities?.findings || []).some((line) => String(line).startsWith("probe failed:"))) return "offline";
-    return connection.capabilities?.probed_at ? "ready" : "not tested";
+  function connectionState(connection) {
+    return connectionHealth(store, connection.id).word;
   }
 
   function renderConnectionMenu() {
@@ -580,6 +581,10 @@ export function initShell(options = {}) {
     // which the header beside the tab strip already says.
     document.title = session ? `Agent_b · ${chatName(session)}` : "Agent_b";
     setProperty(sessionHeading, "hidden", !session);
+    const health = connectionHealth(store, session?.connection_id);
+    setProperty(sessionLamp, "hidden", !session);
+    setProperty(sessionLamp, "className", `lamp shell-session-lamp ${health.lamp}`);
+    setProperty(sessionLamp, "title", health.word);
     const heading = session ? (session.runnable === false ? session.not_runnable_reason : sessionTitle(session)) : "";
     if (sessionHeading.textContent !== heading) {
       sessionHeading.textContent = heading;

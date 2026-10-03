@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/llm"
 )
@@ -195,4 +197,67 @@ func TestASummaryRestatesTheTaskWithoutToolOutput2q5(t *testing.T) {
 		return
 	}
 	t.Fatal("no note")
+}
+
+// Item 2px (i) CHECK 10, runner side: s48's refusal names the window, which is
+// learned, and the run then measures against it.
+func TestTheWindowIsTheServers2px(t *testing.T) {
+	window, matched := windowLimitError(fmt.Errorf("HTTP 400: request (33849 tokens) exceeds the available context size (32768 tokens)"))
+	if !matched || window != 32768 {
+		t.Fatalf("window=%d matched=%t", window, matched)
+	}
+	runner := &Runner{}
+	connection := &config.Connection{ID: "acme"}
+	connection.Context.NCtx, connection.Context.ReserveOutput = 60000, 30000
+	runner.SetServerWindow("acme", window)
+	resolved, source, err := runner.resolveWindow(context.Background(), connection)
+	if err != nil || resolved.Context.NCtx != 32768 || resolved.Context.ReserveOutput != 16384 || !strings.Contains(source, "32768") || connection.Context.NCtx != 60000 {
+		t.Fatalf("resolved=%+v source=%q err=%v", resolved.Context, source, err)
+	}
+}
+
+// Item 2px (i) CHECK 10, at run level: s48. The connection says 60,000, the server
+// gives one request 32,768 and refuses a 33,849-token history once; the run learns
+// the window, compacts to it and the reply arrives, with one retry at most.
+func TestAnOverWindowRefusalCompactsAndAnswers2px(t *testing.T) {
+	templateNCtx = 60000
+	defer func() { templateNCtx = 32768 }()
+	server := newTemplateServer(t, func(body map[string]any, messages []map[string]any) map[string]any {
+		if isSummaryRequest(messages) {
+			return map[string]any{"content": "INTENT: answer\nNEXT STEP: answer"}
+		}
+		return map[string]any{"content": "answered"}
+	})
+	refusals := 0
+	inner := server.server.Config.Handler
+	server.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/chat/completions" && refusals == 0 {
+			refusals++
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"code":400,"message":"request (33849 tokens) exceeds the available context size (32768 tokens), try increasing it"}}`)
+			return
+		}
+		inner.ServeHTTP(w, r)
+	})
+	runner, item, _ := templateRunnerReserve(t, server, 8192)
+	history := []events.Message{}
+	ok := true
+	for turn := 1; turn <= 8; turn++ {
+		id := fmt.Sprintf("read-%d", turn)
+		history = append(history,
+			events.Message{ID: fmt.Sprintf("m-%d", 4*turn), Role: "user", Category: "history", Content: fmt.Sprintf("read part %d", turn), Turn: turn},
+			events.Message{ID: fmt.Sprintf("m-%d", 4*turn+1), Role: "assistant", Category: "history", Turn: turn, ToolCalls: []events.ToolCall{{ID: id, Name: "read_file", Arguments: `{"path":"part.txt"}`}}},
+			events.Message{ID: fmt.Sprintf("m-%d", 4*turn+2), Role: "tool", Category: "files", Name: "read_file", ToolCallID: id, OK: &ok, Turn: turn, Content: strings.Repeat("w", 16000)},
+			events.Message{ID: fmt.Sprintf("m-%d", 4*turn+3), Role: "assistant", Category: "history", Turn: turn, Content: "read it"})
+	}
+	item.ReplaceMessages(history)
+	runner.ReserveIDs(40)
+	if _, err := runner.AddUser(context.Background(), item, "now answer"); err != nil {
+		t.Fatal(err)
+	}
+	reason, detail, _ := runner.Run(context.Background(), item, "r48")
+	t.Logf("2px s48: reason=%s refusals=%d detail=%q", reason, refusals, detail)
+	if reason != "done" || refusals != 1 {
+		t.Fatalf("the over-window refusal must compact and answer once: %s %q refusals=%d", reason, detail, refusals)
+	}
 }

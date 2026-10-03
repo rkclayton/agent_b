@@ -28,6 +28,7 @@ const (
 	SessionRestoreFailed = "session.restore_failed"
 	ChatExported         = "chat.exported"
 	ConnectionProbed     = "connection.probed"
+	ConnectionHealth     = "connection.health"
 	// Item 2nb (b): one per address the endpoint walk tries, as it lands, so the sheet
 	// can say what is being tried instead of sitting idle for the length of the walk.
 	ConnectionDiscovering      = "connection.discovering"

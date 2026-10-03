@@ -109,6 +109,8 @@ export function reduce(event) {
       break;
     }
     case "config.changed": store.config = data.config; store.connections = data.config.connections || store.connections; store.profiles = data.profiles || data.config.profiles || store.profiles; break;
+    // Item 2px (e): the one state every connection lamp reads.
+    case "connection.health": store.connection_health = { ...(store.connection_health || {}), [data.connection_id]: data.health }; break;
     case "agent.connection_change":
       store.agent_connection_changes ||= {};
       if (data.status === "pending" && data.change?.agent_id) store.agent_connection_changes[data.change.agent_id] = data.change;
@@ -323,7 +325,7 @@ export function applyServerEvent(event) {
   }
 }
 source.onmessage = applyServerEvent;
-for (const type of ["snapshot", "projection.patch", "connection.probed", "config.changed", "agent.connection_change", "shell.identity", "shell.credential", "operator.context", "plan.created", "plan.updated", "plan.removed"])
+for (const type of ["snapshot", "projection.patch", "connection.probed", "connection.health", "config.changed", "agent.connection_change", "shell.identity", "shell.credential", "operator.context", "plan.created", "plan.updated", "plan.removed"])
   source.addEventListener(type, applyServerEvent);
 function reconcileVisibleClient() { if (!document.hidden) void operatorReconciler.reconcile().catch(() => {}); }
 document.addEventListener("visibilitychange", reconcileVisibleClient);

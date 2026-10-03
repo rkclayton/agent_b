@@ -182,9 +182,9 @@ func templateRunnerReserve(t *testing.T, server *templateServer, reserve int) (*
 	connection := cfg.Connections[0]
 	connection.ID, connection.Label, connection.BaseURL, connection.Model = "main", "main", server.server.URL, "test-model"
 	connection.RequestTimeoutS = 5
-	connection.Context.NCtx = 32768
+	connection.Context.NCtx = templateNCtx
 	connection.Context.ReserveOutput = reserve
-	connection.Capabilities.NCtx = 32768
+	connection.Capabilities.NCtx = templateNCtx
 	connection.Capabilities.Streaming = true
 	connection.Capabilities.ToolCalls = true
 	connection.Capabilities.OverflowBehavior = "error"
@@ -197,7 +197,7 @@ func templateRunnerReserve(t *testing.T, server *templateServer, reserve int) (*
 	registry := tools.New(tools.NewReadFile(cfg.Tools.ReadFile), tools.NewGlob(cfg.Tools.FindFiles))
 	runner := NewRunner(bus.Bus, registry, &PromptRenderer{text: "system {{workspace}} {{memory}} {{tools}}"}, cfg.Connection, func() config.Config { return cfg })
 	enabled := map[string]bool{"read_file": true, "find_files": true}
-	item := &session.Session{ID: "main", ConnectionID: "main", Workspace: t.TempDir(), Run: session.RunState{Status: "running", MaxTurns: cfg.Run.MaxTurns}, Runnable: true, ToolsEnabled: enabled, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, LastSeen: map[string]time.Time{}, Budget: events.Budget{NCtx: 32768, Reserve: reserve}}
+	item := &session.Session{ID: "main", ConnectionID: "main", Workspace: t.TempDir(), Run: session.RunState{Status: "running", MaxTurns: cfg.Run.MaxTurns}, Runnable: true, ToolsEnabled: enabled, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, LastSeen: map[string]time.Time{}, Budget: events.Budget{NCtx: templateNCtx, Reserve: reserve}}
 	return runner, item, bus
 }
 
@@ -592,7 +592,7 @@ func TestTheAbortRecordLeadsEveryMeasurement(t *testing.T) {
 
 // templateAccounting is the accounting templateRunner configures; a test that
 // replays estimated accounting sets it for its own run.
-var templateAccounting = "exact"
+var templateAccounting, templateNCtx = "exact", 32768
 
 // promptTokens is what the fake server reports a request cost: 100, or with
 // countPrompt set, the whole request at the fake tokenizer's four runes a token.

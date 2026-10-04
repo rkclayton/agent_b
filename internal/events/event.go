@@ -114,6 +114,17 @@ const (
 	// (docs/telemetry-trace.md). They never enter a journal.
 	Trace      = "trace"
 	RunSummary = "run.summary"
+	// Item 2q6: ModelRefused is published by the run loop; the rest are built
+	// by the recorder, one per run or per change, never one per request.
+	ModelRefused    = "model.refused"
+	ModelPerf       = "model.perf"
+	ToolPerf        = "tool.perf"
+	ModelBehaviour  = "model.behaviour"
+	BudgetDrift     = "budget.drift"
+	ApprovalWait    = "approval.wait"
+	ConnectionState = "connection.state"
+	UpdateResult    = "update"
+	SettingsShape   = "settings.shape"
 )
 
 const (

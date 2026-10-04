@@ -3,7 +3,10 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
+	"net/url"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -36,6 +39,8 @@ type telemetryHost struct {
 	state *telemetryState
 	// transport is a test seam. In the product it is nil and the sender posts.
 	transport func(body []byte) error
+	// shapeSent is the last settings.shape sent (item 2q6 (g)).
+	shapeSent string
 }
 
 // applyTelemetry starts, stops or restarts collection to match the
@@ -94,7 +99,30 @@ func (s *Server) applyTelemetry(cfg config.Config) {
 					continue
 				}
 			}
-			sender.Observe(event.Type, event.TS, data)
+			if !telemetry.RecorderTypes[event.Type] {
+				sender.Observe(event.Type, event.TS, data)
+			}
+		}
+	}()
+	// Item 2q6 (g): the settings' shape when collection starts — which is every
+	// configuration save — if it changed, and once a day regardless.
+	s.queueSettingsShapeLocked(sender, cfg)
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				current := s.ConfigSnapshot()
+				s.telemetry.mu.Lock()
+				if s.telemetry.state != nil && s.telemetry.state.sender == sender {
+					s.telemetry.shapeSent = ""
+					s.queueSettingsShapeLocked(sender, current)
+				}
+				s.telemetry.mu.Unlock()
+			}
 		}
 	}()
 	s.telemetry.state = &telemetryState{sender: sender, unsubscribe: unsubscribe, stop: stop, done: done}
@@ -145,6 +173,35 @@ func (s *Server) queueRunTelemetry(eventType string, data map[string]any) {
 	if state != nil {
 		state.sender.Observe(eventType, time.Now().UTC().Format(time.RFC3339), data)
 	}
+}
+
+// settingsShape is item 2q6 (g): per connection its kind, model file name,
+// window, reserve, reasoning effort; the context thresholds; the switch; the OS
+// version. No address, key, name, path or label.
+func settingsShape(cfg config.Config) map[string]any {
+	connections := []any{}
+	for _, connection := range cfg.Connections {
+		kind := "api"
+		if parsed, err := url.Parse(connection.BaseURL); err == nil && (parsed.Hostname() == "localhost" || net.ParseIP(parsed.Hostname()).IsLoopback()) {
+			kind = "local"
+		}
+		connections = append(connections, map[string]any{"kind": kind, "model": telemetry.Redact(filepath.Base(filepath.ToSlash(connection.Model))),
+			"context_size": connection.Context.NCtx, "reserve": connection.Context.ReserveOutput, "reasoning_effort": telemetry.Redact(connection.Reasoning.Effort),
+			"soft_pct": cfg.Context.SoftPct, "summary_pct": cfg.Context.SummaryPct})
+	}
+	return map[string]any{"connections": connections, "telemetry": cfg.Telemetry.Enabled, "os_version": osVersion()}
+}
+
+// queueSettingsShapeLocked sends the shape when it differs from the last one
+// sent. The caller holds s.telemetry.mu.
+func (s *Server) queueSettingsShapeLocked(sender *telemetry.Sender, cfg config.Config) {
+	shape := settingsShape(cfg)
+	encoded, _ := json.Marshal(shape)
+	if s.telemetry.shapeSent == string(encoded) {
+		return
+	}
+	s.telemetry.shapeSent = string(encoded)
+	sender.Observe(events.SettingsShape, time.Now().UTC().Format(time.RFC3339), shape)
 }
 
 // reportChat is item 2pw (c): the chat's last runs as one trace event, sent now

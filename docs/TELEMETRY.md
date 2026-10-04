@@ -90,12 +90,15 @@ fatal stderr without absolute program counters stays local and is not sent.
 
 ### The flight recorder's events
 
-`trace` and `run.summary` (items 2pw and 2q6) are specified in
-[`docs/telemetry-trace.md`](telemetry-trace.md), with their fields, their
-vectors and their allow-list. `trace` is the one event that leaves with the
-switch off, and only when a person picks **Report this chat**: the click is the
-consent for that one report. A `trace` carries the model's file name and the
-registered tool names, and nothing else that is a name.
+`trace`, `run.summary`, `model.perf`, `tool.perf`, `model.behaviour`,
+`budget.drift`, `compaction`, `approval.wait`, `model.refused`,
+`connection.state`, `update` and `settings.shape` (items 2pw and 2q6) are
+specified in [`docs/telemetry-trace.md`](telemetry-trace.md), with their fields,
+their vectors and their allow-list. They are built per run or per change, never
+per request. `trace` is the one event that leaves with the switch off, and only
+when a person picks **Report this chat**: the click is the consent for that one
+report. These events carry the model's file name, the server's error type word
+and the registered tool names, and nothing else that is a name.
 
 ## Everything else is dropped
 
@@ -108,7 +111,7 @@ Dropped: `model.delta`, `model.progress`, `model.request`, `model.response`,
 `model.retry`, `model.unreachable`, `model.reachable`, `model.busy`,
 `delegate.usage`, `stage`, `budget`, `message.appended`, `message.updated`,
 `message.removed`, `message.queued`, `messages.reminted`, `tool.call`,
-`tool.toggled`, `compaction`, `compaction.summary`, `session.created`,
+`tool.toggled`, `compaction.summary`, `session.created`,
 `session.closed`, `session.reopened`, `session.renamed`, `session.reset`,
 `session.updated`, `session.restore_failed`, `chat.named`, `chat.deleted`,
 `run.queued`, `run.started`, `run.stopping`, `run.resumed`, `run.labeled`,

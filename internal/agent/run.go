@@ -679,6 +679,12 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			if ctx.Err() != nil {
 				return contextStop(turn, "model call canceled")
 			}
+			// Item 2q6 (d): a server's refusal as its status and its own type word,
+			// never its message; published before any retry, so a refusal the run
+			// recovers from is still counted.
+			if status, kind := serverRefusal(callErr); status > 0 {
+				r.bus.Publish(events.New(events.ModelRefused, s.ID, runID, map[string]any{"status": status, "error_type": kind, "connection_kind": connectionKind(connection)}))
+			}
 			// Item 2l9 (e2): the answer, not the run, hit its ceiling. Same treatment
 			// as a token truncation — name the ceiling and keep what was produced.
 			if callCtx.Err() != nil && answerCeiling(connection) > 0 {
@@ -2059,6 +2065,28 @@ func connectionKind(connection *config.Connection) string {
 		return "local"
 	}
 	return "api"
+}
+
+var (
+	refusalStatus = regexp.MustCompile(`HTTP (\d{3})`)
+	refusalType   = regexp.MustCompile(`"type"\s*:\s*"([A-Za-z_]{1,48})"`)
+)
+
+// serverRefusal reads an HTTP refusal's status and the server's error type
+// word out of a model call's error; zero when the error was not a refusal.
+func serverRefusal(err error) (int, string) {
+	text := err.Error()
+	match := refusalStatus.FindStringSubmatch(text)
+	if match == nil {
+		return 0, ""
+	}
+	status := 0
+	fmt.Sscanf(match[1], "%d", &status)
+	kind := ""
+	if typed := refusalType.FindStringSubmatch(text); typed != nil {
+		kind = typed[1]
+	}
+	return status, kind
 }
 
 // shortHash names a text without carrying it: eight hex characters.

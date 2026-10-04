@@ -13,3 +13,5 @@ func signInStartEnabled() (bool, error) { return false, nil }
 func setSignInStart(bool, string) error {
 	return fmt.Errorf("starting at sign-in is available only on Windows")
 }
+
+func osVersion() string { return "other" }

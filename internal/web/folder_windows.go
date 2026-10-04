@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -78,4 +79,10 @@ func setSignInStart(enabled bool, command string) error {
 	}
 	defer approved.Close()
 	return approved.SetBinaryValue(signInValue, []byte{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+}
+
+// osVersion is item 2q6 (g)'s OS version: numbers only.
+func osVersion() string {
+	info := windows.RtlGetVersion()
+	return fmt.Sprintf("windows %d.%d.%d", info.MajorVersion, info.MinorVersion, info.BuildNumber)
 }

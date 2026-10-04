@@ -50,6 +50,17 @@ type Recorder struct {
 	kept  int
 	total int
 	sink  Sink
+	// Item 2q6: a stopped run waits Settle for the detectors' verdicts, which
+	// are published after run.stopped, before its aggregates leave.
+	Settle  time.Duration
+	closing map[string]*run
+	global  globalState
+}
+
+// emitted is one telemetry event the recorder built.
+type emitted struct {
+	kind string
+	data map[string]any
 }
 
 type run struct {
@@ -70,9 +81,12 @@ type run struct {
 	nctx     int
 	summary  map[string]any
 	firstTTF int64
+	health   *health
 }
 
-func New() *Recorder { return &Recorder{chats: map[string][]*run{}, live: map[string]*run{}} }
+func New() *Recorder {
+	return &Recorder{chats: map[string][]*run{}, live: map[string]*run{}, closing: map[string]*run{}, Settle: 2 * time.Second}
+}
 
 // SetSink installs where run.summary goes.
 func (r *Recorder) SetSink(sink Sink) { r.mu.Lock(); r.sink = sink; r.mu.Unlock() }
@@ -84,6 +98,8 @@ var observed = map[string]bool{
 	events.RunStarted: true, events.RunStopped: true, events.RunAborted: true, events.ChatDeleted: true,
 	events.ModelRequest: true, events.ModelDelta: true, events.ModelResponse: true, events.ModelRetry: true,
 	events.ToolCallEvent: true, events.ToolResult: true, events.ToolUnoffered: true, events.Compaction: true,
+	events.CompactionSummary: true, events.ApprovalRequired: true, events.ApprovalDecided: true,
+	events.ProgressShadow: true, events.ModelRefused: true, events.ConnectionHealth: true, events.UpdateChanged: true,
 }
 
 // Observe is the bus observer. Every branch costs the same however much the
@@ -95,31 +111,51 @@ func (r *Recorder) Observe(event events.Event) {
 	}
 	data := asMap(event.Data)
 	r.mu.Lock()
-	var emit map[string]any
-	if event.Type == events.ChatDeleted {
+	var emit []emitted
+	switch {
+	case event.Type == events.ChatDeleted:
 		r.forget(text(data["session_id"]))
-	} else if event.SessionID != "" {
-		emit = r.observe(event, data)
+	case event.SessionID == "":
+		emit = r.global.observe(event.Type, data)
+	default:
+		r.observe(event, data)
 	}
-	sink := r.sink
 	r.mu.Unlock()
-	if emit != nil && sink != nil {
-		// The sink may post a full batch; never on the publisher's goroutine.
-		go sink(events.RunSummary, emit)
-	}
+	r.send(emit)
 }
 
-func (r *Recorder) observe(event events.Event, data map[string]any) map[string]any {
+// send hands events to the sink. The sink may post a full batch, so never on
+// the publisher's goroutine.
+func (r *Recorder) send(emit []emitted) {
+	r.mu.Lock()
+	sink := r.sink
+	r.mu.Unlock()
+	if sink == nil || len(emit) == 0 {
+		return
+	}
+	go func() {
+		for _, item := range emit {
+			sink(item.kind, item.data)
+		}
+	}()
+}
+
+func (r *Recorder) observe(event events.Event, data map[string]any) {
 	key := event.SessionID + "\x00" + event.RunID
 	if event.Type == events.RunStarted {
 		r.start(key, event.SessionID, stamp(event.TS))
-		return nil
+		return
+	}
+	if closing := r.closing[key]; closing != nil && event.Type == events.ProgressShadow {
+		closing.health.observe(event.Type, data, stamp(event.TS))
+		return
 	}
 	current := r.live[key]
 	if current == nil {
-		return nil
+		return
 	}
 	at := stamp(event.TS)
+	current.health.observe(event.Type, data, at)
 	switch event.Type {
 	case events.ModelRequest:
 		if _, seen := current.invoke["gen_ai.request.model"]; !seen {
@@ -179,7 +215,7 @@ func (r *Recorder) observe(event events.Event, data map[string]any) map[string]a
 	case events.ToolResult:
 		span := current.pending[text(data["call_id"])]
 		if span == nil {
-			return nil
+			return
 		}
 		delete(current.pending, text(data["call_id"]))
 		_, loop := span["_loop"]
@@ -210,15 +246,31 @@ func (r *Recorder) observe(event events.Event, data map[string]any) map[string]a
 		}
 		current.invoke["stop_reason"] = reason
 		delete(r.live, key)
-		summary := current.summary
-		summary["stop_reason"] = reason
+		current.summary["stop_reason"] = reason
 		if current.firstTTF >= 0 {
-			summary["ttft_ms"] = current.firstTTF
+			current.summary["ttft_ms"] = current.firstTTF
 		}
-		current.repeats, current.pending, current.summary = nil, nil, nil
-		return summary
+		if !current.started.IsZero() && !at.IsZero() {
+			current.summary["wall_seconds"] = int(at.Sub(current.started).Seconds())
+		}
+		current.repeats, current.pending = nil, nil
+		r.closing[key] = current
+		time.AfterFunc(r.Settle, func() { r.close(key) })
 	}
-	return nil
+}
+
+// close sends a stopped run's aggregates once the detectors have spoken.
+func (r *Recorder) close(key string) {
+	r.mu.Lock()
+	current := r.closing[key]
+	delete(r.closing, key)
+	var emit []emitted
+	if current != nil {
+		emit = current.health.emits(current.summary)
+		current.summary, current.health = nil, nil
+	}
+	r.mu.Unlock()
+	r.send(emit)
 }
 
 func (r *Recorder) start(key, chat string, at time.Time) {
@@ -227,7 +279,7 @@ func (r *Recorder) start(key, chat string, at time.Time) {
 	current := &run{chat: chat, salt: salt, started: at, ttft: -1, firstTTF: -1,
 		invoke:  map[string]any{"span": "invoke_agent", "run": randomID()},
 		repeats: map[string]int{}, pending: map[string]map[string]any{},
-		summary: map[string]any{"inference_calls": 0, "tool_calls": 0, "max_fill_pct": 0, "loop": false},
+		summary: map[string]any{"inference_calls": 0, "tool_calls": 0, "max_fill_pct": 0, "loop": false}, health: newHealth(),
 	}
 	r.live[key] = current
 	r.chats[chat] = append(r.chats[chat], current)

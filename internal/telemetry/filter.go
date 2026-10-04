@@ -62,7 +62,22 @@ var allowList = map[string]Classification{
 	// Item 2pw: the flight recorder's two events, whose shape is
 	// docs/telemetry-trace.md. `trace` leaves only from "Report this chat".
 	"trace":       sent("report_id", "runs"),
-	"run.summary": sent("inference_calls", "tool_calls", "max_fill_pct", "loop", "stop_reason", "ttft_ms"),
+	"run.summary": sent("inference_calls", "tool_calls", "max_fill_pct", "loop", "stop_reason", "ttft_ms",
+		"reasoning_tokens", "compactions", "approval_wait_seconds", "wall_seconds"),
+	// Item 2q6: built by the recorder per run or per change, never per request.
+	// `compaction` here is the run's aggregate; the bus event of that name is
+	// never sent itself (RecorderTypes).
+	"compaction": sent("count", "kind", "trigger", "before", "after", "outcomes"),
+	"model.perf": sent("connection_kind", "calls", "ttft_ms", "prompt_ms", "tokens_per_second", "prompt_tokens", "cached_tokens",
+		"completion_tokens", "reasoning_tokens", "cache_hit_pct", "cache_hit_pct_after_compaction", "reasoning_share_pct"),
+	"tool.perf":        sent("tools"),
+	"model.behaviour":  sent("empty_replies", "unparseable_tool_calls", "unoffered_tool_calls", "cut_by_length", "thinking_only_answers", "detectors"),
+	"budget.drift":     sent("max_pct"),
+	"approval.wait":    sent("card_kind", "seconds", "outcome"),
+	"model.refused":    sent("status", "error_type", "connection_kind", "count"),
+	"connection.state": sent("from", "to", "cause"),
+	"update":           sent("check", "install", "from", "to"),
+	"settings.shape":   sent("connections", "telemetry", "os_version"),
 	"error":       sent("where", "class", "stack_tree"),
 
 	// ------------------------------------------------------------ dropped
@@ -73,7 +88,7 @@ var allowList = map[string]Classification{
 	"message.appended": dropped, "message.updated": dropped, "message.removed": dropped,
 	"message.queued": dropped, "messages.reminted": dropped,
 	"tool.call": dropped, "tool.toggled": dropped,
-	"compaction": dropped, "compaction.summary": dropped,
+	"compaction.summary": dropped,
 	"session.created": dropped, "session.closed": dropped, "session.reopened": dropped,
 	"session.renamed": dropped, "session.reset": dropped, "session.updated": dropped,
 	"session.restore_failed": dropped, "chat.named": dropped, "chat.deleted": dropped,

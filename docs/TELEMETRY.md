@@ -88,6 +88,15 @@ name, path, message, argument, window state, journal position, chat id, or other
 free text. Resolve an offset against the matching released executable. Runtime-
 fatal stderr without absolute program counters stays local and is not sent.
 
+### The flight recorder's events
+
+`trace` and `run.summary` (items 2pw and 2q6) are specified in
+[`docs/telemetry-trace.md`](telemetry-trace.md), with their fields, their
+vectors and their allow-list. `trace` is the one event that leaves with the
+switch off, and only when a person picks **Report this chat**: the click is the
+consent for that one report. A `trace` carries the model's file name and the
+registered tool names, and nothing else that is a name.
+
 ## Everything else is dropped
 
 Every other event type the product emits is classified **dropped**, and the
@@ -115,7 +124,7 @@ Dropped: `model.delta`, `model.progress`, `model.request`, `model.response`,
 `navigation.measured`, `navigation.suppressed`, `navigation.document_started`,
 `navigation.document_completed`, `notification.failed`, `notification.changed`,
 `update.changed`, `progress.shadow`, `progress.aux`, `speech`, `attachment.ocr_progress`,
-`agent.connection_change`, `reflection.skipped`, and `projection.patch` and `snapshot` — which carry
+`agent.connection_change`, `reflection.skipped`, `tool.unoffered`, and `projection.patch` and `snapshot` — which carry
 the whole conversation as a client reads it, and are the two most important
 names on this list.
 

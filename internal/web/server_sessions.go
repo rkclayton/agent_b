@@ -397,6 +397,10 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]string{"log_path": path})
 		return
 	}
+	if len(parts) == 2 && parts[1] == "report" && r.Method == http.MethodPost {
+		s.reportChat(w, id)
+		return
+	}
 	if len(parts) == 2 && parts[1] == "reopen" && r.Method == http.MethodPost {
 		if err := s.registry.Reopen(id); err != nil {
 			status := http.StatusConflict

@@ -19,7 +19,14 @@ type Bus struct {
 	// all read. The enricher runs before the sink, so the fields are in the
 	// journal too and not only in the live stream.
 	enrich func(*Event)
+	// Item 2pw: the flight recorder sees every event in order on the publisher's
+	// goroutine, so it cannot be dropped the way a slow channel subscriber is. It
+	// must not publish and must cost the same however much it has stored.
+	observe func(Event)
 }
+
+// SetObserver installs the flight recorder's hook (item 2pw).
+func (b *Bus) SetObserver(observe func(Event)) { b.mu.Lock(); b.observe = observe; b.mu.Unlock() }
 
 func NewBus() *Bus                            { return &Bus{subscribers: map[int]chan Event{}} }
 func (b *Bus) SetSink(sink func(Event) error) { b.mu.Lock(); b.sink = sink; b.mu.Unlock() }
@@ -68,8 +75,11 @@ func (b *Bus) publish(event Event, writeSink bool) (Event, []int) {
 	for id, ch := range b.subscribers {
 		subscribers = append(subscribers, subscriber{id, ch})
 	}
-	sink, durableSink, afterAppend, appendError := b.sink, b.durableSink, b.afterAppend, b.appendError
+	sink, durableSink, afterAppend, appendError, observe := b.sink, b.durableSink, b.afterAppend, b.appendError, b.observe
 	b.mu.Unlock()
+	if observe != nil {
+		observe(event)
+	}
 	var sinkErr error
 	var cursor LogCursor
 	if writeSink && sink != nil {

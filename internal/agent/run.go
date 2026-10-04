@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -536,6 +538,10 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			body = llm.BuildRequest(connection, diagnosticRequest, true)
 			r.bus.Publish(events.New(events.BudgetEvent, s.ID, runID, budget))
 			data := map[string]any{"turn": turn, "message_count": len(messages), "tool_count": len(schemas), "params": requestParams(connection, request.MaxTokens), "est_prompt_tokens": budget.UsedEst, "estimated": budget.Estimated}
+			// Item 2pw: what the flight recorder's invoke_agent span names, with
+			// no text: the template's hash, the model's file name, the tools offered.
+			data["connection_kind"], data["model_file"], data["n_ctx"] = connectionKind(connection), filepath.Base(filepath.ToSlash(connection.Model)), budget.NCtx
+			data["prompt_hash"], data["tools_offered"] = shortHash(systemBase), toolNames
 			requestEvent = events.New(events.ModelRequest, s.ID, runID, data)
 			requestEvent.Body = body
 		})
@@ -757,6 +763,11 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			return "malformed_turn", "finish_reason tool_calls contained no calls after one retry", turn
 		}
 		var guardLines []string
+		for _, call := range toolCalls {
+			if !enabled[call.Name] {
+				r.bus.Publish(events.New(events.ToolUnoffered, s.ID, runID, map[string]any{"turn": turn, "name": call.Name}))
+			}
+		}
 		toolCalls, guardLines = guardModelToolCalls(toolCalls, enabled)
 		for _, line := range guardLines {
 			r.appendHarnessLine(ctx, connection, s, runID, turn, line)
@@ -893,7 +904,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			}
 			for index := range results {
 				item := &results[index]
-				r.bus.Publish(events.New(events.ToolCallEvent, s.ID, runID, map[string]any{"turn": turn, "call_id": item.call.ID, "name": item.call.Name, "args": sanitizedToolArguments(item.call.Name, item.args)}))
+				r.bus.Publish(events.New(events.ToolCallEvent, s.ID, runID, map[string]any{"turn": turn, "call_id": item.call.ID, "name": item.call.Name, "args": sanitizedToolArguments(item.call.Name, item.args), "args_invalid": item.argErr != nil}))
 				start := time.Now()
 				if item.argErr != nil {
 					item.content = "error: " + item.argErr.Error()
@@ -2042,6 +2053,20 @@ func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID str
 func (r *Runner) operationalError(s *session.Session, runID, where string, err error) {
 	r.bus.Publish(events.New(events.Error, s.ID, runID, map[string]any{"where": where, "message": err.Error()}))
 }
+// connectionKind is item 2pw/2q6's provider word: local, or somebody's api.
+func connectionKind(connection *config.Connection) string {
+	if isLoopbackEndpoint(connection.BaseURL) {
+		return "local"
+	}
+	return "api"
+}
+
+// shortHash names a text without carrying it: eight hex characters.
+func shortHash(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:4])
+}
+
 func requestParams(p *config.Connection, maxTokens int) map[string]any {
 	s := p.Sampling.Nonthinking
 	if p.Reasoning.Enabled {

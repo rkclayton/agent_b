@@ -151,6 +151,40 @@ func (s *Sender) Observe(eventType, at string, data map[string]any) bool {
 	return true
 }
 
+// ReportByteCap is item 2pw (c)'s bound on one report.
+const ReportByteCap = 48 << 10
+
+// ReportOne sends one event in a batch of its own, now, whether or not the
+// switch is on: item 2pw's "Report this chat", where the click is the consent
+// for that one report. It passes the same allow-list and redaction as every
+// batch, under an install id of its own so it cannot be joined to anything.
+func ReportOne(options Options, eventType string, data map[string]any) ([]byte, error) {
+	class, known := Classify(eventType)
+	picked := Pick(class, data)
+	if !known || picked == nil {
+		return nil, fmt.Errorf("%s is not sendable", eventType)
+	}
+	if options.Now == nil {
+		options.Now = time.Now
+	}
+	if options.Client == nil {
+		options.Client = &http.Client{Timeout: 30 * time.Second}
+	}
+	if options.Endpoint == "" {
+		options.Endpoint = DefaultEndpoint
+	}
+	options.InstallID = NewInstallID()
+	sender := &Sender{options: options}
+	body, err := json.Marshal(sender.batch([]Event{{Type: eventType, At: options.Now().UTC().Format(time.RFC3339), Data: picked}}))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > ReportByteCap {
+		return nil, fmt.Errorf("report is %d bytes, over %d", len(body), ReportByteCap)
+	}
+	return body, sender.post(body)
+}
+
 func (s *Sender) InvalidDropped() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -178,9 +212,29 @@ func (s *Sender) Flush() {
 		return
 	}
 	s.mu.Lock()
-	pending := s.pending
+	all := s.pending
 	s.pending = nil
 	s.mu.Unlock()
+	// Item 2pw: the recorder's types travel in batches of their own. A receiver
+	// that does not know them yet refuses the whole batch (422
+	// unknown_event_type, 2026-10-04), and that must not take the older events
+	// down with it.
+	var older, recorded []Event
+	for _, event := range all {
+		if RecorderTypes[event.Type] {
+			recorded = append(recorded, event)
+		} else {
+			older = append(older, event)
+		}
+	}
+	s.send(older)
+	s.send(recorded)
+}
+
+// RecorderTypes are the types docs/telemetry-trace.md specifies.
+var RecorderTypes = map[string]bool{"trace": true, "run.summary": true}
+
+func (s *Sender) send(pending []Event) {
 	for len(pending) > 0 {
 		take := len(pending)
 		var body []byte

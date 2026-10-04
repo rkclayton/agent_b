@@ -59,6 +59,10 @@ var allowList = map[string]Classification{
 		"model_class",
 	),
 	"tool.result": sent("name", "ok", "ms", "class"),
+	// Item 2pw: the flight recorder's two events, whose shape is
+	// docs/telemetry-trace.md. `trace` leaves only from "Report this chat".
+	"trace":       sent("report_id", "runs"),
+	"run.summary": sent("inference_calls", "tool_calls", "max_fill_pct", "loop", "stop_reason", "ttft_ms"),
 	"error":       sent("where", "class", "stack_tree"),
 
 	// ------------------------------------------------------------ dropped
@@ -103,6 +107,8 @@ var allowList = map[string]Classification{
 	// Item 2ls's accounting line. Dropped: it is two counts about one of the
 	// operator's own runs and nothing outside this machine needs it.
 	"reflection.skipped": dropped,
+	// Item 2pw: the recorder reads it; the name is the model's own word.
+	"tool.unoffered": dropped,
 }
 
 // Classify answers for one event type. The second result is false when the type

@@ -107,6 +107,13 @@ const (
 	// (c)). It carries the two counts, so the saving is auditable and a
 	// wrongly-skipped run is findable rather than merely absent.
 	ReflectionSkipped = "reflection.skipped"
+	// Item 2pw: a tool call the model named but was never offered, recorded
+	// before the guard drops it, with nothing but the turn and the name.
+	ToolUnoffered = "tool.unoffered"
+	// Item 2pw: content-free events the flight recorder builds for telemetry
+	// (docs/telemetry-trace.md). They never enter a journal.
+	Trace      = "trace"
+	RunSummary = "run.summary"
 )
 
 const (

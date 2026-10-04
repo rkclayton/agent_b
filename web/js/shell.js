@@ -378,6 +378,20 @@ export function initShell(options = {}) {
     const sessions = sessionsFor(agentID, true);
     const sourceID = menu.closest(".agent-tab-wrap")?.dataset.session || "";
     menu.replaceChildren();
+    // Item 2pw (c): the chat's shape, never its words; the click is the consent.
+    if (sourceID) {
+      const reportRow = button("Report this chat", "Send how this chat went, never what was said", "shell-new-choice");
+      reportRow.onclick = async () => {
+        try {
+          const { report_id: id } = await api(`/api/sessions/${encodeURIComponent(sourceID)}/report`, {});
+          await navigator.clipboard?.writeText(id).catch(() => {});
+          const line = node("span", "shell-menu-empty");
+          line.textContent = `Reported — id ${id} copied`;
+          reportRow.replaceWith(line);
+        } catch (error) { report(error.message); }
+      };
+      menu.append(reportRow);
+    }
 	const tree = chatTree;
 	const act = async (body) => { try { chatTree = await api("/api/chats/tree", body); renderAgentMenu(menu, agentID, false); } catch (error) { report(error.message); } };
 	const root = node("div", "agent-chat-folder-root");

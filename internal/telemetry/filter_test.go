@@ -191,7 +191,12 @@ func TestTheDocumentAndTheAllowListAgree2jg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	document := string(body)
+	// Item 2pw: the recorder's events are specified in their own document.
+	trace, err := os.ReadFile(filepath.Join("..", "..", "docs", "telemetry-trace.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := string(body) + string(trace)
 	for _, name := range ClassifiedTypes() {
 		if !strings.Contains(document, name) {
 			t.Errorf("the allow-list classifies %q and docs/TELEMETRY.md does not mention it", name)

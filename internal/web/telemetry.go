@@ -3,7 +3,9 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"sync"
+	"time"
 
 	"harness/internal/buildinfo"
 	"harness/internal/config"
@@ -132,6 +134,39 @@ func (s *Server) QueueStartupTelemetry(eventType, at string, data map[string]any
 	}
 	s.telemetry.state.sender.Flush()
 	return true
+}
+
+// queueRunTelemetry is the recorder's sink (item 2pw (d)): with the switch off
+// there is no sender, and the event goes nowhere.
+func (s *Server) queueRunTelemetry(eventType string, data map[string]any) {
+	s.telemetry.mu.Lock()
+	state := s.telemetry.state
+	s.telemetry.mu.Unlock()
+	if state != nil {
+		state.sender.Observe(eventType, time.Now().UTC().Format(time.RFC3339), data)
+	}
+}
+
+// reportChat is item 2pw (c): the chat's last runs as one trace event, sent now
+// whether or not the switch is on — the click is the consent for that report.
+func (s *Server) reportChat(w http.ResponseWriter, id string) {
+	trace, ok := s.recorder.Trace(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "nothing is recorded for this chat yet", "session")
+		return
+	}
+	cfg := s.ConfigSnapshot()
+	options := telemetry.Options{Endpoint: cfg.Telemetry.Endpoint, AgentVersion: buildinfo.Current().Tag}
+	s.telemetry.mu.Lock()
+	if forward := s.telemetry.transport; forward != nil {
+		options.Transport = func(_ context.Context, body []byte) error { return forward(body) }
+	}
+	s.telemetry.mu.Unlock()
+	if _, err := telemetry.ReportOne(options, events.Trace, trace); err != nil {
+		writeError(w, http.StatusBadGateway, "the report was not accepted: "+telemetry.Redact(err.Error()), "report")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"report_id": trace["report_id"]})
 }
 
 // NewInstallID is issued when the switch goes off then on, so two runs of

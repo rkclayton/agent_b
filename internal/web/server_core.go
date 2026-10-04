@@ -29,6 +29,7 @@ import (
 	"harness/internal/operatorfiles"
 	"harness/internal/profiles"
 	"harness/internal/projection"
+	"harness/internal/recorder"
 	"harness/internal/serviceaccount"
 	"harness/internal/session"
 	"harness/internal/signing"
@@ -47,6 +48,8 @@ type Server struct {
 	bus        *events.Bus
 	// Item 2jg: the telemetry sender and its subscription, or nothing at all.
 	telemetry telemetryHost
+	// Item 2pw: the flight recorder, fed by the bus whatever the switch says.
+	recorder *recorder.Recorder
 	// Item 2kq: the broker client, or nothing when broker.url is empty.
 	brokerMu           sync.RWMutex
 	broker             BrokerHost
@@ -177,6 +180,11 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		detectLocal: func(ctx context.Context, account string) (any, error) {
 			return detection.Local(ctx, filepath.Join(roots.Application, "scripts", "detect-local-capabilities.ps1"), account)
 		},
+	}
+	server.recorder = recorder.New()
+	server.recorder.SetSink(server.queueRunTelemetry)
+	if bus != nil {
+		bus.SetObserver(server.recorder.Observe)
 	}
 	_ = removeLegacyPhoneAccess(server.profileRoot())
 	server.initModelInstaller()

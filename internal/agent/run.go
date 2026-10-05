@@ -919,6 +919,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			for index := range results {
 				item := &results[index]
 				r.bus.Publish(events.New(events.ToolCallEvent, s.ID, runID, map[string]any{"turn": turn, "call_id": item.call.ID, "name": item.call.Name, "args": sanitizedToolArguments(item.call.Name, item.args), "args_invalid": item.argErr != nil}))
+				if s.ParentSessionID != "" {
+					r.bus.PublishTransient(events.New(events.DelegatedUsage, s.ParentSessionID, runID, map[string]any{"child_id": s.ID, "status": "running", "tool": item.call.Name, "target": shortActivityTarget(item.args), "turn": turn, "live": true}))
+				}
 				start := time.Now()
 				if item.argErr != nil {
 					item.content = "error: " + item.argErr.Error()
@@ -1394,6 +1397,22 @@ func toolResultEventData(turn int, callID, name, content string, ok, operatorCon
 }
 
 func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) tools.CallOutcome {
+	if name == "shell" || name == "run_script" {
+		lastPublished := time.Time{}
+		var progressMu sync.Mutex
+		ctx = tools.WithOutputObserver(ctx, func(line string) {
+			progressMu.Lock()
+			defer progressMu.Unlock()
+			if time.Since(lastPublished) < 250*time.Millisecond {
+				return
+			}
+			lastPublished = time.Now()
+			r.bus.PublishTransient(events.New(events.ToolProgress, s.ID, runID, map[string]any{"name": name, "line": line}))
+			if s.ParentSessionID != "" {
+				r.bus.PublishTransient(events.New(events.DelegatedUsage, s.ParentSessionID, runID, map[string]any{"child_id": s.ID, "status": "running", "tool": name, "target": shortActivityTarget(args), "turn": s.Snapshot().Run.Turn, "live": true}))
+			}
+		})
+	}
 	if name == "remember" && rememberEchoesPreviousTool(s, args) {
 		return tools.CallOutcome{Content: "error: remember refused: this restates the immediately preceding tool result; the chat already records it"}
 	}
@@ -1810,8 +1829,23 @@ func (r *Runner) stage(s *session.Session, runID string, turn int, name string, 
 	start := time.Now()
 	r.setFlightStage(s.ID, runID, turn, name)
 	r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": name, "state": "enter", "turn": turn, "ms": 0}))
+	if s.ParentSessionID != "" {
+		r.bus.PublishTransient(events.New(events.DelegatedUsage, s.ParentSessionID, runID, map[string]any{"child_id": s.ID, "status": "running", "stage": name, "turn": turn, "live": true}))
+	}
 	fn()
 	r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": name, "state": "exit", "turn": turn, "ms": time.Since(start).Milliseconds()}))
+}
+func shortActivityTarget(args map[string]any) string {
+	for _, key := range []string{"path", "pattern", "command", "service", "task"} {
+		if value, _ := args[key].(string); strings.TrimSpace(value) != "" {
+			value = strings.Join(strings.Fields(value), " ")
+			if len(value) > 80 {
+				value = value[:77] + "…"
+			}
+			return value
+		}
+	}
+	return ""
 }
 func (r *Runner) makeMessage(ctx context.Context, p *config.Connection, role, content, category string, turn int) (events.Message, error) {
 	tokens, estimated := r.count(ctx, p, content)

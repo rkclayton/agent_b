@@ -5,15 +5,16 @@ import (
 )
 
 type Bus struct {
-	mu          sync.Mutex
-	publishMu   sync.Mutex
-	seq         int64
-	subscribers map[int]chan Event
-	next        int
-	sink        func(Event) error
-	durableSink func(Event) (LogCursor, error)
-	afterAppend func(Event, LogCursor)
-	appendError func(Event, error)
+	mu            sync.Mutex
+	publishMu     sync.Mutex
+	seq           int64
+	subscribers   map[int]chan Event
+	next          int
+	sink          func(Event) error
+	durableSink   func(Event) (LogCursor, error)
+	afterAppend   func(Event, LogCursor)
+	appendError   func(Event, error)
+	transientSink func(Event)
 	// Item 2ji (a): the run's time buckets have to be ON the run.stopped event,
 	// because the wire is what the client, the journal and the telemetry receiver
 	// all read. The enricher runs before the sink, so the fields are in the
@@ -48,6 +49,34 @@ func (b *Bus) Publish(event Event) Event {
 	b.publishMu.Lock()
 	published, dropped := b.publish(event, true)
 	b.publishMu.Unlock()
+	for _, id := range dropped {
+		b.Publish(New(SubscriberDropped, "", "", map[string]any{"subscriber_id": id, "reason": "overflow", "action": "resubscribe"}))
+	}
+	if published.Type == RunStarted || published.Type == RunQueued {
+		clock := New(ToolProgress, published.SessionID, published.RunID, map[string]any{"run_started": true})
+		clock.TS = published.TS
+		b.PublishTransient(clock)
+	} else if published.Type == ToolCallEvent {
+		data, _ := published.Data.(map[string]any)
+		progress := New(ToolProgress, published.SessionID, published.RunID, map[string]any{"tool_started": true, "args": data["args"]})
+		progress.TS = published.TS
+		b.PublishTransient(progress)
+	}
+	return published
+}
+func (b *Bus) SetTransientSink(sink func(Event)) { b.mu.Lock(); b.transientSink = sink; b.mu.Unlock() }
+
+// PublishTransient delivers replace-in-place progress without journaling it.
+func (b *Bus) PublishTransient(event Event) Event {
+	b.publishMu.Lock()
+	published, dropped := b.publish(event, false)
+	b.publishMu.Unlock()
+	b.mu.Lock()
+	sink := b.transientSink
+	b.mu.Unlock()
+	if sink != nil {
+		sink(published)
+	}
 	for _, id := range dropped {
 		b.Publish(New(SubscriberDropped, "", "", map[string]any{"subscriber_id": id, "reason": "overflow", "action": "resubscribe"}))
 	}

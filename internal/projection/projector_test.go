@@ -263,6 +263,52 @@ func TestAbortAndRetryEventsAreVisibleHarnessNotices(t *testing.T) {
 	}
 }
 
+func TestByteLimitTrimsCollapseToOneTruthfulNotice2qf(t *testing.T) {
+	state := seeded(t)
+	for index := 0; index < 10; index++ {
+		var err error
+		state, _, err = Next(state, Record{Cursor: Cursor{Generation: "trim.events", Offset: int64(index + 1)}, Event: events.Event{Seq: int64(index + 1), SessionID: "main", RunID: "r1", Type: events.Compaction, Data: map[string]any{"trigger": "byte_limit_trim", "trimmed_results": 1, "before": 100, "after": 100}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(state.Chat) != 1 || state.Chat[0].Event == nil {
+		t.Fatalf("chat=%+v", state.Chat)
+	}
+	data := eventMap(state.Chat[0].Event.Data)
+	if intValue(data["trimmed_results"]) != 10 {
+		t.Fatalf("trim notice=%+v", data)
+	}
+}
+
+func TestToolProgressProjectsOnlyTheLatestBoundedLine2qf(t *testing.T) {
+	state := seeded(t)
+	state.Run.Status = "running"
+	next, _, err := Next(state, Record{Cursor: Cursor{Generation: "live", Offset: 2}, Event: events.Event{TS: "2026-10-05T18:00:00Z", SessionID: "main", RunID: "r1", Type: events.ToolProgress, Data: map[string]any{"name": "shell", "line": "Passed 41 tests"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Activity.ToolLastLine != "Passed 41 tests" {
+		t.Fatalf("activity=%+v", next.Activity)
+	}
+}
+
+func TestDelegateLiveStepProjectsOntoParent2qf(t *testing.T) {
+	state := seeded(t)
+	state.Run.Status = "running"
+	state.Activity.ActiveTool = "delegate"
+	next, _, err := Next(state, Record{Cursor: Cursor{Generation: "live", Offset: 2}, Event: events.Event{SessionID: "main", RunID: "r1", Type: events.DelegatedUsage, Data: map[string]any{"child_id": "child", "status": "running", "tool": "read_file", "target": "src/main.go", "turn": 3, "live": true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Activity.Delegate == nil || next.Activity.Delegate.Tool != "read_file" || next.Activity.Delegate.Target != "src/main.go" || next.Activity.Delegate.Turn != 3 {
+		t.Fatalf("delegate=%+v", next.Activity.Delegate)
+	}
+	if len(next.Timeline) != len(state.Timeline) {
+		t.Fatalf("transient delegate progress entered durable timeline")
+	}
+}
+
 func TestResetOnlyGenerationIsExplicitlyIncomplete(t *testing.T) {
 	state := Empty("main")
 	next, _, err := Next(state, Record{

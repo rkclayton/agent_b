@@ -159,12 +159,12 @@ func (s *Shell) callSandbox(ctx context.Context, item *session.Session, executab
 	if ensureErr != nil {
 		return CallDetail{Err: fmt.Errorf("target: sandbox %s; %w", sandboxID, ensureErr), Metadata: map[string]any{"target": "sandbox " + sandboxID}}
 	}
-	var output lockedBuffer
-	process, _, err := s.startInput(cfg, executable, append([]string{"exec"}, argv...), input, item.Workspace, &output, true)
+	output := newLockedBuffer(ctx)
+	process, _, err := s.startInput(cfg, executable, append([]string{"exec"}, argv...), input, item.Workspace, output, true)
 	if err != nil {
 		return CallDetail{Err: fmt.Errorf("target: sandbox %s; %w", sandboxID, err), Metadata: map[string]any{"target": "sandbox " + sandboxID}}
 	}
-	detail := waitShellProcess(ctx, process, false, timeout, cfg, &output, executable)
+	detail := waitShellProcess(ctx, process, false, timeout, cfg, output, executable)
 	detail.Content = "target: sandbox " + sandboxID + "\n" + detail.Content
 	detail.Metadata = map[string]any{"target": "sandbox " + sandboxID}
 	return detail

@@ -1,30 +1,49 @@
-export function liveActivityText(session) {
-  if (session?.run?.status !== "running") return "";
+export function liveActivityText(session, now = Date.now()) {
+  const status = session?.run?.status;
   const activity = session.activity || {};
+  const elapsed = formatElapsed(activity.started_at, now);
+  const withElapsed = (text) => `${text} · ${elapsed}`;
+  if (session?.pending_approval || session?.pending_repo_policy) {
+    const event = session.pending_approval?.event || session.pending_repo_policy?.event || {};
+    return withElapsed(`waiting for you — ${event.data?.name || event.type || "decision"}`);
+  }
+  if (!new Set(["running", "queued", "paused", "stopping"]).has(status)) return "";
+  if (status === "queued") return withElapsed(session.run.waiting_behind ? `queued — behind ${session.run.waiting_behind}` : "queued — waiting for a model slot");
+  if (status === "stopping") return withElapsed("stopping the run");
+  if (activity.active_tool === "delegate" && activity.delegate?.status === "running") {
+    const child = activity.delegate;
+    const step = child.tool ? `running ${child.tool}${child.target ? ` ${child.target}` : ""}` : child.stage === "call_model" ? "thinking" : child.stage || "starting";
+    return withElapsed(`delegate — ${step}${child.turn ? ` · turn ${child.turn}` : ""}`);
+  }
+  if (activity.active_tool) {
+    const target = activity.tool_target ? ` ${activity.tool_target}` : "";
+    const line = activity.tool_last_line ? ` · ${activity.tool_last_line}` : "";
+    return withElapsed(`running ${activity.active_tool}${target}${line}`);
+  }
   if (activity.stage_state === "exit") {
     switch (activity.stage) {
-      case "assemble": return "waiting for model";
-      case "call_model": return "waiting for response parsing";
-      case "parse": return "waiting for next action";
-      case "dispatch": return "waiting for tool execution";
-      case "execute": return "waiting for result recording";
-      case "append": return "waiting for context check";
-      case "compact": return "waiting for next turn";
-      case "wait_user": return "waiting to resume";
-      default: return "waiting · state unknown";
+      case "assemble": return withElapsed("waiting for model");
+      case "call_model": return withElapsed("waiting for response parsing");
+      case "parse": return withElapsed("waiting for next action");
+      case "dispatch": return withElapsed("waiting for tool execution");
+      case "execute": return withElapsed("waiting for result recording");
+      case "append": return withElapsed("recording result");
+      case "compact": return withElapsed("waiting for next turn");
+      case "wait_user": return withElapsed("waiting to resume");
+      default: return withElapsed("waiting — state unknown");
     }
   }
-  if (activity.stage_state !== "enter") return "waiting · state unknown";
+  if (activity.stage_state !== "enter") return withElapsed("waiting — state unknown");
   switch (activity.stage) {
-    case "assemble": return "assembling turn";
-    case "call_model": return modelRequestText(activity);
-    case "parse": return "parsing model response";
-    case "dispatch": return "preparing tool call";
-    case "execute": return activity.active_tool ? `tool executing · ${activity.active_tool}` : "tool executing · unknown";
-    case "append": return "recording tool result";
-    case "compact": return "compacting context";
-    case "wait_user": return "waiting for you";
-    default: return "waiting · state unknown";
+    case "assemble": return withElapsed("assembling turn");
+    case "call_model": return withElapsed(modelRequestText(activity));
+    case "parse": return withElapsed("parsing model response");
+    case "dispatch": return withElapsed("preparing tool call");
+    case "execute": return withElapsed("running tool — target unknown");
+    case "append": return withElapsed("recording tool result");
+    case "compact": return withElapsed("compacting — fitting context to the model window");
+    case "wait_user": return withElapsed("waiting for you");
+    default: return withElapsed("waiting — state unknown");
   }
 }
 
@@ -38,8 +57,14 @@ export function modelRequestText(activity = {}) {
   if (written > 0) return `writing · ${estimatedTokens(written)} tokens`;
   if (reasoning > 0) return `thinking · ${estimatedTokens(reasoning)} tokens`;
   const processed = Number(activity.progress?.processed || 0);
-  return `prompt ${processed.toLocaleString("en-US")} tokens processing`;
+  const total = Number(activity.progress?.total || 0);
+  const cached = Number(activity.progress?.cache || 0);
+  if (processed > 0) return `waiting for first token — prompt ${formatK(processed)}${cached > 0 ? `, ${formatK(cached)} cached` : ""}`;
+  if (total > 0) return `waiting for first token — prompt ${formatK(total)}${cached > 0 ? `, ${formatK(cached)} cached` : ""}`;
+  return "waiting for first token";
 }
+
+function formatK(value) { return `${Math.max(0.1, Number(value) / 1000).toFixed(1).replace(/\.0$/, "")}k`; }
 
 function estimatedTokens(characters) { return Math.max(0, Math.ceil(characters / 3.6)); }
 function formatBytes(value) {
@@ -47,7 +72,7 @@ function formatBytes(value) {
   return bytes < 1000 ? `${bytes} B` : `${(bytes / 1000).toFixed(bytes < 10000 ? 1 : 0)} kB`;
 }
 function formatElapsed(start, end) {
-  const seconds = Math.max(0, Math.round((Number(end || start || 0) - Number(start || 0)) / 1000));
+  const seconds = Math.max(0, Math.floor((Number(end || start || 0) - Number(start || end || 0)) / 1000));
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
 }
 

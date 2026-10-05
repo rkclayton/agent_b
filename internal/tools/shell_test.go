@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -375,6 +376,42 @@ func TestShellNonzeroExitIsFailureAndIncludesStderr(t *testing.T) {
 	outcome := registry.CallDetailed(context.Background(), item, "shell", map[string]any{"command": command})
 	if outcome.OK || !strings.HasPrefix(outcome.Content, "error: command failed\nexit=7") || !strings.Contains(outcome.Content, "stderr-marker") {
 		t.Fatalf("nonzero shell outcome=%+v", outcome)
+	}
+}
+
+func TestShellStreamsLatestOutputLine2qf(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root).Shell
+	cfg.ServiceAccount.Enabled = false
+	command := "for i in $(seq 1 12); do printf 'line-%s\\n' \"$i\"; sleep 5; done"
+	if runtime.GOOS == "windows" {
+		command = "1..12 | ForEach-Object { Write-Output ('line-' + $_); Start-Sleep -Seconds 5 }"
+	}
+	type observed struct {
+		line string
+		at   time.Time
+	}
+	var mu sync.Mutex
+	seen := []observed{}
+	ctx := WithOutputObserver(context.Background(), func(line string) { mu.Lock(); seen = append(seen, observed{line: line, at: time.Now()}); mu.Unlock() })
+	if _, err := NewShell(cfg).Call(ctx, &session.Session{ID: "test", Workspace: root}, map[string]any{"command": command, "timeout_s": 90}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	full := []observed{}
+	for _, item := range seen {
+		if strings.HasPrefix(item.line, "line-") && (len(full) == 0 || item.line != full[len(full)-1].line) {
+			full = append(full, item)
+		}
+	}
+	if len(full) != 12 || full[len(full)-1].line != "line-12" {
+		t.Fatalf("streamed lines=%v", seen)
+	}
+	for index := 1; index < len(full); index++ {
+		if gap := full[index].at.Sub(full[index-1].at); gap < 4*time.Second || gap > 6*time.Second {
+			t.Fatalf("line %d delivery gap=%s", index+1, gap)
+		}
 	}
 }
 

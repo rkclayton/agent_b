@@ -17,6 +17,22 @@ import (
 	"harness/internal/session"
 )
 
+type outputObserverKey struct{}
+
+// WithOutputObserver adds a live-only shell output observer. The runner uses it
+// for the status strip; tool results and their durable journal shape are unchanged.
+func WithOutputObserver(ctx context.Context, observer func(string)) context.Context {
+	if observer == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, outputObserverKey{}, observer)
+}
+
+func outputObserver(ctx context.Context) func(string) {
+	observer, _ := ctx.Value(outputObserverKey{}).(func(string))
+	return observer
+}
+
 // Shell executes commands without a workspace jail or OS sandbox. The workspace is
 // only its initial working directory; identity, approval, timeout, and deny-list
 // controls do not make it workspace-confined.
@@ -154,7 +170,7 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 		log.Printf("shell rewrote the model's chain operators for PowerShell 5.1: as run: %q", executed)
 	}
 	argv := append(append([]string(nil), cfg.Command[1:]...), executed)
-	var output lockedBuffer
+	output := newLockedBuffer(ctx)
 	var process runningShellProcess
 	var usedService bool
 	var err error
@@ -183,9 +199,9 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 		}
 	}
 	if forceOperator {
-		process, err = startHarnessProcess(host.Executable, argv, item.Workspace, &output)
+		process, err = startHarnessProcess(host.Executable, argv, item.Workspace, output)
 	} else {
-		process, usedService, err = s.start(cfg, item.Workspace, argv, &output)
+		process, usedService, err = s.start(cfg, item.Workspace, argv, output)
 	}
 	if err != nil {
 		var required *operatorOverrideRequired
@@ -198,7 +214,7 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 		}
 		return CallDetail{Err: err}
 	}
-	return waitShellProcess(ctx, process, usedService, timeout, cfg, &output, command)
+	return waitShellProcess(ctx, process, usedService, timeout, cfg, output, command)
 }
 
 func outsideMetadata(folders []string, boundary bool) map[string]any {
@@ -306,14 +322,43 @@ func cleanConsoleOutput(value string) string {
 }
 
 type lockedBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
+	mu       sync.Mutex
+	b        bytes.Buffer
+	partial  string
+	observer func(string)
+}
+
+func newLockedBuffer(ctx context.Context) *lockedBuffer {
+	return &lockedBuffer{observer: outputObserver(ctx)}
 }
 
 func (b *lockedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.b.Write(p)
+	n, err := b.b.Write(p)
+	observer := b.observer
+	line := ""
+	if observer != nil {
+		chunk := strings.ReplaceAll(strings.ToValidUTF8(string(p), "�"), "\r", "")
+		parts := strings.Split(b.partial+chunk, "\n")
+		b.partial = parts[len(parts)-1]
+		if len(b.partial) > 512 {
+			b.partial = b.partial[len(b.partial)-512:]
+		}
+		for index := len(parts) - 1; index >= 0; index-- {
+			if candidate := strings.TrimSpace(parts[index]); candidate != "" {
+				line = candidate
+				break
+			}
+		}
+		if len(line) > 240 {
+			line = line[len(line)-240:]
+		}
+	}
+	b.mu.Unlock()
+	if line != "" {
+		observer(line)
+	}
+	return n, err
 }
 func (b *lockedBuffer) String() string { b.mu.Lock(); defer b.mu.Unlock(); return b.b.String() }
 func cutOutput(value string, head, tail int) string {

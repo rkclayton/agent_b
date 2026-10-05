@@ -58,6 +58,7 @@ let localNotice = "";
 let localAlarm = false;
 let frame = 0;
 let renderTimer = 0;
+let clockTimer = 0;
 let attachmentsBusy = false;
 let activeUpload = null;
 let dragDepth = 0;
@@ -224,6 +225,7 @@ export function mountChat(shellController) {
   mounted = true;
   void loadMicAvailability();
   schedule();
+  clockTimer = setInterval(() => { if (isRunning(store.sessions[selectedID()])) schedule(); }, 1000);
 }
 
 export function unmountChat() {
@@ -232,6 +234,8 @@ export function unmountChat() {
   if (renderTimer) clearTimeout(renderTimer);
   frame = 0;
   renderTimer = 0;
+  if (clockTimer) clearInterval(clockTimer);
+  clockTimer = 0;
   dragDepth = 0;
   document.body.classList.remove("drop-target");
 }
@@ -1073,7 +1077,10 @@ function noticeContent(session, entry, actionable) {
   else if (event.type === "model.retry") content.textContent = data.reason === "truncated_tool_call"
     ? `harness: retrying truncated ${data.tool || "tool"} call (${data.attempt || 1}/${data.max_attempts || 1})`
     : `harness: repaired malformed ${data.tool || "tool"} history and retried`;
-  else if (event.type === "compaction") content.textContent = `compacted ${signed((data.after || 0) - (data.before || 0))} tokens${data.connection_id ? ` via ${data.connection_id}` : ""}`;
+  else if (event.type === "compaction") content.textContent = data.trigger === "byte_limit_trim"
+    ? `trimmed ${data.trimmed_results || 0} old result(s) to fit the request size`
+    : `compacted ${signed((data.after || 0) - (data.before || 0))} tokens${data.connection_id ? ` via ${data.connection_id}` : ""}`;
+  if (event.type === "compaction" && data.trigger !== "byte_limit_trim" && data.before === data.after) content.hidden = true;
   else if (event.type === "workspace.conflict") {
     content.textContent = `conflict: ${data.path} written by ${data.other_label} ${data.age_s} s ago`;
     content.classList.add("alarm");
@@ -1257,12 +1264,11 @@ function renderComposer(session) {
   const busy = session?.model_busy;
   const operatorUntil = store.shell_identity?.operator_context ? `Run as you · until ${shortTime(store.shell_identity.operator_context_expires_at)}` : "";
   const queueText = queued ? `queued (${queued})${unreachable ? " · waiting for model" : ""}` : "";
-  const activity = liveActivityText(session);
+  const activity = liveActivityText(session, Date.now());
   // A reachable open request says what it is doing and how much it has done;
   // the old sticky "model busy" condition is never the whole status line.
   const modelLine = unreachable ? "model unreachable" : "";
-  const measuredActivity = /^(?:prompt|thinking|writing|calling) /.test(activity) ? activity : "";
-  const busyLine = busy ? measuredActivity || "prompt 0 tokens processing" : activity;
+  const busyLine = activity || (busy ? "waiting for first token" : "");
   const primary = modelLine || busyLine || (session && !session.runnable ? session.not_runnable_reason : state);
   const message = localNotice || micNotice || (phoneOwned ? "from phone · read-only while the phone owns this chat" : modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil].filter(Boolean).join(" · "));
   // Live state, not decoration: the robot runs beside the live line for exactly
@@ -1657,11 +1663,6 @@ log.addEventListener("scroll", () => {
 		const height = log.scrollHeight;
 		void loadSessionHistory(session.id, true).then(() => requestAnimationFrame(() => { log.scrollTop += log.scrollHeight - height; })).finally(() => { loadingEarlier = false; });
 	}
-});
-// Pointing at transcript controls means the operator is reading there. Do not
-// pull that control out from under the pointer merely because a later row grew.
-log.addEventListener("pointerover", (event) => {
-  if (event.target.closest?.("button")) follow = false;
 });
 document.addEventListener("keydown", (event) => {
   if (!mounted) return;

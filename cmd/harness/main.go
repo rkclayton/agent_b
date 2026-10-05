@@ -264,6 +264,7 @@ func main() {
 	stats.InstallRunTally(bus)
 	projector := projection.NewStore()
 	bus.SetDurableSink(writers.WriteRecord, projector.Apply, projector.MarkStale)
+	bus.SetTransientSink(projector.ApplyTransient)
 	progressManager := progress.New(bus)
 	progressManager.Start()
 	defer progressManager.Close()
@@ -536,6 +537,7 @@ func main() {
 		web.SetRegistry(registry)
 		nextProjector := projection.NewStore()
 		bus.SetDurableSink(nextWriters.WriteRecord, nextProjector.Apply, nextProjector.MarkStale)
+		bus.SetTransientSink(nextProjector.ApplyTransient)
 		web.SetProjection(nextProjector, nextWriters)
 		if closeErr := writers.Close(); closeErr != nil {
 			log.Printf("close previous profile event logs: %v", closeErr)

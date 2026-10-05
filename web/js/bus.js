@@ -174,8 +174,9 @@ function applyProjectionPatch(patch) {
   // A snapshot may already include records whose patches are still on their way.
   // A patch at or behind what this session holds is already applied; only a gap
   // (or a new generation) needs a fresh snapshot.
-  if (target && target.cursor && (target.cursor.generation || "") === (patch.cursor?.generation || "") && Number(patch.cursor?.offset || 0) <= Number(target.cursor.offset || 0)) return;
+  if (!patch.transient && target && target.cursor && (target.cursor.generation || "") === (patch.cursor?.generation || "") && Number(patch.cursor?.offset || 0) <= Number(target.cursor.offset || 0)) return;
   if (target && !sameCursor(target.cursor, previous)) { void resync(); return; }
+  if (patch.transient && !target) return;
   if (!target) { target = store.sessions[patch.session_id] = { id: patch.session_id, cursor: previous }; indexChat(target); }
 	const boundedHistory = Number(target.history_total || 0) > 0;
 	const wasAtLatest = boundedHistory && Number(target.history_end || target.history_total) >= Number(target.history_total);
@@ -199,7 +200,7 @@ function applyProjectionPatch(patch) {
 		}
 		indexChat(target);
 	}
-  target.cursor = patch.cursor;
+  if (!patch.transient) target.cursor = patch.cursor;
   if (target.closed && store.active === patch.session_id) {
     store.active = firstOpenSessionID(store.selection.agent_id);
     store.selection.session_id = store.active;

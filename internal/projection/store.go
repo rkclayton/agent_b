@@ -59,6 +59,27 @@ func (s *Store) Apply(event events.Event, cursor events.LogCursor) {
 	s.broadcastLocked(patch)
 }
 
+// ApplyTransient folds live replace-in-place state without advancing a durable
+// cursor. A later snapshot reconstructs solely from the journal as before.
+func (s *Store) ApplyTransient(event events.Event) {
+	if event.SessionID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.initialized[event.SessionID] {
+		return
+	}
+	previous := s.states[event.SessionID]
+	next, patch, err := nextLive(previous, Record{Cursor: previous.Cursor, Event: event})
+	if err != nil {
+		return
+	}
+	patch.Transient = true
+	s.states[event.SessionID] = next
+	s.broadcastLocked(patch)
+}
+
 func (s *Store) MarkStale(event events.Event, err error) {
 	if event.SessionID == "" || err == nil {
 		return

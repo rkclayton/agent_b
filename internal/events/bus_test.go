@@ -43,6 +43,18 @@ func TestConcurrentPublishDoesNotSendOnOverflowClosedSubscriber(t *testing.T) {
 	}
 }
 
+func TestTransientEventReachesLiveSinkWithoutDurableWrite2qf(t *testing.T) {
+	bus := NewBus()
+	durable := 0
+	bus.SetDurableSink(func(Event) (LogCursor, error) { durable++; return LogCursor{}, nil }, nil, nil)
+	seen := ""
+	bus.SetTransientSink(func(event Event) { seen = event.Type })
+	bus.PublishTransient(New(ToolProgress, "s1", "r1", map[string]any{"line": "latest"}))
+	if durable != 0 || seen != ToolProgress {
+		t.Fatalf("durable=%d seen=%q", durable, seen)
+	}
+}
+
 func TestRunStoppedWriteFailurePublishesOutcomeNotSaved(t *testing.T) {
 	bus := NewBus()
 	stream, unsubscribe := bus.Subscribe()

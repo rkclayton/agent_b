@@ -7,6 +7,7 @@ const app = await readFile(new URL("./app.js", import.meta.url), "utf8");
 const css = await readFile(new URL("../css/chat.css", import.meta.url), "utf8");
 const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
 const shell = await readFile(new URL("./shell.js", import.meta.url), "utf8");
+const bus = await readFile(new URL("./bus.js", import.meta.url), "utf8");
 const tokens = await readFile(new URL("../css/tokens.css", import.meta.url), "utf8");
 const settings = (await Promise.all([
   "settings.js", "settings-chats.js", "settings-connections.js", "settings-general.js", "settings-context.js", "settings-run.js",
@@ -27,6 +28,12 @@ test("Jump to latest is one accessible down-arrow at the transcript edge", () =>
   assert.match(css, /\.chat-jump\s*\{[^}]*float:\s*right[^}]*bottom:\s*8px[^}]*width:\s*32px[^}]*min-height:\s*32px[^}]*padding:\s*0/s);
   assert.match(chat, /follow = log\.scrollHeight - log\.clientHeight - log\.scrollTop <= 24/);
   assert.match(chat, /jumpButton\.onclick = \(\) => \{\s*follow = true;[\s\S]*history_end[\s\S]*loadSessionHistory\(session\.id, false\);[\s\S]*else renderLog\(session\)/);
+  assert.doesNotMatch(chat, /pointerover[\s\S]{0,180}follow = false/);
+});
+
+test("live-only status patches replace state without advancing the journal cursor 2qf", () => {
+  assert.match(bus, /!patch\.transient[\s\S]*patch\.cursor/);
+  assert.match(bus, /if \(!patch\.transient\) target\.cursor = patch\.cursor/);
 });
 
 test("fenced code is one aligned panel with a header row and internal overflow", () => {
@@ -115,7 +122,8 @@ test("Degraded accounting is labeled estimated in the Chat occupancy bar", () =>
 test("State strip owns queue operator pending and unreachable state without chat rows", () => {
   assert.match(html, /id="chat-status-strip"[\s\S]*id="chat-notice"[\s\S]*id="chat-retry-model"/);
   assert.doesNotMatch(html + chat, /chat-run-as-you/);
-  assert.match(chat, /const busyLine = busy \? measuredActivity \|\| "prompt 0 tokens processing" : activity/);
+  assert.match(chat, /const busyLine = activity \|\| \(busy \? "waiting for first token" : ""\)/);
+  assert.doesNotMatch(chat, /0 tokens processing/);
 	assert.doesNotMatch(chat, /model busy · \$\{busy\.host/);
 	assert.match(chat, /session\.connection_id \|\| session\.b_connection/);
   assert.match(chat, /queued \(\$\{queued\}\).*waiting for model/);

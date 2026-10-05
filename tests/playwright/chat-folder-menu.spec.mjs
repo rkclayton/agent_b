@@ -122,3 +122,44 @@ test("scrolling up loads a 3,000-entry chat fifty at a time to its first entry 2
 	expect(await page.locator(".chat-entry").count()).toBeLessThanOrEqual(350);
 	await context.close();
 });
+
+test("pointer resting on a tool row does not detach newest-line follow 2qf", async ({ browser }) => {
+	const id = "chat-follow";
+	const tool = { type: "tool", key: "tool:t0", callID: "t0", name: "shell", args: { command: "Write-Output ready" }, result: { ok: true, preview: "ready" }, content: "ready" };
+	const session = { schema_version: 1, cursor: { generation: `${id}.jsonl`, offset: 1 }, complete: true, id, label: "Follow",
+		agent_id: "agent_b", role: "b", created_at: "2026-10-05T00:00:00Z", run: { status: "idle" }, tools: [], messages: [], budget: {},
+		activity: { completed_stages: [] }, timeline: [], chat: [tool], runnable: true, closed: false };
+	const snapshot = { sessions: { [id]: session }, connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] },
+		flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {} };
+	const context = await browser.newContext({ viewport: { width: 900, height: 420 } });
+	await context.addInitScript(({ snapshot }) => {
+		sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: "chat-follow", surface: { kind: "chat", key: "chat-follow" } }));
+		class FixtureEvents {
+			constructor() { this.listeners = new Map(); globalThis.followEvents = this; setTimeout(() => this.emit("snapshot", { type: "snapshot", data: snapshot })); }
+			addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); }
+			emit(type, value) { for (const listener of this.listeners.get(type) || []) listener({ data: JSON.stringify(value) }); }
+			close() {}
+		}
+		globalThis.EventSource = FixtureEvents;
+	}, { snapshot });
+	const page = await context.newPage();
+	await page.route("**/*", async (route) => {
+		const url = new URL(route.request().url());
+		if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
+		if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
+		return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
+	});
+	await page.goto(`http://localhost:59999/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
+	await page.locator('[data-entry-key="tool:t0"] button').first().hover();
+	await page.evaluate(({ id }) => {
+		for (let index = 1; index <= 20; index++) {
+			globalThis.followEvents.emit("projection.patch", { type: "projection.patch", data: { schema_version: 1, session_id: id,
+				previous_cursor: { generation: `${id}.jsonl`, offset: index }, cursor: { generation: `${id}.jsonl`, offset: index + 1 },
+				operations: [{ op: "append", path: "/chat", value: { type: "user", key: `new-${index}`, text: `new entry ${index}` } }] } });
+		}
+	}, { id });
+	await expect(page.locator('[data-entry-key="new-20"]')).toBeVisible();
+	const atLatest = await page.locator("#chat-log").evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop <= 24);
+	expect(atLatest).toBe(true);
+	await context.close();
+});

@@ -94,7 +94,7 @@ var allowList = map[string]Classification{
 	"stage": dropped, "budget": dropped,
 	"message.appended": dropped, "message.updated": dropped, "message.removed": dropped,
 	"message.queued": dropped, "messages.reminted": dropped,
-	"tool.call": dropped, "tool.toggled": dropped,
+	"tool.call": dropped, "tool.progress": dropped, "tool.toggled": dropped,
 	"compaction.summary": dropped,
 	"session.created":    dropped, "session.closed": dropped, "session.reopened": dropped,
 	"session.renamed": dropped, "session.reset": dropped, "session.updated": dropped,

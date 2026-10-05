@@ -64,12 +64,20 @@ type Activity struct {
 	Stream           *StreamTelemetry  `json:"stream,omitempty"`
 	CompactionSerial int               `json:"compaction_serial"`
 	Delegate         *DelegateActivity `json:"delegate,omitempty"`
+	StartedAt        int64             `json:"started_at,omitempty"`
+	ToolStartedAt    int64             `json:"tool_started_at,omitempty"`
+	ToolTarget       string            `json:"tool_target,omitempty"`
+	ToolLastLine     string            `json:"tool_last_line,omitempty"`
 }
 
 type DelegateActivity struct {
 	ID        string `json:"id"`
 	Status    string `json:"status"`
 	ToolCalls int    `json:"tool_calls"`
+	Stage     string `json:"stage,omitempty"`
+	Tool      string `json:"tool,omitempty"`
+	Target    string `json:"target,omitempty"`
+	Turn      int    `json:"turn,omitempty"`
 }
 
 type StreamTelemetry struct {
@@ -207,6 +215,7 @@ type Patch struct {
 	PreviousCursor Cursor      `json:"previous_cursor"`
 	Cursor         Cursor      `json:"cursor"`
 	Operations     []Operation `json:"operations"`
+	Transient      bool        `json:"transient,omitempty"`
 }
 
 // connectionFieldAliases is the single compatibility table for endpoint
@@ -508,7 +517,7 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		}
 	case events.DelegatedUsage:
 		if status := stringValue(data["status"]); status != "" {
-			next.Activity.Delegate = &DelegateActivity{ID: stringValue(data["child_id"]), Status: status, ToolCalls: intValue(data["tool_calls"])}
+			next.Activity.Delegate = &DelegateActivity{ID: stringValue(data["child_id"]), Status: status, ToolCalls: intValue(data["tool_calls"]), Stage: stringValue(data["stage"]), Tool: stringValue(data["tool"]), Target: stringValue(data["target"]), Turn: intValue(data["turn"])}
 		} else if next.Activity.Delegate != nil {
 			calls, _ := data["tool_calls"].([]any)
 			next.Activity.Delegate = &DelegateActivity{ID: next.Activity.Delegate.ID, Status: next.Activity.Delegate.Status, ToolCalls: next.Activity.Delegate.ToolCalls + len(calls)}
@@ -600,8 +609,21 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		next.Activity.ActiveTool = stringValue(data["name"])
 		args := mapValue(data["args"])
 		next.Chat = appendChat(next.Chat, ChatEntry{Type: "tool", Key: "tool:" + stringValue(data["call_id"]), CallID: stringValue(data["call_id"]), Name: stringValue(data["name"]), Args: &args})
+	case events.ToolProgress:
+		if boolValue(data["run_started"]) {
+			next.Activity.StartedAt = eventMillis(record.Event)
+		}
+		if boolValue(data["tool_started"]) {
+			next.Activity.ToolStartedAt = eventMillis(record.Event)
+			next.Activity.ToolTarget = shortToolTarget(mapValue(data["args"]))
+			next.Activity.ToolLastLine = ""
+		}
+		if line := stringValue(data["line"]); line != "" {
+			next.Activity.ToolLastLine = line
+		}
 	case events.ToolResult:
 		next.Activity.ActiveTool = ""
+		next.Activity.ToolStartedAt, next.Activity.ToolTarget, next.Activity.ToolLastLine = 0, "", ""
 		next.Tools = cloneTools(next.Tools)
 		for index := range next.Tools {
 			if next.Tools[index].Name == stringValue(data["name"]) {
@@ -811,7 +833,32 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 			next.MemoryContent = strings.TrimRight(next.MemoryContent, "\r\n") + "\n- " + stringValue(data["note"]) + "\n"
 		}
 	}
-	if chatNotice(record.Event.Type) {
+	appendNotice := chatNotice(record.Event.Type)
+	if appendNotice && record.Event.Type == events.Compaction && stringValue(data["trigger"]) == "byte_limit_trim" {
+		trimmed := intValue(data["trimmed_results"])
+		if trimmed <= 0 {
+			appendNotice = false
+		} else {
+			for index := len(next.Chat) - 1; index >= 0; index-- {
+				prior := next.Chat[index].Event
+				if prior == nil || prior.Type != events.Compaction || prior.RunID != record.Event.RunID {
+					continue
+				}
+				priorData := cloneMap(eventMap(prior.Data))
+				if stringValue(priorData["trigger"]) != "byte_limit_trim" {
+					continue
+				}
+				next.Chat = cloneChat(next.Chat)
+				priorCopy := *next.Chat[index].Event
+				priorData["trimmed_results"] = intValue(priorData["trimmed_results"]) + trimmed
+				priorCopy.Data = priorData
+				next.Chat[index].Event = &priorCopy
+				appendNotice = false
+				break
+			}
+		}
+	}
+	if appendNotice {
 		event := stripDiagnostic(record.Event)
 		role := ""
 		if value := stringValue(data["role"]); value == "c" || value == "aux" {
@@ -837,10 +884,13 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 	// Timeline is an unbounded durable operational view. Streaming fragments are
 	// retained only while their turn is live; completed response content lives in
 	// messages/model.response and cannot evict operational history.
-	if live {
-		next.Timeline = append(next.Timeline, stripDiagnostic(record.Event))
-	} else {
-		next.Timeline = append(append([]events.Event(nil), next.Timeline...), stripDiagnostic(record.Event))
+	retainTimeline := record.Event.Type != events.ToolProgress && !(record.Event.Type == events.DelegatedUsage && boolValue(data["live"]))
+	if retainTimeline {
+		if live {
+			next.Timeline = append(next.Timeline, stripDiagnostic(record.Event))
+		} else {
+			next.Timeline = append(append([]events.Event(nil), next.Timeline...), stripDiagnostic(record.Event))
+		}
 	}
 	if record.Event.Type == events.ModelResponse {
 		next.Timeline = discardStream(next.Timeline, record.Event.RunID, intValue(data["turn"]))
@@ -1344,6 +1394,18 @@ func chatNotice(value string) bool {
 }
 
 func stringSlice(value any) []string { var out []string; _ = decode(value, &out); return out }
+func shortToolTarget(args map[string]any) string {
+	for _, key := range []string{"path", "pattern", "command", "service", "task"} {
+		if value := strings.TrimSpace(stringValue(args[key])); value != "" {
+			value = strings.Join(strings.Fields(value), " ")
+			if len(value) > 80 {
+				value = value[:77] + "…"
+			}
+			return value
+		}
+	}
+	return ""
+}
 func appendUniqueStrings(values []string, additions ...string) []string {
 	for _, addition := range additions {
 		found := false

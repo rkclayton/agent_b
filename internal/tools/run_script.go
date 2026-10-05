@@ -127,7 +127,7 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	if timeout > cfg.MaxTimeoutS {
 		timeout = cfg.MaxTimeoutS
 	}
-	var output lockedBuffer
+	output := newLockedBuffer(ctx)
 	outside := outsideCommandDecision(source, item, cfg.TrustedFolders)
 	if !forceOperator && outside.trusted && outside.card == "" && outside.missing == "" && cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
 		forceOperator = true
@@ -140,7 +140,7 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 			return CallDetail{Err: fmt.Errorf("script was not started: %s; there is nothing for the user to allow — check the path, or use a file inside your folder", outside.missing)}
 		}
 	}
-	process, usedService, err := t.shell.startInput(cfg, executable, argv, []byte(source), item.Workspace, &output, forceOperator)
+	process, usedService, err := t.shell.startInput(cfg, executable, argv, []byte(source), item.Workspace, output, forceOperator)
 	if err != nil {
 		var required *operatorOverrideRequired
 		if errors.As(err, &required) {
@@ -148,5 +148,5 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 		}
 		return CallDetail{Err: err}
 	}
-	return waitShellProcess(ctx, process, usedService, timeout, cfg, &output, executable)
+	return waitShellProcess(ctx, process, usedService, timeout, cfg, output, executable)
 }

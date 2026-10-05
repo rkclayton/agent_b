@@ -69,6 +69,7 @@ const (
 	ModelBusy                  = "model.busy"
 	ModelReachable             = "model.reachable"
 	ToolCallEvent              = "tool.call"
+	ToolProgress               = "tool.progress"
 	ToolResult                 = "tool.result"
 	ToolToggled                = "tool.toggled"
 	MessageAppended            = "message.appended"

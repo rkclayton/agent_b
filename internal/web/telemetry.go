@@ -206,29 +206,6 @@ func (s *Server) queueSettingsShapeLocked(sender *telemetry.Sender, cfg config.C
 	sender.Observe(events.SettingsShape, time.Now().UTC().Format(time.RFC3339), shape)
 }
 
-// reportChat is item 2pw (c): the chat's last runs as one trace event, sent now
-// whether or not the switch is on — the click is the consent for that report.
-func (s *Server) reportChat(w http.ResponseWriter, id string) {
-	trace, ok := s.recorder.Trace(id)
-	if !ok {
-		writeError(w, http.StatusNotFound, "nothing is recorded for this chat yet", "session")
-		return
-	}
-	cfg := s.ConfigSnapshot()
-	options := telemetry.Options{Endpoint: cfg.Telemetry.Endpoint, AgentVersion: buildinfo.Current().Tag}
-	s.telemetry.mu.Lock()
-	if forward := s.telemetry.transport; forward != nil {
-		options.Transport = func(_ context.Context, body []byte) error { return forward(body) }
-	}
-	s.telemetry.mu.Unlock()
-	if _, err := telemetry.ReportOne(options, events.Trace, trace); err != nil {
-		writeError(w, http.StatusBadGateway, "the report was not accepted: "+telemetry.Redact(err.Error()), "report")
-		return
-	}
-	s.app.NoteReport()
-	writeJSON(w, http.StatusOK, map[string]any{"report_id": trace["report_id"]})
-}
-
 // pageHealth is item 2q7 (b) and (f) from the page: its longest freeze and the
 // settings pages it opened. Names are checked against a word pattern there.
 func (s *Server) pageHealth(w http.ResponseWriter, r *http.Request) {

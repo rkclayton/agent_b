@@ -96,10 +96,12 @@ fatal stderr without absolute program counters stays local and is not sent.
 `link.health`, `install`, `resource` and `feature.use` (items 2pw, 2q6 and 2q7) are
 specified in [`docs/telemetry-trace.md`](telemetry-trace.md), with their fields,
 their vectors and their allow-list. They are built per run or per change, never
-per request. `trace` is the one event that leaves with the switch off, and only
-when a person picks **Report this chat**: the click is the consent for that one
-report. These events carry the model's file name, the server's error type word
-and the registered tool names, and nothing else that is a name.
+per request. With anonymous diagnostics on, `trace` is sent automatically for a
+run that exhausts context, fires a detector, has two tool errors, calls an
+unoffered tool, is refused by the model server, or is stopped by the person.
+Clean runs do not send a trace, and no trace leaves while diagnostics are off.
+These events carry the model's file name, the server's error type word and the
+registered tool names, and nothing else that is a name.
 
 ## Everything else is dropped
 

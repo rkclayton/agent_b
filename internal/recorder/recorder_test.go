@@ -125,10 +125,16 @@ func TestAPlantedSecretReachesNothingTheRecorderWrites2pw(t *testing.T) {
 	recorder.mu.Unlock()
 	trace, _ := recorder.Trace("s1")
 	var sent [][]byte
-	body, err := telemetry.ReportOne(telemetry.Options{Transport: transportInto(&sent)}, events.Trace, trace)
-	if err != nil {
-		t.Fatal(err)
+	sender := telemetry.New(telemetry.Options{Transport: transportInto(&sent)})
+	if !sender.Observe(events.Trace, time.Now().UTC().Format(time.RFC3339Nano), trace) {
+		t.Fatal("trace was not accepted")
 	}
+	sender.Flush()
+	sender.Close()
+	if len(sent) != 1 {
+		t.Fatalf("trace requests = %d", len(sent))
+	}
+	body := sent[0]
 	summary, _ := json.Marshal(telemetry.Pick(mustClassify(t, events.RunSummary), <-summaries))
 	for name, written := range map[string][]byte{"ring": ring.Bytes(), "trace": body, "run.summary": summary, "log": logged.Bytes()} {
 		for _, needle := range []string{secret, "someone", `C:\`} {
@@ -136,9 +142,6 @@ func TestAPlantedSecretReachesNothingTheRecorderWrites2pw(t *testing.T) {
 				t.Errorf("%s carries %q: %s", name, needle, written)
 			}
 		}
-	}
-	if len(sent) != 1 || !bytes.Equal(sent[0], body) {
-		t.Fatalf("report requests = %d", len(sent))
 	}
 }
 
@@ -296,7 +299,9 @@ func documentVectors(t *testing.T, body string) map[string]map[string]any {
 // everySpan drives one chat through every span type the document names.
 func everySpan(bus *events.Bus) {
 	script(bus, "s1", "r1")
-	publish := func(runID, eventType string, data map[string]any) { bus.Publish(events.New(eventType, "s1", runID, data)) }
+	publish := func(runID, eventType string, data map[string]any) {
+		bus.Publish(events.New(eventType, "s1", runID, data))
+	}
 	publish("r2", events.RunStarted, nil)
 	publish("r2", events.ToolCallEvent, map[string]any{"call_id": "c", "name": "read_file", "args": map[string]any{}, "args_invalid": true})
 	publish("r2", events.ToolUnoffered, map[string]any{"name": "web_fetch"})

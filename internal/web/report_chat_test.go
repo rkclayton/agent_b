@@ -15,57 +15,123 @@ import (
 
 	"harness/internal/config"
 	"harness/internal/events"
-	"harness/internal/telemetry"
 )
 
-// CHECK 5 of item 2pw: with the anonymous switch OFF, Report this chat sends
-// exactly one request, within its bound, and answers with the id it sent.
-func TestReportThisChatSendsOneRequestWithTheSwitchOff2pw(t *testing.T) {
+// 2qa CHECKS 1-4: reporting is automatic only while telemetry is on, every
+// named struggle qualifies, a clean run does not, and only six traces fit in
+// one rolling hour. The removed route must stay absent even for a recorded chat.
+func TestStrugglingRunsReportThemselvesAndTheButtonRouteIsGone2qa(t *testing.T) {
 	bus := events.NewBus()
 	root := t.TempDir()
-	cfg := &config.Config{Telemetry: config.Telemetry{Enabled: false}}
+	cfg := &config.Config{Telemetry: config.Telemetry{Enabled: true, Endpoint: "https://receiver.invalid/ingest"}}
 	server := New(cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
+	server.recorder.Settle = time.Millisecond
+	var mu sync.Mutex
 	var sent [][]byte
-	server.telemetry.transport = func(body []byte) error { sent = append(sent, body); return nil }
-	server.applyTelemetry(*cfg)
-	if server.TelemetryRunning() {
-		t.Fatal("the switch is off and telemetry runs")
+	server.telemetry.transport = func(body []byte) error {
+		mu.Lock()
+		sent = append(sent, append([]byte(nil), body...))
+		mu.Unlock()
+		return nil
 	}
-	publish := func(eventType string, data map[string]any) { bus.Publish(events.New(eventType, "s1", "r1", data)) }
-	publish(events.RunStarted, nil)
-	publish(events.ModelRequest, map[string]any{"n_ctx": 8192, "model_file": "m.gguf", "connection_kind": "local"})
-	publish(events.ModelResponse, map[string]any{"finish_reason": "stop", "usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 5}})
-	publish(events.RunStopped, map[string]any{"reason": "done"})
-	if len(sent) != 0 {
-		t.Fatalf("the run itself sent %d request(s) with the switch off", len(sent))
+	server.applyTelemetry(*cfg)
+	t.Cleanup(func() { server.telemetry.mu.Lock(); server.stopTelemetryLocked(); server.telemetry.mu.Unlock() })
+
+	traceCount := func() int {
+		t.Helper()
+		time.Sleep(20 * time.Millisecond)
+		server.telemetry.mu.Lock()
+		server.telemetry.state.sender.Flush()
+		server.telemetry.mu.Unlock()
+		mu.Lock()
+		defer mu.Unlock()
+		count := 0
+		for _, body := range sent {
+			var batch struct {
+				Events []map[string]any `json:"events"`
+			}
+			if err := json.Unmarshal(body, &batch); err != nil {
+				t.Fatal(err)
+			}
+			for _, event := range batch.Events {
+				if event["type"] == events.Trace {
+					count++
+				}
+			}
+		}
+		return count
+	}
+	run := func(id, reason string, extra func()) {
+		bus.Publish(events.New(events.RunStarted, "s1", id, nil))
+		if extra != nil {
+			extra()
+		}
+		bus.Publish(events.New(events.RunStopped, "s1", id, map[string]any{"reason": reason}))
+	}
+
+	run("clean", "done", nil)
+	if got := traceCount(); got != 0 {
+		t.Fatalf("clean done run sent %d trace(s)", got)
+	}
+	run("context", "context_exhausted", nil)
+	if got := traceCount(); got != 1 {
+		t.Fatalf("context stop trace count=%d", got)
+	}
+	run("detector", "done", func() {
+		bus.Publish(events.New(events.ProgressShadow, "s1", "detector", map[string]any{"would_fire": true, "detector": "loop"}))
+	})
+	if got := traceCount(); got != 2 {
+		t.Fatalf("detector trace count=%d", got)
+	}
+	run("tools", "done", func() {
+		for _, call := range []string{"a", "b"} {
+			bus.Publish(events.New(events.ToolCallEvent, "s1", "tools", map[string]any{"call_id": call, "name": "read_file", "args": map[string]any{"path": call}}))
+			bus.Publish(events.New(events.ToolResult, "s1", "tools", map[string]any{"call_id": call, "name": "read_file", "ok": false, "class": "not_found"}))
+		}
+	})
+	if got := traceCount(); got != 3 {
+		t.Fatalf("two tool errors trace count=%d", got)
+	}
+	run("stopped", "aborted_mid_run", nil)
+	if got := traceCount(); got != 4 {
+		t.Fatalf("operator stop trace count=%d", got)
+	}
+	run("unoffered", "done", func() {
+		bus.Publish(events.New(events.ToolUnoffered, "s1", "unoffered", map[string]any{"name": "missing"}))
+	})
+	run("refused", "done", func() {
+		bus.Publish(events.New(events.ModelRefused, "s1", "refused", map[string]any{"status": 400, "error_type": "refusal"}))
+	})
+	if got := traceCount(); got != 6 {
+		t.Fatalf("six qualifying runs sent %d traces", got)
+	}
+	run("seventh", "done", func() {
+		bus.Publish(events.New(events.ToolCallEvent, "s1", "seventh", map[string]any{"call_id": "bad", "name": "read_file", "args_invalid": true}))
+	})
+	if got := traceCount(); got != 6 {
+		t.Fatalf("seventh qualifying run sent a trace: %d", got)
 	}
 
 	response := httptest.NewRecorder()
-	server.reportChat(response, "s1")
-	if response.Code != http.StatusOK {
-		t.Fatalf("report answered %d: %s", response.Code, response.Body)
+	server.routes().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/sessions/s1/report", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("removed report route answered %d: %s", response.Code, response.Body)
 	}
-	var answer struct {
-		ReportID string `json:"report_id"`
-	}
-	_ = json.Unmarshal(response.Body.Bytes(), &answer)
-	if len(sent) != 1 || len(sent[0]) > telemetry.ReportByteCap {
-		t.Fatalf("report made %d request(s); want exactly one within %d bytes", len(sent), telemetry.ReportByteCap)
-	}
-	var batch struct {
-		Events []map[string]any `json:"events"`
-	}
-	if err := json.Unmarshal(sent[0], &batch); err != nil || len(batch.Events) != 1 {
-		t.Fatalf("report body is not one event: %s", sent[0])
-	}
-	if event := batch.Events[0]; event["type"] != "trace" || event["report_id"] != answer.ReportID || len(answer.ReportID) != 8 {
-		t.Fatalf("the id answered (%q) is not the id sent: %v", answer.ReportID, event)
-	}
+}
 
-	missing := httptest.NewRecorder()
-	server.reportChat(missing, "nobody")
-	if missing.Code != http.StatusNotFound || len(sent) != 1 {
-		t.Fatalf("a chat with nothing recorded answered %d and sent %d", missing.Code, len(sent))
+func TestStrugglingRunsSendNothingWithTelemetryOff2qa(t *testing.T) {
+	bus, root := events.NewBus(), t.TempDir()
+	cfg := &config.Config{Telemetry: config.Telemetry{Enabled: false}}
+	server := New(cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
+	server.recorder.Settle = time.Millisecond
+	var sent [][]byte
+	server.telemetry.transport = func(body []byte) error { sent = append(sent, body); return nil }
+	server.applyTelemetry(*cfg)
+	bus.Publish(events.New(events.RunStarted, "s1", "r1", nil))
+	bus.Publish(events.New(events.RunStopped, "s1", "r1", map[string]any{"reason": "context_exhausted"}))
+	time.Sleep(20 * time.Millisecond)
+	if len(sent) != 0 || server.TelemetryRunning() {
+		t.Fatalf("switch off: running=%t sends=%d", server.TelemetryRunning(), len(sent))
 	}
 }
 
@@ -208,7 +274,6 @@ func TestTheAppsEventsCarryNoPlantedSecret2q7(t *testing.T) {
 	server.app.Link("connected")
 	server.app.Link("disconnected reason=" + secret + " EOF")
 	server.app.Link("ERROR code=queue_full detail=" + secret)
-	server.app.NoteReport()
 	server.app.SendNow()
 	server.telemetry.mu.Lock()
 	server.telemetry.state.sender.Flush()

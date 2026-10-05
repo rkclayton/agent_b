@@ -71,15 +71,16 @@ type Options struct {
 
 // Sender accumulates allow-listed events and sends them in batches.
 type Sender struct {
-	mu        sync.Mutex
-	options   Options
-	pending   []Event
-	sentIndex []Record
-	refused   int
-	invalid   int
-	stop      chan struct{}
-	stopped   bool
-	wg        sync.WaitGroup
+	mu         sync.Mutex
+	options    Options
+	pending    []Event
+	sentIndex  []Record
+	refused    int
+	invalid    int
+	traceTimes []time.Time
+	stop       chan struct{}
+	stopped    bool
+	wg         sync.WaitGroup
 }
 
 // Record is one line of the "what was sent" view: the batch exactly as it left.
@@ -142,6 +143,22 @@ func (s *Sender) Observe(eventType, at string, data map[string]any) bool {
 		return false
 	}
 	s.mu.Lock()
+	if eventType == "trace" {
+		now := s.options.Now()
+		cutoff := now.Add(-time.Hour)
+		first := 0
+		for first < len(s.traceTimes) && !s.traceTimes[first].After(cutoff) {
+			first++
+		}
+		if first > 0 {
+			s.traceTimes = append([]time.Time(nil), s.traceTimes[first:]...)
+		}
+		if len(s.traceTimes) >= 6 {
+			s.mu.Unlock()
+			return false
+		}
+		s.traceTimes = append(s.traceTimes, now)
+	}
 	s.pending = append(s.pending, Event{Type: eventType, At: at, Data: picked})
 	full := len(s.pending) >= BatchEventCap
 	s.mu.Unlock()
@@ -149,40 +166,6 @@ func (s *Sender) Observe(eventType, at string, data map[string]any) bool {
 		s.Flush()
 	}
 	return true
-}
-
-// ReportByteCap is item 2pw (c)'s bound on one report.
-const ReportByteCap = 48 << 10
-
-// ReportOne sends one event in a batch of its own, now, whether or not the
-// switch is on: item 2pw's "Report this chat", where the click is the consent
-// for that one report. It passes the same allow-list and redaction as every
-// batch, under an install id of its own so it cannot be joined to anything.
-func ReportOne(options Options, eventType string, data map[string]any) ([]byte, error) {
-	class, known := Classify(eventType)
-	picked := Pick(class, data)
-	if !known || picked == nil {
-		return nil, fmt.Errorf("%s is not sendable", eventType)
-	}
-	if options.Now == nil {
-		options.Now = time.Now
-	}
-	if options.Client == nil {
-		options.Client = &http.Client{Timeout: 30 * time.Second}
-	}
-	if options.Endpoint == "" {
-		options.Endpoint = DefaultEndpoint
-	}
-	options.InstallID = NewInstallID()
-	sender := &Sender{options: options}
-	body, err := json.Marshal(sender.batch([]Event{{Type: eventType, At: options.Now().UTC().Format(time.RFC3339), Data: picked}}))
-	if err != nil {
-		return nil, err
-	}
-	if len(body) > ReportByteCap {
-		return nil, fmt.Errorf("report is %d bytes, over %d", len(body), ReportByteCap)
-	}
-	return body, sender.post(body)
 }
 
 func (s *Sender) InvalidDropped() int {

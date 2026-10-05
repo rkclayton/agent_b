@@ -346,7 +346,8 @@ func exactNestedKeys(got map[string]any, allowed map[string]bool) error {
 	return nil
 }
 
-// CHECK 5: a forty-call run adds at most twelve events and 8 KiB.
+// CHECK 5: a forty-call run adds at most twelve events and 32 KiB, including
+// the one bounded automatic trace emitted because this fixture has tool errors.
 func TestAFortyCallRunAddsAtMostTwelveEvents2q6(t *testing.T) {
 	_, bus, out := recorded()
 	publish := func(eventType string, data map[string]any) { bus.Publish(events.New(eventType, "s1", "r1", data)) }
@@ -373,7 +374,7 @@ func TestAFortyCallRunAddsAtMostTwelveEvents2q6(t *testing.T) {
 	}
 	encoded, _ := json.Marshal(batch)
 	t.Logf("a 40-call run adds %d events, %d bytes", len(batch), len(encoded))
-	if len(batch) > 12 || len(encoded) > 8<<10 {
+	if len(batch) > 12 || len(encoded) > 32<<10 {
 		t.Fatalf("a 40-call run adds %d events and %d bytes", len(batch), len(encoded))
 	}
 }
@@ -391,7 +392,9 @@ func appSession(t *testing.T) (*App, map[string]map[string]any) {
 	}
 	bus := events.NewBus()
 	bus.SetObserver(app.Observe)
-	publish := func(eventType, session string, data map[string]any) { bus.Publish(events.New(eventType, session, "r1", data)) }
+	publish := func(eventType, session string, data map[string]any) {
+		bus.Publish(events.New(eventType, session, "r1", data))
+	}
 	app.NoteListening(851, "clean")
 	clock = clock.Add(1420 * time.Millisecond)
 	app.NoteWindowShown()
@@ -415,7 +418,6 @@ func appSession(t *testing.T) (*App, map[string]map[string]any) {
 	app.Link("connected")
 	app.Link("ERROR code=queue_full detail=ZEBRA secret")
 	app.Link("PUSH kind=run_stopped answer=accepted")
-	app.NoteReport()
 	publish(events.UpdateChanged, "", map[string]any{"current_version": "v1.60.12", "checked_at": "2026-10-04T21:00:30Z", "available": true, "version": "v1.60.13"})
 	publish(events.UpdateChanged, "", map[string]any{"current_version": "v1.60.12", "outcome": map[string]any{"at": "2026-10-04T21:05:00Z", "ok": false, "phase": "verify", "version": "v1.60.13"}})
 	byType := map[string]map[string]any{}
@@ -434,7 +436,7 @@ func TestTheAppAroundTheRunsIsReported2q7(t *testing.T) {
 		events.LinkHealth: {"connects": 2, "join_bytes": int64(67108864)},
 		events.Install:    {"step": "verify", "class": "failed", "from": "v1.60.12", "to": "v1.60.13"},
 		events.Resource:   {"data_bytes": int64(4294967296), "chats_bytes": int64(1073741824), "chats": int64(64), "ram_bytes": int64(34359738368), "os_version": "windows 10.0.26200"},
-		events.FeatureUse: {"chats_created": 2, "messages_sent": 2, "reports": 1, "voice": 0},
+		events.FeatureUse: {"chats_created": 2, "messages_sent": 2, "voice": 0},
 	}
 	for kind, fields := range expect {
 		for field, want := range fields {

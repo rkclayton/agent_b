@@ -128,9 +128,6 @@ func (a *App) NotePage(freezeMS int, pages map[string]int) {
 	a.mu.Unlock()
 }
 
-// NoteReport is (f): Report this chat was used.
-func (a *App) NoteReport() { a.mu.Lock(); a.counts["reports"]++; a.mu.Unlock() }
-
 // NoteJoin is (c): what one phone join sent.
 func (a *App) NoteJoin(bytes int64) {
 	a.mu.Lock()
@@ -353,7 +350,7 @@ func (a *App) Flush() []emitted {
 	}
 	out = append(out, emitted{events.Resource, resource})
 	use := map[string]any{"tools": a.tools, "attachments": a.attachment, "settings_pages": a.settings, "approvals": a.approvals}
-	for _, key := range []string{"chats_created", "messages_sent", "reports", "voice"} {
+	for _, key := range []string{"chats_created", "messages_sent", "voice"} {
 		use[key] = a.counts[key]
 	}
 	out = append(out, emitted{events.FeatureUse, use})

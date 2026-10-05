@@ -214,7 +214,9 @@ func (h *health) decided(data map[string]any, at time.Time) {
 	}
 }
 
-func (h *health) sample(metric string, value int) { h.samples[metric] = append(h.samples[metric], value) }
+func (h *health) sample(metric string, value int) {
+	h.samples[metric] = append(h.samples[metric], value)
+}
 
 func (h *health) tool(name string) *toolHealth {
 	if name == "" {
@@ -226,6 +228,22 @@ func (h *health) tool(name string) *toolHealth {
 		h.tools[name] = tool
 	}
 	return tool
+}
+
+// struggling is item 2qa's closed list. It is evaluated once when the run
+// settles, after late progress shadows have had their existing grace period.
+func (h *health) struggling(stopReason string) bool {
+	if stopReason != "done" || len(h.detectors) > 0 || len(h.refusals) > 0 ||
+		h.behaviour["unparseable_tool_calls"] > 0 || h.behaviour["unoffered_tool_calls"] > 0 {
+		return true
+	}
+	errors := 0
+	for _, tool := range h.tools {
+		for _, count := range tool.errors {
+			errors += count
+		}
+	}
+	return errors >= 2
 }
 
 // emits is the run's aggregates, run.summary first.

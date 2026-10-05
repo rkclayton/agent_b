@@ -60,8 +60,8 @@ var allowList = map[string]Classification{
 	),
 	"tool.result": sent("name", "ok", "ms", "class"),
 	// Item 2pw: the flight recorder's two events, whose shape is
-	// docs/telemetry-trace.md. `trace` leaves only from "Report this chat".
-	"trace":       sent("report_id", "runs"),
+	// docs/telemetry-trace.md. A qualifying failed run emits its own `trace`.
+	"trace": sent("report_id", "runs"),
 	"run.summary": sent("inference_calls", "tool_calls", "max_fill_pct", "loop", "stop_reason", "ttft_ms",
 		"reasoning_tokens", "compactions", "approval_wait_seconds", "wall_seconds"),
 	// Item 2q6: built by the recorder per run or per change, never per request.
@@ -84,7 +84,7 @@ var allowList = map[string]Classification{
 	"link.health": sent("connects", "drops", "reconnect_ms", "refused", "pushes", "join_bytes"),
 	"install":     sent("step", "class", "from", "to"),
 	"resource":    sent("memory_peak_bytes", "data_bytes", "chats_bytes", "chats", "ram_bytes", "arch", "os_version"),
-	"feature.use": sent("chats_created", "messages_sent", "tools", "attachments", "reports", "voice", "settings_pages", "approvals"),
+	"feature.use": sent("chats_created", "messages_sent", "tools", "attachments", "voice", "settings_pages", "approvals"),
 	"error":       sent("where", "class", "stack_tree"),
 
 	// ------------------------------------------------------------ dropped
@@ -96,7 +96,7 @@ var allowList = map[string]Classification{
 	"message.queued": dropped, "messages.reminted": dropped,
 	"tool.call": dropped, "tool.toggled": dropped,
 	"compaction.summary": dropped,
-	"session.created": dropped, "session.closed": dropped, "session.reopened": dropped,
+	"session.created":    dropped, "session.closed": dropped, "session.reopened": dropped,
 	"session.renamed": dropped, "session.reset": dropped, "session.updated": dropped,
 	"session.restore_failed": dropped, "chat.named": dropped, "chat.deleted": dropped,
 	"run.queued": dropped, "run.started": dropped, "run.stopping": dropped,

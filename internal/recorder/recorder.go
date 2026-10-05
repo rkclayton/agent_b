@@ -1,8 +1,9 @@
 // Package recorder is item 2pw's flight recorder: every run as a sequence of
 // content-free spans, named after the OpenTelemetry GenAI conventions where one
-// exists, kept in a bounded ring per chat. "Report this chat" sends what a run
-// DID — the step sequence, where loops, wrong tools and lost context show — and
-// never a word of what it was about. docs/telemetry-trace.md is the schema.
+// exists, kept in a bounded ring per chat. A struggling run also emits its own
+// step sequence — where loops, wrong tools and lost context show — while
+// anonymous diagnostics are enabled, and never a word of what it was about.
+// docs/telemetry-trace.md is the schema.
 //
 // Nothing here stores text. A tool argument is its key, its length and an
 // HMAC under a salt that is made per run and never leaves this process.
@@ -266,7 +267,10 @@ func (r *Recorder) close(key string) {
 	delete(r.closing, key)
 	var emit []emitted
 	if current != nil {
-		emit = current.health.emits(current.summary)
+		if current.health.struggling(text(current.summary["stop_reason"])) {
+			emit = append(emit, emitted{events.Trace, traceRun(current)})
+		}
+		emit = append(emit, current.health.emits(current.summary)...)
 		current.summary, current.health = nil, nil
 	}
 	r.mu.Unlock()
@@ -384,6 +388,13 @@ func (r *Recorder) Trace(chat string) (map[string]any, bool) {
 		return nil, false
 	}
 	return map[string]any{"report_id": randomID(), "runs": runs}, true
+}
+
+func traceRun(item *run) map[string]any {
+	invoke, _ := json.Marshal(item.invoke)
+	spans := append([]json.RawMessage{invoke}, item.spans...)
+	encoded, _ := json.Marshal(map[string]any{"spans": spans, "spans_dropped": item.dropped})
+	return map[string]any{"report_id": randomID(), "runs": []json.RawMessage{encoded}}
 }
 
 // describe is an argument as its keys, each value's length, and an HMAC that

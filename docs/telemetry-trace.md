@@ -33,14 +33,13 @@ evicted first. One run keeps at most 32 KiB of spans; later spans are counted
 in `spans_dropped`. Each event costs the same however much is stored: a span is
 encoded once and appended. A chat's runs are deleted with the chat.
 
-## `trace` — "Report this chat"
+## `trace` — a struggling run
 
-Sent only when someone right-clicks a chat tab and picks **Report this chat**,
-and sent whether or not anonymous diagnostics are on: the click is the consent
-for that one report. It is one batch of one event, at most **48 KiB**, under an
-install id made for that report. It carries the chat's last **5 runs**; when
-they do not fit, the oldest runs are dropped first. The page shows
-`Reported — id <report_id> copied` and puts the id on the clipboard.
+With anonymous diagnostics on, one trace is sent automatically when a run
+exhausts context, fires a detector, records two tool errors, calls an unoffered
+tool, is refused by the model server, or is stopped by the person. Clean runs
+send none. With diagnostics off, no trace leaves. At most six traces leave in a
+rolling hour. Each trace is at most **48 KiB** and carries that run only.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -311,13 +310,13 @@ at), `class` (`ok` or `failed`), `from` and `to` versions.
 
 ### `feature.use`
 
-Counts for the hour: `chats_created`, `messages_sent`, `reports` (Report this
-chat), `voice` (voice turns); and objects of counts: `tools` by registered
+Counts for the hour: `chats_created`, `messages_sent`, `voice` (voice turns);
+and objects of counts: `tools` by registered
 tool name, `attachments` by kind (`text`, `office`, `pdf`, `image`, `zip`,
 `binary`), `settings_pages` by page id, `approvals` by card kind and answer.
 
 ```json vector:feature.use
-{"type":"feature.use","at":"2026-10-04T21:00:05Z","chats_created":2,"messages_sent":14,"reports":1,"voice":0,"tools":{"read_file":22,"search":5},"attachments":{"image":1},"settings_pages":{"connections":2,"about":1},"approvals":{"shell.operator_override.folder":1}}
+{"type":"feature.use","at":"2026-10-04T21:00:05Z","chats_created":2,"messages_sent":14,"voice":0,"tools":{"read_file":22,"search":5},"attachments":{"image":1},"settings_pages":{"connections":2,"about":1},"approvals":{"shell.operator_override.folder":1}}
 ```
 
 ## On-device (iOS) (item 2q8)
@@ -409,5 +408,5 @@ dropped by the allow-list in `internal/telemetry` before it can.
 | `link.health` | `connects`, `drops`, `reconnect_ms`, `refused`, `pushes`, `join_bytes` |
 | `install` | `step`, `class`, `from`, `to` |
 | `resource` | `memory_peak_bytes`, `data_bytes`, `chats_bytes`, `chats`, `ram_bytes`, `arch`, `os_version` |
-| `feature.use` | `chats_created`, `messages_sent`, `tools`, `attachments`, `reports`, `voice`, `settings_pages`, `approvals` |
+| `feature.use` | `chats_created`, `messages_sent`, `tools`, `attachments`, `voice`, `settings_pages`, `approvals` |
 | `ondevice.run` | `availability`, `errors`, `pictures`, `prewarm`, `routes`, `sizes` |

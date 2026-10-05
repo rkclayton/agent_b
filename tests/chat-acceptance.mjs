@@ -2002,7 +2002,7 @@ if (realModel) {
   record("clean-panel-on-ordinary-pages");
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
 	await browser.wait(`document.querySelector('#chat-task')`, "chat restored after settings");
-	await browser.wait(`document.querySelector('.agent-tab-wrap.selected')?.dataset.session === ${JSON.stringify(sessionID)} && document.querySelector('#chat-task') && !document.querySelector('#chat-task').disabled`, "UI error relay session projection ready");
+	await browser.wait(`document.querySelector('.agent-tab-wrap.selected')?.dataset.session === ${JSON.stringify(sessionID)} && document.querySelector('#chat-task') && !document.querySelector('#chat-task').disabled && document.querySelector('.chat-jump')`, "UI error relay session projection ready");
 	const jumpGeometry = await page.evaluate(() => {
 		const jump = document.querySelector(".chat-jump"), log = document.querySelector("#chat-log"), composer = document.querySelector("#chat-composer");
 		jump.hidden = false; jump.style.setProperty("display", "block", "important");
@@ -2189,11 +2189,18 @@ if (realModel) {
   assert.equal(ocrMessage.data.message.attachments.length, 1);
   record("trusted-image-input-ocr-sidecar-before-send-and-retained");
 
-  const beforeReload = (await browserText("#chat-log")).slice(0, 120);
+  // Item 2qc restores only the newest history page. The live DOM can contain
+  // older rows accumulated during this run, so compare the newest rendered
+  // content rather than assuming the journal's first row is still in page 1.
+  const beforeReload = await browserText("#chat-log");
+  assert.match(beforeReload, /acceptance: attachment OCR/);
+  assert.match(beforeReload, /Attachment received and rendered\./);
   await page.reload();
   await waitProjectedChatText(sessionID, "Attachment received and rendered.", "chat reopen");
   await browser.wait(`document.querySelectorAll('#chat-log .chat-entry').length > 1`, "chat rows restored after reopen");
-  assert.equal((await browserText("#chat-log")).slice(0, 120), beforeReload);
+  const afterReload = await browserText("#chat-log");
+  assert.match(afterReload, /acceptance: attachment OCR/);
+  assert.match(afterReload, /Attachment received and rendered\./);
   record("chat-reopen-preserves-screen-and-jsonl");
 
   events = await sessionEvents(sessionID);

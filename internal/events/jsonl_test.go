@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +31,16 @@ func TestChatHistoryStreamsOneHundredMegabytes2qh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); elapsed >= time.Second {
+	limit := time.Second
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "-race" && setting.Value == "true" {
+				limit = 5 * time.Second
+				break
+			}
+		}
+	}
+	if elapsed := time.Since(started); elapsed >= limit {
 		t.Fatalf("100 MB search took %v", elapsed)
 	}
 	if len(result.Entries) != 1 || result.Entries[0].ID != "m-1599" {

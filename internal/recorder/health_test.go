@@ -401,7 +401,7 @@ func appSession(t *testing.T) (*App, map[string]map[string]any) {
 	app.NotePage(640, map[string]int{"connections": 2, "about": 1})
 	app.NoteState(29_300_000, 2400*time.Millisecond)
 	for _, chat := range []string{"s1", "s2"} {
-		publish(events.SessionCreated, chat, map[string]any{})
+		publish(events.SessionCreated, chat, map[string]any{"created_by": "operator"})
 		publish(events.MessageAppended, chat, map[string]any{"message": map[string]any{"role": "user", "content": "ZEBRA secret", "attachments": []any{map[string]any{"kind": "image", "path": `C:\Users\someone\a.png`}}}})
 		publish(events.ToolResult, chat, map[string]any{"name": "read_file", "ok": true})
 	}
@@ -461,6 +461,23 @@ func TestTheAppAroundTheRunsIsReported2q7(t *testing.T) {
 		if strings.Contains(string(encoded), needle) {
 			t.Fatalf("the app's events carry %q: %s", needle, encoded)
 		}
+	}
+}
+
+func TestChatsCreatedCountsOnlyOperatorCreatedChats2qd(t *testing.T) {
+	app := NewApp(time.Now())
+	for index := 0; index < 64; index++ {
+		app.Observe(events.New(events.SessionCreated, fmt.Sprintf("s%d", index), "", map[string]any{"restored": true}))
+	}
+	for index := 0; index < 2; index++ {
+		app.Observe(events.New(events.SessionCreated, fmt.Sprintf("new%d", index), "", map[string]any{"created_by": "operator"}))
+	}
+	byType := map[string]map[string]any{}
+	for _, item := range app.Flush() {
+		byType[item.kind] = item.data
+	}
+	if got := byType[events.FeatureUse]["chats_created"]; got != 2 {
+		t.Fatalf("chats_created = %v, want 2", got)
 	}
 }
 

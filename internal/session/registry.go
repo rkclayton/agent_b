@@ -83,15 +83,21 @@ func (r *Registry) SetPlansRoot(root string) {
 func (r *Registry) SetSkillsRoot(root string)             { r.skillsRoot = filepath.Clean(root) }
 func (r *Registry) SetPlanGrant(grant func(string) error) { r.planGrant = grant }
 func (r *Registry) Create(label, agentID, workspace string) (*Session, error) {
-	return r.create(label, agentID, workspace, nil, "b", "")
+	return r.create(label, agentID, workspace, nil, "b", "", "")
 }
 func (r *Registry) CreateRole(label, agentID, workspace, role, planID string) (*Session, error) {
-	return r.create(label, agentID, workspace, nil, role, planID)
+	return r.create(label, agentID, workspace, nil, role, planID, "")
+}
+func (r *Registry) CreateOperatorRole(label, agentID, workspace, role, planID string) (*Session, error) {
+	return r.create(label, agentID, workspace, nil, role, planID, "operator")
 }
 func (r *Registry) CreateLike(sourceID string) (*Session, error) {
-	return r.createLike(sourceID)
+	return r.createLike(sourceID, "")
 }
-func (r *Registry) createLike(sourceID string) (*Session, error) {
+func (r *Registry) CreateOperatorLike(sourceID string) (*Session, error) {
+	return r.createLike(sourceID, "operator")
+}
+func (r *Registry) createLike(sourceID, createdBy string) (*Session, error) {
 	source, ok := r.Get(sourceID)
 	if !ok {
 		return nil, fmt.Errorf("source session not found")
@@ -105,7 +111,7 @@ func (r *Registry) createLike(sourceID string) (*Session, error) {
 	if _, found := r.resolveAgent(agentID); agentID == "" || !found {
 		agentID = snapshot.ConnectionID
 	}
-	return r.create("", agentID, "", enabled, "b", "")
+	return r.create("", agentID, "", enabled, "b", "", createdBy)
 }
 
 // Restore rehydrates a retained chat into a fresh operational tape. The
@@ -241,7 +247,7 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 			r.next = value + 1
 		}
 	}
-	data := map[string]any{"workspace_dir": s.Workspace, "session": s.SnapshotUnlocked()}
+	data := map[string]any{"workspace_dir": s.Workspace, "session": s.SnapshotUnlocked(), "restored": true}
 	if transcript != nil {
 		data["chat"] = transcript
 	}
@@ -280,7 +286,7 @@ func normalizePlanID(value string) (string, error) {
 	}
 	return value, nil
 }
-func (r *Registry) create(label, agentID, workspace string, enabled map[string]bool, role, planID string) (*Session, error) {
+func (r *Registry) create(label, agentID, workspace string, enabled map[string]bool, role, planID, createdBy string) (*Session, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	agent, ok := r.resolveAgent(agentID)
@@ -440,7 +446,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	session.Messages = []events.Message{}
 	session.Budget = initialBudget(connection)
 	r.sessions[id] = session
-	r.bus.Publish(events.New(events.SessionCreated, id, "", map[string]any{"workspace_dir": abs, "session": session.Snapshot()}))
+	r.bus.Publish(events.New(events.SessionCreated, id, "", map[string]any{"workspace_dir": abs, "session": session.Snapshot(), "created_by": createdBy}))
 	if len(setup.Instructions.Files) > 0 {
 		r.bus.Publish(events.New(events.ProjectInstructions, id, "", map[string]any{"block": setup.Instructions.Block, "files": setup.Instructions.Files, "notes": setup.Instructions.Notes, "lazy": false}))
 	}
@@ -729,10 +735,14 @@ func (r *Registry) List() []*Session {
 // ReconcileChatHomes follows chat.json identities after Explorer moves them.
 func (r *Registry) ReconcileChatHomes(entries []chatstore.Entry) {
 	paths := make(map[string]string, len(entries))
-	for _, entry := range entries { paths[entry.Metadata.ID] = entry.Path }
+	for _, entry := range entries {
+		paths[entry.Metadata.ID] = entry.Path
+	}
 	for _, item := range r.List() {
 		path := paths[item.ID]
-		if path == "" || !item.Snapshot().Scratch || filepath.Clean(item.Workspace) == filepath.Clean(path) { continue }
+		if path == "" || !item.Snapshot().Scratch || filepath.Clean(item.Workspace) == filepath.Clean(path) {
+			continue
+		}
 		item.mu.Lock()
 		item.Workspace, item.WorkspaceMissing = path, false
 		item.mu.Unlock()

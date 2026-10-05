@@ -601,19 +601,6 @@ func main() {
 		phases.mark("restore retained chats")
 		runner.ReserveIDs(floor)
 		scheduler.ReserveIDs(floor)
-		open := false
-		for _, item := range restored {
-			if !item.IsClosed() {
-				open = true
-			}
-		}
-		if !open {
-			mainSession, createErr := registry.Create("main", mainAgentID, "")
-			if createErr != nil {
-				log.Fatal(createErr)
-			}
-			restored = append(restored, mainSession)
-		}
 		registry.RefreshRunnable()
 		for _, item := range restored {
 			if !item.IsClosed() {

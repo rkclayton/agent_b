@@ -47,7 +47,7 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 				writeError(w, 400, "source_session_id cannot be combined with overrides", "session")
 				return
 			}
-			item, err := s.registry.CreateLike(body.SourceSessionID)
+			item, err := s.registry.CreateOperatorLike(body.SourceSessionID)
 			if err != nil {
 				writeError(w, 400, err.Error(), "session")
 				return
@@ -91,7 +91,7 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, reason, "agent_id")
 			return
 		}
-		item, err := s.registry.CreateRole(body.Label, body.AgentID, "", role, body.PlanID)
+		item, err := s.registry.CreateOperatorRole(body.Label, body.AgentID, "", role, body.PlanID)
 		if err != nil {
 			writeError(w, 400, err.Error(), "session")
 			return

@@ -12,6 +12,16 @@ import (
 	"harness/internal/session"
 )
 
+func TestStartupDoesNotCreateAChatWithoutAnOperatorAction2qd(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(source), `registry.Create("main", mainAgentID, "")`) {
+		t.Fatal("startup still creates a chat when no retained chat is open")
+	}
+}
+
 func TestRetainedChatsRestoreWithoutOperationalLogsAndDeleteExplicitly(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
 	logs := filepath.Join(root, "logs")

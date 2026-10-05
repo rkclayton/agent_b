@@ -219,7 +219,9 @@ func (a *App) Observe(event events.Event) {
 			a.installs = append(a.installs, map[string]any{"step": word(outcome["phase"]), "class": class, "from": word(data["current_version"]), "to": word(outcome["version"])})
 		}
 	case events.SessionCreated:
-		a.counts["chats_created"]++
+		if text(data["created_by"]) == "operator" {
+			a.counts["chats_created"]++
+		}
 	case events.MessageAppended:
 		message := asMap(data["message"])
 		if text(message["role"]) != "user" {

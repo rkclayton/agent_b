@@ -2040,7 +2040,7 @@ if (realModel) {
 
   await setTask("acceptance: stop");
   await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'stop'`, "stop enabled");
-  await browser.wait(`/(?:prompt|thinking|writing|calling) .*(?:tokens|b|kb|mb)/.test((document.querySelector('#chat-notice .chat-notice-text')?.innerText || '').toLowerCase())`, "stop request phase and number");
+  await browser.wait(`(() => { const text=(document.querySelector('#chat-notice .chat-notice-text')?.innerText || '').toLowerCase(); return text.length > 0 && /\\d+(?:m\\d\\d)?s$/.test(text) && !/0 tokens/.test(text); })()`, "stop request phase and clock");
   const liveStop = await browser.evaluate(`(() => {
     const button = document.querySelector('#chat-send');
     const box = button.getBoundingClientRect();
@@ -2063,7 +2063,8 @@ if (realModel) {
 		if (stopPixels.data[offset] === 0xE4 && stopPixels.data[offset + 1] === 0x62 && stopPixels.data[offset + 2] === 0x4F && stopPixels.data[offset + 3] === 0xFF) alarmPixels++;
 	}
 	assert.ok(alarmPixels > 200, `live Stop button is not painted alarm red: ${alarmPixels} exact pixels`);
-  assert.match(liveStop.status, /(?:prompt|thinking|writing|calling) .*(?:tokens|B|kB|MB)/, JSON.stringify(liveStop));
+  assert.match(liveStop.status, /\d+(?:m\d\d)?s$/, JSON.stringify(liveStop));
+  assert.doesNotMatch(liveStop.status, /0 tokens/, JSON.stringify(liveStop));
   const stopStart = Date.now();
   await page.locator("#chat-send").click();
   await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'send'`, "stop completed", 1000);

@@ -94,6 +94,9 @@ func TestTheShellToolDescriptionNamesTheDialect(t *testing.T) {
 	if !strings.Contains(description, "PowerShell 7") && !strings.Contains(description, "PowerShell 5.1") {
 		t.Fatalf("the description names no dialect: %q", description)
 	}
+	if !strings.Contains(description, "not cmd.exe") || !strings.Contains(description, "cd /d") {
+		t.Fatalf("the description does not distinguish PowerShell from cmd syntax: %q", description)
+	}
 	if strings.Contains(description, "not `&&`") {
 		t.Fatalf("the description still tells the model to avoid &&: %q", description)
 	}

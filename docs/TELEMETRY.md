@@ -69,9 +69,9 @@ to the second.
 | `ms` | int | |
 | `class` | string, optional | present only when `ok` is false: the error's class, from the fixed list below. Never the error text. |
 
-Error classes: `not_found`, `permission`, `refused_by_guard`, `timeout`,
-`network`, `parse`, `too_large`, `cancelled`, `bad_request`, `unavailable`,
-`internal`.
+Error classes: `exit_nonzero`, `invalid_args`, `not_found`, `timeout`, `denied`,
+`too_large`, `internal`. `internal` means the harness itself failed; a command
+that ran and returned a non-zero exit status is `exit_nonzero`.
 
 ### `error`
 

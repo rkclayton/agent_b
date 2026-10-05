@@ -130,6 +130,9 @@ never reported it.
 
 ### `tool.perf`
 
+Error counts use the closed classes `exit_nonzero`, `invalid_args`, `not_found`,
+`timeout`, `denied`, `too_large`, and `internal`.
+
 One per run. `tools` maps each registered tool name used to `calls`, `errors`
 (error class → count), `duration_ms` (`{"p50","p95"}`), `size_bucket` of its
 largest result (`under_1k`, `under_10k`, `under_100k`, `100k_or_more`), `cut`

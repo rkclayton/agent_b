@@ -69,7 +69,7 @@ func (s *Shell) Description() string {
 	if cfg.ServiceAccount.Enabled {
 		description += "Shell has no public network (enforced outside the tool layer); use web_search or fetch_url for public network reads. "
 	}
-	description += "Agent-written Windows host scripts cannot be executed; use run_script for multi-line source. " + syntax
+	description += "Agent-written Windows host scripts cannot be executed; use run_script for multi-line source. This is PowerShell, not cmd.exe: use Set-Location, not `cd /d`. " + syntax
 	if cfg.ServiceAccount.Enabled && len(operatorCommands) > 0 {
 		description += " Git and other configured commands need one decision per run; expect one prompt, not one per call."
 	}

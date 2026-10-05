@@ -16,17 +16,13 @@ import "strings"
 // The vocabulary is docs/TELEMETRY.md's, and the list is closed: anything this
 // cannot place is `internal`, never the message.
 const (
-	ClassNotFound       = "not_found"
-	ClassPermission     = "permission"
-	ClassRefusedByGuard = "refused_by_guard"
-	ClassTimeout        = "timeout"
-	ClassNetwork        = "network"
-	ClassParse          = "parse"
-	ClassTooLarge       = "too_large"
-	ClassCancelled      = "cancelled"
-	ClassBadRequest     = "bad_request"
-	ClassUnavailable    = "unavailable"
-	ClassInternal       = "internal"
+	ClassExitNonzero = "exit_nonzero"
+	ClassInvalidArgs = "invalid_args"
+	ClassNotFound    = "not_found"
+	ClassTimeout     = "timeout"
+	ClassDenied      = "denied"
+	ClassTooLarge    = "too_large"
+	ClassInternal    = "internal"
 )
 
 // classPatterns is ordered: the first match wins, so the specific reasons are
@@ -35,16 +31,12 @@ var classPatterns = []struct {
 	class  string
 	needle []string
 }{
-	{ClassRefusedByGuard, []string{"refused", "not allowed", "outside the workspace", "denied by policy", "guard"}},
-	{ClassPermission, []string{"access is denied", "permission denied", "unauthorized", "forbidden", "403", "401"}},
-	{ClassNotFound, []string{"no such file", "cannot find", "not found", "does not exist", "404"}},
+	{ClassExitNonzero, []string{"command failed\nexit="}},
+	{ClassDenied, []string{"refused", "not allowed", "outside the workspace", "denied", "blocked", "permission", "unauthorized", "forbidden", "guard", "401", "403", "canceled", "cancelled"}},
+	{ClassNotFound, []string{"no such file", "no such host", "cannot find", "not found", "does not exist", "connection refused", "404", "unavailable"}},
 	{ClassTimeout, []string{"timeout", "timed out", "deadline exceeded"}},
-	{ClassCancelled, []string{"canceled", "cancelled", "context canceled"}},
-	{ClassTooLarge, []string{"too large", "exceeded", "limit reached", "max bytes"}},
-	{ClassNetwork, []string{"dial tcp", "connection refused", "no such host", "eof", "network", "tls", "request failed"}},
-	{ClassParse, []string{"parse", "invalid character", "unmarshal", "malformed", "decode"}},
-	{ClassBadRequest, []string{"is required", "must be", "invalid argument", "unknown tool", "bad request"}},
-	{ClassUnavailable, []string{"unavailable", "disabled", "not configured", "no connection"}},
+	{ClassTooLarge, []string{"too large", "result exceeds", "limit reached", "max bytes"}},
+	{ClassInvalidArgs, []string{"is required", "must be", "invalid argument", "unknown tool", "bad request", "note too long", "not one of", "invalid character", "unmarshal", "malformed", "decode", "parse", "not configured", "no connection"}},
 }
 
 // ToolErrorClass places one failed tool result. It is called only when the

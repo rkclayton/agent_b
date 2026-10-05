@@ -38,3 +38,33 @@ func TestFallbackTokenCountAndPreviewUseUnicodeCharacters(t *testing.T) {
 		t.Fatalf("preview is not a 500-character UTF-8 window: runes=%d valid=%v", len([]rune(got)), utf8.ValidString(got))
 	}
 }
+
+func TestS56ToolFailuresAreNamedForWhatFailed2qg(t *testing.T) {
+	rows := []struct {
+		content string
+		want    string
+	}{
+		{"error: command failed\nexit=1\nSet-Location: path missing", "exit_nonzero"},
+		{"error: command failed\nexit=1\nFAIL package", "exit_nonzero"},
+		{"error: command failed\nexit=1\ncompile error", "exit_nonzero"},
+		{"error: command failed\nexit=1", "exit_nonzero"},
+		{"error: command failed\nexit=1\nParserError: unexpected token", "exit_nonzero"},
+		{"error: note too long (max 300 Unicode characters)", "invalid_args"},
+		{"error: note too long (max 300 Unicode characters)", "invalid_args"},
+		{"error: file does not exist", "not_found"},
+	}
+	counts := map[string]int{}
+	for _, row := range rows {
+		got := ToolErrorClass(row.content)
+		counts[got]++
+		if got != row.want {
+			t.Errorf("ToolErrorClass(%q) = %q, want %q", row.content, got, row.want)
+		}
+	}
+	if counts["exit_nonzero"] != 5 || counts["invalid_args"] != 2 || counts["not_found"] != 1 || counts["internal"] != 0 {
+		t.Fatalf("s56 classes=%v", counts)
+	}
+	if got := ToolErrorClass("error: fork/exec powershell.exe: invalid handle"); got != "internal" {
+		t.Fatalf("harness process-start fault = %q, want internal", got)
+	}
+}

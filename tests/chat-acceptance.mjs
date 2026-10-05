@@ -2907,7 +2907,7 @@ if (realModel) {
   await page.goto(chatURL(waiter.id));
   await page.locator("#chat-task").waitFor({ state: "visible" });
   await post(waiter.id, "acceptance: queued behind");
-  await browser.wait(`document.querySelector('#chat-notice')?.innerText.toLowerCase().includes('waiting for model · behind agent_b')`, "the strip names the role ahead");
+  await browser.wait(`/^queued — behind agent_b · \\d+(?:m\\d\\d)?s$/.test((document.querySelector('#chat-notice')?.innerText || '').toLowerCase())`, "the strip names the role ahead with a clock");
   const busyGo = await json(`http://127.0.0.1:${appPort}/api/plan/go?plan_id=browser-plan`);
   assert.equal(busyGo.enabled, false, JSON.stringify(busyGo));
   assert.match(busyGo.refusal || "", /the model is busy: agent_b is running/, JSON.stringify(busyGo));

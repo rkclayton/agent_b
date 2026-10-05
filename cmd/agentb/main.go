@@ -260,7 +260,8 @@ func buildTools(cfg config.Config, bus *events.Bus, registry *session.Registry, 
 }
 
 // readOnlyRemember stands in for the remember tool when --memory was not given.
-// It keeps the registration order stable -- the thirteen tools are a contract --
+// It keeps the configured thirteen-tool order stable; the harness-only retained
+// chat reader is appended where a durable journal is available.
 // while refusing the write with the reason, which is more useful to a model than
 // a tool that is simply missing.
 type readOnlyRemember struct{}

@@ -9,9 +9,8 @@ import (
 	"harness/internal/events"
 )
 
-// The structured prompt is the second half of 2eg: the note has to carry the
-// task forward, not just avoid eating it.
-func TestSummaryPromptIsStructuredAndCarriesSpanUserMessagesVerbatim(t *testing.T) {
+// Item 2qh: the hand-off has four fixed fields while the task stays outside it.
+func TestSummaryPromptBuildsFreshHandOffAndKeepsTaskVerbatim(t *testing.T) {
 	mainServer := newSummaryServer(t, "short summary")
 	runner, item, _, _ := compactionRunner(t, mainServer, nil, 32768)
 	ok := true
@@ -26,46 +25,25 @@ func TestSummaryPromptIsStructuredAndCarriesSpanUserMessagesVerbatim(t *testing.
 	messages := runner.summaryMessages(connectionForRunner(runner, "main"), item)
 	instruction, _ := messages[len(messages)-1].Content.(string)
 
-	for _, heading := range []string{"INTENT:", "FILES:", "ERRORS AND FIXES:", "PENDING:", "NEXT STEP:"} {
+	for _, heading := range []string{"DONE:", "NEXT:", "FILES CHANGED:", "OPEN QUESTIONS:"} {
 		if !strings.Contains(instruction, heading) {
 			t.Errorf("structured prompt missing heading %q", heading)
 		}
 	}
-	if !strings.Contains(instruction, "consolidate it into these headings rather than writing a second note") {
-		t.Error("prompt does not ask for consolidation")
-	}
-	// (b): the prompt asks for a summary and for nothing it cannot deliver.
-	if strings.Contains(instruction, "USER MESSAGES:") || strings.Contains(instruction, "to copy into the note") {
-		t.Fatalf("the prompt still asks the model to reproduce the user messages:\n%s", instruction)
-	}
-	if !strings.Contains(instruction, "carried into the note verbatim by Agent_b itself") {
-		t.Fatalf("the prompt does not say the messages are already carried:\n%s", instruction)
+	if !strings.Contains(instruction, "current task's user messages will be preserved verbatim outside this hand-off") || !strings.Contains(instruction, "Do not mention or summarize any prior hand-off") {
+		t.Fatalf("fresh-context constraints missing:\n%s", instruction)
 	}
 
-	// (a): and the NOTE the harness writes holds them, whatever the model returned.
+	// The task itself is retained next to the one hand-off, not copied into it.
 	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
 		t.Fatal("summary was not accepted")
 	}
-	note := ""
-	for _, message := range item.Snapshot().Messages {
-		if message.Category == "summary" {
-			note = message.Content
-		}
+	after := item.Snapshot().Messages
+	if len(after) != 2 || after[0].ID != "task" || after[0].Content != "the real task" || after[1].Category != "summary" {
+		t.Fatalf("fresh context=%+v", after)
 	}
-	if !strings.Contains(note, "USER MESSAGES in the span, carried forward verbatim by Agent_b:") {
-		t.Fatalf("the note carries no user messages:\n%s", note)
-	}
-	for turn := 1; turn <= 4; turn++ {
-		if !strings.Contains(note, userTextFor(turn)) {
-			t.Errorf("span user message for turn %d is not in the note", turn)
-		}
-	}
-	// Never the pinned task itself: that is not span content, it is the thing being
-	// answered, and it is still in the conversation. Item 2q5 (c) re-states it after
-	// the summary, which is not the span list.
-	span := note[strings.Index(note, "USER MESSAGES in the span"):strings.Index(note, "LAST USER MESSAGE:")]
-	if strings.Contains(span, "the real task") {
-		t.Error("the pinned task must not be listed as span content")
+	if strings.Contains(after[1].Content, "the real task") {
+		t.Fatal("hand-off copied the pinned task")
 	}
 }
 

@@ -263,7 +263,7 @@ func TestWalk3LongCompletesAnswersNextAndSurvivesRestart(t *testing.T) {
 	reason, detail, _ := runner.Run(context.Background(), item, "r5")
 	summarized, foldedAnswer := false, false
 	for _, event := range bus.Recent(item.ID) {
-		if event.Type == events.Compaction && event.Data.(map[string]any)["kind"] == "summarize" {
+		if event.Type == events.Compaction && event.Data.(map[string]any)["kind"] == "fresh" {
 			summarized = true
 			for _, id := range event.Data.(map[string]any)["affected_ids"].([]string) {
 				foldedAnswer = foldedAnswer || id == "m-29"

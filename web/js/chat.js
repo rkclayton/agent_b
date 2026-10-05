@@ -424,7 +424,7 @@ function groupResponses(entries) {
     // reason — it is the line that CLOSES the run, and folding it into the steps
     // group buries it under a collapsed "Steps · 1 row", which is where my first
     // version of this put it. The screenshot gate is what showed me.
-    if (entry.type === "notice" && ((entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "aborted_mid_tool") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "done") || entry.event?.type === "service.identity_unavailable" || entry.event?.type === "c.job")) {
+    if (entry.type === "notice" && ((entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "aborted_mid_tool") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "done") || (entry.event?.type === "compaction" && entry.event?.data?.kind === "fresh") || entry.event?.type === "service.identity_unavailable" || entry.event?.type === "c.job")) {
       grouped.push(entry);
       response = null;
       continue;
@@ -1079,7 +1079,9 @@ function noticeContent(session, entry, actionable) {
     : `harness: repaired malformed ${data.tool || "tool"} history and retried`;
   else if (event.type === "compaction") content.textContent = data.trigger === "byte_limit_trim"
     ? `trimmed ${data.trimmed_results || 0} old result(s) to fit the request size`
-    : `compacted ${signed((data.after || 0) - (data.before || 0))} tokens${data.connection_id ? ` via ${data.connection_id}` : ""}`;
+    : data.kind === "fresh"
+      ? "fresh context — earlier turns searchable"
+      : `compacted ${signed((data.after || 0) - (data.before || 0))} tokens${data.connection_id ? ` via ${data.connection_id}` : ""}`;
   if (event.type === "compaction" && data.trigger !== "byte_limit_trim" && data.before === data.after) content.hidden = true;
   else if (event.type === "workspace.conflict") {
     content.textContent = `conflict: ${data.path} written by ${data.other_label} ${data.age_s} s ago`;

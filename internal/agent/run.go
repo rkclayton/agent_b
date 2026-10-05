@@ -446,8 +446,13 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		state.Turn = turn
 		s.SetRun(state)
 		enabled := s.EnabledTools()
-		schemas := r.tools.Schemas(enabled)
 		toolNames := r.tools.Names(enabled)
+		// Non-configurable read-only tools are returned by Names even when they
+		// have no toggle entry. The response guard must use the offered set too.
+		for _, name := range toolNames {
+			enabled[name] = true
+		}
+		schemas := r.tools.Schemas(enabled)
 		var request llm.Request
 		var body map[string]any
 		var requestEvent events.Event

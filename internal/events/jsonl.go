@@ -1,6 +1,7 @@
 package events
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -43,6 +44,13 @@ type SessionInventory struct {
 	JSONLBytes   int64         `json:"jsonl_bytes"`
 	MemoryWrites []MemoryWrite `json:"memory_writes"`
 	Paths        []string      `json:"-"`
+}
+
+type ChatHistoryResult struct {
+	Entries         []Message `json:"entries"`
+	Total           int       `json:"total"`
+	ScannedBytes    int64     `json:"scanned_bytes"`
+	PeakRecordBytes int       `json:"peak_record_bytes"`
 }
 
 func NewWriters(dir string) (*Writers, error) {
@@ -160,6 +168,76 @@ func (w *Writers) DurableChatPaths() ([]string, error) {
 	}
 	sort.Strings(paths)
 	return paths, nil
+}
+
+// ReadChatHistory searches or reads message entries without ever loading the
+// append-only journal as a whole. Offset is zero-based among matching entries.
+func (w *Writers) ReadChatHistory(sessionID, query string, offset, limit int) (ChatHistoryResult, error) {
+	if filepath.Base(sessionID) != sessionID || sessionID == "." || sessionID == "" {
+		return ChatHistoryResult{}, fmt.Errorf("invalid session id %q", sessionID)
+	}
+	if offset < 0 {
+		return ChatHistoryResult{}, fmt.Errorf("offset must be at least zero")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	w.mu.Lock()
+	path := filepath.Join(w.chatDir, sessionID+".jsonl")
+	w.mu.Unlock()
+	file, err := os.Open(path)
+	if err != nil {
+		return ChatHistoryResult{}, err
+	}
+	defer file.Close()
+	result := ChatHistoryResult{Entries: []Message{}}
+	needle := strings.ToLower(strings.TrimSpace(query))
+	encodedNeedle := needle
+	if encoded, marshalErr := json.Marshal(strings.TrimSpace(query)); marshalErr == nil && len(encoded) >= 2 {
+		encodedNeedle = strings.ToLower(string(encoded[1 : len(encoded)-1]))
+	}
+	reader := bufio.NewReaderSize(file, 64*1024)
+	matched := 0
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		result.ScannedBytes += int64(len(line))
+		if len(line) > result.PeakRecordBytes {
+			result.PeakRecordBytes = len(line)
+		}
+		lowerLine := ""
+		if len(line) > 0 && needle != "" {
+			lowerLine = strings.ToLower(string(line))
+		}
+		if len(line) > 0 && (needle == "" || strings.Contains(lowerLine, needle) || strings.Contains(lowerLine, encodedNeedle)) {
+			var event Event
+			if err := json.Unmarshal(line, &event); err != nil {
+				return ChatHistoryResult{}, fmt.Errorf("read chat history: %w", err)
+			}
+			if event.SessionID == sessionID && event.Type == MessageAppended {
+				var wrapper struct {
+					Message Message `json:"message"`
+				}
+				if err := decodeValue(event.Data, &wrapper); err != nil {
+					return ChatHistoryResult{}, err
+				}
+				if matched >= offset && len(result.Entries) < limit {
+					result.Entries = append(result.Entries, wrapper.Message)
+				}
+				matched++
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return ChatHistoryResult{}, readErr
+		}
+	}
+	result.Total = matched
+	return result, nil
 }
 
 // LatestOperationalSessionPaths supports the one-time upgrade from releases
@@ -502,7 +580,7 @@ func (h *historyIndex) record(event Event, location historyLocation) {
 	case MessageRemoved:
 		h.remove(valueString(data["id"]))
 	case Compaction:
-		if valueString(data["kind"]) == "summarize" {
+		if kind := valueString(data["kind"]); kind == "summarize" || kind == "fresh" {
 			h.compact(valueString(data["summary_message_id"]), valueStrings(data["affected_ids"]))
 		}
 	}

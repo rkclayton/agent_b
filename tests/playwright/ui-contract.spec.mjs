@@ -326,6 +326,45 @@ test("first usable frame does not grow with retained chat history", async ({ bro
   expect(largeMedian, `empty=${smallMedian.toFixed(1)}ms large=${largeMedian.toFixed(1)}ms`).toBeLessThanOrEqual(2 * smallMedian);
 });
 
+test("fresh context leaves every transcript entry visible and adds its searchable-history line", async ({ browser }) => {
+  const id = "chat-fresh";
+  const snapshot = {
+    sessions: { [id]: { schema_version: 1, cursor: { generation: `${id}.jsonl`, offset: 4 }, complete: true, id, label: "long chat",
+      role: "b", created_at: "2026-10-05T00:00:00Z", run: { status: "idle" }, tools: [], messages: [], budget: {}, activity: { completed_stages: [] },
+      timeline: [], chat: [
+        { type: "user", key: "message:u1", text: "FIRST VISIBLE TURN" },
+        { type: "agent", key: "turn:r1:1", text: "SECOND VISIBLE TURN", done: true },
+        { type: "notice", key: "event:3", run_id: "r1", event: { seq: 3, type: "compaction", session_id: id, run_id: "r1", data: { kind: "fresh", before: 1000, after: 100 } } },
+      ], runnable: true, closed: false } },
+    connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {},
+  };
+  const context = await browser.newContext({ viewport: { width: 1250, height: 975 } });
+  await context.addInitScript(({ snapshot, id }) => {
+    sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: id, surface: { kind: "chat", key: id } }));
+    class FixtureEvents {
+      constructor() { this.listeners = new Map(); setTimeout(() => { this.onopen?.(); this.emit("snapshot", { type: "snapshot", data: snapshot }); }); }
+      addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); }
+      emit(type, value) { for (const listener of this.listeners.get(type) || []) listener({ data: JSON.stringify(value) }); }
+      close() {}
+    }
+    globalThis.EventSource = FixtureEvents;
+  }, { snapshot, id });
+  const page = await context.newPage();
+  await page.route("**/*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
+    if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
+    return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
+  });
+  await page.goto(`http://fresh-context.test/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
+  const log = page.locator("#chat-log");
+  await expect(log).toContainText("FIRST VISIBLE TURN");
+  await expect(log).toContainText("SECOND VISIBLE TURN");
+  await expect(log).toContainText("fresh context — earlier turns searchable");
+  await expect(log).not.toContainText("Fresh-context hand-off:");
+  await context.close();
+});
+
 // Item 2lj (f) and (g): the standing UI contract still holds at every step. At
 // the largest size nothing overflows and nothing gains a scrollbar it did not
 // have, at the wide width and at the phone viewport both.

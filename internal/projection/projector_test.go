@@ -221,6 +221,32 @@ func TestCompactionSummaryProjectsAsSummaryWithoutMachineryMarkers(t *testing.T)
 	}
 }
 
+func TestFreshContextKeepsVisibleTranscriptAndHidesHandOff2qh(t *testing.T) {
+	state := seeded(t)
+	state.Messages = []events.Message{{ID: "old", Role: "assistant", Category: "history"}, {ID: "task", Role: "user", Content: "current task", Category: "history"}}
+	state.Chat = []ChatEntry{{Type: "user", Key: "message:old-user", Text: "earlier question"}, {Type: "agent", Key: "turn:old", Text: "earlier answer", Done: true}}
+	next, _, err := Next(state, Record{Cursor: Cursor{Generation: "fresh.events", Offset: 200}, Event: events.Event{
+		Seq: 7, SessionID: "main", RunID: "run", Type: events.Compaction,
+		Data: map[string]any{"kind": "fresh", "before": 1000, "after": 100, "affected_ids": []string{"old"}, "summary_message_id": "handoff"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, _, err = Next(next, Record{Cursor: Cursor{Generation: "fresh.events", Offset: 300}, Event: events.Event{
+		Seq: 8, SessionID: "main", RunID: "run", Type: events.MessageAppended,
+		Data: map[string]any{"message": events.Message{ID: "handoff", Role: "harness", Category: "summary", Content: "Fresh-context hand-off:\nDONE: earlier work"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Chat) != 3 || next.Chat[0].Text != "earlier question" || next.Chat[1].Text != "earlier answer" || next.Chat[2].Event == nil || next.Chat[2].Event.Type != events.Compaction {
+		t.Fatalf("visible transcript=%+v", next.Chat)
+	}
+	if len(next.Messages) != 2 || next.Messages[0].ID != "task" || next.Messages[1].ID != "handoff" {
+		t.Fatalf("model context=%+v", next.Messages)
+	}
+}
+
 func TestEmptyToolArgumentsRemainAnObjectInProjectedJSON(t *testing.T) {
 	state := seeded(t)
 	next, _, err := Next(state, Record{Cursor: Cursor{Generation: "empty-args.events", Offset: 200}, Event: events.Event{

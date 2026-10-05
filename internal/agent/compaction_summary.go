@@ -17,7 +17,7 @@ import (
 	"harness/internal/session"
 )
 
-const compactionMaxTokens = 800
+const compactionMaxTokens = 1500
 const compactionEvidenceLimit = 12
 const compactionEvidenceRunes = 320
 const compactionExcerptTotal = 0
@@ -27,23 +27,14 @@ const compactionEvidenceEnd = "[END COMPACTION EVIDENCE]"
 
 const compactionNoteHeaderPrefix = "Progress note (auto-summary of "
 
-// Item 2mm (a) and (b): THE NOTE ASKED ONE OUTPUT TO SATISFY THREE CONSTRAINTS —
-// under 400 words, under an 800-token cap, and containing every user message of the
-// span VERBATIM. Those are not jointly satisfiable in general, and the constraint
-// that gives way when they collide is the one that matters most: the task the
-// operator set, which is what a compaction exists to preserve.
-//
-// So the harness carries the user messages itself, into the note, where no model
-// output can omit or paraphrase them - and the prompt is left asking only for a
-// summary, which it can produce under its cap.
-const compactionInstruction = "Summarize the work so far for your own future reference, under these headings exactly:\n" +
-	"INTENT: the task you were asked to do, in the user's terms.\n" +
-	"The user messages of the span are carried into the note verbatim by Agent_b itself: they are not yours to reproduce, and not yours to summarize away.\n" +
-	"FILES: each file touched and what changed in it.\n" +
-	"ERRORS AND FIXES: each error observed and what resolved it, or that it is unresolved.\n" +
-	"PENDING: what remains unfinished.\n" +
-	"NEXT STEP: the single next action.\n" +
-	"If a progress note already appears above, consolidate it into these headings rather than writing a second note; the result must read as one note covering the whole span. Preserve observed findings needed for the final answer, the current cursor or offset, what has already been consumed, and the condition for stopping. For sequential reads, keep at least one concrete observed finding from each completed early, middle, and late region, with its offset or line range. Keep progress compact rather than listing every call. Use assistant working notes, retained tool-result bodies, and verbatim evidence anchors for content findings; use compact tool evidence for progress. Report only direct observations: a name being used or referenced is not evidence that its definition or declaration was observed. Do not invent observations or claim content from results marked elided. Under 400 words. No preamble."
+// Item 2qh: the model writes only the bounded hand-off. FreshStart preserves the
+// current task's user messages itself and drops every previous hand-off.
+const compactionInstruction = "Write one short hand-off for a fresh context under these headings exactly:\n" +
+	"DONE: completed work and verified findings.\n" +
+	"NEXT: the next concrete actions.\n" +
+	"FILES CHANGED: each file changed and how.\n" +
+	"OPEN QUESTIONS: unresolved questions, or none.\n" +
+	"The current task's user messages will be preserved verbatim outside this hand-off. Do not repeat them. Do not mention or summarize any prior hand-off. Use only direct observations in the current context. Keep the whole response within 1500 tokens. No preamble."
 
 type compactionEvidence struct {
 	Tool     string `json:"tool"`
@@ -97,17 +88,9 @@ func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID strin
 	cached := nullableInt(response.Usage.CachedTokens)
 	source := events.CompactionSummaryData{Role: role, ConnectionID: connection.ID, Model: connection.Model, FallbackReason: fallback, Dispatched: true, EstimatedPromptTokens: estimatedPromptTokens, Estimated: estimated, NCtx: connection.Context.NCtx, Usage: events.ModelUsage{PromptTokens: response.Usage.PromptTokens, CompletionTokens: response.Usage.CompletionTokens, CachedTokens: cached}, DurationMS: response.DurationMS, Trigger: compactionTrigger(ctx)}
 	s.RecordCompactionModel(response.Usage.PromptTokens, response.Usage.CompletionTokens)
-	// Item 2mm (a): THE TASK CONTRACT IS CARRIED, NOT ASKED FOR. The user messages of
-	// the span go into the note here, between its header and the model's summary, so
-	// what the operator asked for survives a compaction whatever the model wrote.
-	carried, carriedBytes, dropped, droppedBytes := carriedUserMessages(s.MessagesCopy(), s.RunPin(), carryLimitBytes(&connection))
-	summaryContent := compactionNoteHeader(s) + carried + response.Content + "\n\n" + restatement(s.MessagesCopy())
-	if evidence := summaryEvidenceAppendix(s.MessagesCopy()); evidence != "" {
-		summaryContent += "\n\n" + evidence
-	}
-	source.CarriedBytes, source.CarriedDroppedBytes, source.CarriedDropped = carriedBytes, droppedBytes, dropped
+	summaryContent := "Fresh-context hand-off:\n" + strings.TrimSpace(response.Content)
 	message, _ := r.makeMessage(ctx, sessionConnection, llm.RoleHarness, summaryContent, "summary", 0)
-	if !r.compact.Summarize(s, runID, message, source) {
+	if !r.compact.FreshStart(s, runID, message, source) {
 		return false, "rejected"
 	}
 	r.bus.Publish(events.New(events.MessageAppended, s.ID, runID, map[string]any{"message": message}))
@@ -127,7 +110,7 @@ func (r *Runner) summaryMessages(connection *config.Connection, s *session.Sessi
 			continue
 		}
 		switch message.Category {
-		case "history", "summary":
+		case "history":
 			// A stored tool message has no call beside it here, so it is evidence
 			// in a user turn rather than a tool role the server would refuse.
 			if message.Role == llm.RoleTool {

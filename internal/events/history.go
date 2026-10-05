@@ -81,7 +81,7 @@ func (a *HistoryArchive) Record(event Event) {
 	case MessageRemoved:
 		a.index.remove(valueString(data["id"]))
 	case Compaction:
-		if valueString(data["kind"]) == "summarize" {
+		if kind := valueString(data["kind"]); kind == "summarize" || kind == "fresh" {
 			a.index.compact(valueString(data["summary_message_id"]), valueStrings(data["affected_ids"]))
 		}
 	}

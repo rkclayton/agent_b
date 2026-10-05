@@ -663,7 +663,7 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 			next.Messages = append(next.Messages, wrapper.Message)
 		}
 		next.Chat = cloneChat(next.Chat)
-		if wrapper.Message.Category == "summary" {
+		if wrapper.Message.Category == "summary" && !strings.HasPrefix(wrapper.Message.Content, "Fresh-context hand-off:\n") {
 			next.Chat = append(next.Chat, ChatEntry{Type: "summary", Key: "message:" + wrapper.Message.ID, Text: summaryTranscript(wrapper.Message.Content)})
 		} else if wrapper.Message.Role == "user" {
 			next.Chat = append(next.Chat, ChatEntry{Type: "user", Key: "message:" + wrapper.Message.ID, Text: wrapper.Message.Content, Attachments: append([]events.Attachment(nil), wrapper.Message.Attachments...)})
@@ -801,7 +801,7 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		// the next measured request. The freed tokens come off the compactible
 		// categories only; the fixed prefix is a floor, never zero.
 		next.Budget = compactedBudget(next.Budget, intValue(data["before"]), intValue(data["after"]))
-		if stringValue(data["kind"]) == "summarize" {
+		if kind := stringValue(data["kind"]); kind == "summarize" || kind == "fresh" {
 			removed := map[string]bool{}
 			for _, id := range stringValues(data["affected_ids"]) {
 				removed[id] = true

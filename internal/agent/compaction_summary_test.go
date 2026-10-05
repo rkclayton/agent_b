@@ -130,6 +130,70 @@ func TestCompactionAuxUnsetUsesOneMainCall(t *testing.T) {
 	}
 }
 
+// Item 2qh CHECK 1: every hard boundary is a fresh context. The hand-off from
+// the previous boundary is never fed back to the model or stacked beside the
+// replacement, while the running task remains byte-for-byte present.
+func TestFreshContextNeverStacksAHandOff2qh(t *testing.T) {
+	mainServer := newSummaryServer(t, "FIRST HANDOFF")
+	runner, item, bus, _ := compactionRunner(t, mainServer, nil, 32768)
+	item.Append(events.Message{ID: "task", Role: "user", Category: "history", Turn: 11, Content: "CURRENT TASK VERBATIM"})
+	item.SetRunPin("task")
+
+	if !runner.summarize(context.Background(), item, "run-1", connectionForRunner(runner, "main")) {
+		t.Fatal("first fresh context was not accepted")
+	}
+	for turn := 12; turn <= 17; turn++ {
+		callID := fmt.Sprintf("call-%d", turn)
+		item.Append(events.Message{ID: "assistant-" + callID, Role: "assistant", Category: "history", Turn: turn, Tokens: 100, ToolCalls: []events.ToolCall{{ID: callID, Name: "read_file", Arguments: `{\"path\":\"a.go\"}`}}})
+		item.Append(events.Message{ID: "result-" + callID, Role: "tool", Category: "files", Turn: turn, Tokens: 100, ToolCallID: callID, Name: "read_file", Content: "observed current work"})
+	}
+	mainServer.mu.Lock()
+	mainServer.content = "SECOND HANDOFF"
+	mainServer.mu.Unlock()
+	if !runner.summarize(context.Background(), item, "run-2", connectionForRunner(runner, "main")) {
+		t.Fatal("second fresh context was not accepted")
+	}
+
+	snapshot := item.MessagesCopy()
+	summaries := 0
+	for _, message := range snapshot {
+		if message.Category == "summary" {
+			summaries++
+			if strings.Contains(message.Content, "FIRST HANDOFF") || !strings.Contains(message.Content, "SECOND HANDOFF") {
+				t.Fatalf("stacked hand-off: %q", message.Content)
+			}
+		}
+	}
+	if summaries != 1 {
+		t.Fatalf("summary count=%d messages=%+v", summaries, snapshot)
+	}
+	if len(snapshot) != 2 || snapshot[0].ID != "task" || snapshot[0].Content != "CURRENT TASK VERBATIM" {
+		t.Fatalf("running task changed: %+v", snapshot)
+	}
+	mainServer.mu.Lock()
+	body := mainServer.lastChat
+	mainServer.mu.Unlock()
+	encoded, _ := json.Marshal(body["messages"])
+	if strings.Contains(string(encoded), "FIRST HANDOFF") {
+		t.Fatalf("second hand-off summarized the first: %s", encoded)
+	}
+	if body["max_tokens"] != float64(1500) {
+		t.Fatalf("handoff max_tokens=%v", body["max_tokens"])
+	}
+	compactions := 0
+	for _, event := range bus.Recent(item.ID) {
+		if event.Type == events.Compaction {
+			compactions++
+			if event.Data.(map[string]any)["kind"] != "fresh" {
+				t.Fatalf("compaction=%v", event.Data)
+			}
+		}
+	}
+	if compactions != 2 {
+		t.Fatalf("compactions=%d", compactions)
+	}
+}
+
 func TestCompactionSummaryFitsTemplateEndpoints(t *testing.T) {
 	const content = "verbatim compact summary retained in full"
 	for _, test := range []struct {
@@ -226,12 +290,11 @@ func TestCompactionSummaryIncludesRetainedToolResultsAndState(t *testing.T) {
 		`tool=fetch_url args={"limit":100,"offset":101,"url":"https://example.com/data"} ok=true`,
 		"window_offset: 101 window_bytes: 100 total_bytes: 250 more: true next_offset: 201",
 		"Assistant working notes (turn 11):\nObserved .activity-lamp in the final window.",
-		"Preserve observed findings needed for the final answer, the current cursor or offset, what has already been consumed, and the condition for stopping.",
-		"For sequential reads, keep at least one concrete observed finding from each completed early, middle, and late region, with its offset or line range.",
-		"Keep progress compact rather than listing every call.",
-		"Use assistant working notes, retained tool-result bodies, and verbatim evidence anchors for content findings",
-		"Report only direct observations: a name being used or referenced is not evidence that its definition or declaration was observed.",
-		"Do not invent observations or claim content from results marked elided",
+		"DONE:",
+		"NEXT:",
+		"FILES CHANGED:",
+		"OPEN QUESTIONS:",
+		"Use only direct observations in the current context.",
 	} {
 		if !strings.Contains(allContent, want) {
 			t.Errorf("summary request missing %q:\n%s", want, allContent)

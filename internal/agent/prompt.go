@@ -146,6 +146,12 @@ func (r *PromptRenderer) RenderSkillParts(connection *config.Connection, s *sess
 	value = strings.ReplaceAll(value, "{{memory}}", memory)
 	value = strings.ReplaceAll(value, "{{os_context}}", operatingSystemContext())
 	value = strings.ReplaceAll(value, "{{date}}", time.Now().Format("2006-01-02"))
+	for _, name := range toolNames {
+		if name == "chat_history" {
+			value = strings.TrimRight(value, "\r\n") + "\n\nEarlier turns remain in this chat's record; use chat_history to search or read them."
+			break
+		}
+	}
 	if planner != "" && (s.Role == "d" || s.IsPlanPage()) {
 		value = strings.TrimRight(value, "\r\n") + "\n\n" + planner
 	}

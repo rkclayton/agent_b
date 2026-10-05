@@ -69,6 +69,14 @@ type Registry struct {
 }
 type configurable interface{ Configure(config.Config) }
 type serviceIdentityPreflighter interface{ PreflightServiceIdentity() error }
+type alwaysAvailable interface{ AlwaysAvailable() bool }
+
+func toolAvailable(tool Tool, enabled map[string]bool) bool {
+	if available, ok := tool.(alwaysAvailable); ok && available.AlwaysAvailable() {
+		return true
+	}
+	return enabled[tool.Name()]
+}
 
 func New(items ...Tool) *Registry {
 	r := &Registry{byName: map[string]Tool{}}
@@ -96,7 +104,7 @@ func (r *Registry) PreflightServiceIdentity() error {
 func (r *Registry) Names(enabled map[string]bool) []string {
 	out := []string{}
 	for _, tool := range r.ordered {
-		if enabled[tool.Name()] {
+		if toolAvailable(tool, enabled) {
 			out = append(out, tool.Name())
 		}
 	}
@@ -105,7 +113,7 @@ func (r *Registry) Names(enabled map[string]bool) []string {
 func (r *Registry) Schemas(enabled map[string]bool) []any {
 	out := []any{}
 	for _, tool := range r.ordered {
-		if enabled[tool.Name()] {
+		if toolAvailable(tool, enabled) {
 			out = append(out, map[string]any{"type": "function", "function": map[string]any{"name": tool.Name(), "description": tool.Description(), "parameters": tool.Schema()}})
 		}
 	}
@@ -138,7 +146,7 @@ func (r *Registry) CallDetailed(ctx context.Context, s *session.Session, name st
 		name = "search"
 	}
 	tool := r.byName[name]
-	if tool == nil || !s.ToolEnabled(name) {
+	if tool == nil || !toolAvailable(tool, s.EnabledTools()) {
 		return CallOutcome{Content: fmt.Sprintf("error: tool %s is not available", name)}
 	}
 	if err := ctx.Err(); err != nil {

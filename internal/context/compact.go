@@ -450,6 +450,60 @@ func (c *Compactor) Summarize(s *session.Session, runID string, summary events.M
 	return true
 }
 
+// FreshStart replaces every model-context message except the running task's
+// leading user block with one hand-off. The durable journal and projected chat
+// are event history, so they remain intact and searchable.
+func (c *Compactor) FreshStart(s *session.Session, runID string, summary events.Message, source events.CompactionSummaryData) bool {
+	messages := s.MessagesCopy()
+	pin := s.RunPin()
+	if pin == "" {
+		for index := len(messages) - 1; index >= 0; index-- {
+			if messages[index].Role == "user" {
+				pin = messages[index].ID
+				break
+			}
+		}
+	}
+	if len(messages) <= 1 || pin == "" || !pinPresent(messages, pin) {
+		source.Outcome = "rejected"
+		source.Reason = "running task is not pinned"
+		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
+		return false
+	}
+	start := pinIndex(messages, pin)
+	end := start
+	for end < len(messages) && messages[end].Role == "user" {
+		end++
+	}
+	if end == start {
+		source.Outcome = "rejected"
+		source.Reason = "running task has no user messages"
+		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
+		return false
+	}
+	out := append([]events.Message{}, messages[start:end]...)
+	out = append(out, summary)
+	affected := make([]string, 0, len(messages)-len(out)+1)
+	for index, message := range messages {
+		if index < start || index >= end {
+			affected = append(affected, message.ID)
+		}
+	}
+	before, after := tokenSum(messages), tokenSum(out)
+	if len(affected) == 0 || after >= before {
+		source.Outcome = "rejected"
+		source.Reason = "hand-off did not reduce session context"
+		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
+		return false
+	}
+	s.ReplaceMessages(out)
+	s.RecordCompaction(after - before)
+	source.Outcome = "accepted"
+	c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
+	c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "fresh", "trigger": source.Trigger, "before": before, "after": after, "affected_ids": affected, "summary_message_id": summary.ID, "role": source.Role, "connection_id": source.ConnectionID, "model": source.Model, "fallback_reason": source.FallbackReason, "usage": source.Usage}))
+	return true
+}
+
 // Settle replaces an operator-selected design-chat span with one readable
 // pointer after its proposal is accepted. It never selects the span itself.
 func (c *Compactor) Settle(s *session.Session, runID, pointer string, ids []string, count Counter) bool {

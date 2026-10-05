@@ -68,7 +68,7 @@ func TestS52ReplayMasksRarelyAndKeepsTheCacheWarm2q5(t *testing.T) {
 			}
 		}
 		if event.Type == events.Compaction {
-			if event.Data.(map[string]any)["kind"] == "summarize" {
+			if event.Data.(map[string]any)["kind"] == "fresh" {
 				summaries++
 			} else {
 				masks++
@@ -170,10 +170,10 @@ func asInt(value any) int {
 	return 0
 }
 
-// Item 2q5 CHECK 5: after a summary the note carries his last message, the order id
-// and the files changed, and no verbatim tool output.
-func TestASummaryRestatesTheTaskWithoutToolOutput2q5(t *testing.T) {
-	server := newSummaryServer(t, "INTENT: carry on")
+// Item 2qh: after a fresh boundary the task remains verbatim beside a short
+// hand-off, and no verbatim tool output is copied into that hand-off.
+func TestAFreshHandOffKeepsTheTaskWithoutToolOutput2qh(t *testing.T) {
+	server := newSummaryServer(t, "DONE: wrote the requested note\nNEXT: finish the order\nFILES CHANGED: notes/a.txt\nOPEN QUESTIONS: none")
 	runner, item, _, _ := compactionRunner(t, server, nil, 32768)
 	ok := true
 	item.Append(events.Message{ID: "w1", Role: "assistant", ToolCalls: []events.ToolCall{{ID: "write", Name: "write_file", Arguments: `{"path":"notes/a.txt","content":"x"}`}}})
@@ -182,11 +182,15 @@ func TestASummaryRestatesTheTaskWithoutToolOutput2q5(t *testing.T) {
 	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
 		t.Fatal("the summary was not accepted")
 	}
-	for _, message := range item.MessagesCopy() {
+	messages := item.MessagesCopy()
+	if len(messages) != 2 || messages[0].ID != "u1" || messages[0].Content != "go: Order ID: `rel-9.9.9`, finish it" {
+		t.Fatalf("task was not retained verbatim: %+v", messages)
+	}
+	for _, message := range messages {
 		if message.Category != "summary" {
 			continue
 		}
-		for _, want := range []string{"LAST USER MESSAGE: go: Order ID: `rel-9.9.9`, finish it", "ORDER: rel-9.9.9", "FILES CHANGED: notes/a.txt"} {
+		for _, want := range []string{"DONE: wrote the requested note", "NEXT: finish the order", "FILES CHANGED: notes/a.txt", "OPEN QUESTIONS: none"} {
 			if !strings.Contains(message.Content, want) {
 				t.Errorf("the note lacks %q", want)
 			}

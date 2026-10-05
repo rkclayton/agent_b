@@ -480,6 +480,7 @@ func main() {
 		tools.NewRunScript(shellTool),
 		callServiceTool,
 		delegateTool,
+		tools.NewChatHistory(func() tools.ChatHistoryReader { return writers }),
 	)
 	// Item 2ch (v1.2.5): the threshold under which a PDF is sent inline rather
 	// than read from its extracted text.

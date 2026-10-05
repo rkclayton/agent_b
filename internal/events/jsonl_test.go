@@ -9,6 +9,38 @@ import (
 	"time"
 )
 
+func TestChatHistoryStreamsOneHundredMegabytes2qh(t *testing.T) {
+	writers, err := NewWriters(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = writers.Close() })
+	body := strings.Repeat("x", 64*1024)
+	for index := 0; index < 1600; index++ {
+		content := body
+		if index == 1599 {
+			content += " LAST-100MB-NEEDLE"
+		}
+		if err := writers.Write(New(MessageAppended, "large-chat", "run", map[string]any{"message": Message{ID: fmt.Sprintf("m-%04d", index), Role: "tool", Category: "files", Content: content}})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	started := time.Now()
+	result, err := writers.ReadChatHistory("large-chat", "LAST-100MB-NEEDLE", 0, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("100 MB search took %v", elapsed)
+	}
+	if len(result.Entries) != 1 || result.Entries[0].ID != "m-1599" {
+		t.Fatalf("entries=%+v", result.Entries)
+	}
+	if result.ScannedBytes < 100*1024*1024 || result.PeakRecordBytes > 128*1024 {
+		t.Fatalf("streaming proof=%+v", result)
+	}
+}
+
 func TestLogRetentionBoundsCountAndAgeAndKeepsNewestKind2pd(t *testing.T) {
 	dir, now := t.TempDir(), time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	kinds := []string{"Agent_b", "installer", "startup", "crash", "chat"}

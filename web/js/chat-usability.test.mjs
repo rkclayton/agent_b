@@ -133,7 +133,8 @@ test("Operator mode lives only in Settings Security and states the defeated boun
   assert.match(settings, /Run everything as me for 20 minutes/);
   assert.match(settings, /defeats the service-account OS boundary for every tool in every chat/);
   assert.match(settings, /data-action="operator-context"/);
-  assert.match(settings, /api\("\/api\/config", \{shell:\{operator_context:!store\.shell_identity\?\.operator_context\}\}\)/);
+  assert.match(settings, /"shell\.identity",\s*"operator\.context",\s*"shell\.credential"/);
+  assert.match(settings, /const enabled = !store\.shell_identity\?\.operator_context;[\s\S]*api\("\/api\/config", \{shell:\{operator_context:enabled\}\}\)/);
   assert.match(settings, /const connectionList = \(\) => Array\.isArray\(store\.connections\) \? store\.connections : \[\]/);
   assert.doesNotMatch(shell, /shell-operator-status/);
 });

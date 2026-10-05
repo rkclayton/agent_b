@@ -197,6 +197,7 @@ export function initSettings(entry = {}) {
 		"notification.changed",
 		"update.changed",
 		"shell.identity",
+		"operator.context",
 		"shell.credential",
         "connection.probed",
         "connection.health",

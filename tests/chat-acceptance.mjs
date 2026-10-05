@@ -2325,7 +2325,8 @@ if (realModel) {
   const busyEvent = await waitEvent(sessionID, (event) => event.seq > beforeBusy && event.type === "model.busy", "model busy event", 6000);
   await page.waitForTimeout(250);
   const busyStatus = (await page.locator('#chat-notice .chat-notice-text').innerText()).toLowerCase();
-  assert.match(busyStatus, /^prompt \d+ tokens processing(?: ·|$)/);
+  assert.match(busyStatus, /^waiting for first token(?: — prompt [\d.]+k(?:, [\d.]+k cached)?)? · \d+(?:m\d\d)?s$/);
+  assert.doesNotMatch(busyStatus, /0 tokens/);
   events = await sessionEvents(sessionID);
   assert.equal(events.slice(events.indexOf(busyEvent)).some((event) => event.type === "run.stopped"), false);
   releaseBusy?.();

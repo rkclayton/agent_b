@@ -119,7 +119,14 @@ export function reduce(event) {
       }
       break;
     }
-    case "config.changed": store.config = data.config; store.connections = data.config.connections || store.connections; store.profiles = data.profiles || data.config.profiles || store.profiles; break;
+    case "config.changed":
+      store.config = data.config;
+      store.connections = data.config.connections || store.connections;
+      store.profiles = data.profiles || data.config.profiles || store.profiles;
+      if (typeof data.config.shell?.operator_context === "boolean") {
+        store.shell_identity = { ...(store.shell_identity || {}), operator_context: data.config.shell.operator_context };
+      }
+      break;
     // Item 2px (e): the one state every connection lamp reads.
     case "connection.health": store.connection_health = { ...(store.connection_health || {}), [data.connection_id]: data.health }; break;
     case "agent.connection_change":

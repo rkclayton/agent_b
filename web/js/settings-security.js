@@ -93,7 +93,10 @@ function shell(active) {
 	const protectionFeedback = applyBlocker
 		? `Apply unavailable: ${applyBlocker}${hardeningMessage ? ` Last result: ${hardeningMessage}` : ""}`
 		: hardeningMessage;
-	const operatorView = operatorStatusView(store.shell_identity);
+	const operatorView = operatorStatusView({
+		...(store.shell_identity || {}),
+		operator_context: store.config.shell?.operator_context ?? store.shell_identity?.operator_context,
+	});
 	const lanEnabled = !!store.config.shell?.allow_local_network;
 	const sandboxEnabled = store.config.sandbox?.enabled !== false;
 	const sandboxStatus = store.sandbox || {};

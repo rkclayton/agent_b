@@ -1056,9 +1056,10 @@ async function dispatchAction(event, button, action, id) {
 		return render();
   }
   if (action === "operator-context") {
-    const enabled = !store.shell_identity?.operator_context;
+    const enabled = !(store.config.shell?.operator_context ?? store.shell_identity?.operator_context);
     try {
       await api("/api/config", {shell:{operator_context:enabled}});
+      store.config.shell = { ...(store.config.shell || {}), operator_context: enabled };
       store.shell_identity = { ...(store.shell_identity || {}), operator_context: enabled };
       // The authoritative event can redraw the sheet before this request
       // resolves, leaving `button` detached. Render from the observed store so

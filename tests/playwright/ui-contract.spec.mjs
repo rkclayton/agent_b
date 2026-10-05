@@ -266,11 +266,13 @@ test("first usable frame does not grow with retained chat history", async ({ bro
     for (let chat = 0; chat < chats; chat++) {
       const id = `chat-${chat}`;
       const retained = chat === 0 ? entries : 0;
-      const timeline = Array.from({ length: retained }, (_, index) => ({ type: "tool.result", session_id: id, run_id: "run", data: { call_id: index, result: "fixture" } }));
-      const transcript = Array.from({ length: retained }, (_, index) => ({ type: index % 2 ? "agent" : "user", key: `entry:${index}`, text: "fixture", done: true }));
+      const visible = Math.min(50, retained);
+      const start = retained - visible;
+      const timeline = Array.from({ length: visible }, (_, index) => ({ type: "tool.result", session_id: id, run_id: "run", data: { call_id: start + index, result: "fixture" } }));
+      const transcript = Array.from({ length: visible }, (_, index) => ({ type: (start + index) % 2 ? "agent" : "user", key: `entry:${start + index}`, text: "fixture", done: true }));
       sessions[id] = { schema_version: 1, cursor: { generation: `${id}.jsonl`, offset: entries + 1 }, complete: true, id, label: id,
         role: "b", created_at: "2026-10-01T00:00:00Z", run: { status: "idle" }, tools: [], messages: [], budget: {}, activity: { completed_stages: [] },
-        timeline, chat: transcript, runnable: true, closed: false };
+        timeline, chat: transcript, history_start: start, history_end: retained, history_total: retained, runnable: true, closed: false };
     }
     return { sessions, connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {} };
   };

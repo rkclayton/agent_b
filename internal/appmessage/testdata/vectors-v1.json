@@ -18,6 +18,7 @@
     "state",
     "resync",
     "chat.create",
+    "chat.history",
     "chat.mirror",
     "chat.mirror.since",
     "chat.mirror.take"

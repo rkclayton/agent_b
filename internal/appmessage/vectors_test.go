@@ -326,18 +326,18 @@ func TestASeededDisagreementFails(t *testing.T) {
 	}
 }
 
-// Items 2my and 2ow: chat.create is the only lifecycle route exposed, and its
-// additive connection choice does not widen the rest of the lifecycle surface.
+// Items 2my, 2ow, and 2qc: the explicitly published chat routes do not widen
+// the rest of the lifecycle surface.
 //
 // The route set is a security statement, so the thing worth testing is not that
 // `chat.create` works — it has no dispatcher on this side yet — but that adding it
 // changed nothing else. A creation route that quietly brought close, delete or a choice
 // of model with it would be a different item.
-func TestOnlyChatCreateWasAddedAndTheRestStayRefused2my(t *testing.T) {
+func TestOnlyPublishedChatRoutesWereAddedAndTheRestStayRefused2my(t *testing.T) {
 	file, document := load(t)
 
 	// The closed set, exactly.
-	want := []string{"message", "stop", "approve", "tool", "state", "resync", "chat.create", "chat.mirror", "chat.mirror.since", "chat.mirror.take"}
+	want := []string{"message", "stop", "approve", "tool", "state", "resync", "chat.create", "chat.history", "chat.mirror", "chat.mirror.since", "chat.mirror.take"}
 	if len(file.Routes) != len(want) {
 		t.Fatalf("the route set is %v, want %v", file.Routes, want)
 	}

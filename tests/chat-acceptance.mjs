@@ -636,8 +636,18 @@ browser = {
     throw new Error(`screen timeout: ${label}`);
   },
 };
+// The real native host checks the release feed when its window attaches. This
+// headless page bypasses that host, so exercise the same attach route before
+// asserting the banner instead of depending on startup timing.
+if (!realModel) {
+	await json(`http://127.0.0.1:${appPort}/api/update?attach=1`);
+}
 await page.goto(`http://127.0.0.1:${appPort}/chat`);
 await browser.wait(`document.querySelector('#chat-task')`, "Chat opened");
+if (!Object.keys(runtimeState.sessions || {}).length) {
+	await page.locator(".agent-tab-new").click();
+	await browser.wait(`Boolean(new URLSearchParams(location.search).get('session'))`, "first operator chat selected");
+}
 await browser.wait(`document.querySelector('.agent-tab')`, "Agent tab rendered");
 if (!realModel) {
 	await browser.wait(`document.querySelector('#chat-update-banner:not([hidden])')?.innerText.includes('v9.9.9 available')`, "update banner rendered from local fixture");
@@ -931,7 +941,7 @@ if (realModel) {
   await treeAction({ action: "rename", path: folder, name: renamedFolder });
   await treeAction({ action: "move", id: sessionID, folder: renamedFolder });
   const explorerPath = join(chatRoot, renamedFolder, "Explorer name");
-  await rename(join(chatRoot, renamedFolder, "chat"), explorerPath);
+  await rename(join(chatRoot, renamedFolder, basename(session.workspace_dir)), explorerPath);
   for (const deadline = Date.now() + 2000; Date.now() < deadline && (await state()).sessions[sessionID].workspace_dir !== explorerPath;) await sleep(40);
   assert.equal((await state()).sessions[sessionID].workspace_dir, explorerPath, "watcher did not keep chat identity after Explorer rename");
   await toggleMenu.evaluate((menu) => { menu.hidden = true; });

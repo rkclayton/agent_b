@@ -1053,9 +1053,14 @@ async function dispatchAction(event, button, action, id) {
 		catch (error) { errors.set("shell.trusted_folders", error.message); }
 		for (const key of [...actionDrafts.keys()]) if (key.startsWith("trusted-folder-")) actionDrafts.delete(key);
 		return render();
-	}
+  }
   if (action === "operator-context") {
-    try { await api("/api/config", {shell:{operator_context:!store.shell_identity?.operator_context}}); }
+    const enabled = !store.shell_identity?.operator_context;
+    try {
+      await api("/api/config", {shell:{operator_context:enabled}});
+      store.shell_identity = { ...(store.shell_identity || {}), operator_context: enabled };
+      render();
+    }
     catch (error) { errors.set("shell", error.message); render(); }
     return;
   }

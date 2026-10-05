@@ -23,6 +23,8 @@ test("chat and console empty states are gated on the first snapshot or the ledge
   const chat = await readFile(new URL("./chat.js", import.meta.url), "utf8");
   const gate = chat.indexOf("if (!store.loaded) {");
   assert.ok(gate > 0 && gate < chat.indexOf("No agent connected") && gate < chat.indexOf("Send a task to start the loop."), "chat empty states must follow the loaded gate");
+  const retainedHistoryGate = chat.indexOf("Number(session.history_total || 0) > 0 && !(session.chat || []).length");
+  assert.ok(retainedHistoryGate > gate && retainedHistoryGate < chat.indexOf("Send a task to start the loop."), "retained history must load before the empty transcript state is shown");
   const app = await readFile(new URL("./app.js", import.meta.url), "utf8");
   assert.match(app, /store\.loaded \? "No configured agents" : ""/);
   assert.match(app, /store\.loaded && ledgerAsked \? '<p class="panel-empty">No lifetime activity\.<\/p>' : ""/);

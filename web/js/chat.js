@@ -277,6 +277,14 @@ function renderLog(session) {
     finishLogRender([]);
     return;
   }
+  // The opening event-stream snapshot carries metadata for every retained
+  // chat but no transcript rows. A deep link starts the bounded history fetch
+  // as soon as that metadata arrives; until it finishes, an empty chat would
+  // be a false claim and can flash during reloads or on a slow connection.
+  if (session && Number(session.history_total || 0) > 0 && !(session.chat || []).length) {
+    finishLogRender([]);
+    return;
+  }
   if (!session) {
     const empty = document.createElement("div");
     empty.className = "chat-empty";

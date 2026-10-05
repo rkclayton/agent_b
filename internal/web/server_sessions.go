@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -311,6 +312,32 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[0]
+	if len(parts) == 2 && parts[1] == "history" && r.Method == http.MethodGet {
+		if s.projector == nil {
+			writeError(w, http.StatusNotFound, "session not found", "session_id")
+			return
+		}
+		value, ok := s.projector.CurrentSnapshot()[id]
+		if !ok {
+			writeError(w, http.StatusNotFound, "session not found", "session_id")
+			return
+		}
+		before := len(value.Chat)
+		if raw := r.URL.Query().Get("before"); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed < 0 || parsed > before {
+				writeError(w, http.StatusBadRequest, "before is outside this chat", "before")
+				return
+			}
+			before = parsed
+		}
+		start := max(0, before-firstScreenEntries)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"session_id": id, "start": start, "before": before, "total": len(value.Chat),
+			"chat": value.Chat[start:before],
+		})
+		return
+	}
 	if len(parts) == 2 && parts[1] == "result-label" && r.Method == http.MethodPost {
 		item, ok := s.registry.Get(id)
 		if !ok {

@@ -176,6 +176,9 @@ type Snapshot struct {
 	Activity             Activity           `json:"activity"`
 	Timeline             []events.Event     `json:"timeline"`
 	Chat                 []ChatEntry        `json:"chat"`
+	HistoryStart         int                `json:"history_start,omitempty"`
+	HistoryEnd           int                `json:"history_end,omitempty"`
+	HistoryTotal         int                `json:"history_total,omitempty"`
 	PendingApproval      *ChatEntry         `json:"pending_approval,omitempty"`
 	ModelUnreachable     *ModelAvailability `json:"model_unreachable,omitempty"`
 	ModelBusy            *ModelAvailability `json:"model_busy,omitempty"`

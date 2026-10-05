@@ -1,5 +1,5 @@
 import { installComposerResize } from "./composer-resize.js";
-import { api, reduce, setSelection, store, subscribe } from "./bus.js";
+import { api, loadSessionHistory, reduce, setSelection, store, subscribe } from "./bus.js";
 import { renderMarkdown } from "./markdown.js";
 import { setWaitProgress, waitElement } from "./wait.js";
 import { operatorLogEntry } from "./operator-log.js";
@@ -54,7 +54,6 @@ const selectedID = () => store.selection.session_id;
 installTranscriptCopy(log);
 const expanded = new Set();
 let follow = true;
-let page = 0;
 let localNotice = "";
 let localAlarm = false;
 let frame = 0;
@@ -97,9 +96,9 @@ const earlierButton = document.createElement("button");
 earlierButton.type = "button";
 earlierButton.className = "chat-earlier";
 earlierButton.onclick = () => {
-  page++;
   follow = false;
-  renderLog(store.sessions[selectedID()]);
+	const session = store.sessions[selectedID()];
+	if (session) void loadSessionHistory(session.id, true);
 };
 const jumpButton = document.createElement("button");
 jumpButton.type = "button";
@@ -109,8 +108,9 @@ jumpButton.ariaLabel = "Jump to latest";
 jumpButton.title = "Jump to latest";
 jumpButton.onclick = () => {
   follow = true;
-  page = 0;
-  renderLog(store.sessions[selectedID()]);
+	const session = store.sessions[selectedID()];
+	if (session && Number(session.history_end || session.history_total || 0) < Number(session.history_total || 0)) void loadSessionHistory(session.id, false);
+	else renderLog(session);
 };
 // Item 2lj (b) and (d): the two reading settings apply as they are set. They are
 // two custom properties on the document root, which is the whole mechanism --
@@ -329,19 +329,19 @@ function renderLog(session) {
     return;
   }
   const nodes = [];
-  const end = Math.max(0, entries.length - page * 100);
-  const start = Math.max(0, end - 300);
-  if (start > 0) {
-    earlierButton.textContent = `earlier: ${start} entries`;
+	const start = 0, end = entries.length;
+	if (Number(session.history_start || 0) > 0) {
+		earlierButton.textContent = `earlier: ${session.history_start} entries`;
     nodes.push(earlierButton);
   }
   for (const [index, entry] of entries.slice(start, end).entries()) nodes.push(renderEntrySafely(session, entry, start + index));
-  setProperty(jumpButton, "hidden", follow && page === 0);
+	const atLatest = Number(session.history_end || session.history_total || 0) >= Number(session.history_total || 0);
+	setProperty(jumpButton, "hidden", follow && atLatest);
   nodes.push(jumpButton);
   finishLogRender(nodes);
   requestAnimationFrame(() => {
-    if (wasBottom && page === 0) log.scrollTop = log.scrollHeight;
-    setProperty(jumpButton, "hidden", follow && page === 0);
+		if (wasBottom && atLatest) log.scrollTop = log.scrollHeight;
+		setProperty(jumpButton, "hidden", follow && atLatest);
   });
 }
 
@@ -1639,8 +1639,15 @@ input.addEventListener("keydown", (event) => {
     resize();
   }
 });
+let loadingEarlier = false;
 log.addEventListener("scroll", () => {
   follow = log.scrollHeight - log.clientHeight - log.scrollTop <= 24;
+	const session = store.sessions[selectedID()];
+	if (log.scrollTop <= 24 && Number(session?.history_start || 0) > 0 && !loadingEarlier) {
+		loadingEarlier = true;
+		const height = log.scrollHeight;
+		void loadSessionHistory(session.id, true).then(() => requestAnimationFrame(() => { log.scrollTop += log.scrollHeight - height; })).finally(() => { loadingEarlier = false; });
+	}
 });
 // Pointing at transcript controls means the operator is reading there. Do not
 // pull that control out from under the pointer merely because a later row grew.

@@ -129,6 +129,7 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 | `state` | `GET /api/state` | `{}` |
 | `resync` | `GET /api/state` for one session | `{session_id}` |
 | `chat.create` | `POST /api/sessions` | `{label?,connection_id?}` — connection selection added 2026-09-30 |
+| `chat.history` | `GET /api/sessions/{session_id}/history` | `{session_id,before?}` — 50 older entries at a time |
 | `chat.mirror` | append one owner's journal event to its mirror | `MirrorAppend` — added 2026-09-30 |
 | `chat.mirror.since` | ask a mirror for its durable per-chat cursor | `{chat_id}` — added 2026-09-30 |
 | `chat.mirror.take` | transfer ownership to the requesting peer | `{chat_id,after_seq}` — added 2026-09-30 |
@@ -147,6 +148,10 @@ same ordinary PC chat as choosing that Connection in Settings. An unknown id ret
 `400 {error,field:"connection_id"}` refusal and creates nothing. It still cannot carry `role` or
 `source_session_id`, so a device cannot open a planner or worker chat. With no `label`, the desktop
 names the chat as it names any unlabelled one.
+
+`chat.history` carries a session id and an optional exclusive `before` index. It returns at most
+50 chat entries plus `{start,before,total}`. Omitting `before` returns the newest page; passing the
+returned `start` walks toward the first entry without transferring the rest of the retained store.
 
 ## Mirrored chats
 

@@ -19,6 +19,8 @@ export const store = {
 };
 const listeners = new Set();
 const chatIndexes = new WeakMap();
+const historyLoads = new Map();
+const historyWindowEntries = 350;
 function indexChat(session) {
   const index = new Map((session?.chat || []).map((entry, at) => [entry.key || entry.id || entry.name, at]));
   if (session) chatIndexes.set(session, index);
@@ -26,9 +28,11 @@ function indexChat(session) {
 }
 const operatorReconciler = createOperatorReconciler({
   readState: async () => {
-    const sample = navigationStateFetchStarted("/api/state");
+	const selected = store.selection.session_id;
+	const path = selected ? `/api/state?session=${encodeURIComponent(selected)}` : "/api/state";
+	const sample = navigationStateFetchStarted(path);
     try {
-      const response = await fetch("/api/state", { cache: "no-store" });
+	  const response = await fetch(path, { cache: "no-store" });
       if (!response.ok) throw new Error(`state reconciliation failed: HTTP ${response.status}`);
       return response.json();
     } finally { navigationStateFetchEnded(sample); }
@@ -55,6 +59,13 @@ export function reduce(event) {
     // state: replacing it moved the page backwards, the patches it lost were
     // already consumed, and a paused worker sends nothing that would reveal the
     // gap, so its approval card was never drawn.
+	if (data.incremental && store.loaded && data.sessions && store.sessions) {
+		for (const [id, incoming] of Object.entries(data.sessions)) {
+			const current = store.sessions[id];
+			if (current) data.sessions[id] = { ...incoming, chat: current.chat || [], messages: current.messages || [], timeline: current.timeline || [], history_start: current.history_start, history_total: current.history_total };
+		}
+		data.sessions = { ...store.sessions, ...data.sessions };
+	}
     if (data.sessions && store.sessions) {
       for (const [id, current] of Object.entries(store.sessions)) {
         const incoming = data.sessions[id];
@@ -158,9 +169,28 @@ function applyProjectionPatch(patch) {
   if (target && target.cursor && (target.cursor.generation || "") === (patch.cursor?.generation || "") && Number(patch.cursor?.offset || 0) <= Number(target.cursor.offset || 0)) return;
   if (target && !sameCursor(target.cursor, previous)) { void resync(); return; }
   if (!target) { target = store.sessions[patch.session_id] = { id: patch.session_id, cursor: previous }; indexChat(target); }
+	const boundedHistory = Number(target.history_total || 0) > 0;
+	const wasAtLatest = boundedHistory && Number(target.history_end || target.history_total) >= Number(target.history_total);
+	let appendedChat = 0;
   for (const operation of patch.operations || []) {
     if (!applyOperation(target, operation)) { void resync(); return; }
+		if (operation.op === "append" && operation.path === "/chat") appendedChat++;
   }
+	if (boundedHistory && appendedChat) {
+		target.history_total += appendedChat;
+		if (wasAtLatest) target.history_end = Number(target.history_end || target.history_total - appendedChat) + appendedChat;
+	}
+	if (boundedHistory && Array.isArray(target.chat) && target.chat.length > historyWindowEntries) {
+		const excess = target.chat.length - historyWindowEntries;
+		if (Number(target.history_end || target.history_total || 0) >= Number(target.history_total || 0)) {
+			target.chat.splice(0, excess);
+			target.history_start = Number(target.history_start || 0) + excess;
+		} else {
+			target.chat.splice(target.chat.length - excess, excess);
+			target.history_end = Number(target.history_end || 0) - excess;
+		}
+		indexChat(target);
+	}
   target.cursor = patch.cursor;
   if (target.closed && store.active === patch.session_id) {
     store.active = firstOpenSessionID(store.selection.agent_id);
@@ -257,6 +287,35 @@ export function setSelection(agentID, sessionID = "") {
   store.active = target && !store.sessions[target].closed ? target : "";
   persistSelection();
   notify({ type: "selection.changed", data: { ...store.selection } });
+	if (target && Number(store.sessions[target]?.history_total || 0) > 0 && !(store.sessions[target]?.chat || []).length) void loadSessionHistory(target);
+}
+
+export async function loadSessionHistory(id, earlier = false) {
+	const session = store.sessions[id];
+	if (!session) return 0;
+	const before = earlier ? Number(session.history_start || 0) : Number(session.history_total || 0);
+	if (earlier && before <= 0) return 0;
+	const key = `${id}:${before}`;
+	if (historyLoads.has(key)) return historyLoads.get(key);
+	const pending = api(`/api/sessions/${encodeURIComponent(id)}/history${earlier ? `?before=${before}` : ""}`, undefined, "GET").then((page) => {
+		const target = store.sessions[id];
+		if (!target) return 0;
+		const rows = Array.isArray(page.chat) ? page.chat : [];
+		target.chat = earlier ? [...rows, ...(target.chat || [])] : rows;
+		target.history_start = Number(page.start || 0);
+		target.history_total = Number(page.total || target.chat.length);
+		target.history_end = earlier ? Number(target.history_end || target.history_total) : Number(page.before || target.history_total);
+		if (target.chat.length > historyWindowEntries) {
+			const excess = target.chat.length - historyWindowEntries;
+			target.chat.splice(target.chat.length - excess, excess);
+			target.history_end -= excess;
+		}
+		indexChat(target);
+		notify({ type: "history.loaded", session_id: id, data: { count: rows.length, start: target.history_start, earlier } });
+		return rows.length;
+	}).finally(() => historyLoads.delete(key));
+	historyLoads.set(key, pending);
+	return pending;
 }
 // Item 2mf (b): selecting a surface that is not a chat. The chat selection is
 // left exactly as it was, because the user's chat is still his chat while he
@@ -280,6 +339,7 @@ function persistSelection() {
   try { globalThis.sessionStorage?.setItem("agentb.selection", JSON.stringify(store.selection)); } catch {}
 }
 export async function api(path, body, method = "POST") {
+	if (method === "GET" && path === "/api/state" && store.selection.session_id) path += `?session=${encodeURIComponent(store.selection.session_id)}`;
   const options = { method, headers: {} };
   if (method !== "GET" && method !== "HEAD") options.headers["X-AgentB-Mutation-Token"] = store.mutation_token;
   if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }

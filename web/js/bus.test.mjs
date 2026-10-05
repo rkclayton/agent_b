@@ -6,7 +6,24 @@ globalThis.window = { addEventListener: () => {} };
 const stored = new Map();
 globalThis.sessionStorage = { getItem: (key) => stored.get(key) || null, setItem: (key, value) => stored.set(key, value) };
 globalThis.EventSource = class { addEventListener() {} };
-const { reduce, setSelection, store, subscribe } = await import("./bus.js");
+const { loadSessionHistory, reduce, setSelection, store, subscribe } = await import("./bus.js");
+
+test("older chat history prepends one fifty-entry page at a time 2qc", async () => {
+	const calls = [];
+	globalThis.fetch = async (path) => {
+		calls.push(path);
+		const before = Number(new URL(`http://local${path}`).searchParams.get("before"));
+		const start = Math.max(0, before - 50);
+		return { ok: true, json: async () => ({ session_id: "main", start, before, total: 3000, chat: Array.from({ length: before - start }, (_, index) => ({ key: `m${start + index}` })) }) };
+	};
+	snapshot({ chat: Array.from({ length: 50 }, (_, index) => ({ key: `m${2950 + index}` })), history_start: 2950, history_total: 3000 });
+	for (let page = 0; page < 59; page++) await loadSessionHistory("main", true);
+	assert.equal(store.sessions.main.history_start, 0);
+	assert.equal(store.sessions.main.history_end, 350);
+	assert.equal(store.sessions.main.chat.length, 350);
+	assert.equal(store.sessions.main.chat[0].key, "m0");
+	assert.equal(calls.length, 59);
+});
 
 // Each fixture snapshot is a new log generation: within one generation a
 // server's offsets only grow, and a snapshot behind what the page holds is kept

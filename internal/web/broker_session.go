@@ -78,8 +78,12 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 	client.OnConnected(func(connection context.Context) {
 		c.mu.Lock()
 		c.lastRefusal = ""
+		if c.deviceSnapshots == nil {
+			c.deviceSnapshots = map[string]projection.Snapshot{}
+		}
+		resume := c.deviceSnapshots
 		c.mu.Unlock()
-		server.streamUnitsToDevice(connection, client)
+		server.streamUnitsToDeviceResuming(connection, client, resume)
 	})
 	client.OnRefused(func(code, detail string) {
 		outcome := "refused by the broker — " + code + ": " + detail
@@ -123,14 +127,18 @@ type deviceSink interface {
 }
 
 func (s *Server) streamToDevice(ctx context.Context, client deviceSink) {
-	s.streamToDeviceWithPushes(ctx, client, true)
+	s.streamToDeviceWithPushes(ctx, client, true, nil)
 }
 
 func (s *Server) streamUnitsToDevice(ctx context.Context, client deviceSink) {
-	s.streamToDeviceWithPushes(ctx, client, false)
+	s.streamToDeviceWithPushes(ctx, client, false, nil)
 }
 
-func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink, includePushes bool) {
+func (s *Server) streamUnitsToDeviceResuming(ctx context.Context, client deviceSink, resume map[string]projection.Snapshot) {
+	s.streamToDeviceWithPushes(ctx, client, false, resume)
+}
+
+func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink, includePushes bool, resume map[string]projection.Snapshot) {
 	raw, unsubscribeRaw := s.bus.Subscribe()
 	defer unsubscribeRaw()
 	var sent int64
@@ -153,14 +161,32 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 	}
 	var patches <-chan projection.Patch
 	if s.projector != nil && s.writers != nil {
-		sessions, subscribed, unsubscribe, err := s.projector.SubscribeSnapshot(s.writers.SessionCursors())
+		cursors := s.writers.SessionCursors()
+		sessions, subscribed, unsubscribe, err := s.projector.SubscribeSnapshot(cursors)
 		if err != nil {
 			log.Printf("broker: the projection could not be subscribed: %v", err)
 			return
 		}
 		defer unsubscribe()
 		for id, snapshot := range sessions {
-			send(map[string]any{"v": 1, "kind": "snapshot", "session_id": id, "data": snapshot})
+			bounded := s.firstScreenSessions(map[string]projection.Snapshot{id: snapshot}, "-")[id]
+			previous, reconnect := resume[id]
+			if reconnect && previous.Cursor.Generation == bounded.Cursor.Generation && previous.Cursor.Offset <= bounded.Cursor.Offset {
+				if current, missed, tailErr := projection.ProjectTailPatches(cursors[id].Path, previous.Cursor.Offset, previous); tailErr == nil {
+					for _, patch := range missed {
+						send(map[string]any{"v": 1, "kind": "patch", "data": patch})
+					}
+					bounded.Cursor, previous.Cursor = current.Cursor, current.Cursor
+				} else {
+					reconnect = false
+				}
+			}
+			if !reconnect {
+				send(map[string]any{"v": 1, "kind": "snapshot", "session_id": id, "data": bounded})
+			}
+			if resume != nil {
+				resume[id] = bounded
+			}
 		}
 		// Item 2q7 (c): what one phone join sent (2pv measured 35.1 MB).
 		if s.app != nil {
@@ -175,6 +201,11 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 				return
 			}
 			send(map[string]any{"v": 1, "kind": "patch", "data": patch})
+			if resume != nil {
+				if current, ok := s.projector.CurrentSnapshot()[patch.SessionID]; ok {
+					resume[patch.SessionID] = s.firstScreenSessions(map[string]projection.Snapshot{patch.SessionID: current}, "-")[patch.SessionID]
+				}
+			}
 		case event, ok := <-raw:
 			if !ok {
 				return

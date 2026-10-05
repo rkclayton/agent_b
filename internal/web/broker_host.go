@@ -16,6 +16,7 @@ import (
 
 	"harness/internal/broker"
 	"harness/internal/credential"
+	"harness/internal/projection"
 )
 
 // Item 2kq (a), (b) and (f): the running broker client, and the three things Settings
@@ -62,9 +63,10 @@ type BrokerClient struct {
 	// closed by CancelPairing and is the only thing besides success that ends it.
 	cancel chan struct{}
 	// Item 2o7: the server whose handlers answer the phone, and the paired session's stop.
-	server        *Server
-	stopSession   context.CancelFunc
-	mirrorPending map[string]chan appResponseUnit
+	server          *Server
+	stopSession     context.CancelFunc
+	mirrorPending   map[string]chan appResponseUnit
+	deviceSnapshots map[string]projection.Snapshot
 }
 
 func (c *BrokerClient) RequestMirrorTake(ctx context.Context, chatID string, afterSeq int) error {

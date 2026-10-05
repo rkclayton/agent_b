@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -8,12 +9,77 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/projection"
 	"harness/internal/session"
 )
+
+func TestSixtyFourChatStartupReadsSmallStateWithinTwoSeconds2qc(t *testing.T) {
+	root := t.TempDir()
+	chats := filepath.Join(root, "chats")
+	if err := os.MkdirAll(chats, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	paths := make([]string, 0, 64)
+	for index := 0; index < 64; index++ {
+		id := fmt.Sprintf("s%d", index+1)
+		path := filepath.Join(chats, id+".jsonl")
+		file, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writer := bufio.NewWriterSize(file, 1<<20)
+		seed, _ := json.Marshal(events.New(events.SessionCreated, id, "", map[string]any{"session": map[string]any{
+			"id": id, "label": id, "created_at": time.Unix(int64(index+1), 0).UTC().Format(time.RFC3339Nano),
+			"run": map[string]any{"status": "idle"}, "tools": []any{}, "messages": []any{},
+		}}))
+		if _, err := writer.Write(append(seed, '\n')); err != nil {
+			t.Fatal(err)
+		}
+		if index == 0 {
+			large, _ := json.Marshal(events.New(events.Stage, id, "r1", map[string]any{"stage": "assemble", "state": "exit", "turn": 1, "padding": strings.Repeat("x", 8192)}))
+			line := append(large, '\n')
+			for written := int64(len(seed) + 1); written < 100<<20; written += int64(len(line)) {
+				if _, err := writer.Write(line); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if err := writer.Flush(); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, path)
+	}
+	writers, err := events.NewWriters(filepath.Join(root, "logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writers.Close()
+	if _, _, _, err := restoreProjections(writers, paths); err != nil {
+		t.Fatal(err)
+	}
+	for run := 1; run <= 3; run++ {
+		started := time.Now()
+		sessions, _, hits, err := restoreProjections(writers, paths)
+		elapsed := time.Since(started)
+		t.Logf("2qc startup run %d: chats=%d cache_hits=%d listen_ready_ms=%d", run, len(sessions), hits, elapsed.Milliseconds())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sessions) != 64 || hits != 64 {
+			t.Fatalf("run %d: chats=%d hits=%d", run, len(sessions), hits)
+		}
+		if elapsed > 2*time.Second {
+			t.Fatalf("run %d took %v, want <= 2s", run, elapsed)
+		}
+	}
+}
 
 // Item 2fd rules 3 and 7, through a real journal: restore anchors on the newest
 // user message the journal names even when that message was folded away, and a

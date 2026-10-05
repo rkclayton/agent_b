@@ -77,3 +77,46 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
   await page.screenshot({ path: "test-results/2qb-nested-chat-menu.png" });
   await context.close();
 });
+
+test("scrolling up loads a 3,000-entry chat fifty at a time to its first entry 2qc", async ({ browser }) => {
+	const id = "chat-0";
+	const row = (index) => ({ type: "user", key: `m${index}`, text: `entry ${index}` });
+	const session = { schema_version: 1, cursor: { generation: `${id}.jsonl`, offset: 1 }, complete: true, id, label: "Long chat",
+		agent_id: "agent_b", role: "b", created_at: "2026-10-05T00:00:00Z", run: { status: "idle" }, tools: [], messages: [], budget: {},
+		activity: { completed_stages: [] }, timeline: [], chat: Array.from({ length: 50 }, (_, index) => row(2950 + index)),
+		history_start: 2950, history_end: 3000, history_total: 3000, runnable: true, closed: false };
+	const snapshot = () => ({ sessions: { [id]: session }, connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] },
+		flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {} });
+	const context = await browser.newContext({ viewport: { width: 900, height: 420 } });
+	await context.addInitScript(({ snapshot }) => {
+		sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: "chat-0", surface: { kind: "chat", key: "chat-0" } }));
+		class FixtureEvents {
+			constructor() { this.listeners = new Map(); setTimeout(() => { this.onopen?.(); const event = { data: JSON.stringify({ type: "snapshot", data: snapshot }) }; for (const listener of this.listeners.get("snapshot") || []) listener(event); }); }
+			addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); }
+		}
+		globalThis.EventSource = FixtureEvents;
+	}, { snapshot: snapshot() });
+	let historyCalls = 0;
+	const page = await context.newPage();
+	await page.route("**/*", async (route) => {
+		const url = new URL(route.request().url());
+		if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
+		if (url.pathname === `/api/sessions/${id}/history`) {
+			const before = Number(url.searchParams.get("before") || 3000), start = Math.max(0, before - 50);
+			historyCalls++;
+			return route.fulfill({ contentType: "application/json", body: JSON.stringify({ session_id: id, start, before, total: 3000, chat: Array.from({ length: before - start }, (_, index) => row(start + index)) }) });
+		}
+		if (url.pathname === "/api/state") return route.fulfill({ contentType: "application/json", body: JSON.stringify(snapshot()) });
+		if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
+		return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
+	});
+	await page.goto(`http://localhost:59999/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
+	await expect(page.locator('[data-entry-key="m2950"]')).toBeVisible();
+	for (let loaded = 1; loaded <= 59; loaded++) {
+		await page.locator("#chat-log").evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event("scroll")); });
+		await expect.poll(() => historyCalls).toBe(loaded);
+	}
+	await expect(page.locator('[data-entry-key="m0"]')).toBeVisible();
+	expect(await page.locator(".chat-entry").count()).toBeLessThanOrEqual(350);
+	await context.close();
+});

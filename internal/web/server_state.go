@@ -21,12 +21,48 @@ import (
 
 func (s *Server) snapshot() map[string]any {
 	if s.replay != nil {
-		return s.snapshotWithSessions(s.replay.Sessions, true)
+		return s.snapshotWithSessions(s.firstScreenSessions(s.replay.Sessions, ""), true)
 	}
 	if s.projector != nil && s.writers != nil {
-		return s.snapshotWithSessions(s.projector.CurrentSnapshot(), false)
+		return s.snapshotWithSessions(s.firstScreenSessions(s.projector.CurrentSnapshot(), ""), false)
 	}
 	return s.snapshotWithSessions(map[string]projection.Snapshot{}, false)
+}
+
+const firstScreenEntries = 50
+
+func (s *Server) firstScreenSessions(sessions map[string]projection.Snapshot, selected string) map[string]projection.Snapshot {
+	if selected == "" {
+		for id, candidate := range sessions {
+			current, found := sessions[selected]
+			if !candidate.Closed && (!found || candidate.CreatedAt > current.CreatedAt) {
+				selected = id
+			}
+		}
+	}
+	result := make(map[string]projection.Snapshot, len(sessions))
+	for id, value := range sessions {
+		value = projection.SnapshotForRead(value)
+		value.HistoryTotal = len(value.Chat)
+		value.HistoryStart = value.HistoryTotal
+		value.HistoryEnd = value.HistoryTotal
+		if id == selected {
+			value.HistoryStart = max(0, len(value.Chat)-firstScreenEntries)
+			value.Chat = value.Chat[value.HistoryStart:]
+			value.Messages = value.Messages[max(0, len(value.Messages)-firstScreenEntries):]
+			value.Timeline = value.Timeline[max(0, len(value.Timeline)-firstScreenEntries):]
+		} else {
+			value.Chat, value.Messages, value.Timeline = nil, nil, nil
+		}
+		result[id] = value
+	}
+	return result
+}
+
+func (s *Server) openingSnapshot(sessions map[string]projection.Snapshot, replay bool) map[string]any {
+	result := s.snapshotWithSessions(s.firstScreenSessions(sessions, "-"), replay)
+	result["incremental"] = true
+	return result
 }
 func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any {
 	masked := s.ConfigSnapshot().Masked()
@@ -102,7 +138,15 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	// at once unless something is pending (v1.1.1/W3).
 	started := time.Now()
 	s.OfferReflectionProposals()
-	snapshot := s.snapshot()
+	selected := r.URL.Query().Get("session")
+	var snapshot map[string]any
+	if s.replay != nil {
+		snapshot = s.snapshotWithSessions(s.firstScreenSessions(s.replay.Sessions, selected), true)
+	} else if s.projector != nil && s.writers != nil {
+		snapshot = s.snapshotWithSessions(s.firstScreenSessions(s.projector.CurrentSnapshot(), selected), false)
+	} else {
+		snapshot = s.snapshotWithSessions(map[string]projection.Snapshot{}, false)
+	}
 	if pairedDeviceAuthenticated(r) {
 		// Item 2ow: a stolen paired phone can choose between connections, but it
 		// never receives credentials, paths, prompts, or the rest of local config.
@@ -205,7 +249,7 @@ func (s *Server) projectionSSE(w http.ResponseWriter, r *http.Request, flusher h
 		return
 	}
 	defer unsubscribeProjection()
-	s.writeFrame(w, events.New(events.Snapshot, "", "", s.snapshotWithSessions(sessions, false)))
+	s.writeFrame(w, events.New(events.Snapshot, "", "", s.openingSnapshot(sessions, false)))
 	flusher.Flush()
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
@@ -236,7 +280,7 @@ func (s *Server) projectionSSE(w http.ResponseWriter, r *http.Request, flusher h
 }
 
 func (s *Server) replaySSE(w http.ResponseWriter, r *http.Request, flusher http.Flusher) {
-	s.writeFrame(w, events.New(events.Snapshot, "", "", s.snapshotWithSessions(s.replay.Initial, true)))
+	s.writeFrame(w, events.New(events.Snapshot, "", "", s.openingSnapshot(s.replay.Initial, true)))
 	flusher.Flush()
 	instant := r.URL.Query().Get("instant") == "1"
 	for _, recorded := range s.replay.Patches {

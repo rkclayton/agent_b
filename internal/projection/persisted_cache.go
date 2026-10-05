@@ -134,6 +134,37 @@ func projectTail(journal string, from int64, state Snapshot) (Snapshot, int64, e
 	return state, from + consumed, nil
 }
 
+// ProjectTailPatches folds only complete records after from onto state and returns
+// the wire patches for those records. A reconnect uses it with the last snapshot it
+// actually delivered, so it does not resend the retained store.
+func ProjectTailPatches(journal string, from int64, state Snapshot) (Snapshot, []Patch, error) {
+	file, err := os.Open(journal)
+	if err != nil {
+		return Snapshot{}, nil, err
+	}
+	defer file.Close()
+	if _, err := file.Seek(from, io.SeekStart); err != nil {
+		return Snapshot{}, nil, err
+	}
+	records, _, err := read(filepath.Base(journal), file, 0)
+	if err != nil {
+		return Snapshot{}, nil, err
+	}
+	patches := make([]Patch, 0, len(records))
+	for _, record := range records {
+		record.Cursor.Offset += from
+		next, patch, nextErr := Next(state, record)
+		if nextErr != nil {
+			return Snapshot{}, nil, fmt.Errorf("project %s at byte %d: %w", journal, record.Cursor.Offset, nextErr)
+		}
+		state = next
+		if len(patch.Operations) > 0 {
+			patches = append(patches, patch)
+		}
+	}
+	return state, patches, nil
+}
+
 // StoreCachedSnapshot records a projection and the offset it was projected through.
 // A failure to write is returned for the caller to log and ignore: the product must
 // start whether or not it can cache, and the next launch simply parses again.

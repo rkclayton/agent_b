@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 )
 
@@ -46,6 +47,7 @@ var appMessageRoutes = map[string]struct {
 	"state":             {http.MethodGet, "/api/state"},
 	"resync":            {http.MethodGet, "/api/state"},
 	"chat.create":       {http.MethodPost, "/api/sessions"},
+	"chat.history":      {http.MethodGet, "/api/sessions/"},
 	"chat.mirror":       {http.MethodPost, ""},
 	"chat.mirror.since": {http.MethodPost, ""},
 	"chat.mirror.take":  {http.MethodPost, ""},
@@ -121,6 +123,22 @@ func (s *Server) DispatchAppMessage(deviceID string, unit []byte) []byte {
 				}
 			}
 		}
+	case "chat.history":
+		var history struct {
+			SessionID string `json:"session_id"`
+			Before    *int   `json:"before"`
+		}
+		if err := json.Unmarshal(body, &history); err != nil || strings.TrimSpace(history.SessionID) == "" || strings.ContainsAny(history.SessionID, "/\\?#%") {
+			return s.appProblem(request.ID, http.StatusBadRequest, "chat.history needs a session_id")
+		}
+		path += url.PathEscape(history.SessionID) + "/history"
+		if history.Before != nil {
+			if *history.Before < 0 {
+				return s.appProblem(request.ID, http.StatusBadRequest, "chat.history before must be non-negative")
+			}
+			path += fmt.Sprintf("?before=%d", *history.Before)
+		}
+		body = nil
 	case "resync":
 		// One session's state. The route stands for the same GET the page makes.
 		var session struct {

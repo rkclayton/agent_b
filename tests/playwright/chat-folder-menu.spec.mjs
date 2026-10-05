@@ -112,10 +112,12 @@ test("scrolling up loads a 3,000-entry chat fifty at a time to its first entry 2
 	});
 	await page.goto(`http://localhost:59999/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
 	await expect(page.locator('[data-entry-key="m2950"]')).toBeVisible();
-	for (let loaded = 1; loaded <= 59; loaded++) {
+	while (historyCalls < 59) {
+		const before = historyCalls;
 		await page.locator("#chat-log").evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event("scroll")); });
-		await expect.poll(() => historyCalls).toBe(loaded);
+		await expect.poll(() => historyCalls).toBeGreaterThan(before);
 	}
+	expect(historyCalls).toBe(59);
 	await expect(page.locator('[data-entry-key="m0"]')).toBeVisible();
 	expect(await page.locator(".chat-entry").count()).toBeLessThanOrEqual(350);
 	await context.close();

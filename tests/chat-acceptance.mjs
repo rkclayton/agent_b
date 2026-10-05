@@ -641,6 +641,15 @@ browser = {
 // asserting the banner instead of depending on startup timing.
 if (!realModel) {
 	await json(`http://127.0.0.1:${appPort}/api/update?attach=1`);
+	const deadline = Date.now() + 12000;
+	let update;
+	do {
+		update = await json(`http://127.0.0.1:${appPort}/api/update`);
+		if (!update.checking && update.checked_at) break;
+		await sleep(50);
+	} while (Date.now() < deadline);
+	assert.equal(update?.error || "", "", "local update fixture check must succeed");
+	assert.equal(update?.available, true, "local update fixture must be available before the page opens");
 }
 await page.goto(`http://127.0.0.1:${appPort}/chat`);
 await browser.wait(`document.querySelector('#chat-task')`, "Chat opened");
@@ -650,7 +659,7 @@ if (!Object.keys(runtimeState.sessions || {}).length) {
 }
 await browser.wait(`document.querySelector('.agent-tab')`, "Agent tab rendered");
 if (!realModel) {
-	await browser.wait(`document.querySelector('#chat-update-banner:not([hidden])')?.innerText.includes('v9.9.9 available')`, "update banner rendered from local fixture");
+	await browser.wait(`!document.querySelector('#chat-composer')?.hidden && document.querySelector('#chat-update-banner:not([hidden])')?.textContent.includes('v9.9.9 available')`, "update banner rendered from local fixture");
 	record("update-fixture-available-banner");
 }
 record("open-chat");
@@ -826,7 +835,7 @@ if (realModel) {
     text: [...document.querySelectorAll('.chat-response-prose')].at(-1)?.innerText || '',
     responseHeaders: document.querySelectorAll('.chat-response-summary').length,
     caret: [...document.querySelectorAll('.chat-response-prose')].at(-1)?.querySelector('.stream-caret')?.isConnected || false,
-    status: document.querySelector('#chat-notice')?.innerText || ''
+    status: (document.querySelector('#chat-notice .chat-notice-text')?.innerText || '').toLowerCase()
   }))()`);
   assert.match(partialProse.text, /VISIBLE PARTIAL/);
   assert.equal(partialProse.responseHeaders, 0);
@@ -851,7 +860,7 @@ if (realModel) {
   });
   const chatSide = await captureAgentTabStyle();
   assert.equal(chatSide.side, undefined);
-  assert.equal(chatSide.color, "rgb(216, 221, 227)");
+  assert.equal(chatSide.color, "rgb(232, 238, 244)");
   const captureShellGeometry = () => page.evaluate(() => Object.fromEntries([
     ["shell", "#app-shell"],
     ["tabs", ".agent-tabs"],
@@ -1835,11 +1844,11 @@ if (realModel) {
     for (const name of ["attach", "mic", "send"]) assert.ok(family[name], `${name} is missing at ${zoom}: ${JSON.stringify(family)}`);
     // Item 2me (b): the mic and send are the family on the composer CORNER and are
     // unchanged at 24. The attach control lives in the STRIP, which 2me trimmed to
-    // its text, so its BOX is the glyph's 16 and its TARGET is still 24 — asserted
+    // its text, so its BOX is 14px inside the 16px row and its TARGET is still 24 — asserted
     // by pressing all four corners of the old square. The family's glyph, stroke,
     // fill and background are still one family, below.
     assert.deepEqual(family.mic.target, family.send.target, JSON.stringify({ zoom, family }));
-    assert.deepEqual(family.attach.target, family.attach.glyph, JSON.stringify({ zoom, family }));
+    assert.deepEqual(family.attach.target, { width: 14 * zoom, height: 14 * zoom }, JSON.stringify({ zoom, family }));
     if (zoom === 1) assert.equal(family.attachPressable, true, `the paperclip's 24x24 target shrank with its box: ${JSON.stringify({ zoom, family })}`);
     assert.deepEqual(family.mic.glyph, family.attach.glyph, JSON.stringify({ zoom, family }));
     assert.deepEqual(family.send.glyph, family.attach.glyph, JSON.stringify({ zoom, family }));
@@ -1913,10 +1922,10 @@ if (realModel) {
   await waitEvent(sessionID, (event) => event.seq > beforeLiveTool && event.type === "tool.call" && event.data?.name === "shell", "slow live shell call");
   await waitEvent(sessionID, (event) => event.seq > beforeLiveTool && event.type === "stage" && event.data?.stage === "execute" && event.data?.state === "enter", "slow live shell execute stage");
   await sleep(200);
-  const liveToolState = await browser.evaluate(`({ status: document.querySelector('#chat-notice')?.innerText || '', carets: document.querySelectorAll('.stream-caret').length, text: document.querySelector('#chat-log')?.innerText || '' })`);
+  const liveToolState = await browser.evaluate(`({ status: (document.querySelector('#chat-notice .chat-notice-text')?.innerText || '').toLowerCase(), carets: document.querySelectorAll('.stream-caret').length, text: document.querySelector('#chat-log')?.innerText || '' })`);
   assert.match(liveToolState.status, /^tool executing · shell(?: ·|$)/);
   assert.equal(liveToolState.carets, 0, JSON.stringify(liveToolState));
-  assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--trace)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
+  assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--signal)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
   await captureWithMasks(page, join(baselineDirectory, "chat-live-tool.png"));
   await openPanel("activity", sessionID);
   await browser.wait(`document.querySelector('#panel-live-state')?.innerText.startsWith('tool executing · shell')`, "the live run names the slow tool");
@@ -2031,13 +2040,13 @@ if (realModel) {
 
   await setTask("acceptance: stop");
   await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'stop'`, "stop enabled");
-  await browser.wait(`/(?:prompt|thinking|writing|calling) .*(?:tokens|B|kB|MB)/.test(document.querySelector('#chat-notice .chat-notice-text')?.innerText || '')`, "stop request phase and number");
+  await browser.wait(`/(?:prompt|thinking|writing|calling) .*(?:tokens|b|kb|mb)/.test((document.querySelector('#chat-notice .chat-notice-text')?.innerText || '').toLowerCase())`, "stop request phase and number");
   const liveStop = await browser.evaluate(`(() => {
     const button = document.querySelector('#chat-send');
     const box = button.getBoundingClientRect();
     const style = getComputedStyle(button);
     return {
-      status: document.querySelector('#chat-notice .chat-notice-text')?.innerText || '',
+      status: (document.querySelector('#chat-notice .chat-notice-text')?.innerText || '').toLowerCase(),
       mode: button.dataset.mode,
       background: style.backgroundColor,
       visible: style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0,
@@ -2109,7 +2118,7 @@ if (realModel) {
 	await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'stop'`, "queue leader running");
 	await setTask("acceptance: queued follower");
 	await waitEvent(sessionID, (event) => event.type === "message.queued" && event.data.position === 1, "message.queued");
-	await browser.wait(`document.querySelector('#chat-status-strip')?.innerText.includes('queued (1)')`, "queued count");
+	await browser.wait(`document.querySelector('#chat-status-strip')?.innerText.toLowerCase().includes('queued (1)')`, "queued count");
   releaseQueue?.();
   await waitProjectedChatText(sessionID, "Queued follower completed.", "queued follower answer");
   events = await sessionEvents(sessionID);
@@ -2219,7 +2228,7 @@ if (realModel) {
 
   await stopFake();
   await setTask("acceptance: unreachable");
-  await browser.wait(`document.querySelector('#chat-status-strip')?.innerText.includes('model unreachable')`, "unreachable strip");
+  await browser.wait(`document.querySelector('#chat-status-strip')?.innerText.toLowerCase().includes('model unreachable')`, "unreachable strip");
   await waitEvent(sessionID, (event) => event.type === "model.unreachable", "model.unreachable");
   await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.data?.reason === "model_unreachable", "unreachable run stopped");
   await browser.wait(`[...document.querySelectorAll('#chat-log > .chat-notice-row')].some((row) => row.innerText.includes('model unreachable ·'))`, "flat unreachable notice");
@@ -2254,8 +2263,8 @@ if (realModel) {
   // Item 2eo: while the model is unreachable the strip reads that alone, so the
   // queued message is observed on the tape, and the strip is checked for the rule.
   await waitEvent(sessionID, (event) => event.type === "message.queued" && event.data.position === 1 && event.data.text?.includes?.("acceptance: recovered") !== false, "recovery queued");
-  assert.equal(unreachableText.trim(), "model unreachable", "an unreachable model is the whole strip line (item 2eo)");
-  assert.equal((await browserText("#chat-notice")).trim(), "model unreachable", "queued behind an unreachable model, the strip still reads model unreachable alone");
+  assert.equal(unreachableText.trim().toLowerCase(), "model unreachable", "an unreachable model is the whole strip line (item 2eo)");
+  assert.equal((await browserText("#chat-notice")).trim().toLowerCase(), "model unreachable", "queued behind an unreachable model, the strip still reads model unreachable alone");
   const automaticRecoveryStarted = Date.now();
   await startFake(modelPort);
   await waitProjectedChatText(sessionID, "Recovered after Retry.", "automatic recovery", 20000);
@@ -2276,7 +2285,7 @@ if (realModel) {
   // Item 2ff: the open page follows the recovery without a reload — the
   // released answer is on screen, and the notice and Retry are gone.
   await browser.wait(`[...document.querySelectorAll('#chat-log *')].filter((node) => node.childElementCount === 0 && node.textContent.trim() === 'Recovered after Retry.').length >= 2`, "recovered answer on the open page");
-  await browser.wait(`!document.querySelector('#chat-notice')?.innerText.includes('unreachable') && document.querySelector('#chat-retry-model')?.hidden`, "unreachable notice cleared without a reload");
+  await browser.wait(`!document.querySelector('#chat-notice')?.innerText.toLowerCase().includes('unreachable') && document.querySelector('#chat-retry-model')?.hidden`, "unreachable notice cleared without a reload");
   await browser.wait(`!document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')?.classList.contains('offline')`, "recovered agent eyes");
   await browser.wait(`document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')?.classList.contains('idle')`, "idle recovered eyes");
   assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--mute)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
@@ -2314,7 +2323,7 @@ if (realModel) {
   await setTask("acceptance: busy");
   const busyEvent = await waitEvent(sessionID, (event) => event.seq > beforeBusy && event.type === "model.busy", "model busy event", 6000);
   await page.waitForTimeout(250);
-  const busyStatus = await page.locator('#chat-notice .chat-notice-text').innerText();
+  const busyStatus = (await page.locator('#chat-notice .chat-notice-text').innerText()).toLowerCase();
   assert.match(busyStatus, /^prompt \d+ tokens processing(?: ·|$)/);
   events = await sessionEvents(sessionID);
   assert.equal(events.slice(events.indexOf(busyEvent)).some((event) => event.type === "run.stopped"), false);
@@ -2896,7 +2905,7 @@ if (realModel) {
   await page.goto(chatURL(waiter.id));
   await page.locator("#chat-task").waitFor({ state: "visible" });
   await post(waiter.id, "acceptance: queued behind");
-  await browser.wait(`document.querySelector('#chat-notice')?.innerText.includes('waiting for model · behind agent_b')`, "the strip names the role ahead");
+  await browser.wait(`document.querySelector('#chat-notice')?.innerText.toLowerCase().includes('waiting for model · behind agent_b')`, "the strip names the role ahead");
   const busyGo = await json(`http://127.0.0.1:${appPort}/api/plan/go?plan_id=browser-plan`);
   assert.equal(busyGo.enabled, false, JSON.stringify(busyGo));
   assert.match(busyGo.refusal || "", /the model is busy: agent_b is running/, JSON.stringify(busyGo));

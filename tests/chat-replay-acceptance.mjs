@@ -221,10 +221,9 @@ try {
   assert.equal(ui.userSpeakerImages, 0, JSON.stringify(ui));
   assert.equal(ui.connectionRows > 0, Boolean(finalSession.model_unreachable), JSON.stringify(ui));
   assert.equal(ui.nestedConnectionRows, 0, JSON.stringify(ui));
-  // Attach lives in the 16 px status strip; Send remains the composer's 24 px
-  // action. The replay gate used to carry the pre-move 24/24 geometry even
-  // after the maintained browser contract pinned 16/24.
-  assert.deepEqual(ui.actionSizes, [{ width: 16, height: 16 }, { width: 24, height: 24 }], JSON.stringify(ui));
+  // The 16 px hairline has two 1 px edges, so Attach's layout box is 14 px;
+  // its pseudo-element keeps the pressable target 24 px. Send remains 24 px.
+  assert.deepEqual(ui.actionSizes, [{ width: 14, height: 14 }, { width: 24, height: 24 }], JSON.stringify(ui));
   assert.equal(ui.attachmentAboveSubmit, true, JSON.stringify(ui));
   assert.equal(ui.textareaRightPadding, "64px", JSON.stringify(ui));
   assert.equal(ui.composerOperatorControl, false, JSON.stringify(ui));

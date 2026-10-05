@@ -30,7 +30,7 @@ test("Jump to latest is one accessible down-arrow at the transcript edge", () =>
 });
 
 test("fenced code is one aligned panel with a header row and internal overflow", () => {
-  assert.match(css, /\.code-block\s*\{[^}]*display:\s*grid[^}]*grid-template-areas:\s*"language copy"\s*"code code"[^}]*background:\s*var\(--bezel\)[^}]*border:\s*1px solid rgba\(125,\s*135,\s*148,\s*\.28\)[^}]*border-radius:\s*2px/s);
+  assert.match(css, /\.code-block\s*\{[^}]*display:\s*grid[^}]*grid-template-areas:\s*"language copy"\s*"code code"[^}]*background:\s*var\(--bezel\)[^}]*border:\s*1px solid rgba\(112,\s*125,\s*139,\s*\.28\)[^}]*border-radius:\s*2px/s);
   assert.match(css, /\.chat-content \.code-block pre\s*\{[^}]*grid-area:\s*code[^}]*margin:\s*0[^}]*overflow-x:\s*auto[^}]*white-space:\s*pre/s);
   assert.match(css, /\.code-language\s*\{[^}]*grid-area:\s*language[^}]*padding:\s*4px 8px/s);
   assert.match(css, /\.chat-page > :where\(:not\(\.app-shell\)\) \.code-copy\s*\{[^}]*grid-area:\s*copy[^}]*position:\s*static/s);
@@ -75,7 +75,7 @@ test("the paperclip replaces the duplicate token readout, and the composer holds
   // right padding so the paperclip sat hard against the window edge while the text
   // on the left kept its 4px. Both ends are inset the same now, measured, and the
   // assertion moved with the contract rather than being deleted.
-  assert.match(css, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; width:16px; height:16px; \}/);
+  assert.match(css, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; width:14px; height:14px; \}/);
   assert.match(css, /\.chat-update-banner:not\(\[hidden\]\) \+ \.chat-attach-wrap \{ margin-left:0; \}/);
   assert.doesNotMatch(html, /id="chat-readout"|id="chat-readout-meter"/);
   assert.match(html, /class="chat-composer-row"/);
@@ -124,8 +124,8 @@ test("State strip owns queue operator pending and unreachable state without chat
   // Item 2ld (d) and (f): the strip is trimmed to the height its text needs, with
   // the same small padding all round, and it is the resize handle — the cursor is
   // the only thing that says so.
-  assert.match(css, /\.chat-status-strip \{ min-height:20px/);
-  assert.match(css, /\.chat-status-strip \{[^}]*padding:2px 4px/);
+  assert.match(css, /\.chat-status-strip \{ height:16px; min-height:16px/);
+  assert.match(css, /\.chat-status-strip \{[^}]*padding:1px 0/);
   assert.match(css, /\.chat-status-strip \{[^}]*cursor:row-resize/);
 });
 
@@ -364,4 +364,39 @@ test("both shipped faces are declared against files that exist", async () => {
   for (const family of ["Atkinson Hyperlegible", "OpenDyslexic", "IBM Plex Sans", "IBM Plex Mono"]) {
     assert.ok(licence.includes(family), `${family} is shipped without a licence line`);
   }
+});
+
+test("the 2qe palette has a signal green and accessible ink and mute contrast", () => {
+  const colours = Object.fromEntries([...tokens.matchAll(/--(bezel|well|ink|mute|signal):(#(?:[0-9a-f]{6}))/gi)].map((match) => [match[1], match[2]]));
+  // The requested #6E7A88 is only 4.36:1 on #0D1014. #707D8B is the nearest
+  // two/three-channel lift that clears the simultaneously required 4.5:1.
+  assert.deepEqual(colours, { bezel: "#0D1014", well: "#080A0D", ink: "#E8EEF4", mute: "#707D8B", signal: "#3CF08A" });
+  const luminance = (hex) => {
+    const channels = hex.slice(1).match(/../g).map((part) => parseInt(part, 16) / 255).map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  };
+  const contrast = (left, right) => (Math.max(luminance(left), luminance(right)) + 0.05) / (Math.min(luminance(left), luminance(right)) + 0.05);
+  for (const background of [colours.well, colours.bezel]) {
+    assert.ok(contrast(colours.ink, background) >= 7);
+    assert.ok(contrast(colours.mute, background) >= 4.5);
+  }
+  assert.match(tokens, /\.shell-session-lamp\[data-state=ready\]\{background:var\(--signal\)\}/);
+  assert.match(tokens, /\.agent-tab-robot\.running\{color:var\(--signal\)\}/);
+  assert.match(tokens, /\.agent-tab-wrap\.selected\{[^}]*border-bottom:1px solid var\(--signal\)/);
+  assert.match(tokens, /focus-visible[^}]*outline:1px solid var\(--signal\)/);
+});
+
+test("the status strip is a sixteen-pixel flush hairline 2qe", () => {
+  assert.match(css, /\.chat-status-strip\s*\{[^}]*height:16px[^}]*padding:1px 0[^}]*border-top:1px solid[^}]*border-bottom:1px solid[^}]*font:500 calc\(var\(--ct\) \* 11 \/ 12\)\/var\(--ct\) var\(--mono\)/s);
+  assert.match(css, /\.chat-composer\s*\{[^}]*gap:\s*0/s);
+  assert.match(css, /\.chat-status-strip \.chat-attach\.composer-control\s*\{[^}]*height:14px/s);
+  assert.match(css, /\.chat-status-strip \.chat-attach\.composer-control::before\s*\{[^}]*inset:-5px/s);
+});
+
+test("the etched green current follows only a live run and reduced motion removes it 2qe", () => {
+  assert.match(html, /class="etch-current" aria-hidden="true"/);
+  assert.match(chat, /document\.body\.classList\.toggle\("run-active", isRunning\(session\)\)/);
+  assert.match(tokens, /\.run-active \.etch-current\s*\{[^}]*opacity:\.0[1-6][^}]*animation:[^}]*6s/s);
+  assert.match(tokens, /mask(?:-image)?:url\("\.\.\/assets\/etching\.png"\)/);
+  assert.match(tokens, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*\.etch-current\s*\{display:none/);
 });

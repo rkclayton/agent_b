@@ -36,10 +36,10 @@ test("paperclip stays at the right edge with the update banner hidden or visible
   // are inset the same now, so the gap is the strip's padding and the assertion
   // moved with the contract rather than being loosened.
   const hidden = await measure(page, false);
-  expect(hidden.attachRightGap).toBe(4);
+  expect(hidden.attachRightGap).toBe(0);
 
   const visible = await measure(page, true);
-  expect(visible.attachRightGap).toBe(4);
+  expect(visible.attachRightGap).toBe(0);
   expect(visible.bannerAttachGap).toBeGreaterThanOrEqual(5);
   expect(visible.bannerAttachGap).toBeLessThanOrEqual(7);
 });
@@ -70,6 +70,8 @@ ${chatCSS}</style>
     range.selectNodeContents(notice);
     const line = range.getBoundingClientRect();
     const box = strip.getBoundingClientRect();
+    const log = document.querySelector(".chat-log").getBoundingClientRect();
+    const row = document.querySelector(".chat-composer-row").getBoundingClientRect();
     const b = button.getBoundingClientRect();
     const cx = b.left + b.width / 2;
     const cy = b.top + b.height / 2;
@@ -77,6 +79,9 @@ ${chatCSS}</style>
     const pad = Number.parseFloat(getComputedStyle(strip).paddingTop) + Number.parseFloat(getComputedStyle(strip).paddingBottom);
     return {
       height: box.height,
+      gapAbove: box.top - log.bottom,
+      gapBelow: row.top - box.bottom,
+      buttonSize: [b.width, b.height],
       textLine: notice.getBoundingClientRect().height,
       glyphInk: line.height,
       padding: pad,
@@ -90,16 +95,28 @@ ${chatCSS}</style>
 
 test("the strip is its text plus its padding, inset the same at both ends, with the paperclip's target intact", async ({ page }) => {
   const m = await measureStrip(page);
-  // (b): the height IS the text's line plus the padding, not a 24px control.
-  expect(m.height).toBe(m.textLine + m.padding);
-  expect(m.height).toBe(20);
+  expect(m.height).toBe(16);
+  expect(m.gapAbove).toBe(0);
+  expect(m.gapBelow).toBe(0);
+  expect(m.buttonSize).toEqual([14, 14]);
   // (c): both ends inset the same.
   expect(m.rightInset).toBe(m.leftInset);
-  expect(m.leftInset).toBe(4);
+  expect(m.leftInset).toBe(0);
   // The hit target is NOT smaller: every corner of the old 24px square still
   // presses the paperclip, although its box is now 16px.
   expect(m.corners).toEqual([true, true, true, true]);
   // (d): measured, not nudged. The text was already on the centre line and this
   // records that rather than moving it.
   expect(Math.abs(m.textOffCentreBy)).toBeLessThanOrEqual(0.5);
+});
+
+test("the etched current exists only for an active run and is removed for reduced motion", async ({ page }) => {
+  await page.setContent(`<style>${tokensCSS}</style><div class="etch-current"></div>`);
+  const current = page.locator(".etch-current");
+  await expect(current).toHaveCSS("opacity", "0");
+  await page.locator("body").evaluate((body) => body.classList.add("run-active"));
+  await expect(current).toHaveCSS("opacity", "0.05");
+  await expect(current).not.toHaveCSS("animation-name", "none");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(current).toHaveCSS("display", "none");
 });

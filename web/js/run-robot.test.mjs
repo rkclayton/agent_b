@@ -30,7 +30,7 @@ test("the running robot takes the strip's existing height and adds no chrome", (
 
 test("the running robot uses palette tokens only and no glow", () => {
   const rule = styles.match(/\.chat-run-robot \{([^}]+)\}/)[1];
-  assert.match(rule, /color: var\(--trace\)/);
+  assert.match(rule, /color: var\(--signal\)/);
   assert.match(styles, /\.chat-run-robot\.waiting \{ color: var\(--alarm\); \}/);
   assert.match(styles, /\.chat-run-robot\.offline \{ color: var\(--alarm\); \}/);
   const block = styles.slice(styles.indexOf(".chat-run-robot {"), styles.indexOf("@keyframes chat-run-robot") + 200);
@@ -41,7 +41,7 @@ test("the running robot uses palette tokens only and no glow", () => {
 
 test("its eyes carry the same state colours the tab robot shows", () => {
   const tokens = readFileSync(new URL("../css/tokens.css", import.meta.url), "utf8");
-  assert.match(tokens, /\.agent-tab-robot\.running\{color:var\(--trace\)\}/);
+  assert.match(tokens, /\.agent-tab-robot\.running\{color:var\(--signal\)\}/);
   assert.match(tokens, /\.agent-tab-robot\.waiting\{color:var\(--alarm\)\}/);
   assert.match(styles, /\.chat-run-robot-eyes \{[^}]*background: currentColor/);
   // The class the renderer picks mirrors chatState's own vocabulary.

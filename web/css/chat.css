@@ -54,23 +54,23 @@
 .chat-page > :where(:not(.app-shell)) button {
   min-height: 32px;
   padding: 4px 10px;
-  background: rgba(216, 221, 227, 0.08);
+  background: rgba(232, 238, 244, 0.08);
   border: 0;
   border-radius: 2px;
   cursor: pointer;
 }
 .chat-page > :where(:not(.app-shell)) button:hover {
-  background: rgba(216, 221, 227, 0.12);
+  background: rgba(232, 238, 244, 0.12);
 }
 .chat-page > :where(:not(.app-shell)) button:active {
-  background: rgba(216, 221, 227, 0.16);
+  background: rgba(232, 238, 244, 0.16);
 }
 .chat-page > :where(:not(.app-shell)) button:focus-visible,
 .chat-page > :where(:not(.app-shell)) textarea:focus-visible,
 .chat-page > :where(:not(.app-shell)) select:focus-visible,
 .chat-log:focus-visible,
 .chat-entry[tabindex]:focus-visible {
-  outline: 1px solid var(--trace);
+  outline: 1px solid var(--signal);
   outline-offset: 2px;
 }
 .chat-header {
@@ -135,15 +135,15 @@
   align-items: center;
   padding: 4px 10px;
   color: var(--ink);
-  background: rgba(216, 221, 227, 0.08);
+  background: rgba(232, 238, 244, 0.08);
   border-radius: 2px;
   text-decoration: none;
 }
 .chat-nav a:hover {
-  background: rgba(216, 221, 227, 0.12);
+  background: rgba(232, 238, 244, 0.12);
 }
 .chat-nav a:focus-visible {
-  outline: 1px solid var(--trace);
+  outline: 1px solid var(--signal);
   outline-offset: 2px;
 }
 /* Item 2ge: the bar above the chat now carries the paperclip at its far right,
@@ -161,7 +161,7 @@
   display: block;
   width: 0;
   height: 4px;
-  background: rgba(216, 221, 227, 0.6);
+  background: rgba(232, 238, 244, 0.6);
 }
 .chat-budget.warn .chat-budget-fill {
   background: var(--trace);
@@ -204,7 +204,7 @@
   grid-template-columns: 72px minmax(0, 1fr);
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid rgba(125, 135, 148, 0.28);
+  border-bottom: 1px solid rgba(112, 125, 139, 0.28);
 }
 .chat-speaker {
   display: flex;
@@ -272,7 +272,7 @@
   margin: 4px 0 8px;
   overflow: hidden;
   background: var(--bezel);
-  border: 1px solid rgba(125, 135, 148, .28);
+  border: 1px solid rgba(112, 125, 139, .28);
   border-radius: 2px;
 }
 .chat-content .code-block pre {
@@ -357,14 +357,14 @@
   margin-left: clamp(4px, 1.5vw, 12px);
 }
 .chat-response.single-step-response .chat-step-fold { width: 100%; margin-left: 0; }
-.chat-tool-group-calls { margin-left: 14px; padding-left: 5px; border-left: 1px solid rgba(125, 135, 148, .28); }
+.chat-tool-group-calls { margin-left: 14px; padding-left: 5px; border-left: 1px solid rgba(112, 125, 139, .28); }
 .chat-response-step {
   min-width: 0;
 }
 .chat-response-answer {
   margin-top: 4px;
   padding-top: 6px;
-  border-top: 1px solid rgba(125, 135, 148, 0.28);
+  border-top: 1px solid rgba(112, 125, 139, 0.28);
 }
 .file-chips {
   display: flex;
@@ -379,7 +379,7 @@
   gap: 8px;
   min-height: 24px;
   padding: 0 8px;
-  border: 1px solid rgba(125, 135, 148, 0.28);
+  border: 1px solid rgba(112, 125, 139, 0.28);
   border-radius: 2px;
   font: var(--ct)/var(--lead-tight) var(--mono);
 }
@@ -537,7 +537,7 @@
 }
 .tool-key {
   overflow: hidden;
-  color: rgba(216, 221, 227, 0.75);
+  color: rgba(232, 238, 244, 0.75);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -631,13 +631,13 @@
   padding: 0;
   color: var(--ink);
   background: var(--well);
-  outline: 1px solid rgba(125, 135, 148, 0.28);
+  outline: 1px solid rgba(112, 125, 139, 0.28);
   user-select: none;
 }
 .chat-composer {
   display: grid;
-  gap: 4px;
-  padding: 8px 10px;
+  gap: 0;
+  padding: 0 10px 8px;
 }
 .chat-composer-row {
   min-width: 0;
@@ -681,7 +681,7 @@
   flex: none;
   width: 12px;
   height: 12px;
-  color: var(--trace);
+  color: var(--signal);
   animation: chat-run-robot 0.36s steps(1, end) infinite;
 }
 .chat-run-robot img {
@@ -708,15 +708,15 @@
 .chat-notice.alarm {
   color: var(--alarm);
 }
-.chat-input-wrap { position:relative; min-width:0; width:100%; border-radius:0; background:var(--well); box-shadow:inset 0 0 0 1px rgba(125,135,148,.28); }
+.chat-input-wrap { position:relative; min-width:0; width:100%; border-radius:0; background:var(--well); box-shadow:inset 0 0 0 1px rgba(112,125,139,.28); }
 .chat-input-actions { position:absolute; right:6px; bottom:6px; display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
 .chat-submit-actions { display:flex; align-items:center; gap:3px; }
 /* Item 2ld: the strip is the handle. It is trimmed to the height its text needs,
    with the same small padding on all sides, and it remains a status line — the
    cursor is the only thing that says it can be dragged. */
-.chat-status-strip { min-height:20px; display:flex; align-items:center; gap:6px; padding:2px 4px; color:var(--mute); font:var(--ct)/var(--lead-tight) var(--mono); cursor:row-resize; touch-action:none; }
+.chat-status-strip { height:16px; min-height:16px; display:flex; align-items:center; gap:6px; padding:1px 0; border-top:1px solid rgba(112,125,139,.22); border-bottom:1px solid rgba(112,125,139,.22); color:var(--mute); font:500 calc(var(--ct) * 11 / 12)/var(--ct) var(--mono); text-transform:uppercase; cursor:row-resize; touch-action:none; }
 .chat-status-strip.dragging { user-select:none; }
-.chat-status-strip .chat-attach-wrap { margin-left:auto; width:16px; height:16px; }
+.chat-status-strip .chat-attach-wrap { margin-left:auto; width:14px; height:14px; }
 /* Item 2me (b) and (c), both MEASURED in the running app before they were made.
    (b): the strip was 28px because a 24px control sat in it, and removing that
    control dropped it to its 20px min-height — so the paperclip, not the text, was
@@ -735,11 +735,12 @@
    min-height, which is already !important in this file — the only way past an
    !important is another one, so this carries the reason instead of hiding it. */
 .chat-status-strip .chat-attach.composer-control {
-  width:16px; height:16px; min-width:16px;
-  min-height:16px !important;
+  width:14px; height:14px; min-width:14px;
+  min-height:14px !important;
   position:relative;
+  z-index:2;
 }
-.chat-status-strip .chat-attach.composer-control::before { content:""; position:absolute; inset:-4px; }
+.chat-status-strip .chat-attach.composer-control::before { content:""; position:absolute; inset:-5px; }
 .chat-update-banner { margin-left:auto; display:flex; align-items:center; gap:4px; white-space:nowrap; color:var(--ink); }
 .chat-update-banner[hidden] { display:none; }
 .chat-update-banner:not([hidden]) + .chat-attach-wrap { margin-left:0; }
@@ -800,7 +801,7 @@
   overflow-wrap: anywhere;
   color: var(--ink);
   background: var(--well);
-  outline: 1px solid rgba(125, 135, 148, 0.28);
+  outline: 1px solid rgba(112, 125, 139, 0.28);
   font: var(--ct)/var(--lead) var(--mono);
 }
 .chat-page.drop-target::after {
@@ -874,7 +875,7 @@
   min-width: 240px;
   padding: 2px;
   background: var(--bezel);
-  border: 1px solid rgba(125, 135, 148, 0.28);
+  border: 1px solid rgba(112, 125, 139, 0.28);
 }
 .chat-attach-menu > button,
 .chat-exchange-files button {
@@ -885,7 +886,7 @@
   text-align: left;
   font: var(--ct)/var(--lead) var(--mono);
 }
-.chat-exchange-files { max-height: 180px; overflow-x: hidden; overflow-y: auto; border-top: 1px solid rgba(125, 135, 148, 0.28); }
+.chat-exchange-files { max-height: 180px; overflow-x: hidden; overflow-y: auto; border-top: 1px solid rgba(112, 125, 139, 0.28); }
 .chat-exchange-files:empty { display: none; }
 .chat-exchange-files span { display: block; padding: 2px 5px; color: var(--mute); font: var(--ct)/var(--lead) var(--mono); }
 #chat-build {
@@ -905,7 +906,7 @@
 .chat-page > :where(:not(.app-shell)) .chat-header-action.selected,
 .chat-page > :where(:not(.app-shell)) .chat-header-action:disabled {
   color: var(--ink);
-  background: rgba(216, 221, 227, 0.16);
+  background: rgba(232, 238, 244, 0.16);
   cursor: default;
   opacity: 1;
 }
@@ -916,13 +917,13 @@
   align-items: center;
   justify-content: center;
   padding: 3px;
-  color: rgba(216, 221, 227, 0.6);
+  color: rgba(232, 238, 244, 0.6);
   border-radius: 2px;
   text-decoration: none;
 }
 .chat-composer {
   align-items: end;
-  padding: 8px;
+  padding: 0 8px 8px;
 }
 .chat-composer textarea {
   width: 100%;
@@ -973,14 +974,14 @@
 
 /* Item 2fc: proposed plan edits sit in the planning chat's own thread, above
    the composer, with the tray's rows and controls. */
-.chat-proposals { max-height:40vh; overflow-y:auto; border-top:1px solid rgba(125,135,148,.28); }
+.chat-proposals { max-height:40vh; overflow-y:auto; border-top:1px solid rgba(112,125,139,.28); }
 .chat-proposals[hidden] { display:none; }
-.plan-proposal { padding:6px 10px; border-bottom:1px solid rgba(125,135,148,.18); cursor:pointer; font-size:var(--ct); }
-.plan-proposal:hover { background:rgba(216,221,227,.04); }
+.plan-proposal { padding:6px 10px; border-bottom:1px solid rgba(112,125,139,.18); cursor:pointer; font-size:var(--ct); }
+.plan-proposal:hover { background:rgba(232,238,244,.04); }
 .plan-proposal code { display:block; color:var(--mute); font:var(--ct)/var(--lead-tight) var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .plan-proposal-actions { display:flex; gap:4px; margin-top:4px; }
-.plan-proposal-actions button { min-height:22px; padding:2px 7px; background:rgba(216,221,227,.08); }
-.plan-proposal-actions button:hover { background:rgba(216,221,227,.12); }
+.plan-proposal-actions button { min-height:22px; padding:2px 7px; background:rgba(232,238,244,.08); }
+.plan-proposal-actions button:hover { background:rgba(232,238,244,.12); }
 .plan-proposal .field-error { margin:4px 0 0; color:var(--alarm); }
 
 /* Item 2m7 (c): BOLD IS A REAL WEIGHT.

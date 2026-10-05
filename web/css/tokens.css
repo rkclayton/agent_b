@@ -5,18 +5,22 @@
 /* Item 2lj (c): shipped because Agent_b runs offline. A font named but absent falls back to something else without saying so, and the reader who chose it would never know. Both are SIL OFL 1.1; see assets/fonts/LICENSE-FONTS.md. */
 @font-face{font-family:"Atkinson Hyperlegible";src:url("../assets/fonts/atkinson-hyperlegible-latin-400-normal.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
 @font-face{font-family:"OpenDyslexic";src:url("../assets/fonts/opendyslexic-latin-400-normal.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
-:root{--bezel:#2A2E35;--well:#15181C;--ink:#D8DDE3;--mute:#7D8794;--trace:#F2B233;--alarm:#E4624F;--accent-plan:#5AC8FA;--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--app-header-height:32px;--agent-tab-width:118px;--etch-fade:.0825;--chat-scale:1;--chat-face:var(--sans)}
+:root{--bezel:#0D1014;--well:#080A0D;--ink:#E8EEF4;--mute:#707D8B;--signal:#3CF08A;--trace:#F2B233;--alarm:#E4624F;--accent-plan:#5AC8FA;--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--app-header-height:32px;--agent-tab-width:118px;--etch-fade:.0825;--chat-scale:1;--chat-face:var(--sans)}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{height:100dvh;overflow:hidden;background:var(--bezel);color:var(--ink);font:400 13px/20px var(--sans)}
-body::after{content:"";position:fixed;z-index:100;inset:0;pointer-events:none;box-shadow:inset 0 0 0 1px rgba(125,135,148,.28)}
+body::after{content:"";position:fixed;z-index:100;inset:0;pointer-events:none;box-shadow:inset 0 0 0 1px rgba(112,125,139,.28)}
 /* Item 2cz: the etching, one fixed layer over the whole window. The map is built by the historical v1.0.0 order evidence from the operator's circuit image: white or black at a few percent, so each surface is its own tone lightened on one edge and darkened on the other. Item 2gr (v1.2.5): the operator judged the v1.0.0 low about twice what he wanted, so it halves. --etch-fade is the one dial and the amplitude is this number alone - the map is a fixed image - so the positions rescale rather than the map being rebuilt: .165 low (the new default), .33 next (the old low), .66 high, 0 off. Item 2m7 (rel-1.23.0) halves it again, .165 to .0825, on the operator's second reading of the same judgement -- the dial is unchanged and only the default moves. Item 2jh removed will-change: this static layer never animates, and compositor promotion caused repeat captures to round pixels differently. */
 body::before{content:"";position:fixed;z-index:2147483647;inset:0;pointer-events:none;background:url("../assets/etching.png") 0 0/3782px 1736px repeat;opacity:var(--etch-fade)}
+.etch-current{position:fixed;z-index:2147483646;inset:0;pointer-events:none;background:linear-gradient(90deg,transparent 0 38%,var(--signal) 50%,transparent 62%);background-size:200% 100%;opacity:0;-webkit-mask-image:url("../assets/etching.png");mask-image:url("../assets/etching.png");-webkit-mask-size:3782px 1736px;mask-size:3782px 1736px}
+.run-active .etch-current{opacity:.05;animation:etch-current 6s linear infinite}
+@keyframes etch-current{from{background-position:100% 0}to{background-position:-100% 0}}
+@media (prefers-reduced-motion:reduce){.etch-current{display:none}}
 #chat-budget[hidden],#chat-log[hidden],#chat-composer[hidden],#panel-surface[hidden]{display:none}
 button,input{font:inherit;color:inherit}
-button{background:rgba(216,221,227,.08);border:0;border-radius:2px;padding:4px 12px;cursor:pointer}
-button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,221,227,.16)}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible,[role=button]:focus-visible,[tabindex]:focus-visible{outline:1px solid var(--trace);outline-offset:2px}
-.stop-sign{display:grid;place-items:center;width:24px;height:24px;min-width:24px;min-height:24px;padding:0;background:rgba(125,135,148,.35);border-radius:0;clip-path:polygon(29% 0,71% 0,100% 29%,100% 71%,71% 100%,29% 100%,0 71%,0 29%)}
+button{background:rgba(232,238,244,.08);border:0;border-radius:2px;padding:4px 12px;cursor:pointer}
+button:hover{background:rgba(232,238,244,.12)}button:active{background:rgba(232,238,244,.16)}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible,[role=button]:focus-visible,[tabindex]:focus-visible{outline:1px solid var(--signal);outline-offset:2px}
+.stop-sign{display:grid;place-items:center;width:24px;height:24px;min-width:24px;min-height:24px;padding:0;background:rgba(112,125,139,.35);border-radius:0;clip-path:polygon(29% 0,71% 0,100% 29%,100% 71%,71% 100%,29% 100%,0 71%,0 29%)}
 .stop-sign span{width:7px;height:7px;background:var(--well)}
 .stop-sign.active,.stop-sign.active:hover,.stop-sign.active:active{background:var(--alarm)}
 .stop-sign.stopping,.stop-sign.stopping:hover,.stop-sign.stopping:active{background:var(--trace)}
@@ -25,8 +29,8 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .signature-state{width:12px;color:var(--mute);font:500 12px/16px var(--mono);text-align:center}
 .signature-state.valid{color:var(--ink)}
 .signature-state.invalid{color:var(--alarm)}
-.window-titlebar .operator-status{display:grid;place-items:center;width:24px;height:24px;min-width:24px;min-height:24px;padding:0;background:transparent;border-radius:0;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(125,135,148,.28)}
-.window-titlebar .operator-status:hover,.window-titlebar .operator-status:active{background:rgba(216,221,227,.08)}
+.window-titlebar .operator-status{display:grid;place-items:center;width:24px;height:24px;min-width:24px;min-height:24px;padding:0;background:transparent;border-radius:0;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(112,125,139,.28)}
+.window-titlebar .operator-status:hover,.window-titlebar .operator-status:active{background:rgba(232,238,244,.08)}
 .window-titlebar .operator-status:disabled{cursor:default}
 .window-titlebar .operator-status[data-pending="true"]{opacity:.55;box-shadow:inset 0 0 0 1px var(--trace)}
 .window-titlebar .operator-status img{display:block;width:24px;height:24px}
@@ -38,7 +42,7 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .shell-left,.agent-tabs,.shell-right{display:flex;align-items:center;min-width:0;gap:2px}
 .shell-right{height:100%}
 /* Item 2px (f): the chat's connection lamp is shell, so it is styled where every page loads it. */
-.shell-session-lamp{flex:none;width:8px;height:8px;margin-right:6px;background:rgba(125,135,148,.35)}.shell-session-lamp[data-state=ready]{background:var(--ink)}.shell-session-lamp[data-state=amber]{background:var(--trace)}.shell-session-lamp[data-state=alarm]{background:var(--alarm)}
+.shell-session-lamp{flex:none;width:8px;height:8px;margin-right:6px;background:rgba(112,125,139,.35)}.shell-session-lamp[data-state=ready]{background:var(--signal)}.shell-session-lamp[data-state=amber]{background:var(--trace)}.shell-session-lamp[data-state=alarm]{background:var(--alarm)}
 .shell-left{overflow:hidden}
 .shell-left{width:100%}
 .shell-session-title{max-width:42vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;background:transparent;color:var(--mute);font:12px/20px var(--mono)}
@@ -71,8 +75,8 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .agent-tab-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agent-overflow{width:36px;padding:2px 4px;font-family:var(--mono)}
 .agent-overflow-menu{right:0;left:auto;width:min(18rem,calc(100vw - 16px))}
-.agent-tab-wrap.selected{background:var(--well)}
-.agent-tab-wrap.selected.side-console{background:rgba(216,221,227,.16)}
+.agent-tab-wrap.selected{background:var(--well);border-bottom:1px solid var(--signal)}
+.agent-tab-wrap.selected.side-console{background:rgba(232,238,244,.16)}
 .agent-tab.selected{background:transparent}
 .agent-tab-new{flex:none;width:20px;height:20px;min-height:20px;margin-right:3px;padding:0;background:transparent;color:var(--mute);font:500 13px/20px var(--mono)}
 .app-shell .agent-tab-new{width:20px;height:20px;min-height:20px;padding:0}
@@ -90,7 +94,7 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .agent-tab-robot-d img{transform:scaleY(.8)}
 .agent-tab-eyes{position:absolute;top:7px;left:7px;width:2px;height:2px;background:currentColor;box-shadow:5px 0 0 currentColor}
 .agent-tab-robot.idle .agent-tab-eyes{opacity:.45}
-.agent-tab-robot.running{color:var(--trace)}
+.agent-tab-robot.running{color:var(--signal)}
 .agent-tab-robot.waiting{color:var(--alarm)}
 .agent-tab-robot.waiting .agent-tab-eyes{top:8px;height:1px;opacity:.65}
 .agent-tab-robot.offline{color:var(--alarm)}
@@ -102,12 +106,12 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 /* rel-1.25.0 card 7: .shell-page went with the one-entry page nav item 2mf
    removed. Nothing renders that class any more, so only .shell-settings is left
    here. The CHIP class below stays: the Plan surface tab draws it. */
-.shell-settings{min-height:24px;display:inline-flex;align-items:center;justify-content:center;padding:2px 6px;color:var(--ink);background:rgba(216,221,227,.08);border-radius:2px;text-decoration:none}
-.shell-settings:hover{background:rgba(216,221,227,.12)}
-.shell-settings{width:26px;padding:2px;color:rgba(216,221,227,.6)}
+.shell-settings{min-height:24px;display:inline-flex;align-items:center;justify-content:center;padding:2px 6px;color:var(--ink);background:rgba(232,238,244,.08);border-radius:2px;text-decoration:none}
+.shell-settings:hover{background:rgba(232,238,244,.12)}
+.shell-settings{width:26px;padding:2px;color:rgba(232,238,244,.6)}
 .shell-window-controls{align-self:stretch;display:grid;grid-template-columns:repeat(3,28px);height:var(--app-header-height);margin-right:-4px;background:var(--bezel);-webkit-app-region:no-drag;app-region:no-drag}
 .shell-window-control{position:relative;display:grid;place-items:center;width:28px;height:var(--app-header-height);color:var(--mute)}
-.shell-window-control:hover{background:rgba(216,221,227,.08);color:var(--ink)}
+.shell-window-control:hover{background:rgba(232,238,244,.08);color:var(--ink)}
 .shell-window-control-glyph{position:relative;display:block;width:9px;height:9px}
 .shell-window-control.minimize .shell-window-control-glyph::after{content:"";position:absolute;right:0;bottom:1px;left:0;height:1px;background:currentColor}
 .shell-window-control.maximize .shell-window-control-glyph{border:1px solid currentColor}
@@ -131,8 +135,8 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .settings-nav button .shell-page-chip{display:inline-block;vertical-align:-2px;margin-right:6px}
 .settings-nav button:hover .shell-page-chip{opacity:.8}
 .settings-nav button.selected .shell-page-chip{opacity:1}
-.shell-menu{position:fixed;z-index:40;top:30px;left:0;width:min(680px,calc(100vw - 16px));max-height:calc(100vh - 50px);overflow-x:hidden;overflow-y:auto;padding:2px;background:var(--bezel);border:1px solid rgba(125,135,148,.28)}
-.agent-chat-menu{color:var(--ink);background:var(--well);border:1px solid rgba(125,135,148,.28);border-radius:2px}
+.shell-menu{position:fixed;z-index:40;top:30px;left:0;width:min(680px,calc(100vw - 16px));max-height:calc(100vh - 50px);overflow-x:hidden;overflow-y:auto;padding:2px;background:var(--bezel);border:1px solid rgba(112,125,139,.28)}
+.agent-chat-menu{color:var(--ink);background:var(--well);border:1px solid rgba(112,125,139,.28);border-radius:2px}
 .shell-new-menu{width:min(34rem,calc(100vw - 16px))}
 .shell-new-choice{display:block;width:100%;min-height:24px;padding:2px 5px;overflow:hidden;background:transparent;text-align:left;text-overflow:ellipsis;white-space:nowrap;font:12px/20px var(--mono)}
 .agent-chat-count{padding:2px 5px;color:var(--mute);font:12px/20px var(--mono)}
@@ -152,7 +156,7 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
 .agent-chat-delete{min-width:22px;color:var(--alarm)}
 .agent-chat-delete.armed{min-width:48px}
 .agent-chat-rename-form{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px;padding:2px}
-.agent-chat-rename-form input{min-width:0;height:24px;padding:1px 5px;background:var(--well);border:1px solid rgba(125,135,148,.28)}
+.agent-chat-rename-form input{min-width:0;height:24px;padding:1px 5px;background:var(--well);border:1px solid rgba(112,125,139,.28)}
 .shell-menu-empty{display:block;padding:2px 5px;color:var(--mute);font:12px/20px var(--mono)}
 .history-controls{margin-left:auto;display:flex;align-items:center;gap:8px}
 .history-controls #drop-last-message{min-height:22px;padding:1px 6px;font-size:12px;font-weight:400}
@@ -169,7 +173,7 @@ button:hover{background:rgba(216,221,227,.12)}button:active{background:rgba(216,
    glyph and no run state, because it has neither, so it is the label alone at the
    strip's own size — and a left border marks where the chats end and the pinned
    surfaces begin. */
-.agent-tab-wrap-surface{margin-left:6px;padding-left:6px;border-left:1px solid rgba(125,135,148,.28)}
+.agent-tab-wrap-surface{margin-left:6px;padding-left:6px;border-left:1px solid rgba(112,125,139,.28)}
 .agent-tab-surface{padding-right:5px}
 .agent-tab-surface .agent-tab-name{color:var(--mute)}
 .agent-tab-surface.selected .agent-tab-name{color:var(--ink)}

@@ -21,6 +21,15 @@ test("selecting metadata-only history hydrates the bounded session projection 2q
 	assert.deepEqual(store.sessions.retained.chat, [{ key: "newest" }]);
 });
 
+test("replay selection never jumps ahead of its streamed projection patches", async () => {
+	let fetched = false;
+	globalThis.fetch = async () => { fetched = true; throw new Error("replay must not fetch final state"); };
+	reduce({ type: "snapshot", data: { sessions: { replayed: { id: "replayed", role: "b", history_total: 129, history_start: 129, messages: null, chat: null, cursor: { generation: "replay", offset: 0 }, run: { status: "idle" } } }, replay: true, connections: [], config: {} } });
+	setSelection("agent_b", "replayed");
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(fetched, false);
+});
+
 test("older chat history prepends one fifty-entry page at a time 2qc", async () => {
 	const calls = [];
 	globalThis.fetch = async (path) => {

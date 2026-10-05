@@ -1242,6 +1242,7 @@ updateInstall?.addEventListener("click", async () => {
 function renderComposer(session) {
   renderChatProposals(chatProposals, session, input);
 	document.body.classList.toggle("no-open-chats", !session);
+	document.body.classList.toggle("run-active", isRunning(session));
   const phoneOwned = session?.origin === "phone" && session?.owner === "phone";
   send.disabled = !session || !!store.replay || phoneOwned;
   input.disabled = !session || !!store.replay || phoneOwned;

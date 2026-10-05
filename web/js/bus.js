@@ -299,9 +299,9 @@ export function setSelection(agentID, sessionID = "") {
 	// Item 2qc: the opening stream carries list metadata only. Selecting one of
 	// those rows must ask for the bounded session projection, not just its Chat
 	// rows: proposal cards and other selected-chat state live in Messages.
-	if (target && Number(session?.history_total || 0) > 0 && !Array.isArray(session?.messages)) {
+	if (target && !store.replay && Number(session?.history_total || 0) > 0 && !Array.isArray(session?.messages)) {
 		void loadSessionProjection(target).catch((error) => reduce({ type: "error", data: { where: "session_projection", message: error.message } }));
-	} else if (target && Number(session?.history_total || 0) > 0 && !(session?.chat || []).length) void loadSessionHistory(target);
+	} else if (target && !store.replay && Number(session?.history_total || 0) > 0 && !(session?.chat || []).length) void loadSessionHistory(target);
 }
 
 export async function loadSessionProjection(id) {

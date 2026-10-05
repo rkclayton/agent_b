@@ -280,7 +280,11 @@ func (s *Server) projectionSSE(w http.ResponseWriter, r *http.Request, flusher h
 }
 
 func (s *Server) replaySSE(w http.ResponseWriter, r *http.Request, flusher http.Flusher) {
-	s.writeFrame(w, events.New(events.Snapshot, "", "", s.openingSnapshot(s.replay.Initial, true)))
+	// Replay patches are recorded against the tape's complete initial
+	// projection. The live metadata-only opening frame is not valid here: it
+	// removes arrays that later nested patches update, forcing a resync to the
+	// tape's final state and skipping the intervening frames.
+	s.writeFrame(w, events.New(events.Snapshot, "", "", s.snapshotWithSessions(s.replay.Initial, true)))
 	flusher.Flush()
 	instant := r.URL.Query().Get("instant") == "1"
 	for _, recorded := range s.replay.Patches {

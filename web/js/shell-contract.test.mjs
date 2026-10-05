@@ -50,7 +50,7 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   // rel-1.42.0 (2o2): the tab's nodes are built once; the state is a class update.
   assert.match(shell, /agent-tab-robot-\$\{agentID\.slice\(-1\)\} \$\{glyphState\}/);
   assert.match(shell, /node\("span", "agent-tab-eyes"\)/);
-  assert.match(tokens, /\.agent-tab-robot\.running\{color:var\(--trace\)\}/);
+  assert.match(tokens, /\.agent-tab-robot\.running\{color:var\(--signal\)\}/);
   assert.match(tokens, /\.agent-tab-robot\.offline\{color:var\(--alarm\)\}/);
   assert.match(tokens, /\.agent-tab-robot\.waiting\{color:var\(--alarm\)\}/);
   assert.match(shell, /session\?\.model_unreachable\) return "offline"/);
@@ -74,7 +74,7 @@ test("each open chat gets an agent tab whose robot eyes expose that chat state",
   // with a fixed width and an ellipsis for a long one.
   assert.match(tokens, /\.agent-tab-name\{[^}]*text-overflow:ellipsis/);
   assert.match(shell, /node\("span", "agent-tab-name"\)/);
-  assert.match(tokens, /\.agent-tab-wrap\.selected\.side-console\{background:rgba\(216,221,227,.16\)\}/);
+  assert.match(tokens, /\.agent-tab-wrap\.selected\.side-console\{background:rgba\(232,238,244,.16\)\}/);
   assert.match(shell, /button\("", "", "agent-tab"\)[\s\S]*setAttr\(tab, "title", name\)/);
   // Item 2go: the tab reads the chat name; the role is the robot glyph and its
   // hover text, which is where it was always readable.
@@ -164,7 +164,7 @@ test("agent menu swaps the clicked chat into this tab and every red x deletes", 
   assert.match(shell, /revealMenu\(menu, tab, \{ x: event\.clientX, y: event\.clientY \}\)/);
   assert.match(tokens, /\.shell-menu\{position:fixed/);
   assert.match(tokens, /max-height:calc\(100vh - 50px\);overflow-x:hidden;overflow-y:auto/);
-  assert.match(tokens, /\.agent-chat-menu\{[^}]*color:var\(--ink\);background:var\(--well\);border:1px solid rgba\(125,135,148,\.28\);border-radius:2px/);
+  assert.match(tokens, /\.agent-chat-menu\{[^}]*color:var\(--ink\);background:var\(--well\);border:1px solid rgba\(112,125,139,\.28\);border-radius:2px/);
   assert.match(tokens, /\.agent-chat-delete\{[^}]*color:var\(--alarm\)/);
   assert.match(tokens, /\.agent-chat-row\.selected[^}]*font-weight:500/);
   assert.match(tokens, /\.agent-chat-summary:hover[^}]*box-shadow:/);
@@ -330,7 +330,7 @@ test("the attachment control replaces the redundant per-chat readout", async () 
   // right padding so the paperclip sat hard against the window edge while the text
   // on the left kept its 4px. Both ends are inset the same now, measured, and the
   // assertion moved with the contract rather than being deleted.
-  assert.match(chatCss, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; width:16px; height:16px; \}/);
+  assert.match(chatCss, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; width:14px; height:14px; \}/);
   // No control characters anywhere in the stylesheet: the marker was a raw
   // 0x15 byte, which is how it reached the operator's screen as tofu.
   const control = [...chatCss].filter((ch) => ch.charCodeAt(0) < 32 && !"\r\n\t".includes(ch));

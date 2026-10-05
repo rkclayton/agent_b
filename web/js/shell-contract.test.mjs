@@ -137,7 +137,10 @@ test("agent menu swaps the clicked chat into this tab and every red x deletes", 
   assert.match(shell, /oncontextmenu/);
   assert.match(shell, /\/reopen`/);
   assert.match(shell, /button\("×", `Delete \$\{chatName\(session\)\}`, "agent-chat-delete"\)/);
-  assert.match(shell, /button\("Rename"/);
+  assert.match(shell, /iconButton\("pencil", `Rename \$\{chatName\(session\)\}`/);
+  assert.match(shell, /iconButton\("folder-plus", `New folder in \$\{name\}`/);
+  assert.match(shell, /action: "add", parent: path, name: child/);
+  assert.match(shell, /\(targets\.get\(parent\) \|\| menu\)\.append\(details\)/);
   assert.match(shell, /agent-chat-rename-form/);
   assert.match(shell, /\{ label \}/);
   assert.match(shell, /summary\.onclick/);

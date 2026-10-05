@@ -384,20 +384,25 @@ export function initShell(options = {}) {
 	const act = async (body) => { try { chatTree = await api("/api/chats/tree", body); renderAgentMenu(menu, agentID, false); } catch (error) { report(error.message); } };
 	const root = node("div", "agent-chat-folder-root");
 	const rootName = node("strong", ""); rootName.textContent = "chats"; root.append(rootName);
-	const add = button("New folder", "New folder", "agent-chat-folder-action");
-	add.onclick = () => { const name = prompt("New folder name"); if (name) void act({ action: "add", name }); };
+	const add = iconButton("folder-plus", "New folder in chats", "agent-chat-folder-action");
+	add.onclick = () => { const name = prompt("New folder name"); if (name) void act({ action: "add", parent: "", name }); };
 	root.append(add); menu.append(root);
 	root.ondragover = (event) => event.preventDefault();
 	root.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: "" }); };
 	const targets = new Map([["", menu]]);
-	for (const path of tree.folders || []) {
+	const folders = [...(tree.folders || [])].sort((left, right) => left.split("/").length - right.split("/").length || left.localeCompare(right));
+	for (const path of folders) {
 		const details = document.createElement("details"); details.className = "agent-chat-folder";
-		const heading = document.createElement("summary"); const folderName = node("span", ""); folderName.textContent = path; heading.append(folderName);
-		const rename = button("Rename", `Rename ${path}`, "agent-chat-folder-action");
+		details.dataset.folder = path;
+		const name = path.split("/").at(-1), parent = path.split("/").slice(0, -1).join("/");
+		const heading = document.createElement("summary"); const folderName = node("span", ""); folderName.textContent = name; heading.append(folderName);
+		const add = iconButton("folder-plus", `New folder in ${name}`, "agent-chat-folder-action");
+		add.onclick = (event) => { event.preventDefault(); const child = prompt("New folder name"); if (child) void act({ action: "add", parent: path, name: child }); };
+		const rename = iconButton("pencil", `Rename ${name}`, "agent-chat-folder-action");
 		rename.onclick = (event) => { event.preventDefault(); const name = prompt("Folder name", path.split("/").at(-1)); if (name) void act({ action: "rename", path, name }); };
 		const remove = button("×", `Delete ${path}`, "agent-chat-delete");
 		remove.onclick = (event) => { event.preventDefault(); void act({ action: "delete", path }); };
-		heading.append(rename, remove); details.append(heading); menu.append(details); targets.set(path, details);
+		heading.append(add, rename, remove); details.append(heading); (targets.get(parent) || menu).append(details); targets.set(path, details);
 		details.ondragover = (event) => event.preventDefault();
 		details.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: path }); };
 	}
@@ -439,8 +444,8 @@ export function initShell(options = {}) {
           openSide(agentID, session.id, "chat");
         } catch (error) { report(error.message); }
       };
-      const rename = button("Rename", `Rename ${chatName(session)}`, "agent-chat-rename");
-      rename.onclick = () => showRename(row, session, menu, agentID);
+      const rename = iconButton("pencil", `Rename ${chatName(session)}`, "agent-chat-rename");
+      rename.onclick = (event) => { event.stopPropagation(); showRename(row, session, menu, agentID); };
       const remove = button("×", `Delete ${chatName(session)}`, "agent-chat-delete");
       remove.onclick = () => void deleteChat(session, menu, agentID);
       // Item 2py (f): Delete works whatever the chat is doing; the server stops and
@@ -667,6 +672,23 @@ function button(text, title, className) {
   value.type = "button";
   value.textContent = text;
   value.title = title;
+  return value;
+}
+function iconButton(kind, title, className) {
+  const value = button("", title, className);
+  value.setAttribute("aria-label", title);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const paths = kind === "folder-plus"
+    ? ["M3.5 6.5h6l2 2h9v10h-17z", "M12 11v5M9.5 13.5h5"]
+    : ["M5 19l3.5-.8L19 6.7 16.3 4 5.8 15.5z", "M14.8 5.5l2.7 2.7"];
+  for (const shape of paths) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", shape);
+    svg.append(path);
+  }
+  value.append(svg);
   return value;
 }
 function setAttr(node, name, value) {

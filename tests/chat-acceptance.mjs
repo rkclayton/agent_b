@@ -180,12 +180,12 @@ const fakeHandler = async (request, response) => {
   }
   if (request.url !== "/v1/chat/completions") { response.statusCode = 404; return void response.end(); }
   const user = latestUser(body);
-  if (user.includes("Summarize the work so far")) {
+  if (user.includes("Summarize the work so far") || user.includes("Write one short hand-off for a fresh context")) {
     const slowAccounting = (body.messages || []).some((message) => String(message.content || "").includes("acceptance: slow accounting"));
     response.setHeader("Content-Type", "application/json");
-    const content = slowAccounting
+    const content = slowAccounting && user.includes("Summarize the work so far")
       ? "acceptance: slow accounting completed read; answer the pending request now."
-      : "Earlier acceptance steps completed; keep the stable system and tool prefix.";
+      : "DONE: Earlier acceptance steps completed.\nNEXT: Continue the current acceptance task.\nFILES CHANGED: none.\nOPEN QUESTIONS: none.";
     return void response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 300, completion_tokens: 18, prompt_tokens_details: { cached_tokens: 200 } } }));
   }
   // Item 2fg: the walk's step 3 — a 60 s tool the operator stops.
@@ -2334,15 +2334,31 @@ if (realModel) {
   await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > busyEvent.seq, "busy run stopped");
   record("model-busy-waits-without-stop");
 
+  // Force this integration case across the boundary from its measured budget;
+  // the focused long-run tests exercise the production percentages repeatedly.
+  const compactionConfigState = await state();
+  const normalContext = compactionConfigState.config.context;
+  await json(`http://127.0.0.1:${appPort}/api/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": compactionConfigState.mutation_token },
+    body: JSON.stringify({ context: { ...normalContext, soft_pct: .04, summary_pct: .05 } }),
+  });
   const beforeCompactionSequence = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
-  for (let index = 0; index < 12; index++) {
-    events = await sessionEvents(sessionID);
-    const beforeSequence = events.at(-1)?.seq || 0;
-    await setTask(`acceptance: compaction ${index} ${"payload ".repeat(1200)}`);
-    await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > beforeSequence, `compaction run ${index}`, 20000);
-  }
+  const compactionTask = `acceptance: compaction ${"payload ".repeat(1200)}`.trimEnd();
+  await setTask(compactionTask);
+  await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > beforeCompactionSequence, "compaction run", 20000);
   const compaction = await waitEvent(sessionID, (event) => event.type === "compaction", "compaction", 20000);
+  const restoreCompactionConfigState = await state();
+  await json(`http://127.0.0.1:${appPort}/api/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": restoreCompactionConfigState.mutation_token },
+    body: JSON.stringify({ context: normalContext }),
+  });
+  assert.equal(compaction.data.kind, "fresh");
   assert.ok(compaction.data.before > compaction.data.after, `compaction must free tokens: ${JSON.stringify(compaction.data)}`);
+  const afterFreshSequence = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
+  await setTask("acceptance: after fresh context");
+  await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > afterFreshSequence, "post-compaction run", 20000);
   events = await sessionEvents(sessionID);
   const requests = events.filter((event) => event.type === "model.request" && event.body && event.seq > beforeCompactionSequence);
   const prefix = (event) => JSON.stringify({ system: event.body.messages?.[0], tools: event.body.tools });
@@ -2352,18 +2368,19 @@ if (realModel) {
   // Compaction notes are harness-authored in the durable journal. Request
   // assembly translates that trusted record to the assistant role below.
   assert.equal(summaryEvent.data.message.role, "harness");
+  assert.match(summaryEvent.data.message.content, /^Fresh-context hand-off:\nDONE:.*\nNEXT:.*\nFILES CHANGED:.*\nOPEN QUESTIONS:/s);
   const requestAfterSummary = requests.find((event) => event.seq > summaryEvent.seq);
   assert.ok(requestAfterSummary, "compaction summary was not followed by a model request");
-  assert.ok(requestAfterSummary.body.messages.some((message) => message.role === "assistant" && message.content === `[harness note]\n${summaryEvent.data.message.content}`), "model request did not retain the complete harness-authored summary as assistant context");
+  const currentTaskIndex = requestAfterSummary.body.messages.findIndex((message) => message.role === "user" && message.content === compactionTask);
+  const handoffIndex = requestAfterSummary.body.messages.findIndex((message) => message.role === "assistant" && message.content === `[harness note]\n${summaryEvent.data.message.content}`);
+  assert.ok(currentTaskIndex >= 0 && handoffIndex === currentTaskIndex + 1, "fresh request must contain the exact current task followed by one harness-authored hand-off");
+  assert.equal(requestAfterSummary.body.messages.filter((message) => message.content === `[harness note]\n${summaryEvent.data.message.content}`).length, 1);
   assert.ok((await browserText("#chat-log")).includes("acceptance: compaction"));
-  const summaryRow = page.locator(".chat-summary").last();
-  await summaryRow.waitFor({ state: "visible" });
-  assert.equal((await summaryRow.locator(".chat-speaker").innerText()).trim(), "summary");
-  const presentedSummary = await summaryRow.innerText();
-  assert.doesNotMatch(presentedSummary, /Progress note \(auto-summary of earlier turns\):|\[BEGIN COMPACTION EVIDENCE\]/);
-  await summaryRow.scrollIntoViewIfNeeded();
+  assert.equal(await page.locator(".chat-summary").count(), 0, "the hand-off must not replace or appear in the visible transcript");
+  await browser.wait(`document.querySelector('#chat-log')?.innerText.split('\\n').includes('fresh context — earlier turns searchable')`, "fresh-context searchable-history line");
   await captureWithMasks(page, join(args.evidence, "compaction-summary.png"));
-  record("compaction-keeps-model-prefix-stable");
+
+  record("compaction-starts-fresh-context-and-keeps-visible-transcript");
 	const compactedSession = (await state()).sessions[sessionID];
 	assert.ok(compactedSession.compaction_count > 0, JSON.stringify(compactedSession));
 	await openPanel("activity", sessionID);

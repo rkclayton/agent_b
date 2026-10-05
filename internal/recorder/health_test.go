@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -150,6 +151,7 @@ func TestTheNewTypesVectorsValidateAgainstTheBuilder2q6(t *testing.T) {
 		"outcome": map[string]any{"at": "y", "ok": false, "phase": "verify", "version": "v1.60.12"}}))
 	out.settle()
 	collect(out)
+	collect(&emissions{all: appEmissions(t)})
 	body, err := os.ReadFile(filepath.Join("..", "..", "docs", "telemetry-trace.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -209,4 +211,148 @@ func TestAFortyCallRunAddsAtMostTwelveEvents2q6(t *testing.T) {
 	if len(batch) > 12 || len(encoded) > 8<<10 {
 		t.Fatalf("a 40-call run adds %d events and %d bytes", len(batch), len(encoded))
 	}
+}
+
+// appSession is 2q7 CHECK 1's scripted session at the recorder: start, the
+// window, three settings pages, two chats with a message each and a tool, a phone
+// join through the link's own record, one update check and one install.
+func appSession(t *testing.T) (*App, map[string]map[string]any) {
+	t.Helper()
+	clock := time.Date(2026, 10, 4, 21, 0, 0, 0, time.UTC)
+	app := NewApp(clock)
+	app.now = func() time.Time { return clock }
+	app.Resources = func() map[string]any {
+		return map[string]any{"data_bytes": int64(3_000_000_000), "chats_bytes": int64(900_000_000), "chats": int64(40), "ram_bytes": int64(32_000_000_000), "os_version": "windows 10.0.26200"}
+	}
+	bus := events.NewBus()
+	bus.SetObserver(app.Observe)
+	publish := func(eventType, session string, data map[string]any) { bus.Publish(events.New(eventType, session, "r1", data)) }
+	app.NoteListening(851, "clean")
+	clock = clock.Add(1420 * time.Millisecond)
+	app.NoteWindowShown()
+	app.NotePage(640, map[string]int{"connections": 2, "about": 1})
+	app.NoteState(29_300_000, 2400*time.Millisecond)
+	for _, chat := range []string{"s1", "s2"} {
+		publish(events.SessionCreated, chat, map[string]any{})
+		publish(events.MessageAppended, chat, map[string]any{"message": map[string]any{"role": "user", "content": "ZEBRA secret", "attachments": []any{map[string]any{"kind": "image", "path": `C:\Users\someone\a.png`}}}})
+		publish(events.ToolResult, chat, map[string]any{"name": "read_file", "ok": true})
+	}
+	clock = clock.Add(3810 * time.Millisecond)
+	publish(events.ModelResponse, "s1", map[string]any{"content": "answer"})
+	publish(events.NavigationMeasured, "", map[string]any{"end_to_end_ms": 120})
+	publish(events.UIError, "", map[string]any{"kind": "unhandled exception", "message": "ZEBRA secret", "name": "TypeError", "file": "shell.js", "line": 412, "repeat_count": 3})
+	publish(events.ApprovalRequired, "s1", map[string]any{"call_id": "c1", "name": "shell.operator_override"})
+	publish(events.ApprovalDecided, "s1", map[string]any{"call_id": "c1", "decision": "folder"})
+	app.Link("connected")
+	app.NoteJoin(35_100_000)
+	app.Link("disconnected reason=read: unexpected EOF ZEBRA")
+	clock = clock.Add(1200 * time.Millisecond)
+	app.Link("connected")
+	app.Link("ERROR code=queue_full detail=ZEBRA secret")
+	app.Link("PUSH kind=run_stopped answer=accepted")
+	app.NoteReport()
+	publish(events.UpdateChanged, "", map[string]any{"current_version": "v1.60.12", "checked_at": "2026-10-04T21:00:30Z", "available": true, "version": "v1.60.13"})
+	publish(events.UpdateChanged, "", map[string]any{"current_version": "v1.60.12", "outcome": map[string]any{"at": "2026-10-04T21:05:00Z", "ok": false, "phase": "verify", "version": "v1.60.13"}})
+	byType := map[string]map[string]any{}
+	for _, item := range app.Flush() {
+		byType[item.kind] = item.data
+	}
+	return app, byType
+}
+
+// 2q7 CHECK 1.
+func TestTheAppAroundTheRunsIsReported2q7(t *testing.T) {
+	_, got := appSession(t)
+	expect := map[string]map[string]any{
+		events.AppStart:   {"listen_ms": int64(851), "window_ms": int64(1420), "first_answer_ms": int64(5230), "previous_exit": "clean"},
+		events.PageHealth: {"state_bytes": int64(33554432), "longest_freeze_ms": 640},
+		events.LinkHealth: {"connects": 2, "join_bytes": int64(67108864)},
+		events.Install:    {"step": "verify", "class": "failed", "from": "v1.60.12", "to": "v1.60.13"},
+		events.Resource:   {"data_bytes": int64(4294967296), "chats_bytes": int64(1073741824), "chats": int64(64), "ram_bytes": int64(34359738368), "os_version": "windows 10.0.26200"},
+		events.FeatureUse: {"chats_created": 2, "messages_sent": 2, "reports": 1, "voice": 0},
+	}
+	for kind, fields := range expect {
+		for field, want := range fields {
+			if got[kind][field] != want {
+				t.Errorf("%s.%s = %#v, want %#v", kind, field, got[kind][field], want)
+			}
+		}
+	}
+	link := got[events.LinkHealth]
+	if link["drops"].(map[string]int)["eof"] != 1 || link["refused"].(map[string]int)["queue_full"] != 1 || link["pushes"].(map[string]int)["accepted"] != 1 || link["reconnect_ms"].(map[string]int)["p50"] != 1200 {
+		t.Errorf("link.health = %v", link)
+	}
+	use := got[events.FeatureUse]
+	if use["settings_pages"].(map[string]int)["connections"] != 2 || use["tools"].(map[string]int)["read_file"] != 2 || use["attachments"].(map[string]int)["image"] != 2 || use["approvals"].(map[string]int)["shell.operator_override.folder"] != 1 {
+		t.Errorf("feature.use = %v", use)
+	}
+	if errors := got[events.PageHealth]["js_errors"].([]map[string]any); len(errors) != 1 || errors[0]["name"] != "TypeError" || errors[0]["file"] != "shell.js" || errors[0]["line"] != 412 || errors[0]["count"] != 3 {
+		t.Errorf("js_errors = %v", errors)
+	}
+	encoded, _ := json.Marshal(got)
+	for _, needle := range []string{"ZEBRA", "someone", "secret"} {
+		if strings.Contains(string(encoded), needle) {
+			t.Fatalf("the app's events carry %q: %s", needle, encoded)
+		}
+	}
+}
+
+// 2q7 CHECK 3: every bucketed field is a power of two, whatever went in.
+func TestEveryBucketIsAPowerOfTwo2q7(t *testing.T) {
+	for _, n := range []int64{1, 2, 3, 5, 1000, 29_300_000, 1 << 40, (1 << 40) + 1} {
+		if bucket := Bucket(n); bucket < n || bucket&(bucket-1) != 0 || bucket >= 2*n {
+			t.Errorf("Bucket(%d) = %d", n, bucket)
+		}
+	}
+	if Bucket(0) != 0 {
+		t.Error("Bucket(0) is not 0")
+	}
+	_, got := appSession(t)
+	for kind, fields := range map[string][]string{events.PageHealth: {"state_bytes"}, events.LinkHealth: {"join_bytes"},
+		events.Resource: {"memory_peak_bytes", "data_bytes", "chats_bytes", "chats", "ram_bytes"}} {
+		for _, field := range fields {
+			value, _ := got[kind][field].(int64)
+			if value <= 0 || value&(value-1) != 0 {
+				t.Errorf("%s.%s = %v, not a power of two", kind, field, got[kind][field])
+			}
+		}
+	}
+}
+
+// 2q7 CHECK 5: an hour of ordinary use adds at most 20 events and 16 KiB.
+func TestAnHourOfOrdinaryUseIsSmall2q7(t *testing.T) {
+	app, _ := appSession(t)
+	bus := events.NewBus()
+	bus.SetObserver(app.Observe)
+	for index := 0; index < 60; index++ {
+		session := fmt.Sprintf("s%d", index%6)
+		bus.Publish(events.New(events.MessageAppended, session, "r", map[string]any{"message": map[string]any{"role": "user"}}))
+		for _, tool := range []string{"read_file", "search", "shell", "edit_file", "list_dir"} {
+			bus.Publish(events.New(events.ToolResult, session, "r", map[string]any{"name": tool, "ok": true}))
+		}
+		bus.Publish(events.New(events.NavigationMeasured, "", "", map[string]any{"end_to_end_ms": 100 + index}))
+		app.NoteState(int64(1_000_000+index*1000), time.Duration(index)*time.Millisecond)
+		app.Link("PUSH kind=run_stopped answer=accepted")
+	}
+	var batch []telemetry.Event
+	for _, item := range app.Flush() {
+		class, _ := telemetry.Classify(item.kind)
+		batch = append(batch, telemetry.Event{Type: item.kind, At: "2026-10-04T22:00:00Z", Data: telemetry.Pick(class, item.data)})
+	}
+	encoded, _ := json.Marshal(batch)
+	t.Logf("an hour of ordinary use adds %d events, %d bytes", len(batch), len(encoded))
+	if len(batch) > 20 || len(encoded) > 16<<10 {
+		t.Fatalf("an hour adds %d events and %d bytes", len(batch), len(encoded))
+	}
+}
+
+// appEmissions feeds the vector test the app's six types, each field present.
+func appEmissions(t *testing.T) []emitted {
+	t.Helper()
+	_, got := appSession(t)
+	out := make([]emitted, 0, len(got))
+	for kind, data := range got {
+		out = append(out, emitted{kind, data})
+	}
+	return out
 }

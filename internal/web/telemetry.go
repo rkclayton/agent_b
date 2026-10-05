@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"harness/internal/buildinfo"
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/recorder"
 	"harness/internal/telemetry"
 )
 
@@ -223,7 +225,54 @@ func (s *Server) reportChat(w http.ResponseWriter, id string) {
 		writeError(w, http.StatusBadGateway, "the report was not accepted: "+telemetry.Redact(err.Error()), "report")
 		return
 	}
+	s.app.NoteReport()
 	writeJSON(w, http.StatusOK, map[string]any{"report_id": trace["report_id"]})
+}
+
+// pageHealth is item 2q7 (b) and (f) from the page: its longest freeze and the
+// settings pages it opened. Names are checked against a word pattern there.
+func (s *Server) pageHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		method(w)
+		return
+	}
+	var body struct {
+		FreezeMS int            `json:"freeze_ms"`
+		Pages    map[string]int `json:"settings_pages"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	s.app.NotePage(min(max(body.FreezeMS, 0), 600000), body.Pages)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// resourceProbe is item 2q7 (e), run once an hour by the recorder: the data
+// folder's and the chat store's size, the chat count, RAM and the OS build.
+func (s *Server) resourceProbe() map[string]any {
+	out := map[string]any{"os_version": osVersion()}
+	walk := func(root string) (bytes, files int64) {
+		_ = filepath.WalkDir(root, func(_ string, entry fs.DirEntry, err error) error {
+			if err == nil && !entry.IsDir() {
+				if info, err := entry.Info(); err == nil {
+					bytes, files = bytes+info.Size(), files+1
+				}
+			}
+			return nil
+		})
+		return bytes, files
+	}
+	if root := s.profileRoot(); root != "" {
+		out["data_bytes"], _ = walk(root)
+		out["chats_bytes"], _ = walk(filepath.Join(root, "chats"))
+	}
+	s.chatMu.Lock()
+	out["chats"] = int64(len(s.chatEntries))
+	s.chatMu.Unlock()
+	if ram := totalRAM(); ram > 0 {
+		out["ram_bytes"] = ram
+	}
+	return out
 }
 
 // NewInstallID is issued when the switch goes off then on, so two runs of
@@ -231,3 +280,6 @@ func (s *Server) reportChat(w http.ResponseWriter, id string) {
 func NewInstallID() string { return telemetry.NewInstallID() }
 
 var _ = events.RunStopped
+
+// App is the app-health aggregator (item 2q7), for start-up's notes.
+func (s *Server) App() *recorder.App { return s.app }

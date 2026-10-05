@@ -27,6 +27,8 @@ type lifetime struct {
 	once            sync.Once
 	applicationRoot string
 	listen          string
+	// unclean is item 2q7 (a): the last instance ended without recording a reason.
+	unclean bool
 }
 
 type runMarker struct {
@@ -53,6 +55,7 @@ func (l *lifetime) begin() {
 	if data, err := readMarker(l.markerPath); err == nil {
 		var previous runMarker
 		if json.Unmarshal(data, &previous) == nil && previous.PID > 0 && !(previous.PID == l.pid && previous.Created == l.created) && !processRunning(previous.PID, previous.Created) {
+			l.unclean = true
 			l.append(fmt.Sprintf("Agent_b PID %d (started %s) ended without recording a reason: the Windows session was logged off or shut down, the process was ended from outside, or the host lost power.", previous.PID, printable(previous.Started)))
 		}
 	}

@@ -68,7 +68,10 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 		}
 		return nil
 	})
-	client.OnSessionEvent(func(message string) { c.recordSession(pairing, message) })
+	client.OnSessionEvent(func(message string) {
+		c.recordSession(pairing, message)
+		server.app.Link(message) // item 2q7 (c): its shape only
+	})
 	client.OnHolding(func(connection context.Context) {
 		server.streamPushes(connection, client)
 	})
@@ -130,8 +133,10 @@ func (s *Server) streamUnitsToDevice(ctx context.Context, client deviceSink) {
 func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink, includePushes bool) {
 	raw, unsubscribeRaw := s.bus.Subscribe()
 	defer unsubscribeRaw()
+	var sent int64
 	send := func(unit map[string]any) {
 		encoded, err := appCanonical(unit)
+		sent += int64(len(encoded))
 		if err == nil {
 			var parts [][]byte
 			if parts, err = appSplit(encoded, appUnitMax); err == nil {
@@ -156,6 +161,10 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 		defer unsubscribe()
 		for id, snapshot := range sessions {
 			send(map[string]any{"v": 1, "kind": "snapshot", "session_id": id, "data": snapshot})
+		}
+		// Item 2q7 (c): what one phone join sent (2pv measured 35.1 MB).
+		if s.app != nil {
+			s.app.NoteJoin(sent)
 		}
 		patches = subscribed
 	}

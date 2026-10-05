@@ -227,6 +227,99 @@ switch); and `os_version`. No address, key, name, path or label.
 {"type":"settings.shape","at":"2026-10-04T21:00:05Z","connections":[{"kind":"api","model":"Qwen3.8-27B-UD-Q3_K_XL","context_size":32768,"reserve":4096,"reasoning_effort":"medium","soft_pct":0.8,"summary_pct":0.9}],"telemetry":true,"os_version":"windows 10.0.26200"}
 ```
 
+## The app around the runs (item 2q7)
+
+How the app itself is doing: start-up, the page, the phone link, installs,
+resources and what gets used. Gathered for an hour and sent as one event of
+each type (`app.start` once per process, `install` once per outcome, at most
+four an hour), only when anonymous diagnostics are on. **Every size and count
+that could single out a machine is a power-of-two bucket**: the smallest power
+of two at or above the value, so `chats: 64` means 33 to 64 chats.
+
+### `app.start`
+
+Once per process, in the first hour.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `listen_ms` | int | from process start to the port answering |
+| `window_ms` | int, optional | to the host window being shown; absent for a background start |
+| `first_answer_ms` | int, optional | to the first model answer; absent when none came in the hour |
+| `previous_exit` | string | how the last instance ended: `clean`, `crash` (a crash record was left), `unclean` (it ended without recording a reason) |
+
+```json vector:app.start
+{"type":"app.start","at":"2026-10-04T21:00:05Z","listen_ms":851,"window_ms":1420,"first_answer_ms":5230,"previous_exit":"clean"}
+```
+
+### `page.health`
+
+| Field | Type | Meaning |
+|---|---|---|
+| `state_bytes` | int | the largest state answer the page was sent, bucketed |
+| `state_ms` | object, optional | `{"p50","p95"}` of state answer time |
+| `page_load_ms` | object, optional | `{"p50","p95"}` of in-app navigations, click to painted |
+| `longest_freeze_ms` | int | the longest task that held the page |
+| `js_errors` | array | per JavaScript error kind, at most 16: `name` (the error's own name, e.g. `TypeError`, or `unnamed`), `file` and `line` in OUR code (`shell.js`, 412; empty and 0 when not ours), `count`. Never a message or a value. |
+
+```json vector:page.health
+{"type":"page.health","at":"2026-10-04T21:00:05Z","state_bytes":33554432,"state_ms":{"p50":180,"p95":2400},"page_load_ms":{"p50":120,"p95":900},"longest_freeze_ms":640,"js_errors":[{"name":"TypeError","file":"shell.js","line":412,"count":3}]}
+```
+
+### `link.health`
+
+The phone link (the broker session), when it did anything in the hour.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `connects` | int | sessions established |
+| `drops` | object | drops by reason class: `eof`, `timeout`, `reset`, `refused`, `closed`, `other` |
+| `reconnect_ms` | object, optional | `{"p50","p95"}` from a drop to the next connect |
+| `refused` | object | frames the broker refused, by its rule code |
+| `pushes` | object | push sends by the broker's answer (`accepted`, `no_token`, `refused`) |
+| `join_bytes` | int | the most one phone join sent, bucketed |
+
+PC-to-phone message latency is not measured: the link keeps no send time.
+
+```json vector:link.health
+{"type":"link.health","at":"2026-10-04T21:00:05Z","connects":3,"drops":{"eof":2},"reconnect_ms":{"p50":1200,"p95":4100},"refused":{"queue_full":1},"pushes":{"accepted":4},"join_bytes":67108864}
+```
+
+### `install`
+
+One per installer or updater outcome: `step` (the phase it reached or failed
+at), `class` (`ok` or `failed`), `from` and `to` versions.
+
+```json vector:install
+{"type":"install","at":"2026-10-04T21:00:05Z","step":"verify","class":"failed","from":"v1.60.12","to":"v1.60.13"}
+```
+
+### `resource`
+
+| Field | Type | Meaning |
+|---|---|---|
+| `memory_peak_bytes` | int | the process's peak memory from the runtime, sampled each minute, bucketed |
+| `data_bytes` | int, optional | the data folder's size, bucketed |
+| `chats_bytes` | int, optional | the chat store's size, bucketed |
+| `chats` | int, optional | how many chats, bucketed |
+| `ram_bytes` | int, optional | installed memory, bucketed |
+| `arch` | string | CPU architecture (`amd64`, `arm64`) |
+| `os_version` | string, optional | OS name and build numbers |
+
+```json vector:resource
+{"type":"resource","at":"2026-10-04T21:00:05Z","memory_peak_bytes":268435456,"data_bytes":4294967296,"chats_bytes":1073741824,"chats":64,"ram_bytes":34359738368,"arch":"amd64","os_version":"windows 10.0.26200"}
+```
+
+### `feature.use`
+
+Counts for the hour: `chats_created`, `messages_sent`, `reports` (Report this
+chat), `voice` (voice turns); and objects of counts: `tools` by registered
+tool name, `attachments` by kind (`text`, `office`, `pdf`, `image`, `zip`,
+`binary`), `settings_pages` by page id, `approvals` by card kind and answer.
+
+```json vector:feature.use
+{"type":"feature.use","at":"2026-10-04T21:00:05Z","chats_created":2,"messages_sent":14,"reports":1,"voice":0,"tools":{"read_file":22,"search":5},"attachments":{"image":1},"settings_pages":{"connections":2,"about":1},"approvals":{"shell.operator_override.folder":1}}
+```
+
 ## The allow-list
 
 These types travel in batches of their own, never beside the older types: a
@@ -248,3 +341,9 @@ dropped by the allow-list in `internal/telemetry` before it can.
 | `connection.state` | `from`, `to`, `cause` |
 | `update` | `check`, `install`, `from`, `to` |
 | `settings.shape` | `connections`, `telemetry`, `os_version` |
+| `app.start` | `listen_ms`, `window_ms`, `first_answer_ms`, `previous_exit` |
+| `page.health` | `state_bytes`, `state_ms`, `page_load_ms`, `longest_freeze_ms`, `js_errors` |
+| `link.health` | `connects`, `drops`, `reconnect_ms`, `refused`, `pushes`, `join_bytes` |
+| `install` | `step`, `class`, `from`, `to` |
+| `resource` | `memory_peak_bytes`, `data_bytes`, `chats_bytes`, `chats`, `ram_bytes`, `arch`, `os_version` |
+| `feature.use` | `chats_created`, `messages_sent`, `tools`, `attachments`, `reports`, `voice`, `settings_pages`, `approvals` |

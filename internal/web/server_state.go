@@ -100,6 +100,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	// Item 17-i's registration decision: the operator is here, so a plan
 	// reflection proposed can be put to them as an ordinary card. This returns
 	// at once unless something is pending (v1.1.1/W3).
+	started := time.Now()
 	s.OfferReflectionProposals()
 	snapshot := s.snapshot()
 	if pairedDeviceAuthenticated(r) {
@@ -108,7 +109,23 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		snapshot["connections"] = s.phoneConnections()
 		delete(snapshot, "config")
 	}
-	writeJSON(w, 200, snapshot)
+	// Item 2q7 (b): the state answer's size and time, counted as it is written.
+	counted := &countingWriter{ResponseWriter: w}
+	writeJSON(counted, 200, snapshot)
+	if s.app != nil {
+		s.app.NoteState(counted.bytes, time.Since(started))
+	}
+}
+
+type countingWriter struct {
+	http.ResponseWriter
+	bytes int64
+}
+
+func (c *countingWriter) Write(data []byte) (int, error) {
+	written, err := c.ResponseWriter.Write(data)
+	c.bytes += int64(written)
+	return written, err
 }
 
 func (s *Server) phoneConnections() []map[string]any {

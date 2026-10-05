@@ -1,6 +1,7 @@
 import { api, reduce, setActive, store, subscribe } from "./bus.js";
 import { operatorStatusView } from "./operator-status.js";
 import { navigationSurfaceReady, recordViewMount } from "./navigation-telemetry.js";
+import { notePage } from "./page-health.js";
 import { connectionFailureSentence, renderConnectionsPage } from "./settings-connections.js";
 import { renderAboutPage } from "./settings-about.js";
 import { renderChatsPage } from "./settings-chats.js";
@@ -220,6 +221,7 @@ export function openSettings(section = "") {
     errorPanel = "";
   }
   if (sectionLabels.some(([id]) => id === section)) activeSection = section;
+  notePage(activeSection);
   if (section === "plan") planRequestedByAddress = true;
   open = true;
   lastFocus = document.activeElement;
@@ -965,6 +967,7 @@ async function dispatchAction(event, button, action, id) {
     // Item 2no (a): every section is drawn in the pane, the Plan included. This used
     // to be location.assign('/plan...') — a page navigation dressed as a section.
     activeSection = id;
+    notePage(id);
     history.replaceState(null, "", `#settings/${activeSection}`);
     return render();
   }

@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -129,6 +130,10 @@ func (s *Server) uiError(w http.ResponseWriter, r *http.Request) {
 		Location    string `json:"location"`
 		RepeatCount int    `json:"repeat_count"`
 		Capped      bool   `json:"capped"`
+		// Item 2q7 (b): the error's name and our own file:line, checked below.
+		Name string `json:"name"`
+		File string `json:"file"`
+		Line int    `json:"line"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -156,6 +161,18 @@ func (s *Server) uiError(w http.ResponseWriter, r *http.Request) {
 	if body.RepeatCount < 1 {
 		body.RepeatCount = 1
 	}
-	s.bus.Publish(events.New(events.UIError, body.SessionID, "", map[string]any{"kind": body.Kind, "message": body.Message, "stack": body.Stack, "location": body.Location, "repeat_count": body.RepeatCount, "capped": body.Capped}))
+	data := map[string]any{"kind": body.Kind, "message": body.Message, "stack": body.Stack, "location": body.Location, "repeat_count": body.RepeatCount, "capped": body.Capped}
+	if uiErrorName.MatchString(body.Name) {
+		data["name"] = body.Name
+	}
+	if uiErrorFile.MatchString(body.File) && body.Line > 0 {
+		data["file"], data["line"] = body.File, body.Line
+	}
+	s.bus.Publish(events.New(events.UIError, body.SessionID, "", data))
 	w.WriteHeader(http.StatusNoContent)
 }
+
+var (
+	uiErrorName = regexp.MustCompile(`^[A-Za-z]{1,40}$`)
+	uiErrorFile = regexp.MustCompile(`^[a-z0-9-]{1,40}\.m?js$`)
+)

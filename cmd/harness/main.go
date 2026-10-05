@@ -37,6 +37,7 @@ import (
 	"harness/internal/profiles"
 	"harness/internal/progress"
 	"harness/internal/projection"
+	"harness/internal/recorder"
 	"harness/internal/serviceaccount"
 	"harness/internal/session"
 	"harness/internal/signing"
@@ -350,7 +351,10 @@ func main() {
 	// subscribes to the bus, so it is never in a run's path.
 	web.StartReflection(24 * time.Hour)
 	web.ApplyTelemetry()
-	for _, report := range pendingCrashReports(paths.Data) {
+	startupApp = web.App()
+	crashes := pendingCrashReports(paths.Data)
+	previousCrashed = len(crashes) > 0
+	for _, report := range crashes {
 		if web.QueueStartupTelemetry("error", report.At, report.Data) {
 			if err := markCrashReported(report.Path); err != nil {
 				log.Printf("mark crash telemetry: %v", err)
@@ -1036,6 +1040,15 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime, application
 	go func() {
 		log.Printf("Agent_b listening on http://%s", cfg.Listen)
 		startupTimer.report()
+		if startupApp != nil && startupTimer != nil {
+			exit := "clean"
+			if previousCrashed {
+				exit = "crash"
+			} else if life != nil && life.unclean {
+				exit = "unclean"
+			}
+			startupApp.NoteListening(time.Since(startupTimer.started).Milliseconds(), exit)
+		}
 		errors <- httpServer.Serve(listener)
 	}()
 	signals := make(chan os.Signal, 1)
@@ -1186,8 +1199,18 @@ func openHostWindow(url, applicationRoot string) bool {
 
 // recordWindowFate writes one window line to the startup log and to the
 // launcher log the user reads, in the launcher's own line format.
+// Item 2q7 (a): the app aggregator, and whether the last instance crashed;
+// package level because the listen and window lines live outside main().
+var (
+	startupApp      *recorder.App
+	previousCrashed bool
+)
+
 func recordWindowFate(message string) {
 	log.Print(message)
+	if message == "host window: opened" && startupApp != nil {
+		startupApp.NoteWindowShown()
+	}
 	if hostWindowDataRoot == "" {
 		return
 	}

@@ -92,7 +92,8 @@ fatal stderr without absolute program counters stays local and is not sent.
 
 `trace`, `run.summary`, `model.perf`, `tool.perf`, `model.behaviour`,
 `budget.drift`, `compaction`, `approval.wait`, `model.refused`,
-`connection.state`, `update` and `settings.shape` (items 2pw and 2q6) are
+`connection.state`, `update`, `settings.shape`, `app.start`, `page.health`,
+`link.health`, `install`, `resource` and `feature.use` (items 2pw, 2q6 and 2q7) are
 specified in [`docs/telemetry-trace.md`](telemetry-trace.md), with their fields,
 their vectors and their allow-list. They are built per run or per change, never
 per request. `trace` is the one event that leaves with the switch off, and only

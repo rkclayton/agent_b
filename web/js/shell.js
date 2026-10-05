@@ -1,6 +1,7 @@
 import { api, reduce, setSelection, setSurface, store, subscribe } from "./bus.js";
 import { chatName, chatRowText, isRunning, sessionTitle } from "./chat-lifecycle.js";
 import { installUIErrorRelay } from "./ui-error-relay.js";
+import { installPageHealth } from "./page-health.js";
 import { requestNavigation } from "./navigation-guard.js";
 import { surfaceForPage } from "./surfaces.js";
 import { connectionHealth } from "./settings-connections.js";
@@ -14,6 +15,7 @@ const agentKey = (agent) => String(agent?.name || "").trim().toLowerCase().repla
 
 export function initShell(options = {}) {
 	installUIErrorRelay({ token: () => store.mutation_token, sessionID: () => store.active });
+	installPageHealth({ token: () => store.mutation_token });
   const root = document.getElementById("app-shell");
   if (!root) return null;
   let page = options.page || root.dataset.page || "chat";

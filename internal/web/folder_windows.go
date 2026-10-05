@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -85,4 +86,19 @@ func setSignInStart(enabled bool, command string) error {
 func osVersion() string {
 	info := windows.RtlGetVersion()
 	return fmt.Sprintf("windows %d.%d.%d", info.MajorVersion, info.MinorVersion, info.BuildNumber)
+}
+
+// totalRAM is item 2q7 (e)'s installed memory, from GlobalMemoryStatusEx.
+func totalRAM() int64 {
+	var status struct {
+		Length, MemoryLoad                                 uint32
+		TotalPhys, AvailPhys, TotalPageFile, AvailPageFile uint64
+		TotalVirtual, AvailVirtual, AvailExtendedVirtual   uint64
+	}
+	status.Length = uint32(unsafe.Sizeof(status))
+	proc := windows.NewLazySystemDLL("kernel32.dll").NewProc("GlobalMemoryStatusEx")
+	if ok, _, _ := proc.Call(uintptr(unsafe.Pointer(&status))); ok == 0 {
+		return 0
+	}
+	return int64(status.TotalPhys)
 }

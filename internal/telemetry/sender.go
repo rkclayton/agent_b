@@ -236,7 +236,8 @@ func (s *Sender) Flush() {
 // model.refused) is the recorder's input, never sent itself.
 var RecorderTypes = map[string]bool{"trace": true, "run.summary": true, "compaction": true, "model.perf": true, "tool.perf": true,
 	"model.behaviour": true, "budget.drift": true, "approval.wait": true, "model.refused": true, "connection.state": true,
-	"update": true, "settings.shape": true}
+	"update": true, "settings.shape": true, "app.start": true, "page.health": true, "link.health": true, "install": true,
+	"resource": true, "feature.use": true}
 
 func (s *Sender) send(pending []Event) {
 	for len(pending) > 0 {

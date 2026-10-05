@@ -15,3 +15,5 @@ func setSignInStart(bool, string) error {
 }
 
 func osVersion() string { return "other" }
+
+func totalRAM() int64 { return 0 }

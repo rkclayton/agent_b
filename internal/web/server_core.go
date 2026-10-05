@@ -50,6 +50,7 @@ type Server struct {
 	telemetry telemetryHost
 	// Item 2pw: the flight recorder, fed by the bus whatever the switch says.
 	recorder *recorder.Recorder
+	app      *recorder.App
 	// Item 2kq: the broker client, or nothing when broker.url is empty.
 	brokerMu           sync.RWMutex
 	broker             BrokerHost
@@ -183,8 +184,13 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 	}
 	server.recorder = recorder.New()
 	server.recorder.SetSink(server.queueRunTelemetry)
+	// Item 2q7: the app around the runs, an hour at a time.
+	server.app = recorder.NewApp(time.Now())
+	server.app.SetSink(server.queueRunTelemetry)
+	server.app.Resources = server.resourceProbe
+	go server.app.Run(context.Background())
 	if bus != nil {
-		bus.SetObserver(server.recorder.Observe)
+		bus.SetObserver(func(event events.Event) { server.recorder.Observe(event); server.app.Observe(event) })
 	}
 	_ = removeLegacyPhoneAccess(server.profileRoot())
 	server.initModelInstaller()
@@ -467,6 +473,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/operator-attachments", s.operatorAttachments)
 	mux.HandleFunc("/api/operator-files", s.replayGuard(s.operatorFileState))
 	mux.HandleFunc("/api/ui-errors", s.replayGuard(s.uiError))
+	mux.HandleFunc("/api/page-health", s.replayGuard(s.pageHealth))
 	mux.HandleFunc("/api/navigation-starts", s.replayGuard(s.navigationStart))
 	mux.HandleFunc("/api/navigation-measurements", s.replayGuard(s.navigationMeasurement))
 	mux.HandleFunc("/api/navigation-suppressions", s.replayGuard(s.navigationSuppression))

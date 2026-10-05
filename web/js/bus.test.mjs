@@ -8,6 +8,19 @@ globalThis.sessionStorage = { getItem: (key) => stored.get(key) || null, setItem
 globalThis.EventSource = class { addEventListener() {} };
 const { loadSessionHistory, reduce, setSelection, store, subscribe } = await import("./bus.js");
 
+test("selecting metadata-only history hydrates the bounded session projection 2qc", async () => {
+	const proposal = { id: "proposal-1", plan_proposals: [{ id: "draft" }] };
+	globalThis.fetch = async (path) => {
+		assert.equal(path, "/api/state?session=retained");
+		return { ok: true, json: async () => ({ sessions: { retained: { id: "retained", role: "b", history_total: 4, history_start: 0, messages: [proposal], chat: [{ key: "newest" }], cursor: { generation: "retained", offset: 4 }, run: { status: "idle" } } }, replay: false, connections: [], config: {} }) };
+	};
+	reduce({ type: "snapshot", data: { sessions: { retained: { id: "retained", role: "b", history_total: 4, history_start: 4, messages: null, chat: null, cursor: { generation: "retained", offset: 4 }, run: { status: "idle" } } }, replay: false, connections: [], config: {} } });
+	setSelection("agent_b", "retained");
+	for (let attempt = 0; attempt < 20 && !Array.isArray(store.sessions.retained.messages); attempt++) await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.deepEqual(store.sessions.retained.messages, [proposal]);
+	assert.deepEqual(store.sessions.retained.chat, [{ key: "newest" }]);
+});
+
 test("older chat history prepends one fifty-entry page at a time 2qc", async () => {
 	const calls = [];
 	globalThis.fetch = async (path) => {

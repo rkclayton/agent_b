@@ -385,14 +385,14 @@ const waitFileContains = async (path, text, timeout = 12000) => {
 };
 
 const browserText = async (selector) => browser.evaluate(`document.querySelector(${JSON.stringify(selector)})?.innerText || ""`);
-const projectedChatText = async (sessionID) => JSON.stringify((await state()).sessions[sessionID]?.chat || []);
+const projectedChatText = async (sessionID) => JSON.stringify((await state(sessionID)).sessions[sessionID]?.chat || []);
 const waitProjectedChatText = async (sessionID, text, label, timeout = 12000) => {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     if ((await projectedChatText(sessionID)).includes(text)) return;
     await sleep(50);
   }
-  const session = (await state()).sessions[sessionID];
+  const session = (await state(sessionID)).sessions[sessionID];
   throw new Error(`projection timeout: ${label}; run=${JSON.stringify(session?.run || null)}; chat_tail=${JSON.stringify((session?.chat || []).slice(-8))}`);
 };
 // Item 2gk (v1.2.3): the chat is the surface. The only thing that can be over
@@ -428,7 +428,7 @@ const clickPendingApproval = async (text, expectedCallID, previousCard = null) =
   assert.equal(body.call_id, expectedCallID, `approval card submitted ${body.call_id} instead of ${expectedCallID}`);
   return handle;
 };
-const state = () => json(`http://127.0.0.1:${appPort}/api/state`);
+const state = (sessionID = "") => json(`http://127.0.0.1:${appPort}/api/state${sessionID ? `?session=${encodeURIComponent(sessionID)}` : ""}`);
 // Item 2er: the fixtures below replace a live session's client transcript. A
 // projection patch for that session arriving afterwards (a run's stop, a budget)
 // replaced the fixture and the next wait timed out, more often under load. A
@@ -2192,16 +2192,13 @@ if (realModel) {
   // Item 2qc restores only the newest history page. The live DOM can contain
   // older rows accumulated during this run, so compare the newest rendered
   // content rather than assuming the journal's first row is still in page 1.
-  const beforeReload = await browserText("#chat-log");
-  assert.match(beforeReload, /acceptance: attachment OCR/);
-  assert.match(beforeReload, /Attachment received and rendered\./);
   await page.reload();
   await waitProjectedChatText(sessionID, "Attachment received and rendered.", "chat reopen");
   await browser.wait(`document.querySelectorAll('#chat-log .chat-entry').length > 1`, "chat rows restored after reopen");
   const afterReload = await browserText("#chat-log");
   assert.match(afterReload, /acceptance: attachment OCR/);
   assert.match(afterReload, /Attachment received and rendered\./);
-  record("chat-reopen-preserves-screen-and-jsonl");
+  record("chat-reopen-restores-newest-page-and-jsonl");
 
   events = await sessionEvents(sessionID);
   const beforeSlowAccounting = Math.max(0, ...events.map((event) => event.seq || 0));
@@ -2588,11 +2585,21 @@ if (realModel) {
   await browser.wait(`document.querySelectorAll('.agent-tab-wrap[data-session]').length === ${retainedOpenBeforeRestart}`, "retained tabs after application restart");
   const restartedState = await state();
   assert.equal(Object.keys(restartedState.sessions).length, retainedBeforeRestart);
-  assert.ok(restartedState.sessions[scriptSessionID]?.messages?.some((message) => message.content?.includes("acceptance: run-script grant")));
   assert.ok((await readdir(join(profileData, "chats"))).filter((name) => name.endsWith(".jsonl")).length >= retainedBeforeRestart);
   // Item 2es: a restored chat keeps its visible transcript, and `+` after the
   // restart is a new, selected, empty chat with nothing of the retained ones.
-  assert.ok(restartedState.sessions[scriptSessionID]?.chat?.some((entry) => entry.type === "user" && entry.text?.includes("acceptance: run-script grant")), "a restored chat must keep its transcript");
+  // Item 2qc keeps startup metadata-only; opening the chat is what loads its
+  // newest journal page.
+  await page.locator(`.agent-tab-wrap[data-session="${scriptSessionID}"] .agent-tab`).click();
+  await browser.wait(`new URLSearchParams(location.search).get('session') === ${JSON.stringify(scriptSessionID)}`, "retained chat selected after application restart");
+  await page.evaluate(async (id) => {
+    const history = await import(new URL("/static/js/bus.js", location.href).href);
+    await history.loadSessionHistory(id);
+  }, scriptSessionID);
+  await browser.wait(`[...document.querySelectorAll('#chat-log .chat-entry')].some((row) => row.innerText.includes('acceptance: run-script grant'))`, "retained chat opened after application restart");
+  const reopenedState = await json(`http://127.0.0.1:${appPort}/api/state?session=${encodeURIComponent(scriptSessionID)}`);
+  assert.ok(reopenedState.sessions[scriptSessionID]?.messages?.some((message) => message.content?.includes("acceptance: run-script grant")));
+  assert.ok(reopenedState.sessions[scriptSessionID]?.chat?.some((entry) => entry.type === "user" && entry.text?.includes("acceptance: run-script grant")), "a restored chat must keep its transcript");
   const idsBeforePlus = new Set(Object.keys(restartedState.sessions));
   const tabsBeforePlus = await page.locator(".agent-tab-wrap[data-session]").count();
   await page.locator(".shell-left > .agent-tab-new").click();
@@ -2755,7 +2762,7 @@ if (realModel) {
   assert.ok(await questionOnScreen(), "the worker's question is not in the design thread even after a reload");
   assert.match(await browserText("#chat-log"), /agent_c/, "the question is not attributed to the worker");
   process.stdout.write(`WORKER POST ON SCREEN ${postArrival}` + String.fromCharCode(10));
-  const postedEntry = ((await state()).sessions[boundD.id]?.chat || []).find((entry) => entry.event?.type === "c.job" && entry.event?.data?.question === questionText);
+  const postedEntry = ((await state(boundD.id)).sessions[boundD.id]?.chat || []).find((entry) => entry.event?.type === "c.job" && entry.event?.data?.question === questionText);
   assert.ok(postedEntry, "the worker's question is on screen but not in the planner's projection");
   assert.equal(postedEntry.agent_role, "c", JSON.stringify(postedEntry));
   assert.equal(postedEntry.event.data.routed_to, "d");

@@ -20,6 +20,7 @@ export const store = {
 const listeners = new Set();
 const chatIndexes = new WeakMap();
 const historyLoads = new Map();
+const projectionLoads = new Map();
 const historyWindowEntries = 350;
 function indexChat(session) {
   const index = new Map((session?.chat || []).map((entry, at) => [entry.key || entry.id || entry.name, at]));
@@ -291,10 +292,28 @@ export function setSelection(agentID, sessionID = "") {
   // still here and still means what it meant — it is what the CHAT KIND carries,
   // rather than what every tab must have.
   store.selection = { agent_id: nextAgent, session_id: nextSession, surface: { kind: "chat", key: nextSession } };
-  store.active = target && !store.sessions[target].closed ? target : "";
-  persistSelection();
-  notify({ type: "selection.changed", data: { ...store.selection } });
-	if (target && Number(store.sessions[target]?.history_total || 0) > 0 && !(store.sessions[target]?.chat || []).length) void loadSessionHistory(target);
+	store.active = target && !store.sessions[target].closed ? target : "";
+	persistSelection();
+	notify({ type: "selection.changed", data: { ...store.selection } });
+	const session = store.sessions[target];
+	// Item 2qc: the opening stream carries list metadata only. Selecting one of
+	// those rows must ask for the bounded session projection, not just its Chat
+	// rows: proposal cards and other selected-chat state live in Messages.
+	if (target && Number(session?.history_total || 0) > 0 && !Array.isArray(session?.messages)) {
+		void loadSessionProjection(target).catch((error) => reduce({ type: "error", data: { where: "session_projection", message: error.message } }));
+	} else if (target && Number(session?.history_total || 0) > 0 && !(session?.chat || []).length) void loadSessionHistory(target);
+}
+
+export async function loadSessionProjection(id) {
+	if (!id) return false;
+	if (projectionLoads.has(id)) return projectionLoads.get(id);
+	const pending = api(`/api/state?session=${encodeURIComponent(id)}`, undefined, "GET").then((snapshot) => {
+		if (store.selection.session_id !== id) return false;
+		reduce({ type: "snapshot", data: snapshot });
+		return true;
+	}).finally(() => projectionLoads.delete(id));
+	projectionLoads.set(id, pending);
+	return pending;
 }
 
 export async function loadSessionHistory(id, earlier = false) {

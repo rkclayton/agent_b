@@ -1,5 +1,5 @@
 import { api, reduce, setActive, store, subscribe } from "./bus.js";
-import { operatorStatusView } from "./operator-status.js";
+import { operatorStatusView, renderOperatorStatus } from "./operator-status.js";
 import { navigationSurfaceReady, recordViewMount } from "./navigation-telemetry.js";
 import { notePage } from "./page-health.js";
 import { connectionFailureSentence, renderConnectionsPage } from "./settings-connections.js";
@@ -1059,7 +1059,9 @@ async function dispatchAction(event, button, action, id) {
     try {
       await api("/api/config", {shell:{operator_context:enabled}});
       store.shell_identity = { ...(store.shell_identity || {}), operator_context: enabled };
-      render();
+      renderOperatorStatus(button, store.shell_identity);
+      const label = button.querySelector("span");
+      if (label) label.textContent = enabled ? "Stop running everything as me" : "Run everything as me for 20 minutes";
     }
     catch (error) { errors.set("shell", error.message); render(); }
     return;

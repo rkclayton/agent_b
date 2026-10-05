@@ -26,7 +26,7 @@ test("Jump to latest is one accessible down-arrow at the transcript edge", () =>
   assert.match(chat, /jumpButton\.textContent = "↓";\s*jumpButton\.ariaLabel = "Jump to latest";\s*jumpButton\.title = "Jump to latest";/);
   assert.match(css, /\.chat-jump\s*\{[^}]*float:\s*right[^}]*bottom:\s*8px[^}]*width:\s*32px[^}]*min-height:\s*32px[^}]*padding:\s*0/s);
   assert.match(chat, /follow = log\.scrollHeight - log\.clientHeight - log\.scrollTop <= 24/);
-  assert.match(chat, /jumpButton\.onclick = \(\) => \{\s*follow = true;\s*page = 0;\s*renderLog/);
+  assert.match(chat, /jumpButton\.onclick = \(\) => \{\s*follow = true;[\s\S]*history_end[\s\S]*loadSessionHistory\(session\.id, false\);[\s\S]*else renderLog\(session\)/);
 });
 
 test("fenced code is one aligned panel with a header row and internal overflow", () => {

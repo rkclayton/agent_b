@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,35 +17,147 @@ import (
 	"harness/internal/tools"
 )
 
-func TestFitWindowResultRequestsSmallerSameOffsetInsteadOfOverflowingContext(t *testing.T) {
-	cfg := config.Defaults(t.TempDir())
+// 2q9 CHECK 1: s53's one-turn shape reaches another model answer instead of
+// ending at context_exhausted. The fixed prompt includes 7,000 user tokens.
+func TestSeveralLargeResultsShareTheRoomAndTheRunContinues2q9(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "continued"}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 23000, "completion_tokens": 2}})
+	}))
+	defer model.Close()
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Context.Accounting = "estimated"
+	connection := cfg.Connections[0]
+	connection.ID, connection.BaseURL, connection.Model = "main", model.URL, "fake"
+	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{text: strings.Repeat("s", 18000)}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
+	item := &session.Session{ID: "s53", ConnectionID: "main", Workspace: root, Scratch: true, Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 3}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	item.Append(events.Message{ID: "u", Role: "user", Category: "history", Content: strings.Repeat("p", 25200), Tokens: 7000})
+	item.Append(events.Message{ID: "a", Role: "assistant", Category: "history", ToolCalls: []events.ToolCall{{ID: "one", Name: "run_script"}, {ID: "two", Name: "run_script"}, {ID: "web", Name: "fetch_url"}}})
+	remaining := 32768 - 8192 - 12000 - toolResultContextMargin
+	for index, result := range []struct{ name, body string }{{"run_script", strings.Repeat("a", 32648)}, {"run_script", strings.Repeat("b", 38034)}, {"fetch_url", strings.Repeat("c", 40000)}} {
+		allowance := remaining / (3 - index)
+		content, ok, metadata, tokens := runner.fitWindowResult(context.Background(), item, &connection, result.name, nil, result.body, true, nil, runner.textTokens(context.Background(), &connection, result.body), allowance, false)
+		if !ok || metadata["saved_path"] == nil {
+			t.Fatalf("%s was not cut and saved: ok=%t metadata=%v", result.name, ok, metadata)
+		}
+		remaining -= tokens
+		item.Append(events.Message{ID: fmt.Sprintf("t%d", index), Role: "tool", Category: "results", ToolCallID: []string{"one", "two", "web"}[index], Name: result.name, OK: &ok, Content: content, Tokens: tokens})
+	}
+	reason, detail, _ := runner.Run(context.Background(), item, "r1319")
+	if reason != "done" || !strings.Contains(item.MessagesCopy()[len(item.MessagesCopy())-1].Content, "continued") {
+		t.Fatalf("run stopped: %s %s", reason, detail)
+	}
+}
+
+// 2q9 CHECK 2: a cut result keeps its full bytes in the chat and names them.
+func TestHugeScriptResultIsCutSavedAndReadable2q9(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	runner := &Runner{cfg: func() config.Config { return cfg }}
+	item := &session.Session{ID: "chat", Workspace: root, Scratch: true, ToolsEnabled: map[string]bool{"read_file": true}, LastSeen: map[string]time.Time{}}
+	body := strings.Repeat("0123456789", 20000)
+	content, ok, metadata, tokens := runner.fitWindowResult(context.Background(), item, &cfg.Connections[0], "run_script", nil, body, true, nil, runner.textTokens(context.Background(), &cfg.Connections[0], body), 1000, false)
+	path, _ := metadata["saved_path"].(string)
+	if !ok || tokens > 1000 || path == "" || !strings.Contains(content, "200000 bytes") || !strings.Contains(content, path) {
+		t.Fatalf("content_head=%q ok=%t tokens=%d metadata=%v", content[:min(200, len(content))], ok, tokens, metadata)
+	}
+	window, err := tools.NewReadFile(cfg.Tools.ReadFile).Call(context.Background(), item, map[string]any{"path": path, "offset": 100001, "limit": 20})
+	if err != nil || !strings.Contains(window, "01234567890123456789") {
+		t.Fatalf("middle window: %v %q", err, window)
+	}
+	if files := workspaceFileSnapshot(root); len(files) != 0 {
+		t.Fatalf("saved result entered delivery set: %v", files)
+	}
+}
+
+// 2q9 CHECK 3 and CHECK 4: fetch uses the same cut, while fitting bytes do not change.
+func TestFetchCutsInsteadOfRefusingAndFittingResultIsIdentical2q9(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	runner := &Runner{cfg: func() config.Config { return cfg }}
+	item := &session.Session{ID: "chat", Workspace: root, Scratch: true}
+	large := strings.Repeat("f", 40000)
+	cut, ok, metadata, tokens := runner.fitWindowResult(context.Background(), item, &cfg.Connections[0], "fetch_url", nil, large, true, nil, runner.textTokens(context.Background(), &cfg.Connections[0], large), 1000, false)
+	if !ok || tokens > 1000 || metadata["saved_path"] == nil || strings.HasPrefix(cut, "error:") {
+		t.Fatalf("cut=%q ok=%t tokens=%d metadata=%v", cut, ok, tokens, metadata)
+	}
+	const exact = "byte-identical result"
+	got, gotOK, gotMetadata, gotTokens := runner.fitWindowResult(context.Background(), item, &cfg.Connections[0], "shell", nil, exact, true, map[string]any{"same": true}, 7, 7, false)
+	if got != exact || !gotOK || gotTokens != 7 || gotMetadata["same"] != true {
+		t.Fatalf("fit changed: %q %t %d %v", got, gotOK, gotTokens, gotMetadata)
+	}
+	if !savedToolResultRead(map[string]any{"path": metadata["saved_path"]}) {
+		t.Fatal("a saved result re-read was not classified as untrusted")
+	}
+}
+
+func TestLastResortCutsTheNewestCurrentResultToItsSavedLine2q9(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	runner := &Runner{cfg: func() config.Config { return cfg }}
+	item := &session.Session{Workspace: root}
+	item.ReplaceMessages([]events.Message{{ID: "user", Role: "user", Content: "task"}, {ID: "old", Role: "tool", Content: strings.Repeat("a", 20000)}, {ID: "new", Role: "tool", Content: strings.Repeat("b", 20000)}})
+	item.SetRunPin("user")
+	if !runner.cutNewestRunningResult(context.Background(), item, &cfg.Connections[0]) {
+		t.Fatal("newest result was not cut")
+	}
+	messages := item.MessagesCopy()
+	if len(messages[1].Content) != 20000 || !strings.Contains(messages[2].Content, "full output saved") || len(messages[2].Content) > 300 {
+		t.Fatalf("old=%d newest=%q", len(messages[1].Content), messages[2].Content)
+	}
+}
+
+func TestSavedToolResultsHoldTwoFullSegments2q9(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, savedToolResultDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	first := filepath.Join(dir, "results-1.txt")
+	if err := os.WriteFile(first, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(first, savedToolResultSegmentBytes); err != nil {
+		t.Fatal(err)
+	}
+	runner := &Runner{}
+	if _, _, err := runner.saveToolResult(&session.Session{Workspace: root}, strings.Repeat("z", savedToolResultSegmentBytes)); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(dir)
+	var bytes int64
+	for _, entry := range entries {
+		info, _ := entry.Info()
+		bytes += info.Size()
+	}
+	if len(entries) != 2 || bytes != 2*savedToolResultSegmentBytes {
+		t.Fatalf("segments=%d bytes=%d", len(entries), bytes)
+	}
+	t.Logf("full bound: %d segments, %d bytes", len(entries), bytes)
+}
+
+func TestFitWindowResultSavesFetchInsteadOfRequestingARetry(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
 	runner := &Runner{cfg: func() config.Config { return cfg }}
 	connection := &cfg.Connections[0]
 	metadata := map[string]any{"window_offset": 65537, "next_offset": 131073, "more": true}
-
 	content, ok, gotMetadata, tokens := runner.fitWindowResult(
-		context.Background(), nil, connection, "fetch_url",
+		context.Background(), &session.Session{Workspace: root}, connection, "fetch_url",
 		map[string]any{"offset": float64(65537), "limit": float64(65536)},
 		strings.Repeat("x", 65536), true, metadata, 34903, 19996, false,
 	)
-
-	if ok || tokens < 1 {
-		t.Fatalf("ok=%t tokens=%d content=%q", ok, tokens, content)
-	}
-	for _, want := range []string{"too large for the current model context", "same offset=65537", "limit no greater than 16384", "Do not advance"} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("content %q does not contain %q", content, want)
-		}
-	}
-	if gotMetadata["result_too_large"] != true || gotMetadata["retry_offset"] != 65537 || gotMetadata["retry_limit"] != 16384 {
-		t.Fatalf("metadata = %#v", gotMetadata)
+	if !ok || tokens > 19996 || gotMetadata["saved_path"] == nil || !strings.Contains(content, "full output saved") {
+		t.Fatalf("ok=%t tokens=%d metadata=%v", ok, tokens, gotMetadata)
 	}
 	if metadata["result_too_large"] != nil {
 		t.Fatalf("source metadata was mutated: %#v", metadata)
 	}
 }
 
-func TestFitReadFileClampsToLargestSuccessfulWindow(t *testing.T) {
+func TestFitReadFileUsesTheSharedSavedResultRule(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "large.txt")
 	if err := os.WriteFile(path, []byte(strings.Repeat("abcdefghij", 4000)), 0o600); err != nil {
@@ -62,27 +176,8 @@ func TestFitReadFileClampsToLargestSuccessfulWindow(t *testing.T) {
 	originalTokens := runner.textTokens(context.Background(), connection, original)
 	available := 1000
 	content, ok, metadata, tokens := runner.fitWindowResult(context.Background(), item, connection, "read_file", args, original, true, nil, originalTokens, available, false)
-	if !ok || tokens > available || metadata["result_clamped"] != true {
-		t.Fatalf("ok=%t tokens=%d metadata=%#v content=%q", ok, tokens, metadata, content)
-	}
-	for _, want := range []string{"requested_bytes=40000", "remaining_bytes=", "next_offset=", "[byte window:"} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("clamped content missing %q: %s", want, content)
-		}
-	}
-	limit := metadata["returned_limit"].(int)
-	largerArgs := cloneMetadata(args)
-	largerArgs["limit"] = limit + 1
-	larger, largerOK := registry.Call(context.Background(), item, "read_file", largerArgs)
-	if !largerOK {
-		t.Fatal(larger)
-	}
-	returned := headerInteger(larger, "bytes")
-	remaining := max(0, headerInteger(larger, "total")-returned)
-	next := headerInteger(larger, "next_offset")
-	note := fmt.Sprintf("[context clamp: requested_bytes=40000 returned_bytes=%d remaining_bytes=%d next_offset=%d]\n", returned, remaining, next)
-	if runner.textTokens(context.Background(), connection, note+larger) <= available {
-		t.Fatalf("returned limit %d was not maximal", limit)
+	if !ok || tokens > available || metadata["saved_path"] == nil || !strings.Contains(content, "full output saved") {
+		t.Fatalf("ok=%t tokens=%d metadata=%#v", ok, tokens, metadata)
 	}
 }
 
@@ -98,8 +193,8 @@ func TestFitWindowResultLeavesFittingAndNonWindowResultsUnchanged(t *testing.T) 
 		tokens    int
 	}{
 		{name: "read_file", ok: true, available: 100, tokens: 100},
-		{name: "shell", ok: true, available: 10, tokens: 100},
-		{name: "fetch_url", ok: false, available: 10, tokens: 100},
+		{name: "shell", ok: true, available: 100, tokens: 10},
+		{name: "fetch_url", ok: false, available: 100, tokens: 10},
 	} {
 		content, ok, _, tokens := runner.fitWindowResult(context.Background(), nil, connection, test.name, nil, "original", test.ok, nil, test.tokens, test.available, false)
 		if content != "original" || ok != test.ok || tokens != test.tokens {
@@ -108,18 +203,19 @@ func TestFitWindowResultLeavesFittingAndNonWindowResultsUnchanged(t *testing.T) 
 	}
 }
 
-func TestFitWindowResultRefusesOversizedReadBatchWithBatchGuidance(t *testing.T) {
-	cfg := config.Defaults(t.TempDir())
+func TestFitWindowResultSavesAnOversizedReadBatch(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
 	runner := &Runner{cfg: func() config.Config { return cfg }}
 	connection := &cfg.Connections[0]
-	content, ok, metadata, tokens := runner.fitWindowResult(context.Background(), &session.Session{}, connection, "read_file", map[string]any{
+	content, ok, metadata, tokens := runner.fitWindowResult(context.Background(), &session.Session{Workspace: root}, connection, "read_file", map[string]any{
 		"path":    "large.txt",
 		"windows": []any{map[string]any{"offset": float64(1), "limit": float64(65536)}},
 	}, strings.Repeat("x", 65536), true, nil, 32000, 1000, false)
-	if ok || tokens < 1 || !strings.Contains(content, "fewer or smaller windows") || strings.Contains(content, "same offset=") {
-		t.Fatalf("content=%q ok=%t tokens=%d", content, ok, tokens)
+	if !ok || tokens > 1000 || !strings.Contains(content, "full output saved") {
+		t.Fatalf("ok=%t tokens=%d metadata=%v", ok, tokens, metadata)
 	}
-	if metadata["result_too_large"] != true || metadata["retry_windows"] != "fewer_or_smaller" {
+	if metadata["result_too_large"] != true || metadata["saved_path"] == nil {
 		t.Fatalf("metadata=%#v", metadata)
 	}
 }

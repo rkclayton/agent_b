@@ -602,16 +602,24 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		}
 		guardUsed := guardedPromptTokens(budget)
 		floor := outputFloor(connection)
-		if r.compactionExhausted(s.ID, runID) {
-			return "context_exhausted", fmt.Sprintf("context cannot be reduced further: two compactions in a row freed less than a tenth of what they set out to; prompt count %d (%s) of ceiling %d", guardUsed, budgetCountSource(budget), budget.Ceiling), turn - 1
-		}
 		if guardUsed+floor > budget.NCtx {
+			if r.compactionExhausted(s.ID, runID) {
+				if r.cutNewestRunningResult(ctx, s, connection) {
+					turn--
+					continue
+				}
+				return "context_exhausted", fmt.Sprintf("context cannot be reduced further: two compactions in a row freed less than a tenth of what they set out to; prompt count %d (%s) of ceiling %d", guardUsed, budgetCountSource(budget), budget.Ceiling), turn - 1
+			}
 			changed, exhausted := r.compactToFit(ctx, s, runID, connection, currentReasoning, budget)
 			if changed {
 				turn--
 				continue
 			}
 			if exhausted {
+				if r.cutNewestRunningResult(ctx, s, connection) {
+					turn--
+					continue
+				}
 				// Everything outside the running turn is already compacted. The
 				// only thing left to cut is the task itself, and answering some
 				// older message instead is what 2eg was filed for.
@@ -926,7 +934,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 					if outcome.Untrusted {
 						s.MarkUntrustedInTurn()
 					}
-					if item.ok && item.call.Name == "read_file" && untrustedAttachmentRead(s, item.args) {
+					if item.ok && item.call.Name == "read_file" && (untrustedAttachmentRead(s, item.args) || savedToolResultRead(item.args)) {
 						item.untrusted = true
 					}
 					if item.ok {
@@ -944,8 +952,12 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				}
 				item.ms = time.Since(start).Milliseconds()
 				resultTokens := r.textTokens(ctx, connection, item.content)
+				allowance := remainingResultTokens
+				if allowance >= 0 {
+					allowance /= len(results) - index
+				}
 				item.content, item.ok, item.metadata, resultTokens = r.fitWindowResult(
-					ctx, s, connection, item.call.Name, item.args, item.content, item.ok, item.metadata, resultTokens, remainingResultTokens, item.operatorContext,
+					ctx, s, connection, item.call.Name, item.args, item.content, item.ok, item.metadata, resultTokens, allowance, item.operatorContext,
 				)
 				if limit := connection.Capabilities.ObservedByteLimit; limit > 0 && len(item.content) > limit/4 {
 					item.content, item.ok, item.metadata = r.byteCapResult(item.call.Name, item.args, item.content, item.ok, item.metadata, limit)
@@ -1226,6 +1238,9 @@ type workspaceFileState struct {
 func workspaceFileSnapshot(root string) map[string]workspaceFileState {
 	out := map[string]workspaceFileState{}
 	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err == nil && entry.IsDir() && path != root && strings.EqualFold(filepath.Base(path), savedToolResultDir) {
+			return filepath.SkipDir
+		}
 		if err != nil || entry.IsDir() {
 			return nil
 		}
@@ -2059,6 +2074,7 @@ func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID str
 func (r *Runner) operationalError(s *session.Session, runID, where string, err error) {
 	r.bus.Publish(events.New(events.Error, s.ID, runID, map[string]any{"where": where, "message": err.Error()}))
 }
+
 // connectionKind is item 2pw/2q6's provider word: local, or somebody's api.
 func connectionKind(connection *config.Connection) string {
 	if isLoopbackEndpoint(connection.BaseURL) {

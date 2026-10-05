@@ -16,8 +16,8 @@ import (
 // server with exact accounting at acme's n_ctx: after the chat's history, the
 // model reads long-input.txt in 16 KB windows. Each window is under a quarter
 // of the ceiling, so the running turn's newest four stay protected and nothing
-// the elide may touch frees enough; windows stop fitting. The first refusal is
-// returned as before; the second in a row ends the read, and the model —
+// the elide may touch frees enough; windows stop fitting. The first oversized
+// window is cut and saved; the second in a row ends the read, and the model —
 // offered no tools from then on — answers from what it read with the
 // cut-short line. The run ends done, not tool_errors.
 func TestALongReadEndsInAnAnswerWhenTheWindowFills(t *testing.T) {
@@ -86,8 +86,8 @@ func TestALongReadEndsInAnAnswerWhenTheWindowFills(t *testing.T) {
 	if reason != "done" {
 		t.Fatalf("run ended %s (%s) after %d turns; refused %d, cut %d", reason, detail, turns, refused, cut)
 	}
-	if refused < 1 || cut != 1 {
-		t.Fatalf("refused=%d cut=%d; want a refusal before exactly one cut-short", refused, cut)
+	if refused != 0 || cut != 1 {
+		t.Fatalf("refused=%d cut=%d; want no refusal and exactly one cut-short", refused, cut)
 	}
 	if last := choices[len(choices)-1]; last != "none" {
 		t.Fatalf("the answering request's tool_choice = %v, want none", last)

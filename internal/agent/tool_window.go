@@ -3,10 +3,17 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"harness/internal/config"
 	"harness/internal/session"
+)
+
+const (
+	savedToolResultDir          = ".agentb-tool-results"
+	savedToolResultSegmentBytes = 64 << 20
 )
 
 // Leave room for the assistant tool-call message and request framing that are
@@ -27,56 +34,124 @@ func (r *Runner) fitWindowResult(
 	availableTokens int,
 	operatorContext bool,
 ) (string, bool, map[string]any, int) {
-	if !ok || (name != "read_file" && name != "fetch_url" && name != "call_service") || availableTokens < 0 || resultTokens <= availableTokens {
+	if availableTokens < 0 || resultTokens <= availableTokens {
 		return content, ok, metadata, resultTokens
 	}
-	if name == "read_file" && s != nil {
-		if _, batch := args["windows"]; batch {
-			bounded := fmt.Sprintf("error: read_file returned a windows batch too large for the current model context (%d tokens; %d available before the output reserve). Retry read_file with fewer or smaller windows.", resultTokens, availableTokens)
-			boundedMetadata := cloneMetadata(metadata)
-			boundedMetadata["result_too_large"] = true
-			boundedMetadata["original_result_tokens"] = resultTokens
-			boundedMetadata["result_token_limit"] = availableTokens
-			boundedMetadata["retry_windows"] = "fewer_or_smaller"
-			return bounded, false, boundedMetadata, r.textTokens(ctx, connection, bounded)
-		}
-		if clamped, clampedMetadata, clampedTokens, found := r.clampReadFileResult(ctx, s, connection, args, metadata, availableTokens, operatorContext); found {
-			return clamped, true, clampedMetadata, clampedTokens
-		}
+	path, offset, saveErr := r.saveToolResult(s, content)
+	note := fmt.Sprintf("[tool result cut: %d bytes; full output saved at %s; read_file path=%s offset=%d to page the omitted middle]", len(content), path, path, offset)
+	if saveErr != nil {
+		note = fmt.Sprintf("[tool result cut: %d bytes; saving the full output failed: %v]", len(content), saveErr)
 	}
+	cut := cutResultToTokens(content, note, availableTokens, func(value string) int { return r.textTokens(ctx, connection, value) })
+	bounded := cloneMetadata(metadata)
+	bounded["result_too_large"] = true
+	bounded["original_result_tokens"] = resultTokens
+	bounded["result_token_limit"] = availableTokens
+	if saveErr == nil {
+		bounded["saved_path"], bounded["saved_offset"], bounded["saved_bytes"] = path, offset, len(content)
+	}
+	return cut, ok, bounded, r.textTokens(ctx, connection, cut)
+}
 
-	cfg := r.cfg()
-	defaultLimit := cfg.Tools.ReadFile.DefaultLimit
-	if name == "fetch_url" {
-		defaultLimit = cfg.Tools.Fetch.DefaultLimit
-	} else if name == "call_service" {
-		serviceName, _ := args["service"].(string)
-		if service, found := cfg.Services[serviceName]; found {
-			defaultLimit = service.MaxBodyKB << 10
+func (r *Runner) saveToolResult(s *session.Session, content string) (string, int, error) {
+	if s == nil || s.Workspace == "" {
+		return "", 0, fmt.Errorf("chat scratch is unavailable")
+	}
+	dir := filepath.Join(s.Workspace, savedToolResultDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", 0, err
+	}
+	paths := []string{filepath.Join(dir, "results-1.txt"), filepath.Join(dir, "results-2.txt")}
+	active := 0
+	left, leftErr := os.Stat(paths[0])
+	right, rightErr := os.Stat(paths[1])
+	if rightErr == nil && (leftErr != nil || right.ModTime().After(left.ModTime())) {
+		active = 1
+	}
+	size := int64(0)
+	if info, err := os.Stat(paths[active]); err == nil {
+		size = info.Size()
+	}
+	flags := os.O_CREATE | os.O_APPEND | os.O_WRONLY
+	if size > 0 && size+int64(len(content)) > savedToolResultSegmentBytes {
+		active, size, flags = 1-active, 0, os.O_CREATE|os.O_TRUNC|os.O_WRONLY
+	}
+	file, err := os.OpenFile(paths[active], flags, 0o600)
+	if err != nil {
+		return "", 0, err
+	}
+	_, writeErr := file.WriteString(content)
+	closeErr := file.Close()
+	if writeErr != nil {
+		return "", 0, writeErr
+	}
+	if closeErr != nil {
+		return "", 0, closeErr
+	}
+	relative, err := filepath.Rel(s.Workspace, paths[active])
+	return filepath.ToSlash(relative), int(size) + 1, err
+}
+
+func savedToolResultRead(args map[string]any) bool {
+	path, _ := args["path"].(string)
+	path = strings.ToLower(filepath.ToSlash(filepath.Clean(filepath.FromSlash(path))))
+	return path == savedToolResultDir || strings.HasPrefix(path, savedToolResultDir+"/")
+}
+
+func cutResultToTokens(content, note string, limit int, count func(string) int) string {
+	build := func(keep int) string {
+		head := strings.ToValidUTF8(content[:keep*2/3], "")
+		tail := strings.ToValidUTF8(content[len(content)-(keep-keep*2/3):], "")
+		return head + "\n\n" + note + "\n\n" + tail
+	}
+	low, high, best := 0, len(content), note
+	for low <= high {
+		keep := low + (high-low)/2
+		candidate := build(keep)
+		if count(candidate) <= limit {
+			best, low = candidate, keep+1
+		} else {
+			high = keep - 1
 		}
 	}
-	requestedLimit := integerArgument(args["limit"], defaultLimit)
-	retryLimit := requestedLimit / 2
-	if defaultLimit > 0 && retryLimit > defaultLimit {
-		retryLimit = defaultLimit
-	}
-	if retryLimit < 1 {
-		retryLimit = 1
-	}
-	offset := integerArgument(args["offset"], 1)
+	return best
+}
 
-	bounded := fmt.Sprintf(
-		"error: %s returned a window too large for the current model context (%d tokens; %d available before the output reserve). Retry %s with the same offset=%d and limit no greater than %d. Do not advance to next_offset until this window is read.",
-		name, resultTokens, availableTokens, name, offset, retryLimit,
-	)
-	boundedTokens := r.textTokens(ctx, connection, bounded)
-	boundedMetadata := cloneMetadata(metadata)
-	boundedMetadata["result_too_large"] = true
-	boundedMetadata["original_result_tokens"] = resultTokens
-	boundedMetadata["result_token_limit"] = availableTokens
-	boundedMetadata["retry_offset"] = offset
-	boundedMetadata["retry_limit"] = retryLimit
-	return bounded, false, boundedMetadata, boundedTokens
+// cutNewestRunningResult is the last resort after ordinary compaction has left
+// only the current turn. One newest result becomes its saved-file line, so the
+// next budget pass can continue cutting only as far as necessary.
+func (r *Runner) cutNewestRunningResult(ctx context.Context, s *session.Session, connection *config.Connection) bool {
+	messages := s.MessagesCopy()
+	current := runningTurnIDs(messages, s.RunPin())
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := &messages[index]
+		if message.Role != "tool" || message.Elided || !current[message.ID] {
+			continue
+		}
+		note := ""
+		for _, line := range strings.Split(message.Content, "\n") {
+			if strings.HasPrefix(line, "[tool result cut:") {
+				note = line
+				break
+			}
+		}
+		if note == message.Content {
+			continue
+		}
+		if note == "" {
+			path, offset, err := r.saveToolResult(s, message.Content)
+			if err != nil {
+				note = fmt.Sprintf("[tool result cut: %d bytes; saving the full output failed: %v]", len(message.Content), err)
+			} else {
+				note = fmt.Sprintf("[tool result cut: %d bytes; full output saved at %s; read_file path=%s offset=%d to page it]", len(message.Content), path, path, offset)
+			}
+		}
+		message.Content = note
+		message.Tokens, message.Estimated = r.count(ctx, connection, note)
+		s.ReplaceMessages(messages)
+		return true
+	}
+	return false
 }
 
 // Item 2o8 (c): RESULTS ARE CAPPED AT INGEST. Once a connection has refused a

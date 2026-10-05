@@ -181,6 +181,171 @@ func TestTheNewTypesVectorsValidateAgainstTheBuilder2q6(t *testing.T) {
 	}
 }
 
+// 2q8 CHECK 2: the phone extends the shared document, not the PC builder. Its
+// vectors still have a closed allow-list, and every enum refuses an unknown
+// value before the broker or either client implements the schema.
+func TestOnDeviceVectorsAreClosedAndWhole2q8(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "docs", "telemetry-trace.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vectors := documentVectors(t, string(body))
+	for _, name := range []string{"ondevice.chat", "ondevice.invoke", "ondevice.condensed", "ondevice.run", "ondevice.sizes"} {
+		vector := vectors[name]
+		if vector == nil {
+			t.Fatalf("no vector for %s", name)
+		}
+		if err := validateOnDeviceVector(name, vector); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		vector["free_text"] = "must be refused"
+		if err := validateOnDeviceVector(name, vector); err == nil {
+			t.Fatalf("%s accepted a field outside its allow-list", name)
+		}
+		delete(vector, "free_text")
+	}
+
+	closed := []struct {
+		name  string
+		field string
+	}{
+		{"ondevice.chat", "ondevice.size_unit"},
+		{"ondevice.chat", "error.type"},
+		{"ondevice.invoke", "ondevice.availability"},
+		{"ondevice.condensed", "unit"},
+		{"ondevice.run", "availability"},
+	}
+	for _, test := range closed {
+		vector := vectors[test.name]
+		prior := vector[test.field]
+		vector[test.field] = "outside_the_set"
+		if err := validateOnDeviceVector(test.name, vector); err == nil {
+			t.Errorf("%s accepted %s outside its closed set", test.name, test.field)
+		}
+		vector[test.field] = prior
+	}
+
+	run := vectors["ondevice.run"]
+	for _, field := range []string{"errors", "routes"} {
+		values := run[field].(map[string]any)
+		values["outside_the_set"] = float64(1)
+		if err := validateOnDeviceVector("ondevice.run", run); err == nil {
+			t.Errorf("ondevice.run accepted %s key outside its closed set", field)
+		}
+		delete(values, "outside_the_set")
+	}
+	picture := run["pictures"].([]any)[0].(map[string]any)
+	for _, field := range []string{"outcome", "cause", "style"} {
+		prior := picture[field]
+		picture[field] = "outside_the_set"
+		if err := validateOnDeviceVector("ondevice.run", run); err == nil {
+			t.Errorf("ondevice.run accepted picture.%s outside its closed set", field)
+		}
+		picture[field] = prior
+	}
+}
+
+func validateOnDeviceVector(name string, vector map[string]any) error {
+	sets := map[string]map[string]bool{
+		"unit":         {"tokens": true, "chars": true, "entries": true},
+		"error":        {"exceeded_context_window": true, "guardrail_violation": true, "decoding_failure": true, "unsupported_language": true, "assets_unavailable": true, "rate_limited": true, "concurrent_requests": true, "refusal": true, "other": true},
+		"availability": {"available": true, "device_not_eligible": true, "apple_intelligence_not_enabled": true, "model_not_ready": true, "other": true},
+		"outcome":      {"made": true, "failed": true, "declined": true},
+		"cause":        {"none": true, "unsupported_style": true, "guardrail": true, "unavailable": true, "timeout": true, "other": true},
+		"style":        {"illustration": true, "animation": true, "sketch": true, "other": true},
+		"route":        {"on_device": true, "pc_link": true, "api": true, "other": true},
+	}
+	allowed := map[string]map[string]bool{
+		"ondevice.chat":      keys("span", "gen_ai.provider.name", "ondevice.context_size", "ondevice.size_unit", "ondevice.instructions", "ondevice.tool_schemas", "ondevice.transcript", "ondevice.prompt", "ondevice.slots", "ondevice.schema_in_prompt", "ondevice.prewarmed", "ondevice.model_load_ms", "tok_s", "error.type"),
+		"ondevice.invoke":    keys("span", "run", "gen_ai.provider.name", "ondevice.availability"),
+		"ondevice.condensed": keys("span", "seq", "kind", "trigger", "before", "after", "unit"),
+		"ondevice.run":       keys("type", "at", "availability", "errors", "pictures", "prewarm", "routes", "sizes"),
+		"ondevice.sizes":     keys("type", "at", "sizes"),
+	}[name]
+	for field := range vector {
+		if !allowed[field] {
+			return fmt.Errorf("field %s is not allow-listed", field)
+		}
+	}
+	check := func(field, set string) error {
+		if value, ok := vector[field].(string); ok && !sets[set][value] {
+			return fmt.Errorf("%s=%q is outside %s", field, value, set)
+		}
+		return nil
+	}
+	for _, pair := range [][2]string{{"ondevice.size_unit", "unit"}, {"error.type", "error"}, {"ondevice.availability", "availability"}, {"unit", "unit"}, {"availability", "availability"}} {
+		if err := check(pair[0], pair[1]); err != nil {
+			return err
+		}
+	}
+	if slots, ok := vector["ondevice.slots"].(map[string]any); ok {
+		if err := exactNestedKeys(slots, keys("goal", "facts", "notes", "recent", "recall")); err != nil {
+			return fmt.Errorf("slots: %v", err)
+		}
+	}
+	if errors, ok := vector["errors"].(map[string]any); ok {
+		for value := range errors {
+			if !sets["error"][value] {
+				return fmt.Errorf("errors contains %q", value)
+			}
+		}
+	}
+	if routes, ok := vector["routes"].(map[string]any); ok {
+		for value := range routes {
+			if !sets["route"][value] {
+				return fmt.Errorf("routes contains %q", value)
+			}
+		}
+	}
+	if prewarm, ok := vector["prewarm"].(map[string]any); ok {
+		if err := exactNestedKeys(prewarm, keys("hit", "miss")); err != nil {
+			return fmt.Errorf("prewarm: %v", err)
+		}
+	}
+	if sizes, ok := vector["sizes"].(map[string]any); ok {
+		if err := exactNestedKeys(sizes, keys("context_size", "instructions", "tool_schemas", "transcript", "prompt", "goal", "facts", "notes", "recent", "recall")); err != nil {
+			return fmt.Errorf("sizes: %v", err)
+		}
+		for field, raw := range sizes {
+			value, ok := raw.(float64)
+			if !ok || value < 1 || int64(value)&(int64(value)-1) != 0 {
+				return fmt.Errorf("sizes.%s is not a power of two", field)
+			}
+		}
+	}
+	if pictures, ok := vector["pictures"].([]any); ok {
+		for _, raw := range pictures {
+			picture := raw.(map[string]any)
+			if err := exactNestedKeys(picture, keys("outcome", "cause", "style", "count")); err != nil {
+				return fmt.Errorf("picture: %v", err)
+			}
+			for _, field := range []string{"outcome", "cause", "style"} {
+				if !sets[field][picture[field].(string)] {
+					return fmt.Errorf("picture.%s is outside its closed set", field)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func keys(names ...string) map[string]bool {
+	out := map[string]bool{}
+	for _, name := range names {
+		out[name] = true
+	}
+	return out
+}
+
+func exactNestedKeys(got map[string]any, allowed map[string]bool) error {
+	for key := range got {
+		if !allowed[key] {
+			return fmt.Errorf("field %s is not allow-listed", key)
+		}
+	}
+	return nil
+}
+
 // CHECK 5: a forty-call run adds at most twelve events and 8 KiB.
 func TestAFortyCallRunAddsAtMostTwelveEvents2q6(t *testing.T) {
 	_, bus, out := recorded()

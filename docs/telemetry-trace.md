@@ -320,6 +320,69 @@ tool name, `attachments` by kind (`text`, `office`, `pdf`, `image`, `zip`,
 {"type":"feature.use","at":"2026-10-04T21:00:05Z","chats_created":2,"messages_sent":14,"reports":1,"voice":0,"tools":{"read_file":22,"search":5},"attachments":{"image":1},"settings_pages":{"connections":2,"about":1},"approvals":{"shell.operator_override.folder":1}}
 ```
 
+## On-device (iOS) (item 2q8)
+
+These additions let the phone use this same schema; they do not change PC
+behaviour. They contain no free text, and any identifier is at most eight
+characters. All named sets and object keys below are closed.
+
+### (a) `chat`
+
+When `gen_ai.provider.name` is `on_device`, a chat span may add context and
+component sizes (`ondevice.context_size`, `instructions`, `tool_schemas`,
+`transcript`, `prompt`) in `ondevice.size_unit` (`tokens` or `chars`); the
+`ondevice.slots` object gives `goal`, `facts`, `notes`, `recent`, and `recall`
+sizes. It also adds boolean `ondevice.schema_in_prompt` and
+`ondevice.prewarmed`, integer `ondevice.model_load_ms`, numeric `tok_s`, and
+optional `error.type`: `exceeded_context_window`, `guardrail_violation`,
+`decoding_failure`, `unsupported_language`, `assets_unavailable`,
+`rate_limited`, `concurrent_requests`, `refusal`, or `other`.
+
+```json vector:ondevice.chat
+{"span":"chat","gen_ai.provider.name":"on_device","ondevice.context_size":4096,"ondevice.size_unit":"tokens","ondevice.instructions":512,"ondevice.tool_schemas":1024,"ondevice.transcript":2048,"ondevice.prompt":4096,"ondevice.slots":{"goal":256,"facts":256,"notes":128,"recent":1024,"recall":256},"ondevice.schema_in_prompt":true,"ondevice.prewarmed":true,"ondevice.model_load_ms":1024,"tok_s":16,"error.type":"decoding_failure"}
+```
+
+### (b) `invoke_agent`
+
+An `invoke_agent` span may give `ondevice.availability`: `available`,
+`device_not_eligible`, `apple_intelligence_not_enabled`, `model_not_ready`, or
+`other`.
+
+```json vector:ondevice.invoke
+{"span":"invoke_agent","run":"a41f0c22","gen_ai.provider.name":"on_device","ondevice.availability":"available"}
+```
+
+### (c) `condensed`
+
+A condensed span may use `unit: entries` (as well as `tokens` or `chars`).
+
+```json vector:ondevice.condensed
+{"span":"condensed","seq":6,"kind":"elide","trigger":"pressure","before":64,"after":32,"unit":"entries"}
+```
+
+### (d) `ondevice.run`
+
+One aggregate per run gives `availability` from (b); `errors` counts keyed by
+(a)'s error set; `prewarm` `hit`/`miss` counts; and `routes` counts keyed only
+by `on_device`, `pc_link`, `api`, or `other`. `pictures` has at most the 72
+closed combinations of `outcome` (`made`, `failed`, `declined`), `cause`
+(`none`, `unsupported_style`, `guardrail`, `unavailable`, `timeout`, `other`),
+and `style` (`illustration`, `animation`, `sketch`, `other`), plus `count`.
+
+```json vector:ondevice.run
+{"type":"ondevice.run","at":"2026-10-04T21:00:05Z","availability":"available","errors":{"decoding_failure":1},"pictures":[{"outcome":"made","cause":"none","style":"illustration","count":1}],"prewarm":{"hit":2,"miss":1},"routes":{"on_device":2,"pc_link":1,"api":0,"other":0},"sizes":{"context_size":4096,"prompt":4096}}
+```
+
+### (e) Aggregate sizes
+
+Every `sizes` value is rounded up to a power-of-two bucket. Its closed keys
+are `context_size`, `instructions`, `tool_schemas`, `transcript`, `prompt`,
+`goal`, `facts`, `notes`, `recent`, and `recall`.
+
+```json vector:ondevice.sizes
+{"type":"ondevice.run","at":"2026-10-04T21:00:05Z","sizes":{"context_size":4096,"instructions":512,"tool_schemas":1024,"transcript":2048,"prompt":4096,"goal":256,"facts":256,"notes":128,"recent":1024,"recall":256}}
+```
+
 ## The allow-list
 
 These types travel in batches of their own, never beside the older types: a
@@ -347,3 +410,4 @@ dropped by the allow-list in `internal/telemetry` before it can.
 | `install` | `step`, `class`, `from`, `to` |
 | `resource` | `memory_peak_bytes`, `data_bytes`, `chats_bytes`, `chats`, `ram_bytes`, `arch`, `os_version` |
 | `feature.use` | `chats_created`, `messages_sent`, `tools`, `attachments`, `reports`, `voice`, `settings_pages`, `approvals` |
+| `ondevice.run` | `availability`, `errors`, `pictures`, `prewarm`, `routes`, `sizes` |

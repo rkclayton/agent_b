@@ -7,7 +7,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,6 +23,10 @@ type Metadata struct {
 	Owner        string    `json:"owner,omitempty"`
 	MirrorSeq    int       `json:"mirror_seq,omitempty"`
 	MirrorHashes []string  `json:"mirror_hashes,omitempty"`
+	LastActivity time.Time `json:"last_activity,omitempty"`
+	ArchivedAt   time.Time `json:"archived_at,omitempty"`
+	Live         bool      `json:"live,omitempty"`
+	Pending      bool      `json:"pending,omitempty"`
 }
 
 type Entry struct {
@@ -28,7 +34,10 @@ type Entry struct {
 	Metadata Metadata `json:"chat"`
 }
 
-type Store struct{ root string }
+type Store struct {
+	root string
+	mu   sync.Mutex
+}
 
 func New(root string) *Store  { return &Store{root: filepath.Clean(root)} }
 func (s *Store) Root() string { return s.root }
@@ -167,45 +176,186 @@ func (s *Store) Migrate(legacy, id, label string, created time.Time) (string, bo
 
 func (s *Store) folder(relative string) (string, error) {
 	relative = filepath.Clean(relative)
-	if relative == "." { return s.root, nil }
-	if filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) { return "", fmt.Errorf("folder is outside chats") }
+	if relative == "." {
+		return s.root, nil
+	}
+	if filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("folder is outside chats")
+	}
 	return filepath.Join(s.root, relative), nil
 }
 
 func (s *Store) AddFolder(parent, name string) (string, error) {
-	path, err := s.folder(parent); if err != nil { return "", err }
-	name, err = AvailableName(path, name); if err != nil { return "", err }
-	path = filepath.Join(path, name); return path, os.Mkdir(path, 0o700)
+	path, err := s.folder(parent)
+	if err != nil {
+		return "", err
+	}
+	name, err = AvailableName(path, name)
+	if err != nil {
+		return "", err
+	}
+	path = filepath.Join(path, name)
+	return path, os.Mkdir(path, 0o700)
 }
 
 func (s *Store) RenameFolder(relative, name string) (string, error) {
-	path, err := s.folder(relative); if err != nil || path == s.root { return "", errors.Join(err, fmt.Errorf("cannot rename chats root")) }
-	name, err = AvailableName(filepath.Dir(path), name); if err != nil { return "", err }
+	path, err := s.folder(relative)
+	if err != nil || path == s.root {
+		return "", errors.Join(err, fmt.Errorf("cannot rename chats root"))
+	}
+	name, err = AvailableName(filepath.Dir(path), name)
+	if err != nil {
+		return "", err
+	}
 	destination := filepath.Join(filepath.Dir(path), name)
 	return destination, os.Rename(path, destination)
 }
 
 func (s *Store) DeleteFolder(relative string) error {
-	path, err := s.folder(relative); if err != nil { return err }
-	if path == s.root { return fmt.Errorf("cannot delete chats root") }
-	if err := os.Remove(path); err != nil { return fmt.Errorf("folder must be empty: %w", err) }
+	path, err := s.folder(relative)
+	if err != nil {
+		return err
+	}
+	if path == s.root {
+		return fmt.Errorf("cannot delete chats root")
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("folder must be empty: %w", err)
+	}
 	return nil
 }
 
 func (s *Store) Move(id, folder string) (string, error) {
-	entry, found, err := s.Find(id); if err != nil || !found { return "", errors.Join(err, fmt.Errorf("chat not found")) }
-	parent, err := s.folder(folder); if err != nil { return "", err }
-	if info, err := os.Stat(parent); err != nil || !info.IsDir() { return "", fmt.Errorf("folder not found") }
-	name, err := AvailableName(parent, filepath.Base(entry.Path)); if err != nil { return "", err }
-	destination := filepath.Join(parent, name); return destination, os.Rename(entry.Path, destination)
+	entry, found, err := s.Find(id)
+	if err != nil || !found {
+		return "", errors.Join(err, fmt.Errorf("chat not found"))
+	}
+	parent, err := s.folder(folder)
+	if err != nil {
+		return "", err
+	}
+	if info, err := os.Stat(parent); err != nil || !info.IsDir() {
+		return "", fmt.Errorf("folder not found")
+	}
+	name, err := AvailableName(parent, filepath.Base(entry.Path))
+	if err != nil {
+		return "", err
+	}
+	destination := filepath.Join(parent, name)
+	return destination, os.Rename(entry.Path, destination)
 }
 
 func (s *Store) Rename(id, label string) (string, error) {
-	entry, found, err := s.Find(id); if err != nil || !found { return "", errors.Join(err, fmt.Errorf("chat not found")) }
-	name, err := AvailableName(filepath.Dir(entry.Path), label); if err != nil { return "", err }
+	entry, found, err := s.Find(id)
+	if err != nil || !found {
+		return "", errors.Join(err, fmt.Errorf("chat not found"))
+	}
+	name, err := AvailableName(filepath.Dir(entry.Path), label)
+	if err != nil {
+		return "", err
+	}
 	destination := filepath.Join(filepath.Dir(entry.Path), name)
-	if err := os.Rename(entry.Path, destination); err != nil { return "", err }
+	if err := os.Rename(entry.Path, destination); err != nil {
+		return "", err
+	}
 	entry.Metadata.Label = label
-	if err := WriteMetadata(destination, entry.Metadata); err != nil { return "", errors.Join(err, os.Rename(destination, entry.Path)) }
+	if err := WriteMetadata(destination, entry.Metadata); err != nil {
+		return "", errors.Join(err, os.Rename(destination, entry.Path))
+	}
 	return destination, nil
+}
+
+// List separates active and archived chats without opening a journal. Archived
+// entries are newest first so the menu stays useful even after years of use.
+func (s *Store) List() (active, archived []Entry, err error) {
+	entries, err := s.Scan()
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, entry := range entries {
+		if entry.Metadata.ArchivedAt.IsZero() {
+			active = append(active, entry)
+		} else {
+			archived = append(archived, entry)
+		}
+	}
+	sort.SliceStable(archived, func(i, j int) bool { return archived[i].Metadata.ArchivedAt.After(archived[j].Metadata.ArchivedAt) })
+	return active, archived, nil
+}
+
+func (s *Store) Archive(id string, now time.Time) (Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, found, err := s.Find(id)
+	if err != nil || !found {
+		return Entry{}, errors.Join(err, fmt.Errorf("chat not found"))
+	}
+	if entry.Metadata.Live || entry.Metadata.Pending {
+		return Entry{}, fmt.Errorf("chat is busy")
+	}
+	entry.Metadata.ArchivedAt = now.UTC()
+	if err := WriteMetadata(entry.Path, entry.Metadata); err != nil {
+		return Entry{}, err
+	}
+	return entry, nil
+}
+
+func (s *Store) Restore(id string) (Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, found, err := s.Find(id)
+	if err != nil || !found {
+		return Entry{}, errors.Join(err, fmt.Errorf("chat not found"))
+	}
+	entry.Metadata.ArchivedAt = time.Time{}
+	if err := WriteMetadata(entry.Path, entry.Metadata); err != nil {
+		return Entry{}, err
+	}
+	return entry, nil
+}
+
+// NoteActivity writes one small metadata record only at run/card boundaries;
+// streamed tokens never reach this path.
+func (s *Store) NoteActivity(id string, now time.Time, live, pending *bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, found, err := s.Find(id)
+	if err != nil || !found {
+		return err
+	}
+	entry.Metadata.LastActivity = now.UTC()
+	if live != nil {
+		entry.Metadata.Live = *live
+	}
+	if pending != nil {
+		entry.Metadata.Pending = *pending
+	}
+	return WriteMetadata(entry.Path, entry.Metadata)
+}
+
+func (s *Store) AutoArchive(now time.Time) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := s.Scan()
+	if err != nil {
+		return nil, err
+	}
+	var changed []string
+	cutoff := now.UTC().Add(-14 * 24 * time.Hour)
+	for _, entry := range entries {
+		meta := entry.Metadata
+		activity := meta.LastActivity
+		if activity.IsZero() {
+			activity = meta.Created
+		}
+		if !meta.ArchivedAt.IsZero() || meta.Live || meta.Pending || activity.After(cutoff) {
+			continue
+		}
+		meta.ArchivedAt = now.UTC()
+		if err := WriteMetadata(entry.Path, meta); err != nil {
+			return changed, err
+		}
+		changed = append(changed, meta.ID)
+	}
+	return changed, nil
 }

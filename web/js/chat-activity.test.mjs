@@ -6,6 +6,7 @@ import { liveActivityText, modelRequestText, showsStreamCaret } from "./chat-act
 const running = (activity) => ({ run: { status: "running" }, activity });
 
 test("live activity gives each model phase a measured status", () => {
+  assert.equal(liveActivityText(undefined), "");
   assert.equal(liveActivityText(running({ stage: "call_model", stage_state: "enter", progress: { processed: 2868 }, stream: {} })), "waiting for first token — prompt 2.9k · 0s");
   assert.equal(modelRequestText({ stream: { reasoning_chars: 605, total_chars: 605 } }), "thinking · 169 tokens");
   assert.equal(modelRequestText({ stream: { reasoning_chars: 605, total_chars: 750 } }), "writing · 41 tokens");

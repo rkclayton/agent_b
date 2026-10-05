@@ -1,6 +1,6 @@
 export function liveActivityText(session, now = Date.now()) {
   const status = session?.run?.status;
-  const activity = session.activity || {};
+  const activity = session?.activity || {};
   const elapsed = formatElapsed(activity.started_at, now);
   const withElapsed = (text) => `${text} · ${elapsed}`;
   if (session?.pending_approval || session?.pending_repo_policy) {

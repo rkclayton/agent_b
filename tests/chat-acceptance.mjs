@@ -1923,12 +1923,12 @@ if (realModel) {
   await waitEvent(sessionID, (event) => event.seq > beforeLiveTool && event.type === "stage" && event.data?.stage === "execute" && event.data?.state === "enter", "slow live shell execute stage");
   await sleep(200);
   const liveToolState = await browser.evaluate(`({ status: (document.querySelector('#chat-notice .chat-notice-text')?.innerText || '').toLowerCase(), carets: document.querySelectorAll('.stream-caret').length, text: document.querySelector('#chat-log')?.innerText || '' })`);
-  assert.match(liveToolState.status, /^tool executing · shell(?: ·|$)/);
+  assert.match(liveToolState.status, /^running shell(?: ·|$)/);
   assert.equal(liveToolState.carets, 0, JSON.stringify(liveToolState));
   assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--signal)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
   await captureWithMasks(page, join(baselineDirectory, "chat-live-tool.png"));
   await openPanel("activity", sessionID);
-  await browser.wait(`document.querySelector('#panel-live-state')?.innerText.startsWith('tool executing · shell')`, "the live run names the slow tool");
+  await browser.wait(`document.querySelector('#panel-live-state')?.innerText.startsWith('running shell')`, "the live run names the slow tool");
   const compactionState = (await state()).sessions[sessionID];
   assert.equal(await page.locator("#panel-live-compactions").innerText(), `${compactionState.compaction_count || 0} compactions · ${compactionState.compaction_model_calls || 0} summaries`);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);

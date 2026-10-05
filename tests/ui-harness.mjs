@@ -119,15 +119,29 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
   const context = await browser.newContext({ viewport });
   const bootstrap = await context.newPage();
   await bootstrap.goto(`${base}/chat`, { waitUntil: "domcontentloaded" });
-  await bootstrap.close();
+  const mutationToken = await bootstrap.locator('meta[name="agentb-mutation-token"]').getAttribute("content");
   const getState = async () => {
     const response = await context.request.get(`${base}/api/state`);
     assert.equal(response.status(), 200);
     return response.json();
   };
-  const initial = await waitFor(getState, "the authenticated harness became ready", readyTimeout).catch((error) => {
+  let initial = await waitFor(getState, "the authenticated harness became ready", readyTimeout).catch((error) => {
     throw new Error(`${error.message}; stderr: ${stderr.slice(-800)}`);
   });
+  // Item 2qd: production startup no longer invents a chat. UI scenarios that
+  // need one create it through the same operator route the browser uses.
+  if (!Object.keys(initial.sessions || {}).length) {
+    const created = await context.request.post(`${base}/api/sessions`, {
+      data: { label: "UI harness" },
+      headers: { "X-AgentB-Mutation-Token": mutationToken },
+    });
+    assert.equal(created.status(), 201);
+    initial = await waitFor(async () => {
+      const state = await getState();
+      return Object.keys(state.sessions || {}).length ? state : null;
+    }, "the UI harness chat was created", readyTimeout);
+  }
+  await bootstrap.close();
 
   return {
     base, appPort, modelPort, app, context, browser, initial, getState, dataRoot,

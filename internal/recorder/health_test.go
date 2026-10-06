@@ -396,6 +396,8 @@ func appSession(t *testing.T) (*App, map[string]map[string]any) {
 		bus.Publish(events.New(eventType, session, "r1", data))
 	}
 	app.NoteListening(851, "clean")
+	app.NoteLifecycleStart("session_end")
+	app.NoteLifecycleExit("installer", 123)
 	clock = clock.Add(1420 * time.Millisecond)
 	app.NoteWindowShown()
 	app.NotePage(640, map[string]int{"connections": 2, "about": 1})
@@ -460,6 +462,28 @@ func TestTheAppAroundTheRunsIsReported2q7(t *testing.T) {
 	for _, needle := range []string{"ZEBRA", "someone", "secret"} {
 		if strings.Contains(string(encoded), needle) {
 			t.Fatalf("the app's events carry %q: %s", needle, encoded)
+		}
+	}
+}
+
+func TestLifecycleEnvelopesAreContentFree2qq(t *testing.T) {
+	app := NewApp(time.Date(2026, 10, 6, 14, 0, 0, 0, time.UTC))
+	app.NoteLifecycleStart("session_end")
+	app.NoteLifecycleExit("installer", 123)
+	got := app.Flush()
+	var lifecycle []map[string]any
+	for _, item := range got {
+		if item.kind == events.AppLifecycle {
+			lifecycle = append(lifecycle, item.data)
+		}
+	}
+	if len(lifecycle) != 2 || lifecycle[0]["phase"] != "start" || lifecycle[0]["previous_exit"] != "session_end" || lifecycle[1]["phase"] != "exit" || lifecycle[1]["cause"] != "installer" || lifecycle[1]["uptime_s"] != int64(123) {
+		t.Fatalf("lifecycle = %#v", lifecycle)
+	}
+	encoded, _ := json.Marshal(lifecycle)
+	for _, forbidden := range []string{"path", "pid", "message", "detail", "ZEBRA"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("lifecycle exposed %q: %s", forbidden, encoded)
 		}
 	}
 }

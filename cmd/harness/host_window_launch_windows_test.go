@@ -69,7 +69,7 @@ func waitLine(t *testing.T, dataRoot, text string) {
 
 func TestColdLaunchOpensTheWindow(t *testing.T) {
 	opened, dataRoot := stubHostWindow(t, true, 0)
-	closeRequests := make(chan struct{}, 1)
+	closeRequests := make(chan string, 1)
 	startHostWindow("127.0.0.1:1", t.TempDir(), "b", closeRequests)
 	waitOpened(t, opened)
 	<-closeRequests // closing the window still stops the server
@@ -80,7 +80,7 @@ func TestColdLaunchOpensTheWindow(t *testing.T) {
 
 func TestHostStartFailingOnceIsRetried(t *testing.T) {
 	opened, dataRoot := stubHostWindow(t, true, 1)
-	startHostWindow("127.0.0.1:1", t.TempDir(), "b", make(chan struct{}, 1))
+	startHostWindow("127.0.0.1:1", t.TempDir(), "b", make(chan string, 1))
 	waitOpened(t, opened)
 	lines := launcherLines(t, dataRoot)
 	if !strings.Contains(lines, "host window: attempt 1 failed (stub WebView2 controller failed); retrying") || !strings.Contains(lines, "host window: opened") {
@@ -91,7 +91,7 @@ func TestHostStartFailingOnceIsRetried(t *testing.T) {
 func TestHostStartThatKeepsFailingSaysSoAndTheNextLaunchRetries(t *testing.T) {
 	opened, dataRoot := stubHostWindow(t, true, 3)
 	requests := make(chan struct{}, 1)
-	go superviseHostWindow("u", t.TempDir(), true, requests, make(chan struct{}, 1))
+	go superviseHostWindow("u", t.TempDir(), true, requests, make(chan string, 1))
 	waitLine(t, dataRoot, "could not open after 3 attempts, using the browser instead (stub WebView2 controller failed); the next launch tries again")
 	requests <- struct{}{}
 	waitOpened(t, opened)
@@ -114,7 +114,7 @@ func TestSignInStartThenSecondLaunchCreatesTheWindow(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dataRoot, "agent_b-run.json"), marker, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	startHostWindow("127.0.0.1:1", applicationRoot, "b", make(chan struct{}, 1))
+	startHostWindow("127.0.0.1:1", applicationRoot, "b", make(chan string, 1))
 	waitLine(t, dataRoot, "host window: not requested by this launch")
 	select {
 	case <-opened:

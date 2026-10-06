@@ -420,7 +420,7 @@ func TestOperatorsPageManagesEntraSignIn2nw(t *testing.T) {
 
 // Item 2o9 CHECKS 2-4 at the registry: the toggle writes the one Run entry Windows'
 // Startup page lists; Windows turning it off reads back Off; on, the entry starts
-// the app through the hidden host WITH its window, never -NoBrowser. The keys are
+// the app through the hidden host in background sign-in mode. The keys are
 // pointed at a scratch path, so the operator's own Run key is never touched.
 func TestSignInStartIsWindowsOwnSwitch2o9(t *testing.T) {
 	if runtime.GOOS != "windows" {
@@ -456,8 +456,8 @@ func TestSignInStartIsWindowsOwnSwitch2o9(t *testing.T) {
 		t.Fatal("turning it on did not read back On")
 	}
 	command, err := exec.Command("reg.exe", "query", `HKCU\`+signInRunKey, "/v", signInValue).Output()
-	if err != nil || !strings.Contains(string(command), "launch-hidden.vbs") || !strings.Contains(string(command), " -window ") || strings.Contains(string(command), "NoBrowser") {
-		t.Fatalf("the Run entry does not start the app with its window: %s (%v)", command, err)
+	if err != nil || !strings.Contains(string(command), "launch-hidden.vbs") || !strings.Contains(string(command), "-AtLogon") || !strings.Contains(string(command), "-NoBrowser") {
+		t.Fatalf("the Run entry does not start the app in hidden sign-in mode: %s (%v)", command, err)
 	}
 	// Windows' Startup page switching it off writes 03 to StartupApproved.
 	if err := exec.Command("reg.exe", "add", `HKCU\`+signInApprovedKey, "/v", signInValue, "/t", "REG_BINARY", "/d", "030000000000000000000000", "/f").Run(); err != nil {

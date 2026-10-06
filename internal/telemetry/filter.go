@@ -79,13 +79,14 @@ var allowList = map[string]Classification{
 	"update":           sent("check", "install", "from", "to"),
 	"settings.shape":   sent("connections", "telemetry", "os_version"),
 	// Item 2q7: per hour, from the recorder only.
-	"app.start":   sent("listen_ms", "window_ms", "first_answer_ms", "previous_exit"),
-	"page.health": sent("state_bytes", "state_ms", "page_load_ms", "longest_freeze_ms", "js_errors"),
-	"link.health": sent("connects", "drops", "reconnect_ms", "refused", "pushes", "join_bytes"),
-	"install":     sent("step", "class", "from", "to"),
-	"resource":    sent("memory_peak_bytes", "data_bytes", "chats_bytes", "chats", "ram_bytes", "arch", "os_version"),
-	"feature.use": sent("chats_created", "messages_sent", "tools", "attachments", "voice", "settings_pages", "approvals"),
-	"error":       sent("where", "class", "stack_tree"),
+	"app.start":     sent("listen_ms", "window_ms", "first_answer_ms", "previous_exit"),
+	"app.lifecycle": sent("phase", "cause", "uptime_s", "previous_exit"),
+	"page.health":   sent("state_bytes", "state_ms", "page_load_ms", "longest_freeze_ms", "js_errors"),
+	"link.health":   sent("connects", "drops", "reconnect_ms", "refused", "pushes", "join_bytes"),
+	"install":       sent("step", "class", "from", "to"),
+	"resource":      sent("memory_peak_bytes", "data_bytes", "chats_bytes", "chats", "ram_bytes", "arch", "os_version"),
+	"feature.use":   sent("chats_created", "messages_sent", "tools", "attachments", "voice", "settings_pages", "approvals"),
+	"error":         sent("where", "class", "stack_tree"),
 
 	// ------------------------------------------------------------ dropped
 	"model.delta": dropped, "model.progress": dropped, "model.request": dropped,

@@ -253,6 +253,23 @@ Once per process, in the first hour.
 {"type":"app.start","at":"2026-10-04T21:00:05Z","listen_ms":851,"window_ms":1420,"first_answer_ms":5230,"previous_exit":"clean"}
 ```
 
+### `app.lifecycle`
+
+One content-free event when the serving process starts and one when it observes
+its own exit. A process killed without an observable exit is reported by the
+next start as `previous_exit: "unrecorded"`.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `phase` | `start` or `exit` | which lifecycle edge this event records |
+| `previous_exit` | string, start only | `user`, `installer`, `session_end`, `crash`, `killed`, `unknown`, or `unrecorded` |
+| `cause` | string, exit only | `user`, `installer`, `session_end`, `crash`, `killed`, or `unknown` |
+| `uptime_s` | int, exit only | whole seconds this process served |
+
+```json vector:app.lifecycle
+{"type":"app.lifecycle","at":"2026-10-06T14:02:08Z","phase":"exit","cause":"installer","uptime_s":123}
+```
+
 ### `page.health`
 
 | Field | Type | Meaning |
@@ -407,6 +424,7 @@ dropped by the allow-list in `internal/telemetry` before it can.
 | `update` | `check`, `install`, `from`, `to` |
 | `settings.shape` | `connections`, `telemetry`, `os_version` |
 | `app.start` | `listen_ms`, `window_ms`, `first_answer_ms`, `previous_exit` |
+| `app.lifecycle` | `phase`, `previous_exit`, `cause`, `uptime_s` |
 | `page.health` | `state_bytes`, `state_ms`, `page_load_ms`, `longest_freeze_ms`, `js_errors` |
 | `link.health` | `connects`, `drops`, `reconnect_ms`, `refused`, `pushes`, `join_bytes` |
 | `install` | `step`, `class`, `from`, `to` |

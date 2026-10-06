@@ -261,6 +261,9 @@ func markCrashReported(path string) error {
 // root is the one installCrashRecord was given, so no surface has to carry a copy
 // of it just to be able to report its own failure.
 func crashLauncherLine(line string) {
+	if stopActiveLifetime("crash", line) {
+		return
+	}
 	crashRecord.mu.Lock()
 	dataRoot := crashRecord.dataRoot
 	crashRecord.mu.Unlock()

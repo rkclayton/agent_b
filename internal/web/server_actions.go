@@ -404,6 +404,9 @@ func (s *Server) signInStart(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "enabled is required", "enabled")
 			return
 		}
+		if *body.Enabled {
+			_ = os.Remove(filepath.Join(s.roots.Data, "autostart-disabled"))
+		}
 		if err := setSignInStart(*body.Enabled, s.signInCommand()); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error(), "enabled")
 			return
@@ -431,7 +434,8 @@ var (
 
 func (s *Server) signInCommand() string {
 	application := s.roots.Application
-	return fmt.Sprintf(`"%s" //B "%s" "%s" -window -config "%s" -app-root "%s" -data-root "%s"`,
+	return fmt.Sprintf(`"%s" //B "%s" "%s" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File "%s" -ApplicationDirectory "%s" -DataDirectory "%s" -ConfigPath "%s" -AtLogon -Detached -NoBrowser -NoPause`,
 		filepath.Join(os.Getenv("SystemRoot"), "System32", "wscript.exe"), filepath.Join(application, "scripts", "launch-hidden.vbs"),
-		filepath.Join(application, "Agent_b.exe"), s.configPath, application, s.roots.Data)
+		filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+		filepath.Join(application, "scripts", "launch-Agent_b.ps1"), application, s.roots.Data, s.configPath)
 }

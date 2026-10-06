@@ -939,10 +939,10 @@ function New-EntryPointDataRoot {
     ($entryConfig | ConvertTo-Json -Depth 12) | Set-Content -LiteralPath (Join-Path $root 'harness.json') -Encoding UTF8
     return $root
 }
-# Item 2o9 CHECK 1: the install places no sign-in start at all.
+# Test mode never mutates the operator's real sign-in registration.
 if (Test-Path -LiteralPath (Join-Path $testStart 'Startup\Agent_b.lnk')) { throw 'the install placed a sign-in shortcut (item 2o9: nothing starts at sign-in unless switched on)' }
 if ((Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Agent_b' -ErrorAction SilentlyContinue).Agent_b -match [regex]::Escape($testApplication)) { throw 'the install wrote a Run entry for this install' }
-Write-Host 'PROOF no sign-in start: no Startup shortcut and no Run entry after install'
+Write-Host 'PROOF test mode left the operator Run entry untouched'
 $entryPoints = @(
     @{ Label = 'Start Menu shortcut'; Path = (Join-Path $testStart 'Agent_b.lnk') }
 )
@@ -971,9 +971,20 @@ foreach ($entry in $entryPoints) {
 # through the launcher's DETACHED path, and 2hg's CREATE_NO_WINDOW spawn is the thing being
 # measured here rather than asserted from the source.
 $autostartData = New-EntryPointDataRoot
+$optOut = Join-Path $autostartData 'autostart-disabled'
+Set-Content -LiteralPath $optOut -Value 'user' -Encoding ASCII
+$skipOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File (Join-Path $testApplication 'scripts\launch-Agent_b.ps1') -ApplicationDirectory $testApplication -DataDirectory $autostartData -ConfigPath (Join-Path $autostartData 'harness.json') -AtLogon -Detached -NoBrowser -NoPause 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0 -or $skipOutput -notmatch 'SIGN-IN START SKIPPED: the operator intentionally quit Agent_b') {
+    throw "An intentional quit did not suppress sign-in start.`n$skipOutput"
+}
+Start-Sleep -Milliseconds 500
+if (@(Get-CimInstance Win32_Process -Filter "Name='Agent_b.exe'" | Where-Object { $_.CommandLine -like "*$autostartData*" }).Count) {
+    throw 'The opted-out sign-in command started Agent_b.'
+}
+Remove-Item -LiteralPath $optOut -Force
 $entryResults += Test-EntryPointOpensNoConsole -Label 'installer autostart command' `
     -Target (Get-WindowsPowerShell) `
-    -Arguments ('-NoLogo -NoProfile -File "' + (Join-Path $testApplication 'scripts\launch-Agent_b.ps1') + '" -ApplicationDirectory "' + $testApplication + '" -DataDirectory "' + $autostartData + '" -ConfigPath "' + (Join-Path $autostartData 'harness.json') + '" -Detached -NoBrowser -NoPause') `
+    -Arguments ('-NoLogo -NoProfile -File "' + (Join-Path $testApplication 'scripts\launch-Agent_b.ps1') + '" -ApplicationDirectory "' + $testApplication + '" -DataDirectory "' + $autostartData + '" -ConfigPath "' + (Join-Path $autostartData 'harness.json') + '" -AtLogon -Detached -NoBrowser -NoPause') `
     -ApplicationRoot $testApplication
 
 foreach ($result in $entryResults) {
@@ -1477,8 +1488,8 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
     $reinstallExit = $LASTEXITCODE
     Write-Host $reinstallOutput.TrimEnd()
     if ($reinstallExit -ne 0) { throw "Reinstall exited $reinstallExit." }
-    if ($reinstallOutput -notmatch '(?m)^At sign-in: off\r?$' -or $reinstallOutput -match '(?m)^At sign-in: .*Startup\\Agent_b\.lnk') {
-        throw "The reinstall summary did not say truthfully that sign-in start is off.`n$reinstallOutput"
+    if ($reinstallOutput -notmatch '(?m)^At sign-in: on\r?$' -or $reinstallOutput -match '(?m)^At sign-in: .*Startup\\Agent_b\.lnk') {
+        throw "The reinstall summary did not say truthfully that sign-in start is on.`n$reinstallOutput"
     }
     if ((Get-StableConfigFingerprint -Path $configPath) -cne $configFingerprint) {
         throw 'Reinstall changed preserved connection configuration.'

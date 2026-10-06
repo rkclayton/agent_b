@@ -1021,14 +1021,23 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime, application
 		return err
 	}
 	stopped := func(string) {}
-	closeRequests := make(chan struct{}, 1)
+	closeRequests := make(chan string, 1)
 	if life != nil {
 		life.applicationRoot = applicationRoot
 		life.listen = cfg.Listen
 		life.begin()
+		setActiveLifetime(life)
+		defer setActiveLifetime(nil)
+		if startupApp != nil {
+			startupApp.NoteLifecycleStart(life.previousExit)
+			life.onExit = func(cause string, uptime int64) {
+				startupApp.NoteLifecycleExit(cause, uptime)
+				startupApp.SendNow()
+			}
+		}
 		watchSessionEnd(applicationRoot, life.stopped, func() {
 			select {
-			case closeRequests <- struct{}{}:
+			case closeRequests <- "installer":
 			default:
 			}
 		})
@@ -1059,9 +1068,15 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime, application
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return httpServer.Shutdown(ctx)
-	case <-closeRequests:
+	case cause := <-closeRequests:
 		log.Printf("stopping on a close request")
-		stopped("asked to close (the installer's graceful stop)")
+		if life != nil {
+			detail := "asked to close"
+			if cause == "installer" { detail = "asked to close (the installer's graceful stop)" }
+			life.stoppedCause(cause, detail)
+		} else {
+			stopped("asked to close")
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return httpServer.Shutdown(ctx)
@@ -1139,7 +1154,7 @@ var (
 	hostWindowAvailability = hostWindowAvailable
 )
 
-func startHostWindow(listen, applicationRoot, browserBootstrap string, closeRequests chan struct{}) {
+func startHostWindow(listen, applicationRoot, browserBootstrap string, closeRequests chan string) {
 	requests := make(chan struct{}, 1)
 	watchActivation(applicationRoot, func() {
 		if raiseHostWindow() {
@@ -1154,7 +1169,7 @@ func startHostWindow(listen, applicationRoot, browserBootstrap string, closeRequ
 	go superviseHostWindow(url, applicationRoot, hostWindowMode, requests, closeRequests)
 }
 
-func superviseHostWindow(url, applicationRoot string, wanted bool, requests <-chan struct{}, closeRequests chan<- struct{}) {
+func superviseHostWindow(url, applicationRoot string, wanted bool, requests <-chan struct{}, closeRequests chan<- string) {
 	if !wanted {
 		recordWindowFate("host window: not requested by this launch (a background start); the next launch opens it")
 		<-requests
@@ -1163,7 +1178,7 @@ func superviseHostWindow(url, applicationRoot string, wanted bool, requests <-ch
 		if openHostWindow(url, applicationRoot) {
 			log.Printf("host window: closed")
 			select {
-			case closeRequests <- struct{}{}:
+			case closeRequests <- "user":
 			default:
 			}
 			return

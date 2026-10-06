@@ -28,7 +28,10 @@ type lifetime struct {
 	applicationRoot string
 	listen          string
 	// unclean is item 2q7 (a): the last instance ended without recording a reason.
-	unclean bool
+	unclean      bool
+	previousExit string
+	started      time.Time
+	onExit       func(string, int64)
 }
 
 type runMarker struct {
@@ -37,9 +40,34 @@ type runMarker struct {
 	Started     string `json:"started"`
 	Application string `json:"application,omitempty"`
 	Listen      string `json:"listen,omitempty"`
+	ExitCause   string `json:"exit_cause,omitempty"`
+	UptimeS     int64  `json:"uptime_s,omitempty"`
+	Ended       string `json:"ended,omitempty"`
 }
 
 const launcherLogName = "launcher-errors.log"
+
+var activeLifetime struct {
+	sync.RWMutex
+	value *lifetime
+}
+
+func setActiveLifetime(life *lifetime) {
+	activeLifetime.Lock()
+	activeLifetime.value = life
+	activeLifetime.Unlock()
+}
+
+func stopActiveLifetime(cause, detail string) bool {
+	activeLifetime.RLock()
+	life := activeLifetime.value
+	activeLifetime.RUnlock()
+	if life == nil {
+		return false
+	}
+	life.stoppedCause(cause, detail)
+	return true
+}
 
 func newLifetime(dataRoot string, now func() time.Time) *lifetime {
 	logs := filepath.Join(dataRoot, "logs")
@@ -52,13 +80,19 @@ func (l *lifetime) begin() {
 	if err := os.MkdirAll(filepath.Dir(l.logPath), 0o700); err != nil {
 		return
 	}
+	l.previousExit = "unrecorded"
 	if data, err := readMarker(l.markerPath); err == nil {
 		var previous runMarker
 		if json.Unmarshal(data, &previous) == nil && previous.PID > 0 && !(previous.PID == l.pid && previous.Created == l.created) && !processRunning(previous.PID, previous.Created) {
-			l.unclean = true
-			l.append(fmt.Sprintf("Agent_b PID %d (started %s) ended without recording a reason: the Windows session was logged off or shut down, the process was ended from outside, or the host lost power.", previous.PID, printable(previous.Started)))
+			if validLifecycleCause(previous.ExitCause) {
+				l.previousExit = previous.ExitCause
+			} else {
+				l.unclean = true
+				l.append(fmt.Sprintf("Agent_b PID %d stopped: cause=killed; previous run started %s and ended without recording a reason", previous.PID, printable(previous.Started)))
+			}
 		}
 	}
+	l.started = l.now()
 	marker, _ := json.Marshal(runMarker{PID: l.pid, Created: l.created, Started: l.stamp(), Application: l.applicationRoot, Listen: l.listen})
 	temporary := l.markerPath + ".tmp"
 	if os.WriteFile(temporary, marker, 0o600) == nil {
@@ -69,9 +103,58 @@ func (l *lifetime) begin() {
 // stopped records the first observed reason and clears the marker; later
 // calls (a session end followed by the signal it causes) are ignored.
 func (l *lifetime) stopped(reason string) {
+	l.stoppedCause(classifyLifecycleCause(reason), reason)
+}
+
+var lifecycleCauses = map[string]bool{"user": true, "installer": true, "session_end": true, "crash": true, "killed": true, "unknown": true}
+
+func validLifecycleCause(cause string) bool { return lifecycleCauses[cause] }
+
+func classifyLifecycleCause(reason string) string {
+	lower := strings.ToLower(reason)
+	switch {
+	case strings.Contains(lower, "installer"), strings.Contains(lower, "asked to close"):
+		return "installer"
+	case strings.Contains(lower, "session"), strings.Contains(lower, "shutting down"), strings.Contains(lower, "logging off"):
+		return "session_end"
+	case strings.Contains(lower, "crash"), strings.Contains(lower, "panic"), strings.Contains(lower, "server failed"):
+		return "crash"
+	case strings.Contains(lower, "interrupt"), strings.Contains(lower, "operator"), strings.Contains(lower, "user"):
+		return "user"
+	case strings.Contains(lower, "signal"), strings.Contains(lower, "killed"):
+		return "killed"
+	default:
+		return "unknown"
+	}
+}
+
+func firstLine(value string) string {
+	value = strings.TrimSpace(strings.Split(strings.ReplaceAll(value, "\r", ""), "\n")[0])
+	return printable(value)
+}
+
+func (l *lifetime) stoppedCause(cause, detail string) {
+	if !validLifecycleCause(cause) {
+		cause = "unknown"
+	}
 	l.once.Do(func() {
-		l.append(fmt.Sprintf("Agent_b PID %d stopped: %s", l.pid, strings.TrimSpace(reason)))
-		_ = os.Remove(l.markerPath)
+		uptime := int64(0)
+		if !l.started.IsZero() {
+			uptime = max(int64(0), int64(l.now().Sub(l.started).Seconds()))
+		}
+		detail = firstLine(detail)
+		l.append(fmt.Sprintf("Agent_b PID %d stopped: cause=%s; %s", l.pid, cause, detail))
+		marker, _ := json.Marshal(runMarker{PID: l.pid, Created: l.created, Started: l.started.Format("2006-01-02 15:04:05 -07:00"), Application: l.applicationRoot, Listen: l.listen, ExitCause: cause, UptimeS: uptime, Ended: l.stamp()})
+		temporary := l.markerPath + ".tmp"
+		if os.WriteFile(temporary, marker, 0o600) == nil {
+			_ = os.Rename(temporary, l.markerPath)
+		}
+		if cause == "user" {
+			_ = os.WriteFile(filepath.Join(filepath.Dir(l.markerPath), "autostart-disabled"), []byte("user\n"), 0o600)
+		}
+		if l.onExit != nil {
+			l.onExit(cause, uptime)
+		}
 	})
 }
 

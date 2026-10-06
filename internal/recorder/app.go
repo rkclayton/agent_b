@@ -64,6 +64,7 @@ type App struct {
 	installs   []map[string]any
 	installed  string
 	memoryPeak uint64
+	lifecycle  []map[string]any
 }
 
 type jsError struct {
@@ -96,6 +97,38 @@ func (a *App) NoteListening(listenMS int64, previousExit string) {
 	a.mu.Lock()
 	a.start["listen_ms"], a.start["previous_exit"] = listenMS, word(previousExit)
 	a.mu.Unlock()
+}
+
+func (a *App) NoteLifecycleStart(previousExit string) {
+	a.noteLifecycle(map[string]any{"phase": "start", "previous_exit": lifecyclePrevious(previousExit)})
+}
+
+func (a *App) NoteLifecycleExit(cause string, uptimeS int64) {
+	if !lifecycleCause(cause) {
+		cause = "unknown"
+	}
+	a.noteLifecycle(map[string]any{"phase": "exit", "cause": cause, "uptime_s": max(int64(0), uptimeS)})
+}
+
+func (a *App) noteLifecycle(event map[string]any) {
+	a.mu.Lock()
+	a.lifecycle = append(a.lifecycle, event)
+	a.mu.Unlock()
+}
+
+func lifecycleCause(value string) bool {
+	switch value {
+	case "user", "installer", "session_end", "crash", "killed", "unknown":
+		return true
+	}
+	return false
+}
+
+func lifecyclePrevious(value string) string {
+	if lifecycleCause(value) {
+		return value
+	}
+	return "unrecorded"
 }
 
 // NoteWindowShown is (a): the host window appeared.
@@ -315,6 +348,10 @@ func (a *App) Flush() []emitted {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	var out []emitted
+	for _, event := range a.lifecycle {
+		out = append(out, emitted{events.AppLifecycle, event})
+	}
+	a.lifecycle = nil
 	if !a.startSent {
 		a.startSent = true
 		start := map[string]any{}

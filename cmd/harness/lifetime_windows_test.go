@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -108,11 +109,12 @@ func TestSessionEndIsRecordedBeforeWindowsEndsTheProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) != 1 || !strings.Contains(lines[0], "stopped: the Windows session is logging off") {
+	if len(lines) != 1 || !strings.Contains(lines[0], "stopped: cause=session_end; the Windows session is logging off") {
 		t.Fatalf("launcher log = %q", data)
 	}
-	if _, err := os.Stat(life.markerPath); !os.IsNotExist(err) {
-		t.Fatalf("marker left behind: %v", err)
+	var stopped runMarker
+	if body, err := os.ReadFile(life.markerPath); err != nil || json.Unmarshal(body, &stopped) != nil || stopped.ExitCause != "session_end" {
+		t.Fatalf("stopped marker = %+v, err=%v", stopped, err)
 	}
 }
 

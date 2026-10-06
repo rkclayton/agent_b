@@ -129,12 +129,13 @@ const (
 	UpdateResult    = "update"
 	SettingsShape   = "settings.shape"
 	// Item 2q7: the app around the runs, aggregated per hour by the recorder.
-	AppStart   = "app.start"
-	PageHealth = "page.health"
-	LinkHealth = "link.health"
-	Install    = "install"
-	Resource   = "resource"
-	FeatureUse = "feature.use"
+	AppStart     = "app.start"
+	AppLifecycle = "app.lifecycle"
+	PageHealth   = "page.health"
+	LinkHealth   = "link.health"
+	Install      = "install"
+	Resource     = "resource"
+	FeatureUse   = "feature.use"
 )
 
 const (

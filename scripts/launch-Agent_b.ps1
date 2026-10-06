@@ -12,7 +12,8 @@ param(
     [switch]$NoPause,
     [switch]$ShowFailure,
     [switch]$Console,
-    [switch]$Check
+    [switch]$Check,
+    [switch]$AtLogon
 )
 
 $ErrorActionPreference = 'Stop'
@@ -255,6 +256,16 @@ function Get-AgentBStartupFailure {
         return "configuration error: $detail"
     }
     return "startup process error: $detail"
+}
+
+$intentionalQuit = Join-Path $dataRoot 'autostart-disabled'
+if ($AtLogon -and (Test-Path -LiteralPath $intentionalQuit -PathType Leaf)) {
+    Write-LauncherRecord 'SIGN-IN START SKIPPED: the operator intentionally quit Agent_b; a manual start enables sign-in start again'
+    exit 0
+}
+if (-not $AtLogon -and (Test-Path -LiteralPath $intentionalQuit -PathType Leaf)) {
+    Remove-Item -LiteralPath $intentionalQuit -Force
+    Write-LauncherRecord 'SIGN-IN START ENABLED: a manual start cleared the intentional-quit marker'
 }
 
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {

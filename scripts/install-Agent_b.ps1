@@ -40,7 +40,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'signing-key-policy.ps1')
 . (Join-Path $PSScriptRoot 'install-root-policy.ps1')
-$displayVersion = '1.60.29'
+$displayVersion = '1.60.30'
 
 if (-not $TestMode -and -not $EmbeddedBundle) {
     Write-Output 'Agent_b installs come from the signed Agent_b-setup.exe on the release page.'
@@ -957,15 +957,23 @@ $shortcut.IconLocation = "$iconPath,0"
 $shortcut.Description = 'Open Agent_b'
 $shortcut.Save()
 
-# Item 2o9: NOTHING STARTS AT SIGN-IN UNLESS THE OPERATOR TURNS IT ON. 2em placed a
-# hidden, windowless Startup shortcut on every install; it was never asked for and it
-# was the path behind 2o0's five windowless mornings. The install places none and an
-# update removes the one an earlier version placed. Start-at-sign-in is now a per-user
-# Run entry that Settings writes and Windows' own Startup page lists and switches.
+# Item 2qq: Agent_b starts at the next logon after an install or update, unless
+# the operator deliberately quit it. The Run entry goes through the hidden
+# launcher; -AtLogon makes that launcher honor the content-free quit marker.
+# The old Startup shortcut still goes away so there remains exactly one owner.
 $startupPath = Join-Path (Join-Path $StartMenuDirectory 'Startup') 'Agent_b.lnk'
 if (Test-Path -LiteralPath $startupPath -PathType Leaf) {
     Remove-Item -LiteralPath $startupPath -Force
     Write-Host "Removed the earlier sign-in start: $startupPath"
+}
+$signInCommand = '"' + (Join-Path $env:SystemRoot 'System32\wscript.exe') + '" //B "' + $hiddenLauncher + '" "' +
+    (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') + '" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File "' +
+    (Join-Path $applicationRoot 'scripts\launch-Agent_b.ps1') + '" -ApplicationDirectory "' + $applicationRoot + '" -DataDirectory "' + $dataRoot +
+    '" -ConfigPath "' + (Join-Path $dataRoot 'harness.json') + '" -AtLogon -Detached -NoBrowser -NoPause'
+if (-not $TestMode) {
+    $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    $null = New-Item -Path $runKey -Force
+    Set-ItemProperty -LiteralPath $runKey -Name 'Agent_b' -Type String -Value $signInCommand
 }
 
 # Item 2mv (e): SEND TO -> AGENT_B. Explorer hands the selected paths to the link,
@@ -1070,7 +1078,7 @@ Write-Host ''
 Write-InstallProgress -Phase 'finished' -Text "Agent_b $displayVersion is installed." -Done -OK
 Write-Host 'INSTALLATION COMPLETE'
 Write-Host "Start Menu: $shortcutPath"
-Write-Host 'At sign-in: off'
+Write-Host 'At sign-in: on'
 $registrationHive = if ($resolvedRoots.UninstallRegistryPath -match '^(?i)HKLM:') { 'HKLM' } else { 'HKCU' }
 Write-Host "Registration: $registrationHive at $($resolvedRoots.UninstallRegistryPath) and the operator Start Menu, matching the LocalAppData configuration and user-scoped DPAPI owner."
 Write-Host 'Settings: created once in LocalAppData and preserved on upgrades'

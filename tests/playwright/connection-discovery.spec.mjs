@@ -131,12 +131,12 @@ test("a duplicate keeps the stored key and Show hides it again 2qn", async () =>
   const copyID = (await copyKey.getAttribute("data-path")).split(".")[1];
   await page.evaluate(() => {
     const nativeTimeout = window.setTimeout;
-    window.setTimeout = (callback, delay, ...args) => nativeTimeout(callback, delay === 30000 ? 30 : delay, ...args);
+    window.setTimeout = (callback, delay, ...args) => nativeTimeout(callback, delay === 30000 ? 300 : delay, ...args);
   });
   await page.locator(`.connection-editor [data-action="show-key"][data-id="${copyID}"]`).click();
   await expect(copyKey).toHaveValue("planted-key-2qn");
   await expect(copyKey).toHaveAttribute("type", "text");
-  await page.waitForTimeout(80);
+  await page.waitForTimeout(500);
   await expect(copyKey).toHaveValue("");
   await expect(copyKey).toHaveAttribute("type", "password");
   const tested = page.waitForResponse((response) => response.url().endsWith(`/api/connections/${copyID}/probe`));

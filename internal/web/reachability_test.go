@@ -55,6 +55,44 @@ func TestReachabilityProbeBackoffIsBoundedAndStopsOnSuccess(t *testing.T) {
 	}
 }
 
+func TestReachabilityRetryUsesOnlyTheCompletionFreeHealthCheck2qw(t *testing.T) {
+	fixture := newHealthFixture(t, 32768)
+	server := newProbeServer(t)
+	connection := runnableTestConnection("local")
+	connection.BaseURL, connection.Model = fixture.server.URL, "beta"
+	server.cfg.Connections = []config.Connection{connection}
+	var callback func()
+	server.reachabilityAfter = func(_ time.Duration, fn func()) operatorTimer {
+		callback = fn
+		return &reachabilityTestTimer{}
+	}
+
+	fixture.mode.Store("down")
+	server.scheduleReachabilityProbe("local")
+	callback()
+	if server.connectionHealthState()["local"].Lamp != "alarm" || callback == nil {
+		t.Fatalf("failed health retry did not remain scheduled: health=%+v", server.connectionHealthState()["local"])
+	}
+	fixture.mode.Store("up")
+	callback()
+	if server.connectionHealthState()["local"].Lamp != "ready" {
+		t.Fatalf("successful health retry did not recover: health=%+v", server.connectionHealthState()["local"])
+	}
+	server.reachabilityMu.Lock()
+	_, scheduled := server.reachability["local"]
+	server.reachabilityMu.Unlock()
+	if scheduled {
+		t.Fatal("successful health retry left a retry scheduled")
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	for _, path := range fixture.paths {
+		if path != "/v1/models" && path != "/props" {
+			t.Fatalf("reachability retry sent %s", path)
+		}
+	}
+}
+
 // healthFixture is a model server that lists three models and reports a per-slot
 // window, in a mode the test sets, and records every path it was asked for.
 type healthFixture struct {

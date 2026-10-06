@@ -1,6 +1,9 @@
 package web
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type reachabilityRetry struct {
 	attempt int
@@ -45,7 +48,21 @@ func (s *Server) scheduleReachabilityProbeLocked(connectionID string, state *rea
 		}
 		state.timer = nil
 		s.reachabilityMu.Unlock()
-		s.clearReachabilityProbe(connectionID)
+		connection, ok := s.Connection(connectionID)
+		if !ok {
+			s.clearReachabilityProbe(connectionID)
+			return
+		}
+		// Recovery uses the existing completion-free health check. Capability
+		// probing belongs only to Eval, and a resumed real request remains the
+		// authority on whether the model can answer.
+		s.checkConnectionHealth(context.Background(), *connection)
+		health := s.connectionHealthState()[connectionID]
+		succeeded := health.Lamp != "alarm"
+		s.completeReachabilityProbe(connectionID, succeeded)
+		if succeeded && s.scheduler != nil {
+			s.scheduler.ReleaseModel(connectionID)
+		}
 	})
 }
 

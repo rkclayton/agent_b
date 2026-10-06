@@ -1269,6 +1269,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
         -not $_.FullName.Equals($configPath, [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.Equals((Join-Path $testData 'STATE.md'), [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.Equals((Join-Path $testData 'agent_b-run.json'), [StringComparison]::OrdinalIgnoreCase) -and
+        -not $_.FullName.Equals((Join-Path $testData 'autostart-disabled'), [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.Equals((Join-Path $profileRoot 'STATE.md'), [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.Equals((Join-Path $profileRoot 'agent_b-run.json'), [StringComparison]::OrdinalIgnoreCase) -and
         -not $_.FullName.Equals((Join-Path $testData 'install-progress.jsonl'), [StringComparison]::OrdinalIgnoreCase)

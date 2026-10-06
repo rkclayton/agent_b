@@ -704,7 +704,7 @@ try {
     }
     $removedPolicyPattern = [string]::Join('|', @($removedPolicyScripts | ForEach-Object { [regex]::Escape($_) }))
     if ($installedInstallerSource -match $removedPolicyPattern -or
-        $installedInstallerSource -notmatch "if \(`$config\.shell\.service_account -and \[bool\]`$config\.shell\.service_account\.enabled\)") {
+        $installedInstallerSource -notmatch [regex]::Escape('if ($config.shell.service_account -and [bool]$config.shell.service_account.enabled)')) {
 		throw 'Installer still invokes retired PowerShell host policy or lost its conditional first-launch arm.'
     }
     $sourceBatchLauncher = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'start-Agent_b.cmd')

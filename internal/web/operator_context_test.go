@@ -101,6 +101,7 @@ func operatorTestServer(t *testing.T) (*Server, *tools.Shell, string) {
 	root := t.TempDir()
 	path := filepath.Join(root, "harness.json")
 	cfg := config.Defaults(root)
+	cfg.Shell.ServiceAccount.Enabled = true
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
@@ -203,14 +204,16 @@ func TestOperatorContextEnableRequiresOperatorOwnedHTTPClient(t *testing.T) {
 	}
 }
 
-func TestServiceIdentityCannotDisableItsOwnSplit(t *testing.T) {
-	server, _, _ := operatorTestServer(t)
+func TestServiceIdentityCanAlwaysDisableItsOwnSplit2qo(t *testing.T) {
+	server, shell, _ := operatorTestServer(t)
+	server.cfg.Shell.ServiceAccount.Enabled = true
+	shell.Configure(server.ConfigSnapshot())
 	server.operatorRequest = func(*http.Request) error { return errors.New("service identity") }
 	request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(`{"shell":{"service_account":{"enabled":false}}}`))
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "security-sensitive shell settings") {
+	if response.Code != http.StatusOK || server.ConfigSnapshot().Shell.ServiceAccount.Enabled || shell.IdentityStatus().Notice != "" {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}
 }

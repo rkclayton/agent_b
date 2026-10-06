@@ -510,6 +510,18 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		if !decode(w, r, &patch) {
 			return
 		}
+		// Turning a broken boundary off cannot depend on that boundary. The browser
+		// mutation token still protects this endpoint; only the exact off patch gets
+		// this path, so no other protected setting rides along with it.
+		if serviceIdentityDisableOnly(patch) {
+			masked, err := s.disableConfiguredServiceAccount(managedServiceAccount)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error(), "shell.service_account.enabled")
+				return
+			}
+			writeJSON(w, http.StatusOK, masked)
+			return
+		}
 		if !s.requireOperatorConfigRequest(w, r, patch) {
 			return
 		}
@@ -669,6 +681,22 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 	default:
 		method(w)
 	}
+}
+
+func serviceIdentityDisableOnly(patch map[string]any) bool {
+	if len(patch) != 1 {
+		return false
+	}
+	shell, ok := patch["shell"].(map[string]any)
+	if !ok || len(shell) != 1 {
+		return false
+	}
+	service, ok := shell["service_account"].(map[string]any)
+	if !ok || len(service) != 1 {
+		return false
+	}
+	enabled, ok := service["enabled"].(bool)
+	return ok && !enabled
 }
 
 // ApplyConnector is reachable only after the browser-resolved approval gate.

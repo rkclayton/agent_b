@@ -441,7 +441,8 @@ func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 		Deliver Deliver   `json:"deliver"`
 		Run     RunConfig `json:"run"`
 		Shell   struct {
-			OperatorContextIdleTimeoutMinutes int `json:"operator_context_idle_timeout_minutes"`
+			OperatorContextIdleTimeoutMinutes int                 `json:"operator_context_idle_timeout_minutes"`
+			ServiceAccount                    ShellServiceAccount `json:"service_account"`
 		} `json:"shell"`
 		Tools struct {
 			Shell ShellTool `json:"shell"`
@@ -472,6 +473,9 @@ func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 	}
 	if document.Shell.OperatorContextIdleTimeoutMinutes != 20 {
 		t.Fatalf("template operator idle timeout=%d, want literal 20", document.Shell.OperatorContextIdleTimeoutMinutes)
+	}
+	if document.Shell.ServiceAccount.Enabled {
+		t.Fatal("fresh-install template enables the service identity")
 	}
 	if len(document.Tools.Shell.OperatorCommands) != 1 || document.Tools.Shell.OperatorCommands[0] != "git" {
 		t.Fatalf("template operator commands=%v, want [git]", document.Tools.Shell.OperatorCommands)
@@ -853,11 +857,11 @@ func TestLegacyMigrationRejectsMalformedOptionalSections(t *testing.T) {
 	}
 }
 
-func TestServiceAccountSplitDefaultsOnWithLocalAccountDefaults2jz(t *testing.T) {
+func TestServiceAccountSplitDefaultsOffWithLocalAccountDefaults2qo(t *testing.T) {
 	cfg := Config{Shell: Shell{Command: []string{"unused"}}}
 	ApplyDefaults(&cfg)
-	if !cfg.Shell.ServiceAccount.Enabled {
-		t.Fatal("service-account split defaulted off")
+	if cfg.Shell.ServiceAccount.Enabled {
+		t.Fatal("service-account split defaulted on")
 	}
 	if cfg.Shell.OperatorContext {
 		t.Fatal("operator context defaulted on")

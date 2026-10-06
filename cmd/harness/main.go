@@ -409,24 +409,21 @@ func main() {
 	shellTool.SetFileCoordinator(coordinator)
 	shellTool.Configure(*cfg)
 	shellTool.SetCredentialStore(credentialStore)
-	inviteServiceSetup := false
+	web.SetShellSecurity(credentialStore, shellTool)
+	web.SetServiceAccountManager(serviceaccount.NewNative())
 	if cfg.Shell.ServiceAccount.Enabled {
-		testContext, cancelTest := context.WithTimeout(context.Background(), 30*time.Second)
-		_, testErr := shellTool.TestServiceAccount(testContext)
-		cancelTest()
-		if testErr != nil {
-			notice := serviceIdentityStartupNotice(cfg.Shell.ServiceAccount, credentialStore.Status())
-			inviteServiceSetup = true
-			shellTool.SetServiceSplitNotice(notice)
-			log.Print(notice)
+		migrationContext, cancelMigration := context.WithTimeout(context.Background(), 30*time.Second)
+		migrationErr := web.ReconcileServiceIdentityAtStartup(migrationContext)
+		cancelMigration()
+		if migrationErr != nil {
+			log.Printf("disable unready service identity during update: %v", migrationErr)
 		}
+		*cfg = web.ConfigSnapshot()
 	}
 	fileIdentity.Configure(*cfg)
 	shellTool.SetIdentityReporter(func(status tools.ShellIdentityStatus) {
 		bus.Publish(events.New(events.ShellIdentity, "", "", status))
 	})
-	web.SetShellSecurity(credentialStore, shellTool)
-	web.SetServiceAccountManager(serviceaccount.NewNative())
 	hardeningManager := hardening.NewNative()
 	web.SetHardeningManager(hardeningManager)
 	registry.SetPlanGrant(func(repository string) error {
@@ -614,9 +611,6 @@ func main() {
 				log.Printf("restored chat %s came back with %d queued message(s), held until your next message", item.ID, count)
 			}
 		}
-	}
-	if inviteServiceSetup {
-		publishServiceSetupInvitation(registry, bus)
 	}
 	publishPendingSigning(paths.Data, registry, bus)
 	if err := serve(cfg, web.Handler(), newLifetime(paths.Data, time.Now), paths.Application, web.BrowserBootstrapToken()); err != nil {

@@ -34,6 +34,7 @@ func (t *unprovisionedTool) CallAsOperator(context.Context, *session.Session, ma
 
 func TestUnprovisionedServiceIdentityAllowsScratchAndOperatorWindow2kc(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
+	cfg.Shell.ServiceAccount.Enabled = true
 	write := &unprovisionedTool{name: "write_file"}
 	read := &unprovisionedTool{name: "read_file"}
 	runner := &Runner{bus: events.NewBus(), tools: tools.New(write, read), cfg: func() config.Config { return cfg }}

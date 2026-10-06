@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -410,21 +411,24 @@ func ExecuteHelper(request HelperRequest) HelperResult {
 	if request.Operation == "provision" {
 		password, readErr := credential.New(filepath.Dir(request.CredentialPath)).Read()
 		if readErr != nil {
-			return HelperResult{Message: "read service credential: " + readErr.Error()}
+			return HelperResult{Message: windowsStepFailure("read service credential", readErr)}
 		}
 		if err := EnsureAccount(request.Account, password, request.Reset); err != nil {
-			return HelperResult{Message: err.Error(), Steps: steps}
+			return HelperResult{Message: windowsStepFailure("create or repair account", err), Steps: steps}
 		}
 		steps = append(steps, "account — PASS")
 	}
 	account, err := InspectAccount(request.Account)
-	if err != nil || !account.Exists {
+	if err != nil {
+		return HelperResult{Message: windowsStepFailure("inspect account", err), Steps: steps}
+	}
+	if !account.Exists {
 		return HelperResult{Message: "service account is missing", Steps: steps}
 	}
 	request.ACL.SID, request.Firewall.SID = account.SID, account.SID
 	remove := request.Action == "remove"
 	if err := ApplyACLPolicy(request.ACL, remove); err != nil {
-		return HelperResult{Message: "ACL policy: " + err.Error(), Steps: steps}
+		return HelperResult{Message: windowsStepFailure("apply folder protections", err), Steps: steps}
 	}
 	if !remove {
 		if drift, err := InspectACLPolicy(request.ACL); err != nil || len(drift) > 0 {
@@ -433,7 +437,7 @@ func ExecuteHelper(request HelperRequest) HelperResult {
 	}
 	steps = append(steps, "protections — PASS")
 	if err := ApplyFirewallPolicy(request.Firewall, remove); err != nil {
-		return HelperResult{Message: "firewall policy: " + err.Error(), Steps: steps}
+		return HelperResult{Message: windowsStepFailure("apply outbound policy", err), Steps: steps}
 	}
 	if !remove {
 		if drift, err := InspectFirewallPolicy(request.Firewall); err != nil || len(drift) > 0 {
@@ -442,6 +446,14 @@ func ExecuteHelper(request HelperRequest) HelperResult {
 	}
 	steps = append(steps, "network — PASS")
 	return HelperResult{OK: true, Message: "service identity account, protections, and network policy verified", Steps: steps}
+}
+
+func windowsStepFailure(step string, err error) string {
+	var code syscall.Errno
+	if errors.As(err, &code) {
+		return fmt.Sprintf("Windows step %q failed (error code %d / 0x%08X): %v", step, uint32(code), uint32(code), err)
+	}
+	return fmt.Sprintf("Windows step %q failed (error code unavailable): %v", step, err)
 }
 
 func firstDrift(component string, drift []Drift, err error) string {

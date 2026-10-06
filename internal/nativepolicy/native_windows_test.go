@@ -7,8 +7,16 @@ import (
 	"os"
 	"os/user"
 	"strings"
+	"syscall"
 	"testing"
 )
+
+func TestWindowsStepFailureNamesStepAndErrorCode2qo(t *testing.T) {
+	message := windowsStepFailure("create account", syscall.Errno(5))
+	if !strings.Contains(message, `Windows step "create account" failed`) || !strings.Contains(message, "error code 5 / 0x00000005") {
+		t.Fatalf("message=%q", message)
+	}
+}
 
 func TestInspectAccountReadsNativeAccountAndGroupState(t *testing.T) {
 	missing, err := InspectAccount(fmt.Sprintf("agentb-missing-%d", os.Getpid()))

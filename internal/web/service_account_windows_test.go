@@ -51,6 +51,9 @@ func serviceAccountTestServer(t *testing.T, manager serviceaccount.Manager) (*Se
 	root := t.TempDir()
 	configPath := root + `\harness.json`
 	cfg := config.Defaults(root)
+	// These endpoint tests exercise an older or explicitly enabled install. Fresh
+	// installs default off and are covered by the configuration tests.
+	cfg.Shell.ServiceAccount.Enabled = true
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +229,7 @@ func TestRejectedCredentialIsPresentedOnceAndTransientFailureRetries(t *testing.
 	}
 }
 
-func TestServiceAccountSetupFailedTestLeavesSplitOnAndBlocked(t *testing.T) {
+func TestServiceAccountSetupFailedTestReturnsSplitOff2qo(t *testing.T) {
 	manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Account: "agentb-svc"}, setupResult: serviceaccount.SetupResult{Attempted: true}}
 	server, _, configPath := serviceAccountTestServer(t, manager)
 	server.shellTest = func(context.Context) (string, error) { return "credential rejected", errors.New("bad credential") }
@@ -242,8 +245,65 @@ func TestServiceAccountSetupFailedTestLeavesSplitOnAndBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !loaded.Shell.ServiceAccount.Enabled {
-		t.Fatal("failed credential test silently disabled the service split")
+	if loaded.Shell.ServiceAccount.Enabled || server.ConfigSnapshot().Shell.ServiceAccount.Enabled {
+		t.Fatal("failed setup left the service split on")
+	}
+}
+
+func TestUpdateDisablesUnreadyServiceIdentityAndKeepsReadyIdentity2qo(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status serviceaccount.Status
+		stored bool
+		works  bool
+		wantOn bool
+	}{
+		{name: "missing", status: serviceaccount.Status{Supported: true}},
+		{name: "half set up", status: serviceaccount.Status{Supported: true, Exists: true, Enabled: true}},
+		{name: "locked out", status: serviceaccount.Status{Supported: true, Exists: true, Enabled: true, LockedOut: true}, stored: true},
+		{name: "failed test", status: serviceaccount.Status{Supported: true, Exists: true, Enabled: true}, stored: true},
+		{name: "ready", status: serviceaccount.Status{Supported: true, Exists: true, Enabled: true}, stored: true, works: true, wantOn: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server, store, _ := serviceAccountTestServer(t, &fakeAccountManager{status: test.status})
+			server.cfg.Shell.ServiceAccount.Enabled = true
+			server.shell.Configure(server.ConfigSnapshot())
+			if test.stored {
+				if err := store.Write([]byte(randomTestPassword(t))); err != nil {
+					t.Fatal(err)
+				}
+			}
+			server.shellTest = func(context.Context) (string, error) {
+				if test.works {
+					return "ready", nil
+				}
+				return "LogonUser failed (Windows code 1326)", errors.New("LogonUser failed (Windows code 1326)")
+			}
+			if err := server.ReconcileServiceIdentityAtStartup(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if got := server.ConfigSnapshot().Shell.ServiceAccount.Enabled; got != test.wantOn {
+				t.Fatalf("enabled=%v, want %v", got, test.wantOn)
+			}
+		})
+	}
+}
+
+func TestSwitchOffNeverInspectsWindowsAccountState2qo(t *testing.T) {
+	for _, state := range []string{"missing", "half_set_up", "locked_out", "failed"} {
+		t.Run(state, func(t *testing.T) {
+			manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true}}
+			server, _, _ := serviceAccountTestServer(t, manager)
+			server.cfg.Shell.ServiceAccount.Enabled = true
+			server.operatorRequest = func(*http.Request) error { return errors.New(state) }
+			request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(`{"shell":{"service_account":{"enabled":false}}}`))
+			authorizeMutation(request, server)
+			response := httptest.NewRecorder()
+			server.Handler().ServeHTTP(response, request)
+			if response.Code != http.StatusOK || server.ConfigSnapshot().Shell.ServiceAccount.Enabled || manager.setupCalls != 0 {
+				t.Fatalf("status=%d enabled=%v setup_calls=%d body=%s", response.Code, server.ConfigSnapshot().Shell.ServiceAccount.Enabled, manager.setupCalls, response.Body)
+			}
+		})
 	}
 }
 

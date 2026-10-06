@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -70,6 +71,14 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 		writeError(w, http.StatusBadRequest, "action must be provision", "action")
 		return
 	}
+	setupFinished := false
+	defer func() {
+		if !setupFinished {
+			if _, err := s.disableConfiguredServiceAccount(account); err != nil {
+				log.Printf("service identity setup failed and disabling it also failed: %v", err)
+			}
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	status, err := s.account.Status(ctx, account)
@@ -88,6 +97,7 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 	}
 	currentState := s.serviceAccountState(r.Context(), status)
 	if currentState.State == "ready" {
+		setupFinished = true
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":      true,
 			"message": "service identity already ready: existing agentb-svc credential works; no account change was needed",
@@ -221,6 +231,7 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 		})
 		return
 	}
+	setupFinished = true
 	credentialStatus := s.credential.Status()
 	s.bus.Publish(events.New(events.ShellCredential, "", "", credentialStatus))
 	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
@@ -266,7 +277,32 @@ func (s *Server) disableConfiguredServiceAccount(account string) (any, error) {
 	if s.runner != nil {
 		s.runner.Configure(next)
 	}
+	if s.bus != nil {
+		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
+	}
 	return masked, nil
+}
+
+// ReconcileServiceIdentityAtStartup migrates an older enabled configuration only
+// when the complete identity is not ready. A working opt-in remains enabled.
+func (s *Server) ReconcileServiceIdentityAtStartup(ctx context.Context) error {
+	if !s.ConfigSnapshot().Shell.ServiceAccount.Enabled {
+		return nil
+	}
+	ready := false
+	if s.account != nil && s.credential != nil && s.shellTest != nil {
+		if status, err := s.account.Status(ctx, managedServiceAccount); err == nil {
+			s.accountMu.Lock()
+			status = s.serviceAccountState(ctx, status)
+			s.accountMu.Unlock()
+			ready = status.State == "ready"
+		}
+	}
+	if ready {
+		return nil
+	}
+	_, err := s.disableConfiguredServiceAccount(managedServiceAccount)
+	return err
 }
 
 func (s *Server) serviceAccountState(ctx context.Context, status serviceaccount.Status) serviceaccount.Status {

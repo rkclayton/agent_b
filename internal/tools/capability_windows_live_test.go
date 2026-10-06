@@ -95,7 +95,10 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	if operatorIdentity == "" || strings.EqualFold(filepath.Base(operatorIdentity), cfg.Shell.ServiceAccount.Account) || strings.HasSuffix(strings.ToLower(operatorIdentity), `\`+strings.ToLower(cfg.Shell.ServiceAccount.Account)) {
 		t.Fatalf("operator identity evidence is not distinct from service account: %q", operatorIdentity)
 	}
-	serviceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Credentials are bound only to HTTPS origins. Keep the live gate's identity
+	// fixture on the same contract as the product and trust only this disposable
+	// server's certificate.
+	serviceServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/direct" && r.Header.Get("Authorization") == "" {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"direct":true}`))
@@ -122,6 +125,7 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		AllowedMethods: []string{"GET", "POST"}, TimeoutS: 10, MaxBodyKB: 16,
 	}}
 	callService := NewCallService(cfg.Services)
+	callService.SetHTTPClientForTest(serviceServer.Client())
 	callService.Configure(cfg)
 	toolRegistry := New(
 		fileIdentity.Wrap(NewReadFile(cfg.Tools.ReadFile)), fileIdentity.Wrap(NewListDir(cfg.Tools.ListDir)),

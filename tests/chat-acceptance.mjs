@@ -196,6 +196,10 @@ const fakeHandler = async (request, response) => {
       : "DONE: Earlier acceptance steps completed.\nNEXT: Continue the current acceptance task.\nFILES CHANGED: none.\nOPEN QUESTIONS: none.";
     return void response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 300, completion_tokens: 18, prompt_tokens_details: { cached_tokens: 200 } } }));
   }
+	if (!body.stream) {
+		response.setHeader("Content-Type", "application/json");
+		return void response.end(JSON.stringify({ choices: [{ message: { content: "OK" }, finish_reason: "stop" }], usage: { prompt_tokens: response.agentbPromptTokens, completion_tokens: 1 } }));
+	}
 	if (user.includes("acceptance: create real-clock cron jobs")) {
 		const count = toolCountAfterLatestUser(body);
 		if (count === 0) return stream(response, { tool_calls: [{ index: 0, id: "cron-loud-create", type: "function", function: { name: "cronjob", arguments: JSON.stringify({ action: "create", schedule: "in 1m", name: "Real clock loud", prompt: "acceptance: cron loud" }) } }] }, "tool_calls");

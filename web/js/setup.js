@@ -208,6 +208,7 @@ async function saveConnection() {
     const connections = [...(snapshot.config.connections || []).filter((item) => item.id !== connectionID), next];
     snapshot.config = await request("/api/config", { connections });
     snapshot = await request("/api/state", undefined, "GET");
+    await assignSavedConnection();
     connectionDraft = undefined;
     message = "Connection saved.";
     discoveryNote = "";
@@ -240,9 +241,8 @@ async function installModel() {
     if (installState.error) throw new Error(installState.error);
     connectionID = installState.connection_id;
     snapshot = await request("/api/state", undefined, "GET");
-    await waitForProbe("");
-    await assignTestedConnection();
-    go("capability");
+    await assignSavedConnection();
+    go("where");
   } catch (error) { fail(error); } finally { busy = false; render(); }
 }
 
@@ -276,7 +276,7 @@ async function stopMeasurement() {
   } catch (error) { fail(error); }
 }
 
-async function assignTestedConnection() {
+async function assignSavedConnection() {
   const current = snapshot.config.agents?.[0] || { name: "Agent_b", toolset: fullTools };
   const agent = { ...current, name: current.name || "Agent_b", toolset: current.toolset || fullTools };
   if (!agent.b) agent.b = connectionID;
@@ -297,19 +297,6 @@ async function finish() {
     }
     location.href = "/chat";
   } catch (error) { busy = false; fail(error); }
-}
-
-async function waitForProbe(previousProbe = "") {
-  const deadline = Date.now() + 15 * 60 * 1000;
-  while (Date.now() < deadline) {
-    snapshot = await request("/api/state", undefined, "GET");
-    const caps = selectedConnection()?.capabilities || {};
-    if (caps.probed_at && caps.probed_at !== previousProbe) return;
-    const failure = (caps.findings || []).find((item) => String(item).startsWith("probe failed:"));
-    if (failure) throw new Error(failure);
-    await delay(750);
-  }
-  throw new Error("Test did not finish before the connection timeout.");
 }
 
 function remoteGuide() {

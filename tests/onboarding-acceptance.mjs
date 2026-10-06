@@ -135,11 +135,15 @@ try {
   if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-2-installer-auto-backend.png") });
   await page.locator('[data-field="url"]').fill(`http://127.0.0.1:${fakePort}`);
   await page.locator('[data-field="model"]').fill("onboarding-fake");
+  await page.locator('[data-action="save"]').click();
+  await page.locator(".setup-feedback").filter({ hasText: "Connection saved." }).waitFor();
   await page.locator('[data-action="test"]').click();
-  await page.waitForFunction(() => document.querySelector("h1")?.textContent === "Evaluation Harness" || document.querySelector(".setup-feedback.alarm"), undefined, { timeout: 60000 });
-  assert.equal(await page.locator("h1").textContent(), "Evaluation Harness", `connection Test failed: ${await page.locator(".setup-feedback").textContent().catch(() => "no feedback")}`);
-  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-3-evaluation-harness.png") });
-  await page.locator('[data-action="measure"]').click();
+  await page.locator(".setup-feedback").filter({ hasText: /Test passed in \d+ ms/ }).waitFor({ timeout: 60000 });
+  assert.equal(await page.locator("h1").textContent(), "Where is your model?");
+  await page.locator('[data-action="recommended"]').click();
+  await page.locator(".setup-feedback").filter({ hasText: /product default|server/ }).waitFor();
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-3-connection-actions.png") });
+  await page.locator('[data-action="measure"]', { hasText: "Eval" }).click();
   const measurementDeadline = Date.now() + 15000;
   while (Date.now() < measurementDeadline) {
     const response = await fetch(`${baseURL}/api/eval/measure?connection_id=setup-model`);
@@ -164,13 +168,24 @@ try {
   await page.goto(`${baseURL}/setup?from=settings`);
   await page.locator('[data-field="url"]').fill(`http://127.0.0.1:${fakePort}`);
   await page.locator('[data-field="model"]').fill("onboarding-fake-second");
+  await page.locator('[data-action="save"]').click();
+  await page.locator(".setup-feedback").filter({ hasText: "Connection saved." }).waitFor();
   await page.locator('[data-action="test"]').click();
-  await page.locator("h1").filter({ hasText: "Evaluation Harness" }).waitFor({ timeout: 60000 });
+  await page.locator(".setup-feedback").filter({ hasText: /Test passed in \d+ ms/ }).waitFor({ timeout: 60000 });
   state = await waitJSON(`${baseURL}/api/state`);
   assert.equal(state.config.agents?.[0]?.b, "setup-model");
   assert.equal(state.config.agents?.[0]?.c, "setup-model-2");
   assert.equal(state.config.agents?.[0]?.d || "", "");
-  await page.locator('[data-action="capability-next"]').click();
+  await page.locator('[data-action="measure"]', { hasText: "Eval" }).click();
+  const secondMeasurementDeadline = Date.now() + 15000;
+  while (Date.now() < secondMeasurementDeadline) {
+    const response = await fetch(`${baseURL}/api/eval/measure?connection_id=setup-model-2`);
+    if (response.ok && (await response.json()).running) break;
+    await sleep(50);
+  }
+  assert.ok(Date.now() < secondMeasurementDeadline, "second measurement did not become running before the stop request");
+  await page.locator('[data-action="measure"]', { hasText: "Stop" }).click();
+  await page.locator("h1").filter({ hasText: "Done" }).waitFor();
   await page.locator('[data-action="finish"]').click();
   await page.waitForURL(/\/chat\?session=main$/);
   await page.locator("#chat-task").fill("acceptance: first-run API-only chat");

@@ -47,11 +47,17 @@ test("Setup strip has settings and window controls but no Chat page button", () 
   assert.doesNotMatch(html, />Chat<|setup-chat/);
 });
 
-test("Test assigns the first passing connection to b, the second to c, and never d", () => {
+test("Save assigns the first connection to b, the second to c, and never d", () => {
+  assert.match(script, /saveConnection[\s\S]*await assignSavedConnection\(\)/);
   assert.match(script, /if \(!agent\.b\) agent\.b = connectionID/);
   assert.match(script, /else if \(agent\.b !== connectionID && !agent\.c\) agent\.c = connectionID/);
   assert.doesNotMatch(script, /agent\.d\s*=/);
   assert.match(script, /toolset: current\.toolset \|\| fullTools/);
+});
+
+test("Local install returns to the same three connection actions without probing", () => {
+  assert.match(script, /installModel[\s\S]*await assignSavedConnection\(\);[\s\S]*go\("where"\)/);
+  assert.doesNotMatch(script, /waitForProbe/);
 });
 
 test("Eval button becomes Stop and completion advances to telemetry without Skip or Back", () => {

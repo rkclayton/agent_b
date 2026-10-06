@@ -127,7 +127,7 @@ try {
     $before = (Get-LogLines).Count
     Invoke-SignIn
     Wait-Until { (Get-Running).Count -eq 1 -and (Test-Ready) } 60 'the start after a forced end'
-    $recorded = @(Get-LogLines | Select-Object -Skip $before | Where-Object { $_ -match "Agent_b PID $($killed.Id) \(started [^)]+\) ended without recording a reason" })
+    $recorded = @(Get-LogLines | Select-Object -Skip $before | Where-Object { $_ -match "Agent_b PID $($killed.Id) stopped: cause=killed; previous run started .+ and ended without recording a reason" })
     if (-not $recorded.Count) { throw "The forced end was not recorded at the next start: $((Get-LogLines | Select-Object -Skip $before) -join ' | ')" }
     Write-Host "PASS: a forced end was recorded at the next start: $($recorded[-1].Trim())"
 } finally {

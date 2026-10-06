@@ -453,13 +453,13 @@ try {
     $savedErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $launchFailArguments = @('--quiet', '--install-data', $launchFailData, '-NoStart', '-ApplicationDirectory', $launchFailApplication, '-DataDirectory', $launchFailData, '-WorkspaceDirectory', (Join-Path $launchFailRoot 'ProgramData\Agent_b\workspace'), '-StartMenuDirectory', (Join-Path $launchFailRoot 'StartMenu'), '-UninstallRegistryPath', ($testRegistry + '-LaunchFail'), '-TestMode')
+        $launchFailArguments = @('--quiet', '--install-data', $launchFailData, '-NoStart', '-ApplicationDirectory', $launchFailApplication, '-DataDirectory', $launchFailData, '-WorkspaceDirectory', (Join-Path $launchFailRoot 'ProgramData\Agent_b\workspace'), '-StartMenuDirectory', (Join-Path $launchFailRoot 'StartMenu'), '-UninstallRegistryPath', ($testRegistry + '-LaunchFail'), '-NativeTestMode')
         $null = & $singleSetup @launchFailArguments 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) { throw 'Launch-failure fixture install failed.' }
         $launchOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $launchFailApplication 'scripts\launch-Agent_b.ps1') -ApplicationDirectory $launchFailApplication -DataDirectory $launchFailData -Detached -NoBrowser -NoPause -StartupTimeoutSeconds 30 2>&1 | Out-String)
         if ($LASTEXITCODE -ne 0) { throw "Launch-failure fixture did not start.`n$launchOutput" }
         [IO.File]::WriteAllText((Join-Path $launchFailData 'harness.json'), '{invalid', [Text.UTF8Encoding]::new($false))
-        $launchFailOutput = (& $singleSetup --quiet --install-data $launchFailData -ApplicationDirectory $launchFailApplication -DataDirectory $launchFailData -WorkspaceDirectory (Join-Path $launchFailRoot 'ProgramData\Agent_b\workspace') -StartMenuDirectory (Join-Path $launchFailRoot 'StartMenu') -UninstallRegistryPath ($testRegistry + '-LaunchFail') -TestMode 2>&1 | Out-String)
+        $launchFailOutput = (& $singleSetup --quiet --install-data $launchFailData -ApplicationDirectory $launchFailApplication -DataDirectory $launchFailData -WorkspaceDirectory (Join-Path $launchFailRoot 'ProgramData\Agent_b\workspace') -StartMenuDirectory (Join-Path $launchFailRoot 'StartMenu') -UninstallRegistryPath ($testRegistry + '-LaunchFail') -NativeTestMode 2>&1 | Out-String)
         $launchFailExit = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $savedErrorAction

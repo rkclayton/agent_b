@@ -99,6 +99,7 @@ var allowList = map[string]Classification{
 	"session.created":    dropped, "session.closed": dropped, "session.reopened": dropped,
 	"session.renamed": dropped, "session.reset": dropped, "session.updated": dropped,
 	"session.restore_failed": dropped, "chat.named": dropped, "chat.deleted": dropped,
+	"chat.list.snapshot": dropped, "chat.list.patch": dropped,
 	"run.queued": dropped, "run.started": dropped, "run.stopping": dropped,
 	"run.resumed": dropped, "run.labeled": dropped, "run.aborted": dropped,
 	"approval.required": dropped, "approval.decided": dropped, "cycle.detected": dropped,

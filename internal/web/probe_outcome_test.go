@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -64,30 +63,5 @@ func TestInconclusiveProbeKeepsThePreviousFinding(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("unverified lines stacked: %v", again)
-	}
-}
-
-// The backoff is the ladder the item names, and it stops at its end.
-func TestProbeBackoffLadder(t *testing.T) {
-	want := []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute}
-	if fmt.Sprint(probeBackoff) != fmt.Sprint(want) {
-		t.Fatalf("backoff=%v, want %v", probeBackoff, want)
-	}
-	server := &Server{}
-	for attempt := 0; attempt < len(want)+2; attempt++ {
-		server.scheduleProbeRetry("p1")
-	}
-	server.probeMu.Lock()
-	booked := server.probeRetries["p1"]
-	server.probeMu.Unlock()
-	if booked != len(want) {
-		t.Fatalf("the ladder booked %d attempts, want %d", booked, len(want))
-	}
-	server.resetProbeRetries("p1")
-	server.probeMu.Lock()
-	after := server.probeRetries["p1"]
-	server.probeMu.Unlock()
-	if after != 0 {
-		t.Fatalf("a conclusive probe must reset the ladder, got %d", after)
 	}
 }

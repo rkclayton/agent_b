@@ -16,16 +16,17 @@ test("Fresh template has no connections and setup asks connection, evaluation, t
   for (const label of ["Where is your model?", "Evaluation Harness", "Send anonymous data to help improve Agent_b", "Done"]) assert.match(script, new RegExp(label.replaceAll("?", "\\?")));
 	assert.match(script, /Only diagnostic data is sent — counts, durations and error classes\. Never your chats, files or prompts\./);
 	assert.match(script, /telemetry:\s*\{[\s\S]*enabled: telemetryChoice/);
-  for (const label of ["Test", "Install one here", "Later", "Measure it"]) assert.match(script, new RegExp(label));
+  for (const label of ["Test", "Eval", "Recommended", "Install one here", "Later"]) assert.match(script, new RegExp(label));
   assert.doesNotMatch(script, /Who does what\?|rolesScreen|data-role=/);
   assert.doesNotMatch(`${html}\n${script}`, /\b(?:PKI|accounting)\b/i);
 });
 
-test("Connection Test and capability screen use the existing probe", () => {
+test("Setup uses the same separate Test Eval and Recommended actions", () => {
   for (const label of ["Context", "Tools", "Images", "Reasoning", "Capability number", "unmeasured"]) assert.match(script, new RegExp(label));
   assert.match(script, /\/api\/connections\/\$\{encodeURIComponent\(connectionID\)\}\/probe/);
-  assert.match(script, /discovered\.models/);
-  assert.match(script, /discovered\.status === "model_required"/);
+  assert.match(script, /\/api\/connections\/\$\{encodeURIComponent\(connectionID\)\}\/recommended/);
+  assert.match(script, /\/api\/eval\/measure/);
+  assert.doesNotMatch(script, /waitForProbe\(previousProbe\)/);
   assert.match(script, /<select data-field="model">/);
 });
 
@@ -53,8 +54,8 @@ test("Test assigns the first passing connection to b, the second to c, and never
   assert.match(script, /toolset: current\.toolset \|\| fullTools/);
 });
 
-test("Measurement button becomes Stop and completion advances to telemetry without Skip or Back", () => {
-  assert.match(script, /measuring \? "Stop" : "Measure it"/);
+test("Eval button becomes Stop and completion advances to telemetry without Skip or Back", () => {
+  assert.match(script, /measuring \? "Stop" : "Eval"/);
   assert.match(script, /"DELETE"/);
   assert.match(script, /afterCapability\(\)/);
   assert.match(script, /measurement[\s\S]*Continue[\s\S]*: `[\s\S]*Skip[\s\S]*Back/);

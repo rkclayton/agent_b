@@ -1537,6 +1537,22 @@ func applyDefaults(c *Config) {
 		if p.Capabilities.Findings == nil {
 			p.Capabilities.Findings = []string{}
 		}
+		// Most connections are never evaluated. Give their runs the conservative
+		// probe-mode-off assumptions without a timestamp or findings that would
+		// falsely imply Eval ran.
+		if p.Capabilities.ProbedAt == "" {
+			if p.Capabilities.Server == "" {
+				p.Capabilities.Server = "openai-compatible"
+			}
+			p.Capabilities.Streaming = true
+			p.Capabilities.ToolCalls = true
+			p.Capabilities.DocumentInput = true
+			p.Capabilities.ImageInput = true
+			p.Capabilities.Vision = VisionReadsImages
+			if p.Capabilities.OverflowBehavior == "" {
+				p.Capabilities.OverflowBehavior = "unknown"
+			}
+		}
 	}
 }
 

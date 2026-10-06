@@ -221,14 +221,15 @@ test("Connections summary row never renders decoder detail verbatim", () => {
 	assert.doesNotMatch(page, /invalid character/);
 });
 
-test("Connections Test consumes endpoint discovery and renders its model picker", () => {
+test("Connections Test consumes only its one-line result and the picker lists independently", () => {
   const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
   const connections = fs.readFileSync(new URL("settings-connections.js", import.meta.url), "utf8");
   assert.match(controller, /const discovered = await api\(`\/api\/connections\/\$\{encodeURIComponent\(id\)\}\/probe`, \{/);
   assert.match(controller, /base_url: current\(`/);
   assert.doesNotMatch(controller, /Saving before Test/);
-  assert.match(controller, /discovered\.status === "model_required"/);
-	assert.match(controller, /discovered\.changes\?\.base_url/);
+  assert.match(controller, /alarm: discovered\.status !== "passed"/);
+	assert.doesNotMatch(controller, /\n\s+applyProposedValues\(id, discovered\);/);
+	assert.match(controller, /\/models`, \{ base_url/);
   assert.match(connections, /discovery\?\.models/);
   assert.match(connections, /<select class="setting-input"/);
   assert.match(connections, /discovery-note/);
@@ -316,7 +317,7 @@ test("stored connection keys reveal briefly, duplicate beside Test, and rows use
 	assert.match(controller, /\/api\/connections\/\$\{encodeURIComponent\(id\)\}\/key/);
 	assert.match(controller, /setTimeout\([^]*30000/);
 	assert.doesNotMatch(controller.slice(controller.indexOf("async function duplicateConnection"), controller.indexOf("function uniqueID")), /copy\.credential\s*=\s*""/);
-	assert.match(connections, /data-action="probe"[^]*data-action="duplicate-connection"/);
+	assert.match(connections, /data-action="save-connection"[^]*data-action="duplicate-connection"/);
 	assert.match(connections, /connectionIcons\.edit/);
 	assert.doesNotMatch(connections, /aria-expanded="\$\{isOpen\}">Edit<\/button>/);
 	assert.match(connections, /This server runs one model — it is chosen when the server starts/);
@@ -553,7 +554,7 @@ test("the connection form is whole before a Test and its models come from the se
   context.expanded.add("acme");
   context.store.connection_health = { acme: { lamp: "amber", word: "no model chosen" } };
   const typed = renderConnectionsPage(context);
-  for (const label of ["label", "base_url", "api_key", "model", "credential ref", "context size", "enabled", "state", "Evaluation Harness", "Advanced", "reserve"]) {
+  for (const label of ["label", "base_url", "api_key", "model", "credential ref", "context size", "enabled", "state", "Eval", "Recommended", "Advanced", "reserve"]) {
     assert.ok(typed.includes(label), `${label} is not on the form before a Test`);
   }
   assert.doesNotMatch(typed, /Test to list models/);

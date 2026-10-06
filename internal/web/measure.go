@@ -13,6 +13,7 @@ import (
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/llm"
+	"harness/internal/probe"
 )
 
 const measurementProvenance = "setup-wizard-ten-briefs-n1"
@@ -90,7 +91,7 @@ func (s *Server) measureConnection(w http.ResponseWriter, r *http.Request) {
 		s.measurements[connectionID] = measureState{Running: true, Text: "brief 0 of " + strconv.Itoa(len(measurementBriefs)) + " — thinking off", Total: len(measurementBriefs)}
 		s.measureCancels[connectionID] = cancel
 		s.measureMu.Unlock()
-		go s.runMeasurement(ctx, connectionID, *connection)
+		go s.runEvaluation(ctx, connectionID, *connection)
 		writeJSON(w, http.StatusAccepted, s.measurements[connectionID])
 	case http.MethodDelete:
 		if connectionID == "" {
@@ -114,6 +115,29 @@ func (s *Server) measureConnection(w http.ResponseWriter, r *http.Request) {
 	default:
 		method(w)
 	}
+}
+
+func (s *Server) runEvaluation(ctx context.Context, connectionID string, connection config.Connection) {
+	caps, findings, err := probe.Probe(ctx, &connection)
+	if err != nil {
+		s.measureMu.Lock()
+		delete(s.measureCancels, connectionID)
+		s.measureMu.Unlock()
+		s.setMeasurement(connectionID, measureState{Error: err.Error(), Text: "Eval failed during capability checks"})
+		return
+	}
+	caps.Findings = findings
+	s.mu.Lock()
+	for i := range s.cfg.Connections {
+		if s.cfg.Connections[i].ID == connectionID {
+			s.cfg.Connections[i].Capabilities = caps
+			_ = s.saveMachineConfig(*s.cfg)
+			connection.Capabilities = caps
+			break
+		}
+	}
+	s.mu.Unlock()
+	s.runMeasurement(ctx, connectionID, connection)
 }
 
 func (s *Server) runMeasurement(ctx context.Context, connectionID string, connection config.Connection) {
@@ -167,14 +191,6 @@ func (s *Server) runMeasurement(ctx context.Context, connectionID string, connec
 		NCtx: connection.Context.NCtx, WindowTokens: connection.Context.NCtx - connection.Context.ReserveOutput,
 	}
 
-	// (c): the harness SETS, and (f): an arm that did not run writes nothing.
-	// DecideReasoning already refuses to decide from an arm that did not run, and
-	// its line says so; this only declines to write what it refused to decide.
-	if on.Ran && off.Ran && !on.Stopped && !off.Stopped {
-		if err := s.writeReasoningDecision(connectionID, decision); err != nil && runErr == nil {
-			runErr = err
-		}
-	}
 	if err := s.storeMeasurement(connectionID, result); err != nil {
 		runErr = err
 	}

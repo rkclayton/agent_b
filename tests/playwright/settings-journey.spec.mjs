@@ -68,7 +68,7 @@ test.afterAll(async () => {
   if (root) removeTreeWithinAllowedRoots(root, [tmpdir()], "settings-journey Playwright cleanup");
 });
 
-test("the settings journey: type a host, Test, pick a model, save, chat, close, remove", async () => {
+test("the settings journey: type a host, pick a model, Test, save, chat, close, remove", async () => {
   // Ten steps including a model round trip: the default 30 seconds is the wrong
   // bound for a journey, and a journey cut short reads as a product failure.
   test.setTimeout(180000);
@@ -92,24 +92,21 @@ test("the settings journey: type a host, Test, pick a model, save, chat, close, 
 
   // 3. TYPE A HOST. He types where his server is; the port he typed is the one
   // discovery tries first (item 2nb (a)).
-  await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
+  await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`http://127.0.0.1:${harness.modelPort}`);
 
-  // 4. Test. On screen: the note names what it found, and the model control becomes
-  // a list of what that port serves.
-  await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
-  await expect(page.locator(".connection-editor .discovery-note")).toContainText(`127.0.0.1:${harness.modelPort}`);
-  const model = page.locator(`[data-path="connections.${id}.model"]`);
-  await expect(model).toHaveJSProperty("tagName", "SELECT");
-  await expect(model.locator("option")).toContainText(["journey-model", "second-model"]);
+	// 4. Name the model this connection should test. Model-list discovery has its own
+	// focused journey; this end-to-end journey also covers a manually typed name.
+	const model = page.locator(`[data-path="connections.${id}.model"]`);
+	await expect(editor.locator(`[data-path="connections.${id}.label"]`)).toHaveValue(id);
 
-  // Item 2mh (a) crossing this journey: with SEVERAL models offered, Test proposes no
-  // name — it cannot know which one this connection is for — so the label is still
-  // the generated id at this point. Measured here rather than assumed.
-  await expect(editor.locator(`[data-path="connections.${id}.label"]`)).toHaveValue(id);
+	// 5. Name the connection and its model explicitly.
+	await model.fill("second-model");
+	await editor.locator(`[data-path="connections.${id}.label"]`).fill("second-model");
+	await expect(editor.locator(`[data-path="connections.${id}.label"]`)).toHaveValue("second-model");
 
-  // 5. Pick a model; the label follows it, because the operator has not named it.
-  await model.selectOption("second-model");
-  await expect(editor.locator(`[data-path="connections.${id}.label"]`)).toHaveValue("second-model");
+	// Test checks the selected connection without changing its draft fields.
+	await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
+	await expect(page.locator(".connection-editor .discovery-note")).toContainText("Test passed in");
 
   // 6. THE STORED-KEY FIELD ROUND TRIP. What is typed is never read back: the field
   // returns saying a key is stored, and the key itself is not in it.
@@ -370,8 +367,8 @@ test("the bar is on screen 100 ms after Test, and the bare word is not", async (
 });
 
 // 2qn replaces the old one-column flow with two halves. Within each half the fields
-// keep their order; Evaluation and collapsed Advanced span beneath both.
-test("the sheet reads as two ordered halves above Evaluation and Advanced", async () => {
+// keep their order; the action line and collapsed Advanced span beneath both.
+test("the sheet reads as two ordered halves above its actions and Advanced", async () => {
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
@@ -386,9 +383,10 @@ test("the sheet reads as two ordered halves above Evaluation and Advanced", asyn
       [`[data-path="connections.${connection}.label"]`, "label"],
       [`[data-path="connections.${connection}.base_url"]`, "address"],
       [`[data-path="connections.${connection}.api_key"]`, "key"],
-      [`.connection-editor [data-action="probe"][data-id="${connection}"]`, "Test"],
-      [`[data-path="connections.${connection}.model"]`, "model"],
-      [`.connection-editor [data-action="measure-connection"][data-id="${connection}"]`, "Evaluate"],
+		[`.connection-editor [data-action="probe"][data-id="${connection}"]`, "Test"],
+		[`[data-path="connections.${connection}.model"]`, "model"],
+		[`.connection-editor [data-action="measure-connection"][data-id="${connection}"]`, "Eval"],
+		[`.connection-editor [data-action="recommended-connection"][data-id="${connection}"]`, "Recommended"],
       [`.connection-editor [data-action="save-connection"][data-id="${connection}"]`, "Save"],
       [".connection-advanced", "Advanced"],
     ];
@@ -400,17 +398,15 @@ test("the sheet reads as two ordered halves above Evaluation and Advanced", asyn
       .map((entry) => entry.name);
   }, id);
 
-	// Left: label/address/key/Test. Right: model/Save. Then the two spanning rows.
-	expect(await order()).toEqual(["label", "model", "address", "key", "Test", "Save", "Evaluate", "Advanced"]);
+	// Left: label/address/key. Right: model/Save. Then the spanning action row and Advanced.
+	expect(await order()).toEqual(["label", "model", "address", "key", "Test", "Eval", "Recommended", "Save", "Advanced"]);
   await expect(page.locator(".connection-advanced")).not.toHaveAttribute("open", /.*/);
 
 	// Choosing a model does not collapse or reorder either half.
-  await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
-  await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
-  await expect(page.locator(`[data-path="connections.${id}.model"]`)).toHaveJSProperty("tagName", "SELECT");
-  await page.locator(`[data-path="connections.${id}.model"]`).selectOption("journey-model");
-  await expect(page.locator(`.connection-editor [data-action="measure-connection"][data-id="${id}"]`)).toBeVisible();
-	expect(await order()).toEqual(["label", "model", "address", "key", "Test", "Save", "Evaluate", "Advanced"]);
+	await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
+	await page.locator(`[data-path="connections.${id}.model"]`).fill("journey-model");
+	await expect(page.locator(`.connection-editor [data-action="measure-connection"][data-id="${id}"]`)).toBeVisible();
+	expect(await order()).toEqual(["label", "model", "address", "key", "Test", "Eval", "Recommended", "Save", "Advanced"]);
   await page.close();
 });
 
@@ -427,17 +423,12 @@ test("the model he picks is the one the field shows, through Test and through Sa
   await page.locator(".shell-settings").click();
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator('[data-action="add-connection"]').click();
-  const editor = page.locator(".connection-editor");
-  const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
-  await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
-  await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
+	const editor = page.locator(".connection-editor");
+	const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
+	await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
 
-  const model = page.locator(`[data-path="connections.${id}.model"]`);
-  await expect(model).toHaveJSProperty("tagName", "SELECT");
-  await expect(model.locator("option")).toContainText(["journey-model", "second-model"]);
-
-  // Pick the one that is NOT the first, which is what Test proposes.
-  await model.selectOption("second-model");
+	const model = page.locator(`[data-path="connections.${id}.model"]`);
+	await model.fill("second-model");
   await expect(model, "the field forgot the pick as soon as it was made").toHaveValue("second-model");
 
   // Test again: the field still shows what he picked, not what is saved.

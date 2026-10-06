@@ -82,9 +82,6 @@ func (s *Server) installedModelReady(_ context.Context, state modelinstall.State
 	masked := next.Masked()
 	s.mu.Unlock()
 	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
-	if saved, ok := s.Connection(connection.ID); ok {
-		s.startProbe(saved)
-	}
 	return nil
 }
 

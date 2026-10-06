@@ -86,8 +86,13 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
       if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: modelIDs.map((id) => ({ id })) }));
       if (request.url === "/tokenize") return void response.end(JSON.stringify({ tokens: [1] }));
       if (request.url === "/apply-template") return void response.end(JSON.stringify({ prompt: "ui harness" }));
-      for await (const _chunk of request) { /* drain */ }
-      if (request.url !== "/v1/chat/completions") { response.statusCode = 404; return void response.end(); }
+		let requestBody = "";
+		for await (const chunk of request) requestBody += chunk;
+		if (request.url !== "/v1/chat/completions") { response.statusCode = 404; return void response.end(); }
+		if (!JSON.parse(requestBody || "{}").stream) {
+			response.writeHead(200, { "Content-Type": "application/json" });
+			return void response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ui harness reply" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 3 } }));
+		}
       response.writeHead(200, { "Content-Type": "text/event-stream" });
       response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "ui harness reply" }, finish_reason: null }] })}\n\n`);
       response.end(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 3 } })}\n\ndata: [DONE]\n\n`);

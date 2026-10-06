@@ -42,18 +42,19 @@ test.afterAll(async () => {
 // an SSE stream. Six of them reach the browser's per-origin HTTP/1.1 connection limit
 // and the next page's requests queue behind them forever — which showed up as a save
 // that said "Saving changes…" and never finished. Each case closes its page.
-test("Setup and Connections share endpoint discovery and the model picker", async () => {
+test("Setup and Connections share the independent model picker and read-only Test", async () => {
   const setup = await harness.context.newPage();
   await setup.goto(`${harness.base}/setup`);
-  await setup.getByRole("button", { name: "Test" }).click();
-  await expect(setup.locator(".discovery-note")).toHaveText(`found http://127.0.0.1:${harness.modelPort}`);
+  await setup.getByRole("button", { name: "Query models" }).click();
   await expect(setup.locator('[data-field="model"]')).toHaveJSProperty("tagName", "SELECT");
   await expect(setup.locator('[data-field="model"] option')).toHaveText(["absent-model · not served", "alpha-model", "beta-model"]);
+  await setup.getByRole("button", { name: "Test" }).click();
   await expect(setup.locator(".setup-feedback")).toContainText('Model "absent-model" is not served');
 
   const settings = await harness.context.newPage();
   await settings.goto(`${harness.base}/chat?from=setup#settings/connections`);
   await settings.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+  await expect(settings.locator('[data-path="connections.ui.model"] option')).toHaveText(["alpha-model", "beta-model", "type a name…"]);
   const before = await hash(join(harness.dataRoot, "harness.json"));
   // Item 2l5: Test is one of the four actions on the connection own row now.
   await settings.locator('.connection-editor [data-action="probe"][data-id="ui"]').click();
@@ -63,11 +64,8 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   // discovery found when there is not.
   // 2po replaces the old full model-refusal sentence with the planner's exact
   // fallback sentence; its unchanged full wording is one click away.
-  await expect(settings.locator(".connection-editor .connection-test-failure")).toHaveCount(1);
-  await expect(settings.locator(".connection-editor .connection-test-failure")).toContainText("The test failed.");
-  await settings.locator('.connection-editor [data-action="error-details"]').click();
-  await expect(settings.locator(".settings-error-panel pre")).toContainText('Model "absent-model" is not served');
-  await settings.keyboard.press("Escape");
+  await expect(settings.locator(".connection-editor .discovery-note")).toHaveCount(1);
+  await expect(settings.locator(".connection-editor .discovery-note")).toContainText('Model "absent-model" is not served');
   // (c): the model control is a dropdown ALWAYS, and it always offers the one way out
   // for a server that cannot list its models.
   await expect(settings.locator('[data-path="connections.ui.model"]')).toHaveJSProperty("tagName", "SELECT");
@@ -87,7 +85,7 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   await settings.close();
 });
 
-test("the 1400px connection editor is two bounded halves and model lists refresh 2qn", async () => {
+test("Test Eval Recommended stay adjacent at 1400px and the narrowest width 2qw", async () => {
   const page = await harness.context.newPage({ viewport: { width: 1400, height: 900 } });
   let models = [
     "Huihui-Qwen3.8-27B-abliterated-UD-Q3_K_XL",
@@ -107,18 +105,43 @@ test("the 1400px connection editor is two bounded halves and model lists refresh
   expect(measured.columns, JSON.stringify(measured)).toBe(2);
   expect(measured.boxes.find((x) => x.path?.endsWith(".label")).width).toBeLessThanOrEqual(260);
   expect(measured.boxes.find((x) => x.path?.endsWith(".base_url")).width).toBeLessThanOrEqual(440);
-  await expect(page.locator('.connection-editor [data-action="probe"] + [data-action="duplicate-connection"]')).toHaveCount(1);
+  const actions = page.locator(".connection-primary-actions");
+  await expect(actions.locator("button")).toHaveText(["Test", "Eval", "Recommended"]);
+  const geometry = await actions.evaluate((node) => ({
+    tops: [...node.querySelectorAll("button")].map((button) => Math.round(button.getBoundingClientRect().top)),
+    inside: [...node.querySelectorAll("button")].every((button) => button.getBoundingClientRect().right <= document.documentElement.clientWidth + 1),
+    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+  }));
+  expect(new Set(geometry.tops).size, JSON.stringify(geometry)).toBe(1);
+  expect(geometry.inside, JSON.stringify(geometry)).toBe(true);
+  expect(geometry.overflow).toBe(false);
+  const wideShot = await page.screenshot();
+  expect(wideShot.length).toBeGreaterThan(0);
   const evidence = process.env.AGENTB_EVIDENCE_DIR;
   if (evidence) {
     await mkdir(evidence, { recursive: true });
-    await page.screenshot({ path: join(evidence, "2qn-acme-connection-editor.png"), fullPage: true });
+    await page.screenshot({ path: join(evidence, "2qw-actions-1400.png"), fullPage: true });
   }
-  models = ["only-one"];
-	await page.route("**/api/connections/ui/probe", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "listed", models, message: "choose a model to check the rest", proposed: {} }) }));
-  await page.locator('.connection-editor [data-action="probe"]').click();
-  await expect(page.locator('[data-path="connections.ui.model"] option')).toContainText(["only-one", "type a name…"]);
-  await expect(page.locator(".connection-one-model-note")).toHaveText("This server runs one model — it is chosen when the server starts");
   await page.close();
+
+  const narrow = await harness.browser.newContext({ viewport: { width: 304, height: 700 } });
+  const small = await narrow.newPage();
+  await small.goto(`${harness.base}/chat#settings/connections`);
+  await small.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+  const narrowActions = small.locator(".connection-primary-actions");
+  await expect(narrowActions.locator("button")).toHaveText(["Test", "Eval", "Recommended"]);
+  const narrowGeometry = await narrowActions.evaluate((node) => ({
+    tops: [...node.querySelectorAll("button")].map((button) => Math.round(button.getBoundingClientRect().top)),
+    inside: [...node.querySelectorAll("button")].every((button) => button.getBoundingClientRect().right <= document.documentElement.clientWidth + 1),
+    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+  }));
+  expect(new Set(narrowGeometry.tops).size, JSON.stringify(narrowGeometry)).toBe(1);
+  expect(narrowGeometry.inside, JSON.stringify(narrowGeometry)).toBe(true);
+  expect(narrowGeometry.overflow).toBe(false);
+  const narrowShot = await small.screenshot();
+  expect(narrowShot.length).toBeGreaterThan(0);
+  if (evidence) await small.screenshot({ path: join(evidence, "2qw-actions-narrow.png"), fullPage: true });
+  await narrow.close();
 });
 
 test("a duplicate keeps the stored key and Show hides it again 2qn", async () => {

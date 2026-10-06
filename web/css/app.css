@@ -1716,6 +1716,12 @@
   .connection-fields .setting-row {
     grid-template-columns: 104px minmax(0, 1fr);
   }
+  .connection-fields .connection-primary-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .connection-primary-row > label {
+    display: none;
+  }
   .connection-fields .settings-note,
   .connection-fields .field-error {
     margin-left: 112px;

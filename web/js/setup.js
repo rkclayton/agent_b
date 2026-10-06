@@ -70,7 +70,8 @@ function whereScreen() {
       <label>Reasoning enabled<select data-field="reasoning"><option value="true" ${connection?.reasoning?.enabled !== false ? "selected" : ""}>on</option><option value="false" ${connection?.reasoning?.enabled === false ? "selected" : ""}>off</option></select></label>
       <label>State<strong class="setup-value">${html(connection?.not_runnable_reason || (connection?.capabilities?.probed_at ? "ready" : "not tested"))}</strong></label>
     </div>
-    <div class="setup-actions"><button data-action="save" ${disabled()}>Save</button><button data-action="test" ${disabled()}>Test</button><button data-action="show-install" class="quiet">Install one here</button><button data-action="later" class="quiet">Later</button></div>
+    <div class="setup-actions setup-connection-actions"><button data-action="test" ${disabled()}>Test</button><button data-action="measure" ${!connection || disabled() ? "disabled" : ""}>${measuring ? "Stop" : "Eval"}</button><button data-action="recommended" ${!connection || disabled() ? "disabled" : ""}>Recommended</button></div>
+    <div class="setup-actions"><button data-action="save" ${disabled()}>Save</button><button data-action="show-install" class="quiet">Install one here</button><button data-action="later" class="quiet">Later</button></div>
     ${installer()}${feedback()}</section>`;
 }
 
@@ -129,6 +130,7 @@ async function click(event) {
   if (action === "save") return saveConnection();
   if (action === "query-models") return queryModels();
   if (action === "test") return testConnection();
+  if (action === "recommended") return recommended();
   if (action === "install") return installModel();
   if (action === "later") return afterCapability();
   if (action === "where") return go("where");
@@ -155,47 +157,29 @@ async function showInstall() {
 async function testConnection() {
   const url = field("url"), model = field("model"), credential = field("credential"), apiKey = field("api-key");
   if (!url) return fail(new Error("Address is required before Test."));
-  setBusy("Saving and testing the connection…");
-  const previousConnections = [...(snapshot.config.connections || [])];
-  const previousAgents = [...(snapshot.config.agents || [])];
-  let provisional = false;
+  setBusy("Testing the connection…");
   try {
-    if (!connectionID || !snapshot.connections?.some((item) => item.id === connectionID)) connectionID = uniqueID("setup-model");
-    const current = selectedConnection() || {};
-	const previousProbe = current.capabilities?.probed_at || "";
-    const connection = connectionFromFields(current, connectionID, url, model);
-    if (credential) connection.credential = credential;
-    if (apiKey) connection.api_key = apiKey;
-    const connections = [...(snapshot.config.connections || []).filter((item) => item.id !== connectionID), connection];
-    const agents = previousAgents.length ? previousAgents : [{ name: "Agent_b", b: connectionID, toolset: fullTools }];
-    provisional = !previousAgents.length;
-    snapshot.config = await request("/api/config", { connections, agents });
-    let discovered = await request(`/api/connections/${encodeURIComponent(connectionID)}/probe`, {});
-    discoveredModels = discovered.models || [];
+    if (!connectionID) throw new Error("Save the connection before Test.");
+    const discovered = await request(`/api/connections/${encodeURIComponent(connectionID)}/probe`, { base_url: url, model, api_key: apiKey });
     discoveryNote = discovered.message || "";
-    if (discovered.status === "changes_required" && discovered.changes?.base_url) {
-      connectionDraft = { ...connection, base_url: discovered.changes.base_url };
-      discoveryNote = `${discovered.message}; Save this discovery change, then Test again.`;
-      message = "Discovery change is unsaved.";
-      alarm = false;
-      return;
-    }
-    snapshot = await request("/api/state", undefined, "GET");
-    render();
-    if (discovered.status === "model_required") {
-      message = `Test failed — ${discovered.error}`;
-      alarm = true;
-      return;
-    }
-    await waitForProbe(previousProbe);
-    await assignTestedConnection();
-    go("capability");
+    message = discoveryNote;
+    alarm = discovered.status !== "passed";
   } catch (error) {
-    if (provisional) {
-      try { snapshot.config = await request("/api/config", { connections: previousConnections, agents: previousAgents }); } catch {}
-    }
     fail(error);
   } finally { busy = false; render(); }
+}
+
+async function recommended() {
+  if (!connectionID) return fail(new Error("Save the connection before Recommended."));
+  setBusy("Reading recommended values…");
+  try {
+    const answer = await request(`/api/connections/${encodeURIComponent(connectionID)}/recommended`, {});
+    if (Object.hasOwn(answer.values || {}, "context.n_ctx")) document.querySelector('[data-field="context"]').value = answer.values["context.n_ctx"];
+    if (Object.hasOwn(answer.values || {}, "reasoning.enabled")) document.querySelector('[data-field="reasoning"]').value = String(answer.values["reasoning.enabled"]);
+    connectionDraft = captureConnectionDraft();
+    message = Object.entries(answer.sources || {}).map(([field, source]) => `${field}: ${source}`).join(" · ");
+    alarm = false;
+  } catch (error) { fail(error); } finally { busy = false; render(); }
 }
 
 function connectionFromFields(current, id, url = field("url"), model = field("model")) {

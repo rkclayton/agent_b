@@ -45,17 +45,21 @@ func TestMeasurementRunsTenBriefsAndPersistsProvenance(t *testing.T) {
 	// and is not run at all, which TestAConnectionThatCannotExpressTheSwitchIsNotMeasured2ih
 	// covers. This test is the two-arm path, so the connection can hear the switch.
 	connection.Reasoning.Control = "chat_template_kwargs"
+	connection.ProbeMode = "off"
 	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Measured", B: "measured", Toolset: config.FullToolset()}}
 	path := filepath.Join(root, "harness.json")
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
-	server.runMeasurement(context.Background(), "measured", cfg.Connections[0])
+	server.runEvaluation(context.Background(), "measured", cfg.Connections[0])
 	state := server.measurements["measured"]
 	// Item 2ih (b), wired at rel-1.22.0: TWO ARMS, so twenty briefs and two
 	// trials, and the state line is the DECISION rather than a pass count --
 	// (c) requires every write to be one line saying what it decided on.
 	if state.Error != "" || state.Result == nil || state.Result.Total != 10 || state.Result.BriefsRun != 20 || state.Result.Provenance != measurementProvenance || state.Result.Trials != 2 {
 		t.Fatalf("state=%+v", state)
+	}
+	if got := server.ConfigSnapshot().Connections[0].Capabilities; got.ProbedAt == "" || len(got.Findings) == 0 {
+		t.Fatalf("Eval did not store capability findings: %+v", got)
 	}
 	if state.Result.ReasoningOn == nil || state.Result.ReasoningOff == nil || state.Result.Decision == nil {
 		t.Fatalf("a two-arm measurement did not record both arms and its decision: %+v", state.Result)
@@ -180,7 +184,8 @@ func TestTheHarnessWritesTheDecisionItMeasured2ih(t *testing.T) {
 	cfg := config.Defaults(root)
 	connection := runnableTestConnection("measured")
 	connection.Label, connection.BaseURL, connection.Model, connection.RequestTimeoutS = "Measured", model.URL, "fake", 2
-	connection.Reasoning.Enabled = true                   // the state the measurement must change
+	connection.Reasoning.Enabled = true // the state the measurement must change
+	connection.Reasoning.MaxTokens = 321
 	connection.Reasoning.Control = "chat_template_kwargs" // how this server hears the switch
 	connection.Context.NCtx, connection.Context.ReserveOutput = 8192, 1024
 	cfg.Connections = []config.Connection{connection}
@@ -199,9 +204,12 @@ func TestTheHarnessWritesTheDecisionItMeasured2ih(t *testing.T) {
 	if result.Decision.Enabled || !strings.Contains(result.Decision.Line, "empty") {
 		t.Fatalf("the empty-reply veto did not decide: %+v", result.Decision)
 	}
-	// (c): WRITTEN, not just reported.
-	if server.ConfigSnapshot().Connections[0].Reasoning.Enabled {
-		t.Error("the decision was reported and not written onto the connection")
+	// 2qw: Eval records the decision but never changes a setting.
+	if !server.ConfigSnapshot().Connections[0].Reasoning.Enabled {
+		t.Error("Eval changed the operator's reasoning switch")
+	}
+	if got := server.ConfigSnapshot().Connections[0]; got.Reasoning.MaxTokens != 321 || got.Context.NCtx != 8192 {
+		t.Errorf("Eval changed cap/context: cap=%d context=%d", got.Reasoning.MaxTokens, got.Context.NCtx)
 	}
 	// (e): the window the model will run with is on the same record.
 	if result.NCtx != 8192 || result.WindowTokens != 7168 {

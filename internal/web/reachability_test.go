@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"harness/internal/config"
-	"harness/internal/events"
 )
 
 type reachabilityTestTimer struct{ stopped bool }
@@ -148,8 +147,8 @@ func TestConnectionHealthIsTheServersStateNow2px(t *testing.T) {
 	t.Logf("2px health checks sent %d requests, all /v1/models or /props", len(fixture.paths))
 }
 
-// CHECK 4: Test with no model chosen passes, lists models and says what is next.
-func TestTestWithNoModelListsAndPasses2px(t *testing.T) {
+// 2qw: Test requires a chosen listed model; the independent picker supplies it.
+func TestTestWithNoModelNamesTheRequiredAction2qw(t *testing.T) {
 	fixture := newHealthFixture(t, 32768)
 	server := newProbeServer(t)
 	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/probe", strings.NewReader(`{"base_url":"`+fixture.server.URL+`"}`))
@@ -159,27 +158,10 @@ func TestTestWithNoModelListsAndPasses2px(t *testing.T) {
 		Status, Message, Error string
 		Models                 []string
 	}
-	if err := json.Unmarshal(response.Body.Bytes(), &answer); err != nil || answer.Status != "listed" || answer.Error != "" || len(answer.Models) != 3 || answer.Message != "choose a model to check the rest" {
+	if err := json.Unmarshal(response.Body.Bytes(), &answer); err != nil || answer.Status != "failed" || answer.Message != "Test failed — choose a listed model and try again" {
 		t.Fatalf("Test without a model: %d %s", response.Code, response.Body)
 	}
-	// CHECK 2: one of the listed models is saved with no Test at all. The save re-probes
-	// in the background and writes under the data root, so the test waits for that probe
-	// to end before its temp folder is removed (it failed cleanup on a hosted runner).
-	probed, unsubscribe := server.bus.Subscribe()
-	defer unsubscribe()
-	defer func() {
-		for deadline := time.After(10 * time.Second); ; {
-			select {
-			case event := <-probed:
-				if event.Type == events.ConnectionProbed || event.Type == events.Error {
-					return
-				}
-			case <-deadline:
-				t.Error("the re-probe after saving did not finish")
-				return
-			}
-		}
-	}()
+	// A model can still be saved without Test, and Save starts no capability probe.
 	if saved := postConfigPatch(t, server, `{"connections":[{"id":"local","base_url":"`+fixture.server.URL+`","model":"beta"}]}`); saved.Code != http.StatusOK || server.ConfigSnapshot().Connections[0].Model != "beta" {
 		t.Fatalf("saving a listed model: %d %.200s", saved.Code, saved.Body)
 	}

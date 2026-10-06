@@ -683,6 +683,16 @@ function applyProposedValues(id, discovered) {
   if (proposedFields.size) settingsSaveMessage = "Proposed values are unsaved — review and Save";
 }
 
+function applyRecommendedValues(id, answer) {
+  const prefix = `connections.${id}.`;
+  for (const [path, value] of Object.entries(answer?.values || {})) {
+    drafts.set(prefix + path, value);
+    draftKinds.set(prefix + path, typeof value === "boolean" ? "boolean" : typeof value === "number" ? "number" : "text");
+    fieldNotes.set(prefix + path, `Recommended: ${answer.sources?.[path] || "source unavailable"}`);
+  }
+  settingsSaveMessage = "Recommended values are unsaved — review and Save";
+}
+
 const proposedFields = new Set();
 // Item 2l6 (b): which rows have just taken effect, so the row can say so.
 const appliedSettings = new Map();
@@ -1145,7 +1155,7 @@ async function dispatchAction(event, button, action, id) {
     // is connecting to before any request has answered, and the walk's own events
     // replace it as they land.
     const typedAddress = current(`connections.${id}.base_url`, connection?.base_url || "") || "the address";
-    probeMessages.set(id, { message: "", alarm: false, walking: { line: `connecting to ${typedAddress}`, processed: 0, total: 0 } });
+    probeMessages.set(id, { ...(probeMessages.get(id) || {}), message: "", alarm: false, walking: { line: `connecting to ${typedAddress}`, processed: 0, total: 0 } });
     render();
     try {
       const discovered = await api(`/api/connections/${encodeURIComponent(id)}/probe`, {
@@ -1154,31 +1164,21 @@ async function dispatchAction(event, button, action, id) {
         api_key: current(`${pendingPrefix}api_key`, ""),
         request_timeout_s: Number(current(`${pendingPrefix}request_timeout_s`, connection?.request_timeout_s || 0)) || 0,
       });
-      applyProposedValues(id, discovered);
-      const needsModel = discovered.status === "model_required";
       // Item 2nn (a): THE ADDRESS FIELD IS HIS. A host typed with no port comes back
       // as "port_required" with what each port answered, and NOTHING is written into
       // the field — the note names the ports and he adds the one he wants. The only
       // value Test still proposes into base_url is a PATH on the port he typed
       // himself (item 2l1's path discovery, which 2nb (c)-(h) keeps), never another
       // port: that is what put :11434 in his field after he typed the bare address.
-      if (discovered.changes?.base_url) {
-        drafts.set(`${pendingPrefix}base_url`, discovered.changes.base_url);
-        draftKinds.set(`${pendingPrefix}base_url`, "text");
-        settingsSaveMessage = "Unsaved discovery change";
-      }
       // The walk is finished the moment Test answers, however it answered.
       probeMessages.set(id, { ...(probeMessages.get(id) || {}), walking: null });
-      const observed = probeMessages.get(id) || {};
-      const terminal = /^Test (?:passed|failed)/.test(observed.message || "");
       probeMessages.set(id, {
+		...(probeMessages.get(id) || {}),
         ...discovered,
-        found: discovered.message || "",
-        message: terminal ? observed.message : (needsModel ? connectionFailureSentence(discovered.error, typedAddress) : (discovered.message || "Testing…")),
-        detail: terminal ? observed.detail : (needsModel ? discovered.error : ""),
-        alarm: terminal ? !!observed.alarm : needsModel,
+        message: discovered.message || "Test failed — no result",
+        alarm: discovered.status !== "passed",
       });
-      reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+      if (connection) connection._probing = false;
       render();
     } catch (error) {
       if (connection) connection._probing = false;
@@ -1202,6 +1202,14 @@ async function dispatchAction(event, button, action, id) {
         harnessWalking: currentState.running ? null : { line: "brief 0 of 10 — thinking off", processed: 0, total: 10 },
       });
       if (!currentState.running) void refreshMeasurement(id);
+    } catch (error) { probeMessages.set(id, { ...(probeMessages.get(id) || {}), message: error.message, alarm: true }); }
+    return render();
+  }
+  if (action === "recommended-connection") {
+    try {
+      const answer = await api(`/api/connections/${encodeURIComponent(id)}/recommended`, {});
+      applyRecommendedValues(id, answer);
+      probeMessages.set(id, { ...(probeMessages.get(id) || {}), message: answer.message || "Recommended values are unsaved", alarm: false });
     } catch (error) { probeMessages.set(id, { ...(probeMessages.get(id) || {}), message: error.message, alarm: true }); }
     return render();
   }
@@ -1978,7 +1986,7 @@ async function resetSession(id) {
 function connectionReason(connection) {
   const caps = connection.capabilities || {};
   const nctx = connection.context?.n_ctx;
-  if (!nctx || (caps.n_ctx > 0 && nctx > caps.n_ctx)) return "context unknown — Test to read it";
+  if (!nctx || (caps.n_ctx > 0 && nctx > caps.n_ctx)) return "context unknown — Recommended to read it";
   if (!caps.tool_calls) return "tool calling unavailable";
   if (caps.overflow_behavior === "truncate") return "server truncates context";
   if (!caps.streaming) return "streaming unavailable";

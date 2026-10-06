@@ -207,6 +207,10 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		s.queryConnectionModels(w, r, strings.TrimSuffix(tail, "/models"))
 		return
 	}
+	if r.Method == http.MethodPost && strings.HasSuffix(tail, "/recommended") {
+		s.recommendConnection(w, r, strings.TrimSuffix(tail, "/recommended"))
+		return
+	}
 	if r.Method != http.MethodPost || !strings.HasSuffix(tail, "/probe") {
 		method(w)
 		return
@@ -302,16 +306,14 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	// answers. What 2nn (a) forbids is moving him to another PORT, and the walk cannot
 	// do that any more — a typed port is the only port tried, and a host with no port
 	// answers with the list above instead of a choice.
-	changes := map[string]any{}
 	if strings.TrimRight(tested.BaseURL, "/") != strings.TrimRight(discovered.BaseURL, "/") {
-		changes["base_url"] = discovered.BaseURL
-		writeJSON(w, http.StatusOK, map[string]any{"status": "changes_required", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "changes": changes, "message": fmt.Sprintf("changed base_url from %s to %s", tested.BaseURL, discovered.BaseURL)})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "failed", "connection_id": id, "message": fmt.Sprintf("Test failed — set address to %s and try again", discovered.BaseURL)})
 		return
 	}
 	// Item 2px (d): Test unlocks nothing and is not a failure without a model. It
 	// checked reach and the list, which is all it can check until one is chosen.
 	if strings.TrimSpace(updated.Model) == "" && len(discovered.Models) > 0 {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "listed", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "choose a model to check the rest", "proposed": s.proposedConnectionValues(r.Context(), &tested, discovered.Models)})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "failed", "connection_id": id, "message": "Test failed — choose a listed model and try again"})
 		return
 	}
 	listed := modelListed(updated.Model, discovered.Models)
@@ -322,18 +324,18 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		// 200 with no models pulled.
 		modelErr := modelRefusalMessage(updated.Model, discovered.BaseURL, discovered.Models)
 		logConnectionTestFailure(modelErr, tested.APIKey)
-		writeJSON(w, http.StatusOK, map[string]any{"status": "model_required", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL, "error": modelErr, "proposed": s.proposedConnectionValues(r.Context(), &tested, discovered.Models)})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "failed", "connection_id": id, "message": "Test failed — " + modelErr})
 		return
 	}
-	// A ready connection that answers exactly as entered is a read-only test.
-	// In particular, do not rewrite a display-name model to llama-server's GGUF
-	// path and do not alter ProbedAt (which would change the config hash).
-	if connection.Capabilities.ProbedAt != "" && tested.BaseURL == connection.BaseURL && tested.Model == connection.Model {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "Test passed", "proposed": s.proposedConnectionValues(r.Context(), &tested, discovered.Models)})
+	started := time.Now()
+	check, stop := context.WithTimeout(r.Context(), time.Duration(max(5, min(updated.RequestTimeoutS, 30)))*time.Second)
+	defer stop()
+	if _, err := llm.New(&updated).Chat(check, llm.Request{Messages: []llm.Message{{Role: "user", Content: "Reply OK."}}, MaxTokens: 8}); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"status": "failed", "connection_id": id, "message": "Test failed — the model did not answer; check the model and try again"})
 		return
 	}
-	s.startProbe(&updated)
-	writeJSON(w, http.StatusAccepted, map[string]any{"status": "probing", "connection_id": id, "base_url": discovered.BaseURL, "models": discovered.Models, "message": "found " + discovered.BaseURL, "proposed": s.proposedConnectionValues(r.Context(), &tested, discovered.Models)})
+	duration := max(int(time.Since(started).Milliseconds()), 1)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "passed", "connection_id": id, "duration_ms": duration, "message": fmt.Sprintf("Test passed in %d ms", duration)})
 }
 
 func safeConnectionFailureLog(message, apiKey string) string {
@@ -386,6 +388,57 @@ func (s *Server) queryConnectionModels(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": models, "url": queried, "key_sent": tested.APIKey != "", "message": fmt.Sprintf("%d model(s) from %s (%s)", len(models), queried, keyState)})
+}
+
+// recommendConnection returns draft values and their evidence. It performs only
+// metadata reads; applying the response in the browser remains unsaved.
+func (s *Server) recommendConnection(w http.ResponseWriter, r *http.Request, id string) {
+	connection, ok := s.Connection(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "connection not found", "connection_id")
+		return
+	}
+	values := map[string]any{}
+	sources := map[string]string{}
+	defaults := config.Defaults("").Connections[0]
+	if connection.Measurement != nil && connection.Measurement.Decision != nil {
+		values["reasoning.enabled"] = connection.Measurement.Decision.Enabled
+		sources["reasoning.enabled"] = "Eval"
+		if connection.Measurement.Decision.ReasoningCap > 0 {
+			values["reasoning.max_tokens"] = connection.Measurement.Decision.ReasoningCap
+			sources["reasoning.max_tokens"] = "Eval"
+		}
+	} else {
+		values["reasoning.enabled"] = defaults.Reasoning.Enabled
+		sources["reasoning.enabled"] = "shipped default"
+	}
+	if _, ok := values["reasoning.max_tokens"]; !ok {
+		values["reasoning.max_tokens"] = defaults.Reasoning.MaxTokens
+		sources["reasoning.max_tokens"] = "shipped default"
+	}
+	check, cancel := context.WithTimeout(r.Context(), time.Duration(max(3, min(connection.RequestTimeoutS, 8)))*time.Second)
+	defer cancel()
+	window := 0
+	if entries, err := llm.New(connection).ModelCatalog(check); err == nil {
+		for _, entry := range entries {
+			if entry.ContextLength > 0 && (strings.EqualFold(strings.TrimSpace(entry.ID), strings.TrimSpace(connection.Model)) || len(entries) == 1) {
+				window = entry.ContextLength
+				break
+			}
+		}
+	}
+	if window == 0 {
+		if props, err := llm.New(connection).Props(check); err == nil {
+			window = props.DefaultGenerationSettings.NCtx
+		}
+	}
+	if window > 0 {
+		values["context.n_ctx"] = window
+		sources["context.n_ctx"] = "server"
+		values["context.reserve_output"] = config.ReserveOutputFor(window)
+		sources["context.reserve_output"] = "server"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"values": values, "sources": sources, "message": "Recommended values are unsaved"})
 }
 
 func modelListed(configured string, listed []string) bool {
@@ -441,7 +494,6 @@ func (s *Server) runProbe(ctx context.Context, connection *config.Connection, cu
 	if outcome == probeInconclusive {
 		caps = connection.Capabilities
 		findings = keepFindingsUnverified(connection.Capabilities.Findings, time.Now(), err.Error())
-		s.scheduleProbeRetry(connection.ID)
 	} else {
 		s.resetProbeRetries(connection.ID)
 		if err != nil {
@@ -567,10 +619,6 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.mu.Lock()
-		previousConnections := make(map[string]config.Connection, len(s.cfg.Connections))
-		for _, connection := range s.cfg.Connections {
-			previousConnections[connection.ID] = connection
-		}
 		currentBytes, _ := json.Marshal(s.cfg)
 		var current map[string]any
 		_ = json.Unmarshal(currentBytes, &current)
@@ -665,17 +713,7 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		}
 		s.roots.Workspace = filepath.Clean(workspaceRoot)
 		masked := next.Masked()
-		var reprobe []config.Connection
-		for _, connection := range next.Connections {
-			before, existed := previousConnections[connection.ID]
-			if existed && (before.BaseURL != connection.BaseURL || before.Model != connection.Model) {
-				reprobe = append(reprobe, connection)
-			}
-		}
 		s.mu.Unlock()
-		for index := range reprobe {
-			s.startProbe(&reprobe[index])
-		}
 		if s.runner != nil {
 			s.runner.Configure(s.ConfigSnapshot())
 		}

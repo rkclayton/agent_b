@@ -45,12 +45,7 @@ func (s *Server) scheduleReachabilityProbeLocked(connectionID string, state *rea
 		}
 		state.timer = nil
 		s.reachabilityMu.Unlock()
-		connection, ok := s.Connection(connectionID)
-		if !ok {
-			s.clearReachabilityProbe(connectionID)
-			return
-		}
-		s.startProbe(connection)
+		s.clearReachabilityProbe(connectionID)
 	})
 }
 

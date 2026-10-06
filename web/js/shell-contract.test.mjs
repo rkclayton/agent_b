@@ -205,7 +205,7 @@ test("top-right connection label is the b-role model switcher", () => {
   assert.match(shell, /"No chat selected"/);
   assert.match(shell, /\/api\/header-state/);
   assert.doesNotMatch(shell, /setProperty\(sessionHeading, "hidden", !session\)/);
-  assert.match(settings, /context unknown — Test to read it/);
+  assert.match(settings, /context unknown — Recommended to read it/);
   assert.match(settings, /nctx > caps\.n_ctx/);
 });
 

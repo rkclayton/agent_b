@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,6 +56,10 @@ func TestConnectionFailureLogKeepsTheWholeFailureAndDropsTheKey2po(t *testing.T)
 
 func TestReadyConnectionTestDoesNotRewriteConfig(t *testing.T) {
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/chat/completions" {
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}`)
+			return
+		}
 		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
 			return
@@ -77,7 +82,7 @@ func TestReadyConnectionTestDoesNotRewriteConfig(t *testing.T) {
 	response := httptest.NewRecorder()
 	server.connection(response, request)
 	after, _ := os.ReadFile(path)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"ready"`) {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"passed"`) || !strings.Contains(response.Body.String(), `"duration_ms":`) || strings.Contains(response.Body.String(), `"proposed"`) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}
 	if !bytes.Equal(before, after) {
@@ -85,7 +90,7 @@ func TestReadyConnectionTestDoesNotRewriteConfig(t *testing.T) {
 	}
 }
 
-func TestDiscoveryProposesBaseURLWithoutSaving(t *testing.T) {
+func TestDiscoveryNamesRequiredBaseURLWithoutSaving(t *testing.T) {
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
@@ -108,7 +113,7 @@ func TestDiscoveryProposesBaseURLWithoutSaving(t *testing.T) {
 	response := httptest.NewRecorder()
 	server.connection(response, request)
 	after, _ := os.ReadFile(path)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"changes_required"`) || !strings.Contains(response.Body.String(), "changed base_url from") {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"failed"`) || !strings.Contains(response.Body.String(), "set address to") {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body)
 	}
 	if !bytes.Equal(before, after) {
@@ -178,7 +183,7 @@ func TestConnectionTestReturnsDiscoveryListAndLogsEveryRequest(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Status != "model_required" || body.BaseURL != model.URL || body.Message != "found "+model.URL || fmt.Sprint(body.Models) != "[one two]" || !strings.Contains(body.Error, `Model "model" is not served`) {
+	if body.Status != "failed" || !strings.Contains(body.Message, `Model "model" is not served`) {
 		t.Fatalf("body=%+v", body)
 	}
 	configAfter, err := os.ReadFile(configPath)
@@ -233,6 +238,51 @@ func TestQueryModelsRefusesEmptyAddress(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "Enter base_url before querying models.") {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestRecommendedUsesEvalThenServerWithoutCompletionAndDoesNotSave2qw(t *testing.T) {
+	var completions atomic.Int32
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			fmt.Fprint(w, `{"data":[{"id":"fixture","context_length":32768}]}`)
+		case "/props":
+			fmt.Fprint(w, `{"default_generation_settings":{"n_ctx":32768}}`)
+		default:
+			completions.Add(1)
+			http.NotFound(w, r)
+		}
+	}))
+	defer model.Close()
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	cfg := config.Defaults(root)
+	cfg.Connections[0].BaseURL, cfg.Connections[0].Model = model.URL, "fixture"
+	cfg.Connections[0].Measurement = &config.Measurement{Decision: &config.ReasoningDecision{Enabled: false, ReasoningCap: 777}}
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	response := httptest.NewRecorder()
+	server.connection(response, httptest.NewRequest(http.MethodPost, "/api/connections/local/recommended", nil))
+	var answer struct {
+		Values  map[string]any    `json:"values"`
+		Sources map[string]string `json:"sources"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &answer); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || answer.Values["reasoning.enabled"] != false || answer.Values["reasoning.max_tokens"] != float64(777) || answer.Values["context.n_ctx"] != float64(32768) {
+		t.Fatalf("status=%d answer=%+v body=%s", response.Code, answer, response.Body)
+	}
+	if answer.Sources["reasoning.enabled"] != "Eval" || answer.Sources["reasoning.max_tokens"] != "Eval" || answer.Sources["context.n_ctx"] != "server" {
+		t.Fatalf("sources=%v", answer.Sources)
+	}
+	after, _ := os.ReadFile(path)
+	if completions.Load() != 0 || !bytes.Equal(before, after) {
+		t.Fatalf("completions=%d config_changed=%v", completions.Load(), !bytes.Equal(before, after))
 	}
 }
 

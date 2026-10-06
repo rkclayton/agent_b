@@ -341,7 +341,6 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 			if scheduler != nil {
 				scheduler.HoldModel(sessionID)
 			}
-			s.scheduleReachabilityProbe(connectionID)
 			s.setConnectionHealth(connectionID, connectionHealth{Lamp: "alarm", Word: "unreachable"})
 		})
 		// Item 2px (e): a real answer is the best check there is; it clears red

@@ -183,6 +183,19 @@ func TestApplyDefaultsNormalizesNullConnectionsToEmptyArray(t *testing.T) {
 	}
 }
 
+func TestUnevaluatedConnectionUsesProbeOffAssumptionsWithoutPretendingEvalRan2qw(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	cfg.Connections[0].Capabilities = Capabilities{}
+	ApplyDefaults(&cfg)
+	caps := cfg.Connections[0].Capabilities
+	if !caps.Streaming || !caps.ToolCalls || !caps.DocumentInput || !caps.ImageInput || caps.Vision != VisionReadsImages {
+		t.Fatalf("unevaluated assumptions=%+v", caps)
+	}
+	if caps.ProbedAt != "" || len(caps.Findings) != 0 {
+		t.Fatalf("unevaluated connection claims Eval ran: %+v", caps)
+	}
+}
+
 func TestSaveAndMaskKeepEmptyConnectionsAsArray(t *testing.T) {
 	cfg := Defaults(t.TempDir())
 	cfg.Connections = []Connection{}
@@ -782,6 +795,9 @@ func TestLoadMigratesLegacyConnectionListWithoutFieldLoss(t *testing.T) {
 	want.MaxConcurrent = 3
 	want.SystemPromptOverride = "keep every field"
 	want.Measurement = &Measurement{Passed: 7, Total: 10, BriefsRun: 10, ToolErrors: 2, ToolErrorRate: .2, Trials: 1, Provenance: "fixture", MeasuredAt: "2026-09-23T00:00:00Z", DurationMS: 1234}
+	want.Capabilities.Server, want.Capabilities.Streaming, want.Capabilities.ToolCalls = "openai-compatible", true, true
+	want.Capabilities.DocumentInput, want.Capabilities.ImageInput, want.Capabilities.Vision = true, true, VisionReadsImages
+	want.Capabilities.OverflowBehavior = "unknown"
 	cfg.Connections = []Connection{want}
 	cfg.Agents[0].B = want.ID
 

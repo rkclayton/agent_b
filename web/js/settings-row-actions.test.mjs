@@ -41,13 +41,22 @@ test("each connection row carries pencil Edit, save and delete at its right, and
   assert.doesNotMatch(header, /<input|<select|<textarea/, "the header holds an input");
 });
 
-// 2qn moves Duplicate beside Test; Remove stays row-only and Evaluation stays below.
-test("Duplicate sits beside Test and Remove stays out of the editor", () => {
+// 2qw moves Duplicate beside Save so the primary line contains only its three actions.
+test("Duplicate stays in the editor and Remove stays out of it", () => {
   const editor = sources["settings-connections.js"].slice(sources["settings-connections.js"].indexOf('<div class="settings-actions">'));
   const editorActions = editor.slice(0, editor.indexOf("</div>"));
-	assert.match(editor, /data-action="probe"[^>]*>[\s\S]*data-action="duplicate-connection"/, "Duplicate is not beside Test");
+	assert.match(editor, /data-action="save-connection"[^>]*>[\s\S]*data-action="duplicate-connection"/, "Duplicate is not beside Save");
 	assert.doesNotMatch(editor, /data-action="remove-connection"/, "Remove moved into the editor");
-  assert.match(editor, /data-action="measure-connection"/, "the Evaluation Harness lost its home in the editor");
+	assert.match(editor, /data-action="measure-connection"/, "Eval lost its home in the editor");
+});
+
+test("Test Eval and Recommended are the three adjacent connection actions", () => {
+  const source = sources["settings-connections.js"];
+  const start = source.indexOf('<div class="connection-primary-actions settings-actions">');
+  const actions = source.slice(start, source.indexOf("</div>", start));
+  assert.ok(start >= 0, "the primary action line is missing");
+  assert.match(actions, /"Test"[^]*"Eval"[^]*>Recommended</);
+  assert.equal((actions.match(/<button/g) || []).length, 3);
 });
 
 // (d): the row's save commits that connection and nothing else.

@@ -62,6 +62,7 @@ test("Local install returns to the same three connection actions without probing
 
 test("Eval button becomes Stop and completion advances to telemetry without Skip or Back", () => {
   assert.match(script, /measuring \? "Stop" : "Eval"/);
+  assert.match(script, /busy && !measuring/);
   assert.match(script, /"DELETE"/);
   assert.match(script, /afterCapability\(\)/);
   assert.match(script, /measurement[\s\S]*Continue[\s\S]*: `[\s\S]*Skip[\s\S]*Back/);

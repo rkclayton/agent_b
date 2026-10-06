@@ -70,7 +70,7 @@ function whereScreen() {
       <label>Reasoning enabled<select data-field="reasoning"><option value="true" ${connection?.reasoning?.enabled !== false ? "selected" : ""}>on</option><option value="false" ${connection?.reasoning?.enabled === false ? "selected" : ""}>off</option></select></label>
       <label>State<strong class="setup-value">${html(connection?.not_runnable_reason || (connection?.capabilities?.probed_at ? "ready" : "not tested"))}</strong></label>
     </div>
-    <div class="setup-actions setup-connection-actions"><button data-action="test" ${disabled()}>Test</button><button data-action="measure" ${!connection || disabled() ? "disabled" : ""}>${measuring ? "Stop" : "Eval"}</button><button data-action="recommended" ${!connection || disabled() ? "disabled" : ""}>Recommended</button></div>
+    <div class="setup-actions setup-connection-actions"><button data-action="test" ${disabled()}>Test</button><button data-action="measure" ${!connection || (busy && !measuring) ? "disabled" : ""}>${measuring ? "Stop" : "Eval"}</button><button data-action="recommended" ${!connection || disabled() ? "disabled" : ""}>Recommended</button></div>
     <div class="setup-actions"><button data-action="save" ${disabled()}>Save</button><button data-action="show-install" class="quiet">Install one here</button><button data-action="later" class="quiet">Later</button></div>
     ${installer()}${feedback()}</section>`;
 }

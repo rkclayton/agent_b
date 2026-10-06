@@ -143,7 +143,8 @@ try {
   await page.locator(".setup-feedback").filter({ hasText: /Test passed in \d+ ms/ }).waitFor({ timeout: 60000 });
   assert.equal(await page.locator("h1").textContent(), "Where is your model?");
   await page.locator('[data-action="recommended"]').click();
-  await page.locator(".setup-feedback").filter({ hasText: /product default|server/ }).waitFor();
+  await page.waitForFunction(() => document.querySelector(".setup-feedback")?.textContent !== "Reading recommended values…");
+  assert.match(await page.locator(".setup-feedback").textContent(), /shipped default|server/);
   if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-3-connection-actions.png") });
   await page.locator('[data-action="measure"]', { hasText: "Eval" }).click();
   const measurementDeadline = Date.now() + 15000;

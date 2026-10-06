@@ -13,7 +13,7 @@ const all = Object.values(sources).join("\n");
 // (no icon, small caps lettering button robotic) delete (trash can) duplicate (two
 // robot heads layered on each other) but all these icons in the line on the right
 // side of [the connection]".
-test("each connection row carries Edit, save, duplicate and delete at its right, and no input", () => {
+test("each connection row carries pencil Edit, save and delete at its right, and no input", () => {
   // The slice ends at the actions span's OWN close rather than at the row's closing
   // div: item 2nc (a) puts a refusal line between the two, and an end marker that
   // assumed they were adjacent silently swallowed the editor's markup with it.
@@ -24,13 +24,14 @@ test("each connection row carries Edit, save, duplicate and delete at its right,
   // now that one and a slice ending there stops before three of the four controls.
   const row = source.slice(start, source.indexOf("\n          </span>", start));
   assert.ok(row, "the connection row has no actions span");
-  for (const action of ["connection-toggle", "save-connection", "duplicate-connection", "remove-connection"]) {
+	for (const action of ["connection-toggle", "save-connection", "remove-connection"]) {
     assert.match(row, new RegExp(`data-action="${action}"`), `${action} is not on the connection's own line`);
   }
-  // Item 2px (a): Test has left the header for the form, and Edit is lettering.
+	// Item 2qn: Test and Duplicate have left the header for the form, and Edit is a pencil.
   assert.doesNotMatch(row, /data-action="probe"/, "Test is still in the header");
-  assert.match(row, />Edit<\/button>/);
-  for (const icon of ["connectionIcons.save", "connectionIcons.duplicate", "connectionIcons.trash"]) {
+	assert.doesNotMatch(row, /data-action="duplicate-connection"/, "Duplicate is still in the header");
+	assert.doesNotMatch(row, />Edit<\/button>/);
+	for (const icon of ["connectionIcons.edit", "connectionIcons.save", "connectionIcons.trash"]) {
     assert.ok(row.includes(icon), `${icon} is not used in the row`);
   }
   // (g): the three icon-only actions each carry a label.
@@ -40,19 +41,12 @@ test("each connection row carries Edit, save, duplicate and delete at its right,
   assert.doesNotMatch(header, /<input|<select|<textarea/, "the header holds an input");
 });
 
-// (c): the controls the row replaces are gone from the editor, and the Evaluation
-// Harness keeps its home there because it is not a per-row action.
-test("no connection action is duplicated between the row and the editor", () => {
+// 2qn moves Duplicate beside Test; Remove stays row-only and Evaluation stays below.
+test("Duplicate sits beside Test and Remove stays out of the editor", () => {
   const editor = sources["settings-connections.js"].slice(sources["settings-connections.js"].indexOf('<div class="settings-actions">'));
   const editorActions = editor.slice(0, editor.indexOf("</div>"));
-  // Item 2nn (d) supersedes half of this: the sheet reads top to bottom as the flow
-  // — label, address, key, TEST, model, Evaluate, SAVE — so Test and Save are in the
-  // editor by name, where the operator is when he needs them. The row keeps its copies
-  // as the collapsed row's affordances. Duplicate and Remove are still row-only: they
-  // act on the connection as a whole and have no place in its flow.
-  for (const action of ["duplicate-connection", "remove-connection"]) {
-    assert.doesNotMatch(editor, new RegExp(`data-action="${action}"[^>]*>(?![\s\S]*connection-actions)`), `${action} is in both the row and the editor`);
-  }
+	assert.match(editor, /data-action="probe"[^>]*>[\s\S]*data-action="duplicate-connection"/, "Duplicate is not beside Test");
+	assert.doesNotMatch(editor, /data-action="remove-connection"/, "Remove moved into the editor");
   assert.match(editor, /data-action="measure-connection"/, "the Evaluation Harness lost its home in the editor");
 });
 

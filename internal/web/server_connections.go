@@ -111,6 +111,32 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	tail := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/connections/"), "/")
+	if r.Method == http.MethodPost && strings.HasSuffix(tail, "/key") {
+		id := strings.TrimSuffix(tail, "/key")
+		connection, ok := s.Connection(id)
+		if !ok || strings.TrimSpace(connection.Credential) == "" {
+			writeError(w, http.StatusNotFound, "this connection has no stored API key", "connections."+id+".api_key")
+			return
+		}
+		store, err := credential.NewNamed(s.roots.Data, connection.Credential)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error(), "connections."+id+".api_key")
+			return
+		}
+		secret, err := store.Read()
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "the stored API key could not be read", "connections."+id+".api_key")
+			return
+		}
+		// The local browser session and mutation-token guards surround this handler.
+		// The one requested value is returned directly and is never logged, published,
+		// placed in configuration, or included in the phone projection.
+		writeJSON(w, http.StatusOK, map[string]string{"secret": string(secret)})
+		for index := range secret {
+			secret[index] = 0
+		}
+		return
+	}
 	if r.Method == http.MethodDelete && !strings.Contains(tail, "/") {
 		// Item 2nc (b): THE REASON SAYS WHAT TO DO. "in use by session s12" named an id
 		// the operator has never seen; this names the chat as he knows it and says what to

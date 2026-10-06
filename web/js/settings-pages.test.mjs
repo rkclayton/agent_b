@@ -310,6 +310,18 @@ test("the API key field never carries the stored-key mask as its value", () => {
 	assert.match(secret, /leave empty to keep the stored key/);
 });
 
+test("stored connection keys reveal briefly, duplicate beside Test, and rows use a pencil 2qn", () => {
+	const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
+	const connections = fs.readFileSync(new URL("settings-connections.js", import.meta.url), "utf8");
+	assert.match(controller, /\/api\/connections\/\$\{encodeURIComponent\(id\)\}\/key/);
+	assert.match(controller, /setTimeout\([^]*30000/);
+	assert.doesNotMatch(controller.slice(controller.indexOf("async function duplicateConnection"), controller.indexOf("function uniqueID")), /copy\.credential\s*=\s*""/);
+	assert.match(connections, /data-action="probe"[^]*data-action="duplicate-connection"/);
+	assert.match(connections, /connectionIcons\.edit/);
+	assert.doesNotMatch(connections, /aria-expanded="\$\{isOpen\}">Edit<\/button>/);
+	assert.match(connections, /This server runs one model — it is chosen when the server starts/);
+});
+
 // And the server refuses a masked value outright rather than silently dropping it.
 test("the configuration route refuses an API key that still holds the mask", () => {
 	const source = fs.readFileSync(new URL("../../internal/web/server_connections.go", import.meta.url), "utf8");

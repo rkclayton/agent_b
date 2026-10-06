@@ -2,6 +2,7 @@
 // new colour and no new stroke width. Three of the four are icon-only, so every one
 // carries an accessible label at its call site.
 const connectionIcons = {
+	edit: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="m11.8 1.7 2.5 2.5-8.6 8.6-3.3.8.8-3.3 8.6-8.6Zm-7.7 9 .8.8 7.4-7.4-.8-.8-7.4 7.4Z"/></svg>',
   save: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M2 2h9l3 3v9H2V2Zm2 1v4h6V3H4Zm1 7h6v3H5v-3Z"/></svg>',
   duplicate: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3 4h6v6H3V4Zm1 1v4h4V5H4Zm1.5.8h1v1h-1v-1Zm2 0h1v1h-1v-1Z"/><path d="M7 2h6v6h-1.5V3.5H7V2Z"/></svg>',
   trash: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M6 2h4v1h3v1H3V3h3V2Zm-2 3h8l-.7 9H4.7L4 5Zm2.2 1 .4 7h1V6H6.2Zm3.6 0H8.8v7h1l.4-7Z"/></svg>',
@@ -55,7 +56,8 @@ function connections() {
       const hasPendingChanges = [...drafts.keys()].some((path) => path.startsWith(`connections.${connection.id}.`));
       const feedback = probeMessages.get(connection.id);
       // Item 2px (a): THE HEADER IS DISPLAY ONLY — lamp, label, address, model and
-      // the state word — and its actions are Edit, Save, Duplicate and Delete. Test
+			// the state word — and its actions are Edit, Save and Delete. Test and
+			// Duplicate live together in the form.
       // lives in the form; nothing here is typed into.
       const health = connectionHealth(store, connection.id);
       const word = health.word + (hasPendingChanges ? " · unsaved" : "");
@@ -65,9 +67,8 @@ function connections() {
       return `<div class="connection-row ${isOpen ? "selected" : ""} ${refusal ? "refused" : ""}">
           <span class="connection-summary"><span class="lamp ${health.lamp}"></span><span>${html(connection.label)}</span><span class="connection-url">${html(connection.base_url)} · ${html(model)}</span><span class="connection-state">${html(word)}</span></span>
           <span class="connection-actions">
-            <button type="button" class="row-action" data-action="connection-toggle" data-id="${attr(connection.id)}" aria-expanded="${isOpen}">Edit</button>
+			<button type="button" class="row-action" data-action="connection-toggle" data-id="${attr(connection.id)}" aria-expanded="${isOpen}" aria-label="Edit ${attr(connection.label)}" title="Edit ${attr(connection.label)}">${connectionIcons.edit}</button>
             <button type="button" class="row-action" data-action="save-connection" data-id="${attr(connection.id)}" aria-label="Save ${attr(connection.label)}" title="Save ${attr(connection.label)}" ${hasPendingChanges ? "" : "disabled"}>${connectionIcons.save}</button>
-            <button type="button" class="row-action" data-action="duplicate-connection" data-id="${attr(connection.id)}" aria-label="Duplicate ${attr(connection.label)}" title="Duplicate ${attr(connection.label)}">${connectionIcons.duplicate}</button>
             <button type="button" class="row-action" data-action="remove-connection" data-id="${attr(connection.id)}" data-confirm="${attr(connection.label)}" aria-label="Delete ${attr(connection.label)}" title="Delete ${attr(connection.label)}">${connectionIcons.trash}</button>
           </span>
           ${refusal ? errorMarkup(refusal, `connection:${connection.id}:refusal`, "connection-refusal alarm") : ""}
@@ -191,7 +192,7 @@ function connectionFields(connection, reason, discovery) {
 	const options = [];
 	if (!discoveredModels.length && !savedModel) {
 		options.push(`<option value="" selected>no models listed</option>`);
-	} else if (savedModel && !discoveredModels.includes(savedModel)) {
+	} else if (!discoveredModels.length && savedModel) {
 		options.push(`<option value="${attr(savedModel)}" selected>${html(modelName(savedModel))}</option>`);
 	}
 	// The first entry is preselected when nothing is saved yet, so Test leaves a
@@ -208,7 +209,8 @@ function connectionFields(connection, reason, discovery) {
 	// the picker and the connection settings from that single result.
 	const modelPath = `${p}.model`;
 	const modelProblem = errors.get(modelPath) || "";
-	const modelControl = `${row("model", `<span class="settings-actions">${picker}</span>`, modelProblem ? "invalid" : "", "Filled by Test from what the server lists; type a name by hand when a server cannot enumerate.")}${modelProblem ? errorMarkup(modelProblem, `field:${modelPath}`) : ""}`;
+	const oneModel = discoveredModels.length === 1 ? '<p class="settings-note connection-one-model-note">This server runs one model — it is chosen when the server starts</p>' : "";
+	const modelControl = `${row("model", `<span class="settings-actions">${picker}</span>`, modelProblem ? "invalid" : "", "Filled by Test from what the server lists; type a name by hand when a server cannot enumerate.")}${oneModel}${modelProblem ? errorMarkup(modelProblem, `field:${modelPath}`) : ""}`;
 	// Item 2nb (g): ONE MESSAGE, ONE PLACE. The discovery result used to be rendered
 	// twice — once under base_url and once beside the Evaluation Harness button — and
 	// the operator saw three copies of one sentence. It belongs under the field it is
@@ -237,14 +239,14 @@ function connectionFields(connection, reason, discovery) {
     ${row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(connection.context.n_ctx || "")}" placeholder="${attr(caps.n_ctx || "")}">`, "", "The probed context is used as the placeholder until this is saved.")}
     ${toggle(`${p}.reasoning.enabled`, "enabled", connection.reasoning.enabled, "Asks the model to think before it answers, where the server supports it.")}
     ${row("state", `<span class="account-status"><span class="lamp ${state.lamp}"></span>${html(state.word)}</span>`)}
-    <div class="settings-actions"><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Evaluation Harness"}</button></div>${feedback}${measurementResult}`;
-	return `<div class="connection-fieldset connection-identity">${text(`${p}.label`, "label", connection.label, "text", "The name this connection is shown by.")}
+	    ${row("", `<div class="settings-actions"><button type="button" data-action="save-connection" data-id="${attr(id)}">Save</button></div>`, "", "Saves every change made here; Test is never a precondition.")}`;
+	const evaluation = `<div class="connection-evaluation"><div class="settings-actions"><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Evaluation Harness"}</button></div>${feedback}${measurementResult}</div>`;
+	return `<div class="connection-fieldset connection-left">${text(`${p}.label`, "label", connection.label, "text", "The name this connection is shown by.")}
     ${text(`${p}.base_url`, "base_url", connection.base_url, "text", "The server address; Test and fill discovers its API path and port, lists models and proposes the rest.")}${discoveryNote}
     ${secret(`${p}.api_key`, "api_key", connection.api_key, id, "API keys are stored in user-scoped DPAPI storage; configuration keeps only the credential reference.")}
-    ${row("", `<div class="settings-actions"><button type="button" class="connection-test ${connection._probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${connection._probing ? "disabled" : ""}>${connection._probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button></div>`, "", "Contacts the address exactly as typed and lists the models it serves.")}
-    ${modelControl}
-    ${afterModel}
-    ${row("", `<div class="settings-actions"><button type="button" data-action="save-connection" data-id="${attr(id)}">Save</button></div>`, "", "Saves every change made here; Test is never a precondition.")}</div>
+	${row("", `<div class="settings-actions"><button type="button" class="connection-test ${connection._probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${connection._probing ? "disabled" : ""}>${connection._probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button><button type="button" data-action="duplicate-connection" data-id="${attr(id)}">Duplicate</button></div>`, "", "Contacts the address exactly as typed and lists the models it serves.")}</div>
+	<div class="connection-fieldset connection-right">${modelControl}${afterModel}</div>
+	${evaluation}
     <details class="connection-advanced" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Advanced</summary>
     <div class="connection-fieldset connection-identity"><h4>Connection</h4>
 	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", "An optional service that turns PDFs into text for this connection; it is used before the local reader.")}

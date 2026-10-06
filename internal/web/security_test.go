@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -330,6 +331,50 @@ func TestOnlyTheOperatorsPageTouchesCredentials2nv(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "https://api.example.test:8443") {
 		t.Fatalf("the answer does not list the credential: %s", response.Body)
+	}
+}
+
+func TestOperatorsPageRevealsOneStoredConnectionKey2qn(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("DPAPI is Windows-only")
+	}
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Connections[0].Credential = "acme"
+	bus := events.NewBus()
+	eventStream, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
+	const planted = "planted-key-2qn"
+	stored, err := credential.NewNamed(root, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stored.Write([]byte(planted)); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/key", nil)
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), planted) {
+		t.Fatalf("reveal status=%d body=%s", response.Code, response.Body)
+	}
+	eventJSON, err := json.Marshal(drainTestEvents(eventStream, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(eventJSON, []byte(planted)) {
+		t.Fatalf("revealed key entered the event/telemetry stream: %s", eventJSON)
+	}
+
+	phone := httptest.NewRequest(http.MethodPost, "/api/connections/local/key", nil)
+	phone.Header.Set("Authorization", "Bearer retired-browser-credential")
+	phoneResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(phoneResponse, phone)
+	if phoneResponse.Code == http.StatusOK || strings.Contains(phoneResponse.Body.String(), planted) {
+		t.Fatalf("phone reveal status=%d body=%s", phoneResponse.Code, phoneResponse.Body)
 	}
 }
 

@@ -32,6 +32,8 @@ const typedModels = new Set();
 const probeMessages = new Map();
 const fieldNotes = new Map();
 const shownKeys = new Set();
+const revealedKeys = new Map();
+const revealTimers = new Map();
 let open = false;
 let lastFocus = null;
 let shellCredentialMessage = "";
@@ -820,7 +822,7 @@ function secret(path, label, value, id, hint = "") {
   const shown = shownKeys.has(id);
   const type = shown ? "text" : "password";
   const stored = typeof value === "string" && value.includes("••••");
-  const typedThisSession = drafts.has(path) ? String(drafts.get(path)) : "";
+	const typedThisSession = drafts.has(path) ? String(drafts.get(path)) : (revealedKeys.get(id) || "");
   const note = stored
     ? `<span class="control-note">${typedThisSession ? "replacing the stored key" : "stored"}</span>`
     : "";
@@ -982,8 +984,34 @@ async function dispatchAction(event, button, action, id) {
     return render();
   }
   if (action === "show-key") {
-    shownKeys.has(id) ? shownKeys.delete(id) : shownKeys.add(id);
-    return render();
+		if (shownKeys.has(id)) {
+			shownKeys.delete(id);
+			revealedKeys.delete(id);
+			clearTimeout(revealTimers.get(id));
+			revealTimers.delete(id);
+			return render();
+		}
+		const connection = connectionList().find((item) => item.id === id);
+		const path = `connections.${id}.api_key`;
+		if (drafts.has(path) || !String(connection?.api_key || "").includes("••••")) {
+			shownKeys.add(id);
+			return render();
+		}
+		try {
+			const answer = await api(`/api/connections/${encodeURIComponent(id)}/key`, {});
+			revealedKeys.set(id, answer.secret || "");
+			shownKeys.add(id);
+			clearTimeout(revealTimers.get(id));
+			revealTimers.set(id, setTimeout(() => {
+				revealedKeys.delete(id);
+				shownKeys.delete(id);
+				revealTimers.delete(id);
+				if (open) render();
+			}, 30000));
+		} catch (error) {
+			errors.set(path, error.message);
+		}
+		return render();
   }
   if (action === "save-settings") return saveSettings();
   if (action === "create-profile") {
@@ -1860,7 +1888,6 @@ async function duplicateConnection(id) {
   copy.label = `${source.label} copy`;
   if (copy.api_key === "•••• set") {
     copy.api_key = "";
-    copy.credential = "";
   }
   expanded.clear();
   expanded.add(copy.id);

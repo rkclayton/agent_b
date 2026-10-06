@@ -71,7 +71,7 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   // (c): the model control is a dropdown ALWAYS, and it always offers the one way out
   // for a server that cannot list its models.
   await expect(settings.locator('[data-path="connections.ui.model"]')).toHaveJSProperty("tagName", "SELECT");
-  await expect(settings.locator('[data-path="connections.ui.model"] option')).toHaveText(["absent-model", "alpha-model", "beta-model", "type a name…"]);
+	await expect(settings.locator('[data-path="connections.ui.model"] option')).toHaveText(["alpha-model", "beta-model", "type a name…"]);
   // (g) again, from the other side: the row header carries the STATE WORD and never
   // the message, so it cannot overflow.
   const header = settings.locator('.connection-row:has([data-action="connection-toggle"][data-id="ui"]) .connection-state');
@@ -80,6 +80,66 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   expect(await hash(join(harness.dataRoot, "harness.json"))).toBe(before);
   await setup.close();
   await settings.close();
+});
+
+test("the 1400px connection editor is two bounded halves and model lists refresh 2qn", async () => {
+  const page = await harness.context.newPage({ viewport: { width: 1400, height: 900 } });
+  let models = ["one", "two", "three"];
+  await page.route("**/api/connections/ui/models", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ models }) }));
+  await page.goto(`${harness.base}/chat#settings/connections`);
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+  await expect(page.locator('[data-path="connections.ui.model"] option')).toContainText(["one", "two", "three", "type a name…"]);
+  const measured = await page.locator(".connection-editor").evaluate((editor) => {
+    const boxes = [...editor.querySelectorAll("input")].map((input) => ({ path: input.dataset.path, width: input.getBoundingClientRect().width }));
+    return { columns: getComputedStyle(editor.querySelector(".connection-fields")).gridTemplateColumns.split(" ").length, boxes };
+  });
+  expect(measured.columns, JSON.stringify(measured)).toBe(2);
+  expect(measured.boxes.find((x) => x.path?.endsWith(".label")).width).toBeLessThanOrEqual(260);
+  expect(measured.boxes.find((x) => x.path?.endsWith(".base_url")).width).toBeLessThanOrEqual(440);
+  await expect(page.locator('.connection-editor [data-action="probe"] + [data-action="duplicate-connection"]')).toHaveCount(1);
+  models = ["only-one"];
+	await page.route("**/api/connections/ui/probe", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "listed", models, message: "choose a model to check the rest", proposed: {} }) }));
+  await page.locator('.connection-editor [data-action="probe"]').click();
+  await expect(page.locator('[data-path="connections.ui.model"] option')).toContainText(["only-one", "type a name…"]);
+  await expect(page.locator(".connection-one-model-note")).toHaveText("This server runs one model — it is chosen when the server starts");
+  const evidence = process.env.AGENTB_EVIDENCE_DIR;
+  if (evidence) {
+    await mkdir(evidence, { recursive: true });
+    await page.screenshot({ path: join(evidence, "2qn-acme-connection-editor.png"), fullPage: true });
+  }
+  await page.close();
+});
+
+test("a duplicate keeps the stored key and Show hides it again 2qn", async () => {
+  const page = await harness.context.newPage();
+  await page.goto(`${harness.base}/chat#settings/connections`);
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+  const key = page.locator('[data-path="connections.ui.api_key"]');
+  await key.fill("planted-key-2qn");
+  const saved = page.waitForResponse((response) => response.url().endsWith("/api/config") && response.request().method() === "POST");
+  await page.locator('.connection-editor [data-action="save-connection"][data-id="ui"]').click();
+  await saved;
+  await page.locator('.connection-editor [data-action="duplicate-connection"][data-id="ui"]').click();
+	const copyKey = page.locator('.connection-editor [data-path$=".api_key"]:not([data-path="connections.ui.api_key"])');
+  await expect(copyKey).toBeVisible();
+  const copyID = (await copyKey.getAttribute("data-path")).split(".")[1];
+  await page.evaluate(() => {
+    const nativeTimeout = window.setTimeout;
+    window.setTimeout = (callback, delay, ...args) => nativeTimeout(callback, delay === 30000 ? 30 : delay, ...args);
+  });
+  await page.locator(`.connection-editor [data-action="show-key"][data-id="${copyID}"]`).click();
+  await expect(copyKey).toHaveValue("planted-key-2qn");
+  await expect(copyKey).toHaveAttribute("type", "text");
+  await page.waitForTimeout(80);
+  await expect(copyKey).toHaveValue("");
+  await expect(copyKey).toHaveAttribute("type", "password");
+  const tested = page.waitForResponse((response) => response.url().endsWith(`/api/connections/${copyID}/probe`));
+  await page.locator(`.connection-editor [data-action="probe"][data-id="${copyID}"]`).click();
+  expect((await tested).status()).toBeLessThan(400);
+  await page.locator(`.connection-row [data-action="remove-connection"][data-id="${copyID}"]`).click();
+  await page.locator('[data-action="confirm-proceed"]').click();
+  await expect(page.locator(`.connection-row [data-action="connection-toggle"][data-id="${copyID}"]`)).toHaveCount(0);
+  await page.close();
 });
 
 // Item 2mh (a) and (c): THE SWITCHER, MEASURED IN THE RUNNING APP.
@@ -172,8 +232,11 @@ test("a failed connection Test stays one line and opens exact details in this wi
   await page.goto(`${harness.base}/chat#settings/connections`);
   await expect(page.locator("#settings-page")).toBeVisible();
   await expect(page.locator(".field-error, .connection-refusal, .connection-test-failure")).toHaveCount(0);
-  await page.locator('.connection-row [data-action="duplicate-connection"][data-id="ui"]').click();
-  const copyPath = await page.locator('.connection-editor [data-path$=".base_url"]').getAttribute("data-path");
+	if (!await page.locator('.connection-editor [data-action="duplicate-connection"][data-id="ui"]').count()) await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+	await page.locator('.connection-editor [data-action="duplicate-connection"][data-id="ui"]').click();
+	const copyAddress = page.locator('.connection-editor [data-path$=".base_url"]:not([data-path="connections.ui.base_url"])');
+	await expect(copyAddress).toBeVisible();
+	const copyPath = await copyAddress.getAttribute("data-path");
   const copyID = copyPath.split(".")[1];
   await page.locator(`[data-path="connections.${copyID}.base_url"]`).fill("http://127.0.0.1:1");
   await page.locator(`[data-action="connection-toggle"][data-id="${copyID}"]`).click();

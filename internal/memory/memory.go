@@ -47,6 +47,9 @@ func (m *Manager) Dir() string {
 	return filepath.Clean(dir)
 }
 func (m *Manager) Path(workspace string) string {
+	if root := RepoRoot(workspace); root != "" {
+		return filepath.Join(root, ".agentb", "NOTES.md")
+	}
 	abs, _ := filepath.Abs(workspace)
 	clean := filepath.Clean(abs)
 	canonical := filepath.ToSlash(clean)
@@ -70,11 +73,63 @@ func (m *Manager) Path(workspace string) string {
 	}
 	return path
 }
+
+// RepoRoot finds the containing repository without invoking git.
+func RepoRoot(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	if info, statErr := os.Stat(abs); statErr == nil && !info.IsDir() {
+		abs = filepath.Dir(abs)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(abs, ".git")); err == nil {
+			return abs
+		}
+		parent := filepath.Dir(abs)
+		if parent == abs {
+			return ""
+		}
+		abs = parent
+	}
+}
+
+// EnsureRepoNotesIgnored keeps application-owned notes out of the tracked tree.
+func EnsureRepoNotesIgnored(root string) error {
+	git := filepath.Join(root, ".git")
+	if info, err := os.Stat(git); err != nil || !info.IsDir() {
+		return fmt.Errorf("repository metadata is unavailable")
+	}
+	path := filepath.Join(git, "info", "exclude")
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, line := range strings.Split(normalize(string(data)), "\n") {
+		if strings.TrimSpace(line) == ".agentb/" {
+			return nil
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.WriteString(".agentb/\n")
+	return err
+}
 func (m *Manager) AgentPath(agentID string) string {
 	return filepath.Join(m.Dir(), "agent-"+config.AgentID(agentID)+".md")
 }
 func (m *Manager) Load(ctx context.Context, workspace, connectionID string) (string, string, error) {
 	path := m.Path(workspace)
+	if info, err := os.Stat(path); err == nil && strings.EqualFold(filepath.Base(path), "NOTES.md") && info.Size() > 8*1024 {
+		return "[Repository notes exceed 8 KB; read " + path + " when needed.]", path, nil
+	}
 	return m.load(ctx, path, connectionID, "Notes from earlier sessions in this folder:")
 }
 func (m *Manager) LoadAgent(ctx context.Context, agentID, connectionID string) (string, string, error) {
@@ -122,7 +177,12 @@ func (m *Manager) load(ctx context.Context, path, connectionID, heading string) 
 	dropped := 0
 	for len(lines) > 0 {
 		body := memoryBlock(heading, layerName(heading), lines, dropped)
-		tokens, countErr := m.count(ctx, connectionID, body)
+		tokens, countErr := 0, error(nil)
+		if m.count != nil {
+			tokens, countErr = m.count(ctx, connectionID, body)
+		} else {
+			countErr = errors.New("token counter unavailable")
+		}
 		if countErr != nil {
 			tokens = (len([]rune(body)) + 3) / 4
 		}
@@ -334,7 +394,8 @@ type Write struct {
 	// because that is the note somebody should look at twice.
 	UntrustedInTurn bool
 	// Budget is the layer's token budget for the FILE. Zero means unbounded.
-	Budget int
+	Budget   int
+	MaxChars int // zero keeps the 300-character agent/folder limit
 }
 
 // ErrMemoryFull is (d): the write is refused and the caller is told to replace a
@@ -352,8 +413,12 @@ func (m *Manager) WriteNote(path string, write Write) (bool, error) {
 	if note == "" {
 		return false, fmt.Errorf("note is empty")
 	}
-	if len([]rune(note)) > 300 {
-		return false, fmt.Errorf("note too long (max 300 Unicode characters)")
+	maxChars := write.MaxChars
+	if maxChars == 0 {
+		maxChars = 300
+	}
+	if len([]rune(note)) > maxChars {
+		return false, fmt.Errorf("note too long (max %d Unicode characters)", maxChars)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

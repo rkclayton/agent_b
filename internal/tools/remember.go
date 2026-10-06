@@ -50,7 +50,7 @@ func (r *Remember) SetConfig(cfg func() config.Config) { r.cfg = cfg }
 
 func (*Remember) Name() string { return "remember" }
 func (*Remember) Description() string {
-	return "Save one durable fact a future chat will need. Call recall first. Say its scope: user (about the user), repository (about this project), or environment (about this machine). If it supersedes a note, pass that note's text as replaces and it is removed in the same write. Two notes per run; a layer that is full refuses the write and names what to do. Never save command output, tool results, transient state, or anything already recorded by this chat."
+	return "Save one durable fact a future chat will need. Call recall first. Say its scope: user (about the user), repository (about this project), or environment (about this machine). If it supersedes a note, pass that note's text as replaces and it is removed in the same write. Two notes, plus one per 25 turns (six maximum), per run; a full layer refuses the write. Never save command output, tool results, transient state, or anything already recorded by this chat."
 }
 func (*Remember) Schema() map[string]any {
 	return map[string]any{
@@ -64,8 +64,7 @@ func (*Remember) Schema() map[string]any {
 	}
 }
 
-// MaxWritesPerRun is (c). Two is the user's number.
-const MaxWritesPerRun = 2
+const MaxWritesPerRun = 6
 
 // layerFor is (b)'s routing: user and environment are about the user and
 // the machine, so they follow the agent everywhere; repository is about this
@@ -103,8 +102,12 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	r.mu.Lock()
 	written := r.writes[key]
 	r.mu.Unlock()
-	if written >= MaxWritesPerRun {
-		return fmt.Sprintf("error: %d notes this run; replace one or skip", written), nil
+	allowance := 2 + s.Run.Turn/25
+	if allowance > MaxWritesPerRun {
+		allowance = MaxWritesPerRun
+	}
+	if written >= allowance {
+		return "", fmt.Errorf("%d notes this run; replace one or skip", written)
 	}
 
 	target, fell := layerFor(scope), ""
@@ -122,7 +125,18 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	if target == "agent" {
 		path = r.memory.AgentPath(s.AgentID)
 	}
+	if target == "folder" {
+		if root := memory.RepoRoot(s.MemoryFolder()); root != "" {
+			if err := memory.EnsureRepoNotesIgnored(root); err != nil {
+				return "", err
+			}
+		}
+	}
 
+	maxChars := 300
+	if target == "folder" {
+		maxChars = 600
+	}
 	write := memory.Write{
 		Note:            note,
 		Scope:           scope,
@@ -131,6 +145,7 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 		Turn:            s.Run.Turn,
 		UntrustedInTurn: s.UntrustedInTurn(),
 		Budget:          r.budget(),
+		MaxChars:        maxChars,
 	}
 	duplicate, err := r.memory.WriteNote(path, write)
 	if err != nil {
@@ -138,7 +153,7 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 		// model can act on, not harness failures. They come back as tool errors
 		// with the instruction in them rather than as an error the run stops on.
 		if errors.Is(err, memory.ErrMemoryFull) || errors.Is(err, memory.ErrNoteNotFound) {
-			return "error: " + err.Error(), nil
+			return "", err
 		}
 		return "", err
 	}

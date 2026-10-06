@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/memory"
+	"harness/internal/quietproc"
 	"harness/internal/session"
 )
 
@@ -22,6 +25,77 @@ func memoryTools(t *testing.T) (*Remember, *Recall, *session.Session, string) {
 	cfg.Memory.Dir = filepath.Join(baseDir, "memory")
 	manager := memory.New(baseDir, func() config.Config { return cfg }, nil)
 	return NewRemember(manager, events.NewBus()), NewRecall(manager), &session.Session{ID: "memory-test", AgentID: "coder", Workspace: workspace}, baseDir
+}
+
+func TestRepositoryNoteLivesInGitignoredRepoAndLoadsOnlyThere2qj(t *testing.T) {
+	remember, _, item, base := memoryTools(t)
+	repo, other := filepath.Join(base, "repo"), filepath.Join(base, "other")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := quietproc.Quiet(exec.Command("git", "init", "-q", repo))
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %s %v", output, err)
+	}
+	item.Workspace = filepath.Join(repo, "nested")
+	item.Scratch = false
+	item.Run.LastRunID = "r1"
+	if result, err := remember.Call(context.Background(), item, map[string]any{"note": "fixture repository fact", "scope": "repository"}); err != nil || !strings.HasPrefix(result, "ok:") {
+		t.Fatalf("remember=%q %v", result, err)
+	}
+	if result, err := remember.Call(context.Background(), item, map[string]any{"note": strings.Repeat("x", 600), "scope": "repository"}); err != nil || !strings.HasPrefix(result, "ok:") {
+		t.Fatalf("600-character repo note=%q %v", result, err)
+	}
+	item.Run.LastRunID = "r2"
+	if _, err := remember.Call(context.Background(), item, map[string]any{"note": strings.Repeat("x", 601), "scope": "repository"}); err == nil || !strings.Contains(err.Error(), "max 600") {
+		t.Fatalf("601-character repo note err=%v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(repo, ".agentb", "NOTES.md"))
+	if err != nil || !strings.Contains(string(content), "fixture repository fact") {
+		t.Fatalf("repo notes=%q %v", content, err)
+	}
+	exclude, _ := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude"))
+	if !strings.Contains(string(exclude), ".agentb/") {
+		t.Fatalf("exclude=%q", exclude)
+	}
+	cmd = quietproc.Quiet(exec.Command("git", "-C", repo, "status", "--porcelain"))
+	if output, err := cmd.CombinedOutput(); err != nil || len(output) != 0 {
+		t.Fatalf("git status=%q %v", output, err)
+	}
+	manager := remember.memory
+	block, _, err := manager.Load(context.Background(), filepath.Join(repo, "another"), "")
+	if err != nil || !strings.Contains(block, "fixture repository fact") {
+		t.Fatalf("same repo=%q %v", block, err)
+	}
+	if block, _, err = manager.Load(context.Background(), other, ""); err != nil || strings.Contains(block, "fixture repository fact") {
+		t.Fatalf("other folder=%q %v", block, err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".agentb", "NOTES.md"), []byte(strings.Repeat("bounded ", 1200)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if block, _, err = manager.Load(context.Background(), repo, ""); err != nil || !strings.Contains(block, "exceed 8 KB") || strings.Contains(block, "bounded bounded") {
+		t.Fatalf("oversize pointer=%q %v", block, err)
+	}
+}
+
+func TestRememberAllowanceGrowsWithTurnsAndRefusalIsNotOK2qj(t *testing.T) {
+	remember, _, item, _ := memoryTools(t)
+	item.Run.LastRunID, item.Run.Turn, item.ToolsEnabled = "r30", 30, map[string]bool{"remember": true}
+	registry := New(remember)
+	for index := range 3 {
+		if _, ok := registry.Call(context.Background(), item, "remember", map[string]any{"note": fmt.Sprintf("preference %d", index), "scope": "user"}); !ok {
+			t.Fatalf("note %d refused", index+1)
+		}
+	}
+	if result, ok := registry.Call(context.Background(), item, "remember", map[string]any{"note": "one too many", "scope": "user"}); ok || !strings.Contains(result, "3 notes this run") {
+		t.Fatalf("refusal=%q ok=%v", result, ok)
+	}
+	item.Run.LastRunID, item.Run.Turn = "r150", 150
+	for index := range 6 {
+		if _, ok := registry.Call(context.Background(), item, "remember", map[string]any{"note": fmt.Sprintf("machine fact %d", index), "scope": "environment"}); !ok {
+			t.Fatalf("150-turn note %d refused", index+1)
+		}
+	}
 }
 
 func TestRememberTargetSeparatesWorkspaceAndAgentMemory(t *testing.T) {
@@ -122,8 +196,8 @@ func TestRememberToolsBlockByteDelta(t *testing.T) {
 	// Item 2kt: the description states the durable/transient boundary before a
 	// call and names the cost of falling through to the agent layer. Item 2jf
 	// rewrote it to carry scope, replaces and the per-run cap, which is why the
-	// number moved -- and the pin is why the move had to be deliberate. 2pz: 431 to 427.
-	const wantDelta = 427
+	// number moved -- and the pin is why the move had to be deliberate. 2qj: 427 to 436.
+	const wantDelta = 436
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("remember tools-block byte delta=%d, want %d", delta, wantDelta)
 	}
@@ -145,7 +219,7 @@ func TestTwoNotesPerRunAndTheThirdIsRefused2jf(t *testing.T) {
 	}
 	third, err := remember.Call(ctx, item, map[string]any{"note": "a third fact", "scope": "user"})
 	if err != nil {
-		t.Fatalf("the third note errored rather than refusing: %v", err)
+		third = err.Error()
 	}
 	// The refusal says what to do instead, because a bare refusal teaches the
 	// model nothing.

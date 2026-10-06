@@ -93,6 +93,7 @@ let releaseQueue = null;
 let releaseBusy = null;
 let slowAccountingArmed = false;
 const slowAccountingTrace = [];
+const notificationPosts = [];
 const terminateChildren = () => {
   try { model?.closeAllConnections?.(); } catch {}
   for (const child of [...children].reverse()) { try { child.kill(); } catch {} }
@@ -129,6 +130,13 @@ const toolCountAfterLatestUser = (body) => {
   return messages.slice(index + 1).filter((message) => message.role === "tool").length;
 };
 const fakeHandler = async (request, response) => {
+	if (request.url === "/agentb-notification") {
+		let raw = "";
+		for await (const chunk of request) raw += chunk;
+		notificationPosts.push(JSON.parse(raw));
+		response.statusCode = 204;
+		return void response.end();
+	}
 	if (request.url === "/agentb-release/latest") {
 		const base = `http://${request.headers.host}`;
 		response.setHeader("Content-Type", "application/json");
@@ -188,6 +196,14 @@ const fakeHandler = async (request, response) => {
       : "DONE: Earlier acceptance steps completed.\nNEXT: Continue the current acceptance task.\nFILES CHANGED: none.\nOPEN QUESTIONS: none.";
     return void response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 300, completion_tokens: 18, prompt_tokens_details: { cached_tokens: 200 } } }));
   }
+	if (user.includes("acceptance: create real-clock cron jobs")) {
+		const count = toolCountAfterLatestUser(body);
+		if (count === 0) return stream(response, { tool_calls: [{ index: 0, id: "cron-loud-create", type: "function", function: { name: "cronjob", arguments: JSON.stringify({ action: "create", schedule: "in 1m", name: "Real clock loud", prompt: "acceptance: cron loud" }) } }] }, "tool_calls");
+		if (count === 1) return stream(response, { tool_calls: [{ index: 0, id: "cron-silent-create", type: "function", function: { name: "cronjob", arguments: JSON.stringify({ action: "create", schedule: "in 1m", name: "Real clock silent", prompt: "acceptance: cron silent" }) } }] }, "tool_calls");
+		return stream(response, { content: "REAL CLOCK JOBS CREATED" });
+	}
+	if (user.includes("acceptance: cron loud")) return stream(response, { content: "REAL CLOCK LOUD ANSWER" });
+	if (user.includes("acceptance: cron silent")) return stream(response, { content: "[SILENT] REAL CLOCK QUIET ANSWER" });
   // Item 2fg: the walk's step 3 — a 60 s tool the operator stops.
   if (user.includes("acceptance: stop mid tool") && !hasToolAfterLatestUser(body)) {
     return stream(response, { tool_calls: [{ index: 0, id: "stop-mid-tool", type: "function", function: { name: "shell", arguments: JSON.stringify({ command: "Start-Sleep -Seconds 60; Write-Output walk-slept", timeout_s: 120 }) } }] }, "tool_calls");
@@ -544,8 +560,12 @@ await writeFile(join(bound, "long-tool.txt"), Array.from({ length: 100 }, (_, in
 if (!realModel) await startFake();
 const connectionURL = realModel ? args["real-model-url"] : `http://127.0.0.1:${modelPort}`;
 const connectionName = realModel ? args["real-model-name"] : "agentb-fake";
-const appEnvironment = realModel ? process.env : { ...process.env, AGENTB_UPDATE_FIXTURE_URL: `http://127.0.0.1:${modelPort}/agentb-release/latest` };
-const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
+const appEnvironment = realModel ? process.env : {
+	...process.env,
+	AGENTB_UPDATE_FIXTURE_URL: `http://127.0.0.1:${modelPort}/agentb-release/latest`,
+	...(args["cron-only"] === "true" ? { AGENTB_NOTIFICATION_FIXTURE_URL: `http://127.0.0.1:${modelPort}/agentb-notification` } : {}),
+};
+const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", ...(args["cron-only"] === "true" ? ["cronjob"] : [])];
 const config = {
   config_version: 10, listen: `127.0.0.1:${appPort}`, workspace: args.workspace, log_dir: join(args.data, "logs"),
   connections: [{ id: "acceptance", label: "Acceptance", base_url: connectionURL, model: connectionName, credential: "", request_timeout_s: 3, probe_mode: "off",
@@ -671,6 +691,41 @@ if (!realModel) {
 	record("update-fixture-available-banner");
 }
 record("open-chat");
+
+if (args["cron-only"] === "true") {
+	const created = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
+	await json(`http://127.0.0.1:${appPort}/api/message`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: created.id, text: "acceptance: create real-clock cron jobs" }) });
+	await waitFileContains(join(profileData, "cron", "jobs.json"), "Real clock silent", 20000);
+	const jobs = JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8"));
+	assert.equal(jobs.length, 2, "the chat must create exactly two jobs");
+	const loud = jobs.find((job) => job.name === "Real clock loud"), quiet = jobs.find((job) => job.name === "Real clock silent");
+	assert.ok(loud?.id && quiet?.id, "both named jobs must be durable before the clock fires");
+	const deadline = Date.now() + 150000;
+	let loudOutput = "", quietOutput = "";
+	while (Date.now() < deadline && (!loudOutput || !quietOutput)) {
+		for (const [job, assign] of [[loud, (value) => { loudOutput = value; }], [quiet, (value) => { quietOutput = value; }]]) {
+			const folder = join(profileData, "cron", "output", job.id);
+			for (const name of await readdir(folder).catch(() => [])) assign(await readFile(join(folder, name), "utf8"));
+		}
+		if (!loudOutput || !quietOutput) await sleep(250);
+	}
+	assert.match(loudOutput, /REAL CLOCK LOUD ANSWER/);
+	assert.match(quietOutput, /\[SILENT\] REAL CLOCK QUIET ANSWER/);
+	const chatsRoot = join(profileData, "chats");
+	const chatFiles = (await readdir(chatsRoot, { recursive: true }))
+		.filter((name) => name.startsWith("Scheduled\\") || name.startsWith("Scheduled/"))
+		.map((name) => join(chatsRoot, name));
+	const chatBodies = await Promise.all(chatFiles.map((path) => readFile(path, "utf8").catch(() => "")));
+	assert.ok(chatBodies.some((body) => body.includes("Real clock loud")), "the loud job must leave its named Scheduled chat");
+	assert.ok(!chatBodies.some((body) => body.includes("Real clock silent")), "the silent job must leave no chat");
+	for (const limit = Date.now() + 5000; Date.now() < limit && !notificationPosts.some((post) => JSON.stringify(post).includes("Real clock loud"));) await sleep(50);
+	assert.equal(notificationPosts.filter((post) => JSON.stringify(post).includes("Real clock loud")).length, 1, "the loud job must send exactly one notice");
+	assert.equal(notificationPosts.filter((post) => JSON.stringify(post).includes("Real clock silent")).length, 0, "the silent job must send no notice");
+	assert.deepEqual(JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")), [], "both one-shot jobs must be removed");
+	record("cron-real-clock-loud-and-silent");
+	process.stdout.write(`CHAT ACCEPTANCE PASS ${Date.now() - startedAt} ms\n`);
+	await edgeContext?.close(); terminateChildren(); await stopFake(); process.exit(0);
+}
 
 // Item 2ev: a page stamped by another build reloads itself once and then runs
 // the current shell. The first response for the proof URL is a stale copy (the

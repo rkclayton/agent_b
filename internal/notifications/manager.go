@@ -93,6 +93,24 @@ func (m *Manager) Configure(raw string) error {
 	return nil
 }
 
+// ConfigureLoopbackFixture is the executable acceptance seam. Normal
+// configuration still accepts only Discord HTTPS webhook URLs; this method is
+// intentionally limited to an HTTP loopback receiver supplied by the harness.
+func (m *Manager) ConfigureLoopbackFixture(raw string) error {
+	endpoint, err := parseWebhook(strings.TrimSpace(raw), true)
+	if err != nil || endpoint.Scheme != "http" || !net.ParseIP(endpoint.Hostname()).IsLoopback() {
+		return errors.New("notification fixture must be one HTTP loopback URL")
+	}
+	m.mu.Lock()
+	if m.webhookCancel != nil {
+		m.webhookCancel()
+	}
+	m.webhook = endpoint
+	m.webhookContext, m.webhookCancel = context.WithCancel(context.Background())
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *Manager) Validate(raw string) error {
 	_, err := parseWebhook(strings.TrimSpace(raw), m.allowLocal)
 	return err

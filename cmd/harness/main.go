@@ -25,9 +25,9 @@ import (
 	"harness/internal/buildinfo"
 	"harness/internal/chatstore"
 	"harness/internal/config"
-	"harness/internal/cron"
 	contextmgr "harness/internal/context"
 	"harness/internal/credential"
+	"harness/internal/cron"
 	"harness/internal/delivery"
 	"harness/internal/entra"
 	"harness/internal/events"
@@ -324,7 +324,11 @@ func main() {
 		log.Fatal(err)
 	}
 	notificationManager := notifications.New(bus, registry.Label, "http://"+cfg.Listen)
-	if value, readErr := notificationStore.Read(); readErr == nil {
+	if fixture := notificationFixtureURL(); fixture != "" {
+		if configureErr := notificationManager.ConfigureLoopbackFixture(fixture); configureErr != nil {
+			log.Printf("notification acceptance fixture is invalid; notifications disabled: %v", configureErr)
+		}
+	} else if value, readErr := notificationStore.Read(); readErr == nil {
 		if configureErr := notificationManager.Configure(string(value)); configureErr != nil {
 			log.Printf("Discord notification credential is invalid; notifications disabled: %v", configureErr)
 		}
@@ -499,10 +503,11 @@ func main() {
 		return deliveryManager.Deliver(item, runID, files)
 	})
 	scheduler := agent.NewScheduler(runner, registry, bus, web.ConfigSnapshot)
-	scheduled := &scheduledRuns{profile:profileRoot,cfg:web.ConfigSnapshot,registry:registry,scheduler:scheduler,bus:bus,web:web,sessions:map[string]string{}}
+	scheduled := &scheduledRuns{profile: profileRoot, cfg: web.ConfigSnapshot, registry: registry, scheduler: scheduler, bus: bus, web: web, sessions: map[string]string{}}
 	cronManager.SetRunner(scheduled.run)
 	cronManager.SetHooks(nil, scheduled.finish)
-	cronContext, cancelCron := context.WithCancel(context.Background()); defer cancelCron()
+	cronContext, cancelCron := context.WithCancel(context.Background())
+	defer cancelCron()
 	go cronManager.Run(cronContext)
 	runner.SetMailboxBoundary(func(_ context.Context, sessionID string, approvalPending bool) agent.BoundaryAction {
 		action, err := operatorFiles.CheckInbox(sessionID, approvalPending)
@@ -586,7 +591,9 @@ func main() {
 		}
 		web.SetWorkspaceState(nextWorkspaceManager, memoryManager)
 		scheduled.setProfile(nextRoot)
-		if err := cronManager.SetProfileRoot(nextRoot); err != nil { return err }
+		if err := cronManager.SetProfileRoot(nextRoot); err != nil {
+			return err
+		}
 		web.StartReflection(24 * time.Hour)
 		web.ApplyTelemetry()
 		web.PublishPlanChanges()
@@ -717,6 +724,24 @@ func updateLatestURL() string {
 	host := net.ParseIP(endpoint.Hostname())
 	if host == nil || !host.IsLoopback() {
 		return updater.LatestReleaseURL
+	}
+	return endpoint.String()
+}
+
+// AGENTB_NOTIFICATION_FIXTURE_URL is an acceptance-only seam. Like the update
+// fixture above, it cannot name another machine or a public host.
+func notificationFixtureURL() string {
+	raw := strings.TrimSpace(os.Getenv("AGENTB_NOTIFICATION_FIXTURE_URL"))
+	if raw == "" {
+		return ""
+	}
+	endpoint, err := url.Parse(raw)
+	if err != nil || endpoint.Scheme != "http" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+		return ""
+	}
+	host := net.ParseIP(endpoint.Hostname())
+	if host == nil || !host.IsLoopback() {
+		return ""
 	}
 	return endpoint.String()
 }
@@ -1082,7 +1107,9 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime, application
 		log.Printf("stopping on a close request")
 		if life != nil {
 			detail := "asked to close"
-			if cause == "installer" { detail = "asked to close (the installer's graceful stop)" }
+			if cause == "installer" {
+				detail = "asked to close (the installer's graceful stop)"
+			}
 			life.stoppedCause(cause, detail)
 		} else {
 			stopped("asked to close")

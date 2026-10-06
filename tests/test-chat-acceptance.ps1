@@ -13,6 +13,7 @@ param(
     [switch]$ReplayOnly,
     [switch]$W6Only,
     [switch]$W7Only,
+	[switch]$CronOnly,
     [switch]$ExpectStableShell,
     [ValidateSet('true', 'false')]
     [string]$Headless = 'true'
@@ -129,6 +130,7 @@ try {
         }
         if ($W6Only) { $arguments += @('--w6-only', 'true') }
         if ($W7Only) { $arguments += @('--w7-only', 'true') }
+		if ($CronOnly) { $arguments += @('--cron-only', 'true') }
         if (-not [string]::IsNullOrWhiteSpace($seedProfile)) { $arguments += @('--seed-profile', $seedProfile) }
         & (Get-Command node.exe -ErrorAction Stop).Source @arguments
         if ($LASTEXITCODE -ne 0) { throw "Chat acceptance failed with exit code $LASTEXITCODE." }

@@ -106,6 +106,26 @@ func TestUpdateFixtureURLAcceptsOnlyLoopback(t *testing.T) {
 	}
 }
 
+func TestNotificationFixtureURLAcceptsOnlyIPLoopback(t *testing.T) {
+	for _, item := range []struct {
+		value string
+		want  string
+	}{
+		{"http://127.0.0.1:4321/notice", "http://127.0.0.1:4321/notice"},
+		{"http://localhost:4321/notice", ""},
+		{"https://127.0.0.1:4321/notice", ""},
+		{"http://example.com/notice", ""},
+		{"http://127.0.0.1:4321/notice?secret=1", ""},
+	} {
+		t.Run(item.value, func(t *testing.T) {
+			t.Setenv("AGENTB_NOTIFICATION_FIXTURE_URL", item.value)
+			if got := notificationFixtureURL(); got != item.want {
+				t.Fatalf("fixture=%q want %q", got, item.want)
+			}
+		})
+	}
+}
+
 func TestOrganizationUpdateSourceRequiresHTTPS(t *testing.T) {
 	t.Setenv("AGENTB_UPDATE_FIXTURE_URL", "")
 	t.Setenv("AGENTB_UPDATE_SOURCE_URL", "https://updates.example.test/releases/latest")

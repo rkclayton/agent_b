@@ -49,6 +49,9 @@ func (r *scheduledRuns) run(ctx context.Context, job cron.Job) cron.Result {
 	item.ScheduledFailure = job.LastFailure
 	item.ToggleTool("cronjob", false)
 	store := chatstore.New(filepath.Join(profile, "chats"))
+	if err = os.MkdirAll(filepath.Join(profile, "chats", "Scheduled"), 0700); err != nil {
+		return cron.Result{Failed: true, Failure: err.Error()}
+	}
 	if _, err = store.Move(item.ID, "Scheduled"); err != nil {
 		return cron.Result{Failed: true, Failure: err.Error()}
 	}

@@ -369,9 +369,9 @@ test("the bar is on screen 100 ms after Test, and the bare word is not", async (
   await page.close();
 });
 
-// 6: "The sheet's field order is label, address, key, Test, model, Evaluate, Save;
-// Advanced is collapsed and below Save."
-test("the sheet reads top to bottom as the flow", async () => {
+// 2qn replaces the old one-column flow with two halves. Within each half the fields
+// keep their order; Evaluation and collapsed Advanced span beneath both.
+test("the sheet reads as two ordered halves above Evaluation and Advanced", async () => {
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
@@ -400,17 +400,17 @@ test("the sheet reads top to bottom as the flow", async () => {
       .map((entry) => entry.name);
   }, id);
 
-  // Item 2px (b): every field is on screen before a model is chosen, Evaluate included.
-  expect(await order()).toEqual(["label", "address", "key", "Test", "model", "Evaluate", "Save", "Advanced"]);
+	// Left: label/address/key/Test. Right: model/Save. Then the two spanning rows.
+	expect(await order()).toEqual(["label", "model", "address", "key", "Test", "Save", "Evaluate", "Advanced"]);
   await expect(page.locator(".connection-advanced")).not.toHaveAttribute("open", /.*/);
 
-  // With a model chosen, Evaluate takes its place between the model and Save.
+	// Choosing a model does not collapse or reorder either half.
   await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
   await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
   await expect(page.locator(`[data-path="connections.${id}.model"]`)).toHaveJSProperty("tagName", "SELECT");
   await page.locator(`[data-path="connections.${id}.model"]`).selectOption("journey-model");
   await expect(page.locator(`.connection-editor [data-action="measure-connection"][data-id="${id}"]`)).toBeVisible();
-  expect(await order()).toEqual(["label", "address", "key", "Test", "model", "Evaluate", "Save", "Advanced"]);
+	expect(await order()).toEqual(["label", "model", "address", "key", "Test", "Save", "Evaluate", "Advanced"]);
   await page.close();
 });
 

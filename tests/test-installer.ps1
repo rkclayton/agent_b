@@ -431,9 +431,9 @@ try {
         $runningAlternate.WaitForExit()
     }
 
-    # A completed copy followed by a launch failure must end with one useful
-    # line naming the durable log. Holding the disposable listen port produces
-    # the real launcher failure without changing production or another root.
+    # A running copy followed by a relaunch failure must end with one useful
+    # line in both durable logs. Corrupt the disposable config only after the
+    # first copy is answering, so the update stops it and the relaunch fails.
     $launchFailRoot = Join-Path $testRoot 'LaunchFail'
     $launchFailApplication = Join-Path $launchFailRoot 'Application\Agent_b'
     $launchFailData = Join-Path $launchFailRoot 'Data\Agent_b'
@@ -446,8 +446,6 @@ try {
     $launchFailConfig.memory.dir = Join-Path $launchFailData 'memory'
     [IO.File]::WriteAllText((Join-Path $launchFailData 'harness.json'), ($launchFailConfig | ConvertTo-Json -Depth 100), [Text.UTF8Encoding]::new($false))
     $launchFailLog = Join-Path $launchFailData 'logs\launch-failure.log'
-    $portBlocker = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $launchFailPort)
-    $portBlocker.Start()
     $savedInstallLog = $env:AGENT_B_INSTALL_LOG
     $savedNoBrowser = $env:AGENT_B_INSTALL_NO_BROWSER
     $env:AGENT_B_INSTALL_LOG = $launchFailLog
@@ -455,11 +453,16 @@ try {
     $savedErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
+        $launchFailArguments = @('--quiet', '--install-data', $launchFailData, '-NoStart', '-ApplicationDirectory', $launchFailApplication, '-DataDirectory', $launchFailData, '-WorkspaceDirectory', (Join-Path $launchFailRoot 'ProgramData\Agent_b\workspace'), '-StartMenuDirectory', (Join-Path $launchFailRoot 'StartMenu'), '-UninstallRegistryPath', ($testRegistry + '-LaunchFail'), '-TestMode')
+        $null = & $singleSetup @launchFailArguments 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { throw 'Launch-failure fixture install failed.' }
+        $launchOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $launchFailApplication 'scripts\launch-Agent_b.ps1') -ApplicationDirectory $launchFailApplication -DataDirectory $launchFailData -Detached -NoBrowser -NoPause -StartupTimeoutSeconds 30 2>&1 | Out-String)
+        if ($LASTEXITCODE -ne 0) { throw "Launch-failure fixture did not start.`n$launchOutput" }
+        [IO.File]::WriteAllText((Join-Path $launchFailData 'harness.json'), '{invalid', [Text.UTF8Encoding]::new($false))
         $launchFailOutput = (& $singleSetup --quiet --install-data $launchFailData -ApplicationDirectory $launchFailApplication -DataDirectory $launchFailData -WorkspaceDirectory (Join-Path $launchFailRoot 'ProgramData\Agent_b\workspace') -StartMenuDirectory (Join-Path $launchFailRoot 'StartMenu') -UninstallRegistryPath ($testRegistry + '-LaunchFail') -TestMode 2>&1 | Out-String)
         $launchFailExit = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $savedErrorAction
-        $portBlocker.Stop()
         $env:AGENT_B_INSTALL_LOG = $savedInstallLog
         $env:AGENT_B_INSTALL_NO_BROWSER = $savedNoBrowser
     }
@@ -468,6 +471,8 @@ try {
     if ($launchFailExit -eq 0 -or $launchFailLast -notmatch 'install FAILED: Agent_b was installed but failed to start:' -or $launchFailLast -notmatch [regex]::Escape("Log: $launchFailLog")) {
         throw "Launch failure did not end with its cause and log path.`nLAST: $launchFailLast`nOUTPUT: $launchFailOutput"
     }
+    $launcherFailure = Get-Content -LiteralPath (Join-Path $launchFailData 'logs\launcher-errors.log') -Tail 1
+    if ($launcherFailure -notmatch 'Configuration error') { throw "Relaunch failure was not named in launcher-errors.log: $launcherFailure" }
     Write-Host "PROOF failed autostart last line: $launchFailLast"
     if (Test-Path -LiteralPath ($testRegistry + '-LaunchFail')) { Remove-Item -LiteralPath ($testRegistry + '-LaunchFail') -Recurse -Force }
 

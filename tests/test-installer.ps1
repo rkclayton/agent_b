@@ -535,8 +535,8 @@ try {
     if ($freshExit -ne 0) { throw "First single-file install exited $freshExit.`n$freshOutput" }
     Assert-InstalledSignatures -Application $testApplication -PolicyRoot $repositoryRoot -Phase 'install'
     $freshTranscript = Get-Content -Raw -LiteralPath $freshTranscriptPath
-    if ($freshTranscript -notmatch 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval') {
-        throw "Per-user install did not preserve the first-launch provisioning arm.`n$freshOutput"
+    if ($freshTranscript -match 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval') {
+		throw "A fresh install advertised service-identity setup even though the default is off.`n$freshOutput"
     }
     $readyPosition = $freshTranscript.IndexOf("Agent_b is ready at http://127.0.0.1:$testPort/chat")
     $leftPattern = [regex]::Escape('MIGRATION LEFT IN PLACE: access denied') + '.{1,8}' +
@@ -570,6 +570,7 @@ try {
     if ($freshTokenProof.elevated) { throw "Fresh install started elevated PID $($freshTokenProof.pid)." }
     $freshClient = New-AgentBBrowserClient "http://127.0.0.1:$testPort"
     $freshState = Get-AgentBBrowserState $freshClient
+    if ([bool]$freshState.config.shell.service_account.enabled) { throw 'A fresh install enabled service identity.' }
     # Item 2m6 (e), rel-1.24.0: A DISPOSABLE INSTALL MUST NOT OPEN A WINDOW, and
     # this assertion used to require that it did. The install still has to come
     # up and say so -- AUTOSTART COMPLETE is what proves the app is ready -- but
@@ -703,8 +704,8 @@ try {
     }
     $removedPolicyPattern = [string]::Join('|', @($removedPolicyScripts | ForEach-Object { [regex]::Escape($_) }))
     if ($installedInstallerSource -match $removedPolicyPattern -or
-        $installedInstallerSource -notmatch 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval') {
-		throw 'Installer still invokes retired PowerShell host policy or lost its native first-launch arm.'
+        $installedInstallerSource -notmatch "if \(`$config\.shell\.service_account -and \[bool\]`$config\.shell\.service_account\.enabled\)") {
+		throw 'Installer still invokes retired PowerShell host policy or lost its conditional first-launch arm.'
     }
     $sourceBatchLauncher = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'start-Agent_b.cmd')
     if ($sourceBatchLauncher -notmatch 'AGENTB_HIDDEN_REENTRY' -or

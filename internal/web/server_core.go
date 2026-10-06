@@ -531,6 +531,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/operator-files", s.replayGuard(s.operatorFileState))
 	mux.HandleFunc("/api/ui-errors", s.replayGuard(s.uiError))
 	mux.HandleFunc("/api/page-health", s.replayGuard(s.pageHealth))
+	mux.HandleFunc("/api/header-state", s.replayGuard(s.headerState))
 	mux.HandleFunc("/api/navigation-starts", s.replayGuard(s.navigationStart))
 	mux.HandleFunc("/api/navigation-measurements", s.replayGuard(s.navigationMeasurement))
 	mux.HandleFunc("/api/navigation-suppressions", s.replayGuard(s.navigationSuppression))

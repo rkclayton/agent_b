@@ -2226,7 +2226,7 @@ func (r *Runner) resolveWindow(ctx context.Context, connection *config.Connectio
 }
 
 func resolveContextWindow(ctx context.Context, connection *config.Connection) (*config.Connection, string, error) {
-	if connection.Context.NCtx > 0 {
+	if connection.Context.NCtx > 0 && (connection.Capabilities.NCtx == 0 || connection.Context.NCtx <= connection.Capabilities.NCtx) {
 		return connection, "connection context size", nil
 	}
 	resolved := *connection

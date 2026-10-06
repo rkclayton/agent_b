@@ -548,6 +548,7 @@ func (s *Session) TouchProject(path string) {
 		hook(path)
 	}
 }
+
 // RefreshProject re-reads the chat's instruction files at the start of a run and keeps
 // the block it returns when they changed (item 2q0).
 func (s *Session) RefreshProject() (string, bool) {
@@ -771,6 +772,9 @@ func (s *Session) SetToolTokens(schema, marginal map[string]int) {
 	s.mu.Unlock()
 }
 func (s *Session) SetRunnable(ok bool, reason string) {
+	if !ok && strings.TrimSpace(reason) == "" {
+		reason = "chat is not runnable"
+	}
 	s.mu.Lock()
 	s.Runnable, s.NotRunnableReason = ok, reason
 	s.mu.Unlock()

@@ -25,7 +25,7 @@ func TestResolveContextWindowOrderNeverReturnsZero(t *testing.T) {
 	connection.Context.NCtx = 90000
 	connection.Capabilities.NCtx = 80000
 	resolved, source, err := resolveContextWindow(context.Background(), &connection)
-	if err != nil || resolved.Context.NCtx != 90000 || source != "connection context size" || requests.Load() != 0 {
+	if err != nil || resolved.Context.NCtx != 80000 || source != "probed n_ctx" || requests.Load() != 0 {
 		t.Fatalf("connection resolution = n_ctx %d source %q requests %d err %v", resolved.Context.NCtx, source, requests.Load(), err)
 	}
 

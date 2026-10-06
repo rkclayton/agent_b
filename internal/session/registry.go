@@ -1192,6 +1192,9 @@ func restoredConnectionRunnable(connectionID string, found, savedRunnable bool, 
 	if !found {
 		return false, "connection " + connectionID + " no longer exists"
 	}
+	if !savedRunnable && strings.TrimSpace(savedReason) == "" {
+		return false, "chat was saved without a runnable connection"
+	}
 	return savedRunnable, savedReason
 }
 

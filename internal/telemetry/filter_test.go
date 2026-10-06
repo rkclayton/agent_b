@@ -150,6 +150,20 @@ func TestPickDropsEverythingFromADroppedType2jg(t *testing.T) {
 	}
 }
 
+func TestHeaderAndHermesEnvelopesAreCountsAndClosed2qr(t *testing.T) {
+	header, ok := Classify("header.state")
+	if !ok || strings.Join(header.Fields, ",") != "state,reason_code" {
+		t.Fatalf("header.state=%+v known=%v", header, ok)
+	}
+	imported, ok := Classify("import.hermes")
+	if !ok || strings.Join(imported.Fields, ",") != "skills,memory_files,secret_names,result" {
+		t.Fatalf("import.hermes=%+v known=%v", imported, ok)
+	}
+	if got := Pick(imported, map[string]any{"skills": 2, "memory_files": 2, "secret_names": 2, "result": "ok", "path": `C:\\secret`, "name": "private"}); len(got) != 4 {
+		t.Fatalf("content escaped envelope: %#v", got)
+	}
+}
+
 func validCrashTree2p7() map[string]any {
 	return map[string]any{
 		"binaries": []any{map[string]any{

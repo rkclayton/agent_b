@@ -78,6 +78,11 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
   await expect(header).not.toContainText('is not served');
   await expect(header).not.toHaveText("");
   expect(await hash(join(harness.dataRoot, "harness.json"))).toBe(before);
+  const chat = await harness.context.newPage();
+  await chat.goto(`${harness.base}/chat`);
+  await expect(chat.locator(".shell-session-title")).toHaveText("UI");
+  await chat.screenshot({ path: join(repo, "test-results", "2qr-model-selector.png") });
+  await chat.close();
   await setup.close();
   await settings.close();
 });

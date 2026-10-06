@@ -177,6 +177,28 @@ func (s *Server) queueRunTelemetry(eventType string, data map[string]any) {
 	}
 }
 
+func (s *Server) headerState(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		State      string `json:"state"`
+		ReasonCode string `json:"reason_code"`
+	}
+	if r.Method != http.MethodPost {
+		method(w)
+		return
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	validState := body.State == "named" || body.State == "not_runnable" || body.State == "no_chat"
+	validReason := map[string]bool{"none": true, "missing_reason": true, "no_connection": true, "missing_connection": true, "missing_workspace": true, "workspace_unavailable": true, "missing_endpoint": true, "missing_model": true, "other": true}[body.ReasonCode]
+	if !validState || !validReason || (body.State == "not_runnable") == (body.ReasonCode == "none") {
+		writeError(w, http.StatusBadRequest, "invalid header state", "body")
+		return
+	}
+	s.queueRunTelemetry(events.HeaderState, map[string]any{"state": body.State, "reason_code": body.ReasonCode})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // settingsShape is item 2q6 (g): per connection its kind, model file name,
 // window, reserve, reasoning effort; the context thresholds; the switch; the OS
 // version. No address, key, name, path or label.

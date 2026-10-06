@@ -264,7 +264,7 @@ function connectionFields(connection, reason, discovery) {
     ${textarea(`${p}.system_prompt_override`, "system prompt override", connection.system_prompt_override || "", "variables: {{folder}} {{plans}} {{tools}} {{agent}} {{project}} {{memory}}")}</div>
     <div class="connection-fieldset connection-capabilities"><h4>Capabilities</h4>
     <div class="findings"><span class="settings-note">${html(caps.probed_at || "not probed")}</span><ul>${findings || "<li>no findings</li>"}</ul></div>
-    ${reason && reason !== "context length unknown" ? `<p class="field-error">${html(reason)}</p>` : ""}
+    ${reason ? `<p class="${reason.startsWith("context unknown") ? "settings-note" : "field-error"}">${html(reason)}</p>` : ""}
     </div></details>`;
 }
 

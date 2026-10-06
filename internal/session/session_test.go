@@ -12,6 +12,15 @@ import (
 	workspaceinfo "harness/internal/workspace"
 )
 
+func TestNotRunnableAlwaysHasAReason2qr(t *testing.T) {
+	item := &Session{Runnable: true}
+	item.SetRunnable(false, "")
+	if item.Snapshot().NotRunnableReason == "" { t.Fatal("SetRunnable(false) kept an empty reason") }
+	if ok, reason := restoredConnectionRunnable("model", true, false, ""); ok || reason == "" {
+		t.Fatalf("restored state = %v %q", ok, reason)
+	}
+}
+
 // The run loop re-binds a session to its agent on every turn. It must re-bind
 // to the connection that role runs on: a worker created on the c connection was
 // switched to b on its first turn, so the real Go ran on the wrong model.

@@ -1121,12 +1121,6 @@ func (c Config) Validate() error {
 		if p.Context.AnswerCeilingSeconds < 0 {
 			return fmt.Errorf("%s.context.answer_ceiling_seconds: cannot be negative", prefix)
 		}
-		if p.Capabilities.Props && p.Capabilities.NCtx > 0 && p.Context.NCtx > p.Capabilities.NCtx {
-			return fmt.Errorf("%s.context.n_ctx: may not exceed probed n_ctx", prefix)
-		}
-		if p.ProbeMode == "off" && p.Context.NCtx == 0 {
-			return fmt.Errorf("%s.context.n_ctx: required when probe_mode is off", prefix)
-		}
 	}
 	if len(c.Connections) == 0 && len(c.Agents) != 0 {
 		return fmt.Errorf("agents: must be empty until a connection is configured")

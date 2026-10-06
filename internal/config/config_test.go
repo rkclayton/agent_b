@@ -86,6 +86,19 @@ func TestAttachmentHandlingDefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestUnknownOrOverstatedContextDoesNotInvalidateConnection2qr(t *testing.T) {
+	for _, nctx := range []int{0, 32_000_000} {
+		cfg := Defaults(t.TempDir())
+		cfg.Connections[0].ProbeMode = "off"
+		cfg.Connections[0].Context.NCtx = nctx
+		cfg.Connections[0].Capabilities.Props = true
+		cfg.Connections[0].Capabilities.NCtx = 32_768
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("n_ctx %d invalidated connection: %v", nctx, err)
+		}
+	}
+}
+
 func TestLoadCreatesConfigFromExample(t *testing.T) {
 	dir := t.TempDir()
 	examplePath := filepath.Join(dir, "harness.example.json")

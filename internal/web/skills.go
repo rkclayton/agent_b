@@ -54,6 +54,7 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	var err error
 	var response any
+	var hermesTelemetry map[string]any
 	persist, publish := true, true
 	switch request.Action {
 	case "enable":
@@ -86,6 +87,8 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 		request.Path = normalizeHermesPath(request.Path)
 		var report hermes.Report
 		report, err = hermes.Import(request.Path, s.profileRoot(), s.cfg.DefaultAgentID(), s.cfg.Memory.MaxTokens, request.Include)
+		result := hermesImportResult(err)
+		hermesTelemetry = map[string]any{"skills": len(report.Skills), "memory_files": report.MemoryFiles, "secret_names": report.SecretNames, "result": result}
 		if err == nil {
 			for _, item := range report.Skills {
 				if item.Changed {
@@ -102,6 +105,12 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	masked := s.cfg.Masked()
 	s.mu.Unlock()
+	if hermesTelemetry != nil {
+		if err != nil && hermesTelemetry["result"] == "ok" {
+			hermesTelemetry["result"] = "failed"
+		}
+		s.queueRunTelemetry(events.ImportHermes, hermesTelemetry)
+	}
 	if err != nil {
 		writeError(w, 400, err.Error(), "skills")
 		return
@@ -111,6 +120,18 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked, "skills": state}))
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "skills": state, "hermes": response})
+}
+
+func hermesImportResult(err error) string {
+	if err == nil {
+		return "ok"
+	}
+	for _, marker := range []string{"was not found", "does not look like", "exceeds", "symbolic link", "outside the profile"} {
+		if strings.Contains(err.Error(), marker) {
+			return "refused"
+		}
+	}
+	return "failed"
 }
 
 func normalizeHermesPath(value string) string {

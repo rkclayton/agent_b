@@ -41,13 +41,15 @@ type ImportedSkill struct {
 	Changed bool     `json:"-"`
 }
 type Report struct {
-	Changed    bool            `json:"changed"`
-	Message    string          `json:"message"`
-	Skills     []ImportedSkill `json:"skills,omitempty"`
-	Rewritten  []string        `json:"rewritten,omitempty"`
-	Unresolved []string        `json:"unresolved,omitempty"`
-	Skipped    []string        `json:"skipped,omitempty"`
-	Cut        []string        `json:"cut,omitempty"`
+	Changed     bool            `json:"changed"`
+	Message     string          `json:"message"`
+	Skills      []ImportedSkill `json:"skills,omitempty"`
+	Rewritten   []string        `json:"rewritten,omitempty"`
+	Unresolved  []string        `json:"unresolved,omitempty"`
+	Skipped     []string        `json:"skipped,omitempty"`
+	Cut         []string        `json:"cut,omitempty"`
+	MemoryFiles int             `json:"-"`
+	SecretNames int             `json:"-"`
 }
 type record struct{ Source, Destination string }
 type manifest struct {
@@ -161,7 +163,7 @@ func Import(source, profile, agentID string, maxTokens int, include []string) (R
 	if state.Files == nil {
 		state.Files = map[string]record{}
 	}
-	report := Report{}
+	report := Report{SecretNames: preview.SecretCount}
 	memoryRows := []Row{}
 	for _, row := range preview.Rows {
 		if !wanted[row.ID] {
@@ -170,6 +172,7 @@ func Import(source, profile, agentID string, maxTokens int, include []string) (R
 		switch row.Kind {
 		case "memory":
 			memoryRows = append(memoryRows, row)
+			report.MemoryFiles++
 		case "skill":
 			item, changed, copyErr := importSkill(source, profile, row, state.Files, &report)
 			if copyErr != nil {

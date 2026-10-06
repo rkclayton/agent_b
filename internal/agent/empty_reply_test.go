@@ -14,6 +14,10 @@ import (
 )
 
 func runSingleReply(t *testing.T, delta map[string]any) (string, string, events.Message) {
+	return runSingleReplyAtContext(t, delta, 32768)
+}
+
+func runSingleReplyAtContext(t *testing.T, delta map[string]any, nctx int) (string, string, events.Message) {
 	t.Helper()
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 4}})
@@ -24,7 +28,8 @@ func runSingleReply(t *testing.T, delta map[string]any) (string, string, events.
 	cfg.Context.Accounting = "estimated"
 	connection := cfg.Connections[0]
 	connection.ID, connection.BaseURL, connection.Model = "main", model.URL, "fake"
-	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 4096
+	connection.Context.NCtx, connection.Context.ReserveOutput = nctx, 4096
+	connection.Capabilities.NCtx = 32768
 	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
 	cfg.Connections = []config.Connection{connection}
 	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{text: "system"}, func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }, func() config.Config { return cfg })
@@ -33,6 +38,15 @@ func runSingleReply(t *testing.T, delta map[string]any) (string, string, events.
 	reason, detail, _ := runner.Run(context.Background(), item, "r1")
 	messages := item.MessagesCopy()
 	return reason, detail, messages[len(messages)-1]
+}
+
+func TestUnknownAndOverstatedContextsStillRunAgainstFixture2qr(t *testing.T) {
+	for _, nctx := range []int{0, 32_000_000} {
+		reason, detail, reply := runSingleReplyAtContext(t, map[string]any{"content": "ok"}, nctx)
+		if reason != "done" || detail != "" || reply.Content != "ok" {
+			t.Fatalf("n_ctx=%d reason=%q detail=%q reply=%+v", nctx, reason, detail, reply)
+		}
+	}
 }
 
 func TestReasoningOnlyReplyIsShownAndNamed(t *testing.T) {

@@ -136,6 +136,8 @@ const (
 	Install      = "install"
 	Resource     = "resource"
 	FeatureUse   = "feature.use"
+	HeaderState  = "header.state"
+	ImportHermes = "import.hermes"
 )
 
 const (

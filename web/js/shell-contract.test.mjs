@@ -201,7 +201,12 @@ test("top-right connection label is the b-role model switcher", () => {
   assert.match(shell, /connection\.label \|\| connection\.id[\s\S]*new URL\(host\)\.host[\s\S]*connectionState\(connection, session\)/);
   assert.match(shell, /if \(isRunning\(current\)\)[\s\S]*stop the run first/);
   assert.match(shell, /api\(`\/api\/agents\/\$\{encodeURIComponent\(agentID\)\}\/connection`, \{ action: "set", connection_id: connection\.id \}\)/);
-  assert.match(shell, /session\.runnable === false \? session\.not_runnable_reason : sessionTitle\(session\)/);
+  assert.match(shell, /session\.runnable === false \? \(notRunnableReason \|\| "Chat is not runnable"\) : sessionTitle\(session\)/);
+  assert.match(shell, /"No chat selected"/);
+  assert.match(shell, /\/api\/header-state/);
+  assert.doesNotMatch(shell, /setProperty\(sessionHeading, "hidden", !session\)/);
+  assert.match(settings, /context unknown — Test to read it/);
+  assert.match(settings, /nctx > caps\.n_ctx/);
 });
 
 test("all shell motion is zero duration under reduced motion", () => {

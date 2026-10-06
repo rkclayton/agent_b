@@ -1978,7 +1978,7 @@ async function resetSession(id) {
 function connectionReason(connection) {
   const caps = connection.capabilities || {};
   const nctx = connection.context?.n_ctx;
-  if (!nctx) return "context length unknown";
+  if (!nctx || (caps.n_ctx > 0 && nctx > caps.n_ctx)) return "context unknown — Test to read it";
   if (!caps.tool_calls) return "tool calling unavailable";
   if (caps.overflow_behavior === "truncate") return "server truncates context";
   if (!caps.streaming) return "streaming unavailable";

@@ -86,6 +86,8 @@ var allowList = map[string]Classification{
 	"install":       sent("step", "class", "from", "to"),
 	"resource":      sent("memory_peak_bytes", "data_bytes", "chats_bytes", "chats", "ram_bytes", "arch", "os_version"),
 	"feature.use":   sent("chats_created", "messages_sent", "tools", "attachments", "voice", "settings_pages", "approvals"),
+	"header.state":  sent("state", "reason_code"),
+	"import.hermes": sent("skills", "memory_files", "secret_names", "result"),
 	"error":         sent("where", "class", "stack_tree"),
 
 	// ------------------------------------------------------------ dropped

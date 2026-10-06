@@ -84,6 +84,20 @@ A tool name that is not a registered-tool shape is sent as `<invalid>`.
 
 ## Run health (item 2q6)
 
+### `header.state` and `import.hermes`
+
+These change-boundary events contain no displayed or imported text. `header.state`
+has `state` (`named`, `not_runnable`, or `no_chat`) and fixed `reason_code` only.
+`import.hermes` has integer `skills`, `memory_files`, and `secret_names` counts,
+plus `result` (`ok`, `refused`, or `failed`).
+
+```json vector:header.state
+{"type":"header.state","at":"2026-10-06T16:00:00Z","state":"not_runnable","reason_code":"missing_connection"}
+```
+```json vector:import.hermes
+{"type":"import.hermes","at":"2026-10-06T16:00:01Z","skills":2,"memory_files":2,"secret_names":2,"result":"ok"}
+```
+
 These are what went wrong, said without anyone relaying it. They are sent in
 the normal batch, and only when anonymous diagnostics are on. Each is built
 **once per run**, when the run stops (and after its progress detectors have

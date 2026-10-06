@@ -366,6 +366,9 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		if _, ok := data["not_runnable_reason"]; ok {
 			next.NotRunnableReason = stringValue(data["not_runnable_reason"])
 		}
+		if !next.Runnable && strings.TrimSpace(next.NotRunnableReason) == "" {
+			next.NotRunnableReason = "chat is not runnable"
+		}
 		if _, ok := data["memory_path"]; ok {
 			next.MemoryPath = stringValue(data["memory_path"])
 		}

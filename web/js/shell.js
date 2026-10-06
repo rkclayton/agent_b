@@ -38,6 +38,7 @@ export function initShell(options = {}) {
 
   const right = node("div", "shell-right");
   const sessionHeading = button("", "Switch model", "shell-session-title");
+	let headerTelemetry = "";
   const connectionMenu = node("div", "shell-menu shell-connection-menu");
   connectionMenu.hidden = true;
   sessionHeading.setAttribute("aria-haspopup", "menu");
@@ -595,14 +596,21 @@ export function initShell(options = {}) {
     // do is say which chat is in the window instead of naming the connection,
     // which the header beside the tab strip already says.
     document.title = session ? `Agent_b · ${chatName(session)}` : "Agent_b";
-    setProperty(sessionHeading, "hidden", !session);
     const health = connectionHealth(store, session?.connection_id);
     // Kept in the layout whether shown or not, so the shell measures the same on
     // every surface (the chat and Settings over it).
     setProperty(sessionLamp.style, "visibility", session ? "" : "hidden");
     if (sessionLamp.dataset.state !== health.lamp) sessionLamp.dataset.state = health.lamp;
     setProperty(sessionLamp, "title", health.word);
-    const heading = session ? (session.runnable === false ? session.not_runnable_reason : sessionTitle(session)) : "";
+	const notRunnableReason = String(session?.not_runnable_reason || "").trim();
+    const heading = session ? (session.runnable === false ? (notRunnableReason || "Chat is not runnable") : sessionTitle(session)) : "No chat selected";
+	const state = session ? (session.runnable === false ? "not_runnable" : "named") : "no_chat";
+	const reason = state === "not_runnable" ? headerReasonCode(notRunnableReason) : "none";
+	const telemetry = `${state}:${reason}`;
+	if (telemetry !== headerTelemetry) {
+		headerTelemetry = telemetry;
+		void api("/api/header-state", { state, reason_code: reason }).catch(() => {});
+	}
     if (sessionHeading.textContent !== heading) {
       sessionHeading.textContent = heading;
       // Item 2hc (v1.3.0/W7): the header is snapped to whole pixels.
@@ -668,6 +676,17 @@ export function initShell(options = {}) {
       if (!store.replay) void createChat("agent_b");
     },
   };
+}
+
+function headerReasonCode(reason = "") {
+	if (!reason) return "missing_reason";
+	if (reason.includes("no connection")) return "no_connection";
+	if (reason.includes("no longer exists")) return "missing_connection";
+	if (reason.includes("folder is missing")) return "missing_workspace";
+	if (reason.includes("folder is unavailable")) return "workspace_unavailable";
+	if (reason.includes("base_url")) return "missing_endpoint";
+	if (reason.includes("model")) return "missing_model";
+	return "other";
 }
 
 function node(tag, className) {

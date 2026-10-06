@@ -1410,6 +1410,15 @@ if (realModel) {
   });
   assert.ok(arrowPinned && arrowDuringScroll && Math.abs(arrowDuringScroll.y - arrowPinned.y) < 8, `collapse arrow must track while its section remains on screen: ${JSON.stringify({ arrowBeforeScroll, arrowPinned, arrowDuringScroll, arrowTrackingState })}`);
   await page.mouse.wheel(0, 5000);
+	// A synthetic wheel is delivered to whatever happens to sit under the pointer.
+	// After the sticky arrow tracks to the top edge that can be chrome rather than
+	// #chat-log, leaving this acceptance arm at the same scrollTop forever. Finish
+	// the intended boundary deterministically: the assertion below still proves the
+	// arrow leaves with its section when the transcript reaches its end.
+	await page.evaluate(() => {
+		const log = document.querySelector("#chat-log");
+		if (log) log.scrollTop = log.scrollHeight;
+	});
   await page.waitForFunction(() => {
     const node = document.querySelector('[data-entry-key*="menu-stream-0"] .collapse-arrow');
     const box = node?.getBoundingClientRect();

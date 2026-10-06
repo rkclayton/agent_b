@@ -84,11 +84,17 @@ test("Setup and Connections share endpoint discovery and the model picker", asyn
 
 test("the 1400px connection editor is two bounded halves and model lists refresh 2qn", async () => {
   const page = await harness.context.newPage({ viewport: { width: 1400, height: 900 } });
-  let models = ["one", "two", "three"];
+  let models = [
+    "Huihui-Qwen3.8-27B-abliterated-UD-Q3_K_XL",
+    "Qwen3.8-27B-UD-IQ4_XS",
+    "Qwen3.8-27B-UD-Q3_K_XL",
+  ];
   await page.route("**/api/connections/ui/models", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ models }) }));
   await page.goto(`${harness.base}/chat#settings/connections`);
   await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
-  await expect(page.locator('[data-path="connections.ui.model"] option')).toContainText(["one", "two", "three", "type a name…"]);
+  await expect(page.locator('[data-path="connections.ui.model"] option')).toContainText([...models, "type a name…"]);
+  await page.locator('[data-path="connections.ui.label"]').fill("acme");
+  await page.locator('[data-path="connections.ui.base_url"]').fill("http://100.64.0.10:8080");
   const measured = await page.locator(".connection-editor").evaluate((editor) => {
     const boxes = [...editor.querySelectorAll("input")].map((input) => ({ path: input.dataset.path, width: input.getBoundingClientRect().width }));
     return { columns: getComputedStyle(editor.querySelector(".connection-fields")).gridTemplateColumns.split(" ").length, boxes };
@@ -97,16 +103,16 @@ test("the 1400px connection editor is two bounded halves and model lists refresh
   expect(measured.boxes.find((x) => x.path?.endsWith(".label")).width).toBeLessThanOrEqual(260);
   expect(measured.boxes.find((x) => x.path?.endsWith(".base_url")).width).toBeLessThanOrEqual(440);
   await expect(page.locator('.connection-editor [data-action="probe"] + [data-action="duplicate-connection"]')).toHaveCount(1);
-  models = ["only-one"];
-	await page.route("**/api/connections/ui/probe", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "listed", models, message: "choose a model to check the rest", proposed: {} }) }));
-  await page.locator('.connection-editor [data-action="probe"]').click();
-  await expect(page.locator('[data-path="connections.ui.model"] option')).toContainText(["only-one", "type a name…"]);
-  await expect(page.locator(".connection-one-model-note")).toHaveText("This server runs one model — it is chosen when the server starts");
   const evidence = process.env.AGENTB_EVIDENCE_DIR;
   if (evidence) {
     await mkdir(evidence, { recursive: true });
     await page.screenshot({ path: join(evidence, "2qn-acme-connection-editor.png"), fullPage: true });
   }
+  models = ["only-one"];
+	await page.route("**/api/connections/ui/probe", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "listed", models, message: "choose a model to check the rest", proposed: {} }) }));
+  await page.locator('.connection-editor [data-action="probe"]').click();
+  await expect(page.locator('[data-path="connections.ui.model"] option')).toContainText(["only-one", "type a name…"]);
+  await expect(page.locator(".connection-one-model-note")).toHaveText("This server runs one model — it is chosen when the server starts");
   await page.close();
 });
 

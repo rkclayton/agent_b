@@ -160,6 +160,7 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 		}
 	}
 	var patches <-chan projection.Patch
+	activities := map[string]string{}
 	if s.projector != nil && s.writers != nil {
 		cursors := s.writers.SessionCursors()
 		sessions, subscribed, unsubscribe, err := s.projector.SubscribeSnapshot(cursors)
@@ -168,7 +169,11 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 			return
 		}
 		defer unsubscribe()
+		folders := s.decorateChatList(sessions)
+		send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatListSnapshot, "", "", map[string]any{"folders": folders})})
+		activities = make(map[string]string, len(sessions))
 		for id, snapshot := range sessions {
+			activities[id] = snapshot.LastActivity
 			bounded := s.firstScreenSessions(map[string]projection.Snapshot{id: snapshot}, "-")[id]
 			previous, reconnect := resume[id]
 			if reconnect && previous.Cursor.Generation == bounded.Cursor.Generation && previous.Cursor.Offset <= bounded.Cursor.Offset {
@@ -201,6 +206,13 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 				return
 			}
 			send(map[string]any{"v": 1, "kind": "patch", "data": patch})
+			if current, found := s.projector.CurrentSnapshot()[patch.SessionID]; found {
+				activity := latestChatActivity(current)
+				if activity != "" && activity != activities[patch.SessionID] {
+					send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatListPatch, "", "", map[string]any{"operation": "activity", "session_id": patch.SessionID, "last_activity": activity})})
+					activities[patch.SessionID] = activity
+				}
+			}
 			if resume != nil {
 				if current, ok := s.projector.CurrentSnapshot()[patch.SessionID]; ok {
 					resume[patch.SessionID] = s.firstScreenSessions(map[string]projection.Snapshot{patch.SessionID: current}, "-")[patch.SessionID]

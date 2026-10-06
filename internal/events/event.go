@@ -27,6 +27,8 @@ const (
 	// startup (item 2gg). Its journal is left on disk untouched.
 	SessionRestoreFailed = "session.restore_failed"
 	ChatDeleted          = "chat.deleted"
+	ChatListSnapshot     = "chat.list.snapshot"
+	ChatListPatch        = "chat.list.patch"
 	ConnectionProbed     = "connection.probed"
 	ConnectionHealth     = "connection.health"
 	// Item 2nb (b): one per address the endpoint walk tries, as it lands, so the sheet

@@ -149,6 +149,8 @@ type Snapshot struct {
 	PlanDir           string                     `json:"plan_dir,omitempty"`
 	PlanRepo          string                     `json:"plan_repo,omitempty"`
 	CreatedAt         string                     `json:"created_at"`
+	Folder            string                     `json:"folder"`
+	LastActivity      string                     `json:"last_activity,omitempty"`
 	Workspace         string                     `json:"workspace"`
 	WorkspaceDir      string                     `json:"workspace_dir"`
 	WorkspaceMissing  bool                       `json:"workspace_missing"`

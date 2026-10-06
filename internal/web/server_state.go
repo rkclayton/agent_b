@@ -24,7 +24,9 @@ func (s *Server) snapshot() map[string]any {
 		return s.snapshotWithSessions(s.firstScreenSessions(s.replay.Sessions, ""), true)
 	}
 	if s.projector != nil && s.writers != nil {
-		return s.snapshotWithSessions(s.firstScreenSessions(s.projector.CurrentSnapshot(), ""), false)
+		sessions := s.projector.CurrentSnapshot()
+		s.decorateChatList(sessions)
+		return s.snapshotWithSessions(s.firstScreenSessions(sessions, ""), false)
 	}
 	return s.snapshotWithSessions(map[string]projection.Snapshot{}, false)
 }
@@ -60,11 +62,17 @@ func (s *Server) firstScreenSessions(sessions map[string]projection.Snapshot, se
 }
 
 func (s *Server) openingSnapshot(sessions map[string]projection.Snapshot, replay bool) map[string]any {
+	s.decorateChatList(sessions)
 	result := s.snapshotWithSessions(s.firstScreenSessions(sessions, "-"), replay)
 	result["incremental"] = true
 	return result
 }
 func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any {
+	folders := []string{}
+	if values, ok := sessions.(map[string]projection.Snapshot); ok {
+		folders = s.decorateChatList(values)
+		sessions = values
+	}
 	masked := s.ConfigSnapshot().Masked()
 	describedShell := tools.NewShell(masked.Shell)
 	describedShell.Configure(masked)
@@ -92,7 +100,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 		standingGrants = s.runner.Gate().StandingGrants()
 	}
 	return map[string]any{
-		"sessions": sessions, "connections": masked.Connections, "config": masked, "replay": replay,
+		"sessions": sessions, "folders": folders, "connections": masked.Connections, "config": masked, "replay": replay,
 		"chat_root":                filepath.Join(s.profileRoot(), "chats"),
 		"profiles":                 s.profileState(),
 		"skills":                   s.skillState(),
@@ -143,7 +151,9 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	if s.replay != nil {
 		snapshot = s.snapshotWithSessions(s.firstScreenSessions(s.replay.Sessions, selected), true)
 	} else if s.projector != nil && s.writers != nil {
-		snapshot = s.snapshotWithSessions(s.firstScreenSessions(s.projector.CurrentSnapshot(), selected), false)
+		sessions := s.projector.CurrentSnapshot()
+		s.decorateChatList(sessions)
+		snapshot = s.snapshotWithSessions(s.firstScreenSessions(sessions, selected), false)
 	} else {
 		snapshot = s.snapshotWithSessions(map[string]projection.Snapshot{}, false)
 	}

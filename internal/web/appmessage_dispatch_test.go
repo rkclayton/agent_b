@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"harness/internal/broker"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/projection"
 	"harness/internal/session"
 )
 
@@ -146,6 +148,135 @@ func TestChatCreateAcceptsOneConnectionAndRefusesUnknownWithoutCreating2ow(t *te
 		refused := dispatch(t, server, `{"v":1,"kind":"request","id":"cc","route":"chat.create","body":`+body+`}`)
 		if refused.Status != 400 {
 			t.Errorf("chat.create with %s = %d, want 400", body, refused.Status)
+		}
+	}
+}
+
+func TestPhoneJoinAndFolderChangesCarryChatListMetadata2qk(t *testing.T) {
+	server, registry, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	server.bus.SetSink(nil)
+	server.bus.SetDurableSink(writers.WriteRecord, server.projector.Apply, server.projector.MarkStale)
+	chat, err := registry.Create("folder phone chat", server.ConfigSnapshot().DefaultAgentID(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	postTree := func(body string) {
+		response := httptest.NewRecorder()
+		server.chatTree(response, httptest.NewRequest(http.MethodPost, "/api/chats/tree", strings.NewReader(body)))
+		if response.Code != http.StatusOK {
+			t.Fatalf("tree %s = %d %s", body, response.Code, response.Body.String())
+		}
+	}
+	postTree(`{"action":"add","name":"Work"}`)
+	postTree(`{"action":"move","id":"` + chat.ID + `","folder":"Work"}`)
+	if _, err := server.projector.Snapshot(writers.SessionCursors()); err != nil {
+		t.Fatal(err)
+	}
+	state := httptest.NewRecorder()
+	server.state(state, httptest.NewRequest(http.MethodGet, "/api/state", nil))
+	var stateBody struct {
+		Folders  []string                       `json:"folders"`
+		Sessions map[string]projection.Snapshot `json:"sessions"`
+	}
+	if err := json.Unmarshal(state.Body.Bytes(), &stateBody); err != nil || len(stateBody.Folders) != 1 || stateBody.Folders[0] != "Work" || stateBody.Sessions[chat.ID].Folder != "Work" || stateBody.Sessions[chat.ID].LastActivity == "" {
+		t.Fatalf("page state chat list=%+v (%v)", stateBody, err)
+	}
+
+	device := &recordingDevice{}
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	defer func() { stop(); <-done }()
+	go func() { server.streamUnitsToDevice(ctx, device); close(done) }()
+	joined := device.waitFor(t, "the folder and last activity in the joined chat", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		return unit["kind"] == "snapshot" && unit["session_id"] == chat.ID && data["folder"] == "Work" && data["last_activity"] != ""
+	})
+	if data := joined["data"].(map[string]any); data["workspace"] == "Work" {
+		t.Fatal("folder was substituted for workspace")
+	}
+	device.waitFor(t, "the joined folder list", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		payload, _ := data["data"].(map[string]any)
+		folders, _ := payload["folders"].([]any)
+		return unit["kind"] == "event" && data["type"] == "chat.list.snapshot" && len(folders) == 1 && folders[0] == "Work"
+	})
+
+	renameStarted := time.Now()
+	postTree(`{"action":"rename","path":"Work","name":"Projects"}`)
+	device.waitFor(t, "the folder rename patch", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		payload, _ := data["data"].(map[string]any)
+		return unit["kind"] == "event" && data["type"] == "chat.list.patch" && payload["operation"] == "rename" && payload["path"] == "Work" && payload["value"] == "Projects"
+	})
+	if elapsed := time.Since(renameStarted); elapsed >= 2*time.Second {
+		t.Fatalf("folder rename patch took %s", elapsed)
+	}
+	postTree(`{"action":"add","name":"Later"}`)
+	moveStarted := time.Now()
+	postTree(`{"action":"move","id":"` + chat.ID + `","folder":"Later"}`)
+	device.waitFor(t, "the chat move patch", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		payload, _ := data["data"].(map[string]any)
+		return unit["kind"] == "event" && data["type"] == "chat.list.patch" && payload["operation"] == "move" && payload["session_id"] == chat.ID && payload["folder"] == "Later"
+	})
+	if elapsed := time.Since(moveStarted); elapsed >= 2*time.Second {
+		t.Fatalf("chat move patch took %s", elapsed)
+	}
+	server.bus.Publish(events.New(events.MessageAppended, chat.ID, "", map[string]any{"message": map[string]any{"id": "newest", "role": "user", "content": "newest activity"}}))
+	device.waitFor(t, "the newest-activity list patch", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		payload, _ := data["data"].(map[string]any)
+		return unit["kind"] == "event" && data["type"] == "chat.list.patch" && payload["operation"] == "activity" && payload["session_id"] == chat.ID && payload["last_activity"] != ""
+	})
+}
+
+func TestPhoneRenameAndDeleteUseTheDesktopHandlers2qk(t *testing.T) {
+	server, _, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	server.bus.SetSink(nil)
+	server.bus.SetDurableSink(writers.WriteRecord, server.projector.Apply, server.projector.MarkStale)
+	created := dispatch(t, server, `{"v":1,"kind":"request","id":"new","route":"chat.create","body":{"label":"before"}}`)
+	var body struct {
+		Session struct {
+			ID string `json:"id"`
+		} `json:"session"`
+	}
+	if err := json.Unmarshal(created.Body, &body); err != nil || body.Session.ID == "" {
+		t.Fatalf("create=%d %s (%v)", created.Status, created.Body, err)
+	}
+	device := &recordingDevice{}
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	defer func() { stop(); <-done }()
+	go func() { server.streamUnitsToDevice(ctx, device); close(done) }()
+	device.waitFor(t, "the chat before phone mutation", func(unit map[string]any) bool {
+		return unit["kind"] == "snapshot" && unit["session_id"] == body.Session.ID
+	})
+	rename := dispatch(t, server, `{"v":1,"kind":"request","id":"rename","route":"chat.rename","body":{"session_id":"`+body.Session.ID+`","label":"after"}}`)
+	item, found := server.registry.Get(body.Session.ID)
+	if rename.Status != http.StatusOK || !found || item.Snapshot().Label != "after" {
+		t.Fatalf("rename=%d %s found=%v", rename.Status, rename.Body, found)
+	}
+	device.waitFor(t, "the ordinary rename projection patch", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		return unit["kind"] == "patch" && data["session_id"] == body.Session.ID && strings.Contains(fmt.Sprint(data["operations"]), "/label")
+	})
+	deleted := dispatch(t, server, `{"v":1,"kind":"request","id":"delete","route":"chat.delete","body":{"session_id":"`+body.Session.ID+`"}}`)
+	if deleted.Status != http.StatusOK {
+		t.Fatalf("delete=%d %s", deleted.Status, deleted.Body)
+	}
+	if _, found := server.registry.Get(body.Session.ID); found {
+		t.Fatal("phone delete left the chat in the desktop registry")
+	}
+	device.waitFor(t, "the ordinary chat.deleted event", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		return unit["kind"] == "event" && data["type"] == events.ChatDeleted && strings.Contains(fmt.Sprint(data["data"]), body.Session.ID)
+	})
+	for _, route := range []string{"chat.move", "chat.close", "chat.reopen", "chat.archive", "config"} {
+		response := dispatch(t, server, `{"v":1,"kind":"request","id":"no","route":"`+route+`","body":{}}`)
+		if response.Status != http.StatusNotImplemented {
+			t.Errorf("route %q = %d, want 501", route, response.Status)
 		}
 	}
 }

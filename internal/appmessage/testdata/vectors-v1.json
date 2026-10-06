@@ -21,7 +21,9 @@
     "chat.history",
     "chat.mirror",
     "chat.mirror.since",
-    "chat.mirror.take"
+    "chat.mirror.take",
+    "chat.rename",
+    "chat.delete"
   ],
   "vectors": [
     {

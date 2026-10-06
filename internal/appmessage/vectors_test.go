@@ -326,18 +326,17 @@ func TestASeededDisagreementFails(t *testing.T) {
 	}
 }
 
-// Items 2my, 2ow, and 2qc: the explicitly published chat routes do not widen
+// Items 2my, 2ow, 2qc, and 2qk: the explicitly published chat routes do not widen
 // the rest of the lifecycle surface.
 //
 // The route set is a security statement, so the thing worth testing is not that
-// `chat.create` works — it has no dispatcher on this side yet — but that adding it
-// changed nothing else. A creation route that quietly brought close, delete or a choice
-// of model with it would be a different item.
+// The route names are the authority: adding rename and delete must not quietly bring
+// close, move, archive, or a generic session path with them.
 func TestOnlyPublishedChatRoutesWereAddedAndTheRestStayRefused2my(t *testing.T) {
 	file, document := load(t)
 
 	// The closed set, exactly.
-	want := []string{"message", "stop", "approve", "tool", "state", "resync", "chat.create", "chat.history", "chat.mirror", "chat.mirror.since", "chat.mirror.take"}
+	want := []string{"message", "stop", "approve", "tool", "state", "resync", "chat.create", "chat.history", "chat.mirror", "chat.mirror.since", "chat.mirror.take", "chat.rename", "chat.delete"}
 	if len(file.Routes) != len(want) {
 		t.Fatalf("the route set is %v, want %v", file.Routes, want)
 	}
@@ -358,12 +357,13 @@ func TestOnlyPublishedChatRoutesWereAddedAndTheRestStayRefused2my(t *testing.T) 
 		}
 	}
 
-	// (c): the lifecycle routes other than creation are still refused, and the exposure is
+	// (c): the lifecycle routes other than those named are still refused, and the exposure is
 	// stated rather than left for a reader to infer.
 	for _, wanted := range []string{
 		"every session-lifecycle route EXCEPT",
-		"close, reopen,",
+		"reopen, move, archive",
 		"The exposure `chat.create` adds",
+		"The exposure `chat.rename` and `chat.delete` add",
 		"open empty chats",
 	} {
 		if !strings.Contains(document, wanted) {

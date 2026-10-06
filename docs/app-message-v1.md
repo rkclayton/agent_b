@@ -61,6 +61,16 @@ A device's view through the broker is therefore identical to its view over the t
 route: the same `snapshot` on connect, the same `projection.patch` stream after it, the same cursor
 semantics, the same `projection_stale` and `complete` flags.
 
+Each chat snapshot also carries `folder` (the slash-separated path below the PC's Chats root, or
+`""` at the root) and `last_activity` (RFC3339Nano, the time its newest projected chat entry was
+added). The join begins with one global event whose type is `chat.list.snapshot` and whose data is
+`{folders:[path...]}`. Later PC folder changes use one constant-size global event of type
+`chat.list.patch`: `{operation:"add",path}`, `{operation:"rename",path,value}`,
+`{operation:"delete",path}`, `{operation:"move",session_id,folder}`, or
+`{operation:"activity",session_id,last_activity}`. A rename's `value` is the
+new full folder path. These list events use the existing `event` unit and do not alter a chat's
+projection cursor.
+
 ## Splitting a unit that does not fit
 
 A unit whose encoding would exceed `UNIT_MAX` is sent as an ordered sequence of `part` units:
@@ -133,6 +143,8 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 | `chat.mirror` | append one owner's journal event to its mirror | `MirrorAppend` — added 2026-09-30 |
 | `chat.mirror.since` | ask a mirror for its durable per-chat cursor | `{chat_id}` — added 2026-09-30 |
 | `chat.mirror.take` | transfer ownership to the requesting peer | `{chat_id,after_seq}` — added 2026-09-30 |
+| `chat.rename` | `POST /api/sessions/{session_id}` | `{session_id,label}` — added 2026-10-05 |
+| `chat.delete` | `DELETE /api/sessions/{session_id}` | `{session_id}` — added 2026-10-05 |
 
 `tool` carries the path segment as a `name` field for the same reason: the route set is closed.
 
@@ -152,6 +164,12 @@ names the chat as it names any unlabelled one.
 `chat.history` carries a session id and an optional exclusive `before` index. It returns at most
 50 chat entries plus `{start,before,total}`. Omitting `before` returns the newest page; passing the
 returned `start` walks toward the first entry without transferring the rest of the retained store.
+
+`chat.rename` and `chat.delete` call the same handlers as the PC. Rename therefore applies the
+same label validation and retained-folder rename. Delete performs 2py's one act: it stops a running
+chat if necessary, closes an open one, permanently deletes it, and emits the ordinary
+`chat.deleted` event. Neither route accepts a path, folder, role, connection, or other lifecycle
+choice.
 
 ## Mirrored chats
 
@@ -250,8 +268,8 @@ including, explicitly:
   frame is not such a request and cannot become one.
 - `POST /api/update` — no install is startable from a device.
 - `POST /api/host-window`, `/api/plans`, `/api/plan/accept`, `/api/plan/marker`, `/api/plan/go`,
-  every session-lifecycle route EXCEPT the creation `chat.create` stands for — close, reopen,
-  rename, delete and the rest remain refused — `/api/notifications`,
+  every session-lifecycle route EXCEPT the creation, rename, and delete routes named above — close,
+  reopen, move, archive and the rest remain refused — `/api/notifications`,
   `/api/operator-files`, `/api/workspaces` and its policy routes, `/api/standing-grants`.
 - Anything reached by a path rather than a name: there is no generic passthrough, and `route` is
   matched against the closed set above by exact string equality.
@@ -259,7 +277,7 @@ including, explicitly:
 A stolen paired phone can therefore send a message, stop a run, answer an approval card, toggle a
 tool for the next request, read state, **create a chat**, mirror its own chats and their attachment
 bytes onto this machine, and request ownership of an already mirrored chat. It cannot change the
-  machine, install anything, register a plan, close, rename or delete a chat, or reach a credential.
+  machine, install anything, register a plan, close, move or archive a chat, or reach a credential.
 
 **The exposure `chat.create` adds, stated plainly:** a stolen paired phone can see the safe
 Connection sheet and open empty chats, as many as it likes, on any listed connection. That can incur
@@ -267,6 +285,10 @@ model cost, costs disk and clutters the chat list,
 and it is visible — every one appears on the desktop like any other chat. It reaches no new data:
 a new chat starts empty, and reading anything still requires `state` or `resync`, which the phone
 already had. Revocation remains the answer, and it is immediate.
+
+**The exposure `chat.rename` and `chat.delete` add, stated plainly:** a stolen paired phone can
+rename or permanently delete any PC chat it can identify, with exactly the desktop's effects. It
+still cannot choose a folder or exercise another lifecycle action. Revocation remains immediate.
 
 ## What the desktop does today (item 2o7)
 

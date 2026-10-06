@@ -169,6 +169,8 @@ The listener remains on `127.0.0.1`, and Agent_b provides no remote reachability
 
 Item 2ow supersedes the earlier `chat.create` restriction in this section: app-message `state.connections` is the safe sheet `{id,label,model,host,vision,docs,tools,ctx}`, and `chat.create` accepts `{label?,connection_id?}`. An absent connection uses the default; an unknown id returns `field:"connection_id"` without creating a chat; `role` and `source_session_id` remain refused.
 
+Item 2qk additively extends the chat list and paired-phone surface. Top-level state carries `folders:[path...]`. Every `SessionSnapshot` carries `folder` (slash-separated below the Chats root, `""` at root) and `last_activity` (RFC3339Nano time of its newest projected chat entry). A phone join receives `chat.list.snapshot {folders}` as a global event before its per-chat snapshots; PC folder add, rename, delete, and chat move each produce one constant-size `chat.list.patch` global event with respectively `{operation:"add",path}`, `{operation:"rename",path,value}`, `{operation:"delete",path}`, or `{operation:"move",session_id,folder}`; `{operation:"activity",session_id,last_activity}` advances the sort key when a chat gets a newer projected entry. App-message adds only `chat.rename {session_id,label}` and `chat.delete {session_id}`; both dispatch to the same session handler as the local PC. All other lifecycle actions remain refused.
+
 ## Implementation status
 
 Every `[prompt N]` tag and every record/API shape above now has an implementation. Session state has one pure versioned projector shared by live snapshots, live patches, and replay; browser-local expansion, scrolling, tab selection, and Settings drafts remain view state.

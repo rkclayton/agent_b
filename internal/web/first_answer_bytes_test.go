@@ -31,11 +31,12 @@ func TestLargeStoreFirstAnswersAreBounded2qc(t *testing.T) {
 func TestLargeStorePhoneJoinAndReconnectAreBounded2qc(t *testing.T) {
 	server := measuredServer(t, 30, 3000)
 	resume := map[string]projection.Snapshot{}
-	join, joinKinds := streamInitialUnits(t, server, 30, resume)
+	join, joinKinds := streamInitialUnits(t, server, 31, resume)
 	if join > 1<<20 {
 		t.Fatalf("phone join = %d bytes, want <= %d", join, 1<<20)
 	}
-	if strings.Join(joinKinds, ",") != strings.Repeat("snapshot,", 29)+"snapshot" {
+	t.Logf("2qk full bound: 30 chats x 3000 records join=%d bytes", join)
+	if len(joinKinds) != 31 || joinKinds[0] != "event" || strings.Join(joinKinds[1:], ",") != strings.Repeat("snapshot,", 29)+"snapshot" {
 		t.Fatalf("join kinds = %v", joinKinds)
 	}
 	for index := 0; index < 10; index++ {
@@ -43,11 +44,14 @@ func TestLargeStorePhoneJoinAndReconnectAreBounded2qc(t *testing.T) {
 			"id": fmt.Sprintf("new-%d", index), "role": "assistant", "content": "new entry",
 		}}))
 	}
-	reconnect, reconnectKinds := streamInitialUnits(t, server, 10, resume)
+	reconnect, reconnectKinds := streamInitialUnits(t, server, 11, resume)
 	if reconnect > 64<<10 {
 		t.Fatalf("phone reconnect = %d bytes, want <= %d", reconnect, 64<<10)
 	}
-	for _, kind := range reconnectKinds {
+	if reconnectKinds[0] != "event" {
+		t.Fatalf("reconnect first kind = %q, want folder-list event", reconnectKinds[0])
+	}
+	for _, kind := range reconnectKinds[1:] {
 		if kind != "patch" {
 			t.Fatalf("reconnect resent %q instead of changes only", kind)
 		}

@@ -137,7 +137,9 @@ type Server struct {
 	chatMu            sync.RWMutex
 	chatStore         *chatstore.Store
 	chatEntries       []chatstore.Entry
+	chatWatchMu       sync.Mutex
 	chatCancel        context.CancelFunc
+	chatDone          chan struct{}
 }
 
 type probeRun struct{ cancel context.CancelFunc }
@@ -214,27 +216,55 @@ func (s *Server) SetRegistry(registry *session.Registry) {
 	registry.SetPlansRoot(filepath.Join(s.profileRoot(), "plans"))
 	registry.SetSkillsRoot(filepath.Join(s.profileRoot(), "skills"))
 	s.registry = registry
+	s.chatWatchMu.Lock()
+	defer s.chatWatchMu.Unlock()
+	s.stopChatTrackingLocked()
+	s.chatStore = chatstore.New(filepath.Join(s.profileRoot(), "chats"))
+	s.archiveIdleChats(registry)
+	s.startChatTrackingLocked(registry)
+}
+
+func (s *Server) archiveIdleChats(registry *session.Registry) {
+	if s.chatStore == nil {
+		return
+	}
+	protected := map[string]bool{}
+	for _, item := range registry.List() {
+		protected[item.ID] = item.IsRunning()
+	}
+	changed, err := s.chatStore.AutoArchive(time.Now(), protected)
+	if err != nil {
+		log.Printf("auto-archive chats: %v", err)
+		return
+	}
+	for _, id := range changed {
+		if _, ok := registry.Get(id); ok {
+			_ = registry.Archive(id)
+			if s.projector != nil {
+				s.projector.Delete(id)
+			}
+			s.bus.Publish(events.New(events.ChatDeleted, "", "", map[string]any{"session_id": id, "archived": true}))
+		}
+	}
+}
+
+func (s *Server) stopChatTrackingLocked() {
 	if s.chatCancel != nil {
 		s.chatCancel()
 	}
-	s.chatStore = chatstore.New(filepath.Join(s.profileRoot(), "chats"))
+	if s.chatDone != nil {
+		<-s.chatDone
+	}
+	s.chatCancel, s.chatDone = nil, nil
+}
+
+func (s *Server) startChatTrackingLocked(registry *session.Registry) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.chatCancel = cancel
-	archiveIdle := func() {
-		protected := map[string]bool{}
-		for _, item := range registry.List() { protected[item.ID] = item.IsRunning() }
-		changed, err := s.chatStore.AutoArchive(time.Now(), protected)
-		if err != nil { log.Printf("auto-archive chats: %v", err); return }
-		for _, id := range changed {
-			if _, ok := registry.Get(id); ok {
-				_ = registry.Archive(id)
-				if s.projector != nil { s.projector.Delete(id) }
-				s.bus.Publish(events.New(events.ChatDeleted, "", "", map[string]any{"session_id": id, "archived": true}))
-			}
-		}
-	}
-	archiveIdle()
+	done := make(chan struct{})
+	s.chatDone = done
 	go func() {
+		defer close(done)
 		_ = s.chatStore.Watch(ctx, func(entries []chatstore.Entry) {
 			s.chatMu.Lock()
 			s.chatEntries = entries
@@ -242,7 +272,18 @@ func (s *Server) SetRegistry(registry *session.Registry) {
 			registry.ReconcileChatHomes(entries)
 		})
 	}()
-	go func() { ticker := time.NewTicker(24*time.Hour); defer ticker.Stop(); for { select { case <-ctx.Done(): return; case <-ticker.C: archiveIdle() } } }()
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.archiveIdleChats(registry)
+			}
+		}
+	}()
 }
 func (s *Server) SetProfiles(manager *profiles.Manager) { s.profiles = manager }
 func (s *Server) SetProfileChanged(change func(string) error) {

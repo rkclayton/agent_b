@@ -47,6 +47,8 @@ var appMessageRoutes = map[string]struct {
 	"state":             {http.MethodGet, "/api/state"},
 	"resync":            {http.MethodGet, "/api/state"},
 	"chat.create":       {http.MethodPost, "/api/sessions"},
+	"chat.rename":       {http.MethodPost, "/api/sessions/"},
+	"chat.delete":       {http.MethodDelete, "/api/sessions/"},
 	"chat.history":      {http.MethodGet, "/api/sessions/"},
 	"chat.mirror":       {http.MethodPost, ""},
 	"chat.mirror.since": {http.MethodPost, ""},
@@ -122,6 +124,35 @@ func (s *Server) DispatchAppMessage(deviceID string, unit []byte) []byte {
 					return s.appProblem(request.ID, http.StatusBadRequest, "chat.create carries label and connection_id only; it does not carry "+name)
 				}
 			}
+		}
+	case "chat.rename", "chat.delete":
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(body, &fields); err != nil {
+			return s.appProblem(request.ID, http.StatusBadRequest, "the "+request.Route+" body is not an object")
+		}
+		var sessionID string
+		if raw := fields["session_id"]; json.Unmarshal(raw, &sessionID) != nil || strings.TrimSpace(sessionID) == "" || strings.ContainsAny(sessionID, "/\\?#%") {
+			return s.appProblem(request.ID, http.StatusBadRequest, request.Route+" needs a session_id")
+		}
+		path += url.PathEscape(sessionID)
+		if request.Route == "chat.rename" {
+			var label string
+			if raw := fields["label"]; json.Unmarshal(raw, &label) != nil || strings.TrimSpace(label) == "" {
+				return s.appProblem(request.ID, http.StatusBadRequest, "chat.rename needs a label")
+			}
+			for name := range fields {
+				if name != "session_id" && name != "label" {
+					return s.appProblem(request.ID, http.StatusBadRequest, "chat.rename carries session_id and label only; it does not carry "+name)
+				}
+			}
+			body, _ = json.Marshal(map[string]string{"label": label})
+		} else {
+			for name := range fields {
+				if name != "session_id" {
+					return s.appProblem(request.ID, http.StatusBadRequest, "chat.delete carries session_id only; it does not carry "+name)
+				}
+			}
+			body = nil
 		}
 	case "chat.history":
 		var history struct {

@@ -218,7 +218,6 @@ test("Phone shows all four wire states and follows presence without a reload", a
 		status = next;
 		const renderedState = page.locator(".account-status").filter({ hasText: label }).first();
 		await expect(renderedState).toBeVisible({ timeout: 5000 });
-		await renderedState.scrollIntoViewIfNeeded();
 		await page.screenshot({ path: join(evidence, file), fullPage: true });
 	}
 	await expect(page.locator(".account-status").filter({ hasText: "last phone message 2026-09-29T22:31:00Z" }).first()).toBeVisible();

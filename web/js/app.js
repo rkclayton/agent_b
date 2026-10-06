@@ -245,7 +245,10 @@ const roleEffect = {
 };
 
 function renderAgentConnection(agent) {
-  const connections = store.connections?.length ? store.connections : store.config.connections || [];
+  // The live projection can briefly lag config after a connection is saved. The
+  // picker must still offer every configured connection so the operator can
+  // move a role away from one that is about to be removed.
+  const connections = store.config.connections?.length ? store.config.connections : store.connections || [];
   const pending = store.agent_connection_changes?.[selectedAgent];
   const rows = [];
   for (const role of ["b", "c", "d"]) {

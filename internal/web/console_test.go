@@ -92,6 +92,28 @@ func TestChatTreeOperationsAreFilesystemOperations(t *testing.T) {
 	}
 }
 
+func TestArchiveRemovesLiveChatAndRestoreRehydratesIt2qi(t *testing.T) {
+	server, registry, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	chat, err := registry.Create("archive me", "coder", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response := postConsole(t, server, "/api/chats/tree", `{"action":"archive","id":"`+chat.ID+`"}`); response.Code != 200 {
+		t.Fatalf("archive: %d %s", response.Code, response.Body.String())
+	}
+	if _, found := registry.Get(chat.ID); found {
+		t.Fatal("archived chat remains live")
+	}
+	response := postConsole(t, server, "/api/chats/tree", `{"action":"restore","id":"`+chat.ID+`"}`)
+	if response.Code != 200 {
+		t.Fatalf("restore: %d %s", response.Code, response.Body.String())
+	}
+	if restored, found := registry.Get(chat.ID); !found || restored.Workspace != chat.Workspace {
+		t.Fatalf("restored=%+v found=%v", restored, found)
+	}
+}
+
 func TestReplayChatTreeWithoutWritableStoreIsEmpty(t *testing.T) {
 	response := httptest.NewRecorder()
 	(&Server{}).chatTree(response, httptest.NewRequest(http.MethodGet, "/api/chats/tree", nil))

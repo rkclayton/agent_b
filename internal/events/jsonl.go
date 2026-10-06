@@ -155,6 +155,7 @@ func (w *Writers) ProjectionCacheDir() string {
 	w.mu.Unlock()
 	return filepath.Join(filepath.Dir(dir), "cache", "projection")
 }
+func (w *Writers) ChatDir() string { w.mu.Lock(); defer w.mu.Unlock(); return w.chatDir }
 
 // DurableChatPaths returns the retained chat journals. Unlike the operational
 // tapes in logs, these files are not subject to log retention.

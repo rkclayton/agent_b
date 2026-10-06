@@ -333,7 +333,7 @@ func (s *Store) NoteActivity(id string, now time.Time, live, pending *bool) erro
 	return WriteMetadata(entry.Path, entry.Metadata)
 }
 
-func (s *Store) AutoArchive(now time.Time) ([]string, error) {
+func (s *Store) AutoArchive(now time.Time, protected ...map[string]bool) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entries, err := s.Scan()
@@ -348,7 +348,11 @@ func (s *Store) AutoArchive(now time.Time) ([]string, error) {
 		if activity.IsZero() {
 			activity = meta.Created
 		}
-		if !meta.ArchivedAt.IsZero() || meta.Live || meta.Pending || activity.After(cutoff) {
+		if info, statErr := os.Stat(filepath.Join(s.root, meta.ID+".jsonl")); statErr == nil && info.ModTime().After(activity) {
+			activity = info.ModTime()
+		}
+		busy := len(protected) > 0 && protected[0][meta.ID]
+		if !meta.ArchivedAt.IsZero() || meta.Live || meta.Pending || busy || activity.After(cutoff) {
 			continue
 		}
 		meta.ArchivedAt = now.UTC()

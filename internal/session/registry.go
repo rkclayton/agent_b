@@ -1110,6 +1110,19 @@ func (r *Registry) Delete(id string) (events.SessionInventory, error) {
 	return inventory, nil
 }
 
+// Archive detaches an idle chat without deleting its durable journal or folder.
+func (r *Registry) Archive(id string) error {
+	r.mu.Lock()
+	s, ok := r.sessions[id]
+	if !ok { r.mu.Unlock(); return fmt.Errorf("session not found") }
+	if s.IsRunning() { r.mu.Unlock(); return fmt.Errorf("session is running") }
+	r.mu.Unlock()
+	if !s.IsClosed() { if err := r.Close(id); err != nil { return err } }
+	if err := r.writers.CloseSession(id); err != nil { return err }
+	r.mu.Lock(); delete(r.sessions, id); r.mu.Unlock()
+	return nil
+}
+
 // Item 2gy (v1.2.5): a capability finding gates the FEATURE that needs it, not
 // the chat. A probe that could not get an answer - a busy GPU, a timeout, a 503
 // - used to be recorded as a server that cannot call tools, and that finding

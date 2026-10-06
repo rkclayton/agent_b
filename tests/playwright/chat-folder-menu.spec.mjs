@@ -12,9 +12,10 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
   const session = { schema_version: 1, cursor: { generation: `${id}.jsonl`, offset: 1 }, complete: true, id, label: "Chat name",
     agent_id: "agent_b", role: "b", created_at: "2026-10-04T00:00:00Z", run: { status: "idle" }, tools: [], messages: [], budget: {},
     activity: { completed_stages: [] }, timeline: [], chat: [], runnable: true, closed: false };
-  const snapshot = () => ({ sessions: { [id]: session }, connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] },
+	const other = { ...session, id: "chat-1", label: "Other chat", cursor: { generation: "chat-1.jsonl", offset: 1 } }; let archived = false;
+  const snapshot = () => ({ sessions: archived ? { [other.id]: other } : { [id]: session, [other.id]: other }, connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] },
     flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {} });
-  let tree = { folders: ["A"], chats: [{ id, folder: "A" }] };
+	let tree = { folders: ["A"], chats: [{ id, folder: "A" }, { id: other.id, folder: "" }], archived: [] };
   const actions = [];
   const context = await browser.newContext({ viewport: { width: 1250, height: 975 } });
   await context.addInitScript(({ snapshot }) => {
@@ -42,6 +43,8 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
         const body = request.postDataJSON(); actions.push(body);
         if (body.action === "add") tree = { ...tree, folders: [...tree.folders, `${body.parent}/${body.name}`] };
         if (body.action === "rename") tree = { folders: [body.name, `${body.name}/B`], chats: tree.chats.map((chat) => ({ ...chat, folder: body.name })) };
+		if (body.action === "archive") { archived = true; tree = { ...tree, chats: tree.chats.filter((chat) => chat.id !== id), archived: [{ id, name: session.label, folder: "Z" }] }; }
+		if (body.action === "restore") { archived = false; tree = { ...tree, chats: [...tree.chats, { id, folder: "Z" }], archived: [] }; }
       }
       return route.fulfill({ contentType: "application/json", body: JSON.stringify(tree) });
     }
@@ -74,7 +77,9 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
   await menu.getByTitle("Save chat name").click();
 	await menu.locator('[data-folder="Z"] > summary').click();
   await expect(menu.getByTitle("Rename Renamed chat")).toBeVisible();
-  await page.screenshot({ path: "test-results/2qb-nested-chat-menu.png" });
+	await menu.getByTitle("Archive Renamed chat").click(); await page.locator(".agent-tab").first().click({ button: "right" });
+	await expect(page.getByText("Archived (1)")).toBeVisible(); await page.getByText("Archived (1)").click(); await expect(page.getByTitle("Restore Renamed chat")).toBeVisible();
+	await page.screenshot({ path: "test-results/2qi-archived-chat-menu.png" }); await page.getByTitle("Restore Renamed chat").click();
   await context.close();
 });
 

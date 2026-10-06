@@ -23,6 +23,7 @@ import (
 
 	"harness/internal/agent"
 	"harness/internal/buildinfo"
+	"harness/internal/chatstore"
 	"harness/internal/config"
 	contextmgr "harness/internal/context"
 	"harness/internal/credential"
@@ -772,7 +773,21 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 	if err != nil {
 		return nil, floor, err
 	}
-	if len(paths) == 0 {
+	hadDurable := len(paths) > 0
+	if _, archived, scanErr := chatstore.New(writers.ChatDir()).List(); scanErr == nil && len(archived) > 0 {
+		hidden := make(map[string]bool, len(archived))
+		for _, entry := range archived {
+			hidden[entry.Metadata.ID] = true
+		}
+		kept := paths[:0]
+		for _, path := range paths {
+			if !hidden[strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))] {
+				kept = append(kept, path)
+			}
+		}
+		paths = kept
+	}
+	if !hadDurable {
 		paths, err = writers.LatestOperationalSessionPaths()
 		if err != nil {
 			return nil, floor, err

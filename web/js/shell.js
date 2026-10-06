@@ -381,7 +381,7 @@ export function initShell(options = {}) {
     const sourceID = menu.closest(".agent-tab-wrap")?.dataset.session || "";
     menu.replaceChildren();
 	const tree = chatTree;
-	const act = async (body) => { try { chatTree = await api("/api/chats/tree", body); renderAgentMenu(menu, agentID, false); } catch (error) { report(error.message); } };
+	const act = async (body, state = false) => { try { chatTree = await api("/api/chats/tree", body); if (state) reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); renderAgentMenu(menu, agentID, false); } catch (error) { report(error.message); } };
 	const root = node("div", "agent-chat-folder-root");
 	const rootName = node("strong", ""); rootName.textContent = "chats"; root.append(rootName);
 	const add = iconButton("folder-plus", "New folder in chats", "agent-chat-folder-action");
@@ -420,7 +420,6 @@ export function initShell(options = {}) {
         ? `No chats for this agent — ${unclaimed.length} worker chat${unclaimed.length === 1 ? "" : "s"} elsewhere`
         : "No chats";
       menu.append(empty);
-      return;
     }
     for (const session of sessions) {
       const row = node("div", `agent-chat-row ${session.closed ? "closed" : "open"} ${session.id === sourceID ? "selected" : ""}`);
@@ -446,15 +445,24 @@ export function initShell(options = {}) {
       };
       const rename = iconButton("pencil", `Rename ${chatName(session)}`, "agent-chat-rename");
       rename.onclick = (event) => { event.stopPropagation(); showRename(row, session, menu, agentID); };
+	  const archive = iconButton("archive", `Archive ${chatName(session)}`, "agent-chat-archive");
+	  archive.onclick = (event) => { event.stopPropagation(); void act({ action: "archive", id: session.id }, true); };
       const remove = button("×", `Delete ${chatName(session)}`, "agent-chat-delete");
       remove.onclick = () => void deleteChat(session, menu, agentID);
       // Item 2py (f): Delete works whatever the chat is doing; the server stops and
       // closes it first.
       remove.disabled = store.replay;
-      row.append(summary, rename, remove);
+	  row.append(summary, archive, rename, remove);
 	  const chat = (tree.chats || []).find((item) => item.id === session.id);
 	  (targets.get(chat?.folder || "") || menu).append(row);
     }
+	const archived = tree.archived || [];
+	if (archived.length) {
+	  const group = document.createElement("details"); group.className = "agent-chat-archived";
+	  const heading = document.createElement("summary"); heading.textContent = `Archived (${archived.length})`; group.append(heading);
+	  for (const chat of archived) { const row = node("div", "agent-chat-row archived"); const name = node("span", "agent-chat-summary"); name.textContent = chat.name; name.title = chat.name; const restore = iconButton("restore", `Restore ${chat.name}`, "agent-chat-restore"); restore.onclick = () => void act({ action: "restore", id: chat.id }, true); row.append(name, restore); group.append(row); }
+	  menu.append(group);
+	}
 	if (refresh) void api("/api/chats/tree", undefined, "GET").then((value) => { chatTree = value; renderAgentMenu(menu, agentID, false); }).catch(() => {});
   }
 
@@ -682,6 +690,8 @@ function iconButton(kind, title, className) {
   svg.setAttribute("aria-hidden", "true");
   const paths = kind === "folder-plus"
     ? ["M3.5 6.5h6l2 2h9v10h-17z", "M12 11v5M9.5 13.5h5"]
+	: kind === "archive" ? ["M4 7h16v13H4zM3 4h18v3H3zM9 11h6"]
+	: kind === "restore" ? ["M5 8v-4m0 0h4M5 4l3 3M5.5 9a7 7 0 1 0 2-3"]
     : ["M5 19l3.5-.8L19 6.7 16.3 4 5.8 15.5z", "M14.8 5.5l2.7 2.7"];
   for (const shape of paths) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");

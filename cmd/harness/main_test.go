@@ -1,11 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/credential"
 	"harness/internal/events"
@@ -20,6 +23,24 @@ func TestStartupDoesNotCreateAChatWithoutAnOperatorAction2qd(t *testing.T) {
 	if strings.Contains(string(source), `registry.Create("main", mainAgentID, "")`) {
 		t.Fatal("startup still creates a chat when no retained chat is open")
 	}
+}
+
+func TestStartupSkipsArchivedJournalBytes2qi(t *testing.T) {
+	root := t.TempDir()
+	writers, err := events.NewWriters(filepath.Join(root, "logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range 60 { id := fmt.Sprintf("archived-%02d", index); path, err := chatstore.New(filepath.Join(root, "chats")).Create(id, "Archived", time.Now().Add(-15*24*time.Hour)); if err != nil { t.Fatal(err) }; meta, _ := chatstore.ReadMetadata(path); meta.ArchivedAt = time.Now(); if err := chatstore.WriteMetadata(path, meta); err != nil { t.Fatal(err) }; if err := os.WriteFile(filepath.Join(root, "chats", id+".jsonl"), []byte("not json\n"), 0o600); err != nil { t.Fatal(err) } }
+	cfg := config.Defaults(t.TempDir())
+	connection := &cfg.Connections[0]
+	bus := events.NewBus()
+	registry := session.NewRegistry(bus, writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
+	registry.SetPlansRoot(filepath.Join(root, "plans"))
+	if restored, _, err := restoreRetainedChats(writers, registry, bus, 0); err != nil || len(restored) != 0 {
+		t.Fatalf("restore=%v err=%v", restored, err)
+	}
+	_ = writers.Close()
 }
 
 func TestRetainedChatsRestoreWithoutOperationalLogsAndDeleteExplicitly(t *testing.T) {

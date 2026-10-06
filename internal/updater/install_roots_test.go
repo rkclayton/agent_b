@@ -1,6 +1,7 @@
 package updater
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -90,7 +91,7 @@ func TestLoopbackUpdaterCycleGetsOnlyDisposableNativeInstallArguments2qp(t *test
 	data := `C:\suite\root\Data\Agent_b`
 	arguments := fixtureInstallArguments("http://127.0.0.1:4321/latest.json", data, []string{"--install"})
 	joined := strings.Join(arguments, " ")
-	for _, want := range []string{"-NativeTestMode", `-StartMenuDirectory C:\suite\root\Data\Agent_b\test-start-menu`, `HKCU:\Software\Agent_b-Installer-Test-`} {
+	for _, want := range []string{"-NativeTestMode", "-StartMenuDirectory " + filepath.Join(data, "test-start-menu"), `HKCU:\Software\Agent_b-Installer-Test-`} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("loopback cycle lacks %q: %s", want, joined)
 		}

@@ -128,7 +128,8 @@ func (m *Manager) Start(ctx context.Context) {
 				if !ok {
 					return
 				}
-				if !notifiable(event.Type) || !m.State().Configured {
+				data, _ := event.Data.(map[string]any)
+				if data["notification_suppressed"] == true || !notifiable(event.Type) || !m.State().Configured {
 					continue
 				}
 				select {

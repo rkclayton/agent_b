@@ -99,6 +99,7 @@ func (s *Scheduler) notifyAgentIdleLocked(agentID string) {
 		s.agentIdle(agentID)
 	}
 }
+
 // RestoreQueue puts a restored chat's queued messages back in the queue, in the
 // order they were accepted. rel-1.23.0's card 5: the messages were always durable —
 // QueueUserAttachments writes them to the journal before they are queued — but their
@@ -468,6 +469,14 @@ func (s *Scheduler) repositionLocked() {
 	}
 }
 func (s *Scheduler) Stop(sessionID string, all bool) []string {
+	return s.stopReason(sessionID, all, "")
+}
+
+func (s *Scheduler) StopReason(sessionID, reason string) []string {
+	return s.stopReason(sessionID, false, reason)
+}
+
+func (s *Scheduler) stopReason(sessionID string, all bool, requestedReason string) []string {
 	s.mu.Lock()
 	stopped := []string{}
 	idleAgents := map[string]bool{}
@@ -480,7 +489,10 @@ func (s *Scheduler) Stop(sessionID string, all bool) []string {
 	waits := []waitRun{}
 	for id, active := range s.active {
 		if all || id == sessionID {
-			reason := s.runner.abortReason(id, active.runID)
+			reason := requestedReason
+			if reason == "" {
+				reason = s.runner.abortReason(id, active.runID)
+			}
 			active.stopReason = reason
 			if len(s.pending[id]) > 0 {
 				s.held[id] = true
@@ -504,14 +516,18 @@ func (s *Scheduler) Stop(sessionID string, all bool) []string {
 			if len(s.pending[entry.s.ID]) > 0 {
 				s.held[entry.s.ID] = true
 			}
-			s.bus.Publish(events.New(events.RunStopping, entry.s.ID, entry.runID, map[string]any{"reason": "done"}))
+			reason := requestedReason
+			if reason == "" {
+				reason = "done"
+			}
+			s.bus.Publish(events.New(events.RunStopping, entry.s.ID, entry.runID, map[string]any{"reason": reason}))
 			status := "idle"
 			if s.held[entry.s.ID] {
 				status = "held"
 			}
 			armed := append([]string(nil), entry.s.Snapshot().Run.ArmedDetectors...)
-			entry.s.SetRun(session.RunState{Status: status, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.pending[entry.s.ID]), LastStopReason: "done", LastStopDetail: "stopped before dispatch", LastRunID: entry.runID, ArmedDetectors: armed})
-			s.publishRunStoppedLocked(entry.s.ID, entry.runID, "done", "stopped before dispatch", 0, s.held[entry.s.ID], armed)
+			entry.s.SetRun(session.RunState{Status: status, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.pending[entry.s.ID]), LastStopReason: reason, LastStopDetail: "stopped before dispatch", LastRunID: entry.runID, ArmedDetectors: armed})
+			s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, "stopped before dispatch", 0, s.held[entry.s.ID], armed)
 			stopped = append(stopped, entry.s.ID)
 		} else {
 			kept = append(kept, entry)
@@ -573,6 +589,25 @@ func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail str
 	}
 	s.stoppedRuns[key] = true
 	data := map[string]any{"run_id": runID, "reason": reason, "terminal_reason": canonicalTerminalReason(reason), "detail": detail, "turns": turns, "queue_held": queueHeld, "armed_detectors": armed}
+	if item, ok := s.registry.Get(sessionID); ok && item.Snapshot().Origin == "scheduled" {
+		snapshot := item.Snapshot()
+		data["scheduled_job"] = snapshot.Label
+		failure := reason
+		if detail != "" {
+			failure += " - " + detail
+		}
+		if reason != "done" && item.ScheduledFailure != "" && item.ScheduledFailure == failure {
+			data["notification_suppressed"] = true
+		}
+		if reason == "done" {
+			for index := len(snapshot.Messages) - 1; index >= 0; index-- {
+				if snapshot.Messages[index].Role == "assistant" {
+					data["notification_suppressed"] = strings.Contains(snapshot.Messages[index].Content, "[SILENT]")
+					break
+				}
+			}
+		}
+	}
 	// Item 2jg: the model CLASS, never the model name, endpoint or connection id.
 	// "was this a local model or somebody's API" is the only distinction a
 	// diagnostic needs, and it is the only one that can leave.
@@ -647,7 +682,7 @@ func canonicalTerminalReason(reason string) string {
 		return "announced-action-and-stopped"
 	case "aborted_mid_run", "aborted_mid_tool", "aborted_mid_model", "user_stop", "cancellation_requested":
 		return "cancelled-by-operator"
-	case "wall_clock", "turn_ceiling", "tool_budget", "context_exhausted", "context_ceiling":
+	case "wall_clock", "cron_timeout", "turn_ceiling", "tool_budget", "context_exhausted", "context_ceiling":
 		return "limit"
 	// Item 2lw: malformed_turn joins these. rel-1.20.0/W1 s own scan found it
 	// LIVE and undeclared -- the model returned finish_reason tool_calls with no

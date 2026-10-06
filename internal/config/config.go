@@ -31,6 +31,7 @@ type Config struct {
 	Agents        []Agent                 `json:"agents"`
 	Chat          Chat                    `json:"chat"`
 	Run           RunConfig               `json:"run"`
+	Cron          Cron                    `json:"cron"`
 	Approval      Approval                `json:"approval"`
 	Context       GlobalContext           `json:"context"`
 	Memory        Memory                  `json:"memory"`
@@ -94,7 +95,7 @@ func AgentID(name string) string {
 // Item 2ka: delegate follows the twelve established tools; every older tool
 // keeps its relative position.
 func FullToolset() []string {
-	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate"}
+	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate", "cronjob"}
 }
 
 // MergedSearchNames are the two tools `search` replaced. A configuration
@@ -511,6 +512,10 @@ type RunConfig struct {
 	QueueDepth               int `json:"queue_depth"`
 }
 
+type Cron struct {
+	MaxRunMinutes int `json:"max_run_minutes"`
+}
+
 const DefaultMaxTurns = 10000
 const DefaultMaxWallClockSeconds = 6 * 60 * 60
 const DefaultMaxToolCalls = 1000
@@ -782,7 +787,7 @@ func Defaults(workspace string) Config {
 		Connections: []Connection{connection}, Agents: []Agent{{Name: connection.Label, B: "local", Toolset: FullToolset()}},
 		Services: map[string]Service{},
 		Sandbox:  Sandbox{Enabled: true, initialized: true},
-		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .80, SummaryPct: .90, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),
+		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 2}, Cron: Cron{MaxRunMinutes: 20}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .80, SummaryPct: .90, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),
 		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, Attachments: AttachmentTool{MaxBytes: 256 << 20, InlineMaxBytes: 2 << 20}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Shell: ShellTool{OperatorCommands: []string{"git"}}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}, AllowInternalHosts: []string{}}, WebSearch: WebSearchTool{Enabled: true, Engines: []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"}, PerEngineTimeoutS: 8, BenchDurationMinutes: 30, initialized: true}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
 		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Enabled: false, Account: "agentb-svc", Domain: ".", initialized: true}},
 		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
@@ -1218,6 +1223,9 @@ func (c Config) Validate() error {
 	if c.Run.MaxConsecutiveToolErrors < 0 {
 		return fmt.Errorf("run.max_consecutive_tool_errors: cannot be negative")
 	}
+	if c.Cron.MaxRunMinutes < 1 {
+		return fmt.Errorf("cron.max_run_minutes: must be positive")
+	}
 	if !oneOf(c.Approval.Mode, ApprovalModeBoundaryOnly, ApprovalModeMutating, ApprovalModeAll, ApprovalModeOff) {
 		return fmt.Errorf("approval.mode: invalid")
 	}
@@ -1363,9 +1371,12 @@ func ConnectionSetupReason(connection *Connection) string {
 func applyDefaults(c *Config) {
 	d := Defaults(c.Workspace)
 	legacyFull := FullToolset()[:12]
+	previousFull := FullToolset()[:13]
 	for index := range c.Agents {
 		if equalStrings(c.Agents[index].Toolset, legacyFull) {
-			c.Agents[index].Toolset = append(append([]string(nil), legacyFull...), "delegate")
+			c.Agents[index].Toolset = append(append([]string(nil), legacyFull...), "delegate", "cronjob")
+		} else if equalStrings(c.Agents[index].Toolset, previousFull) {
+			c.Agents[index].Toolset = append(append([]string(nil), previousFull...), "cronjob")
 		}
 	}
 	if c.ConfigVersion == 0 {
@@ -1391,6 +1402,9 @@ func applyDefaults(c *Config) {
 	}
 	if c.Run.MaxConcurrent == 0 {
 		c.Run.MaxConcurrent = d.Run.MaxConcurrent
+	}
+	if c.Cron.MaxRunMinutes == 0 {
+		c.Cron.MaxRunMinutes = d.Cron.MaxRunMinutes
 	}
 	if c.Approval.Mode == "" {
 		c.Approval = d.Approval

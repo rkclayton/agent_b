@@ -25,6 +25,7 @@ import (
 	"harness/internal/buildinfo"
 	"harness/internal/chatstore"
 	"harness/internal/config"
+	"harness/internal/cron"
 	contextmgr "harness/internal/context"
 	"harness/internal/credential"
 	"harness/internal/delivery"
@@ -461,6 +462,7 @@ func main() {
 	callServiceTool.SetVault(vault)
 	entraManager := entra.New(vault)
 	callServiceTool.SetTokenProvider("entra", entraManager)
+	cronManager := cron.New(profileRoot, nil, nil)
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
@@ -479,6 +481,7 @@ func main() {
 		callServiceTool,
 		delegateTool,
 		tools.NewChatHistory(func() tools.ChatHistoryReader { return writers }),
+		tools.NewCronjob(cronManager),
 	)
 	// Item 2ch (v1.2.5): the threshold under which a PDF is sent inline rather
 	// than read from its extracted text.
@@ -496,6 +499,11 @@ func main() {
 		return deliveryManager.Deliver(item, runID, files)
 	})
 	scheduler := agent.NewScheduler(runner, registry, bus, web.ConfigSnapshot)
+	scheduled := &scheduledRuns{profile:profileRoot,cfg:web.ConfigSnapshot,registry:registry,scheduler:scheduler,bus:bus,web:web,sessions:map[string]string{}}
+	cronManager.SetRunner(scheduled.run)
+	cronManager.SetHooks(nil, scheduled.finish)
+	cronContext, cancelCron := context.WithCancel(context.Background()); defer cancelCron()
+	go cronManager.Run(cronContext)
 	runner.SetMailboxBoundary(func(_ context.Context, sessionID string, approvalPending bool) agent.BoundaryAction {
 		action, err := operatorFiles.CheckInbox(sessionID, approvalPending)
 		return agent.BoundaryAction{Stop: action.Stop, Revision: action.Revision, Delay: action.Delay, Err: err}
@@ -577,6 +585,8 @@ func main() {
 			}
 		}
 		web.SetWorkspaceState(nextWorkspaceManager, memoryManager)
+		scheduled.setProfile(nextRoot)
+		if err := cronManager.SetProfileRoot(nextRoot); err != nil { return err }
 		web.StartReflection(24 * time.Hour)
 		web.ApplyTelemetry()
 		web.PublishPlanChanges()

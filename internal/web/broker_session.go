@@ -222,7 +222,8 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 			if !ok {
 				return
 			}
-			if kind, wake := pushKinds[event.Type]; includePushes && wake {
+			data, _ := event.Data.(map[string]any)
+			if kind, wake := pushKinds[event.Type]; includePushes && wake && data["notification_suppressed"] != true {
 				if err := client.Notify(kind, event.SessionID, pushNotice(event)); err != nil {
 					log.Printf("broker: the %s push was not sent: %v", kind, err)
 				}
@@ -248,7 +249,8 @@ func (s *Server) streamPushes(ctx context.Context, client deviceSink) {
 			if !ok {
 				return
 			}
-			if kind, wake := pushKinds[event.Type]; wake {
+			data, _ := event.Data.(map[string]any)
+			if kind, wake := pushKinds[event.Type]; wake && data["notification_suppressed"] != true {
 				if err := client.Notify(kind, event.SessionID, pushNotice(event)); err != nil {
 					log.Printf("broker: the %s push was not sent: %v", kind, err)
 				}
@@ -260,6 +262,14 @@ func (s *Server) streamPushes(ctx context.Context, client deviceSink) {
 }
 
 func pushNotice(event events.Event) string {
+	if data, ok := event.Data.(map[string]any); ok {
+		if name, ok := data["scheduled_job"].(string); ok && name != "" {
+			if data["reason"] != "done" {
+				return "Scheduled job " + name + " failed"
+			}
+			return "Scheduled job " + name + " finished"
+		}
+	}
 	switch event.Type {
 	case events.ApprovalRequired:
 		return "Agent_b is waiting for your approval"

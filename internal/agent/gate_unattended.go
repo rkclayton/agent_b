@@ -37,6 +37,9 @@ const (
 // operator's switch AND the absence of an operator: a b or d chat is one he is
 // typing in, so it is attended regardless.
 func (g *Gate) unattended(s *session.Session) bool {
+	if s.Origin == "scheduled" {
+		return true
+	}
 	if !g.cfg().Approval.Unattended {
 		return false
 	}

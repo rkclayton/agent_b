@@ -106,6 +106,24 @@ func TestAttendedIsUnchanged(t *testing.T) {
 	}
 }
 
+func TestScheduledRunAlwaysRefusesCards2qs(t *testing.T) {
+	gate, bus := unattendedGate(t, false)
+	stream, stop := bus.Subscribe()
+	defer stop()
+	item := &session.Session{ID: "scheduled", Role: "b", Origin: "scheduled"}
+	decision, err := gate.WaitPolicyDecision(context.Background(), item, "r1", "c1", "shell", nil)
+	if err != nil || decision != "deny" || len(item.BoundaryHits()) != 1 {
+		t.Fatalf("decision=%q hits=%v err=%v", decision, item.BoundaryHits(), err)
+	}
+	select {
+	case event := <-stream:
+		if event.Type == events.ApprovalRequired {
+			t.Fatal("scheduled run raised a card")
+		}
+	default:
+	}
+}
+
 // Item 2q2: a card in a b chat that nobody answers is refused after ten minutes,
 // recorded as a boundary hit, and the run goes on; one answered before then
 // behaves as today. A fast clock stands in for the ten minutes.

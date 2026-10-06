@@ -8,7 +8,7 @@ import "strings"
 // The class is derived at the one place a tool result is built, from the text
 // the tool already produced. That is not ideal — a class each tool declares
 // would be better — but it is honest about what exists: there is one
-// `CallDetail.Err`, thirteen tools, and no error taxonomy anywhere in the
+// `CallDetail.Err`, fifteen tools, and no error taxonomy anywhere in the
 // product today. Deriving here gives the filter a fixed vocabulary now, and the
 // next item can push the classification down into the tools without changing
 // what leaves the machine.

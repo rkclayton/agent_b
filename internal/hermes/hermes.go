@@ -57,7 +57,7 @@ type manifest struct {
 }
 
 var invalidName = regexp.MustCompile(`[^a-z0-9]+`)
-var unsupported = []string{"terminal", "process", "execute_code", "web_extract", "delegate_task", "todo", "memory", "cronjob", "clarify"}
+var unsupported = []string{"terminal", "process", "execute_code", "web_extract", "delegate_task", "todo", "memory", "clarify"}
 
 const maxImportFiles, maxImportBytes = 2048, 64 << 20
 

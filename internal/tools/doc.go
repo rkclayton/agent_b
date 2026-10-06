@@ -1,3 +1,3 @@
-// Package tools implements the twelve model tools and the folder guard they
+// Package tools implements the model tools and the folder guard they
 // share.
 package tools

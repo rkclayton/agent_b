@@ -194,7 +194,7 @@ func TestAgentAvoidanceNoteDoesNotPreventTheExistingOutsideFolderCard2p3(t *test
 	}
 }
 
-// Item 2pz CHECK 3: what a chat sends -- the shipped prompt and all thirteen tools'
+// Item 2pz CHECK 3: what a chat sends -- the shipped prompt and all model tools'
 // descriptions -- never calls the person the operator.
 func TestAChatRequestNeverSaysOperator2pz(t *testing.T) {
 	renderer, err := LoadTemplate(filepath.Join("..", "..", "prompts", "system.md"))

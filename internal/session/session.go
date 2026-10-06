@@ -116,6 +116,7 @@ type Session struct {
 	Closed                 bool
 	NamePinned             bool
 	Origin, Owner          string
+	ScheduledFailure       string
 	Messages               []events.Message
 	Budget                 events.Budget
 	Run                    RunState

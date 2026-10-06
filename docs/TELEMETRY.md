@@ -64,7 +64,7 @@ to the second.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `name` | string | the tool's registered name, from the fixed list of thirteen |
+| `name` | string | the tool's registered name, from the fixed list of fifteen |
 | `ok` | bool | |
 | `ms` | int | |
 | `class` | string, optional | present only when `ok` is false: the error's class, from the fixed list below. Never the error text. |

@@ -1151,17 +1151,17 @@ func TestAttachmentConfigIsAdditiveCurrentSchema(t *testing.T) {
 	}
 }
 
-// Item 2ka: delegate follows the twelve established tools.
-func TestFullToolsetContractKeepsTwelveStableThenDelegate(t *testing.T) {
-	want := "read_file,list_dir,write_file,edit_file,search,shell,remember,recall,fetch_url,web_search,run_script,call_service,delegate"
+// Item 2qs: cronjob follows the established configurable tools.
+func TestFullToolsetContractKeepsExistingOrderThenCronjob(t *testing.T) {
+	want := "read_file,list_dir,write_file,edit_file,search,shell,remember,recall,fetch_url,web_search,run_script,call_service,delegate,cronjob"
 	got := FullToolset()
-	if len(got) != 13 || strings.Join(got, ",") != want {
+	if len(got) != 14 || strings.Join(got, ",") != want {
 		t.Fatalf("full toolset=%v", got)
 	}
 }
 
 func TestApplyDefaultsAddsDelegateOnlyToThePreviousFullToolset(t *testing.T) {
-	legacyFull := FullToolset()[:12]
+	legacyFull := FullToolset()[:13]
 	cfg := Defaults(t.TempDir())
 	cfg.Agents = []Agent{{Name: "Full", B: cfg.Connections[0].ID, Toolset: append([]string(nil), legacyFull...)}, {Name: "Limited", B: cfg.Connections[0].ID, Toolset: []string{"read_file"}}}
 	ApplyDefaults(&cfg)

@@ -605,3 +605,24 @@ func (s *Server) deleteChat(item *session.Session) (events.SessionInventory, err
 	}
 	return inventory, err
 }
+
+func (s *Server) DeleteChatHeadless(id string) error {
+	item, ok := s.registry.Get(id)
+	if !ok {
+		return nil
+	}
+	if !item.IsClosed() {
+		if err := s.registry.Close(id); err != nil {
+			return err
+		}
+	}
+	workspace, scratch := item.Snapshot().Workspace, item.Snapshot().Scratch
+	if _, err := s.deleteChat(item); err != nil {
+		return err
+	}
+	root := filepath.Join(s.profileRoot(), "chats")
+	if scratch && withinRoot(root, workspace) {
+		return os.RemoveAll(workspace)
+	}
+	return nil
+}

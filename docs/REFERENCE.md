@@ -1,6 +1,6 @@
 # Agent_b detailed reference
 
-Agent_b is a small Go coding agent for OpenAI-compatible model connections. It provides observable multi-session runs, thirteen governed tools, exact-or-labeled context accounting, compaction, durable workspace notes, and a unified Chat, Plan and Settings interface. The browser remains dependency-free.
+Agent_b is a small Go coding agent for OpenAI-compatible model connections. It provides observable multi-session runs, fifteen governed tools, exact-or-labeled context accounting, compaction, durable workspace notes, and a unified Chat, Plan and Settings interface. The browser remains dependency-free.
 
 Choose one serving path before you start.
 

@@ -206,9 +206,8 @@ async function saveConnection() {
   setBusy("Saving connection…");
   try {
     const connections = [...(snapshot.config.connections || []).filter((item) => item.id !== connectionID), next];
-    snapshot.config = await request("/api/config", { connections });
+    snapshot.config = await request("/api/config", { connections, agents: savedConnectionAgents() });
     snapshot = await request("/api/state", undefined, "GET");
-    await assignSavedConnection();
     connectionDraft = undefined;
     message = "Connection saved.";
     discoveryNote = "";
@@ -277,11 +276,15 @@ async function stopMeasurement() {
 }
 
 async function assignSavedConnection() {
+  snapshot.config = await request("/api/config", { agents: savedConnectionAgents() });
+}
+
+function savedConnectionAgents() {
   const current = snapshot.config.agents?.[0] || { name: "Agent_b", toolset: fullTools };
   const agent = { ...current, name: current.name || "Agent_b", toolset: current.toolset || fullTools };
   if (!agent.b) agent.b = connectionID;
   else if (agent.b !== connectionID && !agent.c) agent.c = connectionID;
-  snapshot.config = await request("/api/config", { agents: [agent] });
+  return [agent];
 }
 
 async function finish() {

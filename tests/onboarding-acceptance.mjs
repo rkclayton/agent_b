@@ -130,13 +130,15 @@ try {
   }
   await page.locator('[data-action="show-install"]').click();
   await page.locator('.setup-install select[data-field="install-model"]').waitFor();
+  await page.waitForFunction(() => document.querySelector('.setup-install select[data-field="install-model"]')?.options.length > 0);
   assert.equal(await page.locator('[data-field="install-backend"]').count(), 0, "backend must be automatic text, not a select");
   assert.match(await page.locator('.setup-install').innerText(), /Backend\s+(?:cuda|vulkan|cpu)/i);
   if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-2-installer-auto-backend.png") });
   await page.locator('[data-field="url"]').fill(`http://127.0.0.1:${fakePort}`);
   await page.locator('[data-field="model"]').fill("onboarding-fake");
   await page.locator('[data-action="save"]').click();
-  await page.locator(".setup-feedback").filter({ hasText: "Connection saved." }).waitFor();
+  await page.waitForFunction(() => document.querySelector(".setup-feedback")?.textContent !== "Saving connection…");
+  assert.equal(await page.locator(".setup-feedback").textContent(), "Connection saved.");
   await page.locator('[data-action="test"]').click();
   await page.locator(".setup-feedback").filter({ hasText: /Test passed in \d+ ms/ }).waitFor({ timeout: 60000 });
   assert.equal(await page.locator("h1").textContent(), "Where is your model?");
@@ -169,7 +171,8 @@ try {
   await page.locator('[data-field="url"]').fill(`http://127.0.0.1:${fakePort}`);
   await page.locator('[data-field="model"]').fill("onboarding-fake-second");
   await page.locator('[data-action="save"]').click();
-  await page.locator(".setup-feedback").filter({ hasText: "Connection saved." }).waitFor();
+  await page.waitForFunction(() => document.querySelector(".setup-feedback")?.textContent !== "Saving connection…");
+  assert.equal(await page.locator(".setup-feedback").textContent(), "Connection saved.");
   await page.locator('[data-action="test"]').click();
   await page.locator(".setup-feedback").filter({ hasText: /Test passed in \d+ ms/ }).waitFor({ timeout: 60000 });
   state = await waitJSON(`${baseURL}/api/state`);

@@ -48,7 +48,7 @@ test("Setup strip has settings and window controls but no Chat page button", () 
 });
 
 test("Save assigns the first connection to b, the second to c, and never d", () => {
-  assert.match(script, /saveConnection[\s\S]*await assignSavedConnection\(\)/);
+  assert.match(script, /saveConnection[\s\S]*connections, agents: savedConnectionAgents\(\)/);
   assert.match(script, /if \(!agent\.b\) agent\.b = connectionID/);
   assert.match(script, /else if \(agent\.b !== connectionID && !agent\.c\) agent\.c = connectionID/);
   assert.doesNotMatch(script, /agent\.d\s*=/);

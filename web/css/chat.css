@@ -33,8 +33,7 @@
 
 .chat-page {
   display: grid;
-  /* Item 2gk: header, budget bar, transcript, this chat's readout, composer. */
-  grid-template-rows: 40px 4px minmax(0, 1fr) auto auto;
+  grid-template-rows: 40px 4px minmax(0, 1fr) auto;
   height: 100dvh;
   overflow: hidden;
   background: var(--bezel);
@@ -188,8 +187,8 @@
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-gutter: stable;
-  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--mute) var(--bezel);
   background: var(--well);
   box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.6);
 }
@@ -203,7 +202,7 @@
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
   gap: 8px;
-  padding: 8px 12px;
+  padding: 6px 4px;
   border-bottom: 1px solid rgba(112, 125, 139, 0.28);
 }
 .chat-speaker {
@@ -675,7 +674,7 @@
 .chat-composer {
   display: grid;
   gap: 0;
-  padding: 0 10px 8px;
+  padding: 0 4px 6px;
 }
 .chat-composer-row {
   min-width: 0;
@@ -700,7 +699,17 @@
   border-radius: 0;
   font-size: calc(var(--ct) * 7 / 6);
   line-height: 20px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--mute) var(--bezel);
 }
+.chat-log::-webkit-scrollbar,
+.chat-composer textarea::-webkit-scrollbar { width:6px; height:6px; }
+.chat-log::-webkit-scrollbar-track,
+.chat-composer textarea::-webkit-scrollbar-track { background:var(--bezel); }
+.chat-log::-webkit-scrollbar-thumb,
+.chat-composer textarea::-webkit-scrollbar-thumb { background:var(--mute); border-radius:0; }
+.chat-log::-webkit-scrollbar-thumb:active,
+.chat-composer textarea::-webkit-scrollbar-thumb:active { background:var(--signal); }
 .chat-notice {
   display: flex;
   align-items: center;
@@ -747,39 +756,13 @@
   color: var(--alarm);
 }
 .chat-input-wrap { position:relative; min-width:0; width:100%; border-radius:0; background:var(--well); box-shadow:inset 0 0 0 1px rgba(112,125,139,.28); }
-.chat-input-actions { position:absolute; right:6px; bottom:6px; display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+.chat-input-actions { position:absolute; right:4px; bottom:4px; display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
 .chat-submit-actions { display:flex; align-items:center; gap:3px; }
-/* Item 2ld: the strip is the handle. It is trimmed to the height its text needs,
-   with the same small padding on all sides, and it remains a status line — the
-   cursor is the only thing that says it can be dragged. */
-.chat-status-strip { height:16px; min-height:16px; display:flex; align-items:center; gap:6px; padding:1px 0; border-top:1px solid rgba(112,125,139,.22); border-bottom:1px solid rgba(112,125,139,.22); color:var(--mute); font:500 calc(var(--ct) * 11 / 12)/var(--ct) var(--mono); text-transform:uppercase; cursor:row-resize; touch-action:none; }
-.chat-status-strip.dragging { user-select:none; }
-.chat-status-strip .chat-attach-wrap { margin-left:auto; width:14px; height:14px; }
-/* Item 2me (b) and (c), both MEASURED in the running app before they were made.
-   (b): the strip was 28px because a 24px control sat in it, and removing that
-   control dropped it to its 20px min-height — so the paperclip, not the text, was
-   setting the height, exactly as the item read it. The control in the STRIP is now
-   the size of the glyph it draws, which is the strip's own line, so the strip is
-   its text plus its padding and 2ld's comment above becomes true. [[2ha]]'s family
-   on the composer CORNER is untouched at 24px.
-   THE HIT TARGET IS NOT SMALLER: the ::before expands the pressable area back to
-   24x24 without taking part in layout, so the box shrinks and the target does not.
-   (c): the negative right margin cancelled the strip's own 4px right padding and
-   put the paperclip hard against the window edge while the text kept its 4px. It
-   is gone; both ends are inset 4px, measured.
-   THREE rules set this control's size and all three are below, so all three are
-   answered here: the family rule, which ties on specificity and wins on source
-   order (answered with one more class), the wrap's own 24px box, and .chat-attach's
-   min-height, which is already !important in this file — the only way past an
-   !important is another one, so this carries the reason instead of hiding it. */
-.chat-status-strip .chat-attach.composer-control {
-  width:14px; height:14px; min-width:14px;
-  min-height:14px !important;
-  position:relative;
-  z-index:2;
-}
-.chat-status-strip .chat-attach.composer-control::before { content:""; position:absolute; inset:-5px; }
-.chat-update-banner { margin-left:auto; display:flex; align-items:center; gap:4px; white-space:nowrap; color:var(--ink); }
+.chat-live-status { display:flex; align-items:center; gap:6px; padding:2px 4px; color:var(--mute); font:500 calc(var(--ct) * 11 / 12)/var(--ct) var(--mono); text-transform:uppercase; }
+.chat-live-status[hidden] { display:none; }
+.chat-resize-handle { height:4px; min-height:4px; cursor:row-resize; touch-action:none; }
+.chat-resize-handle.dragging { user-select:none; background:rgba(112,125,139,.22); }
+.chat-update-banner { justify-self:end; display:flex; align-items:center; gap:4px; margin-right:4px; white-space:nowrap; color:var(--ink); }
 .chat-update-banner[hidden] { display:none; }
 .chat-update-banner:not([hidden]) + .chat-attach-wrap { margin-left:0; }
 .chat-update-install,
@@ -804,7 +787,7 @@
 
 /* Compact application frame shared with Console. */
 .chat-page {
-  grid-template-rows: var(--app-header-height) 4px minmax(0, 1fr) auto auto;
+  grid-template-rows: var(--app-header-height) 4px minmax(0, 1fr) auto;
 }
 .chat-header {
   grid-row: 1;
@@ -959,10 +942,7 @@
   border-radius: 2px;
   text-decoration: none;
 }
-.chat-composer {
-  align-items: end;
-  padding: 0 8px 8px;
-}
+.chat-composer { align-items:end; padding:0 4px 6px; }
 .chat-composer textarea {
   width: 100%;
   height: 112px;
@@ -977,9 +957,7 @@
   min-height: var(--composer-height);
   max-height: var(--composer-height);
 }
-/* Item 2oc: at the remembered zero position there is no input row or footer
-   spacing below the handle. The strip is not in the row, so it stays unchanged
-   and remains the reversible drag target. */
+/* At the remembered zero position the 4px top-edge handle stays available. */
 .chat-composer[style*="--composer-height: 0px"] { gap:0; padding-block:0; }
 .chat-composer[style*="--composer-height: 0px"] textarea { padding-block:0; }
 .chat-composer[style*="--composer-height: 0px"] .chat-composer-row { height:0; min-height:0; overflow:hidden; }

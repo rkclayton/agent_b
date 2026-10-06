@@ -139,14 +139,14 @@ test("the composer collapses to zero, remembers it, and opens from the same hand
   </style></head><body><div id="wrap">
     <main id="chat-log"><p>transcript</p></main>
     <footer id="chat-composer" class="chat-composer">
-      <div id="chat-status-strip" class="chat-status-strip" role="separator" title="Drag to resize the message box">ready</div>
+      <div id="chat-resize-handle" class="chat-resize-handle" role="separator" title="Drag to resize the message box"></div>
       <div class="chat-composer-row"><div class="chat-input-wrap"><textarea id="chat-input"></textarea><span class="chat-input-actions"><button id="chat-mic" class="composer-control">mic</button><button id="chat-send" class="composer-control">send</button></span></div></div>
     </footer>
   </div>
   <script type="module">
     import { installComposerResize, COMPOSER_MIN } from "/js/composer-resize.js";
     window.COMPOSER_MIN = COMPOSER_MIN;
-    installComposerResize({ strip: document.getElementById("chat-status-strip"), composer: document.getElementById("chat-composer"), input: document.getElementById("chat-input"), log: document.getElementById("chat-log") });
+    installComposerResize({ handle: document.getElementById("chat-resize-handle"), composer: document.getElementById("chat-composer"), input: document.getElementById("chat-input"), log: document.getElementById("chat-log") });
   </script></body></html>`;
   await page.route("**/*", (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -160,7 +160,7 @@ test("the composer collapses to zero, remembers it, and opens from the same hand
   expect(floor, "the floor is a true zero").toBe(0);
 
   // Drag far past the bottom of the window: the clamp, not the pointer, decides.
-  const strip = await page.locator("#chat-status-strip").boundingBox();
+  const strip = await page.locator("#chat-resize-handle").boundingBox();
   await page.mouse.move(strip.x + 40, strip.y + strip.height / 2);
   await page.mouse.down();
   await page.mouse.move(strip.x + 40, strip.y + strip.height / 2 + 900, { steps: 8 });
@@ -173,11 +173,11 @@ test("the composer collapses to zero, remembers it, and opens from the same hand
   expect((await page.locator("#chat-input").boundingBox()).height).toBe(0);
   expect((await page.locator(".chat-composer-row").boundingBox()).height, "the controls still occupied a row").toBe(0);
   const collapsed = await page.locator("#chat-composer").boundingBox();
-  const collapsedStrip = await page.locator("#chat-status-strip").boundingBox();
+  const collapsedStrip = await page.locator("#chat-resize-handle").boundingBox();
   expect(collapsed.y + collapsed.height, "space remained below the handle").toBe(collapsedStrip.y + collapsedStrip.height);
   // The handle is still findable: the strip is still there and still the target.
-  const smallest = await page.locator("#chat-status-strip").boundingBox();
-  expect(smallest.height, "the handle disappeared at the smallest size").toBeGreaterThanOrEqual(20);
+  const smallest = await page.locator("#chat-resize-handle").boundingBox();
+  expect(smallest.height, "the handle disappeared at the smallest size").toBe(4);
 
   await page.reload();
   expect(await page.evaluate(() => Number.parseFloat(document.getElementById("chat-composer").style.getPropertyValue("--composer-height"))), "zero was not restored after reload").toBe(0);
@@ -185,7 +185,7 @@ test("the composer collapses to zero, remembers it, and opens from the same hand
   expect((await page.locator(".chat-composer-row").boundingBox()).height).toBe(0);
 
   // And it comes back: the drag is reversible from the floor.
-  const restoredStrip = await page.locator("#chat-status-strip").boundingBox();
+  const restoredStrip = await page.locator("#chat-resize-handle").boundingBox();
   await page.mouse.move(restoredStrip.x + 40, restoredStrip.y + restoredStrip.height / 2);
   await page.mouse.down();
   await page.mouse.move(restoredStrip.x + 40, restoredStrip.y + restoredStrip.height / 2 - 100, { steps: 6 });
@@ -204,12 +204,12 @@ test("dragging the strip resizes the composer, keeps what is typed, and persists
     #chat-log { overflow-y:auto } ${chatCSS}
   </style></head><body><div id="wrap">
     <main id="chat-log"><p>transcript</p></main>
-    <div id="chat-status-strip" class="chat-status-strip" role="separator" title="Drag to resize the message box">ready</div>
+    <div id="chat-resize-handle" class="chat-resize-handle" role="separator" title="Drag to resize the message box"></div>
     <footer id="chat-composer" class="chat-composer"><textarea id="chat-input"></textarea></footer>
   </div>
   <script type="module">
     import { installComposerResize } from "/js/composer-resize.js";
-    installComposerResize({ strip: document.getElementById("chat-status-strip"), composer: document.getElementById("chat-composer"), input: document.getElementById("chat-input"), log: document.getElementById("chat-log") });
+    installComposerResize({ handle: document.getElementById("chat-resize-handle"), composer: document.getElementById("chat-composer"), input: document.getElementById("chat-input"), log: document.getElementById("chat-log") });
   </script></body></html>`;
   await page.route("**/*", (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -219,7 +219,7 @@ test("dragging the strip resizes the composer, keeps what is typed, and persists
   await page.goto("http://composer.test/composer.html");
 
   await page.fill("#chat-input", "a message I am still writing");
-  const strip = await page.locator("#chat-status-strip").boundingBox();
+  const strip = await page.locator("#chat-resize-handle").boundingBox();
   const before = (await page.locator("#chat-input").boundingBox()).height;
 
   // Drag the strip UP: the message box grows.
@@ -231,7 +231,7 @@ test("dragging the strip resizes the composer, keeps what is typed, and persists
   expect(taller, "dragging up did not make the composer taller").toBeGreaterThan(before + 60);
 
   // And back DOWN.
-  const strip2 = await page.locator("#chat-status-strip").boundingBox();
+  const strip2 = await page.locator("#chat-resize-handle").boundingBox();
   await page.mouse.move(strip2.x + 40, strip2.y + strip2.height / 2);
   await page.mouse.down();
   await page.mouse.move(strip2.x + 40, strip2.y + strip2.height / 2 + 90, { steps: 6 });
@@ -390,7 +390,7 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
     await context.addInitScript(({ state, id }) => {
       sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: id, surface: { kind: "chat", key: id } }));
       class FixtureEvents {
-        constructor() { this.listeners = new Map(); setTimeout(() => this.emit("snapshot", { type: "snapshot", data: state })); }
+        constructor() { this.listeners = new Map(); globalThis.__fixtureEvents = this; setTimeout(() => this.emit("snapshot", { type: "snapshot", data: state })); }
         addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); }
         emit(type, value) { for (const listener of this.listeners.get(type) || []) listener({ data: JSON.stringify(value) }); }
         close() {}
@@ -415,7 +415,9 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await expect(worked).toContainText(/Worked .* · 2 steps ▸/);
   await expect(finished.page.getByText("The synthetic release proof is complete.")).toBeVisible();
   await expect(finished.page.getByText("Checked the build inputs.")).toHaveCount(0);
+  await expect(finished.page.locator("#chat-status-line")).toHaveCount(0);
   await finished.page.screenshot({ path: "test-results/2ql-s56-finished.png", fullPage: true });
+  await finished.page.screenshot({ path: "test-results/2qm-idle.png", fullPage: true });
   await worked.click();
   await expect(finished.page.getByText("Checked the build inputs.")).toBeVisible();
   await expect(finished.page.locator(".chat-narration-line .chat-step-summary")).toHaveCount(2);
@@ -431,7 +433,22 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await expect(liveBlocks).toHaveCount(2);
   await expect(liveBlocks.nth(0).locator(".chat-step-rows > *")).toHaveCount(0);
   await expect(liveBlocks.nth(1).locator(".chat-step-rows > *")).not.toHaveCount(0);
+  const liveStatus = live.page.locator("#chat-status-line");
+  await expect(liveStatus).toBeVisible();
+  await expect(liveStatus).toContainText(/read_file.*result\.txt/i);
+  await expect(live.page.locator("#chat-log > :last-child")).toHaveAttribute("id", "chat-status-line");
+  await expect(live.page.locator("#chat-status-strip")).toHaveCount(0);
+  await expect(live.page.locator(".chat-input-actions > .chat-attach-wrap + #chat-mic")).toHaveCount(1);
+  await live.page.evaluate((next) => globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: next }), (() => {
+    const next = structuredClone(snapshot("running"));
+    next.sessions[id].chat.push({ type: "agent", key: "later-line", run_id: runID, text: "A newer synthetic line arrived.", done: false });
+    next.sessions[id].cursor.offset++;
+    return next;
+  })());
+  await expect(live.page.getByText("A newer synthetic line arrived.")).toBeVisible();
+  await expect(live.page.locator("#chat-log > :last-child")).toHaveAttribute("id", "chat-status-line");
   await live.page.screenshot({ path: "test-results/2ql-s56-live.png", fullPage: true });
+  await live.page.screenshot({ path: "test-results/2qm-running.png", fullPage: true });
   await live.context.close();
 });
 
@@ -456,7 +473,7 @@ function chatPage(scale, face) {
       </div></article>
     </main>
     <footer id="chat-composer" class="chat-composer">
-      <div id="chat-status-strip" class="chat-status-strip"><span class="chat-notice">idle</span></div>
+      <div id="chat-resize-handle" class="chat-resize-handle"></div>
       <div class="chat-input-wrap"><textarea id="chat-input">typed text</textarea></div>
     </footer>
   </body></html>`;

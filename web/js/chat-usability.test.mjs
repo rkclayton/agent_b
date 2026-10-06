@@ -70,20 +70,14 @@ test("A native attachment context refusal is visible beside its chip", () => {
 
 // The operator's three lower-chat controls. "the enter and stop
 // buttons can be combined into one… i want a small microphone in place of the
-// attachment icon… move the attachment icon to the bar above chat on the far
-// right directly up from where it is now."
+// attachment icon… move the attachment icon directly above the microphone."
 test("the paperclip replaces the duplicate token readout, and the composer holds the mic and one send/stop", () => {
   // Same control, same menu, same hover text; only its home changed.
   // Item 2ha: the three composer controls are one family of line art, so the
   // paperclip is an SVG in the shared glyph box rather than an emoji drawn by
   // whatever font the host has.
-  assert.match(html, /id="chat-status-strip"[\s\S]{0,1000}class="chat-attach-wrap"[\s\S]{0,400}id="chat-attach"[\s\S]{0,200}composer-glyph/);
-  // Item 2me (c): this pinned `margin-right:-4px`, which cancelled the strip's own
-  // right padding so the paperclip sat hard against the window edge while the text
-  // on the left kept its 4px. Both ends are inset the same now, measured, and the
-  // assertion moved with the contract rather than being deleted.
-  assert.match(css, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; width:14px; height:14px; \}/);
-  assert.match(css, /\.chat-update-banner:not\(\[hidden\]\) \+ \.chat-attach-wrap \{ margin-left:0; \}/);
+  assert.match(html, /class="chat-input-actions"[\s\S]{0,200}class="chat-attach-wrap"[\s\S]{0,400}id="chat-attach"[\s\S]{0,1200}id="chat-mic"/);
+  assert.match(css, /\.chat-attach-wrap \{ position: relative; display:block; width:24px; height:24px; \}/);
   assert.doesNotMatch(html, /id="chat-readout"|id="chat-readout-meter"/);
   assert.match(html, /class="chat-composer-row"/);
   // A mic where the paperclip was, then ONE send/stop control.
@@ -119,8 +113,8 @@ test("Degraded accounting is labeled estimated in the Chat occupancy bar", () =>
   assert.match(chat, /value\.estimated \? "estimated · " : ""/);
 });
 
-test("State strip owns queue operator pending and unreachable state without chat rows", () => {
-  assert.match(html, /id="chat-status-strip"[\s\S]*id="chat-notice"[\s\S]*id="chat-retry-model"/);
+test("the transcript-tail status owns queue operator pending and unreachable state", () => {
+  assert.match(html, /id="chat-log"[\s\S]*id="chat-status-line"[\s\S]*id="chat-notice"[\s\S]*id="chat-retry-model"/);
   assert.doesNotMatch(html + chat, /chat-run-as-you/);
   assert.match(chat, /const busyLine = activity \|\| \(busy \? "waiting for first token" : ""\)/);
   assert.doesNotMatch(chat, /0 tokens processing/);
@@ -129,12 +123,9 @@ test("State strip owns queue operator pending and unreachable state without chat
   assert.match(chat, /queued \(\$\{queued\}\).*waiting for model/);
   assert.match(chat, /Run as you · until/);
   assert.match(chat, /filter\(\(entry\) => !\["operator\.context", "message\.queued", "run\.queued"\]/);
-  // Item 2ld (d) and (f): the strip is trimmed to the height its text needs, with
-  // the same small padding all round, and it is the resize handle — the cursor is
-  // the only thing that says so.
-  assert.match(css, /\.chat-status-strip \{ height:16px; min-height:16px/);
-  assert.match(css, /\.chat-status-strip \{[^}]*padding:1px 0/);
-  assert.match(css, /\.chat-status-strip \{[^}]*cursor:row-resize/);
+  assert.match(chat, /log\.lastElementChild !== statusLine/);
+  assert.match(css, /\.chat-live-status \{[^}]*padding:2px 4px/);
+  assert.match(css, /\.chat-resize-handle \{ height:4px; min-height:4px; cursor:row-resize/);
 });
 
 test("Operator mode lives only in Settings Security and states the defeated boundary", () => {
@@ -214,7 +205,7 @@ test("Composer is five lines with no placeholder and expands upward", () => {
   assert.doesNotMatch(composer, /placeholder=/);
   assert.match(css, /height:\s*112px/);
 	// Item 2ld (a) and (b): the composer takes the height the operator dragged the
-	// strip to; the two predetermined heights and the control that stepped through
+	// top edge to; the two predetermined heights and the control that stepped through
 	// them are gone.
 	assert.match(css, /--composer-height/);
 	assert.doesNotMatch(css, /\.chat-composer\.expanded textarea/);
@@ -222,7 +213,7 @@ test("Composer is five lines with no placeholder and expands upward", () => {
 	assert.match(css, /\.chat-pending-attachments,[\s\S]*\.chat-input-wrap\s*\{\s*grid-column:\s*1/);
 	assert.match(css, /\.chat-input-wrap \{[^}]*border-radius:0;[^}]*box-shadow:inset/);
 	assert.match(css, /\.chat-composer textarea \{[\s\S]*?padding:\s*7px 64px 7px 9px;[\s\S]*?border:\s*0;[\s\S]*?border-radius:\s*0;/);
-	assert.match(css, /\.chat-input-actions \{[^}]*right:6px;[^}]*bottom:6px;[^}]*flex-direction:column/);
+	assert.match(css, /\.chat-input-actions \{[^}]*right:4px;[^}]*bottom:4px;[^}]*flex-direction:column/);
 	assert.doesNotMatch(css, /#chat-expand/);
 	assert.doesNotMatch(html, /id="chat-expand"/);
   assert.match(html, /id="chat-send"[^>]+aria-label="Send"[^>]*>[\s\S]{0,40}composer-glyph/);
@@ -395,11 +386,11 @@ test("the 2qe palette has a signal green and accessible ink and mute contrast", 
   assert.match(tokens, /focus-visible[^}]*outline:1px solid var\(--signal\)/);
 });
 
-test("the status strip is a sixteen-pixel flush hairline 2qe", () => {
-  assert.match(css, /\.chat-status-strip\s*\{[^}]*height:16px[^}]*padding:1px 0[^}]*border-top:1px solid[^}]*border-bottom:1px solid[^}]*font:500 calc\(var\(--ct\) \* 11 \/ 12\)\/var\(--ct\) var\(--mono\)/s);
+test("the live status is transcript text and the composer edge is a four-pixel handle 2qm", () => {
+  assert.match(css, /\.chat-live-status\s*\{[^}]*padding:2px 4px[^}]*font:500 calc\(var\(--ct\) \* 11 \/ 12\)\/var\(--ct\) var\(--mono\)/s);
   assert.match(css, /\.chat-composer\s*\{[^}]*gap:\s*0/s);
-  assert.match(css, /\.chat-status-strip \.chat-attach\.composer-control\s*\{[^}]*height:14px/s);
-  assert.match(css, /\.chat-status-strip \.chat-attach\.composer-control::before\s*\{[^}]*inset:-5px/s);
+  assert.match(css, /\.chat-resize-handle\s*\{[^}]*height:4px[^}]*cursor:row-resize/s);
+  assert.doesNotMatch(html + css, /chat-status-strip/);
 });
 
 test("the etched green current follows only a live run and reduced motion removes it 2qe", () => {

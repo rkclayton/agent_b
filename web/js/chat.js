@@ -22,7 +22,8 @@ import { installTranscriptCopy, responseTranscriptRecord, setTranscriptCopyRecor
 const budget = document.getElementById("chat-budget");
 const log = document.getElementById("chat-log");
 const input = document.getElementById("chat-task");
-const statusStrip = document.getElementById("chat-status-strip");
+const statusLine = document.getElementById("chat-status-line");
+const resizeHandle = document.getElementById("chat-resize-handle");
 const send = document.getElementById("chat-send");
 const notice = document.getElementById("chat-notice");
 const pendingApproval = document.getElementById("chat-pending-approval");
@@ -358,6 +359,8 @@ function renderLog(session) {
 }
 
 function finishLogRender(nodes) {
+  const session = store.sessions[selectedID()];
+  if (statusLine && (isRunning(session) || !statusLine.hidden)) nodes.push(statusLine);
   reconcileChildren(log, nodes);
   thinkingRenderer.end();
   for (const key of entryViews.keys()) if (!usedEntryViews.has(key)) entryViews.delete(key);
@@ -1385,6 +1388,10 @@ function renderComposer(session) {
   setProperty(mirrorTakeButton, "disabled", !phoneOwned || store.replay);
   reconcileChildren(notice, [composerWait, composerRobot, composerText, mirrorTakeButton]);
   setAttribute(notice, "class", `chat-notice ${localAlarm || micNotice || unreachable || (session && !session.runnable) ? "alarm" : ""}`);
+  const showStatus = !!session && (isRunning(session) || message !== "idle");
+  setProperty(statusLine, "hidden", !showStatus);
+  if (showStatus && (statusLine.parentElement !== log || log.lastElementChild !== statusLine)) log.append(statusLine);
+  else if (!showStatus && statusLine.isConnected) statusLine.remove();
   const fileNodes = queuedAttachments.map((file) => {
     const key = `${file.path}|${file.bytes}|${file.reused}|${file.sidecar}|${file.tier}`;
     let row = composerFileViews.get(key);
@@ -1697,8 +1704,7 @@ document.body.addEventListener("drop", (event) => {
     void queueFiles([...event.dataTransfer.files]);
   }
 });
-// Item 2ld: the strip is the handle; composer-resize.js owns the drag.
-installComposerResize({ strip: statusStrip, composer, input, log });
+installComposerResize({ handle: resizeHandle, composer, input, log });
 
 input.addEventListener("paste", (event) => {
   const files = [...(event.clipboardData?.files || [])];

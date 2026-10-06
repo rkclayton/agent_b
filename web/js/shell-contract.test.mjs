@@ -313,13 +313,13 @@ test("the full-detail Plan mark is untouched", async () => {
   assert.match(plan, /plan-mark\.png/, "the Plan section no longer heads with the full-detail mark");
 });
 
-// Item 2gk (v1.3.0/W2): the readout joined the strip, and the marker that drew
+// Item 2gk (v1.3.0/W2): the readout left, and the marker that drew
 // tofu is gone. Operator, 2026-09-22, with a screenshot of the line sitting as
 // a header above the transcript: "i want this moved".
 test("the attachment control replaces the redundant per-chat readout", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
-  const strip = html.slice(html.indexOf('id="chat-status-strip"'), html.indexOf("</div>", html.indexOf('id="chat-status-strip"')));
-  assert.ok(strip.includes('id="chat-attach"'), "the attachment control belongs to the status strip");
+  const actions = html.slice(html.indexOf('class="chat-input-actions"'), html.indexOf("</span>", html.indexOf('id="chat-mic"')));
+  assert.ok(actions.indexOf('id="chat-attach"') < actions.indexOf('id="chat-mic"'), "the attachment control sits directly above the microphone");
   assert.ok(!html.includes('id="chat-readout"'), "the duplicate token readout is gone");
   // It must sit in the composer footer, not between transcript and composer.
   const log = html.indexOf('id="chat-log"');
@@ -329,11 +329,7 @@ test("the attachment control replaces the redundant per-chat readout", async () 
   assert.ok(log < composer, "the transcript still precedes the composer");
 
   const chatCss = await readFile(new URL("../css/chat.css", import.meta.url), "utf8");
-  // Item 2me (c): this pinned `margin-right:-4px`, which cancelled the strip's own
-  // right padding so the paperclip sat hard against the window edge while the text
-  // on the left kept its 4px. Both ends are inset the same now, measured, and the
-  // assertion moved with the contract rather than being deleted.
-  assert.match(chatCss, /\.chat-status-strip \.chat-attach-wrap \{ margin-left:auto; width:14px; height:14px; \}/);
+  assert.match(chatCss, /\.chat-attach-wrap \{ position: relative; display:block; width:24px; height:24px; \}/);
   // No control characters anywhere in the stylesheet: the marker was a raw
   // 0x15 byte, which is how it reached the operator's screen as tofu.
   const control = [...chatCss].filter((ch) => ch.charCodeAt(0) < 32 && !"\r\n\t".includes(ch));

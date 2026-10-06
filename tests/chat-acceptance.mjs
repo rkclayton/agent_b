@@ -1781,10 +1781,10 @@ if (realModel) {
   await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('FIRST PROSE BLOCK')`, "prose fixture restored");
 
-  const geometry = await browser.evaluate(`(() => { const textarea=document.querySelector('#chat-task').getBoundingClientRect(); const row=document.querySelector('.chat-composer-row').getBoundingClientRect(); const strip=document.querySelector('#chat-status-strip').getBoundingClientRect(); const robot=document.querySelector('.agent-tab-wrap.selected .agent-tab-robot').getBoundingClientRect(); const tab=document.querySelector('.agent-tab-wrap.selected').getBoundingClientRect(); const plus=document.querySelector('.shell-left > .agent-tab-new').getBoundingClientRect(); const send=document.querySelector('#chat-send').getBoundingClientRect(); const stop=document.querySelector('#chat-send').getBoundingClientRect(); return {textarea:textarea.width,row:row.width,rowHeight:row.height,stripHeight:strip.height,stripCursor:getComputedStyle(document.querySelector('#chat-status-strip')).cursor,robot:robot.width,tab:tab.width,plus:{width:plus.width,height:plus.height},send:{width:send.width,height:send.height},stop:{width:stop.width,height:stop.height}}; })()`);
+  const geometry = await browser.evaluate(`(() => { const textarea=document.querySelector('#chat-task').getBoundingClientRect(); const row=document.querySelector('.chat-composer-row').getBoundingClientRect(); const handle=document.querySelector('#chat-resize-handle').getBoundingClientRect(); const robot=document.querySelector('.agent-tab-wrap.selected .agent-tab-robot').getBoundingClientRect(); const tab=document.querySelector('.agent-tab-wrap.selected').getBoundingClientRect(); const plus=document.querySelector('.shell-left > .agent-tab-new').getBoundingClientRect(); const send=document.querySelector('#chat-send').getBoundingClientRect(); const stop=document.querySelector('#chat-send').getBoundingClientRect(); return {textarea:textarea.width,row:row.width,rowHeight:row.height,handleHeight:handle.height,handleCursor:getComputedStyle(document.querySelector('#chat-resize-handle')).cursor,robot:robot.width,tab:tab.width,plus:{width:plus.width,height:plus.height},send:{width:send.width,height:send.height},stop:{width:stop.width,height:stop.height}}; })()`);
   assert.ok(geometry.textarea >= geometry.row - 50, JSON.stringify(geometry));
-  // Item 2ld: the strip is trimmed to what its text needs and is the resize handle.
-  assert.ok(geometry.stripHeight > 0 && geometry.stripHeight <= 28 && geometry.stripCursor === "row-resize", JSON.stringify(geometry));
+  // Item 2qm: the resize handle is a dedicated four-pixel top edge.
+  assert.ok(geometry.handleHeight === 4 && geometry.handleCursor === "row-resize", JSON.stringify(geometry));
   assert.ok(geometry.robot > 0, JSON.stringify(geometry));
   assert.ok(geometry.tab < 180 && geometry.plus.width === 20 && geometry.plus.height === 20, JSON.stringify(geometry));
   assert.deepEqual(geometry.send, geometry.stop, JSON.stringify(geometry));
@@ -1811,11 +1811,8 @@ if (realModel) {
         fill: glyphStyle ? glyphStyle.fill : null,
       };
     };
-    // Item 2me (b): the paperclip in the STRIP is the size of the glyph it draws,
-    // so the strip is its text plus its padding. Its PRESSABLE AREA is unchanged
-    // — a pseudo-element restores the 24x24 square without taking part in layout
-    // — so that is measured by hit-testing the four corners of the old square
-    // rather than by trusting the box, which is what the old assertion did.
+    // Item 2qm: the paperclip moved into the composer action column and owns the
+    // same 24x24 box and pressable area as the microphone below it.
     const pressable = (selector) => {
       const node = document.querySelector(selector);
       if (!node) return null;
@@ -1834,14 +1831,12 @@ if (realModel) {
     familyAt[zoom] = await controlFamily();
     const family = familyAt[zoom];
     for (const name of ["attach", "mic", "send"]) assert.ok(family[name], `${name} is missing at ${zoom}: ${JSON.stringify(family)}`);
-    // Item 2me (b): the mic and send are the family on the composer CORNER and are
-    // unchanged at 24. The attach control lives in the STRIP, which 2me trimmed to
-    // its text, so its BOX is 14px inside the 16px row and its TARGET is still 24 — asserted
-    // by pressing all four corners of the old square. The family's glyph, stroke,
-    // fill and background are still one family, below.
+    // Item 2qm: all three controls are the 24px composer family; the paperclip is
+    // directly above the microphone. Glyph, stroke, fill and background remain
+    // one family below.
     assert.deepEqual(family.mic.target, family.send.target, JSON.stringify({ zoom, family }));
-    assert.deepEqual(family.attach.target, { width: 14 * zoom, height: 14 * zoom }, JSON.stringify({ zoom, family }));
-    if (zoom === 1) assert.equal(family.attachPressable, true, `the paperclip's 24x24 target shrank with its box: ${JSON.stringify({ zoom, family })}`);
+    assert.deepEqual(family.attach.target, family.mic.target, JSON.stringify({ zoom, family }));
+    if (zoom === 1) assert.equal(family.attachPressable, true, `the paperclip's 24x24 target is not pressable throughout: ${JSON.stringify({ zoom, family })}`);
     assert.deepEqual(family.mic.glyph, family.attach.glyph, JSON.stringify({ zoom, family }));
     assert.deepEqual(family.send.glyph, family.attach.glyph, JSON.stringify({ zoom, family }));
     assert.equal(family.mic.stroke, family.attach.stroke, JSON.stringify({ zoom, family }));
@@ -2111,7 +2106,7 @@ if (realModel) {
 	await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'stop'`, "queue leader running");
 	await setTask("acceptance: queued follower");
 	await waitEvent(sessionID, (event) => event.type === "message.queued" && event.data.position === 1, "message.queued");
-	await browser.wait(`document.querySelector('#chat-status-strip')?.innerText.toLowerCase().includes('queued (1)')`, "queued count");
+	await browser.wait(`document.querySelector('#chat-status-line')?.innerText.toLowerCase().includes('queued (1)')`, "queued count");
   releaseQueue?.();
   await waitProjectedChatText(sessionID, "Queued follower completed.", "queued follower answer");
   events = await sessionEvents(sessionID);
@@ -2221,7 +2216,7 @@ if (realModel) {
 
   await stopFake();
   await setTask("acceptance: unreachable");
-  await browser.wait(`document.querySelector('#chat-status-strip')?.innerText.toLowerCase().includes('model unreachable')`, "unreachable strip");
+  await browser.wait(`document.querySelector('#chat-status-line')?.innerText.toLowerCase().includes('model unreachable')`, "unreachable status");
   await waitEvent(sessionID, (event) => event.type === "model.unreachable", "model.unreachable");
   await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.data?.reason === "model_unreachable", "unreachable run stopped");
   await browser.wait(`[...document.querySelectorAll('#chat-log > .chat-notice-row')].some((row) => row.innerText.includes('model unreachable ·'))`, "flat unreachable notice");

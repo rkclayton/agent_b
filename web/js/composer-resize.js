@@ -1,10 +1,10 @@
-// Item 2ld: the strip between the transcript and the composer is the handle.
+// The 4px top edge between the transcript and composer is the resize handle.
 // Dragging it up makes the message box taller and the transcript shorter, smoothly,
 // and the height is remembered for this surface so it is set once rather than every
 // time. What is typed is untouched, the transcript is never scrolled, and neither
 // area can be dragged away: the composer stops between COMPOSER_MIN and the space
-// the window can spare above TRANSCRIPT_MIN. The status strip is outside that height,
-// so a zero-height composer is still reversible from the same handle.
+// the window can spare above TRANSCRIPT_MIN. The handle is outside that height,
+// so a zero-height composer is still reversible from the same edge.
 //
 // It lives in its own module because a drag is only proven by dragging it, and the
 // gate needs to load this behaviour without loading the whole chat surface.
@@ -19,7 +19,7 @@ export function clampComposerHeight(height, { current, transcript }) {
   return Math.round(Math.min(Math.max(height, COMPOSER_MIN), ceiling));
 }
 
-export function installComposerResize({ strip, composer, input, log, store = globalThis.localStorage } = {}) {
+export function installComposerResize({ handle, strip = handle, composer, input, log, store = globalThis.localStorage } = {}) {
   if (!strip || !composer || !input) return;
 
   const currentHeight = () => {
@@ -38,8 +38,7 @@ export function installComposerResize({ strip, composer, input, log, store = glo
   } catch { /* the composer simply keeps the height it has always had */ }
 
   strip.addEventListener("pointerdown", (event) => {
-    // The strip still carries controls; a press on one of them is that control's.
-    if (event.button !== 0 || event.target.closest?.("button, a, input, select, textarea")) return;
+    if (event.button !== 0) return;
     const startY = event.clientY;
     const startHeight = currentHeight();
     event.preventDefault();

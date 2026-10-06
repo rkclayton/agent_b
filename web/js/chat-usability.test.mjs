@@ -183,8 +183,9 @@ test("New chat uses the fixed left plus and history uses the agent right-click m
   assert.doesNotMatch(shell, /wrap\.append\(newChatButton\)|wrap\.append\(add\)/);
   assert.match(shell, /oncontextmenu/);
   assert.match(shell, /agent-chat-rename/);
+  assert.match(shell, /agent-chat-archive/);
   assert.match(shell, /agent-chat-delete/);
-  assert.match(shell, /row\.append\(summary, rename, remove\)/);
+  assert.match(shell, /row\.append\(summary, archive, rename, remove\)/);
   assert.doesNotMatch(shell, /button\("Delete"|agent-chat-close/);
   assert.match(shell, /\/close`, \{\}\)/);
   assert.match(shell, /window\.confirm\(deleteConfirmText\)/);

@@ -85,3 +85,18 @@ func TestBothDataArgumentsCarryTheSameRoot2ll(t *testing.T) {
 		t.Fatalf("the two data arguments disagree: %v", roots)
 	}
 }
+
+func TestLoopbackUpdaterCycleGetsOnlyDisposableNativeInstallArguments2qp(t *testing.T) {
+	data := `C:\suite\root\Data\Agent_b`
+	arguments := fixtureInstallArguments("http://127.0.0.1:4321/latest.json", data, []string{"--install"})
+	joined := strings.Join(arguments, " ")
+	for _, want := range []string{"-NativeTestMode", `-StartMenuDirectory C:\suite\root\Data\Agent_b\test-start-menu`, `HKCU:\Software\Agent_b-Installer-Test-`} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("loopback cycle lacks %q: %s", want, joined)
+		}
+	}
+	public := fixtureInstallArguments("https://example.com/latest.json", data, []string{"--install"})
+	if len(public) != 1 || public[0] != "--install" {
+		t.Fatalf("a public updater received test authority: %v", public)
+	}
+}

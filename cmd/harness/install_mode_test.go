@@ -304,6 +304,25 @@ func TestInstallFailureRestartDetailsComeFromTranscript(t *testing.T) {
 	}
 }
 
+func TestSuccessfulInstallRestartsOnlyTheCopyItStopped2qp(t *testing.T) {
+	for _, testCase := range []struct {
+		line string
+		want bool
+	}{
+		{"RELAUNCH REQUIRED: yes\n", true},
+		{"RELAUNCH REQUIRED: no\n", false},
+		{"INSTALLATION COMPLETE\n", false},
+	} {
+		path := filepath.Join(t.TempDir(), "installer.log")
+		if err := os.WriteFile(path, []byte(testCase.line), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := installRelaunchRequired(path); got != testCase.want {
+			t.Fatalf("installRelaunchRequired(%q) = %t, want %t", testCase.line, got, testCase.want)
+		}
+	}
+}
+
 func TestInstallPhasesComeFromTheInstallersOwnLines(t *testing.T) {
 	for line, want := range map[string]string{
 		"PREFLIGHT COMPLETE":            "preflight",

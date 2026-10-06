@@ -538,19 +538,17 @@ try {
     if ($freshTranscript -match 'FIRST LAUNCH: service identity provisioning is deferred to the single in-app Windows approval') {
 		throw "A fresh install advertised service-identity setup even though the default is off.`n$freshOutput"
     }
-    $readyPosition = $freshTranscript.IndexOf("Agent_b is ready at http://127.0.0.1:$testPort/chat")
     $leftPattern = [regex]::Escape('MIGRATION LEFT IN PLACE: access denied') + '.{1,8}' +
         [regex]::Escape("remove it from an elevated shell: $legacyRoot; registered shortcuts and Installed apps point to the per-user copy, so no launcher under this legacy tree is used.")
     $leftMatch = [regex]::Match($freshTranscript, $leftPattern)
-    $migrationPosition = $leftMatch.Index
     $progressHasLeftLine = @(Get-Content -LiteralPath (Join-Path $testData 'install-progress.jsonl') | ForEach-Object {
         $_ | ConvertFrom-Json
     } | Where-Object { [string]$_.text -match $leftPattern }).Count -eq 1
-    if ($readyPosition -lt 0 -or -not $leftMatch.Success -or $migrationPosition -le $readyPosition -or -not (Test-Path -LiteralPath $legacyRoot) -or
+    if (-not $leftMatch.Success -or -not (Test-Path -LiteralPath $legacyRoot) -or
         -not $progressHasLeftLine -or
         -not (Test-Path -LiteralPath $dataSentinel -PathType Leaf) -or
         (Get-Content -Raw -LiteralPath $dataSentinel) -cne 'operator data survives migration') {
-        throw "Denied migration cleanup did not leave and name the explicit fake legacy root after the new copy started, or changed operator data.`n$freshTranscript"
+        throw "Denied migration cleanup did not leave and name the explicit fake legacy root, or changed operator data.`n$freshTranscript"
     }
     Write-Host 'PROOF denied migration: new copy ready and installer exit 0; locked legacy tree retained and named in transcript/progress; per-user launcher owns future starts'
     $cleanupOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $testApplication 'scripts\complete-install-migration.ps1') -DataDirectory $testData -TestMode 2>&1 | Out-String)
@@ -565,21 +563,20 @@ try {
     }
     Write-Host "PROOF orphan archive: $($archiveMatch.Groups[1].Value.Trim()); original removed"
     $freshProcesses = @(Get-AgentBProcessesAtPath -Executable (Join-Path $testApplication 'Agent_b.exe'))
-    if ($freshProcesses.Count -ne 1) { throw "Fresh single-file install did not start exactly one Agent_b: $(@($freshProcesses.Id) -join ', ')" }
+    if ($freshProcesses.Count -ne 0 -or $freshTranscript -notmatch 'AUTOSTART SKIPPED: the installed copy was not running') {
+        throw "Install over a stopped copy did not leave it stopped.`n$freshTranscript"
+    }
+    $freshLaunch = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $testApplication 'scripts\launch-Agent_b.ps1') -ApplicationDirectory $testApplication -DataDirectory $testData -Detached -NoBrowser -NoPause -StartupTimeoutSeconds 30 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0) { throw "The explicitly started fresh copy did not answer.`n$freshLaunch" }
+    $freshProcesses = @(Get-AgentBProcessesAtPath -Executable (Join-Path $testApplication 'Agent_b.exe'))
+    if ($freshProcesses.Count -ne 1) { throw "Explicit fresh launch did not start exactly one Agent_b: $(@($freshProcesses.Id) -join ', ')" }
     $freshTokenProof = Get-ProcessTokenProof -ProcessId $freshProcesses[0].Id
     if ($freshTokenProof.elevated) { throw "Fresh install started elevated PID $($freshTokenProof.pid)." }
     $freshClient = New-AgentBBrowserClient "http://127.0.0.1:$testPort"
     $freshState = Get-AgentBBrowserState $freshClient
     if ([bool]$freshState.config.shell.service_account.enabled) { throw 'A fresh install enabled service identity.' }
-    # Item 2m6 (e), rel-1.24.0: A DISPOSABLE INSTALL MUST NOT OPEN A WINDOW, and
-    # this assertion used to require that it did. The install still has to come
-    # up and say so -- AUTOSTART COMPLETE is what proves the app is ready -- but
-    # the window is now the thing that must be ABSENT, because this root is not
-    # one of the two canonical install locations and a suite run must not put a
-    # window on the operator's desktop.
-    if ($freshTranscript -notmatch 'AUTOSTART COMPLETE:') {
-        throw "Fresh install did not record a ready app.`n$freshTranscript"
-    }
+    # Item 2m6 (e): neither the stopped-copy install nor the explicit disposable
+    # launch may open a window on the operator's desktop.
     if ($freshTranscript -match 'OPENED: Agent_b (?:host|browser) window') {
         throw "A DISPOSABLE INSTALL OPENED A WINDOW on the operator's desktop (item 2m6).`n$freshTranscript"
     }

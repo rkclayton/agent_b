@@ -20,9 +20,9 @@ import (
 	"harness/internal/quietproc"
 )
 
-func runNativePerUserInstall(source string, arguments []string, dataRoot string, log *installLog) error {
+func runNativePerUserInstall(source string, arguments []string, dataRoot string, log *installLog) (bool, error) {
 	if err := verifyNativeCandidate(source); err != nil {
-		return err
+		return false, err
 	}
 	local := installerArgument(arguments, "OperatorLocalAppData", os.Getenv("LOCALAPPDATA"))
 	expectedApplication := filepath.Join(local, "Programs", "Agent_b")
@@ -34,30 +34,31 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 	nativeTestMode := installerFlagPresent(arguments, "NativeTestMode")
 	if !nativeTestMode {
 		if !strings.EqualFold(filepath.Clean(application), filepath.Clean(expectedApplication)) {
-			return fmt.Errorf("ApplicationDirectory must be the canonical per-user LocalAppData location: %s", expectedApplication)
+			return false, fmt.Errorf("ApplicationDirectory must be the canonical per-user LocalAppData location: %s", expectedApplication)
 		}
 		if !strings.EqualFold(filepath.Clean(data), filepath.Clean(expectedData)) {
-			return fmt.Errorf("DataDirectory must be the launching user's LocalAppData Agent_b directory: %s", expectedData)
+			return false, fmt.Errorf("DataDirectory must be the launching user's LocalAppData Agent_b directory: %s", expectedData)
 		}
 		if !strings.EqualFold(filepath.Clean(workspace), filepath.Clean(expectedWorkspace)) {
-			return fmt.Errorf("WorkspaceDirectory must be the canonical per-user LocalAppData location: %s", expectedWorkspace)
+			return false, fmt.Errorf("WorkspaceDirectory must be the canonical per-user LocalAppData location: %s", expectedWorkspace)
 		}
 	}
 	operatorSID, err := installOperatorSID(currentTokenSID, func() (string, error) { return "", fmt.Errorf("name lookup is forbidden") })
 	if err != nil {
-		return fmt.Errorf("read process-token user SID: %w", err)
+		return false, fmt.Errorf("read process-token user SID: %w", err)
 	}
 	if supplied := installerArgument(arguments, "OperatorSid", ""); supplied != "" && !strings.EqualFold(supplied, operatorSID) {
-		return fmt.Errorf("installation refused: user SID %s differs from process token %s", supplied, operatorSID)
+		return false, fmt.Errorf("installation refused: user SID %s differs from process token %s", supplied, operatorSID)
 	}
 	stopped, err := stopNativeInstalledProcess(application, data, log)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if stopped {
 		log.printf("RESTART VERSION: %s", currentDisplayVersion(application))
 		log.printf("RESTART REASON: installation failure")
 	}
+	log.printf("RELAUNCH REQUIRED: %s", map[bool]string{true: "yes", false: "no"}[stopped])
 	version := strings.TrimPrefix(currentDisplayVersion(source), "v")
 	plan := nativeInstallPlan{Source: source, Application: application, Data: data, Workspace: workspace,
 		StartMenu: installerArgument(arguments, "StartMenuDirectory", filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs")),
@@ -65,7 +66,7 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 		Registry:  installerArgument(arguments, "UninstallRegistryPath", `HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Agent_b`),
 		Version:   version, OperatorSID: operatorSID}
 	if nativeTestMode && !strings.HasPrefix(strings.ToLower(plan.Registry), `hkcu:\software\agent_b-installer-test-`) {
-		return fmt.Errorf("NativeTestMode registry must be beneath HKCU:\\Software\\Agent_b-Installer-Test-*")
+		return false, fmt.Errorf("NativeTestMode registry must be beneath HKCU:\\Software\\Agent_b-Installer-Test-*")
 	}
 	platform := nativeInstallPlatform{shortcut: writeShellLink, register: func(values map[string]any) error { return writeUninstallRegistration(plan.Registry, values) }, secure: secureInstallDirectory}
 	policy := effectiveExecutionPolicy()
@@ -75,20 +76,20 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 		message := fmt.Sprintf("Windows policy on this machine disables PowerShell scripts (%s, set by %s); the service identity cannot be set up here", policy.Policy, policy.Scope)
 		log.printf("%s", message)
 		if err := os.MkdirAll(data, 0o700); err != nil {
-			return err
+			return false, err
 		}
 		if err := os.WriteFile(policyPath, []byte(message+"\n"), 0o600); err != nil {
-			return fmt.Errorf("record execution policy: %w", err)
+			return false, fmt.Errorf("record execution policy: %w", err)
 		}
 	} else if err := os.Remove(policyPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("clear execution policy record: %w", err)
+		return false, fmt.Errorf("clear execution policy record: %w", err)
 	}
 	appendProgress(data, installProgress{Phase: "copying the application", Text: "Application: " + application})
 	if err := installPerUserNative(plan, platform); err != nil {
-		return describeNativeInstallFailure(err)
+		return stopped, describeNativeInstallFailure(err)
 	}
 	log.printf("INSTALLATION COMPLETE")
-	return nil
+	return stopped, nil
 }
 
 func effectiveExecutionPolicy() executionPolicyState {

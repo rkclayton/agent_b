@@ -154,6 +154,7 @@ func New(options Options) *Manager {
 			if err != nil {
 				return err
 			}
+			arguments = fixtureInstallArguments(options.LatestURL, data, arguments)
 			// Item 2nf (d) and 2na (a): the setup is started with no console, so an
 			// update never puts a window on the operator's screen and cannot leave one
 			// behind when it fails.
@@ -182,6 +183,15 @@ func New(options Options) *Manager {
 		manager.state.Outcome.ApplicationRoot = options.ApplicationRoot
 	}
 	return manager
+}
+
+func fixtureInstallArguments(latest, data string, arguments []string) []string {
+	parsed, err := url.Parse(latest)
+	if err != nil || (parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "::1" && parsed.Hostname() != "localhost") {
+		return arguments
+	}
+	digest := sha256.Sum256([]byte(data))
+	return append(arguments, "-NativeTestMode", "-WorkspaceDirectory", filepath.Join(data, "workspace"), "-StartMenuDirectory", filepath.Join(data, "test-start-menu"), "-SendToDirectory", filepath.Join(data, "test-send-to"), "-UninstallRegistryPath", `HKCU:\Software\Agent_b-Installer-Test-`+hex.EncodeToString(digest[:4]))
 }
 
 func secureRedirect(request *http.Request, via []*http.Request) error {

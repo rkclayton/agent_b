@@ -171,7 +171,7 @@ func runInstall(options installOptions, args []string) int {
 			embeddedBundle = true
 			defer removeSource()
 			log.printf("install: verified and extracted the embedded application payload")
-			acceptDisposable := installerFlagPresent(args, "TestMode") || installerFlagPresent(args, "WhatIf")
+			acceptDisposable := installerFlagPresent(args, "TestMode") || installerFlagPresent(args, "NativeTestMode") || installerFlagPresent(args, "WhatIf")
 			outerLine, payloadSigner, signatureErr := installSignatureSubjects(executable, filepath.Join(source, "agentb.exe"), acceptDisposable)
 			if signatureErr != nil {
 				return log.fail("installer signature verification failed: %v", signatureErr)
@@ -193,10 +193,12 @@ func runInstall(options installOptions, args []string) int {
 	appendProgress(dataRoot, installProgress{Phase: "starting", Text: "Installing Agent_b " + marker.Version})
 
 	var waitInstaller func() error
+	relaunch := false
 	nativeInstall := !options.allUsers && !installerFlagPresent(args, "WhatIf") && (!installerFlagPresent(args, "TestMode") || installerFlagPresent(args, "NativeTestMode"))
 	if nativeInstall {
 		waitInstaller = func() error {
-			err := runNativePerUserInstall(source, args, dataRoot, log)
+			stopped, err := runNativePerUserInstall(source, args, dataRoot, log)
+			relaunch = stopped
 			if err != nil {
 				log.printf("INSTALLATION FAILED: %v", err)
 			}
@@ -252,6 +254,9 @@ func runInstall(options installOptions, args []string) int {
 		}
 	}()
 	waitErr := waitInstaller()
+	if !nativeInstall {
+		relaunch = installRelaunchRequired(log.location())
+	}
 	close(installDone)
 	<-followed
 	code := 0
@@ -268,17 +273,14 @@ func runInstall(options installOptions, args []string) int {
 		if err := clearInstallMarker(dataRoot); err != nil {
 			log.printf("install: the install finished but its marker could not be cleared: %v", err)
 		}
-		if options.noStart {
-			appendProgress(dataRoot, finish)
-			log.printf("AUTOSTART SKIPPED: -NoStart was requested. Log: %s", log.location())
-			return 0
-		}
-		appendProgress(dataRoot, installProgress{Phase: "restarting", Text: "Starting Agent_b " + marker.Version})
 		applicationRoot := installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers))
 		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
-		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, nativeInstall, log); err != nil {
-			appendProgress(dataRoot, installProgress{Phase: "restarting", Text: fmt.Sprintf("Agent_b %s was installed but failed to start: %v. Transcript: %s", marker.Version, err, log.location()), Done: true})
-			return log.fail("Agent_b was installed but failed to start: %v", err)
+		if !options.noStart && relaunch {
+			appendProgress(dataRoot, installProgress{Phase: "restarting", Text: "Starting Agent_b " + marker.Version})
+			if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, nativeInstall, log); err != nil {
+				appendProgress(dataRoot, installProgress{Phase: "restarting", Text: fmt.Sprintf("Agent_b %s was installed but failed to start: %v. Transcript: %s", marker.Version, err, log.location()), Done: true})
+				return log.fail("Agent_b was installed but failed to start: %v", err)
+			}
 		}
 		leftInPlace, err := completeInstallMigration(applicationRoot, operatorDataRoot, installerFlagPresent(args, "TestMode"), log)
 		if err != nil {
@@ -290,6 +292,14 @@ func runInstall(options installOptions, args []string) int {
 			appendProgress(dataRoot, installProgress{Phase: "warning", Text: leftInPlace, OK: true})
 		}
 		appendProgress(dataRoot, finish)
+		if options.noStart || !relaunch {
+			reason := "the installed copy was not running"
+			if options.noStart {
+				reason = "-NoStart was requested"
+			}
+			log.printf("AUTOSTART SKIPPED: %s. Log: %s", reason, log.location())
+			return 0
+		}
 		if nativeInstall {
 			log.printf("AUTOSTART COMPLETE: Agent_b started natively from %s. Log: %s", filepath.Join(applicationRoot, "Agent_b.exe"), log.location())
 		} else {
@@ -433,6 +443,11 @@ func installRestartDetails(path string) (string, string, bool) {
 	return version, reason, version != "" && reason != ""
 }
 
+func installRelaunchRequired(path string) bool {
+	data, err := os.ReadFile(path)
+	return err == nil && strings.Contains(string(data), "RELAUNCH REQUIRED: yes")
+}
+
 func installerArgument(arguments []string, name, fallback string) string {
 	for index, argument := range arguments {
 		trimmed := strings.TrimLeft(argument, "-")
@@ -450,36 +465,12 @@ func installerArgument(arguments []string, name, fallback string) string {
 	return fallback
 }
 
-func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, native bool, log *installLog) error {
-	if native {
-		executable := filepath.Join(applicationRoot, "Agent_b.exe")
-		arguments := []string{"-window", "-config", filepath.Join(dataRoot, "harness.json"), "-app-root", applicationRoot, "-data-root", dataRoot}
-		if sessionID != "" {
-			arguments = append(arguments, "-reopen-session", sessionID)
-		}
-		command := quietproc.Quiet(exec.Command(executable, arguments...))
-		command.Dir = dataRoot
-		command.Stdout, command.Stderr = log.writer(), log.writer()
-		if err := command.Start(); err != nil {
-			return err
-		}
-		exited := make(chan error, 1)
-		go func() { exited <- command.Wait() }()
-		select {
-		case err := <-exited:
-			if err == nil {
-				return fmt.Errorf("installed Agent_b exited before startup completed")
-			}
-			return err
-		case <-time.After(time.Second):
-			return nil
-		}
-	}
+func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, _ bool, log *installLog) error {
 	launcher := filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1")
 	if info, err := os.Stat(launcher); err != nil || info.IsDir() {
 		return fmt.Errorf("installed launcher is missing: %s", launcher)
 	}
-	arguments := []string{"-NoLogo", "-NoProfile", "-File", launcher, "-ApplicationDirectory", applicationRoot, "-DataDirectory", dataRoot, "-Detached", "-NoPause"}
+	arguments := []string{"-NoLogo", "-NoProfile", "-File", launcher, "-ApplicationDirectory", applicationRoot, "-DataDirectory", dataRoot, "-Detached", "-NoBrowser", "-NoPause", "-StartupTimeoutSeconds", "30"}
 	if sessionID != "" {
 		arguments = append(arguments, "-SessionID", sessionID)
 	}
@@ -494,9 +485,6 @@ func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, native bo
 	// install -- that is 2kr's disposable-root marker -- so it starts without a
 	// window whether or not anyone remembered the variable. The variable still
 	// works, as an override for a canonical-root install that wants no window.
-	if os.Getenv("AGENT_B_INSTALL_NO_BROWSER") != "" || !canonicalInstallRoot(applicationRoot) {
-		arguments = append(arguments, "-NoBrowser")
-	}
 	command := exec.Command(windowsPowerShell(), arguments...)
 	quietproc.Quiet(command)
 	command.Dir = dataRoot

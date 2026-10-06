@@ -4,8 +4,8 @@ package main
 
 import "fmt"
 
-func runNativePerUserInstall(string, []string, string, *installLog) error {
-	return fmt.Errorf("Agent_b installation is supported only on Windows")
+func runNativePerUserInstall(string, []string, string, *installLog) (bool, error) {
+	return false, fmt.Errorf("Agent_b installation is supported only on Windows")
 }
 
 func runNativeUninstall(string, string, string, string, string, bool, bool, int) error {

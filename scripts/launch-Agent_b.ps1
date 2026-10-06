@@ -353,8 +353,7 @@ try {
         throw "Agent_b failed to start: $detail (exit code $($process.ExitCode)). Diagnostics: $startupCapture"
     }
     if ($state -eq 'timeout') {
-        Write-Warning "Agent_b process $($process.Id) is running, but $url did not become ready within $StartupTimeoutSeconds seconds. No browser was opened."
-        Write-Host $(if ($Detached) { 'The process is being left running in the background; inspect logs or use -Check to confirm readiness.' } else { 'The process is being left running in this console so delayed startup remains visible.' })
+		throw "Agent_b process $($process.Id) did not answer at $url within $StartupTimeoutSeconds seconds. The process was left running for diagnosis."
     } else {
         Write-LauncherRecord "Agent_b is ready at $appUrl ($(Get-AgentBListener -Url $url)); started as process $($process.Id)."
         if ($script:hostWindow) {

@@ -75,7 +75,7 @@ func persistedTestPairing() broker.Pairing {
 	}
 }
 
-func TestBrokerIdentityAndPairingSurviveARealStoreRestart2ob(t *testing.T) {
+func TestPairedAgentReconnectsAfterInstallerRelaunch2ob2qp(t *testing.T) {
 	root := os.Getenv("AGENTB_BROKER_EVIDENCE_ROOT")
 	if root == "" {
 		root = t.TempDir()

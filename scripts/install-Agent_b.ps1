@@ -841,6 +841,7 @@ if ($installedProcesses.Count) {
 Stop-InstalledProcesses -Processes $installedProcesses
 Stop-InstalledProcesses -Processes $legacyProcesses -Root $legacyMigrationRoot
 if ($installedProcesses.Count) { $script:stoppedInstalledVersion = $true }
+Write-Host ('RELAUNCH REQUIRED: ' + $(if ($installedProcesses.Count) { 'yes' } else { 'no' }))
 
 $applicationCreated = -not (Test-Path -LiteralPath $applicationRoot -PathType Container)
 $dataCreated = -not (Test-Path -LiteralPath $dataRoot -PathType Container)

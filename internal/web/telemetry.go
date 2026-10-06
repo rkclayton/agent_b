@@ -177,6 +177,8 @@ func (s *Server) queueRunTelemetry(eventType string, data map[string]any) {
 	}
 }
 
+var headerReasonCodes = map[string]bool{"none": true, "missing_reason": true, "no_connection": true, "missing_connection": true, "missing_workspace": true, "workspace_unavailable": true, "missing_endpoint": true, "missing_model": true, "other": true}
+
 func (s *Server) headerState(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		State      string `json:"state"`
@@ -190,7 +192,7 @@ func (s *Server) headerState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	validState := body.State == "named" || body.State == "not_runnable" || body.State == "no_chat"
-	validReason := map[string]bool{"none": true, "missing_reason": true, "no_connection": true, "missing_connection": true, "missing_workspace": true, "workspace_unavailable": true, "missing_endpoint": true, "missing_model": true, "other": true}[body.ReasonCode]
+	validReason := headerReasonCodes[body.ReasonCode]
 	if !validState || !validReason || (body.State == "not_runnable") == (body.ReasonCode == "none") {
 		writeError(w, http.StatusBadRequest, "invalid header state", "body")
 		return

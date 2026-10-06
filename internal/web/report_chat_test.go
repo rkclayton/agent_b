@@ -231,6 +231,35 @@ func TestTheSwitchOffSendsNothing2q6(t *testing.T) {
 	}
 }
 
+// 2qy: the shared trace document and the sender have one reason-code vocabulary.
+func TestHeaderStateDocumentMatchesSender2qy(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "docs", "telemetry-trace.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := regexp.MustCompile(`(?s)reason_code values are\s+(.*?)\.\r?\n`).FindSubmatch(body)
+	documented := map[string]bool{}
+	if len(line) == 2 {
+		for _, match := range regexp.MustCompile("`([^`]+)`").FindAllStringSubmatch(string(line[1]), -1) {
+			documented[match[1]] = true
+		}
+	}
+	keys := func(values map[string]bool) string {
+		out := make([]string, 0, len(values))
+		for value := range values {
+			out = append(out, value)
+		}
+		sort.Strings(out)
+		return strings.Join(out, ",")
+	}
+	if got, want := keys(documented), keys(headerReasonCodes); got != want {
+		t.Fatalf("document reason codes %q; sender accepts %q", got, want)
+	}
+	if got := len(regexp.MustCompile("```json vector:header[.]state").FindAll(body, -1)); got != 3 {
+		t.Fatalf("document has %d header.state vectors, want 3", got)
+	}
+}
+
 // 2q7 CHECK 2: the app's hourly events carry none of a planted secret — in a
 // chat, a path, a connection's address and label, or a JavaScript error's
 // message — and, the positive control, all six did leave.

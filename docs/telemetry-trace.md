@@ -87,15 +87,24 @@ A tool name that is not a registered-tool shape is sent as `<invalid>`.
 ### `header.state` and `import.hermes`
 
 These change-boundary events contain no displayed or imported text. `header.state`
-has `state` (`named`, `not_runnable`, or `no_chat`) and fixed `reason_code` only.
+has `state` (`named`, `not_runnable`, or `no_chat`). Its reason_code values are
+`none`, `missing_reason`, `no_connection`, `missing_connection`, `missing_workspace`,
+`workspace_unavailable`, `missing_endpoint`, `missing_model`, and `other`.
+`reason_code` is `none` exactly when `state` is `named` or `no_chat`.
 `import.hermes` has integer `skills`, `memory_files`, and `secret_names` counts,
 plus `result` (`ok`, `refused`, or `failed`).
 
 ```json vector:header.state
+{"type":"header.state","at":"2026-10-06T15:59:58Z","state":"named","reason_code":"none"}
+```
+```json vector:header.state
 {"type":"header.state","at":"2026-10-06T16:00:00Z","state":"not_runnable","reason_code":"missing_connection"}
 ```
+```json vector:header.state
+{"type":"header.state","at":"2026-10-06T16:00:01Z","state":"no_chat","reason_code":"none"}
+```
 ```json vector:import.hermes
-{"type":"import.hermes","at":"2026-10-06T16:00:01Z","skills":2,"memory_files":2,"secret_names":2,"result":"ok"}
+{"type":"import.hermes","at":"2026-10-06T16:00:02Z","skills":2,"memory_files":2,"secret_names":2,"result":"ok"}
 ```
 
 These are what went wrong, said without anyone relaying it. They are sent in

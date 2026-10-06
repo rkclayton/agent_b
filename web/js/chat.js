@@ -553,10 +553,10 @@ function renderResponse(session, entry) {
     });
   }
   const directThoughts = responseHasOnlyThoughts(entry.items);
-  view.row.classList.toggle("thought-only-response", directThoughts);
+  toggleClass(view.row, "thought-only-response", directThoughts);
   const lastWorkIndex = blocks.reduce((last, block, index) => block.prose || block.steps.length ? index : last, -1);
   const alarm = blocks.some((block, index) => responseStepOutcome(block.steps, { movedPast: index < lastWorkIndex }).alarm);
-  view.row.classList.toggle("alarm", alarm);
+  toggleClass(view.row, "alarm", alarm);
   const usedBlocks = new Set(blocks.map((block) => block.key));
   const finalIndex = !active ? blocks.findLastIndex((block) => block.prose) : -1;
   const foldFinished = finalIndex >= 0 && blocks.some((block, index) => index !== finalIndex && (block.prose || block.steps.length));
@@ -564,7 +564,7 @@ function renderResponse(session, entry) {
     const final = blocks[finalIndex];
     const work = blocks.filter((_, index) => index !== finalIndex);
     if (final.steps.length) work.push({ ...final, key: `${final.key}:steps`, prose: null });
-    const nodes = [renderFinishedWork(session, view, entry.key, work), renderResponseBlock(session, view, final, false, { final: true })];
+    const nodes = [renderFinishedWork(session, view, entry.key, work), renderResponseBlock(session, view, { ...final, steps: [] }, false, { final: true })];
     reconcileChildren(view.rows, nodes);
   } else {
     reconcileChildren(view.rows, blocks.map((block, index) => renderResponseBlock(session, view, block, active, {
@@ -609,7 +609,8 @@ function renderResponseBlock(session, view, block, active, state = {}) {
     blockView = { root, items: new Map(), prose: null, proseText: "", proseCaret: null, fold: null, head: null, rows: null, narration: null };
     view.blocks.set(block.key, blockView);
   }
-  blockView.root.className = `chat-response-block${state.final ? " chat-response-final" : ""}${block.prose && block.steps.length ? " has-narration" : ""}`;
+  const rootAlarm = block.steps.length && responseStepOutcome(block.steps, { movedPast: !!state.movedPast }).alarm;
+  setAttribute(blockView.root, "class", `chat-response-block${state.final ? " chat-response-final" : ""}${block.prose && block.steps.length ? " has-narration" : ""}${rootAlarm ? " alarm" : ""}`);
   const nodes = [];
   const directThoughts = responseHasOnlyThoughts(block.steps);
   // Reasoning is emitted before prose by the model, so its visible row precedes
@@ -676,10 +677,9 @@ function renderResponseStepFold(session, view, block, active, directThoughts, st
   const headerless = !inline && (state.current || directThoughts || isHeaderlessSteps(block.steps));
   const open = state.forceOpen || state.current || headerless || (!active && expanded.has(block.key));
   setProperty(view.head, "hidden", headerless);
-  view.fold.classList.toggle("headerless", headerless);
+  toggleClass(view.fold, "headerless", headerless);
   const outcome = responseStepOutcome(block.steps, { movedPast: !!state.movedPast });
-  view.fold.classList.toggle("alarm", outcome.alarm);
-  view.root.classList.toggle("alarm", outcome.alarm);
+  toggleClass(view.fold, "alarm", outcome.alarm);
   setAttribute(view.head, "aria-expanded", String(open));
   setSummaryWithDuration(view.head, `${open ? "▾" : "▸"} ${responseSummaryText(totals, block.steps.length, outcome)}`, totals.duration);
   const usedItems = new Set(block.steps.map((item, index) => item?.key || `invalid:${index}`));
@@ -690,7 +690,7 @@ function renderResponseStepFold(session, view, block, active, directThoughts, st
       try {
         if (item?.kind === "tool-group") {
           usedItems.add(item.key);
-          nodes.push(renderResponseToolGroup(session, view, item));
+          nodes.push(renderResponseToolGroup(session, view, item, outcome.retried > 0));
         } else {
           const key = item?.key || `invalid:${index}`;
           nodes.push(renderResponseItem(session, view, item, key, false, outcome.retried > 0));
@@ -758,7 +758,7 @@ function setSummaryWithDuration(head, label, milliseconds) {
   if (seat.textContent !== drawn) seat.textContent = drawn;
 }
 
-function renderResponseToolGroup(session, view, group) {
+function renderResponseToolGroup(session, view, group, recovered = false) {
   let groupView = view.items.get(group.key);
   if (!groupView) {
     const root = document.createElement("div");
@@ -777,12 +777,12 @@ function renderResponseToolGroup(session, view, group) {
     view.items.set(group.key, groupView);
   }
   const open = expanded.has(group.key);
-  const outcome = responseStepOutcome(group.items);
+  const outcome = responseStepOutcome(group.items, { movedPast: recovered });
   const parts = [`${group.tool} ×${group.calls}`];
   if (group.thoughts) parts.push(`+${group.thoughts} ${group.thoughts === 1 ? "thought" : "thoughts"}`);
   if (outcome.retried) parts.push(`${outcome.retried} retried`);
   if (outcome.alarm) parts.push(`${group.failed} failed`);
-  groupView.root.classList.toggle("alarm", outcome.alarm);
+  toggleClass(groupView.root, "alarm", outcome.alarm);
   setAttribute(groupView.head, "aria-expanded", String(open));
   setSummaryWithDuration(groupView.head, `${open ? "▾" : "▸"} ${parts.join(" · ")}`, group.duration);
   const children = open ? group.items.map((item, index) => {
@@ -1031,6 +1031,10 @@ function setText(node, value) {
 
 function setAttribute(node, name, value) {
   if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+}
+
+function toggleClass(node, name, enabled) {
+  if (node.classList.contains(name) !== enabled) node.classList.toggle(name, enabled);
 }
 
 function setProperty(node, name, value) {

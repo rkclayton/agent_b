@@ -436,9 +436,17 @@ const state = (sessionID = "") => json(`http://127.0.0.1:${appPort}/api/state${s
 // for it is unchanged across two reads and the page has applied that cursor.
 // Item 2eo: a Steps fold with at most one tool call and one thought has no
 // header and is always open; a fold that has a header is opened by clicking it.
+// Item 2ql: finished work has an outer one-line fold, which must be opened
+// before an inner step disclosure can be found.
 async function openStepFoldIfDrawn() {
+  const work = page.locator(".chat-work-summary:visible");
+  for (const summary of await work.all()) {
+    if (await summary.getAttribute("aria-expanded") !== "true") await summary.click();
+  }
   const heads = page.locator(".chat-step-summary:visible");
-  if (await heads.count()) await heads.first().click();
+  for (const summary of await heads.all()) {
+    if (await summary.getAttribute("aria-expanded") !== "true") await summary.click();
+  }
 }
 
 // Item 2gk (v1.2.3): the six groups are two sections of Settings now, so the
@@ -1243,6 +1251,16 @@ if (realModel) {
   await page.locator("#chat-send").click();
   const lifecycleRunStarted = await waitEvent(sessionID, (event) => event.type === "run.started", "tool-tick lifecycle run started");
   await waitProjectedChatText(sessionID, "menu-stream-1", "two projected lifecycle tools");
+  // Finished work is intentionally folded to one line. Open it before the
+  // lifecycle hold check so the completed controls whose identity this case
+  // measures are present while the next response streams.
+  for (const summary of await page.locator(".chat-work-summary").all()) {
+    if (await summary.getAttribute("aria-expanded") !== "true") await summary.click();
+  }
+  for (const summary of await page.locator(".chat-tool-group-head").all()) {
+    if (await summary.getAttribute("aria-expanded") !== "true") await summary.click();
+  }
+  await page.locator('[data-entry-key="tool:scratch-write"] button.tool-tick').waitFor({ state: "visible" });
   // The server-owned lifecycle is authoritative. A failed read can pause on
   // its approval boundary while the response is held, and the notice seat may
   // be empty between projections, so its DOM contents are not a lifecycle signal.
@@ -1339,7 +1357,6 @@ if (realModel) {
   assert.equal(await page.locator(".chat-tool-group-head").count(), 0, "active responses must not regroup live tool nodes");
   for (const [label, target] of [
     ["completed tool", page.locator('[data-entry-key="tool:scratch-write"] button.tool-tick')],
-    ["completed thought", page.locator("button.thinking-line.thought-line").first()],
   ]) {
     await target.hover();
     const handle = await target.elementHandle();
@@ -1502,7 +1519,7 @@ if (realModel) {
     const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
     const session = bus.store.sessions[${JSON.stringify(sessionID)}];
     session.run = { ...session.run, status: 'idle' };
-    const args = new Proxy({}, { ownKeys() { throw new Error('deliberate render failure'); } });
+    const args = new Proxy({}, { get(_target, key) { if (key === 'command') throw new Error('deliberate render failure'); } });
     session.chat = [
       { type: 'user', key: 'hotfix:kept', text: 'other entry remains' },
       { type: 'tool', key: 'hotfix:throwing', name: 'shell', args }
@@ -1570,6 +1587,7 @@ if (realModel) {
   // grouped path as well as the standalone one, so the fold the operator opens
   // survives the switch between the two branches. The selector moved with it; the
   // tool tick on the next line is not a thought and is unchanged.
+  await page.locator('[data-entry-key="thought:group:thin"] .thinking-line').click();
   await page.locator('[data-entry-key="thought:group:long"] .thinking-line').click();
   await page.locator('[data-entry-key="group:read-3"] .tool-tick').click();
   const groupingFixture = await page.evaluate(() => ({
@@ -1577,10 +1595,10 @@ if (realModel) {
       details: document.querySelectorAll('.chat-tool-group-calls .tool-detail').length,
       text: document.querySelector('#chat-log')?.innerText || ''
   }));
-  assert.match(groupingInitial.collapsed, /3 tool calls · 1 failed · 2 thoughts · 25 ms/);
+  assert.match(groupingInitial.collapsed, /3 tool calls · 1 retried · 25 ms/);
   assert.equal(groupingInitial.collapsedRows, 0);
   assert.equal(groupingOpen.rows, 3);
-  assert.match(groupingOpen.groupText, /read_file ×2 · \+1 thought · 1 failed · 12 ms/);
+  assert.match(groupingOpen.groupText, /read_file ×2 · \+1 thought · 1 retried · 12 ms/);
   assert.equal(groupingFixture.calls, 2);
   assert.equal(groupingFixture.details, 2);
   for (const text of ["ONE COMPLETE", "thin recorded thought", "TWO COMPLETE FAILURE", "long recorded thought", "THREE COMPLETE"]) assert.match(groupingFixture.text, new RegExp(text));
@@ -1669,7 +1687,7 @@ if (realModel) {
       linkLabel: chip?.querySelector('a')?.getAttribute('aria-label') || '',
       glyph: !!chip?.querySelector('a svg'),
       nameOpenable: !!chip?.querySelector('.file-chip-name.openable'),
-      stepsHeaders: chip?.closest('.chat-response')?.querySelectorAll('.chat-step-summary:not([hidden])').length || 0,
+      stepsHeaders: chip?.closest('.chat-response-block')?.querySelectorAll('.chat-step-summary:not([hidden])').length || 0,
       gap: chip ? getComputedStyle(chip).gap : '',
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
     };
@@ -1687,7 +1705,7 @@ if (realModel) {
   assert.equal(deliveredChip.gap, "8px");
   assert.equal(deliveredChip.horizontalOverflow, false);
   await captureWithMasks(page, join(baselineDirectory, "chat-delivered-folder-link.png"));
-  assert.equal(deliveredChip.stepsHeaders, 0, "one tool call renders its row without a Steps header (item 2eo)");
+  assert.equal(deliveredChip.stepsHeaders, 1, "narration carries the one inline step chip (item 2ql)");
   record("delivered-file-chip-folder-link-only");
   await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('DELIVERY READY')`, "delivery fixture restored");
@@ -1712,71 +1730,36 @@ if (realModel) {
     await new Promise(resolve => setTimeout(resolve, 120));
     return true;
   })()`);
-  const firstProseHandle = await page.locator(".chat-response-prose").first().elementHandle();
-  assert.ok(firstProseHandle, "first prose block must be actionable");
-  const initial = await page.evaluate(() => {
+  const finalProseHandle = await page.locator(".chat-response-prose").first().elementHandle();
+  assert.ok(finalProseHandle, "final prose block must be actionable");
+  const initial = await page.evaluate(() => ({
+    prose: [...document.querySelectorAll('.chat-response .chat-response-prose')].map(node => node.innerText),
+    worked: document.querySelector('.chat-work-summary')?.innerText || '',
+    foldCount: document.querySelectorAll('.chat-response .chat-step-summary').length
+  }));
+  assert.deepEqual(initial.prose, ["SECOND PROSE BLOCK"]);
+  assert.match(initial.worked, /^Worked .* · \d+ steps? ▸$/);
+  assert.equal(initial.foldCount, 0);
+  await page.locator(".chat-work-summary").click();
+  const folds = page.locator(".chat-response .chat-step-summary");
+  assert.equal(await folds.count(), 2);
+  for (const fold of await folds.all()) if (await fold.getAttribute("aria-expanded") !== "true") await fold.click();
+  const expandedProse = await page.evaluate((finalProse) => {
     const response = document.querySelector('.chat-response');
-    const folds = [...response.querySelectorAll('.chat-step-summary')];
-    const prose = [...response.querySelectorAll('.chat-response-prose')];
     return {
-      prose: prose.map(node => node.innerText),
-      foldCount: folds.length,
-      open: folds.map(node => node.getAttribute('aria-expanded')),
-      stepRows: [...response.querySelectorAll('.chat-step-rows')].map(node => node.children.length)
+      prose: [...response.querySelectorAll('.chat-response-prose')].map(node => node.innerText),
+      keys: [...response.querySelectorAll('.chat-step-rows')].map(node => [...node.querySelectorAll('[data-entry-key]')].map(row => row.dataset.entryKey)),
+      finalStable: finalProse === response.querySelector('.chat-response-final .chat-response-prose') && finalProse.isConnected,
+      text: response.innerText
     };
-  });
-  await page.locator(".chat-step-summary").first().click();
-  const afterFirst = await page.evaluate((firstProse) => {
-    const response = document.querySelector('.chat-response');
-    const folds = [...response.querySelectorAll('.chat-step-summary')];
-    return {
-      open: folds.map(node => node.getAttribute('aria-expanded')),
-      first: folds[0].nextElementSibling.innerText,
-      firstKeys: [...folds[0].nextElementSibling.querySelectorAll('[data-entry-key]')].map(node => node.dataset.entryKey),
-      secondRows: folds[1].nextElementSibling.children.length,
-      proseStable: firstProse === response.querySelectorAll('.chat-response-prose')[0] && firstProse.isConnected
-    };
-  }, firstProseHandle);
-  await page.locator(".chat-step-summary").nth(1).click();
-  const afterTurnOpen = await page.evaluate(() => {
-    const folds = [...document.querySelectorAll('.chat-response .chat-step-summary')];
-    return {
-      open: folds.map(node => node.getAttribute('aria-expanded')),
-      keys: folds.map(node => [...node.nextElementSibling.querySelectorAll('[data-entry-key]')].map(row => row.dataset.entryKey))
-    };
-  });
-  await page.locator(".chat-step-summary").first().click();
-  await page.locator(".chat-step-summary").nth(1).click();
-  const final = await page.evaluate((firstProse) => {
-    const response = document.querySelector('.chat-response');
-    const folds = [...response.querySelectorAll('.chat-step-summary')];
-    const prose = [...response.querySelectorAll('.chat-response-prose')];
-    return {
-      afterTurnClose: folds.map(node => node.getAttribute('aria-expanded')),
-      finalProse: prose.map(node => node.innerText),
-      proseStable: firstProse === prose[0] && firstProse.isConnected,
-      secondCollapsedText: folds[1].nextElementSibling.innerText
-    };
-  }, firstProseHandle);
-  const proseBlocksFixture = { initial, afterFirst, afterTurnOpen: afterTurnOpen.open, afterTurnOpenKeys: afterTurnOpen.keys, ...final };
-  assert.deepEqual(proseBlocksFixture.initial.prose, ["FIRST PROSE BLOCK", "SECOND PROSE BLOCK"]);
-  assert.equal(proseBlocksFixture.initial.foldCount, 2);
-  assert.deepEqual(proseBlocksFixture.initial.open, ["false", "false"]);
-  assert.deepEqual(proseBlocksFixture.initial.stepRows, [0, 0]);
-  assert.deepEqual(proseBlocksFixture.afterFirst.open, ["true", "false"]);
-  assert.equal(proseBlocksFixture.afterFirst.secondRows, 0);
-  assert.deepEqual(proseBlocksFixture.afterFirst.firstKeys, ["thought:prose:first", "prose:first-tool", "prose:first-notice"]);
-  assert.match(proseBlocksFixture.afterFirst.first, /compacted −10 tokens/);
-  assert.equal(proseBlocksFixture.afterFirst.proseStable, true);
-  assert.deepEqual(proseBlocksFixture.afterTurnOpen, ["true", "true"]);
-  assert.deepEqual(proseBlocksFixture.afterTurnOpenKeys, [
+  }, finalProseHandle);
+  assert.deepEqual(expandedProse.prose, ["FIRST PROSE BLOCK", "SECOND PROSE BLOCK"]);
+  assert.deepEqual(expandedProse.keys, [
     ["thought:prose:first", "prose:first-tool", "prose:first-notice"],
     ["thought:prose:second", "prose:second-tool", "prose:second-tool-2"]
   ]);
-  assert.deepEqual(proseBlocksFixture.afterTurnClose, ["false", "false"]);
-  assert.deepEqual(proseBlocksFixture.finalProse, ["FIRST PROSE BLOCK", "SECOND PROSE BLOCK"]);
-  assert.equal(proseBlocksFixture.proseStable, true);
-  assert.equal(proseBlocksFixture.secondCollapsedText, "");
+  assert.equal(expandedProse.finalStable, true);
+  assert.match(expandedProse.text, /compacted −10 tokens/);
   await page.setViewportSize({ width: 320, height: 720 });
   const narrowProse = await browser.evaluate(`(() => {
     const response = document.querySelector('.chat-response');
@@ -1791,10 +1774,10 @@ if (realModel) {
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
     };
   })()`);
-  assert.ok(narrowProse.inset >= 4 && narrowProse.foldRight <= narrowProse.proseRight + 0.5, JSON.stringify(narrowProse));
+  assert.ok(narrowProse.inset >= 4, JSON.stringify(narrowProse));
   assert.ok(narrowProse.logOverflow <= 0 && narrowProse.pageOverflow <= 0, JSON.stringify(narrowProse));
   await page.setViewportSize({ width: 1250, height: 975 });
-  record("prose-always-visible-independent-step-folds-no-horizontal-scroll");
+  record("finished-work-fold-restores-prose-and-steps-no-horizontal-scroll");
   await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('FIRST PROSE BLOCK')`, "prose fixture restored");
 

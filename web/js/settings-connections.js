@@ -80,7 +80,7 @@ function connections() {
     <div class="connection-editor-head"><div><span class="lamp ${connectionHealth(store, connection.id).lamp}"></span><h3>${html(connection.label)}</h3><span class="connection-url">${html(connection.base_url)}</span></div></div>
     <div class="connection-fields">${connectionFields(connection, connectionReason(connection), probeMessages.get(connection.id))}</div>
   </section>`).join("");
-  return `${row("actions", '<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add connection</button></div>')}${subhead("Connections", "Model endpoints and their current probe state.")}<div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${editors}`;
+  return `${row("actions", '<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add connection</button></div>')}${subhead("Connections")}<div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${editors}`;
 }
 
 // One line on the existing findings row: each memory layer's current size
@@ -203,14 +203,13 @@ function connectionFields(connection, reason, discovery) {
 	});
 	options.push(`<option value="__type__">type a name…</option>`);
 	const picker = typedByHand
-	  ? `<input class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text" value="${attr(draftModel ?? connection.model ?? "")}" placeholder="the model name this server expects">`
+	  ? `<input class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text" value="${attr(draftModel ?? connection.model ?? "")}">`
 	  : `<select class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text">${options.join("")}</select>`;
 	// Item 2l1 (a2): one action, not two. Test contacts the address once and fills
 	// the picker and the connection settings from that single result.
 	const modelPath = `${p}.model`;
 	const modelProblem = errors.get(modelPath) || "";
-	const oneModel = discoveredModels.length === 1 ? '<p class="settings-note connection-one-model-note">This server runs one model — it is chosen when the server starts</p>' : "";
-	const modelControl = `${row("model", `<span class="settings-actions">${picker}</span>`, modelProblem ? "invalid" : "", "Filled by Test from what the server lists; type a name by hand when a server cannot enumerate.")}${oneModel}${modelProblem ? errorMarkup(modelProblem, `field:${modelPath}`) : ""}`;
+	const modelControl = `${row("model", `<span class="settings-actions">${picker}</span>`, modelProblem ? "invalid" : "", false)}${modelProblem ? errorMarkup(modelProblem, `field:${modelPath}`) : ""}`;
 	// Item 2nb (g): ONE MESSAGE, ONE PLACE. The discovery result used to be rendered
 	// twice — once under base_url and once beside the Evaluation Harness button — and
 	// the operator saw three copies of one sentence. It belongs under the field it is
@@ -231,41 +230,48 @@ function connectionFields(connection, reason, discovery) {
 	  ? ""
 	  : discovery?.detail ? failedTestLine(discovery, id)
 	    : noteText ? `<p class="settings-note discovery-note ${discovery?.alarm ? "alarm" : ""}">${html(noteText)}</p>` : "";
-	const state = connectionHealth(store, id);
-	// Item 2px (b): the sheet still reads top to bottom as the flow — label, address,
-	// key, Test, model, the rest, Save — but every field is on screen at once; none
-	// waits on a Test or a chosen model (2nn (d)'s gating is gone).
-	const afterModel = `${text(`${p}.credential`, "credential ref", connection.credential || "", "text", "The name the stored API key is kept under; the key itself is never in the configuration.")}
-    ${row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(connection.context.n_ctx || "")}" placeholder="${attr(caps.n_ctx || "")}">`, "", "The probed context is used as the placeholder until this is saved.")}
-    ${toggle(`${p}.reasoning.enabled`, "enabled", connection.reasoning.enabled, "Asks the model to think before it answers, where the server supports it.")}
-    ${row("state", `<span class="account-status"><span class="lamp ${state.lamp}"></span>${html(state.word)}</span>`)}
-	    ${row("", `<div class="settings-actions"><button type="button" data-action="save-connection" data-id="${attr(id)}">Save</button><button type="button" data-action="duplicate-connection" data-id="${attr(id)}">Duplicate</button></div>`, "", "Saves every change made here; Test is never a precondition.")}`;
+	const boolDraft = (path, saved) => drafts.has(path) ? drafts.get(path) === true || drafts.get(path) === "true" : !!saved;
+	const switchControl = (path, selected, label) => `<button type="button" role="switch" aria-checked="${selected}" aria-label="${attr(label)}" class="switch ${selected ? "on" : ""}" data-action="config-toggle" data-path="${attr(path)}" data-value="${selected ? "false" : "true"}"></button>`;
+	const thinkingPath = `${p}.reasoning.enabled`;
+	const thinkingOn = boolDraft(thinkingPath, connection.reasoning.enabled);
+	const effortPath = `${p}.reasoning.effort`;
+	const selectedEffort = drafts.has(effortPath) ? drafts.get(effortPath) : connection.reasoning.effort;
+	const effortControl = efforts.length
+	  ? `<span class="choice-row">${efforts.map((effort) => `<button type="button" class="${effort === selectedEffort ? "selected" : ""}" data-action="config-choice" data-path="${attr(effortPath)}" data-value="${attr(effort)}">${html(effort)}</button>`).join("")}</span>`
+	  : '<span class="settings-note inline">unavailable</span>';
+	const thinkingControl = row("thinking", `<span class="connection-thinking">${switchControl(thinkingPath, thinkingOn, "thinking")} ${effortControl}</span>`, "", false);
+	const imagePath = `${p}.reads_images`;
+	const readsImages = boolDraft(imagePath, connection.reads_images);
+	const imageControl = row("reads images", switchControl(imagePath, readsImages, "reads images"), "", false);
+	const contextProblem = reason?.startsWith("context ") ? reason : "";
+	const contextControl = `${row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(connection.context.n_ctx || "")}">`, "", false)}${contextProblem ? `<p class="${contextProblem.startsWith("context unknown") ? "settings-note" : "field-error"}">${html(contextProblem)}</p>` : ""}`;
+	const saveActions = row("", `<div class="settings-actions"><button type="button" data-action="save-connection" data-id="${attr(id)}">Save</button><button type="button" data-action="duplicate-connection" data-id="${attr(id)}">Duplicate</button></div>`, "", false);
 	const primaryActions = `<div class="connection-primary-actions settings-actions"><button type="button" class="connection-test ${connection._probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${connection._probing ? "disabled" : ""}>${connection._probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Eval"}</button><button type="button" data-action="recommended-connection" data-id="${attr(id)}">Recommended</button></div>`;
-	return `<div class="connection-fieldset connection-left">${text(`${p}.label`, "label", connection.label, "text", "The name this connection is shown by.")}
-    ${text(`${p}.base_url`, "base_url", connection.base_url, "text", "The server address; Test and fill discovers its API path and port, lists models and proposes the rest.")}${discoveryNote}
-    ${secret(`${p}.api_key`, "api_key", connection.api_key, id, "API keys are stored in user-scoped DPAPI storage; configuration keeps only the credential reference.")}
-	${row("", primaryActions, "connection-primary-row", "")}</div>
-	<div class="connection-fieldset connection-right">${modelControl}${afterModel}</div>
+	return `<div class="connection-fieldset connection-primary">${text(`${p}.label`, "name", connection.label, "text", false)}
+    ${text(`${p}.base_url`, "address", connection.base_url, "text", false)}${discoveryNote}
+    ${secret(`${p}.api_key`, "key", connection.api_key, id, false)}
+	${modelControl}${contextControl}${thinkingControl}${imageControl}
+	${row("", primaryActions, "connection-primary-row", false)}</div>
 	${feedback}${measurementResult}
-    <details class="connection-advanced" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Advanced</summary>
-    <div class="connection-fieldset connection-identity"><h4>Connection</h4>
-	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", "An optional service that turns PDFs into text for this connection; it is used before the local reader.")}
-	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], connection.attachment_handling || "auto", "auto follows probed capability; native always sends supported attachment kinds; extract keeps their binary local")}
-	${number(`${p}.request_timeout_s`, "timeout", connection.request_timeout_s, "1", false, "", false, "number", "Seconds to wait for the server before a request counts as failed.")}
-    ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], connection.probe_mode, "minimal and off skip checks that spend tokens; assumed values are marked in findings")}</div>
-    <div class="connection-fieldset connection-reasoning"><h4>Reasoning &amp; context</h4>
-    ${choices(`${p}.reasoning.control`, "control", ["auto", "chat_template_kwargs", "top_level", "server_flag", "none"], connection.reasoning.control, "How the thinking switch is sent to this server; auto uses what the probe found.")}
-    ${efforts.length ? choices(`${p}.reasoning.effort`, "effort", efforts, connection.reasoning.effort, "How much the model thinks before it answers.") : row("effort", '<span class="settings-note inline">not supported by this server</span>', "", "This server offers no thinking levels to choose from.")}
-    ${toggle(`${p}.reasoning.preserve`, "preserve", connection.reasoning.preserve, "Sends the model's own earlier reasoning back to it within a run.")}
-    ${number(`${p}.reasoning.max_tokens`, "reasoning cap", connection.reasoning.max_tokens || 0, "1", false, "", false, "number", "The most tokens the model may spend thinking per answer; 0 means no cap.")}
-    ${number(`${p}.context.reserve_output`, "reserve", connection.context.reserve_output, "1", false, "", false, "number", "Tokens kept free for one answer, thinking included. An answer that reaches this limit stops and says so; thinking gets half of it when no reasoning cap is set. It cannot exceed half the context size.")}</div>
+	    <details class="connection-defaults" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Defaults</summary>
+	    <div class="connection-fieldset connection-identity"><h4>Connection</h4>
+	${text(`${p}.credential`, "credential ref", connection.credential || "", "text", false)}
+	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", false)}
+	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], connection.attachment_handling || "auto", false)}
+	${number(`${p}.request_timeout_s`, "timeout", connection.request_timeout_s, "1", false, "", false, "number", false)}
+    ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], connection.probe_mode, false)}</div>
+	    <div class="connection-fieldset connection-reasoning"><h4>Reasoning &amp; context</h4>
+	    ${choices(`${p}.reasoning.control`, "control", ["auto", "chat_template_kwargs", "top_level", "server_flag", "none"], connection.reasoning.control, false)}
+	    ${toggle(`${p}.reasoning.preserve`, "preserve", connection.reasoning.preserve, false)}
+	    ${number(`${p}.reasoning.max_tokens`, "reasoning cap", connection.reasoning.max_tokens || 0, "1", false, "", false, "number", false)}
+	    ${number(`${p}.context.reserve_output`, "reserve", connection.context.reserve_output, "1", false, "", false, "number", false)}</div>
     <div class="connection-fieldset connection-sampling"><h4>Sampling</h4><div class="sampling-grid"><div></div><div class="sampling-column">Thinking</div><div class="sampling-column">Non-thinking</div>${samplingRows}</div></div>
     <div class="connection-fieldset connection-prompt"><h4>System prompt</h4>
-    ${textarea(`${p}.system_prompt_override`, "system prompt override", connection.system_prompt_override || "", "variables: {{folder}} {{plans}} {{tools}} {{agent}} {{project}} {{memory}}")}</div>
+	    ${textarea(`${p}.system_prompt_override`, "system prompt override", connection.system_prompt_override || "", false)}</div>
     <div class="connection-fieldset connection-capabilities"><h4>Capabilities</h4>
     <div class="findings"><span class="settings-note">${html(caps.probed_at || "not probed")}</span><ul>${findings || "<li>no findings</li>"}</ul></div>
-    ${reason ? `<p class="${reason.startsWith("context unknown") ? "settings-note" : "field-error"}">${html(reason)}</p>` : ""}
-    </div></details>`;
+	    ${reason && !contextProblem ? `<p class="field-error">${html(reason)}</p>` : ""}
+	    </div></details>${saveActions}`;
 }
 
 

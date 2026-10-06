@@ -12,7 +12,7 @@ import (
 // image has no second route and is unaffected.
 func TestPDFInlinesOnlyUnderTheThreshold(t *testing.T) {
 	SetInlineDocumentLimit(2 << 20)
-	documentConnection := &config.Connection{AttachmentHandling: "native"}
+	documentConnection := &config.Connection{AttachmentHandling: "native", ReadsImages: true}
 	textConnection := &config.Connection{AttachmentHandling: "extract"}
 
 	for _, item := range []struct {

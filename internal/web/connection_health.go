@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -87,12 +88,46 @@ func (s *Server) checkConnectionHealth(ctx context.Context, connection config.Co
 			if s.runner != nil {
 				s.runner.SetServerWindow(connection.ID, health.Window)
 			}
+			s.fillEmptyConnectionContext(connection.ID, health.Window)
 			if connection.Context.NCtx > health.Window && health.Lamp == "ready" {
 				health = connectionHealth{Lamp: "amber", Word: fmt.Sprintf("server allows only %d tokens", health.Window), Window: health.Window}
 			}
 		}
 	}
 	s.setConnectionHealth(connection.ID, health)
+}
+
+// fillEmptyConnectionContext makes the metadata-only health result the saved
+// value once. A later check cannot replace an operator-entered size.
+func (s *Server) fillEmptyConnectionContext(connectionID string, window int) {
+	s.mu.Lock()
+	next := *s.cfg
+	next.Connections = append([]config.Connection(nil), s.cfg.Connections...)
+	changed := false
+	for index := range next.Connections {
+		if next.Connections[index].ID == connectionID && next.Connections[index].Context.NCtx == 0 {
+			next.Connections[index].Context.NCtx = window
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		s.mu.Unlock()
+		return
+	}
+	if err := s.saveMachineConfig(next); err != nil {
+		s.mu.Unlock()
+		log.Printf("connection health: save context window: %v", err)
+		return
+	}
+	*s.cfg = next
+	s.mu.Unlock()
+	if s.runner != nil {
+		s.runner.Configure(s.ConfigSnapshot())
+	}
+	if s.bus != nil {
+		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": s.ConfigSnapshot().Masked()}))
+	}
 }
 
 func healthFailureWord(err error) string {

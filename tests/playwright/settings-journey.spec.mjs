@@ -125,7 +125,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, close, 
   const reopened = page.locator(`[data-path="connections.${id}.api_key"]`);
   await expect(reopened).toBeVisible();
   await expect(reopened).toHaveValue("");
-  await expect(reopened).toHaveAttribute("placeholder", /leave empty to keep the stored key/);
+  await expect(reopened).not.toHaveAttribute("placeholder", /.*/);
   await expect(page.locator(".connection-editor .control-note").first()).toHaveText("stored");
 
   // 7. Start a chat on it. Closing Settings returns to the chat, and the switcher
@@ -365,9 +365,9 @@ test("the bar is on screen 100 ms after Test, and the bare word is not", async (
   await page.close();
 });
 
-// 2qn replaces the old one-column flow with two halves. Within each half the fields
-// keep their order; the action line and collapsed Advanced span beneath both.
-test("the sheet reads as two ordered halves above its actions and Advanced", async () => {
+// 2qx replaces the two identity halves with the seven settings people change;
+// the action line and collapsed Defaults remain beneath them.
+test("the sheet reads as seven ordered fields above its actions and Defaults", async () => {
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
@@ -377,35 +377,17 @@ test("the sheet reads as two ordered halves above its actions and Advanced", asy
   const editor = page.locator(".connection-editor");
   const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
 
-  const order = async () => page.evaluate((connection) => {
-    const marks = [
-      [`[data-path="connections.${connection}.label"]`, "label"],
-      [`[data-path="connections.${connection}.base_url"]`, "address"],
-      [`[data-path="connections.${connection}.api_key"]`, "key"],
-		[`.connection-editor [data-action="probe"][data-id="${connection}"]`, "Test"],
-		[`[data-path="connections.${connection}.model"]`, "model"],
-		[`.connection-editor [data-action="measure-connection"][data-id="${connection}"]`, "Eval"],
-		[`.connection-editor [data-action="recommended-connection"][data-id="${connection}"]`, "Recommended"],
-      [`.connection-editor [data-action="save-connection"][data-id="${connection}"]`, "Save"],
-      [".connection-advanced", "Advanced"],
-    ];
-    return marks
-      .map(([selector, name]) => [name, document.querySelector(selector)])
-      .filter(([, node]) => node)
-      .map(([name, node]) => ({ name, top: node.getBoundingClientRect().top }))
-      .sort((a, b) => a.top - b.top)
-      .map((entry) => entry.name);
-  }, id);
+	const labels = async () => (await editor.locator(":scope > .connection-fields > .connection-primary > .setting-row > label").allTextContents()).filter(Boolean);
+	expect(await labels()).toEqual(["name", "address", "key", "model", "context size", "thinking", "reads images"]);
+  await expect(page.locator(".connection-defaults")).not.toHaveAttribute("open", /.*/);
+  await expect(page.locator(".connection-defaults > summary")).toHaveText("Defaults");
+  await expect(editor.locator(".connection-primary-actions button")).toHaveText(["Test", "Eval", "Recommended"]);
 
-	// Left: label/address/key. Right: model/Save. Then the spanning action row and Advanced.
-	expect(await order()).toEqual(["label", "model", "address", "key", "Test", "Eval", "Recommended", "Save", "Advanced"]);
-  await expect(page.locator(".connection-advanced")).not.toHaveAttribute("open", /.*/);
-
-	// Choosing a model does not collapse or reorder either half.
+	// Choosing a model does not collapse or reorder the fields.
 	await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
 	await page.locator(`[data-path="connections.${id}.model"]`).fill("journey-model");
 	await expect(page.locator(`.connection-editor [data-action="measure-connection"][data-id="${id}"]`)).toBeVisible();
-	expect(await order()).toEqual(["label", "model", "address", "key", "Test", "Eval", "Recommended", "Save", "Advanced"]);
+	expect(await labels()).toEqual(["name", "address", "key", "model", "context size", "thinking", "reads images"]);
   await page.close();
 });
 

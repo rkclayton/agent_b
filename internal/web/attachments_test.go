@@ -165,20 +165,22 @@ func TestAttachmentHandlingRoutesImageAgainstProbe(t *testing.T) {
 		name     string
 		handling string
 		vision   string
+		reads    bool
 		wantTier string
 		wantNote string
 	}{
-		{"auto rejected extracts", "auto", config.VisionRejected, "ocr", ""},
-		{"auto accepted but unread extracts", "auto", config.VisionAcceptsUnreadable, "ocr", "accepts images but does not read them"},
-		{"auto vision stays native", "auto", config.VisionReadsImages, "native", ""},
-		{"native overrides absent capability", "native", config.VisionRejected, "native", ""},
-		{"extract overrides present capability", "extract", config.VisionReadsImages, "ocr", ""},
+		{"switch off extracts", "auto", config.VisionRejected, false, "ocr", ""},
+		{"switch off ignores accepted finding", "auto", config.VisionAcceptsUnreadable, false, "ocr", "accepts images but does not read them"},
+		{"switch on stays native", "auto", config.VisionReadsImages, true, "native", ""},
+		{"switch on overrides absent finding", "native", config.VisionRejected, true, "native", ""},
+		{"extract overrides switch on", "extract", config.VisionReadsImages, true, "ocr", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server, _ := attachmentTestServer(t, func(cfg *config.Config) {
 				cfg.Connections[0].AttachmentHandling = test.handling
 				cfg.Connections[0].Capabilities.ImageInput = test.vision != config.VisionRejected
 				cfg.Connections[0].Capabilities.Vision = test.vision
+				cfg.Connections[0].ReadsImages = test.reads
 			})
 			server.ocrExtract = func(string) (string, error) { return "words", nil }
 			result := postAttachment(t, server, "screen.png", []byte("image bytes"))

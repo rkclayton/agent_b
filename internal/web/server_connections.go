@@ -412,6 +412,10 @@ func (s *Server) recommendConnection(w http.ResponseWriter, r *http.Request, id 
 		values["reasoning.enabled"] = defaults.Reasoning.Enabled
 		sources["reasoning.enabled"] = "shipped default"
 	}
+	if connection.Measurement != nil && connection.Capabilities.Vision != "" {
+		values["reads_images"] = connection.Capabilities.Vision == config.VisionReadsImages
+		sources["reads_images"] = "Eval"
+	}
 	if _, ok := values["reasoning.max_tokens"]; !ok {
 		values["reasoning.max_tokens"] = defaults.Reasoning.MaxTokens
 		sources["reasoning.max_tokens"] = "shipped default"

@@ -296,6 +296,7 @@ type Connection struct {
 	BaseURL              string       `json:"base_url"`
 	ExtractURL           string       `json:"extract_url"`
 	AttachmentHandling   string       `json:"attachment_handling"`
+	ReadsImages          bool         `json:"reads_images"`
 	Model                string       `json:"model"`
 	Credential           string       `json:"credential"`
 	APIKey               string       `json:"api_key,omitempty"`
@@ -390,7 +391,7 @@ func defaultConnection() Connection {
 }
 
 func (p Connection) NativeImageInput() bool {
-	return p.AttachmentHandling == "native" || (p.AttachmentHandling == "auto" && p.Capabilities.Vision == VisionReadsImages)
+	return p.ReadsImages && p.AttachmentHandling != "extract"
 }
 
 func (p Connection) NativeDocumentInput() bool {
@@ -406,6 +407,13 @@ func (p *Connection) UnmarshalJSON(data []byte) error {
 	value := plain(defaultConnection())
 	if err := json.Unmarshal(data, &value); err != nil {
 		return err
+	}
+	var stored map[string]json.RawMessage
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return err
+	}
+	if _, present := stored["reads_images"]; !present {
+		value.ReadsImages = value.Capabilities.ProbedAt == "" || value.Capabilities.Vision == VisionReadsImages
 	}
 	*p = Connection(value)
 	p.initialized = true

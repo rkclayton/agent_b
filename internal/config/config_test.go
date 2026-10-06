@@ -86,6 +86,63 @@ func TestAttachmentHandlingDefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestReadsImagesDefaultsAndMigratesFromStoredFinding2qx(t *testing.T) {
+	fresh := Defaults(t.TempDir()).Connections[0]
+	if fresh.ReadsImages {
+		t.Fatal("a new connection must start with reads_images off")
+	}
+	for _, row := range []struct {
+		vision string
+		want   bool
+	}{
+		{VisionReadsImages, true},
+		{VisionRejected, false},
+	} {
+		raw := fmt.Sprintf(`{"id":"old","attachment_handling":"auto","capabilities":{"vision":%q,"probed_at":"2026-10-06T12:00:00Z"}}`, row.vision)
+		var connection Connection
+		if err := json.Unmarshal([]byte(raw), &connection); err != nil {
+			t.Fatal(err)
+		}
+		if connection.ReadsImages != row.want {
+			t.Errorf("vision=%q reads_images=%t, want %t", row.vision, connection.ReadsImages, row.want)
+		}
+	}
+}
+
+func TestConnectionWithReadsImagesRoundTripsEveryStoredKey2qx(t *testing.T) {
+	original := Defaults(t.TempDir()).Connections[0]
+	original.ID, original.Label = "old", "Old"
+	original.BaseURL, original.ExtractURL, original.Model = "http://127.0.0.1:8080", "http://127.0.0.1:8081", "m"
+	original.ReadsImages, original.Credential, original.MaxConcurrent = true, "secret", 2
+	original.Context.NCtx, original.Context.ReserveOutput = 32768, 4096
+	original.SystemPromptOverride = "keep"
+	original.Capabilities.Vision, original.Capabilities.ProbedAt = VisionReadsImages, "2026-10-06T12:00:00Z"
+	raw, err := json.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var connection Connection
+	if err := json.Unmarshal(raw, &connection); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(connection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before, after map[string]any
+	if err := json.Unmarshal(raw, &before); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(encoded, &after); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range before {
+		if !reflect.DeepEqual(after[key], value) {
+			t.Errorf("stored key %s changed: %#v -> %#v", key, value, after[key])
+		}
+	}
+}
+
 func TestUnknownOrOverstatedContextDoesNotInvalidateConnection2qr(t *testing.T) {
 	for _, nctx := range []int{0, 32_000_000} {
 		cfg := Defaults(t.TempDir())

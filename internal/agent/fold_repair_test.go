@@ -413,6 +413,7 @@ func TestANativeImageIsAStubAfterItsTurn(t *testing.T) {
 	connection, _ := runner.connection(item.ConnectionID)
 	connection.Capabilities.ImageInput = true
 	connection.Capabilities.Vision = config.VisionReadsImages
+	connection.ReadsImages = true
 	cfg := runner.cfg()
 	for index := range cfg.Connections {
 		if cfg.Connections[index].ID == connection.ID {

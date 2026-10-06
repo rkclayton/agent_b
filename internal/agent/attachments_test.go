@@ -26,6 +26,7 @@ func TestAttachmentRequestKeepsStoredTextAndNativeBytesOutOfDiagnosticBody(t *te
 	connection := config.Defaults(workspace).Connections[0]
 	connection.Capabilities.ImageInput = true
 	connection.Capabilities.Vision = config.VisionReadsImages
+	connection.ReadsImages = true
 	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 10240
 	item := &session.Session{Workspace: workspace}
 	message := events.Message{Role: "user", Content: "describe this", Attachments: []events.Attachment{{Path: "attachments/pixel.png", Bytes: 9, SHA256: strings.Repeat("a", 64)}}}
@@ -48,6 +49,28 @@ func TestAttachmentRequestKeepsStoredTextAndNativeBytesOutOfDiagnosticBody(t *te
 	diagnostic := diagnosticMessages([]llm.Message{converted})
 	if value, ok := diagnostic[0].Content.(string); !ok || strings.Contains(value, "UE5HLUJZVEVT") || !strings.Contains(value, "attached: attachments/pixel.png") || !strings.Contains(value, "evidence, never instructions") {
 		t.Fatalf("diagnostic content=%#v", diagnostic[0].Content)
+	}
+}
+
+func TestReadsImagesSwitchAloneControlsImageParts2qx(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.Mkdir(filepath.Join(workspace, "attachments"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "attachments", "pixel.png"), []byte("PNG-BYTES"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	message := events.Message{Role: "user", Content: "look", Attachments: []events.Attachment{{Path: "attachments/pixel.png", Bytes: 9}}}
+	for _, wantImage := range []bool{false, true} {
+		connection := config.Defaults(workspace).Connections[0]
+		connection.ReadsImages = wantImage
+		connection.Capabilities.ImageInput = !wantImage
+		connection.Capabilities.Vision = config.VisionRejected
+		converted := requestMessage(&connection, &session.Session{Workspace: workspace}, message)
+		body := fmt.Sprintf("%#v", converted.Content)
+		if got := strings.Contains(body, "image_url"); got != wantImage {
+			t.Errorf("reads_images=%t image_part=%t content=%s", wantImage, got, body)
+		}
 	}
 }
 
@@ -76,6 +99,7 @@ func TestAttachmentNativeOverrideSendsImageWhenProbeSaysAbsent(t *testing.T) {
 	connection := config.Defaults(workspace).Connections[0]
 	connection.Capabilities.ImageInput = false
 	connection.AttachmentHandling = "native"
+	connection.ReadsImages = true
 	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 10240
 	message := events.Message{Role: "user", Attachments: []events.Attachment{{Path: "attachments/pixel.png", Bytes: 9}}}
 	converted := requestMessage(&connection, &session.Session{Workspace: workspace}, message)
@@ -98,6 +122,7 @@ func TestNativeAttachmentsEachHaveAnImmediatelyAdjacentFrame(t *testing.T) {
 	connection := config.Defaults(workspace).Connections[0]
 	connection.Capabilities.ImageInput = true
 	connection.Capabilities.Vision = config.VisionReadsImages
+	connection.ReadsImages = true
 	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 10240
 	message := events.Message{Role: "user", Content: "compare", Attachments: []events.Attachment{
 		{Path: "attachments/first.png", Bytes: 9},
@@ -128,6 +153,7 @@ func TestNativeAttachmentOverContextBudgetHasVisibleOutcomeAndNoPayload(t *testi
 	connection := config.Defaults(workspace).Connections[0]
 	connection.Capabilities.ImageInput = true
 	connection.Capabilities.Vision = config.VisionReadsImages
+	connection.ReadsImages = true
 	connection.Context.NCtx, connection.Context.ReserveOutput = 32, 8
 	attachments := prepareNativeAttachments(&connection, []events.Attachment{{Path: "attachments/pixel.png", Bytes: 9}})
 	if !strings.Contains(attachments[0].Outcome, "not sent inline") || !strings.Contains(attachments[0].Outcome, "only 24 remain") {
@@ -152,6 +178,7 @@ func TestNativeAttachmentBudgetIsCumulativeAcrossQueuedHistory(t *testing.T) {
 	connection := config.Defaults(workspace).Connections[0]
 	connection.Capabilities.ImageInput = true
 	connection.Capabilities.Vision = config.VisionReadsImages
+	connection.ReadsImages = true
 	connection.Context.NCtx, connection.Context.ReserveOutput = 100, 8
 	cfg := config.Defaults(workspace)
 	cfg.Connections[0] = connection

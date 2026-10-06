@@ -286,12 +286,11 @@ function renderAgentConnection(agent) {
       row.append(cancel);
     }
     const connection = connections.find((candidate) => candidate.id === assigned);
-    if (connection?.capabilities?.probed_at) {
-      const vision = connection.capabilities.vision || "not classified";
-      const visionFinding = (connection.capabilities.findings || []).find((finding) => finding.startsWith("vision:"));
-      const mark = node("span", `panel-agent-vision ${vision === "reads images" ? "reads" : "does-not-read"}`);
-      mark.setAttribute("role", "img");
-      mark.title = visionFinding || `vision: ${vision}`;
+    if (connection) {
+      const readsImages = !!connection.reads_images;
+      const mark = node("span", `panel-agent-vision ${readsImages ? "reads" : "does-not-read"}`);
+	      mark.setAttribute("role", "img");
+	      mark.title = `reads images: ${readsImages ? "yes" : "no"}`;
       mark.setAttribute("aria-label", mark.title);
       row.append(mark);
     }

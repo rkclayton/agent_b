@@ -15,7 +15,9 @@ import (
 func TestNotRunnableAlwaysHasAReason2qr(t *testing.T) {
 	item := &Session{Runnable: true}
 	item.SetRunnable(false, "")
-	if item.Snapshot().NotRunnableReason == "" { t.Fatal("SetRunnable(false) kept an empty reason") }
+	if item.Snapshot().NotRunnableReason == "" {
+		t.Fatal("SetRunnable(false) kept an empty reason")
+	}
 	if ok, reason := restoredConnectionRunnable("model", true, false, ""); ok || reason == "" {
 		t.Fatalf("restored state = %v %q", ok, reason)
 	}
@@ -79,7 +81,7 @@ func TestMediaCapabilitiesFollowConnectionAndToolset(t *testing.T) {
 			t.Fatalf("text-only capabilities %q do not contain %q", textOnly, want)
 		}
 	}
-	vision := config.Connection{AttachmentHandling: "native"}
+	vision := config.Connection{AttachmentHandling: "native", ReadsImages: true}
 	native := MediaCapabilities(&vision, map[string]bool{"run_script": true})
 	for _, want := range []string{"render PNG or JPEG", "System.Drawing", "can see a user-attached image"} {
 		if !strings.Contains(native, want) {

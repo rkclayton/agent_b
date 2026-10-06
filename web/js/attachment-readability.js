@@ -1,15 +1,13 @@
 export function attachmentReadability(session, connections, attachment) {
   const connection = (connections || []).find((value) => value.id === session?.connection_id);
-  const capabilities = connection?.capabilities;
-  if (!connection || !capabilities?.probed_at) return null;
+  const capabilities = connection?.capabilities || {};
+  if (!connection) return null;
   const handling = connection.attachment_handling || "auto";
   if (attachment?.sidecar) return null;
   if (attachment?.kind === "image" && handling === "extract")
     return "This image needs OCR before the connection can read it";
-  if (attachment?.kind === "image" && handling === "auto" && capabilities.vision !== "reads images")
-    return capabilities.vision === "accepts images but does not read them"
-      ? "This image needs OCR · the connection accepts images but does not read them"
-      : "This connection cannot read images · probe did not verify image reading";
+  if (attachment?.kind === "image" && !connection.reads_images)
+    return "This connection cannot read images";
   if (attachment?.kind === "pdf" && handling === "extract")
     return "This PDF needs extraction before the connection can read it";
   if (attachment?.kind === "pdf" && handling === "auto" && !capabilities.document_input)

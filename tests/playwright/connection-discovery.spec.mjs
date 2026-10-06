@@ -144,6 +144,34 @@ test("Test Eval Recommended stay adjacent at 1400px and the narrowest width 2qw"
   await narrow.close();
 });
 
+test("2qx seven-field editor and closed Defaults fit wide and narrow", async () => {
+  const evidence = process.env.AGENTB_EVIDENCE_DIR;
+  for (const width of [1400, 304]) {
+    const context = await harness.browser.newContext({ viewport: { width, height: width === 304 ? 700 : 900 } });
+    const page = await context.newPage();
+    await page.goto(`${harness.base}/chat#settings/connections`);
+    await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+    const editor = page.locator(".connection-editor");
+    const visibleLabels = editor.locator(':scope > .connection-fields > .connection-primary > .setting-row > label');
+    expect((await visibleLabels.allTextContents()).filter(Boolean)).toEqual(["name", "address", "key", "model", "context size", "thinking", "reads images"]);
+    const defaults = editor.locator("details.connection-defaults");
+    await expect(defaults.locator(":scope > summary")).toHaveText("Defaults");
+    await expect(defaults).not.toHaveAttribute("open", "");
+    const geometry = await editor.evaluate((node) => ({
+      right: node.getBoundingClientRect().right,
+      viewport: document.documentElement.clientWidth,
+      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    }));
+    expect(geometry.right, JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.viewport + 1);
+    expect(geometry.overflow, JSON.stringify(geometry)).toBe(false);
+    if (evidence) {
+      await mkdir(evidence, { recursive: true });
+      await page.screenshot({ path: join(evidence, `2qx-editor-${width}.png`), fullPage: true });
+    }
+    await context.close();
+  }
+});
+
 test("a duplicate keeps the stored key and Show hides it again 2qn", async () => {
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat#settings/connections`);

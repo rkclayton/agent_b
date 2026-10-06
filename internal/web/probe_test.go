@@ -260,6 +260,8 @@ func TestRecommendedUsesEvalThenServerWithoutCompletionAndDoesNotSave2qw(t *test
 	cfg := config.Defaults(root)
 	cfg.Connections[0].BaseURL, cfg.Connections[0].Model = model.URL, "fixture"
 	cfg.Connections[0].Measurement = &config.Measurement{Decision: &config.ReasoningDecision{Enabled: false, ReasoningCap: 777}}
+	cfg.Connections[0].Capabilities.ImageInput = true
+	cfg.Connections[0].Capabilities.Vision = config.VisionReadsImages
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
@@ -274,10 +276,10 @@ func TestRecommendedUsesEvalThenServerWithoutCompletionAndDoesNotSave2qw(t *test
 	if err := json.Unmarshal(response.Body.Bytes(), &answer); err != nil {
 		t.Fatal(err)
 	}
-	if response.Code != http.StatusOK || answer.Values["reasoning.enabled"] != false || answer.Values["reasoning.max_tokens"] != float64(777) || answer.Values["context.n_ctx"] != float64(32768) {
+	if response.Code != http.StatusOK || answer.Values["reasoning.enabled"] != false || answer.Values["reasoning.max_tokens"] != float64(777) || answer.Values["context.n_ctx"] != float64(32768) || answer.Values["reads_images"] != true {
 		t.Fatalf("status=%d answer=%+v body=%s", response.Code, answer, response.Body)
 	}
-	if answer.Sources["reasoning.enabled"] != "Eval" || answer.Sources["reasoning.max_tokens"] != "Eval" || answer.Sources["context.n_ctx"] != "server" {
+	if answer.Sources["reasoning.enabled"] != "Eval" || answer.Sources["reasoning.max_tokens"] != "Eval" || answer.Sources["context.n_ctx"] != "server" || answer.Sources["reads_images"] != "Eval" {
 		t.Fatalf("sources=%v", answer.Sources)
 	}
 	after, _ := os.ReadFile(path)

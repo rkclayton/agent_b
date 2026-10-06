@@ -607,8 +607,8 @@ async function refreshOperatorFileState() {
 }
 
 function row(label, control, extra = "", hint = "") {
-  const hover = hint || `${label} setting.`;
-  return `<div class="setting-row ${extra}" title="${attr(hover)}"><label>${html(label)}</label><div>${control}</div></div>`;
+  const hover = hint === false ? "" : (hint || `${label} setting.`);
+  return `<div class="setting-row ${extra}"${hover ? ` title="${attr(hover)}"` : ""}><label>${html(label)}</label><div>${control}</div></div>`;
 }
 
 // A subsection heading carries the paragraph that used to sit under it.
@@ -836,7 +836,7 @@ function secret(path, label, value, id, hint = "") {
   const note = stored
     ? `<span class="control-note">${typedThisSession ? "replacing the stored key" : "stored"}</span>`
     : "";
-  return field(path, label, `<span class="secret-control"><input class="setting-input" type="${type}" data-path="${attr(path)}" data-kind="secret" value="${attr(typedThisSession)}" placeholder="${attr(stored ? "leave empty to keep the stored key" : "paste the API key")}"><button type="button" data-action="show-key" data-id="${attr(id)}">${shown ? "hide" : "show"}</button>${note}</span>`, false, hint);
+  return field(path, label, `<span class="secret-control"><input class="setting-input" type="${type}" data-path="${attr(path)}" data-kind="secret" value="${attr(typedThisSession)}"><button type="button" data-action="show-key" data-id="${attr(id)}">${shown ? "hide" : "show"}</button>${note}</span>`, false, hint);
 }
 
 function toggle(path, label, value, hint = "") {
@@ -1986,7 +1986,8 @@ async function resetSession(id) {
 function connectionReason(connection) {
   const caps = connection.capabilities || {};
   const nctx = connection.context?.n_ctx;
-  if (!nctx || (caps.n_ctx > 0 && nctx > caps.n_ctx)) return "context unknown — Recommended to read it";
+  if (!nctx) return "context unknown — enter the size";
+  if (caps.n_ctx > 0 && nctx > caps.n_ctx) return "context exceeds server window — enter a smaller size";
   if (!caps.tool_calls) return "tool calling unavailable";
   if (caps.overflow_behavior === "truncate") return "server truncates context";
   if (!caps.streaming) return "streaming unavailable";

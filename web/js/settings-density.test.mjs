@@ -19,8 +19,8 @@ test("subhead explanations are visible and row hints remain attached to controls
     assert.match(source["settings.js"], new RegExp(`function ${helper}\\([^)]*hint = ""\\)`), `${helper} cannot carry hover text`);
   }
   // Row-specific hints stay attached; subsection prose is visible and has no title.
-  assert.match(source["settings.js"], /const hover = hint \|\| `\$\{label\} setting\.`/);
-  assert.match(source["settings.js"], /class="setting-row \$\{extra\}" title="\$\{attr\(hover\)\}"/);
+  assert.match(source["settings.js"], /const hover = hint === false \? "" : \(hint \|\| `\$\{label\} setting\.`\)/);
+  assert.match(source["settings.js"], /\$\{hover \? ` title="\$\{attr\(hover\)\}"` : ""\}/);
   assert.match(source["settings.js"], /class="settings-subhead">\$\{html\(label\)\}<\/div>\$\{hint \? `<p class="settings-subhead-note">/);
   assert.doesNotMatch(source["settings.js"], /class="settings-subhead"[^\n]+title=/);
 });
@@ -76,6 +76,6 @@ test("every control that carried a paragraph still exists", () => {
     assert.ok(security.includes(control), `Security lost ${control}`);
   }
   assert.match(source["settings-run.js"], /approvalChoices\(cfg\.approval\?\.mode, "With the service identity enabled/);
-  assert.match(source["settings-connections.js"], /probe_mode.{0,40}\["full", "minimal", "off"\], connection\.probe_mode, "minimal and off skip checks/);
+  assert.match(source["settings-connections.js"], /probe_mode.{0,40}\["full", "minimal", "off"\], connection\.probe_mode, false/);
   assert.doesNotMatch(source["settings.js"], /settings-delivery|renderDeliveryPage/);
 });

@@ -308,7 +308,7 @@ test("the API key field never carries the stored-key mask as its value", () => {
 	assert.doesNotMatch(secret, /value="\$\{attr\(current\(path/, "the field still renders the stored value");
 	assert.match(secret, /typedThisSession/, "the field does not render only what was typed");
 	assert.match(secret, /control-note">\$\{typedThisSession \? "replacing the stored key" : "stored"\}/);
-	assert.match(secret, /leave empty to keep the stored key/);
+	assert.doesNotMatch(secret, /leave empty|paste the API key/);
 });
 
 test("stored connection keys reveal briefly, duplicate beside Test, and rows use a pencil 2qn", () => {
@@ -320,7 +320,7 @@ test("stored connection keys reveal briefly, duplicate beside Test, and rows use
 	assert.match(connections, /data-action="save-connection"[^]*data-action="duplicate-connection"/);
 	assert.match(connections, /connectionIcons\.edit/);
 	assert.doesNotMatch(connections, /aria-expanded="\$\{isOpen\}">Edit<\/button>/);
-	assert.match(connections, /This server runs one model — it is chosen when the server starts/);
+	assert.doesNotMatch(connections, /This server runs one model/);
 });
 
 // And the server refuses a masked value outright rather than silently dropping it.
@@ -554,12 +554,44 @@ test("the connection form is whole before a Test and its models come from the se
   context.expanded.add("acme");
   context.store.connection_health = { acme: { lamp: "amber", word: "no model chosen" } };
   const typed = renderConnectionsPage(context);
-  for (const label of ["label", "base_url", "api_key", "model", "credential ref", "context size", "enabled", "state", "Eval", "Recommended", "Advanced", "reserve"]) {
+  for (const label of ["name", "address", "key", "model", "context size", "thinking", "reads images", "Eval", "Recommended", "Defaults", "credential ref", "reserve"]) {
     assert.ok(typed.includes(label), `${label} is not on the form before a Test`);
   }
   assert.doesNotMatch(typed, /Test to list models/);
-  assert.equal([...typed.matchAll(/class="lamp amber"/g)].length, 3, "header, form head and state row disagree");
+  assert.equal([...typed.matchAll(/class="lamp amber"/g)].length, 2, "header and form head disagree");
   context.probeMessages.set("acme", { models: ["alpha", "beta", "gamma"] });
   const listed = renderConnectionsPage(context);
   for (const model of ["alpha", "beta", "gamma"]) assert.match(listed, new RegExp(`<option value="${model}"`));
+});
+
+test("2qx connection editor has exactly seven ordered fields, one closed Defaults group, and no explanatory prose", () => {
+  const context = pageContext();
+  const connection = { id: "acme", label: "acme", base_url: "http://acme:8080/", model: "alpha", api_key: "", reads_images: false, context: { n_ctx: 0, reserve_output: 8192 }, reasoning: { enabled: true, effort: "medium", valid_efforts: ["low", "medium", "high"], control: "auto", preserve: false }, sampling: { thinking: {}, nonthinking: {} }, capabilities: {} };
+  context.connectionList = () => [connection];
+  context.expanded.add("acme");
+  context.connectionReason = () => "context unknown — enter the size";
+  const rendered = renderConnectionsPage(context);
+  const editor = rendered.slice(rendered.indexOf('<section class="connection-editor"'));
+  const defaults = editor.match(/<details class="connection-defaults"[^>]*><summary>([^<]+)<\/summary>/);
+  assert.equal(defaults?.[1], "Defaults");
+  assert.doesNotMatch(defaults?.[0] || "", /\sopen(?:\s|>)/);
+  const visible = editor.slice(0, editor.indexOf('<details class="connection-defaults"'));
+  const labels = [...visible.matchAll(/<label[^>]*>([^<]*)<\/label>/g)].map((match) => match[1]).filter(Boolean);
+  assert.deepEqual(labels, ["name", "address", "key", "model", "context size", "thinking", "reads images"]);
+  assert.match(visible, /context unknown — enter the size/);
+  for (const sentence of ["Model endpoints and their current probe state.", "This server runs one model", "The name this connection", "How much the model thinks"]) {
+    assert.doesNotMatch(editor, new RegExp(sentence.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  const textNodes = [...editor.matchAll(/>([^<>]+)</g)].map((match) => match[1].trim()).filter(Boolean);
+  const allowed = new Set([
+    "acme", "http://acme:8080/", "name", "address", "key", "show", "model", "alpha", "type a name…",
+    "context size", "context unknown — enter the size", "thinking", "low", "medium", "high", "reads images",
+    "Test", "Eval", "Recommended", "Defaults", "Connection", "credential ref", "extract_url", "attachment handling",
+    "auto", "native", "extract", "timeout", "probe mode", "full", "minimal", "off", "Reasoning &amp; context",
+    "control", "chat_template_kwargs", "top_level", "server_flag", "none", "preserve", "reasoning cap", "reserve",
+    "Sampling", "Thinking", "Non-thinking", "temperature", "top_p", "top_k", "min_p", "presence penalty",
+    "repeat penalty", "llama.cpp only", "System prompt", "system prompt override", "Capabilities", "not probed",
+    "no findings", "Save", "Duplicate",
+  ]);
+  assert.deepEqual(textNodes.filter((node) => !allowed.has(node)), [], `non-label/value/state/error text: ${textNodes.join(" | ")}`);
 });

@@ -25,8 +25,8 @@ test("Console body exposes selectors tools lifetime instruments and maintenance 
   // Item 2iq (a): panel-agent-vision is built per row now, beside the connection
   // it describes, so it is no longer a fixed element in the markup.
   for (const value of ["panel-agent", "panel-roles", "panel-tools", "panel-stats", "clear-stats", "flush-memory", "panel-live", "panel-live-compactions", "panel-live-content", "panel-maintenance-title"]) assert.match(html, new RegExp(value));
-  assert.match(script, /vision === "reads images" \? "reads" : "does-not-read"/);
-  assert.match(script, /visionFinding \|\| `vision: \$\{vision\}`/);
+  assert.match(script, /readsImages \? "reads" : "does-not-read"/);
+  assert.match(script, /`reads images: \$\{readsImages \? "yes" : "no"\}`/);
   assert.doesNotMatch(html + script, /panel-closed|renderClosed|deleteChat/);
   // Item 2ip (b): the apparatus shows while a run is live, or when the operator
   // opens it -- not merely because a chat is selected.

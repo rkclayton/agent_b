@@ -231,6 +231,38 @@ func TestPhoneJoinAndFolderChangesCarryChatListMetadata2qk(t *testing.T) {
 	})
 }
 
+func TestDesktopPinLeavesPhoneChatListBytesUnchanged2qz(t *testing.T) {
+	server, registry, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	server.bus.SetSink(nil)
+	server.bus.SetDurableSink(writers.WriteRecord, server.projector.Apply, server.projector.MarkStale)
+	chat, err := registry.Create("phone-stable", server.ConfigSnapshot().DefaultAgentID(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = server.projector.Snapshot(writers.SessionCursors()); err != nil {
+		t.Fatal(err)
+	}
+	phoneBytes := func() []byte {
+		sessions := server.projector.CurrentSnapshot()
+		server.decorateChatList(sessions)
+		body, marshalErr := json.Marshal(server.firstScreenSessions(sessions, "-"))
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		return body
+	}
+	before := phoneBytes()
+	response := httptest.NewRecorder()
+	server.chatTree(response, httptest.NewRequest(http.MethodPost, "/api/chats/tree", strings.NewReader(`{"action":"pin","id":"`+chat.ID+`","pinned":true}`)))
+	if response.Code != http.StatusOK {
+		t.Fatalf("pin = %d %s", response.Code, response.Body.String())
+	}
+	if after := phoneBytes(); !bytes.Equal(before, after) {
+		t.Fatalf("phone bytes changed after desktop pin\nbefore=%s\nafter=%s", before, after)
+	}
+}
+
 func TestPhoneRenameAndDeleteUseTheDesktopHandlers2qk(t *testing.T) {
 	server, _, writers, _, _, _ := consoleServer(t)
 	defer writers.Close()

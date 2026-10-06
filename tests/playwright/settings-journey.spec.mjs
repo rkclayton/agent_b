@@ -68,7 +68,7 @@ test.afterAll(async () => {
   if (root) removeTreeWithinAllowedRoots(root, [tmpdir()], "settings-journey Playwright cleanup");
 });
 
-test("the settings journey: type a host, pick a model, Test, save, chat, close, remove", async () => {
+test("the settings journey: type a host, pick a model, Test, save, chat, delete, remove", async () => {
   // Ten steps including a model round trip: the default 30 seconds is the wrong
   // bound for a journey, and a journey cut short reads as a product failure.
   test.setTimeout(180000);
@@ -141,10 +141,15 @@ test("the settings journey: type a host, pick a model, Test, save, chat, close, 
   await page.locator("#chat-send").click();
   await expect(page.locator("#chat-log")).toContainText("ui harness reply", { timeout: 60000 });
 
-  // 9. Close the chat. Item 2ms: the window does not keep showing it.
-  const session = await page.locator(".agent-tab-wrap.selected").getAttribute("data-session");
-  await page.locator(`.agent-tab-wrap[data-session="${session}"] .agent-tab-close`).click();
-  await expect(page.locator(`.agent-tab-wrap[data-session="${session}"]`)).toHaveCount(0);
+  // 9. Delete the chat through its four-entry row menu. This leaves the role
+  // assignment as the first connection-removal refusal, just as Close did before
+  // the tab strip was removed.
+  const selected = page.locator(".chat-list-row.selected");
+  const session = await selected.getAttribute("data-session");
+  await selected.locator(".chat-list-more").click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await selected.locator(".chat-list-row-menu").getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.locator(`.chat-list-row[data-session="${session}"]`)).toHaveCount(0);
 
   // 10. Remove the connection, through the anchored confirmation (item 2l4), and
   // watch the row go.

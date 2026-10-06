@@ -39,10 +39,9 @@ test("the running robot uses palette tokens only and no glow", () => {
   assert.doesNotMatch(block, /ease|cubic-bezier/, "no easing");
 });
 
-test("its eyes carry the same state colours the tab robot shows", () => {
-  const tokens = readFileSync(new URL("../css/tokens.css", import.meta.url), "utf8");
-  assert.match(tokens, /\.agent-tab-robot\.running\{color:var\(--signal\)\}/);
-  assert.match(tokens, /\.agent-tab-robot\.waiting\{color:var\(--alarm\)\}/);
+test("its eyes carry the same state colours the chat list shows", () => {
+  assert.match(styles, /\.chat-list-state\.running \{ background: var\(--signal\); \}/);
+  assert.match(styles, /\.chat-list-state\.waiting,\.chat-list-state\.offline \{ background: var\(--alarm\); \}/);
   assert.match(styles, /\.chat-run-robot-eyes \{[^}]*background: currentColor/);
   // The class the renderer picks mirrors chatState's own vocabulary.
   assert.match(chat, /model_unreachable \? "offline" :[\s\S]{0,120}"waiting" : "running"/);

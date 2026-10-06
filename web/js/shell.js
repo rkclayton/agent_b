@@ -6,6 +6,7 @@ import { requestNavigation } from "./navigation-guard.js";
 import { surfaceForPage } from "./surfaces.js";
 import { connectionHealth } from "./settings-connections.js";
 import { beginNavigation } from "./navigation-telemetry.js";
+import { arrangeChats, menuLabels, panelDrag } from "./chat-list.js";
 
 const activeRunStates = new Set(["running", "queued", "stopping"]);
 const agentKey = (agent) => String(agent?.name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -27,14 +28,49 @@ export function initShell(options = {}) {
   if (loaded && loaded.kind !== "chat") setSurface(loaded);
 
   const left = node("div", "shell-left");
-  const newChatButton = button("+", "New chat with agent_b", "agent-tab-new");
+  const newChatButton = button("New chat", "New chat with agent_b", "chat-list-new");
   const newChatMenu = node("div", "shell-menu shell-new-menu");
   newChatMenu.hidden = true;
-  const tabs = node("nav", "agent-tabs");
-  tabs.setAttribute("aria-label", "Chats");
-  const tabViews = new Map();
+  const menuAnchors = new WeakMap();
   let chatTree = { folders: [], chats: [] };
-  left.append(newChatButton, newChatMenu, tabs);
+  let chatTreeLoaded = false;
+  let chatTreeRefresh = null;
+
+  const chatPanel = node("aside", "chat-list-panel");
+  chatPanel.setAttribute("aria-label", "Chats");
+  const chatList = node("div", "chat-list");
+  const panelEdge = node("div", "chat-list-resize");
+  panelEdge.setAttribute("role", "separator");
+  panelEdge.setAttribute("aria-orientation", "vertical");
+  const panelHandle = node("div", "chat-list-handle");
+  panelHandle.setAttribute("role", "separator");
+  panelHandle.setAttribute("aria-label", "Show chats");
+  chatPanel.append(newChatButton, newChatMenu, chatList, panelEdge);
+  if (page === "chat") { root.after(chatPanel); document.body.append(panelHandle); }
+
+  const panelKey = "agentb.chat-list";
+  let panel = { width: 240, hidden: false };
+  try { panel = { ...panel, ...JSON.parse(localStorage.getItem(panelKey) || "{}") }; } catch {}
+  const applyPanel = () => {
+    const settingsShown = !!document.querySelector("#settings-page:not([hidden])");
+    document.documentElement.style.setProperty("--chat-list-width", `${panel.width}px`);
+    document.body.classList.toggle("chat-list-hidden", panel.hidden);
+    document.body.classList.toggle("chat-list-visible", !panel.hidden && page === "chat" && !settingsShown);
+    chatPanel.hidden = panel.hidden || page !== "chat" || settingsShown;
+    panelHandle.hidden = !panel.hidden || page !== "chat" || settingsShown;
+  };
+  const resizePanel = (handle) => handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    const start = { ...panel }, x = event.clientX;
+    handle.setPointerCapture?.(event.pointerId);
+    const move = (next) => { panel = panelDrag(start, next.clientX - x, innerWidth); applyPanel(); };
+    const finish = () => {
+      handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", finish); handle.removeEventListener("pointercancel", finish);
+      try { localStorage.setItem(panelKey, JSON.stringify(panel)); } catch {}
+    };
+    handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", finish); handle.addEventListener("pointercancel", finish);
+  });
+  resizePanel(panelEdge); resizePanel(panelHandle); applyPanel();
 
   const right = node("div", "shell-right");
   const sessionHeading = button("", "Switch model", "shell-session-title");
@@ -60,6 +96,7 @@ export function initShell(options = {}) {
   settings.textContent = "⚙";
   settings.setAttribute("aria-label", "Settings");
   settings.title = "Settings";
+  new MutationObserver(applyPanel).observe(settings, { attributes: true, attributeFilter: ["aria-expanded"] });
   settings.addEventListener("click", () => {
     const closing = settings.getAttribute("aria-expanded") === "true";
     const navigation = { kind: "settings", from: closing ? "settings" : page, to: closing ? page : "settings", fullDocument: page !== "chat", chatID: store.active, mutationToken: store.mutation_token };
@@ -81,7 +118,10 @@ export function initShell(options = {}) {
   right.append(sessionLamp, sessionHeading, connectionMenu, settings, windowControls);
   root.append(left, right);
   document.addEventListener("click", (event) => {
-    if (!root.contains(event.target)) for (const menu of root.querySelectorAll(".shell-menu")) menu.hidden = true;
+    for (const menu of document.querySelectorAll(".shell-menu")) {
+      const anchor = menuAnchors.get(menu);
+      if (!menu.hidden && !menu.contains(event.target) && !anchor?.contains(event.target)) menu.hidden = true;
+    }
   });
   // Item 2gh: Escape dismisses the open menu and the arrow keys move through
   // its entries. Measured before the change, Escape did nothing and no key
@@ -90,7 +130,7 @@ export function initShell(options = {}) {
   // focus for a menu he may only be reading — it is taken on the first arrow.
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" && event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    const menu = [...root.querySelectorAll(".shell-menu")].find((value) => !value.hidden);
+    const menu = [...document.querySelectorAll(".shell-menu")].find((value) => !value.hidden);
     if (!menu) {
 		if (event.key === "Escape" && page !== "chat") {
 			// Item 2ni (c): the same close the gear performs, so there is one way
@@ -120,34 +160,6 @@ export function initShell(options = {}) {
     else {
       root.dataset.error = message;
     }
-  }
-
-  function sessionsFor(agentID, includeClosed = true) {
-    return Object.values(store.sessions)
-      // Item 2lu (b): ONE answer, not two — the menu and the tab strip above use
-      // the same rule, so a session that gets a tab also gets a row in it.
-      .filter((session) => (store.replay || session.role !== "c") && `agent_${session.role === "d" ? "d" : "b"}` === agentID && (includeClosed || !session.closed))
-      .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
-  }
-
-  function agentName(agentID) {
-    const selected = store.sessions[store.selection.session_id];
-    if (agentID === "agent_b") {
-      if (selected?.agent_name) return selected.agent_name;
-    }
-	const selectedAgentID = selected?.agent_id || agentKey(store.config.agents?.[0]);
-	const configured = (store.config.agents || []).find((agent) => agentKey(agent) === selectedAgentID) || store.config.agents?.[0];
-	const connectionID = configured?.[agentID.replace("agent_", "")];
-	const connection = (store.connections || []).find((item) => item.id === connectionID);
-    return connection?.label || connectionID || agentID;
-  }
-
-  function agentState(agentID) {
-    const sessions = sessionsFor(agentID, false);
-    if (sessions.some((item) => item.model_unreachable)) return "offline";
-    if (sessions.some((item) => item.pending_approval || item.pending_repo_policy || item.run?.status === "paused")) return "waiting";
-    if (sessions.some((item) => activeRunStates.has(item.run?.status))) return "running";
-    return "idle";
   }
 
   function connectionState(connection) {
@@ -208,132 +220,6 @@ export function initShell(options = {}) {
     return "idle";
   }
 
-  function renderTabs() {
-    // Item 2eo: a live run sends a steady stream of patches, and rebuilding the
-    // strip replaced an open tab menu with a hidden one, so right-click did
-    // nothing while the model was thinking. The strip still rebuilds; a menu
-    // that is open moves, as the same element, into its tab's new wrap, so the
-    // entry being pointed at is never replaced underneath the pointer.
-    // A worker has no chat: role c never appears in the tab strip.
-    // Item 2gn: a closed chat the operator opened by name gets a tab, so the
-    // chat he is looking at is the one the strip shows selected. Without it he
-    // read a transcript with no tab of its own and the strip said he was
-    // somewhere else. Only the selected one appears; the rest of the closed
-    // history stays in the tab menu where it lives.
-    // Item 2lu (a): a session the page is DISPLAYING is listed by the tab that
-    // is displaying it, whatever route it arrived by. A c-role session is a
-    // worker chat and is deliberately not listed beside the operator's own
-    // chats — but IN REPLAY there is no such distinction to preserve: there is
-    // only what was replayed, and the page is showing it. rel-1.19.0/W4
-    // measured a replayed session as role=c agent_id=acceptance, so the
-    // premise 2lu was written on — "no agent binding the page can see" — was
-    // not what was happening; the binding was there and the filter was hiding
-    // it from every tab.
-    const open = Object.values(store.sessions)
-      .filter((session) => (store.replay || session.role !== "c") && (!session.closed || session.id === store.selection.session_id))
-      .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
-    const selectedSession = store.sessions[store.selection.session_id];
-    const configured = configuredAgent(selectedSession);
-    const hasD = !!String(configured?.d || "").trim();
-    setAttr(newChatButton, "title", hasD ? "New chat or plan" : "New chat with agent_b");
-    setAttr(newChatButton, "aria-label", newChatButton.title);
-    setProperty(newChatButton, "disabled", store.replay || !(store.config.agents || []).length);
-    newChatButton.onclick = () => hasD ? showRoleMenu(newChatMenu, newChatButton, configured) : void createChat("agent_b");
-    const rendered = open.length ? open : [null];
-    const nodes = [];
-    const used = new Set();
-    for (const session of rendered) {
-      const agentID = `agent_${session?.role === "d" ? "d" : "b"}`;
-      const key = session?.id || agentID;
-      used.add(key);
-      let view = tabViews.get(key);
-      if (!view) {
-        const wrap = node("div", "agent-tab-wrap");
-        const tab = button("", "", "agent-tab");
-        const robot = node("span", `agent-tab-robot agent-tab-robot-${agentID.slice(-1)}`);
-        robot.setAttribute("aria-hidden", "true");
-        robot.title = agentID;
-        const image = document.createElement("img"); image.src = "/static/assets/agent.svg"; image.alt = "";
-        robot.append(image, node("span", "agent-tab-eyes"));
-        const nameNode = node("span", "agent-tab-name");
-        tab.append(robot, nameNode);
-        const menu = node("div", "shell-menu agent-chat-menu"); menu.hidden = true;
-        wrap.append(tab, menu);
-        view = { wrap, tab, robot, nameNode, menu, close: null };
-        tabViews.set(key, view);
-      }
-      const { wrap, tab, robot, nameNode, menu } = view;
-      if (menu.hidden && menu.childElementCount) menu.replaceChildren();
-      setAttr(wrap, "data-agent", agentID);
-      setOptionalAttr(wrap, "data-session", session?.id);
-      const selected = !!session && store.selection.session_id === session.id;
-      wrap.classList.toggle("selected", selected);
-      // Item 2go: the tab carries the chat's NAME. The role is on the robot
-      // glyph and in its hover text, which is where it was always readable; a
-      // tab that says agent_b tells the operator nothing about the chat.
-      const name = session ? chatName(session) : agentName(agentID);
-      const glyphState = session ? chatState(session) : agentState(agentID);
-      setAttr(tab, "class", `agent-tab ${selected ? "selected" : ""}`);
-      setAttr(tab, "title", name);
-      setAttr(tab, "data-agent", agentID);
-      setOptionalAttr(tab, "data-session", session?.id);
-      setAttr(tab, "aria-label", `${name} · ${agentID}`);
-      setAttr(robot, "class", `agent-tab-robot agent-tab-robot-${agentID.slice(-1)} ${glyphState}`);
-      if (nameNode.textContent !== name) nameNode.textContent = name;
-      // Left click selects the chat. From any surface that is NOT this chat -
-      // Settings, Plan, any later page - it also shows it, which is what 2gf
-      // asked for: the Plan page had no way back at all, its tab click only
-      // changed the selection and the window stayed where it was. Repeated
-      // clicks never leave the chat, which is what 2ak objected to in the old
-      // second-click flip. Item 2gk removed the second side the flip went to.
-      tab.onclick = () => {
-        if (!session) return;
-        setSelection(agentID, session.id);
-        const settingsOpen = document.querySelector(".shell-settings")?.getAttribute("aria-expanded") === "true";
-        if (settingsOpen) {
-          // Settings is not the chat, and item 2gf asks that one click
-          // from it reaches the chat. The ⚙ toggle still closes Settings onto
-          // the surface beneath.
-			document.dispatchEvent(new CustomEvent("settings.close", { detail: {
-				surface: "chat", after: () => openSide(agentID, session.id, "chat"),
-			} }));
-          return;
-        }
-        // On the chat the tab selects and does nothing else: you are already
-        // there. Everywhere else it shows the chat.
-        if (page !== "chat") openSide(agentID, session.id, "chat");
-      };
-      tab.oncontextmenu = (event) => {
-        event.preventDefault();
-        for (const other of tabs.querySelectorAll(".shell-menu")) if (other !== menu) other.hidden = true;
-        // Item 2gh: a second right-click on the same tab dismisses it. Measured
-        // before the change, it re-rendered and left the menu open.
-        if (!menu.hidden) { menu.hidden = true; return; }
-        renderAgentMenu(menu, agentID);
-        revealMenu(menu, tab, { x: event.clientX, y: event.clientY });
-      };
-      if (session) {
-        // The close mark overlays the tab's own trailing edge rather than sitting
-        // beside it, so the tab's width is its label's width. It stays a sibling
-        // of the tab because a button inside a button is not valid HTML.
-        if (!view.close) {
-          view.close = button("×", "", "agent-tab-close");
-          wrap.insertBefore(view.close, menu);
-        }
-        setAttr(view.close, "title", `Close ${name}`);
-        setAttr(view.close, "aria-label", `Close ${name}`);
-        setProperty(view.close, "disabled", store.replay || isRunning(session));
-        view.close.onclick = (event) => { event.stopPropagation(); void closeChat(session, menu, agentID); };
-      } else if (view.close) {
-        view.close.remove();
-        view.close = null;
-      }
-      nodes.push(wrap);
-    }
-    reconcileNodes(tabs, nodes);
-    for (const key of tabViews.keys()) if (!used.has(key)) tabViews.delete(key);
-  }
-
   // Item 2ni: THE PLAN IS NOT A TAB ANY MORE, so the strip's static-surface pass,
   // its plan chip, its right-click Hide and that Hide's confirmation are all gone with
   // it: "i decided i think i want it under settings, as its own top level item". The
@@ -377,97 +263,102 @@ export function initShell(options = {}) {
     revealMenu(menu, anchor);
   }
 
-  function renderAgentMenu(menu, agentID, refresh = true) {
-    const sessions = sessionsFor(agentID, true);
-    const sourceID = menu.closest(".agent-tab-wrap")?.dataset.session || "";
-    menu.replaceChildren();
-	const tree = chatTree;
-	const act = async (body, state = false) => { try { chatTree = await api("/api/chats/tree", body); if (state) reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); renderAgentMenu(menu, agentID, false); } catch (error) { report(error.message); } };
-	const root = node("div", "agent-chat-folder-root");
-	const rootName = node("strong", ""); rootName.textContent = "chats"; root.append(rootName);
-	const add = iconButton("folder-plus", "New folder in chats", "agent-chat-folder-action");
-	add.onclick = () => { const name = prompt("New folder name"); if (name) void act({ action: "add", parent: "", name }); };
-	root.append(add); menu.append(root);
-	root.ondragover = (event) => event.preventDefault();
-	root.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: "" }); };
-	const targets = new Map([["", menu]]);
-	const folders = [...(tree.folders || [])].sort((left, right) => left.split("/").length - right.split("/").length || left.localeCompare(right));
-	for (const path of folders) {
-		const details = document.createElement("details"); details.className = "agent-chat-folder";
-		details.dataset.folder = path;
-		const name = path.split("/").at(-1), parent = path.split("/").slice(0, -1).join("/");
-		const heading = document.createElement("summary"); const folderName = node("span", ""); folderName.textContent = name; heading.append(folderName);
-		const add = iconButton("folder-plus", `New folder in ${name}`, "agent-chat-folder-action");
-		add.onclick = (event) => { event.preventDefault(); const child = prompt("New folder name"); if (child) void act({ action: "add", parent: path, name: child }); };
-		const rename = iconButton("pencil", `Rename ${name}`, "agent-chat-folder-action");
-		rename.onclick = (event) => { event.preventDefault(); const name = prompt("Folder name", path.split("/").at(-1)); if (name) void act({ action: "rename", path, name }); };
-		const remove = button("×", `Delete ${path}`, "agent-chat-delete");
-		remove.onclick = (event) => { event.preventDefault(); void act({ action: "delete", path }); };
-		heading.append(add, rename, remove); details.append(heading); (targets.get(parent) || menu).append(details); targets.set(path, details);
-		details.ondragover = (event) => event.preventDefault();
-		details.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: path }); };
-	}
-    // Item 2go, the operator: "i want the chat summary removed from the top of
-    // chats... i want it to display like this: MM:DD · Chat name · × , nothing
-    // more." So there is no summary line, and the row below carries nothing
-    // else either.
-    if (!sessions.length) {
-      const empty = node("span", "shell-menu-empty");
-      // Item 2lu (c): a session the page holds but this tab cannot claim is a
-      // STATE, and the words say which. "No chats" beside a visible transcript
-      // is what sent rel-1.18.0 looking for a selector defect for an hour.
-      const unclaimed = Object.values(store.sessions || {}).filter((session) => session.role === "c");
-      empty.textContent = unclaimed.length
-        ? `No chats for this agent — ${unclaimed.length} worker chat${unclaimed.length === 1 ? "" : "s"} elsewhere`
-        : "No chats";
-      menu.append(empty);
-    }
-    for (const session of sessions) {
-      const row = node("div", `agent-chat-row ${session.closed ? "closed" : "open"} ${session.id === sourceID ? "selected" : ""}`);
-      row.dataset.session = session.id;
-	  row.draggable = true; row.ondragstart = (event) => event.dataTransfer.setData("text/plain", session.id);
-      const summary = node("span", "agent-chat-summary");
-      summary.textContent = chatRowText(session);
-      // The full name on hover, because the row is one line and a long name
-      // ends in an ellipsis (2go).
-      summary.title = chatName(session);
-      // Item 2oh: a choice replaces the chat in the tab that opened this menu.
-      // Close that source, reopen the choice when needed, then select it.
-      summary.onclick = async () => {
-        const previous = store.sessions[sourceID];
-        if (previous?.id !== session.id && isRunning(previous)) return report("This chat has a running run. Stop it before switching the tab.");
+  function renderChatPanel() {
+    if (page !== "chat") return;
+    const configured = configuredAgent(store.sessions[store.selection.session_id]);
+    const hasD = !!String(configured?.d || "").trim();
+    setAttr(newChatButton, "title", hasD ? "New chat or plan" : "New chat with agent_b");
+    setAttr(newChatButton, "aria-label", newChatButton.title);
+    setProperty(newChatButton, "disabled", store.replay || !(store.config.agents || []).length);
+    newChatButton.onclick = () => hasD ? showRoleMenu(newChatMenu, newChatButton, configured) : void createChat("agent_b");
+    const arranged = arrangeChats(store.sessions, chatTree);
+    chatList.replaceChildren();
+    const act = async (body, state = false) => {
+      try {
+        chatTree = await api("/api/chats/tree", body);
+        if (state) reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+        renderChatPanel();
+      } catch (error) { report(error.message); }
+    };
+    const folderTargets = new Map();
+    const folderHeading = (path, parent) => {
+      const details = document.createElement("details"); details.className = "chat-list-folder"; details.dataset.folder = path;
+      const heading = document.createElement("summary"); const label = node("span", "chat-list-folder-name"); label.textContent = path.split("/").at(-1); heading.append(label);
+      const add = iconButton("folder-plus", `New folder in ${label.textContent}`, "chat-list-folder-action");
+      add.onclick = (event) => { event.preventDefault(); const name = prompt("New folder name"); if (name) void act({ action: "add", parent: path, name }); };
+      const rename = iconButton("pencil", `Rename ${label.textContent}`, "chat-list-folder-action");
+      rename.onclick = (event) => { event.preventDefault(); const name = prompt("Folder name", label.textContent); if (name) void act({ action: "rename", path, name }); };
+      const remove = button("×", `Delete ${path}`, "chat-list-folder-delete");
+      remove.onclick = (event) => { event.preventDefault(); void act({ action: "delete", path }); };
+      heading.append(add, rename, remove); details.append(heading);
+      details.ondragover = (event) => event.preventDefault();
+      details.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: path }); };
+      (folderTargets.get(parent) || chatList).append(details); folderTargets.set(path, details);
+      return details;
+    };
+    for (const group of arranged.folders) folderHeading(group.path, group.path.split("/").slice(0, -1).join("/"));
+
+    const renderRow = (session, parent) => {
+      const meta = (chatTree.chats || []).find((chat) => chat.id === session.id) || {};
+      const row = node("div", `chat-list-row ${session.id === store.selection.session_id ? "selected" : ""}`); row.dataset.session = session.id;
+      row.draggable = true; row.ondragstart = (event) => event.dataTransfer.setData("text/plain", session.id);
+      const state = node("span", `chat-list-state ${chatState(session)}`); state.title = chatState(session); state.setAttribute("aria-label", chatState(session));
+      const name = button(chatRowText(session), chatName(session), "chat-list-name");
+      name.onclick = async () => {
         try {
-          if (previous?.id !== session.id) await api(`/api/sessions/${encodeURIComponent(previous.id)}/close`, {});
           if (session.closed) await api(`/api/sessions/${encodeURIComponent(session.id)}/reopen`, {});
-          reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-          menu.hidden = true;
-          openSide(agentID, session.id, "chat");
+          if (session.closed) reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+          setSelection(`agent_${session.role === "d" ? "d" : "b"}`, session.id);
+          const settingsOpen = settings.getAttribute("aria-expanded") === "true";
+          if (settingsOpen) document.dispatchEvent(new CustomEvent("settings.close", { detail: { surface: "chat", after: () => openSide(`agent_${session.role === "d" ? "d" : "b"}`, session.id, "chat") } }));
+          else if (page !== "chat") openSide(`agent_${session.role === "d" ? "d" : "b"}`, session.id, "chat");
+          else render();
         } catch (error) { report(error.message); }
       };
-      const rename = iconButton("pencil", `Rename ${chatName(session)}`, "agent-chat-rename");
-      rename.onclick = (event) => { event.stopPropagation(); showRename(row, session, menu, agentID); };
-	  const archive = iconButton("archive", `Archive ${chatName(session)}`, "agent-chat-archive");
-	  archive.onclick = (event) => { event.stopPropagation(); void act({ action: "archive", id: session.id }, true); };
-      const remove = button("×", `Delete ${chatName(session)}`, "agent-chat-delete");
-      remove.onclick = () => void deleteChat(session, menu, agentID);
-      // Item 2py (f): Delete works whatever the chat is doing; the server stops and
-      // closes it first.
-      remove.disabled = store.replay;
-	  row.append(summary, archive, rename, remove);
-	  const chat = (tree.chats || []).find((item) => item.id === session.id);
-	  (targets.get(chat?.folder || "") || menu).append(row);
-    }
-	const archived = tree.archived || [];
-	if (archived.length) {
-	  const group = document.createElement("details"); group.className = "agent-chat-archived";
-	  const heading = document.createElement("summary"); heading.textContent = `Archived (${archived.length})`; group.append(heading);
-	  for (const chat of archived) { const row = node("div", "agent-chat-row archived"); const name = node("span", "agent-chat-summary"); name.textContent = chat.name; name.title = chat.name; const restore = iconButton("restore", `Restore ${chat.name}`, "agent-chat-restore"); restore.onclick = () => void act({ action: "restore", id: chat.id }, true); row.append(name, restore); group.append(row); }
-	  menu.append(group);
-	}
-	if (refresh) void api("/api/chats/tree", undefined, "GET").then((value) => { chatTree = value; renderAgentMenu(menu, agentID, false); }).catch(() => {});
+      const more = button("⋮", `${chatName(session)} menu`, "chat-list-more");
+      const menu = node("div", "shell-menu chat-list-row-menu"); menu.hidden = true;
+      more.onclick = (event) => {
+        event.stopPropagation();
+        for (const open of chatList.querySelectorAll(".chat-list-row-menu")) if (open !== menu) open.hidden = true;
+        menu.replaceChildren();
+        const labels = menuLabels(!!meta.pinned);
+        const pin = button(labels[0], labels[0], "chat-list-menu-action"); pin.onclick = () => void act({ action: "pin", id: session.id, pinned: !meta.pinned });
+        const rename = button(labels[1], labels[1], "chat-list-menu-action"); rename.onclick = () => { menu.hidden = true; showRename(row, session); };
+        const move = button(labels[2], labels[2], "chat-list-menu-action");
+        move.onclick = () => {
+          let choices = menu.querySelector(".chat-list-move-choices");
+          if (choices) return void choices.remove();
+          choices = node("div", "chat-list-move-choices");
+          for (const folder of ["", ...(chatTree.folders || [])]) { const choice = button(folder || "No folder", folder || "No folder", "chat-list-menu-action"); choice.onclick = () => void act({ action: "move", id: session.id, folder }); choices.append(choice); }
+          menu.append(choices);
+        };
+        const remove = button(labels[3], labels[3], "chat-list-menu-action alarm"); remove.onclick = () => void deleteChat(session);
+        menu.append(pin, rename, move, remove); menu.hidden = false; revealMenu(menu, more);
+      };
+      row.append(state, name, more, menu); parent.append(row);
+    };
+    if (arranged.pinned.length) { const group = node("section", "chat-list-group pinned"); const heading = node("strong", "chat-list-group-name"); heading.textContent = "Pinned"; group.append(heading); arranged.pinned.forEach((chat) => renderRow(chat, group)); chatList.prepend(group); }
+    for (const group of arranged.folders) { const target = folderTargets.get(group.path); group.chats.forEach((chat) => renderRow(chat, target)); }
+    const root = node("section", "chat-list-group root"); const rootHeading = node("strong", "chat-list-group-name"); rootHeading.textContent = "Chats";
+    const add = iconButton("folder-plus", "New folder", "chat-list-folder-action"); add.onclick = () => { const name = prompt("New folder name"); if (name) void act({ action: "add", parent: "", name }); };
+    rootHeading.append(add); root.append(rootHeading); root.ondragover = (event) => event.preventDefault(); root.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: "" }); };
+    arranged.root.forEach((chat) => renderRow(chat, root)); chatList.append(root);
+    const archived = chatTree.archived || [];
+    if (archived.length) { const group = document.createElement("details"); group.className = "chat-list-archived"; const heading = document.createElement("summary"); heading.textContent = "Archived"; group.append(heading); for (const chat of archived) { const row = node("div", "chat-list-row"); const name = node("span", "chat-list-name"); name.textContent = chat.name; name.title = chat.name; const restore = button("Restore", `Restore ${chat.name}`, "chat-list-menu-action"); restore.onclick = () => void act({ action: "restore", id: chat.id }, true); row.append(name, restore); group.append(row); } chatList.append(group); }
+    if (!chatTreeLoaded) void refreshChatTree();
   }
 
-  function showRename(row, session, menu, agentID) {
+  function refreshChatTree() {
+    if (chatTreeRefresh) return chatTreeRefresh;
+    chatTreeLoaded = true;
+    chatTreeRefresh = api("/api/chats/tree", undefined, "GET")
+      .then((value) => { chatTree = value; renderChatPanel(); })
+      .catch(() => { chatTreeLoaded = false; })
+      .finally(() => { chatTreeRefresh = null; });
+    return chatTreeRefresh;
+  }
+
+  function showRename(row, session) {
     const editor = node("form", "agent-chat-rename-form");
     const input = document.createElement("input");
     input.value = chatName(session);
@@ -482,7 +373,7 @@ export function initShell(options = {}) {
       try {
         await api(`/api/sessions/${encodeURIComponent(session.id)}`, { label });
         reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-        renderAgentMenu(menu, agentID);
+        renderChatPanel();
       } catch (error) { report(error.message); }
     };
     row.replaceChildren(editor);
@@ -490,72 +381,18 @@ export function initShell(options = {}) {
     input.select();
   }
 
-  // Item 2hq (v1.6.2): close only moves the chat out of the open tabs. Delete is
-  // the intentional, confirmed act, and since 2py it leaves no copy of the chat.
   const deleteConfirmText = "Delete this chat permanently? Memory notes it made are kept.";
-
-  async function closeChat(session, menu, agentID) {
-    if (isRunning(session)) return report("This chat has a running run. Stop it before closing the chat.");
-    // Item 2ms (a) and (b): WHICH CHAT THE WINDOW SHOWS AFTER A CLOSE.
-    //
-    // Reproduced against a copy of the operator's own restored journal set, 34
-    // chats: closing the one open chat left the selection pointing at it, and
-    // because [[2hq]]'s close-is-not-delete keeps the session in the store with its
-    // whole transcript, the pane went on rendering a chat he had just closed — and
-    // a reload showed it again. "when no chat tabs are open its showing me an old
-    // chat still in the window."
-    //
-    // Closing the SELECTED chat moves the selection to its neighbour in strip
-    // order; closing any other chat moves nothing.
-    const wasSelected = store.selection.session_id === session.id;
-    try {
-      await api(`/api/sessions/${encodeURIComponent(session.id)}/close`, {});
-      reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-      if (wasSelected) selectAfterClose(session, agentID);
-      renderAgentMenu(menu, agentID);
-    } catch (error) { report(error.message); }
-  }
-
-  // The neighbour that took its place: the nearest OPEN chat of the same agent in
-  // the order the strip draws, and when there is none, nothing — which is the empty
-  // launch well the shell already has, with no tab lit and the composer disabled.
-  function selectAfterClose(closed, agentID) {
-    const order = Object.values(store.sessions)
-      .filter((one) => one && !one.closed && one.id !== closed.id && (store.replay || one.role !== "c"))
-      .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
-    const sameAgent = order.filter((one) => `agent_${one.role === "d" ? "d" : "b"}` === agentID);
-    const next = sameAgent[0] || order[0] || null;
-    if (!next) {
-      setSelection(agentID, "");
-      render();
-      return;
-    }
-    setSelection(`agent_${next.role === "d" ? "d" : "b"}`, next.id);
-    render();
-  }
-
-  // Item 2ms (e): A RELOAD WITH NO OPEN CHAT LANDS IN THE EMPTY STATE. The selection
-  // is kept in sessionStorage, so a reload restored the closed chat it named and the
-  // pane drew the transcript again. A closed chat stays selectable — that is
-  // [[2gn]]'s open-by-name — so the address asking for it by name is honoured and
-  // anything else is cleared.
-  function clearClosedSelectionOnce() {
-    if (!store.loaded || clearedClosedSelection) return;
-    clearedClosedSelection = true;
-    const selected = store.sessions[store.selection.session_id];
-    if (!selected || !selected.closed) return;
-    if (new URLSearchParams(location.search).get("session") === selected.id) return;
-    setSelection(store.selection.agent_id, "");
-  }
-
-  async function deleteChat(session, menu, agentID) {
+  async function deleteChat(session) {
     if (!window.confirm(deleteConfirmText)) return;
     const wasSelected = store.selection.session_id === session.id;
     try {
       await api(`/api/sessions/${encodeURIComponent(session.id)}`, undefined, "DELETE");
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-      if (wasSelected) selectAfterClose(session, agentID);
-      renderAgentMenu(menu, agentID);
+      if (wasSelected) {
+        const next = Object.values(store.sessions).filter((chat) => chat.id !== session.id && chat.role !== "c").sort((a, b) => Date.parse(b.last_activity || b.created_at || 0) - Date.parse(a.last_activity || a.created_at || 0))[0];
+        setSelection(next ? `agent_${next.role === "d" ? "d" : "b"}` : "agent_b", next?.id || "");
+      }
+      renderChatPanel();
     } catch (error) { report(error.message); }
   }
 
@@ -565,6 +402,8 @@ export function initShell(options = {}) {
   // to the left of the pointer, because it was placed at the tab. It is still
   // clamped into the window, which the edge measurement confirms.
   function revealMenu(menu, anchor, point = null) {
+    for (const open of document.querySelectorAll(".shell-menu")) if (open !== menu) open.hidden = true;
+    menuAnchors.set(menu, anchor);
     menu.hidden = false;
     const anchorRect = anchor.getBoundingClientRect();
     const menuRect = menu.getBoundingClientRect();
@@ -588,7 +427,7 @@ export function initShell(options = {}) {
     } catch (error) { report(error.message); }
   }
 
-  function render() {
+  function render(renderPanel = true) {
     const session = store.sessions[store.selection.session_id];
     // Item 2gl (v1.2.6): the window's own title. The overlay could not be made
     // to activate - measured on Edge 153 under --app= and with no unattended
@@ -631,7 +470,7 @@ export function initShell(options = {}) {
         if (natural > 0) sessionHeading.style.width = `${Math.ceil(natural)}px`;
       }
     }
-    renderTabs();
+    if (renderPanel) renderChatPanel();
     const query = new URLSearchParams();
     if (session) query.set("session", session.id);
     const suffix = query.size ? `?${query}` : "";
@@ -656,9 +495,20 @@ export function initShell(options = {}) {
     options.syncLocation?.(page);
   }
 
-  let clearedClosedSelection = false;
   subscribe((_state, event) => {
-    clearClosedSelectionOnce();
+    if (event.type === "chat.list.patch") {
+      void refreshChatTree();
+      return;
+    }
+    // Stream text and reasoning patches redraw the transcript, never the
+    // bounded chat list. A row redraw is needed only when one of its own
+    // visible fields can have changed.
+    if (event.type === "projection.patch") {
+      const operations = event.data?.operations || [];
+      const panelChanged = operations.some((operation) => /^\/(label|closed|last_activity|model_unreachable|pending_approval|pending_repo_policy|run\/status)$/.test(operation.path));
+      render(panelChanged);
+      return;
+    }
     render();
   });
   return {
@@ -667,6 +517,7 @@ export function initShell(options = {}) {
     setPage(next) {
       page = next;
       root.dataset.page = next;
+      applyPanel();
       // Item 2mf (b): an in-page surface change moves the selection with it.
       const surface = surfaceForPage(next, store.selection.session_id);
       if (surface && surface.kind !== "chat") setSurface(surface);

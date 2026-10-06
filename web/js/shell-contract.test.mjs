@@ -38,67 +38,6 @@ test("shared shell slot order is identical on the chat and Plan", () => {
   assert.doesNotMatch(shell, /rememberedAgentSide|rememberAgentSide\(|agentb\.side\./);
 });
 
-test("each open chat gets an agent tab whose robot eyes expose that chat state", () => {
-  // Item 2gn: the strip also carries the selected CLOSED chat — the one the
-  // operator is looking at — so the filter admits it and spans lines.
-  assert.match(shell, /const open = Object\.values\(store\.sessions\)[\s\S]{0,40}\.filter/);
-  assert.match(shell, /!session\.closed \|\| session\.id === store\.selection\.session_id/);
-  assert.match(shell, /for \(const session of rendered\)/);
-  assert.match(shell, /setOptionalAttr\(wrap, "data-session", session\?\.id\)/);
-  assert.match(shell, /return "waiting"[\s\S]*return "running"[\s\S]*return "idle"/);
-  assert.doesNotMatch(shell, /class="agent-state/);
-  // rel-1.42.0 (2o2): the tab's nodes are built once; the state is a class update.
-  assert.match(shell, /agent-tab-robot-\$\{agentID\.slice\(-1\)\} \$\{glyphState\}/);
-  assert.match(shell, /node\("span", "agent-tab-eyes"\)/);
-  assert.match(tokens, /\.agent-tab-robot\.running\{color:var\(--signal\)\}/);
-  assert.match(tokens, /\.agent-tab-robot\.offline\{color:var\(--alarm\)\}/);
-  assert.match(tokens, /\.agent-tab-robot\.waiting\{color:var\(--alarm\)\}/);
-  assert.match(shell, /session\?\.model_unreachable\) return "offline"/);
-  assert.match(shell, /\(store\.connections \|\| \[\]\)\.find/);
-  assert.match(shell, /left\.append\(newChatButton, newChatMenu, tabs\)/);
-  assert.match(shell, /newChatButton\.onclick = \(\) => hasD \? showRoleMenu/);
-  assert.doesNotMatch(shell, /wrap\.append\([^\n]*(?:agent-tab-new|newChatButton)/);
-  assert.match(shell, /setProperty\(newChatButton, "disabled", store\.replay \|\| !\(store\.config\.agents \|\| \[\]\)\.length\)/);
-  assert.match(tokens, /--agent-tab-width:118px/);
-  assert.match(tokens, /\.agent-tab-wrap\{[^}]*flex:0 0 var\(--agent-tab-width\)/);
-  assert.match(tokens, /\.agent-tab\{[^}]*flex:1 1 auto;[^}]*min-width:69px/);
-  // Left click only selects; there is one side to be on.
-  assert.match(shell, /if \(options\.switchView\) options\.switchView\(next, navigation\)/);
-  assert.doesNotMatch(shell, /flip\.label|flip\.open/);
-  assert.match(shell, /tab\.onclick = \(\) => \{[\s\S]{0,400}setSelection\(agentID, session\.id\);/);
-  assert.doesNotMatch(shell, /tab\.onclick = \(\) => \{[\s\S]{0,400}switchView/);
-  // The close mark overlays the tab rather than extending the strip.
-  assert.match(tokens, /\.agent-tab-close\{position:absolute/);
-  assert.match(tokens, /\.agent-tab-wrap \.agent-tab\{padding-right:18px\}/);
-  // Item 2gk removed the second side; item 2go put the chat's NAME on the tab,
-  // with a fixed width and an ellipsis for a long one.
-  assert.match(tokens, /\.agent-tab-name\{[^}]*text-overflow:ellipsis/);
-  assert.match(shell, /node\("span", "agent-tab-name"\)/);
-  assert.match(tokens, /\.agent-tab-wrap\.selected\.side-console\{background:rgba\(232,238,244,.16\)\}/);
-  assert.match(shell, /button\("", "", "agent-tab"\)[\s\S]*setAttr\(tab, "title", name\)/);
-  // Item 2go: the tab reads the chat name; the role is the robot glyph and its
-  // hover text, which is where it was always readable.
-  // rel-1.42.0 (2o2): written as text into kept nodes, so nothing needs escaping.
-  assert.match(shell, /if \(nameNode\.textContent !== name\) nameNode\.textContent = name;/);
-  assert.match(shell, /robot\.title = agentID;/);
-  assert.match(shell, /setAttr\(view\.close, "title", `Close \$\{name\}`\)/);
-  assert.match(shell, /const agentID = `agent_\$\{session\?\.role === "d" \? "d" : "b"\}`/);
-  // Item 2gl (v1.2.6): the window title names the CHAT; the header beside the
-  // tab strip still reads the connection only (2eo).
-  assert.match(shell, /document\.title = session \? `Agent_b · \$\{chatName\(session\)\}` : "Agent_b"/);
-  // Item 2eo: the header beside the tab strip reads the CONNECTION, through
-  // sessionTitle. Item 2hc (v1.3.0/W7) assigns it through a local so the box
-  // can be snapped to a whole pixel when the text changes, so the contract is
-  // checked by what it computes rather than by one spelling of the statement.
-  assert.match(shell, /sessionTitle\(session\)/);
-  assert.match(shell, /sessionHeading\.textContent = heading/);
-  // The snap itself: a fractional title width became the strip's left edge and
-  // the title's text then rasterised at a subpixel phase, which made two
-  // captures of one build disagree. Rounding up puts every item to its right on
-  // whole pixels too.
-  assert.match(shell, /sessionHeading\.style\.width = `\$\{Math\.ceil\(natural\)\}px`/);
-});
-
 test("plus adds a two-line d choice only for an assigned d connection", () => {
   assert.match(shell, /const hasD = !!String\(configured\?\.d \|\| ""\)\.trim\(\)/);
   assert.match(shell, /agent_b · \$\{name\} — chat/);
@@ -132,67 +71,12 @@ test("compact window controls continue the top strip", () => {
   assert.match(tokens, /\.shell-window-control-glyph\{[^}]*width:9px;height:9px/);
 });
 
-test("agent menu swaps the clicked chat into this tab and every red x deletes", () => {
-  assert.match(shell, /sessionsFor\(agentID, true\)/);
-  assert.match(shell, /oncontextmenu/);
-  assert.match(shell, /\/reopen`/);
-  assert.match(shell, /button\("×", `Delete \$\{chatName\(session\)\}`, "agent-chat-delete"\)/);
-  assert.match(shell, /iconButton\("pencil", `Rename \$\{chatName\(session\)\}`/);
-	assert.match(shell, /iconButton\("archive", `Archive \$\{chatName\(session\)\}`/);
-	assert.match(shell, /`Archived \(\$\{archived\.length\}\)`/);
-	assert.match(shell, /iconButton\("restore", `Restore \$\{chat\.name\}`/);
-  assert.match(shell, /iconButton\("folder-plus", `New folder in \$\{name\}`/);
-  assert.match(shell, /action: "add", parent: path, name: child/);
-  assert.match(shell, /\(targets\.get\(parent\) \|\| menu\)\.append\(details\)/);
-  assert.match(shell, /agent-chat-rename-form/);
-  assert.match(shell, /\{ label \}/);
-  assert.match(shell, /summary\.onclick/);
-	assert.match(shell, /row\.append\(summary, archive, rename, remove\)/);
-  assert.doesNotMatch(shell, /button\("Delete"/);
-  assert.doesNotMatch(shell, /agent-chat-close/);
-  assert.doesNotMatch(shell, /button\("Open"/);
-  assert.doesNotMatch(shell, /button\("🗑"/);
-  assert.doesNotMatch(shell, /agent-chat-count/);
-  assert.doesNotMatch(shell, /drop_memory/);
-  assert.match(shell, /await api\(`\/api\/sessions\/\$\{encodeURIComponent\(session\.id\)\}\/close`, \{\}\)/);
-  assert.match(shell, /window\.confirm\(deleteConfirmText\)/);
-  assert.match(shell, /Delete this chat permanently\? Memory notes it made are kept\./);
-  assert.match(shell, /previous\?\.id !== session\.id/);
-  assert.match(shell, /encodeURIComponent\(previous\.id\)\}\/close/);
-  assert.match(shell, /encodeURIComponent\(session\.id\)\}\/reopen/);
-  assert.match(shell, /openSide\(agentID, session\.id, "chat"\)/);
-  // Item 2gh: the tab menu opens AT THE POINTER, so the reveal carries the
-  // event's coordinates. It used to be revealMenu(menu, tab), which placed it
-  // at the tab and put its left edge 41 px from the pointer (W5's measurement).
-  assert.match(shell, /revealMenu\(menu, tab, \{ x: event\.clientX, y: event\.clientY \}\)/);
-  assert.match(tokens, /\.shell-menu\{position:fixed/);
-  assert.match(tokens, /max-height:calc\(100vh - 50px\);overflow-x:hidden;overflow-y:auto/);
-  assert.match(tokens, /\.agent-chat-menu\{[^}]*color:var\(--ink\);background:var\(--well\);border:1px solid rgba\(112,125,139,\.28\);border-radius:2px/);
-  assert.match(tokens, /\.agent-chat-delete\{[^}]*color:var\(--alarm\)/);
-  assert.match(tokens, /\.agent-chat-row\.selected[^}]*font-weight:500/);
-  assert.match(tokens, /\.agent-chat-summary:hover[^}]*box-shadow:/);
-});
-
-test("unbounded chat tabs scroll only inside the tab strip", () => {
-  assert.match(tokens, /\.agent-tabs\{[^}]*overflow-x:auto;overflow-y:hidden/);
-  assert.doesNotMatch(shell, /agentTabLayout|agent-overflow/);
-  assert.doesNotMatch((appCSS + chatCSS).replace(/\.chat-content \.code-block pre\s*\{[^}]*\}/s, ""), /overflow-x:\s*(?:auto|scroll)/);
-});
-
 test("Stop follows the selected chat from each page-local lower control", () => {
   assert.match(chat, /api\("\/api\/stop", \{ session_id: session\.id \}\)/);
   assert.match(consoleApp, /api\("\/api\/stop",\{session_id:id\}\)/);
   // Item 2fc: the Plan page shows plans, not a chat; the planning chat is its own tab.
   assert.doesNotMatch(plan, /mountChat/);
   assert.doesNotMatch(chat+consoleApp+plan, /all:\s*true/);
-});
-
-test("top bar gives fixed readable tabs a scoped horizontal scroll lane", () => {
-  assert.match(tokens, /\.shell-left\{overflow:hidden/);
-  assert.match(tokens, /\.agent-tabs\{[^}]*overflow-x:auto/);
-  assert.match(tokens, /\.agent-tab-wrap\{[^}]*min-width:var\(--agent-tab-width\)/);
-  assert.match(tokens, /\.agent-tab[^\n]*white-space:nowrap/);
-  assert.doesNotMatch(shell, /shell-selection/);
 });
 
 test("top-right connection label is the b-role model switcher", () => {
@@ -215,24 +99,6 @@ test("all shell motion is zero duration under reduced motion", () => {
 
 // Item 2gh (v1.1.2/W5): the tab menu, measured and made to feel right. These
 // pin the four defects the measurement found, so none can come back quietly.
-test("the tab menu opens at the pointer, dismisses three ways and takes the arrow keys", () => {
-  // Opens at the pointer, and still clamped inside the window.
-  assert.match(shell, /function revealMenu\(menu, anchor, point = null\)/);
-  assert.match(shell, /const left = point \? point\.x : anchorRect\.left;/);
-  assert.match(shell, /const top = point \? point\.y : anchorRect\.bottom;/);
-  assert.match(shell, /Math\.max\(8, Math\.min\(left, innerWidth - menuRect\.width - 8\)\)/);
-  assert.match(shell, /Math\.max\(8, Math\.min\(top, innerHeight - menuRect\.height - 8\)\)/);
-  // A second right-click on the same tab dismisses it.
-  assert.match(shell, /if \(!menu\.hidden\) \{ menu\.hidden = true; return; \}/);
-  // Escape dismisses, and the arrows move through the entries without the
-  // menu stealing focus when it opens.
-  assert.match(shell, /if \(event\.key !== "Escape" && event\.key !== "ArrowDown" && event\.key !== "ArrowUp"\) return;/);
-  assert.match(shell, /if \(event\.key === "Escape"\) \{\s*\n\s*menu\.hidden = true;/);
-  assert.match(shell, /rows\[next\]\.focus\(\);/);
-  // The entries themselves are unchanged: none added, none removed.
-  assert.doesNotMatch(shell, /menu\.appendChild\(document\.createElement\("hr"\)\)/);
-});
-
 // Item 2ge (v1.1.2/W6), glyph replaced by 2he (v1.3.0/W2): the Plan toggle is
 // the processor chip in the operator's accent, and that accent has exactly one
 // use in the product.
@@ -346,27 +212,9 @@ test("the attachment control replaces the redundant per-chat readout", async () 
 // live. The sighting was reproduced against a copy of the operator's own 34 restored
 // chats: 33 closed, and the one that was not is role `c` - a WORKER, which the strip
 // refuses to draw and which the pane's fallback happily bound to.
-test("a closed chat cannot stay on screen: the selection moves and the pane binds only to a chat the strip shows", () => {
-  // (a) and (b): closing the SELECTED chat moves the selection; closing another
-  // moves nothing.
-  assert.match(shell, /const wasSelected = store\.selection\.session_id === session\.id;/);
-  assert.match(shell, /if \(wasSelected\) selectAfterClose\(session, agentID\);/);
-  assert.match(shell, /function selectAfterClose/);
-  // The neighbour is picked from the same order the strip draws, and a worker chat
-  // is not a neighbour.
-  const picker = shell.slice(shell.indexOf("function selectAfterClose"), shell.indexOf("// Item 2ms (e)"));
-  assert.match(picker, /!one\.closed/);
-  assert.match(picker, /one\.role !== "c"/);
-  assert.match(picker, /setSelection\(agentID, ""\)/, "with no neighbour the selection is cleared");
-  // (e): a reload does not restore a closed chat unless the address asked for it.
-  assert.match(shell, /function clearClosedSelectionOnce/);
-  assert.match(shell, /new URLSearchParams\(location\.search\)\.get\("session"\) === selected\.id/);
-  // And the pane's own fallback carries the strip's rule rather than a second one.
-  assert.match(chat, /function newestOpenSessions\(\)[\s\S]{0,400}store\.replay \|\| session\.role !== "c"/);
-});
-
 test("Delete says what it does and works on a running chat (2py)", () => {
   assert.match(shell, /const deleteConfirmText = "Delete this chat permanently\? Memory notes it made are kept\.";/);
-  assert.match(shell, /remove\.disabled = store\.replay;/);
+  assert.match(shell, /button\(labels\[3\], labels\[3\], "chat-list-menu-action alarm"\)/);
+  assert.match(shell, /remove\.onclick = \(\) => void deleteChat\(session\)/);
   assert.doesNotMatch(shell, /Stop it before deleting the chat/);
 });

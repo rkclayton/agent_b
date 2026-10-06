@@ -42,8 +42,7 @@ test("the chat menu has no report action", async ({ browser }) => {
     return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
   });
   await page.goto(`http://localhost:59999/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
-  const tab = page.locator(".agent-tab-wrap[data-session='chat-0'] .agent-tab, .agent-tab.selected").first();
-  await tab.click({ button: "right" });
+  await page.locator(".chat-list-row[data-session='chat-0'] .chat-list-more").click();
   await expect(page.getByRole("button", { name: "Report this chat" })).toHaveCount(0);
   await page.screenshot({ path: "test-results/2qa-chat-menu-no-report.png" });
   expect(reports).toEqual([]);

@@ -15,6 +15,48 @@
   --lead: calc(var(--ct) * 5 / 3);
   --lead-tight: calc(var(--ct) * 4 / 3);
 }
+.chat-list-panel {
+  position: fixed;
+  z-index: 25;
+  top: var(--app-header-height);
+  bottom: 0;
+  left: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  width: min(var(--chat-list-width, 240px), calc(100vw - 128px));
+  min-width: 128px;
+  background: var(--bezel);
+  border-right: 1px solid rgba(112,125,139,.28);
+}
+.chat-list-panel[hidden],.chat-list-handle[hidden] { display: none; }
+.chat-list-new { margin: 6px; text-align: left; }
+.chat-list { min-height: 0; overflow: auto; padding: 0 6px 8px; }
+.chat-list-group,.chat-list-folder,.chat-list-archived { display: block; margin: 0; }
+.chat-list-group-name,.chat-list-folder > summary,.chat-list-archived > summary { display: flex; align-items: center; min-height: 28px; color: var(--mute); font: 500 var(--ct)/var(--lead) var(--mono); }
+.chat-list-folder > summary,.chat-list-archived > summary { cursor: pointer; }
+.chat-list-folder-action,.chat-list-folder-delete { margin-left: auto; min-width: 24px; min-height: 24px; padding: 0 4px; background: transparent; }
+.chat-list-folder-action svg { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: square; stroke-linejoin: miter; }
+.chat-list-folder-action + .chat-list-folder-action,.chat-list-folder-action + .chat-list-folder-delete { margin-left: 0; }
+.chat-list-folder-delete { color: var(--alarm); }
+.chat-list-row { position: relative; display: grid; grid-template-columns: 8px minmax(0,1fr) 24px; align-items: center; min-width: 0; min-height: 28px; }
+.chat-list-row.selected { background: var(--well); box-shadow: inset 2px 0 0 var(--signal); }
+.chat-list-state { width: 6px; height: 6px; background: var(--mute); }
+.chat-list-state.running { background: var(--signal); }
+.chat-list-state.waiting,.chat-list-state.offline { background: var(--alarm); }
+.chat-list-name,.chat-list-more { min-width: 0; min-height: 24px; padding: 2px 5px; overflow: hidden; background: transparent; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.chat-list-more { padding: 0; text-align: center; }
+.chat-list-panel .shell-menu { width: min(220px, calc(100vw - 16px)); }
+.chat-list-row-menu { min-width: 150px; }
+.chat-list-menu-action { display: block; width: 100%; min-height: 28px; text-align: left; }
+.chat-list-menu-action.alarm { color: var(--alarm); }
+.chat-list-move-choices { border-top: 1px solid rgba(112,125,139,.28); }
+.chat-list-resize { position: absolute; top: 0; right: -4px; bottom: 0; width: 8px; cursor: ew-resize; }
+.chat-list-handle { position: fixed; z-index: 29; top: var(--app-header-height); bottom: 0; left: 0; width: 8px; cursor: ew-resize; background: rgba(112,125,139,.28); }
+.chat-list-visible > #chat-budget,.chat-list-visible > #chat-log,.chat-list-visible > #chat-composer {
+  width: calc(100% - min(var(--chat-list-width, 240px), calc(100vw - 128px)));
+  min-width: 0;
+  margin-left: min(var(--chat-list-width, 240px), calc(100vw - 128px));
+}
 
 /* Item 2lj (c) and (e): the chosen face is for PROSE. It is set on the chat's
    own regions rather than on .chat-page, so the shell that shares that page --
@@ -986,6 +1028,12 @@
 
 @media (max-width: 620px) {
   .chat-entry { grid-template-columns: 72px minmax(0, 1fr); }
+}
+@media (max-width: 360px) {
+  .chat-list-panel { width: min(var(--chat-list-width, 240px), calc(100vw - 32px)); }
+  .chat-list-visible > #chat-budget,
+  .chat-list-visible > #chat-log,
+  .chat-list-visible > #chat-composer { width: 100%; margin-left: 0; visibility: hidden; }
 }
 
 /* Item 2fc: proposed plan edits sit in the planning chat's own thread, above

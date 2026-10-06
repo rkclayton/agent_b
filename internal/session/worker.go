@@ -29,7 +29,7 @@ func (s *Session) WorkerJob() WorkerJob {
 }
 
 // IsWorker reports whether this session is a worker. A worker has no chat: it
-// does not appear in the tab strip, and its only speech is a c.job post.
+// does not appear in the desktop chat list, and its only speech is a c.job post.
 func (s *Session) IsWorker() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

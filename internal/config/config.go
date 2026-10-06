@@ -136,22 +136,18 @@ type Chat struct {
 	// Agent_b cannot confirm is never offered, because a font named but absent
 	// falls back silently and the reader would not know.
 	Typeface string `json:"typeface,omitempty"`
-	// HiddenSurfaces names the static tab-strip surfaces this reader has hidden
-	// (item 2mf). It lives here rather than under shell because it is a
-	// preference about what a reader sees, not machine state: item 2ly's scope
-	// table makes `chat` per-profile and `shell` machine-wide, and a hidden tab
-	// follows the person, not the computer.
+	// HiddenSurfaces retains the profile-scoped Plan-entry preference introduced
+	// before Plan moved into Settings. It lives here rather than under shell
+	// because it is a reader preference, not machine state.
 	//
 	// A hidden surface is hidden, NOT GONE: nothing about it is discarded and
-	// re-enabling puts it back where the list puts it, pinned at the far right.
+	// re-enabling puts its Settings entry back.
 	// Only the names in HideableSurfaces are accepted, because an unknown name
 	// would be a surface nothing could bring back.
 	HiddenSurfaces []string `json:"hidden_surfaces,omitempty"`
 }
 
-// HideableSurfaces are the static surfaces a right-click may hide. A chat is not
-// here: a chat is CLOSED, which is item 2hq's close-is-not-delete and a
-// different thing entirely.
+// HideableSurfaces are legacy static surfaces whose Settings entry may be hidden.
 var HideableSurfaces = []string{"plan"}
 
 // ChatTextSizes are the steps, smallest first. The default is "normal", which

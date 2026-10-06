@@ -150,10 +150,13 @@ try {
   const measurementDeadline = Date.now() + 15000;
   while (Date.now() < measurementDeadline) {
     const response = await fetch(`${baseURL}/api/eval/measure?connection_id=setup-model`);
-    if (response.ok && (await response.json()).running) break;
+    if (response.ok) {
+      const measurement = await response.json();
+      if (measurement.running && measurement.processed >= 1) break;
+    }
     await sleep(50);
   }
-  assert.ok(Date.now() < measurementDeadline, "measurement did not become running before the stop request");
+  assert.ok(Date.now() < measurementDeadline, "measurement did not begin its first brief before the stop request");
   await page.locator('[data-action="measure"]', { hasText: "Stop" }).click();
   await page.locator("h1").filter({ hasText: "Send anonymous data to help improve Agent_b" }).waitFor();
   assert.equal(await page.locator(".setup-note").textContent(), "Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts.");
@@ -161,7 +164,12 @@ try {
   await page.locator('[data-action="telemetry-next"]').click();
   await page.locator("h1").filter({ hasText: "Done" }).waitFor();
   if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-5-done-after-stop.png") });
-  let state = await waitJSON(`${baseURL}/api/state`);
+  let state;
+  for (const deadline = Date.now() + 15000; Date.now() < deadline;) {
+    state = await waitJSON(`${baseURL}/api/state`);
+    if (state.config.connections?.[0]?.measurement?.stopped && state.config.connections?.[0]?.measurement?.briefs_run === 1) break;
+    await sleep(50);
+  }
   assert.equal(state.config.agents?.[0]?.b, "setup-model");
   assert.equal(state.config.agents?.[0]?.c || "", "");
   assert.equal(state.config.agents?.[0]?.d || "", "");
@@ -184,10 +192,13 @@ try {
   const secondMeasurementDeadline = Date.now() + 15000;
   while (Date.now() < secondMeasurementDeadline) {
     const response = await fetch(`${baseURL}/api/eval/measure?connection_id=setup-model-2`);
-    if (response.ok && (await response.json()).running) break;
+    if (response.ok) {
+      const measurement = await response.json();
+      if (measurement.running && measurement.processed >= 1) break;
+    }
     await sleep(50);
   }
-  assert.ok(Date.now() < secondMeasurementDeadline, "second measurement did not become running before the stop request");
+  assert.ok(Date.now() < secondMeasurementDeadline, "second measurement did not begin its first brief before the stop request");
   await page.locator('[data-action="measure"]', { hasText: "Stop" }).click();
   await page.locator("h1").filter({ hasText: "Done" }).waitFor();
   await page.locator('[data-action="finish"]').click();

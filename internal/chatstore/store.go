@@ -24,6 +24,7 @@ type Metadata struct {
 	MirrorSeq    int       `json:"mirror_seq,omitempty"`
 	MirrorHashes []string  `json:"mirror_hashes,omitempty"`
 	LastActivity time.Time `json:"last_activity,omitempty"`
+	Pinned       bool      `json:"pinned,omitempty"`
 	ArchivedAt   time.Time `json:"archived_at,omitempty"`
 	Live         bool      `json:"live,omitempty"`
 	Pending      bool      `json:"pending,omitempty"`
@@ -243,6 +244,17 @@ func (s *Store) Move(id, folder string) (string, error) {
 	}
 	destination := filepath.Join(parent, name)
 	return destination, os.Rename(entry.Path, destination)
+}
+
+func (s *Store) SetPinned(id string, pinned bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, found, err := s.Find(id)
+	if err != nil || !found {
+		return errors.Join(err, fmt.Errorf("chat not found"))
+	}
+	entry.Metadata.Pinned = pinned
+	return WriteMetadata(entry.Path, entry.Metadata)
 }
 
 func (s *Store) Rename(id, label string) (string, error) {

@@ -157,6 +157,27 @@ func TestArchiveRestoreKeepsFolderAndOrdersNewestFirst(t *testing.T) {
 	}
 }
 
+func TestPinSurvivesRestartAndMove2qz(t *testing.T) {
+	root := t.TempDir()
+	store := New(root)
+	if _, err := store.Create("pinned", "Pinned", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPinned("pinned", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddFolder("", "Work"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Move("pinned", "Work"); err != nil {
+		t.Fatal(err)
+	}
+	entry, found, err := New(root).Find("pinned")
+	if err != nil || !found || !entry.Metadata.Pinned {
+		t.Fatalf("restart after move: found=%v metadata=%+v err=%v", found, entry.Metadata, err)
+	}
+}
+
 func TestAutoArchiveUsesIdleClockAndProtectsLiveChat(t *testing.T) {
 	store := New(filepath.Join(t.TempDir(), "chats"))
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)

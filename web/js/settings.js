@@ -110,7 +110,7 @@ export function initSettings(entry = {}) {
 		open ? void leaveSettingsForChat() : openSettings();
   });
   document.addEventListener("settings.open", (event) => openSettings(event.detail?.section));
-  // Choosing a chat from the tab strip while Settings is open shows that chat.
+  // Choosing a chat from the left list while Settings is open shows that chat.
   document.addEventListener("settings.close", (event) => {
 		if (open) void leaveSettingsForChat().finally(() => event.detail?.after?.());
 	});

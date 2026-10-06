@@ -238,40 +238,6 @@ test("the switcher's model column has real room and no ellipsis", async () => {
   await page.close();
 });
 
-test("the active chat tab returns from Plan and three Settings depths", async () => {
-	const page = await harness.context.newPage();
-	await page.goto(`${harness.base}/chat`);
-	await expect(page.locator("#chat-log")).toBeVisible();
-	const session = await page.locator(".agent-tab[data-session]").first().getAttribute("data-session");
-
-	await page.goto(`${harness.base}/plan?session=${encodeURIComponent(session)}`);
-	await page.locator(`.agent-tab[data-session="${session}"]`).click();
-	await expect(page).toHaveURL(/\/chat/);
-	await expect(page.locator("#chat-log")).toBeVisible();
-
-	for (const section of ["connections", "profiles", "shell"]) {
-		await page.locator(".shell-settings").click();
-		await expect(page.locator("#settings-page")).toBeVisible();
-		await page.locator(`.settings-nav [data-id="${section}"]`).click();
-		await page.locator(`.agent-tab[data-session="${session}"]`).click();
-		await expect(page.locator("#settings-page")).toBeHidden();
-		await expect(page.locator("#chat-log")).toBeVisible();
-	}
-
-	for (const save of [false, true]) {
-		await page.locator(".shell-settings").click();
-		await page.locator('.settings-nav [data-id="connections"]').click();
-		if (!await page.locator(".connection-editor").count()) await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
-		await expect(page.locator(".connection-editor")).toBeVisible();
-		await page.locator('.connection-editor [data-path$=".label"]').fill(`UI ${save ? "saved" : "discarded"}`);
-		page.once("dialog", (dialog) => save ? dialog.accept() : dialog.dismiss());
-		await page.locator(`.agent-tab[data-session="${session}"]`).click();
-		await expect(page.locator("#settings-page")).toBeHidden();
-		await expect(page.locator("#chat-log")).toBeVisible();
-	}
-	await page.close();
-});
-
 test("Security shows one Phone section and retired browser phone routes are absent", async () => {
 	const page = await harness.context.newPage();
 	await page.goto(`${harness.base}/chat`);
@@ -372,62 +338,6 @@ test("a refused saved value marks that field only 2po", async () => {
   await page.close();
 });
 
-// Item 2ms: CLOSING THE SELECTED CHAT MOVES THE SELECTION OFF IT.
-//
-// "when no chat tabs are open its showing me an old chat still in the window."
-// Reproduced at rel-1.31.0 against a copy of the operator's own restored journal set,
-// 34 chats: closing the one open chat left the selection on it, and close-is-not-
-// delete keeps the whole transcript in the store, so the pane went on drawing a chat
-// he had just closed - and a reload drew it again.
-test("closing the selected chat shows its neighbour, and the last one shows the empty state", async () => {
-  const page = await harness.context.newPage();
-  await page.goto(`${harness.base}/chat`);
-  await expect(page.locator("#chat-log")).toBeVisible();
-  const tabs = () => page.locator(".agent-tab-wrap[data-session]");
-  await expect(tabs()).toHaveCount(1);
-
-  // A neighbour to move to.
-  await page.locator(".agent-tab-new").click();
-  await expect(tabs()).toHaveCount(2);
-  const selected = await page.locator(".agent-tab-wrap.selected").getAttribute("data-session");
-  const neighbour = await page.locator(`.agent-tab-wrap[data-session]:not([data-session="${selected}"])`).getAttribute("data-session");
-
-  // (a): the neighbour that took its place is selected, and it is SHOWN.
-  await page.locator(`.agent-tab-wrap[data-session="${selected}"] .agent-tab-close`).click();
-  await expect(tabs()).toHaveCount(1);
-  await expect(page.locator(".agent-tab-wrap.selected")).toHaveAttribute("data-session", neighbour);
-  await expect(page.locator("#chat-task")).toBeEnabled();
-
-  // (b): closing a chat that is NOT selected moves nothing.
-  await page.locator(".agent-tab-new").click();
-  await expect(tabs()).toHaveCount(2);
-  const stays = await page.locator(".agent-tab-wrap.selected").getAttribute("data-session");
-  const other = await page.locator(`.agent-tab-wrap[data-session]:not([data-session="${stays}"])`).getAttribute("data-session");
-  await page.locator(`.agent-tab-wrap[data-session="${other}"] .agent-tab-close`).click();
-  await expect(tabs()).toHaveCount(1);
-  await expect(page.locator(".agent-tab-wrap.selected")).toHaveAttribute("data-session", stays);
-
-  // (a) with nothing to move to, and (d): the empty state is a real state - one
-  // line, no tab lit, and no composer for a chat that does not exist.
-  await page.locator(`.agent-tab-wrap[data-session="${stays}"] .agent-tab-close`).click();
-  await expect(tabs()).toHaveCount(0);
-  await expect(page.locator(".agent-tab-wrap.selected")).toHaveCount(0);
-  await expect(page.locator(".chat-empty")).toBeVisible();
-  await expect(page.locator("#chat-task")).toBeDisabled();
-
-  // (e): and a reload lands in the same place, not back on the last transcript.
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.locator(".chat-empty")).toBeVisible();
-  await expect(tabs()).toHaveCount(0);
-  await expect(page.locator("#chat-task")).toBeDisabled();
-
-  // This harness is shared with the cases below and this one closes every chat.
-  // Leave it as it was found.
-  await page.locator(".agent-tab-new").click();
-  await expect(tabs()).toHaveCount(1);
-  await page.close();
-});
-
 // Item 2ni: THE PLAN IS A SETTINGS SECTION, NOT A TAB. "why is plan a chat tab on
 // the left side? it was supposed to be right side.. but i decided i think i want it
 // under settings, as its own top level item please implement." Everything here is
@@ -438,13 +348,12 @@ test("the Plan is a top-level Settings section, not a tab, and the switch hides 
 	await page.goto(`${harness.base}/chat`);
 	await expect(page.locator("#chat-log")).toBeVisible();
 
-	// (b): the strip is chats only again. No surface tab, and no one-entry pages nav
-	// either — that went with item 2mf and does not come back.
+	// The chat list is the only chat navigation; the retired surface strip and
+	// one-entry pages nav do not come back.
 	await expect(page.locator(".agent-tab-wrap-surface")).toHaveCount(0);
 	await expect(page.locator(".shell-pages")).toHaveCount(0);
-	const chatTab = page.locator(".agent-tab-wrap[data-session]").first();
-	await expect(chatTab).toHaveCount(1);
-	await expect(page.locator(".agent-tabs .agent-tab-wrap-surface")).toHaveCount(0);
+	await expect(page.locator(".chat-list-row[data-session]").first()).toHaveCount(1);
+	await expect(page.locator(".agent-tabs, .agent-tab-wrap")).toHaveCount(0);
 
 	// (a): one top-level entry, third, after the two the sheet is opened to read,
 	// carrying the operator's own prepared mark.
@@ -481,14 +390,23 @@ test("the chat surface holds at the smallest size the window can be dragged to",
   const small = await harness.browser.newContext({ viewport: { width: 304, height: 254 } });
   const page = await small.newPage();
   await page.goto(`${harness.base}/chat`);
-  await expect(page.locator("#chat-log")).toBeVisible();
   // A chat has to be OPEN for this to measure anything: the case above closes the last
   // one deliberately, and the empty state has no composer to measure. Measured rather
   // than assumed - the first run of this file after item 2no's cases were added failed
   // on exactly that ordering.
-  if (!await page.locator(".agent-tab-wrap[data-session]").count()) {
-    await page.locator(".agent-tab-new").click();
+  if (!await page.locator(".chat-list-row[data-session]").count()) {
+    await page.locator(".chat-list-new").click();
   }
+  // At this width the retained-chat panel is a drawer. Collapse it through the
+  // same resize edge a person uses before measuring the chat beneath it.
+  const edge = await page.locator(".chat-list-resize").boundingBox();
+  if (edge) {
+    await page.mouse.move(edge.x + edge.width / 2, edge.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(0, edge.y + 20);
+    await page.mouse.up();
+  }
+  await expect(page.locator("#chat-log")).toBeVisible();
   await expect(page.locator("#chat-task")).toBeVisible();
   const seen = await page.evaluate(() => {
     const box = (selector) => {
@@ -497,10 +415,10 @@ test("the chat surface holds at the smallest size the window can be dragged to",
     };
     const composer = box("#chat-task");
     const send = box("#chat-send");
-    const strip = box(".agent-tabs");
+    const panel = box(".chat-list-panel:not([hidden])") || box(".chat-list-handle:not([hidden])");
     const log = box("#chat-log");
     const clipped = [];
-    for (const [name, rect] of Object.entries({ composer, send, strip, log })) {
+    for (const [name, rect] of Object.entries({ composer, send, panel, log })) {
       if (!rect) { clipped.push(`${name} is not on the page at all`); continue; }
       if (rect.right > window.innerWidth + 1) clipped.push(`${name} runs off the right edge`);
       if (rect.bottom > window.innerHeight + 1) clipped.push(`${name} runs off the bottom edge`);

@@ -139,6 +139,9 @@ export function reduce(event) {
     case "shell.credential": store.shell_credential = data; break;
     case "update.changed": store.update = data; break;
     case "attachment.ocr_progress": break;
+    // The persistent desktop chat list rereads its filesystem metadata only
+    // when a structural chat-list operation says that view changed.
+    case "chat.list.patch": break;
     // Item 2bq: a plan created, rewritten or removed by any route. The list
     // follows, and every subscriber (the Plan panel) re-reads its plan.
     case "plan.created":
@@ -412,7 +415,7 @@ export function applyServerEvent(event) {
   }
 }
 source.onmessage = applyServerEvent;
-for (const type of ["snapshot", "projection.patch", "connection.probed", "connection.health", "config.changed", "agent.connection_change", "shell.identity", "shell.credential", "operator.context", "plan.created", "plan.updated", "plan.removed"])
+for (const type of ["snapshot", "projection.patch", "connection.probed", "connection.health", "config.changed", "agent.connection_change", "shell.identity", "shell.credential", "operator.context", "plan.created", "plan.updated", "plan.removed", "chat.list.patch"])
   source.addEventListener(type, applyServerEvent);
 function reconcileVisibleClient() { if (!document.hidden) void operatorReconciler.reconcile().catch(() => {}); }
 document.addEventListener("visibilitychange", reconcileVisibleClient);

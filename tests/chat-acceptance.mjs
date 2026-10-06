@@ -4,67 +4,9 @@ import { createServer } from "node:http";
 import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { chromium } from "playwright";
-import { LIVE_VALUES, OTHER_CHAT_STATE, captureWithMasks } from "./screenshot-masks.mjs";
+import { captureWithMasks } from "./screenshot-masks.mjs";
 import { decodePNG } from "./png.mjs";
 import { compareMasked } from "./screenshot-gate.mjs";
-
-const agentStates = ["idle", "waiting", "running", "offline"];
-async function pageStyleReach(page, { stylesheet, state }) {
-  return page.evaluate(({ stylesheet, state }) => {
-    const shell = document.querySelector(".app-shell");
-    if (!shell) throw new Error("page-style boundary: .app-shell is missing");
-    const robots = [...shell.querySelectorAll(".agent-tab-robot")];
-    if (!robots.length) throw new Error("page-style boundary: no agent robot is rendered");
-    for (const robot of robots) {
-      robot.classList.remove("idle", "waiting", "running", "offline");
-      robot.classList.add(state);
-    }
-    const sheet = [...document.styleSheets].find((candidate) => candidate.href && new URL(candidate.href).pathname.endsWith(`/css/${stylesheet}`));
-    if (!sheet) throw new Error(`page-style boundary: ${stylesheet} is missing`);
-    const styleRules = [];
-    const walk = (rules, conditions = []) => {
-      for (const rule of rules) {
-        if (rule.selectorText) styleRules.push({ rule, conditions });
-        if (rule.cssRules) walk(rule.cssRules, [...conditions, rule.conditionText || rule.cssText.split("{")[0].trim()]);
-      }
-    };
-    walk(sheet.cssRules);
-    const describe = (element) => `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${[...element.classList].map((name) => `.${name}`).join("")}`;
-    const elements = [shell, ...shell.querySelectorAll("*")];
-    return styleRules.flatMap(({ rule, conditions }) => {
-      const matched = elements.filter((element) => { try { return element.matches(rule.selectorText); } catch { return false; } });
-      return matched.length ? [{ selector: rule.selectorText, conditions, elements: matched.map(describe) }] : [];
-    });
-  }, { stylesheet, state });
-}
-async function assertPageStyleBoundary(page, stylesheet) {
-  const evidence = {};
-  for (const state of agentStates) {
-    const reaches = await pageStyleReach(page, { stylesheet, state });
-    evidence[state] = reaches;
-    if (reaches.length) throw new Error(`page-style boundary: ${stylesheet} reaches .app-shell in ${state}: ${JSON.stringify(reaches)}`);
-  }
-  return evidence;
-}
-async function provePageStyleBoundaryControl(page, stylesheet) {
-  const ruleIndex = await page.evaluate((name) => {
-    const sheet = [...document.styleSheets].find((candidate) => candidate.href && new URL(candidate.href).pathname.endsWith(`/css/${name}`));
-    if (!sheet) throw new Error(`page-style boundary negative control: ${name} is missing`);
-    return sheet.insertRule(".idle img { width: 96px; height: 96px; margin: auto; }", sheet.cssRules.length);
-  }, stylesheet);
-  try {
-    const idle = await pageStyleReach(page, { stylesheet, state: "idle" });
-    const waiting = await pageStyleReach(page, { stylesheet, state: "waiting" });
-    if (!idle.some((entry) => entry.selector === ".idle img" && entry.elements.includes("img"))) throw new Error(`page-style boundary negative control did not catch .idle img: ${JSON.stringify(idle)}`);
-    if (waiting.length) throw new Error(`page-style boundary negative control reached a non-idle state: ${JSON.stringify(waiting)}`);
-    return { idle, waiting };
-  } finally {
-    await page.evaluate(({ name, index }) => {
-      const sheet = [...document.styleSheets].find((candidate) => candidate.href && new URL(candidate.href).pathname.endsWith(`/css/${name}`));
-      sheet?.deleteRule(index);
-    }, { name: stylesheet, index: ruleIndex });
-  }
-}
 
 const args = Object.fromEntries(Array.from({ length: Math.floor(process.argv.slice(2).length / 2) }, (_, index) => {
   const offset = index * 2 + 2;
@@ -686,10 +628,10 @@ if (!realModel) {
 await page.goto(`http://127.0.0.1:${appPort}/chat`);
 await browser.wait(`document.querySelector('#chat-task')`, "Chat opened");
 if (!Object.keys(runtimeState.sessions || {}).length) {
-	await page.locator(".agent-tab-new").click();
+	await page.locator(".chat-list-new").click();
 	await browser.wait(`Boolean(new URLSearchParams(location.search).get('session'))`, "first operator chat selected");
 }
-await browser.wait(`document.querySelector('.agent-tab')`, "Agent tab rendered");
+await browser.wait(`document.querySelector('.chat-list-row.selected')`, "Agent tab rendered");
 if (!realModel) {
 	await browser.wait(`!document.querySelector('#chat-composer')?.hidden && document.querySelector('#chat-update-banner:not([hidden])')?.textContent.includes('v9.9.9 available')`, "update banner rendered from local fixture");
 	record("update-fixture-available-banner");
@@ -756,7 +698,7 @@ if (args["cron-only"] === "true") {
   });
   await page.goto(proofURL);
   await browser.wait(`document.querySelector('meta[name="agentb-build"]')?.content === ${JSON.stringify(serverBuild)}`, "stale page reloaded to the current build", 15000);
-  await browser.wait(`document.querySelector('#chat-task') && document.querySelector('.agent-tab')`, "current shell after the reload");
+  await browser.wait(`document.querySelector('#chat-task') && document.querySelector('.chat-list-row.selected')`, "current shell after the reload");
   await sleep(1500);
   await page.unroute(isProof);
   assert.equal(served, 2, "exactly one automatic reload");
@@ -771,7 +713,7 @@ if (args["cron-only"] === "true") {
     bus.reduce({ type: "snapshot", data: { ...current, build: { ...current.build, executable_sha256: "f".repeat(64) } } });
   }).catch(() => {});
   await reloaded;
-  await browser.wait(`document.querySelector('#chat-task') && document.querySelector('.agent-tab')`, "current shell after the snapshot-driven reload");
+  await browser.wait(`document.querySelector('#chat-task') && document.querySelector('.chat-list-row.selected')`, "current shell after the snapshot-driven reload");
   record("open-page-reloads-on-new-build-snapshot");
 }
 
@@ -797,8 +739,7 @@ if (realModel) {
     console.log(`W7 EXPLORER PATH: ${chatRoot}`);
     console.log(listing.join("\n"));
     await page.goto(`http://127.0.0.1:${appPort}/chat?session=${migrated.id}`);
-    await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
-    const explorerRow = page.locator(".agent-chat-folder", { hasText: "W7 Explorer" });
+    const explorerRow = page.locator('.chat-list-folder[data-folder="W7 Explorer"]');
     await explorerRow.waitFor({ state: "visible" });
     assert.equal(await explorerRow.locator(`[data-session="${migrated.id}"]`).count(), 1, "moved chat missing from menu folder");
     await page.locator(".shell-settings").click();
@@ -815,10 +756,10 @@ if (realModel) {
     record("real-root-migrate-filesystem-move-menu-delete-all");
     process.stdout.write(`CHAT ACCEPTANCE PASS ${Date.now() - startedAt} ms\n`); await edgeContext?.close(); terminateChildren(); await stopFake(); process.exit(0);
   }
-  await page.locator(".agent-tab-new").click();
+  await page.locator(".chat-list-new").click();
   let snapshot;
   await browser.wait(`new URLSearchParams(location.search).get('session')?.startsWith('s')`, "new session selected");
-  record("agent-tab-new-chat-idle");
+  record("chat-list-new-chat-idle");
   // Item 2ew: a genuinely empty chat still says so once the snapshot is in.
   await browser.wait(`[...document.querySelectorAll('.chat-empty')].some((node) => node.innerText.includes('Send a task to start the loop.'))`, "true empty-state text on a new chat");
   snapshot = await state();
@@ -911,30 +852,16 @@ if (realModel) {
   await waitProjectedChatText(sessionID, "VISIBLE PARTIAL COMPLETE", "completed prose stream");
   record("mid-stream-prose-visible-without-expansion");
 
-  // Item 2mf: Plan was a TAB in the strip. Item 2ni moved it into the Settings nav
-  // as its own top-level entry — "i decided i think i want it under settings, as its
-  // own top level item" — so the strip is chats only again and the gate looks for the
-  // entry where it lives rather than being loosened.
+  // Plan remains a Settings entry and the removed tab strip stays absent.
   assert.equal(await page.locator('.agent-tab-wrap-surface').count(), 0);
   assert.equal(await page.locator('.agent-tab-surface[data-surface-kind="plan"]').count(), 0);
   assert.equal(await page.locator(".shell-settings").count(), 1);
   assert.equal(await page.locator("#chat-title").count(), 0);
-  // Item 2gk: a tab had a side and was dressed for it. There is one side now,
-  // so what is checked is that the selected tab is still drawn as selected.
-  const captureAgentTabStyle = () => page.evaluate(() => {
-    const node = document.querySelector('.agent-tab-wrap.selected .agent-tab');
-    return { side: node.dataset.side, color: getComputedStyle(node).color, background: getComputedStyle(node.closest(".agent-tab-wrap")).backgroundColor };
-  });
-  const chatSide = await captureAgentTabStyle();
-  assert.equal(chatSide.side, undefined);
-  assert.equal(chatSide.color, "rgb(232, 238, 244)");
   const captureShellGeometry = () => page.evaluate(() => Object.fromEntries([
     ["shell", "#app-shell"],
-    ["tabs", ".agent-tabs"],
-    ["wrap", '.agent-tab-wrap.selected'],
-    ["tab", '.agent-tab-wrap.selected .agent-tab'],
-    ["plus", ".agent-tab-new"],
+    ["connection", ".shell-session-title"],
     ["settings", ".shell-settings"],
+    ["windows", ".shell-window-controls"],
   ].map(([key, selector]) => {
     const rect = document.querySelector(selector).getBoundingClientRect();
     return [key, { x: rect.x, y: rect.y, width: rect.width, height: rect.height }];
@@ -989,14 +916,11 @@ if (realModel) {
   }));
 	assert.ok(toolHalves.toggles >= 12 && toolHalves.counts === toolHalves.toggles + 2, JSON.stringify(toolHalves));
   assert.equal(toolHalves.agent, true);
-  await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
-  const toggleMenu = page.locator('.agent-tab-wrap.selected .agent-chat-menu');
+  await page.locator(".shell-settings").click();
+  await page.locator('.chat-list-row.selected .chat-list-more').click();
+  const toggleMenu = page.locator('.chat-list-row.selected .chat-list-row-menu');
   await toggleMenu.waitFor({ state: "visible" });
-  assert.equal(await toggleMenu.locator(".agent-chat-console").count(), 0);
-  assert.ok(await toggleMenu.locator(".agent-chat-row").count() >= 2);
-  assert.equal(await toggleMenu.locator(".agent-chat-close").count(), 0);
-  assert.equal(await toggleMenu.locator(".agent-chat-delete").count(), await toggleMenu.locator(".agent-chat-row").count());
-  assert.equal((await toggleMenu.innerText()).includes("Delete"), false);
+  assert.deepEqual(await toggleMenu.locator(":scope > button").allInnerTexts(), ["Pin", "Rename", "Move to folder", "Delete"]);
   const menuPalette = await toggleMenu.evaluate((menu) => {
     const rgb = (value) => value.match(/[\d.]+/g).slice(0, 3).map(Number);
     const luminance = (value) => rgb(value).map((part) => part / 255).map((part) => part <= .04045 ? part / 12.92 : ((part + .055) / 1.055) ** 2.4).reduce((sum, part, index) => sum + part * [.2126, .7152, .0722][index], 0);
@@ -1004,7 +928,7 @@ if (realModel) {
     return { color: style.color, background: style.backgroundColor, border: style.borderTopColor, ratio: (Math.max(text, background) + .05) / (Math.min(text, background) + .05) };
   });
   assert.ok(menuPalette.ratio >= 4.5, JSON.stringify(menuPalette));
-  assert.equal(await toggleMenu.locator(".agent-chat-delete").first().evaluate((node) => getComputedStyle(node).color), "rgb(228, 98, 79)");
+  assert.equal(await toggleMenu.getByRole("button", { name: "Delete", exact: true }).evaluate((node) => getComputedStyle(node).color), "rgb(228, 98, 79)");
   await page.screenshot({ path: join(args.evidence, "rel-1.46.0-w2-menu.png") });
   console.log(`W2 menu contrast ${menuPalette.ratio.toFixed(2)}:1 (${menuPalette.color} on ${menuPalette.background})`);
   const treeAction = (body) => page.evaluate(async (value) => {
@@ -1021,19 +945,15 @@ if (realModel) {
   for (const deadline = Date.now() + 2000; Date.now() < deadline && (await state()).sessions[sessionID].workspace_dir !== explorerPath;) await sleep(40);
   assert.equal((await state()).sessions[sessionID].workspace_dir, explorerPath, "watcher did not keep chat identity after Explorer rename");
   await toggleMenu.evaluate((menu) => { menu.hidden = true; });
-  await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
-  const folderRow = toggleMenu.locator(".agent-chat-folder", { hasText: renamedFolder });
+  const folderRow = page.locator(`.chat-list-folder[data-folder="${renamedFolder}"]`);
   await folderRow.waitFor({ state: "visible" });
   assert.equal(await folderRow.getAttribute("open"), null, "folders must be collapsed by default");
   assert.equal(await folderRow.locator(`[data-session="${sessionID}"]`).count(), 1);
-  await folderRow.locator("summary > .agent-chat-delete").click();
+  await folderRow.locator("summary > .chat-list-folder-delete").click();
   await browser.wait(`document.querySelector('#app-shell')?.dataset.error?.includes('folder must be empty') || document.body.innerText.includes('folder must be empty')`, "non-empty folder reason");
   await treeAction({ action: "move", id: sessionID, folder: "" });
   await treeAction({ action: "delete", path: renamedFolder });
   assert.equal((await readdir(chatRoot)).includes(renamedFolder), false);
-	await toggleMenu.evaluate((menu) => { menu.hidden = true; });
-	await page.locator('.agent-tab-wrap.selected .agent-tab').click({ button: "right" });
-	await toggleMenu.locator(".agent-chat-summary").first().waitFor({ state: "visible" });
   record("chat-folders-app-explorer-and-nonempty-refusal");
   const codePanel = await page.evaluate(async () => {
     const moduleURL = new URL("markdown.js", document.querySelector("script[src*='/js/build-check.js']").src).href;
@@ -1069,13 +989,8 @@ if (realModel) {
   assert.ok(Math.abs(codePanel.widthBefore - codePanel.widthAfter) <= 1 && codePanel.long.block.right <= codePanel.long.host.right + 1, JSON.stringify(codePanel.long));
   await page.evaluate(() => document.querySelector("#w3-code-panel-fixture")?.remove());
   console.log(`W3 code panel ${codePanel.panelBackground}, ${codePanel.borderWidth} ${codePanel.borderStyle}`);
-  assert.equal(await toggleMenu.locator(".agent-chat-count").count(), 0);
-  const historyRow = await toggleMenu.locator(".agent-chat-summary").first().innerText();
-  assert.match(historyRow, /^\d{2}:\d{2} · \S/, historyRow);
-  // A click outside the shell dismisses an open menu. Escape would dismiss it
-  // AND close Settings, which is not what is being measured here.
-  await page.locator(".settings-head strong").click();
-  await toggleMenu.waitFor({ state: "hidden" });
+  await page.locator(".shell-settings").click();
+  await page.locator("#settings-page").waitFor({ state: "visible" });
   const panelToChatStarted = performance.now();
   await page.locator(".shell-settings").click();
   await browser.wait(`document.querySelector('#settings-page')?.hidden`, "Settings closed back onto the chat");
@@ -1086,7 +1001,7 @@ if (realModel) {
   const chatLoadTiming = await captureLoadTiming();
   assert.deepEqual(returnedChatGeometry, chatGeometry, JSON.stringify({ chatGeometry, returnedChatGeometry }));
   shellFlipEvidence = { chat: chatGeometry, panels: panelGeometry, returned_chat: returnedChatGeometry, chat_to_panel_ms: chatToPanelMS, panel_to_chat_ms: panelToChatMS, chat_load: chatLoadTiming, tool_halves: toolHalves };
-  record("settings-panels-preserve-the-chat-and-the-right-menu");
+  record("settings-panels-preserve-the-chat-and-row-menu");
 
   // v1.6.2/W0 r3: mountChat asks /api/speech asynchronously. Capturing before
   // that answer is applied races the mic between ordinary and disabled opacity,
@@ -1100,38 +1015,7 @@ if (realModel) {
   });
   await writeFile(join(args.evidence, "speech-readiness.json"), `${JSON.stringify(speechReadiness, null, 2)}\n`);
 
-  const shellStateDirectory = join(args.evidence, "shell-states");
-  await mkdir(shellStateDirectory, { recursive: true });
-  const captureRobotStates = async (pageName, stylesheet) => {
-    const boundary = await assertPageStyleBoundary(page, stylesheet);
-    const robots = {};
-    for (const state of agentStates) {
-      robots[state] = await page.evaluate((nextState) => {
-        const robot = document.querySelector(".agent-tab-robot");
-        if (!robot?.isConnected) throw new Error("agent robot is not attached after tab rerender");
-        robot.classList.remove("idle", "waiting", "running", "offline");
-        robot.classList.add(nextState);
-        const image = robot.querySelector("img");
-        const eyes = robot.querySelector(".agent-tab-eyes");
-        const robotStyle = getComputedStyle(robot);
-        const imageStyle = getComputedStyle(image);
-        const eyeStyle = getComputedStyle(eyes);
-        const robotRect = robot.getBoundingClientRect();
-        const imageRect = image.getBoundingClientRect();
-        return {
-          robot: { width: robotRect.width, height: robotRect.height, display: robotStyle.display, position: robotStyle.position, color: robotStyle.color },
-          image: { width: imageRect.width, height: imageRect.height, display: imageStyle.display, opacity: imageStyle.opacity, transform: imageStyle.transform },
-          eyes: { top: eyeStyle.top, width: eyeStyle.width, height: eyeStyle.height, opacity: eyeStyle.opacity, background: eyeStyle.backgroundColor },
-        };
-      }, state);
-      await captureWithMasks(page.locator(".app-shell"), join(shellStateDirectory, `${pageName}-${state}.png`), { specs: [...LIVE_VALUES, OTHER_CHAT_STATE] });
-    }
-    return { boundary, robots };
-  };
-  const negativeControl = await provePageStyleBoundaryControl(page, "chat.css");
-  const chatStyles = await captureRobotStates("chat", "chat.css");
   await openPanel("activity", sessionID);
-  const panelStyles = await captureRobotStates("panels", "app.css");
   // Item 2ip (b): Activity is idle by default now and the run apparatus -- the
   // rail, the Activity and Tools wells, Context and History -- is hidden until a
   // run starts or the operator opens it. Anything that MEASURES that apparatus
@@ -1172,8 +1056,7 @@ if (realModel) {
   }, { position: "absolute", inset: "0px", display: "grid", image_width: "96px", image_height: "96px", image_margin: "0px" });
   assert.ok(emptyStateIllustration.container_width > 96, JSON.stringify(emptyStateIllustration));
   assert.ok(Math.abs(emptyStateIllustration.image_horizontal_center_delta) <= 0.5, JSON.stringify(emptyStateIllustration));
-  for (const state of agentStates) assert.deepEqual(panelStyles.robots[state], chatStyles.robots[state], `the robot differs between the sheet and the chat in ${state}`);
-  shellStyleBoundaryEvidence = { negative_control: negativeControl, chat: chatStyles, panels: panelStyles, empty_state_illustration: emptyStateIllustration };
+  shellStyleBoundaryEvidence = { removed_subject: "tab robot", empty_state_illustration: emptyStateIllustration };
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
   await page.locator("#chat-task").waitFor({ state: "visible" });
   await browser.wait(`document.querySelector('#chat-log')?.innerText.includes('VISIBLE PARTIAL COMPLETE')`, "baseline Chat transcript restored");
@@ -1194,9 +1077,7 @@ if (realModel) {
   assert.match(await connectionState.innerText(), /ready/);
   assert.doesNotMatch(await connectionState.innerText(), /Test passed/);
   assert.match(await page.locator(".connection-editor .discovery-note").innerText(), /Test passed/);
-  // Item 2gf: from Settings, ONE click on the tab reaches the chat. This step
-  // used to need the tab menu entry to get back, which is the trap 2gf closed.
-  await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click();
+  await page.locator(".shell-settings").click();
   await page.locator("#chat-task").waitFor({ state: "visible" });
   assert.equal(await page.locator("#settings-page").isHidden(), true);
   assert.equal(await page.locator("#settings-page").getAttribute("aria-hidden"), "true");
@@ -1213,15 +1094,9 @@ if (realModel) {
   const roundTripPixels = compareMasked(decodePNG(chatIdleScreenshot), decodePNG(roundTripScreenshot), [], { tolerance: 2 });
   assert.equal(roundTripPixels.outside, 0, `Chat idle changed after Settings → Test → Chat round trip: ${JSON.stringify(roundTripPixels)}`);
   record("settings-test-chat-round-trip");
-  await page.locator(".agent-tab").first().click({ button: "right" });
-  await page.locator(`.agent-chat-row[data-session="${sessionID}"] .agent-chat-summary`).waitFor({ state: "visible" });
-  const initialMenuRows = await page.locator(".agent-chat-row").count();
-  // Item 2go: no summary line, and every row is exactly the date and the name.
-  assert.equal(await page.locator(".agent-chat-count").count(), 0);
-  for (const row of await page.locator(".agent-chat-summary").allInnerTexts()) {
-    assert.match(row, /^\d{2}:\d{2} · \S/, row);
-    assert.doesNotMatch(row, /run|closed|·.*·/, row);
-  }
+  await page.locator(`.chat-list-row[data-session="${sessionID}"] .chat-list-more`).click();
+  await page.locator(`.chat-list-row[data-session="${sessionID}"] .chat-list-row-menu`).waitFor({ state: "visible" });
+  assert.deepEqual(await page.locator('.chat-list-row.selected .chat-list-row-menu > button').allInnerTexts(), ["Pin", "Rename", "Move to folder", "Delete"]);
   await captureWithMasks(page, join(baselineDirectory, "tab-menu-open.png"));
   await openPanel("activity", sessionID);
   await page.locator("#panel-run-result").waitFor({ state: "visible" });
@@ -1269,7 +1144,7 @@ if (realModel) {
 		await captureWithMasks(page, join(baselineDirectory, "settings-about.png"));
 		record("settings-about-update-action");
 	}
-  await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click();
+  await page.locator(".shell-settings").click();
   await page.locator(".shell-session-title").click();
   await page.locator(".shell-connection-menu").waitFor({ state: "visible" });
   await captureWithMasks(page, join(baselineDirectory, "profile-header.png"));
@@ -1333,12 +1208,12 @@ if (realModel) {
       ? `${node.parentElement?.id ? `#${node.parentElement.id}` : node.parentElement?.className || node.parentElement?.tagName || "detached"} > ${node.dataset.entryKey || node.id || node.className || node.tagName}`
       : "text";
     const stableKey = (node) => node instanceof Element
-      ? node.dataset.entryKey || node.id || (node.matches(".agent-tab-wrap") ? `tab:${node.dataset.session || node.dataset.agent}` : "")
+      ? node.dataset.entryKey || node.id || (node.matches(".chat-list-row") ? `chat:${node.dataset.session}` : "")
       : "";
     const evidence = window.__agentbPageStability = {
       started: performance.now(), moved: 0, replaced: 0, movedLists: {}, unchangedAttributes: 0,
       unchangedAttributeLists: {}, animationRestarts: 0, animationSamples: [], samples: [], removed: new Map(),
-      removedKeys: new Map(), runningAnimations: new WeakMap(), composerChildMutations: 0, tabChildMutations: 0,
+      removedKeys: new Map(), runningAnimations: new WeakMap(), composerChildMutations: 0, chatListChildMutations: 0,
     };
     for (const animation of document.getAnimations()) {
       const target = animation.effect?.target;
@@ -1360,7 +1235,7 @@ if (realModel) {
         if (record.type !== "childList") continue;
         const elementChanges = [...record.addedNodes, ...record.removedNodes].filter((node) => node.nodeType === Node.ELEMENT_NODE).length;
         if (record.target.closest?.("#chat-composer")) evidence.composerChildMutations += elementChanges;
-        if (record.target.closest?.(".agent-tabs")) evidence.tabChildMutations += elementChanges;
+        if (record.target.closest?.(".chat-list-panel")) evidence.chatListChildMutations += elementChanges;
         for (const node of record.removedNodes) {
           evidence.removed.set(node, describe(node));
           const key = stableKey(node);
@@ -1403,7 +1278,7 @@ if (realModel) {
       animationRestarts: evidence.animationRestarts,
       animationSamples: evidence.animationSamples,
       composerChildMutations: evidence.composerChildMutations,
-      tabChildMutations: evidence.tabChildMutations,
+      chatListChildMutations: evidence.chatListChildMutations,
       samples: evidence.samples,
     };
   });
@@ -1412,7 +1287,7 @@ if (realModel) {
   assert.equal(pageStability.unchangedAttributes, 0, `attributes were rewritten without changing: ${JSON.stringify(pageStability)}`);
   assert.equal(pageStability.animationRestarts, 0, `running CSS animations restarted: ${JSON.stringify(pageStability)}`);
   assert.equal(pageStability.composerChildMutations, 0, `composer children changed during stable streaming: ${JSON.stringify(pageStability)}`);
-  assert.equal(pageStability.tabChildMutations, 0, `tab children changed during stable streaming: ${JSON.stringify(pageStability)}`);
+  assert.equal(pageStability.chatListChildMutations, 0, `chat-list children changed during stable streaming: ${JSON.stringify(pageStability)}`);
   assert.equal(await page.locator(".chat-tool-group-head").count(), 0, "active responses must not regroup live tool nodes");
   for (const [label, target] of [
     ["completed tool", page.locator('[data-entry-key="tool:scratch-write"] button.tool-tick')],
@@ -1840,12 +1715,10 @@ if (realModel) {
   await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('FIRST PROSE BLOCK')`, "prose fixture restored");
 
-  const geometry = await browser.evaluate(`(() => { const textarea=document.querySelector('#chat-task').getBoundingClientRect(); const row=document.querySelector('.chat-composer-row').getBoundingClientRect(); const handle=document.querySelector('#chat-resize-handle').getBoundingClientRect(); const robot=document.querySelector('.agent-tab-wrap.selected .agent-tab-robot').getBoundingClientRect(); const tab=document.querySelector('.agent-tab-wrap.selected').getBoundingClientRect(); const plus=document.querySelector('.shell-left > .agent-tab-new').getBoundingClientRect(); const send=document.querySelector('#chat-send').getBoundingClientRect(); const stop=document.querySelector('#chat-send').getBoundingClientRect(); return {textarea:textarea.width,row:row.width,rowHeight:row.height,handleHeight:handle.height,handleCursor:getComputedStyle(document.querySelector('#chat-resize-handle')).cursor,robot:robot.width,tab:tab.width,plus:{width:plus.width,height:plus.height},send:{width:send.width,height:send.height},stop:{width:stop.width,height:stop.height}}; })()`);
+  const geometry = await browser.evaluate(`(() => { const textarea=document.querySelector('#chat-task').getBoundingClientRect(); const row=document.querySelector('.chat-composer-row').getBoundingClientRect(); const handle=document.querySelector('#chat-resize-handle').getBoundingClientRect(); const send=document.querySelector('#chat-send').getBoundingClientRect(); const stop=document.querySelector('#chat-send').getBoundingClientRect(); return {textarea:textarea.width,row:row.width,rowHeight:row.height,handleHeight:handle.height,handleCursor:getComputedStyle(document.querySelector('#chat-resize-handle')).cursor,send:{width:send.width,height:send.height},stop:{width:stop.width,height:stop.height}}; })()`);
   assert.ok(geometry.textarea >= geometry.row - 50, JSON.stringify(geometry));
   // Item 2qm: the resize handle is a dedicated four-pixel top edge.
   assert.ok(geometry.handleHeight === 4 && geometry.handleCursor === "row-resize", JSON.stringify(geometry));
-  assert.ok(geometry.robot > 0, JSON.stringify(geometry));
-  assert.ok(geometry.tab < 180 && geometry.plus.width === 20 && geometry.plus.height === 20, JSON.stringify(geometry));
   assert.deepEqual(geometry.send, geometry.stop, JSON.stringify(geometry));
   assert.ok(Math.abs(geometry.send.height - 24) < 0.01, JSON.stringify(geometry));
   record("composer-flex-width-expand-robot-tab-plus-equal-controls");
@@ -1971,7 +1844,7 @@ if (realModel) {
   const liveToolState = await browser.evaluate(`({ status: (document.querySelector('#chat-notice .chat-notice-text')?.innerText || '').toLowerCase(), carets: document.querySelectorAll('.stream-caret').length, text: document.querySelector('#chat-log')?.innerText || '' })`);
   assert.match(liveToolState.status, /^running shell(?:\s|$)/);
   assert.equal(liveToolState.carets, 0, JSON.stringify(liveToolState));
-  assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--signal)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
+  assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.chat-list-row.selected .chat-list-state')).backgroundColor`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--signal)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
   await captureWithMasks(page, join(baselineDirectory, "chat-live-tool.png"));
   await openPanel("activity", sessionID);
   await browser.wait(`document.querySelector('#panel-live-state')?.innerText.startsWith('running shell')`, "the live run names the slow tool");
@@ -2057,7 +1930,7 @@ if (realModel) {
   record("clean-panel-on-ordinary-pages");
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
 	await browser.wait(`document.querySelector('#chat-task')`, "chat restored after settings");
-	await browser.wait(`document.querySelector('.agent-tab-wrap.selected')?.dataset.session === ${JSON.stringify(sessionID)} && document.querySelector('#chat-task') && !document.querySelector('#chat-task').disabled && document.querySelector('.chat-jump')`, "UI error relay session projection ready");
+	await browser.wait(`document.querySelector('.chat-list-row.selected')?.dataset.session === ${JSON.stringify(sessionID)} && document.querySelector('#chat-task') && !document.querySelector('#chat-task').disabled && document.querySelector('.chat-jump')`, "UI error relay session projection ready");
 	const jumpGeometry = await page.evaluate(() => {
 		const jump = document.querySelector(".chat-jump"), log = document.querySelector("#chat-log"), composer = document.querySelector("#chat-composer");
 		jump.hidden = false; jump.style.setProperty("display", "block", "important");
@@ -2301,8 +2174,8 @@ if (realModel) {
   // transcript is photographed from a checked-in journal instead, by
   // scripts/transcript-fixture-captures.mjs, with no masks at all.
   record("model-unreachable-no-empty-fold-groups");
-  await browser.wait(`document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')?.classList.contains('offline')`, "offline agent eyes");
-  assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--alarm)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
+  await browser.wait(`document.querySelector('.chat-list-row.selected .chat-list-state')?.classList.contains('offline')`, "offline agent eyes");
+  assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.chat-list-row.selected .chat-list-state')).backgroundColor`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--alarm)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
   assert.equal(await page.locator("#chat-task").isEnabled(), true);
   assert.equal(await page.locator("#chat-send").isEnabled(), true);
   const unreachableText = await browserText("#chat-notice");
@@ -2333,9 +2206,9 @@ if (realModel) {
   // released answer is on screen, and the notice and Retry are gone.
   await browser.wait(`[...document.querySelectorAll('#chat-log *')].filter((node) => node.childElementCount === 0 && node.textContent.trim() === 'Recovered after Retry.').length >= 2`, "recovered answer on the open page");
   await browser.wait(`!document.querySelector('#chat-notice')?.innerText.toLowerCase().includes('unreachable') && document.querySelector('#chat-retry-model')?.hidden`, "unreachable notice cleared without a reload");
-  await browser.wait(`!document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')?.classList.contains('offline')`, "recovered agent eyes");
-  await browser.wait(`document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')?.classList.contains('idle')`, "idle recovered eyes");
-  assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.agent-tab-wrap.selected .agent-tab-robot')).color`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--mute)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
+  await browser.wait(`!document.querySelector('.chat-list-row.selected .chat-list-state')?.classList.contains('offline')`, "recovered agent eyes");
+  await browser.wait(`document.querySelector('.chat-list-row.selected .chat-list-state')?.classList.contains('idle')`, "idle recovered eyes");
+  assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.chat-list-row.selected .chat-list-state')).backgroundColor`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--mute)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
   // Item 2ga: a capture of a finished run waits until the page shows it
   // finished — Stop idle — and two frames have painted, or it races the run.
   await browser.wait(`document.querySelector('#chat-send')?.dataset.state === 'idle'`, "run idle before the retry capture");
@@ -2360,7 +2233,7 @@ if (realModel) {
   // Item 2px (a): Test is in the form; Edit opens it.
   await page.locator('.connection-editor [data-action="probe"][data-id="acceptance"]').click();
   await waitEvent(sessionID, (event) => event.seq > testUnreachableAfter && event.type === "model.reachable", "Settings Test model.reachable");
-  await page.locator('.agent-tab-wrap.selected .agent-tab[data-agent="agent_b"]').click();
+  await page.locator(".shell-settings").click();
   assert.equal(await page.locator("#settings-page").isHidden(), true);
   assert.equal((await state()).sessions[sessionID].model_unreachable || null, null);
   record("model-unreachable-settings-test-release");
@@ -2436,7 +2309,7 @@ if (realModel) {
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
 	await browser.wait(`document.querySelector('#chat-task')`, "compacted chat restored after its figures");
 
-  await page.locator(".agent-tab-new").click();
+  await page.locator(".chat-list-new").click();
   await browser.wait(`new URLSearchParams(location.search).get('session') && new URLSearchParams(location.search).get('session') !== ${JSON.stringify(sessionID)}`, "isolated grant chat selected");
   const scriptSessionID = await browser.evaluate(`new URLSearchParams(location.search).get('session')`);
 	const scriptSessionBeforeRun = (await state()).sessions[scriptSessionID];
@@ -2525,14 +2398,12 @@ if (realModel) {
   await mkdir(evidenceRun, { recursive: true });
   await writeFile(join(evidenceRun, "chat-final.png"), screenshot);
   await page.goto(`http://127.0.0.1:${appPort}/chat`);
-  await browser.wait(`document.querySelector('.agent-tab')`, "agent tab after close");
-  // Item 2hq: this chat was explicitly closed and then deleted; what it
-  // PRODUCED remains even though the retained chat is gone.
-  await page.locator(".agent-tab").first().click({ button: "right" });
-  await page.locator(".agent-chat-summary").first().waitFor({ state: "visible" });
-  assert.equal(await page.locator(`.agent-chat-row[data-session="${sessionID}"]`).count(), 0, "a deleted chat leaves no history entry");
+  await browser.wait(`document.querySelector('.chat-list-row.selected')`, "chat list after delete");
+  // This chat was explicitly closed and then deleted; what it produced
+  // remains even though its row and retained session are gone.
+  assert.equal(await page.locator(`.chat-list-row[data-session="${sessionID}"]`).count(), 0, "a deleted chat leaves no list entry");
   assert.equal((await state()).sessions[sessionID], undefined, "deleting removed the session registry entry");
-  await page.screenshot({ path: join(evidenceRun, "chat-history-after-close.png") });
+  await page.screenshot({ path: join(evidenceRun, "chat-list-after-delete.png") });
   // What the chat produced elsewhere: the memory it noted and the plan it
   // registered.
   const anyFileUnder = async (root) => {
@@ -2556,96 +2427,65 @@ if (realModel) {
   assert.ok(durable.plans > 0, JSON.stringify(durable));
   record("delete-removes-the-chat-and-keeps-what-it-produced");
   await page.setViewportSize({ width: 320, height: 975 });
-  for (let index = 0; index < 10; index++) {
-    const before = await page.locator(".agent-tab-wrap[data-session]").count();
-    await page.locator(".shell-left > .agent-tab-new").click();
-    await page.waitForFunction((count) => document.querySelectorAll(".agent-tab-wrap[data-session]").length === count + 1, before);
+  // Thirty chats is the engineering-floor size for a realistic bounded list.
+  const beforeLongList = await state();
+  for (let index = 0; index < 30; index++) {
+    await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": beforeLongList.mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) });
   }
-  const tabOverflow = await page.evaluate(() => {
-    const strip = document.querySelector(".agent-tabs");
-    const widths = [...document.querySelectorAll(".agent-tab-wrap[data-session]")].map((item) => item.getBoundingClientRect().width);
-    const plus = document.querySelector(".shell-left > .agent-tab-new").getBoundingClientRect();
-    return { count: widths.length, minimum: Math.min(...widths), scroll: strip.scrollWidth - strip.clientWidth, document: document.documentElement.scrollWidth - document.documentElement.clientWidth, plusCount: document.querySelectorAll(".agent-tab-new").length, nestedPlusCount: document.querySelectorAll(".agent-tab-wrap .agent-tab-new").length, plusLeft: plus.left, stripLeft: strip.getBoundingClientRect().left };
+  await page.reload();
+  await page.waitForFunction(() => document.querySelectorAll(".chat-list-row[data-session]").length >= 30);
+  const listOverflow = await page.evaluate(() => {
+    const panel = document.querySelector(".chat-list-panel"), list = document.querySelector(".chat-list");
+    return { count: document.querySelectorAll(".chat-list-row[data-session]").length, panel: panel.getBoundingClientRect().toJSON(), listScroll: list.scrollHeight - list.clientHeight, document: document.documentElement.scrollWidth - document.documentElement.clientWidth };
   });
-  assert.ok(tabOverflow.count >= 10, JSON.stringify(tabOverflow));
-  assert.ok(tabOverflow.minimum >= 118, JSON.stringify(tabOverflow));
-  assert.ok(tabOverflow.scroll > 0, JSON.stringify(tabOverflow));
-  assert.equal(tabOverflow.document, 0, JSON.stringify(tabOverflow));
-  assert.equal(tabOverflow.plusCount, 1, JSON.stringify(tabOverflow));
-  assert.equal(tabOverflow.nestedPlusCount, 0, JSON.stringify(tabOverflow));
-  assert.ok(tabOverflow.plusLeft < tabOverflow.stripLeft, JSON.stringify(tabOverflow));
-  // Item 2hq (v1.6.2): tab and row × close without a dialog and retain the
-  // chat. A closed row reopens on click. Only its Delete button confirms and
-  // permanently removes the retained chat.
-  // A chat of its own for this proof, so the scenario does not depend on which
-  // of the suite's chats is still open by the time it runs. The strip is back
-  // at full width first: the narrow case above scrolls tabs out of reach.
+  assert.ok(listOverflow.count >= 30 && listOverflow.listScroll > 0, JSON.stringify(listOverflow));
+  assert.equal(listOverflow.document, 0, JSON.stringify(listOverflow));
+  assert.ok(listOverflow.panel.left >= 0 && listOverflow.panel.right <= 320, JSON.stringify(listOverflow));
+  // Closed is durable server metadata, not a desktop visual state. A closed
+  // row remains in the list and reopens when selected; no other chat closes.
   await page.setViewportSize({ width: 1250, height: 975 });
   const liveNow = await state();
   const created = await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": liveNow.mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) });
   const idleCloseID = created.session?.id || created.id;
   assert.ok(idleCloseID, JSON.stringify(created));
+  await json(`http://127.0.0.1:${appPort}/api/sessions/${idleCloseID}/close`, { method: "POST", headers: { "X-AgentB-Mutation-Token": liveNow.mutation_token } });
   await page.reload();
-  await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"]`).waitFor({ state: "visible" });
-  const dialogs = [];
-  const collect = async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); };
-  page.on("dialog", collect);
-  await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"] .agent-tab-close`).click();
-  await page.waitForFunction((id) => !document.querySelector(`.agent-tab-wrap[data-session="${id}"]`), idleCloseID);
-  page.off("dialog", collect);
-  assert.equal(dialogs.length, 0, "tab close must not open a dialog");
-  assert.equal((await state()).sessions[idleCloseID]?.closed, true, "tab close must retain a closed chat");
-  await page.locator(".agent-tab").first().click({ button: "right" });
-  const closedRow = page.locator(`.agent-chat-row[data-session="${idleCloseID}"]`);
+  const closedRow = page.locator(`.chat-list-row[data-session="${idleCloseID}"]`);
   await closedRow.waitFor({ state: "visible" });
-  assert.equal(await closedRow.locator(".agent-chat-delete").count(), 1, "every row must expose the delete x");
-	for (const width of [1250, 320]) {
-		await page.setViewportSize({ width, height: 975 });
-		const menuRows = await page.evaluate(() => [...document.querySelectorAll(".agent-chat-row")].map((row) => {
-			const box = row.getBoundingClientRect();
-			const children = [...row.children].map((child) => { const value = child.getBoundingClientRect(); return { top: value.top, bottom: value.bottom, text: child.textContent, clipped: child.scrollWidth > child.clientWidth && !child.classList.contains("agent-chat-summary") }; });
-			return { height: box.height, top: box.top, bottom: box.bottom, text: row.textContent, children };
-		}));
-		assert.ok(menuRows.length > 0, `no chat rows at ${width}`);
-		for (const row of menuRows) {
-			assert.ok(row.height <= 24, JSON.stringify({ width, row }));
-			assert.doesNotMatch(row.text, /(?:^|\s)null(?:\s|$)/i, JSON.stringify({ width, row }));
-			assert.ok(row.children.every((child) => child.top >= row.top && child.bottom <= row.bottom && !child.clipped), JSON.stringify({ width, row }));
-		}
-	}
-	await page.setViewportSize({ width: 1250, height: 975 });
-  const tabCountBeforeSwap = await page.locator(".agent-tab-wrap[data-session]").count();
-  const sourceTabID = await page.locator(".agent-tab-wrap.selected").getAttribute("data-session");
-  await closedRow.locator(".agent-chat-summary").click();
-  await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"]`).waitFor({ state: "visible" });
+  assert.equal(await closedRow.getAttribute("class").then((value) => value.includes("closed")), false, "closed styling must be gone");
+  const dialogs = [];
+  const stateBeforeReopen = await state();
+  const otherOpen = Object.values(stateBeforeReopen.sessions).filter((session) => session.id !== idleCloseID && !session.closed).map((session) => session.id);
+  await closedRow.locator(".chat-list-name").click();
+  await closedRow.waitFor({ state: "visible" });
   assert.equal((await state()).sessions[idleCloseID]?.closed, false, "closed row click must reopen the chat");
-  assert.equal(await page.locator(".agent-tab-wrap[data-session]").count(), tabCountBeforeSwap, "row click must replace rather than add a tab");
-  assert.equal(await page.locator(".agent-tab-wrap.selected").getAttribute("data-session"), idleCloseID, "the clicked chat must own the selected tab");
-  assert.equal((await state()).sessions[sourceTabID]?.closed, true, "the chat previously shown by that tab must close");
-
-  await page.locator(`.agent-tab-wrap[data-session="${idleCloseID}"] .agent-tab`).click({ button: "right" });
-  await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-delete`).waitFor({ state: "visible" });
+  assert.equal(await page.locator(".chat-list-row.selected").getAttribute("data-session"), idleCloseID);
+  const stateAfterReopen = await state();
+  assert.deepEqual(otherOpen.filter((id) => stateAfterReopen.sessions[id]?.closed), [], "showing one chat must not close another");
+  await closedRow.locator(".chat-list-more").click();
+  const deleteButton = closedRow.locator('.chat-list-row-menu').getByRole("button", { name: "Delete", exact: true });
   const dismiss = async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); };
   page.on("dialog", dismiss);
-  await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-delete`).click();
+  await deleteButton.click();
   await sleep(300);
   page.off("dialog", dismiss);
   assert.equal(dialogs.at(-1), "Delete this chat permanently? Memory notes it made are kept.");
   assert.ok((await state()).sessions[idleCloseID], "a dismissed delete confirm must keep the chat");
+  await closedRow.locator(".chat-list-more").click();
   const accept = async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); };
   page.on("dialog", accept);
-  await page.locator(`.agent-chat-row[data-session="${idleCloseID}"] .agent-chat-delete`).click();
-  await page.waitForFunction((id) => !document.querySelector(`.agent-chat-row[data-session="${id}"]`), idleCloseID);
+  await closedRow.locator('.chat-list-row-menu').getByRole("button", { name: "Delete", exact: true }).click();
+  await page.waitForFunction((id) => !document.querySelector(`.chat-list-row[data-session="${id}"]`), idleCloseID);
   page.off("dialog", accept);
   for (let attempt = 0; attempt < 100 && (await state()).sessions[idleCloseID]; attempt++) await sleep(50);
   assert.equal((await state()).sessions[idleCloseID], undefined, "delete must remove it from the registry");
-  assert.equal(await page.locator(`.agent-chat-row[data-session="${idleCloseID}"]`).count(), 0, "a deleted chat leaves no history entry");
-  record("close-retains-reopen-restores-delete-confirms-once");
+  assert.equal(await page.locator(`.chat-list-row[data-session="${idleCloseID}"]`).count(), 0, "a deleted chat leaves no list entry");
+  record("closed-row-reopens-without-closing-another-delete-confirms-once");
   await page.setViewportSize({ width: 1250, height: 975 });
-  record("per-chat-tabs-scroll-without-shrinking-or-page-overflow");
+  record("chat-list-scrolls-without-page-overflow");
   const retainedStateBeforeRestart = await state();
   const retainedBeforeRestart = Object.keys(retainedStateBeforeRestart.sessions).length;
-  const retainedOpenBeforeRestart = Object.values(retainedStateBeforeRestart.sessions).filter((session) => !session.closed).length;
+  const retainedListedBeforeRestart = Object.values(retainedStateBeforeRestart.sessions).filter((session) => session.role === "b" || session.role === "d").length;
   app.kill();
   await waitForChildExit(app, 5000);
   app = spawn(join(args.app, "Agent_b.exe"), ["-config", join(args.data, "harness.json"), "-app-root", args.app, "-data-root", args.data], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: appEnvironment });
@@ -2656,7 +2496,7 @@ if (realModel) {
   acceptanceMutationToken = "";
   await bootstrapHTTP(`http://127.0.0.1:${appPort}`);
   await page.reload();
-  await browser.wait(`document.querySelectorAll('.agent-tab-wrap[data-session]').length === ${retainedOpenBeforeRestart}`, "retained tabs after application restart");
+  await browser.wait(`document.querySelectorAll('.chat-list-row[data-session]').length === ${retainedListedBeforeRestart}`, "retained chat list after application restart");
   const restartedState = await state();
   assert.equal(Object.keys(restartedState.sessions).length, retainedBeforeRestart);
   assert.ok((await readdir(join(profileData, "chats"))).filter((name) => name.endsWith(".jsonl")).length >= retainedBeforeRestart);
@@ -2664,7 +2504,7 @@ if (realModel) {
   // restart is a new, selected, empty chat with nothing of the retained ones.
   // Item 2qc keeps startup metadata-only; opening the chat is what loads its
   // newest journal page.
-  await page.locator(`.agent-tab-wrap[data-session="${scriptSessionID}"] .agent-tab`).click();
+  await page.locator(`.chat-list-row[data-session="${scriptSessionID}"] .chat-list-name`).click();
   await browser.wait(`new URLSearchParams(location.search).get('session') === ${JSON.stringify(scriptSessionID)}`, "retained chat selected after application restart");
   await page.evaluate(async (id) => {
     const history = await import(new URL("/static/js/bus.js", location.href).href);
@@ -2675,17 +2515,17 @@ if (realModel) {
   assert.ok(reopenedState.sessions[scriptSessionID]?.messages?.some((message) => message.content?.includes("acceptance: run-script grant")));
   assert.ok(reopenedState.sessions[scriptSessionID]?.chat?.some((entry) => entry.type === "user" && entry.text?.includes("acceptance: run-script grant")), "a restored chat must keep its transcript");
   const idsBeforePlus = new Set(Object.keys(restartedState.sessions));
-  const tabsBeforePlus = await page.locator(".agent-tab-wrap[data-session]").count();
-  await page.locator(".shell-left > .agent-tab-new").click();
-  await page.waitForFunction((count) => document.querySelectorAll(".agent-tab-wrap[data-session]").length === count + 1, tabsBeforePlus);
+  const rowsBeforeNew = await page.locator(".chat-list-row[data-session]").count();
+  await page.locator(".chat-list-new").click();
+  await page.waitForFunction((count) => document.querySelectorAll(".chat-list-row[data-session]").length === count + 1, rowsBeforeNew);
   const afterPlus = await state();
   const plusID = Object.keys(afterPlus.sessions).find((id) => !idsBeforePlus.has(id));
-  assert.ok(plusID, "+ after a restart must create a new session id");
-  await page.waitForFunction((id) => document.querySelector(".agent-tab-wrap.selected")?.dataset.session === id, plusID);
-  assert.equal((afterPlus.sessions[plusID].messages || []).length, 0, "+ after a restart must start with no messages");
-  assert.equal((afterPlus.sessions[plusID].chat || []).length, 0, "+ after a restart must show an empty transcript");
-  assert.notEqual(afterPlus.sessions[plusID].workspace_dir, restartedState.sessions[scriptSessionID].workspace_dir, "+ must get its own scratch folder");
-  assert.equal(afterPlus.sessions[plusID].budget?.categories?.files || 0, 0, "+ must carry no files");
+  assert.ok(plusID, "New chat after a restart must create a new session id");
+  await page.waitForFunction((id) => document.querySelector(".chat-list-row.selected")?.dataset.session === id, plusID);
+  assert.equal((afterPlus.sessions[plusID].messages || []).length, 0, "New chat after a restart must start with no messages");
+  assert.equal((afterPlus.sessions[plusID].chat || []).length, 0, "New chat after a restart must show an empty transcript");
+  assert.notEqual(afterPlus.sessions[plusID].workspace_dir, restartedState.sessions[scriptSessionID].workspace_dir, "New chat must get its own scratch folder");
+  assert.equal(afterPlus.sessions[plusID].budget?.categories?.files || 0, 0, "New chat must carry no files");
   record("chats-transcripts-and-names-survive-application-restart");
 
   const browserPlanDir = join(profileData, "plans", "browser-plan");
@@ -2700,20 +2540,24 @@ if (realModel) {
     body: JSON.stringify({ agents: [{ ...beforeD.config.agents[0], d: "acceptance" }] }),
   });
   await page.reload();
-  await browser.wait(`document.querySelector('.shell-left > .agent-tab-new')?.title === 'New chat or plan'`, "d-aware plus");
-  await page.locator(".shell-left > .agent-tab-new").click();
+  await browser.wait(`document.querySelector('.chat-list-new')?.title === 'New chat or plan'`, "d-aware New chat");
+  await page.locator(".chat-list-new").click();
   const roleChoices = page.locator(".shell-new-menu .shell-new-choice");
   assert.deepEqual(await roleChoices.allTextContents(), ["agent_b · Acceptance — chat", "agent_d · Acceptance — plan"]);
   await page.screenshot({ path: join(evidenceRun, "d-role-menu.png") });
+  const beforeDIDs = new Set(Object.keys((await state()).sessions));
   await roleChoices.nth(1).click();
-  // Item 2go: the tab reads the chat's name - "New chat" until the operator
-  // writes one - and the ROLE is on the robot glyph and its hover text.
-  await browser.wait(`document.querySelector('.agent-tab-wrap.selected .agent-tab')?.dataset.agent === 'agent_d'`, "unbound d chat identity");
-  assert.equal(await page.locator(".agent-tab-wrap.selected .agent-tab-name").innerText(), "New chat");
-  assert.equal(await page.locator(".agent-tab-wrap.selected .agent-tab-robot").getAttribute("title"), "agent_d");
+  // The selected list row reads the chat's name; role remains server metadata.
+  let dSession;
+  for (let attempt = 0; attempt < 100 && !dSession; attempt++) {
+    const candidate = await state();
+    dSession = Object.values(candidate.sessions).find((session) => !beforeDIDs.has(session.id) && session.role === "d");
+    if (!dSession) await sleep(50);
+  }
+  assert.ok(dSession, "the agent_d choice did not create a d-role chat");
+  await page.locator(`.chat-list-row.selected[data-session="${dSession.id}"]`).waitFor({ state: "visible" });
+  assert.equal(await page.locator(".chat-list-row.selected .chat-list-name").getAttribute("title"), "New chat");
   const dState = await state();
-  const dSession = Object.values(dState.sessions).find((session) => session.role === "d" && !session.plan_id);
-  assert.ok(dSession, JSON.stringify(dState.sessions));
   assert.equal(dSession.connection_id, "acceptance");
   assert.ok(dSession.workspace_dir.startsWith(join(profileData, "chats")), "new d chat must live under chats");
   // Item 2gl (v1.2.6): the WINDOW title names the chat, because the overlay
@@ -2722,7 +2566,7 @@ if (realModel) {
   assert.equal(await page.title(), "Agent_b · New chat");
   assert.equal(await page.locator(".shell-session-title").innerText(), dSession.b_connection || dSession.connection_id, "item 2eo: the header reads the connection name only");
   await page.screenshot({ path: join(evidenceRun, "d-plan.png") });
-  record("d-plus-unbound-scratch-tab-and-title");
+  record("d-new-chat-unbound-scratch-row-and-title");
   const boundCreated = await json(`http://127.0.0.1:${appPort}/api/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": dState.mutation_token },
@@ -2787,7 +2631,7 @@ if (realModel) {
   // marked as the worker's, and answered there.
   await page.goto(chatURL(boundD.id));
   await page.locator("#chat-task").waitFor({ state: "visible" });
-  assert.equal(await page.locator('.agent-tab-wrap[data-session="' + workerSession.id + '"]').count(), 0, "the worker appeared in the tab strip");
+  assert.equal(await page.locator('.chat-list-row[data-session="' + workerSession.id + '"]').count(), 0, "the worker appeared in the tab strip");
   const planPath = join(browserPlanDir, "plan.md");
   let workerCards = 0;
   for (const deadline = Date.now() + 45000; Date.now() < deadline; ) {

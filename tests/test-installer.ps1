@@ -749,7 +749,7 @@ try {
         $shellSource -match 'shell-pages' -or
         $shellSource -match 'shell-operator-status' -or
         $shellSource -match 'all:\s*true') {
-        throw 'Installed shared shell does not preserve agent-tabs/right-controls ownership.'
+        throw 'Installed shared shell does not preserve chat-list/right-controls ownership.'
     }
     # Item 2qm: status lives in the transcript and the dedicated four-pixel
     # resize handle remains between the transcript and composer.
@@ -765,9 +765,9 @@ try {
     foreach ($required in @('PLAN_KIND = "plan"', 'href: "/plan"')) {
         if ($surfacesSource -notmatch [regex]::Escape($required)) { throw "Installed application is missing the Plan surface: $required." }
     }
-    # Item 2ni: and the shipped strip draws no surface tab for it any more.
-    if ($shellSource -match 'agent-tab-wrap-surface') {
-        throw 'Installed shared shell still draws a surface tab for the Plan.'
+    # Plan remains in Settings and no removed tab-strip implementation ships.
+    if ($shellSource -match 'agent-tab-wrap-surface|agent-tabs') {
+        throw 'Installed shared shell still draws a removed tab strip.'
     }
     foreach ($removed in @('Chat", "/chat"', 'Console", "/"')) {
         if ($shellSource -match [regex]::Escape($removed)) { throw "Installed application retains removed page switch $removed." }

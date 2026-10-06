@@ -96,7 +96,7 @@ test("Pending approval is pinned above the composer with zero idle space", () =>
 	assert.match(chat, /session\?\.pending_approval \|\| session\?\.pending_repo_policy \? "waiting for you"/);
 	assert.match(chat, /setProperty\(pendingApproval, "hidden", !\(session\?\.pending_approval \|\| session\?\.pending_repo_policy \|\| worker\)\)/);
 	assert.match(css, /\.pending-approval\[hidden\]\s*\{\s*display:\s*none/);
-	assert.match(tokens, /\.agent-tab-robot\.waiting\{color:var\(--alarm\)/);
+	assert.match(css, /\.chat-list-state\.waiting,\.chat-list-state\.offline \{ background: var\(--alarm\); \}/);
 });
 
 test("Composer sends during an active run and reports projected queue count", () => {
@@ -148,7 +148,7 @@ test("Chat navigation owns Plan Escape and the Settings save-or-discard guard", 
 	assert.match(shell, /event\.key === "Escape" && page !== "chat"/);
 	assert.match(settings, /Save unsaved settings before returning to Chat\?/);
 	assert.match(settings, /openedFrom = "";\s*closeSettings\("chat"\)/);
-	assert.match(shell, /after: \(\) => openSide\(agentID, session\.id, "chat"\)/);
+	assert.match(shell, /after: \(\) => openSide\(`agent_\$\{session\.role === "d" \? "d" : "b"\}`, session\.id, "chat"\)/);
 });
 
 test("No-agent and empty Plan invitations are explicit and Console links to active tools", () => {
@@ -164,30 +164,6 @@ test("No-agent and empty Plan invitations are explicit and Console links to acti
 test("web_search and delegate remain file-configured without new Settings controls", () => {
 	assert.match(app, /\["web_search", "delegate"\]\.includes\(tool\.name\)/);
 	assert.match(app, /counts\.replaceChildren\(\.\.\.\(store\.tools \|\| \[\]\)\.map/);
-});
-
-test("New chat uses the fixed left plus and history uses the agent right-click menu", () => {
-  assert.match(html, /id="app-shell"[^>]+data-page="chat"/);
-  assert.match(shell, /left\.append\(newChatButton, newChatMenu, tabs\)/);
-  assert.match(shell, /hasD \? showRoleMenu/);
-  assert.match(shell, /: void createChat\("agent_b"\)/);
-  assert.doesNotMatch(shell, /wrap\.append\(newChatButton\)|wrap\.append\(add\)/);
-  assert.match(shell, /oncontextmenu/);
-  assert.match(shell, /agent-chat-rename/);
-  assert.match(shell, /agent-chat-archive/);
-  assert.match(shell, /agent-chat-delete/);
-  assert.match(shell, /row\.append\(summary, archive, rename, remove\)/);
-  assert.doesNotMatch(shell, /button\("Delete"|agent-chat-close/);
-  assert.match(shell, /\/close`, \{\}\)/);
-  assert.match(shell, /window\.confirm\(deleteConfirmText\)/);
-  assert.doesNotMatch(html + css, /chat-list|chat-list-toggle/);
-  assert.doesNotMatch(html, /chat-clear-conversation|Clear conversation/);
-  assert.match(shell, /source_session_id: source\.id/);
-  assert.match(shell, /agent_d · \$\{name\} — plan/);
-  assert.match(shell, /role: "d"/);
-  // rel-1.42.0 (2o2): the tab is built once and its name is updated in place.
-  assert.match(shell, /button\("", "", "agent-tab"\)[\s\S]*setAttr\(tab, "title", name\)/);
-  assert.match(shell, /Stop it before closing the chat/);
 });
 
 test("new chats expose no folder selection surface", () => {
@@ -222,13 +198,11 @@ test("Composer is five lines with no placeholder and expands upward", () => {
   assert.doesNotMatch(html, />Send<\/button>/);
 });
 
-test("Chat uses the narrow monospace label gutter and the agent_b tab restores its robot", () => {
+test("Chat uses the narrow monospace label gutter", () => {
 	assert.match(css, /\.chat-entry\s*\{[\s\S]*grid-template-columns:\s*72px minmax\(0, 1fr\)/);
 	assert.match(chat, /speaker\(agentAuthor\(session\), true\)/);
 	assert.match(chat, /function speaker\(name, agent = false\)[\s\S]*if \(agent\)[\s\S]*assets\/agent\.svg/);
 	assert.match(css, /\.chat-render-failure \.chat-content\s*\{[\s\S]*white-space:\s*nowrap/);
-	assert.match(shell, /agentID === "agent_b"[\s\S]*agent-tab-robot[\s\S]*assets\/agent\.svg/);
-	assert.match(tokens, /\.agent-tab-robot\{[^}]*width:20px;height:20px/);
 });
 
 test("Model-unreachable transcript notices are flat and stay outside response counts", () => {
@@ -381,8 +355,8 @@ test("the 2qe palette has a signal green and accessible ink and mute contrast", 
     assert.ok(contrast(colours.mute, background) >= 4.5);
   }
   assert.match(tokens, /\.shell-session-lamp\[data-state=ready\]\{background:var\(--signal\)\}/);
-  assert.match(tokens, /\.agent-tab-robot\.running\{color:var\(--signal\)\}/);
-  assert.match(tokens, /\.agent-tab-wrap\.selected\{[^}]*border-bottom:1px solid var\(--signal\)/);
+  assert.match(css, /\.chat-list-state\.running \{ background: var\(--signal\); \}/);
+  assert.match(css, /\.chat-list-row\.selected \{[^}]*box-shadow: inset 2px 0 0 var\(--signal\)/);
   assert.match(tokens, /focus-visible[^}]*outline:1px solid var\(--signal\)/);
 });
 

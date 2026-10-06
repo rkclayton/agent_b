@@ -51,7 +51,7 @@ For either path, Node.js remains optional for building and running Agent_b. Deve
 
 ## Use Agent_b
 
-The installed application opens Chat at `http://127.0.0.1:8790/chat`; its header carries the chat tabs and the Settings gear. Settings has nine sections: Agents, Activity, Plan, Connections, Profiles, Chats, Notifications, Security, and About. The Plan opens its own page and closes back to the view the gear was clicked from.
+The installed application opens Chat at `http://127.0.0.1:8790/chat`; a fixed, resizable list at left holds New chat, pinned chats, folders, unfiled chats, and Archived, while the header retains connection and Settings controls. Drag the list edge to resize it, drag fully left to hide it, and drag the left-edge handle to restore it. Settings has nine sections: Agents, Activity, Plan, Connections, Profiles, Chats, Notifications, Security, and About. The Plan opens its own page and closes back to the view the gear was clicked from.
 
 Replay one or more session logs without loading a model or enabling mutations:
 

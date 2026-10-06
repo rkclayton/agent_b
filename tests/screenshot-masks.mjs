@@ -87,9 +87,9 @@ export const CAPTURE_TIMING_FIXTURES = [
 ];
 
 // OTHER_CHAT_STATE is declared by the shell-state captures only: they set the
-// first chat's robot to each state; another chat's robot shows that chat's
-// own state as the server last reported it.
-export const OTHER_CHAT_STATE = { name: "other-chat-state", reason: "another chat's robot shows that chat's live state, which the capture does not set", selector: ".agent-tab-wrap ~ .agent-tab-wrap .agent-tab-robot" };
+// first chat's state mark to each state; another row shows that chat's own state
+// as the server last reported it.
+export const OTHER_CHAT_STATE = { name: "other-chat-state", reason: "another chat row shows that chat's live state, which the capture does not set", selector: ".chat-list-row ~ .chat-list-row .chat-list-state" };
 
 // liveValueRects runs in the page: for every spec, the viewport rectangles of
 // its matching text (or of its elements when it has no pattern), each clipped
@@ -185,7 +185,7 @@ function liveValueRects(specs) {
           // A restOfText mask runs from the match to the end of its text, each
           // line to the right edge of the element holding it; any other covers
           // the matched text only.
-          // A fixed-position menu escapes the tab strip's overflow clipping.
+          // A fixed-position menu escapes its list container's overflow clipping.
           // Its date is visibly painted even though walking its DOM ancestors
           // says otherwise, so this one exact text mask clips only to viewport.
           const box = spec.unclipped ? { left: 0, top: 0, right: innerWidth, bottom: innerHeight } : clipOf(holder);

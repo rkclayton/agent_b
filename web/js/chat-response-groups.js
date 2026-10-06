@@ -114,6 +114,27 @@ export function itemFailed(item) {
   return item?.type === "tool" && item.result?.ok === false;
 }
 
+export function responseStepOutcome(items = [], { movedPast = false } = {}) {
+  const failures = items.filter(itemFailed).length;
+  const lastTool = [...items].reverse().find((item) => item?.type === "tool");
+  const alarm = failures > 0 && !movedPast && lastTool?.result?.ok === false;
+  return { alarm, retried: alarm ? 0 : failures };
+}
+
+export function shortToolTarget(name, args) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return "";
+  if (name === "shell") return String(args.command || "").trim().split(/\s+/).slice(0, 3).join(" ");
+  const rawURL = args.url || args.uri;
+  if (rawURL) {
+    try { return new URL(String(rawURL)).host; } catch { return String(rawURL).slice(0, 48); }
+  }
+  const path = args.path || args.file || args.filename;
+  if (path) return String(path).split(/[\\/]/).filter(Boolean).at(-1) || "";
+  if (args.task) return String(args.task).trim().split(/\s+/).slice(0, 5).join(" ");
+  const first = Object.values(args)[0];
+  return first === undefined ? "" : String(first).trim().split(/\s+/).slice(0, 5).join(" ");
+}
+
 function itemDuration(item) {
   if (item?.type === "tool") return Number(item.result?.ms || 0);
   if (item?.type === "agent") return Number(item.thinkingMS || 0);

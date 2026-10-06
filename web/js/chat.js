@@ -13,7 +13,7 @@ import { attachmentReadability } from "./attachment-readability.js";
 import { agentAuthor, isRunning, openSessions, sameWorkerPlan, workerApproval } from "./chat-lifecycle.js";
 import { renderSendStop } from "./stop-state.js";
 import { runTimeSentence } from "./run-summary.js";
-import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, itemFailed, responseBlocks, responseHasOnlyThoughts, responseSummary } from "./chat-response-groups.js";
+import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, itemFailed, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, shortToolTarget } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
 import { renderChatProposals } from "./chat-proposals.js";
@@ -536,7 +536,7 @@ function renderResponse(session, entry) {
     content.append(rows);
     const author = speaker(agentAuthor(session), true);
     row.append(author, content);
-    view = { row, author, content, rows, blocks: new Map() };
+    view = { row, author, content, rows, blocks: new Map(), work: null };
     entryViews.set(viewKey, view);
   }
   usedEntryViews.add(viewKey);
@@ -554,28 +554,79 @@ function renderResponse(session, entry) {
   }
   const directThoughts = responseHasOnlyThoughts(entry.items);
   view.row.classList.toggle("thought-only-response", directThoughts);
-  view.row.classList.toggle("alarm", totals.failed > 0);
+  const lastWorkIndex = blocks.reduce((last, block, index) => block.prose || block.steps.length ? index : last, -1);
+  const alarm = blocks.some((block, index) => responseStepOutcome(block.steps, { movedPast: index < lastWorkIndex }).alarm);
+  view.row.classList.toggle("alarm", alarm);
   const usedBlocks = new Set(blocks.map((block) => block.key));
-  reconcileChildren(view.rows, blocks.map((block) => renderResponseBlock(session, view, block, active)));
+  const finalIndex = !active ? blocks.findLastIndex((block) => block.prose) : -1;
+  const foldFinished = finalIndex >= 0 && blocks.some((block, index) => index !== finalIndex && (block.prose || block.steps.length));
+  if (foldFinished) {
+    const final = blocks[finalIndex];
+    const work = blocks.filter((_, index) => index !== finalIndex);
+    if (final.steps.length) work.push({ ...final, key: `${final.key}:steps`, prose: null });
+    const nodes = [renderFinishedWork(session, view, entry.key, work), renderResponseBlock(session, view, final, false, { final: true })];
+    reconcileChildren(view.rows, nodes);
+  } else {
+    reconcileChildren(view.rows, blocks.map((block, index) => renderResponseBlock(session, view, block, active, {
+      current: active && index === lastWorkIndex,
+      movedPast: index < lastWorkIndex,
+    })));
+  }
   for (const key of view.blocks.keys()) if (!usedBlocks.has(key)) view.blocks.delete(key);
   setTranscriptCopyRecord(view.row, responseTranscriptRecord(entry, expanded, agentAuthor(session), active));
   return view.row;
 }
 
-function renderResponseBlock(session, view, block, active) {
+function renderFinishedWork(session, view, responseKey, blocks) {
+  const key = `${responseKey}:worked`;
+  if (!view.work) {
+    const root = document.createElement("div");
+    root.className = "chat-work-fold";
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "chat-work-summary";
+    const rows = document.createElement("div");
+    rows.className = "chat-work-rows";
+    root.append(head, rows);
+    head.onclick = () => { expanded.has(key) ? expanded.delete(key) : expanded.add(key); render(); };
+    view.work = { root, head, rows };
+  }
+  const open = expanded.has(key);
+  const items = blocks.flatMap((block) => block.steps);
+  const duration = responseSummary(items).duration;
+  const steps = blocks.filter((block) => block.prose).length || blocks.length;
+  setAttribute(view.work.head, "aria-expanded", String(open));
+  setText(view.work.head, `Worked ${formatDuration(duration) || "0 s"} · ${steps} ${steps === 1 ? "step" : "steps"} ${open ? "▾" : "▸"}`);
+  reconcileChildren(view.work.rows, open ? blocks.map((block) => renderResponseBlock(session, view, block, false, { forceOpen: true, movedPast: true })) : []);
+  return view.work.root;
+}
+
+function renderResponseBlock(session, view, block, active, state = {}) {
   let blockView = view.blocks.get(block.key);
   if (!blockView) {
     const root = document.createElement("div");
     root.className = "chat-response-block";
-    blockView = { root, items: new Map(), prose: null, proseText: "", proseCaret: null, fold: null, head: null, rows: null };
+    blockView = { root, items: new Map(), prose: null, proseText: "", proseCaret: null, fold: null, head: null, rows: null, narration: null };
     view.blocks.set(block.key, blockView);
   }
+  blockView.root.className = `chat-response-block${state.final ? " chat-response-final" : ""}${block.prose && block.steps.length ? " has-narration" : ""}`;
   const nodes = [];
   const directThoughts = responseHasOnlyThoughts(block.steps);
   // Reasoning is emitted before prose by the model, so its visible row precedes
   // the answer. A thought-only turn has no intermediate Steps disclosure at all.
-  if (block.steps.length) nodes.push(renderResponseStepFold(session, blockView, block, active, directThoughts));
-  if (block.prose) nodes.push(renderResponseProse(blockView, block.prose));
+  const fold = block.steps.length ? renderResponseStepFold(session, blockView, block, active, directThoughts, state) : null;
+  const prose = block.prose ? renderResponseProse(blockView, block.prose) : null;
+  if (prose && fold) {
+    if (!blockView.narration) {
+      blockView.narration = document.createElement("div");
+      blockView.narration.className = "chat-narration-line";
+    }
+    reconcileChildren(blockView.narration, [prose, blockView.head]);
+    nodes.push(blockView.narration, blockView.rows);
+  } else {
+    if (fold) nodes.push(fold);
+    if (prose) nodes.push(prose);
+  }
   reconcileChildren(blockView.root, nodes);
   return blockView.root;
 }
@@ -602,7 +653,7 @@ function renderResponseProse(view, item) {
   return view.prose;
 }
 
-function renderResponseStepFold(session, view, block, active, directThoughts) {
+function renderResponseStepFold(session, view, block, active, directThoughts, state = {}) {
   if (!view.fold) {
     view.fold = document.createElement("div");
     view.fold.className = "chat-step-fold";
@@ -621,17 +672,20 @@ function renderResponseStepFold(session, view, block, active, directThoughts) {
   // Item 2eo: one tool call and one thought are two rows, not a group.
   // Active rows are pinned open, so drawing a disclosure for them would be an
   // inert control. Thought-only rows never need a grouping disclosure either.
-  const headerless = active || directThoughts || isHeaderlessSteps(block.steps);
-  const open = active || headerless || expanded.has(block.key);
+  const inline = !!block.prose;
+  const headerless = !inline && (state.current || directThoughts || isHeaderlessSteps(block.steps));
+  const open = state.forceOpen || state.current || headerless || (!active && expanded.has(block.key));
   setProperty(view.head, "hidden", headerless);
   view.fold.classList.toggle("headerless", headerless);
-  view.fold.classList.toggle("alarm", totals.failed > 0);
+  const outcome = responseStepOutcome(block.steps, { movedPast: !!state.movedPast });
+  view.fold.classList.toggle("alarm", outcome.alarm);
+  view.root.classList.toggle("alarm", outcome.alarm);
   setAttribute(view.head, "aria-expanded", String(open));
-  setSummaryWithDuration(view.head, `${open ? "▾" : "▸"} Steps · ${responseSummaryText(totals, block.steps.length)}`, totals.duration);
+  setSummaryWithDuration(view.head, `${open ? "▾" : "▸"} ${responseSummaryText(totals, block.steps.length, outcome)}`, totals.duration);
   const usedItems = new Set(block.steps.map((item, index) => item?.key || `invalid:${index}`));
   const nodes = [];
   if (open) {
-    const rows = active ? block.steps : groupResponseRows(block.steps);
+    const rows = state.forceOpen || active ? block.steps : groupResponseRows(block.steps);
     for (const [index, item] of rows.entries()) {
       try {
         if (item?.kind === "tool-group") {
@@ -639,7 +693,7 @@ function renderResponseStepFold(session, view, block, active, directThoughts) {
           nodes.push(renderResponseToolGroup(session, view, item));
         } else {
           const key = item?.key || `invalid:${index}`;
-          nodes.push(renderResponseItem(session, view, item, key));
+          nodes.push(renderResponseItem(session, view, item, key, false, outcome.retried > 0));
         }
       } catch (error) {
         nodes.push(renderFailure(item, error, index, true));
@@ -660,11 +714,12 @@ function renderResponseStepFold(session, view, block, active, directThoughts) {
   return view.fold;
 }
 
-function responseSummaryText(summary, rowCount) {
+function responseSummaryText(summary, rowCount, outcome = { alarm: summary.failed > 0, retried: 0 }) {
   const parts = [];
   if (summary.tools) parts.push(`${summary.tools} tool ${summary.tools === 1 ? "call" : "calls"}`);
-  if (summary.failed) parts.push(`${summary.failed} failed`);
-  if (summary.thoughts) parts.push(`${summary.thoughts} ${summary.thoughts === 1 ? "thought" : "thoughts"}`);
+  if (outcome.retried) parts.push(`${outcome.retried} retried`);
+  if (outcome.alarm) parts.push(`${summary.failed} failed`);
+  if (!summary.tools && summary.thoughts) parts.push(`${summary.thoughts} ${summary.thoughts === 1 ? "thought" : "thoughts"}`);
   if (!summary.tools && !summary.thoughts && summary.answers) parts.push(`${summary.answers} ${summary.answers === 1 ? "answer" : "answers"}`);
   if (!parts.length) parts.push(`${rowCount} ${rowCount === 1 ? "row" : "rows"}`);
   return parts.join(" · ");
@@ -722,10 +777,12 @@ function renderResponseToolGroup(session, view, group) {
     view.items.set(group.key, groupView);
   }
   const open = expanded.has(group.key);
+  const outcome = responseStepOutcome(group.items);
   const parts = [`${group.tool} ×${group.calls}`];
   if (group.thoughts) parts.push(`+${group.thoughts} ${group.thoughts === 1 ? "thought" : "thoughts"}`);
-  if (group.failed) parts.push(`${group.failed} failed`);
-  groupView.root.classList.toggle("alarm", group.failed > 0);
+  if (outcome.retried) parts.push(`${outcome.retried} retried`);
+  if (outcome.alarm) parts.push(`${group.failed} failed`);
+  groupView.root.classList.toggle("alarm", outcome.alarm);
   setAttribute(groupView.head, "aria-expanded", String(open));
   setSummaryWithDuration(groupView.head, `${open ? "▾" : "▸"} ${parts.join(" · ")}`, group.duration);
   const children = open ? group.items.map((item, index) => {
@@ -735,8 +792,7 @@ function renderResponseToolGroup(session, view, group) {
       // of its branches now — so prefixing again produced `thought:thought:…`,
       // which matched no view, and a thin thought inside a group rendered CLOSED
       // with its body missing from the transcript. The acceptance gate caught it.
-      if (item?.type === "agent" && item.reasoning) expanded.add(item.key);
-      return renderResponseItem(session, view, item, item?.key || `invalid:group:${index}`, item?.type === "tool");
+      return renderResponseItem(session, view, item, item?.key || `invalid:group:${index}`, item?.type === "tool", outcome.retried > 0);
     }
     catch (error) {
       return renderFailure(item, error, index, true);
@@ -746,7 +802,7 @@ function renderResponseToolGroup(session, view, group) {
   return groupView.root;
 }
 
-function renderResponseItem(session, view, item, key, forceToolOpen = false) {
+function renderResponseItem(session, view, item, key, forceToolOpen = false, recovered = false) {
   if (!item || typeof item !== "object") throw new Error("entry is missing or is not an object");
   if (!item.key) throw new Error("entry key is missing");
   let itemView = view.items.get(key);
@@ -797,7 +853,7 @@ function renderResponseItem(session, view, item, key, forceToolOpen = false) {
       setText(itemView.tick, `${item.name || "tool call"} · ${formatArgumentBytes(item.argument_bytes)} · ~${format(item.argument_tokens)} tokens · ${formatDuration(elapsed) || "0s"}`);
       stepNodes.push(itemView.tick);
     } else if (item.type === "tool") {
-      stepNodes.push(toolTick(item, forceToolOpen));
+      stepNodes.push(toolTick(item, forceToolOpen, recovered && itemFailed(item)));
     } else {
       throw new Error(`unsupported entry type ${String(item.type || "(missing)")}`);
     }
@@ -908,7 +964,7 @@ function thinking(entry, tokens) {
   return thinkingRenderer.render(entry, tokens);
 }
 
-function toolTick(entry, forceOpen = false) {
+function toolTick(entry, forceOpen = false, recovered = false) {
   if (!entry.args || typeof entry.args !== "object" || Array.isArray(entry.args)) throw new Error("tool arguments are missing or are not an object");
   usedToolViews.add(entry.key);
   let view = toolViews.get(entry.key);
@@ -947,11 +1003,11 @@ function toolTick(entry, forceOpen = false) {
   setAttribute(view.button, "aria-expanded", String(open));
   const state = entry.result && typeof entry.result.ok === "boolean" ? (entry.result.ok ? "ok" : "error") : "";
   const delegated = entry.name === "delegate" ? entry.result?.delegate : null;
-  const stateText = delegated ? `${entry.result?.delegate_status || state} · ${Number(delegated.tool_calls || 0)} tool calls` : callServiceStatus(entry.name, entry.result) || state;
-  setText(view.button.children[0], `${open ? "▾" : "▸"} ${entry.name}`);
-  setText(view.button.children[1], delegated ? delegateKey(entry.args) : keyArgument(entry.args));
+  const stateText = recovered ? "retried" : delegated ? `${entry.result?.delegate_status || state} · ${Number(delegated.tool_calls || 0)} tool calls` : callServiceStatus(entry.name, entry.result) || state;
+  setText(view.button.children[0], `${open ? "▾" : "▸"} ${entry.name} ·`);
+  setText(view.button.children[1], delegated ? delegateKey(entry.args) : shortToolTarget(entry.name, entry.args));
   setText(view.button.children[2], stateText);
-  setAttribute(view.button.children[2], "class", `tool-state ${state === "error" ? "error" : ""}`);
+  setAttribute(view.button.children[2], "class", `tool-state ${state === "error" && !recovered ? "error" : ""}`);
   setText(view.button.children[3], formatDuration(entry.result?.ms));
   if (open) {
     if (!view.pre.textContent || view.args !== entry.args || view.result !== entry.result || view.content !== entry.content) {
@@ -1682,15 +1738,6 @@ document.addEventListener("keydown", (event) => {
 function resize() {}
 function busy(session) {
   return !!session && ["running", "queued", "paused", "stopping"].includes(session.run?.status);
-}
-function keyArgument(args) {
-  if (!args || typeof args !== "object" || Array.isArray(args)) return "";
-  const service = callServiceKey(args);
-  if (service) return service;
-  if (args.task) return String(args.task).trim().split(/\s+/).slice(0, 8).join(" ");
-  for (const key of ["path", "command", "pattern", "note"]) if (args[key] !== undefined) return String(args[key]);
-  const first = Object.values(args)[0];
-  return first === undefined ? "" : typeof first === "string" ? first : JSON.stringify(first);
 }
 function delegateKey(args) {
   return String(args?.task || "").trim().split(/\s+/).slice(0, 8).join(" ");

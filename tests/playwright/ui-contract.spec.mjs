@@ -365,6 +365,76 @@ test("fresh context leaves every transcript entry visible and adds its searchabl
   await context.close();
 });
 
+test("2ql finished and live s56-shaped replays stay compact and keep every entry reachable", async ({ browser }) => {
+  const id = "chat-2ql";
+  const runID = "run-2ql";
+  const replay = [
+    { type: "user", key: "user-2ql", text: "Review the synthetic build record." },
+    { type: "agent", key: "narration-one", run_id: runID, text: "Checked the build inputs.", reasoning: "Compared the recorded inputs.", reasoningTokens: 7, done: true, thinkingMS: 40 },
+    { type: "tool", key: "failed-then-retried", run_id: runID, name: "shell", args: { command: "git stash pop --index synthetic-extra" }, result: { ok: false, error_class: "exit_nonzero", ms: 12 }, content: "synthetic conflict" },
+    { type: "tool", key: "retry-succeeded", run_id: runID, name: "shell", args: { command: "git stash pop --index synthetic-extra" }, result: { ok: true, ms: 18 }, content: "synthetic success" },
+    { type: "agent", key: "narration-two", run_id: runID, text: "Verified the rebuilt output.", reasoning: "Read the synthetic verification result.", reasoningTokens: 11, done: true, thinkingMS: 55 },
+    { type: "tool", key: "final-tool", run_id: runID, name: "read_file", args: { path: "C:\\synthetic\\evidence\\result.txt" }, result: { ok: true, ms: 8 }, content: "synthetic proof" },
+    { type: "agent", key: "final-answer", run_id: runID, text: "The synthetic release proof is complete.", done: true },
+  ];
+  const snapshot = (status) => {
+    const chat = status === "running" ? replay.slice(0, -1) : replay;
+    return ({
+    sessions: { [id]: { schema_version: 1, cursor: { generation: `${id}.jsonl`, offset: chat.length }, complete: true, id, label: "Synthetic replay",
+      agent_id: "agent_b", role: "b", created_at: "2026-10-05T00:00:00Z", run: { status, run_id: runID }, tools: [], messages: [], budget: {},
+      activity: status === "running" ? { completed_stages: [], started_at: Date.now(), stage: "execute", stage_state: "enter", active_tool: "read_file", tool_target: "result.txt" } : { completed_stages: [] }, timeline: [], chat, runnable: true, closed: false } },
+    connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {},
+  }); };
+  const open = async (status, host) => {
+    const context = await browser.newContext({ viewport: { width: 1000, height: 760 } });
+    await context.addInitScript(({ state, id }) => {
+      sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: id, surface: { kind: "chat", key: id } }));
+      class FixtureEvents {
+        constructor() { this.listeners = new Map(); setTimeout(() => this.emit("snapshot", { type: "snapshot", data: state })); }
+        addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); }
+        emit(type, value) { for (const listener of this.listeners.get(type) || []) listener({ data: JSON.stringify(value) }); }
+        close() {}
+      }
+      globalThis.EventSource = FixtureEvents;
+    }, { state: snapshot(status), id });
+    const page = await context.newPage();
+    await page.route("**/*", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
+      if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
+      return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
+    });
+    await page.goto(`http://${host}/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#chat-log")).toContainText(status === "running" ? "Verified the rebuilt output" : "synthetic release proof");
+    return { context, page };
+  };
+
+  const finished = await open("idle", "finished-2ql.test");
+  const worked = finished.page.locator(".chat-work-summary");
+  await expect(worked).toHaveCount(1);
+  await expect(worked).toContainText(/Worked .* · 2 steps ▸/);
+  await expect(finished.page.getByText("The synthetic release proof is complete.")).toBeVisible();
+  await expect(finished.page.getByText("Checked the build inputs.")).toHaveCount(0);
+  await finished.page.screenshot({ path: "test-results/2ql-s56-finished.png", fullPage: true });
+  await worked.click();
+  await expect(finished.page.getByText("Checked the build inputs.")).toBeVisible();
+  await expect(finished.page.locator(".chat-narration-line .chat-step-summary")).toHaveCount(2);
+  await expect(finished.page.locator(".chat-step-fold.alarm")).toHaveCount(0);
+  await expect(finished.page.locator(".chat-step-summary").first()).toContainText("1 retried");
+  await expect(finished.page.getByText("thinking · 7 tokens")).toBeVisible();
+  await expect(finished.page.locator(".tool-tick").first()).toContainText(/shell\s*·\s*git stash pop/);
+  await finished.context.close();
+
+  const live = await open("running", "live-2ql.test");
+  await expect(live.page.locator(".chat-work-summary")).toHaveCount(0);
+  const liveBlocks = live.page.locator(".chat-response-block");
+  await expect(liveBlocks).toHaveCount(2);
+  await expect(liveBlocks.nth(0).locator(".chat-step-rows > *")).toHaveCount(0);
+  await expect(liveBlocks.nth(1).locator(".chat-step-rows > *")).not.toHaveCount(0);
+  await live.page.screenshot({ path: "test-results/2ql-s56-live.png", fullPage: true });
+  await live.context.close();
+});
+
 // Item 2lj (f) and (g): the standing UI contract still holds at every step. At
 // the largest size nothing overflows and nothing gains a scrollbar it did not
 // have, at the wide width and at the phone viewport both.

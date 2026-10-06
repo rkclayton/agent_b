@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { groupResponseRows, hasVisibleChatContent, isIdenticalSingleStepFold, isThinThought, responseBlocks, responseHasOnlyThoughts, responseSummary, thinThoughtTokenLimit } from "./chat-response-groups.js";
+import { groupResponseRows, hasVisibleChatContent, isIdenticalSingleStepFold, isThinThought, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, shortToolTarget, thinThoughtTokenLimit } from "./chat-response-groups.js";
 
 const tool = (key, name, ok = true, ms = 1) => ({ type: "tool", key, name, args: {}, result: { ok, ms } });
 const thought = (key, tokens, text = "") => ({ type: "agent", key, reasoning: "x", reasoningTokens: tokens, text, done: true, thinkingMS: 2 });
@@ -32,6 +32,20 @@ test("only an explicit failed tool result counts as a tool failure", () => {
   assert.equal(responseSummary([{ type: "tool", key: "bad", name: "read_file" }]).failed, 0);
   assert.equal(responseSummary([{ type: "notice", key: "bad-render", event: { type: "error", data: { where: "ui" } } }]).failed, 0);
   assert.equal(responseSummary([tool("failed", "read_file", false)]).failed, 1);
+});
+
+test("2ql recovered failures are retries and only a terminal failed group alarms", () => {
+  const failed = tool("failed", "shell", false);
+  const recovered = [failed, tool("retry", "shell", true)];
+  assert.deepEqual(responseStepOutcome(recovered), { alarm: false, retried: 1 });
+  assert.deepEqual(responseStepOutcome([failed], { movedPast: true }), { alarm: false, retried: 1 });
+  assert.deepEqual(responseStepOutcome([failed]), { alarm: true, retried: 0 });
+});
+
+test("2ql collapsed tool rows use a short target and retain no full command", () => {
+  assert.equal(shortToolTarget("shell", { command: "git stash pop --index and-everything-after" }), "git stash pop");
+  assert.equal(shortToolTarget("read_file", { path: "C:\\work\\reports\\result.txt" }), "result.txt");
+  assert.equal(shortToolTarget("fetch_url", { url: "https://docs.example.test/long/path?q=secret" }), "docs.example.test");
 });
 
 test("response blocks keep prose visible and assign only their following steps", () => {

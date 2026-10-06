@@ -78,12 +78,10 @@ function updateView(view, entry, tokens, options) {
   setProperty(view.active, "hidden", entry.done);
   setProperty(view.summary, "hidden", !entry.done);
   if (entry.done) {
-    const duration = options.formatDuration(entry.thinkingMS);
-    const elapsed = duration ? ` ${entry.thinkingEstimated ? "~" : ""}${duration}` : "";
     const count = options.uncounted?.(entry)
       ? "thoughts uncounted"
       : `${entry.reasoningTokensEstimated || entry.thinkingEstimated ? "~" : ""}${options.format(tokens)} tokens`;
-    setText(view.summary, `Thought${elapsed} (${count})`);
+    setText(view.summary, `thinking · ${count}`);
   }
   // Item 2gg (v1.1.3/W3): a collapsed thought is real model output, and the
   // audit found the browser's own find could not reach it — `hidden` removes

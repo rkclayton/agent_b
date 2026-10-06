@@ -275,7 +275,12 @@ func runInstall(options installOptions, args []string) int {
 		}
 		applicationRoot := installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers))
 		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
-		if !options.noStart && relaunch {
+		if options.noStart {
+			appendProgress(dataRoot, finish)
+			log.printf("AUTOSTART SKIPPED: -NoStart was requested. Log: %s", log.location())
+			return 0
+		}
+		if relaunch {
 			appendProgress(dataRoot, installProgress{Phase: "restarting", Text: "Starting Agent_b " + marker.Version})
 			if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, nativeInstall, log); err != nil {
 				appendProgress(dataRoot, installProgress{Phase: "restarting", Text: fmt.Sprintf("Agent_b %s was installed but failed to start: %v. Transcript: %s", marker.Version, err, log.location()), Done: true})
@@ -292,12 +297,8 @@ func runInstall(options installOptions, args []string) int {
 			appendProgress(dataRoot, installProgress{Phase: "warning", Text: leftInPlace, OK: true})
 		}
 		appendProgress(dataRoot, finish)
-		if options.noStart || !relaunch {
-			reason := "the installed copy was not running"
-			if options.noStart {
-				reason = "-NoStart was requested"
-			}
-			log.printf("AUTOSTART SKIPPED: %s. Log: %s", reason, log.location())
+		if !relaunch {
+			log.printf("AUTOSTART SKIPPED: the installed copy was not running. Log: %s", log.location())
 			return 0
 		}
 		if nativeInstall {

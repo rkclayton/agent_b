@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const chat = readFileSync(new URL("./chat.js", import.meta.url), "utf8");
-const styles = readFileSync(new URL("../css/chat.css", import.meta.url), "utf8");
+const chatStyles = readFileSync(new URL("../css/chat.css", import.meta.url), "utf8");
+const sharedStyles = readFileSync(new URL("../css/tokens.css", import.meta.url), "utf8");
+const styles = `${chatStyles}\n${sharedStyles}`;
 
 test("the running robot is live state, present only while a run is live", () => {
   // Bound to the live activity line, which is empty unless run.status is running.
@@ -16,10 +18,10 @@ test("the running robot is live state, present only while a run is live", () => 
 });
 
 test("the running robot takes the strip's existing height and adds no chrome", () => {
-  const rule = styles.match(/\.chat-run-robot \{([^}]+)\}/);
+  const rule = styles.match(/\.chat-run-robot\s*\{([^}]+)\}/);
   assert.ok(rule, "no .chat-run-robot rule");
-  assert.match(rule[1], /width: 12px/);
-  assert.match(rule[1], /height: 12px/);
+  assert.match(rule[1], /width:\s*12px/);
+  assert.match(rule[1], /height:\s*12px/);
   const notice = styles.match(/\.chat-notice \{([^}]+)\}/);
   assert.ok(notice, "no .chat-notice rule");
   // 12px glyph inside the strip's existing 16px line box: no reflow, no growth.
@@ -29,11 +31,10 @@ test("the running robot takes the strip's existing height and adds no chrome", (
 });
 
 test("the running robot uses palette tokens only and no glow", () => {
-  const rule = styles.match(/\.chat-run-robot \{([^}]+)\}/)[1];
-  assert.match(rule, /color: var\(--signal\)/);
-  assert.match(styles, /\.chat-run-robot\.waiting \{ color: var\(--alarm\); \}/);
-  assert.match(styles, /\.chat-run-robot\.offline \{ color: var\(--alarm\); \}/);
-  const block = styles.slice(styles.indexOf(".chat-run-robot {"), styles.indexOf("@keyframes chat-run-robot") + 200);
+  const rule = styles.match(/\.chat-run-robot\s*\{([^}]+)\}/)[1];
+  assert.match(rule, /color:\s*var\(--signal\)/);
+  assert.match(styles, /\.chat-run-robot\.waiting,\.chat-run-robot\.offline\s*\{color:var\(--alarm\)\}/);
+  const block = styles.slice(styles.indexOf(".chat-run-robot{"), styles.indexOf("@keyframes chat-run-robot") + 200);
   assert.doesNotMatch(block, /#[0-9a-fA-F]{3,6}/, "no raw hex on the run robot");
   assert.doesNotMatch(block, /box-shadow:[^;]*rgba/, "no glow");
   assert.doesNotMatch(block, /ease|cubic-bezier/, "no easing");
@@ -42,7 +43,7 @@ test("the running robot uses palette tokens only and no glow", () => {
 test("its eyes carry the same state colours the chat list shows", () => {
   assert.match(styles, /\.chat-list-state\.running \{ background: var\(--signal\); \}/);
   assert.match(styles, /\.chat-list-state\.waiting,\.chat-list-state\.offline \{ background: var\(--alarm\); \}/);
-  assert.match(styles, /\.chat-run-robot-eyes \{[^}]*background: currentColor/);
+  assert.match(styles, /\.chat-run-robot-eyes\s*\{[^}]*background:\s*currentColor/);
   // The class the renderer picks mirrors chatState's own vocabulary.
   assert.match(chat, /model_unreachable \? "offline" :[\s\S]{0,120}"waiting" : "running"/);
 });

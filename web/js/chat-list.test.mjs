@@ -21,6 +21,7 @@ test("chat list is pinned, folders, then root; newest first and workers absent 2
   assert.deepEqual(list.pinned.map((chat) => chat.id), ["p2", "p1"]);
   assert.deepEqual(list.folders[0].chats.map((chat) => chat.id), ["f1", "f2"]);
   assert.deepEqual(list.root.map((chat) => chat.id), ["r1", "r2"]);
+  sessions.r2.last_activity = "2026-10-06T06:00:00Z"; assert.deepEqual(arrangeChats(sessions, tree).root.map((chat) => chat.id), ["r2", "r1"]);
   assert.deepEqual([...list.pinned, ...list.folders.flatMap((group) => group.chats), ...list.root].map((chat) => chat.id).sort(), ["f1", "f2", "p1", "p2", "r1", "r2"]);
 });
 

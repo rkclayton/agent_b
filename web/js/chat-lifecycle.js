@@ -74,20 +74,22 @@ export function chatName(session) {
   return firstUserLine(session);
 }
 
-// Item 2go, the operator on the history list: "i want it to display like this:
-// MM:DD · Chat name · ×, nothing more." The row is the date it was created and
-// the name; the × is a control beside it, not text.
 export function chatRowText(session) {
-  return `${chatRowDate(session)} · ${chatName(session)}`;
+  return chatName(session);
 }
 
-export function chatRowDate(session, now = new Date()) {
-	const activity = [...(session?.timeline || [])].reverse().find((entry) => entry?.ts && (entry.type === "message.appended" || entry.type === "run.stopped"));
-  const value = activity?.ts || session?.created_at;
-  const at = value ? new Date(value) : null;
-  const when = at && !Number.isNaN(at.getTime()) ? at : now;
-  return `${String(when.getMonth() + 1).padStart(2, "0")}:${String(when.getDate()).padStart(2, "0")}`;
+const activityDate = (session) => {
+  const at = new Date(session?.last_activity || "");
+  return Number.isNaN(at.getTime()) ? null : at;
+};
+
+export function chatActivityText(session, now = new Date()) {
+  const at = activityDate(session); if (!at) return "";
+  const clock = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return at.toDateString() === now.toDateString() ? clock : `${at.toLocaleDateString([], { month: "numeric", day: "numeric" })} ${clock}`;
 }
+
+export const chatActivityTitle = (session) => activityDate(session)?.toLocaleString() || "";
 
 export function isRunning(session) {
   return activeStates.has(session?.run?.status);

@@ -179,7 +179,7 @@ func TestPhoneJoinAndFolderChangesCarryChatListMetadata2qk(t *testing.T) {
 		Folders  []string                       `json:"folders"`
 		Sessions map[string]projection.Snapshot `json:"sessions"`
 	}
-	if err := json.Unmarshal(state.Body.Bytes(), &stateBody); err != nil || len(stateBody.Folders) != 1 || stateBody.Folders[0] != "Work" || stateBody.Sessions[chat.ID].Folder != "Work" || stateBody.Sessions[chat.ID].LastActivity == "" {
+	if err := json.Unmarshal(state.Body.Bytes(), &stateBody); err != nil || len(stateBody.Folders) != 1 || stateBody.Folders[0] != "Work" || stateBody.Sessions[chat.ID].Folder != "Work" || stateBody.Sessions[chat.ID].LastActivity != "" {
 		t.Fatalf("page state chat list=%+v (%v)", stateBody, err)
 	}
 
@@ -188,9 +188,9 @@ func TestPhoneJoinAndFolderChangesCarryChatListMetadata2qk(t *testing.T) {
 	done := make(chan struct{})
 	defer func() { stop(); <-done }()
 	go func() { server.streamUnitsToDevice(ctx, device); close(done) }()
-	joined := device.waitFor(t, "the folder and last activity in the joined chat", func(unit map[string]any) bool {
+	joined := device.waitFor(t, "the folder and no invented activity in the joined chat", func(unit map[string]any) bool {
 		data, _ := unit["data"].(map[string]any)
-		return unit["kind"] == "snapshot" && unit["session_id"] == chat.ID && data["folder"] == "Work" && data["last_activity"] != ""
+		return unit["kind"] == "snapshot" && unit["session_id"] == chat.ID && data["folder"] == "Work" && data["last_activity"] == nil
 	})
 	if data := joined["data"].(map[string]any); data["workspace"] == "Work" {
 		t.Fatal("folder was substituted for workspace")

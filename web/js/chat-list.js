@@ -1,6 +1,6 @@
 const MIN_WIDTH = 128;
 
-const recentFirst = (left, right) => Date.parse(right.last_activity || right.created_at || 0) - Date.parse(left.last_activity || left.created_at || 0);
+const recentFirst = (left, right) => Date.parse(right.last_activity || 0) - Date.parse(left.last_activity || 0);
 
 export function arrangeChats(sessions = {}, tree = {}) {
   const metadata = new Map((tree.chats || []).map((chat) => [chat.id, chat]));

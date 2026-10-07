@@ -141,7 +141,9 @@ export function reduce(event) {
     case "attachment.ocr_progress": break;
     // The persistent desktop chat list rereads its filesystem metadata only
     // when a structural chat-list operation says that view changed.
-    case "chat.list.patch": break;
+    case "chat.list.patch":
+      if (data.operation === "activity" && store.sessions[data.session_id]) store.sessions[data.session_id].last_activity = data.last_activity;
+      break;
     // Item 2bq: a plan created, rewritten or removed by any route. The list
     // follows, and every subscriber (the Plan panel) re-reads its plan.
     case "plan.created":

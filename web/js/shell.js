@@ -1,5 +1,5 @@
 import { api, reduce, setSelection, setSurface, store, subscribe } from "./bus.js";
-import { chatName, chatRowText, isRunning, sessionTitle } from "./chat-lifecycle.js";
+import { chatActivityText, chatActivityTitle, chatName, chatRowText, isRunning, sessionTitle } from "./chat-lifecycle.js";
 import { installUIErrorRelay } from "./ui-error-relay.js";
 import { installPageHealth } from "./page-health.js";
 import { requestNavigation } from "./navigation-guard.js";
@@ -29,7 +29,7 @@ export function initShell(options = {}) {
   if (loaded && loaded.kind !== "chat") setSurface(loaded);
 
   const left = node("div", "shell-left");
-  const newChatButton = button("New chat", "New chat with agent_b", "chat-list-new");
+  const newChatButton = iconButton("page-plus", "New chat", "chat-list-folder-action chat-list-new");
   const newChatMenu = node("div", "shell-menu shell-new-menu");
   newChatMenu.hidden = true;
   const menuControllers = new WeakMap();
@@ -41,13 +41,16 @@ export function initShell(options = {}) {
   const chatPanel = node("aside", "chat-list-panel");
   chatPanel.setAttribute("aria-label", "Chats");
   const chatList = node("div", "chat-list");
+  let scrollTimer;
+  const showScrollbar = () => { chatList.classList.add("scrolling"); clearTimeout(scrollTimer); scrollTimer = setTimeout(() => chatList.classList.remove("scrolling"), 1200); };
+  for (const event of ["scroll", "wheel", "keydown"]) chatList.addEventListener(event, showScrollbar, { passive: event !== "keydown" });
   const panelEdge = node("div", "chat-list-resize");
   panelEdge.setAttribute("role", "separator");
   panelEdge.setAttribute("aria-orientation", "vertical");
   const panelHandle = node("div", "chat-list-handle");
   panelHandle.setAttribute("role", "separator");
   panelHandle.setAttribute("aria-label", "Show chats");
-  chatPanel.append(newChatButton, newChatMenu, chatList, panelEdge);
+  chatPanel.append(newChatMenu, chatList, panelEdge);
   if (page === "chat") { root.after(chatPanel); document.body.append(panelHandle); }
 
   const panelKey = "agentb.chat-list";
@@ -75,6 +78,7 @@ export function initShell(options = {}) {
   resizePanel(panelEdge); resizePanel(panelHandle); applyPanel();
 
   const right = node("div", "shell-right");
+  const sessionActivity = node("time", "shell-session-activity");
   const sessionHeading = button("", "Switch model", "shell-session-title");
 	let headerTelemetry = "";
   const connectionMenu = node("div", "shell-menu shell-connection-menu");
@@ -118,7 +122,7 @@ export function initShell(options = {}) {
   }
   // Item 2px (f): the chat's connection lamp, from the one health state.
   const sessionLamp = node("span", "shell-session-lamp");
-  right.append(sessionLamp, sessionHeading, connectionMenu, settings, windowControls);
+  right.append(sessionActivity, sessionLamp, sessionHeading, connectionMenu, settings, windowControls);
   root.append(left, right);
   // Item 2gh: Escape dismisses the open menu and the arrow keys move through
   // its entries. Measured before the change, Escape did nothing and no key
@@ -190,8 +194,10 @@ export function initShell(options = {}) {
         }
         try {
           const agentID = agentKey(configuredAgent(current));
+          const selected = { ...store.selection };
           await api(`/api/agents/${encodeURIComponent(agentID)}/connection`, { action: "set", connection_id: connection.id });
           reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+          setSelection(selected.agent_id || "agent_b", selected.session_id || "");
           connectionMenu.hidden = true;
           sessionHeading.setAttribute("aria-expanded", "false");
         } catch (error) { report(error.message); }
@@ -255,7 +261,7 @@ export function initShell(options = {}) {
     const openMenuSession = chatList.querySelector(".chat-list-row-menu:not([hidden])")?.closest(".chat-list-row")?.dataset.session;
     const configured = configuredAgent(store.sessions[store.selection.session_id]);
     const hasD = !!String(configured?.d || "").trim();
-    setAttr(newChatButton, "title", hasD ? "New chat or plan" : "New chat with agent_b");
+    setAttr(newChatButton, "title", "New chat");
     setAttr(newChatButton, "aria-label", newChatButton.title);
     setProperty(newChatButton, "disabled", store.replay || !(store.config.agents || []).length);
     newChatButton.onclick = () => hasD ? showRoleMenu(newChatMenu, newChatButton, configured) : void createChat("agent_b");
@@ -305,10 +311,10 @@ export function initShell(options = {}) {
       };
       const more = button("⋮", `${chatName(session)} menu`, "chat-list-more");
       const menu = node("div", "shell-menu chat-list-row-menu"); menu.hidden = true;
-      menuControllers.set(menu, registerMenu(menu, { anchor: more }));
+      menuControllers.set(menu, registerMenu(menu, { anchor: more, onClose: () => row.classList.remove("menu-open") }));
       more.onclick = (event) => {
         event.stopPropagation();
-        for (const open of chatList.querySelectorAll(".chat-list-row-menu")) if (open !== menu) open.hidden = true;
+        for (const open of chatList.querySelectorAll(".chat-list-row-menu")) if (open !== menu) menuControllers.get(open)?.close();
         menu.replaceChildren();
         const labels = menuLabels(!!meta.pinned);
         const pin = button(labels[0], labels[0], "chat-list-menu-action"); pin.onclick = () => void act({ action: "pin", id: session.id, pinned: !meta.pinned });
@@ -323,7 +329,7 @@ export function initShell(options = {}) {
           menu.append(choices);
         };
         const remove = button(labels[3], labels[3], "chat-list-menu-action alarm"); remove.onclick = () => void deleteChat(session);
-        menu.append(pin, rename, move, remove); menu.hidden = false; revealMenu(menu, more);
+        menu.append(pin, rename, move, remove); row.classList.add("menu-open"); revealMenu(menu, more);
       };
       row.append(state, name, more, menu); parent.append(row);
       if (session.id === openMenuSession) more.click();
@@ -332,7 +338,7 @@ export function initShell(options = {}) {
     for (const group of arranged.folders) { const target = folderTargets.get(group.path); group.chats.forEach((chat) => renderRow(chat, target)); }
     const root = node("section", "chat-list-group root"); const rootHeading = node("strong", "chat-list-group-name"); rootHeading.textContent = "Chats";
     const add = iconButton("folder-plus", "New folder", "chat-list-folder-action"); add.onclick = () => { const name = prompt("New folder name"); if (name) void act({ action: "add", parent: "", name }); };
-    rootHeading.append(add); root.append(rootHeading); root.ondragover = (event) => event.preventDefault(); root.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: "" }); };
+    rootHeading.append(newChatButton, add); root.append(rootHeading); root.ondragover = (event) => event.preventDefault(); root.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: "" }); };
     arranged.root.forEach((chat) => renderRow(chat, root)); chatList.append(root);
     const archived = chatTree.archived || [];
     if (archived.length) { const group = document.createElement("details"); group.className = "chat-list-archived"; const heading = document.createElement("summary"); heading.textContent = "Archived"; group.append(heading); for (const chat of archived) { const row = node("div", "chat-list-row"); const name = node("span", "chat-list-name"); name.textContent = chat.name; name.title = chat.name; const restore = button("Restore", `Restore ${chat.name}`, "chat-list-menu-action"); restore.onclick = () => void act({ action: "restore", id: chat.id }, true); row.append(name, restore); group.append(row); } chatList.append(group); }
@@ -425,6 +431,9 @@ export function initShell(options = {}) {
     // which the header beside the tab strip already says.
     document.title = session ? `Agent_b · ${chatName(session)}` : "Agent_b";
     const health = connectionHealth(store, session?.connection_id);
+    sessionActivity.textContent = chatActivityText(session);
+    sessionActivity.title = chatActivityTitle(session);
+    sessionActivity.hidden = !sessionActivity.textContent;
     // Kept in the layout whether shown or not, so the shell measures the same on
     // every surface (the chat and Settings over it).
     setProperty(sessionLamp.style, "visibility", session ? "" : "hidden");
@@ -441,6 +450,7 @@ export function initShell(options = {}) {
 	}
     if (sessionHeading.textContent !== heading) {
       sessionHeading.textContent = heading;
+      sessionHeading.title = heading;
       sessionHeading.classList.remove("alarm");
       // Item 2hc (v1.3.0/W7): the header is snapped to whole pixels.
       //
@@ -454,11 +464,6 @@ export function initShell(options = {}) {
       // Rounding the box UP to the next whole pixel puts the text origin, and
       // with it every item to its right, on integers. It is measured and set
       // only when the text changes, so an unchanged header costs no layout.
-      sessionHeading.style.width = "";
-      if (heading) {
-        const natural = sessionHeading.getBoundingClientRect().width;
-        if (natural > 0) sessionHeading.style.width = `${Math.ceil(natural)}px`;
-      }
     }
     if (renderPanel) renderChatPanel();
     const query = new URLSearchParams();
@@ -550,6 +555,7 @@ function iconButton(kind, title, className) {
   svg.setAttribute("aria-hidden", "true");
   const paths = kind === "folder-plus"
     ? ["M3.5 6.5h6l2 2h9v10h-17z", "M12 11v5M9.5 13.5h5"]
+	: kind === "page-plus" ? ["M5 3.5h9l5 5v12H5zM14 3.5v5h5", "M12 11v6M9 14h6"]
 	: kind === "archive" ? ["M4 7h16v13H4zM3 4h18v3H3zM9 11h6"]
 	: kind === "restore" ? ["M5 8v-4m0 0h4M5 4l3 3M5.5 9a7 7 0 1 0 2-3"]
     : ["M5 19l3.5-.8L19 6.7 16.3 4 5.8 15.5z", "M14.8 5.5l2.7 2.7"];

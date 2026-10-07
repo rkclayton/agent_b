@@ -514,7 +514,7 @@ const appEnvironment = realModel ? process.env : {
 const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", ...(args["cron-only"] === "true" ? ["cronjob"] : [])];
 const config = {
   config_version: 10, listen: `127.0.0.1:${appPort}`, workspace: args.workspace, log_dir: join(args.data, "logs"),
-  connections: [{ id: "acceptance", label: "Acceptance", base_url: connectionURL, model: connectionName, credential: "", request_timeout_s: 3, probe_mode: "off",
+  connections: [{ id: "acceptance", label: "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCD", base_url: connectionURL, model: connectionName, credential: "", request_timeout_s: 3, probe_mode: "off",
     sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
     reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false }, context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
     capabilities: { connection: "agentb-fake", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["acceptance fake"] } }],
@@ -768,8 +768,8 @@ if (realModel) {
   assert.equal(session?.id, sessionID, "selected new chat must exist in the server snapshot");
   assert.equal(session?.scratch, true);
   assert.ok(session?.workspace_dir.startsWith(join(profileData, "chats")), "new chat must live under chats");
-  await browser.wait(`document.querySelector('.shell-session-title')?.innerText === 'Acceptance'`, "connection-name title (item 2eo)");
-  assert.equal(await page.locator(".shell-session-title").getAttribute("title"), "Switch model");
+  await browser.wait(`document.querySelector('.shell-session-title')?.innerText === 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCD'`, "connection-name title (item 2eo)");
+  assert.equal(await page.locator(".shell-session-title").getAttribute("title"), "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCD");
   record("new-chat");
 
   const fixtureSessionID = sessionID;
@@ -795,6 +795,26 @@ if (realModel) {
   await waitProjectedChatText(sessionID, "SCRATCH FILE COMPLETE", "scratch file tool");
   assert.equal(await readFile(join(session.workspace_dir, "scratch-proof.txt"), "utf8"), "scratch tool passed\n");
   record("scratch-chat-title-and-file-tool");
+
+  if (args["2rv-only"] === "true") {
+    const created = [], mutation = (await state()).mutation_token;
+    for (let index = 0; index < 40; index++) created.push((await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": mutation }, body: JSON.stringify({ agent_id: "acceptance" }) })).session.id);
+    const tree = (body) => page.evaluate(async (value) => (await import(new URL("/static/js/bus.js", location.href).href)).api("/api/chats/tree", value), body);
+    for (const folder of ["Alpha", "Beta", "Gamma"]) await tree({ action: "add", name: folder });
+    for (let index = 0; index < 3; index++) for (let attempt = 0; attempt < 40; attempt++) { try { await tree({ action: "move", id: created[index], folder: ["Alpha", "Beta", "Gamma"][index] }); break; } catch (error) { if (attempt === 39) throw error; await sleep(50); } }
+    await page.reload(); await page.waitForFunction(() => document.querySelectorAll(".chat-list-row[data-session]").length >= 40); await page.locator(".chat-list-folder").evaluateAll((folders) => folders.forEach((folder) => { folder.open = true; }));
+    await page.setViewportSize({ width: 1280, height: 860 }); const row = page.locator(`.chat-list-row[data-session="${sessionID}"]`), name = row.locator(".chat-list-name"), more = row.locator(".chat-list-more"), list = page.locator(".chat-list");
+    const nameRect = () => name.evaluate((node) => { const box = node.getBoundingClientRect(); return { left: box.left, right: box.right }; });
+    await page.mouse.move(500, 16); const restRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "hidden"); await row.hover(); const hoverRect = await nameRect(); await name.focus(); const focusRect = await nameRect(); await more.click(); const menuRect = await nameRect(); assert.deepEqual([hoverRect, focusRect, menuRect], [restRect, restRect, restRect]); await page.keyboard.press("Escape");
+    const scrollbar = () => list.evaluate((node) => { const base = getComputedStyle(node), bar = getComputedStyle(node, "::-webkit-scrollbar"), thumb = getComputedStyle(node, "::-webkit-scrollbar-thumb"), transcript = getComputedStyle(document.querySelector("#chat-log")); return { width: bar.width, colors: base.scrollbarColor, thumb: thumb.backgroundColor, transcript: transcript.scrollbarColor, right: [...node.querySelectorAll(".chat-list-name")].map((item) => item.getBoundingClientRect().right) }; });
+    await page.mouse.move(500, 16); await sleep(1500); const rest = await scrollbar(); await list.hover(); const hover = await scrollbar(); await page.mouse.move(500, 16); await list.dispatchEvent("wheel", { deltaY: 80 }); const scrolling = await scrollbar(); assert.equal(rest.width, "6px"); assert.match(rest.thumb, /rgba\(0, 0, 0, 0\)/); assert.equal(hover.colors, hover.transcript); assert.deepEqual([hover.right, scrolling.right], [rest.right, rest.right]); await sleep(1500); assert.equal(await list.evaluate((node) => node.classList.contains("scrolling")), false);
+    assert.equal(await page.locator(".chat-list-new").count(), 1); assert.equal(await page.locator(".chat-list-new").getAttribute("aria-label"), "New chat"); assert.equal(await page.locator(".chat-list-new").innerText(), "");
+    const tight = await page.evaluate(() => { const list = document.querySelector(".chat-list"); list.scrollTop = 0; const rowHeight = document.querySelector(".chat-list-row[data-session]").getBoundingClientRect().height, after = Math.floor(list.clientHeight / rowHeight), before = Math.floor(list.clientHeight / 28); document.documentElement.style.setProperty("--chat-scale", "1.5"); const boxes = [...document.querySelectorAll(".chat-list-row[data-session]")].map((row) => { const outer = row.getBoundingClientRect(), inner = row.querySelector(".chat-list-name").getBoundingClientRect(); return { top: outer.top, bottom: outer.bottom, height: outer.height, innerTop: inner.top, innerBottom: inner.bottom }; }).filter((box) => box.height > 0).sort((a, b) => a.top - b.top); document.documentElement.style.removeProperty("--chat-scale"); return { before, after, rowHeight, largestWhole: boxes.every((box, index) => box.innerTop >= box.top && box.innerBottom <= box.bottom && (!boxes[index + 1] || box.bottom <= boxes[index + 1].top)) }; }); assert.ok(tight.after >= tight.before * 4 / 3 && tight.largestWhole, JSON.stringify(tight));
+    const evidence = join(args.evidence, "2rv-chat-list"), header = []; await mkdir(evidence, { recursive: true });
+    for (const width of [320, 1280, 1920]) { const height = width === 320 ? 860 : 1080; await page.setViewportSize({ width, height }); await row.evaluate((node) => { document.activeElement?.blur(); node.classList.remove("menu-open"); node.querySelector(".chat-list-row-menu").hidden = true; }); assert.equal(await row.locator(".chat-list-row-menu").isHidden(), true); await page.mouse.move(width - 8, 16); header.push(await page.evaluate(() => { const connection = document.querySelector(".shell-session-title"), activity = document.querySelector(".shell-session-activity"); return { width: innerWidth, whole: connection.scrollWidth <= connection.clientWidth, title: connection.title, activity: getComputedStyle(activity).display }; })); await page.screenshot({ path: join(evidence, `${width}-rest.png`) }); await row.hover(); await page.screenshot({ path: join(evidence, `${width}-hover.png`) }); await page.mouse.move(width - 8, 16); await list.dispatchEvent("wheel", { deltaY: 80 }); await page.screenshot({ path: join(evidence, `${width}-scroll.png`) }); }
+    assert.deepEqual(header.map(({ whole }) => whole), [false, true, true], JSON.stringify(header)); assert.equal(header[0].activity, "none"); assert.ok(header.every(({ title }) => title === "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCD"), JSON.stringify(header)); console.log(`2RV LIST ${JSON.stringify({ tight, header, evidence })}`); record("chat-list-names-activity-transient-chrome-and-tight-layout-2rv");
+    process.stdout.write(`CHAT ACCEPTANCE PASS ${Date.now() - startedAt} ms\n`); await edgeContext?.close(); terminateChildren(); await stopFake(); process.exit(0);
+  }
 
   await setTask("acceptance: absolute list");
   await waitProjectedChatText(sessionID, "ABSOLUTE LIST COMPLETE", "absolute list outside scratch");
@@ -917,6 +937,7 @@ if (realModel) {
 	assert.ok(toolHalves.toggles >= 12 && toolHalves.counts === toolHalves.toggles + 2, JSON.stringify(toolHalves));
   assert.equal(toolHalves.agent, true);
   await page.locator(".shell-settings").click();
+  await page.locator('.chat-list-row.selected').hover();
   await page.locator('.chat-list-row.selected .chat-list-more').click();
   const toggleMenu = page.locator('.chat-list-row.selected .chat-list-row-menu');
   await toggleMenu.waitFor({ state: "visible" });
@@ -1093,6 +1114,7 @@ if (realModel) {
   const roundTripPixels = compareMasked(decodePNG(chatIdleScreenshot), decodePNG(roundTripScreenshot), [], { tolerance: 2 });
   assert.equal(roundTripPixels.outside, 0, `Chat idle changed after Settings → Test → Chat round trip: ${JSON.stringify(roundTripPixels)}`);
   record("settings-test-chat-round-trip");
+  await page.locator(`.chat-list-row[data-session="${sessionID}"]`).hover();
   await page.locator(`.chat-list-row[data-session="${sessionID}"] .chat-list-more`).click();
   await page.locator(`.chat-list-row[data-session="${sessionID}"] .chat-list-row-menu`).waitFor({ state: "visible" });
   assert.deepEqual(await page.locator('.chat-list-row.selected .chat-list-row-menu > button').allInnerTexts(), ["Pin", "Rename", "Move to folder", "Delete"]);
@@ -2426,20 +2448,50 @@ if (realModel) {
   assert.ok(durable.plans > 0, JSON.stringify(durable));
   record("delete-removes-the-chat-and-keeps-what-it-produced");
   await page.setViewportSize({ width: 320, height: 975 });
-  // Thirty chats is the engineering-floor size for a realistic bounded list.
+  // Forty chats is the realistic-size list for 2rv and exceeds the engineering floor.
   const beforeLongList = await state();
-  for (let index = 0; index < 30; index++) {
+  for (let index = 0; index < 40; index++) {
     await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": beforeLongList.mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) });
   }
   await page.reload();
-  await page.waitForFunction(() => document.querySelectorAll(".chat-list-row[data-session]").length >= 30);
+  await page.waitForFunction(() => document.querySelectorAll(".chat-list-row[data-session]").length >= 40);
   const listOverflow = await page.evaluate(() => {
     const panel = document.querySelector(".chat-list-panel"), list = document.querySelector(".chat-list");
     return { count: document.querySelectorAll(".chat-list-row[data-session]").length, panel: panel.getBoundingClientRect().toJSON(), listScroll: list.scrollHeight - list.clientHeight, document: document.documentElement.scrollWidth - document.documentElement.clientWidth };
   });
-  assert.ok(listOverflow.count >= 30 && listOverflow.listScroll > 0, JSON.stringify(listOverflow));
+  assert.ok(listOverflow.count >= 40 && listOverflow.listScroll > 0, JSON.stringify(listOverflow));
   assert.equal(listOverflow.document, 0, JSON.stringify(listOverflow));
   assert.ok(listOverflow.panel.left >= 0 && listOverflow.panel.right <= 320, JSON.stringify(listOverflow));
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.locator(`.chat-list-row[data-session="${scriptSessionID}"] .chat-list-name`).click();
+  const row = page.locator(`.chat-list-row[data-session="${scriptSessionID}"]`), name = row.locator(".chat-list-name"), more = row.locator(".chat-list-more"), list = page.locator(".chat-list");
+  const nameRect = () => name.evaluate((node) => { const box = node.getBoundingClientRect(); return { left: box.left, right: box.right }; });
+  await page.mouse.move(500, 16); const restRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "hidden");
+  await row.hover(); const hoverRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "visible");
+  await name.focus(); const focusRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "visible");
+  await more.click(); const menuRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "visible");
+  assert.deepEqual([hoverRect, focusRect, menuRect], [restRect, restRect, restRect]); await page.keyboard.press("Escape");
+  const scrollbar = () => list.evaluate((node) => { const base = getComputedStyle(node), bar = getComputedStyle(node, "::-webkit-scrollbar"), track = getComputedStyle(node, "::-webkit-scrollbar-track"), thumb = getComputedStyle(node, "::-webkit-scrollbar-thumb"), transcript = getComputedStyle(document.querySelector("#chat-log")); return { width: bar.width, colors: base.scrollbarColor, track: track.backgroundColor, thumb: thumb.backgroundColor, transcript: transcript.scrollbarColor, right: [...node.querySelectorAll(".chat-list-name")].map((name) => name.getBoundingClientRect().right) }; });
+  await page.mouse.move(500, 16); await sleep(1500); const scrollbarRest = await scrollbar();
+  await list.hover(); const scrollbarHover = await scrollbar();
+  await page.mouse.move(500, 16); await list.dispatchEvent("wheel", { deltaY: 80 }); const scrollbarScroll = await scrollbar();
+  assert.equal(scrollbarRest.width, "6px"); assert.match(scrollbarRest.thumb, /rgba\(0, 0, 0, 0\)/); assert.equal(scrollbarHover.colors, scrollbarHover.transcript); assert.deepEqual(scrollbarHover.right, scrollbarRest.right); assert.deepEqual(scrollbarScroll.right, scrollbarRest.right);
+  await sleep(1500); assert.equal(await list.evaluate((node) => node.classList.contains("scrolling")), false);
+  assert.equal(await page.locator(".chat-list-new").count(), 1); assert.equal(await page.locator(".chat-list-new").getAttribute("aria-label"), "New chat"); assert.equal(await page.locator(".chat-list-new").innerText(), "");
+  const tight = await page.evaluate(() => {
+    const list = document.querySelector(".chat-list"); list.scrollTop = 0; const rowHeight = document.querySelector(".chat-list-row[data-session]").getBoundingClientRect().height, after = Math.floor(list.clientHeight / rowHeight), before = Math.floor(list.clientHeight / 28);
+    document.documentElement.style.setProperty("--chat-scale", "1.5"); const boxes = [...document.querySelectorAll(".chat-list-row[data-session]")].map((row) => { const outer = row.getBoundingClientRect(), inner = row.querySelector(".chat-list-name").getBoundingClientRect(); return { top: outer.top, bottom: outer.bottom, height: outer.height, innerTop: inner.top, innerBottom: inner.bottom }; }).filter((box) => box.height > 0).sort((a, b) => a.top - b.top); document.documentElement.style.removeProperty("--chat-scale");
+    return { before, after, rowHeight, largestWhole: boxes.every((box, index) => box.innerTop >= box.top && box.innerBottom <= box.bottom && (!boxes[index + 1] || box.bottom <= boxes[index + 1].top)) };
+  });
+  assert.ok(tight.after >= tight.before * 4 / 3 && tight.largestWhole, JSON.stringify(tight));
+  const listEvidence = join(evidenceRun, "2rv-chat-list"); await mkdir(listEvidence, { recursive: true }); const header = [];
+  for (const width of [320, 1280, 1920]) {
+    const height = width === 320 ? 860 : 1080; await page.setViewportSize({ width, height }); await row.evaluate((node) => { document.activeElement?.blur(); node.classList.remove("menu-open"); node.querySelector(".chat-list-row-menu").hidden = true; }); assert.equal(await row.locator(".chat-list-row-menu").isHidden(), true); await page.mouse.move(width - 8, 16);
+    header.push(await page.evaluate(() => { const connection = document.querySelector(".shell-session-title"), activity = document.querySelector(".shell-session-activity"); return { width: innerWidth, whole: connection.scrollWidth <= connection.clientWidth, title: connection.title, activity: getComputedStyle(activity).display }; }));
+    await page.screenshot({ path: join(listEvidence, `${width}-rest.png`) }); await row.hover(); await page.screenshot({ path: join(listEvidence, `${width}-hover.png`) }); await page.mouse.move(width - 8, 16); await list.dispatchEvent("wheel", { deltaY: 80 }); await page.screenshot({ path: join(listEvidence, `${width}-scroll.png`) });
+  }
+  assert.deepEqual(header.map(({ whole }) => whole), [false, true, true], JSON.stringify(header)); assert.equal(header[0].activity, "none"); assert.ok(header.every(({ title }) => title === "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCD"), JSON.stringify(header));
+  console.log(`2RV LIST ${JSON.stringify({ tight, header, evidence: listEvidence })}`); record("chat-list-names-activity-transient-chrome-and-tight-layout-2rv");
   // Closed is durable server metadata, not a desktop visual state. A closed
   // row remains in the list and reopens when selected; no other chat closes.
   await page.setViewportSize({ width: 1250, height: 975 });
@@ -2461,6 +2513,7 @@ if (realModel) {
   assert.equal(await page.locator(".chat-list-row.selected").getAttribute("data-session"), idleCloseID);
   const stateAfterReopen = await state();
   assert.deepEqual(otherOpen.filter((id) => stateAfterReopen.sessions[id]?.closed), [], "showing one chat must not close another");
+  await closedRow.hover();
   await closedRow.locator(".chat-list-more").click();
   const deleteButton = closedRow.locator('.chat-list-row-menu').getByRole("button", { name: "Delete", exact: true });
   const dismiss = async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); };
@@ -2470,6 +2523,7 @@ if (realModel) {
   page.off("dialog", dismiss);
   assert.equal(dialogs.at(-1), "Delete this chat permanently? Memory notes it made are kept.");
   assert.ok((await state()).sessions[idleCloseID], "a dismissed delete confirm must keep the chat");
+  await closedRow.hover();
   await closedRow.locator(".chat-list-more").click();
   const accept = async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); };
   page.on("dialog", accept);
@@ -2539,7 +2593,7 @@ if (realModel) {
     body: JSON.stringify({ agents: [{ ...beforeD.config.agents[0], d: "acceptance" }] }),
   });
   await page.reload();
-  await browser.wait(`document.querySelector('.chat-list-new')?.title === 'New chat or plan'`, "d-aware New chat");
+  await browser.wait(`document.querySelector('.chat-list-new')?.title === 'New chat'`, "d-aware New chat");
   await page.locator(".chat-list-new").click();
   const roleChoices = page.locator(".shell-new-menu .shell-new-choice");
   assert.deepEqual(await roleChoices.allTextContents(), ["agent_b · Acceptance — chat", "agent_d · Acceptance — plan"]);

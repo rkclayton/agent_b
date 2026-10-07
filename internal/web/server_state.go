@@ -259,7 +259,12 @@ func (s *Server) projectionSSE(w http.ResponseWriter, r *http.Request, flusher h
 		return
 	}
 	defer unsubscribeProjection()
-	s.writeFrame(w, events.New(events.Snapshot, "", "", s.openingSnapshot(sessions, false)))
+	opening := s.openingSnapshot(sessions, false)
+	activities := make(map[string]string, len(sessions))
+	for id, snapshot := range sessions {
+		activities[id] = snapshot.LastActivity
+	}
+	s.writeFrame(w, events.New(events.Snapshot, "", "", opening))
 	flusher.Flush()
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
@@ -270,6 +275,13 @@ func (s *Server) projectionSSE(w http.ResponseWriter, r *http.Request, flusher h
 				return
 			}
 			s.writeFrame(w, events.New(events.ProjectionPatch, patch.SessionID, "", patch))
+			if current, found := s.projector.CurrentSnapshot()[patch.SessionID]; found {
+				activity := latestTurnActivityPatch(current, patch)
+				if activity != "" && activity != activities[patch.SessionID] {
+					s.writeFrame(w, events.New(events.ChatListPatch, "", "", map[string]any{"operation": "activity", "session_id": patch.SessionID, "last_activity": activity}))
+					activities[patch.SessionID] = activity
+				}
+			}
 			flusher.Flush()
 		case event, ok := <-raw:
 			if !ok {

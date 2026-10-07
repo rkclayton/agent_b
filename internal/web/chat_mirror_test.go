@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"harness/internal/events"
+	"harness/internal/projection"
 )
 
 func mirrorRequest(t *testing.T, server *Server, id, route string, body any, want int) appResponseUnit {
@@ -31,6 +32,21 @@ func mirrorRequest(t *testing.T, server *Server, id, route string, body any, wan
 		t.Fatalf("%s = %d %s, want %d", route, unit.Status, unit.Body, want)
 	}
 	return unit
+}
+
+func TestLatestChatActivityCountsOnlyTurns2rv(t *testing.T) {
+	snapshot := projection.Snapshot{CreatedAt: "2026-10-07T10:00:00Z", Timeline: []events.Event{
+		{Type: events.MessageAppended, TS: "2026-10-07T11:00:00Z", Data: map[string]any{"message": map[string]any{"role": "user"}}},
+		{Type: events.SessionRenamed, TS: "2026-10-07T12:00:00Z"},
+		{Type: events.MessageAppended, TS: "2026-10-07T13:00:00Z", Data: map[string]any{"message": events.Message{Role: "assistant"}}},
+		{Type: events.RunStopped, TS: "2026-10-07T14:00:00Z"},
+	}}
+	if got := latestChatActivity(snapshot); got != "2026-10-07T13:00:00Z" {
+		t.Fatalf("activity=%s", got)
+	}
+	if got := latestChatActivity(projection.Snapshot{CreatedAt: snapshot.CreatedAt}); got != "" {
+		t.Fatalf("empty chat activity=%s", got)
+	}
 }
 
 func mirroredSeed(t *testing.T, server *Server, chatID string) map[string]any {

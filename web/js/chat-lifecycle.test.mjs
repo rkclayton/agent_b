@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { agentAuthor, chatName, chatRowText, openSessions, sessionTitle } from "./chat-lifecycle.js";
+import { agentAuthor, chatActivityText, chatActivityTitle, chatName, chatRowText, openSessions, sessionTitle } from "./chat-lifecycle.js";
 
 const idle = {
   id: "s2",
@@ -25,11 +25,20 @@ const idle = {
 
 // Item 2go (v1.2.5), the operator: "i want it to display like this:
 // MM:DD · Chat name · × , nothing more."
-test("Chat row is the chat's last activity and its truthful name", () => {
-  assert.equal(chatRowText({ ...idle, label: "summarize the attached contract" }), "09:22 · summarize the attached contract");
-  assert.equal(chatRowText(idle), "09:22 · Summarize the attached contract", "an unnamed chat uses its first user line");
+test("Chat row is only the chat's truthful name", () => {
+	assert.equal(chatRowText({ ...idle, label: "summarize 2 contracts" }), "summarize 2 contracts");
+	assert.equal(chatRowText(idle), "Summarize the attached contract", "an unnamed chat uses its first user line");
 	assert.equal(chatName({ ...idle, label: "null" }), "Summarize the attached contract");
 	assert.equal(chatName({ ...idle, label: null, chat: [] }), "New chat");
+});
+
+test("Header activity uses the product clock and supplies full hover text", () => {
+	const now = new Date(2026, 9, 7, 18, 0), today = { last_activity: new Date(2026, 9, 7, 13, 5).toISOString() };
+	const earlier = { last_activity: new Date(2026, 9, 6, 13, 5).toISOString() };
+	assert.equal(chatActivityText(today, now), new Date(today.last_activity).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+	assert.match(chatActivityText(earlier, now), /\d.*\d/);
+	assert.equal(chatActivityText({}, now), "");
+	assert.equal(chatActivityTitle(today), new Date(today.last_activity).toLocaleString());
 });
 
 test("Open chat list excludes durable closed sessions", () => {

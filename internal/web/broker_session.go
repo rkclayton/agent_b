@@ -207,7 +207,7 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 			}
 			send(map[string]any{"v": 1, "kind": "patch", "data": patch})
 			if current, found := s.projector.CurrentSnapshot()[patch.SessionID]; found {
-				activity := latestChatActivity(current)
+				activity := latestTurnActivityPatch(current, patch)
 				if activity != "" && activity != activities[patch.SessionID] {
 					send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatListPatch, "", "", map[string]any{"operation": "activity", "session_id": patch.SessionID, "last_activity": activity})})
 					activities[patch.SessionID] = activity

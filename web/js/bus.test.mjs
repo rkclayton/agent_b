@@ -80,6 +80,7 @@ test("append initializes an omitted empty projected string", () => {
   assert.equal(store.sessions.main.run.partial, "answer");
   assert.equal(store.sessions.main.chat[0].text, "answer");
   assert.equal(store.sessions.main.cursor.offset, 11);
+  reduce({ type: "chat.list.patch", data: { operation: "activity", session_id: "main", last_activity: "2026-10-07T13:00:00Z" } }); assert.equal(store.sessions.main.last_activity, "2026-10-07T13:00:00Z");
 });
 
 test("projection patch cost stays constant at a full stored bound 2pd", () => {

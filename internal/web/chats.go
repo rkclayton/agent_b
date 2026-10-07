@@ -152,10 +152,9 @@ func (s *Server) decorateChatList(sessions map[string]projection.Snapshot) []str
 		value.LastActivity = latestChatActivity(value)
 		if value.LastActivity == "" {
 			activity := entry.Metadata.LastActivity
-			if activity.IsZero() {
-				activity = entry.Metadata.Created
+			if !activity.IsZero() {
+				value.LastActivity = activity.UTC().Format(time.RFC3339Nano)
 			}
-			value.LastActivity = activity.UTC().Format(time.RFC3339Nano)
 		}
 		sessions[entry.Metadata.ID] = value
 	}
@@ -163,10 +162,43 @@ func (s *Server) decorateChatList(sessions map[string]projection.Snapshot) []str
 }
 
 func latestChatActivity(value projection.Snapshot) string {
-	if count := len(value.Timeline); count > 0 {
-		return value.Timeline[count-1].TS
+	if value.LastActivity != "" {
+		return value.LastActivity
 	}
-	return value.CreatedAt
+	for index := len(value.Timeline) - 1; index >= 0; index-- {
+		if activity := turnActivity(value.Timeline[index]); activity != "" {
+			return activity
+		}
+	}
+	return ""
+}
+
+func latestTurnActivityPatch(value projection.Snapshot, patch projection.Patch) string {
+	changed := false
+	for _, operation := range patch.Operations {
+		if operation.Path == "/messages" {
+			changed = true
+			break
+		}
+	}
+	if !changed || len(value.Timeline) == 0 {
+		return ""
+	}
+	return turnActivity(value.Timeline[len(value.Timeline)-1])
+}
+
+func turnActivity(event events.Event) string {
+	if event.Type != events.MessageAppended {
+		return ""
+	}
+	var data struct {
+		Message events.Message `json:"message"`
+	}
+	encoded, _ := json.Marshal(event.Data)
+	if json.Unmarshal(encoded, &data) == nil && (data.Message.Role == "user" || data.Message.Role == "assistant") {
+		return event.TS
+	}
+	return ""
 }
 
 func (s *Server) writeChatTree(w http.ResponseWriter) {

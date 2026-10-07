@@ -59,7 +59,7 @@ test("shared shell slot order is identical on the chat and Plan", () => {
   // on the LEFT, so the right slot is one element shorter and the plan entry it
   // held is not there to assert any more.
   // Item 2px (f): the chat's connection lamp sits before the heading it belongs to.
-  assert.match(shell, /right\.append\(sessionLamp, sessionHeading, connectionMenu, settings, windowControls\)/);
+  assert.match(shell, /right\.append\(sessionActivity, sessionLamp, sessionHeading, connectionMenu, settings, windowControls\)/);
   assert.doesNotMatch(shell, /shell-operator-status|right\.append\(stop/);
   assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
   // Item 2ni: and the tab is gone too. "i decided i think i want it under settings,
@@ -107,6 +107,15 @@ test("compact window controls continue the top strip", () => {
   assert.match(shell, /sessionHeading\.classList\.add\("alarm"\)/);
 });
 
+test("chat list keeps compact controls and transient chrome", () => {
+  assert.match(shell, /iconButton\("page-plus", "New chat"/);
+  assert.match(shell, /classList\.add\("menu-open"\)/);
+  assert.match(shell, /shell-session-activity/);
+  assert.match(chatCSS, /chat-list-row:hover \.chat-list-more/);
+  assert.match(chatCSS, /scrollbar-width:thin/);
+  assert.doesNotMatch(shell, /button\("New chat", "New chat"/);
+});
+
 test("Stop follows the selected chat from each page-local lower control", () => {
   assert.match(chat, /api\("\/api\/stop", \{ session_id: session\.id \}\)/);
   assert.match(consoleApp, /api\("\/api\/stop",\{session_id:id\}\)/);
@@ -121,6 +130,7 @@ test("top-right connection label is the b-role model switcher", () => {
   assert.match(shell, /connection\.label \|\| connection\.id[\s\S]*new URL\(host\)\.host[\s\S]*connectionState\(connection, session\)/);
   assert.match(shell, /if \(isRunning\(current\)\)[\s\S]*stop the run first/);
   assert.match(shell, /api\(`\/api\/agents\/\$\{encodeURIComponent\(agentID\)\}\/connection`, \{ action: "set", connection_id: connection\.id \}\)/);
+  assert.match(shell, /const selected = \{ \.\.\.store\.selection \}[\s\S]*setSelection\(selected\.agent_id \|\| "agent_b", selected\.session_id \|\| ""\)/);
   assert.match(shell, /session\.runnable === false \? \(notRunnableReason \|\| "Chat is not runnable"\) : sessionTitle\(session\)/);
   assert.match(shell, /"No chat selected"/);
   assert.match(shell, /\/api\/header-state/);

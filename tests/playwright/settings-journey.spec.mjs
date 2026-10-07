@@ -141,11 +141,21 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await page.locator("#chat-send").click();
   await expect(page.locator("#chat-log")).toContainText("ui harness reply", { timeout: 60000 });
 
+  // 2ry W0: replay the reported sequence in the disposable harness before the
+  // held-response case below: switch, answer, Settings > Chats, choose a face.
+  await page.locator(".shell-settings").click();
+  await page.locator('.settings-nav [data-id="chats"]').click();
+  await page.locator('button[data-action="config-choice"][data-path="chat.typeface"][data-value="Arial"]').click();
+  await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.typeface).toBe("Arial");
+  await expect(page.locator("[data-save-status]")).not.toContainText("Saving changes");
+  await page.locator(".shell-settings").click();
+
   // 9. Delete the chat through its four-entry row menu. This leaves the role
   // assignment as the first connection-removal refusal, just as Close did before
   // the tab strip was removed.
   const selected = page.locator(".chat-list-row.selected");
   const session = await selected.getAttribute("data-session");
+  await selected.hover();
   await selected.locator(".chat-list-more").click();
   page.once("dialog", (dialog) => dialog.accept());
   await selected.locator(".chat-list-row-menu").getByRole("button", { name: "Delete", exact: true }).click();
@@ -443,6 +453,30 @@ test("the model he picks is the one the field shows, through Test and through Sa
   const saved = await page.evaluate(async () => (await (await fetch("/api/config")).json()).connections);
   const written = saved.find((connection) => connection.id === id);
   expect(written?.model, "the saved configuration does not hold the picked model").toBe("second-model");
+  await page.close();
+});
+
+test("a held settings save releases the page with its draft still unsaved", async () => {
+  test.setTimeout(30000);
+  const page = await harness.context.newPage();
+  await page.goto(`${harness.base}/chat`);
+  await page.locator(".shell-settings").click();
+  await page.locator('.settings-nav [data-id="chats"]').click();
+  const before = (await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.typeface;
+  const draft = before === "Arial" ? "Verdana" : "Arial";
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/config", async (route) => { await held; await route.continue().catch(() => {}); });
+  await page.locator(`button[data-action="config-choice"][data-path="chat.typeface"][data-value="${draft}"]`).click();
+  await expect(page.locator("[data-save-status]")).toContainText("Saving changes");
+  await expect(page.locator("[data-save-status]")).toContainText("no answer", { timeout: 11000 });
+  await expect(page.locator(`button[data-path="chat.typeface"][data-value="${draft}"]`)).toHaveClass(/selected/);
+  expect((await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.typeface).toBe(before);
+  await page.locator('.settings-nav [data-id="about"]').click();
+  await expect(page.locator(".settings-build-text")).toBeVisible();
+  await page.locator(".shell-settings").click();
+  await expect(page.locator("#chat-log")).toBeVisible();
+  release();
   await page.close();
 });
 

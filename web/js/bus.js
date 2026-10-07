@@ -370,9 +370,9 @@ function readSelection() {
 function persistSelection() {
   try { globalThis.sessionStorage?.setItem("agentb.selection", JSON.stringify(store.selection)); } catch {}
 }
-export async function api(path, body, method = "POST") {
+export async function api(path, body, method = "POST", requestOptions = {}) {
 	if (method === "GET" && path === "/api/state" && store.selection.session_id) path += `?session=${encodeURIComponent(store.selection.session_id)}`;
-  const options = { method, headers: {} };
+  const options = { ...requestOptions, method, headers: { ...(requestOptions.headers || {}) } };
   if (method !== "GET" && method !== "HEAD") options.headers["X-AgentB-Mutation-Token"] = store.mutation_token;
   if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
   const sample = navigationStateFetchStarted(path);

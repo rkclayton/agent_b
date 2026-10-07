@@ -1824,7 +1824,12 @@ async function saveSettings(pathPrefix = "") {
   settingsSaveAlarm = false;
   refreshSaveControls();
   try {
-    const result = await api("/api/config", combinedPatch(entries));
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    let result;
+    try { result = await api("/api/config", combinedPatch(entries), "POST", { signal: controller.signal }); }
+    catch (error) { if (controller.signal.aborted) { const timeout = new Error("no answer"); timeout.field = "config"; throw timeout; } throw error; }
+    finally { clearTimeout(timer); }
     for (const path of changedPaths) {
       drafts.delete(path);
       draftKinds.delete(path);
@@ -1843,7 +1848,7 @@ async function saveSettings(pathPrefix = "") {
     if (connection) {
       expanded.add(connection);
     }
-    settingsSaveMessage = "Save failed";
+    settingsSaveMessage = error.message === "no answer" ? "Save failed · no answer" : "Save failed";
     settingsSaveAlarm = true;
     return false;
   } finally {

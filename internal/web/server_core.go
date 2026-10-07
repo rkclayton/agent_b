@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -120,29 +121,34 @@ type Server struct {
 	probeCancels     map[string]*probeRun
 	// Item 2gy: how many inconclusive probes a connection has had in a row, which
 	// is where it stands on the backoff ladder.
-	probeRetries      map[string]int
-	reachabilityMu    sync.Mutex
-	reachability      map[string]*reachabilityRetry
-	reachabilityAfter func(time.Duration, func()) operatorTimer
-	healthMu          sync.Mutex
-	health            map[string]connectionHealth
-	healthEvery       time.Duration
-	navigationMu      sync.Mutex
-	navigationIDs     map[string]time.Time
-	agentConnectionMu sync.Mutex
-	agentConnections  map[string]pendingAgentConnection
-	tryAgentIdle      func(string) bool
-	hostWindowAction  func(string) bool
-	startedAt         string
-	chatMu            sync.RWMutex
-	chatStore         *chatstore.Store
-	chatEntries       []chatstore.Entry
-	chatWatchMu       sync.Mutex
-	chatCancel        context.CancelFunc
-	chatDone          chan struct{}
+	probeRetries         map[string]int
+	reachabilityMu       sync.Mutex
+	reachability         map[string]*reachabilityRetry
+	reachabilityAfter    func(time.Duration, func()) operatorTimer
+	healthMu             sync.Mutex
+	health               map[string]connectionHealth
+	healthEvery          time.Duration
+	navigationMu         sync.Mutex
+	requestWatchdogAfter time.Duration
+	requestWatchdogLog   func(string)
+	navigationIDs        map[string]time.Time
+	agentConnectionMu    sync.Mutex
+	agentConnections     map[string]pendingAgentConnection
+	tryAgentIdle         func(string) bool
+	hostWindowAction     func(string) bool
+	startedAt            string
+	chatMu               sync.RWMutex
+	chatStore            *chatstore.Store
+	chatEntries          []chatstore.Entry
+	chatWatchMu          sync.Mutex
+	chatCancel           context.CancelFunc
+	chatDone             chan struct{}
 }
 
 type probeRun struct{ cancel context.CancelFunc }
+
+const appRequestWatchdogDelay = 30 * time.Second
+
 type RuntimeRoots struct {
 	Application string
 	Data        string
@@ -476,7 +482,32 @@ func (s *Server) Connection(id string) (*config.Connection, bool) {
 	return s.cfg.Connection(id)
 }
 func (s *Server) Handler() http.Handler {
-	return s.securityHeaders(retiredPhoneRoutes(s.browserSessionGuard(s.mutationGuard(s.routes()))))
+	return s.requestWatchdog(s.securityHeaders(retiredPhoneRoutes(s.browserSessionGuard(s.mutationGuard(s.routes())))))
+}
+
+func (s *Server) requestWatchdog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/api/events" || r.URL.Path == "/api/speech/stream" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		after := s.requestWatchdogAfter
+		if after <= 0 {
+			after = appRequestWatchdogDelay
+		}
+		record := s.requestWatchdogLog
+		if record == nil {
+			record = func(value string) { log.Print(value) }
+		}
+		started := time.Now()
+		timer := time.AfterFunc(after, func() {
+			stack := make([]byte, (1<<20)-4096)
+			count := runtime.Stack(stack, true)
+			record(fmt.Sprintf("stuck app request route=%s open_for=%s waiting=%s", r.URL.Path, time.Since(started).Round(time.Millisecond), strings.TrimSpace(string(stack[:count]))))
+		})
+		defer timer.Stop()
+		next.ServeHTTP(w, r)
+	})
 }
 
 func retiredPhoneRoutes(next http.Handler) http.Handler {

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"harness/internal/config"
 	"harness/internal/events"
@@ -61,6 +63,54 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 	}
 	if !strings.Contains(string(settingsSource), `["plan", "Plan"]`) {
 		t.Fatalf("the Plan must be an entry in the Settings nav")
+	}
+}
+
+func TestRequestWatchdogRecordsOneBoundedStackAndSkipsStreams2ry(t *testing.T) {
+	if appRequestWatchdogDelay != 30*time.Second {
+		t.Fatalf("watchdog delay=%s", appRequestWatchdogDelay)
+	}
+	var recorded bytes.Buffer
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := New(&cfg, filepath.Join(root, "harness.json"), filepath.Join("..", "..", "web"), RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server.requestWatchdogAfter = 30 * time.Millisecond
+	server.requestWatchdogLog = func(value string) { recorded.WriteString(value) }
+
+	for _, path := range []string{"/api/config", "/api/events", "/api/speech/stream"} {
+		recorded.Reset()
+		release, done := make(chan struct{}), make(chan struct{})
+		var next http.Handler = http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release })
+		body := "private fixture chat text"
+		if path == "/api/config" {
+			server.mu.Lock()
+			next = http.HandlerFunc(server.config)
+			body = `{"chat":{"typeface":"Arial"},"fixture":"private fixture chat text"}`
+		}
+		handler := server.requestWatchdog(next)
+		request := httptest.NewRequest(http.MethodPost, path+"?private=fixture", strings.NewReader(body))
+		go func() { handler.ServeHTTP(httptest.NewRecorder(), request); close(done) }()
+		time.Sleep(80 * time.Millisecond)
+		if path == "/api/config" {
+			server.mu.Unlock()
+		} else {
+			close(release)
+		}
+		<-done
+		output := recorded.String()
+		if path != "/api/config" {
+			if output != "" {
+				t.Fatalf("long-lived route %s was recorded: %s", path, output)
+			}
+			continue
+		}
+		if strings.Count(output, "stuck app request route=/api/config") != 1 || !strings.Contains(output, "open_for=") || !strings.Contains(output, "sync.(*RWMutex).Lock") || !strings.Contains(output, "(*Server).config") {
+			t.Fatalf("watchdog record=%q", output)
+		}
+		if len(output) >= 1<<20 || strings.Contains(output, "private fixture") {
+			t.Fatalf("watchdog record was unbounded or carried request text: bytes=%d", len(output))
+		}
+		t.Logf("bounded watchdog record bytes=%d", len(output))
 	}
 }
 

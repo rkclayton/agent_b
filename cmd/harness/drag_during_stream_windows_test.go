@@ -46,7 +46,6 @@ import (
 // Skipped unless AGENTB_DRAG_PROBE=1, because it starts a real windowed process:
 // the installer matrix's window probe is what turns it on (d).
 const (
-	wmNCLButtonDown = 0x00A1
 	wmNCLButtonUp   = 0x00A2
 	wmEnterSizeMove = 0x0231
 	wmMoving        = 0x0216

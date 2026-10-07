@@ -103,6 +103,8 @@ test("compact window controls continue the top strip", () => {
   assert.match(tokens, /\.shell-window-controls\{[^}]*grid-template-columns:repeat\(3,28px\)/);
   assert.match(tokens, /\.shell-window-control\{[^}]*width:28px/);
   assert.match(tokens, /\.shell-window-control-glyph\{[^}]*width:9px;height:9px/);
+  assert.match(shell, /sessionHeading\.textContent = message/);
+  assert.match(shell, /sessionHeading\.classList\.add\("alarm"\)/);
 });
 
 test("Stop follows the selected chat from each page-local lower control", () => {

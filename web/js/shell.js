@@ -144,6 +144,8 @@ export function initShell(options = {}) {
     if (options.reportError) options.reportError(message);
     else {
       root.dataset.error = message;
+      sessionHeading.textContent = message;
+      sessionHeading.classList.add("alarm");
     }
   }
 
@@ -439,6 +441,7 @@ export function initShell(options = {}) {
 	}
     if (sessionHeading.textContent !== heading) {
       sessionHeading.textContent = heading;
+      sessionHeading.classList.remove("alarm");
       // Item 2hc (v1.3.0/W7): the header is snapped to whole pixels.
       //
       // The strip's right-hand group is sized to its content, and the title's

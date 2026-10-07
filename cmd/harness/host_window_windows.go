@@ -12,10 +12,10 @@ package main
 //
 // WHAT WINDOWS STILL OWNS, deliberately. Minimise, maximise, close, snap,
 // double-click-to-maximise and the system menu are not reimplemented: the top
-// right 108 px (three 36 px buttons, measured in W1) answer WM_NCHITTEST with
+// right 84 px answer WM_NCHITTEST with
 // HTMINBUTTON, HTMAXBUTTON and HTCLOSE, so Windows performs the action and
-// Windows 11 shows its snap layouts on the maximise button. The page paints the
-// glyphs; it never handles the clicks.
+// Windows 11 shows its snap layouts on the maximise button. The first native
+// button-down dispatches the action; the page only paints the glyphs.
 //
 // NO HOST OBJECT, NO INJECTED SCRIPT, NO CUSTOM SCHEME. The page is the same
 // page the server already serves over loopback. Dragging works through
@@ -74,6 +74,7 @@ const (
 	wmExitSizeMove  = 0x0232
 	wmNCCalcSize    = 0x0083
 	wmNCHitTest     = 0x0084
+	wmNCLButtonDown = 0x00A1
 	wmSetIcon       = 0x0080
 	wmGetMinMaxInfo = 0x0024
 	swShowNormal    = 1
@@ -354,6 +355,11 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam, lParam uintptr) uint
 		borderX := systemMetric(32) + systemMetric(92)
 		borderY := systemMetric(33) + systemMetric(92)
 		return hostHitTest(relativeX, relativeY, width, window.bottom-window.top, borderX, borderY, isMaximized(hwnd))
+	case wmNCLButtonDown:
+		if action := hostCaptionMessage(wParam); action != 0 {
+			procPostMessage.Call(hwnd, action, 0, 0)
+			return 0
+		}
 
 	case wmSize:
 		w.resizeController()
@@ -401,6 +407,10 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam, lParam uintptr) uint
 	}
 	result, _, _ := procDefWindowProc.Call(hwnd, message, wParam, lParam)
 	return result
+}
+
+func hostCaptionMessage(hit uintptr) uintptr {
+	return map[uintptr]uintptr{htMinButton: wmHostMinimize, htMaxButton: wmHostMaximize, htClose: wmHostClose}[hit]
 }
 
 func hostHitTest(x, y, width, height, borderX, borderY int32, maximized bool) uintptr {

@@ -39,3 +39,14 @@ func TestHostHitTestUsesCompactCaptionControls(t *testing.T) {
 		t.Fatalf("top resize edge must win over controls, got %d", got)
 	}
 }
+
+func TestCaptionButtonDownDispatchesTheActionOnItsFirstMessage(t *testing.T) {
+	for hit, want := range map[uintptr]uintptr{htMinButton: wmHostMinimize, htMaxButton: wmHostMaximize, htClose: wmHostClose} {
+		if got := hostCaptionMessage(hit); got != want {
+			t.Fatalf("hit %d dispatched %d, want %d", hit, got, want)
+		}
+	}
+	if got := hostCaptionMessage(htCaption); got != 0 {
+		t.Fatalf("caption dispatched %d", got)
+	}
+}

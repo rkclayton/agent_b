@@ -15,6 +15,7 @@ import { renderSendStop } from "./stop-state.js";
 import { runTimeSentence } from "./run-summary.js";
 import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, itemFailed, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, shortToolTarget } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
+import { registerMenu } from "./menu-behavior.js";
 import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
 import { renderChatProposals } from "./chat-proposals.js";
 import { installTranscriptCopy, responseTranscriptRecord, setTranscriptCopyRecord } from "./transcript-copy.js";
@@ -34,6 +35,7 @@ const attachMenu = document.getElementById("chat-attach-menu");
 const attachBrowse = document.getElementById("chat-attach-browse");
 const attachExchange = document.getElementById("chat-attach-exchange");
 const exchangeFileList = document.getElementById("chat-exchange-files");
+const attachMenuControl = registerMenu(attachMenu, { anchor: attachButton });
 const filePicker = document.getElementById("chat-file-picker");
 const pendingFiles = document.getElementById("chat-attachments");
 // Item 2ge: send and stop are one control, so there is one element for both.
@@ -44,6 +46,7 @@ const updateCopy = document.getElementById("chat-update-copy");
 const updateInstall = document.getElementById("chat-update-install");
 const updateDismiss = document.getElementById("chat-update-dismiss");
 let dismissedUpdateVersion = "";
+let attachmentFolder = { name: "attachments", path: "" };
 try { dismissedUpdateVersion = localStorage.getItem("agentb.dismissed-update") || ""; } catch {}
 let requested = new URLSearchParams(location.search).get("session");
 // Item 2gn: the chat the operator asked for by name, so the stale-selection
@@ -1552,7 +1555,12 @@ async function stopAttachmentOCR() {
 async function refreshExchangeFiles() {
   if (store.replay || !store.sessions[selectedID()]) return;
   try {
-    const files = await exchangeFiles();
+    const source = await exchangeFiles();
+    const files = source.files;
+    const parts = String(source.folder || "").split(/[\\/]/).filter(Boolean);
+    attachmentFolder = { name: parts.at(-1) || "attachments", path: source.folder || "" };
+    attachExchange.textContent = `From the ${attachmentFolder.name} folder`;
+    attachExchange.title = attachmentFolder.path;
     exchangeFileList.replaceChildren(...files.map((file) => {
       const button = document.createElement("button");
       button.type = "button";
@@ -1562,7 +1570,7 @@ async function refreshExchangeFiles() {
     }));
     if (!files.length) {
       const empty = document.createElement("span");
-      empty.textContent = "Attachments folder is empty";
+      empty.textContent = `The ${attachmentFolder.name} folder is empty`;
       exchangeFileList.append(empty);
     }
   } catch (error) {
@@ -1578,7 +1586,7 @@ async function queueExchangeFile(item) {
   const uploadID = globalThis.crypto.randomUUID();
   activeUpload = { id: uploadID, sessionID: session.id, name: item.path, page: 0, total: 0, stopping: false };
   attachmentsBusy = true;
-  localNotice = "Copying from attachments…";
+  localNotice = `Copying from the ${attachmentFolder.name} folder…`;
   localAlarm = false;
   renderComposer(session);
   try {
@@ -1682,8 +1690,9 @@ retryModel.onclick = async () => {
   try { await api(`/api/connections/${encodeURIComponent(session.connection_id || session.b_connection)}/probe`, { session_id: session.id, retry: true }); }
   catch (error) { localNotice = error.message; localAlarm = true; renderComposer(session); }
 };
-attachButton.onclick = () => { attachMenu.hidden = !attachMenu.hidden; };
+attachButton.onclick = () => { attachMenuControl.toggle(); if (!attachMenu.hidden) void refreshExchangeFiles(); };
 attachBrowse.onclick = () => { attachMenu.hidden = true; filePicker.click(); };
+attachExchange.dataset.menuReveal = "";
 attachExchange.onclick = () => void refreshExchangeFiles();
 filePicker.addEventListener("change", () => {
   void queueFiles([...filePicker.files]);

@@ -296,6 +296,20 @@ test("the confirmation popover stays with its control on a scrolled sheet", asyn
   // rather than scrolled out of it.
   expect(Math.abs(geometry.boxTop - geometry.anchorTop), JSON.stringify(geometry)).toBeLessThan(120);
   expect(geometry.visible, JSON.stringify(geometry)).toBe(true);
+  const blocked = await popover.evaluate((open) => [...document.querySelectorAll("#settings-page button,#settings-page input,#settings-page textarea,#settings-page select,#settings-page summary")].filter((control) => {
+    const box = control.getBoundingClientRect(), menuBox = open.getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
+    const style = getComputedStyle(control);
+    return control.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && !control.disabled && style.display !== "none" && style.visibility !== "hidden" && x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight && !open.contains(control) && !(x >= menuBox.left && x <= menuBox.right && y >= menuBox.top && y <= menuBox.bottom) && !control.contains(document.elementFromPoint(x, y));
+  }).map((control) => control.id || control.className || control.tagName));
+  expect(blocked, `popover blocked outside control centres: ${blocked.join(", ")}`).toEqual([]);
+  await page.locator(".settings-head").click(); await expect(popover).toHaveCount(0);
+  await page.locator('.connection-row [data-action="remove-connection"]').last().click(); await page.locator('.settings-nav [data-id="about"]').click();
+  await expect(popover).toHaveCount(0); await expect(page.locator('.settings-nav [data-id="about"]')).toHaveClass(/selected/);
+  await page.locator('.settings-nav [data-id="connections"]').click(); await page.locator('.connection-row [data-action="remove-connection"]').last().click();
+  await page.keyboard.press("Escape"); await expect(popover).toHaveCount(0);
+  await page.locator('.connection-row [data-action="remove-connection"]').last().click(); await page.locator(".shell-session-title").click();
+  await expect(popover).toHaveCount(0); await expect(page.locator(".shell-connection-menu")).toBeVisible(); await page.keyboard.press("Escape");
+  await page.locator('.connection-row [data-action="remove-connection"]').last().click();
   await page.locator('.confirm-popover [data-action="confirm-cancel"]').click();
   await expect(popover).toHaveCount(0);
 });

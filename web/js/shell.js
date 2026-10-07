@@ -7,6 +7,7 @@ import { surfaceForPage } from "./surfaces.js";
 import { connectionHealth } from "./settings-connections.js";
 import { beginNavigation } from "./navigation-telemetry.js";
 import { arrangeChats, menuLabels, panelDrag } from "./chat-list.js";
+import { registerMenu } from "./menu-behavior.js";
 
 const activeRunStates = new Set(["running", "queued", "stopping"]);
 const agentKey = (agent) => String(agent?.name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -31,7 +32,8 @@ export function initShell(options = {}) {
   const newChatButton = button("New chat", "New chat with agent_b", "chat-list-new");
   const newChatMenu = node("div", "shell-menu shell-new-menu");
   newChatMenu.hidden = true;
-  const menuAnchors = new WeakMap();
+  const menuControllers = new WeakMap();
+  menuControllers.set(newChatMenu, registerMenu(newChatMenu, { anchor: newChatButton }));
   let chatTree = { folders: [], chats: [] };
   let chatTreeLoaded = false;
   let chatTreeRefresh = null;
@@ -79,6 +81,7 @@ export function initShell(options = {}) {
   connectionMenu.hidden = true;
   sessionHeading.setAttribute("aria-haspopup", "menu");
   sessionHeading.setAttribute("aria-expanded", "false");
+  menuControllers.set(connectionMenu, registerMenu(connectionMenu, { anchor: sessionHeading, onClose: () => sessionHeading.setAttribute("aria-expanded", "false") }));
   sessionHeading.onclick = () => {
     if (connectionMenu.hidden) {
       renderConnectionMenu();
@@ -117,34 +120,16 @@ export function initShell(options = {}) {
   const sessionLamp = node("span", "shell-session-lamp");
   right.append(sessionLamp, sessionHeading, connectionMenu, settings, windowControls);
   root.append(left, right);
-  document.addEventListener("click", (event) => {
-    for (const menu of document.querySelectorAll(".shell-menu")) {
-      const anchor = menuAnchors.get(menu);
-      if (!menu.hidden && !menu.contains(event.target) && !anchor?.contains(event.target)) menu.hidden = true;
-    }
-  });
   // Item 2gh: Escape dismisses the open menu and the arrow keys move through
   // its entries. Measured before the change, Escape did nothing and no key
   // reached the entries, although each one was already a focusable button.
   // Focus is not taken when the menu opens — that would move the operator's
   // focus for a menu he may only be reading — it is taken on the first arrow.
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" && event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    if (event.key === "Escape" && page !== "chat") { event.preventDefault(); returnToChat(); return; }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     const menu = [...document.querySelectorAll(".shell-menu")].find((value) => !value.hidden);
-    if (!menu) {
-		if (event.key === "Escape" && page !== "chat") {
-			// Item 2ni (c): the same close the gear performs, so there is one way
-			// back rather than 2gf's separate stand-in route.
-			event.preventDefault();
-			returnToChat();
-		}
-		return;
-	}
-    if (event.key === "Escape") {
-      menu.hidden = true;
-      event.preventDefault();
-      return;
-    }
+    if (!menu) return;
     const rows = [...menu.querySelectorAll("button, a")].filter((row) => !row.disabled);
     if (!rows.length) return;
     const index = rows.indexOf(document.activeElement);
@@ -265,6 +250,7 @@ export function initShell(options = {}) {
 
   function renderChatPanel() {
     if (page !== "chat") return;
+    const openMenuSession = chatList.querySelector(".chat-list-row-menu:not([hidden])")?.closest(".chat-list-row")?.dataset.session;
     const configured = configuredAgent(store.sessions[store.selection.session_id]);
     const hasD = !!String(configured?.d || "").trim();
     setAttr(newChatButton, "title", hasD ? "New chat or plan" : "New chat with agent_b");
@@ -317,6 +303,7 @@ export function initShell(options = {}) {
       };
       const more = button("⋮", `${chatName(session)} menu`, "chat-list-more");
       const menu = node("div", "shell-menu chat-list-row-menu"); menu.hidden = true;
+      menuControllers.set(menu, registerMenu(menu, { anchor: more }));
       more.onclick = (event) => {
         event.stopPropagation();
         for (const open of chatList.querySelectorAll(".chat-list-row-menu")) if (open !== menu) open.hidden = true;
@@ -325,6 +312,7 @@ export function initShell(options = {}) {
         const pin = button(labels[0], labels[0], "chat-list-menu-action"); pin.onclick = () => void act({ action: "pin", id: session.id, pinned: !meta.pinned });
         const rename = button(labels[1], labels[1], "chat-list-menu-action"); rename.onclick = () => { menu.hidden = true; showRename(row, session); };
         const move = button(labels[2], labels[2], "chat-list-menu-action");
+        move.dataset.menuReveal = "";
         move.onclick = () => {
           let choices = menu.querySelector(".chat-list-move-choices");
           if (choices) return void choices.remove();
@@ -336,6 +324,7 @@ export function initShell(options = {}) {
         menu.append(pin, rename, move, remove); menu.hidden = false; revealMenu(menu, more);
       };
       row.append(state, name, more, menu); parent.append(row);
+      if (session.id === openMenuSession) more.click();
     };
     if (arranged.pinned.length) { const group = node("section", "chat-list-group pinned"); const heading = node("strong", "chat-list-group-name"); heading.textContent = "Pinned"; group.append(heading); arranged.pinned.forEach((chat) => renderRow(chat, group)); chatList.prepend(group); }
     for (const group of arranged.folders) { const target = folderTargets.get(group.path); group.chats.forEach((chat) => renderRow(chat, target)); }
@@ -402,9 +391,7 @@ export function initShell(options = {}) {
   // to the left of the pointer, because it was placed at the tab. It is still
   // clamped into the window, which the edge measurement confirms.
   function revealMenu(menu, anchor, point = null) {
-    for (const open of document.querySelectorAll(".shell-menu")) if (open !== menu) open.hidden = true;
-    menuAnchors.set(menu, anchor);
-    menu.hidden = false;
+    menuControllers.get(menu)?.open();
     const anchorRect = anchor.getBoundingClientRect();
     const menuRect = menu.getBoundingClientRect();
     const left = point ? point.x : anchorRect.left;

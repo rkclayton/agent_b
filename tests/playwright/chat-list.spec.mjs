@@ -61,6 +61,29 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await expect(page.locator('.chat-list-row[data-session="p1"] .chat-list-state')).toHaveClass(/running/);
   await expect(page.locator('.chat-list-row[data-session="p2"] .chat-list-state')).toHaveClass(/running/);
   await expect(page.locator('.chat-list-row[data-session="f1"] .chat-list-state')).toHaveClass(/running/);
+  const menuCases = async (opener, menu, other, otherMenu) => {
+    await page.locator(opener).click();
+    const blocked = await page.locator(menu).evaluate((open) => [...document.querySelectorAll("button,input,textarea,select,summary")].filter((control) => {
+      const box = control.getBoundingClientRect(), menuBox = open.getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
+      const style = getComputedStyle(control);
+      return control.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && !control.disabled && style.display !== "none" && style.visibility !== "hidden" && x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight && !open.contains(control) && !(x >= menuBox.left && x <= menuBox.right && y >= menuBox.top && y <= menuBox.bottom) && !control.contains(document.elementFromPoint(x, y));
+    }).map((control) => control.id || control.className || control.tagName));
+    expect(blocked, `${menu} blocked outside control centres: ${blocked.join(", ")}`).toEqual([]);
+    await page.mouse.click(1000, 400); await expect(page.locator(menu)).toBeHidden();
+    await page.locator(opener).click(); await page.locator("#chat-task").click(); await expect(page.locator(menu)).toBeHidden(); await expect(page.locator("#chat-task")).toBeFocused();
+    await page.locator(opener).click(); await page.keyboard.press("Escape"); await expect(page.locator(menu)).toBeHidden();
+    await page.locator(opener).click(); await page.locator(other).click(); await expect(page.locator(menu)).toBeHidden(); await expect(page.locator(otherMenu)).toBeVisible(); await page.keyboard.press("Escape");
+  };
+  for (const row of [
+    [".chat-list-new", ".shell-new-menu", "#chat-attach", ".chat-attach-menu"],
+    [".shell-session-title", ".shell-connection-menu", "#chat-attach", ".chat-attach-menu"],
+    ['.chat-list-row[data-session="root"] .chat-list-more', '.chat-list-row[data-session="root"] .chat-list-row-menu', "#chat-attach", ".chat-attach-menu"],
+    ["#chat-attach", ".chat-attach-menu", ".shell-session-title", ".shell-connection-menu"],
+  ]) await menuCases(...row);
+  await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
+  await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.reduce({ type: "snapshot", data: { ...bus.store, build: {} } }); });
+  await expect(page.locator('.chat-list-row[data-session="root"] .chat-list-row-menu')).toBeVisible();
+  await page.keyboard.press("Escape");
   await page.screenshot({ path: join(evidence, "2qz-panel-default.png") });
   await page.screenshot({ path: join(evidence, "2qz-three-running.png") });
   await page.locator('.chat-list-folder[data-folder="Work"] > summary').click();

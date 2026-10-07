@@ -14,6 +14,7 @@ import { setWaitProgress, waitElement } from "./wait.js";
 import { agentKey } from "./panel-lifetime.js";
 import { mountPanels, unmountPanels } from "./app.js";
 import { mountPlan, unmountPlan } from "./plan.js";
+import { registerMenu } from "./menu-behavior.js";
 
 const sheet = document.getElementById("settings-page");
 let gear;
@@ -125,13 +126,6 @@ export function initSettings(entry = {}) {
     }
   });
   sheet.addEventListener("click", click);
-  // Item 2l4 (c): a click outside cancels. The popover and the control that raised
-  // it are the only places a click means something else.
-  sheet.addEventListener("pointerdown", (event) => {
-    if (!confirmPending) return;
-    if (event.target.closest(".confirm-popover") || event.target.closest("[data-action]")) return;
-    cancelConfirmation();
-  }, true);
   sheet.addEventListener("focusout", blur);
   sheet.addEventListener("change", change);
   sheet.addEventListener("toggle", (event) => {
@@ -412,6 +406,7 @@ function placeConfirmPopover() {
   const control = sheet.querySelector(selector);
   const scroller = sheet.querySelector(".settings-content");
   if (!control || !scroller) return;
+  registerMenu(popover, { anchor: control, onClose: cancelConfirmation });
   const box = control.getBoundingClientRect();
   const host = scroller.getBoundingClientRect();
   const top = box.bottom - host.top + scroller.scrollTop + 6;

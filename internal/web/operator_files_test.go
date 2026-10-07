@@ -62,7 +62,7 @@ func TestOperatorAttachmentSourceListsAndReadsFiles(t *testing.T) {
 	}
 	listed := httptest.NewRecorder()
 	server.operatorAttachments(listed, httptest.NewRequest(http.MethodGet, "/api/operator-attachments", nil))
-	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), `"path":"note.txt"`) {
+	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), `"path":"note.txt"`) || !strings.Contains(listed.Body.String(), `"folder":`) {
 		t.Fatalf("listed=%d body=%s", listed.Code, listed.Body.String())
 	}
 	read := httptest.NewRecorder()

@@ -18,7 +18,7 @@ export async function exchangeFiles(options = {}) {
   const response = await (options.fetchImpl || fetch)("/api/operator-attachments", { cache: "no-store" });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-  return data.files || [];
+  return { folder: data.folder || "", files: data.files || [] };
 }
 
 export async function exchangeUpload(item, sessionID, options = {}) {

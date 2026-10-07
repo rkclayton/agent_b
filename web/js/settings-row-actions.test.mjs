@@ -86,6 +86,6 @@ test("confirmation is one small anchored popover that cancels cleanly", () => {
   assert.match(settings, /data-action="confirm-cancel"/);
   assert.match(settings, /data-action="confirm-proceed"/);
   assert.match(settings, /if \(event\.key === "Escape" && open && confirmPending\) \{ cancelConfirmation\(\); return; \}/);
-  assert.match(settings, /sheet\.addEventListener\("pointerdown"/, "a click outside does not cancel");
+  assert.match(settings, /registerMenu\(popover, \{ anchor: control, onClose: cancelConfirmation \}\)/, "a click outside does not use the shared cancel behavior");
   assert.match(settings, /function cancelConfirmation\(\) \{[\s\S]{0,160}armed\.clear\(\);/, "cancel does not leave things as they were");
 });

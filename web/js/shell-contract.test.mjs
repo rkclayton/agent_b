@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { registerMenu } from "./menu-behavior.js";
 
 const shell = await readFile(new URL("./shell.js", import.meta.url), "utf8");
 const chat = await readFile(new URL("./chat.js", import.meta.url), "utf8");
@@ -14,6 +15,39 @@ const chatCSS = await readFile(new URL("../css/chat.css", import.meta.url), "utf
 // it is a Settings section now, drawn in this document beside the two panels
 // Settings already adopts, so there is one page to hold the contract.
 const pages = await Promise.all(["index.html"].map(async (name) => [name, await readFile(new URL(`../${name}`, import.meta.url), "utf8")]));
+
+class MenuRoot extends EventTarget {
+  click(target) { const event = new Event("click"); Object.defineProperty(event, "target", { value: target }); this.dispatchEvent(event); }
+  key(key) { const event = new Event("keydown", { cancelable: true }); Object.defineProperty(event, "key", { value: key }); this.dispatchEvent(event); }
+}
+const menuNode = (parent = null, tag = "div", keep = false) => ({
+  parent, tag, keep, hidden: false, isConnected: true,
+  contains(target) { for (let at = target; at; at = at.parent) if (at === this) return true; return false; },
+  closest(selector) { if (selector === "[data-menu-reveal]") return this.keep ? this : this.parent?.closest?.(selector); if (selector === "button, a") return ["button", "a"].includes(this.tag) ? this : this.parent?.closest?.(selector); return null; },
+});
+
+test("one registered menu owns outside click, action click, Escape, another menu, entries and redraws", () => {
+  const root = new MenuRoot(), anchor = menuNode(), menu = menuNode(), empty = menuNode(), control = menuNode();
+  menu.hidden = true;
+  const first = registerMenu(menu, { anchor, root });
+  first.open(); root.click(empty); assert.equal(menu.hidden, true);
+  let acted = 0; first.open(); acted++; root.click(control); assert.equal(menu.hidden, true); assert.equal(acted, 1);
+  first.open(); root.key("Escape"); assert.equal(menu.hidden, true);
+  const otherMenu = menuNode(); otherMenu.hidden = true; const other = registerMenu(otherMenu, { anchor: menuNode(), root });
+  first.open(); other.open(); assert.equal(menu.hidden, true); assert.equal(otherMenu.hidden, false);
+  first.open(); root.click(menuNode(menu, "button")); assert.equal(menu.hidden, true);
+  first.open(); root.click(menuNode(menu, "button", true)); assert.equal(menu.hidden, false);
+  const redraw = () => acted++; redraw(); assert.equal(menu.hidden, false); assert.equal(acted, 2);
+});
+
+test("every product menu registers the one shared behavior", () => {
+  assert.match(shell, /registerMenu\(newChatMenu/);
+  assert.match(shell, /registerMenu\(connectionMenu/);
+  assert.match(shell, /registerMenu\(menu, \{ anchor: more/);
+  assert.match(chat, /registerMenu\(attachMenu/);
+  assert.match(settings, /registerMenu\(popover/);
+  assert.match(shell, /openMenuSession[\s\S]*session\.id === openMenuSession/);
+});
 
 test("shared shell slot order is identical on the chat and Plan", () => {
   for (const [name, html] of pages) {

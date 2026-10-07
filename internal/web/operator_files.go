@@ -53,7 +53,7 @@ func (s *Server) operatorAttachments(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(files, func(i, j int) bool { return strings.ToLower(files[i].Path) < strings.ToLower(files[j].Path) })
-	writeJSON(w, http.StatusOK, map[string]any{"files": files})
+	writeJSON(w, http.StatusOK, map[string]any{"folder": root, "files": files})
 }
 
 func (s *Server) operatorFileState(w http.ResponseWriter, r *http.Request) {

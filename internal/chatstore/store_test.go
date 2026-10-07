@@ -3,6 +3,7 @@ package chatstore
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -44,6 +45,54 @@ func TestWatchRescansExplorerMoveByIdentity(t *testing.T) {
 		case <-deadline:
 			t.Fatal("move was not rescanned by identity")
 		}
+	}
+}
+
+func TestWatchCoalescesBurstAndStillNoticesOneChange(t *testing.T) {
+	store := New(filepath.Join(t.TempDir(), "chats"))
+	changes := make(chan []Entry, 8)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = store.Watch(ctx, func(entries []Entry) { changes <- entries }) }()
+	select {
+	case <-changes:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial scan timed out")
+	}
+	started := time.Now()
+	var first string
+	for index := 0; index < 45; index++ {
+		path, err := store.Create(fmt.Sprintf("burst-%02d", index), fmt.Sprintf("Burst %02d", index), time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if index == 0 {
+			first = filepath.Join(path, "chat.json")
+		}
+	}
+	if time.Since(started) >= time.Second {
+		t.Fatalf("fixture did not produce its burst within one second: %v", time.Since(started))
+	}
+	select {
+	case entries := <-changes:
+		if len(entries) != 45 {
+			t.Fatalf("burst scan saw %d chats, want 45", len(entries))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("burst scan timed out")
+	}
+	select {
+	case <-changes:
+		t.Fatal("45 writes caused more than one rescan")
+	case <-time.After(500 * time.Millisecond):
+	}
+	if err := os.Chtimes(first, time.Now(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changes:
+	case <-time.After(2 * time.Second):
+		t.Fatal("one changed file was not noticed within the existing two-second bound")
 	}
 }
 

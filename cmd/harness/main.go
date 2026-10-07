@@ -51,6 +51,12 @@ import (
 )
 
 func main() {
+	if setupExecutable(os.Args[0]) {
+		if err := validateSetupArguments(os.Args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+	}
 	if err := startupElevationError(processIsElevated() && !allUsersInstallRequested(os.Args[0], os.Args[1:])); err != nil {
 		log.Fatal(err)
 	}

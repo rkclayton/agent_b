@@ -114,10 +114,12 @@ function Test-AgentBSuitePathWithin {
 function Assert-AgentBSuiteLaunch {
     [CmdletBinding()]
     param(
+        [string]$Step = 'suite launch',
         [Parameter(Mandatory)][string]$ApplicationRoot,
         [Parameter(Mandatory)][string]$DataRoot,
         [Parameter(Mandatory)][string[]]$SuiteRoots,
         [int[]]$SignalProcessIds = @(),
+        [string[]]$WritePaths = @(),
         [scriptblock]$Action
     )
     $canonicalApplication = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\Agent_b'
@@ -129,16 +131,23 @@ function Assert-AgentBSuiteLaunch {
         $full = [IO.Path]::GetFullPath($entry.path).TrimEnd('\')
         $canonical = [IO.Path]::GetFullPath($entry.canonical).TrimEnd('\')
         if ($full.Equals($canonical, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "SUITE LAUNCH REFUSED: $($entry.label) root is the canonical production root $full"
+            throw "SUITE LAUNCH REFUSED: $Step asked for the canonical production $($entry.label) root $full"
         }
         if (-not (Test-AgentBSuitePathWithin -Path $full -Roots $SuiteRoots)) {
-            throw "SUITE LAUNCH REFUSED: $($entry.label) root is outside the suite roots: $full"
+            throw "SUITE LAUNCH REFUSED: $Step asked for a $($entry.label) root outside the suite roots: $full"
+        }
+    }
+    foreach ($path in $WritePaths) {
+        $full = [IO.Path]::GetFullPath($path).TrimEnd('\')
+        if ((Test-AgentBSuitePathWithin -Path $full -Roots @($canonicalApplication, $canonicalData)) -or
+            -not (Test-AgentBSuitePathWithin -Path $full -Roots $SuiteRoots)) {
+            throw "SUITE LAUNCH REFUSED: $Step asked to write outside the suite roots: $full"
         }
     }
     foreach ($id in $SignalProcessIds) {
         $process = Get-Process -Id $id -ErrorAction Stop
         if (-not $process.Path -or -not (Test-AgentBSuitePathWithin -Path $process.Path -Roots $SuiteRoots)) {
-            throw "SUITE LAUNCH REFUSED: PID $id is outside the suite roots"
+            throw "SUITE LAUNCH REFUSED: $Step asked to signal PID $id outside the suite roots"
         }
     }
     if ($Action) { & $Action }

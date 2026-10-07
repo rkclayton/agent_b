@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -49,19 +50,32 @@ func (s *Store) Watch(ctx context.Context, changed func([]Entry)) error {
 		return nil
 	}
 	if err := rescan(); err != nil { return err }
+	timer := time.NewTimer(time.Hour)
+	if !timer.Stop() { <-timer.C }
+	defer timer.Stop()
+	pending := false
+	pendingReason := ""
+	schedule := func(reason string) {
+		pendingReason = reason
+		if pending && !timer.Stop() { select { case <-timer.C: default: } }
+		pending = true
+		timer.Reset(250 * time.Millisecond)
+	}
 	for {
 		select {
 		case <-ctx.Done(): return nil
 		case event, ok := <-w.Events:
 			if !ok { return nil }
-			log.Printf("chat tree changed: %s %s; full rescan", event.Op, event.Name)
-			if err := rescan(); err != nil { log.Printf("chat tree rescan: %v", err) }
+			schedule(event.Op.String() + " " + event.Name)
 		case watchErr, ok := <-w.Errors:
 			if !ok { return nil }
 			if errors.Is(watchErr, fsnotify.ErrEventOverflow) {
-				log.Printf("chat tree watcher overflow; full rescan")
-				if err := rescan(); err != nil { log.Printf("chat tree rescan: %v", err) }
+				schedule("watcher overflow")
 			} else { log.Printf("chat tree watcher: %v", watchErr) }
+		case <-timer.C:
+			pending = false
+			log.Printf("chat tree changed: %s; full rescan", pendingReason)
+			if err := rescan(); err != nil { log.Printf("chat tree rescan: %v", err) }
 		}
 	}
 }

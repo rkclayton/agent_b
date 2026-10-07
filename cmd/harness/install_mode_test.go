@@ -303,6 +303,21 @@ func TestInstallArgumentsSplitByWhoOwnsThem(t *testing.T) {
 	}
 }
 
+func TestSetupArgumentsRefuseUnknownOptions(t *testing.T) {
+	for _, argument := range []string{"--version", "--help", "--made-up"} {
+		err := validateSetupArguments([]string{argument})
+		if err == nil || !strings.Contains(err.Error(), argument) {
+			t.Fatalf("%s must be refused by name before setup acts: %v", argument, err)
+		}
+	}
+	if err := validateSetupArguments(nil); err != nil {
+		t.Fatalf("double-click setup remains valid: %v", err)
+	}
+	if err := validateSetupArguments([]string{"--quiet", "--install-data", `C:\suite\data`, "-NoStart", "-ApplicationDirectory", `C:\suite\app`, "-TestMode"}); err != nil {
+		t.Fatalf("known setup arguments were refused: %v", err)
+	}
+}
+
 func TestInstallLaunchPathsComeFromInstallerArguments(t *testing.T) {
 	arguments := []string{"-ApplicationDirectory", `C:\Program Files\Agent_b test`, `-DataDirectory=C:\Agent_b data`}
 	if got := installerArgument(arguments, "applicationdirectory", "fallback"); got != `C:\Program Files\Agent_b test` {

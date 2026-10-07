@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // Item 2gl (v1.2.0/W2): splitting this process's flags from the installer's.
 //
@@ -34,6 +37,41 @@ var installModeFlags = map[string]bool{
 	"uninstall": true, "uninstall-worker": true, "uninstall-parent": true, "purge-data": true,
 	"uninstall-registry-path": true, "start-menu-root": true, "send-to-root": true,
 	"service-helper": true, "service-result": true,
+}
+
+var setupArguments = map[string]bool{
+	"install": false, "quiet": false, "install-source": true, "install-data": true,
+	"all-users": false, "reopen-session": true, "NoStart": false,
+	"SourceDirectory": true, "ApplicationDirectory": true, "DataDirectory": true,
+	"WorkspaceDirectory": true, "StartMenuDirectory": true, "SendToDirectory": true,
+	"UninstallRegistryPath": true, "OperatorSid": true, "OperatorLocalAppData": true,
+	"SeedConfiguration": true, "SigningThumbprint": true, "RegistrationSearchRoots": true,
+	"AlternateBinaryRoots": true, "LegacyApplicationDirectory": true, "EmbeddedBundle": false,
+	"TestMode": false, "RootValidationOnly": false, "ForcePostStopVerificationFailure": false,
+	"TranscriptPath": true, "ProgressFile": true, "WhatIf": false,
+}
+
+// validateSetupArguments runs before setup extracts, logs, or resolves roots.
+func validateSetupArguments(arguments []string) error {
+	known := make(map[string]bool, len(setupArguments))
+	for name, value := range setupArguments {
+		known[strings.ToLower(name)] = value
+	}
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
+		name := strings.ToLower(flagName(argument))
+		takesArgument, ok := known[name]
+		if !ok || name == "version" || name == "help" {
+			return fmt.Errorf("setup argument %q is not recognized; nothing was installed", argument)
+		}
+		if takesArgument && !strings.Contains(argument, "=") {
+			if index+1 >= len(arguments) {
+				return fmt.Errorf("setup argument %q needs a value; nothing was installed", argument)
+			}
+			index++
+		}
+	}
+	return nil
 }
 
 // flagName reads the name out of -name, --name or --name=value; it returns ""

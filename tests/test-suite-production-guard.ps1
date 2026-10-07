@@ -16,6 +16,24 @@ try {
 }
 if ($launched) { throw 'suite launch guard started the planted canonical process' }
 
+foreach ($operation in @('stop', 'close', 'restart')) {
+    $acted = $false; try {
+        Assert-AgentBSuiteLaunch -Step "planted $operation" -ApplicationRoot (Join-Path $env:TEMP 'suite-app') `
+            -DataRoot (Join-Path $env:TEMP 'suite-data') -SuiteRoots @($env:TEMP) -SignalProcessIds @($PID) `
+            -Action { $script:acted = $true }
+        throw "suite launch guard accepted planted $operation"
+    } catch { if ($_.Exception.Message -notmatch "SUITE LAUNCH REFUSED: planted $operation") { throw } }
+    if ($acted) { throw "suite launch guard performed planted $operation" }
+}
+
+$wrote = $false; try {
+    Assert-AgentBSuiteLaunch -Step 'planted write' -ApplicationRoot (Join-Path $env:TEMP 'suite-app') `
+        -DataRoot (Join-Path $env:TEMP 'suite-data') -SuiteRoots @($env:TEMP) `
+        -WritePaths @((Join-Path $env:LOCALAPPDATA 'Agent_b\chats\planted')) -Action { $script:wrote = $true }
+    throw 'suite launch guard accepted planted write'
+} catch { if ($_.Exception.Message -notmatch 'SUITE LAUNCH REFUSED: planted write') { throw } }
+if ($wrote) { throw 'suite launch guard performed planted write' }
+
 $coverageCaught = $false
 try { Assert-AgentBSuiteLaunchCoverage -Text 'Start-Process -FilePath $setup -ArgumentList $args' -Label 'planted bypass' }
 catch { if ($_.Exception.Message -match 'SUITE LAUNCH COVERAGE REFUSED') { $coverageCaught = $true } else { throw } }

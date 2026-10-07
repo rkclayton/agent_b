@@ -2,6 +2,7 @@ package events
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -195,10 +196,14 @@ func (w *Writers) ReadChatHistory(sessionID, query string, offset, limit int) (C
 	}
 	defer file.Close()
 	result := ChatHistoryResult{Entries: []Message{}}
-	needle := strings.ToLower(strings.TrimSpace(query))
+	rawNeedle := strings.TrimSpace(query)
+	needle := strings.ToLower(rawNeedle)
+	exactNeedle := []byte(rawNeedle)
 	encodedNeedle := needle
-	if encoded, marshalErr := json.Marshal(strings.TrimSpace(query)); marshalErr == nil && len(encoded) >= 2 {
-		encodedNeedle = strings.ToLower(string(encoded[1 : len(encoded)-1]))
+	exactEncodedNeedle := exactNeedle
+	if encoded, marshalErr := json.Marshal(rawNeedle); marshalErr == nil && len(encoded) >= 2 {
+		exactEncodedNeedle = encoded[1 : len(encoded)-1]
+		encodedNeedle = strings.ToLower(string(exactEncodedNeedle))
 	}
 	reader := bufio.NewReaderSize(file, 64*1024)
 	matched := 0
@@ -208,11 +213,15 @@ func (w *Writers) ReadChatHistory(sessionID, query string, offset, limit int) (C
 		if len(line) > result.PeakRecordBytes {
 			result.PeakRecordBytes = len(line)
 		}
-		lowerLine := ""
-		if len(line) > 0 && needle != "" {
-			lowerLine = strings.ToLower(string(line))
+		matchesQuery := needle == ""
+		if len(line) > 0 && !matchesQuery {
+			matchesQuery = bytes.Contains(line, exactNeedle) || bytes.Contains(line, exactEncodedNeedle)
+			if !matchesQuery {
+				lowerLine := strings.ToLower(string(line))
+				matchesQuery = strings.Contains(lowerLine, needle) || strings.Contains(lowerLine, encodedNeedle)
+			}
 		}
-		if len(line) > 0 && (needle == "" || strings.Contains(lowerLine, needle) || strings.Contains(lowerLine, encodedNeedle)) {
+		if len(line) > 0 && matchesQuery {
 			var event Event
 			if err := json.Unmarshal(line, &event); err != nil {
 				return ChatHistoryResult{}, fmt.Errorf("read chat history: %w", err)

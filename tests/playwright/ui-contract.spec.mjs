@@ -114,7 +114,7 @@ test("the Plan header carries the artwork and three lines about planning", async
   // 21 physical pixels while every screenshot captures it at 12. Each member is
   // prepared from the full-detail mark rather than reduced from the one above it,
   // and each must resolve as a real image at its own size.
-  const assets = ["plan-mark-nav.png", "acme", "someone@example.org", "plan-mark.png"];
+  const assets = ["plan-mark-nav.png", "plan-mark-nav@2x.png", "plan-mark-nav@3x.png", "plan-mark.png"];
   const encoded = await Promise.all(assets.map(async (name) =>
     (await readFile(new URL(`../../web/assets/${name}`, import.meta.url))).toString("base64")));
   await page.setContent(encoded.map((data, index) => `<img id="a${index}" src="data:image/png;base64,${data}">`).join(""));

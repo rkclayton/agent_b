@@ -72,16 +72,20 @@ function generalFindings(name, line, lineNumber) {
 
 export function scanTextEntries(entries, terms = []) {
   const findings = [];
-  for (const { name, text } of entries) {
+  const scan = (reportedName, sourceName, text) => {
     String(text).split(/\r?\n/).forEach((line, index) => {
       const lower = line.toLowerCase();
       for (const { term, listLine } of terms) {
         for (let at = lower.indexOf(term); at >= 0; at = lower.indexOf(term, at + Math.max(1, term.length))) {
-          if (termOccursAt(lower, term, at) && !publicOccurrence(name, line, at, term.length)) findings.push({ name, line: index + 1, rule: "outside-list", listLine });
+          if (termOccursAt(lower, term, at) && !publicOccurrence(sourceName, line, at, term.length)) findings.push({ name: reportedName, line: index + 1, rule: "outside-list", listLine });
         }
       }
-      findings.push(...generalFindings(name, line, index + 1));
+      findings.push(...generalFindings(reportedName, line, index + 1));
     });
+  };
+  for (const { name, text } of entries) {
+    scan("path-name", name, name);
+    scan(name, name, text);
   }
   return findings;
 }

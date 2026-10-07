@@ -1289,7 +1289,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
     $staleTree = Join-Path $testRoot 'stale-candidate'
     Copy-TrackedTree -Source $repositoryRoot -Destination $staleTree
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'candidate-final.json') -Destination (Join-Path $staleTree 'candidate-final.json')
-    $staleCommit = [string](& git -C $repositoryRoot rev-parse 8b03cf0 | Select-Object -First 1)
+    $staleCommit = [string](& git -C $repositoryRoot rev-parse 'HEAD^' | Select-Object -First 1)
     $buildGo = @((Join-Path $repositoryRoot '.tools\go\bin\go.exe'), 'C:\Go\bin\go.exe') | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
     if (-not $buildGo) { throw 'The stale-exe scenario needs Go to build its stale exe.' }
     Push-Location $repositoryRoot

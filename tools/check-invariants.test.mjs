@@ -33,6 +33,16 @@ test("the privacy gate catches each general class without returning the planted 
   assert.doesNotMatch(JSON.stringify(findings), new RegExp(planted.map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "i"));
 });
 
+test("the privacy gate catches a planted path name without returning it", () => {
+  const planted = ["guarded", "path", "term"].join("-");
+  const findings = scanTextEntries(
+    [{ name: `fixtures/${planted}/clean.txt`, text: "clean" }],
+    [{ term: planted, listLine: 1 }],
+  );
+  assert.deepEqual(findings.map(({ name, rule }) => ({ name, rule })), [{ name: "path-name", rule: "outside-list" }]);
+  assert.doesNotMatch(JSON.stringify(findings), new RegExp(planted, "i"));
+});
+
 test("the privacy gate admits only the documented stand-ins", () => {
   const text = "acme\\project\nsomeone@example.org\n192.168.1.10\n100.64.0.10\n";
   assert.deepEqual(scanTextEntries([{ name: "fixture.txt", text }]), []);

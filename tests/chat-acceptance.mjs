@@ -1052,8 +1052,7 @@ if (realModel) {
     display: emptyStateIllustration.display,
     image_width: emptyStateIllustration.image_width,
     image_height: emptyStateIllustration.image_height,
-    image_margin: emptyStateIllustration.image_margin,
-  }, { position: "absolute", inset: "0px", display: "grid", image_width: "96px", image_height: "96px", image_margin: "0px" });
+  }, { position: "absolute", inset: "0px", display: "grid", image_width: "96px", image_height: "96px" });
   assert.ok(emptyStateIllustration.container_width > 96, JSON.stringify(emptyStateIllustration));
   assert.ok(Math.abs(emptyStateIllustration.image_horizontal_center_delta) <= 0.5, JSON.stringify(emptyStateIllustration));
   shellStyleBoundaryEvidence = { removed_subject: "tab robot", empty_state_illustration: emptyStateIllustration };
@@ -2457,7 +2456,7 @@ if (realModel) {
   const stateBeforeReopen = await state();
   const otherOpen = Object.values(stateBeforeReopen.sessions).filter((session) => session.id !== idleCloseID && !session.closed).map((session) => session.id);
   await closedRow.locator(".chat-list-name").click();
-  await closedRow.waitFor({ state: "visible" });
+  await page.waitForFunction((id) => document.querySelector(".chat-list-row.selected")?.dataset.session === id, idleCloseID);
   assert.equal((await state()).sessions[idleCloseID]?.closed, false, "closed row click must reopen the chat");
   assert.equal(await page.locator(".chat-list-row.selected").getAttribute("data-session"), idleCloseID);
   const stateAfterReopen = await state();

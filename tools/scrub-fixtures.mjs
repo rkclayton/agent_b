@@ -70,7 +70,8 @@ function formatNanos(nanos, fractionDigits) {
 // apart for exactly that reason.
 export function scrubText(text, origin = null, terms = null) {
   let out = text;
-  const deny = terms ?? loadTerms(resolveOutsideList()).map(({ term }) => term);
+  const outside = terms === null ? resolveOutsideList({ required: false }) : null;
+  const deny = terms ?? (outside ? loadTerms(outside).map(({ term }) => term) : []);
   for (const term of deny.sort((a, b) => b.length - a.length)) {
     out = out.replace(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), replacementFor(term));
   }

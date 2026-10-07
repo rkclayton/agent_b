@@ -181,10 +181,13 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await page.locator('.settings-nav [data-id="agents"]').click();
   await expect(page.locator("#panel-roles")).toBeVisible();
   // Any connection but the one being removed.
-  const other = await page.locator('#panel-roles select[data-role="b"] option').evaluateAll((options, connection) =>
-    options.map((option) => option.value).find((value) => value && value !== connection), id);
-  await page.locator('#panel-roles select[data-role="b"]').selectOption(other);
-  await expect(page.locator('#panel-roles select[data-role="b"]')).toHaveValue(other);
+  const role = page.locator('#panel-roles select[data-role="b"]');
+  const otherValue = () => role.locator("option").evaluateAll((options, connection) =>
+    options.map((option) => option.value).find((value) => value && value !== connection) || "", id);
+  await expect.poll(otherValue, { message: "alternate B-role connection option exists", timeout: 5000 }).not.toBe("");
+  const other = await otherValue();
+  await role.selectOption(other);
+  await expect(role).toHaveValue(other);
   await page.waitForTimeout(1200);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator(`.connection-row [data-action="remove-connection"][data-id="${id}"]`).click();

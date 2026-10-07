@@ -244,9 +244,17 @@ func TestFlushMemoryNamesAndClearsAgentAndWorkspaceLayers(t *testing.T) {
 // (the run stops, the chat closes, it is deleted), and afterwards the planted words
 // are nowhere under the data root, while the memory note the chat made is kept.
 func TestDeleteDeletesOpenAndRunningChatsAndLeavesNoCopy2py(t *testing.T) {
+	modelRequestStarted := make(chan struct{})
+	modelRequestDone := make(chan struct{})
+	modelRequestRelease := make(chan struct{})
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/chat/completions" {
-			<-r.Context().Done() // the run is mid-flight until Delete stops it
+			close(modelRequestStarted)
+			defer close(modelRequestDone)
+			select {
+			case <-r.Context().Done():
+			case <-modelRequestRelease: // the fixture owns and drains its held response
+			}
 			return
 		}
 		fmt.Fprint(w, `{"data":[{"id":"test-model"}]}`)
@@ -291,8 +299,19 @@ func TestDeleteDeletesOpenAndRunningChatsAndLeavesNoCopy2py(t *testing.T) {
 			t.Fatal("the run never started")
 		}
 	}
+	select {
+	case <-modelRequestStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the model request never opened")
+	}
 	if response := deleteConsole(t, server, "/api/sessions/"+running.ID); response.Code != http.StatusOK {
 		t.Fatalf("running delete status=%d body=%s", response.Code, response.Body)
+	}
+	close(modelRequestRelease)
+	select {
+	case <-modelRequestDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the model request remained open after chat deletion")
 	}
 	for _, id := range []string{open.ID, running.ID} {
 		if _, ok := registry.Get(id); ok {

@@ -427,10 +427,16 @@ async function openPanel(section, sessionID) {
 // apparatus is actually laid out. Idle is the default state now, so every
 // measurement of the live-run wells goes through here.
 async function showRunDetail() {
-  await page.evaluate(() => document.querySelector(".panel-live-open")?.click());
   await browser.wait(
-    "!document.getElementById('panel-live-content')?.hidden && !!document.querySelector('.flow')?.offsetParent",
-    "Activity's run detail is open",
+    "document.getElementById('panel-live-state')?.textContent && (!!document.querySelector('.panel-live-open')?.offsetParent || document.querySelector('.flow')?.getBoundingClientRect().width > 96)",
+    "Activity run detail folded or laid out",
+    5000,
+  );
+  const open = page.locator(".panel-live-open");
+  if (await open.isVisible()) await open.click();
+  await browser.wait(
+    "!document.getElementById('panel-live-content')?.hidden && document.querySelector('.flow')?.getBoundingClientRect().width > 96",
+    "Activity run detail open and laid out",
     5000,
   );
 }
@@ -1044,12 +1050,16 @@ if (realModel) {
   // specified value, not the used one, so "margin: auto" never resolves to a
   // length and a measurement of it means nothing.
   await showRunDetail();
-  const emptyStateIllustration = await page.evaluate(() => {
+  await page.evaluate(() => {
     const flow = document.querySelector(".flow");
     const fixture = document.createElement("div");
-    fixture.className = "idle";
+    fixture.className = "idle"; fixture.dataset.acceptanceFixture = "idle-layout";
     fixture.innerHTML = '<img src="/static/assets/idle.svg" alt=""><p>fixture</p>';
     flow.append(fixture);
+  });
+  await browser.wait(`document.querySelector('[data-acceptance-fixture="idle-layout"]')?.getBoundingClientRect().width > 96`, "Activity empty-state fixture laid out", 5000);
+  const emptyStateIllustration = await page.evaluate(() => {
+    const fixture = document.querySelector('[data-acceptance-fixture="idle-layout"]');
     const fixtureStyle = getComputedStyle(fixture);
     const imageStyle = getComputedStyle(fixture.querySelector("img"));
     const fixtureRect = fixture.getBoundingClientRect();
@@ -1351,26 +1361,16 @@ if (realModel) {
   const collapseArrow = toolRoot.locator("button.collapse-arrow");
   await collapseArrow.waitFor({ state: "visible" });
   await captureWithMasks(page, join(baselineDirectory, "chat-mid-run.png"));
-  await toolRoot.evaluate((root) => { root.style.minHeight = "1200px"; });
-  await page.evaluate(() => {
-    const spacer = document.createElement("div");
-    spacer.dataset.acceptanceSpacer = "collapse-arrow";
-    spacer.style.height = "1200px";
-    document.querySelector("#chat-log")?.append(spacer);
-  });
+  await toolRoot.evaluate((root) => { root.style.minHeight = "1200px"; root.style.marginBottom = "1200px"; });
   const arrowBeforeScroll = await collapseArrow.boundingBox();
   assert.ok(arrowBeforeScroll, "collapse arrow must have a visible box after expansion");
-  await page.mouse.wheel(0, 600);
-  await page.waitForFunction(() => {
-    const node = document.querySelector('[data-entry-key*="menu-stream-0"] .collapse-arrow');
-    const log = document.querySelector('#chat-log');
-    if (!node || !log) return false;
-    return Math.abs(node.getBoundingClientRect().top - (log.getBoundingClientRect().top + Number.parseFloat(getComputedStyle(node).top))) < 2;
-  });
+  const scrollBeforePin = await page.evaluate(() => document.querySelector("#chat-log").scrollTop);
+  await page.evaluate(() => { document.querySelector("#chat-log").scrollTop += 600; });
+  await browser.wait(`(() => { const node = document.querySelector('[data-entry-key*="menu-stream-0"] .collapse-arrow'), log = document.querySelector('#chat-log'); return log?.scrollTop > ${scrollBeforePin} && Math.abs(node?.getBoundingClientRect().top - (log.getBoundingClientRect().top + Number.parseFloat(getComputedStyle(node).top))) < 2; })()`, "collapse arrow pinned after transcript scroll");
   const arrowPinned = await collapseArrow.boundingBox();
   // Item 2er: wait for the scroll to land rather than a fixed 50 ms.
   const scrollBeforeTrack = await page.evaluate(() => document.querySelector("#chat-log").scrollTop);
-  await page.mouse.wheel(0, 200);
+  await page.evaluate(() => { document.querySelector("#chat-log").scrollTop += 200; });
   await page.waitForFunction((before) => document.querySelector("#chat-log").scrollTop > before, scrollBeforeTrack);
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const arrowDuringScroll = await collapseArrow.boundingBox();
@@ -1391,11 +1391,7 @@ if (realModel) {
 		const log = document.querySelector("#chat-log");
 		if (log) log.scrollTop = log.scrollHeight;
 	});
-  await page.waitForFunction(() => {
-    const node = document.querySelector('[data-entry-key*="menu-stream-0"] .collapse-arrow');
-    const box = node?.getBoundingClientRect();
-    return !node || node.hidden || !box || box.bottom < 0 || box.top > innerHeight;
-  }, undefined, { timeout: 10000 }).catch(() => {});
+  await browser.wait(`(() => { const node = document.querySelector('[data-entry-key*="menu-stream-0"] .collapse-arrow'), box = node?.getBoundingClientRect(); return !node || node.hidden || !box || box.bottom < 0 || box.top > innerHeight; })()`, "collapse arrow left with its section", 10000);
   const arrowAfterSection = await collapseArrow.boundingBox();
   // Item 2gk (v1.3.0): this bound used to be the literal 975, which was the
   // viewport height of the day minus the band the readout occupied above the
@@ -1407,8 +1403,7 @@ if (realModel) {
   assert.ok(
     !arrowAfterSection || arrowAfterSection.y + arrowAfterSection.height < 0 || arrowAfterSection.y > viewportHeight,
     `collapse arrow must leave the viewport with its section: ${JSON.stringify({ arrowAfterSection, viewportHeight })}`);
-  await page.evaluate(() => document.querySelector('[data-acceptance-spacer="collapse-arrow"]')?.remove());
-  await toolRoot.evaluate((root) => { root.style.minHeight = ""; });
+  await toolRoot.evaluate((root) => { root.style.minHeight = ""; root.style.marginBottom = ""; });
   await toolButton.scrollIntoViewIfNeeded();
   await collapseArrow.evaluate((node) => node.click());
   await page.waitForFunction(() => document.querySelector('[data-entry-key*="menu-stream-0"] button.tool-tick')?.getAttribute("aria-expanded") === "false", undefined, { timeout: 10000 });
@@ -2152,7 +2147,8 @@ if (realModel) {
 
   events = await sessionEvents(sessionID);
   const beforeSlowAccounting = Math.max(0, ...events.map((event) => event.seq || 0));
-  await json(`${connectionURL}/arm-slow-accounting`, { method: "POST" });
+  slowAccountingArmed = true;
+  slowAccountingTrace.push({ action: "armed", at: Date.now() });
   await setTask(`acceptance: slow accounting ${"payload ".repeat(800)}`);
   const slowMessage = await waitEvent(sessionID, (event) => event.seq > beforeSlowAccounting && event.type === "message.appended" && event.data?.message?.content?.startsWith("acceptance: slow accounting"), "slow-accounting message", 12000);
   const slowRun = await waitEvent(sessionID, (event) => event.seq > slowMessage.seq && event.type === "run.started" && event.data?.user_message_id === slowMessage.data.message.id, "slow-accounting run", 12000);
@@ -2448,9 +2444,9 @@ if (realModel) {
   assert.ok(durable.plans > 0, JSON.stringify(durable));
   record("delete-removes-the-chat-and-keeps-what-it-produced");
   await page.setViewportSize({ width: 320, height: 975 });
-  // Forty chats is the realistic-size list for 2rv and exceeds the engineering floor.
+  // Fifty chats is the realistic-size list for 2rv and exceeds the engineering floor.
   const beforeLongList = await state();
-  for (let index = 0; index < 40; index++) {
+  for (let index = 0; index < 50; index++) {
     await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": beforeLongList.mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) });
   }
   await page.reload();
@@ -2464,8 +2460,10 @@ if (realModel) {
   assert.ok(listOverflow.panel.left >= 0 && listOverflow.panel.right <= 320, JSON.stringify(listOverflow));
   await page.setViewportSize({ width: 1280, height: 860 });
   await page.locator(`.chat-list-row[data-session="${scriptSessionID}"] .chat-list-name`).click();
+  await browser.wait(`new URLSearchParams(location.search).get('session') === ${JSON.stringify(scriptSessionID)} && document.querySelector('.chat-list-row.selected')?.dataset.session === ${JSON.stringify(scriptSessionID)}`, "long-list target chat selected");
   const row = page.locator(`.chat-list-row[data-session="${scriptSessionID}"]`), name = row.locator(".chat-list-name"), more = row.locator(".chat-list-more"), list = page.locator(".chat-list");
-  const nameRect = () => name.evaluate((node) => { const box = node.getBoundingClientRect(); return { left: box.left, right: box.right }; });
+  await browser.wait(`(() => { const name = document.querySelector('.chat-list-row.selected .chat-list-name'); name?.scrollIntoView({ block: 'nearest' }); return name?.isConnected && name.getBoundingClientRect().width > 0; })()`, "long-list target chat visible for measurement");
+  const nameRect = () => page.evaluate((id) => { const node = document.querySelector(`.chat-list-row[data-session="${id}"] .chat-list-name`); node.scrollIntoView({ block: "nearest" }); const box = node.getBoundingClientRect(); return { left: box.left, right: box.right }; }, scriptSessionID);
   await page.mouse.move(500, 16); const restRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "hidden");
   await row.hover(); const hoverRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "visible");
   await name.focus(); const focusRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "visible");

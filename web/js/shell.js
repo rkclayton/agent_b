@@ -330,7 +330,7 @@ export function initShell(options = {}) {
           for (const folder of ["", ...(chatTree.folders || [])]) { const choice = button(folder || "No folder", folder || "No folder", "chat-list-menu-action"); choice.onclick = () => void act({ action: "move", id: session.id, folder }); choices.append(choice); }
           menu.append(choices);
         };
-        const remove = button(labels[3], labels[3], "chat-list-menu-action alarm"); remove.onclick = () => void deleteChat(session);
+        const remove = button(labels[3], labels[3], "chat-list-menu-action alarm"); remove.onclick = () => { menuControllers.get(menu)?.close(); void deleteChat(session); };
         menu.append(pin, rename, move, remove); row.classList.add("menu-open"); revealMenu(menu, more);
       };
       row.append(state, name, more, menu); parent.append(row);

@@ -269,6 +269,6 @@ test("the attachment control replaces the redundant per-chat readout", async () 
 test("Delete says what it does and works on a running chat (2py)", () => {
   assert.match(shell, /const deleteConfirmText = "Delete this chat permanently\? Memory notes it made are kept\.";/);
   assert.match(shell, /button\(labels\[3\], labels\[3\], "chat-list-menu-action alarm"\)/);
-  assert.match(shell, /remove\.onclick = \(\) => void deleteChat\(session\)/);
+  assert.match(shell, /remove\.onclick = \(\) => \{ menuControllers\.get\(menu\)\?\.close\(\); void deleteChat\(session\); \}/);
   assert.doesNotMatch(shell, /Stop it before deleting the chat/);
 });

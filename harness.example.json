@@ -1,5 +1,5 @@
 {
-  "config_version": 11,
+  "config_version": 12,
   "listen": "127.0.0.1:8790",
   "workspace": "./workspace",
   "log_dir": "logs",
@@ -28,7 +28,7 @@
       "default_limit": 16384,
       "max_limit": 65536,
       "allow_domains": [],
-      "deny_domains": ["ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"],
+      "deny_domains": [],
       "allow_internal_hosts": []
     },
     "web_search": {

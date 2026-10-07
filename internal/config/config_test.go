@@ -563,7 +563,7 @@ func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 	if len(document.Tools.Shell.OperatorCommands) != 1 || document.Tools.Shell.OperatorCommands[0] != "git" {
 		t.Fatalf("template operator commands=%v, want [git]", document.Tools.Shell.OperatorCommands)
 	}
-	if len(document.Tools.Fetch.DenyDomains) != 8 || len(document.Tools.FindFiles.SkipRoots) != 5 {
+	if len(document.Tools.Fetch.DenyDomains) != 0 || len(document.Tools.FindFiles.SkipRoots) != 5 {
 		t.Fatalf("template policy defaults: deny_domains=%v skip_roots=%v", document.Tools.Fetch.DenyDomains, document.Tools.FindFiles.SkipRoots)
 	}
 	if len(document.Connections) != 0 || len(document.Agents) != 0 {
@@ -626,7 +626,7 @@ func TestPolicyListsDefaultOnlyWhenOmitted(t *testing.T) {
 	omitted.Tools.FindFiles.SkipRoots = nil
 	omitted.Tools.Shell.OperatorCommands = nil
 	applyDefaults(&omitted)
-	if len(omitted.Tools.Fetch.DenyDomains) != 8 || len(omitted.Tools.FindFiles.SkipRoots) != 5 || len(omitted.Tools.Shell.OperatorCommands) != 1 || omitted.Tools.Shell.OperatorCommands[0] != "git" {
+	if len(omitted.Tools.Fetch.DenyDomains) != 0 || len(omitted.Tools.FindFiles.SkipRoots) != 5 || len(omitted.Tools.Shell.OperatorCommands) != 1 || omitted.Tools.Shell.OperatorCommands[0] != "git" {
 		t.Fatalf("omitted defaults: deny=%v skip=%v operator=%v", omitted.Tools.Fetch.DenyDomains, omitted.Tools.FindFiles.SkipRoots, omitted.Tools.Shell.OperatorCommands)
 	}
 
@@ -637,6 +637,16 @@ func TestPolicyListsDefaultOnlyWhenOmitted(t *testing.T) {
 	applyDefaults(&cleared)
 	if cleared.Tools.Fetch.DenyDomains == nil || len(cleared.Tools.Fetch.DenyDomains) != 0 || cleared.Tools.FindFiles.SkipRoots == nil || len(cleared.Tools.FindFiles.SkipRoots) != 0 || cleared.Tools.Shell.OperatorCommands == nil || len(cleared.Tools.Shell.OperatorCommands) != 0 {
 		t.Fatalf("explicit clears were replaced: deny=%#v skip=%#v operator=%#v", cleared.Tools.Fetch.DenyDomains, cleared.Tools.FindFiles.SkipRoots, cleared.Tools.Shell.OperatorCommands)
+	}
+	retired := []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}
+	path := filepath.Join(t.TempDir(), "harness.json")
+	old := Defaults(t.TempDir())
+	old.ConfigVersion, old.Tools.Fetch.DenyDomains = 11, append(retired, "example.test")
+	data, _ := json.Marshal(old)
+	_ = os.WriteFile(path, data, 0o600)
+	loaded, migrated, _, err := Load(path)
+	if err != nil || !migrated || !reflect.DeepEqual(loaded.Tools.Fetch.DenyDomains, []string{"example.test"}) {
+		t.Fatalf("retired-list migration=%t deny=%v err=%v", migrated, loaded.Tools.Fetch.DenyDomains, err)
 	}
 }
 

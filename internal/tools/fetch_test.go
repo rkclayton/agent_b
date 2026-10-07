@@ -267,7 +267,7 @@ func TestFetchDomainAllowList(t *testing.T) {
 	}
 }
 
-func TestFetchDeniedGeolocationHostReturnsRuleWithoutRequest(t *testing.T) {
+func TestFetchDeniedHostReturnsPolicyWithoutLocationRule(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
@@ -279,7 +279,7 @@ func TestFetchDeniedGeolocationHostReturnsRuleWithoutRequest(t *testing.T) {
 	cfg.DenyDomains = []string{"127.0.0.1"}
 	item := &session.Session{ToolsEnabled: map[string]bool{"fetch_url": true}}
 	outcome := New(NewFetch(cfg)).CallDetailed(context.Background(), item, "fetch_url", map[string]any{"url": server.URL})
-	if outcome.OK || !strings.HasPrefix(outcome.Content, "note: network-location rule refused domain 127.0.0.1") || requests.Load() != 0 {
+	if outcome.OK || !strings.Contains(outcome.Content, "domain 127.0.0.1 is in tools.fetch.deny_domains") || strings.Contains(strings.ToLower(outcome.Content), "location") || strings.Contains(strings.ToLower(outcome.Content), "identity") || requests.Load() != 0 {
 		t.Fatalf("outcome=%+v requests=%d", outcome, requests.Load())
 	}
 
@@ -287,6 +287,19 @@ func TestFetchDeniedGeolocationHostReturnsRuleWithoutRequest(t *testing.T) {
 	cfg.DenyDomains = []string{"ipinfo.io"}
 	if err := validateFetchTarget(mustURL(t, "https://ipinfo.io/json"), cfg); err != nil {
 		t.Fatalf("explicit allow_domains did not supersede deny_domains: %v", err)
+	}
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "stand-in location") })
+	standIn := server.Listener.Addr().String()
+	cfg = fetchTestConfig()
+	cfg.DenyDomains = nil
+	fetch := NewFetch(cfg)
+	fetch.dial = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, standIn)
+	}
+	port := server.Listener.Addr().(*net.TCPAddr).Port
+	detail := fetch.CallDetailed(context.Background(), &session.Session{}, map[string]any{"url": fmt.Sprintf("http://ipinfo.io:%d/json", port)})
+	if detail.Err != nil || !strings.Contains(detail.Content, "stand-in location") {
+		t.Fatalf("retired host fetch detail=%+v", detail)
 	}
 }
 

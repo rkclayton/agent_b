@@ -33,6 +33,7 @@ type Fetch struct {
 	localSubnets []netip.Prefix
 	listener     string
 	resolver     *net.Resolver
+	dial         func(context.Context, string, string) (net.Conn, error)
 }
 
 func NewFetch(cfg config.FetchTool) *Fetch {
@@ -286,6 +287,9 @@ func (f *Fetch) client(cfg config.FetchTool) *http.Client {
 		ResponseHeaderTimeout: time.Duration(cfg.TimeoutS) * time.Second,
 	}
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if f.dial != nil {
+			return f.dial(ctx, network, address)
+		}
 		return f.dialAllowed(ctx, network, address, cfg, dialer)
 	}
 	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -423,7 +427,7 @@ func validateFetchTarget(target *url.URL, cfg config.FetchTool, localSubnets ...
 				return fmt.Errorf("domain %s is not in tools.fetch.allow_domains", host)
 			}
 		} else if domainListed(host, cfg.DenyDomains) {
-			return fmt.Errorf("note: network-location rule refused domain %s; never use network tools to determine the user's location, identity, or IP; ask for a location the OS did not provide", host)
+			return fmt.Errorf("domain %s is in tools.fetch.deny_domains", host)
 		}
 	}
 	var allowed []netip.Prefix

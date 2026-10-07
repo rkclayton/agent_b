@@ -34,7 +34,7 @@ func TestShippedPromptCarriesMemoryAndResolutionGuidanceAndIsByteStable(t *testi
 
 	for _, want := range []string{
 		"Remember only a correction the user gave, a preference they stated, or a fact about their project you had to discover — avoidance of your own tools is never remembered. Recall first; one note per fact; give it a scope.",
-		"Rules: resolve a named plan or repo from the user's words and work there; ask when more than one could match; nothing named → this chat's folder.",
+		"Rules: work in the repo or folder the user names; ask when more than one could match; nothing named → this chat's folder.",
 	} {
 		if strings.Count(text, want) != 1 {
 			t.Errorf("shipped prompt does not carry this sentence exactly once:\n%s", want)
@@ -42,7 +42,7 @@ func TestShippedPromptCarriesMemoryAndResolutionGuidanceAndIsByteStable(t *testi
 	}
 
 	// The working-directory rule precedes durable-memory guidance and notes.
-	resolutionAt := strings.Index(text, "Rules: resolve a named plan")
+	resolutionAt := strings.Index(text, "Rules: work in the repo or folder")
 	rememberAt := strings.Index(text, "Remember only a correction")
 	memoryAt := strings.LastIndex(text, "{{memory}}")
 	if !(resolutionAt >= 0 && resolutionAt < rememberAt && rememberAt < memoryAt) {

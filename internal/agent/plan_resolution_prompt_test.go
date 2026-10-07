@@ -40,7 +40,7 @@ func TestFakeModelResolvesNamedPlanAndAsksWhenAmbiguousFromStablePrompt(t *testi
 		systems = append(systems, systemPrompt)
 		switch calls.Add(1) {
 		case 1:
-			if !strings.Contains(systemPrompt, "resolve a named plan or repo") || !strings.Contains(systemPrompt, "ask when more than one could match") {
+			if !strings.Contains(systemPrompt, "work in the repo or folder the user names") || !strings.Contains(systemPrompt, "ask when more than one could match") {
 				t.Fatalf("resolution policy absent from system prompt: %q", systemPrompt)
 			}
 			arguments, _ := json.Marshal(map[string]any{"path": filepath.Join(repo, "resolved.txt"), "content": "resolved\n"})

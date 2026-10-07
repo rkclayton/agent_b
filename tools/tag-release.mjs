@@ -24,6 +24,53 @@ export function tagRefusal(tag, identity) {
   return "";
 }
 
+export function telemetryVectors(root = repo) {
+  const document = fs.readFileSync(path.join(root, "docs", "telemetry-trace.md"), "utf8");
+  return [...document.matchAll(/```json vector:[^\r\n]+\r?\n([\s\S]*?)```/g)]
+    .map(match => JSON.parse(match[1]))
+    .filter(vector => typeof vector.type === "string");
+}
+
+export async function releaseAfterTelemetry(thenTag, options = {}) {
+  const endpoint = options.endpoint ?? "https://broker.agentb.app/v1/telemetry";
+  const vectors = options.vectors ?? telemetryVectors(options.root);
+  const report = options.report ?? console.log;
+  const post = options.fetch ?? fetch;
+  for (const event of vectors) {
+    let response;
+    try {
+      response = await post(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-Agentb-Synthetic": "1" },
+        body: JSON.stringify({
+          schema: 1,
+          install_id: "00000000-0000-4000-8000-000000000000",
+          sent_at: event.at,
+          agent_version: releaseIdentity(options.root).buildinfo,
+          os: "windows",
+          events: [event],
+        }),
+      });
+    } catch (error) {
+      report(`telemetry intake: not exercised: external; reason: ${error.cause?.code ?? error.message}`);
+      return thenTag();
+    }
+    const text = await response.text();
+    let answer;
+    try { answer = JSON.parse(text); } catch { answer = {}; }
+    if (!response.ok) throw new Error(`telemetry intake refused ${event.type}: HTTP ${response.status} ${text}`);
+    if (!("stored" in answer) || !("dropped" in answer)) {
+      report(`telemetry intake ${event.type}: HTTP ${response.status}; storage not proved: the broker's answer does not say`);
+      continue;
+    }
+    if (answer.stored !== 1 || !Array.isArray(answer.dropped) || answer.dropped.length !== 0) {
+      throw new Error(`telemetry intake refused ${event.type}: HTTP ${response.status} ${text}`);
+    }
+    report(`telemetry intake ${event.type}: HTTP ${response.status} stored=1 dropped=[]`);
+  }
+  return thenTag();
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
   const tag = process.argv[2] || "";
   const git = (...args) => execFileSync("git", ["-C", repo, ...args]).toString().trim();
@@ -33,6 +80,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
     console.error(`TAG REFUSED: ${refusal}`);
     process.exit(1);
   }
-  git("tag", "-a", tag, "-m", `Agent_b ${tag}`);
+  await releaseAfterTelemetry(() => git("tag", "-a", tag, "-m", `Agent_b ${tag}`));
   console.log(`TAGGED ${tag} at ${git("rev-parse", "HEAD")}`);
 }

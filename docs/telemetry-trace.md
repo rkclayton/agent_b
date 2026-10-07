@@ -5,6 +5,10 @@ events. The PC builds them in `internal/recorder`; the broker and the phone
 build from this file. A test parses every vector below and checks it against
 the PC's own builder, so the two cannot drift apart.
 
+Add an event or field to this document first, admit it at the broker second,
+and send it from a client third. Do not add an event that feeds no number on
+the broker's scorecard.
+
 `docs/TELEMETRY.md` is the envelope, the batch rules and the off switch; it
 applies here unchanged. This file adds event types to it.
 

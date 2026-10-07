@@ -450,3 +450,42 @@ test("the tag gate refuses a tag the tree's build does not report", async () => 
   assert.match(tagRefusal("v0.0.1", identity), /buildinfo reports/);
   assert.match(tagRefusal(identity.buildinfo, { ...identity, display: "0.0.1" }), /installer displays/);
 });
+
+test("the telemetry release gate names a refused or dropped event before tagging", async () => {
+  const { createServer } = await import("node:http");
+  const { releaseAfterTelemetry } = await import("../tools/tag-release.mjs");
+  for (const response of [
+    { status: 422, body: { error: "unknown_event_type" } },
+    { status: 202, body: { stored: 1, dropped: ["run.summary"] } },
+  ]) {
+    const server = createServer((request, answer) => {
+      assert.equal(request.headers["x-agentb-synthetic"], "1");
+      answer.writeHead(response.status, { "content-type": "application/json" });
+      answer.end(JSON.stringify(response.body));
+    });
+    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    let tagged = false;
+    try {
+      await assert.rejects(
+        releaseAfterTelemetry(() => { tagged = true; }, { endpoint: `http://127.0.0.1:${server.address().port}`, vectors: [{ type: "run.summary", at: "2026-10-06T00:00:00Z" }] }),
+        /run\.summary/,
+      );
+      assert.equal(tagged, false);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  }
+});
+
+test("an unreachable telemetry intake is reported external and does not block tagging", async () => {
+  const { releaseAfterTelemetry } = await import("../tools/tag-release.mjs");
+  let tagged = false;
+  const lines = [];
+  await releaseAfterTelemetry(() => { tagged = true; }, {
+    endpoint: "http://127.0.0.1:1",
+    vectors: [{ type: "run.summary", at: "2026-10-06T00:00:00Z" }],
+    report: line => lines.push(line),
+  });
+  assert.equal(tagged, true);
+  assert.match(lines.join("\n"), /not exercised: external.+reason/i);
+});

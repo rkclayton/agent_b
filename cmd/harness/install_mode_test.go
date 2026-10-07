@@ -313,7 +313,7 @@ func TestSetupArgumentsRefuseUnknownOptions(t *testing.T) {
 	if err := validateSetupArguments(nil); err != nil {
 		t.Fatalf("double-click setup remains valid: %v", err)
 	}
-	if err := validateSetupArguments([]string{"--quiet", "--install-data", `C:\suite\data`, "-NoStart", "-ApplicationDirectory", `C:\suite\app`, "-TestMode"}); err != nil {
+	if err := validateSetupArguments([]string{"--quiet", "--install-data", `C:\suite\data`, "-NoStart", "-ApplicationDirectory", `C:\suite\app`, "-TestMode", "-NativeTestMode"}); err != nil {
 		t.Fatalf("known setup arguments were refused: %v", err)
 	}
 }

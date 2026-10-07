@@ -47,7 +47,7 @@ var setupArguments = map[string]bool{
 	"UninstallRegistryPath": true, "OperatorSid": true, "OperatorLocalAppData": true,
 	"SeedConfiguration": true, "SigningThumbprint": true, "RegistrationSearchRoots": true,
 	"AlternateBinaryRoots": true, "LegacyApplicationDirectory": true, "EmbeddedBundle": false,
-	"TestMode": false, "RootValidationOnly": false, "ForcePostStopVerificationFailure": false,
+	"TestMode": false, "NativeTestMode": false, "RootValidationOnly": false, "ForcePostStopVerificationFailure": false,
 	"TranscriptPath": true, "ProgressFile": true, "WhatIf": false,
 }
 

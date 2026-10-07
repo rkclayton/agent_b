@@ -71,7 +71,9 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
   await expect(panel.locator('[data-folder="Z"]')).toBeVisible();
 	await panel.locator('[data-folder="Z"] > summary').click();
 
-  await panel.locator(`[data-session="${id}"] .chat-list-more`).click();
+  const chatRow = panel.locator(`[data-session="${id}"]`);
+  await chatRow.hover();
+  await chatRow.locator(".chat-list-more").click();
   await panel.getByRole("button", { name: "Rename", exact: true }).click();
   await panel.getByLabel("Chat name").fill("Renamed chat");
   await panel.getByTitle("Save chat name").click();

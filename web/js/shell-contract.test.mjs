@@ -143,6 +143,14 @@ test("all shell motion is zero duration under reduced motion", () => {
   assert.match(tokens, /prefers-reduced-motion:reduce[\s\S]*\.app-shell[\s\S]*animation-duration:0ms!important/);
 });
 
+test("the whole-app robot is a non-control in the drag strip and shares the composer rules", () => {
+  assert.match(shell, /node\("span", "shell-app-robot chat-run-robot idle"\)/);
+  assert.match(shell, /left\.append\(appRobot\)/);
+  assert.doesNotMatch(shell, /appRobot\.(?:onclick|onpointer|tabIndex)/);
+  assert.match(tokens, /\.chat-run-robot\{[^}]*animation:chat-run-robot/);
+  assert.doesNotMatch(chatCSS, /\.chat-run-robot\s*\{/);
+});
+
 // Item 2gh (v1.1.2/W5): the tab menu, measured and made to feel right. These
 // pin the four defects the measurement found, so none can come back quietly.
 // Item 2ge (v1.1.2/W6), glyph replaced by 2he (v1.3.0/W2): the Plan toggle is

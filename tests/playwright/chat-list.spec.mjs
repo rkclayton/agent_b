@@ -7,8 +7,10 @@ import { expect, test } from "@playwright/test";
 const webRoot = fileURLToPath(new URL("../../web/", import.meta.url));
 const indexHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
 const evidence = process.env.AGENTB_EVIDENCE_DIR || "test-results/2qz-evidence";
+const robotEvidence = process.env.AGENTB_2S2_EVIDENCE_DIR || "test-results/2s2-evidence";
 
 test("chat list rows, actions, independent state, resize persistence and captures 2qz", async ({ browser }) => {
+  test.setTimeout(60000);
   await mkdir(evidence, { recursive: true });
   const base = { schema_version: 1, complete: true, agent_id: "agent_b", role: "b", connection_id: "fixture", b_connection: "fixture", tools: [], messages: [], budget: {}, activity: { completed_stages: [] }, timeline: [], chat: [], runnable: true, closed: false };
   const sessions = {
@@ -61,8 +63,26 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await expect(page.locator('.chat-list-row[data-session="p1"] .chat-list-state')).toHaveClass(/running/);
   await expect(page.locator('.chat-list-row[data-session="p2"] .chat-list-state')).toHaveClass(/running/);
   await expect(page.locator('.chat-list-row[data-session="f1"] .chat-list-state')).toHaveClass(/running/);
+  const robot = page.locator(".shell-app-robot"), setStates = async (values, selected = "p1") => page.evaluate(async ({ values, selected }) => { const bus = await import("/static/js/bus.js"); for (const session of Object.values(bus.store.sessions)) Object.assign(session, { pending_approval: false, pending_repo_policy: false, model_unreachable: false, run: { status: "idle" } }); for (const [id, value] of Object.entries(values)) Object.assign(bus.store.sessions[id], value); bus.setSelection("agent_b", selected); bus.reduce({ type: "config.changed", data: { config: bus.store.config } }); }, { values, selected });
+  for (const step of [
+    [{}, "p1", "idle", "idle"],
+    [{ f1: { run: { status: "running" } } }, "p1", "running", "1 running"],
+    [{ f1: { run: { status: "running" } }, p2: { run: { status: "paused" }, pending_approval: true } }, "p1", "waiting", "1 waiting for you · 1 running"],
+    [{ f1: { run: { status: "running" } } }, "p1", "running", "1 running"],
+    [{}, "p1", "idle", "idle"],
+    [{ p1: { model_unreachable: true } }, "p1", "offline", "model unreachable"],
+    [{ f1: { run: { status: "running" } } }, "", "running", "1 running"],
+  ]) { await setStates(step[0], step[1]); await expect(robot).toHaveClass(new RegExp(step[2])); await expect(robot).toHaveAttribute("title", step[3]); await expect(robot).toHaveAttribute("aria-label", step[3]); expect(await robot.innerText()).toBe(""); }
+  expect(await robot.evaluate((node) => node.tabIndex)).toBe(-1);
+  const selectedBeforeRobotClick = await page.evaluate(async () => (await import("/static/js/bus.js")).store.selection.session_id);
+  await robot.click();
+  expect(await page.evaluate(async () => (await import("/static/js/bus.js")).store.selection.session_id)).toBe(selectedBeforeRobotClick);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  for (const state of ["idle", "running", "waiting", "offline"]) { await robot.evaluate((node, value) => { node.className = `shell-app-robot chat-run-robot ${value}`; }, state); expect(await robot.evaluate((node) => ({ animation: getComputedStyle(node).animationDuration, color: getComputedStyle(node).color }))).toMatchObject({ animation: "0s", color: state === "running" ? "rgb(60, 240, 138)" : state === "idle" ? "rgb(112, 125, 139)" : "rgb(228, 98, 79)" }); }
+  await page.emulateMedia({ reducedMotion: "no-preference" }); await setStates({ f1: { run: { status: "running" } } }); await page.mouse.click(1000, 400); await mkdir(robotEvidence, { recursive: true });
+  for (const width of [304, 1280, 1920]) { await page.setViewportSize({ width, height: 800 }); const layout = await page.evaluate(() => { const shell = document.querySelector("#app-shell").getBoundingClientRect(), head = document.querySelector(".shell-app-robot").getBoundingClientRect(), right = document.querySelector(".shell-right").getBoundingClientRect(); return { height: shell.height, first: head.left, size: head.height, font: parseFloat(getComputedStyle(document.querySelector(".shell-session-title")).fontSize), inside: head.right <= right.left && right.right <= innerWidth && [...document.querySelectorAll(".shell-right > :not(.shell-menu)")].every((node) => { const box = node.getBoundingClientRect(); return box.width === 0 || box.right <= innerWidth; }) }; }); expect(layout).toEqual({ height: 32, first: 4, size: 12, font: 12, inside: true }); await page.screenshot({ path: join(robotEvidence, `${width}-chat.png`) }); await page.locator(".shell-settings").click(); await page.screenshot({ path: join(robotEvidence, `${width}-settings.png`) }); await page.locator(".shell-settings").click(); }
   const menuCases = async (opener, menu, other, otherMenu) => {
-    await page.locator(opener).click();
+    const openControl = async () => { const control = page.locator(opener); if (opener.includes("chat-list-more")) await control.locator("xpath=..").hover(); await control.click(); }; await openControl();
     const blocked = await page.locator(menu).evaluate((open) => [...document.querySelectorAll("button,input,textarea,select,summary")].filter((control) => {
       const box = control.getBoundingClientRect(), menuBox = open.getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
       const style = getComputedStyle(control);
@@ -70,9 +90,9 @@ test("chat list rows, actions, independent state, resize persistence and capture
     }).map((control) => control.id || control.className || control.tagName));
     expect(blocked, `${menu} blocked outside control centres: ${blocked.join(", ")}`).toEqual([]);
     await page.mouse.click(1000, 400); await expect(page.locator(menu)).toBeHidden();
-    await page.locator(opener).click(); await page.locator("#chat-task").click(); await expect(page.locator(menu)).toBeHidden(); await expect(page.locator("#chat-task")).toBeFocused();
-    await page.locator(opener).click(); await page.keyboard.press("Escape"); await expect(page.locator(menu)).toBeHidden();
-    await page.locator(opener).click(); await page.locator(other).click(); await expect(page.locator(menu)).toBeHidden(); await expect(page.locator(otherMenu)).toBeVisible(); await page.keyboard.press("Escape");
+    await openControl(); await page.locator("#chat-task").click(); await expect(page.locator(menu)).toBeHidden(); await expect(page.locator("#chat-task")).toBeFocused();
+    await openControl(); await page.keyboard.press("Escape"); await expect(page.locator(menu)).toBeHidden();
+    await openControl(); await page.locator(other).click(); await expect(page.locator(menu)).toBeHidden(); await expect(page.locator(otherMenu)).toBeVisible(); await page.keyboard.press("Escape");
   };
   for (const row of [
     [".chat-list-new", ".shell-new-menu", "#chat-attach", ".chat-attach-menu"],
@@ -80,7 +100,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
     ['.chat-list-row[data-session="root"] .chat-list-more', '.chat-list-row[data-session="root"] .chat-list-row-menu', "#chat-attach", ".chat-attach-menu"],
     ["#chat-attach", ".chat-attach-menu", ".shell-session-title", ".shell-connection-menu"],
   ]) await menuCases(...row);
-  await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
+  await page.locator('.chat-list-row[data-session="root"]').hover(); await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
   await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.reduce({ type: "snapshot", data: { ...bus.store, build: {} } }); });
   await expect(page.locator('.chat-list-row[data-session="root"] .chat-list-row-menu')).toBeVisible();
   await page.keyboard.press("Escape");
@@ -95,16 +115,16 @@ test("chat list rows, actions, independent state, resize persistence and capture
   expect(actions).toContainEqual({ action: "reopen", id: "f2" });
   expect(actions.some((action) => action.action === "close" || action.action === "stop")).toBe(false);
 
-  await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
+  await page.locator('.chat-list-row[data-session="root"]').hover(); await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
   const menu = page.locator('.chat-list-row[data-session="root"] .chat-list-row-menu');
   await expect(menu.locator(":scope > button")).toHaveText(["Pin", "Rename", "Move to folder", "Delete"]);
   await page.screenshot({ path: join(evidence, "2qz-row-menu.png") });
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
-  await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
+  await page.locator('.chat-list-row[data-session="root"]').hover(); await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
   await menu.getByRole("button", { name: "Pin", exact: true }).click();
   expect(actions.at(-1)).toEqual({ action: "pin", id: "root", pinned: true });
-  await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
+  await page.locator('.chat-list-row[data-session="root"]').hover(); await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
   await menu.getByRole("button", { name: "Move to folder", exact: true }).click();
   await menu.getByRole("button", { name: "Work", exact: true }).click();
   expect(actions.at(-1)).toEqual({ action: "move", id: "root", folder: "Work" });

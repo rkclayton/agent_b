@@ -1,5 +1,5 @@
 import { api, reduce, setSelection, setSurface, store, subscribe } from "./bus.js";
-import { chatActivityText, chatActivityTitle, chatName, chatRowText, isRunning, sessionTitle } from "./chat-lifecycle.js";
+import { appRobotStatus, chatActivityText, chatActivityTitle, chatName, chatRowText, isRunning, sessionTitle } from "./chat-lifecycle.js";
 import { installUIErrorRelay } from "./ui-error-relay.js";
 import { installPageHealth } from "./page-health.js";
 import { requestNavigation } from "./navigation-guard.js";
@@ -29,6 +29,8 @@ export function initShell(options = {}) {
   if (loaded && loaded.kind !== "chat") setSurface(loaded);
 
   const left = node("div", "shell-left");
+  const appRobot = node("span", "shell-app-robot chat-run-robot idle");
+  appRobot.setAttribute("role", "img"); appRobot.innerHTML = '<img src="/static/assets/agent.svg" alt=""><span class="chat-run-robot-eyes"></span>'; appRobot.querySelector("img").draggable = false; left.append(appRobot);
   const newChatButton = iconButton("page-plus", "New chat", "chat-list-folder-action chat-list-new");
   const newChatMenu = node("div", "shell-menu shell-new-menu");
   newChatMenu.hidden = true;
@@ -424,6 +426,8 @@ export function initShell(options = {}) {
 
   function render(renderPanel = true) {
     const session = store.sessions[store.selection.session_id];
+    const robot = appRobotStatus(store.sessions, store.selection.session_id);
+    setAttr(appRobot, "class", `shell-app-robot chat-run-robot ${robot.state}`); setAttr(appRobot, "title", robot.label); setAttr(appRobot, "aria-label", robot.label);
     // Item 2gl (v1.2.6): the window's own title. The overlay could not be made
     // to activate - measured on Edge 153 under --app= and with no unattended
     // way to install the app - so the system strip stays, and the least it can

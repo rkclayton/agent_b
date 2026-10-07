@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { agentAuthor, chatActivityText, chatActivityTitle, chatName, chatRowText, openSessions, sessionTitle } from "./chat-lifecycle.js";
+import { agentAuthor, appRobotStatus, chatActivityText, chatActivityTitle, chatName, chatRowText, openSessions, sessionTitle } from "./chat-lifecycle.js";
 
 const idle = {
   id: "s2",
@@ -39,6 +39,12 @@ test("Header activity uses the product clock and supplies full hover text", () =
 	assert.match(chatActivityText(earlier, now), /\d.*\d/);
 	assert.equal(chatActivityText({}, now), "");
 	assert.equal(chatActivityTitle(today), new Date(today.last_activity).toLocaleString());
+});
+
+test("Whole-app robot state gives waiting priority and reports every true detail", () => {
+	const sessions = { open: { id: "open", run: { status: "running" }, model_unreachable: true }, other: { id: "other", run: { status: "paused" }, pending_approval: true }, scheduled: { id: "scheduled", run: { status: "queued" } } };
+	assert.deepEqual(appRobotStatus(sessions, "open"), { state: "waiting", label: "1 waiting for you · 2 running · model unreachable" });
+	assert.deepEqual(appRobotStatus({ open: { id: "open", run: { status: "idle" } } }, "open"), { state: "idle", label: "idle" });
 });
 
 test("Open chat list excludes durable closed sessions", () => {

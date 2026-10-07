@@ -91,6 +91,15 @@ export function chatActivityText(session, now = new Date()) {
 
 export const chatActivityTitle = (session) => activityDate(session)?.toLocaleString() || "";
 
+export function appRobotStatus(sessions = {}, selectedID = "") {
+  const chats = Object.values(sessions).filter((session) => !session.closed);
+  const waiting = chats.filter((session) => session.pending_approval || session.pending_repo_policy || session.run?.status === "paused").length;
+  const running = chats.filter((session) => ["running", "queued", "stopping"].includes(session.run?.status)).length;
+  const offline = !!sessions[selectedID]?.model_unreachable;
+  const detail = [waiting && `${waiting} waiting for you`, running && `${running} running`, offline && "model unreachable"].filter(Boolean);
+  return { state: waiting ? "waiting" : running ? "running" : offline ? "offline" : "idle", label: detail.join(" · ") || "idle" };
+}
+
 export function isRunning(session) {
   return activeStates.has(session?.run?.status);
 }

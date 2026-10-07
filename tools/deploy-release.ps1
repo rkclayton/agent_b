@@ -13,12 +13,6 @@ $notesPath = Join-Path (Join-Path $repository 'release-notes') "$Tag.md"
 $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 . (Join-Path $repository 'scripts\removal-guard.ps1')
 . (Join-Path $PSScriptRoot 'deploy-candidate-state.ps1')
-$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-$principal = New-Object Security.Principal.WindowsPrincipal($identity)
-if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw 'DEPLOY REFUSED: run deploy-release.ps1 from an ordinary, non-elevated console; it requests elevation once for signing only.'
-}
-Write-Host "DEPLOY PARENT: identity=$($identity.Name) elevated=false; staging, verification, and publication stay at this token"
 if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) {
     throw "DEPLOY REFUSED: release notes are missing: $notesPath"
 }
@@ -35,6 +29,12 @@ if ([string]::IsNullOrWhiteSpace($agentBHome)) { $agentBHome = Join-Path $env:US
 $env:AGENTB_CLIENT_TERMS = Join-Path $agentBHome 'client-terms.txt'
 & node (Join-Path $repository 'tools\check-client-terms.mjs') --releases $notesPath
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the client-terms gate did not pass (exit $LASTEXITCODE); see the lines above." }
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'DEPLOY REFUSED: run deploy-release.ps1 from an ordinary, non-elevated console; it requests elevation once for signing only.'
+}
+Write-Host "DEPLOY PARENT: elevated=false; staging, verification, and publication stay at this token"
 $commitOutput = @(& git -C $repository rev-parse "$Tag^{commit}" 2>&1)
 $commitExit = $LASTEXITCODE
 $commit = [string]($commitOutput | Select-Object -First 1)

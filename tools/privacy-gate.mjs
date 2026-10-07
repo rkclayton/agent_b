@@ -98,7 +98,7 @@ function treeEntries(ref) {
   });
 }
 
-function report(findings) {
+export function reportFindings(findings) {
   for (const finding of findings) {
     const list = finding.listLine ? ` list-line=${finding.listLine}` : "";
     process.stderr.write(`PRIVACY: ${finding.name}:${finding.line} rule=${finding.rule}${list}\n`);
@@ -145,7 +145,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
   catch { process.stderr.write("PRIVACY REFUSED: outside list missing\n"); process.exit(2); }
   if (args.includes("--binary")) {
     const at = args.indexOf("--binary");
-    process.exit(report(scanBinary(args.slice(at + 1), terms)));
+    process.exit(reportFindings(scanBinary(args.slice(at + 1), terms)));
   }
   if (args.includes("--pre-push")) {
     const lines = fs.readFileSync(0, "utf8").split(/\r?\n/).filter(Boolean);
@@ -162,7 +162,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
       const range = remoteSha && !/^0+$/.test(remoteSha) ? `${remoteSha}..${localSha}` : localSha;
       entries.push({ name: `commit-messages:${localSha.slice(0, 12)}`, text: git("log", "--format=%B", range) });
     }
-    process.exit(report(scanTextEntries(entries, terms)));
+    process.exit(reportFindings(scanTextEntries(entries, terms)));
   }
-  process.exit(report(scanTextEntries(worktreeEntries(), terms)));
+  process.exit(reportFindings(scanTextEntries(worktreeEntries(), terms)));
 }

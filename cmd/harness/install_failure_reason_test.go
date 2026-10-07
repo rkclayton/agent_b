@@ -19,7 +19,7 @@ func TestTheInstallFailureCarriesTheInstallersOwnReason(t *testing.T) {
 	// His transcript, in shape: the installer writes the reason twice, once as it
 	// fails and once in the transcript's own tail.
 	body := strings.Join([]string{
-		"2026-09-27T19:11:44.825-05:00 install: starting; data root C:\\Users\\someone\\AppData\\Local\\Agent_b",
+		"2026-09-27T19:11:44.825-05:00 install: starting; data root acme\\AppData\\Local\\Agent_b",
 		"2026-09-27T19:11:45.127-05:00 install: verified and extracted the embedded application payload",
 		"Transcript: " + transcript,
 		"INSTALLATION FAILED: Application, operator-data, and workspace directories must be three disjoint trees.",

@@ -152,7 +152,7 @@ func TestTheRoutingGuardInterceptsReadsNotDirectoryChanges(t *testing.T) {
 		{`dir C:\Windows\System32`, "run"},
 		{`pushd C:\Windows`, "run"},
 		{`cd C:\Users\someone\Documents\GitHub\eval-20260310-110411-1120 && C:\Go\bin\go.exe test ./logic -run ^TestTouchedPlanRoots$ -v`, "run"},
-		{`cd /d "C:\work\acme" 2>nul; C:\Go\bin\go.exe test ./logic -run ^TestRetentionPreservesNestedEvidence$ -v`, "run"},
+		{`cd /d "acme" 2>nul; C:\Go\bin\go.exe test ./logic -run ^TestRetentionPreservesNestedEvidence$ -v`, "run"},
 		{`type C:\Windows\win.ini`, "card"},
 		{`Get-Content -Path C:\Windows\win.ini`, "card"},
 		{`'C:\Windows\win.ini' | Get-Content`, "card"},

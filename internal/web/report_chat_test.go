@@ -143,7 +143,7 @@ func telemetryRun(t *testing.T, enabled bool) [][]byte {
 	const secret = "ZEBRA-7731-planted"
 	bus, root := events.NewBus(), t.TempDir()
 	cfg := &config.Config{Telemetry: config.Telemetry{Enabled: enabled, Endpoint: "https://receiver.invalid/ingest"},
-		Connections: []config.Connection{{ID: "c1", Label: secret + " label", BaseURL: "http://" + secret + ".example:8080", Model: `C:\Users\someone\` + secret + `\model.gguf`}}}
+		Connections: []config.Connection{{ID: "c1", Label: secret + " label", BaseURL: "http://" + secret + ".example:8080", Model: `acme\` + secret + `\model.gguf`}}}
 	server := New(cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
 	server.recorder.Settle = 10 * time.Millisecond
 	var mu sync.Mutex
@@ -156,7 +156,7 @@ func telemetryRun(t *testing.T, enabled bool) [][]byte {
 	publish(events.ModelRequest, map[string]any{"n_ctx": 8192, "model_file": "model.gguf", "connection_kind": "api", "est_prompt_tokens": 90})
 	publish(events.ModelRefused, map[string]any{"status": 400, "error_type": "exceed_context_size_error", "connection_kind": "api"})
 	publish(events.ModelResponse, map[string]any{"finish_reason": "tool_calls", "content": secret, "usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 5}})
-	publish(events.ToolCallEvent, map[string]any{"call_id": "a", "name": "read_file", "args": map[string]any{"path": `C:\Users\someone\` + secret + `.txt`}})
+	publish(events.ToolCallEvent, map[string]any{"call_id": "a", "name": "read_file", "args": map[string]any{"path": `acme\` + secret + `.txt`}})
 	publish(events.ToolResult, map[string]any{"call_id": "a", "name": "read_file", "ok": false, "class": "not_found", "preview": secret, "ms": 2, "bytes": 40})
 	publish(events.Compaction, map[string]any{"kind": "elide", "trigger": "soft_pct", "before": 900, "after": 300, "affected_ids": []string{secret}})
 	publish(events.RunStopped, map[string]any{"reason": "done", "detail": secret})
@@ -270,7 +270,7 @@ func TestTheAppsEventsCarryNoPlantedSecret2q7(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{Telemetry: config.Telemetry{Enabled: true, Endpoint: "https://receiver.invalid/ingest"},
-		Connections: []config.Connection{{ID: "c1", Label: secret + " label", BaseURL: "http://" + secret + ".example:8080", Model: `C:\Users\someone\` + secret + `\model.gguf`}}}
+		Connections: []config.Connection{{ID: "c1", Label: secret + " label", BaseURL: "http://" + secret + ".example:8080", Model: `acme\` + secret + `\model.gguf`}}}
 	server := New(cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
 	var mu sync.Mutex
 	var sent [][]byte
@@ -291,15 +291,15 @@ func TestTheAppsEventsCarryNoPlantedSecret2q7(t *testing.T) {
 			t.Fatalf("%s answered %d: %s", path, response.Code, response.Body)
 		}
 	}
-	post("/api/ui-errors", `{"kind":"unhandled exception","message":"`+secret+` at C:\\Users\\someone","stack":"TypeError: `+secret+`\n at http://127.0.0.1/js/shell.js:412:9","location":"http://127.0.0.1/chat","repeat_count":1,"name":"TypeError","file":"shell.js","line":412}`)
+	post("/api/ui-errors", `{"kind":"unhandled exception","message":"`+secret+` at acme","stack":"TypeError: `+secret+`\n at http://127.0.0.1/js/shell.js:412:9","location":"http://127.0.0.1/chat","repeat_count":1,"name":"TypeError","file":"shell.js","line":412}`)
 	post("/api/ui-errors", `{"kind":"console.error","message":"x","stack":"","location":"","repeat_count":1,"name":"`+secret+`","file":"C:\\`+secret+`.js","line":1}`)
 	post("/api/page-health", `{"freeze_ms":640,"settings_pages":{"connections":2,"`+secret+`":1}}`)
 	state := httptest.NewRecorder()
 	server.state(state, httptest.NewRequest(http.MethodGet, "/api/state", nil))
-	bus.Publish(events.New(events.SessionCreated, "s1", "", map[string]any{"workspace_dir": `C:\Users\someone\` + secret}))
-	bus.Publish(events.New(events.MessageAppended, "s1", "r1", map[string]any{"message": map[string]any{"role": "user", "content": secret, "attachments": []any{map[string]any{"kind": "image", "path": `C:\Users\someone\` + secret + `.png`}}}}))
+	bus.Publish(events.New(events.SessionCreated, "s1", "", map[string]any{"workspace_dir": `acme\` + secret}))
+	bus.Publish(events.New(events.MessageAppended, "s1", "r1", map[string]any{"message": map[string]any{"role": "user", "content": secret, "attachments": []any{map[string]any{"kind": "image", "path": `acme\` + secret + `.png`}}}}))
 	bus.Publish(events.New(events.ModelResponse, "s1", "r1", map[string]any{"content": secret}))
-	bus.Publish(events.New(events.UpdateChanged, "", "", map[string]any{"current_version": "v1.60.12", "outcome": map[string]any{"at": "2026-10-04T21:05:00Z", "ok": false, "phase": "verify", "version": "v1.60.13", "error": secret, "transcript": `C:\Users\someone\` + secret}}))
+	bus.Publish(events.New(events.UpdateChanged, "", "", map[string]any{"current_version": "v1.60.12", "outcome": map[string]any{"at": "2026-10-04T21:05:00Z", "ok": false, "phase": "verify", "version": "v1.60.13", "error": secret, "transcript": `acme\` + secret}}))
 	server.app.Link("connected")
 	server.app.Link("disconnected reason=" + secret + " EOF")
 	server.app.Link("ERROR code=queue_full detail=" + secret)

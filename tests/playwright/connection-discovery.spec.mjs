@@ -97,7 +97,7 @@ test("Test Eval Recommended stay adjacent at 1400px and the narrowest width 2qw"
   await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   await expect(page.locator('[data-path="connections.ui.model"] option')).toContainText([...models, "type a name…"]);
   await page.locator('[data-path="connections.ui.label"]').fill("acme");
-  await page.locator('[data-path="connections.ui.base_url"]').fill("http://100.64.0.10:8080");
+  await page.locator('[data-path="connections.ui.base_url"]').fill("http://acme:8080");
   const measured = await page.locator(".connection-editor").evaluate((editor) => {
     const boxes = [...editor.querySelectorAll("input")].map((input) => ({ path: input.dataset.path, width: input.getBoundingClientRect().width }));
     return { columns: getComputedStyle(editor.querySelector(".connection-fields")).gridTemplateColumns.split(" ").length, boxes };

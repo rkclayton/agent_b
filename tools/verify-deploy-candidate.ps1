@@ -34,10 +34,9 @@ if ((Get-Item -LiteralPath $setup).Length -ne [long]$manifest.setup_bytes) { $pr
 
 $setupBytes = [IO.File]::ReadAllBytes($setup)
 $setupText = [Text.Encoding]::GetEncoding(28591).GetString($setupBytes)
-$embeddedTag = [regex]::Match($setupText, '-X harness/internal/buildinfo\.Tag=(v[0-9A-Za-z.+-]+)')
-$embeddedCommit = [regex]::Match($setupText, '-X harness/internal/buildinfo\.Commit=([0-9a-f]{40})')
-if (-not $embeddedTag.Success -or $embeddedTag.Groups[1].Value -cne $ExpectedTag) { $problems += 'setup executable does not embed the release tag' }
-if (-not $embeddedCommit.Success -or $embeddedCommit.Groups[1].Value -cne $expectedCommitValue) { $problems += 'setup executable does not embed the release commit' }
+$embeddedIdentity = [regex]::Match($setupText, 'agentb-release-identity:(v[0-9A-Za-z.+-]+):([0-9a-f]{40})')
+if (-not $embeddedIdentity.Success -or $embeddedIdentity.Groups[1].Value -cne $ExpectedTag) { $problems += 'setup executable does not embed the release tag' }
+if (-not $embeddedIdentity.Success -or $embeddedIdentity.Groups[2].Value -cne $expectedCommitValue) { $problems += 'setup executable does not embed the release commit' }
 
 $signature = Get-AuthenticodeSignature -LiteralPath $setup
 if ($signature.Status -ne 'Valid') { $problems += "setup Authenticode status is $($signature.Status), expected Valid" }

@@ -129,7 +129,8 @@ if ([string]::IsNullOrWhiteSpace($Dirty)) { throw 'Dirty must be true or false f
 
 $go = Find-Go $sourceRoot
 if (Test-Path -LiteralPath $manifestPath) { Remove-Item -LiteralPath $manifestPath -Force }
-$ldflags = "-H=windowsgui -X harness/internal/buildinfo.Tag=$sourceTag -X harness/internal/buildinfo.Commit=$Commit -X harness/internal/buildinfo.Dirty=$Dirty"
+$identityMarker = "agentb-release-identity:$sourceTag`:$Commit"
+$ldflags = "-H=windowsgui -X harness/internal/buildinfo.Tag=$sourceTag -X harness/internal/buildinfo.Commit=$Commit -X harness/internal/buildinfo.Dirty=$Dirty -X harness/internal/buildinfo.ReleaseIdentity=$identityMarker"
 if ($UseExistingSignedBinary) {
     if (-not $SignForTest) { throw '-UseExistingSignedBinary requires -SignForTest.' }
     if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "Existing signed test candidate not found: $binary" }
@@ -148,7 +149,7 @@ if ($UseExistingSignedBinary) {
         Remove-Item -LiteralPath $binary -Force
     }
     Push-Location $sourceRoot
-    try { & $go build -ldflags $ldflags -o $binary ./cmd/harness } finally { Pop-Location }
+    try { & $go build -trimpath -ldflags $ldflags -o $binary ./cmd/harness } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw "go build exited $LASTEXITCODE." }
     $bytes = [IO.File]::ReadAllBytes($binary)
     $pe = [BitConverter]::ToInt32($bytes, 0x3c)
@@ -162,9 +163,11 @@ if ($UseExistingSignedBinary) {
         Remove-Item -LiteralPath $cliBinary -Force
     }
     Push-Location $sourceRoot
-    $cliLdflags = "-X harness/internal/buildinfo.Tag=$sourceTag -X harness/internal/buildinfo.Commit=$Commit -X harness/internal/buildinfo.Dirty=$Dirty"
-    try { & $go build -ldflags $cliLdflags -o $cliBinary ./cmd/agentb } finally { Pop-Location }
+    $cliLdflags = "-X harness/internal/buildinfo.Tag=$sourceTag -X harness/internal/buildinfo.Commit=$Commit -X harness/internal/buildinfo.Dirty=$Dirty -X harness/internal/buildinfo.ReleaseIdentity=$identityMarker"
+    try { & $go build -trimpath -ldflags $cliLdflags -o $cliBinary ./cmd/agentb } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw "go build of cmd/agentb exited $LASTEXITCODE." }
+    & node (Join-Path $sourceRoot 'tools\privacy-gate.mjs') --binary $binary $cliBinary
+    if ($LASTEXITCODE -ne 0) { throw "Privacy scan of unsigned executable bytes exited $LASTEXITCODE." }
     # Item 2lt: agentb.exe is signed HERE, between its build and the bundle
     # capture below, because the bundle is what reaches an installed machine and
     # the release path already signed the payload before this script ran. It
@@ -213,6 +216,8 @@ if ($UseExistingSignedBinary) {
             Remove-Item -LiteralPath $resolvedPayload -Recurse -Force
         }
     }
+    & node (Join-Path $sourceRoot 'tools\privacy-gate.mjs') --binary $binary
+    if ($LASTEXITCODE -ne 0) { throw "Privacy scan of bundled executable bytes exited $LASTEXITCODE." }
 
     # A test build must be signed before anything executes it, including the
     # identity probe below. This ordering is intentional: signing after
@@ -233,14 +238,12 @@ if ([string]([bool]$reported.dirty).ToString().ToLowerInvariant() -ne $Dirty) { 
 if ($reported.source -ne 'ldflags') { $failures += "identity source $($reported.source) (expected ldflags)" }
 if ($reported.executable_sha256 -ne $sha) { $failures += "reported sha256 $($reported.executable_sha256) (file is $sha)" }
 if ($ExpectedTag -and [bool]$reported.dirty) { $failures += 'a dirty tree (a release is built from a clean commit)' }
-# The installer reads the identity from the -ldflags text in the Go build
-# information without running the exe; prove that text is there (it is not
-# under -trimpath), so a candidate that passes here cannot fail there.
+# The installer reads one explicit identity marker without running the exe.
+# The marker survives -trimpath while compiler and linker machine paths do not.
 $text = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($binary))
-$embeddedTag = [regex]::Match($text, '-X harness/internal/buildinfo\.Tag=(v[0-9A-Za-z.+-]+)')
-$embeddedCommit = [regex]::Match($text, '-X harness/internal/buildinfo\.Commit=([0-9a-f]{40})')
-if (-not $embeddedTag.Success -or $embeddedTag.Groups[1].Value -ne $sourceTag -or -not $embeddedCommit.Success -or $embeddedCommit.Groups[1].Value -ne $Commit) {
-    $failures += 'build information the installer can read without running it (no matching -ldflags text; was -trimpath set?)'
+$embeddedIdentity = [regex]::Match($text, 'agentb-release-identity:(v[0-9A-Za-z.+-]+):([0-9a-f]{40})')
+if (-not $embeddedIdentity.Success -or $embeddedIdentity.Groups[1].Value -ne $sourceTag -or $embeddedIdentity.Groups[2].Value -ne $Commit) {
+    $failures += 'build information the installer can read without running it (no matching release identity marker)'
 }
 if ($failures.Count) { throw "CANDIDATE BUILD REFUSED: Agent_b.exe reports $($failures -join '; '). No manifest was written." }
 

@@ -391,7 +391,7 @@ try {
     $registrationKey = Join-Path $registrationRoot 'Agent_bOther'
     $exactUninstall = '"C:\Alternate Agent_b\uninstall.exe" /exact-test'
     $null = New-Item -Path $registrationKey -Force
-    foreach ($entry in ([ordered]@{ Publisher = 'acme'; DisplayName = 'Agent_b Alpha'; InstallLocation = $registeredRoot; UninstallString = $exactUninstall }).GetEnumerator()) {
+    foreach ($entry in ([ordered]@{ Publisher = 'someone'; DisplayName = 'Agent_b Alpha'; InstallLocation = $registeredRoot; UninstallString = $exactUninstall }).GetEnumerator()) {
         $null = New-ItemProperty -Path $registrationKey -Name $entry.Key -Value $entry.Value -PropertyType String -Force
     }
     $savedErrorAction = $ErrorActionPreference
@@ -515,7 +515,7 @@ try {
     $legacyRegistry = Join-Path $migrationRegistryRoot 'Legacy'
     $null = New-Item -Path $legacyRegistry -Force
     $null = New-ItemProperty -Path $legacyRegistry -Name DisplayName -Value 'Agent_b' -PropertyType String -Force
-    $null = New-ItemProperty -Path $legacyRegistry -Name Publisher -Value 'acme' -PropertyType String -Force
+    $null = New-ItemProperty -Path $legacyRegistry -Name Publisher -Value 'someone' -PropertyType String -Force
     $null = New-ItemProperty -Path $legacyRegistry -Name InstallLocation -Value $legacyRoot -PropertyType String -Force
     $dataSentinel = Join-Path $testData 'migration-data-proof.txt'
     [IO.File]::WriteAllText($dataSentinel, 'operator data survives migration', [Text.UTF8Encoding]::new($false))
@@ -1293,7 +1293,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
     $buildGo = @((Join-Path $repositoryRoot '.tools\go\bin\go.exe'), 'C:\Go\bin\go.exe') | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
     if (-not $buildGo) { throw 'The stale-exe scenario needs Go to build its stale exe.' }
     Push-Location $repositoryRoot
-    try { & $buildGo build -ldflags "-X harness/internal/buildinfo.Tag=$($candidateManifest.tag) -X harness/internal/buildinfo.Commit=$($staleCommit.Trim()) -X harness/internal/buildinfo.Dirty=false" -o (Join-Path $staleTree 'Agent_b.exe') ./cmd/harness } finally { Pop-Location }
+    try { & $buildGo build -ldflags "-X harness/internal/buildinfo.Tag=$($candidateManifest.tag) -X harness/internal/buildinfo.Commit=$($staleCommit.Trim()) -X harness/internal/buildinfo.Dirty=false -X harness/internal/buildinfo.ReleaseIdentity=agentb-release-identity:$($candidateManifest.tag):$($staleCommit.Trim())" -o (Join-Path $staleTree 'Agent_b.exe') ./cmd/harness } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw "Stale-exe build exited $LASTEXITCODE." }
     $installedShaBeforeStale = (Get-FileHash -LiteralPath $installedBinary -Algorithm SHA256).Hash
     $staleTranscriptPath = Join-Path $testData 'logs\stale-candidate-transcript.log'
@@ -1539,7 +1539,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
 }
 
 # --- Scenario: the first clone. A plain extracted tree with no .git, under
-# Windows PowerShell 5.1, is what anyone who clones acme/agent_b has. The
+# Windows PowerShell 5.1, is what anyone who clones someone/agent_b has. The
 # release tooling used to assume a checkout and PowerShell 7, so this path was
 # never proved and broke without anyone noticing.
 $cloneRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-installer-test-clone-' + [Guid]::NewGuid().ToString('N'))

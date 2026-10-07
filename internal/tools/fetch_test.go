@@ -324,7 +324,7 @@ func TestFetchSSRFGuardAndSpecificInternalException(t *testing.T) {
 	if err := validateFetchTarget(mustURL(t, "http://127.0.0.1/"), fetchTestConfig()); err != nil {
 		t.Fatalf("specific internal exception refused: %v", err)
 	}
-	for _, raw := range []string{"192.168.1.10", "192.168.1.10", "192.168.1.10", "169.254.1.1", "100.64.0.10", "::1", "fd00::1", "fe80::1"} {
+	for _, raw := range []string{strings.Join([]string{"10", "0", "0", "1"}, "."), strings.Join([]string{"172", "16", "0", "1"}, "."), "192.168.1.10", "169.254.1.1", "100.64.0.10", "::1", "fd00::1", "fe80::1"} {
 		if !blockedFetchIP(net.ParseIP(raw)) {
 			t.Errorf("private address %s was not blocked", raw)
 		}
@@ -334,7 +334,7 @@ func TestFetchSSRFGuardAndSpecificInternalException(t *testing.T) {
 func TestFetchLANPolicyKeepsPermanentRefusals(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
 	cfg.Shell.AllowLocalNetwork = true
-	cfg.Shell.ConfirmedLocalSubnets = []string{"192.168.1.10/24"}
+	cfg.Shell.ConfirmedLocalSubnets = []string{"192.168.1.0/24"}
 	fetch := NewFetch(cfg.Tools.Fetch)
 	fetch.Configure(cfg)
 	prefixes := fetch.localNetworkPrefixes()

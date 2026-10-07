@@ -19,11 +19,12 @@ export const rules = [
   "Installing and updating never need elevation, and signing never lands on a user",
   "Anonymous data is content-free and off when its switch is off",
   "A per-event path costs the same however much is stored; no file work on the UI thread; nothing grows without bound",
+  "Nothing proprietary to him, and especially nothing identifying, is in anything tracked, built or pushed",
 ];
 
 export function parseInvariants(text) {
   const rows = [...text.matchAll(/^I(\d+) — (.*?) — (.*?) — `([^`]+)`$/gm)].map((match) => ({ id: `I${match[1]}`, rule: match[2], said: match[3], test: match[4] }));
-  if (rows.length !== 12) throw new Error(`expected 12 invariant lines, found ${rows.length}`);
+  if (rows.length !== 13) throw new Error(`expected 13 invariant lines, found ${rows.length}`);
   rows.forEach((row, index) => {
     if (row.id !== `I${index + 1}`) throw new Error(`expected I${index + 1}, found ${row.id}`);
     if (row.rule !== rules[index]) throw new Error(`${row.id} rule text changed`);
@@ -58,6 +59,7 @@ const definitions = (candidate) => [
   [go, ["test", "-v", "./cmd/harness", "./internal/signing", "-run", "TestStartupElevationGuard|TestEverySigningPathChecksUIPolicyBeforePrivateKeyUse"]],
   [go, ["test", "-v", "./internal/telemetry", "-run", "TestTheCountsAreNotQueuedWhenTelemetryIsOff2lx|TestCrashTreeHasAClosedContentFreeShape2p7"]],
   ["powershell.exe", ["-NonInteractive", "-NoProfile", "-WindowStyle", "Hidden", "-Command", `$ErrorActionPreference='Stop'; & '${go}' test -v ./internal/telemetry ./internal/projection ./internal/events ./internal/broker ./internal/attachment ./internal/web -run 'TestBatchesAreBounded2jg|TestEveryPatchArrivesWhileAClientPollsDuringARun|TestWorkbookIngestIsBoundedAgainstMergesAndSparseCells|TestLiveProjectionPerEventCostDoesNotGrowWithStoredEvents2pd|TestLogRetentionBoundsCountAndAgeAndKeepsNewestKind2pd|TestHandledRequestDeduplicationIsBounded2pd|TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt'; if ($LASTEXITCODE) { exit $LASTEXITCODE }; & '${node}' --test --test-name-pattern='projection patch cost stays constant' web/js/bus.test.mjs; exit $LASTEXITCODE`]],
+  [node, [path.join(root, "tools", "privacy-gate.mjs")]],
 ];
 
 export function runGate(candidate) {

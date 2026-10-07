@@ -12,9 +12,10 @@ import (
 // Commit and Dirty are set by release builds with -ldflags. Ordinary Go builds
 // fall back to the VCS metadata embedded by the Go toolchain.
 var (
-	Commit string
-	Dirty  string
-	Tag    = "v1.60.38"
+	Commit          string
+	Dirty           string
+	Tag             = "v1.60.38"
+	ReleaseIdentity = "agentb-release-identity:development"
 )
 
 type Info struct {
@@ -45,6 +46,9 @@ func Current() Info {
 	commit := strings.TrimSpace(Commit)
 	dirty, dirtyKnown := parseDirty(Dirty)
 	source := "ldflags"
+	if !strings.HasPrefix(strings.TrimSpace(ReleaseIdentity), "agentb-release-identity:") {
+		source = "invalid-ldflags"
+	}
 	if commit == "" {
 		commit, dirty, dirtyKnown = vcsInfo()
 		source = "go-vcs"

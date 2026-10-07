@@ -32,7 +32,7 @@ func script(bus *events.Bus, chat, runID string) {
 	publish(events.ModelResponse, map[string]any{"turn": 1, "finish_reason": "tool_calls", "content": "reading " + secret, "usage": map[string]any{"prompt_tokens": 4120, "completion_tokens": 96, "cached_tokens": 0}, "duration_ms": 2280})
 	for index := 1; index <= 3; index++ {
 		id := fmt.Sprintf("call-%d", index)
-		publish(events.ToolCallEvent, map[string]any{"turn": 1, "call_id": id, "name": "read_file", "args": map[string]any{"path": `C:\Users\someone\` + secret + `.txt`}})
+		publish(events.ToolCallEvent, map[string]any{"turn": 1, "call_id": id, "name": "read_file", "args": map[string]any{"path": `acme\` + secret + `.txt`}})
 		publish(events.ToolResult, map[string]any{"turn": 1, "call_id": id, "name": "read_file", "ok": true, "ms": 3, "bytes": 1840, "preview": secret})
 	}
 	publish(events.ModelRequest, map[string]any{"turn": 2, "n_ctx": 32768})

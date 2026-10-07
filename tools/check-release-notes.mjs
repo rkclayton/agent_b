@@ -18,6 +18,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { loadTerms, resolveOutsideList } from "./privacy-gate.mjs";
 
 const repo = path.resolve(import.meta.dirname, "..");
 const notesDir = path.join(repo, "release-notes");
@@ -64,6 +65,13 @@ export function bannedPatterns(source = listPath) {
     // and "scratch" does not fire on "scratchpad".
     const escaped = line.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     patterns.push({ entry: line, regex: new RegExp(`(^|[^A-Za-z0-9])${escaped}([^A-Za-z0-9]|$)`, "i") });
+  }
+  const outside = resolveOutsideList({ required: false });
+  if (outside) {
+    for (const { term, listLine } of loadTerms(outside)) {
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      patterns.push({ entry: `outside-list line ${listLine}`, regex: new RegExp(escaped, "i") });
+    }
   }
   return patterns;
 }
@@ -129,7 +137,7 @@ function main(argv) {
     console.error(`NOTES REFUSED: ${path.basename(file)}`);
     for (const failure of failures) {
       console.error(`  line ${failure.line}: ${failure.kind} — ${failure.entry}`);
-      console.error(`    ${failure.text}`);
+      console.error("    matching text withheld");
     }
   }
   if (bad) {

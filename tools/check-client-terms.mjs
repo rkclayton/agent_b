@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { loadTerms as loadPrivacyTerms, resolveOutsideList, scanTextEntries } from "./privacy-gate.mjs";
 
 const repo = path.resolve(import.meta.dirname, "..");
 
@@ -73,14 +74,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
     console.log(ok ? "CLIENT TERMS SELF-TEST: a planted term was caught" : "CLIENT TERMS SELF-TEST FAILED: a planted term was not caught");
     process.exit(ok ? 0 : 1);
   }
-  const list = process.env.AGENTB_CLIENT_TERMS;
-  if (!list || !fs.existsSync(list)) {
-    console.error("CLIENT TERMS: AGENTB_CLIENT_TERMS must name the operator's deny-list outside the repository");
-    process.exit(2);
-  }
+  let list;
+  try { list = resolveOutsideList(); }
+  catch { console.error("CLIENT TERMS: the outside deny-list is required on this PC"); process.exit(2); }
   const entries = [...trackedEntries(), ...args.filter((arg) => !arg.startsWith("--")).map((name) => ({ name, text: fs.readFileSync(name, "utf8") })), ...(args.includes("--releases") ? releaseEntries() : [])];
-  const findings = scan(entries, loadTerms(list));
-  for (const finding of findings) console.error(`CLIENT TERMS: ${finding.name}: ${finding.count} match(es) on line(s) ${finding.lines.join(", ")} (list line ${finding.listLines.join(", ")})`);
-  console.log(`CLIENT TERMS: ${entries.length} file(s) and page(s) scanned, ${findings.length} with a client term`);
+  const findings = scanTextEntries(entries, loadPrivacyTerms(list));
+  for (const finding of findings) console.error(`CLIENT TERMS: ${finding.name}:${finding.line} rule=${finding.rule}${finding.listLine ? ` list-line=${finding.listLine}` : ""}`);
+  console.log(`CLIENT TERMS: ${entries.length} file(s) and page(s) scanned, ${findings.length} finding(s)`);
   process.exit(findings.length ? 1 : 0);
 }

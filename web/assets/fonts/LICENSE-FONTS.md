@@ -14,7 +14,7 @@ and applies to all of them.
 | IBM Plex Sans | 400, 500 | `ibm-plex-sans-latin-{400,500}-normal.woff2` | 22,588 + 24,184 | Copyright © 2017 IBM Corp., with Reserved Font Name "Plex" |
 | IBM Plex Mono | 400, 500 | `ibm-plex-mono-latin-{400,500}-normal.woff2` | 14,708 + 14,888 | Copyright © 2017 IBM Corp., with Reserved Font Name "Plex" |
 | Atkinson Hyperlegible | 400 | `atkinson-hyperlegible-latin-400-normal.woff2` | 17,208 | Copyright 2020 Braille Institute of America, Inc. |
-| OpenDyslexic | 400 | `opendyslexic-latin-400-normal.woff2` | 115,280 | Copyright (c) 2019-07-29, Abbie Gonzalez (https://abbiecod.es \| someone@example.org), with Reserved Font Name OpenDyslexic. Copyright (c) 12/2012 - 2019 |
+| OpenDyslexic | 400 | `opendyslexic-latin-400-normal.woff2` | 115,280 | Copyright (c) 2019-07-29, Abbie Gonzalez (https://abbiecod.es \| acme), with Reserved Font Name OpenDyslexic. Copyright (c) 12/2012 - 2019 |
 
 All four families were taken from the `@fontsource` packages at version 5.3.0,
 the same source as the IBM Plex files Agent_b has always shipped, subset to

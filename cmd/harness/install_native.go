@@ -148,7 +148,7 @@ func installPerUserNative(plan nativeInstallPlan, platform nativeInstallPlatform
 	}
 	if platform.register != nil {
 		uninstall := quoteWindowsArgument(executable) + " --uninstall --app-root " + quoteWindowsArgument(application) + " --data-root " + quoteWindowsArgument(data) + " --start-menu-root " + quoteWindowsArgument(plan.StartMenu) + " --send-to-root " + quoteWindowsArgument(plan.SendTo) + " --uninstall-registry-path " + quoteWindowsArgument(plan.Registry)
-		values := map[string]any{"DisplayName": "Agent_b", "DisplayVersion": plan.Version, "Publisher": "acme", "DisplayIcon": filepath.Join(application, "web", "assets", "Agent_b.ico"), "InstallLocation": application, "UninstallString": uninstall, "QuietUninstallString": uninstall + " --quiet", "URLInfoAbout": "https://github.com/rkclayton/agent_b", "OperatorSid": plan.OperatorSID, "DataLocation": data, "WorkspaceLocation": plan.Workspace, "EstimatedSize": uint32((size + 1023) / 1024), "NoModify": uint32(1), "NoRepair": uint32(1)}
+		values := map[string]any{"DisplayName": "Agent_b", "DisplayVersion": plan.Version, "Publisher": "someone", "DisplayIcon": filepath.Join(application, "web", "assets", "Agent_b.ico"), "InstallLocation": application, "UninstallString": uninstall, "QuietUninstallString": uninstall + " --quiet", "URLInfoAbout": "https://github.com/someone/agent_b", "OperatorSid": plan.OperatorSID, "DataLocation": data, "WorkspaceLocation": plan.Workspace, "EstimatedSize": uint32((size + 1023) / 1024), "NoModify": uint32(1), "NoRepair": uint32(1)}
 		if err := platform.register(values); err != nil {
 			return fmt.Errorf("Installed apps registration: %w", err)
 		}

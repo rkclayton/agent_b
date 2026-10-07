@@ -10,7 +10,7 @@ import { removeTreeWithinAllowedRoots } from "../../tools/removal-guard.mjs";
 const suiteRoot = path.dirname(fileURLToPath(import.meta.url));
 const seedRoot = path.join(suiteRoot, "fixture", "seed");
 const manifest = JSON.parse(fs.readFileSync(path.join(suiteRoot, "manifest.json"), "utf8"));
-const go = process.env.AGENTB_GO || "C:\work\acmeAgentB\\.tools\\go\\bin\\go.exe";
+const go = process.env.AGENTB_GO || "acmeAgentB\\.tools\\go\\bin\\go.exe";
 
 function filesBelow(root) {
   const found = [];

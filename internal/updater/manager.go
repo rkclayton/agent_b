@@ -24,7 +24,7 @@ import (
 	"harness/internal/quietproc"
 )
 
-const LatestReleaseURL = "https://api.github.com/repos/acme/agent_b/releases/latest"
+const LatestReleaseURL = "https://api.github.com/repos/someone/agent_b/releases/latest"
 
 const (
 	manifestName = "release.json"

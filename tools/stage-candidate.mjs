@@ -11,6 +11,7 @@
 //   node tools/stage-candidate.mjs --scratch v0.69.0          (create, print)
 //   node tools/stage-candidate.mjs --purge-scratch v0.69.0    (remove it)
 import { spawnSync } from "node:child_process";
+import { loadTerms, resolveOutsideList, scanBinary, scanTextEntries } from "./privacy-gate.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -76,6 +77,10 @@ function stage(tag) {
   const commit = spawnSync("git", ["-C", repoRoot, "rev-parse", `${tag}^{commit}`], { encoding: "utf8" });
   if (commit.status !== 0) throw new Error(`tag ${tag} does not resolve to a commit`);
   const sha = commit.stdout.trim();
+  const terms = loadTerms(resolveOutsideList());
+  const names = spawnSync("git", ["-C", repoRoot, "ls-tree", "-r", "--name-only", "-z", tag], { encoding: "utf8" }).stdout.split("\0").filter(Boolean);
+  const entries = names.flatMap((name) => { const shown = spawnSync("git", ["-C", repoRoot, "show", `${tag}:${name}`], { encoding: "utf8", maxBuffer: 1 << 28 }); return shown.status === 0 ? [{ name, text: shown.stdout }] : []; });
+  if (scanTextEntries(entries, terms).length) throw new Error("privacy gate refused the staged tree");
   const candidates = path.join(repoRoot, "candidates");
   const target = path.join(candidates, tag);
   if (fs.existsSync(target)) throw new Error(`refusing to restage over ${target}`);
@@ -117,6 +122,7 @@ function build(tag, thumbprint) {
   const built = path.join(target, "Agent_b.exe");
   const setup = path.join(target, "Agent_b-setup.exe");
   fs.copyFileSync(built, setup);
+  if (scanBinary([built, setup], loadTerms(resolveOutsideList())).length) throw new Error("privacy gate refused candidate executable bytes");
   const identical = fs.readFileSync(built).equals(fs.readFileSync(setup));
   if (!identical) throw new Error("Agent_b-setup.exe is not the verified build");
   const manifestPath = path.join(target, "candidate-final.json");

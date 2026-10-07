@@ -18,7 +18,7 @@ func TestNamedStoreUsesContainedDeterministicPath(t *testing.T) {
 	if store.Path() != want {
 		t.Fatalf("path=%q want=%q", store.Path(), want)
 	}
-	for _, invalid := range []string{"", "../escape", "acme", "a/b"} {
+	for _, invalid := range []string{"", "../escape", "NotLower", "a/b"} {
 		if _, err := NewNamed(root, invalid); err == nil {
 			t.Fatalf("invalid credential name %q accepted", invalid)
 		}

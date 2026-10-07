@@ -21,35 +21,27 @@
 // first instant is already the epoch, so a second run changes nothing.
 import fs from "node:fs";
 import path from "node:path";
+import { loadTerms, resolveOutsideList } from "./privacy-gate.mjs";
 
 export const EPOCH = "2020-01-01T00:00:00.000Z";
 
 // The names to remove. Adding one here and re-running is how the next leak is
 // closed; the gate in 2m9 (a) is what finds it.
-export const HOSTNAMES = ["acme", "acme"];
-// THE REPLACEMENT IS THE SAME LENGTH AS WHAT IT REPLACES, and that is not
-// cosmetic. A projection patch carries `cursor.offset`, a BYTE POSITION into the
-// source it was produced from, and the pin manifest carries each source's
-// decompressed byte length. rel-1.23.0/W4 rewrote "acme" to "fixture-host" and
-// watched every tape's first patch differ at the offset -- 1218 against 1242 --
-// because the file had grown six bytes per occurrence. A same-length substitute
-// leaves every offset where it was, so the fixtures test what they tested before
-// and only the name changes.
-//
-// The timestamps in (c) are already length-preserving: one ISO instant is the
-// same width as another.
-const SYNTHETIC_HOSTS = { acme: "host-a", acme: "host-001" };
+function replacementFor(term) {
+  if (term.includes("@")) return "someone@example.org";
+  if (/^[a-z]:\\/i.test(term)) return "C:\\\\work\\\\acme";
+  if (/^\/(?:home|Users)\//i.test(term)) return "/home/someone";
+  if (/^S-1-/i.test(term)) return "S-1-5-21-1000-1000-1000-1001";
+  if (/^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(term)) return "100.64.0.10";
+  if (/^(?:10\.|172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.)/.test(term)) return term.includes("/") ? "192.168.1.10/24" : "192.168.1.10";
+  return "acme";
+}
 
 const TIMESTAMP = /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?Z/g;
 
 // The names are plain alphanumerics by construction -- a name needing regex
 // escaping would be a hostname no operator has -- so the check is here rather
 // than an escape nobody can read.
-function hostPattern(name) {
-  if (!/^[A-Za-z0-9-]+$/.test(name)) throw new Error(`hostname ${name} is not a plain name`);
-  return new RegExp(name, "gi");
-}
-
 export function nanosOf(token) {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?Z$/.exec(token);
   if (!match) return null;
@@ -76,14 +68,11 @@ function formatNanos(nanos, fractionDigits) {
 // resolution moves the origin's sub-millisecond part without moving anything
 // else. rel-1.23.0/W4 watched those relative values come out six milliseconds
 // apart for exactly that reason.
-export function scrubText(text, origin = null) {
+export function scrubText(text, origin = null, terms = null) {
   let out = text;
-  for (const name of HOSTNAMES) {
-    const replacement = SYNTHETIC_HOSTS[name.toLowerCase()];
-    if (!replacement || replacement.length !== name.length) {
-      throw new Error(`no same-length replacement for ${name}: offsets would move`);
-    }
-    out = out.replaceAll(hostPattern(name), replacement);
+  const deny = terms ?? loadTerms(resolveOutsideList()).map(({ term }) => term);
+  for (const term of deny.sort((a, b) => b.length - a.length)) {
+    out = out.replace(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), replacementFor(term));
   }
 
   const instants = [...out.matchAll(TIMESTAMP)];
@@ -143,7 +132,17 @@ export function scrubTree(directory, { write = true, origin = null, origins = nu
 }
 
 if (process.argv[1] && process.argv[1].endsWith("scrub-fixtures.mjs")) {
-  const roots = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const pinsAt = args.indexOf("--pins");
+  if (pinsAt >= 0) {
+    const pins = args[pinsAt + 1];
+    if (!pins) { console.error("--pins requires a directory"); process.exit(2); }
+    const result = scrubPins(pins);
+    for (const change of scrubTree(path.join(pins, "golden"), { origins: result.origins })) console.log(`regenerated ${change.file}`);
+    console.log(`${result.touched.length} pin source(s) regenerated`);
+    process.exit(0);
+  }
+  const roots = args;
   if (!roots.length) {
     console.error("usage: node tools/scrub-fixtures.mjs <fixture directory> [...]");
     process.exit(2);

@@ -14,7 +14,6 @@
 # Add a line to forbid a word. Nothing else needs changing.
 
 # --- particular machines, hosts and networks ---
-acme
 Ollama machine
 tailnet
 tailscale
@@ -23,8 +22,6 @@ localhost
 
 # --- particular people and their paths ---
 operator
-acme
-acme
 /C:\\Users\\[A-Za-z]/
 /%LOCALAPPDATA%/
 /AppData\\Local/

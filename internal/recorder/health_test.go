@@ -404,7 +404,7 @@ func appSession(t *testing.T) (*App, map[string]map[string]any) {
 	app.NoteState(29_300_000, 2400*time.Millisecond)
 	for _, chat := range []string{"s1", "s2"} {
 		publish(events.SessionCreated, chat, map[string]any{"created_by": "operator"})
-		publish(events.MessageAppended, chat, map[string]any{"message": map[string]any{"role": "user", "content": "ZEBRA secret", "attachments": []any{map[string]any{"kind": "image", "path": `C:\Users\someone\a.png`}}}})
+		publish(events.MessageAppended, chat, map[string]any{"message": map[string]any{"role": "user", "content": "ZEBRA secret", "attachments": []any{map[string]any{"kind": "image", "path": `acme\a.png`}}}})
 		publish(events.ToolResult, chat, map[string]any{"name": "read_file", "ok": true})
 	}
 	clock = clock.Add(3810 * time.Millisecond)

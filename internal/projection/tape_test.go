@@ -204,7 +204,7 @@ func TestTapesCarryNothingLocal2lo(t *testing.T) {
 		// The sources themselves carry a deliberate fixture path, and a tape is the
 		// wire as it was, so a drive letter is not the test. What must never appear
 		// is anything belonging to the MACHINE THAT EMITTED the tape.
-		for _, forbidden := range []string{"/Users/", "AppData", "acme", "projection-tape-"} {
+		for _, forbidden := range []string{"/Users/", "AppData", "local-pc", "projection-tape-"} {
 			if strings.Contains(text, forbidden) {
 				t.Errorf("%s carries %q, which belongs to the machine that emitted it", entry.Name(), forbidden)
 			}

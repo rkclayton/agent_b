@@ -13,7 +13,7 @@ import (
 func TestAnIdenticalRepeatedFailureStopsTheRun2la(t *testing.T) {
 	guards := newRunGuards(8, 3)
 	args := map[string]any{"language": "python", "source": "print(1)"}
-	failure := "error: fork/exec C:\work\acme\\python.exe: The directory name is invalid"
+	failure := "error: fork/exec acme\\python.exe: The directory name is invalid"
 	if reason, _, _ := guards.Observe("c1", "run_script", args, failure, false); reason != "" {
 		t.Fatalf("the first failure stopped the run: %s", reason)
 	}

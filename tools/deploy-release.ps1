@@ -105,7 +105,7 @@ $releaseManifest = [ordered]@{
 $releaseManifestPath = Join-Path $candidate 'release.json'
 [IO.File]::WriteAllText($releaseManifestPath, ($releaseManifest | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 
-$repositoryName = 'acme/agent_b'
+$repositoryName = 'someone/agent_b'
 $setupPath = Join-Path $candidate 'Agent_b-setup.exe'
 $createLine = "gh release create $Tag --repo $repositoryName --verify-tag --title `"Agent_b $Tag`" --notes-file `"$notesPath`""
 $uploadLine = "gh release upload $Tag `"$setupPath`" `"$releaseManifestPath`" --repo $repositoryName --clobber"

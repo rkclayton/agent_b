@@ -12,7 +12,7 @@ import (
 
 // Item 2mr (a) and (c): the operator's own failure, reproduced from the exact
 // bytes his data root carried, and then reported.
-const operatorRefusal = `INSTALLATION FAILED: WorkspaceDirectory must name a dedicated Agent_b or workspace directory: C:\work\acme\AppData\Local\Agent_b\profiles\acme\scratch`
+const operatorRefusal = `INSTALLATION FAILED: WorkspaceDirectory must name a dedicated Agent_b or workspace directory: acme\AppData\Local\Agent_b\profiles\someone\scratch`
 
 func writeProgress(t *testing.T, root string, lines ...installProgressLine) {
 	t.Helper()
@@ -150,7 +150,7 @@ func TestTheOperatorsSuccessfulUpdateReadsAsASuccessWithANote2nh(t *testing.T) {
 	writePhases(t, root,
 		progressPhase{At: "2026-09-28T04:22:21Z", Phase: "starting", Text: "Installing Agent_b v1.29.0"},
 		progressPhase{At: "2026-09-28T04:22:23Z", Phase: "preflight", Text: "Installing Agent_b v1.29.0"},
-		progressPhase{At: "2026-09-28T04:22:25Z", Phase: "copying the application", Text: `Application: C:\work\acme\AppData\Local\Programs\Agent_b`},
+		progressPhase{At: "2026-09-28T04:22:25Z", Phase: "copying the application", Text: `Application: acme\AppData\Local\Programs\Agent_b`},
 		progressPhase{At: "2026-09-28T04:22:30Z", Phase: "stopping the running application", Text: "STOPPING: Agent_b PID 29488"},
 		progressPhase{At: "2026-09-28T04:22:38Z", Phase: "finished", Text: "Agent_b v1.29.0 is installed.", Done: true, OK: true},
 		progressPhase{At: "2026-09-28T04:23:02Z", Phase: "finished", Text: operatorMigrationWarning, Done: true, OK: true},
@@ -203,7 +203,7 @@ func TestTheWarningPhaseIsANoteAndTheFinishIsTheResult2nh(t *testing.T) {
 
 func TestAFailedInstallOutcomeNamesThePhaseAndTheTranscript2nh(t *testing.T) {
 	root := t.TempDir()
-	transcript := `C:\work\acme\AppData\Local\Agent_b\logs\installer-20260927-190511.log`
+	transcript := `acme\AppData\Local\Agent_b\logs\installer-20260927-190511.log`
 	writePhases(t, root,
 		progressPhase{Phase: "starting", Text: "Installing Agent_b v1.30.0"},
 		progressPhase{At: "2026-09-28T05:10:00Z", Phase: "copying the application", Text: operatorRefusal + " It is safe to run again. Transcript: " + transcript, Done: true},

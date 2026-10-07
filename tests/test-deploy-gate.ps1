@@ -72,7 +72,7 @@ try {
 foreach ($required in @('stage-candidate.mjs', 'sign-release.ps1', 'verify-deploy-candidate.ps1', 'Agent_b-setup.exe', 'DEPLOY COMPLETE')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy entry point does not require $required." }
 }
-foreach ($required in @('release.json', 'setup_sha256', 'webview2_loader', 'release-notes', '--notes-file', 'release notes are missing', 'gh release create', 'gh release upload', 'acme/agent_b')) {
+foreach ($required in @('release.json', 'setup_sha256', 'webview2_loader', 'release-notes', '--notes-file', 'release notes are missing', 'gh release create', 'gh release upload', 'someone/agent_b')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy publication does not require $required." }
 }
 if ($deploy -match '--notes\s+"Agent_b') { throw 'Deploy still publishes a placeholder release body.' }
@@ -129,7 +129,7 @@ try {
         if ($_.Exception.Message -notmatch 'required release artifact is missing:.*Agent_b-setup\.exe') { throw }
     }
 
-    $identity = "-X harness/internal/buildinfo.Tag=v9.9.9 -X harness/internal/buildinfo.Commit=$('a' * 40)"
+    $identity = "agentb-release-identity:v9.9.9:$('a' * 40)"
     [IO.File]::WriteAllText((Join-Path $fixture 'Agent_b-setup.exe'), $identity, [Text.Encoding]::GetEncoding(28591))
     $exeSha = (Get-FileHash -LiteralPath (Join-Path $fixture 'Agent_b.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
     $setupSha = (Get-FileHash -LiteralPath (Join-Path $fixture 'Agent_b-setup.exe') -Algorithm SHA256).Hash.ToLowerInvariant()

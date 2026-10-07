@@ -42,14 +42,14 @@ try {
     $stage = Join-Path ([IO.Path]::GetTempPath()) ('agentb-w6-' + [Guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Path $stage -Force
     try {
-        Copy-Item 'C:\work\acmeagentb\scripts\removal-guard.ps1' (Join-Path $stage 'a.ps1')
-        Copy-Item 'C:\work\acmeagentb\tools\build-icon.ps1' (Join-Path $stage 'b.ps1')
+        Copy-Item 'acmeagentb\scripts\removal-guard.ps1' (Join-Path $stage 'a.ps1')
+        Copy-Item 'acmeagentb\tools\build-icon.ps1' (Join-Path $stage 'b.ps1')
         [IO.File]::WriteAllText((Join-Path $stage 'runtime-scripts.txt'), "a.ps1`nb.ps1`nscripts/launch-hidden.vbs`nscripts/launch-installed.cmd`nscripts/webview2-loader.json`n", [Text.UTF8Encoding]::new($false))
-        Copy-Item 'C:\work\acmeagentb\harness.example.json' (Join-Path $stage 'harness.example.json')
+        Copy-Item 'acmeagentb\harness.example.json' (Join-Path $stage 'harness.example.json')
         $untouchedBefore = (Get-FileHash (Join-Path $stage 'harness.example.json') -Algorithm SHA256).Hash
 
         $report = Join-Path $stage 'report.json'
-        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File 'C:\work\acmeagentb\tools\sign-release.ps1' -Path $stage -Thumbprint $cert.Thumbprint -ReportPath $report 2>&1 | Out-String | Write-Output
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File 'acmeagentb\tools\sign-release.ps1' -Path $stage -Thumbprint $cert.Thumbprint -ReportPath $report 2>&1 | Out-String | Write-Output
         Write-Output ("sign-release exit: {0}  (3 = signed and timestamped, chain not trusted by the MACHINE store, which is expected for a disposable anchor)" -f $LASTEXITCODE)
 
         $allSigned = $true
@@ -78,7 +78,7 @@ try {
         }
         $untouchedAfter = (Get-FileHash (Join-Path $stage 'harness.example.json') -Algorithm SHA256).Hash
         Write-Output ("  harness.example.json: untouched={0}" -f ($untouchedBefore -eq $untouchedAfter))
-        Copy-Item $report 'C:\work\acmeagentb\logs\evidence\2026-09-15-v0.61.0\w6-disposable-signing-report.json' -Force
+        Copy-Item $report 'acmeagentb\logs\evidence\2026-09-15-v0.61.0\w6-disposable-signing-report.json' -Force
 
         if ($allSigned -and $allTimestamped -and $allChainValid -and ($untouchedBefore -eq $untouchedAfter)) {
             Write-Output 'PASS: every signable is signed, timestamped and chain-valid to the supplied anchor; non-signables untouched; no root installed'

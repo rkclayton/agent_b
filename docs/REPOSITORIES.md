@@ -71,7 +71,7 @@ item.
 | | Verdict |
 |---|---|
 | `serve/` — 18 files of llama.cpp start scripts and reliability probes | **Has no home in the four.** It is model-server operations: not the harness, not the installer, and not one of the VPS's three jobs. It stays here until it is given one, and this line is the record that it is unplaced. |
-| Release **serving** — `internal/updater/manager.go` asks `https://api.github.com/repos/acme/agent_b/releases/latest` | **Moves to the VPS when the VPS exists**, under job 3. One constant. The release *notes* and the release *build* stay here. |
+| Release **serving** — `internal/updater/manager.go` asks `https://api.github.com/repos/someone/agent_b/releases/latest` | **Moves to the VPS when the VPS exists**, under job 3. One constant. The release *notes* and the release *build* stay here. |
 | `internal/telemetry` | Does not exist yet. Under 2jg only the **sender** is built here; the receiver is the VPS's. |
 | Phone connection UI | **Lives in the phone client repository.** This Windows harness exposes only broker pairing in Settings and the versioned app-message contract; it no longer ships a browser phone client. |
 | `internal/projection/testdata/tapes/`, `tools/projection-tape/` | **Stays, and is published.** This is *What crosses a boundary* working as intended, not something awaiting a move. |
@@ -80,7 +80,7 @@ item.
 ## Deferred
 
 - **Whether the git repository is renamed.** The deliverable is `windows` and it
-  is this repository, with its history. Whether the remote `acme/agent_b` is
+  is this repository, with its history. Whether the remote `someone/agent_b` is
   renamed to match is operator account state, and is not a decision this map
   makes or needs.
 - **The account model** is item 2kq's — the VPS's identity layer, which now also

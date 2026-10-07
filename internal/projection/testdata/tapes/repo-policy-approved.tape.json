@@ -16,6 +16,7 @@
   "b_connection": "",
   "role": "",
   "created_at": "",
+  "folder": "",
   "workspace": "",
   "workspace_dir": "",
   "workspace_missing": false,
@@ -85,7 +86,7 @@
    },
    "cursor": {
     "generation": "repo-policy-approved.events",
-    "offset": 548
+    "offset": 530
    },
    "operations": [
     {
@@ -119,18 +120,18 @@
     {
      "op": "replace",
      "path": "/workspace",
-     "value": "C:\work\acmevesper"
+     "value": "C:\\work\\acme"
     },
     {
      "op": "replace",
      "path": "/workspace_dir",
-     "value": "C:\work\acmevesper"
+     "value": "C:\\work\\acme"
     },
     {
      "op": "replace",
      "path": "/pending_repo_policy",
      "value": {
-      "path": "C:\work\acmevesper\\.agentb\\policy.json",
+      "path": "C:\\work\\acme\\.agentb\\policy.json",
       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "approved": false,
       "content": "{\"version\":1}"
@@ -170,7 +171,7 @@
          "approved": false,
          "content": "{\"version\":1}",
          "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-         "path": "C:\work\acmevesper\\.agentb\\policy.json"
+         "path": "C:\\work\\acme\\.agentb\\policy.json"
         },
         "run": {
          "max_turns": 40,
@@ -178,8 +179,8 @@
         },
         "runnable": true,
         "tools": [],
-        "workspace": "C:\work\acmevesper",
-        "workspace_dir": "C:\work\acmevesper",
+        "workspace": "C:\\work\\acme",
+        "workspace_dir": "C:\\work\\acme",
         "workspace_missing": false
        }
       }
@@ -192,11 +193,11 @@
    "session_id": "policy",
    "previous_cursor": {
     "generation": "repo-policy-approved.events",
-    "offset": 548
+    "offset": 530
    },
    "cursor": {
     "generation": "repo-policy-approved.events",
-    "offset": 833
+    "offset": 809
    },
    "operations": [
     {
@@ -215,7 +216,7 @@
         "approved": true,
         "approved_at": "2020-01-01T00:00:01Z",
         "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "path": "C:\work\acmevesper\\.agentb\\policy.json"
+        "path": "C:\\work\\acme\\.agentb\\policy.json"
        }
       }
      }
@@ -229,7 +230,7 @@
      "op": "replace",
      "path": "/repo_policy",
      "value": {
-      "path": "C:\work\acmevesper\\.agentb\\policy.json",
+      "path": "C:\\work\\acme\\.agentb\\policy.json",
       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "approved_at": "2020-01-01T00:00:01Z",
       "approved": true
@@ -248,7 +249,7 @@
        "approved": true,
        "approved_at": "2020-01-01T00:00:01Z",
        "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-       "path": "C:\work\acmevesper\\.agentb\\policy.json"
+       "path": "C:\\work\\acme\\.agentb\\policy.json"
       }
      }
     }

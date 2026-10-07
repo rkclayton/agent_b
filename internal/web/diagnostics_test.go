@@ -55,7 +55,7 @@ func TestTheDiagnosticsExportRedactsEveryKindItIsGiven(t *testing.T) {
 	red := newRedactor(dataRoot, appRoot)
 
 	seeds := map[string]string{
-		"a path outside the roots": `C:\work\acme\Documents\private.txt`,
+		"a path outside the roots": `C:\Users\someone\Documents\private.txt`,
 		"a UNC path":               `\\fileserver\share\secret.docx`,
 		"a posix path":             ` /home/someone/.ssh/id_ed25519`,
 		"a url with a credential":  "https://hooks.example.com/services/T0000/B0000/abcdefghijklmnopqrstuvwx",
@@ -74,7 +74,7 @@ func TestTheDiagnosticsExportRedactsEveryKindItIsGiven(t *testing.T) {
 		if strings.Contains(got, "seededaccount") {
 			t.Errorf("%s: account name survived: %q", label, got)
 		}
-		for _, fragment := range []string{"private.txt", "secret.docx", "id_ed25519", "abcdefghijklmnopqrstuvwx", "someone@example.org", "192.168.1.10", "3623811015", "workstation.corp.example.com"} {
+		for _, fragment := range []string{"private.txt", "secret.docx", "id_ed25519", "abcdefghijklmnopqrstuvwx", "someone@example.org", "192.168.1.10", "1000-1000", "workstation.corp.example.com"} {
 			if strings.Contains(seed, fragment) && strings.Contains(got, fragment) {
 				t.Errorf("%s: %q survived redaction: %q", label, fragment, got)
 			}
@@ -240,7 +240,7 @@ func TestADiagnosticsReadOverTheBoundIsNamedNotWaitedOn(t *testing.T) {
 	// retry is safe — which is (c). These reads do not exercise the bound.
 	fresh := context.Background()
 	failed := red.bounded(fresh, "hardening", "what it means", func(ctx context.Context) (any, error) {
-		return nil, errors.New(`inspect ACL policy: cannot read C:\work\acme\thing.txt`)
+		return nil, errors.New(`inspect ACL policy: cannot read acme\thing.txt`)
 	})
 	if failed.Skipped == "" || strings.Contains(failed.Skipped, "someoneelse") {
 		t.Errorf("a failed read leaked or said nothing: %+v", failed)
@@ -251,7 +251,7 @@ func TestADiagnosticsReadOverTheBoundIsNamedNotWaitedOn(t *testing.T) {
 
 	// And one that answers is carried through the redactor, not raw.
 	fine := red.bounded(fresh, "service_account", "what it means", func(ctx context.Context) (any, error) {
-		return map[string]any{"account": `C:\work\acme`}, nil
+		return map[string]any{"account": `acme`}, nil
 	})
 	if strings.Contains(fmt.Sprint(fine.Value), "someoneelse") {
 		t.Errorf("an answered read was not redacted: %v", fine.Value)

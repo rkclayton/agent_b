@@ -16,6 +16,7 @@
   "b_connection": "",
   "role": "",
   "created_at": "",
+  "folder": "",
   "workspace": "",
   "workspace_dir": "",
   "workspace_missing": false,

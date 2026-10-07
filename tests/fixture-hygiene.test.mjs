@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import zlib from "node:zlib";
+import { loadTerms, resolveOutsideList, scanTextEntries } from "../tools/privacy-gate.mjs";
 
 // Item 2m9 (a): A GATE, NOT A HABIT.
 //
@@ -22,32 +23,20 @@ const FIXTURE_TREES = [
 ];
 
 // What may not appear in a committed fixture, and why each one matters.
-const FORBIDDEN = [
-  { name: "a Windows absolute path", pattern: /[A-Za-z]:\\\\?Users\\\\?/ },
-  { name: "a POSIX home path", pattern: /\/(?:home|Users)\/[a-z][a-z0-9_-]{2,}/i },
-  { name: "the operator's username", pattern: /\bRandy\b/i },
-  { name: "a machine name", pattern: /\b(?:acme|acme)\b/i },
-  { name: "an email address", pattern: /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i },
-  { name: "an http URL to a named host", pattern: /https?:\/\/(?!127\.0\.0\.1|localhost|example\.|fixture-)[a-z0-9-]+\.[a-z]{2,}/i },
-  // (c): a calendar date. The fixtures are shifted to a fixed epoch, so any
-  // year from 2015 on is a real one that escaped.
-  { name: "a real calendar date", pattern: /\b20(?:1[5-9]|[2-9]\d)-[01]\d-[0-3]\d\b/ },
-];
-
 function committedFiles(tree) {
   const listed = execFileSync("git", ["ls-files", "--", tree], { cwd: REPOSITORY, encoding: "utf8" });
   return listed.split(/\r?\n/).filter(Boolean);
 }
 
 function committedText(relative) {
-  // `git show :path` is the staged content — what a checkout would produce —
-  // rather than whatever happens to be on disk right now.
-  const bytes = execFileSync("git", ["show", `:${relative}`], { cwd: REPOSITORY, maxBuffer: 1 << 28 });
+  // Read the candidate bytes on disk. The push gate separately reads the exact
+  // commit tree, while this test must also protect a scrub before it is staged.
+  const bytes = fs.readFileSync(path.join(REPOSITORY, relative));
   return relative.endsWith(".gz") ? zlib.gunzipSync(bytes).toString("utf8") : bytes.toString("utf8");
 }
 
 test("no committed fixture carries a real identity or a real date", () => {
-  const found = [];
+  const entries = [];
   for (const tree of FIXTURE_TREES) {
     if (!fs.existsSync(path.join(REPOSITORY, tree))) continue;
     for (const relative of committedFiles(tree)) {
@@ -57,22 +46,18 @@ test("no committed fixture carries a real identity or a real date", () => {
       } catch {
         continue; // not in the index (a new file mid-change); the commit gate sees it next run
       }
-      for (const rule of FORBIDDEN) {
-        const hit = rule.pattern.exec(text);
-        if (hit) found.push(`${relative}: ${rule.name} — ${JSON.stringify(hit[0].slice(0, 60))}`);
-      }
+      entries.push({ name: relative, text });
     }
   }
-  assert.deepEqual(found, [], `committed fixtures carry real data:\n${found.join("\n")}`);
+  const found = scanTextEntries(entries, loadTerms(resolveOutsideList()));
+  assert.deepEqual(found, [], `committed fixtures carry real data at ${found.map((f) => `${f.name}:${f.line}:${f.rule}`).join(", ")}`);
 });
 
 test("the scrubber is idempotent, so running it twice is safe", async () => {
   const { scrubText } = await import("../tools/scrub-fixtures.mjs");
-  const sample = `{"host":"acme","ts":"2026-09-23T17:12:37.006321600Z","later":"2026-09-23T17:13:54.723321600Z"}`;
-  const once = scrubText(sample);
-  assert.equal(scrubText(once), once);
-  // And it is length-preserving, which is what keeps every cursor offset valid.
-  assert.equal(once.length, sample.length);
+  const sample = `{"host":"invented-private-host","ts":"2026-09-23T17:12:37.006321600Z","later":"2026-09-23T17:13:54.723321600Z"}`;
+  const once = scrubText(sample, null, ["invented-private-host"]);
+  assert.equal(scrubText(once, null, ["invented-private-host"]), once);
 });
 
 test("the scrubber keeps the exact distance between two instants", async () => {

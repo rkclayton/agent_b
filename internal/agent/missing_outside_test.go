@@ -56,7 +56,7 @@ func TestAMissingOutsideReadRaisesNoCardAndNeitherDoTheTapes(t *testing.T) {
 	}
 	for _, tape := range []string{
 		`cd C:\Users\someone\Documents\GitHub\eval-20260310-110411-1120 && C:\Go\bin\go.exe test ./logic -run ^TestTouchedPlanRoots$ -v`,
-		`cd /d "C:\work\acme" 2>nul; C:\Go\bin\go.exe test ./logic -run ^TestRetentionPreservesNestedEvidence$ -v`,
+		`cd /d "acme" 2>nul; C:\Go\bin\go.exe test ./logic -run ^TestRetentionPreservesNestedEvidence$ -v`,
 	} {
 		// v1.0.0/W1 (item 2fz): the tape's `cd` to an invented folder is a
 		// directory change and runs under the OS boundary; no card is raised,

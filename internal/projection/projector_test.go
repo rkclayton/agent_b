@@ -584,7 +584,7 @@ func TestSessionRenameReplaysAuthorAndUserPin(t *testing.T) {
 
 func TestRetainedWorkspaceBoundEventReconstructs(t *testing.T) {
 	state := seeded(t)
-	dir := `C:\work\acmebound`
+	dir := `acmebound`
 	state, _, err := Next(state, Record{Cursor: Cursor{Generation: "bind.events", Offset: 2}, Event: events.New(events.WorkspaceBound, "main", "", map[string]any{"workspace_dir": dir, "project_content": "instructions"})})
 	if err != nil || state.WorkspaceDir != dir || state.ProjectContent != "instructions" {
 		t.Fatalf("bound state=%+v err=%v", state, err)

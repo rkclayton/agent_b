@@ -17,8 +17,8 @@ import (
 
 func TestAnOriginIsSchemeHostAndPort2nv(t *testing.T) {
 	for raw, want := range map[string]string{
-		"https://api.example.test:8443":       "https://api.example.test:8443",
-		"https://api.example.test":            "https://api.example.test:443",
+		"https://api.example.test:8443":         "https://api.example.test:8443",
+		"https://api.example.test":              "https://api.example.test:443",
 		"https://API.Example.Test:8443/ignored": "https://api.example.test:8443",
 	} {
 		got, err := NormalizeOrigin(raw)
@@ -58,11 +58,11 @@ func TestACredentialGoesOnlyToItsOrigin2nv(t *testing.T) {
 		}
 	}
 	refused := map[string]string{
-		"http://api.example.test:8443/v1":  "scheme",
-		"https://api.example.test/v1":      "port",
-		"https://api.example.test:443/v1":  "port",
-		"https://api.example.test:9443/v1": "port",
-		"https://other.example.test:8443/": "host",
+		"http://api.example.test:8443/v1":     "scheme",
+		"https://api.example.test/v1":         "port",
+		"https://api.example.test:443/v1":     "port",
+		"https://api.example.test:9443/v1":    "port",
+		"https://other.example.test:8443/":    "host",
 		"https://api.example.test.evil:8443/": "host",
 	}
 	for address, why := range refused {

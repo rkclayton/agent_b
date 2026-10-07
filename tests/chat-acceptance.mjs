@@ -537,7 +537,7 @@ app.stdout.on("data", (chunk) => process.stdout.write(chunk));
 app.stderr.on("data", (chunk) => process.stderr.write(chunk));
 await bootstrapHTTP(`http://127.0.0.1:${appPort}`);
 const runtimeState = await state();
-profileData = join(args.data, "profiles", runtimeState.profiles?.active || "acme");
+profileData = join(args.data, "profiles", runtimeState.profiles?.active || "someone");
 if (args["expected-commit"]) assert.equal(runtimeState.build?.commit, args["expected-commit"], "running build commit must match the requested source");
 if (args["expected-dirty"]) assert.equal(runtimeState.build?.dirty, args["expected-dirty"] === "true", "running build dirty state must match the requested source");
 await mkdir(args.evidence, { recursive: true });

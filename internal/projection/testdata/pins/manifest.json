@@ -102,25 +102,25 @@
       "source": "sources/bound-directory.events",
       "golden": "golden/bound-directory.golden.json",
       "origin": "internal/projection/testdata/pins/sources/bound-directory.events",
-      "origin_sha256": "eab02395d7a30d9b06a163bacf3143657d796f0d2e208faadaadeadb89e64c17",
+      "origin_sha256": "9e6e207def7134afe9190910ab7f20f34477a3d74e622984622cd55387e5926d",
       "origin_records": 2,
-      "decompressed_bytes": 1092,
+      "decompressed_bytes": 1054,
       "synthetic": true,
       "shapes": [
         "bound-directory",
         "project-instructions",
         "lazy-subdir"
       ],
-      "rationale": "A session seed binds C:\work\acmevesper and a later file-tool touch appends one subdirectory instruction block; it pins the directory jail identity and replay-only project state."
+      "rationale": "A session seed binds acmeacme and a later file-tool touch appends one subdirectory instruction block; it pins the directory jail identity and replay-only project state."
     },
     {
       "id": "repo-policy-approved",
       "source": "sources/repo-policy-approved.events",
       "golden": "golden/repo-policy-approved.golden.json",
       "origin": "internal/projection/testdata/pins/sources/repo-policy-approved.events",
-      "origin_sha256": "e86f966c04062882543f40dd3e90dbd05cf3f002047983561a645f11f8880364",
+      "origin_sha256": "718532488620d57d0c579d748bf56795f1990ed4bcab27bc764daeadc3f0c4d3",
       "origin_records": 2,
-      "decompressed_bytes": 833,
+      "decompressed_bytes": 809,
       "synthetic": true,
       "shapes": [
         "repo-policy",
@@ -182,7 +182,7 @@
       "source": "sources/session-close.events",
       "golden": "golden/session-close.golden.json",
       "origin": "internal/projection/testdata/pins/sources/session-close.events",
-      "origin_sha256": "5e70733b977eba75751ae203c9adaa67a6b04cc171cc3eea9070cdf137652cd9",
+      "origin_sha256": "6b72805eff0b1daa93b8214af6acddda8f94b95bf9f37fa8b091b1535a71d6f7",
       "origin_records": 9,
       "decompressed_bytes": 2670,
       "synthetic": true,

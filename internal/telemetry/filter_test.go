@@ -86,12 +86,12 @@ func TestRedactionRemovesEverythingTheContractForbids2jg(t *testing.T) {
 		gone     []string
 		want     string
 	}{
-		{"a windows path", `open C:\work\acme\AppData\Local\Temp\secret.txt failed`, []string{"acme", "AppData", "secret"}, "<path>"},
+		{"a windows path", `open C:\Users\someone\AppData\Local\Temp\secret.txt failed`, []string{"someone", "AppData", "secret"}, "<path>"},
 		{"a UNC path", `\\fileserver\share\payroll.xlsx is locked`, []string{"fileserver", "payroll"}, "<path>"},
 		{"a URL", `GET https://ai.acmeholding.example/v1/chat returned 500`, []string{"acmeholding", "/v1/chat"}, "<host>"},
 		{"a bare host", `dial tcp ai.acmeholding.example:443: refused`, []string{"acmeholding"}, "<host>"},
 		{"an address", `dial tcp 192.168.1.10:8080: refused`, []string{"192.168.1.10"}, "<host>"},
-		{"an email", `notify someone@example.org failed`, []string{"acme", "gmail"}, "<email>"},
+		{"an email", `notify someone@example.org failed`, []string{"someone", "gmail"}, "<email>"},
 		{"a token", `Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz0123456789`, []string{"sk-abcdefghijklmnop"}, "<token>"},
 	} {
 		got := Redact(probe.in)
@@ -183,7 +183,7 @@ func TestCrashTreeHasAClosedContentFreeShape2p7(t *testing.T) {
 		t.Fatal("a bounded crash tree was dropped")
 	}
 	for name, mutate := range map[string]func(map[string]any){
-		"free text":        func(tree map[string]any) { tree["message"] = "C:\work\acme\\secret.go panic" },
+		"free text":        func(tree map[string]any) { tree["message"] = "acme\\secret.go panic" },
 		"too many threads": func(tree map[string]any) { tree["threads"] = make([]any, 17) },
 		"bad reason":       func(tree map[string]any) { tree["termination_reason"] = "the panic message" },
 	} {

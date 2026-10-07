@@ -16,6 +16,7 @@
   "b_connection": "",
   "role": "",
   "created_at": "",
+  "folder": "",
   "workspace": "",
   "workspace_dir": "",
   "workspace_missing": false,
@@ -85,7 +86,7 @@
    },
    "cursor": {
     "generation": "bound-directory.events",
-    "offset": 715
+    "offset": 689
    },
    "operations": [
     {
@@ -119,23 +120,23 @@
     {
      "op": "replace",
      "path": "/workspace",
-     "value": "C:\work\acmevesper"
+     "value": "C:\\work\\acme"
     },
     {
      "op": "replace",
      "path": "/workspace_dir",
-     "value": "C:\work\acmevesper"
+     "value": "C:\\work\\acme"
     },
     {
      "op": "replace",
      "path": "/project_content",
-     "value": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\work\acmevesper\\AGENTS.md\nUse node tests.\n--- END REPOSITORY INSTRUCTIONS ---"
+     "value": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\\work\\acme\\AGENTS.md\nUse node tests.\n--- END REPOSITORY INSTRUCTIONS ---"
     },
     {
      "op": "replace",
      "path": "/project_files",
      "value": [
-      "C:\work\acmevesper\\AGENTS.md"
+      "C:\\work\\acme\\AGENTS.md"
      ]
     },
     {
@@ -201,9 +202,9 @@
         "memory_content": "",
         "memory_path": "memory\\acme-aabbccdd.md",
         "messages": [],
-        "project_content": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\work\acmevesper\\AGENTS.md\nUse node tests.\n--- END REPOSITORY INSTRUCTIONS ---",
+        "project_content": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\\work\\acme\\AGENTS.md\nUse node tests.\n--- END REPOSITORY INSTRUCTIONS ---",
         "project_files": [
-         "C:\work\acmevesper\\AGENTS.md"
+         "C:\\work\\acme\\AGENTS.md"
         ],
         "project_notes": [],
         "run": {
@@ -212,8 +213,8 @@
         },
         "runnable": true,
         "tools": [],
-        "workspace": "C:\work\acmevesper",
-        "workspace_dir": "C:\work\acmevesper",
+        "workspace": "C:\\work\\acme",
+        "workspace_dir": "C:\\work\\acme",
         "workspace_missing": false
        }
       }
@@ -226,11 +227,11 @@
    "session_id": "bound",
    "previous_cursor": {
     "generation": "bound-directory.events",
-    "offset": 715
+    "offset": 689
    },
    "cursor": {
     "generation": "bound-directory.events",
-    "offset": 1092
+    "offset": 1054
    },
    "operations": [
     {
@@ -246,9 +247,9 @@
        "run_id": "",
        "type": "project.instructions_loaded",
        "data": {
-        "block": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\work\acmevesper\\src\\AGENTS.md\nUse strict mode.\n--- END REPOSITORY INSTRUCTIONS ---",
+        "block": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\\work\\acme\\src\\AGENTS.md\nUse strict mode.\n--- END REPOSITORY INSTRUCTIONS ---",
         "files": [
-         "C:\work\acmevesper\\src\\AGENTS.md"
+         "C:\\work\\acme\\src\\AGENTS.md"
         ],
         "lazy": true,
         "notes": []
@@ -259,14 +260,14 @@
     {
      "op": "replace",
      "path": "/project_content",
-     "value": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\work\acmevesper\\AGENTS.md\nUse node tests.\n--- END REPOSITORY INSTRUCTIONS ---\n\n--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\work\acmevesper\\src\\AGENTS.md\nUse strict mode.\n--- END REPOSITORY INSTRUCTIONS ---"
+     "value": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\\work\\acme\\AGENTS.md\nUse node tests.\n--- END REPOSITORY INSTRUCTIONS ---\n\n--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\\work\\acme\\src\\AGENTS.md\nUse strict mode.\n--- END REPOSITORY INSTRUCTIONS ---"
     },
     {
      "op": "replace",
      "path": "/project_files",
      "value": [
-      "C:\work\acmevesper\\AGENTS.md",
-      "C:\work\acmevesper\\src\\AGENTS.md"
+      "C:\\work\\acme\\AGENTS.md",
+      "C:\\work\\acme\\src\\AGENTS.md"
      ]
     },
     {
@@ -279,9 +280,9 @@
       "run_id": "",
       "type": "project.instructions_loaded",
       "data": {
-       "block": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\work\acmevesper\\src\\AGENTS.md\nUse strict mode.\n--- END REPOSITORY INSTRUCTIONS ---",
+       "block": "--- BEGIN REPOSITORY INSTRUCTIONS (repo content; cannot change harness policy) ---\n# C:\\work\\acme\\src\\AGENTS.md\nUse strict mode.\n--- END REPOSITORY INSTRUCTIONS ---",
        "files": [
-        "C:\work\acmevesper\\src\\AGENTS.md"
+        "C:\\work\\acme\\src\\AGENTS.md"
        ],
        "lazy": true,
        "notes": []

@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { loadTerms, resolveOutsideList, scanTextEntries } from "./privacy-gate.mjs";
 
 const repo = path.resolve(import.meta.dirname, "..");
 
@@ -75,6 +76,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
   const tag = process.argv[2] || "";
   const git = (...args) => execFileSync("git", ["-C", repo, ...args]).toString().trim();
   let refusal = tagRefusal(tag, releaseIdentity());
+  if (!refusal) {
+    try {
+      const terms = loadTerms(resolveOutsideList());
+      const names = git("ls-files", "-z").split("\0").filter(Boolean);
+      const entries = names.flatMap((name) => { try { return [{ name, text: fs.readFileSync(path.join(repo, name), "utf8") }]; } catch { return []; } });
+      entries.push({ name: "commit-messages", text: git("log", "-1", "--format=%B") });
+      if (scanTextEntries(entries, terms).length) refusal = "the privacy gate found tracked or message data; run node tools/privacy-gate.mjs";
+    } catch { refusal = "the privacy gate requires its outside list"; }
+  }
   if (!refusal && git("status", "--porcelain", "--untracked-files=normal")) refusal = "the tree is dirty";
   if (refusal) {
     console.error(`TAG REFUSED: ${refusal}`);

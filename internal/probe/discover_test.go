@@ -308,8 +308,8 @@ func withDiscoveryPorts(t *testing.T, ports ...string) {
 	t.Cleanup(func() { discoveryPorts = previous })
 }
 
-// Acceptance 1: "Address typed 100.64.0.10 (no port), :8080 up with three models,
-// :11434 up with none: Test leaves the field reading 100.64.0.10, the result names
+// Acceptance 1: "Address typed acme (no port), :8080 up with three models,
+// :11434 up with none: Test leaves the field reading acme, the result names
 // both ports with their counts."
 func TestNoTypedPortReportsEveryPortAndWritesNothing(t *testing.T) {
 	serving := replayPort(t, "port_8080_with_key")
@@ -340,7 +340,7 @@ func TestNoTypedPortReportsEveryPortAndWritesNothing(t *testing.T) {
 	}
 }
 
-// Acceptance 2: "Address typed 100.64.0.10:8080, key stored: Test lists three
+// Acceptance 2: "Address typed acme:8080, key stored: Test lists three
 // models; nothing else on the sheet changes."
 func TestTypedPortListsWhatThatPortServes(t *testing.T) {
 	serving := replayPort(t, "port_8080_with_key")
@@ -361,8 +361,8 @@ func TestTypedPortListsWhatThatPortServes(t *testing.T) {
 	}
 }
 
-// Acceptance 4: "Address typed 100.64.0.10 with :8080 DOWN and :11434 answering
-// empty: the field still reads 100.64.0.10; the result says :8080 — nothing,
+// Acceptance 4: "Address typed acme with :8080 DOWN and :11434 answering
+// empty: the field still reads acme; the result says :8080 — nothing,
 // :11434 — answered, no models." His actual evening.
 func TestNoTypedPortWithTheServingPortDownStillWritesNothing(t *testing.T) {
 	down := deadPort(t)

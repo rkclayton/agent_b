@@ -39,8 +39,8 @@ test("an identical repeating error emits one event and one capped summary", asyn
 
 test("2q7: an error is told by its name and our own file:line, never its message", async () => {
 	const { errorOrigin } = await import(`./ui-error-relay.js?origin=${Date.now()}`);
-	const error = new TypeError("secret C:\\Users\\someone");
-	error.stack = "TypeError: secret C:\\Users\\someone\n    at render (http://127.0.0.1:8080/js/shell.js:412:9)";
+	const error = new TypeError("secret acme");
+	error.stack = "TypeError: secret acme\n    at render (http://127.0.0.1:8080/js/shell.js:412:9)";
 	assert.deepEqual(errorOrigin(error), { name: "TypeError", file: "shell.js", line: 412 });
 	assert.deepEqual(errorOrigin(error, "http://127.0.0.1:8080/js/chat.js?v=3", 77), { name: "TypeError", file: "chat.js", line: 77 });
 	assert.deepEqual(errorOrigin({ name: "secret value" }, "https://elsewhere.example/x.js", 1), { name: "" });

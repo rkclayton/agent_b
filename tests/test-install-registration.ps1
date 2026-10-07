@@ -13,12 +13,12 @@ $temp = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-registration-test-' + [Gu
 try {
     $null = New-Item -Path $canonical -Force
     $null = New-ItemProperty -Path $canonical -Name DisplayName -Value 'Agent_b' -Force
-    $null = New-ItemProperty -Path $canonical -Name Publisher -Value 'acme' -Force
+    $null = New-ItemProperty -Path $canonical -Name Publisher -Value 'someone' -Force
     $null = New-ItemProperty -Path $canonical -Name InstallLocation -Value (Join-Path $temp 'canonical') -Force
 
     $null = New-Item -Path $stale -Force
     $null = New-ItemProperty -Path $stale -Name DisplayName -Value 'Agent_b Alpha' -Force
-    $null = New-ItemProperty -Path $stale -Name Publisher -Value 'acme' -Force
+    $null = New-ItemProperty -Path $stale -Name Publisher -Value 'someone' -Force
     $null = New-ItemProperty -Path $stale -Name InstallLocation -Value (Join-Path $temp 'absent') -Force
 
     $conflictRoot = Join-Path $temp 'alternate'
@@ -26,7 +26,7 @@ try {
     $null = New-Item -ItemType File -Path (Join-Path $conflictRoot 'Agent_b.exe') -Force
     $null = New-Item -Path $conflict -Force
     $null = New-ItemProperty -Path $conflict -Name DisplayName -Value 'Agent_b' -Force
-    $null = New-ItemProperty -Path $conflict -Name Publisher -Value 'acme' -Force
+    $null = New-ItemProperty -Path $conflict -Name Publisher -Value 'someone' -Force
     $null = New-ItemProperty -Path $conflict -Name InstallLocation -Value $conflictRoot -Force
     $conflictUninstall = '"C:\Agent_b alternate\uninstall.exe" /exact'
     $null = New-ItemProperty -Path $conflict -Name UninstallString -Value $conflictUninstall -Force

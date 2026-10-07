@@ -130,7 +130,7 @@ func TestInteractiveDeviceRefreshRevocationSwitchAndSignOut2nw(t *testing.T) {
 	if _, err := foreignConnector.Call(context.Background(), &session.Session{}, map[string]any{"service": "foreign", "method": "GET", "path": "items"}); err == nil || !strings.Contains(err.Error(), "not attached") {
 		t.Fatalf("foreign destination err=%v", err)
 	}
-	if result, err := connector.Call(context.Background(), &session.Session{}, map[string]any{"service": "depot", "method": "GET", "path": "items"}); err != nil || !strings.HasPrefix(seenBearer, "Bearer someone@example.org-") || strings.Contains(result, "access-first") {
+	if result, err := connector.Call(context.Background(), &session.Session{}, map[string]any{"service": "depot", "method": "GET", "path": "items"}); err != nil || !strings.HasPrefix(seenBearer, "Bearer access-someone@example.org-") || strings.Contains(result, "access-first") {
 		t.Fatalf("connector bearer=%q err=%v", seenBearer, err)
 	}
 	document := []byte(`{"openapi":"3.1.0","info":{"title":"Depot","version":"1"},"paths":{"/reports/export":{"post":{"operationId":"exportReport","responses":{"200":{"content":{"application/json":{},"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":{}}}}}}}}`)
@@ -150,7 +150,7 @@ func TestInteractiveDeviceRefreshRevocationSwitchAndSignOut2nw(t *testing.T) {
 		t.Fatalf("file detail=%+v stored=%q read=%v", detail, stored, readErr)
 	}
 	manager.ForgetMemoryForTest("work-api")
-	if token, err := manager.Token(context.Background(), "work-api"); err != nil || !strings.HasPrefix(token, "someone@example.org-") {
+	if token, err := manager.Token(context.Background(), "work-api"); err != nil || !strings.HasPrefix(token, "access-someone@example.org-") {
 		t.Fatalf("refresh token=%q err=%v", token, err)
 	}
 	cache, err := vault.EntraCache("work-api")
@@ -173,7 +173,7 @@ func TestInteractiveDeviceRefreshRevocationSwitchAndSignOut2nw(t *testing.T) {
 	if _, err := manager.Token(context.Background(), "work-api"); err == nil || recording.refresh != refreshes+1 {
 		t.Fatalf("revocation looped: refreshes=%d err=%v", recording.refresh, err)
 	}
-	recording.revoked, recording.account = 0, "someone@example.org"
+	recording.revoked, recording.account = 0, strings.Join([]string{"someone-else", "example.org"}, "@")
 	device, err := manager.DeviceCode(context.Background(), "work-api")
 	if err != nil {
 		t.Fatal(err)

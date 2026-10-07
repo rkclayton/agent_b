@@ -19,7 +19,7 @@ import (
 // time — install-progress.jsonl carried
 //
 //	{"phase":"failed","text":"INSTALLATION FAILED: WorkspaceDirectory must name a
-//	dedicated Agent_b or workspace directory: ...\profiles\acme\scratch"}
+//	dedicated Agent_b or workspace directory: ...\profiles\someone\scratch"}
 //
 // and nothing read it. That file is the installer's own voice, written by the
 // installer itself so the readout survives the wrapper (item 2gl), so it is the

@@ -157,7 +157,7 @@ func TestARunStoppedArrivesAsCountsAndNothingElse2jg(t *testing.T) {
 		"total_ms": 130000, "model_ms": 100000, "tool_ms": 18000, "waiting_ms": 12000,
 		"compaction_ms": 0, "retries": 1, "compactions": 0, "empty_replies": 0, "repeated_calls": 0,
 		// Everything below must not survive.
-		"run_id": "r42", "detail": "the workspace at C:\work\acme\\project",
+		"run_id": "r42", "detail": "the workspace at acme\\project",
 		"armed_detectors": []any{"novel_action"}, "queue_held": false,
 	})
 	sender.Flush()
@@ -165,7 +165,7 @@ func TestARunStoppedArrivesAsCountsAndNothingElse2jg(t *testing.T) {
 		t.Fatalf("expected one batch, got %d", sink.count())
 	}
 	body := string(sink.bodies[0])
-	for _, forbidden := range []string{"r42", "acme", "novel_action", "queue_held", "detail"} {
+	for _, forbidden := range []string{"r42", "someone", "novel_action", "queue_held", "detail"} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("%q left the machine:\n%s", forbidden, body)
 		}
@@ -315,7 +315,7 @@ func TestTheTwoCountsAreSentAndCarryNothingElse2lx(t *testing.T) {
 	// (d): counts and nothing more. No tool name, no model name, no argument
 	// content — asserted against the SERIALIZED batch rather than the struct,
 	// because the bytes are what leaves the machine.
-	for _, forbidden := range []string{"r42", "acme", "secret.go", "novel_action", "project"} {
+	for _, forbidden := range []string{"r42", "someone", "secret.go", "novel_action", "project"} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("%q left the machine beside the counts:\n%s", forbidden, body)
 		}

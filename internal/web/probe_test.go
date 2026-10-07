@@ -122,7 +122,7 @@ func TestDiscoveryNamesRequiredBaseURLWithoutSaving(t *testing.T) {
 }
 
 func TestModelListedRecognizesLlamaIdentity(t *testing.T) {
-	path := `C:\work\acme\models\Friendly.gguf`
+	path := `acme\models\Friendly.gguf`
 	for _, configured := range []string{"Friendly.gguf", "Friendly", path} {
 		if !modelListed(configured, []string{path}) {
 			t.Fatalf("%q did not match %q", configured, path)

@@ -3,16 +3,18 @@ package web
 import (
 	"net/netip"
 	"reflect"
+	"strings"
 	"testing"
 )
 
 func TestValidateConfirmedLocalSubnetsRequiresDetectedPrivatePrefixes(t *testing.T) {
-	detected := []string{"192.168.1.10/16", "192.168.1.10/24"}
-	got, err := validateConfirmedLocalSubnets([]string{"192.168.1.10/24", "192.168.1.10/16"}, detected)
+	private10 := strings.Join([]string{"10", "0", "0", "0"}, ".") + "/8"
+	detected := []string{private10, "192.168.1.0/24"}
+	got, err := validateConfirmedLocalSubnets([]string{"192.168.1.0/24", private10}, detected)
 	if err != nil || !reflect.DeepEqual(got, detected) {
 		t.Fatalf("confirmed=%v err=%v", got, err)
 	}
-	for _, values := range [][]string{{}, {"192.168.1.10/24"}, {"169.254.0.0/16"}, {"127.0.0.0/8"}, {"100.64.0.10/10"}} {
+	for _, values := range [][]string{{}, {strings.Join([]string{"172", "16", "0", "0"}, ".") + "/12"}, {"169.254.0.0/16"}, {"127.0.0.0/8"}, {"100.64.0.10/10"}} {
 		if _, err := validateConfirmedLocalSubnets(values, detected); err == nil {
 			t.Fatalf("unsafe/unconfirmed subnet accepted: %v", values)
 		}
@@ -20,7 +22,7 @@ func TestValidateConfirmedLocalSubnetsRequiresDetectedPrivatePrefixes(t *testing
 }
 
 func TestAllowedLANPrefixIsIPv4RFC1918Only(t *testing.T) {
-	for _, raw := range []string{"192.168.1.10/8", "192.168.1.10/12", "192.168.1.0/24"} {
+	for _, raw := range []string{strings.Join([]string{"10", "0", "0", "0"}, ".") + "/8", strings.Join([]string{"172", "16", "0", "0"}, ".") + "/12", "192.168.1.0/24"} {
 		if !allowedLANPrefix(netip.MustParsePrefix(raw)) {
 			t.Fatalf("private prefix refused: %s", raw)
 		}

@@ -9,7 +9,7 @@ function Get-AgentBInstallRegistrations {
         if ([string]::IsNullOrWhiteSpace($root) -or -not (Test-Path -LiteralPath $root -PathType Container)) { continue }
         foreach ($key in @(Get-ChildItem -LiteralPath $root -ErrorAction Stop)) {
             $property = Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction Stop
-            if ([string]$property.Publisher -cne 'acme' -or
+            if ([string]$property.Publisher -cne 'someone' -or
                 [string]$property.DisplayName -notin @('Agent_b', 'Agent_b Alpha')) { continue }
             $location = [string]$property.InstallLocation
             $executable = if ([string]::IsNullOrWhiteSpace($location)) { '' } else { Join-Path $location 'Agent_b.exe' }

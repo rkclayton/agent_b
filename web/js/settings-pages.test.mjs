@@ -142,11 +142,11 @@ test("About exposes only build identity and exact clock values to screenshot mas
 test("Security renders the LAN switch and detected confirmation list", () => {
 	const context = pageContext();
 	context.store.config.shell.allow_local_network = false;
-	context.hardeningStatus.detected_local_subnets = ["192.168.1.10/24"];
+	context.hardeningStatus.detected_local_subnets = ["192.168.1.0/24"];
 	context.row = (label, value, _extra, hint) => `${label}:${value}${hint ? ` title=${hint}` : ""}`;
 	const page = renderSecurityPage("shell", null, context);
 	assert.match(page, /Allow my local network/);
-	assert.match(page, /192\.168\.50\.0\/24/);
+	assert.match(page, /192\.168\.1\.0\/24/);
 	assert.match(page, /link-local, cloud metadata and Agent_b's own listener remain refused/i);
 	// The subnets ride the switch's own row rather than a block beneath it.
 });

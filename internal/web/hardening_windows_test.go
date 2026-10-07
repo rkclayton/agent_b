@@ -117,7 +117,7 @@ func TestHardeningLANWideningRequiresVerifiedOperatorProcess(t *testing.T) {
 	manager := &fakeHardeningManager{}
 	server.SetHardeningManager(manager)
 	server.operatorRequest = func(*http.Request) error { return errors.New("service child") }
-	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"apply","connection_id":"local","allow_local_network":true,"local_subnets":["192.168.1.10/24"]}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/hardening", strings.NewReader(`{"action":"apply","connection_id":"local","allow_local_network":true,"local_subnets":["acme/24"]}`))
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)

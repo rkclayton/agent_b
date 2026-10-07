@@ -22,6 +22,7 @@ jobs:
         with:
           node-version: '24'
       - run: go vet ./...
+      - run: node tools/privacy-gate.mjs --general-only
       - name: Run packages supported by the hosted Windows environment
         shell: pwsh
         run: |
@@ -48,6 +49,7 @@ jobs:
         with:
           node-version: '24'
       - run: go vet ./...
+      - run: node tools/privacy-gate.mjs --general-only
       - name: Run portable packages
         shell: bash
         run: |

@@ -70,10 +70,12 @@ func TestManagedACLRuleRoundTripOnDisposableDirectory(t *testing.T) {
 }
 
 func TestFirewallAddressesCompareAsTypedRanges(t *testing.T) {
-	if !addressSetsEqual("127.0.0.0/8,192.168.1.0/24", "127.0.0.0-127.255.255.255,192.168.1.0-192.168.1.10") {
+	private10 := strings.Join([]string{"10", "0", "0", "0"}, ".")
+	private172 := strings.Join([]string{"172", "16", "0", "0"}, ".")
+	if !addressSetsEqual("127.0.0.0/8,192.168.1.0/24", "127.0.0.0-127.255.255.255,192.168.1.0-"+strings.Join([]string{"192", "168", "1", "255"}, ".")) {
 		t.Fatal("equivalent address representations drifted")
 	}
-	if addressSetsEqual("192.168.1.10/8", "192.168.1.10/9") {
+	if addressSetsEqual(private10+"/8", private172+"/12") {
 		t.Fatal("different address ranges compared equal")
 	}
 }

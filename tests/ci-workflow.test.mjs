@@ -10,4 +10,5 @@ test("CI references no secret and never installs, signs, or contacts operator se
   assert.match(workflow, /ubuntu-latest/);
   assert.match(workflow, /go test -race \.\/internal\/events/);
   assert.match(workflow, /node tests\/run-node-tests\.mjs/);
+  assert.equal((workflow.match(/privacy-gate\.mjs --general-only/g) ?? []).length, 2);
 });

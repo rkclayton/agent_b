@@ -208,14 +208,12 @@ function Get-CandidateExeIdentity {
     $bytes = [IO.File]::ReadAllBytes($Path)
     $hasher = [Security.Cryptography.SHA256]::Create()
     try { $sha = ([BitConverter]::ToString($hasher.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant() } finally { $hasher.Dispose() }
-    # The -ldflags the exe was built with are plain text in its Go build
-    # information, so the identity is read without running the exe.
+    # The build embeds one path-free identity marker, read without running it.
     $text = [Text.Encoding]::GetEncoding(28591).GetString($bytes)
-    $tag = [regex]::Match($text, '-X harness/internal/buildinfo\.Tag=(v[0-9A-Za-z.+-]+)')
-    $commit = [regex]::Match($text, '-X harness/internal/buildinfo\.Commit=([0-9a-f]{40})')
+    $identity = [regex]::Match($text, 'agentb-release-identity:(v[0-9A-Za-z.+-]+):([0-9a-f]{40})')
     return [pscustomobject]@{
-        Tag = $(if ($tag.Success) { $tag.Groups[1].Value } else { 'no-embedded-tag' })
-        Commit = $(if ($commit.Success) { $commit.Groups[1].Value } else { 'no-embedded-commit' })
+        Tag = $(if ($identity.Success) { $identity.Groups[1].Value } else { 'no-embedded-tag' })
+        Commit = $(if ($identity.Success) { $identity.Groups[2].Value } else { 'no-embedded-commit' })
         Sha256 = $sha
     }
 }
@@ -1025,12 +1023,12 @@ $null = New-Item -Path $UninstallRegistryPath -Force
 $properties = [ordered]@{
 	DisplayName = 'Agent_b'
     DisplayVersion = $displayVersion
-    Publisher = 'acme'
+    Publisher = 'someone'
     DisplayIcon = $iconPath
     InstallLocation = $applicationRoot
     UninstallString = $uninstallCommand
     QuietUninstallString = "$uninstallCommand -Quiet"
-    URLInfoAbout = 'https://github.com/rkclayton/agent_b'
+    URLInfoAbout = 'https://github.com/someone/agent_b'
     InstallDate = (Get-Date -Format 'yyyyMMdd')
     OperatorSid = $OperatorSid
     DataLocation = $dataRoot

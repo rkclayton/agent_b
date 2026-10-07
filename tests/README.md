@@ -57,6 +57,8 @@ path-specific failure exists, the gate remains `always`.
 | Release signing | `pwsh -File tests/test-release-signing.ps1` | Test certificates and signing policy behave as contracted | **PowerShell 7 (pwsh)** — it reports its verdict with `X509ChainTrustMode`, a .NET Core-only type, and refuses to start under Windows PowerShell 5.1 rather than working and then failing on the report (item 2m3); Windows certificate stores; disposable test identity |
 | Replay acceptance | `node tests/chat-replay-acceptance.mjs ...` | Recorded sessions render without a model | Disposable app/data roots and a replay tape |
 | Connection replay | `node tests/connection-replay-fixture.mjs --app CANDIDATE` (add `--negative-control` for the altered-projection proof, `--chats DIR` for the production-sized arm) | Legacy connection data projects without loss, on a bounded fixture the gate owns | A candidate application root; no copy of the operator's profile |
+
+Privacy fixtures use only these stand-ins: user `someone` (or `someone-else`), machine/connection `Local PC` with id `local-pc`, LAN `192.168.1.10/24`, host `192.168.1.10`, shared-range address `100.64.0.10`, project `acme` at `C:\work\acme`, and email `someone@example.org`. Scripts discover their own directory and never name a drive.
 | Onboarding | `node tests/onboarding-acceptance.mjs ...` | Setup sequence and local capability choices | Running disposable harness and Edge |
 | Real-template accounting | `node tests/accounting-real-template-acceptance.mjs ...` | Exact template/token accounting against a live model | Explicit model endpoint and network |
 

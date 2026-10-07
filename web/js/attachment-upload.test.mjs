@@ -28,12 +28,12 @@ test("operator attachments selection names its folder and feeds attachment inges
   const calls = [];
   const fetchImpl = async (url, options = {}) => {
     calls.push({ url, options });
-    if (url === "/api/operator-attachments") return { ok: true, json: async () => ({ folder: "C:\\Agent_b\\acme\\attachments", files: [{ path: "ready.txt", bytes: 5, sha256: "one" }] }) };
+    if (url === "/api/operator-attachments") return { ok: true, json: async () => ({ folder: "C:\\Agent_b\\someone\\attachments", files: [{ path: "ready.txt", bytes: 5, sha256: "one" }] }) };
     if (String(url).startsWith("/api/operator-attachments?")) return { ok: true, blob: async () => new Blob(["ready"]) };
     return { ok: true, json: async () => ({ path: "attachments/ready.txt", bytes: 5, sha256: "two" }) };
   };
   const source = await exchangeFiles({ fetchImpl });
-  assert.equal(source.folder, "C:\\Agent_b\\acme\\attachments");
+  assert.equal(source.folder, "C:\\Agent_b\\someone\\attachments");
   assert.equal(source.files[0].path, "ready.txt");
   const uploaded = await exchangeUpload({ path: "ready.txt" }, "main", {
     fetchImpl,

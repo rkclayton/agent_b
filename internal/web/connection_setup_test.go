@@ -100,13 +100,13 @@ func TestOneModelIsSelectedAndSeveralAreNot2l1(t *testing.T) {
 // `{"object":"list","data":null}`, because no model is pulled there. The refusal
 // must say that, not accuse his model of not being served.
 func TestAServerThatListsNoModelsSaysSo2l1(t *testing.T) {
-	message := modelRefusalMessage("", "http://100.64.0.10:11434", nil)
+	message := modelRefusalMessage("", "http://acme:11434", nil)
 	for _, want := range []string{"model is empty", "listed no models at all", "Pull or load a model"} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("the empty-list refusal does not say %q: %s", want, message)
 		}
 	}
-	named := modelRefusalMessage("model", "http://100.64.0.10:11434", nil)
+	named := modelRefusalMessage("model", "http://acme:11434", nil)
 	if !strings.Contains(named, "listed no models at all") {
 		t.Fatalf("a named model against an empty list still blames the model: %s", named)
 	}

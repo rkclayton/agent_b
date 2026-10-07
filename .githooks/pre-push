@@ -1,0 +1,2 @@
+#!/bin/sh
+exec node tools/privacy-gate.mjs --pre-push

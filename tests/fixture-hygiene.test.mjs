@@ -82,7 +82,7 @@ test("the tag privacy gate scans annotation prose, not Git identity metadata", (
     "object 0123456789012345678901234567890123456789",
     "type commit",
     "tag v1.2.3",
-    "tagger Private Person <private@example.invalid> 0 +0000",
+    "tagger Someone <someone@example.org> 0 +0000",
     "",
     "Public release notes",
     "",

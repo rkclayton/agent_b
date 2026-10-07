@@ -422,9 +422,26 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await expect(finished.page.getByText("Checked the build inputs.")).toBeVisible();
   await expect(finished.page.locator(".chat-narration-line .chat-step-summary")).toHaveCount(2);
   await expect(finished.page.locator(".chat-step-fold.alarm")).toHaveCount(0);
-  await expect(finished.page.locator(".chat-step-summary").first()).toContainText("1 retried");
+  await expect(finished.page.locator(".chat-step-summary").filter({ hasText: "retried" })).toContainText("1 retried");
   await expect(finished.page.getByText("thinking · 7 tokens")).toBeVisible();
   await expect(finished.page.locator(".tool-tick").first()).toContainText(/shell\s*·\s*git stash pop/);
+  await finished.page.evaluate(() => document.querySelector("#chat-log").insertAdjacentHTML("beforeend", '<section class="chat-entry chat-summary"><div class="chat-speaker" aria-label="summary"><span aria-hidden="true">summary</span></div><div class="chat-content">summary row</div></section><section class="chat-entry chat-notice-row"><div class="chat-content">harness note</div></section>'));
+  await finished.page.setViewportSize({ width: 1400, height: 900 });
+  const rail = async (scale) => finished.page.evaluate((value) => {
+    document.querySelector(".chat-page").style.setProperty("--chat-scale", value);
+    const probe = Object.assign(document.createElement("i"), { textContent: "x" }); probe.style.cssText = "position:absolute;font-size:var(--ct)"; document.body.append(probe);
+    const rows = [...document.querySelectorAll("#chat-log > .chat-entry")].map((row) => ({ kind: row.className, track: parseFloat(getComputedStyle(row).gridTemplateColumns), left: row.querySelector(":scope > .chat-content")?.getBoundingClientRect().left }));
+    const speaker = document.querySelector(".chat-agent > .chat-speaker"), label = speaker.lastElementChild, robot = speaker.querySelector("img"), user = document.querySelector(".chat-user > .chat-speaker");
+    const result = { rows, base: parseFloat(getComputedStyle(probe).fontSize), labelSize: parseFloat(getComputedStyle(label).fontSize), labelWidth: label.getBoundingClientRect().width,
+      labelWhole: label.scrollWidth <= label.clientWidth + 1, robotWidth: robot.getBoundingClientRect().width, centers: Math.abs(label.getBoundingClientRect().x + label.getBoundingClientRect().width / 2 - robot.getBoundingClientRect().x - robot.getBoundingClientRect().width / 2),
+      userText: user.innerText, userName: user.getAttribute("aria-label") }; probe.remove(); return result;
+  }, scale);
+  const defaultRail = await rail(1); console.log("2r2 default rail", JSON.stringify(defaultRail));
+  expect(new Set(defaultRail.rows.map((row) => row.track)).size).toBe(1); expect(new Set(defaultRail.rows.map((row) => row.left)).size).toBe(1);
+  expect(Math.abs(defaultRail.rows[0].track - Math.max(defaultRail.robotWidth, defaultRail.labelWidth))).toBeLessThanOrEqual(2); expect(defaultRail.labelSize).toBeCloseTo(defaultRail.base * 2 / 3, 1);
+  expect(defaultRail.centers).toBeLessThanOrEqual(1); expect({ text: defaultRail.userText, name: defaultRail.userName }).toEqual({ text: "", name: "you" });
+  await finished.page.screenshot({ path: "test-results/2r2-default.png", fullPage: true });
+  for (const [name, scale] of [["smallest", .9], ["largest", 1.5]]) { const seen = await rail(scale); console.log(`2r2 ${name} rail`, JSON.stringify(seen)); expect(seen.labelWhole && seen.rows[0].track >= seen.robotWidth).toBe(true); await finished.page.screenshot({ path: `test-results/2r2-${name}.png`, fullPage: true }); }
   await finished.context.close();
 
   const live = await open("running", "live-2ql.test");

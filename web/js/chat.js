@@ -492,7 +492,7 @@ function renderEntry(session, entry) {
   }
   usedEntryViews.add(viewKey);
   setAttribute(view.row, "data-entry-key", entry.key);
-  setText(view.author.lastElementChild, entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entryRole(entry)));
+  setSpeaker(view.author, entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entryRole(entry)));
   setAttribute(view.row, "class", `chat-entry ${entry.type === "user" ? "chat-user" : entry.type === "summary" ? "chat-summary" : entry.type === "tool" ? "tool-entry" : "chat-agent"}`);
   const content = view.content;
   if (entry.type === "user") {
@@ -543,7 +543,7 @@ function renderResponse(session, entry) {
     entryViews.set(viewKey, view);
   }
   usedEntryViews.add(viewKey);
-  setText(view.author.lastElementChild, agentAuthor(session));
+  setSpeaker(view.author, agentAuthor(session));
   const totals = responseSummary(entry.items);
   const active = isRunning(session) && entry.items.some((item) => item?.run_id && item.run_id === session.run?.run_id);
   const blocks = responseBlocks(entry.items);
@@ -958,9 +958,16 @@ function speaker(name, agent = false) {
     node.append(image);
   }
   const label = document.createElement("span");
-  label.textContent = name;
+  label.setAttribute("aria-hidden", "true");
   node.append(label);
+  setSpeaker(node, name);
   return node;
+}
+
+function setSpeaker(node, name) {
+  setAttribute(node, "aria-label", name);
+  setText(node.lastElementChild, name === "you" ? "" : name);
+  name === "you" ? node.lastElementChild.removeAttribute("title") : setAttribute(node.lastElementChild, "title", name);
 }
 
 function thinking(entry, tokens) {

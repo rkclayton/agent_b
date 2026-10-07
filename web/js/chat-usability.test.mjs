@@ -199,9 +199,10 @@ test("Composer is five lines with no placeholder and expands upward", () => {
 });
 
 test("Chat uses the narrow monospace label gutter", () => {
-	assert.match(css, /\.chat-entry\s*\{[\s\S]*grid-template-columns:\s*72px minmax\(0, 1fr\)/);
+	assert.match(css, /\.chat-entry\s*\{[\s\S]*grid-template-columns:\s*max\(20px, calc\(var\(--ct\) \* 5 \/ 2\)\) minmax\(0, 1fr\)/);
 	assert.match(chat, /speaker\(agentAuthor\(session\), true\)/);
 	assert.match(chat, /function speaker\(name, agent = false\)[\s\S]*if \(agent\)[\s\S]*assets\/agent\.svg/);
+	assert.match(chat, /name === "you" \? "" : name/);
 	assert.match(css, /\.chat-render-failure \.chat-content\s*\{[\s\S]*white-space:\s*nowrap/);
 });
 

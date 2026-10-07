@@ -1831,10 +1831,10 @@ if (realModel) {
   assert.equal(events.some((event) => event.seq > beforeInspectionApproval && event.type === "approval.required" && event.data?.name === "shell.operator_command"), false);
   assert.ok(events.some((event) => event.type === "tool.result" && event.data.name === "shell" && event.data.ok === true), JSON.stringify(events.filter((event) => event.seq > beforeInspectionApproval && (event.type.startsWith("tool.") || event.type.startsWith("approval.") || event.type === "shell.grant")).map((event) => ({ seq: event.seq, type: event.type, data: event.data }))));
   const gutter = await browser.evaluate(`getComputedStyle(document.querySelector('.chat-entry')).gridTemplateColumns.split(' ')[0]`);
-  assert.match(gutter, /^72px$/);
+  assert.match(gutter, /^30px$/);
   const speakerHeads = await browser.evaluate(`({agent:document.querySelectorAll('.chat-agent .chat-speaker img').length,user:document.querySelectorAll('.chat-user .chat-speaker img').length})`);
   assert.ok(speakerHeads.agent > 0 && speakerHeads.user === 0, JSON.stringify(speakerHeads));
-  record("plan-registration-tool-answer-72px-robot-rail");
+  record("plan-registration-tool-answer-trim-robot-rail");
 
   const beforeLiveTool = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
   await setTask("acceptance: live tool");

@@ -90,6 +90,12 @@ export function scanTextEntries(entries, terms = []) {
   return findings;
 }
 
+export function annotationMessage(tagObject) {
+  const text = String(tagObject);
+  const boundary = text.indexOf("\n\n");
+  return boundary < 0 ? "" : text.slice(boundary + 2);
+}
+
 function worktreeEntries() {
   return git("ls-files", "-z").split("\0").filter(Boolean).flatMap((name) => {
     try { return [{ name, text: fs.readFileSync(path.join(repo, name), "utf8") }]; } catch { return []; }
@@ -160,7 +166,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
       if (!localSha || /^0+$/.test(localSha)) continue;
       if (localRef?.startsWith("refs/tags/")) {
         try {
-          if (git("cat-file", "-t", localSha).trim() === "tag") entries.push({ name: `tag-message:${localRef.slice(10)}`, text: git("cat-file", "-p", localSha) });
+          if (git("cat-file", "-t", localSha).trim() === "tag") entries.push({ name: `tag-message:${localRef.slice(10)}`, text: annotationMessage(git("cat-file", "-p", localSha)) });
         } catch { /* the tree/ref checks below will report an unusable object */ }
       }
       const range = remoteSha && !/^0+$/.test(remoteSha) ? `${remoteSha}..${localSha}` : localSha;

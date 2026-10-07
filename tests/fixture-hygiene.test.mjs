@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import zlib from "node:zlib";
-import { loadTerms, resolveOutsideList, scanTextEntries } from "../tools/privacy-gate.mjs";
+import { annotationMessage, loadTerms, resolveOutsideList, scanTextEntries } from "../tools/privacy-gate.mjs";
 
 // Item 2m9 (a): A GATE, NOT A HABIT.
 //
@@ -75,4 +75,17 @@ test("a fixture already authored against 1970 is left alone", async () => {
   // millisecond the projector derives from them.
   const synthetic = `{"ts":"1970-01-01T00:01:17.717Z"}`;
   assert.equal(scrubText(synthetic), synthetic);
+});
+
+test("the tag privacy gate scans annotation prose, not Git identity metadata", () => {
+  const object = [
+    "object 0123456789012345678901234567890123456789",
+    "type commit",
+    "tag v1.2.3",
+    "tagger Private Person <private@example.invalid> 0 +0000",
+    "",
+    "Public release notes",
+    "",
+  ].join("\n");
+  assert.equal(annotationMessage(object), "Public release notes\n");
 });

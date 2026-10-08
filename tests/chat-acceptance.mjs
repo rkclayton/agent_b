@@ -1042,8 +1042,8 @@ if (realModel) {
   });
   const chatGeometry = await captureShellGeometry();
   // Item 2gk: the tab menu no longer has a side to flip to. What has to hold is
-  // the route to the numbers and the route back: the gear opens Settings over
-  // the chat, and closing it leaves the chat exactly as it was.
+  // the route to the numbers and the route back: Settings opens over the chat,
+  // and closing it leaves the chat and its shared strip exactly as they were.
   const chatToPanelStarted = performance.now();
   await openSettings();
   await browser.wait(`document.querySelector('#settings-page') && !document.querySelector('#settings-page').hidden`, "Settings open from the chat");
@@ -1067,7 +1067,7 @@ if (realModel) {
   assert.deepEqual(panelGeometry.shell, chatGeometry.shell, JSON.stringify({ chatGeometry, panelGeometry }));
   assert.deepEqual(panelGeometry.windows, chatGeometry.windows, JSON.stringify({ chatGeometry, panelGeometry }));
   assert.deepEqual({ ...panelGeometry.connection, x: chatGeometry.connection.x }, chatGeometry.connection, JSON.stringify({ chatGeometry, panelGeometry }));
-  assert.equal(chatGeometry.connection.x - panelGeometry.connection.x, 26);
+  assert.equal(chatGeometry.connection.x - panelGeometry.connection.x, 0);
 	// Agents holds the configurable half. web_search and delegate are deliberately
 	// file-only, but remain observable as the two additional Activity rows.
   assert.equal(await clickText(".settings-nav button", "Agents"), true);

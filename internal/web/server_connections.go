@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -247,6 +248,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		tested.RequestTimeoutS = body.RequestTimeoutS
 	}
 	if strings.TrimSpace(tested.BaseURL) == "" {
+		logConnectionTestFailure("reach", "base_url is empty", tested.APIKey)
 		writeError(w, 400, "base_url is empty", "connections."+id+".base_url")
 		return
 	}
@@ -274,10 +276,24 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		if friendly, ok := discoverErr.(interface{ OperatorMessage() string }); ok {
 			message = friendly.OperatorMessage()
 		}
+		if discovered.NeedsKey && tested.APIKey != "" {
+			status := http.StatusUnauthorized
+			for _, attempt := range discovered.Attempts {
+				if attempt.Status == http.StatusUnauthorized || attempt.Status == http.StatusForbidden {
+					status = attempt.Status
+					break
+				}
+			}
+			message = fmt.Sprintf("The server at %s refused the API key (HTTP %d).", tested.BaseURL, status)
+		}
 		if tested.APIKey != "" {
 			message = strings.ReplaceAll(message, tested.APIKey, "<api-key>")
 		}
-		logConnectionTestFailure(message, tested.APIKey)
+		step := "reach"
+		if discovered.NeedsKey {
+			step = "model list"
+		}
+		logConnectionTestFailure(step, message, tested.APIKey)
 		writeError(w, http.StatusBadRequest, message, "connections."+id+".base_url")
 		return
 	}
@@ -307,13 +323,13 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	// do that any more — a typed port is the only port tried, and a host with no port
 	// answers with the list above instead of a choice.
 	if strings.TrimRight(tested.BaseURL, "/") != strings.TrimRight(discovered.BaseURL, "/") {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "failed", "connection_id": id, "message": fmt.Sprintf("Test failed — set address to %s and try again", discovered.BaseURL)})
+		writeConnectionTestFailure(w, id, "model list", fmt.Sprintf("set address to %s and try again", discovered.BaseURL), tested.APIKey)
 		return
 	}
 	// Item 2px (d): Test unlocks nothing and is not a failure without a model. It
 	// checked reach and the list, which is all it can check until one is chosen.
 	if strings.TrimSpace(updated.Model) == "" && len(discovered.Models) > 0 {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "failed", "connection_id": id, "message": "Test failed — choose a listed model and try again"})
+		writeConnectionTestFailure(w, id, "chosen model", "choose a listed model and try again", tested.APIKey)
 		return
 	}
 	listed := modelListed(updated.Model, discovered.Models)
@@ -323,15 +339,28 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		// than blaming the model -- the operator acme case, where Ollama answered
 		// 200 with no models pulled.
 		modelErr := modelRefusalMessage(updated.Model, discovered.BaseURL, discovered.Models)
-		logConnectionTestFailure(modelErr, tested.APIKey)
-		writeJSON(w, http.StatusOK, map[string]any{"status": "failed", "connection_id": id, "message": "Test failed — " + modelErr})
+		writeConnectionTestFailure(w, id, "chosen model", modelErr, tested.APIKey)
 		return
 	}
 	started := time.Now()
-	check, stop := context.WithTimeout(r.Context(), time.Duration(max(5, min(updated.RequestTimeoutS, 30)))*time.Second)
+	timeoutSeconds := max(5, min(updated.RequestTimeoutS, 30))
+	check, stop := context.WithTimeout(r.Context(), time.Duration(timeoutSeconds)*time.Second)
 	defer stop()
-	if _, err := llm.New(&updated).Chat(check, llm.Request{Messages: []llm.Message{{Role: "user", Content: "Reply OK."}}, MaxTokens: 8}); err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "failed", "connection_id": id, "message": "Test failed — the model did not answer; check the model and try again"})
+	answer, err := llm.New(&updated).Chat(check, llm.Request{Messages: []llm.Message{{Role: "user", Content: "Reply OK."}}, MaxTokens: 64, Thinking: updated.Reasoning.Enabled, ReasoningMaxTokens: 48})
+	if err != nil {
+		detail := strings.Join(strings.Fields(strings.TrimSpace(err.Error())), " ")
+		if tested.APIKey != "" {
+			detail = strings.ReplaceAll(detail, tested.APIKey, "<api-key>")
+		}
+		message := fmt.Sprintf("server answers, but the model was asked and answered with an error: %q.", detail)
+		if errors.Is(err, context.DeadlineExceeded) {
+			message = fmt.Sprintf("server answers, but the model was asked and did not answer in %d seconds.", timeoutSeconds)
+		}
+		writeConnectionTestFailure(w, id, "model answer", message, tested.APIKey)
+		return
+	}
+	if strings.TrimSpace(answer.Content) == "" && strings.TrimSpace(answer.Reasoning) == "" && len(answer.ToolCalls) == 0 {
+		writeConnectionTestFailure(w, id, "model answer", "server answers, but the model was asked and answered with nothing.", tested.APIKey)
 		return
 	}
 	duration := max(int(time.Since(started).Milliseconds()), 1)
@@ -345,8 +374,13 @@ func safeConnectionFailureLog(message, apiKey string) string {
 	return telemetry.RedactFull(message)
 }
 
-func logConnectionTestFailure(message, apiKey string) {
-	log.Printf("connection Test failed: %s", safeConnectionFailureLog(message, apiKey))
+func logConnectionTestFailure(step, message, apiKey string) {
+	log.Printf("connection Test failed: %s step: %s", step, safeConnectionFailureLog(message, apiKey))
+}
+
+func writeConnectionTestFailure(w http.ResponseWriter, id, step, message, apiKey string) {
+	logConnectionTestFailure(step, message, apiKey)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "failed", "connection_id": id, "message": "Test failed — " + message})
 }
 
 func (s *Server) queryConnectionModels(w http.ResponseWriter, r *http.Request, id string) {
@@ -509,7 +543,7 @@ func (s *Server) runProbe(ctx context.Context, connection *config.Connection, cu
 		if friendly, ok := err.(interface{ OperatorMessage() string }); ok {
 			message = friendly.OperatorMessage()
 		}
-		logConnectionTestFailure(message, connection.APIKey)
+		logConnectionTestFailure("capability probe", message, connection.APIKey)
 		if connection.APIKey != "" {
 			for index := range findings {
 				findings[index] = strings.ReplaceAll(findings[index], connection.APIKey, "<api-key>")

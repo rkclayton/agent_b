@@ -209,7 +209,8 @@ function connectionFields(connection, reason, discovery) {
 	// the picker and the connection settings from that single result.
 	const modelPath = `${p}.model`;
 	const modelProblem = errors.get(modelPath) || "";
-	const modelControl = `${row("model", `<span class="settings-actions">${picker}</span>`, modelProblem ? "invalid" : "", false)}${modelProblem ? errorMarkup(modelProblem, `field:${modelPath}`) : ""}`;
+	const modelListProblem = discovery?.modelListError || "";
+	const modelControl = `${row("model", `<span class="settings-actions">${picker}</span>`, modelProblem ? "invalid" : "", false)}${modelProblem ? errorMarkup(modelProblem, `field:${modelPath}`) : ""}${modelListProblem ? `<p class="settings-note alarm">model list not read — ${html(modelListProblem)}</p>` : ""}`;
 	// Item 2nb (g): ONE MESSAGE, ONE PLACE. The discovery result used to be rendered
 	// twice — once under base_url and once beside the Evaluation Harness button — and
 	// the operator saw three copies of one sentence. It belongs under the field it is
@@ -255,7 +256,6 @@ function connectionFields(connection, reason, discovery) {
 	${feedback}${measurementResult}
 	    <details class="connection-defaults" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Defaults</summary>
 	    <div class="connection-fieldset connection-identity"><h4>Connection</h4>
-	${text(`${p}.credential`, "credential ref", connection.credential || "", "text", false)}
 	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", false)}
 	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], connection.attachment_handling || "auto", false)}
 	${number(`${p}.request_timeout_s`, "timeout", connection.request_timeout_s, "1", false, "", false, "number", false)}

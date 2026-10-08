@@ -155,6 +155,10 @@ func TestConfigPOSTStoresConnectionSecretOutsideJSON(t *testing.T) {
 	if bytes.Contains(eventJSON, []byte(secret)) {
 		t.Fatalf("secret entered event stream: %s", eventJSON)
 	}
+	response = postConfigPatch(t, server, `{"connections":[{"id":"local","label":"Renamed"}]}`)
+	if persisted, err = os.ReadFile(path); err != nil || response.Code != http.StatusOK || !bytes.Contains(persisted, []byte(`"credential": "acme"`)) {
+		t.Fatalf("visible-field save changed the hidden credential: status=%d config=%s err=%v", response.Code, persisted, err)
+	}
 }
 
 func postConfigPatch(t *testing.T, server *Server, body string) *httptest.ResponseRecorder {

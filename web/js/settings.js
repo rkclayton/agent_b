@@ -757,9 +757,12 @@ async function listConnectionModels(id) {
   if (!base_url) return;
   try {
     const listed = await api(`/api/connections/${encodeURIComponent(id)}/models`, { base_url, api_key: current(`${prefix}api_key`, "") });
-    probeMessages.set(id, { ...(probeMessages.get(id) || {}), models: listed.models || [] });
+    probeMessages.set(id, { ...(probeMessages.get(id) || {}), models: listed.models || [], modelListError: "" });
     if (open) render();
-  } catch {}
+  } catch (error) {
+	probeMessages.set(id, { ...(probeMessages.get(id) || {}), models: [], modelListError: String(error.message || error) });
+	if (open) render();
+	}
 }
 
 async function saveConnection(id) {

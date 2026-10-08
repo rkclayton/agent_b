@@ -85,6 +85,17 @@ test("Setup and Connections share the independent model picker and read-only Tes
   await settings.close();
 });
 
+test("a failed model list keeps the saved model and names the reason 2r7", async () => {
+	const page = await harness.context.newPage();
+	await page.route("**/api/connections/ui/models", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "model list unavailable" }) }));
+	await page.goto(`${harness.base}/chat#settings/connections`);
+	await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+	await expect(page.locator('[data-path="connections.ui.model"] option')).toHaveText(["absent-model", "type a name…"]);
+	await expect(page.locator(".connection-primary .settings-note.alarm")).toHaveText("model list not read — model list unavailable");
+	await expect(page.getByText("credential ref", { exact: true })).toHaveCount(0);
+	await page.close();
+});
+
 test("Test Eval Recommended stay adjacent at 1400px and the narrowest width 2qw", async () => {
   const page = await harness.context.newPage({ viewport: { width: 1400, height: 900 } });
   let models = [

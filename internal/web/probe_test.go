@@ -49,7 +49,7 @@ func TestConnectionFailureLogKeepsTheWholeFailureAndDropsTheKey2po(t *testing.T)
 	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/probe", strings.NewReader(`{"base_url":"http://127.0.0.1:1","api_key":"`+key+`"}`))
 	response := httptest.NewRecorder()
 	server.connection(response, request)
-	if strings.Count(output.String(), "connection Test failed:") != 1 || strings.Contains(output.String(), key) {
+	if strings.Count(output.String(), "connection Test failed:") != 1 || !strings.Contains(output.String(), "reach step") || strings.Contains(output.String(), key) {
 		t.Fatalf("one safe log record was not written: %q", output.String())
 	}
 }
@@ -87,6 +87,89 @@ func TestReadyConnectionTestDoesNotRewriteConfig(t *testing.T) {
 	}
 	if !bytes.Equal(before, after) {
 		t.Fatal("ready Test changed the config file")
+	}
+}
+
+func TestConnectionTestNamesARefusedKeyAndLogsTheModelListStep2r7(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, `{"error":"key refused"}`)
+	}))
+	defer model.Close()
+	server := newProbeServer(t)
+	server.cfg.Connections[0].BaseURL, server.cfg.Connections[0].APIKey = model.URL, "wrong-key"
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(previous)
+	response := httptest.NewRecorder()
+	server.connection(response, httptest.NewRequest(http.MethodPost, "/api/connections/local/probe", nil))
+	if !strings.Contains(response.Body.String(), "refused the API key") || !strings.Contains(output.String(), "model list step") {
+		t.Fatalf("body=%s log=%s", response.Body, output.String())
+	}
+}
+
+func TestConnectionTestAllowsSlowAndThinkingAnswersAndNamesAnswerFailures2r7(t *testing.T) {
+	tests := []struct {
+		name, reply, want string
+		delay             time.Duration
+		minimumTokens     int
+		passed            bool
+	}{
+		{name: "loads before answering", delay: 100 * time.Millisecond, reply: `{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}`, passed: true},
+		{name: "thinking needs more than eight tokens", minimumTokens: 9, reply: `{"choices":[{"message":{"reasoning_content":"thinking"},"finish_reason":"length"}]}`, passed: true},
+		{name: "server error", reply: `ERROR: model failed to load`, want: `server answers, but the model was asked and answered with an error: "chat HTTP 503: ERROR: model failed to load"`},
+		{name: "empty answer", reply: `{"choices":[{"message":{"content":""},"finish_reason":"stop"}]}`, want: "server answers, but the model was asked and answered with nothing"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v1/models" {
+					fmt.Fprint(w, `{"data":[{"id":"test-model"}]}`)
+					return
+				}
+				if r.URL.Path != "/v1/chat/completions" {
+					http.NotFound(w, r)
+					return
+				}
+				var body struct {
+					MaxTokens int `json:"max_tokens"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				if body.MaxTokens < tc.minimumTokens {
+					http.Error(w, "too few tokens", http.StatusUnprocessableEntity)
+					return
+				}
+				time.Sleep(tc.delay)
+				if tc.name == "server error" {
+					w.WriteHeader(http.StatusServiceUnavailable)
+				}
+				fmt.Fprint(w, tc.reply)
+			}))
+			defer model.Close()
+
+			server := newProbeServer(t)
+			server.cfg.Connections[0].BaseURL, server.cfg.Connections[0].Model = model.URL, "test-model"
+			var output bytes.Buffer
+			previous := log.Writer()
+			log.SetOutput(&output)
+			defer log.SetOutput(previous)
+			response := httptest.NewRecorder()
+			server.connection(response, httptest.NewRequest(http.MethodPost, "/api/connections/local/probe", nil))
+			if tc.passed {
+				if !strings.Contains(response.Body.String(), `"status":"passed"`) {
+					t.Fatalf("body=%s", response.Body)
+				}
+				return
+			}
+			var result struct {
+				Message string `json:"message"`
+			}
+			_ = json.Unmarshal(response.Body.Bytes(), &result)
+			if !strings.Contains(result.Message, tc.want) || !strings.Contains(output.String(), "model answer step") {
+				t.Fatalf("body=%s log=%s", response.Body, output.String())
+			}
+		})
 	}
 }
 
@@ -167,6 +250,10 @@ func TestConnectionTestReturnsDiscoveryListAndLogsEveryRequest(t *testing.T) {
 	stream, unsubscribe := bus.Subscribe()
 	defer unsubscribe()
 	server := New(&cfg, configPath, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(previous)
 	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/probe", nil)
 	response := httptest.NewRecorder()
 	server.connection(response, request)
@@ -185,6 +272,9 @@ func TestConnectionTestReturnsDiscoveryListAndLogsEveryRequest(t *testing.T) {
 	}
 	if body.Status != "failed" || !strings.Contains(body.Message, `Model "model" is not served`) {
 		t.Fatalf("body=%+v", body)
+	}
+	if !strings.Contains(output.String(), "chosen model step") {
+		t.Fatalf("failure did not log its step: %s", output.String())
 	}
 	configAfter, err := os.ReadFile(configPath)
 	if err != nil || !bytes.Equal(configBefore, configAfter) {

@@ -554,14 +554,20 @@ test("the connection form is whole before a Test and its models come from the se
   context.expanded.add("acme");
   context.store.connection_health = { acme: { lamp: "amber", word: "no model chosen" } };
   const typed = renderConnectionsPage(context);
-  for (const label of ["name", "address", "key", "model", "context size", "thinking", "reads images", "Eval", "Recommended", "Defaults", "credential ref", "reserve"]) {
+  for (const label of ["name", "address", "key", "model", "context size", "thinking", "reads images", "Eval", "Recommended", "Defaults", "reserve"]) {
     assert.ok(typed.includes(label), `${label} is not on the form before a Test`);
   }
+	assert.doesNotMatch(typed, /credential ref/);
   assert.doesNotMatch(typed, /Test to list models/);
   assert.equal([...typed.matchAll(/class="lamp amber"/g)].length, 2, "header and form head disagree");
   context.probeMessages.set("acme", { models: ["alpha", "beta", "gamma"] });
   const listed = renderConnectionsPage(context);
   for (const model of ["alpha", "beta", "gamma"]) assert.match(listed, new RegExp(`<option value="${model}"`));
+	connection.model = "saved-model";
+	context.probeMessages.set("acme", { models: [], modelListError: "HTTP 401: key refused" });
+	const failedList = renderConnectionsPage(context);
+	assert.match(failedList, /<option value="saved-model" selected>saved-model<\/option>/);
+	assert.match(failedList, /model list not read — HTTP 401: key refused/);
 });
 
 test("2qx connection editor has exactly seven ordered fields, one closed Defaults group, and no explanatory prose", () => {
@@ -586,7 +592,7 @@ test("2qx connection editor has exactly seven ordered fields, one closed Default
   const allowed = new Set([
     "acme", "http://acme:8080/", "name", "address", "key", "show", "model", "alpha", "type a name…",
     "context size", "context unknown — enter the size", "thinking", "low", "medium", "high", "reads images",
-    "Test", "Eval", "Recommended", "Defaults", "Connection", "credential ref", "extract_url", "attachment handling",
+    "Test", "Eval", "Recommended", "Defaults", "Connection", "extract_url", "attachment handling",
     "auto", "native", "extract", "timeout", "probe mode", "full", "minimal", "off", "Reasoning &amp; context",
     "control", "chat_template_kwargs", "top_level", "server_flag", "none", "preserve", "reasoning cap", "reserve",
     "Sampling", "Thinking", "Non-thinking", "temperature", "top_p", "top_k", "min_p", "presence penalty",

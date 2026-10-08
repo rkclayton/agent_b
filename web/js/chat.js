@@ -1326,8 +1326,8 @@ function renderComposer(session) {
 	document.body.classList.toggle("no-open-chats", !session);
 	document.body.classList.toggle("run-active", isRunning(session));
   const phoneOwned = session?.origin === "phone" && session?.owner === "phone";
-  send.disabled = !session || !!store.replay || phoneOwned;
-  input.disabled = !session || !!store.replay || phoneOwned;
+  send.disabled = !!store.replay || phoneOwned;
+  input.disabled = !!store.replay || phoneOwned;
   attachButton.disabled = !session || !!store.replay || attachmentsBusy || phoneOwned;
   renderUpdateBanner(session);
   input.removeAttribute("placeholder");
@@ -1494,7 +1494,8 @@ async function decidePolicy(session, action) {
 
 async function submit() {
   if (micState.listening) stopDictation();
-  const session = store.sessions[selectedID()];
+  let session = store.sessions[selectedID()];
+  if (!session && !store.replay) session = await shell?.newChat();
   if (!session || store.replay) return;
   const text = input.value.trim();
   if (!text && !queuedAttachments.length) return;

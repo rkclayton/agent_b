@@ -20,7 +20,7 @@ export function projectSendStopState(session, replay = false) {
   return {
     mode: "send",
     active: false,
-    disabled: !session || !!replay,
+    disabled: !!replay,
     state: "idle",
     label: "Send \u00b7 Enter sends \u00b7 Shift+Enter newline",
   };

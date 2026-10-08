@@ -794,7 +794,30 @@ if (realModel) {
 		await waitEvent(bulkBusy.id, (event) => event.type === "run.stopped", "bulk-delete fixture stopped");
 		await page.locator(".delete-all-chats").click(); for (let attempt = 0; attempt < 100 && Object.keys((await state()).sessions).length; attempt++) await sleep(50); page.off("dialog", acceptBulk);
 		assert.equal(bulkDialogs.at(-1), `Delete all ${bulkCount} chats? Memory notes, plans and files stay.`); assert.equal(Object.keys((await state()).sessions).length, 0); assert.equal(await readFile(bulkKept, "utf8"), "keep");
-		await page.locator(".chat-empty").waitFor({ state: "visible" }); record("settings-delete-all-refuses-running-then-keeps-files");
+		await page.locator(".chat-empty").waitFor({ state: "visible" });
+		assert.equal(await page.locator(".chat-list-row[data-session]").count(), 0); assert.equal(await page.locator("#chat-task").isEnabled(), true); assert.equal(await page.locator("#chat-send").isEnabled(), true);
+		await page.screenshot({ path: join(args.evidence, "2sc-no-chats.png") });
+		const createAndAnswer = async (message) => {
+			await page.locator(".chat-list-new").click();
+			await browser.wait(`Boolean(document.querySelector('.chat-list-row.selected')?.dataset.session)`, "new chat after deletion");
+			const id = await page.locator(".chat-list-row.selected").getAttribute("data-session");
+			await page.locator("#chat-task").fill(message); await page.locator("#chat-send").click();
+			await waitProjectedChatText(id, "Acceptance response.", "new chat after deletion answered");
+			assert.equal(await page.locator("#app-shell").getAttribute("data-error"), null);
+			return id;
+		};
+		const firstAfterDelete = await createAndAnswer("acceptance: new after delete all");
+		const deleteOne = async (id) => {
+			await page.locator(`[data-session="${id}"]`).hover(); await page.locator(`[data-session="${id}"] .chat-list-more`).click();
+			const acceptOne = (dialog) => dialog.accept(); page.once("dialog", acceptOne); await page.locator(`[data-session="${id}"] .chat-list-menu-action.alarm`).click();
+			await browser.wait(`!document.querySelector('[data-session="${id}"]')`, "open chat deleted");
+		};
+		await deleteOne(firstAfterDelete); await createAndAnswer("acceptance: new after open delete");
+		const open = await page.locator(".chat-list-row.selected").getAttribute("data-session"); await deleteOne(open);
+		await page.locator("#chat-task").fill("acceptance: first message creates chat"); await page.locator("#chat-send").click();
+		await browser.wait(`document.querySelectorAll('.chat-list-row[data-session]').length === 1`, "first message made one chat");
+		const messageChat = await page.locator(".chat-list-row.selected").getAttribute("data-session"); await waitProjectedChatText(messageChat, "Acceptance response.", "first message answered");
+		record("settings-delete-all-new-chat-open-delete-and-first-message-2sc");
 		process.stdout.write(`CHAT ACCEPTANCE PASS ${Date.now() - startedAt} ms\n`); await edgeContext?.close(); terminateChildren(); await stopFake(); process.exit(0);
 	}
   await setTask("acceptance: scratch file");

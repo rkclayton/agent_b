@@ -12,7 +12,7 @@ package main
 //
 // WHAT WINDOWS STILL OWNS, deliberately. Minimise, maximise, close, snap,
 // double-click-to-maximise and the system menu are not reimplemented: the top
-// right 84 px answer WM_NCHITTEST with
+// right 84 CSS px (scaled to the window DPI) answer WM_NCHITTEST with
 // HTMINBUTTON, HTMAXBUTTON and HTCLOSE, so Windows performs the action and
 // Windows 11 shows its snap layouts on the maximise button. The first native
 // button-down dispatches the action; the page only paints the glyphs.
@@ -35,6 +35,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -195,7 +196,7 @@ func requestHostWindowAction(action string) bool {
 	if hwnd == 0 {
 		return false
 	}
-	ok, _, _ := procPostMessage.Call(hwnd, message, 0, 0)
+	ok, _, _ := procPostMessage.Call(hwnd, message, hostPressPage, 0)
 	return ok != 0
 }
 
@@ -354,10 +355,10 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam, lParam uintptr) uint
 		width := window.right - window.left
 		borderX := systemMetric(32) + systemMetric(92)
 		borderY := systemMetric(33) + systemMetric(92)
-		return hostHitTest(relativeX, relativeY, width, window.bottom-window.top, borderX, borderY, isMaximized(hwnd))
+		return hostHitTest(relativeX, relativeY, width, window.bottom-window.top, borderX, borderY, isMaximized(hwnd), hostDPI(hwnd))
 	case wmNCLButtonDown:
 		if action := hostCaptionMessage(wParam); action != 0 {
-			procPostMessage.Call(hwnd, action, 0, 0)
+			procPostMessage.Call(hwnd, action, wParam, 0)
 			return 0
 		}
 
@@ -382,9 +383,15 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam, lParam uintptr) uint
 		return 0
 
 	case wmHostMinimize:
+		if !recordHostPress(hwnd, "minimize", wParam) {
+			return 0
+		}
 		procShowWindow.Call(hwnd, swMinimize)
 		return 0
 	case wmHostMaximize:
+		if !recordHostPress(hwnd, "maximize", wParam) {
+			return 0
+		}
 		if isMaximized(hwnd) {
 			procShowWindow.Call(hwnd, swRestore)
 		} else {
@@ -392,6 +399,9 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam, lParam uintptr) uint
 		}
 		return 0
 	case wmHostClose:
+		if !recordHostPress(hwnd, "close", wParam) {
+			return 0
+		}
 		procDestroyWindow.Call(hwnd)
 		return 0
 	case wmHostActivate:
@@ -413,7 +423,25 @@ func hostCaptionMessage(hit uintptr) uintptr {
 	return map[uintptr]uintptr{htMinButton: wmHostMinimize, htMaxButton: wmHostMaximize, htClose: wmHostClose}[hit]
 }
 
-func hostHitTest(x, y, width, height, borderX, borderY int32, maximized bool) uintptr {
+func hostHitTest(x, y, width, height, borderX, borderY int32, maximized bool, dpi int32) uintptr {
+	contentTop := int32(0)
+	if maximized {
+		contentTop = borderY
+	}
+	contentRight := width - borderX
+	stripHeight := scaleHostPixel(hostStripHeight, dpi)
+	buttonWidth := scaleHostPixel(hostButtonWidth, dpi)
+	buttons := buttonWidth * hostButtonCount
+	if y >= contentTop && y < contentTop+stripHeight && x >= contentRight-buttons && x < contentRight {
+		switch (x - (contentRight - buttons)) / buttonWidth {
+		case 0:
+			return htMinButton
+		case 1:
+			return htMaxButton
+		default:
+			return htClose
+		}
+	}
 	if !maximized {
 		atTop, atBottom := y < borderY, y >= height-borderY
 		atLeft, atRight := x < borderX, x >= width-borderX
@@ -437,25 +465,44 @@ func hostHitTest(x, y, width, height, borderX, borderY int32, maximized bool) ui
 		}
 	}
 
-	contentTop := int32(0)
-	if maximized {
-		contentTop = borderY
-	}
-	contentRight := width - borderX
-	if y >= contentTop && y < contentTop+hostStripHeight {
-		buttons := int32(hostButtonWidth * hostButtonCount)
-		if x >= contentRight-buttons && x < contentRight {
-			switch (x - (contentRight - buttons)) / hostButtonWidth {
-			case 0:
-				return htMinButton
-			case 1:
-				return htMaxButton
-			default:
-				return htClose
-			}
+	return htClient
+}
+
+const hostPressPage = 1
+
+var hostPresses struct {
+	sync.Mutex
+	action string
+	route  string
+	at     time.Time
+}
+
+func hostDPI(hwnd uintptr) int32 {
+	if procGetDpiForWindow.Find() == nil {
+		if value, _, _ := procGetDpiForWindow.Call(hwnd); value >= 48 {
+			return int32(value)
 		}
 	}
-	return htClient
+	return 96
+}
+
+func scaleHostPixel(value, dpi int32) int32 { return value * dpi / 96 }
+
+func recordHostPress(hwnd uintptr, action string, source uintptr) bool {
+	route, hit := "caption", source
+	if source == hostPressPage {
+		route, hit = "page", htClient
+	}
+	now := time.Now()
+	hostPresses.Lock()
+	defer hostPresses.Unlock()
+	if hostPresses.action == action && hostPresses.route != route && now.Sub(hostPresses.at) < 75*time.Millisecond {
+		return false
+	}
+	hostPresses.action, hostPresses.route, hostPresses.at = action, route, now
+	dpi := hostDPI(hwnd)
+	log.Printf("host window press: button=%s route=%s hit=%d scale=%d action=%s", action, route, hit, dpi*100/96, action)
+	return true
 }
 
 // minMaxInfo is what WM_GETMINMAXINFO hands us to fill in. Only minTrackSize is
@@ -471,12 +518,7 @@ type minMaxInfo struct {
 // hostMinimumTrack is hostMinWidth x hostMinHeight in the window's own DPI, so the
 // stated minimum means the same thing on a 150% display as on a 100% one.
 func hostMinimumTrack(hwnd uintptr) (int32, int32) {
-	dpi := int32(96)
-	if procGetDpiForWindow.Find() == nil {
-		if value, _, _ := procGetDpiForWindow.Call(hwnd); value >= 48 {
-			dpi = int32(value)
-		}
-	}
+	dpi := hostDPI(hwnd)
 	return hostMinWidth * dpi / 96, hostMinHeight * dpi / 96
 }
 

@@ -32,6 +32,7 @@ test("row menu is exactly pin rename move delete in order 2qz", () => {
 
 test("panel drag resizes, hides at the edge, and reopens 2qz", () => {
   assert.deepEqual(panelDrag({ width: 240, hidden: false }, 50, 1000), { width: 290, hidden: false });
-  assert.deepEqual(panelDrag({ width: 240, hidden: false }, -400, 1000), { width: 240, hidden: true });
-  assert.deepEqual(panelDrag({ width: 240, hidden: true }, 80, 1000), { width: 128, hidden: false });
+  for (let width = 240; width > 0; width -= 8) assert.deepEqual(panelDrag({ width: 240, hidden: false }, width - 240, 1000), { width, hidden: false });
+  assert.deepEqual(panelDrag({ width: 240, hidden: false }, -240, 1000), { width: 0, hidden: true });
+  assert.deepEqual(panelDrag({ width: 240, hidden: true }, 80, 1000), { width: 80, hidden: false });
 });

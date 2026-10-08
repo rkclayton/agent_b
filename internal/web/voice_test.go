@@ -1,6 +1,7 @@
 package web
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -8,6 +9,20 @@ import (
 
 	"harness/internal/projection"
 )
+
+func TestAMessageWithoutAChatIsRefusedBeforeAnythingRuns2sa(t *testing.T) {
+	server, registry, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	before := len(registry.List())
+	response := httptest.NewRecorder()
+	server.message(response, httptest.NewRequest(http.MethodPost, "/api/message", strings.NewReader(`{"text":"stand-in request"}`)))
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"field":"session_id"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body)
+	}
+	if after := len(registry.List()); after != before {
+		t.Fatalf("chat count changed from %d to %d", before, after)
+	}
+}
 
 // Item 2mx: THE SPOKEN LINE INVENTS NOTHING.
 //

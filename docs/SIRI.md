@@ -10,6 +10,9 @@ Agent_b continues to listen only on `127.0.0.1`. The broker carries ciphertext a
 read the phone's messages. The retired browser page, six-digit enrolment code, bearer
 token, Tailscale/Shortcut setup, and Web Push subscription are not connection options.
 
+A spoken request must name the chat it belongs to. A request with no chat name is
+refused and does not create a chat or start a run.
+
 If the phone does not connect, read the connection line and pairing log in the same
 **Phone** section. A broker-unreachable state names the transport failure; a fingerprint
 mismatch means cancel the pairing and begin again.

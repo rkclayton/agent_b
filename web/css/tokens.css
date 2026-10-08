@@ -71,9 +71,9 @@ button:hover{background:rgba(232,238,244,.12)}button:active{background:rgba(232,
 .shell-connection{max-width:120px}
 .shell-connection.alarm{color:var(--alarm)}
 /* The Plan mark now belongs to the Settings navigation entry. */
-.shell-settings{min-height:24px;display:inline-flex;align-items:center;justify-content:center;padding:2px 6px;color:var(--ink);background:rgba(232,238,244,.08);border-radius:2px;text-decoration:none}
-.shell-settings:hover{background:rgba(232,238,244,.12)}
-.shell-settings{width:26px;padding:2px;color:rgba(232,238,244,.6)}
+.shell-settings{width:24px;min-width:24px;height:24px;min-height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;color:var(--mute);background:transparent;border-radius:0;text-decoration:none;font:12px/16px var(--mono)}
+.shell-settings:hover{color:var(--ink);background:transparent}
+.shell-settings-glyph{display:block;font-size:1em;line-height:1}
 .shell-window-controls{align-self:stretch;display:grid;grid-template-columns:repeat(3,28px);height:var(--app-header-height);margin-right:-4px;background:var(--bezel);-webkit-app-region:no-drag;app-region:no-drag}
 .shell-window-control{position:relative;display:grid;place-items:center;width:28px;height:var(--app-header-height);color:var(--mute)}
 .shell-window-control:hover{background:rgba(232,238,244,.08);color:var(--ink)}

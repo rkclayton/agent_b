@@ -45,6 +45,25 @@ func TestTwoNewChatClicksRecordTwoChatsCreated2qd(t *testing.T) {
 	}
 }
 
+func TestMissingSourceCreatesTheDefaultChat2sc(t *testing.T) {
+	server, registry, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	response := httptest.NewRecorder()
+	server.sessions(response, httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"source_session_id":"missing"}`)))
+	if response.Code != http.StatusCreated || len(registry.List()) != 1 {
+		t.Fatalf("status=%d body=%s chats=%d", response.Code, response.Body, len(registry.List()))
+	}
+}
+
+func TestStateOmitsAProjectedChatThatDidNotRestore2sc(t *testing.T) {
+	server, _, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	state := server.snapshotWithSessions(map[string]projection.Snapshot{"failed": {ID: "failed", Role: "b"}}, false)
+	if sessions := state["sessions"].(map[string]projection.Snapshot); len(sessions) != 0 {
+		t.Fatalf("failed restore remained in state: %+v", sessions)
+	}
+}
+
 func consoleServer(t *testing.T) (*Server, *session.Registry, *events.Writers, *memory.Manager, *config.Config, string) {
 	t.Helper()
 	root := t.TempDir()

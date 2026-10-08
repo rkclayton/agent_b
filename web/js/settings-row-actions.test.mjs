@@ -86,6 +86,6 @@ test("confirmation is one small anchored popover that cancels cleanly", () => {
   assert.match(settings, /data-action="confirm-cancel"/);
   assert.match(settings, /data-action="confirm-proceed"/);
   assert.match(settings, /if \(event\.key === "Escape" && open && confirmPending\) \{ cancelConfirmation\(\); return; \}/);
-  assert.match(settings, /registerMenu\(popover, \{ anchor: control, onClose: cancelConfirmation \}\)/, "a click outside does not use the shared cancel behavior");
-  assert.match(settings, /function cancelConfirmation\(\) \{[\s\S]{0,160}armed\.clear\(\);/, "cancel does not leave things as they were");
+	assert.match(settings, /registerMenu\(popover, \{ anchor: control, onClose: \(\) => \{ cancelConfirmation\(false\); popover\.remove\(\); \} \}\)/, "a press outside removes the popover without rebuilding the pressed control before its click");
+	assert.match(settings, /function cancelConfirmation\(redraw = true\) \{[\s\S]{0,160}armed\.clear\(\);/, "cancel does not leave things as they were");
 });

@@ -177,6 +177,23 @@ func TestMigrateMovesLegacyBytesOnceAndWritesIdentity(t *testing.T) {
 	}
 }
 
+func TestRestoreChoosesTheOldestDuplicateChatIdentity2sc(t *testing.T) {
+	root := t.TempDir()
+	store := New(filepath.Join(root, "chats"))
+	older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	first, err := store.Create("same", "first", older)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Create("same", "second", older.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	path, migrated, err := store.Migrate(filepath.Join(root, "missing"), "same", "ignored", older)
+	if err != nil || migrated || path != first {
+		t.Fatalf("path=%q first=%q migrated=%v err=%v", path, first, migrated, err)
+	}
+}
+
 func TestArchiveRestoreKeepsFolderAndOrdersNewestFirst(t *testing.T) {
 	store := New(filepath.Join(t.TempDir(), "chats"))
 	path, err := store.Create("s1", "First", time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))

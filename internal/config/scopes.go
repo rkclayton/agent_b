@@ -65,16 +65,13 @@ var scopes = map[string]Scope{
 	"broker": ScopeMachine,
 
 	// ------------------------------------------------------------- per-profile
-	"chat":       ScopeProfile, // item 2lj (d): typography and density
-	"run":        ScopeProfile, // the dials a person tunes to their own patience
-	"cron":       ScopeProfile, // scheduled jobs and their deadline live in this profile
-	"context":    ScopeProfile, // accounting and compaction thresholds
-	"memory":     ScopeProfile, // a profile already owns its memory directory
-	"skills":     ScopeProfile, // trusted procedures and their per-profile enablement
-	"reflection": ScopeProfile, // item 2ls's floor, which is a working preference
-	// Item 2mx: the chat a spoken request lands in. A session belongs to a profile, so
-	// switching profile must not send a voice request into another profile's chat.
-	"voice":         ScopeProfile,
+	"chat":          ScopeProfile, // item 2lj (d): typography and density
+	"run":           ScopeProfile, // the dials a person tunes to their own patience
+	"cron":          ScopeProfile, // scheduled jobs and their deadline live in this profile
+	"context":       ScopeProfile, // accounting and compaction thresholds
+	"memory":        ScopeProfile, // a profile already owns its memory directory
+	"skills":        ScopeProfile, // trusted procedures and their per-profile enablement
+	"reflection":    ScopeProfile, // item 2ls's floor, which is a working preference
 	"agents":        ScopeProfile, // already per-profile before this item
 	"deliver":       ScopeProfile, // already per-profile
 	"notifications": ScopeProfile, // already per-profile

@@ -42,14 +42,9 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, reply.status, reply.body)
 		return
 	}
-	// Item 2mx: a spoken request names no chat, so it lands in the one the server keeps.
 	if strings.TrimSpace(body.SessionID) == "" {
-		voice, err := s.voiceSessionID()
-		if err != nil {
-			writeError(w, http.StatusConflict, err.Error(), "session_id")
-			return
-		}
-		body.SessionID = voice
+		writeError(w, http.StatusBadRequest, "session_id is required", "session_id")
+		return
 	}
 	attachments, err := s.validateMessageAttachments(body.SessionID, body.Attachments)
 	if err != nil {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { projectStopState, renderStopState } from "./stop-state.js";
+import { projectSendStopState, projectStopState, renderStopState } from "./stop-state.js";
 
 class FakeButton {
   constructor() { this.disabled = false; this.dataset = {}; this.attributes = new Map(); this.className = "stop-sign"; }
@@ -21,6 +21,12 @@ test("Stop projection is red only for an active live run after snapshot refresh"
   assert.deepEqual([button.dataset.state, button.disabled], ["active", false]);
   renderStopState(button, { run: { status: "stopping" } }, false);
   assert.deepEqual([button.dataset.state, button.disabled, button.attributes.get("title")], ["stopping", false, "Emergency stop — cancel immediately"]);
+});
+
+test("Send remains available with no chat so the first message can create one 2sc", () => {
+  assert.equal(projectSendStopState(undefined, false).disabled, false);
+  assert.equal(projectSendStopState(undefined, false).mode, "send");
+  assert.equal(projectSendStopState(undefined, true).disabled, true);
 });
 
 test("Stop projection remains grey and disabled in replay", () => {

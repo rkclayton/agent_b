@@ -102,7 +102,9 @@ export function initShell(options = {}) {
   const openedFromSettings = new URLSearchParams(location.search).get("from") === "settings";
   const settings = node("button", "shell-settings");
   settings.type = "button";
-  settings.textContent = "⚙";
+  const settingsGlyph = node("span", "shell-settings-glyph");
+  settingsGlyph.textContent = "⚙";
+  settings.append(settingsGlyph);
   settings.setAttribute("aria-label", "Settings");
   settings.title = "Settings";
   new MutationObserver(applyPanel).observe(settings, { attributes: true, attributeFilter: ["aria-expanded"] });
@@ -260,7 +262,6 @@ export function initShell(options = {}) {
 
   function renderChatPanel() {
     if (page !== "chat") return;
-    const openMenuSession = chatList.querySelector(".chat-list-row-menu:not([hidden])")?.closest(".chat-list-row")?.dataset.session;
     const configured = configuredAgent(store.sessions[store.selection.session_id]);
     const hasD = !!String(configured?.d || "").trim();
     setAttr(newChatButton, "title", "New chat");
@@ -298,8 +299,15 @@ export function initShell(options = {}) {
       const meta = (chatTree.chats || []).find((chat) => chat.id === session.id) || {};
       const row = node("div", `chat-list-row ${session.id === store.selection.session_id ? "selected" : ""}`); row.dataset.session = session.id;
       row.draggable = true; row.ondragstart = (event) => event.dataTransfer.setData("text/plain", session.id);
-      const state = node("span", `chat-list-state ${chatState(session)}`); state.title = chatState(session); state.setAttribute("aria-label", chatState(session));
+      const state = node("span", `chat-list-state ${chatState(session)}`); state.setAttribute("aria-label", chatState(session));
       const name = button(chatRowText(session), chatName(session), "chat-list-name");
+      name.removeAttribute("title");
+      const updateNameTitle = () => {
+        const cut = name.scrollWidth > name.clientWidth;
+        setAttr(name, "title", !row.classList.contains("menu-open") && cut ? chatName(session) : "");
+      };
+      name.addEventListener("pointerenter", updateNameTitle);
+      name.addEventListener("focus", updateNameTitle);
       name.onclick = async () => {
         try {
           if (session.closed) await api(`/api/sessions/${encodeURIComponent(session.id)}/reopen`, {});
@@ -312,8 +320,10 @@ export function initShell(options = {}) {
         } catch (error) { report(error.message); }
       };
       const more = button("⋮", `${chatName(session)} menu`, "chat-list-more");
+      more.removeAttribute("title");
+      more.setAttribute("aria-label", `${chatName(session)} menu`);
       const menu = node("div", "shell-menu chat-list-row-menu"); menu.hidden = true;
-      menuControllers.set(menu, registerMenu(menu, { anchor: more, onClose: () => row.classList.remove("menu-open") }));
+      menuControllers.set(menu, registerMenu(menu, { anchor: more, onClose: () => { row.classList.remove("menu-open"); updateNameTitle(); } }));
       more.onclick = (event) => {
         event.stopPropagation();
         for (const open of chatList.querySelectorAll(".chat-list-row-menu")) if (open !== menu) menuControllers.get(open)?.close();
@@ -331,10 +341,9 @@ export function initShell(options = {}) {
           menu.append(choices);
         };
         const remove = button(labels[3], labels[3], "chat-list-menu-action alarm"); remove.onclick = () => { menuControllers.get(menu)?.close(); void deleteChat(session); };
-        menu.append(pin, rename, move, remove); row.classList.add("menu-open"); revealMenu(menu, more);
+        menu.append(pin, rename, move, remove); row.classList.add("menu-open"); name.removeAttribute("title"); revealMenu(menu, more);
       };
       row.append(state, name, more, menu); parent.append(row);
-      if (session.id === openMenuSession) more.click();
     };
     if (arranged.pinned.length) { const group = node("section", "chat-list-group pinned"); const heading = node("strong", "chat-list-group-name"); heading.textContent = "Pinned"; group.append(heading); arranged.pinned.forEach((chat) => renderRow(chat, group)); chatList.prepend(group); }
     for (const group of arranged.folders) { const target = folderTargets.get(group.path); group.chats.forEach((chat) => renderRow(chat, target)); }
@@ -421,7 +430,9 @@ export function initShell(options = {}) {
       const result = await api("/api/sessions", body);
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
       setSelection(agentID, result.session.id);
+      return store.sessions[result.session.id] || result.session;
     } catch (error) { report(error.message); }
+    return null;
   }
 
   function render(renderPanel = true) {
@@ -523,7 +534,8 @@ export function initShell(options = {}) {
       render();
     },
     newChat() {
-      if (!store.replay) void createChat("agent_b");
+      if (!store.replay) return createChat("agent_b");
+      return Promise.resolve(null);
     },
   };
 }

@@ -17,7 +17,7 @@ const chatCSS = await readFile(new URL("../css/chat.css", import.meta.url), "utf
 const pages = await Promise.all(["index.html"].map(async (name) => [name, await readFile(new URL(`../${name}`, import.meta.url), "utf8")]));
 
 class MenuRoot extends EventTarget {
-  click(target) { const event = new Event("click"); Object.defineProperty(event, "target", { value: target }); this.dispatchEvent(event); }
+  click(target) { for (const type of ["pointerdown", "click"]) { const event = new Event(type); Object.defineProperty(event, "target", { value: target }); this.dispatchEvent(event); } }
   key(key) { const event = new Event("keydown", { cancelable: true }); Object.defineProperty(event, "key", { value: key }); this.dispatchEvent(event); }
 }
 const menuNode = (parent = null, tag = "div", keep = false) => ({
@@ -46,7 +46,7 @@ test("every product menu registers the one shared behavior", () => {
   assert.match(shell, /registerMenu\(menu, \{ anchor: more/);
   assert.match(chat, /registerMenu\(attachMenu/);
   assert.match(settings, /registerMenu\(popover/);
-  assert.match(shell, /openMenuSession[\s\S]*session\.id === openMenuSession/);
+  assert.doesNotMatch(shell, /openMenuSession|session\.id === openMenuSession/);
 });
 
 test("shared shell slot order is identical on the chat and Plan", () => {

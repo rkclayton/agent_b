@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +33,21 @@ func TestStartupSkipsArchivedJournalBytes2qi(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for index := range 60 { id := fmt.Sprintf("archived-%02d", index); path, err := chatstore.New(filepath.Join(root, "chats")).Create(id, "Archived", time.Now().Add(-15*24*time.Hour)); if err != nil { t.Fatal(err) }; meta, _ := chatstore.ReadMetadata(path); meta.ArchivedAt = time.Now(); if err := chatstore.WriteMetadata(path, meta); err != nil { t.Fatal(err) }; if err := os.WriteFile(filepath.Join(root, "chats", id+".jsonl"), []byte("not json\n"), 0o600); err != nil { t.Fatal(err) } }
+	for index := range 60 {
+		id := fmt.Sprintf("archived-%02d", index)
+		path, err := chatstore.New(filepath.Join(root, "chats")).Create(id, "Archived", time.Now().Add(-15*24*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta, _ := chatstore.ReadMetadata(path)
+		meta.ArchivedAt = time.Now()
+		if err := chatstore.WriteMetadata(path, meta); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "chats", id+".jsonl"), []byte("not json\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	cfg := config.Defaults(t.TempDir())
 	connection := &cfg.Connections[0]
 	bus := events.NewBus()
@@ -126,6 +142,56 @@ func TestRetainedChatsRestoreWithoutOperationalLogsAndDeleteExplicitly(t *testin
 	paths, err := secondWriters.DurableChatPaths()
 	if err != nil || len(paths) != 0 {
 		t.Fatalf("durable paths after explicit delete=%v err=%v", paths, err)
+	}
+}
+
+func TestDuplicateAndOrphanedHelperDoNotBlockStartup2sc(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(filepath.Join(root, "workspace"))
+	cfg.Agents = []config.Agent{{Name: "Primary", B: cfg.Connections[0].ID}, {Name: "Helper", B: cfg.Connections[0].ID}}
+	connection := &cfg.Connections[0]
+	resolve := func(id string) (*config.Connection, bool) { return connection, id == connection.ID }
+	firstWriters, err := events.NewWriters(filepath.Join(root, "logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstBus := events.NewBus()
+	firstBus.SetDurableSink(firstWriters.WriteRecord, nil, nil)
+	firstRegistry := session.NewRegistry(firstBus, firstWriters, resolve, 40, func() config.Config { return cfg })
+	firstRegistry.SetPlansRoot(filepath.Join(root, "plans"))
+	primary, err := firstRegistry.Create("primary stand-in", config.AgentID("Primary"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = firstRegistry.Create("helper stand-in", config.AgentID("Helper"), ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = chatstore.New(filepath.Join(root, "chats")).Create(primary.ID, "duplicate stand-in", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err = firstWriters.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Agents = cfg.Agents[:1]
+	secondWriters, err := events.NewWriters(filepath.Join(root, "logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = secondWriters.Close() })
+	secondBus := events.NewBus()
+	secondBus.SetDurableSink(secondWriters.WriteRecord, nil, nil)
+	secondRegistry := session.NewRegistry(secondBus, secondWriters, resolve, 40, func() config.Config { return cfg })
+	secondRegistry.SetPlansRoot(filepath.Join(root, "plans"))
+	oldWriter := log.Writer()
+	defer log.SetOutput(oldWriter)
+	var output bytes.Buffer
+	log.SetOutput(&output)
+	restored, _, err := restoreRetainedChats(secondWriters, secondRegistry, secondBus, 0)
+	if err != nil || len(restored) != 1 || restored[0].ID != primary.ID {
+		t.Fatalf("restored=%v err=%v", restored, err)
+	}
+	if !strings.Contains(output.String(), `restored "primary stand-in"`) || !strings.Contains(output.String(), "unknown agent") {
+		t.Fatalf("restore log did not name both dispositions: %s", output.String())
 	}
 }
 

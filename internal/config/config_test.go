@@ -43,6 +43,35 @@ func TestSaveSkipsByteIdenticalConfig2l0(t *testing.T) {
 	}
 }
 
+func TestLegacyVoiceKeyIsDroppedOnSave2sa(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	cfg := Defaults(filepath.Join(filepath.Dir(path), "workspace"))
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err = json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["voice"] = map[string]any{"default_session_id": "old-chat"}
+	data, _ = json.Marshal(document)
+	if err = os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, _, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = loaded.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := os.ReadFile(path)
+	if bytes.Contains(saved, []byte(`"voice"`)) || bytes.Contains(saved, []byte("old-chat")) {
+		t.Fatalf("removed voice setting survived save: %s", saved)
+	}
+}
+
 func writeConfigFixture(t *testing.T, path, mode string, stamped bool) {
 	t.Helper()
 	cfg := Defaults(t.TempDir())

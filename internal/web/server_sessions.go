@@ -49,8 +49,18 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 			}
 			item, err := s.registry.CreateOperatorLike(body.SourceSessionID)
 			if err != nil {
-				writeError(w, 400, err.Error(), "session")
-				return
+				if !strings.Contains(err.Error(), "source session not found") {
+					writeError(w, 400, err.Error(), "session")
+					return
+				}
+				s.mu.RLock()
+				agentID := s.cfg.DefaultAgentID()
+				s.mu.RUnlock()
+				item, err = s.registry.CreateOperatorRole("", agentID, "", "b", "")
+				if err != nil {
+					writeError(w, 400, err.Error(), "session")
+					return
+				}
 			}
 			if s.runner != nil {
 				s.runner.PublishBudget(r.Context(), item)

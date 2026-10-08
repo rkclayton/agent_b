@@ -406,7 +406,7 @@ function placeConfirmPopover() {
   const control = sheet.querySelector(selector);
   const scroller = sheet.querySelector(".settings-content");
   if (!control || !scroller) return;
-  registerMenu(popover, { anchor: control, onClose: cancelConfirmation });
+  registerMenu(popover, { anchor: control, onClose: () => { cancelConfirmation(false); popover.remove(); } });
   const box = control.getBoundingClientRect();
   const host = scroller.getBoundingClientRect();
   const top = box.bottom - host.top + scroller.scrollTop + 6;
@@ -921,12 +921,12 @@ function rectOf(button) {
   };
 }
 
-function cancelConfirmation() {
+function cancelConfirmation(redraw = true) {
   if (!confirmPending) return;
   // (c): cancel leaves everything as it was, including the arming.
   armed.clear();
   confirmPending = null;
-  render();
+  if (redraw) render();
 }
 
 function proceedWithConfirmation() {

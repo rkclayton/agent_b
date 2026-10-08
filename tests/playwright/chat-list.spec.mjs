@@ -118,8 +118,42 @@ test("chat list rows, actions, independent state, resize persistence and capture
   ]) await menuCases(...row);
   await page.locator('.chat-list-row[data-session="root"]').hover(); await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
   await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.reduce({ type: "snapshot", data: { ...bus.store, build: {} } }); });
-  await expect(page.locator('.chat-list-row[data-session="root"] .chat-list-row-menu')).toBeVisible();
-  await page.keyboard.press("Escape");
+  await expect(page.locator('.chat-list-row[data-session="root"] .chat-list-row-menu')).toBeHidden();
+
+  const longRow = page.locator('.chat-list-row[data-session="root"]'), longName = longRow.locator('.chat-list-name'), longMore = longRow.locator('.chat-list-more');
+  await longRow.hover(); await expect(longName).toHaveAttribute("title", sessions.root.label); await expect(longMore).not.toHaveAttribute("title"); await expect(longMore).toHaveAttribute("aria-label", `${sessions.root.label} menu`);
+  await longMore.click(); await expect(longName).not.toHaveAttribute("title");
+  await page.evaluate(() => window.dispatchEvent(new Event("blur"))); await expect(longRow.locator('.chat-list-row-menu')).toBeHidden();
+  await longRow.hover(); await longMore.click(); await page.mouse.move(1000, 400); await page.mouse.down(); await expect(longRow.locator('.chat-list-row-menu')).toBeHidden(); await page.mouse.up();
+  await page.evaluate(() => document.documentElement.style.setProperty("--chat-list-width", "240px"));
+  const edgeRun = await longName.evaluate((node) => { const name = node.getBoundingClientRect(), panel = node.closest(".chat-list-panel").getBoundingClientRect(), list = node.closest(".chat-list"); return { gap: panel.right - name.right, underScrollbar: name.right >= list.getBoundingClientRect().right - 6 }; });
+  expect(edgeRun.gap).toBeLessThanOrEqual(1); expect(edgeRun.underScrollbar).toBe(true);
+
+  for (const size of [9, 12, 32]) {
+    await page.evaluate((value) => document.documentElement.style.setProperty("--chat-scale", String(value / 12)), size);
+    const iconGeometry = await page.locator(".chat-list-group.root .chat-list-folder-action").evaluateAll((buttons) => buttons.map((button) => ({ target: button.getBoundingClientRect().height, glyph: button.querySelector("svg").getBoundingClientRect().height, text: parseFloat(getComputedStyle(button.closest(".chat-list-group-name")).fontSize), background: getComputedStyle(button).backgroundColor })));
+    for (const icon of iconGeometry) { expect(icon.target).toBe(24); expect(Math.abs(icon.glyph - icon.text)).toBeLessThanOrEqual(2); expect(icon.background).toBe("rgba(0, 0, 0, 0)"); }
+  }
+  await page.evaluate(() => document.documentElement.style.removeProperty("--chat-scale"));
+  for (const width of [1280, 304]) {
+    await page.setViewportSize({ width, height: 800 });
+    for (const panelWidth of [240, 96, 32]) {
+      await page.evaluate((value) => document.documentElement.style.setProperty("--chat-list-width", `${value}px`), panelWidth);
+      await longRow.hover(); await page.screenshot({ path: join(evidence, `${width}-${panelWidth}-row-hover.png`) });
+      await longMore.click(); await page.screenshot({ path: join(evidence, `${width}-${panelWidth}-menu.png`) }); await page.keyboard.press("Escape");
+    }
+  }
+  await page.setViewportSize({ width: 1400, height: 800 }); await page.evaluate(() => document.documentElement.style.setProperty("--chat-list-width", "240px"));
+  const gear = page.locator(".shell-settings"), gearGlyph = gear.locator(".shell-settings-glyph");
+  expect(await gear.evaluate((node) => node.getBoundingClientRect().width)).toBe(24); expect(await gear.evaluate((node) => node.getBoundingClientRect().height)).toBe(24);
+  expect(await gear.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+  expect(Math.abs(await gearGlyph.evaluate((node) => parseFloat(getComputedStyle(node).fontSize)) - await page.locator(".shell-session-title").evaluate((node) => parseFloat(getComputedStyle(node).fontSize)))).toBeLessThanOrEqual(2);
+  for (const width of [304, 1280, 1920]) {
+    await page.setViewportSize({ width, height: 800 }); await page.evaluate(() => { document.activeElement?.blur(); for (const menu of document.querySelectorAll(".chat-list-row-menu")) menu.hidden = true; for (const row of document.querySelectorAll(".chat-list-row.menu-open")) row.classList.remove("menu-open"); }); await page.mouse.move(Math.max(150, width / 2), 400); await page.screenshot({ path: join(robotEvidence, `${width}-icons-rest.png`) });
+    await page.locator(".chat-list-new").hover(); await page.screenshot({ path: join(robotEvidence, `${width}-list-icons-hover.png`) });
+    await gear.hover(); expect(await gear.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe("rgba(0, 0, 0, 0)"); await page.screenshot({ path: join(robotEvidence, `${width}-gear-hover.png`) });
+  }
+  await page.setViewportSize({ width: 1400, height: 800 });
   await page.screenshot({ path: join(evidence, "2qz-panel-default.png") });
   await page.screenshot({ path: join(evidence, "2qz-three-running.png") });
   await page.locator('.chat-list-folder[data-folder="Work"] > summary').click();

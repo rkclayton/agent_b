@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"regexp"
 
-	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/projection"
 )
@@ -26,9 +25,6 @@ import (
 //   - SOMETHING TO SAY BACK. `spoken` is one short line drawn from what already
 //     happened: the last reply, the approval that is waiting, or the reason the run
 //     stopped. Nothing is invented, and when there is nothing to say it says that.
-//   - ONE CHAT TO LAND IN. A spoken request names no chat, so the server keeps one and
-//     creates it once.
-//
 // The listener stays on loopback. The retired phone bearer and Tailscale Shortcut path
 // are gone; phones use broker pairing and app-message v1. These endpoints remain useful
 // to the authenticated desktop page and keep their idempotent submission contract.
@@ -120,58 +116,6 @@ const idempotencyKeyMax = 200
 
 func idempotencyKeyOf(r *http.Request) string {
 	return strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-}
-
-// voiceSessionID resolves the chat a spoken request lands in: the configured one when it
-// still exists, otherwise a chat labelled Siri, created ONCE and written to the
-// configuration so the next request finds it rather than making another.
-func (s *Server) voiceSessionID() (string, error) {
-	configured := strings.TrimSpace(s.ConfigSnapshot().Voice.DefaultSessionID)
-	if configured != "" {
-		if _, ok := s.registry.Get(configured); ok {
-			return configured, nil
-		}
-	}
-	// The label is the operator's word for it, and it is how he will recognise the chat
-	// in his own list. A spoken request cannot choose an agent, and a chat with no agent
-	// is refused, so the installation's default answers for it.
-	agentID := ""
-	settings := s.ConfigSnapshot()
-	// (d): THE DEFAULT agent, not merely the first one in the file. The installation
-	// already has an answer to which agent is the default and a spoken request should land
-	// on the same one a new chat would.
-	if agent, ok := settings.Agent(settings.DefaultAgentID()); ok {
-		agentID = agent.B
-		if strings.TrimSpace(agentID) == "" {
-			agentID = config.AgentID(agent.Name)
-		}
-	}
-	if strings.TrimSpace(agentID) == "" && len(settings.Agents) > 0 {
-		agentID = settings.Agents[0].B
-	}
-	if strings.TrimSpace(agentID) == "" && len(settings.Connections) > 0 {
-		agentID = settings.Connections[0].ID
-	}
-	if strings.TrimSpace(agentID) == "" {
-		return "", errors.New("this installation has no connection to send a spoken request to; add one in Settings first")
-	}
-	created, err := s.registry.Create("Siri", agentID, "")
-	if err != nil {
-		return "", err
-	}
-	id := created.Snapshot().ID
-	s.mu.Lock()
-	next := *s.cfg
-	next.Voice.DefaultSessionID = id
-	// voice is PROFILE-scoped: a session belongs to a profile, so this is written where
-	// that scope lives and a profile switch cannot send a spoken request into another
-	// profile's chat.
-	err = s.saveProfileConfig(next)
-	if err == nil {
-		s.cfg.Voice.DefaultSessionID = id
-	}
-	s.mu.Unlock()
-	return id, err
 }
 
 // spokenLine is item 2mx's brief: ONE SHORT LINE, drawn from what already happened and

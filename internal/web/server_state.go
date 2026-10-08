@@ -70,6 +70,13 @@ func (s *Server) openingSnapshot(sessions map[string]projection.Snapshot, replay
 func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any {
 	folders := []string{}
 	if values, ok := sessions.(map[string]projection.Snapshot); ok {
+		if !replay && s.registry != nil {
+			for id := range values {
+				if _, found := s.registry.Get(id); !found {
+					delete(values, id)
+				}
+			}
+		}
 		folders = s.decorateChatList(values)
 		sessions = values
 	}

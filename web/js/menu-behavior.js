@@ -11,7 +11,7 @@ const close = (entry) => {
 function install(root) {
   if (roots.has(root)) return;
   roots.add(root);
-  root.addEventListener("click", (event) => {
+  root.addEventListener("pointerdown", (event) => {
     for (const entry of menus) {
       if (!live(entry)) continue;
       if (!entry.menu.contains(event.target) && !entry.anchor?.contains(event.target)) close(entry);
@@ -27,6 +27,9 @@ function install(root) {
     open.forEach(close);
     event.preventDefault();
     event.stopImmediatePropagation?.();
+  });
+  root.defaultView?.addEventListener("blur", () => {
+    for (const entry of menus) close(entry);
   });
 }
 

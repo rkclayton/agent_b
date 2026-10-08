@@ -45,10 +45,6 @@ type Config struct {
 	Telemetry     Telemetry               `json:"telemetry"`
 	Reflection    Reflection              `json:"reflection"`
 	Skills        map[string]SkillSetting `json:"skills"`
-	// Item 2mx: the one chat a voice request lands in when it names none. One key, not
-	// a section: a voice assistant has no screen to choose a chat on, so it needs a
-	// default and nothing else.
-	Voice Voice `json:"voice,omitempty"`
 	// Item 2kq (f): ONE KEY. Empty is off and nothing dials; a URL is the broker this
 	// AgentB reaches its phone through. Everything else about the broker — the
 	// identity, the pairing, the device — is state, not configuration.
@@ -338,13 +334,6 @@ type Measurement struct {
 	Decision     *ReasoningDecision `json:"decision,omitempty"`
 	NCtx         int                `json:"n_ctx,omitempty"`
 	WindowTokens int                `json:"window_tokens,omitempty"`
-}
-
-// Voice is item 2mx's one setting. DefaultSessionID names the chat a spoken request
-// goes to; the server creates one labelled Siri the first time it is needed and writes
-// its id here, so the chat is created ONCE and not per request.
-type Voice struct {
-	DefaultSessionID string `json:"default_session_id,omitempty"`
 }
 
 type Service struct {

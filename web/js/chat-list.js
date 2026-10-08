@@ -1,5 +1,3 @@
-const MIN_WIDTH = 128;
-
 const recentFirst = (left, right) => Date.parse(right.last_activity || 0) - Date.parse(left.last_activity || 0);
 
 export function arrangeChats(sessions = {}, tree = {}) {
@@ -18,8 +16,7 @@ export function arrangeChats(sessions = {}, tree = {}) {
 export const menuLabels = (pinned) => [pinned ? "Unpin" : "Pin", "Rename", "Move to folder", "Delete"];
 
 export function panelDrag(state, delta, available) {
-  if (state.hidden) return delta > 0 ? { width: MIN_WIDTH, hidden: false } : state;
-  const next = state.width + delta;
-  if (next < MIN_WIDTH / 2) return { width: state.width, hidden: true };
-  return { width: Math.max(MIN_WIDTH, Math.min(next, Math.max(MIN_WIDTH, available - MIN_WIDTH))), hidden: false };
+  if (state.hidden) return delta > 0 ? { width: Math.min(delta, Math.max(0, available - 128)), hidden: false } : state;
+  const next = Math.max(0, Math.min(state.width + delta, Math.max(0, available - 128)));
+  return { width: next <= 4 ? 0 : next, hidden: next <= 4 };
 }

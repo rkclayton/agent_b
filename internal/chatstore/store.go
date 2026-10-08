@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -137,7 +138,30 @@ func (s *Store) Find(id string) (Entry, bool, error) {
 // Migrate moves one legacy scratch directory into the visible tree. The old
 // path is the marker: once it is absent and chat.json is found, the move is done.
 func (s *Store) Migrate(legacy, id, label string, created time.Time) (string, bool, error) {
-	if entry, found, err := s.Find(id); err != nil {
+	entry, found, err := s.Find(id)
+	if err != nil && strings.Contains(err.Error(), "duplicate chat id") {
+		entries, scanErr := s.Scan()
+		if scanErr != nil {
+			return "", false, scanErr
+		}
+		matches := make([]Entry, 0, 2)
+		for _, candidate := range entries {
+			if candidate.Metadata.ID == id {
+				matches = append(matches, candidate)
+			}
+		}
+		sort.Slice(matches, func(i, j int) bool {
+			if matches[i].Metadata.Created.Equal(matches[j].Metadata.Created) {
+				return matches[i].Path < matches[j].Path
+			}
+			return matches[i].Metadata.Created.Before(matches[j].Metadata.Created)
+		})
+		if len(matches) > 0 {
+			entry, found, err = matches[0], true, nil
+			log.Printf("duplicate chat id %s: restored %q; %d copies remain on disk", id, entry.Metadata.Label, len(matches))
+		}
+	}
+	if err != nil {
 		return "", false, err
 	} else if found {
 		if _, legacyErr := os.Lstat(legacy); legacyErr == nil {

@@ -49,6 +49,9 @@ $statusExit = $LASTEXITCODE
 if ($statusExit -ne 0) { throw "DEPLOY REFUSED: git status exited $statusExit." }
 if ($statusOutput.Count) { throw 'DEPLOY REFUSED: the repository is dirty.' }
 
+& node (Join-Path $repository 'tools\check-invariants.mjs') --release-source $Tag
+if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the candidate's update source is not usable." }
+
 if (Test-Path -LiteralPath $candidate) {
     Remove-MatchingStagedCandidate -Candidate $candidate -CandidatesRoot (Join-Path $repository 'candidates') -ExpectedTag $Tag
 }
@@ -105,7 +108,13 @@ $releaseManifest = [ordered]@{
 $releaseManifestPath = Join-Path $candidate 'release.json'
 [IO.File]::WriteAllText($releaseManifestPath, ($releaseManifest | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 
-$repositoryName = 'someone/agent_b'
+$originOutput = @(& git -C $repository remote get-url origin 2>&1)
+$originExit = $LASTEXITCODE
+$origin = [string]($originOutput | Select-Object -First 1)
+if ($originExit -ne 0 -or $origin.Trim() -notmatch '^(?:https://github\.com/|git@github\.com:)(?<repository>[^/]+/[^/]+?)(?:\.git)?$') {
+    throw 'DEPLOY REFUSED: origin does not name one GitHub owner/repository pair.'
+}
+$repositoryName = [string]$Matches.repository
 $setupPath = Join-Path $candidate 'Agent_b-setup.exe'
 $createLine = "gh release create $Tag --repo $repositoryName --verify-tag --title `"Agent_b $Tag`" --notes-file `"$notesPath`""
 $uploadLine = "gh release upload $Tag `"$setupPath`" `"$releaseManifestPath`" --repo $repositoryName --clobber"
@@ -115,6 +124,8 @@ if (-not $gh) {
     Write-Host "PUBLISH CARD: $uploadLine"
     throw 'DEPLOY REFUSED: GitHub CLI is unavailable; the release assets remain staged locally.'
 }
+& git -C $repository push origin $Tag
+if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: release tag push exited $LASTEXITCODE." }
 & $gh.Source release create $Tag --repo $repositoryName --verify-tag --title "Agent_b $Tag" --notes-file $notesPath
 if ($LASTEXITCODE -ne 0) {
     Write-Host "PUBLISH CARD: $createLine"

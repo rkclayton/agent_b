@@ -72,9 +72,10 @@ try {
 foreach ($required in @('stage-candidate.mjs', 'sign-release.ps1', 'verify-deploy-candidate.ps1', 'Agent_b-setup.exe', 'DEPLOY COMPLETE')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy entry point does not require $required." }
 }
-foreach ($required in @('release.json', 'setup_sha256', 'webview2_loader', 'release-notes', '--notes-file', 'release notes are missing', 'gh release create', 'gh release upload', 'someone/agent_b')) {
+foreach ($required in @('release.json', 'setup_sha256', 'webview2_loader', 'release-notes', '--notes-file', 'release notes are missing', 'gh release create', 'gh release upload', 'remote get-url origin', 'git -C $repository push origin $Tag')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy publication does not require $required." }
 }
+if ($deploy -match 'someone/agent_b') { throw 'Deploy still holds the stand-in repository.' }
 if ($deploy -match '--notes\s+"Agent_b') { throw 'Deploy still publishes a placeholder release body.' }
 foreach ($required in @('$commitExit', '$headExit', '$statusExit', 'test-signing-key-policies.ps1')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy entry point does not preserve host repair $required." }
@@ -91,6 +92,10 @@ $elevationRefusal = $deploy.IndexOf('run deploy-release.ps1 from an ordinary, no
 $stagingCall = $deploy.IndexOf("'tools\stage-candidate.mjs'")
 if ($elevationRefusal -lt 0 -or $stagingCall -lt 0 -or $elevationRefusal -gt $stagingCall) {
     throw 'Deploy must refuse an elevated parent before staging.'
+}
+$sourceGate = $deploy.IndexOf("'tools\check-invariants.mjs'")
+if ($sourceGate -lt 0 -or $stagingCall -lt 0 -or $sourceGate -gt $stagingCall -or $deploy -notmatch '--release-source\s+\$Tag') {
+    throw 'Deploy must prove the tagged update source before candidate staging.'
 }
 if ($deploy -notmatch 'Remove-MatchingStagedCandidate' -or $deploy -notmatch 'signing-report\.json') {
     throw 'Deploy does not report/recover a matching stale candidate or relay the signing identity.'

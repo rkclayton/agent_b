@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { deflateSync, inflateSync } from "node:zlib";
 
 const repo = path.resolve(import.meta.dirname, "..");
-const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 1 << 28 });
+const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 1 << 28, stdio: ["ignore", "pipe", "pipe"] });
 const standInUsers = new Set(["someone", "someone-else"]);
 const standInAddresses = new Set(["192.168.1.0", "192.168.1.10", "100.64.0.10"]);
 
@@ -29,11 +29,41 @@ export function loadTerms(file) {
     .filter(({ term }) => term && !term.startsWith("#"));
 }
 
+function repositoryIdentity() {
+  try {
+    const origin = git("remote", "get-url", "origin").trim();
+    const match = origin.match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/i);
+    if (match) return { owner: match[1], repository: match[2] };
+  } catch { /* A clean git archive has no remote; use its one guarded source constant below. */ }
+  try {
+    const source = fs.readFileSync(path.join(repo, "internal", "updater", "manager.go"), "utf8");
+    const match = source.match(/^const LatestReleaseURL = "https:\/\/api\.github\.com\/repos\/([^/"\r\n]+)\/([^/"\r\n]+)\/releases\/latest"$/m);
+    return match ? { owner: match[1], repository: match[2] } : null;
+  } catch { return null; }
+}
+
+function repositoryReleaseAddress() {
+  const identity = repositoryIdentity();
+  return identity ? `https://api.github.com/repos/${identity.owner}/${identity.repository}/releases/latest` : "";
+}
+
+function insideRepositoryReleaseAddress(text, start, length) {
+  const address = repositoryReleaseAddress().toLowerCase();
+  if (!address) return false;
+  for (let at = text.toLowerCase().indexOf(address); at >= 0; at = text.toLowerCase().indexOf(address, at + address.length)) {
+    if (start >= at && start + length <= at + address.length) return true;
+  }
+  return false;
+}
+
 function publicOccurrence(name, line, start, length) {
   if (/^(?:LICENSE|NOTICE)$/.test(name)) return true;
-  const token = line.slice(start, start + length);
-  const repoURL = /https:\/\/github\.com\/[^/\s]+\/agent_b/ig;
-  for (const match of line.matchAll(repoURL)) if (start >= match.index && start + length <= match.index + match[0].length) return true;
+  if (name === "internal/updater/manager.go") {
+    const address = repositoryReleaseAddress();
+    const exact = `const LatestReleaseURL = ${JSON.stringify(address)}`;
+    const at = line.indexOf(address);
+    if (line.trim() === exact && at >= 0 && start >= at && start + length <= at + address.length) return true;
+  }
   const thumbprints = /\b[0-9a-f]{40}\b/ig;
   for (const match of line.matchAll(thumbprints)) if (start >= match.index && start + length <= match.index + match[0].length) return true;
   return false;
@@ -140,7 +170,9 @@ export function scanBinary(files, terms) {
     const forms = payloads.flatMap((payload) => [payload.toString("latin1").toLowerCase(), payload.toString("utf16le").toLowerCase()]);
     for (const { term, listLine } of terms) {
       if (forms.some((text) => {
-        for (let at = text.indexOf(term); at >= 0; at = text.indexOf(term, at + Math.max(1, term.length))) if (termOccursAt(text, term, at)) return true;
+        for (let at = text.indexOf(term); at >= 0; at = text.indexOf(term, at + Math.max(1, term.length))) {
+          if (termOccursAt(text, term, at) && !insideRepositoryReleaseAddress(text, at, term.length)) return true;
+        }
         return false;
       })) findings.push({ name: path.basename(file), line: 0, rule: "outside-list-bytes", listLine });
     }

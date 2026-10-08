@@ -20,11 +20,12 @@ export const rules = [
   "Anonymous data is content-free and off when its switch is off",
   "A per-event path costs the same however much is stored; no file work on the UI thread; nothing grows without bound",
   "Nothing proprietary to him, and especially nothing identifying, is in anything tracked, built or pushed",
+  "No release ships that cannot find the next one",
 ];
 
 export function parseInvariants(text) {
   const rows = [...text.matchAll(/^I(\d+) — (.*?) — (.*?) — `([^`]+)`$/gm)].map((match) => ({ id: `I${match[1]}`, rule: match[2], said: match[3], test: match[4] }));
-  if (rows.length !== 13) throw new Error(`expected 13 invariant lines, found ${rows.length}`);
+  if (rows.length !== rules.length) throw new Error(`expected ${rules.length} invariant lines, found ${rows.length}`);
   rows.forEach((row, index) => {
     if (row.id !== `I${index + 1}`) throw new Error(`expected I${index + 1}, found ${row.id}`);
     if (row.rule !== rules[index]) throw new Error(`${row.id} rule text changed`);
@@ -46,6 +47,44 @@ export function validateRun(rows, results) {
 
 const go = path.join(root, ".tools", "go", "bin", "go.exe");
 const node = process.execPath;
+const latestReleasePattern = /^const LatestReleaseURL = "(https:\/\/[^"\r\n]+)"$/m;
+
+export async function checkReleaseSource(address, request = fetch) {
+  let response;
+  try {
+    response = await request(address, { method: "GET", headers: { Accept: "application/vnd.github+json", "User-Agent": "Agent_b release gate" } });
+  } catch (error) {
+    throw new Error(`release source refused: request failed (${error.cause?.code ?? error.message})`);
+  }
+  if (!response.ok || response.status !== 200) throw new Error(`release source refused: HTTP ${response.status}`);
+  let release;
+  try { release = await response.json(); } catch { throw new Error("release source refused: response is not JSON"); }
+  if (!/^v\d+\.\d+\.\d+$/.test(release?.tag_name ?? "") || release?.draft || release?.prerelease) {
+    throw new Error("release source refused: latest response does not name a stable release");
+  }
+  const assets = new Set(Array.isArray(release.assets) ? release.assets.map(({ name }) => name) : []);
+  if (!assets.has("release.json") || !assets.has("Agent_b-setup.exe")) {
+    throw new Error("release source refused: latest release is missing release.json or Agent_b-setup.exe");
+  }
+  return { status: 200, tag: release.tag_name };
+}
+
+function releaseAddress(text) {
+  const address = text.match(latestReleasePattern)?.[1];
+  if (!address) throw new Error("release source refused: candidate has no HTTPS LatestReleaseURL");
+  return address;
+}
+
+async function checkReleaseTree(directory) {
+  return checkReleaseSource(releaseAddress(fs.readFileSync(path.join(directory, "internal", "updater", "manager.go"), "utf8")));
+}
+
+async function checkReleaseTag(tag) {
+  const shown = spawnSync("git", ["show", `${tag}:internal/updater/manager.go`], { cwd: root, encoding: "utf8", windowsHide: true });
+  if (shown.status !== 0) throw new Error("release source refused: tagged updater source is unavailable");
+  return checkReleaseSource(releaseAddress(shown.stdout));
+}
+
 const definitions = (candidate) => [
   ["powershell.exe", ["-NonInteractive", "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "tests", "test-one-window-invariant.ps1"), "-Exe", path.join(candidate, "Agent_b.exe"), "-Setup", path.join(candidate, "Agent_b-setup.exe"), "-ApplicationRoot", candidate, "-RepositoryExe", path.join(root, "Agent_b.exe"), "-RepositoryRoot", root]],
   [node, ["--test", path.join(root, "web/js/operator-language.test.mjs"), path.join(root, "web/js/workspace-settings.test.mjs")]],
@@ -60,6 +99,7 @@ const definitions = (candidate) => [
   [go, ["test", "-v", "./internal/telemetry", "-run", "TestTheCountsAreNotQueuedWhenTelemetryIsOff2lx|TestCrashTreeHasAClosedContentFreeShape2p7"]],
   ["powershell.exe", ["-NonInteractive", "-NoProfile", "-WindowStyle", "Hidden", "-Command", `$ErrorActionPreference='Stop'; & '${go}' test -v ./internal/telemetry ./internal/projection ./internal/events ./internal/broker ./internal/attachment ./internal/web -run 'TestBatchesAreBounded2jg|TestEveryPatchArrivesWhileAClientPollsDuringARun|TestWorkbookIngestIsBoundedAgainstMergesAndSparseCells|TestLiveProjectionPerEventCostDoesNotGrowWithStoredEvents2pd|TestLogRetentionBoundsCountAndAgeAndKeepsNewestKind2pd|TestHandledRequestDeduplicationIsBounded2pd|TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt'; if ($LASTEXITCODE) { exit $LASTEXITCODE }; & '${node}' --test --test-name-pattern='projection patch cost stays constant' web/js/bus.test.mjs; exit $LASTEXITCODE`]],
   [node, [path.join(root, "tools", "privacy-gate.mjs")]],
+  [node, [path.join(root, "tools", "check-invariants.mjs"), "--release-source-tree", candidate]],
 ];
 
 export function runGate(candidate) {
@@ -77,7 +117,21 @@ export function runGate(candidate) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const at = process.argv.indexOf("--candidate");
-  if (at < 0 || !process.argv[at + 1]) { process.stderr.write("--candidate is required\n"); process.exit(2); }
-  try { runGate(path.resolve(process.argv[at + 1])); } catch (error) { process.stderr.write(`${error.message}\n`); process.exit(1); }
+  try {
+    const sourceTag = process.argv.indexOf("--release-source");
+    const sourceTree = process.argv.indexOf("--release-source-tree");
+    const candidate = process.argv.indexOf("--candidate");
+    if (sourceTag >= 0 && process.argv[sourceTag + 1]) {
+      const result = await checkReleaseTag(process.argv[sourceTag + 1]);
+      process.stdout.write(`I14 PASS release source: HTTP ${result.status}; ${result.tag}; release.json and Agent_b-setup.exe\n`);
+    } else if (sourceTree >= 0 && process.argv[sourceTree + 1]) {
+      const result = await checkReleaseTree(path.resolve(process.argv[sourceTree + 1]));
+      process.stdout.write(`I14 PASS release source: HTTP ${result.status}; ${result.tag}; release.json and Agent_b-setup.exe\n`);
+    } else if (candidate >= 0 && process.argv[candidate + 1]) {
+      runGate(path.resolve(process.argv[candidate + 1]));
+    } else {
+      process.stderr.write("--candidate, --release-source, or --release-source-tree is required\n");
+      process.exitCode = 2;
+    }
+  } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
 }

@@ -15,3 +15,4 @@ I10 — Installing and updating never need elevation, and signing never lands on
 I11 — Anonymous data is content-free and off when its switch is off — 2026-09-23 — `internal/telemetry/sender_test.go:TestTheCountsAreNotQueuedWhenTelemetryIsOff2lx`
 I12 — A per-event path costs the same however much is stored; no file work on the UI thread; nothing grows without bound — 2026-10-01 — `tools/check-invariants.mjs:I12 engineering-floor suite`
 I13 — Nothing proprietary to him, and especially nothing identifying, is in anything tracked, built or pushed — 2026-10-07 — `tools/privacy-gate.mjs:tracked, message and binary scan`
+I14 — No release ships that cannot find the next one — 2026-10-07 — `tools/check-invariants.mjs:I14 release-source suite`

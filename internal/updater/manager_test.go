@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,6 +18,28 @@ import (
 	"testing"
 	"time"
 )
+
+func TestLatestReleaseURLMatchesOrigin2sf(t *testing.T) {
+	root := filepath.Join("..", "..")
+	output, err := exec.Command("git", "-C", root, "remote", "get-url", "origin").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin := strings.TrimSpace(string(output))
+	var repository string
+	if parsed, parseErr := url.Parse(origin); parseErr == nil && parsed.Hostname() == "github.com" {
+		repository = strings.TrimSuffix(strings.TrimPrefix(parsed.Path, "/"), ".git")
+	} else if before, after, ok := strings.Cut(origin, "github.com:"); ok && before == "git@" {
+		repository = strings.TrimSuffix(after, ".git")
+	}
+	if strings.Count(repository, "/") != 1 {
+		t.Fatal("origin is not one GitHub owner/repository pair")
+	}
+	want := "https://api.github.com/repos/" + repository + "/releases/latest"
+	if LatestReleaseURL != want {
+		t.Fatal("the product update address does not match origin")
+	}
+}
 
 func TestCheckDownloadVerifyAndLaunch(t *testing.T) {
 	setup := []byte("verified single-file setup")

@@ -946,7 +946,8 @@ if (realModel) {
     await page.reload(); await page.waitForFunction(() => document.querySelectorAll(".chat-list-row[data-session]").length >= 40); await page.locator(".chat-list-folder").evaluateAll((folders) => folders.forEach((folder) => { folder.open = true; }));
     await page.setViewportSize({ width: 1280, height: 860 }); const row = page.locator(`.chat-list-row[data-session="${sessionID}"]`), name = row.locator(".chat-list-name"), more = row.locator(".chat-list-more"), list = page.locator(".chat-list");
     const nameRect = () => name.evaluate((node) => { const box = node.getBoundingClientRect(); return { left: box.left, right: box.right }; });
-    await page.mouse.move(500, 16); const restRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "hidden"); await row.hover(); const hoverRect = await nameRect(); await name.focus(); const focusRect = await nameRect(); await more.click(); const menuRect = await nameRect(); assert.deepEqual([hoverRect, focusRect, menuRect], [restRect, restRect, restRect]); await page.keyboard.press("Escape");
+    const waitMore = (visibility) => page.waitForFunction(({ id, visibility }) => { const control = document.querySelector(`.chat-list-row[data-session="${id}"] .chat-list-more`); return control && getComputedStyle(control).visibility === visibility; }, { id: sessionID, visibility });
+    await page.mouse.move(500, 16); await waitMore("hidden"); const restRect = await nameRect(); await row.hover(); await waitMore("visible"); const hoverRect = await nameRect(); await name.focus(); await waitMore("visible"); const focusRect = await nameRect(); await more.click(); await waitMore("visible"); const menuRect = await nameRect(); assert.deepEqual([hoverRect, focusRect, menuRect], [restRect, restRect, restRect]); await page.keyboard.press("Escape");
     const scrollbar = () => list.evaluate((node) => { const base = getComputedStyle(node), bar = getComputedStyle(node, "::-webkit-scrollbar"), thumb = getComputedStyle(node, "::-webkit-scrollbar-thumb"), transcript = getComputedStyle(document.querySelector("#chat-log")); return { width: bar.width, colors: base.scrollbarColor, thumb: thumb.backgroundColor, transcript: transcript.scrollbarColor, right: [...node.querySelectorAll(".chat-list-name")].map((item) => item.getBoundingClientRect().right) }; });
     await page.mouse.move(500, 16); await sleep(1500); const rest = await scrollbar(); await list.hover(); const hover = await scrollbar(); await page.mouse.move(500, 16); await list.dispatchEvent("wheel", { deltaY: 80 }); const scrolling = await scrollbar(); assert.equal(rest.width, "6px"); assert.match(rest.thumb, /rgba\(0, 0, 0, 0\)/); assert.equal(hover.colors, hover.transcript); assert.deepEqual([hover.right, scrolling.right], [rest.right, rest.right]); await sleep(1500); assert.equal(await list.evaluate((node) => node.classList.contains("scrolling")), false);
     assert.equal(await page.locator(".chat-list-new").count(), 1); assert.equal(await page.locator(".chat-list-new").getAttribute("aria-label"), "New chat"); assert.equal(await page.locator(".chat-list-new").innerText(), "");
@@ -2599,10 +2600,11 @@ if (realModel) {
   const row = page.locator(`.chat-list-row[data-session="${scriptSessionID}"]`), name = row.locator(".chat-list-name"), more = row.locator(".chat-list-more"), list = page.locator(".chat-list");
   await browser.wait(`(() => { const name = document.querySelector('.chat-list-row.selected .chat-list-name'); name?.scrollIntoView({ block: 'nearest' }); return name?.isConnected && name.getBoundingClientRect().width > 0; })()`, "long-list target chat visible for measurement");
   const nameRect = () => page.evaluate((id) => { const node = document.querySelector(`.chat-list-row[data-session="${id}"] .chat-list-name`); node.scrollIntoView({ block: "nearest" }); const box = node.getBoundingClientRect(); return { left: box.left, right: box.right }; }, scriptSessionID);
-  await page.mouse.move(500, 16); const restRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "hidden");
-  await row.hover(); const hoverRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "visible");
-  await name.focus(); const focusRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "visible");
-  await more.click(); const menuRect = await nameRect(); assert.equal(await more.evaluate((node) => getComputedStyle(node).visibility), "visible");
+  const waitMore = (visibility) => page.waitForFunction(({ id, visibility }) => { const control = document.querySelector(`.chat-list-row[data-session="${id}"] .chat-list-more`); return control && getComputedStyle(control).visibility === visibility; }, { id: scriptSessionID, visibility });
+  await page.mouse.move(500, 16); await waitMore("hidden"); const restRect = await nameRect();
+  await row.hover(); await waitMore("visible"); const hoverRect = await nameRect();
+  await name.focus(); await waitMore("visible"); const focusRect = await nameRect();
+  await more.click(); await waitMore("visible"); const menuRect = await nameRect();
   assert.deepEqual([hoverRect, focusRect, menuRect], [restRect, restRect, restRect]); await page.keyboard.press("Escape");
   const scrollbar = () => list.evaluate((node) => { const base = getComputedStyle(node), bar = getComputedStyle(node, "::-webkit-scrollbar"), track = getComputedStyle(node, "::-webkit-scrollbar-track"), thumb = getComputedStyle(node, "::-webkit-scrollbar-thumb"), transcript = getComputedStyle(document.querySelector("#chat-log")); return { width: bar.width, colors: base.scrollbarColor, track: track.backgroundColor, thumb: thumb.backgroundColor, transcript: transcript.scrollbarColor, right: [...node.querySelectorAll(".chat-list-name")].map((name) => name.getBoundingClientRect().right) }; });
   await page.mouse.move(500, 16); await sleep(1500); const scrollbarRest = await scrollbar();
@@ -2767,6 +2769,7 @@ if (realModel) {
   await browser.wait(`document.querySelector('#plan-raw')?.textContent.includes('# Browser plan')`, "the raw plan on the Plan page");
   assert.ok(await page.locator(".plan-entry.selected").count() === 1, "the selected plan is expanded in the flyout");
   await page.locator("#plan-search").fill("no-such-plan");
+  await page.waitForFunction(() => document.querySelectorAll(".plan-entry").length === 0);
   assert.equal(await page.locator(".plan-entry").count(), 0, "search filters the flyout by name");
   await page.locator("#plan-search").fill("");
   assert.ok(await page.locator(".plan-entry").count() >= 1);

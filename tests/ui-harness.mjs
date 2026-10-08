@@ -73,7 +73,7 @@ function configFor({ appPort, modelPort, data, workspace, agents = [], connectio
 // start brings up the harness. `reachable: false` leaves the model port unbound,
 // which is what the operator had. `routeFailures` is a set of API path prefixes
 // the browser context fails, so a scenario can break `/api/plan` alone.
-export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "" }) {
+export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0 }) {
   const dataRoot = resolve(data);
   const workspace = join(dataRoot, "workspace");
   await mkdir(workspace, { recursive: true });
@@ -94,7 +94,12 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
 			return void response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ui harness reply" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 3 } }));
 		}
       response.writeHead(200, { "Content-Type": "text/event-stream" });
-      response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "ui harness reply" }, finish_reason: null }] })}\n\n`);
+      response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: streamDelayMs ? "ui harness " : "ui harness reply" }, finish_reason: null }] })}\n\n`);
+      if (streamDelayMs) {
+        await sleep(streamDelayMs);
+        response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "reply" }, finish_reason: null }] })}\n\n`);
+        await sleep(streamDelayMs);
+      }
       response.end(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 3 } })}\n\ndata: [DONE]\n\n`);
     });
     await new Promise((done) => model.listen(modelPort, "127.0.0.1", done));

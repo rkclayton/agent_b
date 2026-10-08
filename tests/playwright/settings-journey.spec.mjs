@@ -28,8 +28,7 @@ import { removeTreeWithinAllowedRoots } from "../../tools/removal-guard.mjs";
 const run = promisify(execFile);
 const repo = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const toggleSettings = async (page) => {
-	const gear = page.locator(".shell-settings");
-	if (await gear.isVisible()) return gear.click();
+	if (await page.locator("#settings-page").isVisible()) return page.getByTitle("Close").click();
 	await page.locator(".chat-list-menu-button").click();
 	await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click();
 };
@@ -51,7 +50,7 @@ test.beforeAll(async () => {
 	await writeFile(join(hermesHome, ".env"), "FIRST_KEY=\nSECOND_KEY=\n");
   const exe = join(root, "Agent_b.exe");
   await run(join(repo, ".tools", "go", "bin", "go.exe"), ["build", "-o", exe, "./cmd/harness"], { cwd: repo, windowsHide: true });
-  harness = await start({ exe, appRoot: repo, data: join(root, "data"), modelIDs: ["journey-model", "second-model"] });
+  harness = await start({ exe, appRoot: repo, data: join(root, "data"), modelIDs: ["journey-model", "second-model"], streamDelayMs: 800 });
 });
 
 test("Hermes import shows the complete preview before writing", async () => {
@@ -72,6 +71,51 @@ test("Hermes import shows the complete preview before writing", async () => {
 test.afterAll(async () => {
   await harness?.stop();
   if (root) removeTreeWithinAllowedRoots(root, [tmpdir()], "settings-journey Playwright cleanup");
+});
+
+test("Settings is a centred bounded window over the drawn chat 2sy", async () => {
+	const page = await harness.context.newPage();
+	for (const width of [1280, 1920]) {
+		await page.setViewportSize({ width, height: 900 }); await page.goto(`${harness.base}/chat`); await toggleSettings(page);
+		const box = await page.evaluate(() => { const panel = document.querySelector("#settings-page").getBoundingClientRect(), strip = document.querySelector("#app-shell").getBoundingClientRect(); return { width: panel.width, height: panel.height, dx: Math.abs(panel.left + panel.width / 2 - innerWidth / 2), dy: Math.abs(panel.top + panel.height / 2 - (strip.bottom + (innerHeight - strip.bottom) / 2)), chat: document.querySelector("#chat-log").checkVisibility(), list: document.querySelector(".chat-list-panel").checkVisibility(), backdrop: document.querySelector("#settings-backdrop")?.checkVisibility() || false }; });
+		expect(box).toMatchObject({ width: 960, height: 720, chat: true, list: true, backdrop: true }); expect(box.dx).toBeLessThanOrEqual(1); expect(box.dy).toBeLessThanOrEqual(1);
+		await page.screenshot({ path: join(repo, "test-results", `2sy-settings-${width}.png`), fullPage: true }); await page.getByTitle("Close").click();
+	}
+	await page.close();
+});
+
+test("Settings fills narrow windows and its X closes to prior focus 2sy", async () => {
+	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat`);
+	for (const width of [304, 600]) for (const size of [9, 12, 32]) {
+		await page.setViewportSize({ width, height: 700 }); await page.locator(".chat-list-menu-button").focus(); await page.evaluate((value) => document.documentElement.style.setProperty("--chat-scale", String(value / 12)), size); await page.evaluate(() => document.dispatchEvent(new CustomEvent("settings.open")));
+		const geometry = await page.locator("#settings-page").evaluate((panel) => { const box = panel.getBoundingClientRect(), strip = document.querySelector("#app-shell").getBoundingClientRect(), close = panel.querySelector('[data-action="close"]').getBoundingClientRect(), head = panel.querySelector(".settings-head").getBoundingClientRect(), content = panel.querySelector(".settings-content").getBoundingClientRect(), group = panel.querySelector(".settings-group").getBoundingClientRect(); return { left: box.left, right: innerWidth - box.right, top: box.top - strip.bottom, bottom: innerHeight - box.bottom, contentLeft: content.left - box.left, contentRight: box.right - content.right, groupLeft: group.left - box.left, groupRight: box.right - group.right, overflow: document.documentElement.scrollWidth - innerWidth, closeWhole: close.left >= head.left && close.right <= head.right && close.top >= head.top && close.bottom <= head.bottom }; });
+		expect({ ...geometry, groupRight: undefined }).toEqual({ left: 0, right: 0, top: 0, bottom: 0, contentLeft: 0, contentRight: 0, groupLeft: 12, groupRight: undefined, overflow: 0, closeWhole: true }); expect(geometry.groupRight).toBeGreaterThanOrEqual(12); await page.screenshot({ path: join(repo, "test-results", `2sy-settings-${width}-${size}px.png`), fullPage: true }); await page.getByTitle("Close").press("Enter"); await expect(page.locator(".chat-list-menu-button")).toBeFocused();
+	}
+	await page.close();
+});
+
+test("only the dimmed chat closes Settings; the strip does not 2sy", async () => {
+	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat`); await toggleSettings(page); await expect(page.locator(".shell-settings")).toHaveCount(0);
+	const strip = await page.locator("#app-shell").boundingBox(); await page.mouse.click(strip.x + 200, strip.y + 12); await page.mouse.dblclick(strip.x + 220, strip.y + 12); await page.mouse.move(strip.x + 250, strip.y + 12); await page.mouse.down(); await page.mouse.move(strip.x + 300, strip.y + 12); await page.mouse.up(); await expect(page.locator("#settings-page")).toBeVisible();
+	await page.locator("#settings-backdrop").click({ position: { x: 4, y: 4 } }); await expect(page.locator("#settings-page")).toBeHidden(); await page.close();
+});
+
+test("Settings traps focus and blocks keys from the chat behind it 2sy", async () => {
+	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat`); await page.locator("#chat-task").fill("held"); await toggleSettings(page);
+	const controls = page.locator('#settings-page button:not([disabled]),#settings-page input:not([disabled]),#settings-page textarea:not([disabled]),#settings-page select:not([disabled]),#settings-page [tabindex="0"]'); const count = await controls.count(); await controls.nth(count - 1).focus(); await page.keyboard.press("Tab"); await expect(controls.first()).toBeFocused(); await page.keyboard.type("x"); await expect(page.locator("#chat-task")).toHaveValue("held"); await page.close();
+});
+
+test("a live run keeps drawing beneath Settings 2sy", async () => {
+	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat`); const original = await page.locator(".chat-list-row.selected").getAttribute("data-session"); await page.locator(".chat-list-new").click(); await expect(page.locator(".chat-list-row.selected")).not.toHaveAttribute("data-session", original); const streamed = await page.locator(".chat-list-row.selected").getAttribute("data-session"); await page.locator("#chat-task").fill("stream behind Settings"); await page.locator("#chat-send").click();
+	await expect(page.locator("#chat-log")).toContainText("ui harness "); await toggleSettings(page); await expect(page.locator(".chat-list-name.working")).toBeVisible();
+	const before = (await page.locator("#chat-log").innerText()).length; await page.screenshot({ path: join(repo, "test-results", "2sy-settings-streaming.png"), fullPage: true });
+	await expect(page.locator("#chat-log")).toContainText("ui harness reply"); await expect.poll(async () => (await page.locator("#chat-log").innerText()).length).toBeGreaterThan(before); await expect(page.locator(".chat-list-name.working")).toHaveCount(0); await page.getByTitle("Close").click(); await page.locator(`.chat-list-row[data-session="${original}"] .chat-list-name`).click(); const streamRow = page.locator(`.chat-list-row[data-session="${streamed}"]`); await streamRow.hover(); await streamRow.locator(".chat-list-more").click(); page.once("dialog", (dialog) => dialog.accept()); await streamRow.locator(".chat-list-row-menu").getByRole("button", { name: "Delete", exact: true }).click(); await expect(streamRow).toHaveCount(0); await page.close();
+});
+
+test("the setup document uses an X and returns to Settings 2sy", async () => {
+	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat`); await toggleSettings(page); await page.locator('[data-action="open-setup"]').click();
+	await expect(page).toHaveURL(/\/setup\?from=settings/); await expect(page.locator(".setup-close")).toHaveText("×"); await expect(page.locator(".setup-close")).toHaveAttribute("title", "Close"); await expect(page.locator("body")).not.toContainText("⚙");
+	await page.locator(".setup-close").click(); await expect(page).toHaveURL(/\/chat\?.*#settings\/connections/); await expect(page.locator("#settings-page")).toBeVisible(); await page.close();
 });
 
 test("the settings journey: type a host, pick a model, Test, save, chat, delete, remove", async () => {
@@ -146,6 +190,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await page.locator("#chat-task").fill("journey: say something");
   await page.locator("#chat-send").click();
   await expect(page.locator("#chat-log")).toContainText("ui harness reply", { timeout: 60000 });
+  await expect(page.locator(".chat-list-name.working")).toHaveCount(0);
 
   // 2ry W0: replay the reported sequence in the disposable harness before the
   // held-response case below: switch, answer, Settings > Chats, choose a face.
@@ -316,9 +361,9 @@ test("the confirmation popover stays with its control on a scrolled sheet", asyn
   expect(Math.abs(geometry.boxTop - geometry.anchorTop), JSON.stringify(geometry)).toBeLessThan(120);
   expect(geometry.visible, JSON.stringify(geometry)).toBe(true);
   const blocked = await popover.evaluate((open) => [...document.querySelectorAll("#settings-page button,#settings-page input,#settings-page textarea,#settings-page select,#settings-page summary")].filter((control) => {
-    const box = control.getBoundingClientRect(), menuBox = open.getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
+    const box = control.getBoundingClientRect(), menuBox = open.getBoundingClientRect(), clip = document.querySelector(".settings-content").getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
     const style = getComputedStyle(control);
-    return control.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && !control.disabled && style.display !== "none" && style.visibility !== "hidden" && x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight && !open.contains(control) && !(x >= menuBox.left && x <= menuBox.right && y >= menuBox.top && y <= menuBox.bottom) && !control.contains(document.elementFromPoint(x, y));
+    return control.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && !control.disabled && style.display !== "none" && style.visibility !== "hidden" && box.left >= clip.left && box.top >= clip.top && box.right <= clip.right && box.bottom <= clip.bottom && !open.contains(control) && !(x >= menuBox.left && x <= menuBox.right && y >= menuBox.top && y <= menuBox.bottom) && !control.contains(document.elementFromPoint(x, y));
   }).map((control) => control.id || control.className || control.tagName));
   expect(blocked, `popover blocked outside control centres: ${blocked.join(", ")}`).toEqual([]);
   await page.locator(".settings-head").click(); await expect(popover).toHaveCount(0);

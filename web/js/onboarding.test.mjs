@@ -41,8 +41,9 @@ test("Local install chooses accelerator and measurement requests carry only cata
   assert.match(script, /\/api\/eval\/measure/);
 });
 
-test("Setup strip has settings and window controls but no Chat page button", () => {
-  assert.match(html, /class="setup-settings"/);
+test("Setup strip has a close control and window controls but no Chat page button", () => {
+  assert.match(html, /class="setup-close"[^>]*aria-label="Close"[^>]*>×<\/a>/);
+  assert.doesNotMatch(html, /⚙|setup-settings/);
   assert.match(html, /class="shell-window-controls"/);
   assert.doesNotMatch(html, />Chat<|setup-chat/);
 });

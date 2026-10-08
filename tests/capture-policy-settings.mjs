@@ -6,7 +6,7 @@ const browser = await chromium.launch({ channel: "msedge", headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   await page.goto(url);
-  if (page.url().includes("/setup")) await page.locator(".setup-settings").click();
+  if (page.url().includes("/setup")) await page.locator(".setup-close").click();
   await page.waitForURL(/\/chat/);
   await page.evaluate(() => document.dispatchEvent(new CustomEvent("settings.open", { detail: { section: "shell" } })));
   const policyLine = page.getByText(wording, { exact: true });

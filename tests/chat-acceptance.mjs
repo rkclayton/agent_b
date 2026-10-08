@@ -418,7 +418,7 @@ const waitProjectedChatText = async (sessionID, text, label, timeout = 12000) =>
 const ensureChat = async () => {
   if (await page.locator("#chat-task").isVisible()) return;
   const sheet = page.locator("#settings-page");
-  if (await sheet.isVisible()) await page.locator(".shell-settings").click();
+  if (await sheet.isVisible()) await page.getByTitle("Close").click();
   await page.locator("#chat-task").waitFor({ state: "visible", timeout: 15000 });
 };
 // Item 2ge: send and stop are one control, so while a run is live that button
@@ -1016,7 +1016,7 @@ if (realModel) {
   // Plan remains a Settings entry and the removed tab strip stays absent.
   assert.equal(await page.locator('.agent-tab-wrap-surface').count(), 0);
   assert.equal(await page.locator('.agent-tab-surface[data-surface-kind="plan"]').count(), 0);
-  assert.equal(await page.locator(".shell-settings").count(), 1);
+  assert.equal(await page.locator(".shell-settings").count(), 0);
   assert.equal(await page.locator("#chat-title").count(), 0);
   const captureShellGeometry = () => page.evaluate(() => Object.fromEntries([
     ["shell", "#app-shell"],
@@ -1079,7 +1079,7 @@ if (realModel) {
   }));
 	assert.ok(toolHalves.toggles >= 12 && toolHalves.counts === toolHalves.toggles + 2, JSON.stringify(toolHalves));
   assert.equal(toolHalves.agent, true);
-  await page.locator(".shell-settings").click();
+  await page.getByTitle("Close").click();
   await page.locator('.chat-list-row.selected').hover();
   await page.locator('.chat-list-row.selected .chat-list-more').click();
   const toggleMenu = page.locator('.chat-list-row.selected .chat-list-row-menu');
@@ -1157,7 +1157,7 @@ if (realModel) {
   await openSettings();
   await page.locator("#settings-page").waitFor({ state: "visible" });
   const panelToChatStarted = performance.now();
-  await page.locator(".shell-settings").click();
+  await page.getByTitle("Close").click();
   await browser.wait(`document.querySelector('#settings-page')?.hidden`, "Settings closed back onto the chat");
   await page.locator("#chat-task").waitFor({ state: "visible" });
   await page.waitForFunction(() => window.__agentbLoadTiming?.snapshot !== null && document.querySelector(".chat-entry"));
@@ -1245,7 +1245,7 @@ if (realModel) {
   assert.match(await connectionState.innerText(), /ready/);
   assert.doesNotMatch(await connectionState.innerText(), /Test passed/);
   assert.match(await page.locator(".connection-editor .discovery-note").innerText(), /Test passed/);
-  await page.locator(".shell-settings").click();
+  await page.getByTitle("Close").click();
   await page.locator("#chat-task").waitFor({ state: "visible" });
   assert.equal(await page.locator("#settings-page").isHidden(), true);
   assert.equal(await page.locator("#settings-page").getAttribute("aria-hidden"), "true");
@@ -1313,7 +1313,7 @@ if (realModel) {
 		await captureWithMasks(page, join(baselineDirectory, "settings-about.png"));
 		record("settings-about-update-action");
 	}
-  await page.locator(".shell-settings").click();
+  await page.getByTitle("Close").click();
   await page.locator(".shell-session-title").click();
   await page.locator(".shell-connection-menu").waitFor({ state: "visible" });
   await captureWithMasks(page, join(baselineDirectory, "profile-header.png"));
@@ -2012,7 +2012,7 @@ if (realModel) {
   record("live-stage-slow-tool-and-stream-caret-lifecycle");
 
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
-	await browser.wait(`location.pathname==='/chat' && document.querySelector('#settings-page') && document.querySelector('.shell-settings')`, "the settings control on the chat");
+	await browser.wait(`location.pathname==='/chat' && document.querySelector('#settings-page') && !document.querySelector('.shell-settings')`, "the Settings sheet and gear-free strip on the chat");
   await openSettings();
   await browser.wait(`!document.querySelector('#settings-page').hidden`, "Settings open");
   assert.equal(await clickText(".settings-nav button", "Security"), true);
@@ -2051,11 +2051,8 @@ if (realModel) {
   assert.equal(await clickText(".settings-nav button", "Plan"), true);
   await browser.wait(`location.hash === '#settings/plan' && document.querySelector('#settings-page #plan-panel')`, "the Plan entry draws the Plan in the pane");
   await browser.wait(`location.pathname !== '/plan'`, "the Plan entry navigated instead of drawing");
-  // The gear is created by initShell and dressed by its first render, so this waits
-  // for the state rather than sampling it — measured at rel-1.31.0 on a busy machine,
-  // where the assertion read the attribute before the first render had set it.
-  await browser.wait(`document.querySelector('.shell-settings')?.getAttribute('aria-expanded') === 'true'`, "the gear reads as this sheet's close while the Plan is open");
-  await page.locator(".shell-settings").click();
+  await browser.wait(`document.querySelector('#settings-page [data-action="close"]')?.title === 'Close'`, "the Settings X is ready while the Plan is open");
+  await page.getByTitle("Close").click();
   await browser.wait(`location.pathname === '/chat' && document.querySelector('#chat-task')`, "closing the sheet on the Plan returns to the chat");
   assert.equal(await page.locator('.agent-tab-wrap-surface').count(), 0);
   record("settings-plan-section-opens-and-closes");
@@ -2388,7 +2385,7 @@ if (realModel) {
   // Item 2px (a): Test is in the form; Edit opens it.
   await page.locator('.connection-editor [data-action="probe"][data-id="acceptance"]').click();
   await waitEvent(sessionID, (event) => event.seq > testUnreachableAfter && event.type === "model.reachable", "Settings Test model.reachable");
-  await page.locator(".shell-settings").click();
+  await page.getByTitle("Close").click();
   assert.equal(await page.locator("#settings-page").isHidden(), true);
   assert.equal((await state()).sessions[sessionID].model_unreachable || null, null);
   record("model-unreachable-settings-test-release");
@@ -2491,7 +2488,7 @@ if (realModel) {
 
   const screenshot = await page.screenshot();
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
-	await browser.wait(`location.pathname==='/chat' && document.querySelector('#settings-page') && document.querySelector('.shell-settings')`, "the settings control before Empty");
+	await browser.wait(`location.pathname==='/chat' && document.querySelector('#settings-page') && !document.querySelector('.shell-settings')`, "the Settings sheet and gear-free strip before Empty");
 	await openSettings();
 	await browser.wait(`document.querySelector('#settings-page') && !document.querySelector('#settings-page').hidden`, "Settings open before Empty");
 	assert.equal(await clickText(".settings-nav button", "Security"), true);

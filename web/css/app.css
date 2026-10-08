@@ -1101,13 +1101,30 @@
   color: var(--ink);
 }
 
+.settings-backdrop {
+  position: fixed;
+  z-index: 27;
+  inset: var(--app-header-height) 0 0;
+  background: rgba(13, 16, 20, 0.72);
+}
+.settings-backdrop[hidden] {
+  display: none;
+}
 .settings-page {
   position: fixed;
-  z-index: 20;
-  inset: 44px 0 0;
+  z-index: 28;
+  top: calc(var(--app-header-height) + (100dvh - var(--app-header-height)) / 2);
+  left: 50%;
+  width: min(960px, calc(100vw - 48px));
+  height: min(720px, calc(100dvh - var(--app-header-height) - 48px));
+  transform: translate(-50%, -50%);
   background: var(--bezel);
+  border: 1px solid rgba(112, 125, 139, 0.28);
   display: grid;
   grid-template-rows: 48px minmax(0, 1fr);
+}
+.settings-open .chat-list-handle {
+  z-index: 26;
 }
 .settings-page[hidden] {
   display: none;
@@ -1139,6 +1156,9 @@
   color: var(--alarm);
 }
 .settings-head button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
   color: var(--mute);
   background: transparent;
   font-size: 18px;
@@ -1219,6 +1239,11 @@
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+}
+.setting-row .path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 .setting-row input,
 .setting-row textarea,
@@ -1680,8 +1705,8 @@
     display: flex;
     flex-wrap: nowrap;
     gap: 2px;
-    overflow: hidden;
-    overflow-inline: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
     padding: 6px 8px;
     border-right: 0;
     border-bottom: 1px solid rgba(112, 125, 139, 0.28);
@@ -1755,6 +1780,18 @@
   }
   .settings-head > div span {
     display: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .settings-page {
+    inset: var(--app-header-height) 0 0;
+    width: auto;
+    height: auto;
+    transform: none;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
   }
 }
 
@@ -1895,8 +1932,6 @@
 .timeline-tool-group.active > .timeline-head .timeline-lamp {
   background: var(--trace);
 }
-.settings-page { inset: var(--app-header-height) 0 0; }
-
 /* Item 2l7: Activity and Agents are pages of the Settings sheet, and the sheet's
    content is the one thing that scrolls. The surface sizes to what it holds
    instead of being pinned to the viewport with its rows scrolling inside it, which
@@ -1972,6 +2007,7 @@
 }
 .panel-line > :last-child { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .panel-tool-line { grid-template-columns: 30px minmax(130px, 1fr) 64px 64px minmax(100px, auto); }
+.panel-tool-counts { grid-template-columns: minmax(130px, 1fr) 64px 64px minmax(100px, auto); }
 .panel-tool-line > :last-child { color: var(--mute); }
 /* Item 2m2 (a): a measured value sits in a seat as wide as its widest form.
    Tabular figures keep every digit the same width; the seat keeps the FIELD the
@@ -2067,6 +2103,7 @@
 @media (max-width: 520px) {
   .panel-agent-group { min-height:110px; grid-template-rows:22px auto; }
   .panel-tool-line { grid-template-columns:24px minmax(100px,1fr) 48px 48px; }
+  .panel-tool-counts { grid-template-columns:minmax(100px,1fr) 48px 48px; }
   .panel-tool-line > :last-child { grid-column:2 / -1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .panel-live .timeline-head { height:auto; min-height:28px; grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; padding:4px 6px; }
   .panel-live .timeline-tool { margin-left:0; }
@@ -2144,6 +2181,8 @@
    Remove that could not happen is never an unchanged screen. */
 .connection-row.refused { height: auto; grid-template-rows: 36px auto; }
 .connection-refusal { grid-column: 1 / -1; margin: 0; padding: 0 var(--s2) var(--s2); color: var(--alarm); font: 11px/16px var(--mono); }
+.connection-row:has(.connection-test-failure) { height: auto; grid-template-rows: 36px auto; }
+.connection-row > .connection-test-failure { grid-column: 1 / -1; margin: 0; padding: 0 var(--s2) var(--s2); }
 
 /* Item 2l5: a connection's four actions live at the right of its own line, at the
    sheet's normal control size. Test is lettering, the other three are icons. */

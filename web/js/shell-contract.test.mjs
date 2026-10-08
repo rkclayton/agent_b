@@ -55,11 +55,9 @@ test("shared shell slot order is identical on the chat and Plan", () => {
     assert.doesNotMatch(html, /id="(?:shell-stop|shell-state|shell-operator-status)"/);
   }
   assert.match(shell, /root\.append\(left, right\)/);
-  // Item 2mf (c): the one-entry pages nav is gone and Plan is a tab in the strip
-  // on the LEFT, so the right slot is one element shorter and the plan entry it
-  // held is not there to assert any more.
-  // Item 2px (f): the chat's connection lamp sits before the heading it belongs to.
-  assert.match(shell, /right\.append\(sessionActivity, sessionLamp, sessionHeading, connectionMenu, settings, windowControls\)/);
+  // Item 2px (f): the chat's connection lamp sits before the heading it belongs to;
+  // 2sy removes the Settings gear without leaving a gap before the window controls.
+  assert.match(shell, /right\.append\(sessionActivity, sessionLamp, sessionHeading, connectionMenu, windowControls\)/);
   assert.doesNotMatch(shell, /shell-operator-status|right\.append\(stop/);
   assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
   // Item 2ni: and the tab is gone too. "i decided i think i want it under settings,
@@ -94,8 +92,8 @@ test("Plan is a compact accessible chip icon, in the Settings nav", () => {
   assert.doesNotMatch(shell, /shell-page-chip/);
   assert.doesNotMatch(shell, /node\("nav", "shell-pages"\)/);
   assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
-  assert.match(shell, /node\("button", "shell-settings"\)/);
-  assert.doesNotMatch(shell, /link\.href|settings\.href/);
+  assert.doesNotMatch(shell, /shell-settings|⚙/);
+  assert.match(shell, /button\("Settings"/);
 });
 
 test("compact window controls continue the top strip", () => {

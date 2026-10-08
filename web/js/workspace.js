@@ -27,8 +27,8 @@ const openedWith = new URLSearchParams(location.search).get("session") || "";
 // Item 2hb (v1.2.4): THE ADDRESS IS READ ONCE, HERE, BEFORE ANYTHING REWRITES
 // IT. That is the whole defect the operator hit: the shell syncs the address to
 // the mounted view during its first render, which happens while initShell is
-// still running, and that sync deleted the `#settings/...` the gear had just
-// put there - so the module that owns Settings read an empty hash and the
+// still running, and that sync deleted the requested `#settings/...` address
+// before the module that owns Settings could read it, so the
 // window sat on the chat. Whoever needs the request now gets it as a value, and
 // the address is free to be rewritten to whatever is actually up.
 const entry = (() => {

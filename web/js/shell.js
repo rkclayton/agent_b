@@ -72,14 +72,12 @@ export function initShell(options = {}) {
   let panel = { width: 240, hidden: false };
   try { panel = { ...panel, ...JSON.parse(localStorage.getItem(panelKey) || "{}") }; } catch {}
   const applyPanel = () => {
-    const settingsShown = !!document.querySelector("#settings-page:not([hidden])") || (page !== "chat" && openedFromSettings);
     document.documentElement.style.setProperty("--chat-list-width", `${panel.width}px`);
     document.body.classList.toggle("chat-list-hidden", panel.hidden);
-    document.body.classList.toggle("chat-list-visible", !panel.hidden && page === "chat" && !settingsShown);
-    chatPanel.hidden = panel.hidden || page !== "chat" || settingsShown;
-    panelHandle.hidden = !panel.hidden || page !== "chat" || settingsShown;
-    settings.hidden = !settingsShown;
-    if (panel.hidden && page === "chat" && !settingsShown) appRobot.after(listActions);
+    document.body.classList.toggle("chat-list-visible", !panel.hidden && page === "chat");
+    chatPanel.hidden = panel.hidden || page !== "chat";
+    panelHandle.hidden = !panel.hidden || page !== "chat";
+    if (panel.hidden && page === "chat") appRobot.after(listActions);
     else if (listTop?.isConnected) listTop.append(listActions);
   };
   const resizePanel = (handle) => handle.addEventListener("pointerdown", (event) => {
@@ -114,22 +112,6 @@ export function initShell(options = {}) {
       sessionHeading.setAttribute("aria-expanded", "false");
     }
   };
-  // Item 2ni (c): read once, before anything rewrites the address.
-  const openedFromSettings = new URLSearchParams(location.search).get("from") === "settings";
-  const settings = node("button", "shell-settings");
-  settings.type = "button";
-  const settingsGlyph = node("span", "shell-settings-glyph");
-  settingsGlyph.textContent = "⚙";
-  settings.append(settingsGlyph);
-  settings.setAttribute("aria-label", "Settings");
-  settings.title = "Settings";
-  new MutationObserver(applyPanel).observe(settings, { attributes: true, attributeFilter: ["aria-expanded"] });
-  settings.addEventListener("click", () => {
-    const closing = settings.getAttribute("aria-expanded") === "true";
-    const navigation = { kind: "settings", from: closing ? "settings" : page, to: closing ? page : "settings", fullDocument: page !== "chat", chatID: store.active, mutationToken: store.mutation_token };
-    if (page === "chat") beginNavigation(navigation);
-    else requestNavigation(navigation, settings.dataset.target);
-  });
   const windowControls = node("div", "shell-window-controls");
   windowControls.setAttribute("aria-hidden", "true");
   for (const kind of ["minimize", "maximize", "close"]) {
@@ -142,7 +124,7 @@ export function initShell(options = {}) {
   }
   // Item 2px (f): the chat's connection lamp, from the one health state.
   const sessionLamp = node("span", "shell-session-lamp");
-  right.append(sessionActivity, sessionLamp, sessionHeading, connectionMenu, settings, windowControls);
+  right.append(sessionActivity, sessionLamp, sessionHeading, connectionMenu, windowControls);
   root.append(left, right);
   applyPanel();
   const fitWindowTitle = () => {
@@ -292,7 +274,11 @@ export function initShell(options = {}) {
       newChatMenu.append(plan);
     }
     const rule = document.createElement("hr");
-    const openSettings = button("Settings", "", "chat-list-menu-action"); openSettings.onclick = () => settings.click();
+    const openSettings = button("Settings", "", "chat-list-menu-action");
+    openSettings.onclick = () => {
+      beginNavigation({ kind: "settings", from: "chat", to: "settings", fullDocument: false, chatID: store.active, mutationToken: store.mutation_token });
+      document.dispatchEvent(new CustomEvent("settings.open"));
+    };
     newChatMenu.append(rule, openSettings);
     revealMenu(newChatMenu, listMenuButton);
   }
@@ -366,7 +352,7 @@ export function initShell(options = {}) {
           if (session.closed) await api(`/api/sessions/${encodeURIComponent(session.id)}/reopen`, {});
           if (session.closed) reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
           setSelection(`agent_${session.role === "d" ? "d" : "b"}`, session.id);
-          const settingsOpen = settings.getAttribute("aria-expanded") === "true";
+          const settingsOpen = !!document.querySelector("#settings-page:not([hidden])");
           if (settingsOpen) document.dispatchEvent(new CustomEvent("settings.close", { detail: { surface: "chat", after: () => openSide(`agent_${session.role === "d" ? "d" : "b"}`, session.id, "chat") } }));
           else if (page !== "chat") openSide(`agent_${session.role === "d" ? "d" : "b"}`, session.id, "chat");
           else render();
@@ -589,23 +575,6 @@ export function initShell(options = {}) {
     if (session) query.set("session", session.id);
     const suffix = query.size ? `?${query}` : "";
     const configured = configuredAgent(session);
-    // Item 2hb: on a page that is its own document the gear is a LINK, and the
-    // document it opens has no other way to know where it came from. The view
-    // being left is named in the address, so closing can return to it.
-    //
-    // Item 2ni (c): AND A PAGE REACHED FROM THE SETTINGS NAV CLOSES LIKE SETTINGS.
-    // The Plan is a Settings section now, and its page is its own document, so
-    // arriving here means Settings navigated. The gear is that sheet's close: it
-    // reads as closed-able and returns to the view the gear was clicked from,
-    // which is the only way back the Plan needs now that its tab is gone.
-    if (page !== "chat" && openedFromSettings) {
-      setAttr(settings, "aria-expanded", "true");
-      setAttr(settings, "aria-label", "Close settings");
-      setAttr(settings, "title", "Close settings");
-      setAttr(settings, "data-target", `/chat${suffix}`);
-    } else {
-      setAttr(settings, "data-target", `/chat${suffix}${suffix ? "&" : "?"}from=${page}#settings/connections`);
-    }
     options.syncLocation?.(page);
   }
 

@@ -45,11 +45,10 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(source)
-	// Item 2mf: the one-entry page switch is gone. Plan is a pinned tab in the
-	// strip on the LEFT, so the right slot is the heading, Settings and the
-	// native-frame glyphs, and the surface list is what names the Plan tab.
-	if !strings.Contains(text, "right.append(sessionActivity, sessionLamp, sessionHeading, connectionMenu, settings, windowControls)") || strings.Contains(text, "folderMenu") || strings.Contains(text, "right.append(stop") || strings.Contains(text, "shell-operator-status") {
-		t.Fatalf("shared shell right slot must contain the role/connection heading, Settings, and native-frame glyphs")
+	// Item 2sy removes the Settings gear from every state. The right slot keeps the
+	// role/connection heading directly beside the native-frame glyphs.
+	if !strings.Contains(text, "right.append(sessionActivity, sessionLamp, sessionHeading, connectionMenu, windowControls)") || strings.Contains(text, "folderMenu") || strings.Contains(text, "right.append(stop") || strings.Contains(text, "shell-operator-status") || strings.Contains(text, "shell-settings") {
+		t.Fatalf("shared shell right slot must contain the role/connection heading and native-frame glyphs, with no Settings gear")
 	}
 	// Item 2ni: the Plan is a top-level SETTINGS SECTION now, so the strip draws no
 	// static surface at all and the one-entry pages nav stays gone. The entry and its

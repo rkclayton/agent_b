@@ -6,14 +6,12 @@ import test from "node:test";
 // found there and a slice reads far more of the file than it means to.
 const settings = readFileSync(new URL("./settings.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
-// Item 2l6 (d). The operator: "i want to remove the save button and the x in the
-// upper right theres no need for it. to page away you click the chat tab or plan
-// ect."
-test("the settings sheet has no sheet-wide Save and no close x", () => {
+// Item 2l6 (d) keeps Save local to its setting; item 2sy restores one X as the
+// window's close control and adds nothing else to the header.
+test("the settings sheet has no sheet-wide Save and has only its close x", () => {
   assert.doesNotMatch(settings, /data-action="save-settings"[^>]*>/, "a sheet-wide Save control is still rendered");
-  assert.doesNotMatch(settings, /aria-label="Close settings"/, "the close x is still rendered");
   assert.doesNotMatch(settings, /class="settings-save"/, "the sheet-wide save styling is still applied to a control");
-  assert.match(settings, /<div class="settings-head-actions"><\/div>/, "the header actions were not emptied");
+  assert.match(settings, /<div class="settings-head-actions"><button type="button" data-action="close" aria-label="Close" title="Close">×<\/button><\/div>/);
 });
 
 // (a) and (c). The four paths that need a complete value before they mean

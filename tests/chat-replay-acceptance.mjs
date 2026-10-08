@@ -234,7 +234,6 @@ try {
     ["wrap", ".agent-tab-wrap"],
     ["tab", ".agent-tab"],
     ["plus", ".agent-tab-new"],
-    ["settings", ".shell-settings"],
   ].map(([key, selector]) => {
     const rect = document.querySelector(selector).getBoundingClientRect();
     return [key, { x: rect.x, y: rect.y, width: rect.width, height: rect.height }];
@@ -273,9 +272,9 @@ try {
   await page.screenshot({ path: join(args.evidence, "real-tape-menu.png") });
   await page.keyboard.press("Escape");
   await tab.click();
-  // Item 2gk (v1.2.3): the numbers are two sections of Settings now, reached by
-  // the gear. A replayed tape still fills them; that is what is checked here.
-  await page.locator(".shell-settings").click();
+  // A replayed tape still fills the Settings sections; that is what is checked here.
+  await page.locator(".chat-list-menu-button").click();
+  await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click();
   await page.locator("#settings-page").waitFor({ state: "visible" });
   await page.locator(".settings-nav button", { hasText: "Activity" }).click();
   await page.locator("#activity-panel").waitFor({ state: "visible" });

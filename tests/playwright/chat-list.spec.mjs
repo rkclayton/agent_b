@@ -69,7 +69,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await expect(listTop.locator(":scope > button").first()).not.toHaveAttribute("title", /.+/);
   await expect(listTop.locator(":scope > button").nth(1)).toHaveAttribute("title", "New chat");
   expect(await listTop.innerText()).toBe("");
-  await expect(page.locator(".shell-settings")).toBeHidden();
+  await expect(page.locator(".shell-settings")).toHaveCount(0);
   await page.locator(".chat-list-menu-button").click();
   const listMenu = page.locator(".chat-list-main-menu");
   await expect(listMenu.locator(":scope > *")).toHaveCount(5);
@@ -168,7 +168,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await cdp.send("Emulation.clearDeviceMetricsOverride"); await page.evaluate(() => document.documentElement.style.removeProperty("--chat-scale"));
   const openSettings = async () => { await page.locator(".chat-list-menu-button").click(); await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click(); };
   await mkdir(listEvidence, { recursive: true });
-  for (const width of [304, 1280, 1920]) { await page.setViewportSize({ width, height: 800 }); const layout = await page.evaluate(() => { const shell = document.querySelector("#app-shell").getBoundingClientRect(), head = document.querySelector(".shell-app-robot").getBoundingClientRect(), right = document.querySelector(".shell-right").getBoundingClientRect(), product = document.querySelector(".shell-product-title").getBoundingClientRect(), chat = document.querySelector(".shell-chat-title").getBoundingClientRect(); return { height: shell.height, first: head.left, size: head.height, center: Math.abs((head.top + head.height / 2) - (shell.top + shell.height / 2)), font: parseFloat(getComputedStyle(document.querySelector(".shell-session-title")).fontSize), inside: head.right <= right.left && right.right <= innerWidth && chat.right <= right.left && product.width > 0 && [...document.querySelectorAll(".shell-right > :not(.shell-menu)")].every((node) => { const box = node.getBoundingClientRect(); return box.width === 0 || box.right <= innerWidth; }) }; }); expect(layout).toEqual({ height: 32, first: 4, size: 20, center: 0, font: 12, inside: true }); await page.screenshot({ path: join(robotEvidence, `${width}-chat.png`) }); await page.screenshot({ path: join(listEvidence, `${width}-strip.png`) }); await openSettings(); await expect(page.locator(".shell-window-title")).toHaveText("Agent_b - Pinned older"); expect(await page.locator(".shell-window-title").evaluate((title) => { if (title.hidden) return true; const product = title.querySelector(".shell-product-title").getBoundingClientRect(), box = title.getBoundingClientRect(); return product.left >= box.left && product.right <= box.right; })).toBe(true); await page.screenshot({ path: join(robotEvidence, `${width}-settings.png`) }); await page.locator(".shell-settings").click(); }
+  for (const width of [304, 1280, 1920]) { await page.setViewportSize({ width, height: 800 }); const layout = await page.evaluate(() => { const shell = document.querySelector("#app-shell").getBoundingClientRect(), head = document.querySelector(".shell-app-robot").getBoundingClientRect(), right = document.querySelector(".shell-right").getBoundingClientRect(), product = document.querySelector(".shell-product-title").getBoundingClientRect(), chat = document.querySelector(".shell-chat-title").getBoundingClientRect(); return { height: shell.height, first: head.left, size: head.height, center: Math.abs((head.top + head.height / 2) - (shell.top + shell.height / 2)), font: parseFloat(getComputedStyle(document.querySelector(".shell-session-title")).fontSize), inside: head.right <= right.left && right.right <= innerWidth && chat.right <= right.left && product.width > 0 && [...document.querySelectorAll(".shell-right > :not(.shell-menu)")].every((node) => { const box = node.getBoundingClientRect(); return box.width === 0 || box.right <= innerWidth; }) }; }); expect(layout).toEqual({ height: 32, first: 4, size: 20, center: 0, font: 12, inside: true }); await page.screenshot({ path: join(robotEvidence, `${width}-chat.png`) }); await page.screenshot({ path: join(listEvidence, `${width}-strip.png`) }); await openSettings(); await expect(page.locator(".shell-window-title")).toHaveText("Agent_b - Pinned older"); expect(await page.locator(".shell-window-title").evaluate((title) => { if (title.hidden) return true; const product = title.querySelector(".shell-product-title").getBoundingClientRect(), box = title.getBoundingClientRect(); return product.left >= box.left && product.right <= box.right; })).toBe(true); await page.screenshot({ path: join(robotEvidence, `${width}-settings.png`) }); await page.getByTitle("Close").click(); }
   const menuCases = async (opener, menu, other, otherMenu) => {
     const openControl = async () => { const control = page.locator(opener); if (opener.includes("chat-list-more")) await control.locator("xpath=..").hover(); await control.click(); }; await openControl();
     const blocked = await page.locator(menu).evaluate((open) => [...document.querySelectorAll("button,input,textarea,select,summary")].filter((control) => {
@@ -202,8 +202,8 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await page.locator(".chat-list-menu-button").click(); page.once("dialog", (dialog) => dialog.accept("Fixture folder")); await listMenu.getByRole("button", { name: "Folder", exact: true }).click();
   await expect(page.locator('.chat-list-folder[data-folder="Fixture folder"]')).toBeVisible();
   await page.locator(".chat-list-menu-button").click(); await listMenu.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(page.locator("#settings-page")).toBeVisible(); await expect(page.locator(".shell-settings")).toBeVisible();
-  await page.keyboard.press("Escape"); await expect(page.locator("#settings-page")).toBeHidden(); await expect(page.locator(".shell-settings")).toBeHidden();
+  await expect(page.locator("#settings-page")).toBeVisible(); await expect(page.getByTitle("Close")).toBeVisible();
+  await page.keyboard.press("Escape"); await expect(page.locator("#settings-page")).toBeHidden(); await expect(page.getByTitle("Close")).toBeHidden();
   await page.locator('.chat-list-row[data-session="root"]').hover(); await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
   await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.reduce({ type: "snapshot", data: { ...bus.store, build: {} } }); });
   await expect(page.locator('.chat-list-row[data-session="root"] .chat-list-row-menu')).toBeHidden();
@@ -232,7 +232,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
     }
   }
   await page.setViewportSize({ width: 1400, height: 800 }); await page.evaluate(() => document.documentElement.style.setProperty("--chat-list-width", "240px"));
-  const gear = page.locator(".shell-settings"); await expect(gear).toBeHidden();
+  await expect(page.locator(".shell-settings")).toHaveCount(0);
   for (const width of [304, 1280, 1920]) {
     await page.setViewportSize({ width, height: 800 }); await page.evaluate(() => { document.activeElement?.blur(); for (const menu of document.querySelectorAll(".chat-list-row-menu")) menu.hidden = true; for (const row of document.querySelectorAll(".chat-list-row.menu-open")) row.classList.remove("menu-open"); }); await page.mouse.move(Math.max(150, width / 2), 400); await page.screenshot({ path: join(robotEvidence, `${width}-icons-rest.png`) });
     await page.locator(".chat-list-new").hover(); await page.screenshot({ path: join(robotEvidence, `${width}-list-icons-hover.png`) });
@@ -297,7 +297,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
   expect(await page.locator(".shell-left").evaluate((left) => [...left.children].map((child) => child.className))).toEqual(["shell-app-robot chat-run-robot running", "chat-list-top-actions", "shell-window-title"]);
   await page.locator(".shell-left > .chat-list-top-actions .chat-list-new").click(); await expect(rows).toHaveCount(++rowCount);
   await page.locator(".shell-left > .chat-list-top-actions .chat-list-menu-button").click(); await expect(page.locator(".chat-list-main-menu")).toBeVisible(); await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(page.locator("#settings-page")).toBeVisible(); await page.locator(".shell-settings").click(); await expect(page.locator(".shell-left > .chat-list-top-actions")).toBeVisible();
+  await expect(page.locator("#settings-page")).toBeVisible(); await page.getByTitle("Close").click(); await expect(page.locator(".shell-left > .chat-list-top-actions")).toBeVisible();
   await page.screenshot({ path: join(listEvidence, "collapsed.png") });
   await page.screenshot({ path: join(evidence, "2qz-panel-hidden.png") });
   await page.reload({ waitUntil: "domcontentloaded" });
@@ -334,7 +334,7 @@ test("removing the gear leaves no gap and keeps the window controls at the edge 
   };
   const current = await measure(currentShell);
   const byClass = (rows, name) => rows.find((row) => row[0] === name);
-  expect(byClass(current, "shell-settings").slice(3)).toEqual([0, 0]);
+  expect(byClass(current, "shell-settings")).toBeUndefined();
   const controls = byClass(current, "shell-window-controls"), lamp = byClass(current, "shell-session-lamp"), title = byClass(current, "shell-session-title");
   expect(controls[1] + controls[3]).toBe(1400);
   expect(title[1] - (lamp[1] + lamp[3])).toBe(8);

@@ -17,7 +17,7 @@ import { mountPlan, unmountPlan } from "./plan.js";
 import { registerMenu } from "./menu-behavior.js";
 
 const sheet = document.getElementById("settings-page");
-let gear;
+const backdrop = document.getElementById("settings-backdrop");
 const expanded = new Set();
 const advancedConnections = new Set();
 const armed = new Set();
@@ -102,14 +102,10 @@ const sectionLabels = [
 
 // Item 2hb (v1.2.4): `entry` is what the address asked for, read once by
 // workspace.js before the shell rewrote it. `entry.from` is the view another
-// document was on when its gear was clicked, and closing returns there.
+// document was on when it opened Settings, and closing returns there.
 export function initSettings(entry = {}) {
   openedFrom = entry.from || "";
-  gear = document.querySelector(".shell-settings");
-  gear.addEventListener("click", (event) => {
-    event.preventDefault();
-		open ? void leaveSettingsForChat() : openSettings();
-  });
+  backdrop.addEventListener("click", () => { if (open) void leaveSettingsForChat(); });
   document.addEventListener("settings.open", (event) => openSettings(event.detail?.section));
   // Choosing a chat from the left list while Settings is open shows that chat.
   document.addEventListener("settings.close", (event) => {
@@ -120,6 +116,14 @@ export function initSettings(entry = {}) {
 		if (event.key === "Escape" && open && errorPanel) { errorPanel = ""; render(); return; }
 		if (event.key === "Escape" && open && confirmPending) { cancelConfirmation(); return; }
 		if (event.key === "Escape" && open) void leaveSettingsForChat();
+    if (event.key === "Tab" && open) {
+      const controls = [...sheet.querySelectorAll('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]')]
+        .filter((control) => control.checkVisibility());
+      if (!controls.length) return;
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
     if (open && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
       saveSettings();
@@ -225,12 +229,11 @@ export function openSettings(section = "") {
   // Item 2gk: app.css dresses this sheet and the two panels it adopts, and
   // nothing else on screen, so it is switched on with the sheet.
   setSheetStyles(true);
+  document.body.classList.add("settings-open");
+  setChatInert(true);
+  backdrop.hidden = false;
   sheet.hidden = false;
   sheet.setAttribute("aria-hidden", "false");
-  gear.setAttribute("aria-expanded", "true");
-  gear.setAttribute("aria-label", "Close settings");
-  gear.setAttribute("aria-pressed", "true");
-  gear.classList.add("selected");
   history.replaceState(null, "", `#settings/${activeSection}`);
   render();
   refreshServiceAccountStatus();
@@ -241,12 +244,17 @@ export function openSettings(section = "") {
   void refreshBrokerStatus().then(() => { if (open) render(); });
   watchBrokerPairing();
   void refreshCredentials().then(() => { if (open) render(); });
-  requestAnimationFrame(() => sheet.querySelector(".settings-nav button.selected")?.focus());
+  requestAnimationFrame(() => {
+    const selected = sheet.querySelector(".settings-nav button.selected");
+    selected?.scrollIntoView({ block: "nearest", inline: "start" });
+    selected?.focus({ preventScroll: true });
+  });
   recordViewMount("settings", performance.now() - started);
 }
 
 export function closeSettings(surface = "chat") {
   if (!open) return;
+  const returnFocus = lastFocus;
   open = false;
   if (brokerWatch) {
     clearInterval(brokerWatch);
@@ -261,12 +269,12 @@ export function closeSettings(surface = "chat") {
   setSheetStyles(false);
   sheet.hidden = true;
   sheet.setAttribute("aria-hidden", "true");
-  gear.setAttribute("aria-expanded", "false");
-  gear.setAttribute("aria-label", "Settings");
-  gear.setAttribute("aria-pressed", "false");
-  gear.classList.remove("selected");
+  backdrop.hidden = true;
+  setChatInert(false);
+  document.body.classList.remove("settings-open");
   history.replaceState(null, "", `${location.pathname}${location.search}`);
-  (lastFocus || gear).focus();
+  returnFocus?.focus();
+  requestAnimationFrame(() => returnFocus?.focus());
   navigationSurfaceReady(surface, store);
   // Item 2hb: Settings closes to the view it opened from. From inside this
   // document that is the chat, which is already beneath it; from Plan it is
@@ -276,6 +284,12 @@ export function closeSettings(surface = "chat") {
   // `/plan` both land on this sheet's Plan section, and closing it returns to the chat
   // beneath like every other section.
   openedFrom = "";
+}
+
+function setChatInert(value) {
+  for (const node of document.querySelectorAll("#chat-budget, #chat-log, #chat-composer, #panel-surface, #plan-panel, .chat-list-panel, .chat-list-handle")) {
+    node.inert = value;
+  }
 }
 
 async function leaveSettingsForChat() {
@@ -331,7 +345,7 @@ function render() {
   sheet.innerHTML = `
     <header class="settings-head">
       <div><strong>Settings</strong><span data-save-status class="${settingsSaveAlarm ? "alarm" : ""}">${html(settingsSaveMessage)}</span></div>
-      <div class="settings-head-actions"></div>
+      <div class="settings-head-actions"><button type="button" data-action="close" aria-label="Close" title="Close">×</button></div>
     </header>
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="Settings sections">

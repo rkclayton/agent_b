@@ -29,6 +29,24 @@ function normalizedConfig(document, { migrated = false } = {}) {
   return copy;
 }
 
+// Item 2s5: schema 13 keeps the server's default model at connection scope and
+// moves only model-dependent values beneath that named model. Replay compares
+// those values semantically across the intentional shape change.
+function withNestedModelSettings(connections) {
+  const modelKeys = ["attachment_handling", "reads_images", "sampling", "reasoning", "context", "system_prompt_override", "capabilities", "measurement"];
+  return connections.map((connection) => {
+    if (Array.isArray(connection.models)) return connection;
+    const copy = structuredClone(connection);
+    const model = { model: copy.model };
+    for (const key of modelKeys) {
+      if (Object.hasOwn(copy, key)) model[key] = copy[key];
+      delete copy[key];
+    }
+    copy.models = [model];
+    return copy;
+  });
+}
+
 function assertPreserved(actual, expected, path = "config") {
   if (Array.isArray(expected)) {
     assert.ok(Array.isArray(actual) && actual.length >= expected.length, `${path} lost array entries`);
@@ -142,7 +160,7 @@ assert.ok(Array.isArray(beforeConfig[legacyListKey]), "operator config does not 
 assert.ok(Array.isArray(afterConfig.connections), "migrated config has no connections list");
 assert.equal(afterConfig[legacyListKey], undefined, "migrated config retained the legacy list key");
 assert.equal(afterConfig.config_version, currentConfig, "migrated config version");
-const expectedConnections = normalizedConfig(beforeConfig, { migrated: true }).connections;
+const expectedConnections = withNestedModelSettings(normalizedConfig(beforeConfig, { migrated: true }).connections);
 assertPreserved({ connections: afterConfig.connections }, { connections: expectedConnections }, "connection config");
 
 const production = await state(args.production);

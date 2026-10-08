@@ -35,6 +35,10 @@ jobs:
           $packages = @(go list ./... | Where-Object { $_ -notin $excluded })
           go test @packages
       - run: go test -race ./internal/events ./internal/projection
+      - name: Race delete-running-chat fifty times
+        run: go test -race ./internal/web -run '^TestDeleteDeletesOpenAndRunningChatsAndLeavesNoCopy2py$' -count=50
+      - name: Race configuration saves once
+        run: go test -race ./internal/web -run '^(TestRequestWatchdogRecordsOneBoundedStackAndSkipsStreams2ry|TestConfigPOSTAssignsConnectionsToLetteredAgentRoles|TestConfigPOSTStoresConnectionSecretOutsideJSON|TestConfigPOSTRetainsSchemaStamp|TestConfigUpdatePersistsAgentsInActiveProfile|TestMachineFileKeepsItsOwnPerProfileSections2m0)$' -count=1
       - run: node tests/run-node-tests.mjs
   ubuntu:
     runs-on: ubuntu-latest
@@ -56,4 +60,8 @@ jobs:
           mapfile -t packages < <(go list ./... | grep -vE '^harness/(internal/agent|internal/tools)$')
           go test "${packages[@]}"
       - run: go test -race ./internal/events ./internal/projection
+      - name: Race delete-running-chat fifty times
+        run: go test -race ./internal/web -run '^TestDeleteDeletesOpenAndRunningChatsAndLeavesNoCopy2py$' -count=50
+      - name: Race configuration saves once
+        run: go test -race ./internal/web -run '^(TestRequestWatchdogRecordsOneBoundedStackAndSkipsStreams2ry|TestConfigPOSTAssignsConnectionsToLetteredAgentRoles|TestConfigPOSTStoresConnectionSecretOutsideJSON|TestConfigPOSTRetainsSchemaStamp|TestConfigUpdatePersistsAgentsInActiveProfile|TestMachineFileKeepsItsOwnPerProfileSections2m0)$' -count=1
       - run: node tests/run-node-tests.mjs

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -453,7 +454,7 @@ test("the client-terms gate scans publishable paths, not checkout parent folders
     assert.deepEqual(await findings("clean.txt", "publishable bytes\n"), []);
     assert.deepEqual(await findings("content.txt", `publishable ${term} bytes\n`), [{ name: "content.txt", rule: "outside-list" }]);
     assert.deepEqual(await findings(`${term}.txt`, "publishable bytes\n"), [{ name: "path-name", rule: "outside-list" }]);
-  } finally { await rm(outside, { recursive: true, force: true }); }
+  } finally { removeTreeWithinAllowedRoots(outside, [tmpdir()], "client terms fixture cleanup"); }
 });
 
 // rel-1.42.0 Misses: the tag is refused unless buildinfo and the installer name it.

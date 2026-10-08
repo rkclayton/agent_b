@@ -36,6 +36,9 @@ let releaseBusy = null;
 let slowAccountingArmed = false;
 const slowAccountingTrace = [];
 const notificationPosts = [];
+let watchPrice = 950;
+let watchPhrase = "waiting";
+let priceAlerted = false;
 const terminateChildren = () => {
   try { model?.closeAllConnections?.(); } catch {}
   for (const child of [...children].reverse()) { try { child.kill(); } catch {} }
@@ -72,6 +75,9 @@ const toolCountAfterLatestUser = (body) => {
   return messages.slice(index + 1).filter((message) => message.role === "tool").length;
 };
 const fakeHandler = async (request, response) => {
+	if (request.url === "/watch-price") return void response.end(`<main><h1>Fixture chair</h1><div itemprop="offers"><meta itemprop="priceCurrency" content="USD"><span itemprop="price">${watchPrice}</span></div></main>`);
+	if (request.url === "/watch-page") return void response.end(`<main><h1>Fixture release</h1><p>Status: ${watchPhrase}</p></main>`);
+	if (request.url === "/watch-no-price") return void response.end("<main><h1>Fixture chair</h1><p>Contact us</p></main>");
 	if (request.url === "/agentb-notification") {
 		let raw = "";
 		for await (const chunk of request) raw += chunk;
@@ -150,6 +156,51 @@ const fakeHandler = async (request, response) => {
 	}
 	if (user.includes("acceptance: cron loud")) return stream(response, { content: "REAL CLOCK LOUD ANSWER" });
 	if (user.includes("acceptance: cron silent")) return stream(response, { content: "[SILENT] REAL CLOCK QUIET ANSWER" });
+	const joined = (body.messages || []).map((message) => String(message.content || "")).join("\n");
+	const root = /ROOT=([^\n]+)/.exec(joined)?.[1];
+	const stateRoot = /STATE=([^\n]+)/.exec(joined)?.[1];
+	const watchCall = (id, name, args) => stream(response, { tool_calls: [{ index: 0, id, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, "tool_calls");
+	if (user.includes("acceptance: price-watch start")) {
+		const count = toolCountAfterLatestUser(body), url = `http://127.0.0.1:${modelPort}/watch-price`;
+		if (count === 0) return watchCall("price-skill", "read_file", { path: `${root}/.included/price-watch/SKILL.md` });
+		if (count === 1) return watchCall("price-fetch", "fetch_url", { url });
+		if (count === 2) return watchCall("price-write", "write_file", { path: `${stateRoot}/price-watch/chair.json`, content: JSON.stringify({ name: "Fixture chair", url, currency: "USD", target: 900, baseline: { price: 950 }, last: { price: 950 }, low: { price: 950 }, alerted: null, misses: 0, job: "price-watch chair", history: [["start", 950]] }) });
+		if (count === 3) return watchCall("price-job", "cronjob", { action: "create", name: "price-watch chair", schedule: "every 6h", skills: ["price-watch"], prompt: "acceptance: price-watch check" });
+		return stream(response, { content: "Fixture chair is 950 USD; watching for 900 USD every 6h." });
+	}
+	if (user.includes("acceptance: price-watch missing")) {
+		const count = toolCountAfterLatestUser(body);
+		if (count === 0) return watchCall("missing-skill", "read_file", { path: `${root}/.included/price-watch/SKILL.md` });
+		if (count === 1) return watchCall("missing-fetch", "fetch_url", { url: `http://127.0.0.1:${modelPort}/watch-no-price` });
+		return stream(response, { content: "I can't read a price on that page — it needs a browser or it blocks me" });
+	}
+	if (user.includes("acceptance: price-watch check")) {
+		const count = toolCountAfterLatestUser(body), url = `http://127.0.0.1:${modelPort}/watch-price`, alert = watchPrice <= 900 && !priceAlerted;
+		if (count === 0) return watchCall("price-state-read", "read_file", { path: `${stateRoot}/price-watch/chair.json` });
+		if (count === 1) return watchCall("price-check-fetch", "fetch_url", { url });
+		if (count === 2) return watchCall("price-state-write", "write_file", { path: `${stateRoot}/price-watch/chair.json`, content: JSON.stringify({ name: "Fixture chair", url, currency: "USD", target: 900, baseline: { price: 950 }, last: { price: watchPrice }, low: { price: Math.min(950, watchPrice) }, alerted: alert || priceAlerted ? { price: watchPrice } : null, misses: 0, job: "price-watch chair", history: [["check", watchPrice]] }) });
+		if (alert) { priceAlerted = true; return stream(response, { content: `Fixture chair — ${watchPrice} USD (was 950; lowest seen ${watchPrice} today)\n${url}` }); }
+		return stream(response, { content: "[SILENT]" });
+	}
+	if (user.includes("acceptance: page-watch start")) {
+		const count = toolCountAfterLatestUser(body), url = `http://127.0.0.1:${modelPort}/watch-page`;
+		if (count === 0) return watchCall("page-skill", "read_file", { path: `${root}/.included/page-watch/SKILL.md` });
+		if (count === 1) return watchCall("page-fetch", "fetch_url", { url });
+		if (count === 2) return watchCall("page-write", "write_file", { path: `${stateRoot}/page-watch/release.json`, content: JSON.stringify({ name: "Fixture release", url, mode: "text", watch: "released", kind: "appears", value: "waiting", seen: [], misses: 0, last_at: "start", job: "page-watch release" }) });
+		if (count === 3) return watchCall("page-job", "cronjob", { action: "create", name: "page-watch release", schedule: "every 6h", skills: ["page-watch"], prompt: "acceptance: page-watch check" });
+		return stream(response, { content: "Watching the fixture page for released." });
+	}
+	if (user.includes("acceptance: page-watch check")) {
+		const count = toolCountAfterLatestUser(body), url = `http://127.0.0.1:${modelPort}/watch-page`, changed = watchPhrase === "released";
+		if (count === 0) return watchCall("page-state-read", "read_file", { path: `${stateRoot}/page-watch/release.json` });
+		if (count === 1) return watchCall("page-check-fetch", "fetch_url", { url });
+		if (count === 2 && changed) return watchCall("page-state-write", "write_file", { path: `${stateRoot}/page-watch/release.json`, content: JSON.stringify({ name: "Fixture release", url, mode: "text", watch: "released", kind: "appears", value: "released", seen: [], misses: 0, last_at: "check", job: "page-watch release" }) });
+		return stream(response, { content: changed ? `released appeared\nwaiting to released\n${url}` : "[SILENT]" });
+	}
+	if (user.includes("acceptance: run watch job")) {
+		if (!hasToolAfterLatestUser(body)) return watchCall("watch-run", "cronjob", { action: "run", job_id: user.split("acceptance: run watch job ")[1].trim() });
+		return stream(response, { content: "WATCH JOB STARTED" });
+	}
   // Item 2fg: the walk's step 3 — a 60 s tool the operator stops.
   if (user.includes("acceptance: stop mid tool") && !hasToolAfterLatestUser(body)) {
     return stream(response, { tool_calls: [{ index: 0, id: "stop-mid-tool", type: "function", function: { name: "shell", arguments: JSON.stringify({ command: "Start-Sleep -Seconds 60; Write-Output walk-slept", timeout_s: 120 }) } }] }, "tool_calls");
@@ -459,7 +510,8 @@ const sessionEvents = async (sessionID) => {
   const files = (await readdir(join(profileData, "logs"))).filter((name) => name.endsWith(".jsonl"));
   const values = [];
   for (const file of files) {
-    const lines = (await readFile(join(profileData, "logs", file), "utf8")).split(/\r?\n/).filter(Boolean);
+    const body = await readFile(join(profileData, "logs", file), "utf8").catch((error) => error?.code === "ENOENT" ? "" : Promise.reject(error));
+    const lines = body.split(/\r?\n/).filter(Boolean);
     for (const line of lines) {
       const event = JSON.parse(line);
       if (!sessionID || event.session_id === sessionID) values.push(event);
@@ -531,7 +583,7 @@ const config = {
   // workspace it made the hardening check refuse, and Settings logged a 500).
   deliver: { mode: "chips", exchange_folder: join(args.data, "..", "exchange") }, context: { soft_pct: .75, summary_pct: .85, accounting: "auto" }, memory: { enabled: false, dir: join(args.data, "memory"), max_tokens: 1500 },
 	operator_files: { allow_mailbox_approvals: false, log_retention_days: 30 },
-  tools: { read_file: { default_limit: 16384, max_limit: 65536 }, attachments: { max_bytes: 8388608 }, list_dir: { max_entries: 300, ignore: [".git"] }, grep: { max_matches: 50, max_line_chars: 200 }, shell: { operator_commands: [gitPath] }, fetch: { timeout_s: 20, max_bytes: 2097152, max_redirects: 5, default_limit: 16384, max_limit: 65536, allow_domains: [], deny_domains: [], allow_internal_hosts: [] }, find_files: { skip_roots: [] } },
+  tools: { read_file: { default_limit: 16384, max_limit: 65536 }, attachments: { max_bytes: 8388608 }, list_dir: { max_entries: 300, ignore: [".git"] }, grep: { max_matches: 50, max_line_chars: 200 }, shell: { operator_commands: [gitPath] }, fetch: { timeout_s: 20, max_bytes: 2097152, max_redirects: 5, default_limit: 16384, max_limit: 65536, allow_domains: [], deny_domains: [], allow_internal_hosts: args["cron-only"] === "true" ? ["127.0.0.1"] : [] }, find_files: { skip_roots: [] } },
   shell: { command: ["powershell", "-NoProfile", "-NonInteractive", "-Command"], timeout_s: 60, max_timeout_s: 600, max_output_lines_head: 60, max_output_lines_tail: 40, file_routing_guard: true, operator_context: false, operator_context_idle_timeout_minutes: 20, service_account: { enabled: false, account: "agentb-svc", domain: "." }, deny: [] },
   signing: { thumbprint: "", timestamp_url: "http://timestamp.digicert.com" }
 };
@@ -646,9 +698,61 @@ record("open-chat");
 
 if (args["cron-only"] === "true") {
 	const created = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
+	const send = async (text) => {
+		const prior = (await sessionEvents(created.id)).filter((event) => event.type === "run.stopped").length;
+		await json(`http://127.0.0.1:${appPort}/api/message`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: created.id, text }) });
+		for (const deadline = Date.now() + 20000; Date.now() < deadline;) {
+			if ((await sessionEvents(created.id)).filter((event) => event.type === "run.stopped").length > prior) return;
+			await sleep(50);
+		}
+		throw new Error(`watch driver did not finish: ${text}`);
+	};
+	const runJob = async (name) => {
+		const job = JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")).find((item) => item.name === name);
+		assert.ok(job, `${name} must exist`);
+		const folder = join(profileData, "cron", "output", job.id), before = (await readdir(folder).catch(() => [])).length;
+		await send(`acceptance: run watch job ${name}`);
+		for (const deadline = Date.now() + 20000; Date.now() < deadline;) {
+			const names = await readdir(folder).catch(() => []);
+			if (names.length > before) return readFile(join(folder, names.sort().at(-1)), "utf8");
+			await sleep(50);
+		}
+		throw new Error(`${name} did not run`);
+	};
+	await send("acceptance: price-watch start");
+	const priceState = join(profileData, "skill-state", "price-watch", "chair.json");
+	await waitFileContains(priceState, '"target":900');
+	assert.equal(JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")).filter((job) => job.name === "price-watch chair").length, 1);
+	assert.match(await runJob("price-watch chair"), /\[SILENT\]/);
+	assert.equal(notificationPosts.filter((post) => JSON.stringify(post).includes("price-watch chair")).length, 0);
+	watchPrice = 900;
+	assert.match(await runJob("price-watch chair"), /900 USD/);
+	for (const deadline = Date.now() + 5000; Date.now() < deadline && !notificationPosts.some((post) => JSON.stringify(post).includes("watch-price"));) await sleep(50);
+	const priceNotices = notificationPosts.filter((post) => JSON.stringify(post).includes("price-watch chair"));
+	assert.equal(priceNotices.length, 1);
+	assert.match(JSON.stringify(priceNotices[0]), /900 USD/);
+	assert.match(JSON.stringify(priceNotices[0]), /watch-price/);
+	assert.match(await runJob("price-watch chair"), /\[SILENT\]/);
+	assert.equal(notificationPosts.filter((post) => JSON.stringify(post).includes("price-watch chair")).length, 1);
+	const phoneEvent = (await sessionEvents()).find((event) => event.type === "run.stopped" && JSON.stringify(event.data?.human || {}).includes("watch-price"));
+	assert.match(JSON.stringify(phoneEvent?.data?.human || {}), /900 USD/);
+	const beforeMissingJobs = JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")).length;
+	await send("acceptance: price-watch missing");
+	assert.equal((await readdir(join(profileData, "skill-state", "price-watch"))).length, 1);
+	assert.equal(JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")).length, beforeMissingJobs);
+	record("included-price-watch-scripted-end-to-end");
+	await send("acceptance: page-watch start");
+	await waitFileContains(join(profileData, "skill-state", "page-watch", "release.json"), '"value":"waiting"');
+	assert.match(await runJob("page-watch release"), /\[SILENT\]/);
+	assert.equal(notificationPosts.filter((post) => JSON.stringify(post).includes("page-watch release")).length, 0);
+	watchPhrase = "released";
+	assert.match(await runJob("page-watch release"), /released appeared/);
+	for (const deadline = Date.now() + 5000; Date.now() < deadline && !notificationPosts.some((post) => JSON.stringify(post).includes("page-watch release"));) await sleep(50);
+	assert.equal(notificationPosts.filter((post) => JSON.stringify(post).includes("page-watch release")).length, 1);
+	record("included-page-watch-scripted-end-to-end");
 	await json(`http://127.0.0.1:${appPort}/api/message`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: created.id, text: "acceptance: create real-clock cron jobs" }) });
 	await waitFileContains(join(profileData, "cron", "jobs.json"), "Real clock silent", 20000);
-	const jobs = JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8"));
+	const jobs = JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")).filter((job) => job.name.startsWith("Real clock "));
 	assert.equal(jobs.length, 2, "the chat must create exactly two jobs");
 	const loud = jobs.find((job) => job.name === "Real clock loud"), quiet = jobs.find((job) => job.name === "Real clock silent");
 	assert.ok(loud?.id && quiet?.id, "both named jobs must be durable before the clock fires");
@@ -676,7 +780,7 @@ if (args["cron-only"] === "true") {
 	assert.match(JSON.stringify(loudNotices[0]), /REAL CLOCK LOUD ANSWER/, "the notice must carry the scheduled answer");
 	assert.doesNotMatch(JSON.stringify(loudNotices[0]), /Scheduled chat folder/, "the answer replaces the Scheduled-folder sentence");
 	assert.equal(notificationPosts.filter((post) => JSON.stringify(post).includes("Real clock silent")).length, 0, "the silent job must send no notice");
-	assert.deepEqual(JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")), [], "both one-shot jobs must be removed");
+	assert.deepEqual(JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")).filter((job) => job.name.startsWith("Real clock ")), [], "both one-shot jobs must be removed");
 	record("cron-real-clock-loud-and-silent");
 	process.stdout.write(`CHAT ACCEPTANCE PASS ${Date.now() - startedAt} ms\n`);
 	await edgeContext?.close(); terminateChildren(); await stopFake(); process.exit(0);

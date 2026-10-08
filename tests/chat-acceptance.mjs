@@ -976,6 +976,7 @@ if (realModel) {
   await folderRow.waitFor({ state: "visible" });
   assert.equal(await folderRow.getAttribute("open"), null, "folders must be collapsed by default");
   assert.equal(await folderRow.locator(`[data-session="${sessionID}"]`).count(), 1);
+  await folderRow.locator("summary").hover();
   await folderRow.locator("summary > .chat-list-folder-delete").click();
   await browser.wait(`document.querySelector('#app-shell')?.dataset.error?.includes('folder must be empty') || document.body.innerText.includes('folder must be empty')`, "non-empty folder reason");
   await treeAction({ action: "move", id: sessionID, folder: "" });

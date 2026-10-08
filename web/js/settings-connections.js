@@ -8,9 +8,9 @@ const connectionIcons = {
   trash: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M6 2h4v1h3v1H3V3h3V2Zm-2 3h8l-.7 9H4.7L4 5Zm2.2 1 .4 7h1V6H6.2Zm3.6 0H8.8v7h1l.4-7Z"/></svg>',
 };
 
-let active, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store, errorMarkup;
+let expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store, errorMarkup;
 function useSettingsContext(context) {
-	({ active, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store, errorMarkup } = context);
+  ({ expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store, errorMarkup } = context);
 }
 
 export function connectionFailureSentence(message, address) {
@@ -248,12 +248,7 @@ function connectionFields(connection, reason, discovery) {
 	const readsImages = boolDraft(imagePath, shown.reads_images);
 	const imageControl = row("reads images", switchControl(imagePath, readsImages, "reads images"), "", false);
 	const contextProblem = reason?.startsWith("context ") ? reason : "";
-	const runningWindow = active?.connection_id === id && active.budget?.window_source ? active.budget : null;
-	const probedWindow = Number(shown.context.n_ctx || 0) > Number(shown.capabilities?.n_ctx || 0) && Number(shown.capabilities?.n_ctx || 0) > 0
-	  ? { n_ctx: shown.capabilities.n_ctx, window_source: "probed n_ctx" } : null;
-	const inUseBudget = runningWindow || probedWindow;
-	const inUse = inUseBudget ? `${count(inUseBudget.n_ctx)} in use · ${inUseBudget.window_source}` : "";
-	const contextControl = row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(shown.context.n_ctx || "")}">${inUse ? `<span class="control-note context-window-source">${html(inUse)}</span>` : ""}${contextProblem ? `<span class="${contextProblem.startsWith("context unknown") ? "control-note" : "field-error"}">${html(contextProblem)}</span>` : ""}`, "", false);
+	const contextControl = `${row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(shown.context.n_ctx || "")}">`, "", false)}${contextProblem ? `<p class="${contextProblem.startsWith("context unknown") ? "settings-note" : "field-error"}">${html(contextProblem)}</p>` : ""}`;
 	const saveActions = row("", `<div class="settings-actions"><button type="button" data-action="save-connection" data-id="${attr(id)}">Save</button><button type="button" data-action="duplicate-connection" data-id="${attr(id)}">Duplicate</button></div>`, "", false);
 	const primaryActions = `<div class="connection-primary-actions settings-actions"><button type="button" class="connection-test ${connection._probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${connection._probing ? "disabled" : ""}>${connection._probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Eval"}</button><button type="button" data-action="recommended-connection" data-id="${attr(id)}">Recommended</button></div>`;
 	return `<div class="connection-fieldset connection-primary">${text(`${p}.label`, "name", connection.label, "text", false)}

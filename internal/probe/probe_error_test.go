@@ -36,30 +36,6 @@ func TestEvalReadsTheNamedByteLimit2sv(t *testing.T) {
 	}
 }
 
-func TestEvalReplacesOrDropsALearnedByteLimit2sw(t *testing.T) {
-	for _, row := range []struct {
-		name, refusal string
-		want          int
-		finding       string
-	}{
-		{"tokens", `{"error":"prompt exceeds context window by 1 token"}`, 0, "size limit: none found"},
-		{"new bytes", `{"error":"prompt too large: 501000 bytes (limit 500000)"}`, 500000, "size limit: 500000 bytes"},
-	} {
-		t.Run(row.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, row.refusal, http.StatusBadRequest) }))
-			defer server.Close()
-			connection := config.Defaults(t.TempDir()).Connections[0]
-			connection.BaseURL, connection.Model = server.URL, "model"
-			caps := config.Capabilities{Server: "llama.cpp", NCtx: 8, Props: true, ObservedByteLimit: 400000}
-			findings := []string{"size limit: 400000 bytes observed 2026-10-01"}
-			probeOverflow(context.Background(), llm.New(&connection), &connection, &caps, &findings, true)
-			if caps.ObservedByteLimit != row.want || !strings.Contains(strings.Join(findings, "\n"), row.finding) {
-				t.Fatalf("limit=%d findings=%v", caps.ObservedByteLimit, findings)
-			}
-		})
-	}
-}
-
 func TestConnectionFailureNamesDNSName(t *testing.T) {
 	err := connectionProbeErrorFor("https://nosuch.invalid", fmt.Errorf("props unavailable"), &net.DNSError{Name: "nosuch.invalid", Err: "no such host"})
 	if got := err.Error(); got != `The name "nosuch.invalid" does not resolve.` {

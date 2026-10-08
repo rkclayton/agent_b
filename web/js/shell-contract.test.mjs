@@ -8,7 +8,6 @@ const chat = await readFile(new URL("./chat.js", import.meta.url), "utf8");
 const consoleApp = await readFile(new URL("./app.js", import.meta.url), "utf8");
 const plan = await readFile(new URL("./plan.js", import.meta.url), "utf8");
 const settings = await readFile(new URL("./settings.js", import.meta.url), "utf8");
-const settingsConnections = await readFile(new URL("./settings-connections.js", import.meta.url), "utf8");
 const tokens = await readFile(new URL("../css/tokens.css", import.meta.url), "utf8");
 const appCSS = await readFile(new URL("../css/app.css", import.meta.url), "utf8");
 const chatCSS = await readFile(new URL("../css/chat.css", import.meta.url), "utf8");
@@ -140,9 +139,7 @@ test("top-right connection label is the b-role model switcher", () => {
   assert.match(shell, /\/api\/header-state/);
   assert.doesNotMatch(shell, /setProperty\(sessionHeading, "hidden", !session\)/);
   assert.match(settings, /context unknown — enter the size/);
-  assert.doesNotMatch(settings, /context exceeds server window/);
-  assert.match(settingsConnections, /context-window-source/);
-  assert.match(settingsConnections, /shown\.context\.n_ctx \|\| 0\) > Number\(shown\.capabilities\?\.n_ctx \|\| 0/);
+  assert.match(settings, /nctx > caps\.n_ctx/);
 });
 
 test("all shell motion is zero duration under reduced motion", () => {

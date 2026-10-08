@@ -272,8 +272,7 @@ function renderBudget(session) {
   const width = `${Math.min(100, ratio * 100)}%`;
   const fill = budget.querySelector(".chat-budget-fill");
   if (fill.style.width !== width) fill.style.width = width;
-	const inUse = value.window_source ? ` · ${format(value.n_ctx)} in use · ${value.window_source}` : "";
-	setText(budget.querySelector(".chat-budget-tip"), `${value.estimated ? "estimated · " : ""}${format(used)} / ${format(ceiling)}${inUse}`);
+  setText(budget.querySelector(".chat-budget-tip"), `${value.estimated ? "estimated · " : ""}${format(used)} / ${format(ceiling)}`);
 }
 
 function renderLog(session) {

@@ -238,8 +238,6 @@ type Message struct {
 }
 type Budget struct {
 	NCtx                int            `json:"n_ctx"`
-	SavedNCtx           int            `json:"saved_n_ctx,omitempty"`
-	WindowSource        string         `json:"window_source,omitempty"`
 	Reserve             int            `json:"reserve"`
 	Ceiling             int            `json:"ceiling"`
 	UsedEst             int            `json:"used_est"`

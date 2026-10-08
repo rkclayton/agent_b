@@ -76,11 +76,9 @@ export function renderRail() {
   )
     readout.append(`  cached ${number(b.cached_last)}`);
   const caption = document.createElement("div");
-	caption.className = "rail-caption";
-	caption.textContent = b.window_source
-	  ? `${number(b.n_ctx)} in use · ${b.window_source}`
-	  : occupancy.estimated
-	  ? "context occupancy (estimated)"
+  caption.className = "rail-caption";
+  caption.textContent = occupancy.estimated
+    ? "context occupancy (estimated)"
     : "context occupancy";
   root.replaceChildren(meter, readout, labels, caption);
 }

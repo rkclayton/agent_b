@@ -185,15 +185,15 @@ func TestConnectionHealthIsTheServersStateNow2px(t *testing.T) {
 	t.Logf("2px health checks sent %d requests, all /v1/models or /props", len(fixture.paths))
 }
 
-func TestFirstHealthCheckFillsOnlyAnEmptyContextWithoutCompletion2qx(t *testing.T) {
+func TestHealthCheckLeavesAnEmptyContextEmpty2sx(t *testing.T) {
 	fixture := newHealthFixture(t, 49152)
 	server := newProbeServer(t)
 	connection := runnableTestConnection("local")
 	connection.BaseURL, connection.Model, connection.Context.NCtx = fixture.server.URL, "beta", 0
 	server.cfg.Connections = []config.Connection{connection}
 	server.checkConnectionHealth(context.Background(), connection)
-	if got := server.ConfigSnapshot().Connections[0].Context.NCtx; got != 49152 {
-		t.Fatalf("empty context after first health check=%d, want 49152", got)
+	if got := server.ConfigSnapshot().Connections[0].Context.NCtx; got != 0 {
+		t.Fatalf("health check wrote the server window into saved context: %d", got)
 	}
 	server.cfg.Connections[0].Context.NCtx = 65536
 	for index := 0; index < 10; index++ {
@@ -214,6 +214,28 @@ func TestFirstHealthCheckFillsOnlyAnEmptyContextWithoutCompletion2qx(t *testing.
 	server.checkConnectionHealth(context.Background(), server.ConfigSnapshot().Connections[0])
 	if got := server.ConfigSnapshot().Connections[0].Context.NCtx; got != 0 {
 		t.Fatalf("server publishing no window filled context with %d", got)
+	}
+}
+
+func TestBackgroundHealthNeverWritesRecognizedServerConnections2sx(t *testing.T) {
+	fixture := newHealthFixture(t, 32768)
+	server := newProbeServer(t)
+	server.cfg.Connections = nil
+	for _, kind := range []string{"llama.cpp", "vllm", "ollama", "unknown"} {
+		connection := runnableTestConnection(kind)
+		connection.BaseURL, connection.Model, connection.Context.NCtx = fixture.server.URL, "beta", 0
+		connection.Capabilities.Server = kind
+		server.cfg.Connections = append(server.cfg.Connections, connection)
+	}
+	before, _ := json.Marshal(server.ConfigSnapshot())
+	server.healthEvery = 5 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	server.StartConnectionHealth(ctx)
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	after, _ := json.Marshal(server.ConfigSnapshot())
+	if string(before) != string(after) {
+		t.Fatal("background health changed saved connection bytes")
 	}
 }
 

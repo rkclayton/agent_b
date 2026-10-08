@@ -56,12 +56,8 @@ type Runner struct {
 	mailboxBoundary    func(context.Context, string, bool) BoundaryAction
 	modelUnreachable   func(string, string)
 	modelAnswered      func(string)
-	recordMessageLimit func(string, int) error
-	recordByteLimit    func(string, int) error
 	ids                atomic.Int64
 	nameAttempts       sync.Map
-	messageLimits      sync.Map
-	byteLimits         sync.Map
 	windows            sync.Map
 	identityInvitation atomic.Bool
 	trustFolders       func([]string) error
@@ -105,13 +101,11 @@ func (r *Runner) SetSessionRenamer(fn func(string, string, string) error) { r.re
 func (r *Runner) SetMailboxBoundary(fn func(context.Context, string, bool) BoundaryAction) {
 	r.mailboxBoundary = fn
 }
-func (r *Runner) SetModelUnreachable(fn func(string, string))        { r.modelUnreachable = fn }
-func (r *Runner) SetModelAnswered(fn func(string))                   { r.modelAnswered = fn }
-func (r *Runner) SetMessageLimitRecorder(fn func(string, int) error) { r.recordMessageLimit = fn }
-func (r *Runner) SetByteLimitRecorder(fn func(string, int) error)    { r.recordByteLimit = fn }
-func (r *Runner) SetTrustedFolderWriter(fn func([]string) error)     { r.trustFolders = fn }
-func (r *Runner) SetSkillHost(host SkillHost)                        { r.skills = host }
-func (r *Runner) BindDelegate(tool *tools.Delegate)                  { tool.SetRunner(r.runDelegate) }
+func (r *Runner) SetModelUnreachable(fn func(string, string))    { r.modelUnreachable = fn }
+func (r *Runner) SetModelAnswered(fn func(string))               { r.modelAnswered = fn }
+func (r *Runner) SetTrustedFolderWriter(fn func([]string) error) { r.trustFolders = fn }
+func (r *Runner) SetSkillHost(host SkillHost)                    { r.skills = host }
+func (r *Runner) BindDelegate(tool *tools.Delegate)              { tool.SetRunner(r.runDelegate) }
 func (r *Runner) AcceptPlanEdit(ctx context.Context, s *session.Session, path, oldText, newText string) tools.CallOutcome {
 	if !s.BeginPlanAccept() {
 		return tools.CallOutcome{Content: "error: plan acceptance is available only on the Plan page"}
@@ -411,8 +405,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	accountingRepairTried := false
 	templateRetryTried := false
 	softLineChecked := false
-	messageLimitRetried, windowRetried := false, false
+	messageLimitRetried, windowRetried, windowSummaryRetried := false, false, false
 	byteLimitRetries := 0
+	runMessageLimit, runByteLimit, runWindow := 0, 0, 0
 	guards := newRunGuards(runCfg.CycleWindow, runCfg.MaxConsecutiveToolErrors)
 	currentReasoning := map[string]bool{}
 	for {
@@ -434,11 +429,14 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		if windowErr != nil {
 			return "connection_not_runnable", windowErr.Error(), turn - 1
 		}
-		if value, found := r.messageLimits.Load(connection.ID); found {
-			connection.Capabilities.ObservedMessageLimit = value.(int)
-		}
-		if value, found := r.byteLimits.Load(connection.ID); found {
-			connection.Capabilities.ObservedByteLimit = value.(int)
+		localConnection := *connection
+		connection = &localConnection
+		connection.Capabilities.ObservedMessageLimit = runMessageLimit
+		connection.Capabilities.ObservedByteLimit = runByteLimit
+		if runWindow > 0 {
+			connection.Context.NCtx = runWindow
+			connection.Context.ReserveOutput = min(connection.Context.ReserveOutput, runWindow/2)
+			windowSource = fmt.Sprintf("the server refused this run above %d tokens", runWindow)
 		}
 		// An invalid durable tool call is a history-shape problem, not an
 		// accounting endpoint failure. Repair it before any template or tokenizer
@@ -727,13 +725,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				return "length", answerCeilingDetail(connection, time.Since(answerStarted)), turn
 			}
 			if limit, sentence, matched := byteLimitError(callErr); matched {
-				r.byteLimits.Store(connection.ID, limit)
+				runByteLimit = limit
 				connection.Capabilities.ObservedByteLimit = limit
-				if r.recordByteLimit != nil {
-					if err := r.recordByteLimit(connection.ID, limit); err != nil {
-						r.operationalError(s, runID, "record_byte_limit", err)
-					}
-				}
+				r.appendHarnessLine(ctx, connection, s, runID, turn, fmt.Sprintf("The server refused this run above %d bytes: %s. This limit applies only to this run.", limit, sentence))
 				// Item 2l8 (d): a retry that would send the same bytes is not made.
 				// The refusal is acted on once -- compacted against the limit it
 				// named -- and only a genuinely smaller body is sent again.
@@ -749,13 +743,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				return "model_error", sentence + fmt.Sprintf("; the request was %d bytes and could not be made smaller", before) + largestRequestMessage(request), turn
 			}
 			if limit, sentence, matched := messageLimitError(callErr); matched {
-				r.messageLimits.Store(connection.ID, limit)
+				runMessageLimit = limit
 				connection.Capabilities.ObservedMessageLimit = limit
-				if r.recordMessageLimit != nil {
-					if err := r.recordMessageLimit(connection.ID, limit); err != nil {
-						r.operationalError(s, runID, "record_message_limit", err)
-					}
-				}
+				r.appendHarnessLine(ctx, connection, s, runID, turn, fmt.Sprintf("The server refused this run above %d messages: %s. This limit applies only to this run.", limit, sentence))
 				if !messageLimitRetried {
 					messageLimitRetried = true
 					if r.compactForMessageLimit(ctx, s, runID, connection, limit) {
@@ -770,9 +760,18 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			// once rather than stopping (s48: 33,849 tokens against 32,768).
 			if window, matched := windowLimitError(callErr); matched && !windowRetried {
 				windowRetried = true
-				r.SetServerWindow(connection.ID, window)
+				runWindow = window
+				r.appendHarnessLine(ctx, connection, s, runID, turn, fmt.Sprintf("The server refused this run above a %d-token window. This window applies only to this run.", window))
 				turn--
 				continue
+			}
+			if tokenWindowRefusal(callErr) && !windowSummaryRetried {
+				windowSummaryRetried = true
+				if r.summarize(withCompactionTrigger(ctx, "server_window_refusal"), s, runID, connection) {
+					r.appendHarnessLine(ctx, connection, s, runID, turn, "The server refused this run for its context window without naming a number; earlier context was summarized for this run's retry.")
+					turn--
+					continue
+				}
 			}
 			if r.publishModelUnreachable(s, runID, connection, callErr) {
 				publishFinalBudget = false
@@ -2266,15 +2265,29 @@ func keptReadsSentence(s *session.Session) string {
 	return "; reads kept verbatim: " + strings.Join(kept, ", ")
 }
 
-var windowLimitPattern = regexp.MustCompile(`(?i)exceeds the available context size \((\d+) tokens\)`)
+var windowLimitPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)exceeds the available context size \((\d+) tokens\)`),
+	regexp.MustCompile(`(?i)maximum context length is (\d+) tokens`),
+}
 
 func windowLimitError(err error) (int, bool) {
-	match := windowLimitPattern.FindStringSubmatch(fmt.Sprint(err))
-	window := 0
-	if len(match) == 2 {
-		fmt.Sscanf(match[1], "%d", &window)
+	for _, pattern := range windowLimitPatterns {
+		match := pattern.FindStringSubmatch(fmt.Sprint(err))
+		window := 0
+		if len(match) == 2 {
+			fmt.Sscanf(match[1], "%d", &window)
+		}
+		if window > 0 {
+			return window, true
+		}
 	}
-	return window, window > 0
+	return 0, false
+}
+
+func tokenWindowRefusal(err error) bool {
+	text := strings.ToLower(fmt.Sprint(err))
+	return strings.Contains(text, "context") && (strings.Contains(text, "window") || strings.Contains(text, "context length") || strings.Contains(text, "context size")) &&
+		(strings.Contains(text, "exceed") || strings.Contains(text, "too long") || strings.Contains(text, "maximum"))
 }
 
 // SetServerWindow records the window a server gives one request, from its
@@ -2291,6 +2304,9 @@ func (r *Runner) SetServerWindow(connectionID string, window int) {
 // when it gives a request less than the connection is set to.
 func (r *Runner) resolveWindow(ctx context.Context, connection *config.Connection) (*config.Connection, string, error) {
 	resolved, source, err := resolveContextWindow(ctx, connection)
+	if connection.Context.NCtx > 0 {
+		return resolved, source, err
+	}
 	value, known := r.windows.Load(connection.ID)
 	if err != nil || !known || value.(int) >= resolved.Context.NCtx {
 		return resolved, source, err
@@ -2302,7 +2318,7 @@ func (r *Runner) resolveWindow(ctx context.Context, connection *config.Connectio
 }
 
 func resolveContextWindow(ctx context.Context, connection *config.Connection) (*config.Connection, string, error) {
-	if connection.Context.NCtx > 0 && (connection.Capabilities.NCtx == 0 || connection.Context.NCtx <= connection.Capabilities.NCtx) {
+	if connection.Context.NCtx > 0 {
 		return connection, "connection context size", nil
 	}
 	resolved := *connection

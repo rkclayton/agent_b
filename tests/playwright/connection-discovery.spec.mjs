@@ -109,6 +109,18 @@ test("setup context row distinguishes usable published and typed readings 2sv", 
 		await page.close();
 	}
 });
+test("Settings Context shows the server recommendation without changing the field 2sx", async () => {
+	await mkdir(join(repo, "test-results"), { recursive: true });
+	for (const [name, saved, expected] of [["saved", 65536, "server recommends 32768 tokens; saved value is kept"], ["empty", 0, "server context: 32768 tokens"]]) {
+		const page = await harness.context.newPage();
+		await page.goto(`${harness.base}/chat#settings/connections`);
+		await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+		await page.locator('[data-path="connections.ui.context.n_ctx"]').fill(saved ? String(saved) : ""); await page.locator('.connection-editor [data-action="save-connection"]').click();
+		await expect(page.locator('[data-path="connections.ui.context.n_ctx"]')).toHaveValue(saved ? String(saved) : "");
+		await expect(page.getByText(expected, { exact: true })).toBeVisible();
+		await page.screenshot({ path: join(repo, "test-results", `2sx-context-${name}.png`), fullPage: true }); await page.close();
+	}
+});
 
 test("a failed model list keeps the saved model and names the reason 2r7", async () => {
 	const page = await harness.context.newPage();

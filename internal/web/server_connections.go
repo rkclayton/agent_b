@@ -492,7 +492,7 @@ func (s *Server) recommendConnection(w http.ResponseWriter, r *http.Request, id 
 
 func usableContextCeiling(caps config.Capabilities) (int, string) {
 	window := caps.NCtx
-	if caps.ObservedByteLimit > 0 {
+	if caps.ObservedByteLimit > 0 && hasFindingPrefix(caps.Findings, "usable ceiling:") {
 		byteWindow := caps.ObservedByteLimit / 4
 		if window == 0 || byteWindow < window {
 			return byteWindow, "Eval size limit"
@@ -502,6 +502,15 @@ func usableContextCeiling(caps config.Capabilities) (int, string) {
 		return window, "published window"
 	}
 	return 0, ""
+}
+
+func hasFindingPrefix(findings []string, prefix string) bool {
+	for _, finding := range findings {
+		if strings.HasPrefix(finding, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func modelListed(configured string, listed []string) bool {
@@ -751,6 +760,10 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		}
 		previous := *s.cfg
 		for index := range next.Connections {
+			clearLegacyLearnedLimits(&next.Connections[index].Capabilities)
+			for model := range next.Connections[index].Models {
+				clearLegacyLearnedLimits(&next.Connections[index].Models[model].Capabilities)
+			}
 			for _, old := range previous.Connections {
 				if old.ID != next.Connections[index].ID || strings.EqualFold(strings.TrimRight(old.BaseURL, "/"), strings.TrimRight(next.Connections[index].BaseURL, "/")) {
 					continue
@@ -823,6 +836,22 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 	default:
 		method(w)
 	}
+}
+
+func clearLegacyLearnedLimits(caps *config.Capabilities) {
+	evalEvidence := hasFindingPrefix(caps.Findings, "usable ceiling:")
+	caps.ObservedMessageLimit = 0
+	if evalEvidence {
+		return
+	}
+	caps.ObservedByteLimit = 0
+	kept := caps.Findings[:0]
+	for _, finding := range caps.Findings {
+		if !strings.HasPrefix(finding, "size limit:") {
+			kept = append(kept, finding)
+		}
+	}
+	caps.Findings = kept
 }
 
 func serviceIdentityDisableOnly(patch map[string]any) bool {

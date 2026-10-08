@@ -176,7 +176,8 @@ func byteLimitRunner(t *testing.T, stub *byteLimitStub) (*Runner, *session.Sessi
 // summary needs more than seven messages.
 func TestOneOversizedToolResultIsTrimmedAndTheRunContinues2o8(t *testing.T) {
 	stub := newByteLimitStub(t, 400_000)
-	runner, item, _ := byteLimitRunner(t, stub)
+	runner, item, connection := byteLimitRunner(t, stub)
+	beforeConfig, _ := json.Marshal(connection)
 	ok := true
 	item.Append(events.Message{ID: "u1", Role: "user", Content: "What does the log end with?", Category: "history"})
 	item.Append(events.Message{ID: "a1", Role: "assistant", Category: "history", ToolCalls: []events.ToolCall{{ID: "c1", Name: "shell", Arguments: `{"command":"type big.log"}`}}})
@@ -188,6 +189,92 @@ func TestOneOversizedToolResultIsTrimmedAndTheRunContinues2o8(t *testing.T) {
 	last := stub.sizes[len(stub.sizes)-1]
 	if last > byteLimitTarget(400_000) || !strings.Contains(stub.last, "the read was cut short") || !strings.Contains(stub.last, "START ") || !strings.Contains(stub.last, " END") {
 		t.Fatalf("retried request %d bytes (target %d); marker/head/tail present: %v %v %v", last, byteLimitTarget(400_000), strings.Contains(stub.last, "cut short"), strings.Contains(stub.last, "START "), strings.Contains(stub.last, " END"))
+	}
+	afterConfig, _ := json.Marshal(connection)
+	if string(afterConfig) != string(beforeConfig) {
+		t.Fatal("the refused run changed its connection")
+	}
+	lines := ""
+	for _, message := range item.MessagesCopy() {
+		lines += message.Content
+	}
+	if !strings.Contains(lines, "400000 bytes") || !strings.Contains(lines, "only to this run") {
+		t.Fatalf("chat did not retain the run-local refusal line: %.300s", lines)
+	}
+}
+
+func TestByteRefusalDoesNotCutTheNextRun2sx(t *testing.T) {
+	stub := newByteLimitStub(t, 400_000)
+	runner, first, connection := byteLimitRunner(t, stub)
+	fill := func(item *session.Session, suffix string) {
+		ok := true
+		item.Append(events.Message{ID: "u" + suffix, Role: "user", Content: "continue", Category: "history"})
+		item.Append(events.Message{ID: "a" + suffix, Role: "assistant", Category: "history", ToolCalls: []events.ToolCall{{ID: "c" + suffix, Name: "shell", Arguments: `{}`}}})
+		item.Append(events.Message{ID: "t" + suffix, Role: "tool", Category: "results", ToolCallID: "c" + suffix, Name: "shell", OK: &ok, Content: strings.Repeat("x", 450_000)})
+	}
+	fill(first, "1")
+	if reason, detail, _ := runner.Run(context.Background(), first, "r1"); reason != "done" {
+		t.Fatalf("first run stopped: %s %s", reason, detail)
+	}
+	stub.limit = 1_000_000
+	second := &session.Session{ID: "second", ConnectionID: connection.ID, Workspace: first.Workspace, Runnable: true, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	fill(second, "2")
+	start := len(stub.sizes)
+	if reason, detail, _ := runner.Run(context.Background(), second, "r2"); reason != "done" {
+		t.Fatalf("second run stopped: %s %s", reason, detail)
+	}
+	if got := stub.sizes[start:]; len(got) != 1 || got[0] <= 400_000 {
+		t.Fatalf("second run reused the first run's limit: %v", got)
+	}
+}
+
+func TestMessageRefusalIsRetriedOncePerRunAndRememberedNowhere2sx(t *testing.T) {
+	refusals, counts := 0, []int{}
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Messages []json.RawMessage `json:"messages"`
+			Stream   bool              `json:"stream"`
+		}
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		summary := false
+		for _, message := range body.Messages {
+			summary = summary || strings.Contains(string(message), "Write one short hand-off")
+		}
+		if body.Stream {
+			counts = append(counts, len(body.Messages))
+		}
+		if body.Stream && !summary && len(body.Messages) >= 8 {
+			refusals++
+			http.Error(w, fmt.Sprintf(`{"error":"conversation too long: %d messages (limit 8)"}`, len(body.Messages)), http.StatusBadRequest)
+			return
+		}
+		if body.Stream {
+			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "done"}, "finish_reason": "stop"}}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": "summary"}, "finish_reason": "stop"}}})
+	}))
+	defer model.Close()
+	stub := &byteLimitStub{server: model, limit: 1 << 30}
+	runner, first, connection := byteLimitRunner(t, stub)
+	fill := func(item *session.Session, prefix string) {
+		for index := 0; index < 12; index++ {
+			role := []string{"user", "assistant"}[index%2]
+			item.Append(events.Message{ID: fmt.Sprintf("%s-%d", prefix, index), Role: role, Content: "history", Category: "history", Turn: index + 1})
+		}
+		item.Append(events.Message{ID: prefix + "-task", Role: "user", Content: "continue", Category: "history"})
+	}
+	fill(first, "first")
+	for index, item := range []*session.Session{first, {ID: "second-message", ConnectionID: connection.ID, Workspace: first.Workspace, Runnable: true, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}} {
+		if index == 1 {
+			fill(item, "second")
+		}
+		if reason, detail, _ := runner.Run(context.Background(), item, fmt.Sprintf("r%d", index+1)); reason != "done" {
+			t.Fatalf("run %d stopped: %s %s", index+1, reason, detail)
+		}
+	}
+	if refusals != 2 || len(counts) < 4 {
+		t.Fatalf("refusals=%d request message counts=%v", refusals, counts)
 	}
 }
 

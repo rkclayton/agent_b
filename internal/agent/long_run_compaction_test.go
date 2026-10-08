@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -203,9 +205,8 @@ func TestAFreshHandOffKeepsTheTaskWithoutToolOutput2qh(t *testing.T) {
 	t.Fatal("no note")
 }
 
-// Item 2px (i) CHECK 10, runner side: s48's refusal names the window, which is
-// learned, and the run then measures against it.
-func TestTheWindowIsTheServers2px(t *testing.T) {
+// Item 2sx: a health-check window is a recommendation when Context is saved.
+func TestSavedContextIsNotReplacedByAHealthWindow2sx(t *testing.T) {
 	window, matched := windowLimitError(fmt.Errorf("HTTP 400: request (33849 tokens) exceeds the available context size (32768 tokens)"))
 	if !matched || window != 32768 {
 		t.Fatalf("window=%d matched=%t", window, matched)
@@ -215,8 +216,71 @@ func TestTheWindowIsTheServers2px(t *testing.T) {
 	connection.Context.NCtx, connection.Context.ReserveOutput = 60000, 30000
 	runner.SetServerWindow("acme", window)
 	resolved, source, err := runner.resolveWindow(context.Background(), connection)
-	if err != nil || resolved.Context.NCtx != 32768 || resolved.Context.ReserveOutput != 16384 || !strings.Contains(source, "32768") || connection.Context.NCtx != 60000 {
+	if err != nil || resolved.Context.NCtx != 60000 || resolved.Context.ReserveOutput != 30000 || source != "connection context size" || connection.Context.NCtx != 60000 {
 		t.Fatalf("resolved=%+v source=%q err=%v", resolved.Context, source, err)
+	}
+}
+
+func TestWindowRefusalsFromRecognizedServersAreRunLocal2sx(t *testing.T) {
+	for _, refusal := range []string{
+		"HTTP 400: request (33849 tokens) exceeds the available context size (32768 tokens)",
+		"HTTP 400: This model's maximum context length is 32768 tokens. However, your request has 33849 input tokens.",
+	} {
+		if window, matched := windowLimitError(fmt.Errorf("%s", refusal)); !matched || window != 32768 {
+			t.Fatalf("refusal %q => window=%d matched=%v", refusal, window, matched)
+		}
+	}
+	if !tokenWindowRefusal(fmt.Errorf("HTTP 400: prompt exceeds this model's context window")) {
+		t.Fatal("numberless token-window refusal was not recognized for summary fallback")
+	}
+}
+
+func TestNamedAndNumberlessWindowRefusalsContinueOnlyTheirRun2sx(t *testing.T) {
+	for name, refusal := range map[string]string{
+		"llama.cpp":  `{"error":"request (33849 tokens) exceeds the available context size (32768 tokens)"}`,
+		"vLLM":       `{"error":"This model's maximum context length is 32768 tokens. However, your request has 33849 input tokens."}`,
+		"numberless": `{"error":"prompt exceeds this model's context window"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			refused, maxTokens := false, []int{}
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				var body struct {
+					Stream    bool `json:"stream"`
+					MaxTokens int  `json:"max_tokens"`
+				}
+				_ = json.NewDecoder(request.Body).Decode(&body)
+				if !body.Stream {
+					_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": "summary"}, "finish_reason": "stop"}}})
+					return
+				}
+				maxTokens = append(maxTokens, body.MaxTokens)
+				if !refused {
+					refused = true
+					http.Error(w, refusal, http.StatusBadRequest)
+					return
+				}
+				writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "done"}, "finish_reason": "stop"}}})
+			}))
+			defer model.Close()
+			runner, item, connection := byteLimitRunner(t, &byteLimitStub{server: model, limit: 1 << 30})
+			connection.Context.NCtx, connection.Context.ReserveOutput = 60000, 30000
+			for index := 0; index < 10; index++ {
+				role := []string{"user", "assistant"}[index%2]
+				item.Append(events.Message{ID: fmt.Sprintf("m%d", index), Role: role, Content: "history", Category: "history", Turn: index + 1})
+			}
+			item.Append(events.Message{ID: "task", Role: "user", Content: "continue", Category: "history", Turn: 11})
+			before, _ := json.Marshal(connection)
+			if reason, detail, _ := runner.Run(context.Background(), item, "r1"); reason != "done" {
+				t.Fatalf("run stopped: %s %s", reason, detail)
+			}
+			after, _ := json.Marshal(connection)
+			if string(before) != string(after) || len(maxTokens) != 2 {
+				t.Fatalf("connection changed=%v max_tokens=%v", string(before) != string(after), maxTokens)
+			}
+			if name != "numberless" && maxTokens[1] >= maxTokens[0] {
+				t.Fatalf("retry did not fit the named window: %v", maxTokens)
+			}
+		})
 	}
 }
 

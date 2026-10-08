@@ -139,7 +139,7 @@ test("top-right connection label is the b-role model switcher", () => {
   assert.match(shell, /\/api\/header-state/);
   assert.doesNotMatch(shell, /setProperty\(sessionHeading, "hidden", !session\)/);
   assert.match(settings, /context unknown — enter the size/);
-  assert.match(settings, /nctx > caps\.n_ctx/);
+  assert.doesNotMatch(settings, /nctx > caps\.n_ctx/);
 });
 
 test("all shell motion is zero duration under reduced motion", () => {

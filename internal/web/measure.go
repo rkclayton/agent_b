@@ -126,6 +126,7 @@ func (s *Server) runEvaluation(ctx context.Context, connectionID string, connect
 		s.setMeasurement(connectionID, measureState{Error: err.Error(), Text: "Eval failed during capability checks"})
 		return
 	}
+	caps.Findings = findings
 	if ceiling, by := usableContextCeiling(caps); ceiling > 0 {
 		findings = append(findings, fmt.Sprintf("usable ceiling: %d tokens set by %s", ceiling, by))
 		if connection.Context.NCtx > ceiling {

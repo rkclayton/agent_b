@@ -600,6 +600,21 @@ test("the connection form is whole before a Test and its models come from the se
 	assert.match(failedList, /model list not read — HTTP 401: key refused/);
 });
 
+test("Context reports the server value without replacing the saved value and hides legacy run findings", () => {
+  const context = pageContext();
+  const connection = { id: "acme", label: "acme", base_url: "http://acme:8080/", model: "alpha", api_key: "", context: { n_ctx: 65536, reserve_output: 8192 }, reasoning: { enabled: false, control: "auto", preserve: false }, sampling: { thinking: {}, nonthinking: {} }, capabilities: { observed_byte_limit: 400000, findings: ["size limit: 400000 bytes observed 2026-10-01", "tools: yes"] } };
+  context.connectionList = () => [connection];
+  context.expanded.add("acme");
+  context.store.connection_health = { acme: { lamp: "amber", word: "server allows only 32768 tokens", window: 32768 } };
+  const saved = renderConnectionsPage(context);
+  assert.match(saved, /value="65536"/);
+  assert.match(saved, /server recommends 32768 tokens; saved value is kept/);
+  assert.doesNotMatch(saved, /size limit: 400000/);
+  assert.match(saved, /tools: yes/);
+  connection.context.n_ctx = 0;
+  const empty = renderConnectionsPage(context);
+  assert.match(empty, /server context: 32768 tokens/);
+});
 test("2qx connection editor has exactly seven ordered fields, one closed Defaults group, and no explanatory prose", () => {
   const context = pageContext();
   const connection = { id: "acme", label: "acme", base_url: "http://acme:8080/", model: "alpha", api_key: "", reads_images: false, context: { n_ctx: 0, reserve_output: 8192 }, reasoning: { enabled: true, effort: "medium", valid_efforts: ["low", "medium", "high"], control: "auto", preserve: false }, sampling: { thinking: {}, nonthinking: {} }, capabilities: {} };

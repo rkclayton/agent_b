@@ -162,7 +162,9 @@ function connectionFields(connection, reason, discovery) {
   const caps = shown.capabilities || {};
   const efforts = shown.reasoning?.valid_efforts || caps.valid_efforts || [];
   const llama = caps.server === "llama.cpp";
+  const legacyLearnedLimit = caps.observed_byte_limit > 0 && !(caps.findings || []).some((value) => String(value).startsWith("usable ceiling:"));
   const findings = (caps.findings || [])
+    .filter((value) => !legacyLearnedLimit || !String(value).startsWith("size limit:"))
     .map((value) => `<li>${html(value)}</li>`)
     .concat(memoryFinding())
     .join("");
@@ -247,8 +249,15 @@ function connectionFields(connection, reason, discovery) {
 	const imagePath = `${p}.reads_images`;
 	const readsImages = boolDraft(imagePath, shown.reads_images);
 	const imageControl = row("reads images", switchControl(imagePath, readsImages, "reads images"), "", false);
+	const serverWindow = Number(store?.connection_health?.[id]?.window || caps.n_ctx || 0);
 	const contextProblem = reason?.startsWith("context ") ? reason : "";
-	const contextControl = `${row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(shown.context.n_ctx || "")}">`, "", false)}${contextProblem ? `<p class="${contextProblem.startsWith("context unknown") ? "settings-note" : "field-error"}">${html(contextProblem)}</p>` : ""}`;
+	const contextFact = serverWindow > 0 && !Number(shown.context.n_ctx || 0)
+	  ? `server context: ${serverWindow} tokens`
+	  : serverWindow > 0 && Number(shown.context.n_ctx) > serverWindow
+	    ? `server recommends ${serverWindow} tokens; saved value is kept`
+	    : "";
+	const contextNote = contextFact || !contextProblem ? contextFact ? `<p class="settings-note">${html(contextFact)}</p>` : "" : `<p class="${contextProblem.startsWith("context unknown") ? "settings-note" : "field-error"}">${html(contextProblem)}</p>`;
+	const contextControl = row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(shown.context.n_ctx || "")}">${contextNote}`, "connection-context", false);
 	const saveActions = row("", `<div class="settings-actions"><button type="button" data-action="save-connection" data-id="${attr(id)}">Save</button><button type="button" data-action="duplicate-connection" data-id="${attr(id)}">Duplicate</button></div>`, "", false);
 	const primaryActions = `<div class="connection-primary-actions settings-actions"><button type="button" class="connection-test ${connection._probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${connection._probing ? "disabled" : ""}>${connection._probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Eval"}</button><button type="button" data-action="recommended-connection" data-id="${attr(id)}">Recommended</button></div>`;
 	return `<div class="connection-fieldset connection-primary">${text(`${p}.label`, "name", connection.label, "text", false)}

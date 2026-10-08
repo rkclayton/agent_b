@@ -1432,6 +1432,8 @@
 }
 .connection-thinking { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .connection-fields .connection-thinking .settings-note { margin-left: 0; }
+.connection-context > div { flex-wrap: wrap; }
+.connection-fields .connection-context .settings-note, .connection-fields .connection-context .field-error { flex-basis: 100%; margin: 0; }
 .connection-primary input[data-path$=".context.n_ctx"] { width: 12ch; }
 .connection-fieldset {
   min-width: 0;

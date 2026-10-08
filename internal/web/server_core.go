@@ -346,8 +346,6 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 	}
 	if runner != nil {
 		runner.SetSkillHost(s)
-		runner.SetMessageLimitRecorder(s.recordObservedMessageLimit)
-		runner.SetByteLimitRecorder(s.recordObservedByteLimit)
 		runner.SetModelUnreachable(func(sessionID, connectionID string) {
 			if scheduler != nil {
 				scheduler.HoldModel(sessionID)
@@ -366,60 +364,6 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 			s.touchOperatorContext("idle window reset: tool execution " + phase)
 		})
 	}
-}
-
-func (s *Server) recordObservedMessageLimit(connectionID string, limit int) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	next := *s.cfg
-	next.Connections = append([]config.Connection(nil), s.cfg.Connections...)
-	for i := range next.Connections {
-		if next.Connections[i].ID != connectionID {
-			continue
-		}
-		if next.Connections[i].Capabilities.ObservedMessageLimit == limit {
-			return nil
-		}
-		next.Connections[i].Capabilities.ObservedMessageLimit = limit
-		if err := s.saveMachineConfig(next); err != nil {
-			return err
-		}
-		*s.cfg = next
-		return nil
-	}
-	return fmt.Errorf("connection %q not found", connectionID)
-}
-
-// Item 2l8: the byte cap a connection has been refused by is remembered the same
-// way its message cap is, so a chat that was over the limit becomes sendable at
-// its next turn instead of after another refusal.
-func (s *Server) recordObservedByteLimit(connectionID string, limit int) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	next := *s.cfg
-	next.Connections = append([]config.Connection(nil), s.cfg.Connections...)
-	for i := range next.Connections {
-		if next.Connections[i].ID != connectionID {
-			continue
-		}
-		if next.Connections[i].Capabilities.ObservedByteLimit == limit {
-			return nil
-		}
-		next.Connections[i].Capabilities.ObservedByteLimit = limit
-		kept := next.Connections[i].Capabilities.Findings[:0]
-		for _, finding := range next.Connections[i].Capabilities.Findings {
-			if !strings.HasPrefix(finding, "size limit:") {
-				kept = append(kept, finding)
-			}
-		}
-		next.Connections[i].Capabilities.Findings = append(kept, fmt.Sprintf("size limit: %d bytes observed %s", limit, time.Now().Format("2006-01-02")))
-		if err := s.saveMachineConfig(next); err != nil {
-			return err
-		}
-		*s.cfg = next
-		return nil
-	}
-	return fmt.Errorf("connection %q not found", connectionID)
 }
 
 func (s *Server) ConfigSnapshot() config.Config {

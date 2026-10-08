@@ -31,13 +31,26 @@ func TestNoConnectionIsSeededWithAModelNamedModel2l1(t *testing.T) {
 }
 
 func TestUsableContextCeilingUsesTheSmallerMeasuredLimit2sv(t *testing.T) {
-	ceiling, source := usableContextCeiling(config.Capabilities{NCtx: 200000, ObservedByteLimit: 400000})
+	ceiling, source := usableContextCeiling(config.Capabilities{NCtx: 200000, ObservedByteLimit: 400000, Findings: []string{"usable ceiling: 100000 tokens set by Eval size limit"}})
 	if ceiling != 100000 || source != "Eval size limit" {
 		t.Fatalf("ceiling=%d source=%q", ceiling, source)
 	}
 	ceiling, source = usableContextCeiling(config.Capabilities{NCtx: 200000})
 	if ceiling != 200000 || source != "published window" {
 		t.Fatalf("ceiling=%d source=%q", ceiling, source)
+	}
+}
+
+func TestLegacyLearnedLimitsLeaveOnSaveButEvalEvidenceStays2sx(t *testing.T) {
+	legacy := config.Capabilities{ObservedMessageLimit: 60, ObservedByteLimit: 400000, Findings: []string{"tools: yes", "size limit: 400000 bytes observed 2026-10-01"}}
+	clearLegacyLearnedLimits(&legacy)
+	if legacy.ObservedMessageLimit != 0 || legacy.ObservedByteLimit != 0 || len(legacy.Findings) != 1 || legacy.Findings[0] != "tools: yes" {
+		t.Fatalf("legacy cleanup=%+v", legacy)
+	}
+	eval := config.Capabilities{ObservedByteLimit: 400000, Findings: []string{"size limit: 400000 bytes observed 2026-10-01", "usable ceiling: 100000 tokens set by Eval size limit"}}
+	clearLegacyLearnedLimits(&eval)
+	if eval.ObservedByteLimit != 400000 || len(eval.Findings) != 2 {
+		t.Fatalf("Eval evidence was removed with the legacy runtime field: %+v", eval)
 	}
 }
 

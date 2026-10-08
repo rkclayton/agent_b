@@ -63,6 +63,22 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await expect(page.locator('.chat-list-row[data-session="p1"] .chat-list-state')).toHaveClass(/running/);
   await expect(page.locator('.chat-list-row[data-session="p2"] .chat-list-state')).toHaveClass(/running/);
   await expect(page.locator('.chat-list-row[data-session="f1"] .chat-list-state')).toHaveClass(/running/);
+	const headings = page.locator(".chat-list-group-name, .chat-list-folder > summary, .chat-list-archived > summary");
+	for (const size of [9, 12, 32]) {
+		await page.evaluate((value) => document.documentElement.style.setProperty("--chat-scale", String(value / 12)), size);
+		const heights = await headings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+		const rowHeight = await rows.first().evaluate((node) => node.getBoundingClientRect().height);
+		expect(heights.every((height) => Math.abs(height - rowHeight) < 0.1), `${size}px: headings=${heights} row=${rowHeight}`).toBe(true);
+	}
+	await page.evaluate(() => document.documentElement.style.removeProperty("--chat-scale"));
+	const folderHead = page.locator('.chat-list-folder[data-folder="Work"] > summary'), folderTools = folderHead.locator("button");
+	await expect(folderTools).toHaveCount(3); for (const tool of await folderTools.all()) await expect(tool).toBeHidden();
+	const nameX = await folderHead.locator(".chat-list-folder-name").evaluate((node) => node.getBoundingClientRect().x);
+	await folderHead.hover(); for (const tool of await folderTools.all()) await expect(tool).toBeVisible();
+	expect(await folderHead.locator(".chat-list-folder-name").evaluate((node) => node.getBoundingClientRect().x)).toBe(nameX);
+	await page.mouse.move(1000, 400); await folderHead.focus(); for (const tool of await folderTools.all()) await expect(tool).toBeVisible();
+	await expect(page.locator(".chat-list-group.root .chat-list-folder-action")).toHaveCount(2);
+	for (const action of await page.locator(".chat-list-folder-action, .chat-list-folder-delete").all()) expect(await action.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
   const robot = page.locator(".shell-app-robot"), setStates = async (values, selected = "p1") => page.evaluate(async ({ values, selected }) => { const bus = await import("/static/js/bus.js"); for (const session of Object.values(bus.store.sessions)) Object.assign(session, { pending_approval: false, pending_repo_policy: false, model_unreachable: false, run: { status: "idle" } }); for (const [id, value] of Object.entries(values)) Object.assign(bus.store.sessions[id], value); bus.setSelection("agent_b", selected); bus.reduce({ type: "config.changed", data: { config: bus.store.config } }); }, { values, selected });
   for (const step of [
     [{}, "p1", "idle", "idle"],

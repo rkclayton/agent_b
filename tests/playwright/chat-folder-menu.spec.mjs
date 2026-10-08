@@ -57,16 +57,18 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
   const panel = page.locator(".chat-list-panel");
   await expect(panel).toBeVisible();
   await expect(panel.getByTitle("New folder", { exact: true })).toBeVisible();
-  await expect(panel.getByTitle("New folder in A")).toBeVisible();
+  await expect(panel.getByTitle("New folder in A")).toBeHidden();
 
   page.once("dialog", (dialog) => dialog.accept("B"));
-  await panel.getByTitle("New folder in A").click();
+	await panel.locator('[data-folder="A"] > summary').focus(); await page.keyboard.press("Tab");
+	await expect(panel.getByTitle("New folder in A")).toBeFocused(); await page.keyboard.press("Enter");
 	await expect(panel.locator('[data-folder="A"] > [data-folder="A/B"]')).toHaveCount(1);
 	await panel.locator('[data-folder="A"] > summary').click();
   await expect(panel.locator('[data-folder="A"] > [data-folder="A/B"]')).toBeVisible();
   expect(actions.at(-1)).toEqual({ action: "add", parent: "A", name: "B" });
 
   page.once("dialog", (dialog) => dialog.accept("Z"));
+	await panel.locator('[data-folder="A"] > summary').hover();
   await panel.getByTitle("Rename A").click();
   await expect(panel.locator('[data-folder="Z"]')).toBeVisible();
 	await panel.locator('[data-folder="Z"] > summary').click();

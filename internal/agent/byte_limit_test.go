@@ -191,6 +191,173 @@ func TestOneOversizedToolResultIsTrimmedAndTheRunContinues2o8(t *testing.T) {
 	}
 }
 
+// Item 2sw: a remembered refusal is a claim to re-check, not a permanent
+// ceiling. The chat's own first over-limit request is the check.
+func TestLearnedByteLimitIsRetestedWholeAndDropped2sw(t *testing.T) {
+	stub := newByteLimitStub(t, 1_000_000)
+	runner, item, connection := byteLimitRunner(t, stub)
+	connection.Capabilities.ObservedByteLimit = 400_000
+	recorded := -1
+	runner.SetByteLimitRecorder(func(_ string, limit int) error { recorded = limit; return nil })
+	ok := true
+	item.Append(events.Message{ID: "u1", Role: "user", Content: "continue", Category: "history"})
+	item.Append(events.Message{ID: "a1", Role: "assistant", Category: "history", ToolCalls: []events.ToolCall{{ID: "c1", Name: "shell", Arguments: `{}`}}})
+	item.Append(events.Message{ID: "t1", Role: "tool", Category: "results", ToolCallID: "c1", Name: "shell", OK: &ok, Content: strings.Repeat("x", 450_000)})
+	reason, detail, _ := runner.Run(context.Background(), item, "r1")
+	if reason != "done" || len(stub.sizes) != 1 || stub.sizes[0] <= 400_000 {
+		t.Fatalf("whole learned-limit check was not accepted once: %s %s sizes=%v", reason, detail, stub.sizes)
+	}
+	if recorded != 0 || connection.Capabilities.ObservedByteLimit != 0 {
+		t.Fatalf("learned limit remains: recorded=%d running=%d", recorded, connection.Capabilities.ObservedByteLimit)
+	}
+	found := false
+	for _, message := range item.MessagesCopy() {
+		found = found || strings.Contains(message.Content, "size limit no longer applies")
+	}
+	if !found {
+		t.Fatal("chat does not say that the size limit no longer applies")
+	}
+}
+
+func TestLearnedByteLimitIsRetestedOnlyOncePerStart2sw(t *testing.T) {
+	stub := newByteLimitStub(t, 400_000)
+	runner, first, connection := byteLimitRunner(t, stub)
+	connection.Capabilities.ObservedByteLimit = 400_000
+	fill := func(item *session.Session, suffix string) {
+		ok := true
+		item.Append(events.Message{ID: "u" + suffix, Role: "user", Content: "continue", Category: "history"})
+		item.Append(events.Message{ID: "a" + suffix, Role: "assistant", Category: "history", ToolCalls: []events.ToolCall{{ID: "c" + suffix, Name: "shell", Arguments: `{}`}}})
+		item.Append(events.Message{ID: "t" + suffix, Role: "tool", Category: "results", ToolCallID: "c" + suffix, Name: "shell", OK: &ok, Content: strings.Repeat("x", 450_000)})
+	}
+	fill(first, "1")
+	if reason, detail, _ := runner.Run(context.Background(), first, "r1"); reason != "done" {
+		t.Fatalf("first run stopped: %s %s", reason, detail)
+	}
+	second := &session.Session{ID: "second", ConnectionID: connection.ID, Workspace: first.Workspace, Runnable: true, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	fill(second, "2")
+	if reason, detail, _ := runner.Run(context.Background(), second, "r2"); reason != "done" {
+		t.Fatalf("second run stopped: %s %s", reason, detail)
+	}
+	over := 0
+	for _, size := range stub.sizes {
+		if size > 400_000 {
+			over++
+		}
+	}
+	if over != 1 {
+		t.Fatalf("whole requests over learned limit=%d, want one before restart; sizes=%v", over, stub.sizes)
+	}
+}
+
+func TestAddressChangeClearsRunningByteLimitBeforeNextRequest2sw(t *testing.T) {
+	stub := newByteLimitStub(t, 1_000_000)
+	runner, item, connection := byteLimitRunner(t, stub)
+	key := connection.ID + "\x00" + connection.Model
+	runner.byteLimits.Store(key, 400_000)
+	runner.byteLimitRetests.Store(key, true)
+	runner.ClearObservedLimits(connection.ID)
+	ok := true
+	item.Append(events.Message{ID: "u", Role: "user", Content: "continue", Category: "history"})
+	item.Append(events.Message{ID: "a", Role: "assistant", Category: "history", ToolCalls: []events.ToolCall{{ID: "c", Name: "shell", Arguments: `{}`}}})
+	item.Append(events.Message{ID: "t", Role: "tool", Category: "results", ToolCallID: "c", Name: "shell", OK: &ok, Content: strings.Repeat("x", 450_000)})
+	if reason, detail, _ := runner.Run(context.Background(), item, "r"); reason != "done" || len(stub.sizes) != 1 || stub.sizes[0] <= 400_000 {
+		t.Fatalf("next request still used old runtime limit: %s %s sizes=%v", reason, detail, stub.sizes)
+	}
+}
+
+func TestBudgetNamesSmallerProbedWindowWithoutChangingSavedContext2sw(t *testing.T) {
+	stub := newByteLimitStub(t, 1_000_000)
+	runner, item, connection := byteLimitRunner(t, stub)
+	connection.Context.NCtx, connection.Capabilities.NCtx = 65_536, 32_768
+	item.Append(events.Message{ID: "u", Role: "user", Content: "hello", Category: "history"})
+	if reason, detail, _ := runner.Run(context.Background(), item, "r"); reason != "done" {
+		t.Fatalf("run stopped: %s %s", reason, detail)
+	}
+	budget := item.Snapshot().Budget
+	if budget.NCtx != 32_768 || budget.SavedNCtx != 65_536 || budget.WindowSource != "probed n_ctx" || connection.Context.NCtx != 65_536 {
+		t.Fatalf("budget=%+v saved=%d", budget, connection.Context.NCtx)
+	}
+}
+
+func TestLearnedMessageLimitIsRetestedWholeAndDropped2sw(t *testing.T) {
+	counts := []int{}
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Messages []json.RawMessage `json:"messages"`
+		}
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		counts = append(counts, len(body.Messages))
+		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "done"}, "finish_reason": "stop"}}})
+	}))
+	defer model.Close()
+	stub := &byteLimitStub{server: model, limit: 1 << 30}
+	runner, item, connection := byteLimitRunner(t, stub)
+	connection.Capabilities.ObservedMessageLimit = 4
+	recorded := -1
+	runner.SetMessageLimitRecorder(func(_ string, limit int) error { recorded = limit; return nil })
+	item.Append(events.Message{ID: "u1", Role: "user", Content: "one", Category: "history"})
+	item.Append(events.Message{ID: "a1", Role: "assistant", Content: "two", Category: "history"})
+	item.Append(events.Message{ID: "u2", Role: "user", Content: "three", Category: "history"})
+	if reason, detail, _ := runner.Run(context.Background(), item, "r"); reason != "done" || len(counts) != 1 || counts[0] < 4 {
+		t.Fatalf("whole message-limit check failed: %s %s counts=%v", reason, detail, counts)
+	}
+	if recorded != 0 || connection.Capabilities.ObservedMessageLimit != 0 {
+		t.Fatalf("message limit remains: recorded=%d running=%d", recorded, connection.Capabilities.ObservedMessageLimit)
+	}
+}
+
+func TestLearnedMessageLimitIsRetestedOnlyOncePerStart2sw(t *testing.T) {
+	over := 0
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Messages  []json.RawMessage `json:"messages"`
+			Stream    bool              `json:"stream"`
+			MaxTokens int               `json:"max_tokens"`
+		}
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		summary := false
+		for _, message := range body.Messages {
+			summary = summary || strings.Contains(string(message), "Write one short hand-off")
+		}
+		if !summary && len(body.Messages) >= 6 {
+			over++
+			http.Error(w, fmt.Sprintf(`{"error":"conversation too long: %d messages (limit 6)"}`, len(body.Messages)), http.StatusBadRequest)
+			return
+		}
+		if body.Stream {
+			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "done"}, "finish_reason": "stop"}}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": "summary"}, "finish_reason": "stop"}}})
+	}))
+	defer model.Close()
+	stub := &byteLimitStub{server: model, limit: 1 << 30}
+	runner, first, connection := byteLimitRunner(t, stub)
+	connection.Capabilities.ObservedMessageLimit = 6
+	fill := func(item *session.Session, suffix string) {
+		for index := 0; index < 20; index++ {
+			role := "user"
+			if index%2 == 1 {
+				role = "assistant"
+			}
+			item.Append(events.Message{ID: fmt.Sprintf("%s-%d", suffix, index), Role: role, Content: "history", Category: "history", Turn: index + 1})
+		}
+		item.Append(events.Message{ID: suffix + "-task", Role: "user", Content: "continue", Category: "history"})
+	}
+	fill(first, "first")
+	if reason, detail, _ := runner.Run(context.Background(), first, "r1"); reason != "done" {
+		t.Fatalf("first run stopped: %s %s", reason, detail)
+	}
+	second := &session.Session{ID: "second-message", ConnectionID: connection.ID, Workspace: first.Workspace, Runnable: true, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	fill(second, "second")
+	if reason, detail, _ := runner.Run(context.Background(), second, "r2"); reason != "done" {
+		t.Fatalf("second run stopped: %s %s", reason, detail)
+	}
+	if over != 1 {
+		t.Fatalf("whole over-limit message requests=%d, want one before restart", over)
+	}
+}
+
 // Item 2o8 CHECK 2: the summary request is normalized at the one boundary (no
 // harness role reaches the server — the operator's stop was "Unexpected message
 // role") and trimmed under the limit before it is sent, and the stub accepts it.

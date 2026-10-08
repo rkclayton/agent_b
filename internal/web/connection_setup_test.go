@@ -41,6 +41,22 @@ func TestUsableContextCeilingUsesTheSmallerMeasuredLimit2sv(t *testing.T) {
 	}
 }
 
+func TestAddressChangeClearsBothLearnedLimitsForEveryModel2sw(t *testing.T) {
+	connection := config.Connection{Model: "one", Capabilities: config.Capabilities{ObservedByteLimit: 4, ObservedMessageLimit: 3, Findings: []string{"size limit: 4 bytes observed today", "keep"}}, Models: []config.ConnectionModel{
+		{Model: "one", Capabilities: config.Capabilities{ObservedByteLimit: 4, ObservedMessageLimit: 3, Findings: []string{"size limit: 4 bytes observed today"}}},
+		{Model: "two", Capabilities: config.Capabilities{ObservedByteLimit: 8, ObservedMessageLimit: 7, Findings: []string{"usable ceiling: old", "keep two"}}},
+	}}
+	clearLearnedLimits(&connection)
+	if connection.Capabilities.ObservedByteLimit != 0 || connection.Capabilities.ObservedMessageLimit != 0 || len(connection.Capabilities.Findings) != 1 {
+		t.Fatalf("active=%+v", connection.Capabilities)
+	}
+	for _, model := range connection.Models {
+		if model.Capabilities.ObservedByteLimit != 0 || model.Capabilities.ObservedMessageLimit != 0 {
+			t.Fatalf("model %s retained limits: %+v", model.Model, model.Capabilities)
+		}
+	}
+}
+
 // (a7). The operator's `server` connection hand-set n_ctx to 200000 while its
 // probed n_ctx was 0, because vLLM answers 404 to the props route. vLLM publishes
 // the real window on /v1/models as max_model_len — 262144 in his case — and the

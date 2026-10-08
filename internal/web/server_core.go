@@ -381,6 +381,7 @@ func (s *Server) recordObservedMessageLimit(connectionID string, limit int) erro
 			return nil
 		}
 		next.Connections[i].Capabilities.ObservedMessageLimit = limit
+		next.Connections[i].StoreActiveModel()
 		if err := s.saveMachineConfig(next); err != nil {
 			return err
 		}
@@ -412,7 +413,11 @@ func (s *Server) recordObservedByteLimit(connectionID string, limit int) error {
 				kept = append(kept, finding)
 			}
 		}
-		next.Connections[i].Capabilities.Findings = append(kept, fmt.Sprintf("size limit: %d bytes observed %s", limit, time.Now().Format("2006-01-02")))
+		next.Connections[i].Capabilities.Findings = kept
+		if limit > 0 {
+			next.Connections[i].Capabilities.Findings = append(kept, fmt.Sprintf("size limit: %d bytes observed %s", limit, time.Now().Format("2006-01-02")))
+		}
+		next.Connections[i].StoreActiveModel()
 		if err := s.saveMachineConfig(next); err != nil {
 			return err
 		}

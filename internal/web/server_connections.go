@@ -588,6 +588,7 @@ func (s *Server) runProbe(ctx context.Context, connection *config.Connection, cu
 			if s.cfg.Connections[i].Context.NCtx == 0 {
 				s.cfg.Connections[i].Context.NCtx = caps.NCtx
 			}
+			s.cfg.Connections[i].StoreActiveModel()
 		}
 	}
 	saveErr := s.saveMachineConfig(*s.cfg)
@@ -750,19 +751,14 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		previous := *s.cfg
+		changedAddresses := []string{}
 		for index := range next.Connections {
 			for _, old := range previous.Connections {
 				if old.ID != next.Connections[index].ID || strings.EqualFold(strings.TrimRight(old.BaseURL, "/"), strings.TrimRight(next.Connections[index].BaseURL, "/")) {
 					continue
 				}
-				next.Connections[index].Capabilities.ObservedByteLimit = 0
-				kept := next.Connections[index].Capabilities.Findings[:0]
-				for _, finding := range next.Connections[index].Capabilities.Findings {
-					if !strings.HasPrefix(finding, "size limit:") && !strings.HasPrefix(finding, "usable ceiling:") {
-						kept = append(kept, finding)
-					}
-				}
-				next.Connections[index].Capabilities.Findings = kept
+				changedAddresses = append(changedAddresses, next.Connections[index].ID)
+				clearLearnedLimits(&next.Connections[index])
 			}
 		}
 		// Item 2jg (d): turning the switch on issues a NEW install id, so two runs
@@ -794,6 +790,9 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		if s.runner != nil {
 			s.runner.Configure(s.ConfigSnapshot())
+			for _, id := range changedAddresses {
+				s.runner.ClearObservedLimits(id)
+			}
 		}
 		// Item 2jg (d): the switch does not filter, it detaches. Applying the
 		// configuration is the only place collection starts or stops, so there is
@@ -822,6 +821,23 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, masked)
 	default:
 		method(w)
+	}
+}
+
+func clearLearnedLimits(connection *config.Connection) {
+	clear := func(caps *config.Capabilities) {
+		caps.ObservedByteLimit, caps.ObservedMessageLimit = 0, 0
+		kept := caps.Findings[:0]
+		for _, finding := range caps.Findings {
+			if !strings.HasPrefix(finding, "size limit:") && !strings.HasPrefix(finding, "usable ceiling:") {
+				kept = append(kept, finding)
+			}
+		}
+		caps.Findings = kept
+	}
+	clear(&connection.Capabilities)
+	for index := range connection.Models {
+		clear(&connection.Models[index].Capabilities)
 	}
 }
 

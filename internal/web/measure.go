@@ -137,12 +137,16 @@ func (s *Server) runEvaluation(ctx context.Context, connectionID string, connect
 	for i := range s.cfg.Connections {
 		if s.cfg.Connections[i].ID == connectionID {
 			s.cfg.Connections[i].Capabilities = caps
+			s.cfg.Connections[i].StoreActiveModel()
 			_ = s.saveMachineConfig(*s.cfg)
 			connection.Capabilities = caps
 			break
 		}
 	}
 	s.mu.Unlock()
+	if s.runner != nil {
+		s.runner.SetObservedLimits(connectionID, connection.Model, caps.ObservedMessageLimit, caps.ObservedByteLimit)
+	}
 	s.runMeasurement(ctx, connectionID, connection)
 }
 

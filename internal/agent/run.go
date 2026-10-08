@@ -31,42 +31,44 @@ import (
 )
 
 type Runner struct {
-	bus                *events.Bus
-	tools              *tools.Registry
-	prompt             *PromptRenderer
-	connection         func(string) (*config.Connection, bool)
-	cfg                func() config.Config
-	gate               *Gate
-	budget             *Budgeter
-	compact            *contextmgr.Compactor
-	toolActivity       func(string)
-	deliver            func(*session.Session, string, []delivery.Source) delivery.Result
-	shellGrantMu       sync.Mutex
-	shellGrants        map[string][]shellRunGrant
-	shellSessionGrants map[string][]shellSessionGrant
-	fileGrantMu        sync.Mutex
-	fileRunGrants      map[string]bool
-	fileSessionGrants  map[string]string
-	identityGrantMu    sync.Mutex
-	identityChatGrants map[string]string
-	policyGrantMu      sync.Mutex
-	policyChatGrants   map[string]map[string]bool
-	flights            *flightBook
-	renameSession      func(string, string, string) error
-	mailboxBoundary    func(context.Context, string, bool) BoundaryAction
-	modelUnreachable   func(string, string)
-	modelAnswered      func(string)
-	recordMessageLimit func(string, int) error
-	recordByteLimit    func(string, int) error
-	ids                atomic.Int64
-	nameAttempts       sync.Map
-	messageLimits      sync.Map
-	byteLimits         sync.Map
-	windows            sync.Map
-	identityInvitation atomic.Bool
-	trustFolders       func([]string) error
-	skills             SkillHost
-	compactions        sync.Map
+	bus                 *events.Bus
+	tools               *tools.Registry
+	prompt              *PromptRenderer
+	connection          func(string) (*config.Connection, bool)
+	cfg                 func() config.Config
+	gate                *Gate
+	budget              *Budgeter
+	compact             *contextmgr.Compactor
+	toolActivity        func(string)
+	deliver             func(*session.Session, string, []delivery.Source) delivery.Result
+	shellGrantMu        sync.Mutex
+	shellGrants         map[string][]shellRunGrant
+	shellSessionGrants  map[string][]shellSessionGrant
+	fileGrantMu         sync.Mutex
+	fileRunGrants       map[string]bool
+	fileSessionGrants   map[string]string
+	identityGrantMu     sync.Mutex
+	identityChatGrants  map[string]string
+	policyGrantMu       sync.Mutex
+	policyChatGrants    map[string]map[string]bool
+	flights             *flightBook
+	renameSession       func(string, string, string) error
+	mailboxBoundary     func(context.Context, string, bool) BoundaryAction
+	modelUnreachable    func(string, string)
+	modelAnswered       func(string)
+	recordMessageLimit  func(string, int) error
+	recordByteLimit     func(string, int) error
+	ids                 atomic.Int64
+	nameAttempts        sync.Map
+	messageLimits       sync.Map
+	byteLimits          sync.Map
+	messageLimitRetests sync.Map
+	byteLimitRetests    sync.Map
+	windows             sync.Map
+	identityInvitation  atomic.Bool
+	trustFolders        func([]string) error
+	skills              SkillHost
+	compactions         sync.Map
 }
 
 var resolveNamedPath = tools.ResolveNamedPath
@@ -430,16 +432,19 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		if !ok {
 			return "connection_not_runnable", "connection " + s.ConnectionID + " no longer exists", turn - 1
 		}
+		savedContext := connection.Context.NCtx
 		connection, windowSource, windowErr = r.resolveWindow(ctx, connection)
 		if windowErr != nil {
 			return "connection_not_runnable", windowErr.Error(), turn - 1
 		}
-		if value, found := r.messageLimits.Load(connection.ID); found {
+		limitKey := connection.ID + "\x00" + connection.Model
+		if value, found := r.messageLimits.Load(limitKey); found {
 			connection.Capabilities.ObservedMessageLimit = value.(int)
 		}
-		if value, found := r.byteLimits.Load(connection.ID); found {
+		if value, found := r.byteLimits.Load(limitKey); found {
 			connection.Capabilities.ObservedByteLimit = value.(int)
 		}
+		byteLimitTrial, messageLimitTrial := false, false
 		// An invalid durable tool call is a history-shape problem, not an
 		// accounting endpoint failure. Repair it before any template or tokenizer
 		// request so the one accounting degrade boundary never has to leak an
@@ -516,6 +521,10 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			requestRecords = repairedRecords
 			if budgetErr != nil {
 				return
+			}
+			if savedContext > budget.NCtx {
+				budget.SavedNCtx, budget.WindowSource = savedContext, windowSource
+				s.SetBudget(budget)
 			}
 			if !hadUser {
 				requestRecords = append(requestRecords, events.Message{Role: llm.RoleHarness, Category: "history", Content: "Continue from the recorded context."})
@@ -596,7 +605,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			return "model_error", "budget accounting: " + budgetErr.Error(), turn - 1
 		}
 		if limit := connection.Capabilities.ObservedMessageLimit; limit > 0 && len(request.Messages) >= limit {
-			if r.compactForMessageLimit(ctx, s, runID, connection, limit) {
+			_, alreadyRetested := r.messageLimitRetests.LoadOrStore(limitKey, true)
+			messageLimitTrial = !alreadyRetested
+			if alreadyRetested && r.compactForMessageLimit(ctx, s, runID, connection, limit) {
 				turn--
 				continue
 			}
@@ -607,7 +618,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		// headroom rather than to the byte.
 		if limit := connection.Capabilities.ObservedByteLimit; limit > 0 {
 			if size := llm.SerializedBytes(connection, request, true); size >= byteLimitTarget(limit) {
-				if r.compactForByteLimit(ctx, s, runID, connection, limit, request) {
+				_, alreadyRetested := r.byteLimitRetests.LoadOrStore(limitKey, true)
+				byteLimitTrial = !alreadyRetested
+				if alreadyRetested && r.compactForByteLimit(ctx, s, runID, connection, limit, request) {
 					turn--
 					continue
 				}
@@ -727,7 +740,8 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				return "length", answerCeilingDetail(connection, time.Since(answerStarted)), turn
 			}
 			if limit, sentence, matched := byteLimitError(callErr); matched {
-				r.byteLimits.Store(connection.ID, limit)
+				r.byteLimits.Store(limitKey, limit)
+				r.byteLimitRetests.Store(limitKey, true)
 				connection.Capabilities.ObservedByteLimit = limit
 				if r.recordByteLimit != nil {
 					if err := r.recordByteLimit(connection.ID, limit); err != nil {
@@ -749,7 +763,8 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				return "model_error", sentence + fmt.Sprintf("; the request was %d bytes and could not be made smaller", before) + largestRequestMessage(request), turn
 			}
 			if limit, sentence, matched := messageLimitError(callErr); matched {
-				r.messageLimits.Store(connection.ID, limit)
+				r.messageLimits.Store(limitKey, limit)
+				r.messageLimitRetests.Store(limitKey, true)
 				connection.Capabilities.ObservedMessageLimit = limit
 				if r.recordMessageLimit != nil {
 					if err := r.recordMessageLimit(connection.ID, limit); err != nil {
@@ -779,6 +794,26 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				return "model_unreachable", callErr.Error(), turn
 			}
 			return "model_error", callErr.Error(), turn
+		}
+		if byteLimitTrial {
+			r.byteLimits.Store(limitKey, 0)
+			connection.Capabilities.ObservedByteLimit = 0
+			if r.recordByteLimit != nil {
+				if err := r.recordByteLimit(connection.ID, 0); err != nil {
+					r.operationalError(s, runID, "clear_byte_limit", err)
+				}
+			}
+			r.appendHarnessLine(ctx, connection, s, runID, turn, "The learned size limit no longer applies.")
+		}
+		if messageLimitTrial {
+			r.messageLimits.Store(limitKey, 0)
+			connection.Capabilities.ObservedMessageLimit = 0
+			if r.recordMessageLimit != nil {
+				if err := r.recordMessageLimit(connection.ID, 0); err != nil {
+					r.operationalError(s, runID, "clear_message_limit", err)
+				}
+			}
+			r.appendHarnessLine(ctx, connection, s, runID, turn, "The learned message limit no longer applies.")
 		}
 		r.budget.RecordUsage(s.ID, response.Usage.PromptTokens, response.Usage.CachedTokens)
 		if r.modelAnswered != nil {
@@ -2007,7 +2042,8 @@ func (r *Runner) PublishBudget(ctx context.Context, s *session.Session) {
 	if !ok {
 		return
 	}
-	p, _, windowErr := resolveContextWindow(ctx, p)
+	savedContext := p.Context.NCtx
+	p, source, windowErr := r.resolveWindow(ctx, p)
 	if windowErr != nil {
 		r.operationalError(s, "", "budget", windowErr)
 		return
@@ -2017,6 +2053,10 @@ func (r *Runner) PublishBudget(ctx context.Context, s *session.Session) {
 		r.operationalError(s, "", "budget", err)
 		r.publishModelUnreachable(s, "", p, err)
 		return
+	}
+	if savedContext > budget.NCtx {
+		budget.SavedNCtx, budget.WindowSource = savedContext, source
+		s.SetBudget(budget)
 	}
 	r.bus.Publish(events.New(events.BudgetEvent, s.ID, "", budget))
 }
@@ -2285,6 +2325,29 @@ func (r *Runner) SetServerWindow(connectionID string, window int) {
 		return
 	}
 	r.windows.Store(connectionID, window)
+}
+
+// SetObservedLimits keeps a running process in step with an Eval or saved
+// address change. Limits are keyed by model because their truth belongs to the
+// model selected on a connection, not to the transport alone.
+func (r *Runner) SetObservedLimits(connectionID, model string, messageLimit, byteLimit int) {
+	key := connectionID + "\x00" + model
+	r.messageLimits.Store(key, messageLimit)
+	r.byteLimits.Store(key, byteLimit)
+	r.messageLimitRetests.Store(key, true)
+	r.byteLimitRetests.Store(key, true)
+}
+
+func (r *Runner) ClearObservedLimits(connectionID string) {
+	prefix := connectionID + "\x00"
+	for _, values := range []*sync.Map{&r.messageLimits, &r.byteLimits, &r.messageLimitRetests, &r.byteLimitRetests} {
+		values.Range(func(key, _ any) bool {
+			if strings.HasPrefix(key.(string), prefix) {
+				values.Delete(key)
+			}
+			return true
+		})
+	}
 }
 
 // resolveWindow is resolveContextWindow, narrowed to the server's own window

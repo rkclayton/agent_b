@@ -110,6 +110,43 @@ test("setup context row distinguishes usable published and typed readings 2sv", 
 	}
 });
 
+test("smaller in-use context is named in Chat and Settings, and equal is silent 2sw", async () => {
+	await mkdir(join(repo, "test-results"), { recursive: true });
+	const page = await harness.context.newPage({ viewport: { width: 1280, height: 900 } });
+	await page.goto(`${harness.base}/chat`);
+	await page.getByRole("button", { name: "New chat", exact: true }).click();
+	await expect.poll(() => page.evaluate(async () => Object.keys((await import("/static/js/bus.js")).store.sessions).length)).toBeGreaterThan(0);
+	await openSettings(page);
+	await page.getByRole("button", { name: "Connections", exact: true }).click();
+	await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+	const context = page.locator('[data-path="connections.ui.context.n_ctx"]');
+	await context.fill("65536");
+	await page.locator('.connection-editor [data-action="save-connection"]').click();
+	await expect(page.locator(".context-window-source")).toHaveText("32,768 in use · probed n_ctx");
+	await page.screenshot({ path: join(repo, "test-results", "2sw-context-settings.png"), fullPage: true });
+	await page.keyboard.press("Escape");
+	await page.evaluate(async () => { const { setSelection, store } = await import("/static/js/bus.js"); const session = Object.values(store.sessions)[0]; setSelection(session.agent_id, session.id); });
+	await expect(page.locator("#chat-budget")).toBeVisible();
+	await page.locator("#chat-budget").hover();
+	await expect(page.locator(".chat-budget-tip")).toContainText("32,768 in use · probed n_ctx");
+	await expect(page.locator(".chat-budget-tip")).toBeVisible();
+	await page.screenshot({ path: join(repo, "test-results", "2sw-context-chat.png"), fullPage: true });
+	await page.close();
+
+	const equal = await harness.context.newPage();
+	await equal.goto(`${harness.base}/chat#settings/connections`);
+	await equal.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+	await equal.locator('[data-path="connections.ui.context.n_ctx"]').fill("32768");
+	await equal.locator('.connection-editor [data-action="save-connection"]').click();
+	await expect(equal.locator(".context-window-source")).toHaveCount(0);
+	await equal.keyboard.press("Escape");
+	await equal.locator(".chat-list-new").click();
+	await expect(equal.locator("#chat-budget")).toBeVisible();
+	await equal.locator("#chat-budget").hover();
+	await expect(equal.locator(".chat-budget-tip")).not.toContainText("in use");
+	await equal.close();
+});
+
 test("a failed model list keeps the saved model and names the reason 2r7", async () => {
 	const page = await harness.context.newPage();
 	await page.route("**/api/connections/ui/models", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "model list unavailable" }) }));

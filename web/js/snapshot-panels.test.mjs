@@ -41,5 +41,10 @@ reduce({ type: "snapshot", data: { replay: false, connections: [], config: {}, f
 test("Activity renders the delegate under its parent", () => { renderFlow(); assert.equal(elements.get("flow").children.length, 3); assert.equal(elements.get("flow").children[2].children[1].textContent, "↳ Delegate"); assert.equal(elements.get("flow-count").textContent, "idle"); });
 test("Tools renders authoritative projected counts", () => { renderRack(); assert.equal(elements.get("tool-count").textContent, "2 calls"); assert.equal(elements.get("rack").children[0].children[1].textContent, "read_file"); });
 test("Context renders projected accounting", () => { renderRail(); assert.match(elements.get("rail").children[0].getAttribute("aria-label"), /system prompt 290/); });
+test("Context names a smaller window and its source 2sw", () => {
+  reduce({ type: "projection.patch", data: { schema_version: 1, session_id: "main", transient: true, previous_cursor: { generation: "main.jsonl", offset: 100 }, operations: [{ op: "replace", path: "/budget", value: { n_ctx: 16384, saved_n_ctx: 32768, window_source: "the server allows 16384 tokens per request", ceiling: 8192, reserve: 8192, used_est: 1511, categories: {} } }] } });
+  renderRail();
+  assert.match(elements.get("rail").children.at(-1).textContent, /16,384 in use · the server allows 16384 tokens per request/);
+});
 test("History renders projected durable history", () => { renderTimeline(); assert.match(elements.get("timeline-count").textContent, /3 turns.*1 compact/); assert.equal(elements.get("timeline-list").children[0].textContent, "—"); });
 test("State renders projected messages", () => { renderState(); assert.equal(elements.get("state-count").textContent, "0"); assert.equal(elements.get("state-list").children[0].textContent, "—"); });

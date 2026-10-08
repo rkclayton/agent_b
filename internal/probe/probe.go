@@ -44,6 +44,7 @@ func probe(ctx context.Context, connection *config.Connection, evaluateCeiling b
 	caps := config.Capabilities{Server: "unknown", ReasoningControl: "none", OverflowBehavior: "unknown", ValidEfforts: []string{}}
 	findings := []string{}
 	caps.ObservedByteLimit = connection.Capabilities.ObservedByteLimit
+	caps.ObservedMessageLimit = connection.Capabilities.ObservedMessageLimit
 	if caps.ObservedByteLimit > 0 {
 		for _, finding := range connection.Capabilities.Findings {
 			if strings.HasPrefix(finding, "size limit:") {
@@ -451,14 +452,26 @@ func probeOverflow(ctx context.Context, client *llm.Client, connection *config.C
 	if err == nil && status >= 400 && byteLimitFromResponse(lower) > 0 {
 		caps.ObservedByteLimit = byteLimitFromResponse(lower)
 		caps.OverflowBehavior = "error"
+		*findings = withoutSizeLimitFindings(*findings)
 		*findings = append(*findings, fmt.Sprintf("size limit: %d bytes observed %s", caps.ObservedByteLimit, time.Now().Format("2006-01-02")))
 	} else if err == nil && status >= 400 && (strings.Contains(lower, "context") || strings.Contains(lower, "token") || strings.Contains(lower, "length")) {
+		caps.ObservedByteLimit = 0
 		caps.OverflowBehavior = "error"
-		*findings = append(*findings, "overflow refusal: tokens")
+		*findings = append(withoutSizeLimitFindings(*findings), "size limit: none found "+time.Now().Format("2006-01-02"), "overflow refusal: tokens")
 	} else if err == nil && status == 200 {
 		caps.OverflowBehavior = "truncate"
 	}
 	*findings = append(*findings, "overflow: "+caps.OverflowBehavior)
+}
+
+func withoutSizeLimitFindings(findings []string) []string {
+	kept := findings[:0]
+	for _, finding := range findings {
+		if !strings.HasPrefix(finding, "size limit:") && !strings.HasPrefix(finding, "usable ceiling:") {
+			kept = append(kept, finding)
+		}
+	}
+	return kept
 }
 
 var overflowByteLimits = []*regexp.Regexp{

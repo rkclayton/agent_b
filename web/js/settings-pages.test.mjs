@@ -311,6 +311,17 @@ test("the API key field never carries the stored-key mask as its value", () => {
 	assert.doesNotMatch(secret, /leave empty|paste the API key/);
 });
 
+test("Connections says the smaller context window in use and its source 2sw", () => {
+  const context = pageContext();
+  const connection = { id: "main", label: "Main", base_url: "http://127.0.0.1:8080", model: "m", context: { n_ctx: 65536 }, reasoning: {}, capabilities: {}, sampling: { thinking: {}, nonthinking: {} } };
+  context.connectionList = () => [connection];
+  context.expanded.add("main");
+  context.active = { connection_id: "main", budget: { n_ctx: 32768, saved_n_ctx: 65536, window_source: "probed n_ctx" } };
+  assert.match(renderConnectionsPage(context), /32,768 in use · probed n_ctx/);
+  context.active.budget = { n_ctx: 65536, saved_n_ctx: 65536 };
+  assert.doesNotMatch(renderConnectionsPage(context), /in use/);
+});
+
 test("stored connection keys reveal briefly, duplicate beside Test, and rows use a pencil 2qn", () => {
 	const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
 	const connections = fs.readFileSync(new URL("settings-connections.js", import.meta.url), "utf8");

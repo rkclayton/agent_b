@@ -640,7 +640,6 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		toolArgumentBytes := map[int]int{}
 		toolArgumentRunes := map[int]int{}
 		var streamBusy atomic.Bool
-		requestDone := make(chan struct{})
 		// Item 2l9 (e2): a ceiling on ONE answer, never on a run or a chat. Zero,
 		// which is what every existing configuration carries, means no ceiling.
 		callCtx := ctx
@@ -650,8 +649,10 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			callCtx, cancelAnswer = context.WithTimeout(ctx, ceiling)
 			defer cancelAnswer()
 		}
+		statusCtx, stopStatus := context.WithCancel(callCtx)
 		r.stage(s, runID, turn, "call_model", func() {
 			response, callErr = client.ChatStreamStatus(callCtx, request, func(delta llm.Delta) {
+				stopStatus()
 				r.addFlightDelta(s.ID, runID, delta)
 				if delta.Kind == "progress" {
 					r.bus.Publish(events.New(events.ModelProgress, s.ID, runID, map[string]any{"turn": turn, "total": delta.Total, "cache": delta.Cache, "processed": delta.Processed}))
@@ -671,18 +672,17 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				}
 				r.bus.Publish(events.New(events.ModelDelta, s.ID, runID, data))
 			}, func() {
-				go func() {
-					timer := time.NewTimer(2500 * time.Millisecond)
-					defer timer.Stop()
-					select {
-					case <-timer.C:
-						streamBusy.Store(true)
-						r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(connection), "detail": "connected; waiting for model response"}))
-					case <-requestDone:
+				streamBusy.Store(true)
+				r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(connection), "detail": "connected; waiting for model response"}))
+				go watchConnectionModelLoading(statusCtx, client, connection, 5*time.Second, func(loading bool) {
+					detail := "connected; waiting for model response"
+					if loading {
+						detail = "loading model"
 					}
-				}()
+					r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(connection), "detail": detail}))
+				})
 			})
-			close(requestDone)
+			stopStatus()
 			s.UpdatePartial("")
 		})
 		if streamBusy.Load() && callErr == nil {
@@ -1922,6 +1922,42 @@ func modelHost(connection *config.Connection) string {
 	}
 	return host
 }
+
+func watchModelLoading(ctx context.Context, client *llm.Client, model string, every time.Duration, report func(bool)) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		raw, status, err := client.DoJSON(ctx, "GET", "/v1/models", nil)
+		var listed struct {
+			Data []struct {
+				ID     string `json:"id"`
+				Status struct {
+					Value string `json:"value"`
+				} `json:"status"`
+			} `json:"data"`
+		}
+		if err == nil && status == 200 && json.Unmarshal(raw, &listed) == nil {
+			for _, item := range listed.Data {
+				if item.ID == model {
+					report(item.Status.Value == "loading")
+					break
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func watchConnectionModelLoading(ctx context.Context, client *llm.Client, connection *config.Connection, every time.Duration, report func(bool)) {
+	if connection.Capabilities.Server == "llama.cpp" {
+		watchModelLoading(ctx, client, connection.Model, every, report)
+	}
+}
+
 func (r *Runner) textTokens(ctx context.Context, p *config.Connection, text string) int {
 	value, _ := r.count(ctx, p, text)
 	return value

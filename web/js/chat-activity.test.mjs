@@ -7,7 +7,10 @@ const running = (activity) => ({ run: { status: "running" }, activity });
 
 test("live activity gives each model phase a measured status", () => {
   assert.equal(liveActivityText(undefined), "");
-  assert.equal(liveActivityText(running({ stage: "call_model", stage_state: "enter", progress: { processed: 2868 }, stream: {} })), "waiting for first token — prompt 2.9k · 0s");
+  assert.equal(liveActivityText(running({ stage: "call_model", stage_state: "enter", progress: { total: 14000, processed: 2868, cache: 1200 }, stream: {} })), "reading 2.9k of 14k, 1.2k cached · 0s");
+	assert.equal(liveActivityText(running({ stage: "call_model", stage_state: "enter", progress: {}, stream: {} })), "connecting · 0s");
+	assert.equal(liveActivityText({ ...running({ stage: "call_model", stage_state: "enter", progress: {}, stream: {} }), model_busy: { detail: "connected; waiting for model response" } }), "waiting for model · 0s");
+	assert.equal(liveActivityText({ ...running({ stage: "call_model", stage_state: "enter", progress: {}, stream: {} }), model_busy: { detail: "loading model" } }), "loading model · 0s");
   assert.equal(modelRequestText({ stream: { reasoning_chars: 605, total_chars: 605 } }), "thinking · 169 tokens");
   assert.equal(modelRequestText({ stream: { reasoning_chars: 605, total_chars: 750 } }), "writing · 41 tokens");
   assert.equal(modelRequestText({ stream: { tool_calls: [{ name: "run_script", argument_bytes: 12400, started_at: 1000, last_chunk_at: 131000 }] } }), "calling run_script · 12 kB · 2m10s");
@@ -38,7 +41,7 @@ test("stream caret exists only beside unfinished prose that has started arriving
 
 test("every live status has elapsed time and never invents zero tokens 2qf", () => {
   const now = 66_000;
-  assert.equal(liveActivityText(running({ started_at: 6_000, stage: "call_model", stage_state: "enter", progress: {}, stream: { started_at: 6_000 } }), now), "waiting for first token · 1m00s");
+  assert.equal(liveActivityText(running({ started_at: 6_000, stage: "call_model", stage_state: "enter", progress: {}, stream: { started_at: 6_000 } }), now), "connecting · 1m00s");
   assert.equal(liveActivityText(running({ started_at: 6_000, stage: "execute", stage_state: "enter", active_tool: "shell", tool_target: "dotnet test", tool_last_line: "Passed 41 tests" }), now), "running shell dotnet test · Passed 41 tests · 1m00s");
   assert.equal(liveActivityText(running({ started_at: 6_000, stage: "execute", stage_state: "enter", active_tool: "delegate", delegate: { status: "running", stage: "execute", tool: "read_file", target: "src/main.go", turn: 3 } }), now), "delegate — running read_file src/main.go · turn 3 · 1m00s");
   for (const activity of [

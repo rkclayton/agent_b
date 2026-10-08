@@ -1343,7 +1343,7 @@ function renderComposer(session) {
   // A reachable open request says what it is doing and how much it has done;
   // the old sticky "model busy" condition is never the whole status line.
   const modelLine = unreachable ? "model unreachable" : "";
-  const busyLine = activity || (busy ? "waiting for first token" : "");
+  const busyLine = activity || (busy ? "waiting for model" : "");
   const primary = modelLine || busyLine || (session && !session.runnable ? session.not_runnable_reason : state);
   const message = localNotice || micNotice || (phoneOwned ? "from phone · read-only while the phone owns this chat" : modelLine && session?.runnable !== false ? modelLine : [primary, queueText, operatorUntil].filter(Boolean).join(" · "));
   // Live state, not decoration: the robot runs beside the live line for exactly

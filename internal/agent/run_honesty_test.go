@@ -21,6 +21,38 @@ import (
 	"harness/internal/tools"
 )
 
+func TestModelLoadingWatchUsesThePublishedStatusAndStopsWithTheAnswer2rw(t *testing.T) {
+	var requests atomic.Int32
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		status := "loading"
+		if requests.Add(1) > 1 {
+			status = "loaded"
+		}
+		fmt.Fprintf(w, `{"data":[{"id":"chosen","status":{"value":%q}}]}`, status)
+	}))
+	defer model.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	reports := make(chan bool, 3)
+	started := time.Now()
+	go watchModelLoading(ctx, llm.New(&config.Connection{BaseURL: model.URL, RequestTimeoutS: 1}), "chosen", 20*time.Millisecond, func(loading bool) { reports <- loading })
+	if !<-reports || <-reports {
+		t.Fatal("loading did not move to loaded")
+	}
+	if time.Since(started) < 20*time.Millisecond {
+		t.Fatal("status questions were not spaced")
+	}
+	cancel()
+	count := requests.Load()
+	time.Sleep(30 * time.Millisecond)
+	if requests.Load() != count {
+		t.Fatal("status question followed the first answer byte")
+	}
+	watchConnectionModelLoading(context.Background(), llm.New(&config.Connection{BaseURL: model.URL}), &config.Connection{Capabilities: config.Capabilities{Server: "ollama"}}, time.Millisecond, func(bool) {})
+	if requests.Load() != count {
+		t.Fatal("a server without loading status was questioned")
+	}
+}
+
 func TestRunStartRepairsScratchAndRefusesMissingRepositoryBeforeModel(t *testing.T) {
 	var requests atomic.Int32
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {

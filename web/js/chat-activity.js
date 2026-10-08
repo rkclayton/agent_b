@@ -36,7 +36,7 @@ export function liveActivityText(session, now = Date.now()) {
   if (activity.stage_state !== "enter") return withElapsed("waiting — state unknown");
   switch (activity.stage) {
     case "assemble": return withElapsed("assembling turn");
-    case "call_model": return withElapsed(modelRequestText(activity));
+    case "call_model": return withElapsed(modelRequestText(activity, session?.model_busy));
     case "parse": return withElapsed("parsing model response");
     case "dispatch": return withElapsed("preparing tool call");
     case "execute": return withElapsed("running tool — target unknown");
@@ -47,7 +47,7 @@ export function liveActivityText(session, now = Date.now()) {
   }
 }
 
-export function modelRequestText(activity = {}) {
+export function modelRequestText(activity = {}, busy = null) {
   const stream = activity.stream || {};
   const calls = Array.isArray(stream.tool_calls) ? stream.tool_calls : [];
   const call = calls.at(-1);
@@ -59,9 +59,9 @@ export function modelRequestText(activity = {}) {
   const processed = Number(activity.progress?.processed || 0);
   const total = Number(activity.progress?.total || 0);
   const cached = Number(activity.progress?.cache || 0);
-  if (processed > 0) return `waiting for first token — prompt ${formatK(processed)}${cached > 0 ? `, ${formatK(cached)} cached` : ""}`;
-  if (total > 0) return `waiting for first token — prompt ${formatK(total)}${cached > 0 ? `, ${formatK(cached)} cached` : ""}`;
-  return "waiting for first token";
+  if (processed > 0) return `reading ${formatK(processed)}${total > 0 ? ` of ${formatK(total)}` : ""}${cached > 0 ? `, ${formatK(cached)} cached` : ""}`;
+	if (busy?.detail === "loading model") return "loading model";
+	return busy ? "waiting for model" : "connecting";
 }
 
 function formatK(value) { return `${Math.max(0.1, Number(value) / 1000).toFixed(1).replace(/\.0$/, "")}k`; }

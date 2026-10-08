@@ -116,10 +116,11 @@ test("Degraded accounting is labeled estimated in the Chat occupancy bar", () =>
   assert.match(chat, /value\.estimated \? "estimated · " : ""/);
 });
 
-test("the transcript-tail status owns queue operator pending and unreachable state", () => {
+test("the transcript-tail status owns queue operator pending and unreachable state", async () => {
   assert.match(html, /id="chat-log"[\s\S]*id="chat-status-line"[\s\S]*id="chat-notice"[\s\S]*id="chat-retry-model"/);
   assert.doesNotMatch(html + chat, /chat-run-as-you/);
-  assert.match(chat, /const busyLine = activity \|\| \(busy \? "waiting for first token" : ""\)/);
+  assert.match(chat, /const busyLine = activity \|\| \(busy \? "waiting for model" : ""\)/);
+	for (const path of ["chat.js", "chat-activity.js"]) assert.doesNotMatch(await readFile(new URL(path, import.meta.url), "utf8"), /first token/i);
   assert.doesNotMatch(chat, /0 tokens processing/);
 	assert.doesNotMatch(chat, /model busy · \$\{busy\.host/);
 	assert.match(chat, /session\.connection_id \|\| session\.b_connection/);

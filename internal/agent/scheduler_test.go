@@ -458,6 +458,53 @@ func schedulerFixtureAccounting(t *testing.T, modelURL, accounting string) (conf
 	return cfg, &connection, item, NewScheduler(runner, registry, bus, func() config.Config { return cfg })
 }
 
+func TestRunPublishesWaitingLoadingAndReadingFromALlamaStandIn2rw(t *testing.T) {
+	var statusRequests atomic.Int32
+	release := make(chan struct{})
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			statusRequests.Add(1)
+			fmt.Fprint(w, `{"data":[{"id":"test-model","status":{"value":"loading"}}]}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		<-release
+		fmt.Fprint(w, "data: {\"prompt_progress\":{\"total\":14000,\"cache\":1200,\"processed\":2900}}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer model.Close()
+	_, connection, item, scheduler := schedulerFixture(t, model.URL)
+	connection.Capabilities.Server = "llama.cpp"
+	stream, unsubscribe := scheduler.bus.Subscribe()
+	defer unsubscribe()
+	if _, err := scheduler.Submit(context.Background(), item.ID, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	waiting, loading, reading := false, false, false
+	deadline := time.After(3 * time.Second)
+	for !loading {
+		select {
+		case event := <-stream:
+			data, _ := event.Data.(map[string]any)
+			waiting = waiting || event.Type == events.ModelBusy && data["detail"] == "connected; waiting for model response"
+			loading = event.Type == events.ModelBusy && data["detail"] == "loading model"
+		case <-deadline:
+			t.Fatal("waiting/loading events did not arrive")
+		}
+	}
+	close(release)
+	for !reading {
+		select {
+		case event := <-stream:
+			reading = event.Type == events.ModelProgress
+		case <-deadline:
+			t.Fatal("reading event did not arrive")
+		}
+	}
+	if !waiting || statusRequests.Load() != 1 {
+		t.Fatalf("waiting=%t status requests=%d", waiting, statusRequests.Load())
+	}
+}
+
 // Item 2fg (the walk's step 3): a message sent while a stopped run is still
 // stopping is held with the queue. A reachability release does not start it;
 // only the operator's next message does.

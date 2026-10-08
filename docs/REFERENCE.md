@@ -59,7 +59,7 @@ Replay one or more session logs without loading a model or enabling mutations:
 go run ./cmd/harness -config harness.json -replay logs/main.jsonl,logs/s2.jsonl
 ```
 
-Connections hold an endpoint, model, sampling, reasoning, context settings, and measured capabilities. The settings sheet can add, duplicate, edit, test, and remove connections; full probes measure behavior while minimal/off modes label assumptions. A connection is runnable only with known context, streaming, structured tool calls, and non-truncating overflow behavior.
+Connections hold one server: its name, endpoint, credential, timeout, default model and concurrency. Each model listed beneath that connection keeps its own attachment, image, sampling, reasoning, context, prompt, capability and Eval settings. Picking another listed model resolves that model's stored settings, or creates them from server-published context metadata and the shipped defaults, without duplicating the connection. The settings sheet can add, duplicate, edit, test, and remove connections; Test, Eval and Recommended operate on the picked default model, full probes measure behavior while minimal/off modes label assumptions, and switching back restores that model's values. A connection is runnable only when its default model has known context, streaming, structured tool calls, and non-truncating overflow behavior.
 
 Compaction summaries use the optional `aux` connection when its fully rendered request fits that connection's context window. An unavailable, rejecting, or undersized aux connection falls back to the session's main connection; blank aux preserves the single-main-model path. Settings -> Activity timeline entries identify the serving connection and keep compaction inference input/output tokens separate from the main context-budget measurement.
 
@@ -169,7 +169,7 @@ Startup locates configuration in this order: an explicit launcher `-config` argu
 | Area | Keys |
 |---|---|
 | Process | `listen`, `workspace`, `log_dir` |
-| Connections | `roles.{main,aux}` and `connections[].{id,label,base_url,model,credential,request_timeout_s,probe_mode,sampling,reasoning,context:{n_ctx,reserve_output},system_prompt_override,capabilities}` |
+| Connections | `agents[].{b,c,d}` and `connections[].{id,label,base_url,extract_url,model,credential,request_timeout_s,probe_mode,max_concurrent,models:[{model,attachment_handling,reads_images,sampling,reasoning,context:{n_ctx,reserve_output},system_prompt_override,capabilities,measurement}]}` |
 | Runs | `run.{max_turns,max_wall_clock_seconds,max_tool_calls,cycle_window,max_consecutive_tool_errors,max_concurrent,queue_depth}`, `approval.mode` |
 | Context and memory | `context.{soft_pct,summary_pct,accounting}`, `memory.{enabled,dir,max_tokens}` |
 | Operator files | `operator_files.{allow_mailbox_approvals,log_retention_days}` (mailbox approvals default off; live-log retention defaults to 30 days and never prunes evidence archives) |

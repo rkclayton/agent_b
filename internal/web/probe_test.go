@@ -306,7 +306,7 @@ func TestQueryModelsUsesUnsavedAddressAndReportsKeyState(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		fmt.Fprint(w, `{"data":[{"id":"one"},{"id":"two"}]}`)
+		fmt.Fprint(w, `{"data":[{"id":"one","max_model_len":32000},{"id":"two","max_model_len":128000}]}`)
 	}))
 	defer model.Close()
 	server := newProbeServer(t)
@@ -315,7 +315,7 @@ func TestQueryModelsUsesUnsavedAddressAndReportsKeyState(t *testing.T) {
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || authorization != "Bearer secret" || !strings.Contains(response.Body.String(), `"one"`) || !strings.Contains(response.Body.String(), `"key_sent":true`) {
+	if response.Code != http.StatusOK || authorization != "Bearer secret" || !strings.Contains(response.Body.String(), `"one"`) || !strings.Contains(response.Body.String(), `"key_sent":true`) || !strings.Contains(response.Body.String(), `"model_defaults"`) || !strings.Contains(response.Body.String(), `"n_ctx":128000`) {
 		t.Fatalf("status=%d authorization=%q body=%s", response.Code, authorization, response.Body.String())
 	}
 }

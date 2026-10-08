@@ -155,8 +155,12 @@ function memoryFinding() {
 function connectionFields(connection, reason, discovery) {
   const id = connection.id;
   const p = `connections.${id}`;
-  const caps = connection.capabilities || {};
-  const efforts = connection.reasoning?.valid_efforts || caps.valid_efforts || [];
+  const draftModel = drafts.has(`${p}.model`) ? String(drafts.get(`${p}.model`)).trim() : null;
+  const shownModel = draftModel ?? (connection.model || "").trim();
+  const modelSettings = (connection.models || []).find((item) => item.model === shownModel) || discovery?.modelDefaults?.[shownModel];
+  const shown = modelSettings ? { ...connection, ...modelSettings, model: shownModel } : connection;
+  const caps = shown.capabilities || {};
+  const efforts = shown.reasoning?.valid_efforts || caps.valid_efforts || [];
   const llama = caps.server === "llama.cpp";
   const findings = (caps.findings || [])
     .map((value) => `<li>${html(value)}</li>`)
@@ -169,7 +173,7 @@ function connectionFields(connection, reason, discovery) {
     ["min_p", "min_p", "0.01", !llama],
     ["presence_penalty", "presence penalty", "0.1", false],
     ["repeat_penalty", "repeat penalty", "0.1", !llama],
-  ].map(([name, label, step, disabled]) => `<div class="sampling-label">${html(label)}</div>${["thinking", "nonthinking"].map((mode) => `<div>${numberControl(`${p}.sampling.${mode}.${name}`, connection.sampling[mode][name], step, disabled)}${disabled ? '<span class="control-note">llama.cpp only</span>' : ""}</div>`).join("")}`).join("");
+  ].map(([name, label, step, disabled]) => `<div class="sampling-label">${html(label)}</div>${["thinking", "nonthinking"].map((mode) => `<div>${numberControl(`${p}.sampling.${mode}.${name}`, shown.sampling[mode][name], step, disabled)}${disabled ? '<span class="control-note">llama.cpp only</span>' : ""}</div>`).join("")}`).join("");
 	const discoveredModels = discovery?.models || [];
 	const modelName = (model) => String(model).split(/[\\/]/).pop();
 	// Item 2nb (c): THE MODEL IS A DROPDOWN, ALWAYS. It used to be a text box until
@@ -187,7 +191,6 @@ function connectionFields(connection, reason, discovery) {
 	// different model and press test it goes back to MODEL. i save and it goes back to
 	// MODEL." The pick was never lost; it was invisible, and Save wrote it correctly
 	// all along. A draft is his choice, so a draft wins.
-	const draftModel = drafts.has(`${p}.model`) ? String(drafts.get(`${p}.model`)).trim() : null;
 	const savedModel = draftModel ?? (connection.model || "").trim();
 	const options = [];
 	if (!discoveredModels.length && !savedModel) {
@@ -216,7 +219,7 @@ function connectionFields(connection, reason, discovery) {
 	// the operator saw three copies of one sentence. It belongs under the field it is
 	// about, and the row header carries the state word only.
 	const feedback = "";
-	const measurement = connection.measurement;
+	const measurement = shown.measurement;
 	const measurementResult = measurement ? renderMeasurement(measurement) : "";
 	// The one note: the result of the last Test, or what discovery found.
 	const noteText = discovery?.message || (discovery?.base_url ? (discovery.found || `found ${discovery.base_url}`) : "");
@@ -234,18 +237,18 @@ function connectionFields(connection, reason, discovery) {
 	const boolDraft = (path, saved) => drafts.has(path) ? drafts.get(path) === true || drafts.get(path) === "true" : !!saved;
 	const switchControl = (path, selected, label) => `<button type="button" role="switch" aria-checked="${selected}" aria-label="${attr(label)}" class="switch ${selected ? "on" : ""}" data-action="config-toggle" data-path="${attr(path)}" data-value="${selected ? "false" : "true"}"></button>`;
 	const thinkingPath = `${p}.reasoning.enabled`;
-	const thinkingOn = boolDraft(thinkingPath, connection.reasoning.enabled);
+	const thinkingOn = boolDraft(thinkingPath, shown.reasoning.enabled);
 	const effortPath = `${p}.reasoning.effort`;
-	const selectedEffort = drafts.has(effortPath) ? drafts.get(effortPath) : connection.reasoning.effort;
+	const selectedEffort = drafts.has(effortPath) ? drafts.get(effortPath) : shown.reasoning.effort;
 	const effortControl = efforts.length
 	  ? `<span class="choice-row">${efforts.map((effort) => `<button type="button" class="${effort === selectedEffort ? "selected" : ""}" data-action="config-choice" data-path="${attr(effortPath)}" data-value="${attr(effort)}">${html(effort)}</button>`).join("")}</span>`
 	  : '<span class="settings-note inline">unavailable</span>';
 	const thinkingControl = row("thinking", `<span class="connection-thinking">${switchControl(thinkingPath, thinkingOn, "thinking")} ${effortControl}</span>`, "", false);
 	const imagePath = `${p}.reads_images`;
-	const readsImages = boolDraft(imagePath, connection.reads_images);
+	const readsImages = boolDraft(imagePath, shown.reads_images);
 	const imageControl = row("reads images", switchControl(imagePath, readsImages, "reads images"), "", false);
 	const contextProblem = reason?.startsWith("context ") ? reason : "";
-	const contextControl = `${row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(connection.context.n_ctx || "")}">`, "", false)}${contextProblem ? `<p class="${contextProblem.startsWith("context unknown") ? "settings-note" : "field-error"}">${html(contextProblem)}</p>` : ""}`;
+	const contextControl = `${row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(shown.context.n_ctx || "")}">`, "", false)}${contextProblem ? `<p class="${contextProblem.startsWith("context unknown") ? "settings-note" : "field-error"}">${html(contextProblem)}</p>` : ""}`;
 	const saveActions = row("", `<div class="settings-actions"><button type="button" data-action="save-connection" data-id="${attr(id)}">Save</button><button type="button" data-action="duplicate-connection" data-id="${attr(id)}">Duplicate</button></div>`, "", false);
 	const primaryActions = `<div class="connection-primary-actions settings-actions"><button type="button" class="connection-test ${connection._probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${connection._probing ? "disabled" : ""}>${connection._probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Eval"}</button><button type="button" data-action="recommended-connection" data-id="${attr(id)}">Recommended</button></div>`;
 	return `<div class="connection-fieldset connection-primary">${text(`${p}.label`, "name", connection.label, "text", false)}
@@ -257,17 +260,17 @@ function connectionFields(connection, reason, discovery) {
 	    <details class="connection-defaults" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Defaults</summary>
 	    <div class="connection-fieldset connection-identity"><h4>Connection</h4>
 	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", false)}
-	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], connection.attachment_handling || "auto", false)}
+	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], shown.attachment_handling || "auto", false)}
 	${number(`${p}.request_timeout_s`, "timeout", connection.request_timeout_s, "1", false, "", false, "number", false)}
     ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], connection.probe_mode, false)}</div>
 	    <div class="connection-fieldset connection-reasoning"><h4>Reasoning &amp; context</h4>
-	    ${choices(`${p}.reasoning.control`, "control", ["auto", "chat_template_kwargs", "top_level", "server_flag", "none"], connection.reasoning.control, false)}
-	    ${toggle(`${p}.reasoning.preserve`, "preserve", connection.reasoning.preserve, false)}
-	    ${number(`${p}.reasoning.max_tokens`, "reasoning cap", connection.reasoning.max_tokens || 0, "1", false, "", false, "number", false)}
-	    ${number(`${p}.context.reserve_output`, "reserve", connection.context.reserve_output, "1", false, "", false, "number", false)}</div>
+	    ${choices(`${p}.reasoning.control`, "control", ["auto", "chat_template_kwargs", "top_level", "server_flag", "none"], shown.reasoning.control, false)}
+	    ${toggle(`${p}.reasoning.preserve`, "preserve", shown.reasoning.preserve, false)}
+	    ${number(`${p}.reasoning.max_tokens`, "reasoning cap", shown.reasoning.max_tokens || 0, "1", false, "", false, "number", false)}
+	    ${number(`${p}.context.reserve_output`, "reserve", shown.context.reserve_output, "1", false, "", false, "number", false)}</div>
     <div class="connection-fieldset connection-sampling"><h4>Sampling</h4><div class="sampling-grid"><div></div><div class="sampling-column">Thinking</div><div class="sampling-column">Non-thinking</div>${samplingRows}</div></div>
     <div class="connection-fieldset connection-prompt"><h4>System prompt</h4>
-	    ${textarea(`${p}.system_prompt_override`, "system prompt override", connection.system_prompt_override || "", false)}</div>
+	    ${textarea(`${p}.system_prompt_override`, "system prompt override", shown.system_prompt_override || "", false)}</div>
     <div class="connection-fieldset connection-capabilities"><h4>Capabilities</h4>
     <div class="findings"><span class="settings-note">${html(caps.probed_at || "not probed")}</span><ul>${findings || "<li>no findings</li>"}</ul></div>
 	    ${reason && !contextProblem ? `<p class="field-error">${html(reason)}</p>` : ""}

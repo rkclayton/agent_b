@@ -631,7 +631,15 @@ function fillFromPickedModel(id, model) {
     drafts.set(prefix + "label", displayName);
     draftKinds.set(prefix + "label", "text");
   }
-  applyProposedValues(id, probeMessages.get(id));
+  const discovered = probeMessages.get(id) || {};
+  const known = (connection.models || []).some((item) => item.model === model);
+  const modelDefaults = discovered.modelDefaults?.[model];
+  if (!known && modelDefaults) {
+    drafts.set(prefix + "context.n_ctx", String(modelDefaults.context.n_ctx));
+    draftKinds.set(prefix + "context.n_ctx", "number");
+    drafts.set(prefix + "context.reserve_output", String(modelDefaults.context.reserve_output));
+    draftKinds.set(prefix + "context.reserve_output", "number");
+  }
   render();
 }
 
@@ -757,7 +765,7 @@ async function listConnectionModels(id) {
   if (!base_url) return;
   try {
     const listed = await api(`/api/connections/${encodeURIComponent(id)}/models`, { base_url, api_key: current(`${prefix}api_key`, "") });
-    probeMessages.set(id, { ...(probeMessages.get(id) || {}), models: listed.models || [], modelListError: "" });
+    probeMessages.set(id, { ...(probeMessages.get(id) || {}), models: listed.models || [], modelDefaults: listed.model_defaults || {}, modelListError: "" });
     if (open) render();
   } catch (error) {
 	probeMessages.set(id, { ...(probeMessages.get(id) || {}), models: [], modelListError: String(error.message || error) });

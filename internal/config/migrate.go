@@ -322,6 +322,42 @@ func migrateOperatorIdleTimeout(data []byte, version int) (bool, bool, []byte, e
 	return true, remapped, out, err
 }
 
+// migrateConnectionModels moves the last flat, one-model connection shape into
+// its one nested model entry. Server fields remain exactly where they were.
+func migrateConnectionModels(data []byte, version int) (bool, []byte, error) {
+	if version >= 13 {
+		return false, data, nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return false, nil, err
+	}
+	var connections []map[string]json.RawMessage
+	if value := raw["connections"]; value != nil {
+		if err := json.Unmarshal(value, &connections); err != nil {
+			return false, nil, fmt.Errorf("migrate connection models: %w", err)
+		}
+	}
+	modelKeys := []string{"attachment_handling", "reads_images", "sampling", "reasoning", "context", "system_prompt_override", "capabilities", "measurement"}
+	for _, connection := range connections {
+		if connection["models"] != nil {
+			continue
+		}
+		model := map[string]json.RawMessage{"model": connection["model"]}
+		for _, key := range modelKeys {
+			if value := connection[key]; value != nil {
+				model[key] = value
+				delete(connection, key)
+			}
+		}
+		connection["models"], _ = json.Marshal([]map[string]json.RawMessage{model})
+	}
+	raw["connections"], _ = json.Marshal(connections)
+	raw["config_version"], _ = json.Marshal(CurrentConfigVersion)
+	out, err := json.Marshal(raw)
+	return true, out, err
+}
+
 func migrateV1(data []byte) (bool, []byte, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -444,6 +480,19 @@ func migrateModelPlaceholder(data []byte, version int) ([]string, []byte, error)
 			continue
 		}
 		connection["model"], _ = json.Marshal("")
+		if modelsRaw := connection["models"]; modelsRaw != nil {
+			var models []map[string]json.RawMessage
+			if err := json.Unmarshal(modelsRaw, &models); err != nil {
+				return nil, nil, fmt.Errorf("migrate connection model entries: %w", err)
+			}
+			for _, entry := range models {
+				var entryModel string
+				if err := json.Unmarshal(entry["model"], &entryModel); err == nil && !ModelChosen(entryModel) && strings.TrimSpace(entryModel) != "" {
+					entry["model"], _ = json.Marshal("")
+				}
+			}
+			connection["models"], _ = json.Marshal(models)
+		}
 		id := ""
 		if connection["id"] != nil {
 			_ = json.Unmarshal(connection["id"], &id)

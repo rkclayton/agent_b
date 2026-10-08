@@ -894,6 +894,7 @@ func TestLoadMigratesLegacyConnectionListWithoutFieldLoss(t *testing.T) {
 	want.Capabilities.Server, want.Capabilities.Streaming, want.Capabilities.ToolCalls = "openai-compatible", true, true
 	want.Capabilities.DocumentInput, want.Capabilities.ImageInput, want.Capabilities.Vision = true, true, VisionReadsImages
 	want.Capabilities.OverflowBehavior = "unknown"
+	want.StoreActiveModel()
 	cfg.Connections = []Connection{want}
 	cfg.Agents[0].B = want.ID
 
@@ -1070,9 +1071,24 @@ func TestSchema4ModelConnectionsMigrateWithUTF8BOM(t *testing.T) {
 	delete(document, "roles")
 	for _, raw := range document["connections"].([]any) {
 		connection := raw.(map[string]any)
-		context := connection["context"].(map[string]any)
-		context["n_ctx_override"] = context["n_ctx"]
-		delete(context, "n_ctx")
+		models, _ := connection["models"].([]any)
+		if len(models) > 0 {
+			for key, value := range models[0].(map[string]any) {
+				if key != "model" {
+					connection[key] = value
+				}
+			}
+		}
+		delete(connection, "models")
+		if context, ok := connection["context"].(map[string]any); ok {
+			context["n_ctx_override"] = context["n_ctx"]
+			delete(context, "n_ctx")
+		}
+		if connection["id"] == "acme" {
+			connection["model"] = "model"
+			connection["context"] = map[string]any{"n_ctx_override": float64(16384), "reserve_output": float64(DefaultReserveOutput)}
+			connection["capabilities"] = map[string]any{"n_ctx": float64(32768), "tool_calls": true, "streaming": true, "overflow_behavior": "error"}
+		}
 		connection["api_key"] = ""
 		delete(connection, "credential")
 	}
@@ -1190,9 +1206,21 @@ func TestSchema4APIKeyMovesToNamedDPAPIStore(t *testing.T) {
 	}
 	delete(document, "roles")
 	connection := document["connections"].([]any)[0].(map[string]any)
+	if models, _ := connection["models"].([]any); len(models) > 0 {
+		for key, value := range models[0].(map[string]any) {
+			if key != "model" {
+				connection[key] = value
+			}
+		}
+	}
+	delete(connection, "models")
 	connection["api_key"] = "migration-secret"
 	delete(connection, "credential")
-	context := connection["context"].(map[string]any)
+	context, ok := connection["context"].(map[string]any)
+	if !ok {
+		context = map[string]any{"n_ctx": float64(8192), "reserve_output": float64(DefaultReserveOutput)}
+		connection["context"] = context
+	}
 	context["n_ctx_override"] = context["n_ctx"]
 	delete(context, "n_ctx")
 	data, err = json.Marshal(document)

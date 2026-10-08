@@ -171,6 +171,73 @@ func postConfigPatch(t *testing.T, server *Server, body string) *httptest.Respon
 	return response
 }
 
+func TestPickingModelsThroughConfigKeepsTheirOwnSettings2s5(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	cfg := config.Defaults(root)
+	connection := runnableTestConnection("local")
+	connection.Model = "first"
+	connection.Context.NCtx, connection.Context.ReserveOutput = 32000, 4000
+	connection.Measurement = &config.Measurement{Passed: 1, Total: 2}
+	connection.StoreActiveModel()
+	connection.SelectModel("second", 128000)
+	connection.Context.NCtx = 96000
+	connection.Measurement = &config.Measurement{Passed: 2, Total: 2}
+	connection.StoreActiveModel()
+	connection.SelectModel("first", 0)
+	cfg.Connections = []config.Connection{connection}
+	cfg.Agents = []config.Agent{{Name: "Fixture", B: "local", Toolset: config.FullToolset()}}
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+
+	if response := postConfigPatch(t, server, `{"connections":[{"id":"local","model":"second"}]}`); response.Code != http.StatusOK {
+		t.Fatalf("pick second: %d %s", response.Code, response.Body)
+	}
+	second, _ := server.Connection("local")
+	if second.Context.NCtx != 96000 || second.Measurement == nil || second.Measurement.Passed != 2 {
+		t.Fatalf("second=%+v", second)
+	}
+	if response := postConfigPatch(t, server, `{"connections":[{"id":"local","context":{"n_ctx":88000}}]}`); response.Code != http.StatusOK {
+		t.Fatalf("edit second: %d %s", response.Code, response.Body)
+	}
+	secondResult := &config.Measurement{Passed: 3, Total: 3, Decision: &config.ReasoningDecision{Enabled: false, ReasoningCap: 777}}
+	if err := server.storeMeasurement("local", secondResult); err != nil {
+		t.Fatal(err)
+	}
+	recommended := httptest.NewRecorder()
+	server.connection(recommended, httptest.NewRequest(http.MethodPost, "/api/connections/local/recommended", nil))
+	if recommended.Code != http.StatusOK || !strings.Contains(recommended.Body.String(), `"reasoning.max_tokens":777`) {
+		t.Fatalf("recommended second: %d %s", recommended.Code, recommended.Body)
+	}
+	if response := postConfigPatch(t, server, `{"connections":[{"id":"local","model":"first"}]}`); response.Code != http.StatusOK {
+		t.Fatalf("pick first: %d %s", response.Code, response.Body)
+	}
+	first, _ := server.Connection("local")
+	if first.Context.NCtx != 32000 || first.Measurement == nil || first.Measurement.Passed != 1 || first.Measurement.Decision != nil {
+		t.Fatalf("first=%+v", first)
+	}
+	first.SelectModel("second", 0)
+	if first.Context.NCtx != 88000 || first.Measurement == nil || first.Measurement.Passed != 3 || first.Measurement.Decision == nil || first.Measurement.Decision.ReasoningCap != 777 {
+		t.Fatalf("stored second=%+v", first)
+	}
+
+	persisted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Connections []map[string]json.RawMessage `json:"connections"`
+	}
+	if err := json.Unmarshal(persisted, &document); err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Connections) != 1 || document.Connections[0]["models"] == nil || document.Connections[0]["context"] != nil || document.Connections[0]["measurement"] != nil {
+		t.Fatalf("model settings were not nested: %s", persisted)
+	}
+}
+
 // Item 2nq (b) and (e): the placeholder is never written back, and a refusal NAMES the
 // connection it is about. The operator's config carried "model" on two connections and
 // every fix so far only stopped new ones getting it; writing it back is how it stayed.

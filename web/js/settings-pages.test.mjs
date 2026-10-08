@@ -365,15 +365,45 @@ test("the controller mounts the one waiting element into that seat, determinate"
 	assert.match(controller, /walking: null/);
 });
 
-// (d): picking a model fills the rest, and never overwrites a label the operator chose.
-test("picking a model proposes the label only when the connection was never named", () => {
+// 2s5: picking a model uses that model's catalog defaults and never overwrites
+// either a named connection or settings already stored for that model.
+test("picking a model keeps saved values and uses only its own catalog defaults", () => {
 	const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
 	const filler = controller.slice(controller.indexOf("function fillFromPickedModel"), controller.indexOf("function applyProposedValues"));
 	assert.match(filler, /!drafts\.has\(prefix \+ "label"\)/, "a label edited this session is not protected");
 	assert.match(filler, /!connection\.label \|\| connection\.label === connection\.id/, "a label the operator chose is not protected");
-	assert.match(filler, /applyProposedValues\(id, probeMessages\.get\(id\)\)/, "the values Test learned are not re-proposed");
+	assert.match(filler, /\(connection\.models \|\| \[\]\)\.some\(\(item\) => item\.model === model\)/, "the selected model's saved values are not checked");
+	assert.match(filler, /discovered\.modelDefaults\?\.\[model\]/, "the selected model's catalog values are not read");
+	assert.match(filler, /!known && modelDefaults/, "catalog defaults can overwrite stored model settings");
+	assert.doesNotMatch(filler, /applyProposedValues/, "another model's Test result is re-proposed");
 	// The display name, not the path: a file-based model must not put a path in the label.
 	assert.ok(filler.includes("split(/[\\\\/]/"), "the display name is not split on either separator");
+});
+
+test("the model picker immediately renders the selected model's own settings", () => {
+  const context = pageContext();
+  const base = {
+    id: "local", label: "Local", base_url: "http://local/", model: "first",
+    sampling: { thinking: { temperature: 0.1 }, nonthinking: { temperature: 0.2 } },
+    context: { n_ctx: 32000, reserve_output: 4000 },
+    reasoning: { enabled: true, effort: "medium", valid_efforts: [] }, capabilities: {},
+    models: [{
+      model: "second", attachment_handling: "auto", reads_images: false,
+      sampling: { thinking: { temperature: 0.6 }, nonthinking: { temperature: 0.7 } },
+      context: { n_ctx: 96000, reserve_output: 12000 },
+      reasoning: { enabled: false, effort: "high", valid_efforts: ["high"] },
+      capabilities: {}, measurement: { passed: 2, total: 2 },
+    }],
+  };
+  context.connectionList = () => [base];
+  context.expanded.add("local");
+  context.drafts.set("connections.local.model", "second");
+  context.number = (path, label, value) => `${path}|${label}|${value}`;
+  context.numberControl = (path, value) => `${path}|${value}`;
+  const page = renderConnectionsPage(context);
+  assert.match(page, /connections\.local\.context\.reserve_output\|reserve\|12000/);
+  assert.match(page, /connections\.local\.sampling\.thinking\.temperature\|0\.6/);
+  assert.match(page, /2\/2 passed/);
 });
 
 // Item 2nc (a) and (d): THE OPERATOR'S CASE. A collapsed row, a connection held by a

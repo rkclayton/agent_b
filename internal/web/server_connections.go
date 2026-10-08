@@ -406,7 +406,7 @@ func (s *Server) queryConnectionModels(w http.ResponseWriter, r *http.Request, i
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(max(5, tested.RequestTimeoutS))*time.Second)
 	defer cancel()
-	models, err := llm.New(&tested).Models(ctx)
+	catalog, err := llm.New(&tested).ModelCatalog(ctx)
 	queried := strings.TrimRight(tested.BaseURL, "/")
 	if strings.HasSuffix(strings.ToLower(queried), "/v1") {
 		queried += "/models"
@@ -421,7 +421,13 @@ func (s *Server) queryConnectionModels(w http.ResponseWriter, r *http.Request, i
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("Query models failed for %s: %v (%s).", queried, err, keyState), "connections."+id+".model")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"models": models, "url": queried, "key_sent": tested.APIKey != "", "message": fmt.Sprintf("%d model(s) from %s (%s)", len(models), queried, keyState)})
+	models := make([]string, 0, len(catalog))
+	defaults := map[string]config.ConnectionModel{}
+	for _, entry := range catalog {
+		models = append(models, entry.ID)
+		defaults[entry.ID] = config.NewConnectionModel(entry.ID, entry.ContextLength)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models, "model_defaults": defaults, "url": queried, "key_sent": tested.APIKey != "", "message": fmt.Sprintf("%d model(s) from %s (%s)", len(models), queried, keyState)})
 }
 
 // recommendConnection returns draft values and their evidence. It performs only

@@ -283,27 +283,54 @@ func (u *Updates) UnmarshalJSON(data []byte) error {
 }
 
 type Connection struct {
-	ID                   string       `json:"id"`
-	Label                string       `json:"label"`
-	BaseURL              string       `json:"base_url"`
-	ExtractURL           string       `json:"extract_url"`
+	ID                   string            `json:"id"`
+	Label                string            `json:"label"`
+	BaseURL              string            `json:"base_url"`
+	ExtractURL           string            `json:"extract_url"`
+	AttachmentHandling   string            `json:"-"`
+	ReadsImages          bool              `json:"-"`
+	Model                string            `json:"model"`
+	Credential           string            `json:"credential"`
+	APIKey               string            `json:"api_key,omitempty"`
+	RequestTimeoutS      int               `json:"request_timeout_s"`
+	ProbeMode            string            `json:"probe_mode"`
+	Sampling             SamplingPair      `json:"-"`
+	Reasoning            Reasoning         `json:"-"`
+	Context              Context           `json:"-"`
+	SystemPromptOverride string            `json:"-"`
+	Capabilities         Capabilities      `json:"-"`
+	Measurement          *Measurement      `json:"-"`
+	Models               []ConnectionModel `json:"-"`
+	// MaxConcurrent is how many runs this server serves at once (items 2fc, 2s5);
+	// zero means one. The global run.max_concurrent still caps the total.
+	MaxConcurrent int `json:"max_concurrent,omitempty"`
+	initialized   bool
+	exposeActive  bool
+}
+
+// ConnectionModel holds every value whose truth depends on which model answers.
+// The fields duplicated on Connection are the resolved active-model view used by
+// the run loop; only this nested form is persisted.
+type ConnectionModel struct {
+	Model                string       `json:"model"`
 	AttachmentHandling   string       `json:"attachment_handling"`
 	ReadsImages          bool         `json:"reads_images"`
-	Model                string       `json:"model"`
-	Credential           string       `json:"credential"`
-	APIKey               string       `json:"api_key,omitempty"`
-	RequestTimeoutS      int          `json:"request_timeout_s"`
-	ProbeMode            string       `json:"probe_mode"`
 	Sampling             SamplingPair `json:"sampling"`
 	Reasoning            Reasoning    `json:"reasoning"`
 	Context              Context      `json:"context"`
 	SystemPromptOverride string       `json:"system_prompt_override"`
 	Capabilities         Capabilities `json:"capabilities"`
 	Measurement          *Measurement `json:"measurement,omitempty"`
-	// MaxConcurrent is how many runs this model serves at once (item 2fc);
-	// zero means one. The global run.max_concurrent still caps the total.
-	MaxConcurrent int `json:"max_concurrent,omitempty"`
-	initialized   bool
+}
+
+func (m *ConnectionModel) UnmarshalJSON(data []byte) error {
+	type plain ConnectionModel
+	value := plain(defaultConnectionModel(""))
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*m = ConnectionModel(value)
+	return nil
 }
 
 // Measurement is the optional, bounded setup-wizard capability run. It is
@@ -375,6 +402,23 @@ func defaultConnection() Connection {
 	}
 }
 
+func defaultConnectionModel(model string) ConnectionModel {
+	value := defaultConnection()
+	return ConnectionModel{Model: model, AttachmentHandling: value.AttachmentHandling, ReadsImages: value.ReadsImages, Sampling: value.Sampling, Reasoning: value.Reasoning, Context: value.Context, Capabilities: value.Capabilities}
+}
+
+// NewConnectionModel returns the shipped settings for a model, enriched only
+// with context metadata the server published.
+func NewConnectionModel(model string, publishedContext int) ConnectionModel {
+	value := defaultConnectionModel(model)
+	if publishedContext > 0 {
+		value.Context.NCtx = publishedContext
+		value.Context.ReserveOutput = ReserveOutputFor(publishedContext)
+		value.Capabilities.NCtx = publishedContext
+	}
+	return value
+}
+
 func (p Connection) NativeImageInput() bool {
 	return p.ReadsImages && p.AttachmentHandling != "extract"
 }
@@ -397,12 +441,150 @@ func (p *Connection) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &stored); err != nil {
 		return err
 	}
-	if _, present := stored["reads_images"]; !present {
-		value.ReadsImages = value.Capabilities.ProbedAt == "" || value.Capabilities.Vision == VisionReadsImages
+	var nested struct {
+		Models []ConnectionModel `json:"models"`
 	}
+	if err := json.Unmarshal(data, &nested); err != nil {
+		return err
+	}
+	legacy := defaultConnectionModel(value.Model)
+	for _, candidate := range nested.Models {
+		if candidate.Model == value.Model {
+			legacy = candidate
+			break
+		}
+	}
+	type plainModel ConnectionModel
+	legacyOverlay := plainModel(legacy)
+	if err := json.Unmarshal(data, &legacyOverlay); err != nil {
+		return err
+	}
+	legacy = ConnectionModel(legacyOverlay)
+	if _, present := stored["reads_images"]; !present && len(nested.Models) == 0 {
+		legacy.ReadsImages = legacy.Capabilities.ProbedAt == "" || legacy.Capabilities.Vision == VisionReadsImages
+	}
+	value.Models = nested.Models
 	*p = Connection(value)
+	legacyPresent := false
+	for _, key := range []string{"attachment_handling", "reads_images", "sampling", "reasoning", "context", "system_prompt_override", "capabilities", "measurement"} {
+		if _, present := stored[key]; present {
+			legacyPresent = true
+			break
+		}
+	}
+	if len(p.Models) == 0 && ModelChosen(p.Model) {
+		legacy.Model = p.Model
+		p.Models = []ConnectionModel{legacy}
+	} else if legacyPresent && ModelChosen(p.Model) {
+		legacy.Model = p.Model
+		found := false
+		for index := range p.Models {
+			if p.Models[index].Model == p.Model {
+				p.Models[index], found = legacy, true
+				break
+			}
+		}
+		if !found {
+			p.Models = append(p.Models, legacy)
+		}
+	}
+	p.loadActiveModel(legacy)
 	p.initialized = true
 	return nil
+}
+
+func (p Connection) activeModel() ConnectionModel {
+	for _, model := range p.Models {
+		if model.Model == p.Model {
+			return model
+		}
+	}
+	return defaultConnectionModel(p.Model)
+}
+
+func (p *Connection) loadActiveModel(fallback ConnectionModel) {
+	model := fallback
+	for _, candidate := range p.Models {
+		if candidate.Model == p.Model {
+			model = candidate
+			break
+		}
+	}
+	p.AttachmentHandling, p.ReadsImages = model.AttachmentHandling, model.ReadsImages
+	p.Sampling, p.Reasoning, p.Context = model.Sampling, model.Reasoning, model.Context
+	p.SystemPromptOverride, p.Capabilities, p.Measurement = model.SystemPromptOverride, model.Capabilities, model.Measurement
+}
+
+// StoreActiveModel commits the resolved view before a connection is copied or
+// saved. It updates one bounded entry and never walks any other collection.
+func (p *Connection) StoreActiveModel() {
+	if !ModelChosen(p.Model) {
+		return
+	}
+	model := ConnectionModel{Model: p.Model, AttachmentHandling: p.AttachmentHandling, ReadsImages: p.ReadsImages, Sampling: p.Sampling, Reasoning: p.Reasoning, Context: p.Context, SystemPromptOverride: p.SystemPromptOverride, Capabilities: p.Capabilities, Measurement: p.Measurement}
+	for index := range p.Models {
+		if p.Models[index].Model == p.Model {
+			p.Models[index] = model
+			return
+		}
+	}
+	p.Models = append(p.Models, model)
+}
+
+// SelectModel preserves the old model and resolves or creates the selected one.
+func (p *Connection) SelectModel(model string, publishedContext int) {
+	oldModel := p.Model
+	p.StoreActiveModel()
+	p.Model = model
+	for _, candidate := range p.Models {
+		if candidate.Model == model {
+			p.loadActiveModel(candidate)
+			return
+		}
+	}
+	if !ModelChosen(oldModel) {
+		for index := range p.Models {
+			if p.Models[index].Model == oldModel {
+				p.Models[index].Model = model
+				p.loadActiveModel(p.Models[index])
+				return
+			}
+		}
+	}
+	next := NewConnectionModel(model, publishedContext)
+	p.Models = append(p.Models, next)
+	p.loadActiveModel(next)
+}
+
+func (p Connection) MarshalJSON() ([]byte, error) {
+	copy := p
+	copy.StoreActiveModel()
+	type plain Connection
+	data, err := json.Marshal(struct {
+		plain
+		Models []ConnectionModel `json:"models"`
+	}{plain(copy), copy.Models})
+	if err != nil || !p.exposeActive {
+		return data, err
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		return nil, err
+	}
+	active, err := json.Marshal(copy.activeModel())
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(active, &fields); err != nil {
+		return nil, err
+	}
+	for key, value := range fields {
+		if key != "model" {
+			document[key] = value
+		}
+	}
+	return json.Marshal(document)
 }
 
 type SamplingPair struct{ Thinking, Nonthinking Sampling }
@@ -565,7 +747,7 @@ func (d *Deliver) UnmarshalJSON(data []byte) error {
 }
 
 const (
-	CurrentConfigVersion = 12
+	CurrentConfigVersion = 13
 	DefaultReserveOutput = 10240
 	// MaxProposedReserveOutput caps what a probe proposes. Item 2l9 (c).
 	MaxProposedReserveOutput = 32768
@@ -843,7 +1025,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		return nil, false, created, fmt.Errorf("run.max_tool_calls: zero is not unlimited; omit it for the default %d or use a positive backstop", DefaultMaxToolCalls)
 	}
 	unstamped := metadata.ConfigVersion == nil
-	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != 6 && *metadata.ConfigVersion != 7 && *metadata.ConfigVersion != 8 && *metadata.ConfigVersion != 9 && *metadata.ConfigVersion != 10 && *metadata.ConfigVersion != 11 && *metadata.ConfigVersion != CurrentConfigVersion {
+	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != 6 && *metadata.ConfigVersion != 7 && *metadata.ConfigVersion != 8 && *metadata.ConfigVersion != 9 && *metadata.ConfigVersion != 10 && *metadata.ConfigVersion != 11 && *metadata.ConfigVersion != 12 && *metadata.ConfigVersion != CurrentConfigVersion {
 		return nil, false, created, fmt.Errorf("config_version: unsupported value %d (current %d)", *metadata.ConfigVersion, CurrentConfigVersion)
 	}
 	migrated, data, err := migrateV1(data)
@@ -871,6 +1053,10 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		return nil, false, created, err
 	}
 	agentsMigrated, data, err := migrateAgentObjects(data, version)
+	if err != nil {
+		return nil, false, created, err
+	}
+	connectionModelsMigrated, data, err := migrateConnectionModels(data, version)
 	if err != nil {
 		return nil, false, created, err
 	}
@@ -919,7 +1105,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if err := ResolveConnectionCredentials(&cfg, dataRoot); err != nil {
 		return nil, false, created, err
 	}
-	if migrated || connectionKeyMigrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || unstamped {
+	if migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || unstamped {
 		if err := cfg.Save(path); err != nil {
 			return nil, false, created, err
 		}
@@ -944,7 +1130,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if len(placeholderCleared) > 0 {
 		cfg.LoadNotices = append(cfg.LoadNotices, ModelPlaceholderMigrationNotice+strings.Join(placeholderCleared, ", "))
 	}
-	return &cfg, migrated || connectionKeyMigrated || schemaMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated, created, nil
+	return &cfg, migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated, created, nil
 }
 
 func (c Config) Save(path string) error {
@@ -1665,6 +1851,7 @@ func (c Config) Masked() Config {
 	out.Connections = make([]Connection, len(c.Connections))
 	copy(out.Connections, c.Connections)
 	for i := range out.Connections {
+		out.Connections[i].exposeActive = true
 		if out.Connections[i].APIKey != "" {
 			out.Connections[i].APIKey = "•••• set"
 		}

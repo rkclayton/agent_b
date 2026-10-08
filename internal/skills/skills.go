@@ -60,8 +60,6 @@ func EnsureIncluded(root string) error {
 	return nil
 }
 
-// Load returns the user copy when one exists and otherwise the shipped copy.
-// The state path is present only for a skill that declares state: true.
 func Load(root, stateRoot, name string) (body, skillPath, statePath string, err error) {
 	if !validName.MatchString(name) {
 		return "", "", "", fmt.Errorf("invalid skill name %q", name)

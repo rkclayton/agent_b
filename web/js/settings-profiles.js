@@ -22,7 +22,7 @@ export function renderProfilesPage(context) {
     const label = note.replace("about-agent: yes", "about the agent");
     return `<div class="setting-row"><label>${html(label)}</label><div><button type="button" data-action="remove-agent-memory" data-id="${attr(note)}" data-confirm="this memory note">Remove</button></div></div>`;
   }).join("") : '<p class="settings-note inline">No agent-layer memory entries.</p>';
-  const skills = (store.skills || []).map((skill) => `<div class="setting-row" title="${attr((skill.warnings || []).join(" · ") || skill.reason || "Profile skill")}">
+  const skills = (store.skills || []).map((skill) => `<div class="setting-row skill-row" title="${attr((skill.warnings || []).join(" · ") || skill.reason || "Profile skill")}">
     <label><strong>${html(skill.name || "invalid")}</strong><span class="settings-note inline">${html(skill.description || skill.reason || "invalid")}</span></label>
     <div class="settings-actions"><span>${html(skill.source)} · ${skill.index_tokens || 0} tokens · last read ${html(skill.last_read || "never")}${skill.valid ? "" : ` · invalid: ${html(skill.reason)}`}</span><button type="button" role="switch" aria-checked="${!!skill.enabled}" class="switch ${skill.enabled ? "on" : ""}" data-action="skill-toggle" data-id="${attr(skill.name)}" data-value="${skill.enabled ? "false" : "true"}" ${skill.valid ? "" : "disabled"}></button></div>
   </div>`).join("");

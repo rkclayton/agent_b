@@ -1409,6 +1409,9 @@
 	grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px 24px;
 }
+.skill-row { grid-template-columns: minmax(0, 1fr) auto; align-items: start; padding: 4px 0; }
+.skill-row > label > * { display: block; }
+.skill-row > label strong { color: var(--ink); margin-bottom: 2px; }
 .connection-evaluation,
 .connection-defaults,
 .connection-primary { grid-column: 1 / -1; }
@@ -1718,6 +1721,7 @@
   .connection-fields {
     grid-template-columns: 1fr;
   }
+  .skill-row { grid-template-columns: minmax(0, 1fr); }
   .connection-primary { grid-template-columns: 1fr; }
   .connection-sampling,
   .connection-capabilities {

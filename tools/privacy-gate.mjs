@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { deflateSync, inflateSync } from "node:zlib";
 
 const repo = path.resolve(import.meta.dirname, "..");
 const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 1 << 28 });
@@ -117,11 +118,26 @@ export function reportFindings(findings) {
   return findings.length ? 1 : 0;
 }
 
+function decodedSection(name, data) {
+  return name.startsWith(".zdebug_") && data.subarray(0, 4).toString() === "ZLIB" ? inflateSync(data.subarray(12)) : data;
+}
+
 export function scanBinary(files, terms) {
   const findings = [];
   for (const file of files) {
     const bytes = fs.readFileSync(file);
-    const forms = [bytes.toString("latin1").toLowerCase(), bytes.toString("utf16le").toLowerCase()];
+    let payloads = [bytes];
+    if (bytes.subarray(0, 2).toString() === "MZ") {
+      const pe = bytes.readUInt32LE(0x3c), count = bytes.readUInt16LE(pe + 6), symbols = bytes.readUInt32LE(pe + 12), symbolCount = bytes.readUInt32LE(pe + 16), optional = bytes.readUInt16LE(pe + 20), table = pe + 24 + optional, strings = symbols + symbolCount * 18;
+      payloads = Array.from({ length: count }, (_, index) => {
+        const at = table + index * 40, raw = bytes.subarray(at, at + 8).toString("ascii").replace(/\0.*$/, ""), offset = bytes.readUInt32LE(at + 20), size = bytes.readUInt32LE(at + 16);
+        let name = raw;
+        if (/^\/\d+$/.test(raw)) { const start = strings + Number(raw.slice(1)), end = bytes.indexOf(0, start); name = bytes.subarray(start, end).toString("ascii"); }
+        const data = bytes.subarray(offset, offset + size);
+        return decodedSection(name, data);
+      });
+    }
+    const forms = payloads.flatMap((payload) => [payload.toString("latin1").toLowerCase(), payload.toString("utf16le").toLowerCase()]);
     for (const { term, listLine } of terms) {
       if (forms.some((text) => {
         for (let at = text.indexOf(term); at >= 0; at = text.indexOf(term, at + Math.max(1, term.length))) if (termOccursAt(text, term, at)) return true;
@@ -130,7 +146,7 @@ export function scanBinary(files, terms) {
     }
     for (const [index, text] of forms.entries()) {
       const withoutDensityAssets = text.replace(/[a-z0-9._-]+@\d+x\.png/gi, "");
-      findings.push(...generalFindings(path.basename(file), withoutDensityAssets, 0).map((finding) => ({ ...finding, rule: `${finding.rule}-bytes-${index + 1}` })));
+      findings.push(...generalFindings(path.basename(file), withoutDensityAssets, 0).map((finding) => ({ ...finding, rule: `${finding.rule}-bytes-${index % 2 + 1}` })));
     }
   }
   return findings;
@@ -143,7 +159,8 @@ function selfTest() {
     { name: "source.go", text: [["C:", "Users", "NotAStandIn", "x"].join("\\"), ["someone", "invalid.test"].join("@"), [100, 65, 2, 3].join("."), privateWord].join("\n") },
     { name: "clean.go", text: "C:\\Users\\someone\\x\nsomeone@example.org\n100.64.0.10\n" },
   ];
-  return scanTextEntries(entries, terms).length === 4;
+  const packed = Buffer.concat([Buffer.from("ZLIB"), Buffer.alloc(8), deflateSync(Buffer.from(privateWord))]);
+  return scanTextEntries(entries, terms).length === 4 && decodedSection(".zdebug_info", packed).toString() === privateWord;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {

@@ -124,6 +124,8 @@ try {
     $repository = Join-Path $disposable 'repo'
     $worktree = Join-Path $disposable 'worktree'
     & $git init -q $repository
+    $null = New-Item -ItemType Directory -Path (Join-Path $repository 'scripts')
+    Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1') -Destination (Join-Path $repository 'scripts\removal-guard.ps1')
     & $git -C $repository -c user.name=guard -c user.email=someone@example.org commit -q --allow-empty -m guard
     & $git -C $repository worktree add -q $worktree HEAD 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'could not create the disposable worktree' }

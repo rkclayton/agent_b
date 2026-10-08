@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -440,6 +441,19 @@ test("no script passes a PowerShell switch as quoted text", async () => {
 test("the client-terms gate catches a planted term", () => {
   const output = execFileSync(process.execPath, [join(repoRoot, "tools", "check-client-terms.mjs"), "--self-test"]).toString();
   assert.match(output, /a planted term was caught/);
+});
+
+test("the client-terms gate scans publishable paths, not checkout parent folders", async () => {
+  const { publicationEntry } = await import("../tools/check-client-terms.mjs");
+  const { scanTextEntries } = await import("../tools/privacy-gate.mjs");
+  const term = ["listed", "standin"].join("-"), terms = [{ term, listLine: 1 }], outside = await mkdtemp(join(tmpdir(), "agentb-terms-")), root = join(outside, term, "repository");
+  try {
+    await mkdir(root, { recursive: true });
+    const findings = async (name, text) => { const file = join(root, name); await writeFile(file, text); return scanTextEntries([publicationEntry(file, root)], terms).map(({ name: found, rule }) => ({ name: found, rule })); };
+    assert.deepEqual(await findings("clean.txt", "publishable bytes\n"), []);
+    assert.deepEqual(await findings("content.txt", `publishable ${term} bytes\n`), [{ name: "content.txt", rule: "outside-list" }]);
+    assert.deepEqual(await findings(`${term}.txt`, "publishable bytes\n"), [{ name: "path-name", rule: "outside-list" }]);
+  } finally { await rm(outside, { recursive: true, force: true }); }
 });
 
 // rel-1.42.0 Misses: the tag is refused unless buildinfo and the installer name it.

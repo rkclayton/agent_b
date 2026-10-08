@@ -127,8 +127,21 @@ function expectPrepareFailure(root, candidate, pattern) {
   preparePublication({ root, candidate });
   fs.writeFileSync(path.join(root, "PLAN.md"), fs.readFileSync(path.join(root, "PLAN.md"), "utf8").replace("TEST/W0 completed 12:00", "TEST/W1 started 12:01"));
   const before = activeBytes(root);
-  assert.throws(() => publishPublication({ root, candidate }), /worker is active in W1/);
+  assert.throws(() => publishPublication({ root, candidate }), (error) => {
+    assert.match(error.message, /worker is active in W1/);
+    assert.match(error.message, /"TEST\/W1 started 12:01"/);
+    assert.match(error.message, /TEST\/W1 completed/);
+    assert.match(error.message, /TEST\/W1 stopped/);
+    return true;
+  });
   assert.deepEqual(activeBytes(root), before, "running-worker refusal must leave active state byte-unchanged");
+}
+
+{
+  const root = makeRoot(); fs.writeFileSync(path.join(root, "PLAN.md"), fs.readFileSync(path.join(root, "PLAN.md"), "utf8").replace("TEST/W0 completed 12:00", "TEST/W1 started 12:01\nTEST/W1 completed 12:02"));
+  const candidate = makeCandidate(root, "- W1 **2a existing work.**");
+  preparePublication({ root, candidate });
+  assert.doesNotThrow(() => publishPublication({ root, candidate }));
 }
 
 {

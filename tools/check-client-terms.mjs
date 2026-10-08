@@ -53,6 +53,13 @@ function releaseEntries() {
   });
 }
 
+export function publicationEntry(file, root = repo) {
+  const full = path.resolve(file);
+  const relative = path.relative(path.resolve(root), full);
+  const inside = relative && !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`);
+  return { name: (inside ? relative : path.basename(full)).replaceAll("\\", "/"), text: fs.readFileSync(full, "utf8") };
+}
+
 function selfTest() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "client-terms-"));
   try {
@@ -77,7 +84,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
   let list;
   try { list = resolveOutsideList(); }
   catch { console.error("CLIENT TERMS: the outside deny-list is required on this PC"); process.exit(2); }
-  const entries = [...trackedEntries(), ...args.filter((arg) => !arg.startsWith("--")).map((name) => ({ name, text: fs.readFileSync(name, "utf8") })), ...(args.includes("--releases") ? releaseEntries() : [])];
+  const entries = [...trackedEntries(), ...args.filter((arg) => !arg.startsWith("--")).map((name) => publicationEntry(name)), ...(args.includes("--releases") ? releaseEntries() : [])];
   const findings = scanTextEntries(entries, loadPrivacyTerms(list));
   for (const finding of findings) console.error(`CLIENT TERMS: ${finding.name}:${finding.line} rule=${finding.rule}${finding.listLine ? ` list-line=${finding.listLine}` : ""}`);
   console.log(`CLIENT TERMS: ${entries.length} file(s) and page(s) scanned, ${findings.length} finding(s)`);

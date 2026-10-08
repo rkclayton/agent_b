@@ -149,13 +149,17 @@ export function workerStopped(planText, itemContents = []) {
   if (!orderId) return { stopped: false, reason: "published plan has no Order ID" };
   const inFlight = markerText(planText, itemContents);
   const escaped = orderId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const active = new Set();
-  const markers = new RegExp(`^(?:-\\s*)?${escaped}/(W\\d+)\\s+(started|completed|stopped)\\b`, "gmi");
+  const active = new Map();
+  const markers = new RegExp(`^(?:-\\s*)?${escaped}/(W\\d+)\\s+(started|completed|stopped)\\b[^\\r\\n]*`, "gmi");
   for (const match of inFlight.matchAll(markers)) {
-    if (match[2].toLowerCase() === "started") active.add(match[1].toUpperCase());
-    else active.delete(match[1].toUpperCase());
+    const window = match[1].toUpperCase();
+    if (match[2].toLowerCase() === "started") active.set(window, match[0]);
+    else active.delete(window);
   }
-  return active.size ? { stopped: false, reason: `worker is active in ${[...active].join(", ")}` } : { stopped: true, reason: "no started-without-completion marker" };
+  if (!active.size) return { stopped: true, reason: "no started-without-completion marker" };
+  const windows = [...active.keys()];
+  const details = [...active].map(([window, line]) => `open marker ${JSON.stringify(line)}; close it with "${orderId}/${window} completed ..." or "${orderId}/${window} stopped ..."`).join("; ");
+  return { stopped: false, reason: `worker is active in ${windows.join(", ")}; ${details}` };
 }
 
 function validationFailure(errors) {

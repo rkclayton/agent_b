@@ -1,6 +1,7 @@
 package web
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -542,12 +543,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if body.Label != nil {
-			if item, ok := s.registry.Get(id); ok && item.Snapshot().Scratch {
-				if _, err := s.renameStoredChat(id, *body.Label); err != nil {
-					writeError(w, http.StatusConflict, err.Error(), "label")
-					return
-				}
-			}
+			item, stored := s.registry.Get(id)
 			if err := s.registry.Rename(id, *body.Label); err != nil {
 				status := http.StatusNotFound
 				if strings.Contains(err.Error(), "closed") {
@@ -555,6 +551,13 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 				}
 				writeError(w, status, err.Error(), "session")
 				return
+			}
+			if stored && item.Snapshot().Scratch {
+				if _, err := s.renameStoredChat(id, *body.Label); err != nil {
+					log.Printf("chat rename: label changed; stored folder kept its name: %v", err)
+				} else if entries, err := s.chatStore.Scan(); err == nil {
+					s.registry.ReconcileChatHomes(entries)
+				}
 			}
 		}
 		item, ok := s.registry.Get(id)

@@ -136,7 +136,7 @@ type Server struct {
 	agentConnectionMu    sync.Mutex
 	agentConnections     map[string]pendingAgentConnection
 	tryAgentIdle         func(string) bool
-	hostWindowAction     func(string) bool
+	hostWindowAction     func(string, string) bool
 	startedAt            string
 	chatMu               sync.RWMutex
 	chatStore            *chatstore.Store
@@ -327,7 +327,7 @@ func (s *Server) SetUpdater(manager *updater.Manager)                     { s.up
 func (s *Server) SetServiceAccountManager(manager serviceaccount.Manager) { s.account = manager }
 func (s *Server) SetHardeningManager(manager hardening.Manager)           { s.hardening = manager }
 func (s *Server) SetSigningManager(manager signing.Manager)               { s.signing = manager }
-func (s *Server) SetHostWindowAction(action func(string) bool)            { s.hostWindowAction = action }
+func (s *Server) SetHostWindowAction(action func(string, string) bool)    { s.hostWindowAction = action }
 func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, prompt *agent.PromptRenderer) {
 	s.scheduler = scheduler
 	s.runner = runner

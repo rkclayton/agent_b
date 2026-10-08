@@ -91,15 +91,20 @@ func (s *Server) hostWindow(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Action string `json:"action"`
+		Title  string `json:"title"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
-	if body.Action != "minimize" && body.Action != "maximize" && body.Action != "close" {
-		writeError(w, http.StatusBadRequest, "action must be minimize, maximize, or close", "action")
+	if body.Action != "minimize" && body.Action != "maximize" && body.Action != "close" && body.Action != "title" {
+		writeError(w, http.StatusBadRequest, "action must be minimize, maximize, close, or title", "action")
 		return
 	}
-	if s.hostWindowAction == nil || !s.hostWindowAction(body.Action) {
+	if body.Action == "title" && (body.Title != strings.TrimSpace(body.Title) || (!strings.HasPrefix(body.Title, "Agent_b - ") && body.Title != "Agent_b") || strings.ContainsAny(body.Title, "\r\n") || len([]rune(body.Title)) > 100) {
+		writeError(w, http.StatusBadRequest, "title must be Agent_b or Agent_b - followed by a chat name", "title")
+		return
+	}
+	if s.hostWindowAction == nil || !s.hostWindowAction(body.Action, body.Title) {
 		writeError(w, http.StatusConflict, "native host window is unavailable", "action")
 		return
 	}

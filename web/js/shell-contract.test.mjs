@@ -72,11 +72,11 @@ test("shared shell slot order is identical on the chat and Plan", () => {
   assert.doesNotMatch(shell, /rememberedAgentSide|rememberAgentSide\(|agentb\.side\./);
 });
 
-test("plus adds a two-line d choice only for an assigned d connection", () => {
+test("the menu keeps the plan choice for d while plus always creates an ordinary chat", () => {
   assert.match(shell, /const hasD = !!String\(configured\?\.d \|\| ""\)\.trim\(\)/);
-  assert.match(shell, /agent_b · \$\{name\} — chat/);
   assert.match(shell, /agent_d · \$\{name\} — plan/);
   assert.match(shell, /createChat\("agent_d", configured\)/);
+  assert.match(shell, /newChatButton\.onclick = \(\) => void createChat\("agent_b"\)/);
   assert.doesNotMatch(shell, /planRepoEditor|showPlanMenu|plan_id/);
 });
 
@@ -108,7 +108,10 @@ test("compact window controls continue the top strip", () => {
 });
 
 test("chat list keeps compact controls and transient chrome", () => {
-  assert.match(shell, /iconButton\("page-plus", "New chat"/);
+  assert.match(shell, /iconButton\("menu", "", "chat-list-primary-action chat-list-menu-button"\)/);
+  assert.match(shell, /iconButton\("plus", "New chat", "chat-list-primary-action chat-list-new"\)/);
+  assert.match(shell, /label\.textContent = "New"[\s\S]*button\("Chat"[\s\S]*button\("Folder"[\s\S]*button\("Settings"/);
+  assert.doesNotMatch(shell, /rootHeading\.textContent = "Chats"/);
   assert.match(shell, /classList\.add\("menu-open"\)/);
   assert.match(shell, /shell-session-activity/);
   assert.match(chatCSS, /chat-list-row:hover \.chat-list-more/);

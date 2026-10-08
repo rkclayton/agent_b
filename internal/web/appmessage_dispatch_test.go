@@ -313,6 +313,34 @@ func TestPhoneRenameAndDeleteUseTheDesktopHandlers2qk(t *testing.T) {
 	}
 }
 
+func TestChatNameDoesNotWaitForItsStoredFolder2sn(t *testing.T) {
+	server, _, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	created := dispatch(t, server, `{"v":1,"kind":"request","id":"new","route":"chat.create","body":{"label":"before"}}`)
+	var body struct {
+		Session struct {
+			ID string `json:"id"`
+		} `json:"session"`
+	}
+	if err := json.Unmarshal(created.Body, &body); err != nil || body.Session.ID == "" {
+		t.Fatalf("create=%d %s (%v)", created.Status, created.Body, err)
+	}
+	item, found := server.registry.Get(body.Session.ID)
+	if !found || !item.Snapshot().Scratch {
+		t.Fatalf("created chat is not stored: found=%v", found)
+	}
+	if err := os.RemoveAll(item.Workspace); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/"+body.Session.ID, strings.NewReader(`{"label":"after"}`))
+	request.Header.Set("Content-Type", "application/json")
+	server.session(response, request)
+	if response.Code != http.StatusOK || item.Snapshot().Label != "after" {
+		t.Fatalf("rename=%d %s label=%q", response.Code, response.Body.String(), item.Snapshot().Label)
+	}
+}
+
 // A route this desktop does not publish is 501, and a device cannot compose a path.
 func TestAnUnpublishedRouteIsNotImplementedAndAPathCannotBeComposed2kq(t *testing.T) {
 	server := dispatchServer(t)

@@ -57,6 +57,7 @@ const selectedID = () => store.selection.session_id;
 // once, on the document, and inert unless the selection is in the transcript.
 installTranscriptCopy(log);
 const expanded = new Set();
+const touched = new Set();
 let follow = true;
 let localNotice = "";
 let localAlarm = false;
@@ -594,7 +595,7 @@ function renderFinishedWork(session, view, responseKey, blocks) {
     const rows = document.createElement("div");
     rows.className = "chat-work-rows";
     root.append(head, rows);
-    head.onclick = () => { expanded.has(key) ? expanded.delete(key) : expanded.add(key); render(); };
+    head.onclick = () => { touched.add(key); expanded.has(key) ? expanded.delete(key) : expanded.add(key); render(); };
     view.work = { root, head, rows };
   }
   const open = expanded.has(key);
@@ -613,6 +614,7 @@ function renderResponseBlock(session, view, block, active, state = {}) {
     const root = document.createElement("div");
     root.className = "chat-response-block";
     blockView = { root, items: new Map(), prose: null, proseText: "", proseCaret: null, fold: null, head: null, rows: null, narration: null };
+    root.addEventListener("pointerdown", () => { if (blockView.head?.getAttribute("aria-expanded") === "true") { touched.add(block.key); expanded.add(block.key); } }, true);
     view.blocks.set(block.key, blockView);
   }
   const rootAlarm = block.steps.length && responseStepOutcome(block.steps, { movedPast: !!state.movedPast }).alarm;
@@ -668,8 +670,12 @@ function renderResponseStepFold(session, view, block, active, directThoughts, st
     view.head.type = "button";
     view.head.className = "chat-step-summary";
     view.head.onclick = () => {
-      expanded.has(block.key) ? expanded.delete(block.key) : expanded.add(block.key);
+      const top = view.head.getBoundingClientRect().top;
+      const open = view.head.getAttribute("aria-expanded") === "true";
+      touched.add(block.key);
+      open ? expanded.delete(block.key) : expanded.add(block.key);
       render();
+      requestAnimationFrame(() => { if (view.head.isConnected) log.scrollTop += view.head.getBoundingClientRect().top - top; });
     };
     view.rows = document.createElement("div");
     view.rows.className = "chat-step-rows";
@@ -681,7 +687,10 @@ function renderResponseStepFold(session, view, block, active, directThoughts, st
   // inert control. Thought-only rows never need a grouping disclosure either.
   const inline = !!block.prose;
   const headerless = !inline && (state.current || directThoughts || isHeaderlessSteps(block.steps));
-  const open = state.forceOpen || state.current || headerless || (!active && expanded.has(block.key));
+  if (!touched.has(block.key) && view.head.getAttribute("aria-expanded") === "true" && (view.root.matches(":hover") || selectionWithin(view.root))) {
+    touched.add(block.key); expanded.add(block.key);
+  }
+  const open = touched.has(block.key) ? expanded.has(block.key) : state.forceOpen || state.current || headerless || (!active && expanded.has(block.key));
   setProperty(view.head, "hidden", headerless);
   toggleClass(view.fold, "headerless", headerless);
   const outcome = responseStepOutcome(block.steps, { movedPast: !!state.movedPast });
@@ -773,6 +782,7 @@ function renderResponseToolGroup(session, view, group, recovered = false) {
     head.type = "button";
     head.className = "chat-tool-group-head";
     head.onclick = () => {
+      touched.add(group.key);
       expanded.has(group.key) ? expanded.delete(group.key) : expanded.add(group.key);
       render();
     };
@@ -967,6 +977,13 @@ function speaker(name, agent = false) {
   return node;
 }
 
+function selectionWithin(node) {
+  const selection = document.getSelection?.();
+  if (!selection || selection.isCollapsed) return false;
+  for (let index = 0; index < selection.rangeCount; index++) if (node.contains(selection.getRangeAt(index).commonAncestorContainer)) return true;
+  return false;
+}
+
 function setSpeaker(node, name) {
   setAttribute(node, "aria-label", name);
   setText(node.lastElementChild, name === "you" ? "" : name);
@@ -994,8 +1011,9 @@ function toolTick(entry, forceOpen = false, recovered = false) {
     collapse.className = "collapse-arrow";
     collapse.textContent = "↑";
     collapse.setAttribute("aria-label", `Collapse ${entry.name} tool`);
-    collapse.onclick = () => { expanded.delete(entry.key); render(); };
+    collapse.onclick = () => { touched.add(entry.key); expanded.delete(entry.key); render(); };
     button.onclick = () => {
+      touched.add(entry.key);
       expanded.has(entry.key) ? expanded.delete(entry.key) : expanded.add(entry.key);
       render();
     };
@@ -1012,7 +1030,7 @@ function toolTick(entry, forceOpen = false, recovered = false) {
   } else if (view.note?.isConnected) {
     view.note.remove();
   }
-  const open = forceOpen || expanded.has(entry.key);
+  const open = touched.has(entry.key) ? expanded.has(entry.key) : forceOpen || expanded.has(entry.key);
   setAttribute(view.button, "aria-expanded", String(open));
   const state = entry.result && typeof entry.result.ok === "boolean" ? (entry.result.ok ? "ok" : "error") : "";
   const delegated = entry.name === "delegate" ? entry.result?.delegate : null;

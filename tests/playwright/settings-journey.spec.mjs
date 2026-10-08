@@ -27,6 +27,12 @@ import { removeTreeWithinAllowedRoots } from "../../tools/removal-guard.mjs";
 
 const run = promisify(execFile);
 const repo = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+const toggleSettings = async (page) => {
+	const gear = page.locator(".shell-settings");
+	if (await gear.isVisible()) return gear.click();
+	await page.locator(".chat-list-menu-button").click();
+	await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click();
+};
 let root;
 let harness;
 let hermesHome;
@@ -51,7 +57,7 @@ test.beforeAll(async () => {
 test("Hermes import shows the complete preview before writing", async () => {
 	const page = await harness.context.newPage();
 	await page.goto(`${harness.base}/chat`);
-	await page.locator(".shell-settings").click();
+	await toggleSettings(page);
 	await page.locator('.settings-nav [data-id="profiles"]').click();
 	await page.locator("#hermes-import-path").fill(hermesHome);
 	await page.locator('[data-action="hermes-preview"]').click();
@@ -77,7 +83,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await expect(page.locator("#chat-log")).toBeVisible();
 
   // 1. Open Settings and its Connections section, on screen.
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
   await expect(page.locator("#settings-page")).toBeVisible();
   await page.locator('.settings-nav [data-id="connections"]').click();
   const rowsBefore = await page.locator(".connection-row").count();
@@ -130,7 +136,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
 
   // 7. Start a chat on it. Closing Settings returns to the chat, and the switcher
   // moves this chat onto the connection just made.
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
   await expect(page.locator("#settings-page")).toBeHidden();
   await page.locator(".shell-session-title").click();
   await page.locator(".shell-connection-choice", { hasText: "second-model" }).first().click();
@@ -143,12 +149,12 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
 
   // 2ry W0: replay the reported sequence in the disposable harness before the
   // held-response case below: switch, answer, Settings > Chats, choose a face.
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
   await page.locator('.settings-nav [data-id="chats"]').click();
   await page.locator('button[data-action="config-choice"][data-path="chat.typeface"][data-value="Arial"]').click();
   await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.typeface).toBe("Arial");
   await expect(page.locator("[data-save-status]")).not.toContainText("Saving changes");
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
 
   // 9. Delete the chat through its four-entry row menu. This leaves the role
   // assignment as the first connection-removal refusal, just as Close did before
@@ -163,7 +169,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
 
   // 10. Remove the connection, through the anchored confirmation (item 2l4), and
   // watch the row go.
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator(`.connection-row [data-action="remove-connection"][data-id="${id}"]`).click();
   const popover = page.locator(".confirm-popover");
@@ -205,7 +211,7 @@ test("Entra credentials show account controls and configuration without defaults
 		body: JSON.stringify({ credentials: [{ name: "work-api", kind: "entra", origin: "https://api.example.test", stored_at: "2026-09-29T00:00:00Z", account: "someone@example.org", sign_in_needed: false }] }),
 	}));
 	await page.goto(`${harness.base}/chat`);
-	await page.locator(".shell-settings").click();
+	await toggleSettings(page);
 	await page.locator('.settings-nav [data-id="shell"]').click();
 	await expect(page.getByText("signed in as someone@example.org")).toBeVisible();
 	await expect(page.locator('[data-action="credential-sign-in"][data-id="work-api"]')).toHaveText("Switch account");
@@ -228,7 +234,7 @@ test("Phone shows all four wire states and follows presence without a reload", a
 	const evidence = join(repo, "candidate", "rel-1.45.0-w1-phone");
 	await mkdir(evidence, { recursive: true });
 	await page.goto(`${harness.base}/chat`);
-	await page.locator(".shell-settings").click();
+	await toggleSettings(page);
 	await page.locator('.settings-nav [data-id="shell"]').click();
 
 	const cases = [[{ state: "not paired" }, "NOT PAIRED", "not-paired.png"], [{ state: "broker unreachable", paired_device: "phone", next_attempt_at: "2026-09-29T22:30:00Z", ended_reason: "network: dial refused" }, "PAIRED — BROKER UNREACHABLE", "broker-unreachable.png"], [{ state: "holding", paired_device: "phone" }, "PAIRED — HOLDING, PHONE NOT CONNECTED", "holding.png"], [{ state: "phone connected", paired_device: "phone", last_message_at: "2026-09-29T22:31:00Z" }, "PAIRED — PHONE CONNECTED", "phone-connected.png"]];
@@ -262,7 +268,7 @@ test("telemetry consent is shared by Setup and About and persists both choices",
 	await page.goto(`${harness.base}/chat`);
 	await expect(page).toHaveURL(/\/chat/);
 	await expect(page.locator("#setup")).toHaveCount(0);
-	await page.locator(".shell-settings").click();
+	await toggleSettings(page);
 	await page.locator('.settings-nav [data-id="about"]').click();
 	await expect(page.getByText("Send anonymous data to help improve Agent_b", { exact: true })).toBeVisible();
 	await page.screenshot({ path: join(evidence, "settings-about-anonymous-data.png"), fullPage: true });
@@ -276,7 +282,7 @@ test("the confirmation popover stays with its control on a scrolled sheet", asyn
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   // Enough rows that the sheet scrolls.
   await page.setViewportSize({ width: 1250, height: 600 });
@@ -339,7 +345,7 @@ test("a rename alone saves, with no Test and no refusal", async () => {
   const posts = [];
   page.on("request", (request) => { if (request.method() === "POST" || request.method() === "PATCH") posts.push(request.url()); });
   await page.goto(`${harness.base}/chat`);
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator('[data-action="add-connection"]').click();
   const editor = page.locator(".connection-editor");
@@ -367,7 +373,7 @@ test("the bar is on screen 100 ms after Test, and the bare word is not", async (
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator('[data-action="add-connection"]').click();
   const editor = page.locator(".connection-editor");
@@ -403,7 +409,7 @@ test("the sheet reads as seven ordered fields above its actions and Defaults", a
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator('[data-action="add-connection"]').click();
   const editor = page.locator(".connection-editor");
@@ -433,7 +439,7 @@ test("the model he picks is the one the field shows, through Test and through Sa
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator('[data-action="add-connection"]').click();
 	const editor = page.locator(".connection-editor");
@@ -463,7 +469,7 @@ test("a held settings save releases the page with its draft still unsaved", asyn
   test.setTimeout(30000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
   await page.locator('.settings-nav [data-id="chats"]').click();
   const before = (await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.typeface;
   const draft = before === "Arial" ? "Verdana" : "Arial";
@@ -477,7 +483,7 @@ test("a held settings save releases the page with its draft still unsaved", asyn
   expect((await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.typeface).toBe(before);
   await page.locator('.settings-nav [data-id="about"]').click();
   await expect(page.locator(".settings-build-text")).toBeVisible();
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
   await expect(page.locator("#chat-log")).toBeVisible();
   release();
   await page.close();
@@ -489,7 +495,7 @@ test("a refused save keeps the drafts and marks only its field", async () => {
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
-  await page.locator(".shell-settings").click();
+  await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator('[data-action="add-connection"]').click();
   const editor = page.locator(".connection-editor");

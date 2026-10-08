@@ -32,13 +32,15 @@
 .chat-list { min-height: 0; overflow: auto; padding: 0 0 8px; scrollbar-width:thin; scrollbar-color:transparent transparent; }
 .chat-list:hover,.chat-list.scrolling{scrollbar-color:var(--mute) var(--bezel)}
 .chat-list::-webkit-scrollbar{width:6px;height:6px}.chat-list::-webkit-scrollbar-track,.chat-list::-webkit-scrollbar-thumb{background:transparent}.chat-list:hover::-webkit-scrollbar-track,.chat-list.scrolling::-webkit-scrollbar-track{background:var(--bezel)}.chat-list:hover::-webkit-scrollbar-thumb,.chat-list.scrolling::-webkit-scrollbar-thumb{background:var(--mute)}
+.chat-list-top-row{position:sticky;z-index:2;top:0;height:24px;background:var(--bezel)}
+.chat-list-top-actions{display:flex;align-items:center;height:24px}.chat-page .chat-list-primary-action{display:grid;place-items:center;width:24px;min-width:24px;height:24px;min-height:24px;padding:0;color:var(--mute);background:transparent;border-radius:0}.chat-page .chat-list-primary-action:hover,.chat-page .chat-list-primary-action:active{color:var(--ink);background:transparent}.chat-list-primary-action svg{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:square;stroke-linejoin:miter}
+.chat-list-menu-label{display:block;padding:2px 8px;color:var(--mute);font:500 var(--ct)/var(--lead-tight) var(--mono);}.chat-list-main-menu hr{height:1px;margin:2px 4px;border:0;background:rgba(112,125,139,.28)}
 .chat-list-group,.chat-list-folder,.chat-list-archived { display: block; margin: 0; }
 .chat-list-group-name,.chat-list-folder > summary,.chat-list-archived > summary { position:relative;display: flex; align-items: center; min-height:calc(var(--lead-tight) + 4px); color: var(--mute); font: 500 var(--ct)/var(--lead-tight) var(--mono); }
 .chat-list-folder > summary,.chat-list-archived > summary { cursor: pointer; }
 .chat-list .chat-list-folder-action,.chat-list .chat-list-folder-delete { align-self:stretch; margin-left:auto; min-width:24px; min-height:0; padding:0 4px; background:transparent; }
 .chat-list .chat-list-folder-action:hover,.chat-list .chat-list-folder-delete:hover { background:transparent; }
 .chat-list-group-name > .chat-list-folder-action { position:absolute;top:50%;width:24px;height:24px;min-height:24px;transform:translateY(-50%); }
-.chat-list-group-name > .chat-list-new { right:24px; }
 .chat-list-group-name > .chat-list-folder-action:not(.chat-list-new) { right:0; }
 .chat-list-folder > summary .chat-list-folder-action,.chat-list-folder > summary .chat-list-folder-delete { visibility:hidden; }
 .chat-list-folder > summary:hover .chat-list-folder-action,.chat-list-folder > summary:hover .chat-list-folder-delete,.chat-list-folder > summary:focus .chat-list-folder-action,.chat-list-folder > summary:focus .chat-list-folder-delete,.chat-list-folder > summary:focus-within .chat-list-folder-action,.chat-list-folder > summary:focus-within .chat-list-folder-delete { visibility:visible; }
@@ -51,19 +53,24 @@
 .chat-list-state.running { background: var(--signal); }
 .chat-list-state.waiting,.chat-list-state.offline { background: var(--alarm); }
 .chat-list-row .chat-list-name,.chat-list-row .chat-list-more { min-width: 0; min-height:calc(var(--lead-tight) + 4px); padding:2px 4px; overflow: hidden; background: transparent; font:400 var(--ct)/var(--lead-tight) var(--sans); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.chat-list-row .chat-list-name.working { color:transparent; background-image:linear-gradient(90deg,var(--ink) 0 38%,var(--signal) 47%,var(--signal) 53%,var(--ink) 62% 100%); background-position:100% 0; background-size:300% 100%; background-clip:text; -webkit-background-clip:text; animation:chat-name-pulse 1s linear infinite; animation-delay:var(--chat-pulse-delay,0ms); }
+@keyframes chat-name-pulse { from { background-position:100% 0; } to { background-position:-100% 0; } }
+.agent-chat-rename-form { min-width:0; height:calc(var(--lead-tight) + 4px); }
+.agent-chat-rename-input { display:block; width:100%; height:100%; min-width:0; padding:2px 4px 1px; color:var(--ink); background:transparent; border:0; border-bottom:1px solid var(--signal); border-radius:0; outline:0; font:400 var(--ct)/var(--lead-tight) var(--sans); }
 .chat-list-row .chat-list-more { position:absolute;top:0;right:0;width:24px;visibility:hidden;padding:0;text-align:center;background:var(--bezel)}.chat-list-row.selected .chat-list-more{background:var(--well)}.chat-list-row:hover .chat-list-more,.chat-list-row:focus-within .chat-list-more,.chat-list-row.menu-open .chat-list-more{visibility:visible}
-.chat-list-panel .shell-menu { width: min(220px, calc(100vw - 16px)); }
+.chat-list-panel .shell-menu,.chat-list-main-menu { width: min(220px, calc(100vw - 16px)); }
 .chat-list-row-menu { min-width: 150px; }
 .chat-list-menu-action { display: block; width: 100%; min-height: 28px; text-align: left; }
 .chat-list-menu-action.alarm { color: var(--alarm); }
 .chat-list-move-choices { border-top: 1px solid rgba(112,125,139,.28); }
-.chat-list-resize { position: absolute; top: 0; right: -4px; bottom: 0; width: 8px; cursor: ew-resize; }
+.chat-list-resize { position: absolute; z-index:3; top: 0; right: -4px; bottom: 0; width: 8px; cursor: ew-resize; }
 .chat-list-handle { position: fixed; z-index: 29; top: var(--app-header-height); bottom: 0; left: 0; width: 8px; cursor: ew-resize; background: rgba(112,125,139,.28); }
 .chat-list-visible > #chat-budget,.chat-list-visible > #chat-log,.chat-list-visible > #chat-composer {
   width: calc(100% - min(var(--chat-list-width, 240px), calc(100vw - 128px)));
   min-width: 0;
   margin-left: min(var(--chat-list-width, 240px), calc(100vw - 128px));
 }
+.chat-list-hidden > #chat-budget,.chat-list-hidden > #chat-log,.chat-list-hidden > #chat-composer { width:calc(100% - 12px);min-width:0;margin-left:12px; }
 
 /* Item 2lj (c) and (e): the chosen face is for PROSE. It is set on the chat's
    own regions rather than on .chat-page, so the shell that shares that page --
@@ -419,20 +426,22 @@
   font: var(--ct)/var(--lead) var(--mono);
 }
 .chat-narration-line {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   gap: 8px;
   align-items: start;
   min-width: 0;
   color: var(--mute);
 }
 .chat-narration-line .chat-response-answer {
+  flex: 0 1 auto;
+  min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
   color: var(--mute);
 }
 .chat-narration-line .chat-step-summary {
+  flex: none;
   width: auto;
   max-width: 42ch;
   height: 18px;
@@ -775,7 +784,7 @@
   color: var(--alarm);
 }
 .chat-input-wrap { position:relative; min-width:0; width:100%; border-radius:0; background:var(--well); box-shadow:inset 0 0 0 1px rgba(112,125,139,.28); }
-.chat-input-actions { position:absolute; right:4px; bottom:4px; display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+.chat-input-actions { position:absolute; right:6px; bottom:6px; display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
 .chat-submit-actions { display:flex; align-items:center; gap:3px; }
 .chat-live-status { display:flex; align-items:center; gap:6px; padding:2px 4px; color:var(--mute); font:500 calc(var(--ct) * 11 / 12)/var(--ct) var(--mono); text-transform:uppercase; }
 .chat-live-status[hidden] { display:none; }
@@ -800,6 +809,7 @@
     transition-duration: 0ms !important;
     animation-duration: 0ms !important;
   }
+  .chat-list-row .chat-list-name.working { color:var(--signal); background-image:none; }
   /* The thought bubble is static line art, so reduced motion needs nothing
      from it; the rule that held the animated dots open is gone with them. */
 }

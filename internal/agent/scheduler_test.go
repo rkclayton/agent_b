@@ -631,3 +631,32 @@ func TestRunsAreAdmittedPerConnectionAndNameTheRoleAhead(t *testing.T) {
 		t.Fatal("the global limit no longer caps the total")
 	}
 }
+
+func TestDefaultAdmitsFourConnectionsAndQueuesTheFifth2sg(t *testing.T) {
+	workspace := t.TempDir()
+	cfg := config.Defaults(workspace)
+	first := cfg.Connections[0]
+	cfg.Connections = nil
+	for index := 0; index < 5; index++ {
+		connection := first
+		connection.ID, connection.Label = fmt.Sprintf("server-%d", index), fmt.Sprintf("Server %d", index)
+		cfg.Connections = append(cfg.Connections, connection)
+	}
+	bus := events.NewBus()
+	writers, err := events.NewWriters(t.TempDir())
+	if err != nil { t.Fatal(err) }
+	defer writers.Close()
+	lookup := func(id string) (*config.Connection, bool) { for index := range cfg.Connections { if cfg.Connections[index].ID == id { return &cfg.Connections[index], true } }; return nil, false }
+	registry := session.NewRegistry(bus, writers, lookup, cfg.Run.MaxTurns, func() config.Config { return cfg })
+	scheduler := NewScheduler(NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, lookup, func() config.Config { return cfg }), registry, bus, func() config.Config { return cfg })
+	for index := 0; index < 4; index++ {
+		item, createErr := registry.Create(fmt.Sprintf("chat-%d", index), cfg.Connections[index].ID, workspace)
+		if createErr != nil { t.Fatal(createErr) }
+		scheduler.mu.Lock(); admitted := scheduler.admitLocked(item); if admitted { scheduler.active[item.ID] = &activeRun{} }; scheduler.mu.Unlock()
+		if !admitted { t.Fatalf("chat %d was not admitted", index+1) }
+	}
+	fifth, err := registry.Create("chat-4", cfg.Connections[4].ID, workspace)
+	if err != nil { t.Fatal(err) }
+	scheduler.mu.Lock(); admitted := scheduler.admitLocked(fifth); scheduler.mu.Unlock()
+	if admitted { t.Fatal("the fifth run was admitted past the global default") }
+}

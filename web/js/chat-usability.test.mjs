@@ -193,7 +193,7 @@ test("Composer is five lines with no placeholder and expands upward", () => {
 	assert.match(css, /\.chat-pending-attachments,[\s\S]*\.chat-input-wrap\s*\{\s*grid-column:\s*1/);
 	assert.match(css, /\.chat-input-wrap \{[^}]*border-radius:0;[^}]*box-shadow:inset/);
 	assert.match(css, /\.chat-composer textarea \{[\s\S]*?padding:\s*7px 64px 7px 9px;[\s\S]*?border:\s*0;[\s\S]*?border-radius:\s*0;/);
-	assert.match(css, /\.chat-input-actions \{[^}]*right:4px;[^}]*bottom:4px;[^}]*flex-direction:column/);
+	assert.match(css, /\.chat-input-actions \{[^}]*right:6px;[^}]*bottom:6px;[^}]*flex-direction:column/);
 	assert.doesNotMatch(css, /#chat-expand/);
 	assert.doesNotMatch(html, /id="chat-expand"/);
   assert.match(html, /id="chat-send"[^>]+aria-label="Send"[^>]*>[\s\S]{0,40}composer-glyph/);

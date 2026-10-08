@@ -185,15 +185,23 @@ var hostWindowState struct {
 	hwnd uintptr
 }
 
-func requestHostWindowAction(action string) bool {
-	message := map[string]uintptr{"minimize": wmHostMinimize, "maximize": wmHostMaximize, "close": wmHostClose}[action]
-	if message == 0 {
-		return false
-	}
+func requestHostWindowAction(action, title string) bool {
 	hostWindowState.RLock()
 	hwnd := hostWindowState.hwnd
 	hostWindowState.RUnlock()
 	if hwnd == 0 {
+		return false
+	}
+	if action == "title" {
+		value, err := syscall.UTF16PtrFromString(title)
+		if err != nil {
+			return false
+		}
+		ok, _, _ := procSetWindowText.Call(hwnd, uintptr(unsafe.Pointer(value)))
+		return ok != 0
+	}
+	message := map[string]uintptr{"minimize": wmHostMinimize, "maximize": wmHostMaximize, "close": wmHostClose}[action]
+	if message == 0 {
 		return false
 	}
 	ok, _, _ := procPostMessage.Call(hwnd, message, hostPressPage, 0)

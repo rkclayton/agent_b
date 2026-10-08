@@ -83,6 +83,48 @@ func TestTheFrameStatesItsMinimum2nm(t *testing.T) {
 	}
 }
 
+func TestNativeTitleFollowsSwitchAndRenameOffscreen2sh(t *testing.T) {
+	class, _ := syscall.UTF16PtrFromString("AgentBTitleProbe")
+	title, _ := syscall.UTF16PtrFromString("Agent_b")
+	instance, _, _ := syscall.NewLazyDLL("kernel32.dll").NewProc("GetModuleHandleW").Call(0)
+	proc := syscall.NewCallback(func(hwnd, message, wParam, lParam uintptr) uintptr {
+		result, _, _ := procDefWindowProc.Call(hwnd, message, wParam, lParam)
+		return result
+	})
+	registration := wndClassEx{wndProc: proc, instance: syscall.Handle(instance), className: class}
+	registration.size = uint32(unsafe.Sizeof(registration))
+	if atom, _, _ := procRegisterClassEx.Call(uintptr(unsafe.Pointer(&registration))); atom == 0 {
+		t.Skip("the title probe class could not be registered")
+	}
+	var away int32 = -32000
+	offscreen := uintptr(uint32(away))
+	hwnd, _, _ := procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(title)), wsOverlappedWindow, offscreen, offscreen, 800, 600, 0, 0, instance, 0)
+	if hwnd == 0 {
+		t.Skip("the offscreen title probe window could not be created")
+	}
+	defer procDestroyWindow.Call(hwnd)
+	hostWindowState.Lock()
+	previous := hostWindowState.hwnd
+	hostWindowState.hwnd = hwnd
+	hostWindowState.Unlock()
+	defer func() { hostWindowState.Lock(); hostWindowState.hwnd = previous; hostWindowState.Unlock() }()
+
+	getWindowText := user32.NewProc("GetWindowTextW")
+	readTitle := func() string {
+		buffer := make([]uint16, 128)
+		length, _, _ := getWindowText.Call(hwnd, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer)))
+		return syscall.UTF16ToString(buffer[:length])
+	}
+	for _, want := range []string{"Agent_b - Switched chat", "Agent_b - Renamed chat"} {
+		if !requestHostWindowAction("title", want) {
+			t.Fatalf("setting %q was refused", want)
+		}
+		if got := readTitle(); got != want {
+			t.Fatalf("native title=%q want %q", got, want)
+		}
+	}
+}
+
 // (d): a small size survives a relaunch, and a placement that is nonsense or off every
 // screen does not come back.
 func TestASmallSizeIsRemembered2nm(t *testing.T) {

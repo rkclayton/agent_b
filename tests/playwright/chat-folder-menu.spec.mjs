@@ -1,18 +1,20 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 const webRoot = fileURLToPath(new URL("../../web/", import.meta.url));
 const indexHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
+const renameEvidence = process.env.AGENTB_2SN_EVIDENCE_DIR || "test-results/2sn-evidence";
 
 // Item 2qb CHECKS 1-4: every folder head has the icon controls, add preserves
 // its parent, nested folders render nested, and both rename paths work.
 test("folder-plus nests and pencils rename folders and chats", async ({ browser }) => {
   const id = "chat-0";
   const session = { schema_version: 1, cursor: { generation: `${id}.jsonl`, offset: 1 }, complete: true, id, label: "Chat name",
-    agent_id: "agent_b", role: "b", created_at: "2026-10-04T00:00:00Z", run: { status: "idle" }, tools: [], messages: [], budget: {},
+    agent_id: "agent_b", role: "b", created_at: "2026-10-04T00:00:00Z", run: { status: "running" }, tools: [], messages: [], budget: {},
     activity: { completed_stages: [] }, timeline: [], chat: [], runnable: true, closed: false };
-	const other = { ...session, id: "chat-1", label: "Other chat", cursor: { generation: "chat-1.jsonl", offset: 1 } }; let archived = false;
+	const other = { ...session, id: "chat-1", label: "Other chat", cursor: { generation: "chat-1.jsonl", offset: 1 } }; let archived = false, refuseRename = false;
   const snapshot = () => ({ sessions: archived ? { [other.id]: other } : { [id]: session, [other.id]: other }, connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] },
     flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {} });
 	let tree = { folders: ["A"], chats: [{ id, folder: "A" }, { id: other.id, folder: "" }], archived: [] };
@@ -48,7 +50,10 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
       }
       return route.fulfill({ contentType: "application/json", body: JSON.stringify(tree) });
     }
-    if (url.pathname === `/api/sessions/${id}` && request.method() === "POST") session.label = request.postDataJSON().label;
+    if (url.pathname === `/api/sessions/${id}` && request.method() === "POST") {
+      if (refuseRename) { refuseRename = false; return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "session not found", field: "session" }) }); }
+      session.label = request.postDataJSON().label;
+    }
     if (url.pathname === "/api/state") return route.fulfill({ contentType: "application/json", body: JSON.stringify(snapshot()) });
     if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
     return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
@@ -56,7 +61,8 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
   await page.goto(`http://localhost:59999/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
   const panel = page.locator(".chat-list-panel");
   await expect(panel).toBeVisible();
-  await expect(panel.getByTitle("New folder", { exact: true })).toBeVisible();
+  await expect(panel.getByTitle("New folder", { exact: true })).toHaveCount(0);
+  await panel.locator(".chat-list-menu-button").click(); await expect(page.locator(".chat-list-main-menu").getByRole("button", { name: "Folder", exact: true })).toBeVisible(); await page.locator("#chat-log").click();
   await expect(panel.getByTitle("New folder in A")).toBeHidden();
 
   page.once("dialog", (dialog) => dialog.accept("B"));
@@ -74,11 +80,56 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
 	await panel.locator('[data-folder="Z"] > summary').click();
 
   const chatRow = panel.locator(`[data-session="${id}"]`);
+  await mkdir(renameEvidence, { recursive: true });
+  for (const width of [240, 96]) {
+    await page.evaluate((value) => document.documentElement.style.setProperty("--chat-list-width", `${value}px`), width);
+    for (const size of [9, 12, 32]) {
+      await page.evaluate((value) => document.documentElement.style.setProperty("--chat-scale", String(value / 12)), size);
+      const nameBox = await chatRow.locator(".chat-list-name").boundingBox(), nextY = (await panel.locator(`[data-session="${other.id}"]`).boundingBox()).y;
+      await chatRow.hover(); await chatRow.locator(".chat-list-more").click(); await panel.getByRole("button", { name: "Rename", exact: true }).click();
+      const inputBox = await panel.getByLabel("Chat name").boundingBox();
+      await expect(panel.getByLabel("Chat name")).not.toHaveClass(/working/);
+      expect(Math.abs(inputBox.x - nameBox.x)).toBeLessThanOrEqual(1); expect(Math.abs(inputBox.width - nameBox.width)).toBeLessThanOrEqual(1);
+      expect(Math.abs((await panel.locator(`[data-session="${other.id}"]`).boundingBox()).y - nextY)).toBeLessThanOrEqual(1);
+      await page.screenshot({ path: join(renameEvidence, `${width}-${size}-rename.png`) });
+      await page.keyboard.press("Escape");
+    }
+  }
+  await page.evaluate(() => { document.documentElement.style.setProperty("--chat-list-width", "240px"); document.documentElement.style.removeProperty("--chat-scale"); });
   await chatRow.hover();
   await chatRow.locator(".chat-list-more").click();
   await panel.getByRole("button", { name: "Rename", exact: true }).click();
-  await panel.getByLabel("Chat name").fill("Renamed chat");
-  await panel.getByTitle("Save chat name").click();
+  const editor = panel.getByLabel("Chat name"), beforeRow = await chatRow.boundingBox();
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveValue("Chat name");
+  await expect(panel.getByTitle("Save chat name")).toHaveCount(0);
+  await editor.fill("Renamed chat");
+  await page.keyboard.press("Enter");
+  await expect(editor).toHaveCount(0);
+  await expect(chatRow.locator(".chat-list-name")).toHaveText("Renamed chat");
+  await expect(chatRow.locator(".chat-list-name")).toHaveClass(/working/);
+  const afterRow = await chatRow.boundingBox();
+  expect(afterRow.height).toBe(beforeRow.height);
+
+  await chatRow.hover(); await chatRow.locator(".chat-list-more").click(); await panel.getByRole("button", { name: "Rename", exact: true }).click();
+  await panel.getByLabel("Chat name").fill("Cancelled"); await page.keyboard.press("Escape");
+  await expect(chatRow.locator(".chat-list-name")).toHaveText("Renamed chat");
+
+  await chatRow.hover(); await chatRow.locator(".chat-list-more").click(); await panel.getByRole("button", { name: "Rename", exact: true }).click();
+  await panel.getByLabel("Chat name").fill("Redraw-safe");
+  await panel.getByLabel("Chat name").evaluate((node) => node.setSelectionRange(3, 7));
+  await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); for (let index = 0; index < 20; index++) bus.reduce({ type: "config.changed", data: { config: bus.store.config } }); });
+  await expect(panel.getByLabel("Chat name")).toBeFocused(); await expect(panel.getByLabel("Chat name")).toHaveValue("Redraw-safe");
+  expect(await panel.getByLabel("Chat name").evaluate((node) => [node.selectionStart, node.selectionEnd])).toEqual([3, 7]);
+  await page.locator("#chat-log").click(); await expect(chatRow.locator(".chat-list-name")).toHaveText("Redraw-safe");
+
+  await chatRow.hover(); await chatRow.locator(".chat-list-more").click(); await panel.getByRole("button", { name: "Rename", exact: true }).click();
+  await panel.getByLabel("Chat name").fill("   "); await page.keyboard.press("Enter"); await expect(chatRow.locator(".chat-list-name")).toHaveText("Redraw-safe");
+
+  refuseRename = true;
+  await chatRow.hover(); await chatRow.locator(".chat-list-more").click(); await panel.getByRole("button", { name: "Rename", exact: true }).click();
+  await panel.getByLabel("Chat name").fill("Refused"); await page.keyboard.press("Enter");
+  await expect(chatRow.locator(".chat-list-name")).toHaveText("Redraw-safe"); await expect(page.locator(".shell-session-title")).toHaveClass(/alarm/);
   tree = { ...tree, chats: tree.chats.filter((chat) => chat.id !== id), archived: [{ id, name: "Renamed chat", folder: "Z" }] };
   await page.reload({ waitUntil: "domcontentloaded" });
 	await expect(page.getByText("Archived", { exact: true })).toBeVisible(); await page.getByText("Archived", { exact: true }).click(); await expect(page.getByTitle("Restore Renamed chat")).toBeVisible();

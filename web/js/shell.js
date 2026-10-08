@@ -30,15 +30,28 @@ export function initShell(options = {}) {
 
   const left = node("div", "shell-left");
   const appRobot = node("span", "shell-app-robot chat-run-robot idle");
-  appRobot.setAttribute("role", "img"); appRobot.innerHTML = '<img src="/static/assets/agent.svg" alt=""><span class="chat-run-robot-eyes"></span>'; appRobot.querySelector("img").draggable = false; left.append(appRobot);
-  const newChatButton = iconButton("page-plus", "New chat", "chat-list-folder-action chat-list-new");
-  const newChatMenu = node("div", "shell-menu shell-new-menu");
+  appRobot.setAttribute("role", "img"); appRobot.innerHTML = '<img src="/static/assets/agent.svg" alt=""><span class="chat-run-robot-eyes"></span>'; appRobot.querySelector("img").draggable = false;
+  const windowTitle = node("span", "shell-window-title");
+  const productTitle = node("span", "shell-product-title"); productTitle.textContent = "Agent_b";
+  const titleSeparator = node("span", "shell-title-separator"); titleSeparator.textContent = " - ";
+  const chatTitle = node("span", "shell-chat-title");
+  windowTitle.append(productTitle, titleSeparator, chatTitle); left.append(appRobot); left.append(windowTitle);
+  const listMenuButton = iconButton("menu", "", "chat-list-primary-action chat-list-menu-button");
+  listMenuButton.setAttribute("aria-label", "Chat menu"); listMenuButton.removeAttribute("title");
+  const newChatButton = iconButton("plus", "New chat", "chat-list-primary-action chat-list-new");
+  const listActions = node("div", "chat-list-top-actions"); listActions.append(listMenuButton, newChatButton);
+  const newChatMenu = node("div", "shell-menu shell-new-menu chat-list-main-menu");
   newChatMenu.hidden = true;
   const menuControllers = new WeakMap();
-  menuControllers.set(newChatMenu, registerMenu(newChatMenu, { anchor: newChatButton }));
+  menuControllers.set(newChatMenu, registerMenu(newChatMenu, { anchor: listMenuButton }));
   let chatTree = { folders: [], chats: [] };
   let chatTreeLoaded = false;
   let chatTreeRefresh = null;
+  let nativeWindowTitle = "";
+  let renameState = null;
+  let listTop = null;
+  const optimisticNames = new Map();
+  const displayedName = (session) => optimisticNames.get(session.id) || chatName(session);
 
   const chatPanel = node("aside", "chat-list-panel");
   chatPanel.setAttribute("aria-label", "Chats");
@@ -52,19 +65,22 @@ export function initShell(options = {}) {
   const panelHandle = node("div", "chat-list-handle");
   panelHandle.setAttribute("role", "separator");
   panelHandle.setAttribute("aria-label", "Show chats");
-  chatPanel.append(newChatMenu, chatList, panelEdge);
+  chatPanel.append(chatList, panelEdge); document.body.append(newChatMenu);
   if (page === "chat") { root.after(chatPanel); document.body.append(panelHandle); }
 
   const panelKey = "agentb.chat-list";
   let panel = { width: 240, hidden: false };
   try { panel = { ...panel, ...JSON.parse(localStorage.getItem(panelKey) || "{}") }; } catch {}
   const applyPanel = () => {
-    const settingsShown = !!document.querySelector("#settings-page:not([hidden])");
+    const settingsShown = !!document.querySelector("#settings-page:not([hidden])") || (page !== "chat" && openedFromSettings);
     document.documentElement.style.setProperty("--chat-list-width", `${panel.width}px`);
     document.body.classList.toggle("chat-list-hidden", panel.hidden);
     document.body.classList.toggle("chat-list-visible", !panel.hidden && page === "chat" && !settingsShown);
     chatPanel.hidden = panel.hidden || page !== "chat" || settingsShown;
     panelHandle.hidden = !panel.hidden || page !== "chat" || settingsShown;
+    settings.hidden = !settingsShown;
+    if (panel.hidden && page === "chat" && !settingsShown) appRobot.after(listActions);
+    else if (listTop?.isConnected) listTop.append(listActions);
   };
   const resizePanel = (handle) => handle.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
@@ -77,7 +93,7 @@ export function initShell(options = {}) {
     };
     handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", finish); handle.addEventListener("pointercancel", finish);
   });
-  resizePanel(panelEdge); resizePanel(panelHandle); applyPanel();
+  resizePanel(panelEdge); resizePanel(panelHandle);
 
   const right = node("div", "shell-right");
   const sessionActivity = node("time", "shell-session-activity");
@@ -128,6 +144,15 @@ export function initShell(options = {}) {
   const sessionLamp = node("span", "shell-session-lamp");
   right.append(sessionActivity, sessionLamp, sessionHeading, connectionMenu, settings, windowControls);
   root.append(left, right);
+  applyPanel();
+  const fitWindowTitle = () => {
+    windowTitle.hidden = false;
+    const available = left.clientWidth - (windowTitle.offsetLeft - left.offsetLeft);
+    const context = document.createElement("canvas").getContext("2d");
+    context.font = getComputedStyle(windowTitle).font;
+    windowTitle.hidden = available + .5 < context.measureText(productTitle.textContent).width;
+  };
+  new ResizeObserver(fitWindowTitle).observe(left);
   // Item 2gh: Escape dismisses the open menu and the arrow keys move through
   // its entries. Measured before the change, Escape did nothing and no key
   // reached the entries, although each one was already a focusable button.
@@ -217,6 +242,11 @@ export function initShell(options = {}) {
     return "idle";
   }
 
+  function chatWorking(session) {
+    if (session?.model_unreachable || session?.pending_approval || session?.pending_repo_policy) return false;
+    return session?.run?.status === "running" || session?.run?.status === "stopping";
+  }
+
   // Item 2ni: THE PLAN IS NOT A TAB ANY MORE, so the strip's static-surface pass,
   // its plan chip, its right-click Hide and that Hide's confirmation are all gone with
   // it: "i decided i think i want it under settings, as its own top level item". The
@@ -249,15 +279,22 @@ export function initShell(options = {}) {
     return (store.config.agents || []).find((agent) => agentKey(agent) === session?.agent_id) || store.config.agents?.[0];
   }
 
-  function showRoleMenu(menu, anchor, configured) {
-    menu.replaceChildren();
-    const name = configured?.name || "Agent";
-    const chat = button(`agent_b · ${name} — chat`, "Open chat", "shell-new-choice");
-    chat.onclick = () => { menu.hidden = true; void createChat("agent_b"); };
-    const plan = button(`agent_d · ${name} — plan`, "Open plan chat", "shell-new-choice");
-    plan.onclick = () => { menu.hidden = true; void createChat("agent_d", configured); };
-    menu.append(chat, plan);
-    revealMenu(menu, anchor);
+  function showListMenu(configured, hasD, act) {
+    newChatMenu.replaceChildren();
+    const label = node("span", "chat-list-menu-label"); label.textContent = "New";
+    const chat = button("Chat", "", "chat-list-menu-action"); chat.onclick = () => void createChat("agent_b");
+    const folder = button("Folder", "", "chat-list-menu-action"); folder.onclick = () => { const name = prompt("New folder name"); if (name) void act({ action: "add", parent: "", name }); };
+    newChatMenu.append(label, chat, folder);
+    if (hasD) {
+      const name = configured?.name || "Agent";
+      const plan = button(`agent_d · ${name} — plan`, "Open plan chat", "chat-list-menu-action");
+      plan.onclick = () => void createChat("agent_d", configured);
+      newChatMenu.append(plan);
+    }
+    const rule = document.createElement("hr");
+    const openSettings = button("Settings", "", "chat-list-menu-action"); openSettings.onclick = () => settings.click();
+    newChatMenu.append(rule, openSettings);
+    revealMenu(newChatMenu, listMenuButton);
   }
 
   function renderChatPanel() {
@@ -267,9 +304,22 @@ export function initShell(options = {}) {
     setAttr(newChatButton, "title", "New chat");
     setAttr(newChatButton, "aria-label", newChatButton.title);
     setProperty(newChatButton, "disabled", store.replay || !(store.config.agents || []).length);
-    newChatButton.onclick = () => hasD ? showRoleMenu(newChatMenu, newChatButton, configured) : void createChat("agent_b");
+    newChatButton.onclick = () => void createChat("agent_b");
+    if (renameState) {
+      const live = chatList.querySelector(`.chat-list-row[data-session="${CSS.escape(renameState.id)}"] .agent-chat-rename-input`);
+      if (live) {
+        renameState.draft = live.value;
+        if (document.activeElement === live) {
+          renameState.start = live.selectionStart;
+          renameState.end = live.selectionEnd;
+        }
+      }
+    }
+    const openFolders = new Set([...chatList.querySelectorAll(".chat-list-folder[open]")].map((folder) => folder.dataset.folder));
     const arranged = arrangeChats(store.sessions, chatTree);
+    const pulseDelay = `-${performance.now() % 1000}ms`;
     chatList.replaceChildren();
+    listTop = node("div", "chat-list-top-row"); listTop.append(listActions); chatList.append(listTop);
     const act = async (body, state = false) => {
       try {
         chatTree = await api("/api/chats/tree", body);
@@ -277,9 +327,10 @@ export function initShell(options = {}) {
         renderChatPanel();
       } catch (error) { report(error.message); }
     };
+    listMenuButton.onclick = () => newChatMenu.hidden ? showListMenu(configured, hasD, act) : menuControllers.get(newChatMenu)?.close();
     const folderTargets = new Map();
     const folderHeading = (path, parent) => {
-      const details = document.createElement("details"); details.className = "chat-list-folder"; details.dataset.folder = path;
+      const details = document.createElement("details"); details.className = "chat-list-folder"; details.dataset.folder = path; details.open = openFolders.has(path);
       const heading = document.createElement("summary"); const label = node("span", "chat-list-folder-name"); label.textContent = path.split("/").at(-1); heading.append(label);
       const add = iconButton("folder-plus", `New folder in ${label.textContent}`, "chat-list-folder-action");
       add.onclick = (event) => { event.preventDefault(); const name = prompt("New folder name"); if (name) void act({ action: "add", parent: path, name }); };
@@ -293,18 +344,20 @@ export function initShell(options = {}) {
       (folderTargets.get(parent) || chatList).append(details); folderTargets.set(path, details);
       return details;
     };
-    for (const group of arranged.folders) folderHeading(group.path, group.path.split("/").slice(0, -1).join("/"));
-
     const renderRow = (session, parent) => {
       const meta = (chatTree.chats || []).find((chat) => chat.id === session.id) || {};
       const row = node("div", `chat-list-row ${session.id === store.selection.session_id ? "selected" : ""}`); row.dataset.session = session.id;
       row.draggable = true; row.ondragstart = (event) => event.dataTransfer.setData("text/plain", session.id);
       const state = node("span", `chat-list-state ${chatState(session)}`); state.setAttribute("aria-label", chatState(session));
-      const name = button(chatRowText(session), chatName(session), "chat-list-name");
+      const name = button(optimisticNames.has(session.id) ? displayedName(session) : chatRowText(session), displayedName(session), "chat-list-name");
+      if (chatWorking(session)) {
+        name.classList.add("working");
+        name.style.setProperty("--chat-pulse-delay", pulseDelay);
+      }
       name.removeAttribute("title");
       const updateNameTitle = () => {
         const cut = name.scrollWidth > name.clientWidth;
-        setAttr(name, "title", !row.classList.contains("menu-open") && cut ? chatName(session) : "");
+        setAttr(name, "title", !row.classList.contains("menu-open") && cut ? displayedName(session) : "");
       };
       name.addEventListener("pointerenter", updateNameTitle);
       name.addEventListener("focus", updateNameTitle);
@@ -319,9 +372,9 @@ export function initShell(options = {}) {
           else render();
         } catch (error) { report(error.message); }
       };
-      const more = button("⋮", `${chatName(session)} menu`, "chat-list-more");
+      const more = button("⋮", `${displayedName(session)} menu`, "chat-list-more");
       more.removeAttribute("title");
-      more.setAttribute("aria-label", `${chatName(session)} menu`);
+      more.setAttribute("aria-label", `${displayedName(session)} menu`);
       const menu = node("div", "shell-menu chat-list-row-menu"); menu.hidden = true;
       menuControllers.set(menu, registerMenu(menu, { anchor: more, onClose: () => { row.classList.remove("menu-open"); updateNameTitle(); } }));
       more.onclick = (event) => {
@@ -330,7 +383,7 @@ export function initShell(options = {}) {
         menu.replaceChildren();
         const labels = menuLabels(!!meta.pinned);
         const pin = button(labels[0], labels[0], "chat-list-menu-action"); pin.onclick = () => void act({ action: "pin", id: session.id, pinned: !meta.pinned });
-        const rename = button(labels[1], labels[1], "chat-list-menu-action"); rename.onclick = () => { menu.hidden = true; showRename(row, session); };
+        const rename = button(labels[1], labels[1], "chat-list-menu-action"); rename.onclick = () => { menu.hidden = true; beginRename(row, session); };
         const move = button(labels[2], labels[2], "chat-list-menu-action");
         move.dataset.menuReveal = "";
         move.onclick = () => {
@@ -343,16 +396,22 @@ export function initShell(options = {}) {
         const remove = button(labels[3], labels[3], "chat-list-menu-action alarm"); remove.onclick = () => { menuControllers.get(menu)?.close(); void deleteChat(session); };
         menu.append(pin, rename, move, remove); row.classList.add("menu-open"); name.removeAttribute("title"); revealMenu(menu, more);
       };
-      row.append(state, name, more, menu); parent.append(row);
+      if (renameState?.id === session.id) {
+        row.draggable = false;
+        row.append(state, renameEditor(session));
+      } else {
+        row.append(state, name, more, menu);
+      }
+      parent.append(row);
     };
-    if (arranged.pinned.length) { const group = node("section", "chat-list-group pinned"); const heading = node("strong", "chat-list-group-name"); heading.textContent = "Pinned"; group.append(heading); arranged.pinned.forEach((chat) => renderRow(chat, group)); chatList.prepend(group); }
+    if (arranged.pinned.length) { const group = node("section", "chat-list-group pinned"); const heading = node("strong", "chat-list-group-name"); heading.textContent = "Pinned"; group.append(heading); arranged.pinned.forEach((chat) => renderRow(chat, group)); chatList.append(group); }
+    for (const group of arranged.folders) folderHeading(group.path, group.path.split("/").slice(0, -1).join("/"));
     for (const group of arranged.folders) { const target = folderTargets.get(group.path); group.chats.forEach((chat) => renderRow(chat, target)); }
-    const root = node("section", "chat-list-group root"); const rootHeading = node("strong", "chat-list-group-name"); rootHeading.textContent = "Chats";
-    const add = iconButton("folder-plus", "New folder", "chat-list-folder-action"); add.onclick = () => { const name = prompt("New folder name"); if (name) void act({ action: "add", parent: "", name }); };
-    rootHeading.append(newChatButton, add); root.append(rootHeading); root.ondragover = (event) => event.preventDefault(); root.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: "" }); };
+    const root = node("section", "chat-list-group root"); root.ondragover = (event) => event.preventDefault(); root.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: "" }); };
     arranged.root.forEach((chat) => renderRow(chat, root)); chatList.append(root);
     const archived = chatTree.archived || [];
     if (archived.length) { const group = document.createElement("details"); group.className = "chat-list-archived"; const heading = document.createElement("summary"); heading.textContent = "Archived"; group.append(heading); for (const chat of archived) { const row = node("div", "chat-list-row"); const name = node("span", "chat-list-name"); name.textContent = chat.name; name.title = chat.name; const restore = button("Restore", `Restore ${chat.name}`, "chat-list-menu-action"); restore.onclick = () => void act({ action: "restore", id: chat.id }, true); row.append(name, restore); group.append(row); } chatList.append(group); }
+    applyPanel();
     if (!chatTreeLoaded) void refreshChatTree();
   }
 
@@ -366,28 +425,65 @@ export function initShell(options = {}) {
     return chatTreeRefresh;
   }
 
-  function showRename(row, session) {
+  function beginRename(row, session) {
+    const value = displayedName(session);
+    renameState = { id: session.id, old: value, draft: value, start: 0, end: value.length, focused: true };
+    row.draggable = false;
+    const state = row.querySelector(".chat-list-state");
+    row.replaceChildren(state, renameEditor(session));
+    const input = row.querySelector(".agent-chat-rename-input");
+    input?.focus();
+    input?.setSelectionRange(0, value.length);
+  }
+
+  function renameEditor(session) {
     const editor = node("form", "agent-chat-rename-form");
     const input = document.createElement("input");
-    input.value = chatName(session);
+    input.className = "agent-chat-rename-input";
+    input.value = renameState.draft;
     input.setAttribute("aria-label", "Chat name");
-    const save = button("Save", "Save chat name", "agent-chat-rename-save");
-    save.type = "submit";
-    editor.append(input, save);
+    input.addEventListener("input", () => { if (renameState?.id === session.id) renameState.draft = input.value; });
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault(); event.stopPropagation(); void finishRename(false);
+    });
+    editor.append(input);
     editor.onsubmit = async (event) => {
       event.preventDefault();
-      const label = input.value.trim();
-      if (!label) return;
-      try {
-        await api(`/api/sessions/${encodeURIComponent(session.id)}`, { label });
-        reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-        renderChatPanel();
-      } catch (error) { report(error.message); }
+      await finishRename(true);
     };
-    row.replaceChildren(editor);
-    input.focus();
-    input.select();
+    requestAnimationFrame(() => {
+      if (renameState?.id !== session.id || !input.isConnected) return;
+      input.focus();
+      input.setSelectionRange(renameState.start, renameState.end);
+    });
+    return editor;
   }
+
+  async function finishRename(save) {
+    const state = renameState;
+    if (!state) return;
+    const label = state.draft.trim();
+    renameState = null;
+    if (!save || !label) return void renderChatPanel();
+    optimisticNames.set(state.id, label);
+    render();
+    try {
+      await api(`/api/sessions/${encodeURIComponent(state.id)}`, { label });
+      reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+      optimisticNames.delete(state.id);
+      render();
+    } catch (error) {
+      optimisticNames.delete(state.id);
+      render();
+      report(error.message);
+    }
+  }
+
+  document.addEventListener("pointerdown", (event) => {
+    if (!renameState || event.target.closest(`.chat-list-row[data-session="${CSS.escape(renameState.id)}"] .agent-chat-rename-form`)) return;
+    void finishRename(true);
+  }, true);
 
   const deleteConfirmText = "Delete this chat permanently? Memory notes it made are kept.";
   async function deleteChat(session) {
@@ -444,7 +540,15 @@ export function initShell(options = {}) {
     // way to install the app - so the system strip stays, and the least it can
     // do is say which chat is in the window instead of naming the connection,
     // which the header beside the tab strip already says.
-    document.title = session ? `Agent_b · ${chatName(session)}` : "Agent_b";
+    const title = session ? `Agent_b - ${displayedName(session)}` : "Agent_b";
+    document.title = title;
+    titleSeparator.textContent = session ? " - " : "";
+    chatTitle.textContent = session ? displayedName(session) : "";
+    if (title !== nativeWindowTitle && globalThis.chrome?.webview) {
+      nativeWindowTitle = title;
+      void api("/api/host-window", { action: "title", title }).catch(() => {});
+    }
+    requestAnimationFrame(fitWindowTitle);
     const health = connectionHealth(store, session?.connection_id);
     sessionActivity.textContent = chatActivityText(session);
     sessionActivity.title = chatActivityTitle(session);
@@ -572,6 +676,8 @@ function iconButton(kind, title, className) {
   const paths = kind === "folder-plus"
     ? ["M3.5 6.5h6l2 2h9v10h-17z", "M12 11v5M9.5 13.5h5"]
 	: kind === "page-plus" ? ["M5 3.5h9l5 5v12H5zM14 3.5v5h5", "M12 11v6M9 14h6"]
+	: kind === "menu" ? ["M4 6h16M4 12h16M4 18h16"]
+	: kind === "plus" ? ["M12 5v14M5 12h14"]
 	: kind === "archive" ? ["M4 7h16v13H4zM3 4h18v3H3zM9 11h6"]
 	: kind === "restore" ? ["M5 8v-4m0 0h4M5 4l3 3M5.5 9a7 7 0 1 0 2-3"]
     : ["M5 19l3.5-.8L19 6.7 16.3 4 5.8 15.5z", "M14.8 5.5l2.7 2.7"];

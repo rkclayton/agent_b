@@ -1486,3 +1486,15 @@ func TestOldCompactionDefaultsMoveToTheNewOnes2q5(t *testing.T) {
 		}
 	}
 }
+
+func TestFourRunsAreTheDefaultWithoutOverwritingAnExplicitOldValue2sg(t *testing.T) {
+	if got := Defaults(t.TempDir()).Run.MaxConcurrent; got != 4 {
+		t.Fatalf("new default max concurrent=%d, want 4", got)
+	}
+	cfg := Defaults(t.TempDir())
+	cfg.Run.MaxConcurrent = 2
+	ApplyDefaults(&cfg)
+	if cfg.Run.MaxConcurrent != 2 {
+		t.Fatalf("written max concurrent=%d, want unchanged 2", cfg.Run.MaxConcurrent)
+	}
+}

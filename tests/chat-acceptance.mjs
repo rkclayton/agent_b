@@ -398,6 +398,11 @@ const waitFileContains = async (path, text, timeout = 12000) => {
 };
 
 const browserText = async (selector) => browser.evaluate(`document.querySelector(${JSON.stringify(selector)})?.innerText || ""`);
+const openSettings = async () => {
+  if (await page.locator("#settings-page").isVisible()) return;
+  await page.locator(".chat-list-menu-button").click();
+  await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click();
+};
 const projectedChatText = async (sessionID) => JSON.stringify((await state(sessionID)).sessions[sessionID]?.chat || []);
 const waitProjectedChatText = async (sessionID, text, label, timeout = 12000) => {
   const deadline = Date.now() + timeout;
@@ -467,7 +472,7 @@ async function openStepFoldIfDrawn() {
 async function openPanel(section, sessionID) {
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${encodeURIComponent(sessionID)}`);
   await page.locator("#chat-task").waitFor({ state: "visible" });
-  if (!(await page.locator("#settings-page").isVisible())) await page.locator(".shell-settings").click();
+  await openSettings();
   await browser.wait(`document.querySelector('#settings-page') && !document.querySelector('#settings-page').hidden`, `Settings ${section}`);
   assert.equal(await clickText(".settings-nav button", section === "agents" ? "Agents" : "Activity"), true);
   await page.locator(`#${section}-panel`).waitFor({ state: "visible" });
@@ -855,7 +860,7 @@ if (realModel) {
     const explorerRow = page.locator('.chat-list-folder[data-folder="W7 Explorer"]');
     await explorerRow.waitFor({ state: "visible" });
     assert.equal(await explorerRow.locator(`[data-session="${migrated.id}"]`).count(), 1, "moved chat missing from menu folder");
-    await page.locator(".shell-settings").click();
+    await openSettings();
     assert.equal(await clickText(".settings-nav button", "Chats"), true);
     const count = Object.keys((await state()).sessions).length, dialogs = [];
     const acceptDeleteAll = async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); };
@@ -890,7 +895,7 @@ if (realModel) {
 		const bulkBusy = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
 		const beforeBulk = await state(), bulkCount = Object.keys(beforeBulk.sessions).length;
 		const bulkKept = join(beforeBulk.sessions[bulkBusy.id].workspace_dir, "bulk-kept.txt"); await writeFile(bulkKept, "keep");
-		await page.goto(`http://127.0.0.1:${appPort}/chat?session=${bulkBusy.id}`); await page.locator(".shell-settings").click(); assert.equal(await clickText(".settings-nav button", "Chats"), true);
+		await page.goto(`http://127.0.0.1:${appPort}/chat?session=${bulkBusy.id}`); await openSettings(); assert.equal(await clickText(".settings-nav button", "Chats"), true);
 		await json(`http://127.0.0.1:${appPort}/api/message`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: bulkBusy.id, text: "acceptance: bulk hold" }) });
 		for (let attempt = 0; attempt < 100 && (await state()).sessions[bulkBusy.id].run.status !== "running"; attempt++) await sleep(10);
 		assert.equal((await state()).sessions[bulkBusy.id].run.status, "running");
@@ -1016,7 +1021,6 @@ if (realModel) {
   const captureShellGeometry = () => page.evaluate(() => Object.fromEntries([
     ["shell", "#app-shell"],
     ["connection", ".shell-session-title"],
-    ["settings", ".shell-settings"],
     ["windows", ".shell-window-controls"],
   ].map(([key, selector]) => {
     const rect = document.querySelector(selector).getBoundingClientRect();
@@ -1041,7 +1045,7 @@ if (realModel) {
   // the route to the numbers and the route back: the gear opens Settings over
   // the chat, and closing it leaves the chat exactly as it was.
   const chatToPanelStarted = performance.now();
-  await page.locator(".shell-settings").click();
+  await openSettings();
   await browser.wait(`document.querySelector('#settings-page') && !document.querySelector('#settings-page').hidden`, "Settings open from the chat");
   assert.equal(await clickText(".settings-nav button", "Activity"), true);
   await page.locator("#activity-panel").waitFor({ state: "visible" });
@@ -1060,7 +1064,10 @@ if (realModel) {
     ["Agents", "Activity", "Plan"],
   );
   const panelGeometry = await captureShellGeometry();
-  assert.deepEqual(panelGeometry, chatGeometry, JSON.stringify({ chatGeometry, panelGeometry }));
+  assert.deepEqual(panelGeometry.shell, chatGeometry.shell, JSON.stringify({ chatGeometry, panelGeometry }));
+  assert.deepEqual(panelGeometry.windows, chatGeometry.windows, JSON.stringify({ chatGeometry, panelGeometry }));
+  assert.deepEqual({ ...panelGeometry.connection, x: chatGeometry.connection.x }, chatGeometry.connection, JSON.stringify({ chatGeometry, panelGeometry }));
+  assert.equal(chatGeometry.connection.x - panelGeometry.connection.x, 26);
 	// Agents holds the configurable half. web_search and delegate are deliberately
 	// file-only, but remain observable as the two additional Activity rows.
   assert.equal(await clickText(".settings-nav button", "Agents"), true);
@@ -1147,7 +1154,7 @@ if (realModel) {
   assert.ok(Math.abs(codePanel.widthBefore - codePanel.widthAfter) <= 1 && codePanel.long.block.right <= codePanel.long.host.right + 1, JSON.stringify(codePanel.long));
   await page.evaluate(() => document.querySelector("#w3-code-panel-fixture")?.remove());
   console.log(`W3 code panel ${codePanel.panelBackground}, ${codePanel.borderWidth} ${codePanel.borderStyle}`);
-  await page.locator(".shell-settings").click();
+  await openSettings();
   await page.locator("#settings-page").waitFor({ state: "visible" });
   const panelToChatStarted = performance.now();
   await page.locator(".shell-settings").click();
@@ -1225,7 +1232,7 @@ if (realModel) {
   const baselineDirectory = join(args.evidence, "baseline-initial");
   await mkdir(baselineDirectory, { recursive: true });
   const chatIdleScreenshot = await captureWithMasks(page, join(baselineDirectory, "chat-idle.png"));
-  await page.locator(".shell-settings").click();
+  await openSettings();
   await page.locator("#settings-page").waitFor({ state: "visible" });
   const connectionState = page.locator('.connection-row:has([data-action="connection-toggle"][data-id="acceptance"]) .connection-state');
   await page.locator('[data-action="connection-toggle"][data-id="acceptance"]').click();
@@ -2006,7 +2013,7 @@ if (realModel) {
 
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
 	await browser.wait(`location.pathname==='/chat' && document.querySelector('#settings-page') && document.querySelector('.shell-settings')`, "the settings control on the chat");
-  await page.locator(".shell-settings").click();
+  await openSettings();
   await browser.wait(`!document.querySelector('#settings-page').hidden`, "Settings open");
   assert.equal(await clickText(".settings-nav button", "Security"), true);
   await browser.wait(`!document.querySelector('#settings-page').hidden && document.querySelector('.settings-content')?.innerText.includes('Docker Sandbox')`, "operator-file and sandbox Security settings");
@@ -2052,7 +2059,7 @@ if (realModel) {
   await browser.wait(`location.pathname === '/chat' && document.querySelector('#chat-task')`, "closing the sheet on the Plan returns to the chat");
   assert.equal(await page.locator('.agent-tab-wrap-surface').count(), 0);
   record("settings-plan-section-opens-and-closes");
-  await page.locator(".shell-settings").click();
+  await openSettings();
   await browser.wait(`document.querySelector('#settings-page') && !document.querySelector('#settings-page').hidden`, "Settings reopened after the Plan");
   assert.equal(await clickText(".settings-nav button", "Security"), true);
   await browser.wait(`document.querySelector('.settings-operator-status[data-action="operator-context"]')`, "Settings operator toggle");
@@ -2375,7 +2382,7 @@ if (realModel) {
   await setTask("acceptance: unreachable settings test");
   await waitEvent(sessionID, (event) => event.seq > testUnreachableAfter && event.type === "model.unreachable", "Settings Test fixture model.unreachable");
   await startFake(modelPort);
-  await page.locator(".shell-settings").click();
+  await openSettings();
   await page.locator("#settings-page").waitFor({ state: "visible" });
   await page.locator('[data-action="connection-toggle"][data-id="acceptance"]').click();
   // Item 2px (a): Test is in the form; Edit opens it.
@@ -2485,7 +2492,7 @@ if (realModel) {
   const screenshot = await page.screenshot();
 	await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
 	await browser.wait(`location.pathname==='/chat' && document.querySelector('#settings-page') && document.querySelector('.shell-settings')`, "the settings control before Empty");
-	await page.locator(".shell-settings").click();
+	await openSettings();
 	await browser.wait(`document.querySelector('#settings-page') && !document.querySelector('#settings-page').hidden`, "Settings open before Empty");
 	assert.equal(await clickText(".settings-nav button", "Security"), true);
 	await browser.wait(`!document.querySelector('#settings-page').hidden && [...document.querySelectorAll('.settings-content button')].some(item=>item.textContent.trim()==='Empty')`, "attachments Empty action");
@@ -2723,12 +2730,12 @@ if (realModel) {
   });
   await page.reload();
   await browser.wait(`document.querySelector('.chat-list-new')?.title === 'New chat'`, "d-aware New chat");
-  await page.locator(".chat-list-new").click();
-  const roleChoices = page.locator(".shell-new-menu .shell-new-choice");
-  assert.deepEqual(await roleChoices.allTextContents(), ["agent_b · Acceptance — chat", "agent_d · Acceptance — plan"]);
+  await page.locator(".chat-list-menu-button").click();
+  const roleChoices = page.locator(".shell-new-menu .chat-list-menu-action");
+  assert.deepEqual(await roleChoices.allTextContents(), ["Chat", "Folder", "agent_d · Acceptance — plan", "Settings"]);
   await page.screenshot({ path: join(evidenceRun, "d-role-menu.png") });
   const beforeDIDs = new Set(Object.keys((await state()).sessions));
-  await roleChoices.nth(1).click();
+  await roleChoices.nth(2).click();
   // The selected list row reads the chat's name; role remains server metadata.
   let dSession;
   for (let attempt = 0; attempt < 100 && !dSession; attempt++) {
@@ -2745,7 +2752,7 @@ if (realModel) {
   // Item 2gl (v1.2.6): the WINDOW title names the chat, because the overlay
   // could not be made to activate and the system strip stays. 2eo's rule is
   // about the header beside the tab strip, which still reads the connection only.
-  assert.equal(await page.title(), "Agent_b · New chat");
+  assert.equal(await page.title(), "Agent_b - New chat");
   assert.equal(await page.locator(".shell-session-title").innerText(), dSession.b_connection || dSession.connection_id, "item 2eo: the header reads the connection name only");
   await page.screenshot({ path: join(evidenceRun, "d-plan.png") });
   record("d-new-chat-unbound-scratch-row-and-title");

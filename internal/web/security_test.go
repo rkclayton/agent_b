@@ -186,8 +186,8 @@ func TestHostWindowActionsUseTheMutationBoundary(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
-	var got string
-	server.SetHostWindowAction(func(action string) bool { got = action; return true })
+	var got, title string
+	server.SetHostWindowAction(func(action, value string) bool { got, title = action, value; return true })
 
 	request := httptest.NewRequest(http.MethodPost, "/api/host-window", strings.NewReader(`{"action":"maximize"}`))
 	authorizeMutation(request, server)
@@ -197,6 +197,15 @@ func TestHostWindowActionsUseTheMutationBoundary(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || got != "maximize" {
 		t.Fatalf("status=%d action=%q body=%s", response.Code, got, response.Body)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/host-window", strings.NewReader(`{"action":"title","title":"Agent_b - Fixture chat"}`))
+	authorizeMutation(request, server)
+	request.Host = "example.com"
+	request.Header.Set("Origin", "http://example.com")
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || got != "title" || title != "Agent_b - Fixture chat" {
+		t.Fatalf("title status=%d action=%q title=%q body=%s", response.Code, got, title, response.Body)
 	}
 
 	request = httptest.NewRequest(http.MethodPost, "/api/host-window", strings.NewReader(`{"action":"open"}`))

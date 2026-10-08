@@ -13,6 +13,7 @@ import { removeTreeWithinAllowedRoots } from "../../tools/removal-guard.mjs";
 const run = promisify(execFile);
 const hash = async (path) => createHash("sha256").update(await readFile(path)).digest("hex");
 const repo = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+const openSettings = async (page) => { await page.locator(".chat-list-menu-button").click(); await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click(); };
 let root;
 let harness;
 
@@ -252,7 +253,7 @@ test("the switcher's model column has real room and no ellipsis", async () => {
 test("Security shows one Phone section and retired browser phone routes are absent", async () => {
 	const page = await harness.context.newPage();
 	await page.goto(`${harness.base}/chat`);
-	await page.locator(".shell-settings").click();
+	await openSettings(page);
 	await page.locator('.settings-nav [data-id="shell"]').click();
 	const phoneHeading = page.locator(".settings-subhead", { hasText: /^Phone$/ });
 	await expect(phoneHeading).toHaveCount(1);
@@ -368,7 +369,7 @@ test("the Plan is a top-level Settings section, not a tab, and the switch hides 
 
 	// (a): one top-level entry, third, after the two the sheet is opened to read,
 	// carrying the operator's own prepared mark.
-	await page.locator(".shell-settings").click();
+	await openSettings(page);
 	const nav = page.locator(".settings-nav button");
 	await expect(nav.nth(2)).toHaveAttribute("data-id", "plan");
 	await expect(nav.nth(2)).toHaveText(/Plan/);
@@ -469,7 +470,7 @@ test("Plan opens in the pane, 50 ms after the click, with no page load", async (
   await expect(page.locator("#chat-log")).toBeVisible();
   const loadsBefore = loads;
 
-  await page.locator(".shell-settings").click();
+  await openSettings(page);
   await page.locator('.settings-nav [data-id="plan"]').click();
   await page.waitForTimeout(50);
   const shot = await page.screenshot();
@@ -506,7 +507,7 @@ test("the Plan section fits the pane at the narrowest window the frame allows", 
   const small = await harness.browser.newContext({ viewport: { width: 304, height: 254 } });
   const page = await small.newPage();
   await page.goto(`${harness.base}/chat`);
-  await page.locator(".shell-settings").click();
+  await openSettings(page);
   await page.locator('.settings-nav [data-id="plan"]').click();
   await expect(page.locator("#settings-page #plan-panel")).toBeVisible();
   const shot = await page.screenshot();
@@ -548,7 +549,7 @@ test("an unassigned planner leaves the entry and shows the one line in the pane"
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
-  await page.locator(".shell-settings").click();
+  await openSettings(page);
   // Give the agent a planner that is not this chat's role, which is what makes the
   // Plan unavailable on this chat.
   await page.locator('.settings-nav [data-id="agents"]').click();

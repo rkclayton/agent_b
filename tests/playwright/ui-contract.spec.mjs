@@ -366,6 +366,20 @@ test("fresh context leaves every transcript entry visible and adds its searchabl
 });
 
 test("2ql finished and live s56-shaped replays stay compact and keep every entry reachable", async ({ browser }) => {
+  const auditDisclosures = async (page) => page.evaluate(async () => {
+    const failures = [];
+    for (;;) {
+      const button = [...document.querySelectorAll(".chat-response button[aria-expanded]:not([data-audited])")].find((node) => !node.hidden && node.getClientRects().length);
+      if (!button) break;
+      button.dataset.audited = "1";
+      const before = button.getAttribute("aria-expanded");
+      button.click(); await new Promise(requestAnimationFrame);
+      if (button.getAttribute("aria-expanded") === before) failures.push(button.className || button.textContent);
+      button.click(); await new Promise(requestAnimationFrame);
+      if (before === "false") { button.click(); await new Promise(requestAnimationFrame); }
+    }
+    return failures;
+  });
   const id = "chat-2ql";
   const runID = "run-2ql";
   const replay = [
@@ -425,6 +439,9 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await expect(finished.page.locator(".chat-step-summary").filter({ hasText: "retried" })).toContainText("1 retried");
   await expect(finished.page.getByText("thinking · 7 tokens")).toBeVisible();
   await expect(finished.page.locator(".tool-tick").first()).toContainText(/shell\s*·\s*git stash pop/);
+  expect(await auditDisclosures(finished.page)).toEqual([]);
+  await finished.page.evaluate(() => document.querySelector(".chat-response").insertAdjacentHTML("beforeend", '<button aria-expanded="false">ignored disclosure</button>'));
+  expect(await auditDisclosures(finished.page)).toEqual(["ignored disclosure"]);
   await finished.page.evaluate(() => document.querySelector("#chat-log").insertAdjacentHTML("beforeend", '<section class="chat-entry chat-summary"><div class="chat-speaker" aria-label="summary"><span aria-hidden="true">summary</span></div><div class="chat-content">summary row</div></section><section class="chat-entry chat-notice-row"><div class="chat-content">harness note</div></section>'));
   await finished.page.setViewportSize({ width: 1400, height: 900 });
   const rail = async (scale) => finished.page.evaluate((value) => {
@@ -449,17 +466,48 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   const liveBlocks = live.page.locator(".chat-response-block");
   await expect(liveBlocks).toHaveCount(2);
   await expect(liveBlocks.nth(0).locator(".chat-step-rows > *")).toHaveCount(0);
+  const hoverBox = await live.page.evaluate(() => { const box = document.querySelectorAll(".chat-response-block")[1].getBoundingClientRect(); return { x: box.x, y: box.y }; });
+  await live.page.mouse.move(hoverBox.x + 4, hoverBox.y + 4);
+  await live.page.evaluate((next) => { next.sessions["chat-2ql"].chat.push({ type: "agent", key: "hovered-next", run_id: "run-2ql", text: "Started another step.", done: true }, { type: "tool", key: "hovered-tool", run_id: "run-2ql", name: "read_file", args: { path: "C:\\synthetic\\next.txt" }, result: { ok: true, ms: 2 }, content: "next" }); next.sessions["chat-2ql"].cursor.offset += 50; globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: next }); }, snapshot("running"));
   await expect(liveBlocks.nth(1).locator(".chat-step-rows > *")).not.toHaveCount(0);
+  const clickedTop = await liveBlocks.nth(0).locator(".chat-step-summary").evaluate((node) => { document.querySelector("#chat-log").scrollTop = document.querySelector("#chat-log").scrollHeight; return node.getBoundingClientRect().top; });
+  await liveBlocks.nth(0).locator(".chat-step-summary").click();
+  expect(Math.abs(await liveBlocks.nth(0).locator(".chat-step-summary").evaluate((node) => node.getBoundingClientRect().top) - clickedTop)).toBeLessThanOrEqual(1);
+  await expect(liveBlocks.nth(0).locator(".chat-step-rows > *")).not.toHaveCount(0);
+  for (let event = 0; event < 20; event++) await live.page.evaluate(({ next, event }) => { next.sessions["chat-2ql"].cursor.offset += event + 200; globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: next }); }, { next: snapshot("running"), event });
+  await expect(liveBlocks.nth(0).locator(".chat-step-rows > *")).not.toHaveCount(0);
+  await liveBlocks.nth(0).locator(".chat-step-summary").click();
+  await expect(liveBlocks.nth(0).locator(".chat-step-rows > *")).toHaveCount(0);
+  await expect(liveBlocks.nth(1).locator(".chat-step-rows > *")).not.toHaveCount(0);
+  await liveBlocks.nth(1).locator(".chat-step-summary").click();
+  await expect(liveBlocks.nth(1).locator(".chat-step-rows > *")).toHaveCount(0);
+  await liveBlocks.nth(1).locator(".chat-step-summary").click();
+  await expect(liveBlocks.nth(1).locator(".chat-step-rows > *")).not.toHaveCount(0);
+  expect(await auditDisclosures(live.page)).toEqual([]);
   const liveStatus = live.page.locator("#chat-status-line");
   await expect(liveStatus).toBeVisible();
   await expect(liveStatus).toContainText(/read_file.*result\.txt/i);
   await expect(live.page.locator("#chat-log > :last-child")).toHaveAttribute("id", "chat-status-line");
+  for (const size of [9, 12, 32]) {
+    const clear = await live.page.evaluate((value) => { document.documentElement.style.setProperty("--ct", `${value}px`); document.querySelector("#chat-task").focus(); const box = document.querySelector(".chat-input-wrap").getBoundingClientRect(), stop = document.querySelector("#chat-send").getBoundingClientRect(); return { below: box.bottom - stop.bottom, right: box.right - stop.right }; }, size);
+    expect(clear.below).toBeGreaterThanOrEqual(6); expect(clear.right).toBeGreaterThanOrEqual(6);
+  }
+  for (const zoom of [1, 1.5]) { await live.page.evaluate((value) => { document.body.style.zoom = value; document.documentElement.style.setProperty("--ct", "12px"); }, zoom); await live.page.screenshot({ path: `test-results/2so-focus-${zoom}.png`, fullPage: true }); }
+  await live.page.evaluate(() => { document.body.style.zoom = 1; });
+  const listEdge = await live.page.locator(".chat-list-resize").boundingBox();
+  await live.page.mouse.move(listEdge.x + 2, 80); await live.page.mouse.down(); await live.page.mouse.move(0, 80); await live.page.mouse.up();
+  for (const width of [304, 1280, 1920]) {
+    await live.page.setViewportSize({ width, height: 760 });
+    const gap = await liveBlocks.first().locator(".chat-narration-line").evaluate((row) => row.querySelector(".chat-step-summary").getBoundingClientRect().left - row.querySelector(".chat-response-answer").getBoundingClientRect().right);
+    expect(gap).toBeGreaterThanOrEqual(7); expect(gap).toBeLessThanOrEqual(12);
+    await live.page.screenshot({ path: `test-results/2sm-live-${width}.png`, fullPage: true });
+  }
   await expect(live.page.locator("#chat-status-strip")).toHaveCount(0);
   await expect(live.page.locator(".chat-input-actions > .chat-attach-wrap + #chat-mic")).toHaveCount(1);
   await live.page.evaluate((next) => globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: next }), (() => {
     const next = structuredClone(snapshot("running"));
     next.sessions[id].chat.push({ type: "agent", key: "later-line", run_id: runID, text: "A newer synthetic line arrived.", done: false });
-    next.sessions[id].cursor.offset++;
+    next.sessions[id].cursor.offset += 400;
     return next;
   })());
   await expect(live.page.getByText("A newer synthetic line arrived.")).toBeVisible();

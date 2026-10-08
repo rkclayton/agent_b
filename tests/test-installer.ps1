@@ -786,13 +786,12 @@ try {
     # link to a tab, so it is a button rather than an anchor and needs no
     # preventDefault; the selected tab returning to the chat is the behaviour, and
     # that is what is asserted.
-    # Item 2ni (c): the tab that toggled back to the chat is gone, and the way back from
-    # the Plan's own document is the gear behaving as this sheet's close. So the shipped
-    # build is checked for THAT, and for the entry that opens the page at all.
-    if ($shellSource -notmatch 'openedFromSettings' -or
-        $settingsScript -notmatch '\["plan", "Plan"\]' -or
+    # Item 2sy: Settings stays in the chat document, with its Plan entry retained;
+    # the panel's X and dimmed-chat backdrop share its in-place close path.
+    if ($settingsScript -notmatch '\["plan", "Plan"\]' -or
         $settingsScript -notmatch 'shell-page-chip' -or
-        $settingsScript -notmatch 'gear\.addEventListener\("click", \(event\) => \{\s+event\.preventDefault\(\);' -or
+        $settingsScript -notmatch 'backdrop\.addEventListener\("click"' -or
+        $settingsScript -notmatch 'data-action="close"[^>]+title="Close"' -or
         $settingsScript -match 'consoleLaunch') {
         throw 'Installed application does not preserve the Plan entry or Settings in-place navigation.'
     }

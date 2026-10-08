@@ -2631,7 +2631,7 @@ if (realModel) {
   }
   assert.ok(dSession, "the agent_d choice did not create a d-role chat");
   await page.locator(`.chat-list-row.selected[data-session="${dSession.id}"]`).waitFor({ state: "visible" });
-  assert.equal(await page.locator(".chat-list-row.selected .chat-list-name").getAttribute("title"), "New chat");
+  assert.equal(await page.locator(".chat-list-row.selected .chat-list-name").getAttribute("title"), null, "a whole chat name has no hover text");
   const dState = await state();
   assert.equal(dSession.connection_id, "acceptance");
   assert.ok(dSession.workspace_dir.startsWith(join(profileData, "chats")), "new d chat must live under chats");

@@ -16,9 +16,7 @@ var skillStateQuota = struct {
 	totals map[string]int64
 }{totals: map[string]int64{}}
 
-// ReserveSkillStateWrite enforces each skill's state bound without scanning the
-// tree on every event. The first write after process start measures that skill's
-// bounded store once; later writes update the cached total under one lock.
+// ReserveSkillStateWrite scans once, then maintains each skill's bounded total.
 func (s *Session) ReserveSkillStateWrite(path string, size int64) (func(bool), error) {
 	profileRoot := filepath.Clean(s.SkillStateRoot)
 	candidate := filepath.Clean(path)

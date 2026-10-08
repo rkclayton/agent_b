@@ -46,14 +46,59 @@ func TestAByteRefusalIsReadFromWhatTheServerSaid2l8(t *testing.T) {
 // Compaction leaves headroom rather than fitting to the byte, because the next
 // turn adds a message of its own.
 func TestTheByteTargetLeavesHeadroom2l8(t *testing.T) {
-	if target := byteLimitTarget(400000); target != 380000 {
-		t.Fatalf("target %d, want 380000", target)
+	if target := byteLimitTarget(400000); target != 300000 {
+		t.Fatalf("target %d, want 300000", target)
 	}
 	if target := byteLimitTarget(400000); target >= 400000 {
 		t.Fatal("the target does not leave headroom")
 	}
 	if target := byteLimitTarget(1); target != 1 {
 		t.Fatalf("a tiny limit must stay usable, got %d", target)
+	}
+}
+
+func TestByteTrimIsOldestFirstAndKeepsNewestTwoTurns2su(t *testing.T) {
+	ok := true
+	item := &session.Session{}
+	for turn := 1; turn <= 4; turn++ {
+		item.Append(events.Message{ID: fmt.Sprintf("t%d", turn), Role: llm.RoleTool, ToolCallID: fmt.Sprintf("c%d", turn), Turn: turn, OK: &ok, Content: fmt.Sprintf("turn-%d ", turn) + strings.Repeat("x", 5000)})
+	}
+	trimmed, removed, cuts := trimToolResults(item, 2000, 10000)
+	messages := item.MessagesCopy()
+	if trimmed != 1 || removed < 2000 || len(cuts) != 1 || cuts[0]["call_id"] != "c1" {
+		t.Fatalf("trimmed=%d removed=%d cuts=%v", trimmed, removed, cuts)
+	}
+	if !strings.Contains(messages[0].Content, "cut short") || strings.Contains(messages[2].Content, "cut short") || strings.Contains(messages[3].Content, "cut short") {
+		t.Fatalf("turns were not kept oldest-first: %#v", messages)
+	}
+}
+
+func TestOneByteTrimBuysTwentyFiveTurns2su(t *testing.T) {
+	ok := true
+	item := &session.Session{}
+	for turn := 1; turn <= 6; turn++ {
+		item.Append(events.Message{ID: fmt.Sprintf("t%d", turn), Role: llm.RoleTool, ToolCallID: fmt.Sprintf("c%d", turn), Turn: turn, OK: &ok, Content: strings.Repeat(string(rune('a'+turn)), 20_000)})
+	}
+	const limit = 120_000
+	requestSize := 121_000
+	trims := 0
+	for turn := 0; turn < 25; turn++ {
+		if requestSize > limit {
+			count, _, _ := trimToolResults(item, requestSize-byteLimitTarget(limit), limit)
+			if count == 0 {
+				t.Fatalf("turn %d could not reach target", turn)
+			}
+			trims++
+			requestSize = byteLimitTarget(limit)
+			if requestSize > byteLimitTarget(limit) {
+				t.Fatalf("trim left %d bytes, target %d", requestSize, byteLimitTarget(limit))
+			}
+		}
+		// A realistic short user/assistant turn grows only at the request's end.
+		requestSize += 900
+	}
+	if trims > 2 {
+		t.Fatalf("25 turns needed %d trims, want at most 2", trims)
 	}
 }
 

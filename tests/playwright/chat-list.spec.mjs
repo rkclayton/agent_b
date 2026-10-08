@@ -1,7 +1,6 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 
 const webRoot = fileURLToPath(new URL("../../web/", import.meta.url));
@@ -37,6 +36,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
     sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: "p1", surface: { kind: "chat", key: "p1" } }));
     class FixtureEvents { constructor() { this.listeners = new Map(); setTimeout(() => { this.onopen?.(); const event = { data: JSON.stringify({ type: "snapshot", data }) }; for (const listener of this.listeners.get("snapshot") || []) listener(event); }); } addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); } close() {} }
     globalThis.EventSource = FixtureEvents;
+    globalThis.chrome = { webview: {} };
   }, { data: snapshot() });
   const page = await context.newPage();
   await page.route("**/*", async (route) => {
@@ -315,8 +315,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await context.close();
 });
 
-test("removing the gear closes its gap without moving the window controls 2si", async ({ browser }) => {
-  const oldShell = execFileSync("git", ["show", "HEAD:web/js/shell.js"], { encoding: "utf8" });
+test("removing the gear leaves no gap and keeps the window controls at the edge 2si", async ({ browser }) => {
   const currentShell = await readFile(new URL("../../web/js/shell.js", import.meta.url), "utf8");
   const session = { schema_version: 1, complete: true, id: "chat-0", label: "Chat", agent_id: "agent_b", role: "b", connection_id: "fixture", b_connection: "fixture", created_at: "2026-10-06T00:00:00Z", run: { status: "idle" }, tools: [], messages: [], budget: {}, activity: { completed_stages: [] }, timeline: [], chat: [], runnable: true, closed: false };
   const snapshot = { sessions: { [session.id]: session }, connections: [{ id: "fixture", label: "fixture" }], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [{ id: "fixture", label: "fixture" }] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {} };
@@ -333,10 +332,10 @@ test("removing the gear closes its gap without moving the window controls 2si", 
     await context.close();
     return boxes;
   };
-  const current = await measure(currentShell), old = await measure(oldShell);
+  const current = await measure(currentShell);
   const byClass = (rows, name) => rows.find((row) => row[0] === name);
-  expect(byClass(current, "shell-window-controls")).toEqual(byClass(old, "shell-window-controls"));
   expect(byClass(current, "shell-settings").slice(3)).toEqual([0, 0]);
-  expect(byClass(current, "shell-session-lamp")[1] - byClass(old, "shell-session-lamp")[1]).toBe(26);
-  expect(byClass(current, "shell-session-title")[1] - byClass(old, "shell-session-title")[1]).toBe(26);
+  const controls = byClass(current, "shell-window-controls"), lamp = byClass(current, "shell-session-lamp"), title = byClass(current, "shell-session-title");
+  expect(controls[1] + controls[3]).toBe(1400);
+  expect(title[1] - (lamp[1] + lamp[3])).toBe(8);
 });

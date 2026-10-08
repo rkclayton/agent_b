@@ -27,6 +27,7 @@ import (
 	"harness/internal/llm"
 	"harness/internal/session"
 	"harness/internal/tools"
+	workspaceinfo "harness/internal/workspace"
 )
 
 type Runner struct {
@@ -287,8 +288,15 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		return "workspace_not_runnable", workspaceReason, 0
 	}
 	s.ResetRunTouches()
+	for _, message := range s.MessagesCopy() {
+		if message.Role == "user" {
+			s.TouchMentionedProjects(message.Content)
+		}
+	}
 	if block, changed := s.RefreshProject(); changed {
-		r.bus.Publish(events.New(events.ProjectInstructions, s.ID, runID, map[string]any{"block": block, "files": s.Snapshot().ProjectFiles, "refreshed": true}))
+		files := s.Snapshot().ProjectFiles
+		_, counts, _ := workspaceinfo.RenderInstructionSet(files)
+		r.bus.Publish(events.New(events.ProjectInstructions, s.ID, runID, map[string]any{"block": block, "files": files, "tokens": counts, "refreshed": true}))
 	}
 	// Pin the message this run is answering before anything can compact. From
 	// here to the end of the history is the task, and it is never summarised,
@@ -541,6 +549,16 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			diagnosticRequest := request
 			diagnosticRequest.Messages = diagnosticMessages(request.Messages)
 			body = llm.BuildRequest(connection, diagnosticRequest, true)
+			if limit := connection.Capabilities.ObservedByteLimit; limit > 0 {
+				if size := llm.SerializedBytes(connection, request, true); size > 0 && budget.UsedEst > 0 {
+					byteCeiling := budget.UsedEst * limit / size
+					if byteCeiling > 0 && byteCeiling < budget.Ceiling {
+						budget.Ceiling = byteCeiling
+						budget.Findings = append(budget.Findings, fmt.Sprintf("usable ceiling %d tokens set by %d-byte server limit", byteCeiling, limit))
+						s.SetBudget(budget)
+					}
+				}
+			}
 			r.bus.Publish(events.New(events.BudgetEvent, s.ID, runID, budget))
 			data := map[string]any{"turn": turn, "message_count": len(messages), "tool_count": len(schemas), "params": requestParams(connection, request.MaxTokens), "est_prompt_tokens": budget.UsedEst, "estimated": budget.Estimated}
 			// Item 2pw: what the flight recorder's invoke_agent span names, with
@@ -1112,7 +1130,7 @@ func byteLimitError(err error) (int, string, bool) {
 // turn adds a message of its own, and a body that just fits today is refused
 // tomorrow.
 func byteLimitTarget(limit int) int {
-	target := limit - limit/20
+	target := limit * 3 / 4
 	if target < 1 {
 		return limit
 	}
@@ -1128,10 +1146,13 @@ func (r *Runner) compactForByteLimit(ctx context.Context, s *session.Session, ru
 	// and a request the server itself accepts; cutting the largest tool results in
 	// place needs neither, so it goes first and summary runs only if it was not
 	// enough.
-	if trimmed := trimToolResults(s, before-byteLimitTarget(limit), limit); trimmed > 0 {
-		r.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"trigger": "byte_limit_trim", "limit_bytes": limit, "bytes_before": before, "trimmed_results": trimmed, "connection_id": connection.ID}))
+	r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "compact", "state": "enter", "reason": "server_size_limit"}))
+	if trimmed, removed, cuts := trimToolResults(s, before-byteLimitTarget(limit), limit); trimmed > 0 {
+		r.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"trigger": "byte_limit_trim", "limit_bytes": limit, "bytes_before": before, "bytes_removed": removed, "bytes_after": before - removed, "trimmed_results": trimmed, "trimmed_calls": cuts, "connection_id": connection.ID}))
+		r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "compact", "state": "exit", "reason": "server_size_limit"}))
 		return true
 	}
+	r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "compact", "state": "exit", "reason": "server_size_limit"}))
 	changed := false
 	for attempts := 0; attempts < 3; attempts++ {
 		if !r.summarize(withCompactionTrigger(ctx, "byte_limit"), s, runID, connection) {
@@ -1157,29 +1178,48 @@ const (
 	maxByteLimitRetries = 8
 )
 
-// trimToolResults cuts the largest tool results in the session, largest first,
-// until over bytes are gone, and reports how many it cut. A serialized request
+// trimToolResults cuts tool results from oldest to newest until over bytes are
+// gone, and reports how many it cut. A serialized request
 // only grows by escaping, so removing N content bytes removes at least N.
-func trimToolResults(s *session.Session, over, limit int) int {
+func trimToolResults(s *session.Session, over, limit int) (int, int, []map[string]any) {
 	if over <= 0 {
-		return 0
+		return 0, 0, nil
 	}
 	messages := s.MessagesCopy()
-	contents := []*string{}
-	for index := range messages {
-		if messages[index].Role == llm.RoleTool && !messages[index].Elided {
-			contents = append(contents, &messages[index].Content)
-		}
+	maxTurn := 0
+	for _, message := range messages {
+		maxTurn = max(maxTurn, message.Turn)
 	}
-	trimmed := trimLargest(contents, over, limit)
+	trimmed, removed := 0, 0
+	cuts := []map[string]any{}
+	for index := range messages {
+		message := &messages[index]
+		if over <= 0 {
+			break
+		}
+		if message.Role != llm.RoleTool || message.Elided || len(message.Content) <= byteTrimFloor+byteTrimMarkerRoom || (maxTurn > 1 && message.Turn >= maxTurn-1) {
+			continue
+		}
+		original := message.Content
+		keep := max(byteTrimFloor, len(original)-over-byteTrimMarkerRoom)
+		head := strings.ToValidUTF8(original[:keep*2/3], "")
+		tail := strings.ToValidUTF8(original[len(original)-(keep-keep*2/3):], "")
+		dropped := len(original) - len(head) - len(tail)
+		message.Content = head + fmt.Sprintf("\n\n[note: the read was cut short: %d bytes of this tool result were dropped to fit the server's %d-byte request limit; the model kept %d bytes. Re-read the dropped span with read_file windows (offset and limit) if it is needed.]\n\n", dropped, limit, len(head)+len(tail)) + tail
+		cut := len(original) - len(message.Content)
+		over -= cut
+		removed += cut
+		trimmed++
+		cuts = append(cuts, map[string]any{"call_id": message.ToolCallID, "kept_bytes": len(head) + len(tail), "removed_bytes": dropped})
+	}
 	if trimmed > 0 {
 		s.ReplaceMessages(messages)
 	}
-	return trimmed
+	return trimmed, removed, cuts
 }
 
-// trimLargest keeps each cut result's head and tail and names what was dropped
-// in the "read was cut short" language 2l8 uses, with how to read it back.
+// trimLargest remains the request-local cutter used by summary and result
+// window construction; session history trimming above deliberately uses age.
 func trimLargest(contents []*string, over, limit int) int {
 	trimmed := 0
 	for over > 0 {
@@ -1197,7 +1237,7 @@ func trimLargest(contents []*string, over, limit int) int {
 		head := strings.ToValidUTF8(original[:keep*2/3], "")
 		tail := strings.ToValidUTF8(original[len(original)-(keep-keep*2/3):], "")
 		dropped := len(original) - len(head) - len(tail)
-		*largest = head + fmt.Sprintf("\n\n[note: the read was cut short: %d bytes of this tool result were dropped to fit the server's %d-byte request limit; the start and end are kept. Re-read the dropped span with read_file windows (offset and limit) if it is needed.]\n\n", dropped, limit) + tail
+		*largest = head + fmt.Sprintf("\n\n[note: the read was cut short: %d bytes of this tool result were dropped to fit the server's %d-byte request limit; the start and end are kept.]\n\n", dropped, limit) + tail
 		over -= len(original) - len(*largest)
 		trimmed++
 	}

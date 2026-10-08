@@ -114,10 +114,8 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 		return CallDetail{Content: reason, OperatorOverrideReason: reason, Metadata: map[string]any{"target": "sandbox " + sandboxID}}
 	}
 	if sandboxed {
-		for _, denied := range cfg.Deny {
-			if denied != "" && strings.Contains(strings.ToLower(command), strings.ToLower(denied)) {
-				return CallDetail{Err: fmt.Errorf("command blocked by deny list"), Metadata: map[string]any{"target": "sandbox " + sandboxID}}
-			}
+		if denied := deniedCommand(command, cfg.Deny); denied != "" {
+			return CallDetail{Err: fmt.Errorf("command blocked by deny list entry %q", denied), Metadata: map[string]any{"target": "sandbox " + sandboxID}}
 		}
 		timeout := number(args["timeout_s"], cfg.TimeoutS)
 		if timeout <= 0 {
@@ -148,10 +146,8 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 			log.Printf("debug: shell file-routing guard allowed ambiguous compound command: %q", command)
 		}
 	}
-	for _, denied := range cfg.Deny {
-		if denied != "" && strings.Contains(strings.ToLower(command), strings.ToLower(denied)) {
-			return CallDetail{Err: fmt.Errorf("command blocked by deny list")}
-		}
+	if denied := deniedCommand(command, cfg.Deny); denied != "" {
+		return CallDetail{Err: fmt.Errorf("command blocked by deny list entry %q", denied)}
 	}
 	timeout := number(args["timeout_s"], cfg.TimeoutS)
 	if timeout <= 0 {
@@ -215,6 +211,59 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 		return CallDetail{Err: err}
 	}
 	return waitShellProcess(ctx, process, usedService, timeout, cfg, output, command)
+}
+
+// deniedCommand matches entries only at shell command positions. Separators in
+// quoted arguments are data, and words in options never become commands.
+func deniedCommand(source string, entries []string) string {
+	for _, segment := range commandSegments(source) {
+		words := strings.Fields(segment)
+		if len(words) == 0 {
+			continue
+		}
+		command := strings.Trim(words[0], "\"'")
+		command = strings.TrimSuffix(strings.ToLower(command), ".exe")
+		for _, entry := range entries {
+			want := strings.Fields(strings.TrimSpace(entry))
+			if len(want) == 0 || command != strings.TrimSuffix(strings.ToLower(strings.Trim(want[0], "\"'")), ".exe") || len(words) < len(want) {
+				continue
+			}
+			matched := true
+			for index := 1; index < len(want); index++ {
+				if !strings.EqualFold(strings.Trim(words[index], "\"'"), strings.Trim(want[index], "\"'")) {
+					matched = false
+					break
+				}
+			}
+			if matched {
+				return entry
+			}
+		}
+	}
+	return ""
+}
+
+func commandSegments(source string) []string {
+	segments, start := []string{}, 0
+	var quote rune
+	for index, char := range source {
+		if quote != 0 {
+			if char == quote {
+				quote = 0
+			}
+			continue
+		}
+		if char == '\'' || char == '"' || char == '`' {
+			quote = char
+			continue
+		}
+		if char == ';' || char == '|' || char == '&' || char == '\n' || char == '\r' {
+			segments = append(segments, strings.TrimSpace(source[start:index]))
+			start = index + 1
+		}
+	}
+	segments = append(segments, strings.TrimSpace(source[start:]))
+	return segments
 }
 
 func outsideMetadata(folders []string, boundary bool) map[string]any {

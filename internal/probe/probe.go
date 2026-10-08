@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,16 @@ import (
 )
 
 func Probe(ctx context.Context, connection *config.Connection) (config.Capabilities, []string, error) {
+	return probe(ctx, connection, false)
+}
+
+// Eval runs the ordinary capability probe plus the one remote over-window
+// request that belongs only to the explicit Evaluation Harness action.
+func Eval(ctx context.Context, connection *config.Connection) (config.Capabilities, []string, error) {
+	return probe(ctx, connection, true)
+}
+
+func probe(ctx context.Context, connection *config.Connection, evaluateCeiling bool) (config.Capabilities, []string, error) {
 	if connection.ProbeMode == "off" {
 		findings := []string{"probe mode off: all capabilities assumed", "server: assumed openai-compatible", "n_ctx: taken from connection context", "tokenize/apply-template/cached tokens/timings/prompt progress: assumed unavailable", "streaming/tool calls/document input/image input: assumed available", "vision: reads images (assumed; probe mode off)", "overflow: assumed unknown"}
 		caps := config.Capabilities{Server: "openai-compatible", NCtx: connection.Context.NCtx, Streaming: true, ToolCalls: true, DocumentInput: true, ImageInput: true, Vision: config.VisionReadsImages, ReasoningControl: "none", ValidEfforts: []string{}, OverflowBehavior: "unknown", Findings: findings, ProbedAt: time.Now().UTC().Format(time.RFC3339)}
@@ -32,6 +43,15 @@ func Probe(ctx context.Context, connection *config.Connection) (config.Capabilit
 	}
 	caps := config.Capabilities{Server: "unknown", ReasoningControl: "none", OverflowBehavior: "unknown", ValidEfforts: []string{}}
 	findings := []string{}
+	caps.ObservedByteLimit = connection.Capabilities.ObservedByteLimit
+	if caps.ObservedByteLimit > 0 {
+		for _, finding := range connection.Capabilities.Findings {
+			if strings.HasPrefix(finding, "size limit:") {
+				findings = append(findings, finding)
+				break
+			}
+		}
+	}
 	client := llm.New(connection)
 
 	check, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -46,16 +66,25 @@ func Probe(ctx context.Context, connection *config.Connection) (config.Capabilit
 		findings = append(findings, fmt.Sprintf("props: available; server llama.cpp; n_ctx %d", caps.NCtx))
 	} else {
 		check, cancel = context.WithTimeout(ctx, 20*time.Second)
-		models, modelsErr := client.Models(check)
+		catalog, modelsErr := client.ModelCatalog(check)
 		cancel()
 		if modelsErr != nil {
 			return connection.Capabilities, nil, connectionProbeErrorFor(connection.BaseURL, propsErr, modelsErr)
 		}
 		caps.Server = "openai-compatible"
 		listed := false
-		for _, model := range models {
-			if model == connection.Model {
+		models := make([]string, 0, len(catalog))
+		for _, model := range catalog {
+			models = append(models, model.ID)
+			if model.ID == connection.Model {
 				listed = true
+				caps.NCtx = model.ContextLength
+				if strings.Contains(strings.ToLower(model.OwnedBy), "ollama") {
+					caps.Server = "ollama"
+				}
+				if strings.Contains(strings.ToLower(model.OwnedBy), "vllm") {
+					caps.Server = "vllm"
+				}
 			}
 		}
 		if listed {
@@ -139,7 +168,7 @@ func Probe(ctx context.Context, connection *config.Connection) (config.Capabilit
 	findings = append(findings, "document input: "+availability(caps.DocumentInput), "image input: "+availability(caps.ImageInput), "vision: "+caps.Vision)
 
 	probeReasoning(ctx, client, connection, &caps, &findings)
-	probeOverflow(ctx, client, connection, &caps, &findings)
+	probeOverflow(ctx, client, connection, &caps, &findings, evaluateCeiling)
 	return finish(caps, findings)
 }
 
@@ -401,24 +430,54 @@ func probeReasoning(ctx context.Context, client *llm.Client, connection *config.
 	*findings = append(*findings, emissionFinding, "reasoning control: "+caps.ReasoningControl, "valid efforts: "+strings.Join(caps.ValidEfforts, ", "))
 }
 
-func probeOverflow(ctx context.Context, client *llm.Client, connection *config.Connection, caps *config.Capabilities, findings *[]string) {
+func probeOverflow(ctx context.Context, client *llm.Client, connection *config.Connection, caps *config.Capabilities, findings *[]string, evaluateCeiling bool) {
 	parsed, _ := url.Parse(connection.BaseURL)
 	loopback := parsed != nil && (parsed.Hostname() == "127.0.0.1" || parsed.Hostname() == "localhost" || parsed.Hostname() == "::1")
-	if caps.NCtx == 0 || (!loopback && !caps.Props) {
+	if caps.Server == "ollama" {
+		*findings = append(*findings, "overflow: not probed because Ollama may truncate and begin inference")
+		return
+	}
+	if caps.NCtx == 0 || (!loopback && !caps.Props && !evaluateCeiling) || (!loopback && !caps.Props && caps.Server == "unknown") {
 		*findings = append(*findings, "overflow: not probed on a remote endpoint without /props; set capabilities.overflow_behavior by hand if you know it")
 		return
 	}
-	text := strings.Repeat("abcd ", caps.NCtx+1024)
+	// One repeated token plus one is enough to cross the published window while
+	// keeping this explicit Eval request as small as the check permits.
+	text := strings.Repeat("x ", caps.NCtx+1)
 	check, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	raw, status, err := client.DoJSON(check, http.MethodPost, "/v1/chat/completions", map[string]any{"model": connection.Model, "messages": []any{map[string]any{"role": "user", "content": text}}, "max_tokens": 1})
 	lower := strings.ToLower(string(raw))
-	if err == nil && status >= 400 && (strings.Contains(lower, "context") || strings.Contains(lower, "token") || strings.Contains(lower, "length")) {
+	if err == nil && status >= 400 && byteLimitFromResponse(lower) > 0 {
+		caps.ObservedByteLimit = byteLimitFromResponse(lower)
 		caps.OverflowBehavior = "error"
+		*findings = append(*findings, fmt.Sprintf("size limit: %d bytes observed %s", caps.ObservedByteLimit, time.Now().Format("2006-01-02")))
+	} else if err == nil && status >= 400 && (strings.Contains(lower, "context") || strings.Contains(lower, "token") || strings.Contains(lower, "length")) {
+		caps.OverflowBehavior = "error"
+		*findings = append(*findings, "overflow refusal: tokens")
 	} else if err == nil && status == 200 {
 		caps.OverflowBehavior = "truncate"
 	}
 	*findings = append(*findings, "overflow: "+caps.OverflowBehavior)
+}
+
+var overflowByteLimits = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)limit[^0-9]{0,20}([0-9][0-9,]*)`),
+	regexp.MustCompile(`(?i)(?:maximum|max)[^0-9]{0,20}([0-9][0-9,]*)\s*bytes`),
+}
+
+func byteLimitFromResponse(value string) int {
+	for _, pattern := range overflowByteLimits {
+		match := pattern.FindStringSubmatch(value)
+		if len(match) < 2 {
+			continue
+		}
+		limit, _ := strconv.Atoi(strings.ReplaceAll(match[1], ",", ""))
+		if limit > 0 {
+			return limit
+		}
+	}
+	return 0
 }
 
 func finish(caps config.Capabilities, findings []string) (config.Capabilities, []string, error) {

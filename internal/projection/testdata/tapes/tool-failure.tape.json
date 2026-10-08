@@ -681,6 +681,21 @@
      }
     },
     {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 662
+     }
+    },
+    {
      "op": "append",
      "path": "/timeline",
      "value": {
@@ -732,7 +747,9 @@
       "active_tool": "",
       "alarm_tool": "",
       "dispatch_alarm": false,
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 662
      }
     },
     {
@@ -899,7 +916,9 @@
       "active_tool": "",
       "alarm_tool": "",
       "dispatch_alarm": false,
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -969,7 +988,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1044,7 +1065,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1109,7 +1132,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1174,7 +1199,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1239,7 +1266,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1317,7 +1346,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1387,7 +1418,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1457,7 +1490,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1527,7 +1562,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1597,7 +1634,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1667,7 +1706,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1737,7 +1778,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1807,7 +1850,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1877,7 +1922,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -1947,7 +1994,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2017,7 +2066,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2087,7 +2138,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2157,7 +2210,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2227,7 +2282,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2297,7 +2354,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2367,7 +2426,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2437,7 +2498,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2507,7 +2570,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2577,7 +2642,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2647,7 +2714,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2717,7 +2786,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2787,7 +2858,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2857,7 +2930,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2927,7 +3002,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -2997,7 +3074,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3067,7 +3146,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3137,7 +3218,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3207,7 +3290,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3277,7 +3362,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3347,7 +3434,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3417,7 +3506,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3487,7 +3578,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3557,7 +3650,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3627,7 +3722,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3697,7 +3794,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3767,7 +3866,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3837,7 +3938,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3907,7 +4010,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -3977,7 +4082,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4047,7 +4154,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4117,7 +4226,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4187,7 +4298,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4257,7 +4370,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4327,7 +4442,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4397,7 +4514,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4467,7 +4586,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4537,7 +4658,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4607,7 +4730,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4677,7 +4802,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4747,7 +4874,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4817,7 +4946,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4887,7 +5018,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -4957,7 +5090,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5027,7 +5162,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5097,7 +5234,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5167,7 +5306,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5237,7 +5378,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5307,7 +5450,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5377,7 +5522,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5447,7 +5594,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5517,7 +5666,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5587,7 +5738,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5657,7 +5810,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5727,7 +5882,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5797,7 +5954,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5867,7 +6026,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -5937,7 +6098,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6007,7 +6170,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6077,7 +6242,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6147,7 +6314,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6217,7 +6386,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6287,7 +6458,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6357,7 +6530,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6427,7 +6602,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6497,7 +6674,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6567,7 +6746,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6637,7 +6818,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6707,7 +6890,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6777,7 +6962,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6847,7 +7034,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6917,7 +7106,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -6987,7 +7178,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7057,7 +7250,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7127,7 +7322,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7197,7 +7394,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7267,7 +7466,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7337,7 +7538,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7407,7 +7610,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7477,7 +7682,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7547,7 +7754,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7617,7 +7826,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7687,7 +7898,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7757,7 +7970,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7827,7 +8042,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7897,7 +8114,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -7967,7 +8186,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8037,7 +8258,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8107,7 +8330,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8177,7 +8402,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8247,7 +8474,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8317,7 +8546,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8387,7 +8618,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8457,7 +8690,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8527,7 +8762,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8597,7 +8834,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8667,7 +8906,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8737,7 +8978,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8807,7 +9050,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8877,7 +9122,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -8947,7 +9194,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9017,7 +9266,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9087,7 +9338,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9157,7 +9410,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9227,7 +9482,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9297,7 +9554,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9367,7 +9626,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9437,7 +9698,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9507,7 +9770,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9577,7 +9842,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9647,7 +9914,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9717,7 +9986,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9787,7 +10058,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9857,7 +10130,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9927,7 +10202,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -9997,7 +10274,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10067,7 +10346,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10137,7 +10418,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10207,7 +10490,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10277,7 +10562,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10347,7 +10634,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10417,7 +10706,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10487,7 +10778,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10557,7 +10850,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10627,7 +10922,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10697,7 +10994,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10767,7 +11066,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10837,7 +11138,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10907,7 +11210,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -10977,7 +11282,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11047,7 +11354,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11112,7 +11421,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11177,7 +11488,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11242,7 +11555,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11307,7 +11622,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11372,7 +11689,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11437,7 +11756,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11502,7 +11823,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11567,7 +11890,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11632,7 +11957,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11697,7 +12024,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11762,7 +12091,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11827,7 +12158,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11892,7 +12225,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -11957,7 +12292,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -12022,7 +12359,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -12087,7 +12426,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -12152,7 +12493,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 752
      }
     },
     {
@@ -12218,7 +12561,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 5905
      }
     },
     {
@@ -12331,7 +12676,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 5905
      }
     },
     {
@@ -12797,7 +13144,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 5920
      }
     },
     {
@@ -12886,7 +13235,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 5920
      }
     },
     {
@@ -12975,7 +13326,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 5927
      }
     },
     {
@@ -13079,7 +13432,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 5927
      }
     },
     {
@@ -13173,7 +13528,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 5927
      }
     },
     {
@@ -13263,7 +13620,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 5927
      }
     },
     {
@@ -13457,7 +13816,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 5938
      }
     },
     {
@@ -13554,7 +13915,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 5938
      }
     },
     {
@@ -13645,7 +14008,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 5938
      }
     },
     {
@@ -13923,7 +14288,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 5945
      }
     },
     {
@@ -14021,7 +14388,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6119
      }
     },
     {
@@ -14229,7 +14598,9 @@
         "prompt_per_token_ms": 2.4199805194805197
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -14316,7 +14687,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -14408,7 +14781,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -14484,7 +14859,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -14560,7 +14937,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -14636,7 +15015,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -14725,7 +15106,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -14806,7 +15189,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -14887,7 +15272,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -14968,7 +15355,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -15049,7 +15438,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -15130,7 +15521,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -15211,7 +15604,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -15292,7 +15687,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -15373,7 +15770,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -15454,7 +15853,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -15535,7 +15936,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -15616,7 +16019,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -15697,7 +16102,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -15778,7 +16185,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -15859,7 +16268,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -15940,7 +16351,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16021,7 +16434,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16102,7 +16517,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16183,7 +16600,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16264,7 +16683,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16345,7 +16766,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16426,7 +16849,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16507,7 +16932,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16588,7 +17015,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16669,7 +17098,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16750,7 +17181,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16831,7 +17264,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16912,7 +17347,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -16993,7 +17430,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -17089,7 +17528,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -17175,7 +17616,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -17261,7 +17704,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -17347,7 +17792,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -17433,7 +17880,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -17519,7 +17968,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -17605,7 +18056,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -17691,7 +18144,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -17777,7 +18232,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -17863,7 +18320,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -17949,7 +18408,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18035,7 +18496,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18121,7 +18584,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18207,7 +18672,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18283,7 +18750,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18359,7 +18828,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18435,7 +18906,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18511,7 +18984,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18587,7 +19062,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18663,7 +19140,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18739,7 +19218,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18815,7 +19296,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18891,7 +19374,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -18967,7 +19452,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -19043,7 +19530,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -19119,7 +19608,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -19195,7 +19686,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 6312
      }
     },
     {
@@ -19272,7 +19765,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8579
      }
     },
     {
@@ -19399,7 +19894,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8579
      }
     },
     {
@@ -20226,7 +20723,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8594
      }
     },
     {
@@ -20315,7 +20814,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8594
      }
     },
     {
@@ -20404,7 +20905,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8603
      }
     },
     {
@@ -20508,7 +21011,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8603
      }
     },
     {
@@ -20602,7 +21107,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8603
      }
     },
     {
@@ -20692,7 +21199,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8603
      }
     },
     {
@@ -20886,7 +21395,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8613
      }
     },
     {
@@ -20983,7 +21494,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8613
      }
     },
     {
@@ -21074,7 +21587,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8613
      }
     },
     {
@@ -21415,7 +21930,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8622
      }
     },
     {
@@ -21513,7 +22030,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 8875
      }
     },
     {
@@ -21721,7 +22240,9 @@
         "prompt_per_token_ms": 2.255095238095238
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -21808,7 +22329,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -21900,7 +22423,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -21976,7 +22501,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -22052,7 +22579,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -22128,7 +22657,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -22217,7 +22748,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -22298,7 +22831,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -22379,7 +22914,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -22460,7 +22997,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -22541,7 +23080,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -22622,7 +23163,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -22703,7 +23246,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -22784,7 +23329,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -22865,7 +23412,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -22941,7 +23490,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23017,7 +23568,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23093,7 +23646,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23169,7 +23724,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23245,7 +23802,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23321,7 +23880,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23397,7 +23958,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23473,7 +24036,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23549,7 +24114,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23625,7 +24192,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23701,7 +24270,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23777,7 +24348,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23853,7 +24426,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -23929,7 +24504,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 9113
      }
     },
     {
@@ -24006,7 +24583,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 10692
      }
     },
     {
@@ -24119,7 +24698,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 10692
      }
     },
     {
@@ -25307,7 +25888,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 10710
      }
     },
     {
@@ -25396,7 +25979,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 10710
      }
     },
     {
@@ -25485,7 +26070,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 10716
      }
     },
     {
@@ -25589,7 +26176,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 10716
      }
     },
     {
@@ -25683,7 +26272,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 10716
      }
     },
     {
@@ -25773,7 +26364,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 10716
      }
     },
     {
@@ -25967,7 +26560,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 10723
      }
     },
     {
@@ -26064,7 +26659,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 10723
      }
     },
     {
@@ -26155,7 +26752,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 10723
      }
     },
     {
@@ -26557,7 +27156,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 10733
      }
     },
     {
@@ -26655,7 +27256,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11015
      }
     },
     {
@@ -26863,7 +27466,9 @@
         "prompt_per_token_ms": 1.6858157894736845
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -26950,7 +27555,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -27042,7 +27649,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -27118,7 +27727,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -27194,7 +27805,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -27270,7 +27883,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -27359,7 +27974,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -27440,7 +28057,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -27521,7 +28140,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -27602,7 +28223,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -27683,7 +28306,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -27764,7 +28389,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -27845,7 +28472,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -27926,7 +28555,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28007,7 +28638,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28088,7 +28721,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28169,7 +28804,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28250,7 +28887,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28326,7 +28965,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28402,7 +29043,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28478,7 +29121,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28554,7 +29199,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28630,7 +29277,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28706,7 +29355,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28782,7 +29433,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28858,7 +29511,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -28934,7 +29589,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -29010,7 +29667,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -29086,7 +29745,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -29162,7 +29823,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -29238,7 +29901,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -29314,7 +29979,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -29390,7 +30057,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 11314
      }
     },
     {
@@ -29467,7 +30136,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 12958
      }
     },
     {
@@ -29580,7 +30251,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 12958
      }
     },
     {
@@ -31129,7 +31802,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 12973
      }
     },
     {
@@ -31218,7 +31893,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 12973
      }
     },
     {
@@ -31307,7 +31984,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 12981
      }
     },
     {
@@ -31411,7 +32090,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 12981
      }
     },
     {
@@ -31505,7 +32186,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 12981
      }
     },
     {
@@ -31595,7 +32278,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 12981
      }
     },
     {
@@ -31789,7 +32474,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 12989
      }
     },
     {
@@ -31886,7 +32573,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 12989
      }
     },
     {
@@ -31977,7 +32666,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 12989
      }
     },
     {
@@ -32441,7 +33132,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 12998
      }
     },
     {
@@ -32539,7 +33232,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13339
      }
     },
     {
@@ -32747,7 +33442,9 @@
         "prompt_per_token_ms": 1.673596153846154
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -32834,7 +33531,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -32926,7 +33625,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33002,7 +33703,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33078,7 +33781,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33154,7 +33859,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33243,7 +33950,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33324,7 +34033,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33405,7 +34116,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33486,7 +34199,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33567,7 +34282,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33648,7 +34365,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33729,7 +34448,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33810,7 +34531,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33891,7 +34614,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -33967,7 +34692,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34043,7 +34770,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34119,7 +34848,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34195,7 +34926,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34271,7 +35004,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34347,7 +35082,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34423,7 +35160,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34499,7 +35238,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34575,7 +35316,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34651,7 +35394,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34727,7 +35472,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34803,7 +35550,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34879,7 +35628,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -34955,7 +35706,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -35031,7 +35784,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 13690
      }
     },
     {
@@ -35108,7 +35863,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15296
      }
     },
     {
@@ -35221,7 +35978,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15296
      }
     },
     {
@@ -37131,7 +37890,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15315
      }
     },
     {
@@ -37220,7 +37981,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15315
      }
     },
     {
@@ -37309,7 +38072,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15320
      }
     },
     {
@@ -37413,7 +38178,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15320
      }
     },
     {
@@ -37507,7 +38274,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15320
      }
     },
     {
@@ -37597,7 +38366,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15320
      }
     },
     {
@@ -37791,7 +38562,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15329
      }
     },
     {
@@ -37888,7 +38661,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15330
      }
     },
     {
@@ -37979,7 +38754,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15330
      }
     },
     {
@@ -38505,7 +39282,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15338
      }
     },
     {
@@ -38603,7 +39382,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 15747
      }
     },
     {
@@ -38811,7 +39592,9 @@
         "prompt_per_token_ms": 1.8348451612903227
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -38898,7 +39681,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -38990,7 +39775,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -39066,7 +39853,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -39142,7 +39931,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -39218,7 +40009,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -39307,7 +40100,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -39388,7 +40183,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -39469,7 +40266,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -39550,7 +40349,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -39631,7 +40432,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -39712,7 +40515,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -39793,7 +40598,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -39874,7 +40681,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -39955,7 +40764,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40036,7 +40847,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40112,7 +40925,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40188,7 +41003,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40264,7 +41081,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40340,7 +41159,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40416,7 +41237,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40492,7 +41315,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40568,7 +41393,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40644,7 +41471,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40720,7 +41549,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40796,7 +41627,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40872,7 +41705,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -40948,7 +41783,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -41024,7 +41861,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -41100,7 +41939,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -41176,7 +42017,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 16100
      }
     },
     {
@@ -41253,7 +42096,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 17721
      }
     },
     {
@@ -41366,7 +42211,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 17721
      }
     },
     {
@@ -43637,7 +44484,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 17732
      }
     },
     {
@@ -43726,7 +44575,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 17732
      }
     },
     {
@@ -43815,7 +44666,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 17737
      }
     },
     {
@@ -43919,7 +44772,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 17737
      }
     },
     {
@@ -44013,7 +44868,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 17737
      }
     },
     {
@@ -44103,7 +44960,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 17737
      }
     },
     {
@@ -44297,7 +45156,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 17745
      }
     },
     {
@@ -44394,7 +45255,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 17745
      }
     },
     {
@@ -44485,7 +45348,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 17745
      }
     },
     {
@@ -45073,7 +45938,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 17751
      }
     },
     {
@@ -45171,7 +46038,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18155
      }
     },
     {
@@ -45379,7 +46248,9 @@
         "prompt_per_token_ms": 1.7340621118012425
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -45466,7 +46337,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -45558,7 +46431,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -45634,7 +46509,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -45710,7 +46587,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -45786,7 +46665,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -45875,7 +46756,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -45956,7 +46839,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46037,7 +46922,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46118,7 +47005,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46199,7 +47088,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46280,7 +47171,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46356,7 +47249,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46432,7 +47327,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46508,7 +47405,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46584,7 +47483,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46660,7 +47561,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46736,7 +47639,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46812,7 +47717,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46888,7 +47795,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -46964,7 +47873,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -47040,7 +47951,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -47116,7 +48029,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -47192,7 +48107,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -47268,7 +48185,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -47344,7 +48263,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -47420,7 +48341,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 18555
      }
     },
     {
@@ -47497,7 +48420,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20087
      }
     },
     {
@@ -47610,7 +48535,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20087
      }
     },
     {
@@ -50242,7 +51169,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20101
      }
     },
     {
@@ -50331,7 +51260,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20101
      }
     },
     {
@@ -50420,7 +51351,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20106
      }
     },
     {
@@ -50524,7 +51457,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20106
      }
     },
     {
@@ -50618,7 +51553,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20106
      }
     },
     {
@@ -50708,7 +51645,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20106
      }
     },
     {
@@ -50902,7 +51841,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20114
      }
     },
     {
@@ -50999,7 +51940,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20114
      }
     },
     {
@@ -51090,7 +52033,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20114
      }
     },
     {
@@ -51740,7 +52685,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20120
      }
     },
     {
@@ -51838,7 +52785,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 20617
      }
     },
     {
@@ -52046,7 +52995,9 @@
         "prompt_per_token_ms": 1.6774802631578947
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -52133,7 +53084,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -52225,7 +53178,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -52301,7 +53256,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -52377,7 +53334,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -52453,7 +53412,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -52542,7 +53503,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -52623,7 +53586,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -52704,7 +53669,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -52785,7 +53752,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -52866,7 +53835,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -52947,7 +53918,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53028,7 +54001,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53109,7 +54084,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53190,7 +54167,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53271,7 +54250,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53352,7 +54333,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53433,7 +54416,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53509,7 +54494,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53585,7 +54572,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53661,7 +54650,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53737,7 +54728,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53813,7 +54806,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53889,7 +54884,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -53965,7 +54962,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -54041,7 +55040,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -54117,7 +55118,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -54193,7 +55196,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -54269,7 +55274,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -54345,7 +55352,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -54421,7 +55430,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -54497,7 +55508,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -54573,7 +55586,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 21101
      }
     },
     {
@@ -54650,7 +55665,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 22753
      }
     },
     {
@@ -54763,7 +55780,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 22753
      }
     },
     {
@@ -57756,7 +58775,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 22764
      }
     },
     {
@@ -57845,7 +58866,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 22764
      }
     },
     {
@@ -57934,7 +58957,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 22768
      }
     },
     {
@@ -58038,7 +59063,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 22768
      }
     },
     {
@@ -58132,7 +59159,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 22768
      }
     },
     {
@@ -58222,7 +59251,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 22768
      }
     },
     {
@@ -58416,7 +59447,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 22775
      }
     },
     {
@@ -58513,7 +59546,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 22775
      }
     },
     {
@@ -58604,7 +59639,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 22775
      }
     },
     {
@@ -59316,7 +60353,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 22780
      }
     },
     {
@@ -59414,7 +60453,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23292
      }
     },
     {
@@ -59622,7 +60663,9 @@
         "prompt_per_token_ms": 1.6579679487179486
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23754
      }
     },
     {
@@ -59709,7 +60752,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23754
      }
     },
     {
@@ -59801,7 +60846,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -59877,7 +60924,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -59953,7 +61002,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60029,7 +61080,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60118,7 +61171,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60199,7 +61254,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60280,7 +61337,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60361,7 +61420,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60442,7 +61503,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60523,7 +61586,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60604,7 +61669,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60685,7 +61752,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60761,7 +61830,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60837,7 +61908,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60913,7 +61986,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -60989,7 +62064,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -61065,7 +62142,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -61141,7 +62220,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -61217,7 +62298,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -61293,7 +62376,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -61369,7 +62454,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -61445,7 +62532,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -61521,7 +62610,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -61597,7 +62688,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -61673,7 +62766,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -61749,7 +62844,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -61825,7 +62922,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 23755
      }
     },
     {
@@ -61902,7 +63001,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25347
      }
     },
     {
@@ -62015,7 +63116,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25347
      }
     },
     {
@@ -65369,7 +66472,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25359
      }
     },
     {
@@ -65458,7 +66563,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25359
      }
     },
     {
@@ -65547,7 +66654,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25363
      }
     },
     {
@@ -65651,7 +66760,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25363
      }
     },
     {
@@ -65745,7 +66856,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25363
      }
     },
     {
@@ -65835,7 +66948,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25363
      }
     },
     {
@@ -66029,7 +67144,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25370
      }
     },
     {
@@ -66126,7 +67243,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25370
      }
     },
     {
@@ -66217,7 +67336,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25370
      }
     },
     {
@@ -66991,7 +68112,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25375
      }
     },
     {
@@ -67089,7 +68212,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 25956
      }
     },
     {
@@ -67297,7 +68422,9 @@
         "prompt_per_token_ms": 1.7822402597402596
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26549
      }
     },
     {
@@ -67384,7 +68511,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26549
      }
     },
     {
@@ -67476,7 +68605,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -67552,7 +68683,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -67628,7 +68761,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -67704,7 +68839,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -67793,7 +68930,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -67874,7 +69013,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -67955,7 +69096,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -68036,7 +69179,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -68117,7 +69262,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -68198,7 +69345,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -68279,7 +69428,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -68360,7 +69511,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -68441,7 +69594,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -68522,7 +69677,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -68603,7 +69760,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -68684,7 +69843,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -68765,7 +69926,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -68846,7 +70009,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -68927,7 +70092,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69008,7 +70175,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69089,7 +70258,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69170,7 +70341,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69246,7 +70419,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69322,7 +70497,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69398,7 +70575,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69474,7 +70653,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69550,7 +70731,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69626,7 +70809,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69702,7 +70887,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69778,7 +70965,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69854,7 +71043,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -69930,7 +71121,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -70006,7 +71199,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -70082,7 +71277,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -70158,7 +71355,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -70234,7 +71433,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -70310,7 +71511,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 26550
      }
     },
     {
@@ -70387,7 +71590,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28341
      }
     },
     {
@@ -70500,7 +71705,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28341
      }
     },
     {
@@ -74215,7 +75422,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28364
      }
     },
     {
@@ -74304,7 +75513,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28364
      }
     },
     {
@@ -74393,7 +75604,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28368
      }
     },
     {
@@ -74497,7 +75710,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28368
      }
     },
     {
@@ -74591,7 +75806,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28368
      }
     },
     {
@@ -74681,7 +75898,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28368
      }
     },
     {
@@ -74875,7 +76094,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28375
      }
     },
     {
@@ -74972,7 +76193,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28375
      }
     },
     {
@@ -75063,7 +76286,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28375
      }
     },
     {
@@ -75899,7 +77124,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28380
      }
     },
     {
@@ -75997,7 +77224,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 28983
      }
     },
     {
@@ -76205,7 +77434,9 @@
         "prompt_per_token_ms": 1.6393248407643313
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -76292,7 +77523,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -76384,7 +77617,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -76460,7 +77695,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -76536,7 +77773,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -76612,7 +77851,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -76701,7 +77942,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -76782,7 +78025,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -76863,7 +78108,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -76944,7 +78191,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77025,7 +78274,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77106,7 +78357,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77187,7 +78440,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77268,7 +78523,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77349,7 +78606,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77430,7 +78689,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77506,7 +78767,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77582,7 +78845,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77658,7 +78923,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77734,7 +79001,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77810,7 +79079,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77886,7 +79157,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -77962,7 +79235,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -78038,7 +79313,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -78114,7 +79391,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -78190,7 +79469,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -78266,7 +79547,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -78342,7 +79625,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -78418,7 +79703,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -78494,7 +79781,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -78570,7 +79859,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 29580
      }
     },
     {
@@ -78647,7 +79938,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31201
      }
     },
     {
@@ -78760,7 +80053,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31201
      }
     },
     {
@@ -82836,7 +84131,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31211
      }
     },
     {
@@ -82925,7 +84222,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31211
      }
     },
     {
@@ -83014,7 +84313,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31216
      }
     },
     {
@@ -83118,7 +84419,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31216
      }
     },
     {
@@ -83212,7 +84515,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31216
      }
     },
     {
@@ -83302,7 +84607,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31216
      }
     },
     {
@@ -83496,7 +84803,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31223
      }
     },
     {
@@ -83593,7 +84902,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31223
      }
     },
     {
@@ -83684,7 +84995,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31223
      }
     },
     {
@@ -84582,7 +85895,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31228
      }
     },
     {
@@ -84680,7 +85995,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 31916
      }
     },
     {
@@ -84888,7 +86205,9 @@
         "prompt_per_token_ms": 1.6240754716981132
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -84975,7 +86294,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -85067,7 +86388,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -85143,7 +86466,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -85219,7 +86544,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -85295,7 +86622,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -85384,7 +86713,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -85465,7 +86796,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -85546,7 +86879,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -85627,7 +86962,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -85708,7 +87045,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -85789,7 +87128,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -85870,7 +87211,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -85951,7 +87294,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -86032,7 +87377,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -86113,7 +87460,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -86194,7 +87543,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -86275,7 +87626,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -86356,7 +87709,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -86437,7 +87792,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -86518,7 +87875,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -86599,7 +87958,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -86680,7 +88041,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -86761,7 +88124,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -86842,7 +88207,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -86923,7 +88290,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87004,7 +88373,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87085,7 +88456,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87166,7 +88539,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87247,7 +88622,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87328,7 +88705,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87409,7 +88788,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87490,7 +88871,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87571,7 +88954,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87652,7 +89037,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87733,7 +89120,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87814,7 +89203,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87895,7 +89286,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -87976,7 +89369,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -88057,7 +89452,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -88138,7 +89535,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -88219,7 +89618,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -88300,7 +89701,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -88381,7 +89784,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -88462,7 +89867,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -88543,7 +89950,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -88624,7 +90033,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -88705,7 +90116,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -88786,7 +90199,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -88867,7 +90282,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -88948,7 +90365,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -89029,7 +90448,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -89110,7 +90531,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -89191,7 +90614,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -89272,7 +90697,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -89353,7 +90780,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -89434,7 +90863,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -89515,7 +90946,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -89596,7 +91029,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -89677,7 +91112,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -89758,7 +91195,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -89854,7 +91293,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -89940,7 +91381,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -90026,7 +91469,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -90112,7 +91557,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -90198,7 +91645,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -90284,7 +91733,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -90370,7 +91821,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -90456,7 +91909,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -90542,7 +91997,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -90628,7 +92085,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -90714,7 +92173,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -90800,7 +92261,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -90886,7 +92349,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -90972,7 +92437,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -91058,7 +92525,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -91144,7 +92613,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -91230,7 +92701,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -91316,7 +92789,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -91402,7 +92877,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -91488,7 +92965,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -91574,7 +93053,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -91660,7 +93141,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -91746,7 +93229,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -91832,7 +93317,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -91918,7 +93405,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -92004,7 +93493,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -92090,7 +93581,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -92176,7 +93669,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -92262,7 +93757,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -92348,7 +93845,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -92434,7 +93933,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -92520,7 +94021,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -92606,7 +94109,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -92692,7 +94197,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -92778,7 +94285,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -92864,7 +94373,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -92950,7 +94461,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -93036,7 +94549,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -93122,7 +94637,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -93208,7 +94725,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -93294,7 +94813,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -93380,7 +94901,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -93466,7 +94989,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -93552,7 +95077,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -93638,7 +95165,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -93724,7 +95253,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -93810,7 +95341,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -93896,7 +95429,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -93982,7 +95517,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -94068,7 +95605,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -94154,7 +95693,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -94240,7 +95781,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -94326,7 +95869,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -94412,7 +95957,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -94498,7 +96045,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -94584,7 +96133,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -94670,7 +96221,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 32587
      }
     },
     {
@@ -94747,7 +96300,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 35256
      }
     },
     {
@@ -94871,7 +96426,9 @@
         "prompt_per_token_ms": 1.860973509933775
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 35256
      }
     },
     {
@@ -99302,7 +100859,9 @@
         "prompt_per_token_ms": 1.860973509933775
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 35276
      }
     },
     {
@@ -99391,7 +100950,9 @@
         "prompt_per_token_ms": 1.860973509933775
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 35276
      }
     },
     {
@@ -100061,7 +101622,9 @@
         "prompt_per_token_ms": 1.860973509933775
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 662,
+      "state_started_at": 36004
      }
     },
     {

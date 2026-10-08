@@ -701,6 +701,21 @@
      }
     },
     {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77363
+     }
+    },
+    {
      "op": "append",
      "path": "/timeline",
      "value": {
@@ -752,7 +767,9 @@
       "active_tool": "",
       "alarm_tool": "",
       "dispatch_alarm": false,
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77363
      }
     },
     {
@@ -871,7 +888,9 @@
       "active_tool": "",
       "alarm_tool": "",
       "dispatch_alarm": false,
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -941,7 +960,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1016,7 +1037,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1081,7 +1104,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1146,7 +1171,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1211,7 +1238,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1276,7 +1305,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1354,7 +1385,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1424,7 +1457,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1494,7 +1529,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1564,7 +1601,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1634,7 +1673,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1704,7 +1745,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1774,7 +1817,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1844,7 +1889,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1914,7 +1961,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -1984,7 +2033,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -2054,7 +2105,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -2124,7 +2177,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -2194,7 +2249,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -2264,7 +2321,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -2334,7 +2393,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -2404,7 +2465,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -2474,7 +2537,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -2559,7 +2624,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 77717
      }
     },
     {
@@ -2625,7 +2692,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 79151
      }
     },
     {
@@ -2749,7 +2818,9 @@
         "prompt_per_token_ms": 1.6990588235294117
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 79151
      }
     },
     {
@@ -3213,7 +3284,9 @@
         "prompt_per_token_ms": 1.6990588235294117
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 79169
      }
     },
     {
@@ -3302,7 +3375,9 @@
         "prompt_per_token_ms": 1.6990588235294117
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 79169
      }
     },
     {
@@ -3583,7 +3658,9 @@
         "prompt_per_token_ms": 1.6990588235294117
        }
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 77363,
+      "state_started_at": 79576
      }
     },
     {

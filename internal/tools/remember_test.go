@@ -47,8 +47,8 @@ func TestRepositoryNoteLivesInGitignoredRepoAndLoadsOnlyThere2qj(t *testing.T) {
 		t.Fatalf("600-character repo note=%q %v", result, err)
 	}
 	item.Run.LastRunID = "r2"
-	if _, err := remember.Call(context.Background(), item, map[string]any{"note": strings.Repeat("x", 601), "scope": "repository"}); err == nil || !strings.Contains(err.Error(), "max 600") {
-		t.Fatalf("601-character repo note err=%v", err)
+	if result, err := remember.Call(context.Background(), item, map[string]any{"note": strings.Repeat("x", 800), "scope": "repository"}); err != nil || !strings.HasPrefix(result, "ok:") {
+		t.Fatalf("800-character repo note result=%q err=%v", result, err)
 	}
 	content, err := os.ReadFile(filepath.Join(repo, ".agentb", "NOTES.md"))
 	if err != nil || !strings.Contains(string(content), "fixture repository fact") {

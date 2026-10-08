@@ -471,12 +471,31 @@ func (s *Server) recommendConnection(w http.ResponseWriter, r *http.Request, id 
 		}
 	}
 	if window > 0 {
+		if ceiling, _ := usableContextCeiling(connection.Capabilities); ceiling > 0 && connection.Capabilities.ObservedByteLimit > 0 {
+			window = ceiling
+			sources["context.n_ctx"] = "Eval"
+		} else {
+			sources["context.n_ctx"] = "server"
+		}
 		values["context.n_ctx"] = window
-		sources["context.n_ctx"] = "server"
 		values["context.reserve_output"] = config.ReserveOutputFor(window)
 		sources["context.reserve_output"] = "server"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"values": values, "sources": sources, "message": "Recommended values are unsaved"})
+}
+
+func usableContextCeiling(caps config.Capabilities) (int, string) {
+	window := caps.NCtx
+	if caps.ObservedByteLimit > 0 {
+		byteWindow := caps.ObservedByteLimit / 4
+		if window == 0 || byteWindow < window {
+			return byteWindow, "Eval size limit"
+		}
+	}
+	if window > 0 {
+		return window, "published window"
+	}
+	return 0, ""
 }
 
 func modelListed(configured string, listed []string) bool {
@@ -725,6 +744,21 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		previous := *s.cfg
+		for index := range next.Connections {
+			for _, old := range previous.Connections {
+				if old.ID != next.Connections[index].ID || strings.EqualFold(strings.TrimRight(old.BaseURL, "/"), strings.TrimRight(next.Connections[index].BaseURL, "/")) {
+					continue
+				}
+				next.Connections[index].Capabilities.ObservedByteLimit = 0
+				kept := next.Connections[index].Capabilities.Findings[:0]
+				for _, finding := range next.Connections[index].Capabilities.Findings {
+					if !strings.HasPrefix(finding, "size limit:") && !strings.HasPrefix(finding, "usable ceiling:") {
+						kept = append(kept, finding)
+					}
+				}
+				next.Connections[index].Capabilities.Findings = kept
+			}
+		}
 		// Item 2jg (d): turning the switch on issues a NEW install id, so two runs
 		// of telemetry from one machine cannot be joined. It is reissued here,
 		// before the save, so the new id is what lands on disk.

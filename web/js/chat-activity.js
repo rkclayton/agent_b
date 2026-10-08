@@ -1,7 +1,7 @@
 export function liveActivityText(session, now = Date.now()) {
   const status = session?.run?.status;
   const activity = session?.activity || {};
-  const elapsed = formatElapsed(activity.started_at, now);
+  const elapsed = formatElapsed(activity.state_started_at || activity.tool_started_at || activity.started_at, now);
   const withElapsed = (text) => `${text} · ${elapsed}`;
   if (session?.pending_approval || session?.pending_repo_policy) {
     const event = session.pending_approval?.event || session.pending_repo_policy?.event || {};
@@ -41,7 +41,7 @@ export function liveActivityText(session, now = Date.now()) {
     case "dispatch": return withElapsed("preparing tool call");
     case "execute": return withElapsed("running tool — target unknown");
     case "append": return withElapsed("recording tool result");
-    case "compact": return withElapsed("compacting — fitting context to the model window");
+    case "compact": return withElapsed(activity.compaction_reason === "server_size_limit" ? "trimming for server size limit" : "compacting — fitting context to the model window");
     case "wait_user": return withElapsed("waiting for you");
     default: return withElapsed("waiting — state unknown");
   }

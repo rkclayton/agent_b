@@ -25,6 +25,17 @@ func TestProbeFailureNamesMalformedBaseURL(t *testing.T) {
 	}
 }
 
+func TestEvalReadsTheNamedByteLimit2sv(t *testing.T) {
+	for input, want := range map[string]int{
+		`{"error":"prompt too large: 401628 bytes (limit 400000)"}`: 400000,
+		`maximum request size is 524,288 bytes`:                     524288,
+	} {
+		if got := byteLimitFromResponse(input); got != want {
+			t.Fatalf("%q: got %d want %d", input, got, want)
+		}
+	}
+}
+
 func TestConnectionFailureNamesDNSName(t *testing.T) {
 	err := connectionProbeErrorFor("https://nosuch.invalid", fmt.Errorf("props unavailable"), &net.DNSError{Name: "nosuch.invalid", Err: "no such host"})
 	if got := err.Error(); got != `The name "nosuch.invalid" does not resolve.` {

@@ -86,6 +86,30 @@ test("Setup and Connections share the independent model picker and read-only Tes
   await settings.close();
 });
 
+test("setup context row distinguishes usable published and typed readings 2sv", async () => {
+	await mkdir(join(repo, "test-results"), { recursive: true });
+	const variants = [
+		["usable", { n_ctx: 200000, observed_byte_limit: 400000 }, "usable ceiling 100000 · saved 100000 above"],
+		["published", { n_ctx: 200000 }, "published window 200000"],
+		["typed", {}, "typed, not measured"],
+	];
+	for (const [name, capabilities, expected] of variants) {
+		const page = await harness.context.newPage();
+		await page.route("**/api/state", async (route) => {
+			const response = await route.fetch();
+			const state = await response.json();
+			state.connections[0].capabilities = capabilities;
+			state.connections[0].context.n_ctx = name === "typed" ? 123456 : 200000;
+			await route.fulfill({ response, json: state });
+		});
+		await page.goto(`${harness.base}/setup`);
+		const reading = page.locator('label:has-text("Context size") .setup-note');
+		await expect(reading).toHaveText(expected);
+		await page.screenshot({ path: join(repo, "test-results", `2sv-context-${name}.png`), fullPage: true });
+		await page.close();
+	}
+});
+
 test("a failed model list keeps the saved model and names the reason 2r7", async () => {
 	const page = await harness.context.newPage();
 	await page.route("**/api/connections/ui/models", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "model list unavailable" }) }));

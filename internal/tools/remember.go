@@ -133,19 +133,15 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 		}
 	}
 
-	maxChars := 300
-	if target == "folder" {
-		maxChars = 600
-	}
 	write := memory.Write{
 		Note:            note,
 		Scope:           scope,
 		Replaces:        stringValue(args["replaces"], ""),
 		Run:             s.Run.LastRunID,
+		Chat:            s.ID,
 		Turn:            s.Run.Turn,
 		UntrustedInTurn: s.UntrustedInTurn(),
 		Budget:          r.budget(),
-		MaxChars:        maxChars,
 	}
 	duplicate, err := r.memory.WriteNote(path, write)
 	if err != nil {
@@ -165,15 +161,23 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	r.mu.Unlock()
 	replaced := ""
 	if strings.TrimSpace(write.Replaces) != "" {
-		replaced = " Replaced the note you named."
+		replaced = " Replaced: " + firstWords(write.Replaces, 8) + "."
 	}
 	r.bus.Publish(events.New(events.MemoryNoted, s.ID, s.Run.LastRunID, map[string]any{
 		"note": note, "path": path, "target": target, "agent_id": s.AgentID,
 		// (e): the transcript row shows scope and whether it replaced.
-		"scope": scope, "replaced": strings.TrimSpace(write.Replaces) != "",
+		"scope": scope, "replaced": strings.TrimSpace(write.Replaces) != "", "replaced_note": firstWords(write.Replaces, 8),
 		"untrusted_in_turn": write.UntrustedInTurn,
 	}))
 	return fmt.Sprintf("ok: noted as %s; active next session.%s%s", scope, replaced, fell), nil
+}
+
+func firstWords(value string, count int) string {
+	words := strings.Fields(value)
+	if len(words) > count {
+		words = words[:count]
+	}
+	return strings.Join(words, " ")
 }
 
 // budget is the per-layer file budget. It is the same number the injection has

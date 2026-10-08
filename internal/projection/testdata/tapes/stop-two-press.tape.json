@@ -267,6 +267,21 @@
      }
     },
     {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0,
+      "started_at": 1577836801000,
+      "state_started_at": 1577836801000
+     }
+    },
+    {
      "op": "append",
      "path": "/timeline",
      "value": {
@@ -381,6 +396,21 @@
      }
     },
     {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0,
+      "started_at": 1577836801000,
+      "state_started_at": 1577836803000
+     }
+    },
+    {
      "op": "append",
      "path": "/timeline",
      "value": {
@@ -425,6 +455,21 @@
         "reason": "emergency"
        }
       }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0,
+      "started_at": 1577836801000,
+      "state_started_at": 1577836804000
      }
     },
     {
@@ -502,7 +547,9 @@
       "active_tool": "",
       "alarm_tool": "",
       "dispatch_alarm": false,
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836801000,
+      "state_started_at": 1577836805000
      }
     },
     {

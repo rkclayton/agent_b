@@ -376,6 +376,21 @@
      }
     },
     {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836802000
+     }
+    },
+    {
      "op": "append",
      "path": "/timeline",
      "value": {
@@ -438,7 +453,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836802000
      }
     },
     {
@@ -518,7 +535,9 @@
        "done": true,
        "reasoning_tokens": 4
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836802000
      }
     },
     {
@@ -599,7 +618,9 @@
        "done": true,
        "reasoning_tokens": 4
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836805000
      }
     },
     {
@@ -680,7 +701,9 @@
        "done": true,
        "reasoning_tokens": 4
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836806000
      }
     },
     {
@@ -754,7 +777,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836806000
      }
     },
     {
@@ -836,7 +861,9 @@
        "done": true,
        "reasoning_tokens": 6
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836806000
      }
     },
     {
@@ -929,7 +956,9 @@
        "done": true,
        "reasoning_tokens": 6
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836808100
      }
     },
     {
@@ -1001,7 +1030,9 @@
        "done": true,
        "reasoning_tokens": 6
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836808200
      }
     },
     {
@@ -1073,7 +1104,9 @@
        "done": true,
        "reasoning_tokens": 6
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836808300
      }
     },
     {
@@ -1149,6 +1182,34 @@
         "name": "shell.operator_command"
        }
       }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "read_file",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r5:2",
+       "started_at": 1577836807000,
+       "last_chunk_at": 1577836808000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1577836807000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 6
+      },
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836808400
      }
     },
     {

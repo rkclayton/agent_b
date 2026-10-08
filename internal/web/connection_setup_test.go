@@ -30,6 +30,17 @@ func TestNoConnectionIsSeededWithAModelNamedModel2l1(t *testing.T) {
 	}
 }
 
+func TestUsableContextCeilingUsesTheSmallerMeasuredLimit2sv(t *testing.T) {
+	ceiling, source := usableContextCeiling(config.Capabilities{NCtx: 200000, ObservedByteLimit: 400000})
+	if ceiling != 100000 || source != "Eval size limit" {
+		t.Fatalf("ceiling=%d source=%q", ceiling, source)
+	}
+	ceiling, source = usableContextCeiling(config.Capabilities{NCtx: 200000})
+	if ceiling != 200000 || source != "published window" {
+		t.Fatalf("ceiling=%d source=%q", ceiling, source)
+	}
+}
+
 // (a7). The operator's `server` connection hand-set n_ctx to 200000 while its
 // probed n_ctx was 0, because vLLM answers 404 to the props route. vLLM publishes
 // the real window on /v1/models as max_model_len — 262144 in his case — and the

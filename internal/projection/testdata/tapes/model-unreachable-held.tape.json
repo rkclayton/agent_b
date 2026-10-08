@@ -251,6 +251,21 @@
      }
     },
     {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0,
+      "started_at": 1577836801000,
+      "state_started_at": 1577836801000
+     }
+    },
+    {
      "op": "append",
      "path": "/timeline",
      "value": {
@@ -420,7 +435,9 @@
       "active_tool": "",
       "alarm_tool": "",
       "dispatch_alarm": false,
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836801000,
+      "state_started_at": 1577836804000
      }
     },
     {
@@ -532,6 +549,21 @@
      "value": 0
     },
     {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "wait_user",
+      "stage_state": "enter",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0,
+      "started_at": 1577836806000,
+      "state_started_at": 1577836806000
+     }
+    },
+    {
      "op": "append",
      "path": "/timeline",
      "value": {
@@ -595,6 +627,21 @@
         "turns": 1
        }
       }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "wait_user",
+      "stage_state": "enter",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0,
+      "started_at": 1577836806000,
+      "state_started_at": 1577836807000
      }
     },
     {

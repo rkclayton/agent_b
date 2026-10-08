@@ -261,7 +261,7 @@ func TestRepositoryInstructionsAreCurrentAndWholeOnEveryRun2q0(t *testing.T) {
 		t.Fatal("the second run carries the stale instructions")
 	}
 	big := "BEGIN " + strings.Repeat("a rule of the repository. ", workspace.InstructionLimit/26+10)
-	if third := run(big); strings.Contains(third, "BEGIN a rule") || !strings.Contains(third, "over the 16384-byte limit") {
-		t.Fatalf("over the bound the request carries a partial copy or no pointer: %.300s", third[strings.Index(third, "REPOSITORY"):])
+	if third := run(big); !strings.Contains(third, "BEGIN a rule") || !strings.Contains(third, "cut at 2000 tokens; read the rest at") {
+		t.Fatalf("over the bound the request lacks its counted prefix or pointer: %.300s", third[strings.Index(third, "REPOSITORY"):])
 	}
 }

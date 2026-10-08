@@ -429,6 +429,7 @@ func responseShapeError(endpoint string, raw []byte, status int, contentType, fi
 type ModelEntry struct {
 	ID            string
 	ContextLength int
+	OwnedBy       string
 }
 
 // ModelCatalog is Models plus whatever each entry publishes about its length.
@@ -443,6 +444,7 @@ func (c *Client) ModelCatalog(ctx context.Context) ([]ModelEntry, error) {
 	var out struct {
 		Data []struct {
 			ID                string `json:"id"`
+			OwnedBy           string `json:"owned_by"`
 			MaxModelLen       int    `json:"max_model_len"`
 			ContextLength     int    `json:"context_length"`
 			MaxContextLength  int    `json:"max_context_length"`
@@ -454,7 +456,7 @@ func (c *Client) ModelCatalog(ctx context.Context) ([]ModelEntry, error) {
 	}
 	entries := make([]ModelEntry, 0, len(out.Data))
 	for _, entry := range out.Data {
-		entries = append(entries, ModelEntry{ID: entry.ID, ContextLength: max(max(entry.MaxModelLen, entry.ContextLength), max(entry.MaxContextLength, entry.MaxPositionEmbeds))})
+		entries = append(entries, ModelEntry{ID: entry.ID, OwnedBy: entry.OwnedBy, ContextLength: max(max(entry.MaxModelLen, entry.ContextLength), max(entry.MaxContextLength, entry.MaxPositionEmbeds))})
 	}
 	return entries, nil
 }

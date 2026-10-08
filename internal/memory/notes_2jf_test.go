@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,12 +187,38 @@ func TestADuplicateIsStillADuplicate2jf(t *testing.T) {
 	}
 }
 
-func TestANoteStaysWithinThreeHundredCharacters2jf(t *testing.T) {
+func TestANoteHasNoSeparateCharacterLimit2sr(t *testing.T) {
 	manager, path := writer(t)
-	if _, err := manager.WriteNote(path, Write{Note: strings.Repeat("x", 301), Scope: "user"}); err == nil {
-		t.Fatal("a 301-character note was accepted")
+	if _, err := manager.WriteNote(path, Write{Note: strings.Repeat("x", 800), Scope: "user", Budget: 1000}); err != nil {
+		t.Fatalf("an 800-character note was refused: %v", err)
 	}
-	if _, err := manager.WriteNote(path, Write{Note: strings.Repeat("x", 300), Scope: "user"}); err != nil {
-		t.Fatalf("a 300-character note was refused: %v", err)
+}
+
+func TestReplacementKeepsScopeAndBoundedArchive2sr(t *testing.T) {
+	manager, path := writer(t)
+	if _, err := manager.WriteNote(path, Write{Note: "first words of old preference", Scope: "user", Chat: "chat-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.WriteNote(path, Write{Note: "machine fact", Scope: "environment", Replaces: "first words of old preference", Chat: "chat-1"}); !errors.Is(err, ErrScopeMismatch) {
+		t.Fatalf("cross-scope replacement err=%v", err)
+	}
+	for index := 0; index < 51; index++ {
+		old := fmt.Sprintf("preference %d", index)
+		if index == 0 {
+			old = "first words of old preference"
+		} else if _, err := manager.WriteNote(path, Write{Note: old, Scope: "user"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := manager.WriteNote(path, Write{Note: fmt.Sprintf("replacement %d", index), Scope: "user", Replaces: old, Chat: "chat-1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archive, err := os.ReadFile(strings.TrimSuffix(path, filepath.Ext(path)) + "-replaced.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := strings.Split(strings.TrimSpace(string(archive)), "\n")
+	if len(rows) != 50 || strings.Contains(string(archive), "first words of old preference") || !strings.Contains(string(archive), "scope: user, chat: chat-1") {
+		t.Fatalf("archive rows=%d content=%q", len(rows), archive)
 	}
 }

@@ -64,6 +64,9 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	if reason := forbiddenSigningCommand(source); reason != "" {
 		return CallDetail{Err: fmt.Errorf("source blocked: %s", reason)}
 	}
+	if denied := deniedCommand(source, cfg.Deny); denied != "" {
+		return CallDetail{Err: fmt.Errorf("source blocked by deny list entry %q", denied)}
+	}
 	if strings.EqualFold(strings.TrimSpace(language), "bash") {
 		sandboxID, sandboxStatus, sandboxed := t.shell.sandboxExecution(item)
 		if !sandboxed {
@@ -75,11 +78,6 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 		if !forceOperator && !cfg.OperatorContext {
 			reason := "sandbox execution uses the user's Docker session, outside the agentb-svc identity and firewall boundary"
 			return CallDetail{Content: reason, OperatorOverrideReason: reason, Metadata: map[string]any{"target": "sandbox " + sandboxID}}
-		}
-		for _, denied := range cfg.Deny {
-			if denied != "" && strings.Contains(strings.ToLower(source), strings.ToLower(denied)) {
-				return CallDetail{Err: fmt.Errorf("source blocked by deny list"), Metadata: map[string]any{"target": "sandbox " + sandboxID}}
-			}
 		}
 		timeout := number(args["timeout_s"], cfg.TimeoutS)
 		if timeout <= 0 {

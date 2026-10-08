@@ -450,7 +450,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	r.sessions[id] = session
 	r.bus.Publish(events.New(events.SessionCreated, id, "", map[string]any{"workspace_dir": abs, "session": session.Snapshot(), "created_by": createdBy}))
 	if len(setup.Instructions.Files) > 0 {
-		r.bus.Publish(events.New(events.ProjectInstructions, id, "", map[string]any{"block": setup.Instructions.Block, "files": setup.Instructions.Files, "notes": setup.Instructions.Notes, "lazy": false}))
+		r.bus.Publish(events.New(events.ProjectInstructions, id, "", map[string]any{"block": setup.Instructions.Block, "files": setup.Instructions.Files, "tokens": setup.Instructions.Tokens, "notes": setup.Instructions.Notes, "lazy": false}))
 	}
 	return session, nil
 }
@@ -541,7 +541,7 @@ func (r *Registry) projectTouch(item *Session) func(string) {
 			return
 		}
 		if item.AppendProject(addition.Block, addition.Files, addition.Notes) {
-			r.bus.Publish(events.New(events.ProjectInstructions, item.ID, "", map[string]any{"block": addition.Block, "files": addition.Files, "notes": addition.Notes, "lazy": true}))
+			r.bus.Publish(events.New(events.ProjectInstructions, item.ID, "", map[string]any{"block": addition.Block, "files": addition.Files, "tokens": addition.Tokens, "notes": addition.Notes, "lazy": true}))
 		}
 	}
 }

@@ -19,6 +19,24 @@ import (
 	"harness/internal/session"
 )
 
+// Item 2ss: deny entries identify commands, never matching lookalike text in
+// an option or quoted argument.
+func TestDenyListMatchesCommandPositions2ss(t *testing.T) {
+	entries := []string{"rm -rf /", "format ", "diskpart", "shutdown", `Remove-Item -Recurse -Force C:\`}
+	allowed := []string{`git branch --sort=-committerdate --format '%(refname)'`, `git log --format=oneline`, `Get-Date -Format o`, `Write-Output 'shutdown'`, `echo "format D:"`, `echo diskpart`, `Write-Output "Remove-Item -Recurse -Force C:\\"`, `rm -rf /tmp`, `Write-Output --format value`}
+	for _, source := range allowed {
+		if got := deniedCommand(source, entries); got != "" {
+			t.Errorf("%q matched %q", source, got)
+		}
+	}
+	blocked := []string{`format D:`, `diskpart`, `shutdown /s`, `shutdown.exe /s`, `rm -rf /`, `Remove-Item -Recurse -Force C:\`, `echo ok | shutdown`, `echo ok; diskpart`, `echo ok && format D:`, `& shutdown`}
+	for _, source := range blocked {
+		if got := deniedCommand(source, entries); got == "" {
+			t.Errorf("%q was allowed", source)
+		}
+	}
+}
+
 func TestShellDescriptionOnlyClaimsServiceNetworkBoundaryWhenSplitIsOn(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
 	cfg.Shell.ServiceAccount.Enabled = false

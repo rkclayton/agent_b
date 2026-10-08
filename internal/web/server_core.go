@@ -406,6 +406,13 @@ func (s *Server) recordObservedByteLimit(connectionID string, limit int) error {
 			return nil
 		}
 		next.Connections[i].Capabilities.ObservedByteLimit = limit
+		kept := next.Connections[i].Capabilities.Findings[:0]
+		for _, finding := range next.Connections[i].Capabilities.Findings {
+			if !strings.HasPrefix(finding, "size limit:") {
+				kept = append(kept, finding)
+			}
+		}
+		next.Connections[i].Capabilities.Findings = append(kept, fmt.Sprintf("size limit: %d bytes observed %s", limit, time.Now().Format("2006-01-02")))
 		if err := s.saveMachineConfig(next); err != nil {
 			return err
 		}

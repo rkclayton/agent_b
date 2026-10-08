@@ -376,6 +376,21 @@
      }
     },
     {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836802000
+     }
+    },
+    {
      "op": "append",
      "path": "/timeline",
      "value": {
@@ -438,7 +453,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836802000
      }
     },
     {
@@ -520,7 +537,9 @@
        "done": true,
        "reasoning_tokens": 4
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836802000
      }
     },
     {
@@ -613,7 +632,9 @@
        "done": true,
        "reasoning_tokens": 4
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836805000
      }
     },
     {
@@ -685,7 +706,9 @@
        "done": true,
        "reasoning_tokens": 4
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836805100
      }
     },
     {
@@ -757,7 +780,9 @@
        "done": true,
        "reasoning_tokens": 4
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836805200
      }
     },
     {
@@ -829,6 +854,34 @@
         "name": "shell.operator_command"
        }
       }
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "read_file",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r1:1",
+       "started_at": 1577836803000,
+       "last_chunk_at": 1577836804000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1577836803000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 4
+      },
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836806000
      }
     },
     {
@@ -914,6 +967,34 @@
        }
       },
       "decision": "dismissed"
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "read_file",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r1:1",
+       "started_at": 1577836803000,
+       "last_chunk_at": 1577836804000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1577836803000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 4
+      },
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836807000
      }
     },
     {
@@ -1026,7 +1107,9 @@
        "done": true,
        "reasoning_tokens": 4
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836808000
      }
     },
     {
@@ -1120,6 +1203,34 @@
      ]
     },
     {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r1:1",
+       "started_at": 1577836803000,
+       "last_chunk_at": 1577836804000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1577836803000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 4
+      },
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836808100
+     }
+    },
+    {
      "op": "append",
      "path": "/timeline",
      "value": {
@@ -1208,6 +1319,34 @@
        "marginal_tokens": 0
       }
      ]
+    },
+    {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "stream": {
+       "key": "r1:1",
+       "started_at": 1577836803000,
+       "last_chunk_at": 1577836804000,
+       "has_chunk": true,
+       "reasoning_chars": 0,
+       "total_chars": 0,
+       "rate": 0,
+       "rate_started_at": 1577836803000,
+       "rate_chars": 0,
+       "done": true,
+       "reasoning_tokens": 4
+      },
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836808200
+     }
     },
     {
      "op": "append",
@@ -1753,7 +1892,9 @@
        "done": true,
        "reasoning_tokens": 4
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836802000,
+      "state_started_at": 1577836811000
      }
     },
     {

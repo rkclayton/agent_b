@@ -55,6 +55,13 @@ test("every live status has elapsed time and never invents zero tokens 2qf", () 
   }
 });
 
+test("elapsed time restarts for the current state 2st", () => {
+	const now = 21_000;
+	assert.equal(liveActivityText(running({ started_at: 1_000, state_started_at: 16_000, stage: "execute", stage_state: "enter", active_tool: "shell" }), now), "running shell · 5s");
+	assert.equal(liveActivityText({ run: { status: "queued" }, activity: { started_at: 1_000, state_started_at: 21_000 } }, now), "queued — waiting for a model slot · 0s");
+	assert.equal(liveActivityText({ ...running({ started_at: 1_000, state_started_at: 11_000 }), pending_approval: { event: { type: "approval.required", data: { name: "shell" } } } }, now), "waiting for you — shell · 10s");
+});
+
 test("an accelerated replay of long waits stays truthful at every sampled second 2qf", () => {
   const phases = [
     [0, 82, { stage: "call_model", stage_state: "enter", progress: {}, stream: { started_at: 1_000 } }],

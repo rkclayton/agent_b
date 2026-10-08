@@ -59,6 +59,7 @@ function whereScreen() {
   const modelField = discoveredModels.length
     ? `<select data-field="model">${!discoveredModels.includes(currentModel) && currentModel ? `<option value="${attr(currentModel)}" selected>${html(currentModel)} · not served</option>` : ""}${discoveredModels.map((model) => `<option value="${attr(model)}" ${model === currentModel ? "selected" : ""}>${html(model)}</option>`).join("")}</select>`
     : `<input data-field="model" value="${attr(currentModel)}" placeholder="model name">`;
+	const contextReading = measuredContext(connection);
   return `<section class="setup-section"><h1>Where is your model?</h1>
     <div class="setup-fields">
       <label>Label<input data-field="label" value="${attr(connection?.label || "My model")}"></label>
@@ -66,13 +67,24 @@ function whereScreen() {
       <label>Saved credential name<input data-field="credential" value="${attr(connection?.credential || "")}" placeholder="optional"></label>
       <label>API key<input data-field="api-key" type="password" autocomplete="off" placeholder="optional"></label>
       <label>Model<span class="setup-inline">${modelField}<button data-action="query-models" type="button">Query models</button></span></label>
-      <label>Context size<input data-field="context" type="number" value="${attr(connection?.context?.n_ctx || "")}" placeholder="${attr(connection?.capabilities?.n_ctx || "")}"></label>
+      <label>Context size<input data-field="context" type="number" value="${attr(connection?.context?.n_ctx || "")}" placeholder="${attr(connection?.capabilities?.n_ctx || "")}"><span class="setup-note">${html(contextReading)}</span></label>
       <label>Reasoning enabled<select data-field="reasoning"><option value="true" ${connection?.reasoning?.enabled !== false ? "selected" : ""}>on</option><option value="false" ${connection?.reasoning?.enabled === false ? "selected" : ""}>off</option></select></label>
       <label>State<strong class="setup-value">${html(connection?.not_runnable_reason || (connection?.capabilities?.probed_at ? "ready" : "not tested"))}</strong></label>
     </div>
     <div class="setup-actions setup-connection-actions"><button data-action="test" ${disabled()}>Test</button><button data-action="measure" ${!connection || (busy && !measuring) ? "disabled" : ""}>${measuring ? "Stop" : "Eval"}</button><button data-action="recommended" ${!connection || disabled() ? "disabled" : ""}>Recommended</button></div>
     <div class="setup-actions"><button data-action="save" ${disabled()}>Save</button><button data-action="show-install" class="quiet">Install one here</button><button data-action="later" class="quiet">Later</button></div>
     ${installer()}${feedback()}</section>`;
+}
+
+export function measuredContext(connection) {
+	const caps = connection?.capabilities || {};
+	const published = Number(caps.n_ctx || 0), bytes = Number(caps.observed_byte_limit || 0), typed = Number(connection?.context?.n_ctx || 0);
+	if (bytes > 0) {
+		const usable = published > 0 ? Math.min(published, Math.floor(bytes / 4)) : Math.floor(bytes / 4);
+		return `usable ceiling ${usable}${typed > usable ? ` · saved ${typed - usable} above` : ""}`;
+	}
+	if (published > 0) return `published window ${published}`;
+	return "typed, not measured";
 }
 
 function installer() {

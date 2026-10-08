@@ -358,6 +358,21 @@
      }
     },
     {
+     "op": "replace",
+     "path": "/activity",
+     "value": {
+      "stage": "",
+      "stage_state": "",
+      "completed_stages": [],
+      "active_tool": "",
+      "alarm_tool": "",
+      "dispatch_alarm": false,
+      "compaction_serial": 0,
+      "started_at": 1577836861000,
+      "state_started_at": 1577836861000
+     }
+    },
+    {
      "op": "append",
      "path": "/timeline",
      "value": {
@@ -420,7 +435,9 @@
        "done": false,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836861000,
+      "state_started_at": 1577836861000
      }
     },
     {
@@ -497,7 +514,9 @@
        "done": true,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 0
+      "compaction_serial": 0,
+      "started_at": 1577836861000,
+      "state_started_at": 1577836861000
      }
     },
     {
@@ -653,7 +672,9 @@
        "done": true,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 1
+      "compaction_serial": 1,
+      "started_at": 1577836861000,
+      "state_started_at": 1577836861000
      }
     },
     {
@@ -747,7 +768,9 @@
        "done": true,
        "reasoning_tokens": 0
       },
-      "compaction_serial": 1
+      "compaction_serial": 1,
+      "started_at": 1577836861000,
+      "state_started_at": 1577836866000
      }
     },
     {

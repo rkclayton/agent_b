@@ -118,13 +118,19 @@ func (s *Server) measureConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runEvaluation(ctx context.Context, connectionID string, connection config.Connection) {
-	caps, findings, err := probe.Probe(ctx, &connection)
+	caps, findings, err := probe.Eval(ctx, &connection)
 	if err != nil {
 		s.measureMu.Lock()
 		delete(s.measureCancels, connectionID)
 		s.measureMu.Unlock()
 		s.setMeasurement(connectionID, measureState{Error: err.Error(), Text: "Eval failed during capability checks"})
 		return
+	}
+	if ceiling, by := usableContextCeiling(caps); ceiling > 0 {
+		findings = append(findings, fmt.Sprintf("usable ceiling: %d tokens set by %s", ceiling, by))
+		if connection.Context.NCtx > ceiling {
+			findings = append(findings, fmt.Sprintf("saved context %d is %d above measured ceiling; saved value is kept", connection.Context.NCtx, connection.Context.NCtx-ceiling))
+		}
 	}
 	caps.Findings = findings
 	s.mu.Lock()

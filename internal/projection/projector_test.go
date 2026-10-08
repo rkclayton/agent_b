@@ -289,7 +289,7 @@ func TestAbortAndRetryEventsAreVisibleHarnessNotices(t *testing.T) {
 	}
 }
 
-func TestByteLimitTrimsCollapseToOneTruthfulNotice2qf(t *testing.T) {
+func TestEachByteLimitTrimKeepsItsPointInTheChat2su(t *testing.T) {
 	state := seeded(t)
 	for index := 0; index < 10; index++ {
 		var err error
@@ -298,12 +298,13 @@ func TestByteLimitTrimsCollapseToOneTruthfulNotice2qf(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(state.Chat) != 1 || state.Chat[0].Event == nil {
+	if len(state.Chat) != 10 || state.Chat[0].Event == nil {
 		t.Fatalf("chat=%+v", state.Chat)
 	}
-	data := eventMap(state.Chat[0].Event.Data)
-	if intValue(data["trimmed_results"]) != 10 {
-		t.Fatalf("trim notice=%+v", data)
+	for _, row := range state.Chat {
+		if intValue(eventMap(row.Event.Data)["trimmed_results"]) != 1 {
+			t.Fatalf("trim notice=%+v", row)
+		}
 	}
 }
 

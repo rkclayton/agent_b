@@ -556,6 +556,29 @@ func (s *Session) TouchProject(path string) {
 	}
 }
 
+// TouchMentionedProjects makes an absolute folder named in the user's message
+// available to the next request, but only when it is already inside this
+// chat's readable workspace. Text cannot widen the boundary.
+func (s *Session) TouchMentionedProjects(text string) {
+	s.mu.Lock()
+	root := s.Workspace
+	hook := s.ProjectTouch
+	s.mu.Unlock()
+	if hook == nil || root == "" {
+		return
+	}
+	for _, word := range strings.Fields(text) {
+		candidate := strings.Trim(word, "\"'`()[]{}<>,;:!?")
+		candidate = filepath.Clean(filepath.FromSlash(candidate))
+		if filepath.IsAbs(candidate) && pathWithin(root, candidate) {
+			rel, err := filepath.Rel(root, candidate)
+			if err == nil {
+				hook(rel)
+			}
+		}
+	}
+}
+
 // RefreshProject re-reads the chat's instruction files at the start of a run and keeps
 // the block it returns when they changed (item 2q0).
 func (s *Session) RefreshProject() (string, bool) {

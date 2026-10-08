@@ -388,14 +388,14 @@ type Write struct {
 	Scope    string // user | repository | environment
 	Replaces string // the text of the note this supersedes, or empty
 	Run      string
+	Chat     string
 	Turn     int
 	// UntrustedInTurn marks a note written in a turn that had an untrusted tool
 	// result in it. (e): a note that arrived beside external content is marked,
 	// because that is the note somebody should look at twice.
 	UntrustedInTurn bool
 	// Budget is the layer's token budget for the FILE. Zero means unbounded.
-	Budget   int
-	MaxChars int // zero keeps the 300-character agent/folder limit
+	Budget int
 }
 
 // ErrMemoryFull is (d): the write is refused and the caller is told to replace a
@@ -405,6 +405,7 @@ var ErrMemoryFull = errors.New("memory full")
 // ErrNoteNotFound is (b): a replaces that names nothing is a mistake worth
 // reporting rather than quietly becoming an ordinary write.
 var ErrNoteNotFound = errors.New("the note to replace was not found")
+var ErrScopeMismatch = errors.New("replacement scope mismatch")
 
 // WriteNote does (b), (d) and (e) in ONE pass over the file, because a replace
 // and a budget check that ran separately could each pass and together overflow.
@@ -412,13 +413,6 @@ func (m *Manager) WriteNote(path string, write Write) (bool, error) {
 	note := strings.TrimSpace(write.Note)
 	if note == "" {
 		return false, fmt.Errorf("note is empty")
-	}
-	maxChars := write.MaxChars
-	if maxChars == 0 {
-		maxChars = 300
-	}
-	if len([]rune(note)) > maxChars {
-		return false, fmt.Errorf("note too long (max %d Unicode characters)", maxChars)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -441,12 +435,18 @@ func (m *Manager) WriteNote(path string, write Write) (bool, error) {
 	}
 	// (b): the old note goes in the SAME write. A replace that left the old one
 	// behind would grow the file it was meant to hold steady.
+	var archived string
 	if replaced := strings.TrimSpace(write.Replaces); replaced != "" {
 		kept := make([]string, 0, len(lines))
 		found := false
 		for _, line := range lines {
 			if !found && strings.EqualFold(noteTextOf(line), replaced) {
+				oldScope := parseNote(line).Scope
+				if oldScope != write.Scope {
+					return false, fmt.Errorf("%w: existing note is %s; new note is %s", ErrScopeMismatch, scopeName(oldScope), scopeName(write.Scope))
+				}
 				found = true
+				archived = line
 				continue
 			}
 			kept = append(kept, line)
@@ -463,13 +463,48 @@ func (m *Manager) WriteNote(path string, write Write) (bool, error) {
 	if write.Budget > 0 {
 		body := strings.Join(lines, "\n")
 		if tokens := (len([]rune(body)) + 3) / 4; tokens > write.Budget {
-			return false, fmt.Errorf("%w: this layer would hold %d of %d tokens; replace a note you name, or skip", ErrMemoryFull, tokens, write.Budget)
+			used := (len([]rune(normalize(string(data)))) + 3) / 4
+			return false, fmt.Errorf("%w: used %d of %d tokens; free %d tokens before writing this note; replace a note you name, or skip", ErrMemoryFull, used, write.Budget, tokens-write.Budget)
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}
-	return false, os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		return false, err
+	}
+	if archived != "" {
+		return false, appendReplacement(path, archived, write)
+	}
+	return false, nil
+}
+
+func scopeName(value string) string {
+	if value == "" {
+		return "unscoped"
+	}
+	return value
+}
+
+func appendReplacement(path, line string, write Write) error {
+	ext := filepath.Ext(path)
+	archive := strings.TrimSuffix(path, ext) + "-replaced.md"
+	data, err := os.ReadFile(archive)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	rows := []string{}
+	for _, row := range strings.Split(normalize(string(data)), "\n") {
+		if strings.TrimSpace(row) != "" {
+			rows = append(rows, row)
+		}
+	}
+	old := parseNote(line)
+	rows = append(rows, fmt.Sprintf("- %s %s  [scope: %s, chat: %s]", time.Now().Format("2006-01-02"), old.Text, old.Scope, write.Chat))
+	if len(rows) > 50 {
+		rows = rows[len(rows)-50:]
+	}
+	return os.WriteFile(archive, []byte(strings.Join(rows, "\n")+"\n"), 0o600)
 }
 
 // formatNote is the line as it lands in the file: the existing date-and-text

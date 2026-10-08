@@ -1034,7 +1034,8 @@ function toolTick(entry, forceOpen = false, recovered = false) {
   setAttribute(view.button, "aria-expanded", String(open));
   const state = entry.result && typeof entry.result.ok === "boolean" ? (entry.result.ok ? "ok" : "error") : "";
   const delegated = entry.name === "delegate" ? entry.result?.delegate : null;
-  const stateText = recovered ? "retried" : delegated ? `${entry.result?.delegate_status || state} · ${Number(delegated.tool_calls || 0)} tool calls` : callServiceStatus(entry.name, entry.result) || state;
+  const shortened = entry.result?.model_shortened ? ` · model kept ${formatBytes(entry.result.model_kept_bytes || 0)}` : "";
+  const stateText = (recovered ? "retried" : delegated ? `${entry.result?.delegate_status || state} · ${Number(delegated.tool_calls || 0)} tool calls` : callServiceStatus(entry.name, entry.result) || state) + shortened;
   setText(view.button.children[0], `${open ? "▾" : "▸"} ${entry.name} ·`);
   setText(view.button.children[1], delegated ? delegateKey(entry.args) : shortToolTarget(entry.name, entry.args));
   setText(view.button.children[2], stateText);
@@ -1169,7 +1170,7 @@ function noticeContent(session, entry, actionable) {
     ? `harness: retrying truncated ${data.tool || "tool"} call (${data.attempt || 1}/${data.max_attempts || 1})`
     : `harness: repaired malformed ${data.tool || "tool"} history and retried`;
   else if (event.type === "compaction") content.textContent = data.trigger === "byte_limit_trim"
-    ? `trimmed ${data.trimmed_results || 0} old result(s) to fit the request size`
+    ? `trimmed ${data.trimmed_results || 0} old result(s) · removed ${formatBytes(data.bytes_removed || 0)} · server size limit`
     : data.kind === "fresh"
       ? "fresh context — earlier turns searchable"
       : `compacted ${signed((data.after || 0) - (data.before || 0))} tokens${data.connection_id ? ` via ${data.connection_id}` : ""}`;

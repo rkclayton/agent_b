@@ -35,8 +35,8 @@ func TestInstructionsAncestorOrderFallbackCapAndLazySubdir(t *testing.T) {
 	if strings.Contains(initial.Block, "ignored fallback") || len(initial.Notes) != 1 {
 		t.Fatalf("fallback notes: %+v", initial.Notes)
 	}
-	// Item 2q0: over the cap the file is a pointer to read it, never a cut copy.
-	if strings.Contains(initial.Block, "xxxx") || !strings.Contains(initial.Block, "over the 16384-byte limit") {
+	// Item 2sq: the counted prefix is present and ends with an explicit pointer.
+	if !strings.Contains(initial.Block, "xxxx") || !strings.Contains(initial.Block, "cut at 2000 tokens; read the rest at") {
 		t.Fatalf("cap pointer: %q", initial.Block)
 	}
 

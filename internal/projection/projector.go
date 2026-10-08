@@ -63,8 +63,10 @@ type Activity struct {
 	LastTimings      map[string]any    `json:"last_timings,omitempty"`
 	Stream           *StreamTelemetry  `json:"stream,omitempty"`
 	CompactionSerial int               `json:"compaction_serial"`
+	CompactionReason string            `json:"compaction_reason,omitempty"`
 	Delegate         *DelegateActivity `json:"delegate,omitempty"`
 	StartedAt        int64             `json:"started_at,omitempty"`
+	StateStartedAt   int64             `json:"state_started_at,omitempty"`
 	ToolStartedAt    int64             `json:"tool_started_at,omitempty"`
 	ToolTarget       string            `json:"tool_target,omitempty"`
 	ToolLastLine     string            `json:"tool_last_line,omitempty"`
@@ -451,17 +453,21 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		next.Closed = false
 		next.RunAsYou = false
 	case events.RunQueued:
+		next.Activity.StateStartedAt = eventMillis(record.Event)
 		next.Run.Status = "queued"
 		next.Run.RunID = firstString(data["run_id"], record.Event.RunID)
 		next.Run.QueuePosition = intValue(data["position"])
 		next.Run.WaitingBehind = stringValue(data["behind"])
 	case events.RunResumed:
+		next.Activity.StateStartedAt = eventMillis(record.Event)
 		// Item 2fs: an answered run took back the model slot it released on its
 		// card; unlike run.started nothing about the run resets.
 		next.Run.Status = "running"
 		next.Run.QueuePosition = 0
 		next.Run.WaitingBehind = ""
 	case events.RunStarted:
+		next.Activity.StartedAt = eventMillis(record.Event)
+		next.Activity.StateStartedAt = next.Activity.StartedAt
 		next.Run.Status = "running"
 		next.Run.RunID = firstString(data["run_id"], record.Event.RunID)
 		next.Run.Turn = 0
@@ -480,8 +486,10 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		next.QueuedMessageIDs = withoutQueuedID(next.QueuedMessageIDs, stringValue(data["user_message_id"]))
 		next.Activity.DispatchAlarm = false
 	case events.RunStopping:
+		next.Activity.StateStartedAt = eventMillis(record.Event)
 		next.Run.Status = "stopping"
 	case events.RunStopped:
+		next.Activity.StateStartedAt = eventMillis(record.Event)
 		next.ModelBusy = nil
 		status := "idle"
 		if boolValue(data["queue_held"]) {
@@ -529,8 +537,14 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		}
 	case events.Stage:
 		stage, state := stringValue(data["stage"]), stringValue(data["state"])
+		if stage != next.Activity.Stage || state != next.Activity.StageState {
+			next.Activity.StateStartedAt = eventMillis(record.Event)
+		}
 		next.Run.Turn = intValue(data["turn"])
 		next.Activity.StageState = state
+		if stage == "compact" {
+			next.Activity.CompactionReason = stringValue(data["reason"])
+		}
 		if state == "enter" {
 			next.Activity.Stage = stage
 			if stage == "assemble" {
@@ -611,15 +625,18 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 			entry.ToolCallIDs = append(entry.ToolCallIDs, call.ID)
 		}
 	case events.ToolCallEvent:
+		next.Activity.StateStartedAt = eventMillis(record.Event)
 		next.Activity.ActiveTool = stringValue(data["name"])
 		args := mapValue(data["args"])
 		next.Chat = appendChat(next.Chat, ChatEntry{Type: "tool", Key: "tool:" + stringValue(data["call_id"]), CallID: stringValue(data["call_id"]), Name: stringValue(data["name"]), Args: &args})
 	case events.ToolProgress:
-		if boolValue(data["run_started"]) {
+		if boolValue(data["run_started"]) && next.Activity.StartedAt == 0 {
 			next.Activity.StartedAt = eventMillis(record.Event)
+			next.Activity.StateStartedAt = next.Activity.StartedAt
 		}
 		if boolValue(data["tool_started"]) {
 			next.Activity.ToolStartedAt = eventMillis(record.Event)
+			next.Activity.StateStartedAt = next.Activity.ToolStartedAt
 			next.Activity.ToolTarget = shortToolTarget(mapValue(data["args"]))
 			next.Activity.ToolLastLine = ""
 		}
@@ -627,6 +644,7 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 			next.Activity.ToolLastLine = line
 		}
 	case events.ToolResult:
+		next.Activity.StateStartedAt = eventMillis(record.Event)
 		next.Activity.ActiveTool = ""
 		next.Activity.ToolStartedAt, next.Activity.ToolTarget, next.Activity.ToolLastLine = 0, "", ""
 		next.Tools = cloneTools(next.Tools)
@@ -772,10 +790,12 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 			}
 		}
 	case events.ApprovalRequired:
+		next.Activity.StateStartedAt = eventMillis(record.Event)
 		next.Run.Status = "paused"
 		event := stripDiagnostic(record.Event)
 		next.PendingApproval = &ChatEntry{Type: "notice", Key: "event:" + strconv.FormatInt(record.Event.Seq, 10), RunID: record.Event.RunID, Event: &event}
 	case events.ApprovalDecided:
+		next.Activity.StateStartedAt = eventMillis(record.Event)
 		decision := stringValue(data["decision"])
 		if decision != "superseded" && decision != "dismissed" {
 			next.Run.Status = "running"
@@ -806,6 +826,35 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		// the next measured request. The freed tokens come off the compactible
 		// categories only; the fixed prefix is a floor, never zero.
 		next.Budget = compactedBudget(next.Budget, intValue(data["before"]), intValue(data["after"]))
+		affected := map[string]bool{}
+		for _, id := range stringValues(data["affected_ids"]) {
+			affected[id] = true
+		}
+		if len(affected) > 0 {
+			next.Chat = cloneChat(next.Chat)
+			for _, message := range next.Messages {
+				if !affected[message.ID] || message.Role != "tool" {
+					continue
+				}
+				if entry := chatCall(next.Chat, message.ToolCallID); entry != nil && entry.Result != nil {
+					entry.Result = cloneMap(entry.Result)
+					entry.Result["model_shortened"] = true
+					entry.Result["model_kept_bytes"] = 0
+				}
+			}
+		}
+		var cuts []map[string]any
+		if decode(data["trimmed_calls"], &cuts) == nil && len(cuts) > 0 {
+			next.Chat = cloneChat(next.Chat)
+			for _, cut := range cuts {
+				if entry := chatCall(next.Chat, stringValue(cut["call_id"])); entry != nil && entry.Result != nil {
+					entry.Result = cloneMap(entry.Result)
+					entry.Result["model_shortened"] = true
+					entry.Result["model_kept_bytes"] = intValue(cut["kept_bytes"])
+					entry.Result["model_removed_bytes"] = intValue(cut["removed_bytes"])
+				}
+			}
+		}
 		if kind := stringValue(data["kind"]); kind == "summarize" || kind == "fresh" {
 			removed := map[string]bool{}
 			for _, id := range stringValues(data["affected_ids"]) {
@@ -840,28 +889,7 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 	}
 	appendNotice := chatNotice(record.Event.Type)
 	if appendNotice && record.Event.Type == events.Compaction && stringValue(data["trigger"]) == "byte_limit_trim" {
-		trimmed := intValue(data["trimmed_results"])
-		if trimmed <= 0 {
-			appendNotice = false
-		} else {
-			for index := len(next.Chat) - 1; index >= 0; index-- {
-				prior := next.Chat[index].Event
-				if prior == nil || prior.Type != events.Compaction || prior.RunID != record.Event.RunID {
-					continue
-				}
-				priorData := cloneMap(eventMap(prior.Data))
-				if stringValue(priorData["trigger"]) != "byte_limit_trim" {
-					continue
-				}
-				next.Chat = cloneChat(next.Chat)
-				priorCopy := *next.Chat[index].Event
-				priorData["trimmed_results"] = intValue(priorData["trimmed_results"]) + trimmed
-				priorCopy.Data = priorData
-				next.Chat[index].Event = &priorCopy
-				appendNotice = false
-				break
-			}
-		}
+		appendNotice = intValue(data["trimmed_results"]) > 0
 	}
 	if appendNotice {
 		event := stripDiagnostic(record.Event)

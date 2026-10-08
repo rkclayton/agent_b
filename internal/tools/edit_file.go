@@ -159,6 +159,11 @@ func (e *EditFile) Call(ctx context.Context, s *session.Session, args map[string
 	if bom {
 		data = append([]byte{0xef, 0xbb, 0xbf}, data...)
 	}
+	commitState, err := s.ReserveSkillStateWrite(resolved, int64(len(data)))
+	if err != nil {
+		return fail(err)
+	}
+	defer commitState(false)
 	temp, err := os.CreateTemp(filepath.Dir(resolved), ".agentb-edit-*")
 	if err != nil {
 		return fail(err)
@@ -177,6 +182,7 @@ func (e *EditFile) Call(ctx context.Context, s *session.Session, args map[string
 	if err := atomicReplace(tempPath, resolved); err != nil {
 		return fail(err)
 	}
+	commitState(true)
 	e.coordinator.record(s, resolved)
 	newLines := 0
 	if replacement == "" {

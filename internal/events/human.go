@@ -55,7 +55,11 @@ func HumanNoticeFor(eventType string, data map[string]any) HumanNotice {
 			if textValue(data["reason"], "") != "done" {
 				return HumanNotice{Happened: fmt.Sprintf("Scheduled job %s failed.", name), HarnessAction: "The harness kept the failed run in the Scheduled chat folder."}
 			}
-			return HumanNotice{Happened: fmt.Sprintf("Scheduled job %s finished.", name), HarnessAction: "The harness kept its result in the Scheduled chat folder."}
+			happened := fmt.Sprintf("Scheduled job %s finished.", name)
+			if answer := textValue(data["scheduled_answer"], ""); answer != "" {
+				happened += "\n" + answer
+			}
+			return HumanNotice{Happened: happened}
 		}
 		reason := strings.ReplaceAll(textValue(data["reason"], "an unknown reason"), "_", " ")
 		if reason == "done" {

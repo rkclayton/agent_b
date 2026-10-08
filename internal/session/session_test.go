@@ -379,3 +379,38 @@ func TestSkillFolderIsReadableButNeverWritable(t *testing.T) {
 		t.Fatalf("write err=%v", err)
 	}
 }
+
+func TestSkillStateLimitAtFullBound(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skill-state")
+	dir := filepath.Join(root, "price-watch")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	full := filepath.Join(dir, "full.bin")
+	file, err := os.Create(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Truncate(SkillStateLimit); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{SkillStateRoot: root}
+	if writeRoot, writeErr := s.WriteRoot(full); writeErr != nil || writeRoot != root {
+		t.Fatalf("state write root=%q err=%v", writeRoot, writeErr)
+	}
+	later := &Session{SkillStateRoot: root, Workspace: t.TempDir()}
+	if readRoot, readErr := later.ReadRoot(full); readErr != nil || readRoot != root {
+		t.Fatalf("later state read root=%q err=%v", readRoot, readErr)
+	}
+	if _, err = s.ReserveSkillStateWrite(filepath.Join(dir, "one-more"), 1); err == nil || !strings.Contains(err.Error(), "16 MiB") {
+		t.Fatalf("over-limit err=%v", err)
+	}
+	commit, err := s.ReserveSkillStateWrite(full, SkillStateLimit)
+	if err != nil {
+		t.Fatalf("same-size replacement: %v", err)
+	}
+	commit(true)
+}

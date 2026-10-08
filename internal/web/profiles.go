@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"harness/internal/events"
+	"harness/internal/skills"
 )
 
 type profileRequest struct {
@@ -68,6 +69,10 @@ func (s *Server) profileEndpoint(w http.ResponseWriter, r *http.Request) {
 			s.roots.Profile = s.profiles.Root(s.profiles.Active())
 			if s.registry != nil {
 				s.registry.SetSkillsRoot(filepath.Join(s.roots.Profile, "skills"))
+				s.registry.SetSkillStateRoot(filepath.Join(s.roots.Profile, "skill-state"))
+			}
+			if includeErr := skills.EnsureIncluded(filepath.Join(s.roots.Profile, "skills")); includeErr != nil {
+				err = includeErr
 			}
 			_ = removeLegacyPhoneAccess(s.roots.Profile)
 			if !filepath.IsAbs(s.cfg.Workspace) {

@@ -671,7 +671,10 @@ if (args["cron-only"] === "true") {
 	assert.ok(chatBodies.some((body) => body.includes("Real clock loud")), "the loud job must leave its named Scheduled chat");
 	assert.ok(!chatBodies.some((body) => body.includes("Real clock silent")), "the silent job must leave no chat");
 	for (const limit = Date.now() + 5000; Date.now() < limit && !notificationPosts.some((post) => JSON.stringify(post).includes("Real clock loud"));) await sleep(50);
-	assert.equal(notificationPosts.filter((post) => JSON.stringify(post).includes("Real clock loud")).length, 1, "the loud job must send exactly one notice");
+	const loudNotices = notificationPosts.filter((post) => JSON.stringify(post).includes("Real clock loud"));
+	assert.equal(loudNotices.length, 1, "the loud job must send exactly one notice");
+	assert.match(JSON.stringify(loudNotices[0]), /REAL CLOCK LOUD ANSWER/, "the notice must carry the scheduled answer");
+	assert.doesNotMatch(JSON.stringify(loudNotices[0]), /Scheduled chat folder/, "the answer replaces the Scheduled-folder sentence");
 	assert.equal(notificationPosts.filter((post) => JSON.stringify(post).includes("Real clock silent")).length, 0, "the silent job must send no notice");
 	assert.deepEqual(JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")), [], "both one-shot jobs must be removed");
 	record("cron-real-clock-loud-and-silent");

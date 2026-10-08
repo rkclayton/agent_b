@@ -2,6 +2,7 @@ package skills
 
 import (
 	"bufio"
+	"embed"
 	"fmt"
 	"io/fs"
 	"os"
@@ -27,6 +28,71 @@ type Skill struct {
 	Valid       bool     `json:"valid"`
 	IndexTokens int      `json:"index_tokens"`
 	Warnings    []string `json:"warnings,omitempty"`
+	Included    bool     `json:"included,omitempty"`
+	State       bool     `json:"state,omitempty"`
+	StatePath   string   `json:"state_path,omitempty"`
+}
+
+//go:embed included/*/SKILL.md
+var included embed.FS
+
+func EnsureIncluded(root string) error {
+	if !filepath.IsAbs(root) {
+		return fmt.Errorf("included skills root must be absolute")
+	}
+	entries, _ := included.ReadDir("included")
+	for _, entry := range entries {
+		data, err := included.ReadFile("included/" + entry.Name() + "/SKILL.md")
+		if err != nil {
+			return err
+		}
+		path := filepath.Join(root, ".included", entry.Name(), "SKILL.md")
+		if current, readErr := os.ReadFile(path); readErr == nil && string(current) == string(data) {
+			continue
+		}
+		if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		if err = os.WriteFile(path, data, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Load returns the user copy when one exists and otherwise the shipped copy.
+// The state path is present only for a skill that declares state: true.
+func Load(root, stateRoot, name string) (body, skillPath, statePath string, err error) {
+	if !validName.MatchString(name) {
+		return "", "", "", fmt.Errorf("invalid skill name %q", name)
+	}
+	userDir := filepath.Join(root, name)
+	skillPath = filepath.Join(userDir, "SKILL.md")
+	_, statErr := os.Stat(userDir)
+	var data []byte
+	var readErr error
+	if statErr == nil {
+		data, readErr = os.ReadFile(skillPath)
+	} else if os.IsNotExist(statErr) {
+		skillPath = filepath.Join(root, ".included", name, "SKILL.md")
+		data, readErr = os.ReadFile(skillPath)
+	} else {
+		readErr = statErr
+	}
+	if readErr != nil {
+		return "", "", "", readErr
+	}
+	parsedName, _, state, reason := frontmatter(string(data))
+	if reason != "" || parsedName != name {
+		if reason == "" {
+			reason = "frontmatter name does not match folder"
+		}
+		return "", "", "", fmt.Errorf("%s", reason)
+	}
+	if state {
+		statePath = filepath.Join(stateRoot, name)
+	}
+	return string(data), skillPath, statePath, nil
 }
 
 func Inspect(source string) (Skill, string, []string, error) {
@@ -35,7 +101,7 @@ func Inspect(source string) (Skill, string, []string, error) {
 	if err != nil {
 		return Skill{}, "", nil, err
 	}
-	name, description, reason := frontmatter(string(data))
+	name, description, _, reason := frontmatter(string(data))
 	item := Skill{Name: name, Description: description, Path: path, Valid: reason == "", Reason: reason}
 	files := []string{}
 	err = filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
@@ -83,29 +149,52 @@ func inspectZIP(source string, max int64) (Skill, string, []string, map[string]a
 		return Skill{}, "", nil, nil, "", fmt.Errorf("SKILL.md is missing")
 	}
 	sort.Strings(files)
-	name, description, reason := frontmatter(body)
+	name, description, _, reason := frontmatter(body)
 	return Skill{Name: name, Description: description, Path: source, Valid: reason == "", Reason: reason}, body, files, entries, top, nil
 }
 
 var validName = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
 
-func Scan(root string, settings map[string]Setting) ([]Skill, string) {
+func Scan(root, stateRoot string, settings map[string]Setting) ([]Skill, string) {
 	entries, _ := os.ReadDir(root)
 	list := make([]Skill, 0, len(entries))
+	user := map[string]bool{}
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+			user[entry.Name()] = true
+		}
+	}
+	includedEntries, _ := os.ReadDir(filepath.Join(root, ".included"))
+	entries = append(entries, includedEntries...)
+	seen := map[string]bool{}
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 		folder := entry.Name()
+		if seen[folder] {
+			continue
+		}
+		seen[folder] = true
+		isIncluded := !user[folder]
 		path := filepath.Join(root, folder, "SKILL.md")
+		if isIncluded {
+			path = filepath.Join(root, ".included", folder, "SKILL.md")
+		}
 		data, err := os.ReadFile(path)
-		skill := Skill{Path: path, Source: "written here", Valid: false}
+		skill := Skill{Path: path, Source: "written here", Valid: false, Included: isIncluded}
+		if isIncluded {
+			skill.Source = "included"
+		}
 		if err != nil {
 			skill.Name, skill.Reason = folder, "SKILL.md is missing"
 		} else {
-			skill.Name, skill.Description, skill.Reason = frontmatter(string(data))
+			skill.Name, skill.Description, skill.State, skill.Reason = frontmatter(string(data))
 			skill.Valid = skill.Reason == ""
 			skill.Warnings = warnings(filepath.Dir(path), string(data))
+			if skill.State {
+				skill.StatePath = filepath.Join(stateRoot, skill.Name)
+			}
 		}
 		key := skill.Name
 		if key == "" {
@@ -113,30 +202,35 @@ func Scan(root string, settings map[string]Setting) ([]Skill, string) {
 		}
 		setting, configured := settings[key]
 		skill.Enabled, skill.LastRead = (!configured || setting.Enabled) && skill.Valid, setting.LastRead
-		if setting.Source != "" {
+		if setting.Source != "" && !isIncluded {
 			skill.Source = setting.Source
 		}
-		line := indexLine(skill)
-		skill.IndexTokens = estimateTokens(line)
+		skill.IndexTokens = estimateTokens(promptIndexLine(skill))
 		list = append(list, skill)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 	lines := []string{}
+	hasState := false
 	for _, skill := range list {
 		if skill.Enabled {
-			lines = append(lines, indexLine(skill))
+			lines = append(lines, promptIndexLine(skill))
+			hasState = hasState || skill.StatePath != ""
 		}
 	}
 	if len(lines) == 0 {
 		return list, ""
 	}
-	return list, "## Skills\nRead a matching SKILL.md with read_file before using it; run a script only when that skill says to run it.\n" + strings.Join(lines, "\n")
+	header := "## Skills\nRead ROOT/<name>/SKILL.md; i names use ROOT/.included/<name>/SKILL.md.\nROOT=" + filepath.ToSlash(root)
+	if hasState {
+		header += "\ns names store files in STATE/<name>. STATE=" + filepath.ToSlash(stateRoot)
+	}
+	return list, header + "\n" + strings.Join(lines, "\n")
 }
 
-func frontmatter(text string) (name, description, reason string) {
+func frontmatter(text string) (name, description string, state bool, reason string) {
 	s := bufio.NewScanner(strings.NewReader(text))
 	if !s.Scan() || strings.TrimSpace(s.Text()) != "---" || !strings.Contains(text[3:], "\n---") {
-		return "", "", "frontmatter must start with ---"
+		return "", "", false, "frontmatter must start with ---"
 	}
 	for s.Scan() {
 		line := strings.TrimSpace(s.Text())
@@ -149,16 +243,18 @@ func frontmatter(text string) (name, description, reason string) {
 				name = strings.Trim(strings.TrimSpace(value), `"'`)
 			case "description":
 				description = strings.Trim(strings.TrimSpace(value), `"'`)
+			case "state":
+				state = strings.EqualFold(strings.TrimSpace(value), "true")
 			}
 		}
 	}
 	if !validName.MatchString(name) {
-		return name, description, "name must be 1-64 lowercase letters, digits, or hyphens"
+		return name, description, state, "name must be 1-64 lowercase letters, digits, or hyphens"
 	}
 	if description == "" || len(description) > 1024 {
-		return name, description, "description must be 1-1024 characters"
+		return name, description, state, "description must be 1-1024 characters"
 	}
-	return name, description, ""
+	return name, description, state, ""
 }
 
 var link = regexp.MustCompile(`\]\(([^)]+)\)`)
@@ -188,8 +284,24 @@ func warnings(dir, text string) []string {
 	}
 	return out
 }
-func indexLine(s Skill) string {
-	return s.Name + " | " + s.Description + " | " + filepath.ToSlash(s.Path)
+func promptIndexLine(s Skill) string {
+	prefix := "u "
+	if s.Included {
+		prefix = "i "
+	}
+	line := prefix + s.Name + " | " + conciseDescription(s.Description, 102)
+	if s.StatePath != "" {
+		line += " | s"
+	}
+	return line
+}
+func conciseDescription(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	tail := limit / 2
+	return strings.TrimSpace(string(runes[:limit-tail-3])) + " … " + strings.TrimSpace(string(runes[len(runes)-tail:]))
 }
 func estimateTokens(text string) int { n := len([]rune(text)); return (n + 3) / 4 }
 
@@ -201,7 +313,7 @@ func Import(root, source string, max int64) (Setting, error) {
 	if err != nil {
 		return Setting{}, err
 	}
-	name, _, reason := frontmatter(string(data))
+	name, _, _, reason := frontmatter(string(data))
 	if reason != "" {
 		return Setting{}, fmt.Errorf("%s", reason)
 	}
@@ -213,7 +325,7 @@ func Import(root, source string, max int64) (Setting, error) {
 		return Setting{}, err
 	}
 	absolute, _ := filepath.Abs(source)
-	return Setting{Name: name, Source: "imported from " + absolute, Enabled: true}, nil
+	return Setting{Name: name, Source: "imported from " + absolute, Enabled: false}, nil
 }
 
 func importZIP(root, source string, max int64) (Setting, error) {
@@ -242,5 +354,5 @@ func importZIP(root, source string, max int64) (Setting, error) {
 		}
 	}
 	absolute, _ := filepath.Abs(source)
-	return Setting{Name: item.Name, Source: "imported from " + absolute, Enabled: true}, nil
+	return Setting{Name: item.Name, Source: "imported from " + absolute, Enabled: false}, nil
 }

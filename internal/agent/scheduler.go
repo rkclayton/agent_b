@@ -602,7 +602,11 @@ func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail str
 		if reason == "done" {
 			for index := len(snapshot.Messages) - 1; index >= 0; index-- {
 				if snapshot.Messages[index].Role == "assistant" {
-					data["notification_suppressed"] = strings.Contains(snapshot.Messages[index].Content, "[SILENT]")
+					content := snapshot.Messages[index].Content
+					data["notification_suppressed"] = strings.Contains(content, "[SILENT]")
+					if answer := scheduledNoticeAnswer(content); answer != "" && !strings.Contains(content, "[SILENT]") {
+						data["scheduled_answer"] = answer
+					}
 					break
 				}
 			}
@@ -626,8 +630,23 @@ func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail str
 		data["stop_reason_declared"] = false
 		log.Printf("run.stopped carried an undeclared reason %q for run %s; add it to events.StopReasons or find what emits it", reason, runID)
 	}
-	s.bus.Publish(events.New(events.RunStopped, sessionID, runID, events.WithHuman(events.RunStopped, data)))
+	payload := events.WithHuman(events.RunStopped, data)
+	delete(payload, "scheduled_answer")
+	s.bus.Publish(events.New(events.RunStopped, sessionID, runID, payload))
 	return true
+}
+
+func scheduledNoticeAnswer(content string) string {
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	if len(lines) > 2 {
+		lines = lines[:2]
+	}
+	answer := strings.TrimSpace(strings.Join(lines, "\n"))
+	runes := []rune(answer)
+	if len(runes) > 300 {
+		answer = string(runes[:300])
+	}
+	return answer
 }
 
 // modelClassLocked answers local or remote for the session's connection. It is

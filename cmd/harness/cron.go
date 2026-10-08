@@ -15,6 +15,7 @@ import (
 	"harness/internal/cron"
 	"harness/internal/events"
 	"harness/internal/session"
+	"harness/internal/skills"
 	webserver "harness/internal/web"
 )
 
@@ -63,11 +64,15 @@ func (r *scheduledRuns) run(ctx context.Context, job cron.Job) cron.Result {
 		if filepath.Base(name) != name || name == "." || name == "" {
 			return cron.Result{Failed: true, Failure: fmt.Sprintf("skill %q is invalid", name)}
 		}
-		body, readErr := os.ReadFile(filepath.Join(profile, "skills", name, "SKILL.md"))
+		body, skillPath, statePath, readErr := skills.Load(filepath.Join(profile, "skills"), filepath.Join(profile, "skill-state"), name)
 		if readErr != nil {
 			return cron.Result{Failed: true, Failure: fmt.Sprintf("load skill %s: %v", name, readErr)}
 		}
-		fmt.Fprintf(&prompt, "## Scheduled skill: %s\n%s\n\n", name, body)
+		fmt.Fprintf(&prompt, "## Scheduled skill: %s\nSKILL.md: %s\n", name, filepath.ToSlash(skillPath))
+		if statePath != "" {
+			fmt.Fprintf(&prompt, "STATE FOLDER: %s\n", filepath.ToSlash(statePath))
+		}
+		fmt.Fprintf(&prompt, "%s\n\n", body)
 	}
 	prompt.WriteString(job.Prompt)
 	stream, unsubscribe := r.bus.Subscribe()

@@ -17,3 +17,10 @@ func TestHumanNoticeForStoppedRunKeepsRawReasonOutOfLead(t *testing.T) {
 		t.Fatalf("notice=%+v", notice)
 	}
 }
+
+func TestHumanNoticeForScheduledRunCarriesAnswer(t *testing.T) {
+	notice := HumanNoticeFor(RunStopped, map[string]any{"reason": "done", "scheduled_job": "price-watch desk", "scheduled_answer": "price fell\nhttps://example.invalid/item"})
+	if notice.Happened != "Scheduled job price-watch desk finished.\nprice fell\nhttps://example.invalid/item" {
+		t.Fatalf("notice=%+v", notice)
+	}
+}

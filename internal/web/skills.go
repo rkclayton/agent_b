@@ -32,7 +32,7 @@ func (s *Server) skillCatalog() ([]skills.Skill, string) {
 	s.mu.RLock()
 	settings := maps.Clone(s.cfg.Skills)
 	s.mu.RUnlock()
-	return skills.Scan(filepath.Join(s.profileRoot(), "skills"), settings)
+	return skills.Scan(filepath.Join(s.profileRoot(), "skills"), filepath.Join(s.profileRoot(), "skill-state"), settings)
 }
 
 func (s *Server) Index() string { _, block := s.skillCatalog(); return block }
@@ -243,12 +243,21 @@ func (s *Server) Read(path string) {
 	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
 		return
 	}
-	name := strings.Split(filepath.ToSlash(rel), "/")[0]
-	s.mu.Lock()
-	if value, ok := s.cfg.Skills[name]; ok {
-		value.LastRead = time.Now().UTC().Format(time.RFC3339)
-		s.cfg.Skills[name] = value
-		_ = s.saveProfileConfig(*s.cfg)
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	name := parts[0]
+	if name == ".included" && len(parts) > 1 {
+		name = parts[1]
 	}
+	s.mu.Lock()
+	if s.cfg.Skills == nil {
+		s.cfg.Skills = map[string]config.SkillSetting{}
+	}
+	value, configured := s.cfg.Skills[name]
+	if !configured {
+		value.Enabled = true
+	}
+	value.LastRead = time.Now().UTC().Format(time.RFC3339)
+	s.cfg.Skills[name] = value
+	_ = s.saveProfileConfig(*s.cfg)
 	s.mu.Unlock()
 }

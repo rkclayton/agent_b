@@ -31,13 +31,14 @@ type Registry struct {
 	memory      func(context.Context, string, string) (string, string, error)
 	agentMemory func(context.Context, string, string) (string, string, error)
 	// Item 2mw (e): the machine layer takes no id — it is one layer for the box.
-	machineMemory func(context.Context, string) (string, string, error)
-	workspaces    *workspaceinfo.Manager
-	plansRoot     string
-	skillsRoot    string
-	scratchRoot   string
-	chatRoot      string
-	planGrant     func(string) error
+	machineMemory  func(context.Context, string) (string, string, error)
+	workspaces     *workspaceinfo.Manager
+	plansRoot      string
+	skillsRoot     string
+	skillStateRoot string
+	scratchRoot    string
+	chatRoot       string
+	planGrant      func(string) error
 }
 
 func NewRegistry(bus *events.Bus, writers *events.Writers, connections func(string) (*config.Connection, bool), maxTurns int, settings func() config.Config) *Registry {
@@ -81,6 +82,7 @@ func (r *Registry) SetPlansRoot(root string) {
 	r.chatRoot = filepath.Join(filepath.Dir(r.plansRoot), "chats")
 }
 func (r *Registry) SetSkillsRoot(root string)             { r.skillsRoot = filepath.Clean(root) }
+func (r *Registry) SetSkillStateRoot(root string)         { r.skillStateRoot = filepath.Clean(root) }
 func (r *Registry) SetPlanGrant(grant func(string) error) { r.planGrant = grant }
 func (r *Registry) Create(label, agentID, workspace string) (*Session, error) {
 	return r.create(label, agentID, workspace, nil, "b", "", "")
@@ -217,7 +219,7 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 	}
 	s := &Session{
 		ID: saved.ID, Label: saved.Label, AgentID: saved.AgentID, ConnectionID: connectionID,
-		AgentName: saved.AgentName, BConnection: connectionLabel, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: saved.NetworkBoundary, NetworkBoundarySet: saved.NetworkBoundarySet, MediaCapabilities: saved.MediaCapabilities, MediaCapabilitiesSet: saved.MediaCapabilitiesSet,
+		AgentName: saved.AgentName, BConnection: connectionLabel, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: saved.NetworkBoundary, NetworkBoundarySet: saved.NetworkBoundarySet, MediaCapabilities: saved.MediaCapabilities, MediaCapabilitiesSet: saved.MediaCapabilitiesSet,
 		Workspace: workspace, WorkspaceMissing: workspaceMissing, Scratch: saved.Scratch,
 		ProjectBlock: saved.ProjectContent, ProjectFiles: append([]string(nil), saved.ProjectFiles...), ProjectNotes: append([]string(nil), saved.ProjectNotes...),
 		PendingRepoPolicy: clonePolicyState(saved.PendingRepoPolicy), RepoPolicy: clonePolicyState(saved.RepoPolicy),
@@ -438,7 +440,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 	}
 	settings := r.config()
-	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		session.ProjectTouch = r.projectTouch(session)
 	}
@@ -1114,12 +1116,26 @@ func (r *Registry) Delete(id string) (events.SessionInventory, error) {
 func (r *Registry) Archive(id string) error {
 	r.mu.Lock()
 	s, ok := r.sessions[id]
-	if !ok { r.mu.Unlock(); return fmt.Errorf("session not found") }
-	if s.IsRunning() { r.mu.Unlock(); return fmt.Errorf("session is running") }
+	if !ok {
+		r.mu.Unlock()
+		return fmt.Errorf("session not found")
+	}
+	if s.IsRunning() {
+		r.mu.Unlock()
+		return fmt.Errorf("session is running")
+	}
 	r.mu.Unlock()
-	if !s.IsClosed() { if err := r.Close(id); err != nil { return err } }
-	if err := r.writers.CloseSession(id); err != nil { return err }
-	r.mu.Lock(); delete(r.sessions, id); r.mu.Unlock()
+	if !s.IsClosed() {
+		if err := r.Close(id); err != nil {
+			return err
+		}
+	}
+	if err := r.writers.CloseSession(id); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	delete(r.sessions, id)
+	r.mu.Unlock()
 	return nil
 }
 

@@ -125,7 +125,7 @@ func TestChatSkillRequestRaisesTheExistingCard2pc(t *testing.T) {
 	}
 }
 
-func TestSkillImportUsesNormalizedPathAndArrivesEnabled2pe(t *testing.T) {
+func TestSkillImportUsesNormalizedPathAndArrivesDisabled2rx(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(t.TempDir())
 	path := filepath.Join(root, "harness.json")
@@ -152,14 +152,12 @@ func TestSkillImportUsesNormalizedPathAndArrivesEnabled2pe(t *testing.T) {
 		t.Fatalf("import=%d %s", response.Code, response.Body.String())
 	}
 	state := server.skillState()
-	if len(state) != 1 || !state[0].Enabled || !strings.Contains(state[0].Source, source) {
+	if len(state) != 1 || state[0].Enabled || !strings.Contains(state[0].Source, source) {
 		t.Fatalf("state=%+v", state)
 	}
-	response = httptest.NewRecorder()
-	server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"action":"enable","name":"report-kit","enabled":false}`)))
 	server.skillsEndpoint(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"action":"rescan"}`)))
-	if response.Code != 200 || server.skillState()[0].Enabled {
-		t.Fatalf("disable/rescan=%d %s state=%+v", response.Code, response.Body.String(), server.skillState())
+	if server.skillState()[0].Enabled {
+		t.Fatalf("rescan state=%+v", server.skillState())
 	}
 	restarted, _, _, err := config.Load(path)
 	if err != nil {

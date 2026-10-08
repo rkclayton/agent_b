@@ -46,20 +46,21 @@ func TestTwoEventsProduceTwoHumanPostsWithoutDuplicates(t *testing.T) {
 	defer manager.Close()
 	bus.Publish(events.New(events.ApprovalRequired, "s one", "r1", events.WithHuman(events.ApprovalRequired, map[string]any{"name": "shell"})))
 	bus.Publish(events.New(events.RunStopped, "s one", "r1", events.WithHuman(events.RunStopped, map[string]any{"reason": "done"})))
+	bus.Publish(events.New(events.RunStopped, "watch", "r2", events.WithHuman(events.RunStopped, map[string]any{"reason": "done", "scheduled_job": "price-watch desk", "scheduled_answer": "899 USD\nhttps://shop.invalid/item"})))
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
 		count := len(messages)
 		mu.Unlock()
-		if count == 2 {
+		if count == 3 {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(messages) != 2 {
+	if len(messages) != 3 {
 		t.Fatalf("posts=%d messages=%q", len(messages), messages)
 	}
 	if !mentionsDisabled {
@@ -70,6 +71,9 @@ func TestTwoEventsProduceTwoHumanPostsWithoutDuplicates(t *testing.T) {
 	}
 	if !strings.Contains(messages[1], "The run finished.") {
 		t.Fatalf("stopped message=%q", messages[1])
+	}
+	if !strings.Contains(messages[2], "price-watch desk") || !strings.Contains(messages[2], "899 USD\nhttps://shop.invalid/item") || strings.Contains(messages[2], "Scheduled chat folder") {
+		t.Fatalf("scheduled message=%q", messages[2])
 	}
 }
 

@@ -189,6 +189,11 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 		}
 		return "", cause
 	}
+	commitState, err := s.ReserveSkillStateWrite(resolved, int64(len(content)))
+	if err != nil {
+		return fail(err)
+	}
+	defer commitState(false)
 	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
 		return fail(err)
 	}
@@ -210,6 +215,7 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 	if err := atomicReplace(tempPath, resolved); err != nil {
 		return fail(err)
 	}
+	commitState(true)
 	w.coordinator.record(s, resolved)
 	lines := 0
 	if content != "" {

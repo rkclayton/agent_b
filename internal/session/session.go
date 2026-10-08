@@ -96,9 +96,9 @@ type Snapshot struct {
 	CompactionCompletion  int      `json:"compaction_completion_tokens"`
 }
 type Session struct {
-	ID, Label, AgentID, ConnectionID, Workspace                      string
-	Role, PlanID, PlanName, PlanDir, PlanRepo, PlansRoot, SkillsRoot string
-	ParentSessionID                                                  string
+	ID, Label, AgentID, ConnectionID, Workspace                                      string
+	Role, PlanID, PlanName, PlanDir, PlanRepo, PlansRoot, SkillsRoot, SkillStateRoot string
+	ParentSessionID                                                                  string
 	// Item 5f (v1.2.5): cards refused while unattended, for this run.
 	boundaryHits           []string
 	WorkspaceMissing       bool
@@ -249,6 +249,9 @@ func (s *Session) ReadRoot(path string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	candidate := filepath.FromSlash(path)
+	if filepath.IsAbs(candidate) && s.SkillStateRoot != "" && pathWithin(s.SkillStateRoot, candidate) {
+		return s.SkillStateRoot, nil
+	}
 	if filepath.IsAbs(candidate) && s.SkillsRoot != "" && pathWithin(s.SkillsRoot, candidate) {
 		return s.SkillsRoot, nil
 	}
@@ -288,6 +291,9 @@ func (s *Session) WriteRoot(path string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	candidate := filepath.FromSlash(path)
+	if filepath.IsAbs(candidate) && s.SkillStateRoot != "" && pathWithin(s.SkillStateRoot, candidate) {
+		return s.SkillStateRoot, nil
+	}
 	if filepath.IsAbs(candidate) && s.SkillsRoot != "" && pathWithin(s.SkillsRoot, candidate) {
 		return "", fmt.Errorf("skills folder is read-only: %s", s.SkillsRoot)
 	}

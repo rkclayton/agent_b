@@ -251,7 +251,10 @@ func (m *Manager) message(event events.Event) string {
 			label = value
 		}
 	}
-	parts := []string{"Agent_b · " + label, notice.Happened, notice.HarnessAction}
+	parts := []string{"Agent_b · " + label, notice.Happened}
+	if notice.HarnessAction != "" {
+		parts = append(parts, notice.HarnessAction)
+	}
 	if notice.Question != "" {
 		parts = append(parts, notice.Question)
 	}

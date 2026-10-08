@@ -35,6 +35,7 @@ import (
 	"harness/internal/serviceaccount"
 	"harness/internal/session"
 	"harness/internal/signing"
+	"harness/internal/skills"
 	"harness/internal/stats"
 	"harness/internal/tools"
 	"harness/internal/updater"
@@ -221,6 +222,10 @@ func removeLegacyPhoneAccess(root string) error {
 func (s *Server) SetRegistry(registry *session.Registry) {
 	registry.SetPlansRoot(filepath.Join(s.profileRoot(), "plans"))
 	registry.SetSkillsRoot(filepath.Join(s.profileRoot(), "skills"))
+	registry.SetSkillStateRoot(filepath.Join(s.profileRoot(), "skill-state"))
+	if err := skills.EnsureIncluded(filepath.Join(s.profileRoot(), "skills")); err != nil {
+		log.Printf("included skills are unavailable: %v", err)
+	}
 	s.registry = registry
 	s.chatWatchMu.Lock()
 	defer s.chatWatchMu.Unlock()

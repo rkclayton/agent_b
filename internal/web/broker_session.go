@@ -267,7 +267,11 @@ func pushNotice(event events.Event) string {
 			if data["reason"] != "done" {
 				return "Scheduled job " + name + " failed"
 			}
-			return "Scheduled job " + name + " finished"
+			notice := "Scheduled job " + name + " finished"
+			if human, ok := data["human"].(events.HumanNotice); ok && human.Happened != "" {
+				return human.Happened
+			}
+			return notice
 		}
 	}
 	switch event.Type {

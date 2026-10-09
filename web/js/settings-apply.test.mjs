@@ -15,20 +15,22 @@ test("the settings sheet has no sheet-wide Save and has only its close x", () =>
 });
 
 // (a) and (c). The four paths that need a complete value before they mean
-// anything, and nothing else. Connection values ride 2l5's per-connection save.
+// anything, and nothing else. Connection values commit on blur or selection.
 test("only settings that need a complete value keep an explicit save", () => {
   const declaration = /const explicitSavePaths = new Set\(\[([^\]]*)\]\)/.exec(settings);
   assert.ok(declaration, "the explicit-save list is not declared");
   const paths = declaration[1].split(",").map((value) => value.trim().replace(/^"|"$/g, "")).filter(Boolean);
   assert.deepEqual(paths.sort(), ["memory.dir", "shell.deny", "tools.list_dir.ignore", "tools.shell.operator_commands"]);
-  assert.match(settings, /function needsExplicitSave\(path\) \{\s*return explicitSavePaths\.has\(path\) \|\| path\.startsWith\("connections\."\);/);
+  assert.match(settings, /function needsExplicitSave\(path\) \{\s*return explicitSavePaths\.has\(path\);/);
+  assert.doesNotMatch(settings, /function needsExplicitSave\(path\) \{[^}]*connections\./);
 });
 
 // (b). A commit is blur, a toggle or a selection — never a keystroke.
 test("a committed setting applies immediately and a keystroke does not", () => {
   assert.match(settings, /async function applySetting\(path\) \{/);
-  // blur applies unless the path waits for an explicit save
-  assert.match(settings, /if \(needsExplicitSave\(path\)\) \{[\s\S]{0,200}\} else await applySetting\(path\);/, "blur does not apply an instant setting");
+  // blur applies unless the path waits for an explicit save; connection fields
+  // defer one event turn so an adjacent action receives its click before redraw.
+  assert.match(settings, /if \(needsExplicitSave\(path\)\) \{[\s\S]{0,350}\} else if \(path\.startsWith\("connections\."\)\) \{[\s\S]{0,350}setTimeout\(\(\) => void applySetting\(path\), 0\);[\s\S]{0,60}\} else await applySetting\(path\);/, "blur does not apply an instant setting");
   // a toggle or choice is itself the commit
   assert.match(settings, /render\(\);\s*return void applySetting\(path\);/, "a toggle or selection does not apply");
   // the input (per-keystroke) listener never applies

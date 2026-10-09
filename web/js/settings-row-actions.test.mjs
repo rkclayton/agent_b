@@ -13,7 +13,7 @@ const all = Object.values(sources).join("\n");
 // (no icon, small caps lettering button robotic) delete (trash can) duplicate (two
 // robot heads layered on each other) but all these icons in the line on the right
 // side of [the connection]".
-test("each connection row carries pencil Edit, save and delete at its right, and no input", () => {
+test("each connection row carries duplicate and delete at its right, and no input or save", () => {
   // The slice ends at the actions span's OWN close rather than at the row's closing
   // div: item 2nc (a) puts a refusal line between the two, and an end marker that
   // assumed they were adjacent silently swallowed the editor's markup with it.
@@ -24,28 +24,26 @@ test("each connection row carries pencil Edit, save and delete at its right, and
   // now that one and a slice ending there stops before three of the four controls.
   const row = source.slice(start, source.indexOf("\n          </span>", start));
   assert.ok(row, "the connection row has no actions span");
-	for (const action of ["connection-toggle", "save-connection", "remove-connection"]) {
+	for (const action of ["duplicate-connection", "remove-connection"]) {
     assert.match(row, new RegExp(`data-action="${action}"`), `${action} is not on the connection's own line`);
   }
-	// Item 2qn: Test and Duplicate have left the header for the form, and Edit is a pencil.
+	// Test stays with Eval and Recommended in the form. Opening is the row itself.
   assert.doesNotMatch(row, /data-action="probe"/, "Test is still in the header");
-	assert.doesNotMatch(row, /data-action="duplicate-connection"/, "Duplicate is still in the header");
-	assert.doesNotMatch(row, />Edit<\/button>/);
-	for (const icon of ["connectionIcons.edit", "connectionIcons.save", "connectionIcons.trash"]) {
+	assert.doesNotMatch(row, /data-action="save-connection"/, "Save is still in the header");
+	for (const icon of ["connectionIcons.duplicate", "connectionIcons.trash"]) {
     assert.ok(row.includes(icon), `${icon} is not used in the row`);
   }
-  // (g): the three icon-only actions each carry a label.
-  assert.equal((row.match(/aria-label=/g) || []).length, 3, "not every icon action is labelled");
+  assert.equal((row.match(/aria-label=/g) || []).length, 2, "not every icon action is labelled");
   // Item 2px CHECK 1: the header holds no input element.
-  const header = source.slice(source.indexOf('<div class="connection-row'), source.indexOf("\n      </div>`;", start));
+  const header = source.slice(source.indexOf('<div class="connection-row'), source.indexOf("</div>${editor}`;", start));
   assert.doesNotMatch(header, /<input|<select|<textarea/, "the header holds an input");
 });
 
-// 2qw moves Duplicate beside Save so the primary line contains only its three actions.
-test("Duplicate stays in the editor and Remove stays out of it", () => {
-  const editor = sources["settings-connections.js"].slice(sources["settings-connections.js"].indexOf('<div class="settings-actions">'));
-  const editorActions = editor.slice(0, editor.indexOf("</div>"));
-	assert.match(editor, /data-action="save-connection"[^>]*>[\s\S]*data-action="duplicate-connection"/, "Duplicate is not beside Save");
+test("the editor has no Save, Duplicate or Remove controls", () => {
+  const source = sources["settings-connections.js"];
+  const editor = source.slice(source.indexOf("function connectionFields("));
+	assert.doesNotMatch(editor, /data-action="save-connection"/, "Save survived in the editor");
+	assert.doesNotMatch(editor, /data-action="duplicate-connection"/, "Duplicate survived in the editor");
 	assert.doesNotMatch(editor, /data-action="remove-connection"/, "Remove moved into the editor");
 	assert.match(editor, /data-action="measure-connection"/, "Eval lost its home in the editor");
 });
@@ -59,11 +57,12 @@ test("Test Eval and Recommended are the three adjacent connection actions", () =
   assert.equal((actions.match(/<button/g) || []).length, 3);
 });
 
-// (d): the row's save commits that connection and nothing else.
-test("a connection's save commits only that connection", () => {
-  assert.match(sources["settings.js"], /if \(action === "save-connection"\) return void saveConnection\(id\);/);
+test("connection fields commit without a Save control and model selection commits its connection", () => {
+  assert.doesNotMatch(all, /data-action="save-connection"/);
   assert.match(sources["settings.js"], /async function saveConnection\(id\) \{\s*const prefix = `connections\.\$\{id\}\.`;/);
   assert.match(sources["settings.js"], /if \(await saveSettings\(prefix\)\)/, "the row save does not scope its write to that connection");
+  assert.match(sources["settings.js"], /fillFromPickedModel\(id, event\.target\.value\);\s*await saveConnection\(id\);/);
+  assert.match(sources["settings.js"], /path\.startsWith\("connections\."\)[\s\S]{0,320}setTimeout\(\(\) => void applySetting\(path\), 0\)/);
 });
 
 // Item 2l4 (a) and (d). Not one remove control rewrites its own label any more, and

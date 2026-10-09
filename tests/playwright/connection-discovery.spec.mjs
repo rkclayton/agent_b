@@ -219,6 +219,7 @@ test("2qx seven-field editor and closed Defaults fit wide and narrow", async () 
 });
 
 test("a duplicate keeps the stored key and Show hides it again 2qn", async () => {
+  test.setTimeout(60000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat#settings/connections`);
   await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
@@ -247,6 +248,11 @@ test("a duplicate keeps the stored key and Show hides it again 2qn", async () =>
   await page.locator(`.connection-row [data-action="remove-connection"][data-id="${copyID}"]`).click();
   await page.locator('[data-action="confirm-proceed"]').click();
   await expect(page.locator(`.connection-row [data-action="connection-toggle"][data-id="${copyID}"]`)).toHaveCount(0);
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+  const restored = page.waitForResponse((response) => response.url().endsWith("/api/config") && response.request().method() === "POST");
+  await key.fill("fixture-key");
+  await key.press("Enter");
+  await restored;
   await page.close();
 });
 
@@ -634,7 +640,8 @@ test("Duplicate is a ready keyed row with a refreshed model list 2r9", async () 
   await page.goto(`${harness.base}/chat#settings/connections`);
   await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   const key = page.locator('[data-path="connections.ui.api_key"]');
-  await key.fill("fixture-key"); await key.press("Enter");
+  const keyed = page.waitForResponse((response) => response.url().endsWith("/api/config") && response.request().method() === "POST");
+  await key.fill("fixture-key"); await key.press("Enter"); await keyed;
   await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.connections[0].api_key).toContain("set");
   await page.locator('.connection-row[data-id="ui"] [data-action="duplicate-connection"]').click();
   const editor = page.locator(".connection-editor");

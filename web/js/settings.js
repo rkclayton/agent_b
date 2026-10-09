@@ -498,30 +498,14 @@ function settingsPageContext(active) {
   };
 }
 
-// Item 2l6 (d): there is no sheet-wide Save to refresh any more. The status line
-// is what remains, and it says what the last commit did.
-// Item 2nn (b): SAVE IS SAVE.
-//
-// "i went to rename it and couldn't save it after a rename. guessing i have to test
-// first then it saves that port — i DON'T WANT THAT." Reproduced on a disposable root
-// with the shipped v1.31.0: after typing, the status line said "Unsaved" and the row's
-// Save was DISABLED, so the click did nothing and NO request was ever made. Nothing
-// refused him — the button was dead.
-//
-// The cause was here: this function updated the status TEXT and nothing else, while
-// every Save control carried the disabled attribute from the last render, computed
-// from the drafts as they were THEN. A Test re-rendered the sheet, which is why
-// testing first appeared to be the price of saving. The controls are part of the
-// state this refreshes now.
+// There is no sheet-wide or per-connection Save to refresh. The status line says
+// what the last commit did; only fields that require a complete value keep their
+// own explicit Save control.
 function refreshSaveControls() {
   const status = sheet.querySelector("[data-save-status]");
   if (status) {
     status.textContent = settingsSaveMessage;
     status.classList.toggle("alarm", settingsSaveAlarm);
-  }
-  for (const control of sheet.querySelectorAll('[data-action="save-connection"][data-id]')) {
-    const prefix = `connections.${control.dataset.id}.`;
-    control.disabled = ![...drafts.keys()].some((path) => path.startsWith(prefix));
   }
   for (const control of sheet.querySelectorAll("[data-action=\"save-setting\"][data-save-path]")) {
     control.disabled = !drafts.has(control.dataset.savePath);

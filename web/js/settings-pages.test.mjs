@@ -311,14 +311,14 @@ test("the API key field never carries the stored-key mask as its value", () => {
 	assert.doesNotMatch(secret, /leave empty|paste the API key/);
 });
 
-test("stored connection keys reveal briefly, duplicate beside Test, and rows use a pencil 2qn", () => {
+test("stored connection keys reveal briefly and Duplicate stays on the row", () => {
 	const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
 	const connections = fs.readFileSync(new URL("settings-connections.js", import.meta.url), "utf8");
 	assert.match(controller, /\/api\/connections\/\$\{encodeURIComponent\(id\)\}\/key/);
 	assert.match(controller, /setTimeout\([^]*30000/);
 	assert.doesNotMatch(controller.slice(controller.indexOf("async function duplicateConnection"), controller.indexOf("function uniqueID")), /copy\.credential\s*=\s*""/);
-	assert.match(connections, /data-action="save-connection"[^]*data-action="duplicate-connection"/);
-	assert.match(connections, /connectionIcons\.edit/);
+	assert.doesNotMatch(connections, /data-action="save-connection"/);
+	assert.match(connections, /connection-actions[^]*data-action="duplicate-connection"[^]*data-action="remove-connection"/);
 	assert.doesNotMatch(connections, /aria-expanded="\$\{isOpen\}">Edit<\/button>/);
 	assert.doesNotMatch(connections, /This server runs one model/);
 });

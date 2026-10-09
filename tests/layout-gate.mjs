@@ -4,7 +4,6 @@ import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { start } from "./ui-harness.mjs";
 import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const within = (inner, outer, tolerance = 1) => inner.left >= outer.left - tolerance && inner.top >= outer.top - tolerance && inner.right <= outer.right + tolerance && inner.bottom <= outer.bottom + tolerance;
@@ -116,6 +115,7 @@ async function openSettings(page, base) {
 }
 
 async function capture(exe, evidence) {
+  const { start } = await import("./ui-harness.mjs");
   const root = resolve(evidence), temp = await mkdtemp(join(tmpdir(), "agentb-layout-gate-"));
   await mkdir(root, { recursive: true });
   const harness = await start({ exe: resolve(exe), appRoot: resolve("."), data: join(temp, "data"), modelIDs: ["model-alpha", "model-beta", "model-gamma"] });

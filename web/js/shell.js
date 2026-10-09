@@ -571,7 +571,7 @@ export function initShell(options = {}) {
     // visible fields can have changed.
     if (event.type === "projection.patch") {
       const operations = event.data?.operations || [];
-      const panelChanged = operations.some((operation) => /^\/(label|closed|last_activity|model_unreachable|pending_approval|pending_repo_policy|run\/status)$/.test(operation.path));
+      const panelChanged = operations.some((operation) => /^\/(label|closed|last_activity|model_unreachable|pending_approval|pending_repo_policy|run(?:\/status)?)$/.test(operation.path));
       render(panelChanged);
       return;
     }

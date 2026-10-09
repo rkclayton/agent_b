@@ -416,6 +416,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	duration := max(int(time.Since(started).Milliseconds()), 1)
+	s.releaseReachableConnection(id)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "passed", "connection_id": id, "duration_ms": duration, "message": fmt.Sprintf("Test passed in %d ms", duration)})
 }
 

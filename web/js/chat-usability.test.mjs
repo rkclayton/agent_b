@@ -17,6 +17,39 @@ const settings = (await Promise.all([
 // beside the panels Settings adopts. There is no plan.html any more.
 const plan = html;
 const consoleHTML = await readFile(new URL("../index.html", import.meta.url), "utf8");
+const pageSources = { app, chat, shell, settings, plan: await readFile(new URL("./plan.js", import.meta.url), "utf8"), timeline: await readFile(new URL("./timeline.js", import.meta.url), "utf8"), proposals: await readFile(new URL("./chat-proposals.js", import.meta.url), "utf8") };
+const serverFiles = ["server_actions.go", "server_sessions.go", "server_connections.go", "agent_connection.go", "agents.go", "attachments.go", "chats.go", "chat_mirror.go", "credentials_endpoint.go", "files.go", "hardening.go", "measure.go", "notifications.go", "operator_files.go", "plan.go", "plan_page.go", "profiles.go", "service_account.go", "skills.go", "telemetry.go", "update.go", "worker.go", "broker_endpoint.go"];
+const serverSources = Object.fromEntries(await Promise.all(serverFiles.map(async (name) => [name, await readFile(new URL(`../../internal/web/${name}`, import.meta.url), "utf8")])));
+
+test("every page request body stays inside its route contract", () => {
+  const rows = [
+    "sessions/:id/messages/drop-last|||app|server_sessions.go", "stop|session_id|session_id|app,chat|server_actions.go", "sessions/:id/result-label|label,run_id|label,run_id|app|server_sessions.go",
+    "agents|action,id,source_id,name,connection_id,model,prompt,tools,private|action,id,source_id,name,connection_id,model,prompt,tools,private|app|agents.go", "agents/:id/connection|action,role,connection_id|action,role,connection_id|app|agent_connection.go",
+    "tools/:id|agent_id,enabled|agent_id,enabled|app,settings|server_actions.go", "stats/:id/clear|confirm|confirm|app|server_actions.go", "agents/:id/memory/flush|workspace,confirm|workspace,confirm|app|server_actions.go",
+    "approve|session_id,call_id,decision|session_id,call_id,decision|app,chat|server_actions.go", "plan/accept|session_id,proposal|session_id,proposal|proposals|plan.go", "sessions/:id/rebind|||chat|server_sessions.go",
+    "open-folder|session_id,path,scope|session_id,path,scope|chat,timeline|files.go", "open-file|session_id,path,scope|session_id,path,scope|chat|files.go", "service-account|action,connection_id,allow_local_network,local_subnets|action,connection_id,allow_local_network,local_subnets|chat,settings|service_account.go",
+    "update|action,session_id|action,session_id|chat,settings|update.go", "message|session_id,text,attachments|session_id,text,attachments|chat|server_actions.go", "attachments/stop|upload_id|upload_id|chat|attachments.go", "speech/stop|||chat|server_actions.go",
+    "connections/:id/probe||base_url,model,api_key,request_timeout_s|chat|server_connections.go", "connections/:id/probe|base_url,model,api_key,request_timeout_s|base_url,model,api_key,request_timeout_s|settings|server_connections.go", "connections/:id/models|base_url,api_key|base_url,api_key|settings|server_connections.go",
+    "chat-mirror/take|chat_id|chat_id|chat|chat_mirror.go", "workspaces/:action|dir,hash,session_id|dir,hash,session_id,confirm|chat|server_sessions.go", "chats/delete-all|confirm|confirm|settings|chats.go", "connections/:id/key|||settings|server_connections.go",
+    "config|shell,connections|shell,connections|chat,settings|server_connections.go",
+    "profiles|action,name,new_name|action,name,new_name|settings|profiles.go", "skills|action,name,enabled,path,include|action,name,enabled,path,include|settings|skills.go", "agent-memory/remove|agent_id,note,confirm|agent_id,note,confirm|settings|server_sessions.go",
+    "standing-grants|id|id|settings|server_actions.go", "workspaces/policy-revoke|dir|dir,hash,session_id,confirm|settings|server_sessions.go", "operator-files|action,confirm,dir,cleanup,confirm_cleanup|action,confirm,dir,cleanup,confirm_cleanup|settings|operator_files.go",
+    "eval/measure|connection_id|connection_id|settings|measure.go", "connections/:id/recommended|||settings|server_connections.go", "broker|action|action|settings|broker_endpoint.go", "credentials|action,name,origin,header,secret,tenant,client_id,scopes|action,name,origin,header,secret,tenant,client_id,scopes|settings|credentials_endpoint.go",
+    "sign-in-start|enabled|enabled|settings|server_actions.go", "hardening|action,connection_id,allow_local_network,local_subnets|action,connection_id,allow_local_network,local_subnets|settings|hardening.go", "notifications|action,url|action,url|settings|notifications.go",
+    "shell-credential|action,password|action,password|settings|server_connections.go", "sessions/:id|label,agent_id,connection_id|label,agent_id,connection_id|shell,settings|server_sessions.go", "connections/:id/duplicate|id,label|id,label|settings|server_connections.go",
+    "sessions|label,connection_id,agent_id,role,plan_id|label,connection_id,agent_id,source_session_id,role,plan_id|shell,settings|server_sessions.go", "sessions/:id/reopen|||shell,chat|server_sessions.go", "sessions/:id/reset|||settings|server_sessions.go",
+    "host-window|action,title|action,title|shell|server_actions.go", "chats/tree|action,parent,name,path,id,folder,pinned|action,parent,name,path,id,folder,pinned|shell|chats.go", "header-state|state,reason_code|state,reason_code|shell|telemetry.go",
+    "plan/go|plan_id,stop,auto_continue|session_id,plan_id,stop,auto_continue|plan|worker.go", "plans|repo|repo|plan|plan_page.go", "plans/build|plan_id,agent_id,brief|plan_id,agent_id,brief|plan|plan_page.go",
+  ].map((row) => row.split("|"));
+  for (const [route, sentCSV, acceptedCSV, pagesCSV, serverFile] of rows) {
+    const sent = sentCSV ? sentCSV.split(",") : [], accepted = new Set(acceptedCSV ? acceptedCSV.split(",") : []);
+    assert.deepEqual(sent.filter((field) => !accepted.has(field)), [], route);
+    const pageText = pagesCSV.split(",").map((name) => pageSources[name]).join("\n").replaceAll("_", "").toLowerCase();
+    const serverText = serverSources[serverFile].replaceAll("_", "").toLowerCase();
+    for (const field of sent) assert.ok(pageText.includes(field.replaceAll("_", "")), `${route} page ${field}`);
+    for (const field of accepted) assert.ok(serverText.includes(field.replaceAll("_", "")), `${route} server ${field}`);
+  }
+});
 
 test("Chat has fence-only copy and documents composer keys", () => {
   assert.doesNotMatch(chat, /Copy message|messageCopy|assistantCopyText/);
@@ -35,6 +68,8 @@ test("live-only status patches replace state without advancing the journal curso
   assert.match(bus, /!patch\.transient[\s\S]*patch\.cursor/);
   assert.match(bus, /if \(!patch\.transient\) target\.cursor = patch\.cursor/);
 });
+
+test("whole-run projection replacements redraw chat-list state", () => assert.match(shell, /run\(\?:\\\/status\)\?/));
 
 test("fenced code is one aligned panel with a header row and internal overflow", () => {
   assert.match(css, /\.code-block\s*\{[^}]*display:\s*grid[^}]*grid-template-areas:\s*"language copy"\s*"code code"[^}]*background:\s*var\(--bezel\)[^}]*border:\s*1px solid rgba\(112,\s*125,\s*139,\s*\.28\)[^}]*border-radius:\s*2px/s);

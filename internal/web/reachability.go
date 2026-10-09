@@ -59,11 +59,19 @@ func (s *Server) scheduleReachabilityProbeLocked(connectionID string, state *rea
 		s.checkConnectionHealth(context.Background(), *connection)
 		health := s.connectionHealthState()[connectionID]
 		succeeded := health.Lamp != "alarm"
-		s.completeReachabilityProbe(connectionID, succeeded)
-		if succeeded && s.scheduler != nil {
-			s.scheduler.ReleaseModel(connectionID)
+		if succeeded {
+			s.releaseReachableConnection(connectionID)
+		} else {
+			s.completeReachabilityProbe(connectionID, false)
 		}
 	})
+}
+
+func (s *Server) releaseReachableConnection(connectionID string) {
+	s.completeReachabilityProbe(connectionID, true)
+	if s.scheduler != nil {
+		s.scheduler.ReleaseModel(connectionID)
+	}
 }
 
 func (s *Server) cancelScheduledReachabilityProbe(connectionID string) {

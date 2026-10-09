@@ -2350,15 +2350,28 @@ if (realModel) {
   const retryUnreachableAfter = events.at(-1)?.seq || 0;
   await setTask("acceptance: unreachable retry");
   await waitEvent(sessionID, (event) => event.seq > retryUnreachableAfter && event.type === "model.unreachable", "Retry fixture model.unreachable");
+  await captureWithMasks(page, join(args.evidence, "model-unreachable-retry-before.png"));
+  const downProbe = page.waitForResponse((response) => response.url().includes("/probe"));
+  await page.locator("#chat-retry-model").click();
+  await downProbe;
+  assert.equal((await browserText("#chat-notice")).trim().toLowerCase(), "model unreachable");
+  assert.doesNotMatch((await browserText("#chat-composer")).toLowerCase(), /unknown field|json:/);
+  await captureWithMasks(page, join(args.evidence, "model-unreachable-retry-down.png"));
   await setTask("acceptance: recovered");
   await startFake(modelPort);
+  const upProbe = page.waitForResponse((response) => response.url().includes("/probe"));
   await page.locator("#chat-retry-model").click();
+  const upProbeResponse = await upProbe;
+  assert.equal(upProbeResponse.ok(), true, "reachable Retry probe response");
+  assert.equal((await upProbeResponse.json()).status, "passed", "reachable Retry result");
   const retryReachable = await waitEvent(sessionID, (event) => event.seq > retryUnreachableAfter && event.type === "model.reachable", "Retry model.reachable");
   await waitEvent(sessionID, (event) => event.seq > retryReachable.seq && event.type === "run.stopped" && event.data?.reason === "done", "Retry released run completed", 20000);
+  assert.equal((await state(sessionID)).sessions[sessionID].model_unreachable || null, null, "Retry recovery projected reachable");
   // Item 2ff: the open page follows the recovery without a reload — the
   // released answer is on screen, and the notice and Retry are gone.
   await browser.wait(`[...document.querySelectorAll('#chat-log *')].filter((node) => node.childElementCount === 0 && node.textContent.trim() === 'Recovered after Retry.').length >= 2`, "recovered answer on the open page");
-  await browser.wait(`!document.querySelector('#chat-notice')?.innerText.toLowerCase().includes('unreachable') && document.querySelector('#chat-retry-model')?.hidden`, "unreachable notice cleared without a reload");
+  await browser.wait(`!document.querySelector('#chat-notice')?.innerText.toLowerCase().includes('unreachable')`, "unreachable notice cleared without a reload");
+  await browser.wait(`!document.querySelector('#chat-retry-model') || document.querySelector('#chat-retry-model').hidden`, "Retry absent or hidden without a reload");
   await browser.wait(`!document.querySelector('.chat-list-row.selected .chat-list-state')?.classList.contains('offline')`, "recovered agent eyes");
   await browser.wait(`document.querySelector('.chat-list-row.selected .chat-list-state')?.classList.contains('idle')`, "idle recovered eyes");
   assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('.chat-list-row.selected .chat-list-state')).backgroundColor`), await browser.evaluate(`(() => { const probe=document.createElement('span'); probe.style.color='var(--mute)'; document.body.append(probe); const value=getComputedStyle(probe).color; probe.remove(); return value; })()`));
@@ -2366,6 +2379,7 @@ if (realModel) {
   // finished — Stop idle — and two frames have painted, or it races the run.
   await browser.wait(`document.querySelector('#chat-send')?.dataset.state === 'idle'`, "run idle before the retry capture");
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await captureWithMasks(page, join(args.evidence, "model-unreachable-retry-back.png"));
   // Item 2gz (v1.2.4): the whole-page transcript photograph is retired. What
   // it proved is asserted above and below this line; what it ADDED was a
   // picture of a live transcript, whose rows move with how far a run got and

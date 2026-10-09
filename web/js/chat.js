@@ -1718,8 +1718,14 @@ function stopRun() {
 retryModel.onclick = async () => {
   const session = store.sessions[selectedID()];
   if (!session || store.replay) return;
-  try { await api(`/api/connections/${encodeURIComponent(session.connection_id || session.b_connection)}/probe`, { session_id: session.id, retry: true }); }
-  catch (error) { localNotice = error.message; localAlarm = true; renderComposer(session); }
+  try {
+    const result = await api(`/api/connections/${encodeURIComponent(session.connection_id || session.b_connection)}/probe`, {});
+    if (result.status === "passed") {
+      reduce({ type: "snapshot", data: await api(`/api/state?session=${encodeURIComponent(session.id)}`, undefined, "GET") });
+    }
+    render();
+  }
+  catch {}
 };
 attachButton.onclick = () => { attachMenuControl.toggle(); if (!attachMenu.hidden) void refreshExchangeFiles(); };
 attachBrowse.onclick = () => { attachMenu.hidden = true; filePicker.click(); };

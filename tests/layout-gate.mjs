@@ -136,10 +136,10 @@ async function capture(exe, evidence) {
       for (const pageName of ["Agents", "Activity", "Plan", "Users", "Chats", "Notifications", "Security", "About"]) {
         await page.locator(".settings-nav button", { hasText: pageName, exact: true }).click();
         if (pageName === "Agents") {
-          await captureState(page, pageName, "agent-b", size, false);
+          await captureState(page, pageName, "agent-b", size);
           await page.locator("#panel-agent").selectOption({ label: "Private fixture" });
           await page.locator('.settings-content [data-field="private"]').waitFor();
-          await captureState(page, pageName, "added-agent", size, false);
+          await captureState(page, pageName, "added-agent", size);
         } else await captureState(page, pageName, "rest", size, false);
       }
       await page.locator('.settings-nav [data-id="connections"]').click();

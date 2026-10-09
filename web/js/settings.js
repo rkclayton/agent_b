@@ -230,12 +230,12 @@ export function openSettings(section = "") {
   // nothing else on screen, so it is switched on with the sheet.
   setSheetStyles(true);
   document.body.classList.add("settings-open");
-  setChatInert(true);
   backdrop.hidden = false;
   sheet.hidden = false;
   sheet.setAttribute("aria-hidden", "false");
   history.replaceState(null, "", `#settings/${activeSection}`);
   render();
+  setChatInert(true);
   refreshServiceAccountStatus();
 	refreshHardeningStatus();
 	refreshNotificationStatus(); refreshSignInStart();
@@ -288,6 +288,7 @@ export function closeSettings(surface = "chat") {
 
 function setChatInert(value) {
   for (const node of document.querySelectorAll("#chat-budget, #chat-log, #chat-composer, #panel-surface, #plan-panel, .chat-list-panel, .chat-list-handle")) {
+    if (sheet.contains(node)) continue;
     node.inert = value;
   }
 }

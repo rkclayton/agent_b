@@ -112,6 +112,58 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	tail := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/connections/"), "/")
+	if r.Method == http.MethodPost && strings.HasSuffix(tail, "/duplicate") {
+		sourceID := strings.TrimSuffix(tail, "/duplicate")
+		var body struct {
+			ID    string `json:"id"`
+			Label string `json:"label"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		s.mu.Lock()
+		next := *s.cfg
+		next.Connections = append([]config.Connection(nil), s.cfg.Connections...)
+		var duplicate *config.Connection
+		for i := range next.Connections {
+			if next.Connections[i].ID == body.ID {
+				s.mu.Unlock()
+				writeError(w, http.StatusConflict, "connection id already exists", "connections."+body.ID)
+				return
+			}
+			if next.Connections[i].ID == sourceID {
+				copy := next.Connections[i]
+				duplicate = &copy
+			}
+		}
+		if duplicate == nil {
+			s.mu.Unlock()
+			writeError(w, http.StatusNotFound, "connection not found", "connections."+sourceID)
+			return
+		}
+		duplicate.ID = strings.TrimSpace(body.ID)
+		duplicate.Label = strings.TrimSpace(body.Label)
+		next.Connections = append(next.Connections, *duplicate)
+		if err := next.Validate(); err != nil {
+			s.mu.Unlock()
+			writeError(w, http.StatusBadRequest, err.Error(), configField(err, next))
+			return
+		}
+		if err := s.saveMachineConfig(next); err != nil {
+			s.mu.Unlock()
+			writeError(w, http.StatusInternalServerError, err.Error(), "config")
+			return
+		}
+		*s.cfg = next
+		masked := s.cfg.Masked()
+		s.mu.Unlock()
+		if s.runner != nil {
+			s.runner.Configure(s.ConfigSnapshot())
+		}
+		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
+		writeJSON(w, http.StatusOK, masked)
+		return
+	}
 	if r.Method == http.MethodPost && strings.HasSuffix(tail, "/key") {
 		id := strings.TrimSuffix(tail, "/key")
 		connection, ok := s.Connection(id)

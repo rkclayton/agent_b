@@ -2,8 +2,6 @@
 // new colour and no new stroke width. Three of the four are icon-only, so every one
 // carries an accessible label at its call site.
 const connectionIcons = {
-	edit: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="m11.8 1.7 2.5 2.5-8.6 8.6-3.3.8.8-3.3 8.6-8.6Zm-7.7 9 .8.8 7.4-7.4-.8-.8-7.4 7.4Z"/></svg>',
-  save: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M2 2h9l3 3v9H2V2Zm2 1v4h6V3H4Zm1 7h6v3H5v-3Z"/></svg>',
   duplicate: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3 4h6v6H3V4Zm1 1v4h4V5H4Zm1.5.8h1v1h-1v-1Zm2 0h1v1h-1v-1Z"/><path d="M7 2h6v6h-1.5V3.5H7V2Z"/></svg>',
   trash: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M6 2h4v1h3v1H3V3h3V2Zm-2 3h8l-.7 9H4.7L4 5Zm2.2 1 .4 7h1V6H6.2Zm3.6 0H8.8v7h1l.4-7Z"/></svg>',
 };
@@ -53,34 +51,27 @@ function connections() {
   const rows = connections
     .map((connection) => {
       const isOpen = expanded.has(connection.id);
-      const hasPendingChanges = [...drafts.keys()].some((path) => path.startsWith(`connections.${connection.id}.`));
       const feedback = probeMessages.get(connection.id);
-      // Item 2px (a): THE HEADER IS DISPLAY ONLY — lamp, label, address, model and
-			// the state word — and its actions are Edit, Save and Delete. Test and
-			// Duplicate live together in the form.
-      // lives in the form; nothing here is typed into.
       const health = connectionHealth(store, connection.id);
-      const word = health.word + (hasPendingChanges ? " · unsaved" : "");
       const model = String(connection.model || "").trim().split(/[\\/]/).pop() || "no model";
       const refusal = errors.get(`connections.${connection.id}`) || "";
       const failedTest = !isOpen ? failedTestLine(feedback, connection.id) : "";
-      return `<div class="connection-row ${isOpen ? "selected" : ""} ${refusal ? "refused" : ""}">
-          <span class="connection-summary"><span class="lamp ${health.lamp}"></span><span>${html(connection.label)}</span><span class="connection-url">${html(connection.base_url)} · ${html(model)}</span><span class="connection-state">${html(word)}</span></span>
+      const editor = isOpen ? `<section class="connection-editor" aria-label="${attr(connection.label)} connection settings">
+        <div class="connection-editor-head"><div><span class="lamp ${health.lamp}"></span><h3>${html(connection.label)}</h3><span class="connection-url">${html(connection.base_url)}</span></div></div>
+        <div class="connection-fields">${connectionFields(connection, connectionReason(connection), feedback)}</div>
+      </section>` : "";
+      return `<div class="connection-row ${isOpen ? "selected" : ""} ${refusal ? "refused" : ""}" data-action="connection-toggle" data-id="${attr(connection.id)}" role="button" tabindex="0" aria-expanded="${isOpen}">
+          <span class="connection-summary"><span class="lamp ${health.lamp}"></span><span>${html(connection.label)}</span><span class="connection-url">${html(connection.base_url)} · ${html(model)}</span><span class="connection-state">${html(health.word)}</span></span>
           <span class="connection-actions">
-			<button type="button" class="row-action" data-action="connection-toggle" data-id="${attr(connection.id)}" aria-expanded="${isOpen}" aria-label="Edit ${attr(connection.label)}" title="Edit ${attr(connection.label)}">${connectionIcons.edit}</button>
-            <button type="button" class="row-action" data-action="save-connection" data-id="${attr(connection.id)}" aria-label="Save ${attr(connection.label)}" title="Save ${attr(connection.label)}" ${hasPendingChanges ? "" : "disabled"}>${connectionIcons.save}</button>
+            <button type="button" class="row-action" data-action="duplicate-connection" data-id="${attr(connection.id)}" aria-label="Duplicate ${attr(connection.label)}" title="Duplicate ${attr(connection.label)}">${connectionIcons.duplicate}</button>
             <button type="button" class="row-action" data-action="remove-connection" data-id="${attr(connection.id)}" data-confirm="${attr(connection.label)}" aria-label="Delete ${attr(connection.label)}" title="Delete ${attr(connection.label)}">${connectionIcons.trash}</button>
           </span>
           ${refusal ? errorMarkup(refusal, `connection:${connection.id}:refusal`, "connection-refusal alarm") : ""}
           ${failedTest}
-      </div>`;
+      </div>${editor}`;
     })
     .join("");
-  const editors = connections.filter((connection) => expanded.has(connection.id)).map((connection) => `<section class="connection-editor" aria-label="${attr(connection.label)} connection settings">
-    <div class="connection-editor-head"><div><span class="lamp ${connectionHealth(store, connection.id).lamp}"></span><h3>${html(connection.label)}</h3><span class="connection-url">${html(connection.base_url)}</span></div></div>
-    <div class="connection-fields">${connectionFields(connection, connectionReason(connection), probeMessages.get(connection.id))}</div>
-  </section>`).join("");
-  return `${row("actions", '<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add connection</button></div>')}${subhead("Connections")}<div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${editors}`;
+  return `${row("actions", '<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add connection</button></div>')}${subhead("Connections")}<div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>`;
 }
 
 // One line on the existing findings row: each memory layer's current size
@@ -258,8 +249,8 @@ function connectionFields(connection, reason, discovery) {
 	    : "";
 	const contextNote = contextFact || !contextProblem ? contextFact ? `<p class="settings-note">${html(contextFact)}</p>` : "" : `<p class="${contextProblem.startsWith("context unknown") ? "settings-note" : "field-error"}">${html(contextProblem)}</p>`;
 	const contextControl = row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(shown.context.n_ctx || "")}">${contextNote}`, "connection-context", false);
-	const saveActions = row("", `<div class="settings-actions"><button type="button" data-action="save-connection" data-id="${attr(id)}">Save</button><button type="button" data-action="duplicate-connection" data-id="${attr(id)}">Duplicate</button></div>`, "", false);
-	const primaryActions = `<div class="connection-primary-actions settings-actions"><button type="button" class="connection-test ${connection._probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${connection._probing ? "disabled" : ""}>${connection._probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Eval"}</button><button type="button" data-action="recommended-connection" data-id="${attr(id)}">Recommended</button></div>`;
+	const probing = !!discovery?.walking;
+	const primaryActions = `<div class="connection-primary-actions settings-actions"><button type="button" class="connection-test ${probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${probing ? "disabled" : ""}>${probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Eval"}</button><button type="button" data-action="recommended-connection" data-id="${attr(id)}">Recommended</button></div>`;
 	return `<div class="connection-fieldset connection-primary">${text(`${p}.label`, "name", connection.label, "text", false)}
     ${text(`${p}.base_url`, "address", connection.base_url, "text", false)}${discoveryNote}
     ${secret(`${p}.api_key`, "key", connection.api_key, id, false)}
@@ -283,7 +274,7 @@ function connectionFields(connection, reason, discovery) {
     <div class="connection-fieldset connection-capabilities"><h4>Capabilities</h4>
     <div class="findings"><span class="settings-note">${html(caps.probed_at || "not probed")}</span><ul>${findings || "<li>no findings</li>"}</ul></div>
 	    ${reason && !contextProblem ? `<p class="field-error">${html(reason)}</p>` : ""}
-	    </div></details>${saveActions}`;
+	    </div></details>`;
 }
 
 

@@ -49,6 +49,16 @@ $statusExit = $LASTEXITCODE
 if ($statusExit -ne 0) { throw "DEPLOY REFUSED: git status exited $statusExit." }
 if ($statusOutput.Count) { throw 'DEPLOY REFUSED: the repository is dirty.' }
 
+# Every changed page is measured and looked at before release work stages bytes.
+# The report is order evidence, deliberately outside the tracked tree; a release
+# without that evidence is not allowed to infer that a page looks right.
+$layoutReport = [Environment]::GetEnvironmentVariable('AGENTB_LAYOUT_REPORT', 'Process')
+if ([string]::IsNullOrWhiteSpace($layoutReport) -or -not (Test-Path -LiteralPath $layoutReport -PathType Leaf)) {
+    throw 'DEPLOY REFUSED: AGENTB_LAYOUT_REPORT must name the completed layout-and-look report for this release.'
+}
+& node (Join-Path $repository 'tests\layout-gate.mjs') --release-check $layoutReport
+if ($LASTEXITCODE -ne 0) { throw 'DEPLOY REFUSED: a measured page failed its layout or written look; see the lines above.' }
+
 & node (Join-Path $repository 'tools\check-invariants.mjs') --release-source $Tag
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the candidate's update source is not usable." }
 

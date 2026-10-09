@@ -80,6 +80,7 @@ test("Settings is a centred bounded window over the drawn chat 2sy", async () =>
 		const box = await page.evaluate(() => { const panel = document.querySelector("#settings-page").getBoundingClientRect(), strip = document.querySelector("#app-shell").getBoundingClientRect(); return { width: panel.width, height: panel.height, dx: Math.abs(panel.left + panel.width / 2 - innerWidth / 2), dy: Math.abs(panel.top + panel.height / 2 - (strip.bottom + (innerHeight - strip.bottom) / 2)), chat: document.querySelector("#chat-log").checkVisibility(), list: document.querySelector(".chat-list-panel").checkVisibility(), backdrop: document.querySelector("#settings-backdrop")?.checkVisibility() || false }; });
 		expect(box).toMatchObject({ width: 960, height: 720, chat: true, list: true, backdrop: true }); expect(box.dx).toBeLessThanOrEqual(1); expect(box.dy).toBeLessThanOrEqual(1);
 		await page.screenshot({ path: join(repo, "test-results", `2sy-settings-${width}.png`), fullPage: true }); await page.getByTitle("Close").click();
+		await expect(page.locator("#settings-page")).toBeHidden();
 	}
 	await page.close();
 });
@@ -163,8 +164,8 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   const key = editor.locator(`[data-path="connections.${id}.api_key"]`);
   await expect(key).toHaveAttribute("type", "password");
   await key.fill("journey-secret-value");
-  await page.locator(`.connection-row [data-action="save-connection"][data-id="${id}"]`).click();
-  await expect(page.locator(`.connection-row [data-action="save-connection"][data-id="${id}"]`)).toBeDisabled();
+  await key.press("Enter");
+  await expect(page.locator('[data-action="save-connection"]')).toHaveCount(0);
   await page.locator('.settings-nav [data-id="about"]').click();
   await page.locator('.settings-nav [data-id="connections"]').click();
   // The editor opens when its row is clicked; clicking an already-open one would
@@ -231,7 +232,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   // 11. AND THE REFUSAL IS PART OF THE JOURNEY. Choosing this connection in the
   // agent editor bound agent_b to it, so removing it is refused - on the row
   // that was clicked, naming what to do about it (items 2mb (b), 2nc (c) and (d)).
-  const row = page.locator(`.connection-row:has([data-action="connection-toggle"][data-id="${id}"])`);
+  const row = page.locator(`.connection-row[data-id="${id}"]`);
   await expect(row).toContainText(/assigned to .* B role/);
   await expect(row).toContainText("Agents page");
 
@@ -256,7 +257,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await page.locator(`.connection-row [data-action="remove-connection"][data-id="${id}"]`).click();
   await expect(page.locator(".confirm-popover")).toBeVisible();
   await page.locator('.confirm-popover [data-action="confirm-proceed"]').click();
-  await expect(page.locator(`.connection-row:has([data-action="connection-toggle"][data-id="${id}"]) .connection-summary`)).toHaveCount(0);
+  await expect(page.locator(`.connection-row[data-id="${id}"] .connection-summary`)).toHaveCount(0);
   await expect(page.locator(".connection-row")).toHaveCount(rowsBefore);
 });
 
@@ -410,12 +411,9 @@ test("a rename alone saves, with no Test and no refusal", async () => {
   posts.length = 0;
 
   await editor.locator(`[data-path="connections.${id}.label"]`).fill("renamed by hand");
-  const save = page.locator(`.connection-row [data-action="save-connection"][data-id="${id}"]`);
-  // The button is LIVE the moment there is something to save — no Test first.
-  await expect(save).toBeEnabled();
-  await save.click();
-  await expect(save).toBeDisabled();
-  await expect(page.locator(`.connection-row:has([data-action="connection-toggle"][data-id="${id}"]) .connection-summary`)).toContainText("renamed by hand");
+  await editor.locator(`[data-path="connections.${id}.label"]`).press("Enter");
+  await expect(page.locator('[data-action="save-connection"]')).toHaveCount(0);
+  await expect(page.locator(`.connection-row[data-id="${id}"] .connection-summary`)).toContainText("renamed by hand");
   await expect(page.locator(".connection-refusal")).toHaveCount(0);
   expect(posts.some((url) => url.includes("/api/config")), `no save request was made: ${JSON.stringify(posts)}`).toBe(true);
   expect(posts.some((url) => url.includes("/probe")), "a rename ran a test").toBe(false);
@@ -478,9 +476,7 @@ test("the sheet reads as seven ordered fields above its actions and Defaults", a
   await expect(page.locator(".connection-defaults > summary")).toHaveText("Defaults");
   await expect(editor.locator(".connection-primary-actions button")).toHaveText(["Test", "Eval", "Recommended"]);
 
-	// Choosing a model does not collapse or reorder the fields.
-	await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
-	await page.locator(`[data-path="connections.${id}.model"]`).fill("journey-model");
+	// The empty new connection does not collapse or reorder the fields.
 	await expect(page.locator(`.connection-editor [data-action="measure-connection"][data-id="${id}"]`)).toBeVisible();
 	expect(await labels()).toEqual(["name", "address", "key", "model", "context size", "thinking", "reads images"]);
   await page.close();
@@ -501,9 +497,19 @@ test("the model he picks is the one the field shows, through Test and through Sa
   await page.locator('[data-action="add-connection"]').click();
 	const editor = page.locator(".connection-editor");
 	const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
-	await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`127.0.0.1:${harness.modelPort}`);
+	const address = editor.locator(`[data-path="connections.${id}.base_url"]`);
+	const addressSaved = page.waitForResponse((response) => response.url().endsWith("/api/config") && response.request().method() === "POST");
+	const modelsListed = page.waitForResponse((response) => response.url().endsWith(`/api/connections/${id}/models`));
+	await address.fill(`127.0.0.1:${harness.modelPort}`);
+	await address.press("Enter");
+	await addressSaved;
+	await modelsListed;
 
-	const model = page.locator(`[data-path="connections.${id}.model"]`);
+	let model = page.locator(`[data-path="connections.${id}.model"]`);
+	if (await model.evaluate((node) => node.tagName === "SELECT")) {
+		await model.selectOption("__type__");
+		model = page.locator(`[data-path="connections.${id}.model"]`);
+	}
 	await model.fill("second-model");
   await expect(model, "the field forgot the pick as soon as it was made").toHaveValue("second-model");
 
@@ -512,9 +518,9 @@ test("the model he picks is the one the field shows, through Test and through Sa
   await expect(page.locator(".connection-editor .discovery-note")).toBeVisible();
   await expect(model, "Test drew the saved model over his pick").toHaveValue("second-model");
 
-  // Save writes it, and the field still shows it afterwards.
-  await page.locator(`.connection-row [data-action="save-connection"][data-id="${id}"]`).click();
-  await expect(page.locator(`.connection-row [data-action="save-connection"][data-id="${id}"]`)).toBeDisabled();
+  // Enter writes it, and the field still shows it afterwards.
+  await model.press("Enter");
+  await expect(page.locator('[data-action="save-connection"]')).toHaveCount(0);
   await expect(model).toHaveValue("second-model");
   const saved = await page.evaluate(async () => (await (await fetch("/api/config")).json()).connections);
   const written = saved.find((connection) => connection.id === id);
@@ -575,13 +581,10 @@ test("a refused save keeps the drafts and marks only its field", async () => {
     node.dispatchEvent(new Event("input", { bubbles: true }));
     node.dispatchEvent(new Event("change", { bubbles: true }));
   }, id);
-  await page.locator(`.connection-row [data-action="save-connection"][data-id="${id}"]`).click();
-
-  await expect(page.locator("[data-save-status]")).toContainText("Save failed");
   const modelField = editor.locator(`[data-path="connections.${id}.model"]`);
   await expect(modelField.locator("xpath=ancestor::div[contains(@class,'setting-row')]")).toHaveClass(/invalid/);
   await expect(editor.locator(".field-error")).toContainText("model is empty");
-  const row = page.locator(`.connection-row:has([data-action="connection-toggle"][data-id="${id}"])`);
+  const row = page.locator(`.connection-row[data-id="${id}"]`);
   await expect(row).not.toContainText("model is empty");
   // Every draft is still on screen: nothing was re-rendered back to the saved value.
   await expect(editor.locator(`[data-path="connections.${id}.label"]`)).toHaveValue("renamed while refused");

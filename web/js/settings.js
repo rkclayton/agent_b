@@ -66,6 +66,7 @@ let notificationBusy = false;
 let notificationMessage = "";
 let notificationAlarm = false, signInStart = { loaded: false, enabled: false, busy: false, error: "" };
 let settingsSaving = false;
+let settingsSaveDone = Promise.resolve();
 let settingsSaveMessage = "All changes saved";
 let settingsSaveAlarm = false;
 let activeSection = "connections";
@@ -112,6 +113,16 @@ export function initSettings(entry = {}) {
 		if (open) void leaveSettingsForChat().finally(() => event.detail?.after?.());
 	});
   document.addEventListener("keydown", (event) => {
+		if (open && event.key === "Enter" && event.target.matches('.setting-input[data-path^="connections."]')) {
+			event.preventDefault();
+			event.target.blur();
+			return;
+		}
+		if (open && (event.key === "Enter" || event.key === " ") && event.target.matches('.connection-row[data-action="connection-toggle"]')) {
+			event.preventDefault();
+			event.target.click();
+			return;
+		}
 		// Item 2l4 (c): Escape answers the popover first, and cancels it.
 		if (event.key === "Escape" && open && errorPanel) { errorPanel = ""; render(); return; }
 		if (event.key === "Escape" && open && confirmPending) { cancelConfirmation(); return; }
@@ -132,6 +143,10 @@ export function initSettings(entry = {}) {
   sheet.addEventListener("click", click);
   sheet.addEventListener("focusout", blur);
   sheet.addEventListener("change", change);
+  sheet.addEventListener("pointerdown", (event) => {
+		if (!event.target.matches('.setting-input[data-path$=".model"]')) return;
+		void listConnectionModels(event.target.dataset.path.split(".")[1]);
+	});
   sheet.addEventListener("toggle", (event) => {
     if (!event.target.matches("details[data-connection-advanced]")) return;
     event.target.open ? advancedConnections.add(event.target.dataset.connectionAdvanced) : advancedConnections.delete(event.target.dataset.connectionAdvanced);
@@ -703,12 +718,22 @@ function applyProposedValues(id, discovered) {
 
 function applyRecommendedValues(id, answer) {
   const prefix = `connections.${id}.`;
+  const labels = {
+		"context.n_ctx": "context size",
+		"context.reserve_output": "output reserve",
+		"reasoning.max_tokens": "reasoning cap",
+		"reasoning.effort": "reasoning effort",
+		"reasoning.enabled": "thinking",
+		reads_images: "reads images",
+	};
+  const changed = [];
   for (const [path, value] of Object.entries(answer?.values || {})) {
     drafts.set(prefix + path, value);
     draftKinds.set(prefix + path, typeof value === "boolean" ? "boolean" : typeof value === "number" ? "number" : "text");
     fieldNotes.set(prefix + path, `Recommended: ${answer.sources?.[path] || "source unavailable"}`);
+		changed.push(labels[path] || path.replaceAll("_", " "));
   }
-  settingsSaveMessage = "Recommended values are unsaved — review and Save";
+  return changed;
 }
 
 const proposedFields = new Set();
@@ -760,7 +785,7 @@ function errorMarkup(message, key, className = "field-error") {
 // the moment it is set. Connection values ride [[2l5]]'s per-connection save.
 const explicitSavePaths = new Set(["memory.dir", "tools.list_dir.ignore", "tools.shell.operator_commands", "shell.deny"]);
 function needsExplicitSave(path) {
-  return explicitSavePaths.has(path) || path.startsWith("connections.");
+  return explicitSavePaths.has(path);
 }
 function pendingExplicitSaves() {
   return [...drafts.keys()].filter(needsExplicitSave);
@@ -810,6 +835,8 @@ async function applySetting(path) {
   if (ok) {
     appliedSettings.set(path, Date.now());
     settingsSaveMessage = "";
+		const match = /^connections\.([A-Za-z0-9-]+)\.(base_url|api_key)$/.exec(path);
+		if (match) void listConnectionModels(match[1]);
   }
   if (open) render();
 }
@@ -901,10 +928,11 @@ async function click(event) {
   // Anything already confirming is answered, not re-armed.
   const armedBefore = armed.size;
   const wasPending = confirmPending;
+  const pendingView = { question: removalQuestion(button), rect: rectOf(button) };
   if (wasPending && wasPending.action === action && wasPending.id === (id || "")) confirmPending = null;
   const settle = () => {
     if (!wasPending && armed.size > armedBefore) {
-      confirmPending = { action, id: id || "", question: removalQuestion(button), rect: rectOf(button) };
+      confirmPending = { action, id: id || "", ...pendingView };
       render();
     }
   };
@@ -994,9 +1022,6 @@ async function dispatchAction(event, button, action, id) {
 	}
   // Item 2l6 (c): the save that belongs to one setting, beside it.
   if (action === "save-setting") return void applySetting(button.dataset.savePath);
-  // Item 2l5 (d): the row save commits THAT connection pending changes and nothing
-  // else. It is the explicit save 2l6 leaves in place for this surface.
-  if (action === "save-connection") return void saveConnection(id);
   if (action === "settings-section") {
     // Item 2no (a): every section is drawn in the pane, the Plan included. This used
     // to be location.assign('/plan...') — a page navigation dressed as a section.
@@ -1229,8 +1254,10 @@ async function dispatchAction(event, button, action, id) {
   if (action === "recommended-connection") {
     try {
       const answer = await api(`/api/connections/${encodeURIComponent(id)}/recommended`, {});
-      applyRecommendedValues(id, answer);
-      probeMessages.set(id, { ...(probeMessages.get(id) || {}), message: answer.message || "Recommended values are unsaved", alarm: false });
+			const changed = applyRecommendedValues(id, answer);
+			if (await saveSettings(`connections.${id}.`)) {
+				probeMessages.set(id, { ...(probeMessages.get(id) || {}), message: `changed: ${changed.join(", ")}`, alarm: false });
+			}
     } catch (error) { probeMessages.set(id, { ...(probeMessages.get(id) || {}), message: error.message, alarm: true }); }
     return render();
   }
@@ -1764,7 +1791,12 @@ async function blur(event) {
     if (needsExplicitSave(path)) {
       settingsSaveMessage = "Unsaved — use the save beside the setting";
       refreshSaveControls();
-    } else await applySetting(path);
+		} else if (path.startsWith("connections.")) {
+			// A pointer moving from a field to Test, Eval, Recommended, Defaults or a
+			// row action blurs before its click is dispatched. Let that click land on
+			// the existing control before the successful save redraws the editor.
+			setTimeout(() => void applySetting(path), 0);
+		} else await applySetting(path);
   }
   if (input.matches("[data-session-label]")) {
     try {
@@ -1799,7 +1831,12 @@ async function change(event) {
   // picking a different model from the list left them describing the one Test happened
   // to try. Nothing here is typed by the operator and nothing here saves.
   if (event.target.matches('.setting-input[data-path$=".model"]') && event.target.value && event.target.value !== "__type__") {
-    fillFromPickedModel(event.target.dataset.path.split(".")[1], event.target.value);
+		const path = event.target.dataset.path;
+		const id = path.split(".")[1];
+		drafts.set(path, event.target.value);
+		draftKinds.set(path, "text");
+    fillFromPickedModel(id, event.target.value);
+		await saveConnection(id);
   }
   const select = event.target.closest("[data-session-connection]");
   if (!select) return;
@@ -1841,11 +1878,16 @@ function combinedPatch(entries) {
 }
 
 async function saveSettings(pathPrefix = "") {
-  if (settingsSaving) return false;
+  if (settingsSaving) {
+		await settingsSaveDone;
+		return saveSettings(pathPrefix);
+	}
   const entries = [...drafts.entries()].filter(([path]) => !pathPrefix || path.startsWith(pathPrefix));
   if (!entries.length) return true;
   const changedPaths = entries.map(([path]) => path);
   settingsSaving = true;
+  let finishSave;
+  settingsSaveDone = new Promise((resolve) => { finishSave = resolve; });
   settingsSaveMessage = "Saving changes…";
   settingsSaveAlarm = false;
   refreshSaveControls();
@@ -1879,6 +1921,7 @@ async function saveSettings(pathPrefix = "") {
     return false;
   } finally {
     settingsSaving = false;
+		finishSave();
     if (open) render();
   }
   return true;
@@ -1916,17 +1959,18 @@ async function addConnection() {
 async function duplicateConnection(id) {
   const source = connectionList().find((x) => x.id === id);
   if (!source) return;
-  const copy = structuredClone(source);
-  delete copy._probing;
-  copy.id = uniqueID(`${id}-2`);
-  copy.label = `${source.label} copy`;
-  if (copy.api_key === "•••• set") {
-    copy.api_key = "";
-  }
+  const copyID = uniqueID(`${id}-2`);
   expanded.clear();
-  expanded.add(copy.id);
-  const result = await api("/api/config", { connections: [copy] });
-  reduce({ type: "config.changed", data: { config: result } });
+  expanded.add(copyID);
+	try {
+		const result = await api(`/api/connections/${encodeURIComponent(id)}/duplicate`, { id: copyID, label: `${source.label} copy` });
+		reduce({ type: "config.changed", data: { config: result } });
+		void listConnectionModels(copyID);
+	} catch (error) {
+		expanded.delete(copyID);
+		errors.set(`connections.${id}`, error.message);
+		render();
+	}
 }
 
 function uniqueID(base) {

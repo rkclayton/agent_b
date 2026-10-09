@@ -50,6 +50,113 @@ func TestApprovedConnectorMutationValidatesPersistsAndRemoves(t *testing.T) {
 	}
 }
 
+func TestDuplicateConnectionPreservesCredentialReferenceWithoutExposingSecret(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	cfg := config.Defaults(root)
+	cfg.Connections[0] = runnableTestConnection("local")
+	cfg.Connections[0].Credential = "shared-model-key"
+	cfg.Connections[0].APIKey = "fixture-secret"
+	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+
+	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/duplicate", strings.NewReader(`{"id":"local-2","label":"Local copy"}`))
+	request.Header.Set("Content-Type", "application/json")
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body)
+	}
+	got := server.ConfigSnapshot()
+	if len(got.Connections) != 2 || got.Connections[1].Credential != "shared-model-key" || got.Connections[1].APIKey != "fixture-secret" {
+		t.Fatalf("duplicate=%+v", got.Connections)
+	}
+	if strings.Contains(response.Body.String(), "fixture-secret") {
+		t.Fatal("duplicate response exposed the API key")
+	}
+	persisted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(persisted), "fixture-secret") || strings.Count(string(persisted), `"credential": "shared-model-key"`) != 2 {
+		t.Fatalf("persisted credential contract not held: %s", persisted)
+	}
+}
+
+func TestConnectionRefusalsNameExactFields2r9(t *testing.T) {
+	tests := []struct {
+		name      string
+		mutate    func(*config.Config)
+		wantText  string
+		wantField string
+	}{
+		{"invalid id", func(cfg *config.Config) { cfg.Connections[0].ID = "not a slug" }, "must be a slug", "connections.not a slug.id"},
+		{"duplicate id", func(cfg *config.Config) { cfg.Connections = append(cfg.Connections, cfg.Connections[0]) }, "duplicate", "connections.local.id"},
+		{"negative concurrency", func(cfg *config.Config) { cfg.Connections[0].MaxConcurrent = -1 }, "cannot be negative", "connections.local.max_concurrent"},
+		{"invalid credential", func(cfg *config.Config) { cfg.Connections[0].Credential = "../outside" }, "credential", "connections.local.credential"},
+		{"probe mode", func(cfg *config.Config) { cfg.Connections[0].ProbeMode = "sometimes" }, "probe_mode: invalid", "connections.local.probe_mode"},
+		{"attachment handling", func(cfg *config.Config) { cfg.Connections[0].AttachmentHandling = "guess" }, "attachment_handling: invalid", "connections.local.attachment_handling"},
+		{"timeout", func(cfg *config.Config) { cfg.Connections[0].RequestTimeoutS = 0 }, "must be positive", "connections.local.request_timeout_s"},
+		{"extract url", func(cfg *config.Config) { cfg.Connections[0].ExtractURL = "file:///tmp/value" }, "absolute HTTP(S) URL", "connections.local.extract_url"},
+		{"reasoning control", func(cfg *config.Config) { cfg.Connections[0].Reasoning.Control = "guess" }, "reasoning.control: invalid", "connections.local.reasoning.control"},
+		{"reasoning effort", func(cfg *config.Config) {
+			cfg.Connections[0].Reasoning.ValidEfforts = []string{"low"}
+			cfg.Connections[0].Reasoning.Effort = "high"
+		}, "not in valid_efforts", "connections.local.reasoning.effort"},
+		{"reasoning cap", func(cfg *config.Config) { cfg.Connections[0].Reasoning.MaxTokens = -1 }, "cannot be negative", "connections.local.reasoning.max_tokens"},
+		{"context size", func(cfg *config.Config) { cfg.Connections[0].Context.NCtx = -1 }, "cannot be negative", "connections.local.context.n_ctx"},
+		{"output reserve", func(cfg *config.Config) { cfg.Connections[0].Context.ReserveOutput = -1 }, "cannot be negative", "connections.local.context.reserve_output"},
+		{"answer ceiling", func(cfg *config.Config) { cfg.Connections[0].Context.AnswerCeilingSeconds = -1 }, "cannot be negative", "connections.local.context.answer_ceiling_seconds"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := config.Defaults(t.TempDir())
+			cfg.Connections[0] = runnableTestConnection("local")
+			test.mutate(&cfg)
+			err := cfg.Validate()
+			if err == nil || !strings.Contains(err.Error(), test.wantText) {
+				t.Fatalf("error=%v, want text %q", err, test.wantText)
+			}
+			if got := configField(err, cfg); got != test.wantField {
+				t.Fatalf("field=%q, want %q (error %v)", got, test.wantField, err)
+			}
+		})
+	}
+}
+
+func TestConnectionRouteRefusalsLeaveDiskUnchanged2r9(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	cfg := config.Defaults(root)
+	cfg.Connections[0] = runnableTestConnection("local")
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, patch, text, field string
+	}{
+		{"masked key", `{"connections":[{"id":"local","api_key":"•••• set"}]}`, "placeholder for a stored key", "connections.local.api_key"},
+		{"placeholder model", `{"connections":[{"id":"local","model":"model"}]}`, "model is empty", "connections.local.model"},
+		{"missing credential", `{"connections":[{"id":"local","credential":"missing-key"}]}`, "is not stored", "connections.local.credential"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := postConfigPatch(t, server, test.patch)
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), test.text) || !strings.Contains(response.Body.String(), test.field) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body)
+			}
+			after, readErr := os.ReadFile(path)
+			if readErr != nil || !bytes.Equal(before, after) {
+				t.Fatalf("refusal changed disk: err=%v\nbefore=%s\nafter=%s", readErr, before, after)
+			}
+		})
+	}
+}
+
 func TestConfigPOSTAssignsConnectionsToLetteredAgentRoles(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "harness.json")

@@ -73,7 +73,7 @@ test("Setup and Connections share the independent model picker and read-only Tes
 	await expect(settings.locator('[data-path="connections.ui.model"] option')).toHaveText(["alpha-model", "beta-model", "type a name…"]);
   // (g) again, from the other side: the row header carries the STATE WORD and never
   // the message, so it cannot overflow.
-  const header = settings.locator('.connection-row:has([data-action="connection-toggle"][data-id="ui"]) .connection-state');
+  const header = settings.locator('.connection-row[data-id="ui"] .connection-state');
   await expect(header).not.toContainText('is not served');
   await expect(header).not.toHaveText("");
   expect(await hash(join(harness.dataRoot, "harness.json"))).toBe(before);
@@ -115,7 +115,7 @@ test("Settings Context shows the server recommendation without changing the fiel
 		const page = await harness.context.newPage();
 		await page.goto(`${harness.base}/chat#settings/connections`);
 		await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
-		await page.locator('[data-path="connections.ui.context.n_ctx"]').fill(saved ? String(saved) : ""); await page.locator('.connection-editor [data-action="save-connection"]').click();
+		await page.locator('[data-path="connections.ui.context.n_ctx"]').fill(saved ? String(saved) : ""); await page.locator('[data-path="connections.ui.context.n_ctx"]').press("Enter");
 		await expect(page.locator('[data-path="connections.ui.context.n_ctx"]')).toHaveValue(saved ? String(saved) : "");
 		await expect(page.getByText(expected, { exact: true })).toBeVisible();
 		await page.screenshot({ path: join(repo, "test-results", `2sx-context-${name}.png`), fullPage: true }); await page.close();
@@ -144,8 +144,6 @@ test("Test Eval Recommended stay adjacent at 1400px and the narrowest width 2qw"
   await page.goto(`${harness.base}/chat#settings/connections`);
   await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   await expect(page.locator('[data-path="connections.ui.model"] option')).toContainText([...models, "type a name…"]);
-  await page.locator('[data-path="connections.ui.label"]').fill("acme");
-  await page.locator('[data-path="connections.ui.base_url"]').fill("http://acme:8080");
   const measured = await page.locator(".connection-editor").evaluate((editor) => {
     const boxes = [...editor.querySelectorAll("input")].map((input) => ({ path: input.dataset.path, width: input.getBoundingClientRect().width }));
     return { columns: getComputedStyle(editor.querySelector(".connection-fields")).gridTemplateColumns.split(" ").length, boxes };
@@ -227,9 +225,9 @@ test("a duplicate keeps the stored key and Show hides it again 2qn", async () =>
   const key = page.locator('[data-path="connections.ui.api_key"]');
   await key.fill("planted-key-2qn");
   const saved = page.waitForResponse((response) => response.url().endsWith("/api/config") && response.request().method() === "POST");
-  await page.locator('.connection-editor [data-action="save-connection"][data-id="ui"]').click();
+  await key.press("Enter");
   await saved;
-  await page.locator('.connection-editor [data-action="duplicate-connection"][data-id="ui"]').click();
+	await page.locator('.connection-row[data-id="ui"] [data-action="duplicate-connection"]').click();
 	const copyKey = page.locator('.connection-editor [data-path$=".api_key"]:not([data-path="connections.ui.api_key"])');
   await expect(copyKey).toBeVisible();
   const copyID = (await copyKey.getAttribute("data-path")).split(".")[1];
@@ -308,8 +306,7 @@ test("a failed connection Test stays one line and opens exact details in this wi
   await page.goto(`${harness.base}/chat#settings/connections`);
   await expect(page.locator("#settings-page")).toBeVisible();
   await expect(page.locator(".field-error, .connection-refusal, .connection-test-failure")).toHaveCount(0);
-	if (!await page.locator('.connection-editor [data-action="duplicate-connection"][data-id="ui"]').count()) await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
-	await page.locator('.connection-editor [data-action="duplicate-connection"][data-id="ui"]').click();
+	await page.locator('.connection-row[data-id="ui"] [data-action="duplicate-connection"]').click();
 	const copyAddress = page.locator('.connection-editor [data-path$=".base_url"]:not([data-path="connections.ui.base_url"])');
 	await expect(copyAddress).toBeVisible();
 	const copyPath = await copyAddress.getAttribute("data-path");
@@ -337,13 +334,13 @@ test("a failed connection Test stays one line and opens exact details in this wi
   await expect(page.locator(".connection-test-failure")).toHaveCount(2);
   if (evidence) await page.screenshot({ path: join(evidence, "settings-connection-after.png") });
   const pages = harness.context.pages().length;
-  await page.locator('.connection-row:has([data-action="connection-toggle"][data-id="ui"]) [data-action="error-details"]').click();
+  await page.locator('.connection-row[data-id="ui"] [data-action="error-details"]').click();
   await expect(page.locator(".settings-error-panel pre")).toHaveText(timeoutDetail);
   expect(harness.context.pages().length, "details opened another window").toBe(pages);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), "details added horizontal scrolling").toBe(false);
   await page.keyboard.press("Escape");
   await expect(page.locator(".settings-error-panel")).toHaveCount(0);
-  await expect(page.locator('.connection-row:has([data-action="connection-toggle"][data-id="ui"]) [data-action="error-details"]')).toHaveCount(1);
+  await expect(page.locator('.connection-row[data-id="ui"] [data-action="error-details"]')).toHaveCount(1);
   await page.evaluate(async (id) => { await fetch(`/api/connections/${encodeURIComponent(id)}`, { method: "DELETE" }); }, copyID);
   await page.close();
 });
@@ -378,7 +375,7 @@ test("a refused saved value marks that field only 2po", async () => {
   if (!await page.locator('.connection-editor [data-path="connections.ui.base_url"]').count()) await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   await page.route("**/api/config", (route) => route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "That address is refused after Save.", field: "connections.ui.base_url" }) }));
   await page.locator('[data-path="connections.ui.base_url"]').fill("http://127.0.0.1:2");
-  await page.locator('.connection-editor [data-action="save-connection"]').click();
+  await page.locator('[data-path="connections.ui.base_url"]').press("Enter");
   await expect(page.locator('.connection-editor [data-path="connections.ui.base_url"]').locator("xpath=ancestor::div[contains(@class,'setting-row')]")).toHaveClass(/invalid/);
   await expect(page.locator(".connection-editor .field-error")).toHaveCount(1);
   await expect(page.locator('.connection-editor [data-path$=".label"]').locator("xpath=ancestor::div[contains(@class,'setting-row')]")).not.toHaveClass(/invalid/);
@@ -576,6 +573,82 @@ test("every route the Plan had still lands on the section", async () => {
     await expect(page.locator(".settings-nav button.selected")).toHaveAttribute("data-id", "plan");
     await page.close();
   }
+});
+
+test("connection fields apply on choice Enter and blur with no Save step 2r9", async () => {
+  test.setTimeout(120000);
+  const page = await harness.context.newPage();
+	const restored = await page.request.post(`${harness.base}/api/config`, {
+		data: { connections: [{ id: "ui", base_url: `http://127.0.0.1:${harness.modelPort}` }] },
+		headers: { "X-AgentB-Mutation-Token": harness.mutationToken },
+	});
+	expect(restored.ok()).toBe(true);
+  await page.goto(`${harness.base}/chat#settings/connections`);
+  const modelList = page.waitForResponse((response) => response.url().endsWith("/api/connections/ui/models"));
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+  await modelList;
+  const state = async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.connections.find((item) => item.id === "ui");
+  harness.modelRequests.length = 0;
+  const picker = page.locator('[data-path="connections.ui.model"]');
+  const chosenModel = "alpha-model";
+  await expect(picker.locator('option[value="alpha-model"]')).toHaveCount(1);
+  const modelSaved = page.waitForResponse((response) => response.url().endsWith("/api/config") && response.request().method() === "POST");
+  await picker.selectOption(chosenModel);
+  await modelSaved;
+  await expect.poll(async () => (await state()).model).toBe(chosenModel);
+  await page.locator('[data-path="connections.ui.label"]').fill("UI renamed"); await page.locator('[data-path="connections.ui.label"]').press("Enter");
+  await expect.poll(async () => (await state()).label).toBe("UI renamed");
+  await page.locator(".connection-defaults > summary").click();
+  await page.locator('[data-path="connections.ui.request_timeout_s"]').fill("3"); await page.evaluate(() => document.querySelector('[data-path="connections.ui.request_timeout_s"]').blur());
+  await expect.poll(async () => (await state()).request_timeout_s).toBe(3);
+  await page.locator('[data-action="config-toggle"][data-path="connections.ui.reads_images"]').click();
+  await expect.poll(async () => (await state()).reads_images).toBe(true);
+  await page.locator('[data-path="connections.ui.request_timeout_s"]').fill("0"); await page.locator('[data-path="connections.ui.request_timeout_s"]').press("Enter");
+  await expect(page.locator('.field-error')).toContainText("must be positive");
+  expect((await state()).request_timeout_s).toBe(3);
+  await expect(page.locator('[data-action="save-connection"], .setting-save')).toHaveCount(0);
+  await expect(page.locator("#settings-page")).not.toContainText(/unsaved/i);
+  await page.getByTitle("Close").click();
+  await page.locator("#chat-task").fill("answer with the selected model");
+  await page.locator("#chat-send").click();
+  await expect.poll(() => harness.modelRequests.at(-1)?.model).toBe(chosenModel);
+  await page.close();
+});
+
+test("one in-place editor and Recommended persist without another action 2r9", async () => {
+  const page = await harness.context.newPage();
+  await page.goto(`${harness.base}/chat#settings/connections`);
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+  expect(await page.locator('.connection-row[data-id="ui"]').evaluate((row) => row.nextElementSibling?.classList.contains("connection-editor"))).toBe(true);
+  await page.route("**/api/connections/ui/recommended", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ values: { "context.n_ctx": 48000, "reads_images": false }, sources: { "context.n_ctx": "server", "reads_images": "Eval" } }) }));
+  await page.locator('[data-action="recommended-connection"][data-id="ui"]').click();
+  await expect.poll(async () => ((await (await page.request.get(`${harness.base}/api/state`)).json()).config.connections.find((item) => item.id === "ui").context.n_ctx)).toBe(48000);
+  await expect(page.locator(".connection-editor")).toContainText("changed: context size, reads images");
+  await page.close();
+});
+
+test("Duplicate is a ready keyed row with a refreshed model list 2r9", async () => {
+  const page = await harness.context.newPage();
+  let models = ["one", "two", "three"], calls = 0;
+  await page.route("**/api/connections/*/models", (route) => { calls++; return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ models, model_defaults: {} }) }); });
+  await page.goto(`${harness.base}/chat#settings/connections`);
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+  const key = page.locator('[data-path="connections.ui.api_key"]');
+  await key.fill("fixture-key"); await key.press("Enter");
+  await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.connections[0].api_key).toContain("set");
+  await page.locator('.connection-row[data-id="ui"] [data-action="duplicate-connection"]').click();
+  const editor = page.locator(".connection-editor");
+  const model = editor.locator('[data-path$=".model"]:not([data-path="connections.ui.model"])');
+  await expect(model).toBeVisible();
+  await expect(model.locator("option")).toHaveText(["one", "two", "three", "type a name…"]);
+  const copyID = (await model.getAttribute("data-path")).split(".")[1];
+  const shown = page.locator(`[data-action="show-key"][data-id="${copyID}"]`);
+  await shown.click(); await expect(editor.locator(`[data-path="connections.${copyID}.api_key"]`)).toHaveValue("fixture-key");
+  models = ["one", "two", "three", "four"];
+  const before = calls; await model.click();
+  await expect.poll(() => calls).toBeGreaterThan(before);
+  await expect(model.locator("option")).toHaveText(["one", "two", "three", "four", "type a name…"]);
+  await page.close();
 });
 
 // 4. The availability rule (item 2ni (b), kept by 2no (e)): with a planner assigned to

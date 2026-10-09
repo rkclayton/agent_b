@@ -79,6 +79,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
   await mkdir(workspace, { recursive: true });
 
   const modelPort = await freePort();
+  const modelRequests = [];
   let model = null;
   if (reachable) {
     model = createServer(async (request, response) => {
@@ -89,7 +90,9 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
 		let requestBody = "";
 		for await (const chunk of request) requestBody += chunk;
 		if (request.url !== "/v1/chat/completions") { response.statusCode = 404; return void response.end(); }
-		if (!JSON.parse(requestBody || "{}").stream) {
+		const modelRequest = JSON.parse(requestBody || "{}");
+		modelRequests.push(modelRequest);
+		if (!modelRequest.stream) {
 			response.writeHead(200, { "Content-Type": "application/json" });
 			return void response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ui harness reply" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 3 } }));
 		}
@@ -154,7 +157,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
   await bootstrap.close();
 
   return {
-    base, appPort, modelPort, app, context, browser, initial, getState, dataRoot,
+    base, appPort, modelPort, modelRequests, mutationToken, app, context, browser, initial, getState, dataRoot,
     stderr: () => stderr,
     // failRoute breaks one API path for every page in this context, which is
     // how 2gf reproduces "with `/api/plan` failing" without touching the server.

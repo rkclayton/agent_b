@@ -28,6 +28,9 @@ path, a host, a chat title, or a name. Specifically:
 - A local model's id is its **file name** only, never its folder.
 - No id is longer than 8 characters. `run` and `report_id` are random and
   cannot be joined to a chat, a session or an install.
+  Since broker v0.25.15, the broker discards the install id and keeps with each
+  batch a token that is the same for one install within one UTC day, cannot be
+  joined across days and cannot be turned back into an id.
 
 ## Where it is kept
 
@@ -371,6 +374,16 @@ tool name, `attachments` by kind (`text`, `office`, `pdf`, `image`, `zip`,
 These additions let the phone use this same schema; they do not change PC
 behaviour. They contain no free text, and any identifier is at most eight
 characters. All named sets and object keys below are closed.
+
+### Phone link wait
+
+`link.peer_wait` is sent by the phone only, once when it finishes waiting for
+its paired PC. `ms` is the bounded wait in milliseconds; `resolved` says
+whether the PC appeared before the wait ended.
+
+```json vector:link.peer_wait
+{"type":"link.peer_wait","at":"2026-10-04T21:00:05Z","ms":4100,"resolved":true}
+```
 
 ### (a) `chat`
 

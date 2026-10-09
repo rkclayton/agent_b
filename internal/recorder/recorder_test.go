@@ -286,7 +286,7 @@ func TestTheDocumentVectorsValidateAgainstTheBuilder2pw(t *testing.T) {
 func documentVectors(t *testing.T, body string) map[string]map[string]any {
 	t.Helper()
 	vectors := map[string]map[string]any{}
-	for _, match := range regexp.MustCompile("(?s)```json vector:([a-z.]+)\r?\n(.*?)\r?\n```").FindAllStringSubmatch(body, -1) {
+	for _, match := range regexp.MustCompile("(?s)```json vector:([a-z._]+)\r?\n(.*?)\r?\n```").FindAllStringSubmatch(body, -1) {
 		var vector map[string]any
 		if err := json.Unmarshal([]byte(match[2]), &vector); err != nil {
 			t.Fatalf("vector %s: %v", match[1], err)

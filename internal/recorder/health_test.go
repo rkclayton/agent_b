@@ -190,7 +190,7 @@ func TestOnDeviceVectorsAreClosedAndWhole2q8(t *testing.T) {
 		t.Fatal(err)
 	}
 	vectors := documentVectors(t, string(body))
-	for _, name := range []string{"ondevice.chat", "ondevice.invoke", "ondevice.condensed", "ondevice.run", "ondevice.sizes"} {
+	for _, name := range []string{"ondevice.chat", "ondevice.invoke", "ondevice.condensed", "ondevice.run", "ondevice.sizes", "link.peer_wait"} {
 		vector := vectors[name]
 		if vector == nil {
 			t.Fatalf("no vector for %s", name)
@@ -261,6 +261,7 @@ func validateOnDeviceVector(name string, vector map[string]any) error {
 		"ondevice.condensed": keys("span", "seq", "kind", "trigger", "before", "after", "unit"),
 		"ondevice.run":       keys("type", "at", "availability", "errors", "pictures", "prewarm", "routes", "sizes"),
 		"ondevice.sizes":     keys("type", "at", "sizes"),
+		"link.peer_wait":     keys("type", "at", "ms", "resolved"),
 	}[name]
 	for field := range vector {
 		if !allowed[field] {

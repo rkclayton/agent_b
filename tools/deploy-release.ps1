@@ -103,6 +103,19 @@ if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: a product invariant was missin
 & $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'tools\verify-deploy-candidate.ps1') -CandidateDirectory $candidate -ExpectedTag $Tag -ExpectedCommit $commit
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate verification exited $LASTEXITCODE." }
 
+# Item 2t5: the setup's outer signature being Valid does not prove that its
+# embedded payload carries the pinned release key. Ask the staged product's
+# read-only installer question before any tag or release byte is published.
+$questionBinary = Join-Path $candidate 'Agent_b.exe'
+$setupPath = Join-Path $candidate 'Agent_b-setup.exe'
+$questionOutput = @(& $questionBinary --inspect-installer $setupPath 2>&1)
+$questionExit = $LASTEXITCODE
+$questionLine = (($questionOutput | ForEach-Object { [string]$_ }) -join "`n").Trim()
+if ($questionExit -ne 0 -or $questionLine -notmatch 'payload signature: AgentB release key .* verified$') {
+    throw "DEPLOY REFUSED: staged installer is not accepted by its own pinned-key question: $questionLine"
+}
+Write-Host "INSTALLER ACCEPTANCE: $questionLine"
+
 $manifest = Get-Content -Raw -LiteralPath (Join-Path $candidate 'candidate-final.json') | ConvertFrom-Json
 $releaseManifest = [ordered]@{
     schema  = 1
@@ -130,7 +143,6 @@ if ($originExit -ne 0 -or $origin.Trim() -notmatch '^(?:https://github\.com/|git
     throw 'DEPLOY REFUSED: origin does not name one GitHub owner/repository pair.'
 }
 $repositoryName = [string]$Matches.repository
-$setupPath = Join-Path $candidate 'Agent_b-setup.exe'
 $createLine = "gh release create $Tag --repo $repositoryName --verify-tag --title `"Agent_b $Tag`" --notes-file `"$notesPath`""
 $uploadLine = "gh release upload $Tag `"$setupPath`" `"$releaseManifestPath`" --repo $repositoryName --clobber"
 $gh = Get-Command gh.exe -ErrorAction SilentlyContinue
@@ -151,6 +163,24 @@ if ($LASTEXITCODE -ne 0) {
 if ($LASTEXITCODE -ne 0) {
     Write-Host "PUBLISH CARD: $uploadLine"
     throw "DEPLOY REFUSED: GitHub Release asset upload exited $LASTEXITCODE; run the carded upload line."
+}
+
+$publicCheckRoot = Join-Path ([IO.Path]::GetTempPath()) ("Agent_b-public-installer-check-" + [Guid]::NewGuid().ToString('N'))
+try {
+    $null = New-Item -ItemType Directory -Path $publicCheckRoot
+    & $gh.Source release download $Tag --repo $repositoryName --pattern 'Agent_b-setup.exe' --dir $publicCheckRoot
+    if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: public installer download exited $LASTEXITCODE." }
+    $publicQuestion = @(& $questionBinary --inspect-installer (Join-Path $publicCheckRoot 'Agent_b-setup.exe') 2>&1)
+    $publicExit = $LASTEXITCODE
+    $publicLine = (($publicQuestion | ForEach-Object { [string]$_ }) -join "`n").Trim()
+    if ($publicExit -ne 0 -or $publicLine -notmatch 'payload signature: AgentB release key .* verified$') {
+        throw "DEPLOY REFUSED: public installer is not accepted by its own pinned-key question: $publicLine"
+    }
+    Write-Host "PUBLIC INSTALLER ACCEPTANCE: $publicLine"
+} finally {
+    if (Test-Path -LiteralPath $publicCheckRoot) {
+        Remove-TreeWithinAllowedRoots -Path $publicCheckRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'public installer acceptance cleanup'
+    }
 }
 
 Write-Host "DEPLOY COMPLETE: the required installer was built, signed, timestamped, verified, and published at $setupPath"

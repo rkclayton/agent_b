@@ -227,6 +227,23 @@ try {
 	)
 	$null = New-Item -ItemType Directory -Path $singleDrop -Force
 	Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Agent_b.exe') -Destination $singleSetup
+	# Item 2t5: the read-only question deliberately does not inherit TestMode.
+	# This bundle's payload carries the disposable test signer, so the exact
+	# refusal must arrive before any install root, process, or log changes.
+	$questionBefore = Get-RootFingerprint -Roots $singleTargets
+	$questionProcesses = @(Get-AgentBProcessesAtPath -Executable (Join-Path $repositoryRoot 'Agent_b.exe')).Count
+	$savedErrorAction = $ErrorActionPreference
+	$ErrorActionPreference = 'Continue'
+	try {
+		$questionOutput = (& (Join-Path $repositoryRoot 'Agent_b.exe') --inspect-installer $singleSetup 2>&1 | Out-String).Trim()
+		$questionExit = $LASTEXITCODE
+	} finally { $ErrorActionPreference = $savedErrorAction }
+	$questionAfter = Get-RootFingerprint -Roots $singleTargets
+	if ($questionExit -eq 0 -or $questionOutput -notmatch '^installer signature verification failed: payload signer "CN=Agent_b Disposable Test Signing" .+ is not the pinned AgentB release key$' -or
+		$questionBefore -cne $questionAfter -or @(Get-AgentBProcessesAtPath -Executable (Join-Path $repositoryRoot 'Agent_b.exe')).Count -ne $questionProcesses) {
+		throw "The installer question did not refuse the disposable signer without acting: exit=$questionExit answer=$questionOutput"
+	}
+	Write-Host "PROOF installer question: $questionOutput; no install root or process changed"
 	# Item 2p8: unlike the interactive window-control arm below, this proof owns
 	# an invisible desktop and is mandatory on every installer run.
 	& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'test-one-window-invariant.ps1') -Exe (Join-Path $repositoryRoot 'Agent_b.exe') -Setup $singleSetup -ApplicationRoot $repositoryRoot

@@ -136,6 +136,31 @@ func installSignatureSubjects(outer, payload string, testMode bool) (string, str
 	return outerLine, result.Payload, nil
 }
 
+func installerSignatureAnswerWith(outer, payload string, inspect func(string, string, bool) (string, string, error)) (string, error) {
+	outerLine, payloadSigner, err := inspect(outer, payload, false)
+	if err != nil {
+		return "installer signature verification failed: " + err.Error(), err
+	}
+	return fmt.Sprintf("%s, payload signature: AgentB release key (%s) — verified", outerLine, payloadSigner), nil
+}
+
+// inspectInstaller answers the same signature question as a real install, but
+// only extracts the bounded embedded bundle to a temporary directory. It opens
+// no install log, resolves no install roots, stops and starts no process, and
+// never enables the disposable-test signer exception.
+func inspectInstaller(executable string) (string, error) {
+	source, cleanup, found, err := extractInstallBundle(executable)
+	if err != nil {
+		return "installer signature verification failed: embedded installer payload is invalid: " + err.Error(), err
+	}
+	if !found {
+		err = errors.New("embedded installer payload is missing")
+		return "installer signature verification failed: " + err.Error(), err
+	}
+	defer cleanup()
+	return installerSignatureAnswerWith(executable, filepath.Join(source, "agentb.exe"), installSignatureSubjects)
+}
+
 func outerSignatureDecision(status, subject string) (string, error) {
 	if strings.TrimSpace(subject) == "" {
 		subject = "none"

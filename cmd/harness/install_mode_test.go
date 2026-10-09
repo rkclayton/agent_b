@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -315,6 +316,27 @@ func TestSetupArgumentsRefuseUnknownOptions(t *testing.T) {
 	}
 	if err := validateSetupArguments([]string{"--quiet", "--install-data", `C:\suite\data`, "-NoStart", "-ApplicationDirectory", `C:\suite\app`, "-TestMode", "-NativeTestMode"}); err != nil {
 		t.Fatalf("known setup arguments were refused: %v", err)
+	}
+}
+
+func TestInstallerQuestionUsesTheRealInstallersSignatureWords2t5(t *testing.T) {
+	good, err := installerSignatureAnswerWith(`setup.exe`, `payload.exe`, func(string, string, bool) (string, string, error) {
+		return `outer: Valid CN=release`, `CN=release`, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if good != `outer: Valid CN=release, payload signature: AgentB release key (CN=release) — verified` {
+		t.Fatalf("pinned answer %q", good)
+	}
+	bad, err := installerSignatureAnswerWith(`setup.exe`, `payload.exe`, func(string, string, bool) (string, string, error) {
+		return "", "", errors.New(`payload signer "CN=test" (ABC, Valid) is not the pinned AgentB release key`)
+	})
+	if err == nil {
+		t.Fatal("the disposable signer was accepted")
+	}
+	if bad != `installer signature verification failed: payload signer "CN=test" (ABC, Valid) is not the pinned AgentB release key` {
+		t.Fatalf("refusal answer %q", bad)
 	}
 }
 

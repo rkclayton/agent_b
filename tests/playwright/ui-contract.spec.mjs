@@ -326,6 +326,64 @@ test("first usable frame does not grow with retained chat history", async ({ bro
   expect(largeMedian, `empty=${smallMedian.toFixed(1)}ms large=${largeMedian.toFixed(1)}ms`).toBeLessThanOrEqual(2 * smallMedian);
 });
 
+test("a restored long chat keeps its words and scroll position 2t3", async ({ browser }) => {
+  const id = "chat-restored-2t3", notice = "Agent changed from fixture-one to fixture-two.";
+  const chat = Array.from({ length: 120 }, (_, index) => ({ type: "user", key: `message:${index}`, text: `retained line ${index} ${"content ".repeat(8)}` }));
+  chat.splice(20, 0, { type: "notice", key: "event:words-top", text: notice });
+  chat.push({ type: "user", key: "message:steps", text: "Inspect the retained steps." },
+    { type: "tool", key: "tool:one", name: "read_file", args: { path: "C:\\synthetic\\one.txt" }, result: { ok: true, ms: 1 }, content: "one" },
+    { type: "notice", key: "event:words-group", text: notice },
+    { type: "tool", key: "tool:two", name: "read_file", args: { path: "C:\\synthetic\\two.txt" }, result: { ok: true, ms: 1 }, content: "two" },
+    { type: "user", key: "message:malformed", text: "Inspect a malformed record." }, { type: "notice", key: "event:malformed" });
+  const session = { schema_version: 1, cursor: { generation: `${id}.jsonl`, offset: 300 }, complete: true, id, label: "Restored fixture",
+    agent_id: "agent_b", role: "b", created_at: "2026-10-09T00:00:00Z", run: { status: "idle" }, tools: [], messages: [], budget: {},
+    activity: { completed_stages: [] }, timeline: [], chat, history_start: 100, history_end: 224, history_total: 224, runnable: true, closed: false };
+  const snapshot = { sessions: { [id]: session }, connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] },
+    flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {} };
+  const context = await browser.newContext({ viewport: { width: 900, height: 520 } });
+  await context.addInitScript(({ snapshot, id }) => {
+    sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: id, surface: { kind: "chat", key: id } }));
+    class FixtureEvents { constructor() { this.listeners = new Map(); globalThis.restoredEvents = this; setTimeout(() => this.emit("snapshot", { type: "snapshot", data: snapshot })); }
+      addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); }
+      emit(type, value) { for (const listener of this.listeners.get(type) || []) listener({ data: JSON.stringify(value) }); } close() {} }
+    globalThis.EventSource = FixtureEvents;
+  }, { snapshot, id });
+  const page = await context.newPage();
+  await page.route("**/*", async (route) => { const url = new URL(route.request().url());
+    if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
+    if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
+    return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") }); });
+  await page.goto(`http://restored-2t3.test/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
+  const log = page.locator("#chat-log"); await expect(log).toContainText("retained line 119");
+  await page.locator(".chat-list-menu-button").click(); await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByTitle("Close").click();
+  const measurements = await log.evaluate((node) => ({ scrollHeight: node.scrollHeight, clientHeight: node.clientHeight, start: node.scrollTop }));
+  await log.hover(); await page.mouse.wheel(0, -500); await page.waitForTimeout(50);
+  measurements.wheel = await log.evaluate((node) => node.scrollTop);
+  await log.evaluate((node) => { node.scrollTop = Math.floor(node.scrollHeight / 2); node.dispatchEvent(new Event("scroll")); });
+  measurements.scrollbar = await log.evaluate((node) => node.scrollTop);
+  await log.focus(); await page.keyboard.press("PageUp"); await page.waitForTimeout(150); measurements.keyUp = await log.evaluate((node) => node.scrollTop);
+  await page.keyboard.press("PageDown"); await page.waitForTimeout(150); measurements.keyDown = await log.evaluate((node) => node.scrollTop);
+  const held = measurements.scrollbar;
+  await page.evaluate(({ snapshot }) => { for (let pass = 0; pass < 10; pass++) globalThis.restoredEvents.emit("snapshot", { type: "snapshot", data: structuredClone(snapshot) }); }, { snapshot });
+  await page.waitForTimeout(100); measurements.afterRenders = await log.evaluate((node) => node.scrollTop);
+  console.log("2t3 restored scroll", JSON.stringify(measurements));
+  expect(measurements.scrollHeight).toBeGreaterThan(measurements.clientHeight);
+  expect(measurements.wheel).toBeLessThan(measurements.start); expect(measurements.keyUp).toBeLessThan(measurements.scrollbar); expect(measurements.keyDown).toBeGreaterThan(measurements.keyUp);
+  expect(Math.abs(measurements.afterRenders - held)).toBeLessThanOrEqual(1);
+  const fold = page.locator(".chat-step-summary").filter({ hasText: "2 tool calls" }); await fold.click();
+  await page.locator(".chat-step-summary").filter({ hasText: "1 row" }).click();
+  await expect(page.getByText(notice, { exact: true })).toHaveCount(2);
+  await expect(page.locator(".chat-notice-row").getByText(notice, { exact: true })).toHaveCount(1);
+  await expect(page.locator(".chat-step-fold:not(.headerless)").getByText(notice, { exact: true })).toHaveCount(1);
+  await expect(page.locator(".chat-render-failure")).toHaveText("notice event:malformed could not render · notice event is missing or is not an object");
+  const copied = await log.evaluate((node) => { const selection = getSelection(), range = document.createRange(), data = new DataTransfer(); range.selectNodeContents(node); selection.removeAllRanges(); selection.addRange(range); document.dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true })); selection.removeAllRanges(); return data.getData("text/plain"); });
+  expect(copied.match(new RegExp(notice.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))).toHaveLength(2);
+  await page.getByText(notice, { exact: true }).last().scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/2t3-agent-change-notice.png" });
+  await context.close();
+});
+
 test("fresh context leaves every transcript entry visible and says how much and why", async ({ browser }) => {
   const id = "chat-fresh";
   const snapshot = {

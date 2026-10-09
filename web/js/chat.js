@@ -423,6 +423,13 @@ function groupResponses(entries) {
       response = null;
       continue;
     }
+    // A server-authored notice may carry only its words. At a response boundary
+    // it is a transcript notice in its own right; between response steps it
+    // stays with those steps and uses the same renderer there.
+    if (!response && entry.type === "notice" && (!entry.event || typeof entry.event !== "object") && typeof entry.text === "string" && entry.text.length) {
+      grouped.push(entry);
+      continue;
+    }
     // A notice that is waiting on the operator is never folded into a steps
     // group: an unreachable model, and a question from the worker, are the two
     // things in this thread that nobody can answer without seeing them. Item
@@ -1102,10 +1109,14 @@ function renderNotice(session, entry) {
 
 function noticeContent(session, entry, actionable) {
   const event = entry.event;
-  if (!event || typeof event !== "object") throw new Error("notice event is missing or is not an object");
-  const data = event.data && typeof event.data === "object" ? event.data : {};
   const content = document.createElement("div");
   content.className = "chat-content";
+  if (!event || typeof event !== "object") {
+		if (typeof entry.text !== "string" || !entry.text.length) throw new Error("notice event is missing or is not an object");
+		content.textContent = entry.text;
+		return content;
+	}
+  const data = event.data && typeof event.data === "object" ? event.data : {};
   if (event.type === "run.stopped") {
     const reason = (data.reason || "").replaceAll("_", " ");
 		if (data.reason === "model_unreachable") {

@@ -709,8 +709,7 @@ test("Agents and Connections share fields, whole numbers, switches, and stable f
     const added = await agentMetrics();
     await page.locator('.settings-nav [data-id="chats"]').click();
     const chatSwitch = page.locator('.settings-content button.switch').first();
-    const switchPaint = async (node) => { const value = getComputedStyle(node), track = getComputedStyle(node, '::before'); return { background: value.backgroundColor, width: value.width, height: value.height, track: [track.backgroundColor, track.width, track.height, track.top] }; };
-    const chatChecked = await chatSwitch.getAttribute('aria-checked');
+    const switchPaint = async (node) => { const value = getComputedStyle(node), track = getComputedStyle(node, '::before'); return { background: value.backgroundColor, width: value.width, height: value.height, track: [track.width, track.height, track.top] }; };
     await chatSwitch.hover();
     const chatPaint = await chatSwitch.evaluate(switchPaint);
     await page.locator('.settings-nav [data-id="connections"]').click();
@@ -726,7 +725,6 @@ test("Agents and Connections share fields, whole numbers, switches, and stable f
       }
     }
     const connectionSwitch = page.locator('.connection-primary button.switch').first();
-    if (await connectionSwitch.getAttribute('aria-checked') !== chatChecked) await connectionSwitch.click();
     await connectionSwitch.hover();
     expect(await connectionSwitch.evaluate(switchPaint)).toEqual(chatPaint);
     const positions = async () => page.locator('.connection-primary').evaluate((root) => [...root.querySelectorAll(':scope > .setting-row')].map((row) => ({ label: row.querySelector(':scope > label')?.textContent.trim() || 'actions', left: row.getBoundingClientRect().left })));

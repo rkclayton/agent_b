@@ -2259,7 +2259,7 @@
 .panel-role-row > :is(input:not([type="checkbox"]), select, textarea):disabled { color: var(--mute); opacity: 1; }
 .panel-role-row.settings-actions {
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  gap: 8px;
 }
 @media (max-width: 520px) {
   .panel-role-row.settings-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }

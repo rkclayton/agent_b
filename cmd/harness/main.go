@@ -83,6 +83,7 @@ func main() {
 	installData := flag.String("install-data", "", "with --install: the user data root that carries the marker and progress")
 	installAllUsers := flag.Bool("all-users", false, "with --install: install machine-wide under Program Files (requires elevation)")
 	reopenSession := flag.String("reopen-session", "", "with --install: reopen this chat after the installed app starts")
+	reopenWindow := flag.Bool("reopen-window", false, "with --install: return an app-started update to its native window")
 	inspectInstallerPath := flag.String("inspect-installer", "", "report whether an installer file carries the pinned release signatures")
 	noStart := flag.Bool("NoStart", false, "with --install: install without starting Agent_b")
 	uninstall := flag.Bool("uninstall", false, "remove the per-user Agent_b installation")
@@ -114,6 +115,7 @@ func main() {
 			noStart:       *noStart,
 			allUsers:      *installAllUsers,
 			reopenSession: *reopenSession,
+			reopenWindow:  *reopenWindow,
 		}, passthrough))
 	}
 	if *uninstall || *uninstallWorker {

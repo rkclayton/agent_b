@@ -417,7 +417,7 @@ export function applyServerEvent(event) {
   }
 }
 source.onmessage = applyServerEvent;
-for (const type of ["snapshot", "projection.patch", "connection.probed", "connection.health", "config.changed", "agent.connection_change", "shell.identity", "shell.credential", "operator.context", "plan.created", "plan.updated", "plan.removed", "chat.list.patch"])
+for (const type of ["snapshot", "projection.patch", "connection.probed", "connection.health", "config.changed", "agent.connection_change", "shell.identity", "shell.credential", "operator.context", "plan.created", "plan.updated", "plan.removed", "chat.list.patch", "update.changed"])
   source.addEventListener(type, applyServerEvent);
 function reconcileVisibleClient() { if (!document.hidden) void operatorReconciler.reconcile().catch(() => {}); }
 document.addEventListener("visibilitychange", reconcileVisibleClient);

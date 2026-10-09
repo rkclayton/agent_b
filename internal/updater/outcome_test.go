@@ -106,6 +106,27 @@ func TestAFailedInstallPutsTheReasonOnTheState(t *testing.T) {
 	}
 }
 
+func TestAFailureBeforeTheFirstProgressLineIsPublishedWithinFiveSeconds2t6(t *testing.T) {
+	early := make(chan string, 1)
+	published := make(chan State, 1)
+	manager := &Manager{earlyFailure: early, changed: func(state State) { published <- state }}
+	manager.state = State{Available: true, Version: "v1.25.0", Installing: false}
+	go manager.watchEarlyInstallFailure()
+	reason := "install FAILED: fixture stopped before progress"
+	early <- reason
+	select {
+	case state := <-published:
+		if state.Error != reason || !state.Available || state.Installing {
+			t.Fatalf("state=%+v", state)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the early installer sentence was not published within five seconds")
+	}
+	if got := installFailureLine("first\r\n" + reason + "\r\nlast"); got != reason {
+		t.Fatalf("line=%q", got)
+	}
+}
+
 // Item 2nh (b) and (c): THE OPERATOR'S OWN 23:22 FILE, REPLAYED.
 //
 // His update to v1.29.0 worked and he reported it as a failure. These are the

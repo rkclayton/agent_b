@@ -26,6 +26,7 @@ type installOptions struct {
 	noStart       bool
 	allUsers      bool
 	reopenSession string
+	reopenWindow  bool
 	passThough    []string
 }
 
@@ -307,7 +308,7 @@ func runInstall(options installOptions, args []string) int {
 		}
 		if relaunch {
 			appendProgress(dataRoot, installProgress{Phase: "restarting", Text: "Starting Agent_b " + marker.Version})
-			if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, nativeInstall, log); err != nil {
+			if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, options.reopenWindow, nativeInstall, log); err != nil {
 				appendProgress(dataRoot, installProgress{Phase: "restarting", Text: fmt.Sprintf("Agent_b %s was installed but failed to start: %v. Transcript: %s", marker.Version, err, log.location()), Done: true})
 				return log.fail("Agent_b was installed but failed to start: %v", err)
 			}
@@ -336,7 +337,7 @@ func runInstall(options installOptions, args []string) int {
 	if version, reason, restart := installRestartDetails(log.location()); restart {
 		applicationRoot := installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers))
 		operatorDataRoot := installerArgument(args, "DataDirectory", filepath.Join(os.Getenv("LOCALAPPDATA"), "Agent_b"))
-		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, nativeInstall, log); err != nil {
+		if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, options.reopenWindow, nativeInstall, log); err != nil {
 			log.printf("RESTART FAILED: %s after %s: %v", version, reason, err)
 		} else {
 			log.printf("RESTARTED: %s after %s.", version, reason)
@@ -491,15 +492,12 @@ func installerArgument(arguments []string, name, fallback string) string {
 	return fallback
 }
 
-func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, _ bool, log *installLog) error {
+func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, reopenWindow, _ bool, log *installLog) error {
 	launcher := filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1")
 	if info, err := os.Stat(launcher); err != nil || info.IsDir() {
 		return fmt.Errorf("installed launcher is missing: %s", launcher)
 	}
-	arguments := []string{"-NoLogo", "-NoProfile", "-File", launcher, "-ApplicationDirectory", applicationRoot, "-DataDirectory", dataRoot, "-Detached", "-NoBrowser", "-NoPause", "-StartupTimeoutSeconds", "30"}
-	if sessionID != "" {
-		arguments = append(arguments, "-SessionID", sessionID)
-	}
+	arguments := installedLaunchArguments(applicationRoot, dataRoot, sessionID, reopenWindow)
 	// Item 2m6 (a) and (c): A DISPOSABLE INSTALL NEVER OPENS A WINDOW, and it is
 	// decided by WHAT THE INSTALL IS rather than by a flag a future arm can
 	// forget.
@@ -517,6 +515,14 @@ func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, _ bool, l
 	command.Stdout = log.writer()
 	command.Stderr = log.writer()
 	return command.Run()
+}
+
+func installedLaunchArguments(applicationRoot, dataRoot, sessionID string, reopenWindow bool) []string {
+	arguments := []string{"-NoLogo", "-NoProfile", "-File", filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1"), "-ApplicationDirectory", applicationRoot, "-DataDirectory", dataRoot, "-Detached", "-NoPause", "-StartupTimeoutSeconds", "30"}
+	if !reopenWindow || sessionID == "" {
+		return append(arguments, "-NoBrowser")
+	}
+	return append(arguments, "-SessionID", sessionID)
 }
 
 func extractInstallBundle(executable string) (string, func(), bool, error) {

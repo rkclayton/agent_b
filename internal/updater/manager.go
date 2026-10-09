@@ -108,6 +108,8 @@ type Manager struct {
 	enabled         func() bool
 	launch          func(string, string) error
 	verify          func(context.Context, string) error
+	inspect         func(context.Context, string) (string, error)
+	earlyFailure    <-chan string
 	changed         func(State)
 	now             func() time.Time
 	checkInterval   time.Duration
@@ -122,15 +124,17 @@ type Options struct {
 	// operator own per-user locations when it is told nothing, so an instance that
 	// does not pass its own roots updates over production whoever asked. These are
 	// passed to the setup; an instance that cannot name them refuses to install.
-	ApplicationRoot string
-	WorkspaceRoot   string
-	LatestURL       string
-	Client          *http.Client
-	Enabled         func() bool
-	Launch          func(string, string) error
-	VerifySignature func(context.Context, string) error
-	Changed         func(State)
-	CheckInterval   time.Duration
+	ApplicationRoot     string
+	WorkspaceRoot       string
+	LatestURL           string
+	Client              *http.Client
+	Enabled             func() bool
+	Launch              func(string, string) error
+	VerifySignature     func(context.Context, string) error
+	InspectInstaller    func(context.Context, string) (string, error)
+	EarlyInstallFailure <-chan string
+	Changed             func(State)
+	CheckInterval       time.Duration
 }
 
 func New(options Options) *Manager {
@@ -146,21 +150,6 @@ func New(options Options) *Manager {
 	if enabled == nil {
 		enabled = func() bool { return true }
 	}
-	launch := options.Launch
-	if launch == nil {
-		application, data, workspace := options.ApplicationRoot, options.DataRoot, options.WorkspaceRoot
-		launch = func(path, sessionID string) error {
-			arguments, err := installArguments(application, data, workspace, sessionID)
-			if err != nil {
-				return err
-			}
-			arguments = fixtureInstallArguments(options.LatestURL, data, arguments)
-			// Item 2nf (d) and 2na (a): the setup is started with no console, so an
-			// update never puts a window on the operator's screen and cannot leave one
-			// behind when it fails.
-			return quietproc.Quiet(exec.Command(path, arguments...)).Start()
-		}
-	}
 	verify := options.VerifySignature
 	if verify == nil {
 		verify = verifySetupSignature
@@ -169,7 +158,41 @@ func New(options Options) *Manager {
 	if interval <= 0 {
 		interval = time.Hour
 	}
-	manager := &Manager{client: client, latestURL: latest, dataRoot: options.DataRoot, applicationRoot: options.ApplicationRoot, enabled: enabled, launch: launch, verify: verify, changed: options.Changed, now: time.Now, checkInterval: interval}
+	inspect := options.InspectInstaller
+	if inspect == nil {
+		inspect = askInstaller
+	}
+	manager := &Manager{client: client, latestURL: latest, dataRoot: options.DataRoot, applicationRoot: options.ApplicationRoot, enabled: enabled, verify: verify, inspect: inspect, changed: options.Changed, now: time.Now, checkInterval: interval, earlyFailure: options.EarlyInstallFailure}
+	manager.launch = options.Launch
+	if manager.launch == nil {
+		application, data, workspace := options.ApplicationRoot, options.DataRoot, options.WorkspaceRoot
+		early := make(chan string, 1)
+		manager.earlyFailure = early
+		manager.launch = func(path, sessionID string) error {
+			arguments, err := installArguments(application, data, workspace, sessionID)
+			if err != nil {
+				return err
+			}
+			arguments = fixtureInstallArguments(options.LatestURL, data, arguments)
+			// Item 2nf (d) and 2na (a): the setup is started with no console, so an
+			// update never puts a window on the operator's screen and cannot leave one
+			// behind when it fails.
+			command := quietproc.Quiet(exec.Command(path, arguments...))
+			var output boundedInstallOutput
+			command.Stdout, command.Stderr = &output, &output
+			if err := command.Start(); err != nil {
+				return err
+			}
+			go func() {
+				if err := command.Wait(); err != nil {
+					if line := installFailureLine(output.String()); line != "" {
+						early <- line
+					}
+				}
+			}()
+			return nil
+		}
+	}
 	manager.state = State{Enabled: enabled(), CurrentVersion: normalizeVersion(options.CurrentVersion), ApplicationRoot: options.ApplicationRoot}
 	// Item 2nh (b): THIS PROCESS MAY BE THE RESULT OF AN UPDATE. The installer
 	// stopped the instance that pressed Update and started this one, so the only
@@ -528,7 +551,23 @@ func (m *Manager) Install(ctx context.Context, sessionID string) (string, error)
 	// file and puts its own sentence on state.Error if it fails; a successful
 	// install replaces this process long before the watch ends.
 	go m.watchInstallOutcome(m.now())
+	if m.earlyFailure != nil {
+		go m.watchEarlyInstallFailure()
+	}
 	return path, nil
+}
+
+func (m *Manager) watchEarlyInstallFailure() {
+	select {
+	case reason := <-m.earlyFailure:
+		m.mu.Lock()
+		m.state.Error = reason
+		m.state.Step, m.state.Line = "", ""
+		state := m.state
+		m.mu.Unlock()
+		m.publish(state)
+	case <-time.After(5 * time.Second):
+	}
 }
 
 // setStep names the stage in hand for the one wait element. It is a publish, not a
@@ -593,8 +632,57 @@ func (m *Manager) download(ctx context.Context, release availableRelease) (strin
 		_ = os.Remove(final)
 		return "", fmt.Errorf("setup Authenticode verification: %w", err)
 	}
+	if line, err := m.inspect(ctx, final); err != nil {
+		_ = os.Remove(final)
+		if strings.TrimSpace(line) != "" {
+			return "", errors.New(strings.TrimSpace(line))
+		}
+		return "", err
+	}
 	return final, nil
 }
+
+func askInstaller(ctx context.Context, path string) (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	output, runErr := quietproc.Quiet(exec.CommandContext(ctx, executable, "--inspect-installer", path)).CombinedOutput()
+	line := strings.TrimSpace(string(output))
+	if runErr != nil && line != "" {
+		return line, errors.New(line)
+	}
+	if runErr != nil {
+		return "", runErr
+	}
+	if line == "" {
+		return "", errors.New("installer signature inspection returned no answer")
+	}
+	return line, nil
+}
+
+func installFailureLine(output string) string {
+	for _, line := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
+		if index := strings.Index(line, "install FAILED:"); index >= 0 {
+			return strings.TrimSpace(line[index:])
+		}
+	}
+	return ""
+}
+
+type boundedInstallOutput struct{ tail []byte }
+
+func (output *boundedInstallOutput) Write(data []byte) (int, error) {
+	const limit = 64 << 10
+	written := len(data)
+	output.tail = append(output.tail, data...)
+	if len(output.tail) > limit {
+		output.tail = append([]byte(nil), output.tail[len(output.tail)-limit:]...)
+	}
+	return written, nil
+}
+
+func (output *boundedInstallOutput) String() string { return string(output.tail) }
 
 func (m *Manager) getBounded(ctx context.Context, raw string, max int64, progress func(read, total int64)) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
@@ -729,7 +817,7 @@ func installArguments(application, data, workspace, sessionID string) ([]string,
 	// instance's update would install over the operator's own copy.
 	_ = workspace
 	if sessionID != "" {
-		arguments = append(arguments, "--reopen-session", sessionID)
+		arguments = append(arguments, "--reopen-session", sessionID, "--reopen-window")
 	}
 	return arguments, nil
 }

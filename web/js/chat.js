@@ -153,6 +153,9 @@ function applyReadingSettings() {
 }
 
 subscribe((_state, event) => {
+	if (event.type === "update.changed" && store.update?.error) {
+		localNotice = store.update.error; localAlarm = true;
+	}
 	if (event.type === "attachment.ocr_progress" && activeUpload?.id === event.data?.upload_id) {
 		activeUpload.page = event.data.page; activeUpload.total = event.data.total;
 	}

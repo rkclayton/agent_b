@@ -41,7 +41,7 @@ func TestTheSetupIsToldWhereTheAskingInstanceLives2lh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(withSession, " "), "--reopen-session s29") {
+	if joined := strings.Join(withSession, " "); !strings.Contains(joined, "--reopen-session s29") || !strings.Contains(joined, "--reopen-window") {
 		t.Fatalf("the chat to reopen was dropped: %v", withSession)
 	}
 }

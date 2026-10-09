@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -70,7 +71,7 @@ func TestCheckDownloadVerifyAndLaunch(t *testing.T) {
 	stampedWhileValid := expired.Add(-24 * time.Hour)
 	manager := New(Options{CurrentVersion: "v1.4.0", DataRoot: t.TempDir(), LatestURL: server.URL + "/latest", Client: server.Client(), VerifySignature: func(context.Context, string) error {
 		return acceptAuthenticode(authenticodeEvidence{Status: "Valid", Signer: true, Timestamped: true, SignerNotAfter: expired, TimestampTime: stampedWhileValid})
-	}, Launch: func(path, sessionID string) error { launched, reopened = path, sessionID; return nil }})
+	}, InspectInstaller: func(context.Context, string) (string, error) { return "pinned", nil }, Launch: func(path, sessionID string) error { launched, reopened = path, sessionID; return nil }})
 	if err := manager.Check(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -96,6 +97,39 @@ func TestCheckDownloadVerifyAndLaunch(t *testing.T) {
 	// are the other two.
 	if filepath.Base(path) != setupName || requests.Load() != 4 {
 		t.Fatalf("path=%q requests=%d", path, requests.Load())
+	}
+}
+
+func TestInstallerRefusalPreventsLaunch2t6(t *testing.T) {
+	setup := []byte("test-signed installer")
+	digest := sha256.Sum256(setup)
+	manifest := map[string]any{"version": "v1.5.0", "commit": strings.Repeat("d", 40), "file": setupName, "sha256": hex.EncodeToString(digest[:]), "bytes": len(setup), "exe_identity": map[string]any{"tag": "v1.5.0", "commit": strings.Repeat("d", 40), "dirty": false}}
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest":
+			_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v1.5.0", "assets": []map[string]string{{"name": manifestName, "browser_download_url": server.URL + "/manifest"}, {"name": setupName, "browser_download_url": server.URL + "/setup"}}})
+		case "/manifest":
+			_ = json.NewEncoder(w).Encode(manifest)
+		case "/setup":
+			_, _ = w.Write(setup)
+		}
+	}))
+	defer server.Close()
+	launched := false
+	refusal := `installer signature verification failed: payload signer "CN=Agent_b Disposable Test Signing" is not the pinned AgentB release key`
+	m := New(Options{CurrentVersion: "v1.4.0", DataRoot: t.TempDir(), LatestURL: server.URL + "/latest", Client: server.Client(), VerifySignature: func(context.Context, string) error { return nil }, InspectInstaller: func(context.Context, string) (string, error) { return refusal, errors.New(refusal) }, Launch: func(string, string) error { launched = true; return nil }})
+	if err := m.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Install(context.Background(), "chat-1"); err == nil || err.Error() != refusal {
+		t.Fatalf("refusal=%v", err)
+	}
+	if launched {
+		t.Fatal("the refused installer was launched")
+	}
+	if state := m.State(); state.Error != refusal || state.Installing {
+		t.Fatalf("state=%+v", state)
 	}
 }
 
@@ -271,8 +305,9 @@ func TestTheUpdateIsASequenceOfStages2nh(t *testing.T) {
 	stages := []string{}
 	determinate := int64(0)
 	manager := New(Options{CurrentVersion: "v1.30.0", DataRoot: t.TempDir(), LatestURL: server.URL + "/latest", Client: server.Client(),
-		VerifySignature: func(context.Context, string) error { return nil },
-		Launch:          func(string, string) error { return nil },
+		VerifySignature:  func(context.Context, string) error { return nil },
+		InspectInstaller: func(context.Context, string) (string, error) { return "pinned", nil },
+		Launch:           func(string, string) error { return nil },
 		Changed: func(state State) {
 			mu.Lock()
 			defer mu.Unlock()

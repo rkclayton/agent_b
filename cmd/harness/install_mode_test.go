@@ -350,6 +350,22 @@ func TestInstallLaunchPathsComeFromInstallerArguments(t *testing.T) {
 	}
 }
 
+func TestOnlyAnAppStartedInstallReturnsInAWindow2t6(t *testing.T) {
+	withChat := installedLaunchArguments(`C:\app`, `C:\data`, "chat-7", true)
+	joined := strings.Join(withChat, " ")
+	if strings.Contains(joined, "-NoBrowser") || !strings.Contains(joined, "-SessionID chat-7") {
+		t.Fatalf("app update arguments %q", joined)
+	}
+	withoutChat := strings.Join(installedLaunchArguments(`C:\app`, `C:\data`, "", false), " ")
+	if !strings.Contains(withoutChat, "-NoBrowser") || strings.Contains(withoutChat, "-SessionID") {
+		t.Fatalf("other install arguments %q", withoutChat)
+	}
+	commandLine := strings.Join(installedLaunchArguments(`C:\app`, `C:\data`, "chat-7", false), " ")
+	if !strings.Contains(commandLine, "-NoBrowser") {
+		t.Fatalf("command-line install opened a window: %q", commandLine)
+	}
+}
+
 func TestInstallFailureRestartDetailsComeFromTranscript(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "installer.log")
 	if err := os.WriteFile(path, []byte("ROLLBACK: restored files\nRESTART VERSION: v1.6.1\nRESTART REASON: verification failure\n"), 0o600); err != nil {

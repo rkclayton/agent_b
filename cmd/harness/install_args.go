@@ -16,20 +16,21 @@ import (
 
 // installModeFlags are the only flags this process interprets.
 var installModeFlags = map[string]bool{
-	"install":        true,
-	"quiet":          true,
-	"install-source": true,
-	"install-data":   true,
-	"all-users":      true,
-	"reopen-session": true,
+	"install":           true,
+	"quiet":             true,
+	"install-source":    true,
+	"install-data":      true,
+	"all-users":         true,
+	"reopen-session":    true,
+	"reopen-window":     false,
 	"inspect-installer": true,
-	"NoStart":        true,
-	"version":        true,
-	"config":         true,
-	"app-root":       true,
-	"data-root":      true,
-	"replay":         true,
-	"startup-log":    true,
+	"NoStart":           true,
+	"version":           true,
+	"config":            true,
+	"app-root":          true,
+	"data-root":         true,
+	"replay":            true,
+	"startup-log":       true,
 	// Item 2hc (v1.3.0/W2): the host window. This map is the only list of
 	// flags the process interprets, so a flag missing here is silently dropped
 	// before flag.Parse ever sees it - which is exactly how -window first
@@ -43,6 +44,7 @@ var installModeFlags = map[string]bool{
 var setupArguments = map[string]bool{
 	"install": false, "quiet": false, "install-source": true, "install-data": true,
 	"all-users": false, "reopen-session": true, "NoStart": false,
+	"reopen-window":   false,
 	"SourceDirectory": true, "ApplicationDirectory": true, "DataDirectory": true,
 	"WorkspaceDirectory": true, "StartMenuDirectory": true, "SendToDirectory": true,
 	"UninstallRegistryPath": true, "OperatorSid": true, "OperatorLocalAppData": true,

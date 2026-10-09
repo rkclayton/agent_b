@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"harness/internal/config"
 	"net/http"
 	"net/url"
 	"os"
@@ -168,6 +169,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		// Item 2ow: a stolen paired phone can choose between connections, but it
 		// never receives credentials, paths, prompts, or the rest of local config.
 		snapshot["connections"] = s.phoneConnections()
+		snapshot["agents"] = s.phoneAgents()
 		delete(snapshot, "config")
 	}
 	// Item 2q7 (b): the state answer's size and time, counted as it is written.
@@ -176,6 +178,21 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	if s.app != nil {
 		s.app.NoteState(counted.bytes, time.Since(started))
 	}
+}
+
+func (s *Server) phoneAgents() []map[string]any {
+	cfg := s.ConfigSnapshot()
+	result := make([]map[string]any, 0, len(cfg.Agents))
+	for _, agent := range cfg.Agents {
+		model := agent.Model
+		if model == "" {
+			if connection, ok := cfg.Connection(agent.B); ok {
+				model = connection.Model
+			}
+		}
+		result = append(result, map[string]any{"id": config.AgentID(agent.Name), "name": agent.Name, "connection_id": agent.B, "model": model})
+	}
+	return result
 }
 
 type countingWriter struct {

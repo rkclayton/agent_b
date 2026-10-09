@@ -51,9 +51,9 @@ test("Open chat list excludes durable closed sessions", () => {
   assert.deepEqual(openSessions({ s2: idle, s3: { ...idle, id: "s3", closed: true } }).map((session) => session.id), ["s2"]);
 });
 
-test("Assistant labels use only role and the header carries only role and connection", () => {
+test("Assistant labels use only role and the header names the selected agent", () => {
   assert.equal(agentAuthor(idle), "agent_b");
   assert.equal(agentAuthor(idle, "c"), "agent_c");
-  assert.equal(sessionTitle(idle), "Acme LAB", "item 2eo: the header reads the connection name only");
-  assert.equal(sessionTitle({ ...idle, role: "d", plan_name: "Release map", workspace: "C:\\code\\acme" }), "Acme LAB");
+  assert.equal(sessionTitle(idle), "Coder");
+  assert.equal(sessionTitle({ ...idle, role: "d", plan_name: "Release map", workspace: "C:\\code\\acme" }), "Coder");
 });

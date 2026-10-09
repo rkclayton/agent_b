@@ -150,6 +150,22 @@ func TestPickDropsEverythingFromADroppedType2jg(t *testing.T) {
 	}
 }
 
+func TestAgentDefinitionNeverLeavesInTelemetry2s6(t *testing.T) {
+	private := map[string]any{"agent_id": "helper", "agent_name": "Helper", "prompt": "private words", "opening_prompt": "private words", "toolset": []string{"shell"}}
+	for _, eventType := range ClassifiedTypes() {
+		class, _ := Classify(eventType)
+		if !class.Sent {
+			continue
+		}
+		picked := Pick(class, private)
+		for field := range private {
+			if _, present := picked[field]; present {
+				t.Errorf("%s.%s exposed an agent definition", eventType, field)
+			}
+		}
+	}
+}
+
 func TestHeaderAndHermesEnvelopesAreCountsAndClosed2qr(t *testing.T) {
 	header, ok := Classify("header.state")
 	if !ok || strings.Join(header.Fields, ",") != "state,reason_code" {

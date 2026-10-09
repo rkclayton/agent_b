@@ -93,7 +93,7 @@ const sectionLabels = [
   ["activity", "Activity"],
   ["plan", "Plan"],
   ["connections", "Connections"],
-  ["profiles", "Profiles"],
+  ["profiles", "Users"],
   ["chats", "Chats"],
   ["notifications", "Notifications"],
   ["shell", "Security"],
@@ -594,7 +594,7 @@ function navSections() {
 
 function group(name, content, section = "") {
   const scoped = perProfileSections.has(section)
-    ? `<p class="settings-scope-note">These apply to the <strong>${html(store.profiles?.active || store.config.profiles?.active || "current")}</strong> profile. Another profile keeps its own.</p>`
+    ? `<p class="settings-scope-note">These apply to the <strong>${html(store.profiles?.active || store.config.profiles?.active || "current")}</strong> user. Another user keeps its own.</p>`
     : "";
   const groupKeys = section === "connections" ? ["connections"]
     : section === "profiles" ? ["profiles"]

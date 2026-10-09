@@ -346,10 +346,10 @@ func TestOnlyPublishedChatRoutesWereAddedAndTheRestStayRefused2my(t *testing.T) 
 		}
 	}
 
-	// 2ow adds only connection_id. Role/source copying and agent selection remain
-	// unavailable, while the safe connection sheet is exact.
+	// 2ow added connection_id and 2s6 adds agent_id. Role/source copying remains
+	// unavailable, while both safe selection sheets are exact.
 	for _, wanted := range []string{
-		"{label?,connection_id?}", "It still cannot carry `role` or", "`source_session_id`",
+		"{label?,agent_id?,connection_id?}", "It still cannot carry `role` or", "`source_session_id`",
 		"`{id,label,model,host,vision,docs,tools,ctx}`", "no URL path, credential, API key",
 	} {
 		if !strings.Contains(document, wanted) {
@@ -381,6 +381,9 @@ func TestOnlyPublishedChatRoutesWereAddedAndTheRestStayRefused2my(t *testing.T) 
 	}
 	if !strings.Contains(document, "connection selection added 2026-09-30") {
 		t.Error("the added route is not dated in the table")
+	}
+	if !strings.Contains(document, "agent selection added 2026-10-09") {
+		t.Error("the agent addition is not dated in the table")
 	}
 	if !strings.Contains(document, "**Version stays 1.**") {
 		t.Error("the document does not say why the version is unchanged")

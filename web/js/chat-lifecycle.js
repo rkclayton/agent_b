@@ -11,8 +11,7 @@ export function firstUserLine(session) {
 
 export function sessionTitle(session) {
   if (!session) return "";
-  // Item 2eo: "lets leave just the active model name" — the tab already carries the role.
-  return session.b_connection || session.connection_id || "connection";
+  return session.agent_name || session.agent_id || "agent";
 }
 
 export function agentAuthor(session, role = "b") {

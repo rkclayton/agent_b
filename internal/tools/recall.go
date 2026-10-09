@@ -25,7 +25,7 @@ func (r *Recall) Call(_ context.Context, s *session.Session, _ map[string]any) (
 	if err != nil {
 		return "", err
 	}
-	agent, err := r.memory.ReadAgent(s.AgentID)
+	agent, err := r.memory.ReadForAgent(s.AgentID)
 	if err != nil {
 		return "", err
 	}

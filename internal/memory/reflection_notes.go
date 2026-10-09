@@ -280,13 +280,13 @@ func (m *Manager) ConfirmNote(path, text, editReplacement string) (bool, error) 
 // agent layer's. Keying on the path means one implementation serves every layer, and
 // these three wrappers are what the agent layer's own tests exercise.
 func (m *Manager) RemovedAgent(agentID string) ([]Note, error) {
-	return m.RemovedNotes(m.AgentPath(agentID))
+	return m.RemovedNotes(m.TargetPath(agentID))
 }
 func (m *Manager) RestoreAgent(agentID, text string) (bool, error) {
-	return m.RestoreNote(m.AgentPath(agentID), text)
+	return m.RestoreNote(m.TargetPath(agentID), text)
 }
 func (m *Manager) ConfirmAgent(agentID, text, editReplacement string) (bool, error) {
-	return m.ConfirmNote(m.AgentPath(agentID), text, editReplacement)
+	return m.ConfirmNote(m.TargetPath(agentID), text, editReplacement)
 }
 
 // RemoveNote is exact-note removal for any layer, named by its path. The agent layer

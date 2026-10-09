@@ -79,7 +79,7 @@ test("Setup and Connections share the independent model picker and read-only Tes
   expect(await hash(join(harness.dataRoot, "harness.json"))).toBe(before);
   const chat = await harness.context.newPage();
   await chat.goto(`${harness.base}/chat`);
-  await expect(chat.locator(".shell-session-title")).toHaveText("UI");
+  await expect(chat.locator(".shell-session-title")).toHaveText("agent_b");
   await chat.screenshot({ path: join(repo, "test-results", "2qr-model-selector.png") });
   await chat.close();
   await setup.close();

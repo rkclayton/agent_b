@@ -367,6 +367,34 @@ func (m *Manager) Clear(id string) error {
 	m.ledgers[id] = value
 	return m.save(value)
 }
+
+func (m *Manager) Delete(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.ledgers, id)
+	err := os.Remove(m.path(id))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func (m *Manager) Rename(from, to string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	value := m.load(from)
+	value.AgentID = to
+	delete(m.ledgers, from)
+	m.ledgers[to] = value
+	if err := m.save(value); err != nil {
+		return err
+	}
+	err := os.Remove(m.path(from))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
 func Percentile(values []int64, percentile float64) int64 {
 	if len(values) == 0 {
 		return 0

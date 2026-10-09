@@ -8,7 +8,8 @@ import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 const [exe, evidenceRoot, production = "http://127.0.0.1:8790"] = process.argv.slice(2);
 assert.ok(exe && evidenceRoot, "usage: node tests/settings-visual-acceptance.mjs EXE EVIDENCE [PRODUCTION]");
 
-const expected = ["Agents", "Activity", "Plan", "Connections", "Profiles", "Chats", "Notifications", "Security", "About"];
+const expectedBefore = ["Agents", "Activity", "Plan", "Connections", "Profiles", "Chats", "Notifications", "Security", "About"];
+const expectedAfter = ["Agents", "Activity", "Plan", "Connections", "Users", "Chats", "Notifications", "Security", "About"];
 const safeName = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 const temp = await mkdtemp(join(tmpdir(), "agentb-settings-visual-"));
 const report = { production, candidate: "", captures: [], geometry: [] };
@@ -49,11 +50,13 @@ async function captureSet(context, base, phase, sections) {
         return {
           documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           navOverflow: document.querySelector(".settings-nav").scrollWidth - document.querySelector(".settings-nav").clientWidth,
+          agentOverflow: document.querySelector("#panel-roles")?.scrollWidth - document.querySelector("#panel-roles")?.clientWidth || 0,
           rows,
           subheads: [...document.querySelectorAll(".settings-subhead")].map((node) => ({ text: node.innerText.trim(), title: node.title })),
         };
       });
       assert.ok(geometry.documentOverflow <= 0, `${phase}/${viewport.name}/${section}: document overflows`);
+      if (phase === "after" && section === "Agents") assert.ok(geometry.agentOverflow <= 0, `${phase}/${viewport.name}/${section}: agent editor overflows`);
       for (const row of geometry.rows) {
         if (phase !== "after") continue;
         assert.ok(row.label && row.control, `${phase}/${viewport.name}/${section}: row grammar`);
@@ -73,9 +76,9 @@ try {
     throw error;
   });
   report.candidate = candidate.base;
-  await captureSet(candidate.context, candidate.base, "after", expected);
+  await captureSet(candidate.context, candidate.base, "after", expectedAfter);
   const productionContext = await candidate.browser.newContext();
-  await captureSet(productionContext, production, "before", expected);
+  await captureSet(productionContext, production, "before", expectedBefore);
   await productionContext.close();
   await mkdir(resolve(evidenceRoot), { recursive: true });
   await writeFile(resolve(evidenceRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`);

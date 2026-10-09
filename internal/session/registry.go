@@ -167,7 +167,10 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 	if connectionID == "" {
 		connectionID = agent.ConnectionFor(role)
 	}
-	connection, connectionFound := r.connections(connectionID)
+	connection, connectionFound := r.agentConnection(saved.AgentID, role)
+	if saved.ConnectionID != "" && saved.ConnectionID != agent.ConnectionFor(role) {
+		connection, connectionFound = r.connections(connectionID)
+	}
 	connectionRunnable, connectionReason := restoredConnectionRunnable(connectionID, connectionFound, saved.Runnable, saved.NotRunnableReason)
 	planID, planDir, planRepo := "", "", ""
 	if (role == "d" || role == "c") && saved.PlanID != "" {
@@ -218,8 +221,8 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		connectionLabel = connection.Label
 	}
 	s := &Session{
-		ID: saved.ID, Label: saved.Label, AgentID: saved.AgentID, ConnectionID: connectionID,
-		AgentName: saved.AgentName, BConnection: connectionLabel, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: saved.NetworkBoundary, NetworkBoundarySet: saved.NetworkBoundarySet, MediaCapabilities: saved.MediaCapabilities, MediaCapabilitiesSet: saved.MediaCapabilitiesSet,
+		ID: saved.ID, Label: saved.Label, AgentID: config.AgentID(agent.Name), ConnectionID: connectionID,
+		AgentName: saved.AgentName, BConnection: connectionLabel, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.Prompt, NetworkBoundary: saved.NetworkBoundary, NetworkBoundarySet: saved.NetworkBoundarySet, MediaCapabilities: saved.MediaCapabilities, MediaCapabilitiesSet: saved.MediaCapabilitiesSet,
 		Workspace: workspace, WorkspaceMissing: workspaceMissing, Scratch: saved.Scratch,
 		ProjectBlock: saved.ProjectContent, ProjectFiles: append([]string(nil), saved.ProjectFiles...), ProjectNotes: append([]string(nil), saved.ProjectNotes...),
 		PendingRepoPolicy: clonePolicyState(saved.PendingRepoPolicy), RepoPolicy: clonePolicyState(saved.RepoPolicy),
@@ -308,7 +311,10 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	if role == "d" && connectionID == "" {
 		return nil, fmt.Errorf("agent_d is not assigned")
 	}
-	connection, ok := r.connections(connectionID)
+	connection, ok := r.config().AgentConnection(agentID, role)
+	if !ok {
+		connection, ok = r.connections(connectionID)
+	}
 	if !ok {
 		return nil, fmt.Errorf("agent_id: %s connection %s was not found", role, connectionID)
 	}
@@ -440,7 +446,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 	}
 	settings := r.config()
-	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.PromptAddendum, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.Prompt, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		session.ProjectTouch = r.projectTouch(session)
 	}
@@ -723,6 +729,17 @@ func (r *Registry) resolveAgent(id string) (*config.Agent, bool) {
 	}
 	return nil, false
 }
+
+func (r *Registry) agentConnection(agentID, role string) (*config.Connection, bool) {
+	if connection, ok := r.config().AgentConnection(agentID, role); ok {
+		return connection, true
+	}
+	agent, ok := r.resolveAgent(agentID)
+	if !ok {
+		return nil, false
+	}
+	return r.connections(agent.ConnectionFor(role))
+}
 func (r *Registry) List() []*Session {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -860,11 +877,12 @@ func (r *Registry) SetAgent(id, agentID string) error {
 		return fmt.Errorf("agent_id: unknown agent %s", agentID)
 	}
 	snapshot := s.Snapshot()
+	previousAgent := snapshot.AgentName
 	connectionID := agent.ConnectionFor(snapshot.Role)
 	if snapshot.Role == "d" && connectionID == "" {
 		return fmt.Errorf("agent_id: agent_d is not assigned")
 	}
-	connection, ok := r.connections(connectionID)
+	connection, ok := r.agentConnection(config.AgentID(agent.Name), snapshot.Role)
 	if !ok {
 		return fmt.Errorf("agent_id: %s connection %s was not found", snapshot.Role, connectionID)
 	}
@@ -913,12 +931,12 @@ func (r *Registry) SetAgent(id, agentID string) error {
 	}
 	s.mu.Lock()
 	s.AgentID, s.ConnectionID, s.AgentName, s.BConnection = agentID, connectionID, agent.Name, connection.Label
-	s.PromptAddendum, s.ToolsEnabled = agent.PromptAddendum, enabled
+	s.PromptAddendum, s.ToolsEnabled = agent.Prompt, enabled
 	s.MediaCapabilities, s.MediaCapabilitiesSet = MediaCapabilities(connection, enabled), true
 	s.Runnable, s.NotRunnableReason = true, ""
 	s.MemoryBlock, s.MemoryPath, s.AgentMemoryBlock, s.AgentMemoryPath, s.Budget = memoryBlock, memoryPath, agentMemoryBlock, agentMemoryPath, initialBudget(connection)
 	s.mu.Unlock()
-	r.bus.Publish(events.New(events.SessionUpdated, id, "", map[string]any{"session_id": id, "agent_id": agentID, "connection_id": connectionID, "agent_name": agent.Name, "b_connection": connection.Label, "runnable": true, "not_runnable_reason": "", "memory_path": memoryPath, "memory_content": memoryBlock}))
+	r.bus.Publish(events.New(events.SessionUpdated, id, "", map[string]any{"session_id": id, "agent_id": agentID, "connection_id": connectionID, "agent_name": agent.Name, "b_connection": connection.Label, "runnable": true, "not_runnable_reason": "", "memory_path": memoryPath, "memory_content": memoryBlock, "notice": "Agent changed from " + previousAgent + " to " + agent.Name + "."}))
 	return nil
 }
 
@@ -936,7 +954,7 @@ func (r *Registry) ApplyAgentBinding(agentID string) error {
 			return fmt.Errorf("agent_id: session %s is running", snapshot.ID)
 		}
 		connectionID := agent.ConnectionFor(snapshot.Role)
-		connection, ok := r.connections(connectionID)
+		connection, ok := r.agentConnection(agentID, snapshot.Role)
 		if !ok {
 			return fmt.Errorf("agent_id: %s connection %s was not found", snapshot.Role, connectionID)
 		}

@@ -19,14 +19,13 @@ test("Lifetime rows expose all six per-brief reliability fields", () => {
   assert.equal(rows.get("failure attribution model | harness | brief"), "1 | 2 | 3");
 });
 
-test("Console body exposes selectors tools lifetime instruments and maintenance together", () => {
+test("Agents body exposes its editor tools lifetime instruments and maintenance together", () => {
   const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
   const script = fs.readFileSync(new URL("app.js", import.meta.url), "utf8");
   // Item 2iq (a): panel-agent-vision is built per row now, beside the connection
   // it describes, so it is no longer a fixed element in the markup.
   for (const value of ["panel-agent", "panel-roles", "panel-tools", "panel-stats", "clear-stats", "flush-memory", "panel-live", "panel-live-compactions", "panel-live-content", "panel-maintenance-title"]) assert.match(html, new RegExp(value));
-  assert.match(script, /readsImages \? "reads" : "does-not-read"/);
-  assert.match(script, /`reads images: \$\{readsImages \? "yes" : "no"\}`/);
+  for (const field of ["name", "connection", "model", "prompt", "private"]) assert.match(script, new RegExp(`data\\.field|data-field|dataset\\.field`));
   assert.doesNotMatch(html + script, /panel-closed|renderClosed|deleteChat/);
   // Item 2ip (b): the apparatus shows while a run is live, or when the operator
   // opens it -- not merely because a chat is selected.
@@ -34,7 +33,7 @@ test("Console body exposes selectors tools lifetime instruments and maintenance 
   assert.match(script, /liveIdle.hidden = !hasSelectedChat/);
   assert.doesNotMatch(script, /lifetime\.hidden|live\.hidden/);
   assert.match(script, /patchEndedRun/);
-  assert.match(script, /if \(next\) setActive\(next\.id\)/);
+  assert.match(script, /async function editAgent/);
 });
 
 // Item 2ji (c): lifetime beside the last twenty runs. One column cannot show that

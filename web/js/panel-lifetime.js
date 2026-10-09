@@ -1,5 +1,6 @@
 export function agentKey(agent) {
-  return String(agent?.name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const name = String(agent?.name || "").trim().toLowerCase();
+  return name === "agent_b" ? name : name.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
 export function ratio(part, whole) {

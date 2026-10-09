@@ -66,6 +66,10 @@ type Noter interface {
 	Note(workspace, note string) (string, bool, error)
 }
 
+type SessionNoter interface {
+	NoteSummary(Summary, string) (string, bool, error)
+}
+
 // NoteProvenance marks every note reflection writes. A note is read back into
 // later prompts for that folder, so a reader — operator or model — is told
 // where it came from and that nobody confirmed it (v1.1.0/W6 cold review).
@@ -108,7 +112,13 @@ func WriteNotes(noter Noter, summary Summary, limit int) []NoteResult {
 			break
 		}
 		note = noteLine(note, summary.RunID)
-		_, duplicate, err := noter.Note(summary.Workspace, note)
+		var duplicate bool
+		var err error
+		if scoped, ok := noter.(SessionNoter); ok {
+			_, duplicate, err = scoped.NoteSummary(summary, note)
+		} else {
+			_, duplicate, err = noter.Note(summary.Workspace, note)
+		}
 		result := NoteResult{Workspace: summary.Workspace, Note: note, Written: err == nil && !duplicate, Duplicate: duplicate}
 		if err != nil {
 			result.Error = err.Error()

@@ -22,6 +22,38 @@ func testManager(t *testing.T, baseDir, workspace string) *Manager {
 	})
 }
 
+func TestSharedAndPrivateAgentMemory2s6(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Memory.Dir = "memory"
+	cfg.Agents = append(cfg.Agents, config.Agent{Name: "private", B: "local", Toolset: config.FullToolset(), Private: true}, config.Agent{Name: "other", B: "local", Toolset: config.FullToolset()})
+	manager := New(root, func() config.Config { return cfg }, nil)
+	if _, _, err := manager.NoteAgent("agent_b", "shared preference"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := manager.NoteAgent("private", "private preference"); err != nil {
+		t.Fatal(err)
+	}
+	private, _, err := manager.LoadAgent(context.Background(), "private", "")
+	if err != nil || !strings.Contains(private, "shared preference") || !strings.Contains(private, "private preference") {
+		t.Fatalf("private load=%q %v", private, err)
+	}
+	other, _, err := manager.LoadAgent(context.Background(), "other", "")
+	if err != nil || !strings.Contains(other, "shared preference") || strings.Contains(other, "private preference") {
+		t.Fatalf("other load=%q %v", other, err)
+	}
+	cfg.Agents[1].Private = false
+	if _, err := os.Stat(manager.AgentPath("private")); err != nil {
+		t.Fatal("unchecking moved private notes")
+	}
+	if err := manager.DeleteAgent("private"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(manager.AgentPath("private")); !os.IsNotExist(err) {
+		t.Fatalf("private file survived delete: %v", err)
+	}
+}
+
 func TestCanonicalWorkspaceMemoryKeyAndLegacyDefaultMigration(t *testing.T) {
 	baseDir := t.TempDir()
 	workspace := filepath.Join(baseDir, "MixedCaseWorkspace")
@@ -152,7 +184,7 @@ func TestACorrectionDifferingOnlyInCaseOrSpacingIsNotWrittenTwice(t *testing.T) 
 			t.Errorf("a second copy was written for %q", variant)
 		}
 	}
-	notes, err := manager.Notes(manager.AgentPath("coder"))
+	notes, err := manager.Notes(manager.SharedPath())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +231,7 @@ func TestConfirmingAReflectionNoteTakesTheWordUnconfirmedOutOfThePrompt(t *testi
 	if !strings.Contains(after, "PowerShell 7 is the shell here") {
 		t.Errorf("confirming lost the note: %q", after)
 	}
-	notes, err := manager.Notes(manager.AgentPath("coder"))
+	notes, err := manager.Notes(manager.SharedPath())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +247,7 @@ func TestConfirmingAReflectionNoteTakesTheWordUnconfirmedOutOfThePrompt(t *testi
 	if edited, err := manager.ConfirmAgent("coder", "PowerShell 7 is the shell here", "PowerShell 7 is the shell, and 5.1 is rewritten"); err != nil || !edited {
 		t.Fatalf("edit reported %v, %v", edited, err)
 	}
-	notes, _ = manager.Notes(manager.AgentPath("coder"))
+	notes, _ = manager.Notes(manager.SharedPath())
 	if len(notes) != 1 || notes[0].Text != "PowerShell 7 is the shell, and 5.1 is rewritten" {
 		t.Fatalf("the edit did not take: %+v", notes)
 	}

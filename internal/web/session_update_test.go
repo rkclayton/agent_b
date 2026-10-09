@@ -69,7 +69,7 @@ func TestSessionAgentReassignment(t *testing.T) {
 
 	item.SetRun(session.RunState{Status: "running"})
 	response = postSessionUpdate(t, server, `{"agent_id":"first"}`)
-	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "session is running") {
+	if response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"status":"pending"`) {
 		t.Fatalf("running status=%d body=%s", response.Code, response.Body)
 	}
 	if snapshot := item.Snapshot(); snapshot.ConnectionID != "second" {

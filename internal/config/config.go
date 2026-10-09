@@ -73,17 +73,38 @@ type Roles struct {
 }
 
 type Agent struct {
-	Name           string   `json:"name"`
-	B              string   `json:"b"`
-	C              string   `json:"c,omitempty"`
-	D              string   `json:"d,omitempty"`
-	Toolset        []string `json:"toolset"`
-	PromptAddendum string   `json:"prompt_addendum,omitempty"`
+	Name    string   `json:"name"`
+	B       string   `json:"b"`
+	C       string   `json:"c,omitempty"`
+	D       string   `json:"d,omitempty"`
+	Toolset []string `json:"toolset"`
+	Model   string   `json:"model,omitempty"`
+	Prompt  string   `json:"prompt,omitempty"`
+	Private bool     `json:"private,omitempty"`
+}
+
+func (a *Agent) UnmarshalJSON(data []byte) error {
+	type plain Agent
+	var value struct {
+		plain
+		PromptAddendum string `json:"prompt_addendum"`
+	}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*a = Agent(value.plain)
+	if a.Prompt == "" {
+		a.Prompt = value.PromptAddendum
+	}
+	return nil
 }
 
 var agentIDCleaner = regexp.MustCompile(`[^a-z0-9]+`)
 
 func AgentID(name string) string {
+	if strings.EqualFold(strings.TrimSpace(name), "agent_b") {
+		return "agent_b"
+	}
 	id := agentIDCleaner.ReplaceAllString(strings.ToLower(strings.TrimSpace(name)), "-")
 	return strings.Trim(id, "-")
 }
@@ -747,7 +768,7 @@ func (d *Deliver) UnmarshalJSON(data []byte) error {
 }
 
 const (
-	CurrentConfigVersion = 13
+	CurrentConfigVersion = 14
 	DefaultReserveOutput = 10240
 	// MaxProposedReserveOutput caps what a probe proposes. Item 2l9 (c).
 	MaxProposedReserveOutput = 32768
@@ -959,7 +980,7 @@ func Defaults(workspace string) Config {
 	return Config{
 		ConfigVersion: CurrentConfigVersion,
 		Listen:        "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
-		Connections: []Connection{connection}, Agents: []Agent{{Name: connection.Label, B: "local", Toolset: FullToolset()}},
+		Connections: []Connection{connection}, Agents: []Agent{{Name: "agent_b", B: "local", Toolset: FullToolset()}},
 		Services: map[string]Service{},
 		Sandbox:  Sandbox{Enabled: true, initialized: true},
 		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 4}, Cron: Cron{MaxRunMinutes: 20}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .80, SummaryPct: .90, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),
@@ -1025,7 +1046,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		return nil, false, created, fmt.Errorf("run.max_tool_calls: zero is not unlimited; omit it for the default %d or use a positive backstop", DefaultMaxToolCalls)
 	}
 	unstamped := metadata.ConfigVersion == nil
-	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != 6 && *metadata.ConfigVersion != 7 && *metadata.ConfigVersion != 8 && *metadata.ConfigVersion != 9 && *metadata.ConfigVersion != 10 && *metadata.ConfigVersion != 11 && *metadata.ConfigVersion != 12 && *metadata.ConfigVersion != CurrentConfigVersion {
+	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != 6 && *metadata.ConfigVersion != 7 && *metadata.ConfigVersion != 8 && *metadata.ConfigVersion != 9 && *metadata.ConfigVersion != 10 && *metadata.ConfigVersion != 11 && *metadata.ConfigVersion != 12 && *metadata.ConfigVersion != 13 && *metadata.ConfigVersion != CurrentConfigVersion {
 		return nil, false, created, fmt.Errorf("config_version: unsupported value %d (current %d)", *metadata.ConfigVersion, CurrentConfigVersion)
 	}
 	migrated, data, err := migrateV1(data)
@@ -1089,6 +1110,10 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	cfg.Shell.OperatorContext = false
 	cfg.Shell.OperatorContextExpiresAt = ""
 	applyDefaults(&cfg)
+	builtInAgentMigrated := version < 14 && len(cfg.Agents) > 0 && AgentID(cfg.Agents[0].Name) != "agent_b"
+	if builtInAgentMigrated {
+		cfg.Agents[0].Name = "agent_b"
+	}
 	// Item 13 (v1.2.5): a configuration written before the merge names the two
 	// tools that became `search`. It meant "this agent may search", so it is
 	// read that way rather than refused as unknown.
@@ -1105,7 +1130,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if err := ResolveConnectionCredentials(&cfg, dataRoot); err != nil {
 		return nil, false, created, err
 	}
-	if migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || unstamped {
+	if migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || builtInAgentMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || unstamped {
 		if err := cfg.Save(path); err != nil {
 			return nil, false, created, err
 		}
@@ -1885,6 +1910,9 @@ func (a Agent) ConnectionFor(role string) string {
 }
 
 func (c Config) Agent(id string) (*Agent, bool) {
+	if id == "agent-b" {
+		id = "agent_b"
+	}
 	for i := range c.Agents {
 		if AgentID(c.Agents[i].Name) == id {
 			agent := c.Agents[i]
@@ -1892,7 +1920,30 @@ func (c Config) Agent(id string) (*Agent, bool) {
 			return &agent, true
 		}
 	}
+	for i := range c.Agents {
+		if c.Agents[i].B == id {
+			agent := c.Agents[i]
+			agent.Toolset = append([]string(nil), agent.Toolset...)
+			return &agent, true
+		}
+	}
 	return nil, false
+}
+
+// AgentConnection resolves the connection and model an agent uses for a role.
+func (c Config) AgentConnection(id, role string) (*Connection, bool) {
+	agent, ok := c.Agent(id)
+	if !ok {
+		return nil, false
+	}
+	connection, ok := c.Connection(agent.ConnectionFor(role))
+	if !ok {
+		return nil, false
+	}
+	if model := strings.TrimSpace(agent.Model); model != "" {
+		connection.SelectModel(model, 0)
+	}
+	return connection, true
 }
 
 func (c Config) DefaultAgentID() string {

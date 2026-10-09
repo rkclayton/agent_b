@@ -29,7 +29,9 @@ type Manager struct {
 }
 
 func New(baseDir string, cfg func() config.Config, count Counter) *Manager {
-	return &Manager{baseDir: baseDir, cfg: cfg, count: count}
+	manager := &Manager{baseDir: baseDir, cfg: cfg, count: count}
+	_ = manager.migrateBuiltInMemory()
+	return manager
 }
 func (m *Manager) SetBaseDir(baseDir string) {
 	m.baseMu.Lock()
@@ -125,6 +127,13 @@ func EnsureRepoNotesIgnored(root string) error {
 func (m *Manager) AgentPath(agentID string) string {
 	return filepath.Join(m.Dir(), "agent-"+config.AgentID(agentID)+".md")
 }
+func (m *Manager) SharedPath() string { return filepath.Join(m.Dir(), "user.md") }
+func (m *Manager) TargetPath(agentID string) string {
+	if agent, ok := m.cfg().Agent(agentID); ok && agent.Private && config.AgentID(agent.Name) != "agent_b" {
+		return m.AgentPath(agentID)
+	}
+	return m.SharedPath()
+}
 func (m *Manager) Load(ctx context.Context, workspace, connectionID string) (string, string, error) {
 	path := m.Path(workspace)
 	if info, err := os.Stat(path); err == nil && strings.EqualFold(filepath.Base(path), "NOTES.md") && info.Size() > 8*1024 {
@@ -133,8 +142,78 @@ func (m *Manager) Load(ctx context.Context, workspace, connectionID string) (str
 	return m.load(ctx, path, connectionID, "Notes from earlier sessions in this folder:")
 }
 func (m *Manager) LoadAgent(ctx context.Context, agentID, connectionID string) (string, string, error) {
-	path := m.AgentPath(agentID)
-	return m.load(ctx, path, connectionID, "Notes about how this agent works with the user:")
+	_ = m.migrateBuiltInMemory()
+	shared, path, err := m.load(ctx, m.SharedPath(), connectionID, "Notes about the user:")
+	if err != nil {
+		return "", path, err
+	}
+	agent, private := m.cfg().Agent(agentID)
+	if !private || !agent.Private || config.AgentID(agent.Name) == "agent_b" {
+		return shared, path, nil
+	}
+	own, _, err := m.load(ctx, m.AgentPath(agentID), connectionID, "Private notes for "+agent.Name+":")
+	if err != nil || own == "" {
+		return shared, path, err
+	}
+	return strings.TrimSpace(shared + "\n\n" + own), path, nil
+}
+
+func (m *Manager) migrateBuiltInMemory() error {
+	shared, marker := m.SharedPath(), filepath.Join(m.Dir(), ".user-memory-v1")
+	if _, err := os.Stat(marker); err == nil {
+		return nil
+	}
+	legacy, err := filepath.Glob(filepath.Join(m.Dir(), "agent-*.md"))
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(shared), 0o700); err != nil {
+		return err
+	}
+	existing, readErr := os.ReadFile(shared)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return readErr
+	}
+	seen := map[string]bool{}
+	for _, line := range strings.Split(normalize(string(existing)), "\n") {
+		seen[strings.TrimSpace(line)] = true
+	}
+	file, err := os.OpenFile(shared, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	for _, old := range legacy {
+		data, readErr := os.ReadFile(old)
+		if readErr != nil {
+			err = readErr
+			break
+		}
+		for _, line := range strings.Split(normalize(string(data)), "\n") {
+			if line = strings.TrimSpace(line); line != "" && !seen[line] {
+				_, err = file.WriteString(line + "\n")
+				seen[line] = true
+				if err != nil {
+					break
+				}
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	closeErr := file.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	for _, old := range legacy {
+		if err := os.Remove(old); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(marker, []byte("migrated\n"), 0o600)
 }
 func (m *Manager) load(ctx context.Context, path, connectionID, heading string) (string, string, error) {
 	if !m.cfg().Memory.Enabled {
@@ -219,7 +298,22 @@ func (m *Manager) Read(workspace string) (string, error) {
 	return m.readPath(m.Path(workspace))
 }
 func (m *Manager) ReadAgent(agentID string) (string, error) {
-	return m.readPath(m.AgentPath(agentID))
+	return m.readPath(m.TargetPath(agentID))
+}
+func (m *Manager) ReadForAgent(agentID string) (string, error) {
+	shared, err := m.readPath(m.SharedPath())
+	if err != nil {
+		return "", err
+	}
+	agent, ok := m.cfg().Agent(agentID)
+	if !ok || !agent.Private || config.AgentID(agent.Name) == "agent_b" {
+		return shared, nil
+	}
+	private, err := m.readPath(m.AgentPath(agentID))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(shared + "\n" + private), nil
 }
 func (m *Manager) readPath(path string) (string, error) {
 	m.mu.Lock()
@@ -238,10 +332,26 @@ func (m *Manager) Clear(workspace string) error {
 	return m.clearPath(m.Path(workspace))
 }
 func (m *Manager) ClearAgent(agentID string) error {
-	return m.clearPath(m.AgentPath(agentID))
+	return m.clearPath(m.TargetPath(agentID))
+}
+
+func (m *Manager) DeleteAgent(agentID string) error { return m.clearPath(m.AgentPath(agentID)) }
+func (m *Manager) RenameAgent(from, to string) error {
+	old, next := m.AgentPath(from), m.AgentPath(to)
+	if old == next {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(next), 0o700); err != nil {
+		return err
+	}
+	err := os.Rename(old, next)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 func (m *Manager) RemoveAgent(agentID, note string) (bool, error) {
-	count, err := m.DropSessionWrites([]events.MemoryWrite{{Path: m.AgentPath(agentID), Note: note, Target: "agent", AgentID: agentID}})
+	count, err := m.DropSessionWrites([]events.MemoryWrite{{Path: m.TargetPath(agentID), Note: note, Target: "agent", AgentID: agentID}})
 	return count > 0, err
 }
 
@@ -249,7 +359,7 @@ func (m *Manager) Count(workspace string) (int, error) {
 	return m.countPath(m.Path(workspace))
 }
 func (m *Manager) CountAgent(agentID string) (int, error) {
-	return m.countPath(m.AgentPath(agentID))
+	return m.countPath(m.TargetPath(agentID))
 }
 func (m *Manager) countPath(path string) (int, error) {
 	m.mu.Lock()
@@ -373,7 +483,7 @@ func (m *Manager) Note(workspace, note string) (string, bool, error) {
 	return m.notePath(m.Path(workspace), note)
 }
 func (m *Manager) NoteAgent(agentID, note string) (string, bool, error) {
-	return m.notePath(m.AgentPath(agentID), note)
+	return m.notePath(m.TargetPath(agentID), note)
 }
 
 // Item 2jf: a note is written rarely, scoped, replacing, and within a budget.

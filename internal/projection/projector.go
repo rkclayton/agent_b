@@ -380,6 +380,9 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		if value := stringValue(data["owner"]); value != "" {
 			next.Owner = value
 		}
+		if notice := stringValue(data["notice"]); notice != "" {
+			next.Chat = appendChat(next.Chat, ChatEntry{Type: "notice", Key: "event:" + strconv.FormatInt(record.Event.Seq, 10), Text: notice})
+		}
 	case events.ProjectInstructions:
 		if boolValue(data["lazy"]) {
 			if block := stringValue(data["block"]); block != "" {

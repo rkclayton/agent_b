@@ -29,6 +29,20 @@ type reflectionState struct {
 	inFlight sync.WaitGroup
 }
 
+type reflectionMemory struct{ server *Server }
+
+func (n reflectionMemory) Note(workspace, note string) (string, bool, error) {
+	return n.server.memoryState.Note(workspace, note)
+}
+func (n reflectionMemory) NoteSummary(summary reflection.Summary, note string) (string, bool, error) {
+	path := n.server.memoryState.SharedPath()
+	if item, ok := n.server.registry.Get(summary.SessionID); ok {
+		path = n.server.memoryState.TargetPath(item.Snapshot().AgentID)
+	}
+	duplicate, err := n.server.memoryState.WriteNote(path, memory.Write{Note: note, Scope: "user", Run: summary.RunID, Chat: summary.SessionID, Budget: n.server.ConfigSnapshot().Memory.MaxTokens})
+	return path, duplicate, err
+}
+
 // StartReflection opens the store and begins the pass. It is called once, from
 // the harness's start-up, and is a no-op when the store cannot be opened.
 func (s *Server) StartReflection(tick time.Duration) {
@@ -44,13 +58,17 @@ func (s *Server) StartReflection(tick time.Duration) {
 		AllLogs:     s.reflectionAllLogs,
 	}
 	if s.memoryState != nil {
-		runner.Noter = s.memoryState
+		runner.Noter = reflectionMemory{s}
 	}
 	runner.NoteWritten = func(summary reflection.Summary, note string) {
 		// The note is published like the model's own, so the operator's
 		// existing "delete this chat and drop its memory" path can revoke it
 		// (v1.1.0/W6 cold review).
-		s.bus.Publish(events.New(events.MemoryNoted, summary.SessionID, summary.RunID, map[string]any{"note": note, "path": summary.Workspace, "target": "folder", "source": "reflection"}))
+		path := s.memoryState.SharedPath()
+		if item, ok := s.registry.Get(summary.SessionID); ok {
+			path = s.memoryState.TargetPath(item.Snapshot().AgentID)
+		}
+		s.bus.Publish(events.New(events.MemoryNoted, summary.SessionID, summary.RunID, map[string]any{"note": note, "path": path, "target": "agent", "source": "reflection"}))
 	}
 	s.mu.Lock()
 	s.reflection = &reflectionState{runner: runner, store: store, stop: make(chan struct{})}

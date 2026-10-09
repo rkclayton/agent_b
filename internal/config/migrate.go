@@ -102,17 +102,7 @@ func migrateAgentObjects(data []byte, version int) (bool, []byte, error) {
 		if mainID == "" {
 			mainID = connections[0].ID
 		}
-		name := mainID
-		for _, connection := range connections {
-			if connection.ID == mainID {
-				name = connection.Label
-				if name == "" {
-					name = connection.ID
-				}
-				break
-			}
-		}
-		agents = append(agents, Agent{Name: name, B: mainID, C: roles.Aux, Toolset: FullToolset()})
+		agents = append(agents, Agent{Name: "agent_b", B: mainID, C: roles.Aux, Toolset: FullToolset()})
 	}
 	raw["agents"], _ = json.Marshal(agents)
 	delete(raw, "roles")

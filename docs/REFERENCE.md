@@ -51,7 +51,9 @@ For either path, Node.js remains optional for building and running Agent_b. Deve
 
 ## Use Agent_b
 
-The installed application opens Chat at `http://127.0.0.1:8790/chat`; a fixed, resizable list at left holds New chat, pinned chats, folders, unfiled chats, Archived, and the Settings action, while the header retains the connection and native window controls. Drag the list edge to resize it, drag fully left to hide it, and drag the left-edge handle to restore it. Settings opens as a bounded window over the dimmed Chat, with one X in its header, and has nine sections: Agents, Activity, Plan, Connections, Profiles, Chats, Notifications, Security, and About. Plan is drawn in that window like every other section.
+The installed application opens Chat at `http://127.0.0.1:8790/chat`; a fixed, resizable list at left holds New chat, pinned chats, folders, unfiled chats, Archived, and the Settings action, while the header names and switches the chat's agent beside the native window controls. Drag the list edge to resize it, drag fully left to hide it, and drag the left-edge handle to restore it. Settings opens as a bounded window over the dimmed Chat, with one X in its header, and has nine sections: Agents, Activity, Plan, Connections, Users, Chats, Notifications, Security, and About. Plan is drawn in that window like every other section.
+
+`agent_b` is the fixed built-in agent. Each custom agent has a name, connection, optional model override, opening prompt, tool set, and optional private-memory switch. A chat stores its agent; every message reads that agent's current settings. Changing agents keeps the chat's own history with the chat, private or not, and affects no other chat. Shared user notes are loaded by every agent. A private agent still reads shared notes but writes every learned note to its own removable file, which is deleted with the agent.
 
 Replay one or more session logs without loading a model or enabling mutations:
 

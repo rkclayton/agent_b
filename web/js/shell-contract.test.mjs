@@ -125,13 +125,14 @@ test("Stop follows the selected chat from each page-local lower control", () => 
   assert.doesNotMatch(chat+consoleApp+plan, /all:\s*true/);
 });
 
-test("top-right connection label is the b-role model switcher", () => {
-  assert.match(shell, /button\("", "Switch model", "shell-session-title"\)/);
-  assert.match(shell, /for \(const connection of store\.connections \|\| store\.config\.connections \|\| \[\]\)/);
-  assert.match(shell, /connection\.label \|\| connection\.id[\s\S]*new URL\(host\)\.host[\s\S]*connectionState\(connection, session\)/);
-  assert.match(shell, /if \(isRunning\(current\)\)[\s\S]*stop the run first/);
-  assert.match(shell, /api\(`\/api\/agents\/\$\{encodeURIComponent\(agentID\)\}\/connection`, \{ action: "set", connection_id: connection\.id \}\)/);
-  assert.match(shell, /const selected = \{ \.\.\.store\.selection \}[\s\S]*setSelection\(selected\.agent_id \|\| "agent_b", selected\.session_id \|\| ""\)/);
+test("top-right label is the per-chat agent switcher", () => {
+  assert.match(shell, /button\("", "Switch agent", "shell-session-title"\)/);
+  assert.match(shell, /for \(const agent of store\.config\.agents \|\| \[\]\)/);
+  assert.match(shell, /agent\.model \|\| connection\.model/);
+  assert.match(shell, /escapeHTML\(agent\.name\)/);
+  assert.match(shell, /connectionState\(connection, session\)/);
+  assert.match(shell, /api\(`\/api\/sessions\/\$\{encodeURIComponent\(current\.id\)\}`, \{ agent_id: id \}\)/);
+  assert.doesNotMatch(shell, /api\(`\/api\/agents\/\$\{encodeURIComponent\(agentID\)\}\/connection`/);
   assert.match(shell, /session\.runnable === false \? \(notRunnableReason \|\| "Chat is not runnable"\) : sessionTitle\(session\)/);
   assert.match(shell, /"No chat selected"/);
   assert.match(shell, /\/api\/header-state/);

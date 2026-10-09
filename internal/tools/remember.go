@@ -112,7 +112,10 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 
 	target, fell := layerFor(scope), ""
 	path := ""
-	if target == "folder" {
+	if r.memory.TargetPath(s.AgentID) != r.memory.SharedPath() {
+		target, path = "agent", r.memory.TargetPath(s.AgentID)
+	}
+	if target == "folder" && path == "" {
 		// Item 2fh, kept: a scratch chat has no folder layer. A project fact with
 		// no project in scope goes to the agent layer, and says so.
 		if folder := s.MemoryFolder(); folder != "" {
@@ -123,7 +126,7 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 		}
 	}
 	if target == "agent" {
-		path = r.memory.AgentPath(s.AgentID)
+		path = r.memory.TargetPath(s.AgentID)
 	}
 	if target == "folder" {
 		if root := memory.RepoRoot(s.MemoryFolder()); root != "" {

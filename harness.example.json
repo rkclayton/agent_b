@@ -1,5 +1,5 @@
 {
-  "config_version": 13,
+  "config_version": 14,
   "listen": "127.0.0.1:8790",
   "workspace": "./workspace",
   "log_dir": "logs",

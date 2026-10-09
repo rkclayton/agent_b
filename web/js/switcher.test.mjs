@@ -10,21 +10,21 @@ const tokens = fs.readFileSync(new URL("../css/tokens.css", import.meta.url), "u
 test("the switcher row names the model, not only the label", () => {
   // (b): at any width, "server-2" identifies nothing. The model is what the
   // operator is choosing between.
-  const row = shell.slice(shell.indexOf("Item 2mh (b)"), shell.indexOf("row.onclick"));
+  const row = shell.slice(shell.indexOf("function renderConnectionMenu"), shell.indexOf("row.onclick"));
   assert.match(row, /shell-connection-model/);
-  assert.match(row, /connection\.model/);
+  assert.match(row, /agent\.model \|\| connection\.model/);
 });
 
 test("a path is shown by its basename, with the whole string on hover", () => {
   // (d): llama.cpp models are full GGUF paths.
-  const row = shell.slice(shell.indexOf("Item 2mh (b)"), shell.indexOf("row.onclick"));
+  const row = shell.slice(shell.indexOf("function renderConnectionMenu"), shell.indexOf("row.onclick"));
   assert.match(row, /split\(/, "the path is not reduced");
   assert.match(row, /title="\$\{escapeHTML\(named \? rawModel/, "the full string is not kept on hover");
 });
 
 test("an untested connection says so rather than naming a model that does not exist", () => {
   // (e): "model" is not a model.
-  const row = shell.slice(shell.indexOf("Item 2mh (b)"), shell.indexOf("row.onclick"));
+  const row = shell.slice(shell.indexOf("function renderConnectionMenu"), shell.indexOf("row.onclick"));
   assert.match(row, /rawModel !== "model"/);
   assert.match(row, /not tested/);
 });

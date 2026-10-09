@@ -10,7 +10,7 @@ import { arrangeChats, menuLabels, panelDrag } from "./chat-list.js";
 import { registerMenu } from "./menu-behavior.js";
 
 const activeRunStates = new Set(["running", "queued", "stopping"]);
-const agentKey = (agent) => String(agent?.name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const agentKey = (agent) => { const name = String(agent?.name || "").trim().toLowerCase(); return name === "agent_b" ? name : name.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); };
 // Item 2gk (v1.2.3): a chat had two sides and the shell remembered which one
 // you were last on. There is one side now, so there is nothing to remember and
 // nothing to flip to.
@@ -95,7 +95,7 @@ export function initShell(options = {}) {
 
   const right = node("div", "shell-right");
   const sessionActivity = node("time", "shell-session-activity");
-  const sessionHeading = button("", "Switch model", "shell-session-title");
+  const sessionHeading = button("", "Switch agent", "shell-session-title");
 	let headerTelemetry = "";
   const connectionMenu = node("div", "shell-menu shell-connection-menu");
   connectionMenu.hidden = true;
@@ -168,47 +168,30 @@ export function initShell(options = {}) {
     return connectionHealth(store, connection.id).word;
   }
 
+  let pendingNewAgent = "agent_b";
   function renderConnectionMenu() {
     const session = store.sessions[store.selection.session_id];
-    const configured = configuredAgent(session);
     connectionMenu.replaceChildren();
-    const profile = node("span", "shell-menu-empty");
-    profile.textContent = `Profile · ${store.profiles?.active || store.config.profiles?.active || "unknown"}`;
-    connectionMenu.append(profile);
-    for (const connection of store.connections || store.config.connections || []) {
-      const row = button("", `Use ${connection.label || connection.id}`, `shell-connection-choice ${configured?.b === connection.id ? "selected" : ""}`);
-      let host = connection.base_url || "";
-      try { host = new URL(host).host || host; } catch {}
-      // Item 2mh (b), (d) and (e): THE SWITCHER SHOWS THE MODEL.
-      //
-      // It showed label, host and state, and at any width `server-2` identifies
-      // nothing — the operator has to already know which box is which. The model
-      // is what he is actually choosing between.
-      //
-      // (d) a llama.cpp model is a full GGUF path, so it is reduced to its
-      // basename the same way the Connections page reduces it, with the whole
-      // string kept on hover. (e) "model" is not a model: a connection that has
-      // never been tested says so rather than naming one that does not exist.
-      const rawModel = String(connection.model || "").trim();
+    const user = node("span", "shell-menu-empty");
+    user.textContent = `User · ${store.profiles?.active || store.config.profiles?.active || "unknown"}`;
+    connectionMenu.append(user);
+    for (const agent of store.config.agents || []) {
+      const id = agentKey(agent);
+      const connection = (store.connections || store.config.connections || []).find((value) => value.id === agent.b) || {};
+      const rawModel = String(agent.model || connection.model || "").trim();
       const named = rawModel && rawModel !== "model";
       const modelLabel = named ? rawModel.split(/[\/]/).pop() : "not tested";
-      row.innerHTML = `<span>${escapeHTML(connection.label || connection.id)}</span>`
-        + `<span class="shell-connection-model${named ? "" : " shell-connection-untested"}" title="${escapeHTML(named ? rawModel : "this connection has not been tested")}">${escapeHTML(modelLabel)}</span>`
-        + `<span>${escapeHTML(host)}</span><span>${escapeHTML(connectionState(connection, session))}</span>`;
+      const row = button("", `Use ${agent.name}`, `shell-connection-choice ${(session?.agent_id || pendingNewAgent) === id ? "selected" : ""}`);
+      row.innerHTML = `<span>${escapeHTML(agent.name)}</span>`
+        + `<span class="shell-connection-model${named ? "" : " shell-connection-untested"}" title="${escapeHTML(named ? rawModel : "this agent's model has not been tested")}">${escapeHTML(modelLabel)}</span>`
+        + `<span>${escapeHTML(connectionState(connection, session))}</span>`;
       row.onclick = async () => {
-        const current = store.sessions[store.selection.session_id];
-        if (isRunning(current)) {
-          const refusal = node("span", "shell-menu-empty alarm");
-          refusal.textContent = "stop the run first";
-          connectionMenu.append(refusal);
-          return;
-        }
         try {
-          const agentID = agentKey(configuredAgent(current));
-          const selected = { ...store.selection };
-          await api(`/api/agents/${encodeURIComponent(agentID)}/connection`, { action: "set", connection_id: connection.id });
-          reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-          setSelection(selected.agent_id || "agent_b", selected.session_id || "");
+          const current = store.sessions[store.selection.session_id];
+          if (current) {
+            await api(`/api/sessions/${encodeURIComponent(current.id)}`, { agent_id: id });
+            reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+          } else pendingNewAgent = id;
           connectionMenu.hidden = true;
           sessionHeading.setAttribute("aria-expanded", "false");
         } catch (error) { report(error.message); }
@@ -505,10 +488,10 @@ export function initShell(options = {}) {
   async function createChat(agentID = "agent_b", configured = null) {
     const source = store.sessions[store.selection.session_id] || Object.values(store.sessions).sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0))[0];
     try {
-      const configuredID = agentKey(configured || configuredAgent(source));
+      const configuredID = configured ? agentKey(configured) : pendingNewAgent || agentKey(configuredAgent(source));
       const body = agentID === "agent_d"
         ? { agent_id: configuredID, role: "d" }
-        : source && source.role !== "d" ? { source_session_id: source.id } : { agent_id: configuredID };
+        : { agent_id: configuredID };
       const result = await api("/api/sessions", body);
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
       setSelection(agentID, result.session.id);

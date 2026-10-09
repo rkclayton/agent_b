@@ -112,16 +112,16 @@ func (s *Server) DispatchAppMessage(deviceID string, unit []byte) []byte {
 		}
 		path += named.Name
 	case "chat.create":
-		// Item 2ow: a phone may choose one advertised connection for a new chat. It
-		// still cannot choose a role, copy another chat, or send any local setting.
+		// A phone may choose one advertised agent, while released clients may still
+		// name a connection and receive the deterministic compatibility mapping.
 		if len(body) > 0 && string(body) != "null" {
 			var fields map[string]json.RawMessage
 			if err := json.Unmarshal(body, &fields); err != nil {
 				return s.appProblem(request.ID, http.StatusBadRequest, "the chat.create body is not an object")
 			}
 			for name := range fields {
-				if name != "label" && name != "connection_id" {
-					return s.appProblem(request.ID, http.StatusBadRequest, "chat.create carries label and connection_id only; it does not carry "+name)
+				if name != "label" && name != "connection_id" && name != "agent_id" {
+					return s.appProblem(request.ID, http.StatusBadRequest, "chat.create carries label, agent_id and connection_id only; it does not carry "+name)
 				}
 			}
 		}

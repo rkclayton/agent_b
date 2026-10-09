@@ -213,6 +213,10 @@ func (s *Server) toggleTool(w http.ResponseWriter, r *http.Request) {
 		}
 		body.AgentID = item.AgentID
 	}
+	if body.AgentID == "agent_b" {
+		writeError(w, http.StatusBadRequest, "agent_b tools are read-only", "agent_id")
+		return
+	}
 	s.mu.Lock()
 	foundAgent, foundTool := false, false
 	for i := range s.cfg.Agents {

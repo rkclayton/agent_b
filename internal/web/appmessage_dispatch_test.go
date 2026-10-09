@@ -136,6 +136,15 @@ func TestChatCreateAcceptsOneConnectionAndRefusesUnknownWithoutCreating2ow(t *te
 	if selected.Status != 201 || !strings.Contains(string(selected.Body), `"connection_id":"remote"`) {
 		t.Fatalf("selected=%d %s", selected.Status, selected.Body)
 	}
+	agentID := server.ConfigSnapshot().DefaultAgentID()
+	byAgent := dispatch(t, server, `{"v":1,"kind":"request","id":"be","route":"chat.create","body":{"agent_id":"`+agentID+`"}}`)
+	if byAgent.Status != 201 || !strings.Contains(string(byAgent.Body), `"agent_id":"`+agentID+`"`) {
+		t.Fatalf("agent selected=%d %s", byAgent.Status, byAgent.Body)
+	}
+	state := dispatch(t, server, `{"v":1,"kind":"request","id":"bf","route":"state"}`)
+	if state.Status != 200 || !strings.Contains(string(state.Body), `"agents"`) {
+		t.Fatalf("state agents=%d %s", state.Status, state.Body)
+	}
 	before := len(server.registry.List())
 	unknown := dispatch(t, server, `{"v":1,"kind":"request","id":"bd","route":"chat.create","body":{"connection_id":"missing"}}`)
 	if unknown.Status != 400 || !strings.Contains(string(unknown.Body), `"field":"connection_id"`) || len(server.registry.List()) != before {

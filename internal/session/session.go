@@ -741,7 +741,7 @@ func (s *Session) ApplyAgentConfig(agentID string, agent config.Agent, connectio
 			enabled[name] = value && policy[name]
 		}
 	}
-	changed := s.AgentID != agentID || s.ConnectionID != connectionID || s.AgentName != agent.Name || s.BConnection != connection.Label || s.PromptAddendum != agent.PromptAddendum
+	changed := s.AgentID != agentID || s.ConnectionID != connectionID || s.AgentName != agent.Name || s.BConnection != connection.Label || s.PromptAddendum != agent.Prompt
 	if !changed {
 		for name, value := range enabled {
 			if s.ToolsEnabled[name] != value {
@@ -751,7 +751,7 @@ func (s *Session) ApplyAgentConfig(agentID string, agent config.Agent, connectio
 		}
 	}
 	s.AgentID, s.ConnectionID, s.AgentName, s.BConnection = agentID, connectionID, agent.Name, connection.Label
-	s.PromptAddendum = agent.PromptAddendum
+	s.PromptAddendum = agent.Prompt
 	if s.modelTurns == 0 {
 		s.ToolsEnabled = enabled
 	}

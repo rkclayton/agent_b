@@ -345,3 +345,57 @@ func TestARoleChangeDoesNotDeferExceptForB2ln(t *testing.T) {
 		t.Fatal("setting c left a pending change; only b defers")
 	}
 }
+
+func TestAgentCRUDProtectsBuiltInAndRebindsOneChat2s6(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeModelDone(w) }))
+	defer model.Close()
+	fixture := newAgentConnectionFixture(t, model.URL, model.URL)
+	fixture.server.mu.Lock()
+	fixture.server.cfg.Agents[0].Name = "agent_b"
+	if err := fixture.server.saveProfileConfig(*fixture.server.cfg); err != nil {
+		fixture.server.mu.Unlock()
+		t.Fatal(err)
+	}
+	fixture.server.mu.Unlock()
+	if err := fixture.server.registry.SetAgent(fixture.session.ID, "agent_b"); err != nil {
+		t.Fatal(err)
+	}
+	post := func(body string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		fixture.server.agentsEndpoint(recorder, httptest.NewRequest(http.MethodPost, "/api/agents", strings.NewReader(body)))
+		return recorder
+	}
+	if result := post(`{"action":"add","name":"Research"}`); result.Code != http.StatusOK {
+		t.Fatalf("add=%d %s", result.Code, result.Body)
+	}
+	if result := post(`{"action":"add","name":"agent_a"}`); result.Code != http.StatusBadRequest {
+		t.Fatalf("reserved name=%d", result.Code)
+	}
+	if result := post(`{"action":"duplicate","source_id":"research","name":"Copy"}`); result.Code != http.StatusOK {
+		t.Fatalf("duplicate=%d %s", result.Code, result.Body)
+	}
+	if result := post(`{"action":"update","id":"copy","name":"Analyst","connection_id":"new","model":"fixture-model","prompt":"begin here","tools":["read_file"],"private":true}`); result.Code != http.StatusOK {
+		t.Fatalf("rename=%d %s", result.Code, result.Body)
+	}
+	if agent, ok := fixture.server.ConfigSnapshot().Agent("analyst"); !ok || agent.Prompt != "begin here" || !agent.Private || len(agent.Toolset) != 1 {
+		t.Fatalf("renamed agent=%#v, %v", agent, ok)
+	}
+	if err := fixture.server.registry.SetAgent(fixture.session.ID, "research"); err != nil {
+		t.Fatal(err)
+	}
+	if result := post(`{"action":"update","id":"agent_b","name":"renamed"}`); result.Code != http.StatusBadRequest {
+		t.Fatalf("rename built-in=%d", result.Code)
+	}
+	if result := post(`{"action":"delete","id":"agent_b"}`); result.Code != http.StatusBadRequest {
+		t.Fatalf("delete built-in=%d", result.Code)
+	}
+	if result := post(`{"action":"update","id":"agent_b","prompt":"changed","tools":["read_file"]}`); result.Code != http.StatusBadRequest {
+		t.Fatalf("edit built-in definition=%d", result.Code)
+	}
+	if result := post(`{"action":"delete","id":"research"}`); result.Code != http.StatusOK {
+		t.Fatalf("delete=%d %s", result.Code, result.Body)
+	}
+	if got := fixture.session.Snapshot().AgentID; got != "agent_b" {
+		t.Fatalf("chat agent=%q", got)
+	}
+}

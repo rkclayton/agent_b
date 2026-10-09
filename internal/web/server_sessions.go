@@ -77,7 +77,13 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.AgentID == "" && body.ConnectionID != "" {
 			s.mu.RLock()
+			if builtin, ok := s.cfg.Agent("agent_b"); ok && builtin.B == body.ConnectionID {
+				body.AgentID = "agent_b"
+			}
 			for _, candidate := range s.cfg.Agents {
+				if body.AgentID != "" {
+					break
+				}
 				if candidate.B == body.ConnectionID {
 					body.AgentID = config.AgentID(candidate.Name)
 					break
@@ -517,6 +523,11 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if body.AgentID != nil {
+			if item, ok := s.registry.Get(id); ok && item.IsRunning() {
+				s.setOrQueueSessionAgent(id, *body.AgentID)
+				writeJSON(w, http.StatusAccepted, map[string]any{"status": "pending", "agent_id": *body.AgentID})
+				return
+			}
 			if err := s.registry.SetAgent(id, *body.AgentID); err != nil {
 				status := http.StatusBadRequest
 				field := "agent_id"

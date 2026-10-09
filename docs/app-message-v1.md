@@ -138,7 +138,7 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 | `tool` | `POST /api/tools/{name}` | `{name,session_id,enabled}` |
 | `state` | `GET /api/state` | `{}` |
 | `resync` | `GET /api/state` for one session | `{session_id}` |
-| `chat.create` | `POST /api/sessions` | `{label?,connection_id?}` — connection selection added 2026-09-30 |
+| `chat.create` | `POST /api/sessions` | `{label?,agent_id?,connection_id?}` — connection selection added 2026-09-30; agent selection added 2026-10-09 |
 | `chat.history` | `GET /api/sessions/{session_id}/history` | `{session_id,before?}` — 50 older entries at a time |
 | `chat.mirror` | append one owner's journal event to its mirror | `MirrorAppend` — added 2026-09-30 |
 | `chat.mirror.since` | ask a mirror for its durable per-chat cursor | `{chat_id}` — added 2026-09-30 |
@@ -154,10 +154,9 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 context-token count. It carries no URL path, credential, API key, system prompt, sampling value or
 probe finding.
 
-`chat.create` carries an optional `label` and optional `connection_id`, and NOTHING ELSE. With no
-`connection_id`, the desktop uses the default agent's connection as before. A known id creates the
-same ordinary PC chat as choosing that Connection in Settings. An unknown id returns the ordinary
-`400 {error,field:"connection_id"}` refusal and creates nothing. It still cannot carry `role` or
+`chat.create` carries an optional `label`, `agent_id`, and legacy `connection_id`, and NOTHING ELSE. State lists safe agent rows `{id,name,connection_id,model}` beside connections. A named agent creates the chat on it. A released client naming a connection maps to `agent_b` when it uses that connection, otherwise the first matching agent. With neither id, the desktop uses `agent_b`. A known id creates the
+same ordinary PC chat as choosing that agent in the top strip. An unknown id returns the ordinary
+`400` field refusal and creates nothing. It still cannot carry `role` or
 `source_session_id`, so a device cannot open a planner or worker chat. With no `label`, the desktop
 names the chat as it names any unlabelled one.
 

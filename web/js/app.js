@@ -52,12 +52,11 @@ agentSelect.addEventListener("change", () => {
 // Item 2iq (a): b's row and the strip's switcher write the same setting, so
 // the table delegates rather than binding a listener per render.
 roleTable.addEventListener("change", (event) => {
-  if (event.target instanceof HTMLSelectElement && event.target.dataset.role) {
-    void changeAgentConnection(event.target.value, event.target.dataset.role);
-  }
+  if (event.target instanceof HTMLSelectElement && event.target.dataset.field === "connection") return;
 });
 roleTable.addEventListener("click", (event) => {
-  if (event.target instanceof HTMLElement && event.target.dataset.action === "cancel-pending") void cancelAgentConnectionChange();
+  const action = event.target instanceof HTMLElement ? event.target.dataset.action : "";
+  if (action) void editAgent(action);
 });
 document.getElementById("clear-stats").addEventListener("click", () => void clearStats());
 document.getElementById("flush-memory").addEventListener("click", () => void flushMemory());
@@ -249,54 +248,52 @@ function renderAgentConnection(agent) {
   // picker must still offer every configured connection so the operator can
   // move a role away from one that is about to be removed.
   const connections = store.config.connections?.length ? store.config.connections : store.connections || [];
-  const pending = store.agent_connection_changes?.[selectedAgent];
-  const rows = [];
-  for (const role of ["b", "c", "d"]) {
-    const assigned = agent?.[role];
-    // (d): d appears only when the agent has one. The route refuses it too, so
-    // this is the ergonomic and not the guarantee.
-    if (role === "d" && !assigned) continue;
-    const row = node("div", "panel-role-row");
-    const name = node("span", "panel-role-name");
-    name.textContent = role;
-    const what = node("span", "panel-role-what");
-    what.textContent = roleNames[role];
-    const picker = document.createElement("select");
-    picker.dataset.role = role;
-    picker.setAttribute("aria-label", `${role} — ${roleNames[role]}`);
-    // (c): a role with no connection configured is a valid state and reads as
-    // one. The empty option is offered so the operator can return to it.
-    const options = [option("", "none", !assigned), ...connections.map((connection) => option(connection.id, connection.label || connection.id, connection.id === assigned))];
-    picker.replaceChildren(...options);
-    picker.disabled = !agent || store.replay;
-    const state = node("span", "panel-role-state");
-    if (role === "b" && pending) {
-      state.textContent = `applied ${agent.b} · pending ${pending.to}`;
-      state.className = "panel-role-state pending";
-    } else {
-      state.textContent = roleEffect[role];
-    }
-    row.append(name, what, picker, state);
-    if (role === "b" && pending) {
-      const cancel = node("button", "panel-role-cancel");
-      cancel.type = "button";
-      cancel.dataset.action = "cancel-pending";
-      cancel.textContent = "Cancel pending";
-      cancel.disabled = store.replay;
-      row.append(cancel);
-    }
-    const connection = connections.find((candidate) => candidate.id === assigned);
-    if (connection) {
-      const readsImages = !!connection.reads_images;
-      const mark = node("span", `panel-agent-vision ${readsImages ? "reads" : "does-not-read"}`);
-	      mark.setAttribute("role", "img");
-	      mark.title = `reads images: ${readsImages ? "yes" : "no"}`;
-      mark.setAttribute("aria-label", mark.title);
-      row.append(mark);
-    }
-    rows.push(row);
+  if (!agent) { roleTable.replaceChildren(); return; }
+  const builtIn = selectedAgent === "agent_b";
+  const field = (label, control) => { const row = node("label", "panel-role-row"); row.append(text(label, "panel-role-name"), control); return row; };
+  const name = document.createElement("input"); name.value = agent.name || ""; name.dataset.field = "name"; name.disabled = builtIn;
+  const connection = document.createElement("select"); connection.dataset.field = "connection";
+  connection.replaceChildren(...connections.map((value) => option(value.id, value.label || value.id, value.id === agent.b)));
+  const model = document.createElement("input"); model.value = agent.model || ""; model.dataset.field = "model"; model.placeholder = "connection default";
+  const prompt = document.createElement("textarea"); prompt.value = builtIn ? "Shipped opening prompt" : (agent.prompt || ""); prompt.dataset.field = "prompt"; prompt.disabled = builtIn;
+  const rows = [field("name", name), field("connection", connection), field("model", model), field("opening prompt", prompt)];
+  if (!builtIn) {
+    const privateToggle = document.createElement("input"); privateToggle.type = "checkbox"; privateToggle.checked = !!agent.private; privateToggle.dataset.field = "private";
+    privateToggle.title = "this agent only writes to its own memory but can still read shared";
+    rows.push(field("private", privateToggle));
   }
+  const actions = node("div", "panel-role-row settings-actions");
+  for (const [action, label] of [["save", "Save"], ["add", "Add"], ["duplicate", "Duplicate"], ["delete", "Delete"]]) {
+    const control = button(label, label); control.dataset.action = action; control.disabled = store.replay || (builtIn && action === "delete"); actions.append(control);
+  }
+  rows.push(actions);
   roleTable.replaceChildren(...rows);
+}
+
+async function editAgent(action) {
+  const agent = (store.config.agents || []).find((value) => agentKey(value) === selectedAgent);
+  if (!agent) return;
+  const read = (field) => roleTable.querySelector(`[data-field="${field}"]`);
+  let body;
+  if (action === "add") {
+    const name = prompt("Agent name"); if (!name) return;
+    body = { action: "add", name };
+  } else if (action === "duplicate") {
+    const name = prompt("Duplicate name"); if (!name) return;
+    body = { action: "duplicate", source_id: selectedAgent, name };
+  } else if (action === "delete") {
+    if (!confirm(`Delete ${agent.name}?`)) return;
+    body = { action: "delete", id: selectedAgent };
+  } else {
+    body = { action: "update", id: selectedAgent, name: read("name")?.value, connection_id: read("connection")?.value,
+      model: read("model")?.value, prompt: selectedAgent === "agent_b" ? "" : read("prompt")?.value,
+      tools: agent.toolset || [], private: !!read("private")?.checked };
+  }
+  try {
+    const result = await api("/api/agents", body);
+    if (result.agent_id) selectedAgent = result.agent_id;
+    reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+  } catch (error) { showError(error.message); }
 }
 
 async function changeAgentConnection(connectionID, role = "b") {
@@ -341,7 +338,7 @@ function renderTools(agent) {
 	root.replaceChildren(...configurable.map((tool) => {
     const row = node("label", "panel-line panel-tool-line");
     const toggle = document.createElement("input");
-    toggle.type = "checkbox"; toggle.checked = enabled.has(tool.name); toggle.dataset.tool = tool.name; toggle.disabled = store.replay;
+	    toggle.type = "checkbox"; toggle.checked = enabled.has(tool.name); toggle.dataset.tool = tool.name; toggle.disabled = store.replay || selectedAgent === "agent_b";
     row.append(toggle, text(tool.name));
     return row;
   }));

@@ -121,7 +121,7 @@ test("all rendered Settings rows have one direct label and one control cell", ()
 test("Settings navigation has the required eight sections in order", () => {
   const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
   const labels = [...controller.matchAll(/\["(?:agents|activity|connections|profiles|chats|notifications|shell|about)", "([^"]+)"\]/g)].map((match) => match[1]);
-  assert.deepEqual(labels, ["Agents", "Activity", "Connections", "Profiles", "Chats", "Notifications", "Security", "About"]);
+  assert.deepEqual(labels, ["Agents", "Activity", "Connections", "Users", "Chats", "Notifications", "Security", "About"]);
 });
 
 test("Delivery has no Settings page while file configuration remains supported", () => {

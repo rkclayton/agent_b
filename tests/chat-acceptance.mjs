@@ -886,8 +886,8 @@ if (realModel) {
   assert.equal(session?.id, sessionID, "selected new chat must exist in the server snapshot");
   assert.equal(session?.scratch, true);
   assert.ok(session?.workspace_dir.startsWith(join(profileData, "chats")), "new chat must live under chats");
-  await browser.wait(`document.querySelector('.shell-session-title')?.innerText === 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCD'`, "connection-name title (item 2eo)");
-  assert.equal(await page.locator(".shell-session-title").getAttribute("title"), "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCD");
+  await browser.wait(`document.querySelector('.shell-session-title')?.innerText === 'agent_b'`, "agent-name title (item 2s6)");
+  assert.equal(await page.locator(".shell-session-title").getAttribute("title"), "agent_b");
   record("new-chat");
 
   const fixtureSessionID = sessionID;
@@ -954,7 +954,7 @@ if (realModel) {
     const tight = await page.evaluate(() => { const list = document.querySelector(".chat-list"); list.scrollTop = 0; const rowHeight = document.querySelector(".chat-list-row[data-session]").getBoundingClientRect().height, after = Math.floor(list.clientHeight / rowHeight), before = Math.floor(list.clientHeight / 28); document.documentElement.style.setProperty("--chat-scale", "1.5"); const boxes = [...document.querySelectorAll(".chat-list-row[data-session]")].map((row) => { const outer = row.getBoundingClientRect(), inner = row.querySelector(".chat-list-name").getBoundingClientRect(); return { top: outer.top, bottom: outer.bottom, height: outer.height, innerTop: inner.top, innerBottom: inner.bottom }; }).filter((box) => box.height > 0).sort((a, b) => a.top - b.top); document.documentElement.style.removeProperty("--chat-scale"); return { before, after, rowHeight, largestWhole: boxes.every((box, index) => box.innerTop >= box.top && box.innerBottom <= box.bottom && (!boxes[index + 1] || box.bottom <= boxes[index + 1].top)) }; }); assert.ok(tight.after >= tight.before * 4 / 3 && tight.largestWhole, JSON.stringify(tight));
     const evidence = join(args.evidence, "2s7-chat-list"), header = []; await mkdir(evidence, { recursive: true });
     for (const width of [304, 1280, 1920]) { const height = width === 304 ? 860 : 1080; await page.setViewportSize({ width, height }); await row.evaluate((node) => { document.activeElement?.blur(); node.classList.remove("menu-open"); node.querySelector(".chat-list-row-menu").hidden = true; }); assert.equal(await row.locator(".chat-list-row-menu").isHidden(), true); await page.mouse.move(width - 8, 16); header.push(await page.evaluate(() => { const connection = document.querySelector(".shell-session-title"), activity = document.querySelector(".shell-session-activity"); return { width: innerWidth, whole: connection.scrollWidth <= connection.clientWidth, title: connection.title, activity: getComputedStyle(activity).display }; })); await page.screenshot({ path: join(evidence, `${width}-rest.png`) }); await page.locator(".chat-list-folder > summary").first().hover(); await page.screenshot({ path: join(evidence, `${width}-folder-hover.png`) }); await row.hover(); await page.screenshot({ path: join(evidence, `${width}-row-hover.png`) }); await page.mouse.move(width - 8, 16); await list.dispatchEvent("wheel", { deltaY: 80 }); await page.screenshot({ path: join(evidence, `${width}-scroll.png`) }); }
-    assert.deepEqual(header.map(({ whole }) => whole), [false, true, true], JSON.stringify(header)); assert.equal(header[0].activity, "none"); assert.ok(header.every(({ title }) => title === "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCD"), JSON.stringify(header)); console.log(`2RV LIST ${JSON.stringify({ tight, header, evidence })}`); record("chat-list-names-activity-transient-chrome-and-tight-layout-2rv");
+    assert.deepEqual(header.map(({ whole }) => whole), [true, true, true], JSON.stringify(header)); assert.equal(header[0].activity, "none"); assert.ok(header.every(({ title }) => title === "agent_b"), JSON.stringify(header)); console.log(`2RV LIST ${JSON.stringify({ tight, header, evidence })}`); record("chat-list-names-activity-transient-chrome-and-tight-layout-2rv");
     process.stdout.write(`CHAT ACCEPTANCE PASS ${Date.now() - startedAt} ms\n`); await edgeContext?.close(); terminateChildren(); await stopFake(); process.exit(0);
   }
 
@@ -1304,8 +1304,8 @@ if (realModel) {
   assert.equal(await clickText(".settings-nav button", "Connections"), true);
   await browser.wait(`document.querySelector('.settings-content')?.innerText.length > 0`, "Connections drawn");
   await captureWithMasks(page, join(baselineDirectory, "settings.png"));
-	assert.equal(await clickText(".settings-nav button", "Profiles"), true);
-	await browser.wait(`document.querySelector('.settings-content')?.innerText.includes('active')`, "Profiles drawn");
+	assert.equal(await clickText(".settings-nav button", "Users"), true);
+	await browser.wait(`document.querySelector('.settings-content')?.innerText.includes('active')`, "Users drawn");
 	await captureWithMasks(page, join(baselineDirectory, "settings-profiles.png"));
 	if (!realModel) {
 		assert.equal(await clickText(".settings-nav button", "About"), true);
@@ -2627,7 +2627,7 @@ if (realModel) {
     header.push(await page.evaluate(() => { const connection = document.querySelector(".shell-session-title"), activity = document.querySelector(".shell-session-activity"); return { width: innerWidth, whole: connection.scrollWidth <= connection.clientWidth, title: connection.title, activity: getComputedStyle(activity).display }; }));
     await page.screenshot({ path: join(listEvidence, `${width}-rest.png`) }); await row.hover(); await page.screenshot({ path: join(listEvidence, `${width}-hover.png`) }); await page.mouse.move(width - 8, 16); await list.dispatchEvent("wheel", { deltaY: 80 }); await page.screenshot({ path: join(listEvidence, `${width}-scroll.png`) });
   }
-  assert.deepEqual(header.map(({ whole }) => whole), [false, true, true], JSON.stringify(header)); assert.equal(header[0].activity, "none"); assert.ok(header.every(({ title }) => title === "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCD"), JSON.stringify(header));
+  assert.deepEqual(header.map(({ whole }) => whole), [true, true, true], JSON.stringify(header)); assert.equal(header[0].activity, "none"); assert.ok(header.every(({ title }) => title === "agent_b"), JSON.stringify(header));
   console.log(`2RV LIST ${JSON.stringify({ tight, header, evidence: listEvidence })}`); record("chat-list-names-activity-transient-chrome-and-tight-layout-2rv");
   // Closed is durable server metadata, not a desktop visual state. A closed
   // row remains in the list and reopens when selected; no other chat closes.
@@ -2733,7 +2733,7 @@ if (realModel) {
   await browser.wait(`document.querySelector('.chat-list-new')?.title === 'New chat'`, "d-aware New chat");
   await page.locator(".chat-list-menu-button").click();
   const roleChoices = page.locator(".shell-new-menu .chat-list-menu-action");
-  assert.deepEqual(await roleChoices.allTextContents(), ["Chat", "Folder", "agent_d · Acceptance — plan", "Settings"]);
+  assert.deepEqual(await roleChoices.allTextContents(), ["Chat", "Folder", "agent_d · agent_b — plan", "Settings"]);
   await page.screenshot({ path: join(evidenceRun, "d-role-menu.png") });
   const beforeDIDs = new Set(Object.keys((await state()).sessions));
   await roleChoices.nth(2).click();
@@ -2752,9 +2752,9 @@ if (realModel) {
   assert.ok(dSession.workspace_dir.startsWith(join(profileData, "chats")), "new d chat must live under chats");
   // Item 2gl (v1.2.6): the WINDOW title names the chat, because the overlay
   // could not be made to activate and the system strip stays. 2eo's rule is
-  // about the header beside the tab strip, which still reads the connection only.
+  // about the header beside the tab strip; 2s6 now makes it the active agent.
   assert.equal(await page.title(), "Agent_b - New chat");
-  assert.equal(await page.locator(".shell-session-title").innerText(), dSession.b_connection || dSession.connection_id, "item 2eo: the header reads the connection name only");
+  assert.equal(await page.locator(".shell-session-title").innerText(), dSession.agent_name || dSession.agent_id, "item 2s6: the header reads the agent name");
   await page.screenshot({ path: join(evidenceRun, "d-plan.png") });
   record("d-new-chat-unbound-scratch-row-and-title");
   const boundCreated = await json(`http://127.0.0.1:${appPort}/api/sessions`, {

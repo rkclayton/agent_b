@@ -178,13 +178,20 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await expect(reopened).not.toHaveAttribute("placeholder", /.*/);
   await expect(page.locator(".connection-editor .control-note").first()).toHaveText("stored");
 
-  // 7. Start a chat on it. Closing Settings returns to the chat, and the switcher
-  // moves this chat onto the connection just made.
+  // 7. Put the built-in agent on it. Connections are assigned only in the agent
+  // editor; the chat switcher now selects agents and never mutates one.
+  await page.locator('.settings-nav [data-id="agents"]').click();
+  await page.locator('#panel-agent').selectOption('agent_b');
+  const agentSave = page.waitForResponse((response) => response.url().endsWith('/api/agents') && response.request().method() === 'POST');
+  await page.locator('#panel-roles').evaluate((root, connection) => {
+    root.querySelector('[data-field="connection"]').value = connection;
+    root.querySelector('[data-action="save"]').click();
+  }, id);
+  expect((await agentSave).ok()).toBe(true);
+  await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.agents.find((agent) => agent.name === 'agent_b').b).toBe(id);
   await toggleSettings(page);
   await expect(page.locator("#settings-page")).toBeHidden();
-  await page.locator(".shell-session-title").click();
-  await page.locator(".shell-connection-choice", { hasText: "second-model" }).first().click();
-  await expect(page.locator(".shell-session-title")).toContainText("second-model");
+  await expect(page.locator(".shell-session-title")).toHaveText("agent_b");
 
   // 8. Send one message and see the answer on screen, from the controlled server.
   await page.locator("#chat-task").fill("journey: say something");
@@ -222,7 +229,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await popover.locator('[data-action="confirm-proceed"]').click();
 
   // 11. AND THE REFUSAL IS PART OF THE JOURNEY. Choosing this connection in the
-  // switcher bound the agent's B role to it, so removing it is refused - on the row
+  // agent editor bound agent_b to it, so removing it is refused - on the row
   // that was clicked, naming what to do about it (items 2mb (b), 2nc (c) and (d)).
   const row = page.locator(`.connection-row:has([data-action="connection-toggle"][data-id="${id}"])`);
   await expect(row).toContainText(/assigned to .* B role/);
@@ -232,14 +239,19 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await page.locator('.settings-nav [data-id="agents"]').click();
   await expect(page.locator("#panel-roles")).toBeVisible();
   // Any connection but the one being removed.
-  const role = page.locator('#panel-roles select[data-role="b"]');
+  await page.locator('#panel-agent').selectOption('agent_b');
+  const role = page.locator('#panel-roles select[data-field="connection"]');
   const otherValue = () => role.locator("option").evaluateAll((options, connection) =>
     options.map((option) => option.value).find((value) => value && value !== connection) || "", id);
   await expect.poll(otherValue, { message: "alternate B-role connection option exists", timeout: 5000 }).not.toBe("");
   const other = await otherValue();
-  await role.selectOption(other);
-  await expect(role).toHaveValue(other);
-  await page.waitForTimeout(1200);
+  const rebind = page.waitForResponse((response) => response.url().endsWith('/api/agents') && response.request().method() === 'POST');
+  await page.locator('#panel-roles').evaluate((root, connection) => {
+    root.querySelector('[data-field="connection"]').value = connection;
+    root.querySelector('[data-action="save"]').click();
+  }, other);
+  expect((await rebind).ok()).toBe(true);
+  await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.agents.find((agent) => agent.name === 'agent_b').b).toBe(other);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator(`.connection-row [data-action="remove-connection"][data-id="${id}"]`).click();
   await expect(page.locator(".confirm-popover")).toBeVisible();

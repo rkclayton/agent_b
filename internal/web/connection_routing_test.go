@@ -72,8 +72,8 @@ func newCountingEndpoint(t *testing.T, name string) *countingEndpoint {
 	return endpoint
 }
 
-// (b): TWO CHATS ON ONE AGENT, EACH BOUND TO A DIFFERENT CONNECTION, BOTH RUN,
-// and each run lands on its own endpoint. That case has never been exercised.
+// Two chats on different agents, each agent bound to a different connection,
+// both run and each lands on its own endpoint.
 func TestEachChatsRunLandsOnItsOwnConnection2mi(t *testing.T) {
 	alpha, beta := newCountingEndpoint(t, "alpha"), newCountingEndpoint(t, "beta")
 
@@ -84,7 +84,10 @@ func TestEachChatsRunLandsOnItsOwnConnection2mi(t *testing.T) {
 	second := runnableTestConnection("beta")
 	second.Label, second.BaseURL, second.Model, second.RequestTimeoutS = "Beta", beta.server.URL, "fake", 5
 	cfg.Connections = []config.Connection{first, second}
-	cfg.Agents = []config.Agent{{Name: "Coder", B: "alpha", Toolset: config.FullToolset()}}
+	cfg.Agents = []config.Agent{
+		{Name: "agent_b", B: "alpha", Toolset: config.FullToolset()},
+		{Name: "Helper", B: "beta", Toolset: config.FullToolset()},
+	}
 	path := filepath.Join(root, "harness.json")
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
@@ -101,19 +104,15 @@ func TestEachChatsRunLandsOnItsOwnConnection2mi(t *testing.T) {
 	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 
-	onAlpha, err := registry.Create("on-alpha", "coder", root)
+	onAlpha, err := registry.Create("on-alpha", "agent_b", root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	onBeta, err := registry.Create("on-beta", "coder", root)
+	onBeta, err := registry.Create("on-beta", "helper", root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Both chats belong to the SAME agent; they differ only in the connection
-	// each one is bound to.
-	if err := registry.SetConnection(onBeta.ID, "beta"); err != nil {
-		t.Skipf("a chat cannot yet be bound to its own connection on a healthy session: %v", err)
-	}
+	// Each chat reads its connection from its own agent at message time.
 
 	promptPath := filepath.Join(root, "system.md")
 	if err := os.WriteFile(promptPath, []byte("system {{tools}} {{memory}}"), 0o600); err != nil {

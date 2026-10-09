@@ -135,6 +135,7 @@ type Server struct {
 	navigationIDs        map[string]time.Time
 	agentConnectionMu    sync.Mutex
 	agentConnections     map[string]pendingAgentConnection
+	pendingSessionAgents map[string]string
 	tryAgentIdle         func(string) bool
 	hostWindowAction     func(string, string) bool
 	startedAt            string
@@ -180,14 +181,15 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		reachabilityAfter: func(duration time.Duration, fn func()) operatorTimer {
 			return time.AfterFunc(duration, fn)
 		},
-		navigationIDs:    map[string]time.Time{},
-		agentConnections: map[string]pendingAgentConnection{},
-		measurements:     map[string]measureState{},
-		measureCancels:   map[string]context.CancelFunc{},
-		extractClient:    &http.Client{},
-		attachmentStops:  map[string]context.CancelFunc{},
-		ocrExtract:       ocr.Extract,
-		ocrPDF:           ocr.ExtractPDF,
+		navigationIDs:        map[string]time.Time{},
+		agentConnections:     map[string]pendingAgentConnection{},
+		pendingSessionAgents: map[string]string{},
+		measurements:         map[string]measureState{},
+		measureCancels:       map[string]context.CancelFunc{},
+		extractClient:        &http.Client{},
+		attachmentStops:      map[string]context.CancelFunc{},
+		ocrExtract:           ocr.Extract,
+		ocrPDF:               ocr.ExtractPDF,
 		detectLocal: func(ctx context.Context, account string) (any, error) {
 			return detection.Local(ctx, filepath.Join(roots.Application, "scripts", "detect-local-capabilities.ps1"), account)
 		},
@@ -333,7 +335,10 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 	s.runner = runner
 	s.prompt = prompt
 	if scheduler != nil {
-		scheduler.SetAgentIdleCallback(s.applyPendingAgentConnection)
+		scheduler.SetAgentIdleCallback(func(agentID string) {
+			s.applyPendingAgentConnection(agentID)
+			s.applyPendingSessionAgents()
+		})
 		s.tryAgentIdle = scheduler.TryAgentIdle
 	}
 	// The worker drives ordinary runs through the same scheduler, so it exists
@@ -569,6 +574,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/tools/", s.replayGuard(s.toggleTool))
 	mux.HandleFunc("/api/stats/", s.replayGuard(s.stats))
 	mux.HandleFunc("/api/agents/", s.replayGuard(s.agentAction))
+	mux.HandleFunc("/api/agents", s.replayGuard(s.agentsEndpoint))
 	return mux
 }
 

@@ -92,6 +92,56 @@ func (r *Runner) Configure(cfg config.Config) {
 	r.tools.Configure(cfg)
 	r.budget.InvalidateToolCosts()
 }
+
+func (r *Runner) refreshAgent(s *session.Session) (*config.Connection, bool) {
+	snapshot := s.Snapshot()
+	if snapshot.AgentID == "" {
+		return r.connection(snapshot.ConnectionID)
+	}
+	cfg := r.cfg()
+	agent, ok := cfg.Agent(snapshot.AgentID)
+	if !ok {
+		agent, ok = cfg.Agent("agent_b")
+		if !ok {
+			return nil, false
+		}
+	}
+	connection, ok := r.agentConnection(agent, snapshot.Role)
+	if !ok {
+		connection, ok = r.connection(snapshot.ConnectionID)
+		if !ok {
+			return nil, false
+		}
+		return connection, true
+	}
+	s.ApplyAgentConfig(config.AgentID(agent.Name), *agent, *connection)
+	return connection, true
+}
+
+func (r *Runner) agentConnection(agent *config.Agent, role string) (*config.Connection, bool) {
+	connection, ok := r.connection(agent.ConnectionFor(role))
+	if !ok {
+		return nil, false
+	}
+	resolved := *connection
+	if model := strings.TrimSpace(agent.Model); model != "" {
+		resolved.SelectModel(model, 0)
+	}
+	return &resolved, true
+}
+
+func (r *Runner) currentConnection(s *session.Session) (*config.Connection, bool) {
+	snapshot := s.Snapshot()
+	if snapshot.AgentID == "" {
+		return r.connection(snapshot.ConnectionID)
+	}
+	if agent, ok := r.cfg().Agent(snapshot.AgentID); ok {
+		if connection, ok := r.agentConnection(agent, snapshot.Role); ok {
+			return connection, true
+		}
+	}
+	return r.connection(snapshot.ConnectionID)
+}
 func (r *Runner) Gate() *Gate                     { return r.gate }
 func (r *Runner) SetToolActivity(fn func(string)) { r.toolActivity = fn }
 func (r *Runner) SetDeliverer(fn func(*session.Session, string, []delivery.Source) delivery.Result) {
@@ -133,7 +183,7 @@ func (r *Runner) Verify(ctx context.Context, s *session.Session, command string)
 }
 func (r *Runner) SettlePlanTurns(ctx context.Context, s *session.Session, itemID string, ids []string) bool {
 	pointer := fmt.Sprintf("[settled → plan item %s]", itemID)
-	p, ok := r.connection(s.ConnectionID)
+	p, ok := r.currentConnection(s)
 	if !ok {
 		return false
 	}
@@ -161,7 +211,7 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, task,
 	}
 	r.bus.Publish(events.New(events.DelegatedUsage, parent.ID, "", map[string]any{"child_id": child.ID, "status": "running"}))
 	defer r.bus.Publish(events.New(events.DelegatedUsage, parent.ID, "", map[string]any{"child_id": child.ID, "status": "completed"}))
-	connection, ok := r.connection(child.ConnectionID)
+	connection, ok := r.currentConnection(child)
 	if !ok {
 		return tools.DelegateResult{}, fmt.Errorf("delegate connection %s is unavailable", child.ConnectionID)
 	}
@@ -236,7 +286,7 @@ func (r *Runner) QueueUser(ctx context.Context, s *session.Session, text string)
 	return r.QueueUserAttachments(ctx, s, text, nil)
 }
 func (r *Runner) QueueUserAttachments(ctx context.Context, s *session.Session, text string, attachments []events.Attachment) (events.Message, error) {
-	connection, ok := r.connection(s.ConnectionID)
+	connection, ok := r.refreshAgent(s)
 	if !ok {
 		return events.Message{}, fmt.Errorf("connection not found")
 	}
@@ -358,7 +408,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		}
 		return "mailbox_stop", detail, 0
 	}
-	connection, ok := r.connection(s.ConnectionID)
+	connection, ok := r.currentConnection(s)
 	if !ok {
 		return "connection_not_runnable", "connection " + s.ConnectionID + " no longer exists", 0
 	}
@@ -421,7 +471,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			return "mailbox_stop", detail, turn
 		}
 		turn++
-		connection, ok = r.connection(s.ConnectionID)
+		connection, ok = r.currentConnection(s)
 		if !ok {
 			return "connection_not_runnable", "connection " + s.ConnectionID + " no longer exists", turn - 1
 		}
@@ -2002,7 +2052,7 @@ func (r *Runner) textTokens(ctx context.Context, p *config.Connection, text stri
 	return value
 }
 func (r *Runner) PublishBudget(ctx context.Context, s *session.Session) {
-	p, ok := r.connection(s.ConnectionID)
+	p, ok := r.currentConnection(s)
 	if !ok {
 		return
 	}

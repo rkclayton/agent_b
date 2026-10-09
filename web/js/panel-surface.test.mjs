@@ -41,7 +41,7 @@ test("Console header omits build identity and Settings owns About", () => {
   assert.match(settings, /function about\(\)/);
 });
 
-test("Settings navigation remains install-global while agent controls live on Console", () => {
+test("Settings navigation remains install-global while agent controls live on Agents", () => {
   assert.doesNotMatch(settings, /\["sessions", "Sessions"\]|\["tools", "Tools"\]|\["memory", "Memory"\]|\["session", "Current session"\]/);
   assert.match(index, /id="panel-agent"/);
   // Item 2iq (a): the single connection row became one table, a row per role,
@@ -51,7 +51,7 @@ test("Settings navigation remains install-global while agent controls live on Co
   assert.doesNotMatch(index, /id="panel-agent-connection"/, "the single-connection row survived the role table");
   // Item 2iq (a): the state reads lowercase beside its own picker now, in the row
   // for the role it belongs to, rather than as one page-level readout.
-  assert.match(script, /applied \$\{agent\.b\} · pending \$\{pending\.to\}/);
+  assert.match(script, /data\.field|dataset\.field/);
   assert.match(index, /id="panel-tools"/);
   assert.match(index, /id="flush-memory"/);
 });

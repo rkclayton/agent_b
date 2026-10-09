@@ -467,6 +467,20 @@ func TestTheAppAroundTheRunsIsReported2q7(t *testing.T) {
 	}
 }
 
+func TestRevokedLinkIsOneRefusalWithoutDrops2rb(t *testing.T) {
+	app := NewApp(time.Date(2026, 10, 9, 6, 0, 0, 0, time.UTC))
+	app.Link("ERROR code=revoked detail=identity unavailable")
+	for _, item := range app.Flush() {
+		if item.kind == events.LinkHealth {
+			if item.data["refused"].(map[string]int)["revoked"] != 1 || len(item.data["drops"].(map[string]int)) != 0 {
+				t.Fatalf("link.health = %v", item.data)
+			}
+			return
+		}
+	}
+	t.Fatal("link.health was not emitted")
+}
+
 func TestLifecycleEnvelopesAreContentFree2qq(t *testing.T) {
 	app := NewApp(time.Date(2026, 10, 6, 14, 0, 0, 0, time.UTC))
 	app.NoteLifecycleStart("session_end")

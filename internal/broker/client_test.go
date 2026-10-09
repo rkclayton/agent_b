@@ -626,3 +626,52 @@ func TestCloseReplacedStopsRatherThanReconnecting2kq(t *testing.T) {
 		t.Fatal("structured session refusal was not reported")
 	}
 }
+
+func TestFatalRevokedStopsAndSaysNotPaired2rb(t *testing.T) {
+	agent, device, pairing := testPair(t)
+	standin := newScriptedBroker(t, agent, device, pairing)
+	dials, events := 0, make(chan string, 2)
+	client := NewClient(agent, pairing, func(context.Context) (Transport, error) { dials++; return standin, nil }, nil)
+	client.OnSessionEvent(func(event string) { events <- event })
+	done := make(chan error, 1)
+	go func() { done <- client.Run(context.Background()) }()
+	if frame := standin.next(t); frame.Type != FrameHello {
+		t.Fatalf("first frame = 0x%02x", frame.Type)
+	}
+	standin.push(FrameError, errorPayload{Code: "revoked", Detail: "identity unavailable", Fatal: true})
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the revoked client kept reconnecting")
+	}
+	if dials != 1 || client.Status().State != "not paired" {
+		t.Fatalf("dials=%d status=%+v", dials, client.Status())
+	}
+	if event := <-events; event != "ERROR code=revoked detail=identity unavailable" {
+		t.Fatalf("event = %q", event)
+	}
+}
+
+func TestNonfatalHandshakeErrorKeepsBackoff2rb(t *testing.T) {
+	agent, device, pairing := testPair(t)
+	standin := newScriptedBroker(t, agent, device, pairing)
+	client := NewClient(agent, pairing, func(context.Context) (Transport, error) { return standin, nil }, nil)
+	events, ctx := make(chan string, 2), context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	client.OnSessionEvent(func(event string) { events <- event })
+	go func() { _ = client.Run(ctx) }()
+	_ = standin.next(t)
+	standin.push(FrameError, errorPayload{Code: "busy", Detail: "try later", Fatal: false})
+	for _, want := range []string{"ERROR code=busy detail=try later", "reconnect attempt backoff=1s"} {
+		if got := <-events; got != want {
+			t.Fatalf("event = %q, want %q", got, want)
+		}
+	}
+	if status := client.Status(); status.Reconnects != 1 || status.NextAttemptAt == "" {
+		t.Fatalf("status=%+v", status)
+	}
+}

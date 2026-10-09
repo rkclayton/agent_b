@@ -236,8 +236,11 @@ func formatEndedReason(code, detail string) string {
 	return code + ": " + detail
 }
 
-// Problem preserves an ERROR frame's code and detail for the host that reports it.
-type Problem struct{ Code, Detail string }
+// Problem preserves an ERROR frame for the host that reports it.
+type Problem struct {
+	Code, Detail string
+	Fatal        bool
+}
 
 func (e *Problem) Error() string { return formatEndedReason(e.Code, e.Detail) }
 
@@ -270,6 +273,15 @@ func (c *Client) Run(ctx context.Context) error {
 			c.mu.Lock()
 			c.status.State = "broker unreachable"
 			c.status.EndedReason = err.Error()
+			c.mu.Unlock()
+			return nil
+		}
+		if errors.As(err, &problem) && problem.Fatal && (problem.Code == "revoked" || problem.Code == "not_paired") {
+			c.mu.Lock()
+			c.status.State = "not paired"
+			c.status.LastError = err.Error()
+			c.status.EndedReason = err.Error()
+			c.status.NextAttemptAt = ""
 			c.mu.Unlock()
 			return nil
 		}
@@ -384,8 +396,8 @@ func (c *Client) authenticate(ctx context.Context, transport Transport) error {
 	if err != nil {
 		return err
 	}
-	if frame.Type != FrameChallenge {
-		return fmt.Errorf("broker: expected CHALLENGE, got frame 0x%02x", frame.Type)
+	if err := c.expect(frame, FrameChallenge, "CHALLENGE"); err != nil {
+		return err
 	}
 	var challenge challengePayload
 	if err := DecodeInto(frame.Payload, &challenge); err != nil {
@@ -409,8 +421,8 @@ func (c *Client) authenticate(ctx context.Context, transport Transport) error {
 	if err != nil {
 		return err
 	}
-	if frame.Type != FrameReady {
-		return fmt.Errorf("broker: expected READY, got frame 0x%02x", frame.Type)
+	if err := c.expect(frame, FrameReady, "READY"); err != nil {
+		return err
 	}
 	var ready readyPayload
 	if err := DecodeInto(frame.Payload, &ready); err != nil {
@@ -420,6 +432,21 @@ func (c *Client) authenticate(ctx context.Context, transport Transport) error {
 	c.status.BrokerBuild = ready.Build
 	c.mu.Unlock()
 	return nil
+}
+
+func (c *Client) expect(frame Frame, want byte, name string) error {
+	if frame.Type == want {
+		return nil
+	}
+	if frame.Type != FrameError {
+		return fmt.Errorf("broker: expected %s, got frame 0x%02x", name, frame.Type)
+	}
+	var problem errorPayload
+	if err := DecodeInto(frame.Payload, &problem); err != nil {
+		return err
+	}
+	c.recordEvent("ERROR code=" + problem.Code + " detail=" + problem.Detail)
+	return &Problem{Code: problem.Code, Detail: problem.Detail, Fatal: problem.Fatal}
 }
 
 type sessionFrame struct {
@@ -626,7 +653,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 			}
 			if problem.Fatal {
 				c.recordEvent("ERROR code=" + problem.Code + " detail=" + problem.Detail)
-				return &Problem{Code: problem.Code, Detail: problem.Detail}
+				return &Problem{Code: problem.Code, Detail: problem.Detail, Fatal: true}
 			}
 			c.recordEvent("ERROR code=" + problem.Code + " detail=" + problem.Detail)
 			log.Printf("broker: %s (%s)", problem.Code, problem.Detail)
@@ -635,7 +662,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 			if err := DecodeInto(frame.Payload, &revoked); err != nil {
 				return err
 			}
-			return &Problem{Code: "revoked", Detail: "pairing revoked"}
+			return &Problem{Code: "revoked", Detail: "pairing revoked", Fatal: true}
 		default:
 			return fmt.Errorf("broker: unexpected frame 0x%02x", frame.Type)
 		}
@@ -815,7 +842,7 @@ func (c *Client) readHandshake(ctx context.Context, transport Transport) (Frame,
 				return Frame{}, err
 			}
 			c.recordEvent("ERROR code=" + problem.Code + " detail=" + problem.Detail)
-			return Frame{}, &Problem{Code: problem.Code, Detail: problem.Detail}
+			return Frame{}, &Problem{Code: problem.Code, Detail: problem.Detail, Fatal: problem.Fatal}
 		}
 		if err != nil || (frame.Type != FrameQueued && frame.Type != FramePing) {
 			return frame, err

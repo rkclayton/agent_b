@@ -5,6 +5,9 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-candidate-state.ps1')
 $deploy = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-release.ps1')
+foreach ($required in @('logs\evidence', 'Get-ChildItem', '"*-$Tag"', 'layout-final\layout-report.json')) {
+    if ($deploy -notmatch [regex]::Escape($required)) { throw "A resumed release cannot find its retained layout report: missing $required" }
+}
 $verify = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\verify-deploy-candidate.ps1')
 $sign = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\sign-release.ps1')
 if ($sign -notmatch 'NotAfter -le \[DateTime\]::Now\.AddDays\(30\)' -or $sign -notmatch 'SIGNING REFUSED:.+more than 30 days remaining') {

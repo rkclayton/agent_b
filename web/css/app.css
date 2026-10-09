@@ -793,6 +793,8 @@
   padding: 0;
 	background: transparent;
 }
+.settings-content button.switch:hover,
+.settings-content button.switch:active { background: transparent; }
 .switch::before {
   content: "";
   position: absolute;
@@ -1245,9 +1247,9 @@
   overflow-wrap: anywhere;
   text-align: right;
 }
-.setting-row input,
-.setting-row textarea,
-.setting-row select {
+.settings-content .setting-row input,
+.settings-content .setting-row textarea,
+.settings-content .setting-row select {
   width: 100%;
   min-width: 0;
   padding: 2px 5px;
@@ -1263,7 +1265,7 @@
   line-height: 16px;
 }
 .setting-row input.number {
-  width: 8ch;
+  width: 12ch;
   flex: none;
   text-align: right;
 }
@@ -1454,6 +1456,10 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 24px;
+}
+.connection-primary > .connection-test-failure {
+  grid-column: 2;
+  margin: 0 0 0 124px;
 }
 .connection-thinking { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .connection-fields .connection-thinking .settings-note { margin-left: 0; }
@@ -1751,6 +1757,7 @@
   }
   .skill-row { grid-template-columns: minmax(0, 1fr); }
   .connection-primary { grid-template-columns: 1fr; }
+  .connection-primary > .connection-test-failure { grid-column: 1; margin-left: 0; }
   .connection-defaults[open] > .connection-fieldset { grid-template-columns: 1fr; }
 	.setting-row:has(.settings-connections-actions) { grid-template-columns: minmax(0, 1fr); }
 	.setting-row:has(.settings-connections-actions) > label { display: none; }
@@ -2233,9 +2240,23 @@
   min-height: 28px;
   border-top: 1px solid rgba(112, 125, 139, .28);
 }
-.panel-role-row > input:not([type="checkbox"]),
-.panel-role-row > select,
-.panel-role-row > textarea { width: 100%; min-width: 0; }
+.settings-content .panel-role-row > input:not([type="checkbox"]),
+.settings-content .panel-role-row > select,
+.settings-content .panel-role-row > textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 5px;
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid rgba(112, 125, 139, 0.28);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.panel-role-row > :is(input:not([type="checkbox"]), select, textarea):disabled { color: var(--mute); opacity: 1; }
 .panel-role-row.settings-actions {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
@@ -2244,8 +2265,8 @@
   .panel-role-row.settings-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .panel-role-name {
-  color: var(--trace);
-  font: 500 12px/16px var(--mono);
+  color: var(--mute);
+  font: 12px/16px var(--sans);
 }
 .panel-role-what { color: var(--mute); }
 .panel-role-state { color: var(--mute); font-size: 12px; }

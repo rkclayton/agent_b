@@ -57,7 +57,7 @@ export function collectLayoutSnapshot(rootSelector = "body") {
   const identity = (node, index = 0) => node.getAttribute("aria-label") || node.getAttribute("data-path") || node.id || node.textContent?.trim().replace(/\s+/g, " ").slice(0, 60) || `${node.tagName.toLowerCase()}-${index}`;
   const candidates = [...root.querySelectorAll("input,select,textarea,button,summary,[data-layout-item]")].filter(visible);
   const canvas = document.createElement("canvas"), context = canvas.getContext("2d");
-  const elements = candidates.map((node, index) => { const style = getComputedStyle(node), box = rect(node), value = node.matches("input,textarea") ? node.value : node.matches("select") ? node.selectedOptions[0]?.textContent || "" : node.textContent?.trim().replace(/\s+/g, " ") || ""; context.font = style.font; const textWidth = context.measureText(value).width, available = node.clientWidth - parseFloat(style.paddingLeft || 0) - parseFloat(style.paddingRight || 0); const textWhole = !value || textWidth <= available + 1; const containerNode = node.closest(".setting-row,.connection-row,.connection-editor,.settings-actions,.connection-actions,.settings-content") || root; return { id: identity(node, index), box, container: rect(containerNode), textWhole, parent: candidates.includes(node.parentElement) ? identity(node.parentElement) : "" }; });
+  const elements = candidates.map((node, index) => { const style = getComputedStyle(node), box = rect(node), value = node.matches("input,textarea") ? node.value : node.matches("select") ? node.selectedOptions[0]?.textContent || "" : node.textContent?.trim().replace(/\s+/g, " ") || ""; context.font = style.font; const textWidth = context.measureText(value).width, nativeInset = node.matches('input[type="number"],select') ? parseFloat(style.fontSize || "0") * 1.5 : 0, available = node.clientWidth - parseFloat(style.paddingLeft || 0) - parseFloat(style.paddingRight || 0) - nativeInset; const textWhole = !value || textWidth <= available + 1; const containerNode = node.closest(".setting-row,.connection-row,.connection-editor,.settings-actions,.connection-actions,.settings-content") || root; return { id: identity(node, index), box, container: rect(containerNode), textWhole, parent: candidates.includes(node.parentElement) ? identity(node.parentElement) : "" }; });
   const page = document.scrollingElement;
   const scrollNodes = [page, ...root.querySelectorAll("*")].filter((node, index, all) => {
     if (!node || all.indexOf(node) !== index || !visible(node) || node.matches?.("input,select")) return false;
@@ -118,7 +118,7 @@ async function capture(exe, evidence) {
   const { start } = await import("./ui-harness.mjs");
   const root = resolve(evidence), temp = await mkdtemp(join(tmpdir(), "agentb-layout-gate-"));
   await mkdir(root, { recursive: true });
-  const harness = await start({ exe: resolve(exe), appRoot: resolve("."), data: join(temp, "data"), modelIDs: ["model-alpha", "model-beta", "model-gamma"] });
+  const harness = await start({ exe: resolve(exe), appRoot: resolve("."), data: join(temp, "data"), modelIDs: ["model-alpha", "model-beta", "model-gamma"], agents: ["Private fixture"] });
   const report = { schema: 1, results: [], reviews: [], other_page_failures: [] };
   const captureState = async (page, pageName, state, size, blocking = pageName === "Connections") => {
     const file = join(root, `${safe(pageName)}-${safe(state)}-${size.name}.png`);
@@ -135,7 +135,12 @@ async function capture(exe, evidence) {
       await openSettings(page, harness.base);
       for (const pageName of ["Agents", "Activity", "Plan", "Users", "Chats", "Notifications", "Security", "About"]) {
         await page.locator(".settings-nav button", { hasText: pageName, exact: true }).click();
-        await captureState(page, pageName, "rest", size, false);
+        if (pageName === "Agents") {
+          await captureState(page, pageName, "agent-b", size, false);
+          await page.locator("#panel-agent").selectOption({ label: "Private fixture" });
+          await page.locator('.settings-content [data-field="private"]').waitFor();
+          await captureState(page, pageName, "added-agent", size, false);
+        } else await captureState(page, pageName, "rest", size, false);
       }
       await page.locator('.settings-nav [data-id="connections"]').click();
       await captureState(page, "Connections", "list", size);

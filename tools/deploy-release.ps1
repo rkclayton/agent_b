@@ -53,8 +53,13 @@ if ($statusOutput.Count) { throw 'DEPLOY REFUSED: the repository is dirty.' }
 # The report is order evidence, deliberately outside the tracked tree; a release
 # without that evidence is not allowed to infer that a page looks right.
 $layoutReport = [Environment]::GetEnvironmentVariable('AGENTB_LAYOUT_REPORT', 'Process')
+if ([string]::IsNullOrWhiteSpace($layoutReport)) {
+    $evidenceRoot = Join-Path $repository 'logs\evidence'
+    $retainedReports = @($(Get-ChildItem -LiteralPath $evidenceRoot -Directory -Filter "*-$Tag" -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'layout-final\layout-report.json' } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }))
+    if ($retainedReports.Count -eq 1) { $layoutReport = $retainedReports[0] }
+}
 if ([string]::IsNullOrWhiteSpace($layoutReport) -or -not (Test-Path -LiteralPath $layoutReport -PathType Leaf)) {
-    throw 'DEPLOY REFUSED: AGENTB_LAYOUT_REPORT must name the completed layout-and-look report for this release.'
+    throw "DEPLOY REFUSED: retain one completed layout report under logs\evidence\<date>-$Tag\layout-final\layout-report.json or set AGENTB_LAYOUT_REPORT."
 }
 & node (Join-Path $repository 'tests\layout-gate.mjs') --release-check $layoutReport
 if ($LASTEXITCODE -ne 0) { throw 'DEPLOY REFUSED: a measured page failed its layout or written look; see the lines above.' }

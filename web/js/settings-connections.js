@@ -252,10 +252,10 @@ function connectionFields(connection, reason, discovery) {
 	const probing = !!discovery?.walking;
 	const primaryActions = `<div class="connection-primary-actions settings-actions"><button type="button" class="connection-test ${probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${probing ? "disabled" : ""}>${probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Eval"}</button><button type="button" data-action="recommended-connection" data-id="${attr(id)}">Recommended</button></div>`;
 	return `<div class="connection-fieldset connection-primary">${text(`${p}.label`, "name", connection.label, "text", false)}
-    ${text(`${p}.base_url`, "address", connection.base_url, "text", false)}${discoveryNote}
+    ${text(`${p}.base_url`, "address", connection.base_url, "text", false)}
     ${secret(`${p}.api_key`, "key", connection.api_key, id, false)}
 	${modelControl}${contextControl}${thinkingControl}${imageControl}
-	${row("", primaryActions, "connection-primary-row", false)}</div>
+	${row("", primaryActions, "connection-primary-row", false)}${discoveryNote}</div>
 	${feedback}${measurementResult}
 	    <details class="connection-defaults" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Defaults</summary>
 	    <div class="connection-fieldset connection-identity"><h4>Connection</h4>

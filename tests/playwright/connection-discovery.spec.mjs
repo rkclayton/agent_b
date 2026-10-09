@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { start } from "../ui-harness.mjs";
+import { auditLayoutSnapshot, collectLayoutSnapshot } from "../layout-gate.mjs";
 import { removeTreeWithinAllowedRoots } from "../../tools/removal-guard.mjs";
 
 const run = promisify(execFile);
@@ -31,6 +32,7 @@ test.beforeAll(async () => {
     // the server does not serve instead. What it is testing is a SAVED model the
     // listing does not offer, which is still exactly this case.
     connectionModel: "absent-model",
+    agents: ["Private fixture"],
   });
 });
 
@@ -689,4 +691,59 @@ test("an unassigned planner leaves the entry and shows the one line in the pane"
     await expect(panel).toHaveCount(0);
   }
   await page.close();
+});
+
+test("Agents and Connections share fields, whole numbers, switches, and stable failure layout 2t0", async () => {
+  const styles = (nodes) => nodes.map((node) => { const value = getComputedStyle(node); return { tag: node.tagName, element: node.outerHTML, background: value.backgroundColor, color: value.color, border: value.border, family: value.fontFamily, size: value.fontSize, height: value.lineHeight, weight: value.fontWeight }; });
+  for (const viewport of [{ width: 304, height: 254 }, { width: 1280, height: 860 }, { width: 1920, height: 1080 }]) {
+    const page = await harness.context.newPage({ viewport });
+    await page.goto(`${harness.base}/chat`); await openSettings(page);
+    await page.locator('.settings-nav [data-id="agents"]').click();
+    const agentMetrics = async () => ({
+      labels: await page.locator('.settings-content .panel-role-name').evaluateAll(styles),
+      fields: await page.locator('.settings-content .panel-role-row > input:not([type="checkbox"]), .settings-content .panel-role-row > select, .settings-content .panel-role-row > textarea').evaluateAll(styles),
+    });
+    const builtIn = await agentMetrics();
+    await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
+    await expect(page.locator('.settings-content [data-field="private"]')).toBeVisible();
+    const added = await agentMetrics();
+    await page.locator('.settings-nav [data-id="chats"]').click();
+    const chatSwitch = page.locator('.settings-content button.switch').first();
+    const switchPaint = async (node) => { const value = getComputedStyle(node), track = getComputedStyle(node, '::before'); return { background: value.backgroundColor, width: value.width, height: value.height, track: [track.backgroundColor, track.width, track.height, track.top] }; };
+    const chatChecked = await chatSwitch.getAttribute('aria-checked');
+    await chatSwitch.hover();
+    const chatPaint = await chatSwitch.evaluate(switchPaint);
+    await page.locator('.settings-nav [data-id="connections"]').click();
+    await page.locator('[data-action="connection-toggle"]').first().click();
+    const reference = await page.locator('.connection-primary .setting-row').first().evaluate((row) => { const node=row.querySelector(':scope > label'),value=getComputedStyle(node); return { background:value.backgroundColor,color:value.color,border:value.border,family:value.fontFamily,size:value.fontSize,height:value.lineHeight,weight:value.fontWeight }; });
+    const connectionFields = await page.locator('.connection-editor input:not([type="checkbox"]), .connection-editor select, .connection-editor textarea').evaluateAll(styles);
+    const fieldByTag = Object.fromEntries(connectionFields.map((field) => [field.tag, field]));
+    for (const metrics of [builtIn, added]) {
+      for (const label of metrics.labels) expect([label.background, label.color, label.border, label.family, label.size, label.height, label.weight], label.element).toEqual([reference.background, reference.color, reference.border, reference.family, reference.size, reference.height, reference.weight]);
+      for (const field of metrics.fields) {
+        const fieldReference = fieldByTag[field.tag];
+        expect([field.background, field.border, field.family, field.size, field.height, field.weight], field.element).toEqual([fieldReference.background, fieldReference.border, fieldReference.family, fieldReference.size, fieldReference.height, fieldReference.weight]);
+      }
+    }
+    const connectionSwitch = page.locator('.connection-primary button.switch').first();
+    if (await connectionSwitch.getAttribute('aria-checked') !== chatChecked) await connectionSwitch.click();
+    await connectionSwitch.hover();
+    expect(await connectionSwitch.evaluate(switchPaint)).toEqual(chatPaint);
+    const positions = async () => page.locator('.connection-primary').evaluate((root) => [...root.querySelectorAll(':scope > .setting-row')].map((row) => ({ label: row.querySelector(':scope > label')?.textContent.trim() || 'actions', left: row.getBoundingClientRect().left })));
+    const before = await positions();
+    await page.locator('.connection-defaults summary').click();
+    const reserve = page.locator('[data-path$="context.reserve_output"]');
+    await reserve.evaluate((node) => { node.value = '10240'; node.style.width = '8ch'; });
+    const cut = auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, '.settings-content'));
+    expect(cut.filter(({ rule }) => rule === 'L1').map(({ element }) => element)).toEqual(['connections.ui.context.reserve_output']);
+    await reserve.evaluate((node) => { node.style.width = ''; });
+    const whole = auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, '.settings-content'));
+    expect(whole.filter(({ rule, element }) => rule === 'L1' && element.startsWith('connections.'))).toEqual([]);
+    await page.route('**/api/connections/*/probe', (route) => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'fixture refusal', field: 'connections.ui.base_url' }) }));
+    await page.locator('[data-action="probe"]').click(); await page.locator('.connection-test-failure').waitFor();
+    expect(await positions()).toEqual(before);
+    const aligned = await page.locator('.connection-test-failure').evaluate((error) => { const a=error.previousElementSibling.querySelector('.connection-primary-actions').getBoundingClientRect(), e=error.getBoundingClientRect(); return Math.abs(a.left-e.left)<=1 && e.top>=a.bottom; });
+    expect(aligned).toBe(true);
+    await page.close();
+  }
 });

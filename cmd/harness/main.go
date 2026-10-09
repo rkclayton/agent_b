@@ -278,9 +278,7 @@ func main() {
 	defer progressManager.Close()
 	web := webserver.New(cfg, paths.Config, filepath.Join(paths.Application, "web"), roots, bus)
 	web.SetProfiles(profileManager)
-	if *window {
-		web.SetHostWindowAction(requestHostWindowAction)
-	}
+	attachHostWindowActions(web)
 	updateManager := updater.New(updater.Options{
 		CurrentVersion: buildinfo.Current().Tag,
 		DataRoot:       paths.Data,
@@ -639,6 +637,17 @@ func main() {
 	if err := serve(cfg, web.Handler(), newLifetime(paths.Data, time.Now), paths.Application, web.BrowserBootstrapToken()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+type hostWindowActionSetter interface {
+	SetHostWindowAction(func(string, string) bool)
+}
+
+// Every server can be asked to open its window by a later launch, so every
+// server must also own that window's page actions. The process's initial flags
+// decide when the window opens, not whether its buttons work afterward.
+func attachHostWindowActions(server hostWindowActionSetter) {
+	server.SetHostWindowAction(requestHostWindowAction)
 }
 
 func serviceIdentityStartupNotice(service config.ShellServiceAccount, status credential.Status) string {

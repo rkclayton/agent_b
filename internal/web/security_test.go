@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -216,6 +217,26 @@ func TestHostWindowActionsUseTheMutationBoundary(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("invalid action status=%d body=%s", response.Code, response.Body)
+	}
+}
+
+func TestARefusedHostWindowPressNamesTheButtonAndMissingWindow2t2(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	request := httptest.NewRequest(http.MethodPost, "/api/host-window", strings.NewReader(`{"action":"close"}`))
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "native host window is unavailable") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body)
+	}
+	if line := output.String(); !strings.Contains(line, "button=close") || !strings.Contains(line, "no window held") {
+		t.Fatalf("refused press log=%q", line)
 	}
 }
 

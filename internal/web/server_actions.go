@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -105,6 +106,9 @@ func (s *Server) hostWindow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.hostWindowAction == nil || !s.hostWindowAction(body.Action, body.Title) {
+		if body.Action != "title" {
+			log.Printf("host window press: button=%s route=page no window held", body.Action)
+		}
 		writeError(w, http.StatusConflict, "native host window is unavailable", "action")
 		return
 	}

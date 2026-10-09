@@ -17,6 +17,24 @@ import (
 	"harness/internal/session"
 )
 
+type recordedHostWindowActions struct{ action func(string, string) bool }
+
+func (r *recordedHostWindowActions) SetHostWindowAction(action func(string, string) bool) {
+	r.action = action
+}
+
+func TestBackgroundLaunchesReceiveLaterWindowActions2t2(t *testing.T) {
+	for _, launch := range []string{"installer restart: -Detached -NoBrowser -NoPause", "sign-in start: -AtLogon -Detached -NoBrowser -NoPause"} {
+		t.Run(launch, func(t *testing.T) {
+			server := &recordedHostWindowActions{}
+			attachHostWindowActions(server)
+			if server.action == nil {
+				t.Fatal("a background-started server has no action for the window a later launch opens")
+			}
+		})
+	}
+}
+
 func TestStartupDoesNotCreateAChatWithoutAnOperatorAction2qd(t *testing.T) {
 	source, err := os.ReadFile("main.go")
 	if err != nil {

@@ -185,7 +185,7 @@ func TestAFreshHandOffKeepsTheTaskWithoutToolOutput2qh(t *testing.T) {
 		t.Fatal("the summary was not accepted")
 	}
 	messages := item.MessagesCopy()
-	if len(messages) != 2 || messages[0].ID != "u1" || messages[0].Content != "go: Order ID: `rel-9.9.9`, finish it" {
+	if len(messages) != 2 || messages[1].ID != "u1" || messages[1].Content != "go: Order ID: `rel-9.9.9`, finish it" {
 		t.Fatalf("task was not retained verbatim: %+v", messages)
 	}
 	for _, message := range messages {

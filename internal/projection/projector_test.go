@@ -242,7 +242,7 @@ func TestFreshContextKeepsVisibleTranscriptAndHidesHandOff2qh(t *testing.T) {
 	if len(next.Chat) != 3 || next.Chat[0].Text != "earlier question" || next.Chat[1].Text != "earlier answer" || next.Chat[2].Event == nil || next.Chat[2].Event.Type != events.Compaction {
 		t.Fatalf("visible transcript=%+v", next.Chat)
 	}
-	if len(next.Messages) != 2 || next.Messages[0].ID != "task" || next.Messages[1].ID != "handoff" {
+	if len(next.Messages) != 2 || next.Messages[0].ID != "handoff" || next.Messages[1].ID != "task" {
 		t.Fatalf("model context=%+v", next.Messages)
 	}
 }

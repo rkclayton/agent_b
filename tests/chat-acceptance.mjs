@@ -2445,11 +2445,13 @@ if (realModel) {
   assert.ok(requestAfterSummary, "compaction summary was not followed by a model request");
   const currentTaskIndex = requestAfterSummary.body.messages.findIndex((message) => message.role === "user" && message.content === compactionTask);
   const handoffIndex = requestAfterSummary.body.messages.findIndex((message) => message.role === "assistant" && message.content === `[harness note]\n${summaryEvent.data.message.content}`);
-  assert.ok(currentTaskIndex >= 0 && handoffIndex === currentTaskIndex + 1, "fresh request must contain the exact current task followed by one harness-authored hand-off");
+  assert.ok(handoffIndex >= 0 && currentTaskIndex === handoffIndex + 1 && currentTaskIndex === requestAfterSummary.body.messages.length - 1, "fresh request must end in the exact current task after one harness-authored hand-off");
   assert.equal(requestAfterSummary.body.messages.filter((message) => message.content === `[harness note]\n${summaryEvent.data.message.content}`).length, 1);
   assert.ok((await browserText("#chat-log")).includes("acceptance: compaction"));
   assert.equal(await page.locator(".chat-summary").count(), 0, "the hand-off must not replace or appear in the visible transcript");
-  await browser.wait(`document.querySelector('#chat-log')?.innerText.split('\\n').includes('fresh context — earlier turns searchable')`, "fresh-context searchable-history line");
+  const freshReason = ({ byte_limit: "server size limit", message_limit: "server message limit", server_window_refusal: "server refused the window" })[compaction.data.trigger] || "window full";
+  const freshLine = `fresh context · ${compaction.data.before} → ${compaction.data.after} tokens · ${freshReason} · earlier turns searchable`;
+  await browser.wait(`document.querySelector('#chat-log')?.innerText.includes(${JSON.stringify(freshLine)})`, "fresh-context searchable-history line");
   await captureWithMasks(page, join(args.evidence, "compaction-summary.png"));
 
   record("compaction-starts-fresh-context-and-keeps-visible-transcript");

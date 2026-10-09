@@ -326,7 +326,7 @@ test("first usable frame does not grow with retained chat history", async ({ bro
   expect(largeMedian, `empty=${smallMedian.toFixed(1)}ms large=${largeMedian.toFixed(1)}ms`).toBeLessThanOrEqual(2 * smallMedian);
 });
 
-test("fresh context leaves every transcript entry visible and adds its searchable-history line", async ({ browser }) => {
+test("fresh context leaves every transcript entry visible and says how much and why", async ({ browser }) => {
   const id = "chat-fresh";
   const snapshot = {
     sessions: { [id]: { schema_version: 1, cursor: { generation: `${id}.jsonl`, offset: 4 }, complete: true, id, label: "long chat",
@@ -334,35 +334,43 @@ test("fresh context leaves every transcript entry visible and adds its searchabl
       timeline: [], chat: [
         { type: "user", key: "message:u1", text: "FIRST VISIBLE TURN" },
         { type: "agent", key: "turn:r1:1", text: "SECOND VISIBLE TURN", done: true },
-        { type: "notice", key: "event:3", run_id: "r1", event: { seq: 3, type: "compaction", session_id: id, run_id: "r1", data: { kind: "fresh", before: 1000, after: 100 } } },
+        { type: "notice", key: "event:3", run_id: "r1", event: { seq: 3, type: "compaction", session_id: id, run_id: "r1", data: { kind: "fresh", trigger: "summary_pct", before: 1000, after: 100 } } },
       ], runnable: true, closed: false } },
     connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {},
   };
-  const context = await browser.newContext({ viewport: { width: 1250, height: 975 } });
-  await context.addInitScript(({ snapshot, id }) => {
-    sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: id, surface: { kind: "chat", key: id } }));
-    class FixtureEvents {
-      constructor() { this.listeners = new Map(); setTimeout(() => { this.onopen?.(); this.emit("snapshot", { type: "snapshot", data: snapshot }); }); }
-      addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); }
-      emit(type, value) { for (const listener of this.listeners.get(type) || []) listener({ data: JSON.stringify(value) }); }
-      close() {}
-    }
-    globalThis.EventSource = FixtureEvents;
-  }, { snapshot, id });
-  const page = await context.newPage();
-  await page.route("**/*", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
-    if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
-    return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
-  });
-  await page.goto(`http://fresh-context.test/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
-  const log = page.locator("#chat-log");
-  await expect(log).toContainText("FIRST VISIBLE TURN");
-  await expect(log).toContainText("SECOND VISIBLE TURN");
-  await expect(log).toContainText("fresh context — earlier turns searchable");
-  await expect(log).not.toContainText("Fresh-context hand-off:");
-  await context.close();
+  for (const width of [304, 1280]) {
+    const context = await browser.newContext({ viewport: { width, height: 700 } });
+    await context.addInitScript(({ snapshot, id }) => {
+      sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: id, surface: { kind: "chat", key: id } }));
+      localStorage.setItem("agentb.chat-list", JSON.stringify({ width: 240, hidden: true }));
+      class FixtureEvents {
+        constructor() { this.listeners = new Map(); setTimeout(() => { this.onopen?.(); this.emit("snapshot", { type: "snapshot", data: snapshot }); }); }
+        addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); }
+        emit(type, value) { for (const listener of this.listeners.get(type) || []) listener({ data: JSON.stringify(value) }); }
+        close() {}
+      }
+      globalThis.EventSource = FixtureEvents;
+    }, { snapshot, id });
+    const page = await context.newPage();
+    await page.route("**/*", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
+      if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
+      return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
+    });
+    await page.goto(`http://fresh-context.test/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
+    const log = page.locator("#chat-log");
+    await expect(log).toContainText("FIRST VISIBLE TURN");
+    await expect(log).toContainText("SECOND VISIBLE TURN");
+    const line = "fresh context · 1000 → 100 tokens · window full · earlier turns searchable";
+    await expect(log).toContainText(line);
+    await expect(log).not.toContainText("Fresh-context hand-off:");
+    const notice = log.getByText(line, { exact: true });
+    await expect(notice).toBeVisible();
+    expect(await notice.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/2sz-fresh-${width}.png`, fullPage: true });
+    await context.close();
+  }
 });
 
 test("2ql finished and live s56-shaped replays stay compact and keep every entry reachable", async ({ browser }) => {

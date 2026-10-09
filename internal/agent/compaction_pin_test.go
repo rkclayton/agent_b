@@ -39,10 +39,10 @@ func TestSummaryPromptBuildsFreshHandOffAndKeepsTaskVerbatim(t *testing.T) {
 		t.Fatal("summary was not accepted")
 	}
 	after := item.Snapshot().Messages
-	if len(after) != 2 || after[0].ID != "task" || after[0].Content != "the real task" || after[1].Category != "summary" {
+	if len(after) != 2 || after[0].Category != "summary" || after[1].ID != "task" || after[1].Content != "the real task" {
 		t.Fatalf("fresh context=%+v", after)
 	}
-	if strings.Contains(after[1].Content, "the real task") {
+	if strings.Contains(after[0].Content, "the real task") {
 		t.Fatal("hand-off copied the pinned task")
 	}
 }

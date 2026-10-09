@@ -481,8 +481,7 @@ func (c *Compactor) FreshStart(s *session.Session, runID string, summary events.
 		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
 		return false
 	}
-	out := append([]events.Message{}, messages[start:end]...)
-	out = append(out, summary)
+	out := append([]events.Message{summary}, messages[start:end]...)
 	affected := make([]string, 0, len(messages)-len(out)+1)
 	for index, message := range messages {
 		if index < start || index >= end {

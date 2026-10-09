@@ -221,6 +221,80 @@ func assertNoAdjacentAssistants(t *testing.T, messages []events.Message) {
 	}
 }
 
+func freshRequestFixture2sz(t *testing.T, respond func(map[string]any, []map[string]any) map[string]any, mid bool) (*Runner, *session.Session, *templateServer) {
+	t.Helper()
+	server := newTemplateServer(t, respond)
+	runner, item, bus := templateRunner(t, server)
+	messages := []events.Message{{ID: "old", Role: "assistant", Category: "history", Content: "old answer", Tokens: 20}, {ID: "task", Role: "user", Category: "history", Content: "CURRENT TASK VERBATIM", Tokens: 20}}
+	if mid {
+		messages = append(messages, events.Message{ID: "working", Role: "assistant", Category: "history", Content: "work underway", Tokens: 20})
+	}
+	item.ReplaceMessages(messages)
+	item.SetRunPin("task")
+	note := events.Message{ID: "handoff", Role: "harness", Category: "summary", Content: "Fresh-context hand-off:\nDONE: old work", Tokens: 5}
+	if !contextmgr.New(bus.Bus).FreshStart(item, "run", note, events.CompactionSummaryData{Trigger: "summary_pct"}) {
+		t.Fatal("fresh start rejected")
+	}
+	return runner, item, server
+}
+
+func TestFreshRequestEndsInVerbatimTask2sz(t *testing.T) {
+	for _, mid := range []bool{false, true} {
+		runner, item, server := freshRequestFixture2sz(t, func(map[string]any, []map[string]any) map[string]any { return map[string]any{"content": "done"} }, mid)
+		if reason, detail, _ := runner.Run(context.Background(), item, "run"); reason != "done" {
+			t.Fatalf("run: %s %q", reason, detail)
+		}
+		var request []map[string]any
+		if err := json.Unmarshal([]byte(server.lastRequest()), &request); err != nil {
+			t.Fatal(err)
+		}
+		last, prior := request[len(request)-1], request[len(request)-2]
+		if last["role"] != "user" || last["content"] != "CURRENT TASK VERBATIM" || prior["role"] != "assistant" || !strings.Contains(fmt.Sprint(prior["content"]), "Fresh-context hand-off:") {
+			t.Fatalf("mid=%t request=%v", mid, request)
+		}
+	}
+}
+
+func TestFreshRequestContinuesInsteadOfEchoingHandOff2sz(t *testing.T) {
+	serverStep := 0
+	runner, item, server := freshRequestFixture2sz(t, func(_ map[string]any, messages []map[string]any) map[string]any {
+		last := messages[len(messages)-1]
+		if last["role"] == "assistant" {
+			return map[string]any{"content": last["content"]}
+		}
+		if serverStep == 0 {
+			serverStep++
+			return toolCall("next", "find_files", `{"pattern":"*.txt"}`)
+		}
+		return map[string]any{"content": "continued with the task"}
+	}, true)
+	if reason, detail, _ := runner.Run(context.Background(), item, "run"); reason != "done" {
+		t.Fatalf("run: %s %q", reason, detail)
+	}
+	if len(server.requests) < 2 || item.MessagesCopy()[len(item.MessagesCopy())-1].Content != "continued with the task" {
+		t.Fatalf("requests=%d messages=%+v", len(server.requests), item.MessagesCopy())
+	}
+}
+
+func TestFreshRequestSurvivesRestartByteForByte2sz(t *testing.T) {
+	respond := func(map[string]any, []map[string]any) map[string]any { return map[string]any{"content": "done"} }
+	runner, item, server := freshRequestFixture2sz(t, respond, true)
+	restored := item.MessagesCopy()
+	if reason, _, _ := runner.Run(context.Background(), item, "live"); reason != "done" {
+		t.Fatal(reason)
+	}
+	restartRunner, restartItem, _ := templateRunner(t, server)
+	restartItem.Workspace = item.Workspace
+	restartItem.ReplaceMessages(restored)
+	restartItem.SetRunPin("task")
+	if reason, _, _ := restartRunner.Run(context.Background(), restartItem, "restored"); reason != "done" {
+		t.Fatal(reason)
+	}
+	if len(server.requests) != 2 || server.requests[0] != server.requests[1] {
+		t.Fatalf("live and restored requests differ: %v", server.requests)
+	}
+}
+
 // The walk's 3-long (v0.67.0/W9, main.jsonl seq 1506-1729): one long read, then
 // the end-of-turn elide and summarize. Before item 2fd the summarize kept the
 // previous answer (m-29) beside the note and every later request was refused.

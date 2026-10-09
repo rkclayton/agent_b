@@ -167,7 +167,7 @@ func TestFreshContextNeverStacksAHandOff2qh(t *testing.T) {
 	if summaries != 1 {
 		t.Fatalf("summary count=%d messages=%+v", summaries, snapshot)
 	}
-	if len(snapshot) != 2 || snapshot[0].ID != "task" || snapshot[0].Content != "CURRENT TASK VERBATIM" {
+	if len(snapshot) != 2 || snapshot[0].Category != "summary" || snapshot[1].ID != "task" || snapshot[1].Content != "CURRENT TASK VERBATIM" {
 		t.Fatalf("running task changed: %+v", snapshot)
 	}
 	mainServer.mu.Lock()

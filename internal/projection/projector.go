@@ -681,6 +681,9 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		next.Messages = cloneMessages(next.Messages)
 		if wrapper.Message.Category == "summary" {
 			at := min(1, len(next.Messages))
+			if strings.HasPrefix(wrapper.Message.Content, "Fresh-context hand-off:\n") {
+				at = 0
+			}
 			next.Messages = append(next.Messages[:at], append([]events.Message{wrapper.Message}, next.Messages[at:]...)...)
 		} else {
 			next.Messages = append(next.Messages, wrapper.Message)

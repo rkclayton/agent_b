@@ -36,6 +36,9 @@ func (s *Store) Watch(ctx context.Context, changed func([]Entry)) error {
 	w, err := fsnotify.NewWatcher()
 	if err != nil { return err }
 	defer w.Close()
+	// Keep the paths this loop added instead of asking the Windows backend for
+	// its live map while its event goroutine may be deleting from it.
+	watched := map[string]bool{}
 	rescan := func() error {
 		entries, err := s.Scan()
 		if err != nil { return err }
@@ -44,8 +47,14 @@ func (s *Store) Watch(ctx context.Context, changed func([]Entry)) error {
 			if walkErr == nil && item.IsDir() { wanted[path] = true }
 			return nil
 		})
-		for _, path := range w.WatchList() { if !wanted[path] { _ = w.Remove(path) } else { delete(wanted, path) } }
-		for path := range wanted { if err := w.AddWith(path, fsnotify.WithBufferSize(64 * 1024)); err != nil && !os.IsNotExist(err) { return err } }
+		for path := range watched { if !wanted[path] { _ = w.Remove(path); delete(watched, path) } else { delete(wanted, path) } }
+		for path := range wanted {
+			if err := w.AddWith(path, fsnotify.WithBufferSize(64*1024)); err != nil {
+				if !os.IsNotExist(err) { return err }
+				continue
+			}
+			watched[path] = true
+		}
 		changed(entries)
 		return nil
 	}

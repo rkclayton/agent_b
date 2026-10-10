@@ -7,12 +7,12 @@ const chat = readFileSync(new URL("./chat.js", import.meta.url), "utf8");
 const settings = readFileSync(new URL("./settings.js", import.meta.url), "utf8");
 const htmlSource = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
-test("the update notice is a dismissible banner beside Attach, not strip text", () => {
-  assert.match(htmlSource, /id="chat-update-banner"[\s\S]*id="chat-update-install"[\s\S]*id="chat-update-dismiss"[\s\S]*class="chat-attach-wrap"/);
-  assert.match(chat, /`\$\{version\} available —`/);
-  assert.match(chat, /finish or stop the run first/);
-  assert.match(chat, /action: "install", session_id: session\.id/);
-  assert.doesNotMatch(chat, /updateAvailableText/);
+test("chat has no update notice, update controls, dismissal state, or update-event notice", () => {
+  assert.doesNotMatch(htmlSource, /chat-update-(?:banner|copy|install|dismiss)/);
+  assert.doesNotMatch(chat, /chat-update-(?:banner|copy|install|dismiss)/);
+  assert.doesNotMatch(chat, /agentb\.dismissed-update/);
+  assert.doesNotMatch(chat, /action: "install"/);
+  assert.doesNotMatch(chat, /event\.type === "update\.changed"/);
 });
 
 test("About exposes attach-aware timestamps, release note, and operator actions", () => {
@@ -29,6 +29,12 @@ test("About exposes attach-aware timestamps, release note, and operator actions"
 	assert.match(html, /checked /);
 	assert.match(html, /data-action="check-update"/);
   assert.match(html, /data-action="install-update"/);
+  assert.match(settings, /action: "install", session_id: store\.selection\?\.session_id \|\| ""/);
+  const refused = renderAboutPage({
+    store: { build: {}, config: { updates: {} }, update: { error: "fixture installer refusal", checked_at: "2026-09-23T12:05:00Z" } },
+    row: (label, control) => `<div>${label}:${control}</div>`, toggle: () => "", html: (value) => String(value),
+  });
+  assert.match(refused, /fixture installer refusal/);
 });
 
 test("About carries Windows' Start when I sign in switch beside update controls", () => {

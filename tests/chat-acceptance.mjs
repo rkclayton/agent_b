@@ -675,7 +675,7 @@ browser = {
 };
 // The real native host checks the release feed when its window attaches. This
 // headless page bypasses that host, so exercise the same attach route before
-// asserting the banner instead of depending on startup timing.
+// proving an available update stays out of chat.
 if (!realModel) {
 	await json(`http://127.0.0.1:${appPort}/api/update?attach=1`);
 	const deadline = Date.now() + 12000;
@@ -696,8 +696,9 @@ if (!Object.keys(runtimeState.sessions || {}).length) {
 }
 await browser.wait(`document.querySelector('.chat-list-row.selected')`, "Agent tab rendered");
 if (!realModel) {
-	await browser.wait(`!document.querySelector('#chat-composer')?.hidden && document.querySelector('#chat-update-banner:not([hidden])')?.textContent.includes('v9.9.9 available')`, "update banner rendered from local fixture");
-	record("update-fixture-available-banner");
+	await browser.wait(`!document.querySelector('#chat-composer')?.hidden`, "composer rendered with available update");
+	assert.equal(await page.locator("[id^=chat-update-]").count(), 0, "available update must have no chat elements");
+	record("update-fixture-absent-from-chat");
 }
 record("open-chat");
 

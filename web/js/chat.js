@@ -41,13 +41,7 @@ const pendingFiles = document.getElementById("chat-attachments");
 // Item 2ge: send and stop are one control, so there is one element for both.
 const mic = document.getElementById("chat-mic");
 const retryModel = document.getElementById("chat-retry-model");
-const updateBanner = document.getElementById("chat-update-banner");
-const updateCopy = document.getElementById("chat-update-copy");
-const updateInstall = document.getElementById("chat-update-install");
-const updateDismiss = document.getElementById("chat-update-dismiss");
-let dismissedUpdateVersion = "";
 let attachmentFolder = { name: "attachments", path: "" };
-try { dismissedUpdateVersion = localStorage.getItem("agentb.dismissed-update") || ""; } catch {}
 let requested = new URLSearchParams(location.search).get("session");
 // Item 2gn: the chat the operator asked for by name, so the stale-selection
 // sweep never takes him off a closed chat he opened deliberately.
@@ -153,9 +147,6 @@ function applyReadingSettings() {
 }
 
 subscribe((_state, event) => {
-	if (event.type === "update.changed" && store.update?.error) {
-		localNotice = store.update.error; localAlarm = true;
-	}
 	if (event.type === "attachment.ocr_progress" && activeUpload?.id === event.data?.upload_id) {
 		activeUpload.page = event.data.page; activeUpload.total = event.data.total;
 	}
@@ -1317,43 +1308,6 @@ async function loadMicAvailability() {
   renderMic(store.sessions[selectedID()]);
 }
 
-function renderUpdateBanner(session) {
-  if (!updateBanner) return;
-  const update = store.update || {};
-  const version = String(update.version || "");
-  const visible = !!session && !store.replay && update.available === true && !!version && version !== dismissedUpdateVersion;
-  setProperty(updateBanner, "hidden", !visible);
-  if (!visible) return;
-  const running = isRunning(session);
-  updateCopy.textContent = running ? `${version} available — finish or stop the run first` : `${version} available —`;
-  setProperty(updateInstall, "hidden", running);
-  setProperty(updateInstall, "disabled", !!update.installing);
-  setText(updateInstall, update.installing ? "Starting…" : "Install");
-}
-
-updateDismiss?.addEventListener("click", () => {
-  dismissedUpdateVersion = String(store.update?.version || "");
-  try { localStorage.setItem("agentb.dismissed-update", dismissedUpdateVersion); } catch {}
-  renderComposer(store.sessions[selectedID()]);
-});
-
-updateInstall?.addEventListener("click", async () => {
-  const session = store.sessions[selectedID()];
-  if (!session || isRunning(session) || store.replay) return;
-  updateInstall.disabled = true;
-  updateInstall.textContent = "Starting…";
-  try {
-    const result = await api("/api/update", { action: "install", session_id: session.id });
-    if (result?.update) store.update = result.update;
-    localNotice = "Update verified; restarting into this chat…";
-    localAlarm = false;
-  } catch (error) {
-    localNotice = error.message;
-    localAlarm = true;
-  }
-  renderComposer(session);
-});
-
 function renderComposer(session) {
   renderChatProposals(chatProposals, session, input);
 	document.body.classList.toggle("no-open-chats", !session);
@@ -1362,7 +1316,6 @@ function renderComposer(session) {
   send.disabled = !!store.replay || phoneOwned;
   input.disabled = !!store.replay || phoneOwned;
   attachButton.disabled = !session || !!store.replay || attachmentsBusy || phoneOwned;
-  renderUpdateBanner(session);
   input.removeAttribute("placeholder");
   const queued = session?.queued_messages || 0;
   // Item 2fc: a run queued behind its model connection says whose run it waits on.

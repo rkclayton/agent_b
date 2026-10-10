@@ -790,12 +790,6 @@
 .chat-live-status[hidden] { display:none; }
 .chat-resize-handle { height:4px; min-height:4px; cursor:row-resize; touch-action:none; }
 .chat-resize-handle.dragging { user-select:none; background:rgba(112,125,139,.22); }
-.chat-update-banner { justify-self:end; display:flex; align-items:center; gap:4px; margin-right:4px; white-space:nowrap; color:var(--ink); }
-.chat-update-banner[hidden] { display:none; }
-.chat-update-banner:not([hidden]) + .chat-attach-wrap { margin-left:0; }
-.chat-update-install,
-.chat-update-dismiss { min-height:20px!important; padding:0!important; border:0!important; background:transparent!important; color:var(--trace)!important; text-decoration:underline; }
-.chat-update-dismiss { width:18px; color:var(--mute)!important; text-decoration:none; }
 .chat-retry { min-height:22px!important; padding:1px 6px!important; background:transparent!important; }
 @media (prefers-reduced-motion: reduce) {
   :where(

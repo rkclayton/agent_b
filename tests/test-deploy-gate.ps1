@@ -14,6 +14,8 @@ if ($sign -notmatch 'NotAfter -le \[DateTime\]::Now\.AddDays\(30\)' -or $sign -n
     throw 'release signing no longer refuses a publisher key within 30 days of expiry'
 }
 $stage = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\stage-candidate.mjs')
+$candidateState = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-candidate-state.ps1')
+$installerMatrix = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'test-installer.ps1')
 $repository = Split-Path -Parent $PSScriptRoot
 $ownedCheck = Join-Path $repository 'tools\owned-check.ps1'
 if (-not (Test-Path -LiteralPath $ownedCheck -PathType Leaf)) { throw 'The shared owned-things check is missing.' }
@@ -100,12 +102,20 @@ $sourceGate = $deploy.IndexOf("'tools\check-invariants.mjs'")
 if ($sourceGate -lt 0 -or $stagingCall -lt 0 -or $sourceGate -gt $stagingCall -or $deploy -notmatch '--release-source\s+\$Tag') {
     throw 'Deploy must prove the tagged update source before candidate staging.'
 }
-$installerQuestion = $deploy.IndexOf('--inspect-installer')
+$installerQuestion = $deploy.IndexOf('Invoke-AgentBInstallerQuestion')
 $tagPush = $deploy.IndexOf('git -C $repository push origin $Tag')
 if ($installerQuestion -lt 0 -or $tagPush -lt 0 -or $installerQuestion -gt $tagPush -or
     $deploy -notmatch 'DEPLOY REFUSED:.+installer.+pinned' -or
     $deploy -notmatch 'INSTALLER ACCEPTANCE:') {
     throw 'Deploy must ask the staged installer-signature question and refuse a non-pinned payload before publication.'
+}
+if ($candidateState -notmatch 'function Invoke-AgentBInstallerQuestion' -or
+    $candidateState -notmatch '\.WaitForExit\(\)' -or
+    $candidateState -notmatch 'RedirectStandardOutput\s*=\s*\$true' -or
+    $candidateState -notmatch 'RedirectStandardError\s*=\s*\$true' -or
+    $deploy -notmatch 'Invoke-AgentBInstallerQuestion' -or
+    $installerMatrix -notmatch 'Invoke-AgentBInstallerQuestion') {
+    throw 'The deploy and its test-signed candidate must use one waited installer question; direct GUI output capture is not proof.'
 }
 if ($deploy -notmatch 'Remove-MatchingStagedCandidate' -or $deploy -notmatch 'signing-report\.json') {
     throw 'Deploy does not report/recover a matching stale candidate or relay the signing identity.'

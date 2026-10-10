@@ -108,9 +108,9 @@ if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate verification exited 
 # read-only installer question before any tag or release byte is published.
 $questionBinary = Join-Path $candidate 'Agent_b.exe'
 $setupPath = Join-Path $candidate 'Agent_b-setup.exe'
-$questionOutput = @(& $questionBinary --inspect-installer $setupPath 2>&1)
-$questionExit = $LASTEXITCODE
-$questionLine = (($questionOutput | ForEach-Object { [string]$_ }) -join "`n").Trim()
+$question = Invoke-AgentBInstallerQuestion -QuestionBinary $questionBinary -Installer $setupPath
+$questionExit = $question.ExitCode
+$questionLine = $question.Output
 if ($questionExit -ne 0 -or $questionLine -notmatch 'payload signature: AgentB release key .* verified$') {
     throw "DEPLOY REFUSED: staged installer is not accepted by its own pinned-key question: $questionLine"
 }
@@ -170,9 +170,9 @@ try {
     $null = New-Item -ItemType Directory -Path $publicCheckRoot
     & $gh.Source release download $Tag --repo $repositoryName --pattern 'Agent_b-setup.exe' --dir $publicCheckRoot
     if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: public installer download exited $LASTEXITCODE." }
-    $publicQuestion = @(& $questionBinary --inspect-installer (Join-Path $publicCheckRoot 'Agent_b-setup.exe') 2>&1)
-    $publicExit = $LASTEXITCODE
-    $publicLine = (($publicQuestion | ForEach-Object { [string]$_ }) -join "`n").Trim()
+    $publicQuestion = Invoke-AgentBInstallerQuestion -QuestionBinary $questionBinary -Installer (Join-Path $publicCheckRoot 'Agent_b-setup.exe')
+    $publicExit = $publicQuestion.ExitCode
+    $publicLine = $publicQuestion.Output
     if ($publicExit -ne 0 -or $publicLine -notmatch 'payload signature: AgentB release key .* verified$') {
         throw "DEPLOY REFUSED: public installer is not accepted by its own pinned-key question: $publicLine"
     }

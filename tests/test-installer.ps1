@@ -20,6 +20,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\signing-key-policy.ps1')
 . (Join-Path $PSScriptRoot 'browser-session.ps1')
 . (Join-Path $PSScriptRoot 'suite-production-guard.ps1')
+. (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-candidate-state.ps1')
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-installer-test-' + [Guid]::NewGuid().ToString('N'))
 # Item 2gd: set at the end of the scenario block; the cleanup below keeps the
 # root when it is still false, so a failing run can be read afterwards.
@@ -235,8 +236,9 @@ try {
 	$savedErrorAction = $ErrorActionPreference
 	$ErrorActionPreference = 'Continue'
 	try {
-		$questionOutput = (& (Join-Path $repositoryRoot 'Agent_b.exe') --inspect-installer $singleSetup 2>&1 | Out-String).Trim()
-		$questionExit = $LASTEXITCODE
+		$question = Invoke-AgentBInstallerQuestion -QuestionBinary (Join-Path $repositoryRoot 'Agent_b.exe') -Installer $singleSetup
+		$questionOutput = $question.Output
+		$questionExit = $question.ExitCode
 	} finally { $ErrorActionPreference = $savedErrorAction }
 	$questionAfter = Get-RootFingerprint -Roots $singleTargets
 	if ($questionExit -eq 0 -or $questionOutput -notmatch '^installer signature verification failed: payload signer "CN=Agent_b Disposable Test Signing" .+ is not the pinned AgentB release key$' -or

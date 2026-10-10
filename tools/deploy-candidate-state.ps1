@@ -20,6 +20,42 @@ function Get-StagedCandidateState {
     return [pscustomobject]@{ Tag = $tag; Commit = $commit; SignedState = ($signatures -join ', ') }
 }
 
+# Agent_b.exe is a WINDOWS_GUI executable. A direct PowerShell invocation may
+# return before such a child has written redirected output, so every installer
+# question uses an owned hidden process and an explicit wait. Stdout and stderr
+# are drained concurrently; Output is their bounded question text for callers
+# that must relay the exact installer answer.
+function Invoke-AgentBInstallerQuestion {
+    param(
+        [Parameter(Mandatory = $true)][string]$QuestionBinary,
+        [Parameter(Mandatory = $true)][string]$Installer
+    )
+    $binaryPath = [IO.Path]::GetFullPath($QuestionBinary)
+    $installerPath = [IO.Path]::GetFullPath($Installer)
+    $start = New-Object Diagnostics.ProcessStartInfo
+    $start.FileName = $binaryPath
+    $start.Arguments = '--inspect-installer "' + $installerPath + '"'
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo = $start
+    try {
+        if (-not $process.Start()) { throw "installer question did not start: $binaryPath" }
+        $stdoutRead = $process.StandardOutput.ReadToEndAsync()
+        $stderrRead = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $stdout = [string]$stdoutRead.Result
+        $stderr = [string]$stderrRead.Result
+        $output = (@($stdout.Trim(), $stderr.Trim()) | Where-Object { $_ }) -join [Environment]::NewLine
+        return [pscustomobject]@{ ExitCode = $process.ExitCode; Stdout = $stdout; Stderr = $stderr; Output = $output.Trim() }
+    } finally {
+        $process.Dispose()
+    }
+}
+
 function Remove-MatchingStagedCandidate {
     param(
         [Parameter(Mandatory = $true)][string]$Candidate,

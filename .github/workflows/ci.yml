@@ -34,7 +34,7 @@ jobs:
           )
           $packages = @(go list ./... | Where-Object { $_ -notin $excluded })
           go test @packages
-      - run: go test -race ./internal/events ./internal/projection
+      - run: go test -race ./internal/events ./internal/projection ./internal/broker
       - name: Race delete-running-chat fifty times
         run: go test -race ./internal/web -run '^TestDeleteDeletesOpenAndRunningChatsAndLeavesNoCopy2py$' -count=50
       - name: Race configuration saves once
@@ -59,7 +59,7 @@ jobs:
         run: |
           mapfile -t packages < <(go list ./... | grep -vE '^harness/(internal/agent|internal/tools)$')
           go test "${packages[@]}"
-      - run: go test -race ./internal/events ./internal/projection
+      - run: go test -race ./internal/events ./internal/projection ./internal/broker
       - name: Race delete-running-chat fifty times
         run: go test -race ./internal/web -run '^TestDeleteDeletesOpenAndRunningChatsAndLeavesNoCopy2py$' -count=50
       - name: Race configuration saves once

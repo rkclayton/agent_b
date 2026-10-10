@@ -37,10 +37,6 @@ type scriptedBroker struct {
 	acked    []string
 	received []string
 	sessions []string
-	// offline makes the broker answer the init as it does for a phone that is not
-	// connected: QUEUED, then a keepalive PING, and only later the phone's response.
-	offline bool
-	ponged  bool
 }
 
 func TestHandledRequestDeduplicationIsBounded2pd(t *testing.T) {
@@ -112,9 +108,7 @@ func (b *scriptedBroker) next(t *testing.T) Frame {
 	}
 }
 
-// handshake plays the broker's side of HELLO/CHALLENGE/AUTH/READY and then the device's
-// side of the peer session, with a real responder so every value is authentic.
-func (b *scriptedBroker) handshake(t *testing.T) {
+func (b *scriptedBroker) authenticate(t *testing.T) {
 	t.Helper()
 	hello := b.next(t)
 	if hello.Type != FrameHello {
@@ -153,6 +147,22 @@ func (b *scriptedBroker) handshake(t *testing.T) {
 		t.Fatal("the client's AUTH signature does not verify")
 	}
 	b.push(FrameReady, readyPayload{ConnectionID: greeting.ConnectionID, ServerTime: time.Now().UTC().Format(time.RFC3339), Build: "scripted"})
+	query := b.next(t)
+	if query.Type != FramePeerQuery {
+		t.Fatalf("frame after READY is 0x%02x, want PEER_QUERY", query.Type)
+	}
+	var presence peerQueryPayload
+	if err := DecodeInto(query.Payload, &presence); err != nil {
+		t.Fatal(err)
+	}
+	if presence.PairingID != hexID(b.pairing.PairingID) {
+		t.Fatalf("PEER_QUERY pairing = %q", presence.PairingID)
+	}
+}
+
+func (b *scriptedBroker) peerHandshake(t *testing.T) {
+	t.Helper()
+	b.push(FramePeer, peerPayload{PairingID: hexID(b.pairing.PairingID), Connected: true})
 
 	// The peer session, played by a real responder.
 	init := b.next(t)
@@ -191,10 +201,6 @@ func (b *scriptedBroker) handshake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.offline {
-		b.push(FrameQueued, idOnlyFrame{PairingID: initFrame.PairingID, MessageID: initFrame.HandshakeID})
-		b.push(FramePing, map[string]string{"token": "keepalive"})
-	}
 	b.push(FrameSessionResp, sessionFrame{
 		PairingID: initFrame.PairingID, HandshakeID: initFrame.HandshakeID,
 		SenderKeyID: hexID(b.device.KeyID()), RecipientID: hexID(b.agent.KeyID()),
@@ -202,10 +208,6 @@ func (b *scriptedBroker) handshake(t *testing.T) {
 		Signature: base64.RawURLEncoding.EncodeToString(responder.ConfirmSignature()),
 	})
 	finish := b.next(t)
-	if b.offline && finish.Type == FramePong {
-		b.ponged = true
-		finish = b.next(t)
-	}
 	if finish.Type != FrameSessionFinish {
 		t.Fatalf("expected SESSION_FINISH, got 0x%02x", finish.Type)
 	}
@@ -235,6 +237,12 @@ func (b *scriptedBroker) handshake(t *testing.T) {
 	b.mu.Unlock()
 }
 
+func (b *scriptedBroker) handshake(t *testing.T) {
+	t.Helper()
+	b.authenticate(t)
+	b.peerHandshake(t)
+}
+
 // sendToAgent plays one application request from the phone.
 func (b *scriptedBroker) sendToAgent(t *testing.T, messageID []byte, counter uint64, plaintext string) {
 	t.Helper()
@@ -258,13 +266,36 @@ func (b *scriptedBroker) sendToAgent(t *testing.T, messageID []byte, counter uin
 	})
 }
 
+func (b *scriptedBroker) openFromAgent(t *testing.T, frame Frame) string {
+	t.Helper()
+	var payload ciphertextFrame
+	if err := DecodeInto(frame.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(payload.Ciphertext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := hex.DecodeString(payload.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messageID, err := hex.DecodeString(payload.MessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aad := TransportAAD(b.pairing.PairingID, sessionID, payload.Epoch, DirectionAgentToDevice, b.agent.KeyID(), b.device.KeyID(), messageID, payload.Counter)
+	plaintext, err := b.responder.OpenMessage(aad, raw)
+	if err != nil {
+		t.Fatalf("the device could not open the message: %v", err)
+	}
+	return string(plaintext)
+}
+
 func verifyAuth(identity Identity, role string, connectionID, challenge, signature []byte) bool {
 	return ed25519.Verify(identity.SigningPublic(), AuthDigest(role, connectionID, challenge), signature)
 }
 
-// waitConnected is the one synchronisation these scenarios need: the client establishes
-// its session on its own goroutine, and a test that sends before it is ready is racing
-// the code rather than testing it.
 func waitConnected(t *testing.T, client *Client) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -358,28 +389,7 @@ func TestARequestRoundTripsOverTheSession2kq(t *testing.T) {
 	if answer.Type != FrameCiphertext {
 		t.Fatalf("the client did not answer: 0x%02x", answer.Type)
 	}
-	var payload ciphertextFrame
-	if err := DecodeInto(answer.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(payload.Ciphertext)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sessionID, err := hex.DecodeString(payload.SessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	responseID, err := hex.DecodeString(payload.MessageID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	aad := TransportAAD(pairing.PairingID, sessionID, payload.Epoch, DirectionAgentToDevice, agent.KeyID(), device.KeyID(), responseID, payload.Counter)
-	plaintext, err := broker.responder.OpenMessage(aad, raw)
-	if err != nil {
-		t.Fatalf("the device could not open the answer: %v", err)
-	}
-	if string(plaintext) != "answer to hello from the phone" {
+	if plaintext := broker.openFromAgent(t, answer); plaintext != "answer to hello from the phone" {
 		t.Fatalf("answer = %q", plaintext)
 	}
 	if executions != 1 {
@@ -402,12 +412,14 @@ func TestSessionEventsNameConnectPeerDropAndReconnect2p0(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	go func() { _ = client.Run(ctx) }()
-	first.handshake(t)
+	first.authenticate(t)
+	first.push(FramePeer, peerPayload{PairingID: hexID(pairing.PairingID), Connected: false})
+	first.peerHandshake(t)
 	waitConnected(t, client)
 	first.closeErr = errors.New("scripted close " + hexID(pairing.PairingID))
 	close(first.closed)
 	second.handshake(t)
-	want := []string{"connected", "PEER_QUERY sent", "PEER received connected=true", "disconnected reason=scripted close " + hexID(pairing.PairingID)[:8], "reconnect attempt backoff=1s", "connected"}
+	want := []string{"connected", "PEER_QUERY sent", "PEER received connected=false", "PEER received connected=true", "session ready", "disconnected reason=scripted close " + hexID(pairing.PairingID)[:8], "reconnect attempt backoff=1s", "connected"}
 	for index, expected := range want {
 		select {
 		case got := <-events:
@@ -420,26 +432,114 @@ func TestSessionEventsNameConnectPeerDropAndReconnect2p0(t *testing.T) {
 	}
 }
 
-// Item 2o7: a phone that is offline when the desktop connects is the ordinary case.
-// The broker answers the init with QUEUED and keeps the line alive with PING; the
-// handshake waits through both and completes when the phone answers. Before, QUEUED
-// ended the connection ("expected SESSION_RESPONSE, got frame 0x22") on every retry.
-func TestTheHandshakeWaitsForAnOfflinePhone2o7(t *testing.T) {
+func TestUndeliverableOpeningWaitsForTheNextPeerWithoutReconnecting2t1(t *testing.T) {
 	agent, device, pairing := testPair(t)
 	broker := newScriptedBroker(t, agent, device, pairing)
-	broker.offline = true
 	client := NewClient(agent, pairing, func(context.Context) (Transport, error) { return broker, nil },
 		func([]byte, []byte) []byte { return nil })
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	go func() { _ = client.Run(ctx) }()
-	broker.handshake(t)
-	waitConnected(t, client)
-	if !broker.ponged {
-		t.Fatal("the keepalive during the handshake was not answered")
+	broker.authenticate(t)
+	broker.push(FramePeer, peerPayload{PairingID: hexID(pairing.PairingID), Connected: true})
+	init := broker.next(t)
+	if init.Type != FrameSessionInit {
+		t.Fatalf("expected SESSION_INIT, got 0x%02x", init.Type)
 	}
+	var opening sessionFrame
+	if err := DecodeInto(init.Payload, &opening); err != nil {
+		t.Fatal(err)
+	}
+	broker.push(FrameQueued, idOnlyFrame{MessageID: opening.HandshakeID, RecipientKeyID: hexID(device.KeyID())})
+	deadline := time.Now().Add(time.Second)
+	for client.Status().State != "holding" && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := client.Status().State; got != "holding" {
+		t.Fatalf("state after undeliverable opening = %q", got)
+	}
+	broker.peerHandshake(t)
+	waitConnected(t, client)
 	if status := client.Status(); status.Reconnects != 0 {
-		t.Fatalf("the handshake gave up and reconnected %d times", status.Reconnects)
+		t.Fatalf("the opening reconnected %d times", status.Reconnects)
+	}
+}
+
+func TestPCFirstWaitsAndThenConnectsOnPeerTrueWithoutRedial2t1(t *testing.T) {
+	agent, device, pairing := testPair(t)
+	standIn := newScriptedBroker(t, agent, device, pairing)
+	dials := 0
+	client := NewClient(agent, pairing, func(context.Context) (Transport, error) {
+		dials++
+		return standIn, nil
+	}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() { _ = client.Run(ctx) }()
+	standIn.authenticate(t)
+	standIn.push(FramePeer, peerPayload{PairingID: hexID(pairing.PairingID), Connected: false})
+	time.Sleep(20 * time.Millisecond)
+	if got := client.Status().State; got != "holding" {
+		t.Fatalf("offline peer state = %q", got)
+	}
+	select {
+	case frame := <-standIn.fromCli:
+		t.Fatalf("offline peer caused frame 0x%02x", frame.Type)
+	default:
+	}
+	started := time.Now()
+	standIn.peerHandshake(t)
+	waitConnected(t, client)
+	if elapsed := time.Since(started); elapsed >= 2*time.Second {
+		t.Fatalf("session took %s after PEER true", elapsed)
+	}
+	if dials != 1 {
+		t.Fatalf("dialed %d times", dials)
+	}
+}
+
+func TestPeerReplacementMakesFreshSessionAndResendsPendingOnce2t1(t *testing.T) {
+	agent, device, pairing := testPair(t)
+	standIn := newScriptedBroker(t, agent, device, pairing)
+	client := NewClient(agent, pairing, func(context.Context) (Transport, error) { return standIn, nil }, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() { _ = client.Run(ctx) }()
+	standIn.handshake(t)
+	waitConnected(t, client)
+	firstSession := client.Status().SessionID
+	messageID := make([]byte, 16)
+	if _, err := rand.Read(messageID); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Send(messageID, []byte("before replacement"), standIn); err != nil {
+		t.Fatal(err)
+	}
+	if frame := standIn.next(t); frame.Type != FrameCiphertext {
+		t.Fatalf("initial send = 0x%02x", frame.Type)
+	}
+	started := time.Now()
+	standIn.peerHandshake(t)
+	deadline := time.Now().Add(2 * time.Second)
+	for (client.Status().SessionID == "" || client.Status().SessionID == firstSession) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if elapsed := time.Since(started); elapsed >= 2*time.Second {
+		t.Fatalf("replacement session took %s", elapsed)
+	}
+	if second := client.Status().SessionID; second == "" || second == firstSession {
+		t.Fatalf("replacement session id = %q after %q", second, firstSession)
+	}
+	standIn.push(FrameResend, idOnlyFrame{PairingID: hexID(pairing.PairingID), MessageID: hexID(messageID)})
+	if frame := standIn.next(t); frame.Type != FrameCiphertext {
+		t.Fatalf("resend = 0x%02x", frame.Type)
+	} else if plaintext := standIn.openFromAgent(t, frame); plaintext != "before replacement" {
+		t.Fatalf("resent plaintext = %q", plaintext)
+	}
+	select {
+	case frame := <-standIn.fromCli:
+		t.Fatalf("pending message was sent more than once: 0x%02x", frame.Type)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

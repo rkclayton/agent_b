@@ -19,6 +19,8 @@ const (
 	FrameChallenge     = 0x02
 	FrameAuth          = 0x03
 	FrameReady         = 0x04
+	FramePeerQuery     = 0x05
+	FramePeer          = 0x06
 	FramePairBegin     = 0x10
 	FramePairWaiting   = 0x11
 	FramePairPeer      = 0x12

@@ -44,10 +44,12 @@ func (c *BrokerClient) attach(server *Server) {
 func (c *BrokerClient) startSession(pairing broker.Pairing) {
 	c.mu.Lock()
 	server := c.server
-	c.mu.Unlock()
 	if server == nil {
+		c.mu.Unlock()
 		return
 	}
+	c.stopSessionLocked()
+	c.mu.Unlock()
 	device := "broker:" + hex.EncodeToString(pairing.DeviceKeyID)
 	ctx, stop := context.WithCancel(context.Background())
 	var client *broker.Client

@@ -88,7 +88,7 @@ func TestNotifyPushDoesNotRequirePhoneSession2pn(t *testing.T) {
 		_ = transport.next(t)
 		transport.push(test.frame, test.payload)
 		transport.push(FrameSessionResp, sessionFrame{})
-		if frame, err := client.readHandshake(context.Background(), transport); err != nil || frame.Type != FrameSessionResp {
+		if frame, err := client.readHandshake(context.Background(), transport, ""); err != nil || frame.Type != FrameSessionResp {
 			t.Fatalf("the nonfatal push answer ended the phone handshake: %v", err)
 		}
 		event := <-events

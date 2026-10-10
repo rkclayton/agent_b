@@ -665,3 +665,50 @@ func TestThePairedSessionStartsWithThePairingAndEndsWithRevoke2o7(t *testing.T) 
 	case <-time.After(1500 * time.Millisecond):
 	}
 }
+
+func TestPairingAgainStopsTheOldSessionBeforeTheNewDial2t1(t *testing.T) {
+	server, _, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	var mu sync.Mutex
+	var first context.Context
+	secondSawStopped := make(chan bool, 1)
+	dials := 0
+	client := &BrokerClient{status: broker.Status{State: "not paired"}, dial: func(ctx context.Context) (broker.Transport, error) {
+		mu.Lock()
+		dials++
+		call := dials
+		if call == 1 {
+			first = ctx
+		}
+		if call == 2 {
+			secondSawStopped <- first != nil && first.Err() != nil
+		}
+		mu.Unlock()
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	server.SetBrokerHost(client)
+	client.startSession(broker.Pairing{DeviceKeyID: []byte{1}})
+	deadline := time.Now().Add(time.Second)
+	for {
+		mu.Lock()
+		started := first != nil
+		mu.Unlock()
+		if started || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	client.startSession(broker.Pairing{DeviceKeyID: []byte{2}})
+	select {
+	case stopped := <-secondSawStopped:
+		if !stopped {
+			t.Fatal("the replacement dial began before the old session stopped")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the replacement session did not dial")
+	}
+	client.mu.Lock()
+	client.stopSessionLocked()
+	client.mu.Unlock()
+}

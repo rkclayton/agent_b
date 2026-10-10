@@ -310,13 +310,18 @@ func (c *Client) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// once is one connection's whole life: dial, authenticate, establish, serve.
 func (c *Client) once(ctx context.Context) error {
 	transport, err := c.dial(ctx)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = transport.Close(1000, "done") }()
+	defer func() {
+		c.dropSession()
+		c.mu.Lock()
+		c.transport = nil
+		c.mu.Unlock()
+		_ = transport.Close(1000, "done")
+	}()
 	c.mu.Lock()
 	c.transport = transport
 	c.pushHead, c.pushLen = 0, 0
@@ -325,21 +330,20 @@ func (c *Client) once(ctx context.Context) error {
 	if err := c.authenticate(ctx, transport); err != nil {
 		return err
 	}
-	c.setState("holding", nil)
 	c.recordEvent("connected")
+	query, err := Encode(FramePeerQuery, peerQueryPayload{PairingID: hexID(c.pairing.PairingID)})
+	if err != nil {
+		return err
+	}
+	if err := transport.Send(query); err != nil {
+		return err
+	}
 	c.recordEvent("PEER_QUERY sent")
+	c.setState("holding", nil)
 	connection, ended := context.WithCancel(ctx)
 	defer ended()
 	if c.holding != nil {
 		go c.holding(connection)
-	}
-	if err := c.establish(ctx, transport); err != nil {
-		return err
-	}
-	c.setState("phone connected", nil)
-	c.recordEvent("PEER received connected=true")
-	if c.connected != nil {
-		go c.connected(connection)
 	}
 	return c.serve(ctx, transport)
 }
@@ -366,6 +370,15 @@ type readyPayload struct {
 	ConnectionID string `json:"connection_id"`
 	ServerTime   string `json:"server_time"`
 	Build        string `json:"build,omitempty"`
+}
+
+type peerQueryPayload struct {
+	PairingID string `json:"pairing_id"`
+}
+
+type peerPayload struct {
+	PairingID string `json:"pairing_id"`
+	Connected bool   `json:"connected"`
 }
 
 type errorPayload struct {
@@ -460,8 +473,7 @@ type sessionFrame struct {
 	SessionID    string `json:"session_id,omitempty"`
 }
 
-// establish runs the peer handshake. Every reconnect calls it, and every call makes a
-// new session: fresh handshake id, fresh ephemerals.
+// establish makes a new peer session with a fresh handshake id and ephemerals.
 func (c *Client) establish(ctx context.Context, transport Transport) error {
 	handshakeID := make([]byte, 16)
 	if _, err := rand.Read(handshakeID); err != nil {
@@ -494,7 +506,7 @@ func (c *Client) establish(ctx context.Context, transport Transport) error {
 	if err := transport.Send(init); err != nil {
 		return err
 	}
-	frame, err := c.readHandshake(ctx, transport)
+	frame, err := c.readHandshake(ctx, transport, hexID(handshakeID))
 	if err != nil {
 		return err
 	}
@@ -533,7 +545,7 @@ func (c *Client) establish(ctx context.Context, transport Transport) error {
 	if err := transport.Send(finishFrame); err != nil {
 		return err
 	}
-	frame, err = c.readHandshake(ctx, transport)
+	frame, err = c.readHandshake(ctx, transport, hexID(handshakeID))
 	if err != nil {
 		return err
 	}
@@ -576,21 +588,69 @@ type ciphertextFrame struct {
 }
 
 type idOnlyFrame struct {
-	PairingID string `json:"pairing_id"`
-	SessionID string `json:"session_id,omitempty"`
-	MessageID string `json:"message_id"`
-	ExpiresAt string `json:"expires_at,omitempty"`
+	PairingID      string `json:"pairing_id,omitempty"`
+	SessionID      string `json:"session_id,omitempty"`
+	MessageID      string `json:"message_id"`
+	RecipientKeyID string `json:"recipient_key_id,omitempty"`
+	ExpiresAt      string `json:"expires_at,omitempty"`
 }
 
-// serve is the frame loop. It is deliberately flat: one switch, one behaviour per frame
-// the document defines, and an unknown frame is an error rather than a shrug.
+func (c *Client) dropSession() {
+	c.mu.Lock()
+	c.session = nil
+	c.status.SessionID = ""
+	c.mu.Unlock()
+}
+
+func (c *Client) startConnected(ctx context.Context) context.CancelFunc {
+	session, stop := context.WithCancel(ctx)
+	go c.connected(session)
+	return stop
+}
+
+// serve handles one documented behaviour per frame and rejects unknown frames.
 func (c *Client) serve(ctx context.Context, transport Transport) error {
+	var stopSession context.CancelFunc
+	defer func() {
+		if stopSession != nil {
+			stopSession()
+		}
+	}()
 	for {
 		frame, err := c.read(ctx, transport)
 		if err != nil {
 			return err
 		}
 		switch frame.Type {
+		case FramePeer:
+			var peer peerPayload
+			if err := DecodeInto(frame.Payload, &peer); err != nil {
+				return err
+			}
+			if peer.PairingID != hexID(c.pairing.PairingID) {
+				return errors.New("broker: PEER names another pairing")
+			}
+			c.recordEvent(fmt.Sprintf("PEER received connected=%t", peer.Connected))
+			if stopSession != nil {
+				stopSession()
+				stopSession = nil
+			}
+			c.dropSession()
+			c.setState("holding", nil)
+			if !peer.Connected {
+				continue
+			}
+			if err := c.establish(ctx, transport); err != nil {
+				if errors.Is(err, errOpeningUndeliverable) {
+					continue
+				}
+				return err
+			}
+			c.setState("phone connected", nil)
+			c.recordEvent("session ready")
+			if c.connected != nil {
+				stopSession = c.startConnected(ctx)
+			}
 		case FrameCiphertext:
 			if err := c.deliver(frame, transport); err != nil {
 				return err
@@ -820,12 +880,9 @@ func (c *Client) Pending() int {
 	return len(c.pending)
 }
 
-// readHandshake is read for the session handshake (item 2o7). A phone that is offline
-// or asleep when the desktop connects is the ordinary case, not an error: the broker
-// answers the init with QUEUED and holds it until the phone returns, and it keeps the
-// connection alive with PING meanwhile. Both are waited through; anything else is the
-// handshake's to judge.
-func (c *Client) readHandshake(ctx context.Context, transport Transport) (Frame, error) {
+var errOpeningUndeliverable = errors.New("broker: session opening recipient absent")
+
+func (c *Client) readHandshake(ctx context.Context, transport Transport, handshakeID string) (Frame, error) {
 	for {
 		frame, err := c.read(ctx, transport)
 		if err == nil && (frame.Type == FramePushAccepted || frame.Type == FrameError) {
@@ -844,7 +901,17 @@ func (c *Client) readHandshake(ctx context.Context, transport Transport) (Frame,
 			c.recordEvent("ERROR code=" + problem.Code + " detail=" + problem.Detail)
 			return Frame{}, &Problem{Code: problem.Code, Detail: problem.Detail, Fatal: problem.Fatal}
 		}
-		if err != nil || (frame.Type != FrameQueued && frame.Type != FramePing) {
+		if err == nil && frame.Type == FrameQueued {
+			var queued idOnlyFrame
+			if err := DecodeInto(frame.Payload, &queued); err != nil {
+				return Frame{}, err
+			}
+			if queued.MessageID == handshakeID && queued.RecipientKeyID == hexID(c.pairing.DeviceKeyID) {
+				return Frame{}, errOpeningUndeliverable
+			}
+			return frame, nil
+		}
+		if err != nil || frame.Type != FramePing {
 			return frame, err
 		}
 		if frame.Type == FramePing {

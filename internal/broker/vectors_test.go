@@ -25,6 +25,45 @@ type vectorFile struct {
 	Refusals        []string          `json:"refusals"`
 	PushVectors     []pushVector      `json:"push_vectors"`
 	PushRefusals    []string          `json:"push_refusals"`
+	PresenceFrames  map[string]string `json:"presence_frames"`
+	Undeliverable   string            `json:"undeliverable_session_frame_base64url"`
+}
+
+func TestPresenceAndUndeliverableFramesMatchPublishedVectors2t1(t *testing.T) {
+	file := loadVectors(t)
+	pairingID := file.Inputs["pairing_id_hex"]
+	frames := map[string]struct {
+		typ     byte
+		payload any
+	}{
+		"peer_query_base64url":   {FramePeerQuery, peerQueryPayload{PairingID: pairingID}},
+		"peer_offline_base64url": {FramePeer, peerPayload{PairingID: pairingID, Connected: false}},
+		"peer_online_base64url":  {FramePeer, peerPayload{PairingID: pairingID, Connected: true}},
+	}
+	for name, check := range frames {
+		raw, err := Encode(check.typ, check.payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := base64.RawURLEncoding.EncodeToString(raw); got != file.PresenceFrames[name] {
+			t.Errorf("%s = %s, want %s", name, got, file.PresenceFrames[name])
+		}
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(file.Undeliverable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame, err := Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var queued idOnlyFrame
+	if err := DecodeInto(frame.Payload, &queued); err != nil {
+		t.Fatal(err)
+	}
+	if frame.Type != FrameQueued || queued.MessageID != file.Inputs["handshake_id_hex"] || queued.RecipientKeyID != file.Expected["device_key_id_hex"] {
+		t.Fatalf("undeliverable = type 0x%02x %+v", frame.Type, queued)
+	}
 }
 
 type pushVector struct {

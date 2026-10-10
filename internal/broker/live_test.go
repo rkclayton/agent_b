@@ -177,7 +177,7 @@ func (e *liveEndpoint) next(t *testing.T, timeout time.Duration) Frame {
 		select {
 		case frame := <-e.frames:
 			return frame
-		default:
+		case <-time.After(100 * time.Millisecond):
 		}
 		t.Fatalf("%s connection ended: %v", e.role, err)
 		return Frame{}
@@ -576,7 +576,7 @@ func TestLivePairedDesktopAnswersItsPhone2o7(t *testing.T) {
 	defer cancel()
 
 	model := newStubModel(t)
-	base, dataRoot := startDisposableAgent(t, ctx, app, address, model.server.URL)
+	base, _ := startDisposableAgent(t, ctx, app, address, model.server.URL)
 	desktop := newDesktopClient(t, base)
 	defer func() {
 		if t.Failed() {
@@ -609,7 +609,11 @@ func TestLivePairedDesktopAnswersItsPhone2o7(t *testing.T) {
 	// 2. The device connects and ANSWERS the desktop's session: the desktop dials on
 	// its own, because a pairing now exists (2o7 (a)). The chat created above must
 	// arrive without a request from the phone: this is the initial snapshot path.
+	phoneStarted := time.Now()
 	phone := connectPhone(t, ctx, address, device, peer.PeerKeyID, pairingID, agentSigning, agentKeyID)
+	if elapsed := time.Since(phoneStarted); elapsed >= 2*time.Second {
+		t.Fatalf("PC-first session took %s", elapsed)
+	}
 	phone.wait(t, "the desktop chat in the initial snapshot", func(unit map[string]any) bool {
 		encoded, _ := json.Marshal(unit)
 		return unit["kind"] == "snapshot" && unit["session_id"] == desktopChat.Session.ID && bytes.Contains(encoded, []byte(desktopChat.Session.ID))
@@ -647,19 +651,19 @@ func TestLivePairedDesktopAnswersItsPhone2o7(t *testing.T) {
 
 	phone.request(t, "message", fmt.Sprintf(`{"session_id":%q,"text":"long"}`, sessionID), 202)
 	time.Sleep(2 * time.Second)
-	_ = phone.endpoint.transport.Close(1000, "test severs the phone before replacing the desktop connection")
-	desktopIdentity := loadDisposableIdentity(t, dataRoot)
-	replacement := dialLive(t, ctx, address, "agent", desktopIdentity)
-	replacement.authenticate(t)
-	_ = replacement.transport.Close(1000, "release the desktop identity")
+	_ = phone.endpoint.transport.Close(1000, "test reconnects the phone")
+	reconnectStarted := time.Now()
 	phone = connectPhone(t, ctx, address, device, peer.PeerKeyID, pairingID, agentSigning, agentKeyID)
+	if elapsed := time.Since(reconnectStarted); elapsed >= 2*time.Second {
+		t.Fatalf("phone replacement session took %s", elapsed)
+	}
 	stateAfterReconnect := phone.request(t, "state", `{}`, 200)
 	if !strings.Contains(fmt.Sprint(stateAfterReconnect["body"]), sessionID) {
 		t.Fatalf("the next request after reconnect did not return chat %s", sessionID)
 	}
 	phone.request(t, "stop", fmt.Sprintf(`{"session_id":%q}`, sessionID), 200)
 	phone.waitStopped(t, sessionID)
-	t.Log("E2E 6 desktop connection severed mid-run and restored; next state/stop requests answered")
+	t.Log("E2E 6 phone connection replaced; the same desktop connection made a fresh session and answered state/stop")
 
 	// 7. A deliberately dropped patch is recovered by resync, which returns a fresh
 	// state no older than the patch that was dropped.

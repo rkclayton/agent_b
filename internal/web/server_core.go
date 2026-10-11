@@ -235,32 +235,7 @@ func (s *Server) SetRegistry(registry *session.Registry) {
 	defer s.chatWatchMu.Unlock()
 	s.stopChatTrackingLocked()
 	s.chatStore = chatstore.New(filepath.Join(s.profileRoot(), "chats"))
-	s.archiveIdleChats(registry)
 	s.startChatTrackingLocked(registry)
-}
-
-func (s *Server) archiveIdleChats(registry *session.Registry) {
-	if s.chatStore == nil {
-		return
-	}
-	protected := map[string]bool{}
-	for _, item := range registry.List() {
-		protected[item.ID] = item.IsRunning()
-	}
-	changed, err := s.chatStore.AutoArchive(time.Now(), protected)
-	if err != nil {
-		log.Printf("auto-archive chats: %v", err)
-		return
-	}
-	for _, id := range changed {
-		if _, ok := registry.Get(id); ok {
-			_ = registry.Archive(id)
-			if s.projector != nil {
-				s.projector.Delete(id)
-			}
-			s.bus.Publish(events.New(events.ChatDeleted, "", "", map[string]any{"session_id": id, "archived": true}))
-		}
-	}
 }
 
 func (s *Server) stopChatTrackingLocked() {
@@ -286,18 +261,6 @@ func (s *Server) startChatTrackingLocked(registry *session.Registry) {
 			s.chatMu.Unlock()
 			registry.ReconcileChatHomes(entries)
 		})
-	}()
-	go func() {
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.archiveIdleChats(registry)
-			}
-		}
 	}()
 }
 func (s *Server) SetProfiles(manager *profiles.Manager) { s.profiles = manager }

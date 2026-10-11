@@ -301,53 +301,90 @@ func (s *Store) Rename(id, label string) (string, error) {
 	return destination, nil
 }
 
-// List separates active and archived chats without opening a journal. Archived
-// entries are newest first so the menu stays useful even after years of use.
-func (s *Store) List() (active, archived []Entry, err error) {
+type CleanupResult struct {
+	Removed   int
+	Kept, IDs []string
+}
+
+// Cleanup reconciles chat folders with retained journals once at startup.
+// A leftover is removed only when every byte in it was written by this app.
+func (s *Store) Cleanup(journals map[string]bool) (CleanupResult, error) {
 	entries, err := s.Scan()
 	if err != nil {
-		return nil, nil, err
+		return CleanupResult{}, err
+	}
+	byID, ids := map[string][]Entry{}, map[string]bool{}
+	for id := range journals {
+		ids[id] = true
 	}
 	for _, entry := range entries {
-		if entry.Metadata.ArchivedAt.IsZero() {
-			active = append(active, entry)
-		} else {
-			archived = append(archived, entry)
+		byID[entry.Metadata.ID] = append(byID[entry.Metadata.ID], entry)
+		ids[entry.Metadata.ID] = true
+	}
+	result := CleanupResult{}
+	for id, matches := range byID {
+		sort.Slice(matches, func(i, j int) bool {
+			if matches[i].Metadata.Created.Equal(matches[j].Metadata.Created) {
+				return matches[i].Path < matches[j].Path
+			}
+			return matches[i].Metadata.Created.Before(matches[j].Metadata.Created)
+		})
+		keep := 0
+		if journals[id] {
+			keep = 1
+			if !matches[0].Metadata.ArchivedAt.IsZero() {
+				matches[0].Metadata.ArchivedAt = time.Time{}
+				if err := WriteMetadata(matches[0].Path, matches[0].Metadata); err != nil {
+					return result, err
+				}
+			}
+		}
+		for _, entry := range matches[keep:] {
+			owned, checkErr := appOwnedChatFolder(entry.Path)
+			if checkErr != nil {
+				return result, checkErr
+			}
+			if !owned {
+				result.Kept = append(result.Kept, entry.Path)
+				continue
+			}
+			if err := os.RemoveAll(entry.Path); err != nil {
+				return result, err
+			}
+			result.Removed++
 		}
 	}
-	sort.SliceStable(archived, func(i, j int) bool { return archived[i].Metadata.ArchivedAt.After(archived[j].Metadata.ArchivedAt) })
-	return active, archived, nil
+	for id := range ids {
+		result.IDs = append(result.IDs, id)
+	}
+	sort.Strings(result.Kept)
+	sort.Strings(result.IDs)
+	return result, nil
 }
 
-func (s *Store) Archive(id string, now time.Time) (Entry, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entry, found, err := s.Find(id)
-	if err != nil || !found {
-		return Entry{}, errors.Join(err, fmt.Errorf("chat not found"))
-	}
-	if entry.Metadata.Live || entry.Metadata.Pending {
-		return Entry{}, fmt.Errorf("chat is busy")
-	}
-	entry.Metadata.ArchivedAt = now.UTC()
-	if err := WriteMetadata(entry.Path, entry.Metadata); err != nil {
-		return Entry{}, err
-	}
-	return entry, nil
-}
-
-func (s *Store) Restore(id string) (Entry, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entry, found, err := s.Find(id)
-	if err != nil || !found {
-		return Entry{}, errors.Join(err, fmt.Errorf("chat not found"))
-	}
-	entry.Metadata.ArchivedAt = time.Time{}
-	if err := WriteMetadata(entry.Path, entry.Metadata); err != nil {
-		return Entry{}, err
-	}
-	return entry, nil
+func appOwnedChatFolder(root string) (bool, error) {
+	owned := true
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		if rel == "." {
+			return nil
+		}
+		inAttachments := rel == "attachments" || strings.HasPrefix(rel, "attachments"+string(filepath.Separator))
+		if entry.Type()&os.ModeSymlink != 0 || (!inAttachments && rel != MetadataFile && rel != ".chat.json.tmp") {
+			owned = false
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	return owned, err
 }
 
 // NoteActivity writes one small metadata record only at run/card boundaries;
@@ -367,35 +404,4 @@ func (s *Store) NoteActivity(id string, now time.Time, live, pending *bool) erro
 		entry.Metadata.Pending = *pending
 	}
 	return WriteMetadata(entry.Path, entry.Metadata)
-}
-
-func (s *Store) AutoArchive(now time.Time, protected ...map[string]bool) ([]string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entries, err := s.Scan()
-	if err != nil {
-		return nil, err
-	}
-	var changed []string
-	cutoff := now.UTC().Add(-14 * 24 * time.Hour)
-	for _, entry := range entries {
-		meta := entry.Metadata
-		activity := meta.LastActivity
-		if activity.IsZero() {
-			activity = meta.Created
-		}
-		if info, statErr := os.Stat(filepath.Join(s.root, meta.ID+".jsonl")); statErr == nil && info.ModTime().After(activity) {
-			activity = info.ModTime()
-		}
-		busy := len(protected) > 0 && protected[0][meta.ID]
-		if !meta.ArchivedAt.IsZero() || meta.Live || meta.Pending || busy || activity.After(cutoff) {
-			continue
-		}
-		meta.ArchivedAt = now.UTC()
-		if err := WriteMetadata(entry.Path, meta); err != nil {
-			return changed, err
-		}
-		changed = append(changed, meta.ID)
-	}
-	return changed, nil
 }

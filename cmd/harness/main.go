@@ -611,6 +611,24 @@ func main() {
 		return nil
 	})
 	if len(cfg.Connections) == 0 {
+		paths, cleanupErr := writers.DurableChatPaths()
+		if cleanupErr != nil {
+			log.Fatal(cleanupErr)
+		}
+		journals := make(map[string]bool, len(paths))
+		for _, path := range paths {
+			journals[strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))] = true
+		}
+		cleanup, cleanupErr := chatstore.New(writers.ChatDir()).Cleanup(journals)
+		if cleanupErr != nil {
+			log.Fatal(cleanupErr)
+		}
+		registry.ReserveChatIDs(cleanup.IDs)
+		log.Printf("startup chat cleanup: removed %d leftover folder(s)", cleanup.Removed)
+		for _, path := range cleanup.Kept {
+			relative, _ := filepath.Rel(writers.ChatDir(), path)
+			log.Printf("startup chat cleanup kept %s: contains files not written by Agent_b", relative)
+		}
 		log.Printf("first-run setup required: no model connections are configured")
 	} else {
 		mainAgentID := cfg.DefaultAgentID()
@@ -825,18 +843,19 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 		return nil, floor, err
 	}
 	hadDurable := len(paths) > 0
-	if _, archived, scanErr := chatstore.New(writers.ChatDir()).List(); scanErr == nil && len(archived) > 0 {
-		hidden := make(map[string]bool, len(archived))
-		for _, entry := range archived {
-			hidden[entry.Metadata.ID] = true
-		}
-		kept := paths[:0]
-		for _, path := range paths {
-			if !hidden[strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))] {
-				kept = append(kept, path)
-			}
-		}
-		paths = kept
+	journals := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		journals[strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))] = true
+	}
+	cleanup, err := chatstore.New(writers.ChatDir()).Cleanup(journals)
+	if err != nil {
+		return nil, floor, err
+	}
+	registry.ReserveChatIDs(cleanup.IDs)
+	log.Printf("startup chat cleanup: removed %d leftover folder(s)", cleanup.Removed)
+	for _, path := range cleanup.Kept {
+		relative, _ := filepath.Rel(writers.ChatDir(), path)
+		log.Printf("startup chat cleanup kept %s: contains files not written by Agent_b", relative)
 	}
 	if !hadDurable {
 		paths, err = writers.LatestOperationalSessionPaths()

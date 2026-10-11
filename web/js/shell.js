@@ -379,8 +379,6 @@ export function initShell(options = {}) {
     for (const group of arranged.folders) { const target = folderTargets.get(group.path); group.chats.forEach((chat) => renderRow(chat, target)); }
     const root = node("section", "chat-list-group root"); root.ondragover = (event) => event.preventDefault(); root.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: "" }); };
     arranged.root.forEach((chat) => renderRow(chat, root)); chatList.append(root);
-    const archived = chatTree.archived || [];
-    if (archived.length) { const group = document.createElement("details"); group.className = "chat-list-archived"; const heading = document.createElement("summary"); heading.textContent = "Archived"; group.append(heading); for (const chat of archived) { const row = node("div", "chat-list-row"); const name = node("span", "chat-list-name"); name.textContent = chat.name; name.title = chat.name; const restore = button("Restore", `Restore ${chat.name}`, "chat-list-menu-action"); restore.onclick = () => void act({ action: "restore", id: chat.id }, true); row.append(name, restore); group.append(row); } chatList.append(group); }
     applyPanel();
     if (!chatTreeLoaded) void refreshChatTree();
   }
@@ -632,8 +630,6 @@ function iconButton(kind, title, className) {
 	: kind === "page-plus" ? ["M5 3.5h9l5 5v12H5zM14 3.5v5h5", "M12 11v6M9 14h6"]
 	: kind === "menu" ? ["M4 6h16M4 12h16M4 18h16"]
 	: kind === "plus" ? ["M12 5v14M5 12h14"]
-	: kind === "archive" ? ["M4 7h16v13H4zM3 4h18v3H3zM9 11h6"]
-	: kind === "restore" ? ["M5 8v-4m0 0h4M5 4l3 3M5.5 9a7 7 0 1 0 2-3"]
     : ["M5 19l3.5-.8L19 6.7 16.3 4 5.8 15.5z", "M14.8 5.5l2.7 2.7"];
   for (const shape of paths) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");

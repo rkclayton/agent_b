@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -45,36 +44,59 @@ func TestStartupDoesNotCreateAChatWithoutAnOperatorAction2qd(t *testing.T) {
 	}
 }
 
-func TestStartupSkipsArchivedJournalBytes2qi(t *testing.T) {
-	root := t.TempDir()
-	writers, err := events.NewWriters(filepath.Join(root, "logs"))
+func TestStartupRestoresMarkedChatAndClearsOnlyArchiveMark2ta(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	logs := filepath.Join(root, "logs")
+	writers, err := events.NewWriters(logs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for index := range 60 {
-		id := fmt.Sprintf("archived-%02d", index)
-		path, err := chatstore.New(filepath.Join(root, "chats")).Create(id, "Archived", time.Now().Add(-15*24*time.Hour))
-		if err != nil {
-			t.Fatal(err)
-		}
-		meta, _ := chatstore.ReadMetadata(path)
-		meta.ArchivedAt = time.Now()
-		if err := chatstore.WriteMetadata(path, meta); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(root, "chats", id+".jsonl"), []byte("not json\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	cfg := config.Defaults(t.TempDir())
+	cfg := config.Defaults(workspace)
 	connection := &cfg.Connections[0]
 	bus := events.NewBus()
+	bus.SetDurableSink(writers.WriteRecord, nil, nil)
 	registry := session.NewRegistry(bus, writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
 	registry.SetPlansRoot(filepath.Join(root, "plans"))
-	if restored, _, err := restoreRetainedChats(writers, registry, bus, 0); err != nil || len(restored) != 0 {
+	chat, err := registry.Create("kept name", cfg.DefaultAgentID(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat.NamePinned = true
+	bus.Publish(events.New(events.MessageAppended, chat.ID, "", map[string]any{"message": events.Message{ID: "m1", Role: "user", Category: "history", Content: "retained words"}}))
+	meta, _ := chatstore.ReadMetadata(chat.Workspace)
+	meta.ArchivedAt, meta.Pinned = time.Now(), true
+	if err := chatstore.WriteMetadata(chat.Workspace, meta); err != nil {
+		t.Fatal(err)
+	}
+	journal := filepath.Join(root, "chats", chat.ID+".jsonl")
+	before, err := os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writers.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	nextWriters, err := events.NewWriters(logs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nextWriters.Close()
+	nextBus := events.NewBus()
+	nextRegistry := session.NewRegistry(nextBus, nextWriters, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
+	nextRegistry.SetPlansRoot(filepath.Join(root, "plans"))
+	restored, _, err := restoreRetainedChats(nextWriters, nextRegistry, nextBus, 0)
+	if err != nil || len(restored) != 1 || restored[0].Snapshot().Label != "kept name" {
 		t.Fatalf("restore=%v err=%v", restored, err)
 	}
-	_ = writers.Close()
+	after, _ := os.ReadFile(journal)
+	if !bytes.Equal(before, after) {
+		t.Fatal("journal changed")
+	}
+	meta, err = chatstore.ReadMetadata(chat.Workspace)
+	if err != nil || !meta.ArchivedAt.IsZero() || !meta.Pinned {
+		t.Fatalf("metadata=%+v err=%v", meta, err)
+	}
 }
 
 func TestRetainedChatsRestoreWithoutOperationalLogsAndDeleteExplicitly(t *testing.T) {
@@ -208,7 +230,7 @@ func TestDuplicateAndOrphanedHelperDoNotBlockStartup2sc(t *testing.T) {
 	if err != nil || len(restored) != 1 || restored[0].ID != primary.ID {
 		t.Fatalf("restored=%v err=%v", restored, err)
 	}
-	if !strings.Contains(output.String(), `restored "primary stand-in"`) || !strings.Contains(output.String(), "unknown agent") {
+	if !strings.Contains(output.String(), "removed 1 leftover folder") || !strings.Contains(output.String(), "unknown agent") || strings.Contains(output.String(), "duplicate chat id") {
 		t.Fatalf("restore log did not name both dispositions: %s", output.String())
 	}
 }

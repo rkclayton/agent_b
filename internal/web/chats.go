@@ -2,8 +2,6 @@ package web
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -13,7 +11,6 @@ import (
 	"harness/internal/chatstore"
 	"harness/internal/events"
 	"harness/internal/projection"
-	"harness/internal/session"
 )
 
 func (s *Server) chatTree(w http.ResponseWriter, r *http.Request) {
@@ -63,16 +60,6 @@ func (s *Server) chatTree(w http.ResponseWriter, r *http.Request) {
 		}
 	case "pin":
 		err = s.chatStore.SetPinned(body.ID, body.Pinned)
-	case "archive":
-		if err = s.registry.Archive(body.ID); err == nil {
-			_, err = s.chatStore.Archive(body.ID, time.Now())
-		}
-		if err == nil {
-			s.projector.Delete(body.ID)
-			s.bus.Publish(events.New(events.ChatDeleted, "", "", map[string]any{"session_id": body.ID, "archived": true}))
-		}
-	case "restore":
-		err = s.restoreArchivedChat(body.ID)
 	default:
 		writeError(w, 400, "unknown chat tree action", "action")
 		return
@@ -210,7 +197,7 @@ func (s *Server) writeChatTree(w http.ResponseWriter) {
 		return
 	}
 	root := s.chatStore.Root()
-	entries, archived, err := s.chatStore.List()
+	entries, err := s.chatStore.Scan()
 	if err != nil {
 		writeError(w, 500, err.Error(), "chats")
 		return
@@ -226,34 +213,7 @@ func (s *Server) writeChatTree(w http.ResponseWriter) {
 			chat["folder"] = ""
 		}
 	}
-	archivedChats := make([]map[string]string, 0, len(archived))
-	for _, entry := range archived {
-		rel, _ := filepath.Rel(root, entry.Path)
-		archivedChats = append(archivedChats, map[string]string{"id": entry.Metadata.ID, "name": entry.Metadata.Label, "folder": filepath.ToSlash(filepath.Dir(rel)), "archived_at": entry.Metadata.ArchivedAt.Format(time.RFC3339Nano)})
-	}
-	writeJSON(w, 200, map[string]any{"root": root, "folders": folders, "chats": chats, "archived": archivedChats})
-}
-
-func (s *Server) restoreArchivedChat(id string) error {
-	_, found, err := s.chatStore.Find(id)
-	if err != nil || !found {
-		return errors.Join(err, fmt.Errorf("chat not found"))
-	}
-	projected, err := projection.NewCache().ProjectFile(filepath.Join(s.chatStore.Root(), id+".jsonl"), 0)
-	if err != nil {
-		return err
-	}
-	raw, _ := json.Marshal(projected)
-	var saved session.Snapshot
-	if err = json.Unmarshal(raw, &saved); err != nil {
-		return err
-	}
-	saved.ID = id
-	if _, err = s.registry.RestoreWithTranscript(saved, projected.Chat); err != nil {
-		return err
-	}
-	_, err = s.chatStore.Restore(id)
-	return err
+	writeJSON(w, 200, map[string]any{"root": root, "folders": folders, "chats": chats})
 }
 
 func (s *Server) deleteAllChats(w http.ResponseWriter, r *http.Request) {

@@ -23,6 +23,7 @@ type Registry struct {
 	mu          sync.Mutex
 	sessions    map[string]*Session
 	next        int
+	reserved    map[string]bool
 	connections func(string) (*config.Connection, bool)
 	bus         *events.Bus
 	writers     *events.Writers
@@ -42,7 +43,7 @@ type Registry struct {
 }
 
 func NewRegistry(bus *events.Bus, writers *events.Writers, connections func(string) (*config.Connection, bool), maxTurns int, settings func() config.Config) *Registry {
-	return &Registry{sessions: map[string]*Session{}, next: 2, connections: connections, bus: bus, writers: writers, maxTurns: maxTurns, config: settings}
+	return &Registry{sessions: map[string]*Session{}, reserved: map[string]bool{}, next: 2, connections: connections, bus: bus, writers: writers, maxTurns: maxTurns, config: settings}
 }
 func (r *Registry) SetMemoryLoader(loader func(context.Context, string, string) (string, string, error)) {
 	r.memory = loader
@@ -68,6 +69,7 @@ func (r *Registry) SwitchProfile(writers *events.Writers, memory, agentMemory fu
 		}
 	}
 	r.sessions = map[string]*Session{}
+	r.reserved = map[string]bool{}
 	r.next = 2
 	r.writers = writers
 	r.memory, r.agentMemory, r.workspaces = memory, agentMemory, manager
@@ -75,6 +77,17 @@ func (r *Registry) SwitchProfile(writers *events.Writers, memory, agentMemory fu
 	r.scratchRoot = filepath.Join(filepath.Dir(r.plansRoot), "scratch")
 	r.chatRoot = filepath.Join(filepath.Dir(r.plansRoot), "chats")
 	return nil
+}
+
+func (r *Registry) ReserveChatIDs(ids []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, id := range ids {
+		r.reserved[id] = true
+		if value, err := strconv.Atoi(strings.TrimPrefix(id, "s")); strings.HasPrefix(id, "s") && err == nil && value >= r.next {
+			r.next = value + 1
+		}
+	}
 }
 func (r *Registry) SetPlansRoot(root string) {
 	r.plansRoot = filepath.Clean(root)
@@ -268,6 +281,7 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 	}
 	s.EnsurePlan = r.ensurePlanHook(s)
 	r.sessions[s.ID] = s
+	r.reserved[s.ID] = true
 	if strings.HasPrefix(s.ID, "s") {
 		if value, parseErr := strconv.Atoi(strings.TrimPrefix(s.ID, "s")); parseErr == nil && value >= r.next {
 			r.next = value + 1
@@ -341,10 +355,16 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	}
 	connectionID = connection.ID
 	id := "main"
-	if len(r.sessions) > 0 {
-		id = fmt.Sprintf("s%d", r.next)
-		r.next++
+	if len(r.sessions) > 0 || r.reserved[id] {
+		for {
+			id = fmt.Sprintf("s%d", r.next)
+			r.next++
+			if !r.reserved[id] {
+				break
+			}
+		}
 	}
+	r.reserved[id] = true
 	createdAt := time.Now().UTC()
 	// Item 2go (v1.2.5): a chat with no name has NO NAME. It used to be called
 	// after its own id - s14 - which told the operator nothing and was never

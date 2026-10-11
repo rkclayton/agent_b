@@ -615,12 +615,16 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteChat(item *session.Session) (events.SessionInventory, error) {
 	id := item.ID
+	workspace, scratch := item.Snapshot().Workspace, item.Snapshot().Scratch
 	if s.runner != nil {
 		s.runner.LapseSessionGrants(id)
 	}
 	// Item 2py (a): DELETE DELETES. No export is written; what was said is gone, and
 	// every client — the paired phone included — is told so it drops its copy.
 	inventory, err := s.registry.Delete(id)
+	if err == nil && scratch && withinRoot(filepath.Join(s.profileRoot(), "chats"), workspace) {
+		err = os.RemoveAll(workspace)
+	}
 	if err == nil && s.projector != nil {
 		s.projector.Delete(id)
 	}
@@ -640,13 +644,8 @@ func (s *Server) DeleteChatHeadless(id string) error {
 			return err
 		}
 	}
-	workspace, scratch := item.Snapshot().Workspace, item.Snapshot().Scratch
 	if _, err := s.deleteChat(item); err != nil {
 		return err
-	}
-	root := filepath.Join(s.profileRoot(), "chats")
-	if scratch && withinRoot(root, workspace) {
-		return os.RemoveAll(workspace)
 	}
 	return nil
 }

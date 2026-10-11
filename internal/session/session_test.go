@@ -137,6 +137,27 @@ func TestCreateLikePreservesToolsetButCreatesFreshScratch(t *testing.T) {
 	}
 }
 
+func TestReservedFolderAndJournalIDsAreNeverIssued2ta(t *testing.T) {
+	logs, data := t.TempDir(), t.TempDir()
+	writers, err := events.NewWriters(logs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writers.Close()
+	connection := &config.Connection{ID: "main", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
+	cfg := config.Defaults(data)
+	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
+	registry.SetPlansRoot(filepath.Join(data, "plans"))
+	registry.ReserveChatIDs([]string{"main", "s2", "s8"})
+	first, err := registry.Create("first", connection.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == "main" || first.ID == "s2" || first.ID == "s8" {
+		t.Fatalf("reserved id issued: %s", first.ID)
+	}
+}
+
 func TestSnapshotCarriesRunAggregates(t *testing.T) {
 	s := &Session{}
 	s.RecordModelTurn()

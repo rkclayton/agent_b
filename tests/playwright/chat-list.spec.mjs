@@ -10,9 +10,10 @@ const robotEvidence = process.env.AGENTB_2S2_EVIDENCE_DIR || "test-results/2s2-e
 const pulseEvidence = process.env.AGENTB_2SG_EVIDENCE_DIR || "test-results/2sg-evidence";
 const listEvidence = process.env.AGENTB_2SI_EVIDENCE_DIR || "test-results/2si-evidence";
 const edgeEvidence = process.env.AGENTB_2SP_EVIDENCE_DIR || "test-results/2sp-evidence";
+const returnedEvidence = process.env.AGENTB_2TA_EVIDENCE_DIR || "test-results/2ta-evidence";
 
 test("chat list rows, actions, independent state, resize persistence and captures 2qz", async ({ browser }) => {
-  test.setTimeout(60000);
+  test.setTimeout(90000);
   await mkdir(evidence, { recursive: true });
   await mkdir(edgeEvidence, { recursive: true });
   const base = { schema_version: 1, complete: true, agent_id: "agent_b", role: "b", connection_id: "fixture", b_connection: "fixture", tools: [], messages: [], budget: {}, activity: { completed_stages: [] }, timeline: [], chat: [], runnable: true, closed: false };
@@ -20,7 +21,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
     p1: { ...base, id: "p1", label: "Pinned older", created_at: "2026-10-01T00:00:00Z", last_activity: "2026-10-06T04:00:00Z", run: { status: "running" } },
     p2: { ...base, id: "p2", label: "Pinned newest", role: "d", created_at: "2026-10-02T00:00:00Z", last_activity: "2026-10-06T05:00:00Z", run: { status: "running" } },
     f1: { ...base, id: "f1", label: "Folder running", created_at: "2026-10-03T00:00:00Z", last_activity: "2026-10-06T03:00:00Z", run: { status: "running" } },
-    f2: { ...base, id: "f2", label: "Folder closed", created_at: "2026-10-04T00:00:00Z", last_activity: "2026-10-06T02:00:00Z", closed: true, run: { status: "idle" } },
+    f2: { ...base, id: "f2", label: "Returned chat", created_at: "2026-10-04T00:00:00Z", last_activity: "2026-10-06T02:00:00Z", closed: true, chat: [{ type: "user", key: "m1", text: "conversation returned at startup" }], run: { status: "idle" } },
     root: { ...base, id: "root", label: "A chat name long enough to end in an ellipsis while remaining whole on hover", created_at: "2026-10-05T00:00:00Z", last_activity: "2026-10-06T02:30:00Z", run: { status: "idle" } },
     worker: { ...base, id: "worker", label: "Worker", role: "c", created_at: "2026-10-06T00:00:00Z", last_activity: "2026-10-06T06:00:00Z", run: { status: "running" } },
   };
@@ -28,7 +29,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
     { id: "p1", folder: "Work", pinned: true }, { id: "p2", folder: "", pinned: true },
     { id: "f1", folder: "Work", pinned: false }, { id: "f2", folder: "Work", pinned: false },
     { id: "root", folder: "", pinned: false }, { id: "worker", folder: "", pinned: false },
-  ], archived: [{ id: "old", name: "Archived chat" }] };
+  ] };
   const actions = [];
   const snapshot = () => ({ sessions, connections: [{ id: "fixture", label: "fixture" }], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [{ id: "fixture", label: "fixture" }] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {} });
   const context = await browser.newContext({ viewport: { width: 1400, height: 800 } });
@@ -79,6 +80,19 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await page.keyboard.press("Escape");
   expect(await rows.evaluateAll((items) => items.map((item) => item.dataset.session))).toEqual(["p2", "p1", "f1", "f2", "root"]);
   await expect(page.locator('[data-session="worker"]')).toHaveCount(0);
+  await expect(page.getByText("Archived", { exact: true })).toHaveCount(0);
+  await page.locator('.chat-list-folder[data-folder="Work"] > summary').click();
+  await page.locator('[data-session="f2"] .chat-list-name').click();
+  await expect(page.locator("#chat-log")).toContainText("conversation returned at startup");
+  await mkdir(returnedEvidence, { recursive: true });
+  for (const viewport of [{ width: 304, height: 254 }, { width: 1280, height: 860 }, { width: 1920, height: 1080 }]) {
+    await page.setViewportSize(viewport);
+    await page.screenshot({ path: join(returnedEvidence, `${viewport.width}x${viewport.height}.png`) });
+  }
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await page.locator('[data-session="p1"] .chat-list-name').click();
+  await page.locator('.chat-list-folder[data-folder="Work"] > summary').click();
+  await page.locator("#chat-log").click();
   await expect(page.locator('.chat-list-row[data-session="p1"] .chat-list-state')).toHaveClass(/running/);
   await expect(page.locator('.chat-list-row[data-session="p2"] .chat-list-state')).toHaveClass(/running/);
   await expect(page.locator('.chat-list-row[data-session="f1"] .chat-list-state')).toHaveClass(/running/);
@@ -113,7 +127,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
 		}
 	}
 	await page.setViewportSize({ width: 1400, height: 800 });
-	const headings = page.locator(".chat-list-group-name, .chat-list-folder > summary, .chat-list-archived > summary");
+	const headings = page.locator(".chat-list-group-name, .chat-list-folder > summary");
 	for (const size of [9, 12, 32]) {
 		await page.evaluate((value) => document.documentElement.style.setProperty("--chat-scale", String(value / 12)), size);
 		const heights = await headings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));

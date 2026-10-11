@@ -111,25 +111,18 @@ func TestChatTreeOperationsAreFilesystemOperations(t *testing.T) {
 	}
 }
 
-func TestArchiveRemovesLiveChatAndRestoreRehydratesIt2qi(t *testing.T) {
+func TestArchiveAndRestoreActionsAreGone2ta(t *testing.T) {
 	server, registry, writers, _, _, _ := consoleServer(t)
 	defer writers.Close()
 	chat, err := registry.Create("archive me", "coder", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response := postConsole(t, server, "/api/chats/tree", `{"action":"archive","id":"`+chat.ID+`"}`); response.Code != 200 {
-		t.Fatalf("archive: %d %s", response.Code, response.Body.String())
-	}
-	if _, found := registry.Get(chat.ID); found {
-		t.Fatal("archived chat remains live")
-	}
-	response := postConsole(t, server, "/api/chats/tree", `{"action":"restore","id":"`+chat.ID+`"}`)
-	if response.Code != 200 {
-		t.Fatalf("restore: %d %s", response.Code, response.Body.String())
-	}
-	if restored, found := registry.Get(chat.ID); !found || restored.Workspace != chat.Workspace {
-		t.Fatalf("restored=%+v found=%v", restored, found)
+	for _, action := range []string{"archive", "restore"} {
+		response := postConsole(t, server, "/api/chats/tree", `{"action":"`+action+`","id":"`+chat.ID+`"}`)
+		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "unknown chat tree action") {
+			t.Fatalf("%s: %d %s", action, response.Code, response.Body.String())
+		}
 	}
 }
 
@@ -141,7 +134,7 @@ func TestReplayChatTreeWithoutWritableStoreIsEmpty(t *testing.T) {
 	}
 }
 
-func TestDeleteAllChatsRefusesRunningThenKeepsFiles(t *testing.T) {
+func TestDeleteAllChatsRefusesRunningThenRemovesChatFolders2ta(t *testing.T) {
 	server, registry, writers, _, _, _ := consoleServer(t)
 	defer writers.Close()
 	first, _ := registry.Create("busy", "coder", "")
@@ -160,8 +153,8 @@ func TestDeleteAllChatsRefusesRunningThenKeepsFiles(t *testing.T) {
 	if response.Code != 200 || len(registry.List()) != 0 {
 		t.Fatalf("delete: %d %s", response.Code, response.Body.String())
 	}
-	if content, err := os.ReadFile(kept); err != nil || string(content) != "keep" {
-		t.Fatalf("kept file = %q, %v", content, err)
+	if _, err := os.Stat(kept); !os.IsNotExist(err) {
+		t.Fatalf("chat folder content remains: %v", err)
 	}
 }
 
@@ -306,6 +299,9 @@ func TestDeleteDeletesOpenAndRunningChatsAndLeavesNoCopy2py(t *testing.T) {
 	if response := deleteConsole(t, server, "/api/sessions/"+open.ID); response.Code != http.StatusOK {
 		t.Fatalf("open delete status=%d body=%s", response.Code, response.Body)
 	}
+	if _, err := os.Stat(open.Workspace); !os.IsNotExist(err) {
+		t.Fatalf("page delete left chat folder: %v", err)
+	}
 	running, err := registry.Create("running chat", "coder", "")
 	if err != nil {
 		t.Fatal(err)
@@ -325,6 +321,9 @@ func TestDeleteDeletesOpenAndRunningChatsAndLeavesNoCopy2py(t *testing.T) {
 	}
 	if response := deleteConsole(t, server, "/api/sessions/"+running.ID); response.Code != http.StatusOK {
 		t.Fatalf("running delete status=%d body=%s", response.Code, response.Body)
+	}
+	if _, err := os.Stat(running.Workspace); !os.IsNotExist(err) {
+		t.Fatalf("running delete left chat folder: %v", err)
 	}
 	close(modelRequestRelease)
 	select {
@@ -351,6 +350,38 @@ func TestDeleteDeletesOpenAndRunningChatsAndLeavesNoCopy2py(t *testing.T) {
 	}
 	if value, _ := memories.Read(cfg.Workspace); !strings.Contains(value, "keep project fact") {
 		t.Fatalf("the memory note was not kept: %q", value)
+	}
+}
+
+func TestHeadlessDeleteRemovesScratchButNotOutsideWorkspace2ta(t *testing.T) {
+	server, registry, writers, _, cfg, _ := consoleServer(t)
+	defer writers.Close()
+	scratch, err := registry.Create("scratch", "coder", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside, err := registry.Create("outside", "coder", cfg.Workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := filepath.Join(cfg.Workspace, "proof.txt")
+	if err := os.MkdirAll(cfg.Workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(proof, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.DeleteChatHeadless(scratch.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(scratch.Workspace); !os.IsNotExist(err) {
+		t.Fatalf("scratch remains: %v", err)
+	}
+	if err := server.DeleteChatHeadless(outside.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(proof); err != nil || string(got) != "unchanged" {
+		t.Fatalf("outside workspace = %q, %v", got, err)
 	}
 }
 

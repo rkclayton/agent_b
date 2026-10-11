@@ -194,32 +194,74 @@ func TestRestoreChoosesTheOldestDuplicateChatIdentity2sc(t *testing.T) {
 	}
 }
 
-func TestArchiveRestoreKeepsFolderAndOrdersNewestFirst(t *testing.T) {
+func TestCleanupRemovesOnlyAppOwnedLeftoversAndClearsArchiveMark2ta(t *testing.T) {
 	store := New(filepath.Join(t.TempDir(), "chats"))
-	path, err := store.Create("s1", "First", time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
+	now := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
+	makeChat := func(id, label string, created time.Time) string {
+		t.Helper()
+		path, err := store.Create(id, label, created)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	onlyMetadata := makeChat("empty", "empty", now)
+	appOwned := makeChat("app", "app", now)
+	if err := os.MkdirAll(filepath.Join(appOwned, "attachments", ".agentb-index"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appOwned, "attachments", "upload.txt"), []byte("upload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unknown := makeChat("held", "held", now)
+	unknownFile := filepath.Join(unknown, "work.txt")
+	if err := os.WriteFile(unknownFile, []byte("exact bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	canonical := makeChat("same", "first", now.Add(-time.Hour))
+	spare := makeChat("same", "second", now)
+	archived := makeChat("archived", "kept name", now)
+	meta, _ := ReadMetadata(archived)
+	meta.ArchivedAt = now
+	meta.Pinned = true
+	if err := WriteMetadata(archived, meta); err != nil {
+		t.Fatal(err)
+	}
+	unmarked := makeChat("ordinary", "ordinary", now)
+	unmarkedBytes, _ := os.ReadFile(filepath.Join(unmarked, MetadataFile))
+	markedEmpty := makeChat("marked-empty", "marked-empty", now)
+	meta, _ = ReadMetadata(markedEmpty)
+	meta.ArchivedAt = now
+	if err := WriteMetadata(markedEmpty, meta); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := store.Cleanup(map[string]bool{"same": true, "archived": true, "ordinary": true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	folder := filepath.Join(store.Root(), "work")
-	if err := os.Mkdir(folder, 0o700); err != nil {
-		t.Fatal(err)
+	if result.Removed != 4 || len(result.Kept) != 1 || result.Kept[0] != unknown {
+		t.Fatalf("cleanup = %+v", result)
 	}
-	if err := os.Rename(path, filepath.Join(folder, filepath.Base(path))); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{onlyMetadata, appOwned, spare, markedEmpty} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("leftover remains at %s: %v", path, err)
+		}
 	}
-	if _, err := store.Archive("s1", time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{canonical, archived, unmarked, unknown} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("kept path %s: %v", path, err)
+		}
 	}
-	active, archived, err := store.List()
-	if err != nil || len(active) != 0 || len(archived) != 1 || archived[0].Metadata.ID != "s1" {
-		t.Fatalf("list = %#v %#v %v", active, archived, err)
+	if got, _ := os.ReadFile(unknownFile); string(got) != "exact bytes" {
+		t.Fatalf("unknown bytes = %q", got)
 	}
-	if _, err := store.Restore("s1"); err != nil {
-		t.Fatal(err)
+	if got, _ := os.ReadFile(filepath.Join(unmarked, MetadataFile)); string(got) != string(unmarkedBytes) {
+		t.Fatal("unmarked metadata changed")
 	}
-	active, archived, err = store.List()
-	if err != nil || len(active) != 1 || len(archived) != 0 || filepath.Dir(active[0].Path) != folder {
-		t.Fatalf("restored = %#v %#v %v", active, archived, err)
+	meta, err = ReadMetadata(archived)
+	if err != nil || !meta.ArchivedAt.IsZero() || !meta.Pinned || meta.Label != "kept name" {
+		t.Fatalf("restored metadata = %+v, %v", meta, err)
 	}
 }
 
@@ -244,7 +286,7 @@ func TestPinSurvivesRestartAndMove2qz(t *testing.T) {
 	}
 }
 
-func TestAutoArchiveUsesIdleClockAndProtectsLiveChat(t *testing.T) {
+func TestOldChatIsNeverMarkedArchived2ta(t *testing.T) {
 	store := New(filepath.Join(t.TempDir(), "chats"))
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	for _, item := range []struct {
@@ -266,8 +308,18 @@ func TestAutoArchiveUsesIdleClockAndProtectsLiveChat(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	changed, err := store.AutoArchive(now)
-	if err != nil || len(changed) != 1 || changed[0] != "old" {
-		t.Fatalf("AutoArchive = %#v, %v", changed, err)
+	for _, entry := range mustScan(t, store) {
+		if !entry.Metadata.ArchivedAt.IsZero() {
+			t.Fatalf("chat %s was archived", entry.Metadata.ID)
+		}
 	}
+}
+
+func mustScan(t *testing.T, store *Store) []Entry {
+	t.Helper()
+	entries, err := store.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return entries
 }

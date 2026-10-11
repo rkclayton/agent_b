@@ -424,7 +424,7 @@ func TestMachineFileKeepsItsOwnPerProfileSections2m0(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if onDisk.Chat.TextSize != "" {
+	if onDisk.Chat.TextSize != nil && onDisk.Chat.TextSize != "" {
 		t.Errorf("a machine write carried the profile's text size into the machine file: %q", onDisk.Chat.TextSize)
 	}
 	if !onDisk.Shell.AllowLocalNetwork {
@@ -448,7 +448,7 @@ func TestMachineFileKeepsItsOwnPerProfileSections2m0(t *testing.T) {
 	}
 	if onDisk, _, _, err := config.Load(path); err != nil {
 		t.Fatal(err)
-	} else if onDisk.Chat.TextSize != "" {
+	} else if onDisk.Chat.TextSize != nil && onDisk.Chat.TextSize != "" {
 		t.Errorf("the per-profile write carried typography into the machine file: %q", onDisk.Chat.TextSize)
 	}
 
@@ -462,5 +462,33 @@ func TestMachineFileKeepsItsOwnPerProfileSections2m0(t *testing.T) {
 	}
 	if cfg.Chat.TextSize != "" {
 		t.Errorf("the second profile inherited the first profile's text size: %q", cfg.Chat.TextSize)
+	}
+}
+
+func TestFontFamiliesShipFirstCacheAndRefresh2rg(t *testing.T) {
+	calls := 0
+	server := &Server{fontLoader: func() ([]string, error) {
+		calls++
+		if calls == 1 {
+			return []string{"Zulu", "arial", "IBM Plex Sans", "Arial", " beta "}, nil
+		}
+		return []string{"Gamma"}, nil
+	}}
+	first, err := server.fontFamilies(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFirst := []string{"IBM Plex Sans", "Atkinson Hyperlegible", "OpenDyslexic", "Arial", "beta", "Zulu"}
+	if strings.Join(first, "|") != strings.Join(wantFirst, "|") {
+		t.Fatalf("families = %#v, want %#v", first, wantFirst)
+	}
+	first[0] = "mutated caller copy"
+	cached, err := server.fontFamilies(false)
+	if err != nil || calls != 1 || cached[0] != "IBM Plex Sans" {
+		t.Fatalf("cache result=%#v calls=%d err=%v", cached, calls, err)
+	}
+	refreshed, err := server.fontFamilies(true)
+	if err != nil || calls != 2 || strings.Join(refreshed, "|") != "IBM Plex Sans|Atkinson Hyperlegible|OpenDyslexic|Gamma" {
+		t.Fatalf("refresh result=%#v calls=%d err=%v", refreshed, calls, err)
 	}
 }

@@ -28,17 +28,15 @@ test("no bold is synthesized: every weight asked for is one the product ships", 
   assert.match(chatCSS, /\.chat-response-answer strong/, "prose bold has no weight of its own, so the browser picks 700");
 });
 
-test("the default reading size is named once, and a chosen size still wins", () => {
-  // (f): whatever the default is, it is the value used only when the setting is
-  // UNSET, so a reader who chose a size keeps it. (d) tried "large" and
-  // rel-1.23.0/W8 put it back: at that step the transcript overflowed a 320px
-  // viewport by two pixels and the chat acceptance gate said so.
-  assert.match(chatJS, /const DEFAULT_TEXT_SIZE = "(?:small|normal|large|larger|largest)"/);
-  assert.match(chatJS, /TEXT_SCALES\[chat\.text_size\] \?\? TEXT_SCALES\[DEFAULT_TEXT_SIZE\]/);
-  // The fallback fires only for an unset value — "small" must still be 0.9.
-  const scales = /const TEXT_SCALES = \{([^}]*)\}/.exec(chatJS)[1];
-  assert.match(scales, /small:\s*0\.9/);
-  assert.match(scales, /large:\s*1\.15/);
+test("the reading size is a bounded whole-pixel value with the old steps mapped once", () => {
+  assert.match(chatJS, /const DEFAULT_TEXT_SIZE = 12/);
+  assert.match(chatJS, /Number\.isInteger\(chat\.text_size\).*Math\.min\(32, Math\.max\(9, pixels\)\)/s);
+  const migration = /const NAMED_PIXELS = \{([^}]*)\}/.exec(chatJS)?.[1] || "";
+  for (const pair of [/small:\s*11/, /normal:\s*12/, /large:\s*14/, /larger:\s*16/, /largest:\s*18/]) {
+    assert.match(migration, pair);
+  }
+  assert.match(chatJS, /const boundedPixels = Math\.min\(32, Math\.max\(9, pixels\)\)/);
+  assert.match(chatJS, /setProperty\("--chat-size", `\$\{boundedPixels\}px`\)/);
 });
 
 test("the shipped faces are still the ones the list offers", () => {

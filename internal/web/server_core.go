@@ -119,6 +119,9 @@ type Server struct {
 	operatorFiles    *operatorfiles.Manager
 	profiles         *profiles.Manager
 	profileChanged   func(string) error
+	fontMu           sync.Mutex
+	fonts            []string
+	fontLoader       func() ([]string, error)
 	probeMu          sync.Mutex
 	probeCancels     map[string]*probeRun
 	// Item 2gy: how many inconclusive probes a connection has had in a row, which
@@ -548,6 +551,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/connections", s.connections)
 	mux.HandleFunc("/api/connections/", s.replayGuard(s.connection))
 	mux.HandleFunc("/api/profiles", s.replayGuard(s.profileEndpoint))
+	mux.HandleFunc("/api/fonts", s.replayGuard(s.fontsEndpoint))
 	mux.HandleFunc("/api/skills", s.replayGuard(s.skillsEndpoint))
 	mux.HandleFunc("/api/config", s.replayGuard(s.config))
 	mux.HandleFunc("/api/notifications", s.replayGuard(s.notificationSettings))

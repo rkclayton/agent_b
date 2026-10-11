@@ -129,12 +129,12 @@ test("chat list rows, actions, independent state, resize persistence and capture
 	await page.setViewportSize({ width: 1400, height: 800 });
 	const headings = page.locator(".chat-list-group-name, .chat-list-folder > summary");
 	for (const size of [9, 12, 32]) {
-		await page.evaluate((value) => document.documentElement.style.setProperty("--chat-scale", String(value / 12)), size);
+		await page.evaluate((value) => { document.documentElement.style.setProperty("--chat-size", `${value}px`); document.documentElement.dataset.chatListWrap = String(value >= 28); }, size);
 		const heights = await headings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
 		const rowHeight = await rows.first().evaluate((node) => node.getBoundingClientRect().height);
 		expect(heights.every((height) => Math.abs(height - rowHeight) < 0.1), `${size}px: headings=${heights} row=${rowHeight}`).toBe(true);
 	}
-	await page.evaluate(() => document.documentElement.style.removeProperty("--chat-scale"));
+	await page.evaluate(() => { document.documentElement.style.removeProperty("--chat-size"); document.documentElement.dataset.chatListWrap = "false"; });
 	const folderHead = page.locator('.chat-list-folder[data-folder="Work"] > summary'), folderTools = folderHead.locator("button");
 	await expect(folderTools).toHaveCount(3); for (const tool of await folderTools.all()) await expect(tool).toBeHidden();
 	const nameX = await folderHead.locator(".chat-list-folder-name").evaluate((node) => node.getBoundingClientRect().x);
@@ -176,11 +176,11 @@ test("chat list rows, actions, independent state, resize persistence and capture
   const cdp = await context.newCDPSession(page);
   for (const scale of [1, 1.5, 2]) for (const textSize of [9, 12, 32]) {
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: scale, mobile: false });
-    await page.evaluate((size) => document.documentElement.style.setProperty("--chat-scale", String(size / 12)), textSize);
+    await page.evaluate((size) => { document.documentElement.style.setProperty("--chat-size", `${size}px`); document.documentElement.dataset.chatListWrap = String(size >= 28); }, textSize);
     const head = await robot.evaluate((node) => { const box = node.getBoundingClientRect(), shell = document.querySelector("#app-shell").getBoundingClientRect(); return { width: box.width, height: box.height, center: Math.abs((box.top + box.height / 2) - (shell.top + shell.height / 2)) }; });
     expect(head, `${scale * 100}% / ${textSize}px`).toEqual({ width: 20, height: 20, center: 0 });
   }
-  await cdp.send("Emulation.clearDeviceMetricsOverride"); await page.evaluate(() => document.documentElement.style.removeProperty("--chat-scale"));
+  await cdp.send("Emulation.clearDeviceMetricsOverride"); await page.evaluate(() => { document.documentElement.style.removeProperty("--chat-size"); document.documentElement.dataset.chatListWrap = "false"; });
   const openSettings = async () => { await page.locator(".chat-list-menu-button").click(); await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click(); };
   await mkdir(listEvidence, { recursive: true });
   for (const width of [304, 1280, 1920]) { await page.setViewportSize({ width, height: 800 }); const layout = await page.evaluate(() => { const shell = document.querySelector("#app-shell").getBoundingClientRect(), head = document.querySelector(".shell-app-robot").getBoundingClientRect(), right = document.querySelector(".shell-right").getBoundingClientRect(), product = document.querySelector(".shell-product-title").getBoundingClientRect(), chat = document.querySelector(".shell-chat-title").getBoundingClientRect(); return { height: shell.height, first: head.left, size: head.height, center: Math.abs((head.top + head.height / 2) - (shell.top + shell.height / 2)), font: parseFloat(getComputedStyle(document.querySelector(".shell-session-title")).fontSize), inside: head.right <= right.left && right.right <= innerWidth && chat.right <= right.left && product.width > 0 && [...document.querySelectorAll(".shell-right > :not(.shell-menu)")].every((node) => { const box = node.getBoundingClientRect(); return box.width === 0 || box.right <= innerWidth; }) }; }); expect(layout).toEqual({ height: 32, first: 4, size: 20, center: 0, font: 12, inside: true }); await page.screenshot({ path: join(robotEvidence, `${width}-chat.png`) }); await page.screenshot({ path: join(listEvidence, `${width}-strip.png`) }); await openSettings(); await expect(page.locator(".shell-window-title")).toHaveText("Agent_b - Pinned older"); expect(await page.locator(".shell-window-title").evaluate((title) => { if (title.hidden) return true; const product = title.querySelector(".shell-product-title").getBoundingClientRect(), box = title.getBoundingClientRect(); return product.left >= box.left && product.right <= box.right; })).toBe(true); await page.screenshot({ path: join(robotEvidence, `${width}-settings.png`) }); await page.getByTitle("Close").click(); }
@@ -206,14 +206,14 @@ test("chat list rows, actions, independent state, resize persistence and capture
   ]) await menuCases(...row);
   await mkdir(listEvidence, { recursive: true });
   for (const panelWidth of [240, 96]) for (const textSize of [9, 12, 32]) {
-    await page.evaluate(({ panelWidth, textSize }) => { document.documentElement.style.setProperty("--chat-list-width", `${panelWidth}px`); document.documentElement.style.setProperty("--chat-scale", String(textSize / 12)); }, { panelWidth, textSize });
+    await page.evaluate(({ panelWidth, textSize }) => { document.documentElement.style.setProperty("--chat-list-width", `${panelWidth}px`); document.documentElement.style.setProperty("--chat-size", `${textSize}px`); document.documentElement.dataset.chatListWrap = String(textSize >= 28); }, { panelWidth, textSize });
     const top = await page.locator(".chat-list-top-row").evaluate((row) => ({ height: row.getBoundingClientRect().height, buttons: [...row.querySelectorAll("button")].map((button) => [button.getBoundingClientRect().width, button.getBoundingClientRect().height]), text: row.innerText }));
     expect(top, `${panelWidth}px / ${textSize}px`).toEqual({ height: 24, buttons: [[24, 24], [24, 24]], text: "" });
     await page.locator(".chat-list").evaluate((list) => { list.scrollTop = 100; });
     expect(await page.locator(".chat-list-top-row").evaluate((row) => row.getBoundingClientRect().top - row.closest(".chat-list-panel").getBoundingClientRect().top)).toBe(0);
     await page.screenshot({ path: join(listEvidence, `${panelWidth}-${textSize}-open.png`) });
   }
-  await page.evaluate(() => { document.documentElement.style.setProperty("--chat-list-width", "240px"); document.documentElement.style.removeProperty("--chat-scale"); });
+  await page.evaluate(() => { document.documentElement.style.setProperty("--chat-list-width", "240px"); document.documentElement.style.removeProperty("--chat-size"); document.documentElement.dataset.chatListWrap = "false"; });
   await page.locator(".chat-list-menu-button").click(); page.once("dialog", (dialog) => dialog.accept("Fixture folder")); await listMenu.getByRole("button", { name: "Folder", exact: true }).click();
   await expect(page.locator('.chat-list-folder[data-folder="Fixture folder"]')).toBeVisible();
   await page.locator(".chat-list-menu-button").click(); await listMenu.getByRole("button", { name: "Settings", exact: true }).click();
@@ -233,11 +233,11 @@ test("chat list rows, actions, independent state, resize persistence and capture
   expect(edgeRun.gap).toBeLessThanOrEqual(1); expect(edgeRun.underScrollbar).toBe(true);
 
   for (const size of [9, 12, 32]) {
-    await page.evaluate((value) => document.documentElement.style.setProperty("--chat-scale", String(value / 12)), size);
+    await page.evaluate((value) => { document.documentElement.style.setProperty("--chat-size", `${value}px`); document.documentElement.dataset.chatListWrap = String(value >= 28); }, size);
     const iconGeometry = await page.locator(".chat-list-group.root .chat-list-folder-action").evaluateAll((buttons) => buttons.map((button) => ({ target: button.getBoundingClientRect().height, glyph: button.querySelector("svg").getBoundingClientRect().height, text: parseFloat(getComputedStyle(button.closest(".chat-list-group-name")).fontSize), background: getComputedStyle(button).backgroundColor })));
     for (const icon of iconGeometry) { expect(icon.target).toBe(24); expect(Math.abs(icon.glyph - icon.text)).toBeLessThanOrEqual(2); expect(icon.background).toBe("rgba(0, 0, 0, 0)"); }
   }
-  await page.evaluate(() => document.documentElement.style.removeProperty("--chat-scale"));
+  await page.evaluate(() => { document.documentElement.style.removeProperty("--chat-size"); document.documentElement.dataset.chatListWrap = "false"; });
   for (const width of [1280, 304]) {
     await page.setViewportSize({ width, height: 800 });
     for (const panelWidth of [240, 96, 32]) {

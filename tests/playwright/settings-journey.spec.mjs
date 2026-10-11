@@ -37,6 +37,7 @@ let harness;
 let hermesHome;
 
 test.beforeAll(async () => {
+	test.setTimeout(120_000);
   root = await mkdtemp(join(tmpdir(), "agentb-settings-journey-"));
 	hermesHome = join(root, "hermes");
 	await mkdir(join(hermesHome, "memories"), { recursive: true });
@@ -69,6 +70,7 @@ test("Hermes import shows the complete preview before writing", async () => {
 });
 
 test.afterAll(async () => {
+	test.setTimeout(120_000);
   await harness?.stop();
   if (root) removeTreeWithinAllowedRoots(root, [tmpdir()], "settings-journey Playwright cleanup");
 });
@@ -88,7 +90,7 @@ test("Settings is a centred bounded window over the drawn chat 2sy", async () =>
 test("Settings fills narrow windows and its X closes to prior focus 2sy", async () => {
 	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat`);
 	for (const width of [304, 600]) for (const size of [9, 12, 32]) {
-		await page.setViewportSize({ width, height: 700 }); await page.locator(".chat-list-menu-button").focus(); await page.evaluate((value) => document.documentElement.style.setProperty("--chat-scale", String(value / 12)), size); await page.evaluate(() => document.dispatchEvent(new CustomEvent("settings.open")));
+		await page.setViewportSize({ width, height: 700 }); await page.locator(".chat-list-menu-button").focus(); await page.evaluate((value) => document.documentElement.style.setProperty("--chat-size", `${value}px`), size); await page.evaluate(() => document.dispatchEvent(new CustomEvent("settings.open")));
 		await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 		const geometry = await page.locator("#settings-page").evaluate((panel) => { const box = panel.getBoundingClientRect(), strip = document.querySelector("#app-shell").getBoundingClientRect(), close = panel.querySelector('[data-action="close"]').getBoundingClientRect(), head = panel.querySelector(".settings-head").getBoundingClientRect(), content = panel.querySelector(".settings-content").getBoundingClientRect(), group = panel.querySelector(".settings-group").getBoundingClientRect(); return { left: box.left, right: innerWidth - box.right, top: box.top - strip.bottom, bottom: innerHeight - box.bottom, contentLeft: content.left - box.left, contentRight: box.right - content.right, groupLeft: group.left - box.left, groupRight: box.right - group.right, overflow: document.documentElement.scrollWidth - innerWidth, closeWhole: close.left >= head.left && close.right <= head.right && close.top >= head.top && close.bottom <= head.bottom }; });
 		expect({ ...geometry, groupRight: undefined }).toEqual({ left: 0, right: 0, top: 0, bottom: 0, contentLeft: 0, contentRight: 0, groupLeft: 12, groupRight: undefined, overflow: 0, closeWhole: true }); expect(geometry.groupRight).toBeGreaterThanOrEqual(12); await page.screenshot({ path: join(repo, "test-results", `2sy-settings-${width}-${size}px.png`), fullPage: true }); await page.getByTitle("Close").press("Enter"); await expect(page.locator(".chat-list-menu-button")).toBeFocused();
@@ -100,6 +102,93 @@ test("only the dimmed chat closes Settings; the strip does not 2sy", async () =>
 	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat`); await toggleSettings(page); await expect(page.locator(".shell-settings")).toHaveCount(0);
 	const strip = await page.locator("#app-shell").boundingBox(); await page.mouse.click(strip.x + 200, strip.y + 12); await page.mouse.dblclick(strip.x + 220, strip.y + 12); await page.mouse.move(strip.x + 250, strip.y + 12); await page.mouse.down(); await page.mouse.move(strip.x + 300, strip.y + 12); await page.mouse.up(); await expect(page.locator("#settings-page")).toBeVisible();
 	await page.locator("#settings-backdrop").click({ position: { x: 4, y: 4 } }); await expect(page.locator("#settings-page")).toBeHidden(); await page.close();
+});
+
+test("Chats shows only profile reading approval context and delete 2sb", async () => {
+	test.setTimeout(120_000);
+	const page = await harness.context.newPage();
+	await page.goto(`${harness.base}/chat`);
+	await page.evaluate(() => document.dispatchEvent(new CustomEvent("settings.open", { detail: { section: "chats" } })));
+	const initial = await (await page.request.get(`${harness.base}/api/state`)).json();
+	if ((initial.profiles?.names || []).length <= 1) for (const section of ["chats", "profiles", "notifications"]) {
+		await page.locator(`.settings-nav [data-id="${section}"]`).click();
+		await expect(page.locator("[data-profile-select]")).toHaveCount(0);
+	}
+	await page.getByTitle("Close").click();
+
+	const original = initial.profiles?.active || "Default";
+	const second = "Second fixture";
+	const mutationHeaders = { "X-AgentB-Mutation-Token": await page.locator('meta[name="agentb-mutation-token"]').getAttribute("content") };
+	if (!(initial.profiles?.names || []).includes(second)) {
+		const created = await page.request.post(`${harness.base}/api/profiles`, { headers: mutationHeaders, data: { action: "create", name: second } });
+		expect(created.ok(), `${created.status()} ${await created.text()}`).toBe(true);
+	}
+	await page.reload();
+	await page.evaluate(() => document.dispatchEvent(new CustomEvent("settings.open", { detail: { section: "chats" } })));
+	for (const section of ["chats", "profiles", "notifications"]) {
+		await page.locator(`.settings-nav [data-id="${section}"]`).click();
+		await expect(page.locator("[data-profile-select]")).toHaveCount(1);
+	}
+	await page.locator('.settings-nav [data-id="chats"]').click();
+	await expect(page.locator("[data-profile-select]")).toHaveValue(original);
+	await expect(page.locator('.settings-nav [data-id="plan"]')).toBeVisible();
+	const text = (await page.locator(".settings-content").innerText()).toLowerCase();
+	for (const absent of ["root path", "tabs", "repeat limit", "queue depth", "reflection floor", "max concurrent", "cycle window"]) expect(text).not.toContain(absent);
+	expect(await page.locator(".settings-subhead").allTextContents()).toEqual(["Reading", "Context", "Delete"]);
+	await expect(page.locator(".settings-subhead-note")).toHaveCount(0);
+	const size = page.locator('[data-path="chat.text_size"]');
+	for (const invalid of ["8", "33"]) {
+		await size.fill(invalid); await size.press("Tab");
+		await expect(page.locator(".field-error")).toContainText("9 to 32");
+	}
+	await size.fill("16"); await size.press("Tab");
+	await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.text_size).toBe(16);
+
+	const configured = { run: { cycle_window: 7, queue_depth: 3, max_concurrent: 2 }, reflection: { floor: { model_calls: 5, tool_calls: 4 } }, chat: { hidden_surfaces: ["plan"], typeface: "Absent Font Fixture" } };
+	const patched = await page.request.post(`${harness.base}/api/config`, { headers: mutationHeaders, data: configured });
+	expect(patched.ok()).toBe(true);
+	await expect(page.locator('[data-menu-path="chat.typeface"]')).toContainText("Absent Font Fixture · missing");
+	const evidence = join(repo, "logs", "evidence", "rel-1.62.33"); await mkdir(evidence, { recursive: true });
+	await expect.poll(async () => page.locator('.font-menu .setting-menu [role="option"]').count()).toBeGreaterThan(3);
+	for (const viewport of [{ name: "small", width: 304, height: 254 }, { name: "medium", width: 1280, height: 860 }, { name: "large", width: 1920, height: 1080 }]) for (const pixels of [9, 32]) {
+		await page.setViewportSize(viewport); await page.locator('[data-path="chat.text_size"]').fill(String(pixels)); await page.locator('[data-path="chat.text_size"]').evaluate((node) => node.blur());
+		await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.text_size).toBe(pixels);
+		await expect.poll(async () => page.locator('.settings-nav button').first().evaluate((node) => getComputedStyle(node).fontSize)).toBe("12px");
+		for (const path of ["chat.typeface", "chat.text_color"]) { const anchor = page.locator(`[data-menu-path="${path}"]`); await anchor.scrollIntoViewIfNeeded(); await anchor.evaluate((node) => { node.nextElementSibling.hidden = false; node.setAttribute("aria-expanded", "true"); }); await page.screenshot({ path: join(evidence, `2sb-${viewport.name}-${pixels}px-${path.split(".")[1]}.png`), fullPage: true }); await anchor.evaluate((node) => { node.nextElementSibling.hidden = true; node.setAttribute("aria-expanded", "false"); }); }
+	}
+	await page.setViewportSize({ width: 1280, height: 860 });
+	await page.locator('[data-menu-path="approval.mode"]').click();
+	await expect(page.locator('.approval-menu .setting-menu [role="option"]')).toHaveCount(3);
+	await expect(page.locator('.approval-menu .setting-menu [role="option"] span')).toHaveCount(3);
+	await page.locator('[data-menu-path="approval.mode"]').click();
+	for (const mode of ["mutating", "all", "boundary-only"]) {
+		await page.locator('[data-menu-path="approval.mode"]').click();
+		await page.locator(`button[data-action="config-choice"][data-path="approval.mode"][data-value="${mode}"]`).click();
+		await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.approval.mode).toBe(mode);
+	}
+	await page.locator('[data-menu-path="chat.text_color"]').click();
+	await page.locator('button[data-action="config-choice"][data-path="chat.text_color"][data-value="pink"]').click();
+	await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.text_color).toBe("pink");
+	const preserved = (await (await page.request.get(`${harness.base}/api/state`)).json()).config;
+	expect({ cycle: preserved.run.cycle_window, queue: preserved.run.queue_depth, concurrent: preserved.run.max_concurrent, model: preserved.reflection.floor.model_calls, tool: preserved.reflection.floor.tool_calls }).toEqual({ cycle: 7, queue: 3, concurrent: 2, model: 5, tool: 4 });
+	await expect(page.locator('.settings-nav [data-id="plan"]')).toBeVisible();
+
+	await page.locator("[data-profile-select]").selectOption(second);
+	await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).profiles.active).toBe(second);
+	await expect(page.locator("[data-profile-select]")).toHaveValue(second);
+	await page.locator("[data-profile-select]").selectOption(original);
+	await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).profiles.active).toBe(original);
+	let refusedSwitch;
+	await page.route("**/api/profiles", async (route) => {
+		refusedSwitch = route.request().postDataJSON();
+		await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "stop the run first", field: "profiles" }) });
+	});
+	await page.locator("[data-profile-select]").selectOption(second);
+	await expect(page.locator(".settings-group-error")).toContainText(/stop the run first/i);
+	await expect(page.locator("[data-profile-select]")).toHaveValue(original);
+	expect(refusedSwitch).toEqual({ action: "switch", name: second });
+	await page.getByTitle("Close").click();
+	await page.close();
 });
 
 test("Settings traps focus and blocks keys from the chat behind it 2sy", async () => {
@@ -197,6 +286,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   // held-response case below: switch, answer, Settings > Chats, choose a face.
   await toggleSettings(page);
   await page.locator('.settings-nav [data-id="chats"]').click();
+  await page.locator('[data-menu-path="chat.typeface"]').click();
   await page.locator('button[data-action="config-choice"][data-path="chat.typeface"][data-value="Arial"]').click();
   await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.typeface).toBe("Arial");
   await expect(page.locator("[data-save-status]")).not.toContainText("Saving changes");
@@ -504,10 +594,11 @@ test("a held settings save releases the page with its draft still unsaved", asyn
   let release;
   const held = new Promise((resolve) => { release = resolve; });
   await page.route("**/api/config", async (route) => { await held; await route.continue().catch(() => {}); });
+  await page.locator('[data-menu-path="chat.typeface"]').click();
   await page.locator(`button[data-action="config-choice"][data-path="chat.typeface"][data-value="${draft}"]`).click();
   await expect(page.locator("[data-save-status]")).toContainText("Saving changes");
   await expect(page.locator("[data-save-status]")).toContainText("no answer", { timeout: 11000 });
-  await expect(page.locator(`button[data-path="chat.typeface"][data-value="${draft}"]`)).toHaveClass(/selected/);
+  await expect(page.locator('[data-menu-path="chat.typeface"]')).toContainText(draft);
   expect((await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.typeface).toBe(before);
   await page.locator('.settings-nav [data-id="about"]').click();
   await expect(page.locator(".settings-build-text")).toBeVisible();

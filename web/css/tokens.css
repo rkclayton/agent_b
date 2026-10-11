@@ -5,7 +5,7 @@
 /* Item 2lj (c): shipped because Agent_b runs offline. A font named but absent falls back to something else without saying so, and the reader who chose it would never know. Both are SIL OFL 1.1; see assets/fonts/LICENSE-FONTS.md. */
 @font-face{font-family:"Atkinson Hyperlegible";src:url("../assets/fonts/atkinson-hyperlegible-latin-400-normal.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
 @font-face{font-family:"OpenDyslexic";src:url("../assets/fonts/opendyslexic-latin-400-normal.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
-:root{--bezel:#0D1014;--well:#080A0D;--ink:#E8EEF4;--mute:#707D8B;--signal:#3CF08A;--trace:#F2B233;--alarm:#E4624F;--accent-plan:#5AC8FA;--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--app-header-height:32px;--etch-fade:.0825;--chat-scale:1;--chat-face:var(--sans)}
+:root{--bezel:#0D1014;--well:#080A0D;--ink:#E8EEF4;--mute:#707D8B;--signal:#3CF08A;--trace:#F2B233;--alarm:#E4624F;--accent-plan:#5AC8FA;--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--app-header-height:32px;--etch-fade:.0825;--chat-size:12px;--chat-face:var(--sans)}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{height:100dvh;overflow:hidden;background:var(--bezel);color:var(--ink);font:400 13px/20px var(--sans)}

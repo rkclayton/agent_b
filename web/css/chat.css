@@ -1,17 +1,7 @@
-/* Item 2lj (b): ONE base size, and every other size in this file expressed as a
-   ratio of it, so a step changes the whole chat surface without changing any
-   proportion. --ct is the base; --lead and --lead-tight are the two line heights
-   this file used (20px and 16px at the 12px base). --chat-scale and --chat-face
-   are set on :root by Settings and default to 1 and the shipped sans, so a build
-   nobody has touched renders exactly as every release before v1.15.0 did.
-
-   rel-1.15.0/W0 counted 38 hard-coded font declarations here and no size token
-   at all; this is the token, and the conversion below is mechanical. app.css is
-   deliberately untouched: the shell, the rail and the settings pages do not
-   scale with the chat, because (b) says nothing else in the product changes
-   size. */
+/* One base size drives every relative chat size. Settings supplies whole pixels
+   through --chat-size; the untouched default remains 12px. */
 .chat-page {
-  --ct: calc(12px * var(--chat-scale, 1));
+  --ct: var(--chat-size, 12px);
   --lead: calc(var(--ct) * 5 / 3);
   --lead-tight: calc(var(--ct) * 4 / 3);
 }
@@ -53,6 +43,12 @@
 .chat-list-state.running { background: var(--signal); }
 .chat-list-state.waiting,.chat-list-state.offline { background: var(--alarm); }
 .chat-list-row .chat-list-name,.chat-list-row .chat-list-more { min-width: 0; min-height:calc(var(--lead-tight) + 4px); padding:2px 4px; overflow: hidden; background: transparent; font:400 var(--ct)/var(--lead-tight) var(--sans); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.chat-list-row .chat-list-name { padding-right:28px; }
+html[data-chat-list-wrap="true"] .chat-list-row,
+html[data-chat-list-wrap="true"] .chat-list-group-name,
+html[data-chat-list-wrap="true"] .chat-list-folder > summary { height:calc(var(--lead-tight) * 2 + 4px); }
+html[data-chat-list-wrap="true"] .chat-list-row .chat-list-name { height:100%; overflow-wrap:anywhere; text-overflow:clip; white-space:normal; }
+html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .chat-list-row .chat-list-name.working { color:transparent; background-image:linear-gradient(90deg,var(--ink) 0 38%,var(--signal) 47%,var(--signal) 53%,var(--ink) 62% 100%); background-position:100% 0; background-size:300% 100%; background-clip:text; -webkit-background-clip:text; animation:chat-name-pulse 1s linear infinite; animation-delay:var(--chat-pulse-delay,0ms); }
 @keyframes chat-name-pulse { from { background-position:100% 0; } to { background-position:-100% 0; } }
 .agent-chat-rename-form { min-width:0; height:calc(var(--lead-tight) + 4px); }
@@ -279,11 +275,31 @@
 .chat-user .chat-content {
   font-size: calc(var(--ct) * 7 / 6);
 }
+.chat-user {
+  display:flex;
+  justify-content:flex-end;
+  padding-right:0;
+}
+.chat-user .chat-speaker { display:none; }
+.chat-user .chat-content {
+  width:max-content;
+  max-width:80%;
+  padding:7px 9px;
+  overflow:hidden;
+  background:var(--well);
+  border-radius:0;
+  box-shadow:inset 0 0 0 1px rgba(112,125,139,.28);
+}
 .chat-content {
   min-width: 0;
   user-select: text;
   overflow-wrap: anywhere;
+  font-size: var(--ct);
 }
+.chat-user-text,.chat-response-answer,.chat-composer textarea { color:var(--chat-ink,var(--ink)); }
+.chat-content code,.chat-content pre { color:var(--ink); }
+.chat-content a { color:var(--signal); }
+.chat-content .alarm,.chat-attachment-warning { color:var(--alarm); }
 .chat-summary .chat-speaker {
   color: var(--trace);
 }
@@ -388,8 +404,8 @@
 .chat-step-summary,
 .chat-tool-group-head {
   width: 100%;
-  height: 20px;
-  min-height: 20px;
+  height: calc(var(--lead-tight) + 4px);
+  min-height: calc(var(--lead-tight) + 4px);
   padding: 0 5px;
   overflow: hidden;
   background: transparent;
@@ -444,8 +460,8 @@
   flex: none;
   width: auto;
   max-width: 42ch;
-  height: 18px;
-  min-height: 18px;
+  height: calc(var(--lead-tight) + 2px);
+  min-height: calc(var(--lead-tight) + 2px);
   padding: 0 4px;
   border: 1px solid rgba(112, 125, 139, .28);
   border-radius: 2px;
@@ -462,7 +478,7 @@
   margin-top: 12px;
   padding-top: 0;
   border-top: 0;
-  color: var(--ink);
+  color: var(--chat-ink,var(--ink));
 }
 .file-chips {
   display: flex;
@@ -1013,6 +1029,10 @@
   .chat-list-visible > #chat-budget,
   .chat-list-visible > #chat-log,
   .chat-list-visible > #chat-composer { width: 100%; margin-left: 0; visibility: hidden; }
+  .chat-entry { grid-template-columns:20px minmax(0, 1fr); }
+  .chat-speaker span { display:none; }
+  .tool-tick { height:auto; min-height:calc(var(--lead-tight) + 4px); grid-template-columns:minmax(0, 1fr) auto; align-items:start; }
+  .tool-tick > span { min-width:0; white-space:normal; overflow-wrap:anywhere; }
 }
 
 /* Item 2fc: proposed plan edits sit in the planning chat's own thread, above

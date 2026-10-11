@@ -1560,3 +1560,53 @@ func TestRemovedLoopAndRoutingKeysLoadSilently2tc(t *testing.T) {
 		t.Fatalf("retired keys were serialized again: %s", saved)
 	}
 }
+
+func TestChatReadingSettingsUsePixelsAndMigrateNamedSteps2rg(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	cfg := Defaults(t.TempDir())
+	cfg.Chat.TextSize = "large"
+	cfg.Chat.TextColor = "cyan"
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(written, []byte(`"text_size": "large"`)) || !bytes.Contains(written, []byte(`"text_size": 14`)) {
+		t.Fatalf("current save did not normalize named size: %s", written)
+	}
+
+	var document map[string]any
+	if err := json.Unmarshal(written, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["chat"].(map[string]any)["text_size"] = "larger"
+	legacy, _ := json.MarshalIndent(document, "", "  ")
+	if err := os.WriteFile(path, append(legacy, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, migrated, _, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !migrated || loaded.Chat.TextSize != 16 {
+		t.Fatalf("named size migration = (%v, %#v), want (true, 16)", migrated, loaded.Chat.TextSize)
+	}
+	rewritten, _ := os.ReadFile(path)
+	if bytes.Contains(rewritten, []byte(`"larger"`)) || !bytes.Contains(rewritten, []byte(`"text_size": 16`)) {
+		t.Fatalf("migration did not persist once as pixels: %s", rewritten)
+	}
+
+	for _, invalid := range []any{8, 33, 12.5, "enormous"} {
+		candidate := *loaded
+		candidate.Chat.TextSize = invalid
+		if err := candidate.Validate(); err == nil {
+			t.Errorf("text size %#v was accepted", invalid)
+		}
+	}
+	loaded.Chat.TextColor = "infrared"
+	if err := loaded.Validate(); err == nil {
+		t.Error("unknown text colour was accepted")
+	}
+}

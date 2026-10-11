@@ -112,34 +112,23 @@ jumpButton.onclick = () => {
 	if (session && Number(session.history_end || session.history_total || 0) < Number(session.history_total || 0)) void loadSessionHistory(session.id, false);
 	else renderLog(session);
 };
-// Item 2lj (b) and (d): the two reading settings apply as they are set. They are
-// two custom properties on the document root, which is the whole mechanism --
-// chat.css expresses every size as a ratio of --chat-scale and every prose face
-// as --chat-face, so setting them here is the entire apply path and there is no
-// second place for the two to disagree.
-const TEXT_SCALES = { small: 0.9, normal: 1, large: 1.15, larger: 1.3, largest: 1.5 };
+// Reading settings are custom properties on the document root. Chat CSS keeps
+// every relative size tied to --chat-size, and prose alone inherits --chat-ink.
+const NAMED_PIXELS = { small: 11, normal: 12, large: 14, larger: 16, largest: 18 };
+const TEXT_COLORS = { default: "#E8EEF4", white: "#FFFFFF", red: "#FF6B6B", orange: "#FF9F43", yellow: "#FFD166", green: "#3CF08A", cyan: "#4DDFF7", blue: "#6CA8FF", purple: "#C792EA", pink: "#FF85C2" };
 
-// Item 2m7 (d): THE UNTOUCHED DEFAULT GOES UP ONE STEP. The operator read the
-// product at "normal" and found it small; the scale is unchanged and 2lj's
-// control still reaches every step from here, so this moves where a reader
-// STARTS, not what they can choose.
-//
-// (f): a reader who has already set a size keeps it. This is the value used when
-// chat.text_size is unset, and an unset setting is the only thing it touches.
-// rel-1.23.0/W8 MEASURED THIS AND PUT IT BACK. At "large" the transcript
-// overflowed the 320px viewport by TWO PIXELS -- the chat acceptance gate's
-// phone case caught it, pageOverflow 2 with the fold and prose edges still
-// correct. One step of size is not worth a horizontal scrollbar on a phone, so
-// the default stays where it was and the size increase waits for the layout fix
-// it needs. 2lj's control still reaches every step from here.
-const DEFAULT_TEXT_SIZE = "normal";
+// Twelve pixels is the previous "normal" step and remains the unset default.
+const DEFAULT_TEXT_SIZE = 12;
 
 function applyReadingSettings() {
   const chat = store.config?.chat || {};
-  const scale = TEXT_SCALES[chat.text_size] ?? TEXT_SCALES[DEFAULT_TEXT_SIZE];
+  const pixels = Number.isInteger(chat.text_size) ? chat.text_size : (NAMED_PIXELS[chat.text_size] || DEFAULT_TEXT_SIZE);
   const face = (chat.typeface || "").trim();
   const root = document.documentElement;
-  root.style.setProperty("--chat-scale", String(scale));
+  const boundedPixels = Math.min(32, Math.max(9, pixels));
+  root.style.setProperty("--chat-size", `${boundedPixels}px`);
+  root.dataset.chatListWrap = String(boundedPixels >= 28);
+  root.style.setProperty("--chat-ink", TEXT_COLORS[chat.text_color] || TEXT_COLORS.default);
   // An unset typeface is not a broken one: it falls back to the product's own
   // sans, which is what every release before v1.15.0 rendered.
   if (face) root.style.setProperty("--chat-face", `"${face}", var(--sans)`);
@@ -503,7 +492,7 @@ function renderEntry(session, entry) {
   if (entry.type === "user") {
     const nodes = [];
     if (entry.text) {
-      if (!view.userText) view.userText = document.createElement("div");
+      if (!view.userText) { view.userText = document.createElement("div"); view.userText.className = "chat-user-text"; }
       if (view.text !== entry.text) view.userText.textContent = entry.text;
       nodes.push(view.userText);
     }
@@ -987,7 +976,7 @@ function selectionWithin(node) {
 
 function setSpeaker(node, name) {
   setAttribute(node, "aria-label", name);
-  setText(node.lastElementChild, name === "you" ? "" : name);
+  setText(node.lastElementChild, name === "you" || name === "summary" ? "" : name);
   name === "you" ? node.lastElementChild.removeAttribute("title") : setAttribute(node.lastElementChild, "title", name);
 }
 

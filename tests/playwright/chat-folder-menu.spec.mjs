@@ -82,7 +82,7 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
   for (const width of [240, 96]) {
     await page.evaluate((value) => document.documentElement.style.setProperty("--chat-list-width", `${value}px`), width);
     for (const size of [9, 12, 32]) {
-      await page.evaluate((value) => document.documentElement.style.setProperty("--chat-scale", String(value / 12)), size);
+      await page.evaluate((value) => document.documentElement.style.setProperty("--chat-size", `${value}px`), size);
       const nameBox = await chatRow.locator(".chat-list-name").boundingBox(), nextY = (await panel.locator(`[data-session="${other.id}"]`).boundingBox()).y;
       await chatRow.hover(); await chatRow.locator(".chat-list-more").click(); await panel.getByRole("button", { name: "Rename", exact: true }).click();
       const inputBox = await panel.getByLabel("Chat name").boundingBox();
@@ -93,7 +93,7 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
       await page.keyboard.press("Escape");
     }
   }
-  await page.evaluate(() => { document.documentElement.style.setProperty("--chat-list-width", "240px"); document.documentElement.style.removeProperty("--chat-scale"); });
+  await page.evaluate(() => { document.documentElement.style.setProperty("--chat-list-width", "240px"); document.documentElement.style.removeProperty("--chat-size"); });
   await chatRow.hover();
   await chatRow.locator(".chat-list-more").click();
   await panel.getByRole("button", { name: "Rename", exact: true }).click();

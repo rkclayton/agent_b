@@ -75,7 +75,7 @@ test("every control that carried a paragraph still exists", () => {
   ]) {
     assert.ok(security.includes(control), `Security lost ${control}`);
   }
-  assert.match(source["settings-run.js"], /approvalChoices\(cfg\.approval\?\.mode, "With the service identity enabled/);
+  assert.match(source["settings-run.js"], /approvalChoices\(store\.config\.approval\?\.mode, "Choose when tool calls need approval\."\)/);
   assert.match(source["settings-connections.js"], /probe_mode.{0,40}\["full", "minimal", "off"\], connection\.probe_mode, false/);
   assert.doesNotMatch(source["settings.js"], /settings-delivery|renderDeliveryPage/);
 });

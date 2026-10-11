@@ -84,7 +84,8 @@ test("Chat selection excludes chrome while preserving message content", () => {
     assert.notEqual(at, -1, `${selector} missing`);
     assert.match(css.slice(at, at + 500), /user-select:\s*none/);
   }
-  const content = css.slice(css.indexOf(".chat-content {"), css.indexOf(".chat-content {") + 200);
+  const contentStart = css.search(/^\.chat-content \{/m);
+  const content = css.slice(contentStart, contentStart + 200);
   assert.match(content, /user-select:\s*text/);
 });
 
@@ -241,7 +242,7 @@ test("Chat uses the narrow monospace label gutter", () => {
 	assert.match(css, /\.chat-entry\s*\{[\s\S]*grid-template-columns:\s*max\(20px, calc\(var\(--ct\) \* 5 \/ 2\)\) minmax\(0, 1fr\)/);
 	assert.match(chat, /speaker\(agentAuthor\(session\), true\)/);
 	assert.match(chat, /function speaker\(name, agent = false\)[\s\S]*if \(agent\)[\s\S]*assets\/agent\.svg/);
-	assert.match(chat, /name === "you" \? "" : name/);
+	assert.match(chat, /name === "you" \|\| name === "summary" \? "" : name/);
 	assert.match(css, /\.chat-render-failure \.chat-content\s*\{[\s\S]*white-space:\s*nowrap/);
 });
 
@@ -310,11 +311,12 @@ const chatsPage = await readFile(new URL("./settings-chats.js", import.meta.url)
 const configGo = await readFile(new URL("../../internal/config/config.go", import.meta.url), "utf8").then((t) => t.replace(/\r\n/g, "\n"));
 
 // (a): two rows in Chats, and only two.
-test("Chats offers text size and typeface, and nothing else was added", () => {
-  assert.match(chatsPage, /context\.choices\("chat\.text_size", "text size"/);
-  assert.match(chatsPage, /context\.choices\("chat\.typeface", "typeface"/);
-  const added = [...chatsPage.matchAll(/context\.(choices|number|text|toggle|textarea|secret)\("chat\./g)];
-  assert.equal(added.length, 2, `Chats gained ${added.length} chat rows, expected exactly two`);
+test("Chats offers only the three reading controls", () => {
+  assert.match(chatsPage, /type="number" min="9" max="32" step="1" data-path="chat\.text_size"/);
+  assert.match(chatsPage, /context\.menuSetting\("chat\.typeface", "typeface"/);
+  assert.match(chatsPage, /context\.menuSetting\("chat\.text_color", "text colour"/);
+  assert.equal([...chatsPage.matchAll(/data-path="chat\.[a-z_]+"/g)].length, 1);
+  assert.equal([...chatsPage.matchAll(/context\.menuSetting\("chat\./g)].length, 2);
 });
 
 // (c): the operator asked for the dyslexia face to be listed like any other --
@@ -333,32 +335,29 @@ test("no typeface is marked as an accessibility option", () => {
 
 // (c): the list the page draws and the list the config accepts are the same
 // list, so a face can never be offered and then refused on save.
-test("the offered typefaces are exactly the ones the config accepts", () => {
-  const page = [...chatsPage.matchAll(/"([^"]+)",?/g)];
-  const declared = /const TYPEFACES = \[([\s\S]*?)\];/.exec(chatsPage);
-  assert.ok(declared, "the page declares no typeface list");
-  const offered = [...declared[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-  const accepted = /var ChatTypefaces = \[\]string\{([\s\S]*?)\n\}/.exec(configGo);
-  assert.ok(accepted, "the config declares no typeface list");
-  const allowed = [...accepted[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(offered, allowed);
-  assert.ok(page.length > 0);
+test("typefaces come from the installed list and a missing saved face remains visible", () => {
+  assert.match(chatsPage, /const SHIPPED_FACES = \["IBM Plex Sans", "Atkinson Hyperlegible", "OpenDyslexic"\]/);
+  assert.match(chatsPage, /const installed = context\.fontFamilies\(\)/);
+  assert.match(chatsPage, /if \(!installed\.includes\(chosen\)\) faces\.unshift\(\{ value: chosen, label: chosen, missing: true/);
+  assert.doesNotMatch(configGo, /ChatTypefaces/);
 });
 
 // (b): one base size, and every size in the chat stylesheet a ratio of it. W0
 // counted 38 hard-coded declarations here; a new one would not scale and would
 // break the proportions the step is supposed to keep.
 test("the chat stylesheet hard-codes no type size", () => {
-  const offenders = [...css.replace(/\r\n/g, "\n").matchAll(/font(?:-size)?:\s*[^;]*?\b\d+px/g)].map((match) => match[0]);
+  const body = css.replace(/\r\n/g, "\n").replace(/--ct:\s*var\(--chat-size,\s*12px\)/, "--ct: configured");
+  const offenders = [...body.matchAll(/font(?:-size)?:\s*[^;]*?\b\d+px/g)].map((match) => match[0]);
   assert.deepEqual(offenders, [], `the chat surface still hard-codes a size: ${offenders.join("; ")}`);
-  assert.match(css, /--ct: calc\(12px \* var\(--chat-scale, 1\)\)/);
+  assert.match(css, /--ct: var\(--chat-size,\s*12px\)/);
 });
 
 // (b) and (d): the apply path is the two custom properties and nothing else.
 test("the reading settings apply as they are set", () => {
   assert.match(chat, /function applyReadingSettings\(\)/);
-  assert.match(chat, /root\.style\.setProperty\("--chat-scale"/);
+  assert.match(chat, /root\.style\.setProperty\("--chat-size"/);
   assert.match(chat, /root\.style\.setProperty\("--chat-face"/);
+  assert.match(chat, /root\.style\.setProperty\("--chat-ink"/);
   assert.match(chat, /if \(event\.type === "config\.changed"\) applyReadingSettings\(\);/);
 });
 
@@ -378,6 +377,34 @@ test("both shipped faces are declared against files that exist", async () => {
   for (const family of ["Atkinson Hyperlegible", "OpenDyslexic", "IBM Plex Sans", "IBM Plex Mono"]) {
     assert.ok(licence.includes(family), `${family} is shipped without a licence line`);
   }
+});
+
+test("Chats is the minimal ordered profile reading approval context delete surface 2sb", () => {
+  const settingsMain = settings.slice(settings.indexOf("function group("));
+  assert.match(settingsMain, /data-profile-select/);
+  assert.match(settingsMain, /api\("\/api\/profiles", \{ action: "switch", name: event\.target\.value \}\)/);
+  assert.match(settings, /function navSections\(\) \{ return sectionLabels; \}/);
+  assert.doesNotMatch(chatsPage, /root path|show Plan|repeat limit|queue depth|max concurrent|reflection floor/i);
+  const order = [
+    chatsPage.indexOf('subhead("Reading")'),
+    chatsPage.indexOf("${renderRunPage(context)}"),
+    chatsPage.indexOf('subhead("Context")'),
+    chatsPage.indexOf('subhead("Delete")'),
+  ];
+  assert.ok(order.every((at) => at >= 0) && order.every((at, index) => index === 0 || at > order[index - 1]), `Chats order ${order}`);
+  assert.match(settings, /menuSetting\("approval\.mode", "approval mode"/);
+  assert.match(settings, /<strong>\$\{html\(option\.label\)\}<\/strong>\$\{option\.detail/);
+});
+
+test("user messages are right-side composer-matched bubbles without changing other rows 2sl", () => {
+  assert.match(css, /\.chat-user\s*\{[^}]*display:flex[^}]*justify-content:flex-end/s);
+  assert.match(css, /\.chat-user \.chat-speaker\s*\{\s*display:none/);
+  assert.match(css, /\.chat-user \.chat-content\s*\{[^}]*width:max-content[^}]*max-width:80%[^}]*background:var\(--well\)[^}]*border-radius:0[^}]*box-shadow:inset 0 0 0 1px rgba\(112,125,139,\.28\)/s);
+  assert.match(chat, /view\.userText\.className = "chat-user-text"/);
+  assert.match(css, /\.chat-user-text,\.chat-response-answer,\.chat-composer textarea\s*\{\s*color:var\(--chat-ink,var\(--ink\)\)/);
+  assert.match(css, /\.chat-content code,\.chat-content pre\s*\{\s*color:var\(--ink\)/);
+  assert.match(css, /\.chat-content a\s*\{\s*color:var\(--signal\)/);
+  assert.match(css, /\.chat-user \.chat-content\s*\{\s*font-size:\s*calc\(var\(--ct\) \* 7 \/ 6\)/);
 });
 
 test("the 2qe palette has a signal green and accessible ink and mute contrast", () => {

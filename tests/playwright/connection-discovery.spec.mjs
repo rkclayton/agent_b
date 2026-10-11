@@ -396,7 +396,7 @@ test("a refused saved value marks that field only 2po", async () => {
 // under settings, as its own top level item please implement." Everything here is
 // read from the running app, because the point of the item is where the entry sits
 // and what the strip looks like without it.
-test("the Plan is a top-level Settings section, not a tab, and the switch hides the entry", async () => {
+test("the Plan is a top-level Settings section, not a tab, and is always present", async () => {
 	const page = await harness.context.newPage();
 	await page.goto(`${harness.base}/chat`);
 	await expect(page.locator("#chat-log")).toBeVisible();
@@ -420,15 +420,13 @@ test("the Plan is a top-level Settings section, not a tab, and the switch hides 
 	// shows. On this chat there is no separate planner, so it opens the page.
 	await expect(page.locator('.settings-nav [data-id="plan"]')).toBeVisible();
 
-	// (b) and item 2mf (e)/(f): the switch hides the ENTRY now, and brings it back.
-	// Nothing about the page is discarded: its address still answers.
+	// Item 2sb: Chats no longer exposes a Plan visibility switch. A stored old
+	// preference cannot remove the entry, and the Plan address still answers.
 	await page.locator('.settings-nav [data-id="chats"]').click();
-	await page.locator('[data-action="surface-visible"][data-surface="plan"]').click();
-	await expect.poll(async () => page.locator('.settings-nav [data-id="plan"]').count()).toBe(0);
+	await expect(page.locator('[data-action="surface-visible"][data-surface="plan"]')).toHaveCount(0);
+	await expect(page.locator('.settings-nav [data-id="plan"]')).toBeVisible();
 	const direct = await page.request.get(`${harness.base}/plan`);
-	expect(direct.status(), "the Plan's own address stopped answering when its entry was hidden").toBe(200);
-	await page.locator('[data-action="surface-visible"][data-surface="plan"]').click();
-	await expect.poll(async () => page.locator('.settings-nav [data-id="plan"]').count()).toBe(1);
+	expect(direct.status(), "the Plan's own address stopped answering").toBe(200);
 	await page.close();
 });
 
@@ -707,14 +705,14 @@ test("Profiles and Connections share fields, whole numbers, switches, and stable
     await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
     await expect(page.locator('.settings-content [data-field="private"]')).toBeVisible();
     const added = await agentMetrics();
-    await page.locator('.settings-nav [data-id="chats"]').click();
-    const chatSwitch = page.locator('.settings-content button.switch').first();
+    await page.locator('.settings-nav [data-id="shell"]').click();
+    const settingsSwitch = page.locator('.settings-content button.switch').first();
     const switchPaint = async (node) => { const value = getComputedStyle(node), track = getComputedStyle(node, '::before'); return { background: value.backgroundColor, width: value.width, height: value.height, track: [track.width, track.height, track.top] }; };
-    await chatSwitch.hover();
-    const chatPaint = await chatSwitch.evaluate(switchPaint);
+    await settingsSwitch.hover();
+    const settingsPaint = await settingsSwitch.evaluate(switchPaint);
     await page.locator('.settings-nav [data-id="connections"]').click();
     await page.locator('[data-action="connection-toggle"]').first().click();
-    const reference = await page.locator('.connection-primary .setting-row').first().evaluate((row) => { const node=row.querySelector(':scope > label'),value=getComputedStyle(node); return { background:value.backgroundColor,color:value.color,border:value.border,family:value.fontFamily,size:value.fontSize,height:value.lineHeight,weight:value.fontWeight }; });
+    const reference = await page.locator('.connection-primary .setting-row > label').first().evaluate((node) => { const value=getComputedStyle(node); return { background:value.backgroundColor,color:value.color,border:value.border,family:value.fontFamily,size:value.fontSize,height:value.lineHeight,weight:value.fontWeight }; });
     const connectionFields = await page.locator('.connection-editor input:not([type="checkbox"]), .connection-editor select, .connection-editor textarea').evaluateAll(styles);
     const fieldByTag = Object.fromEntries(connectionFields.map((field) => [field.tag, field]));
     for (const metrics of [builtIn, added]) {
@@ -726,7 +724,7 @@ test("Profiles and Connections share fields, whole numbers, switches, and stable
     }
     const connectionSwitch = page.locator('.connection-primary button.switch').first();
     await connectionSwitch.hover();
-    expect(await connectionSwitch.evaluate(switchPaint)).toEqual(chatPaint);
+    expect(await connectionSwitch.evaluate(switchPaint)).toEqual(settingsPaint);
     const positions = async () => page.locator('.connection-primary').evaluate((root) => [...root.querySelectorAll(':scope > .setting-row')].map((row) => ({ label: row.querySelector(':scope > label')?.textContent.trim() || 'actions', left: row.getBoundingClientRect().left })));
     const before = await positions();
     await page.locator('.connection-defaults summary').click();

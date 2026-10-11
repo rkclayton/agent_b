@@ -139,20 +139,16 @@ func migrateToolset(toolset []string) []string {
 	return migrated
 }
 
-// Item 2lj: the chat can be read the way the reader needs. Two settings, no
-// more: how big the transcript is, and what it is set in. Both are empty by
-// default, which means the shipped default -- an empty value is not a broken
-// one, it is "whatever Agent_b has always looked like".
+// Chat keeps the reader's profile-scoped transcript presentation.
 type Chat struct {
-	// TextSize is a named step, not a number: the operator picks one and the
-	// transcript, composer and step rows scale together, keeping their
-	// proportions.
-	TextSize string `json:"text_size,omitempty"`
-	// Typeface is a family name from the list the Chats page offers, which holds
-	// the faces Agent_b ships and the faces Windows already provides. A face
-	// Agent_b cannot confirm is never offered, because a font named but absent
-	// falls back silently and the reader would not know.
-	Typeface string `json:"typeface,omitempty"`
+	// TextSize accepts old named steps while loading; current saves use whole
+	// pixels. any keeps profile overlays written by older releases readable.
+	TextSize any `json:"text_size,omitempty"`
+	// Typeface is either a shipped family or an installed Windows family. A
+	// stored family may later disappear; the UI marks it missing and renders the
+	// shipped default until the reader chooses another.
+	Typeface  string `json:"typeface,omitempty"`
+	TextColor string `json:"text_color,omitempty"`
 	// HiddenSurfaces retains the profile-scoped Plan-entry preference introduced
 	// before Plan moved into Settings. It lives here rather than under shell
 	// because it is a reader preference, not machine state.
@@ -167,28 +163,26 @@ type Chat struct {
 // HideableSurfaces are legacy static surfaces whose Settings entry may be hidden.
 var HideableSurfaces = []string{"plan"}
 
-// ChatTextSizes are the steps, smallest first. The default is "normal", which
-// is what every release before v1.15.0 rendered.
-var ChatTextSizes = []string{"small", "normal", "large", "larger", "largest"}
+var ChatTextColors = []string{"default", "white", "red", "orange", "yellow", "green", "cyan", "blue", "purple", "pink"}
 
-// ChatTypefaces are the families the Chats page may offer. The first is the
-// shipped default; the next two are shipped with the product because Agent_b
-// runs offline; the rest are Windows' own, confirmed present in the machine
-// font directory by rel-1.15.0/W0 before any of them was listed here.
-var ChatTypefaces = []string{
-	"IBM Plex Sans",
-	"Atkinson Hyperlegible",
-	"OpenDyslexic",
-	"Segoe UI",
-	"Arial",
-	"Verdana",
-	"Tahoma",
-	"Trebuchet MS",
-	"Georgia",
-	"Times New Roman",
-	"Calibri",
-	"Cambria",
-	"Comic Sans MS",
+func ChatTextPixels(value any) (int, bool) {
+	switch typed := value.(type) {
+	case nil:
+		return 12, true
+	case int:
+		return typed, typed >= 9 && typed <= 32
+	case float64:
+		pixels := int(typed)
+		return pixels, typed == float64(pixels) && pixels >= 9 && pixels <= 32
+	case string:
+		if typed == "" {
+			return 12, true
+		}
+		pixels := map[string]int{"small": 11, "normal": 12, "large": 14, "larger": 16, "largest": 18}[typed]
+		return pixels, pixels != 0
+	default:
+		return 0, false
+	}
 }
 
 func allowed(value string, values []string) bool {
@@ -1109,6 +1103,15 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, false, created, err
 	}
+	textSizeMigrated := false
+	if named, ok := cfg.Chat.TextSize.(string); ok {
+		if named == "" {
+			cfg.Chat.TextSize = nil
+		} else if pixels, valid := ChatTextPixels(named); valid {
+			cfg.Chat.TextSize = pixels
+			textSizeMigrated = true
+		}
+	}
 	retiredDenyDomainsMigrated := version < 12
 	if retiredDenyDomainsMigrated {
 		retired := map[string]bool{"ipinfo.io": true, "ipapi.co": true, "ip-api.com": true, "ifconfig.me": true, "ipify.org": true, "geojs.io": true, "ipgeolocation.io": true, "icanhazip.com": true}
@@ -1148,7 +1151,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if err := ResolveConnectionCredentials(&cfg, dataRoot); err != nil {
 		return nil, false, created, err
 	}
-	if migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || builtInAgentMigrated || profilesMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || unstamped {
+	if migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || builtInAgentMigrated || profilesMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || textSizeMigrated || unstamped {
 		if err := cfg.Save(path); err != nil {
 			return nil, false, created, err
 		}
@@ -1173,7 +1176,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if len(placeholderCleared) > 0 {
 		cfg.LoadNotices = append(cfg.LoadNotices, ModelPlaceholderMigrationNotice+strings.Join(placeholderCleared, ", "))
 	}
-	return &cfg, migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || profilesMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated, created, nil
+	return &cfg, migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || profilesMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || textSizeMigrated, created, nil
 }
 
 func (c Config) Save(path string) error {
@@ -1193,6 +1196,12 @@ func (c Config) Save(path string) error {
 	persisted.ConfigVersion = CurrentConfigVersion
 	if err := persisted.Validate(); err != nil {
 		return err
+	}
+	// A named value can only arrive from an older in-memory profile or test.
+	// Normalize it, while preserving the legacy empty value used for an
+	// intentionally unset machine-level profile default.
+	if named, ok := persisted.Chat.TextSize.(string); ok && named != "" {
+		persisted.Chat.TextSize, _ = ChatTextPixels(named)
 	}
 	// Item 2nv (h): a retired auth mode is never written back. The migration rewrites
 	// each one before this is reached, so getting here means something tried to keep it.
@@ -1275,14 +1284,11 @@ func (c Config) Validate() error {
 			return fmt.Errorf("shell.trusted_folders[%d].source: must be card or settings", i)
 		}
 	}
-	// Item 2lj (c): a face that is not on the list is not a face this build can
-	// promise to render, so it is refused rather than written and silently
-	// substituted by the browser.
-	if c.Chat.TextSize != "" && !allowed(c.Chat.TextSize, ChatTextSizes) {
-		return fmt.Errorf("chat.text_size: %q is not one of %s", c.Chat.TextSize, strings.Join(ChatTextSizes, ", "))
+	if _, ok := ChatTextPixels(c.Chat.TextSize); !ok {
+		return fmt.Errorf("chat.text_size: must be a whole number from 9 to 32")
 	}
-	if c.Chat.Typeface != "" && !allowed(c.Chat.Typeface, ChatTypefaces) {
-		return fmt.Errorf("chat.typeface: %q is not a typeface this build offers", c.Chat.Typeface)
+	if c.Chat.TextColor != "" && !allowed(c.Chat.TextColor, ChatTextColors) {
+		return fmt.Errorf("chat.text_color: %q is not offered", c.Chat.TextColor)
 	}
 	// Item 2mf: an unknown hidden surface would be a surface nothing can bring
 	// back, so the name is refused rather than stored and forgotten.

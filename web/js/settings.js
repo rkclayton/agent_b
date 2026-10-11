@@ -70,6 +70,9 @@ let settingsSaveDone = Promise.resolve();
 let settingsSaveMessage = "All changes saved";
 let settingsSaveAlarm = false;
 let activeSection = "connections";
+let fontFamilies = ["IBM Plex Sans", "Atkinson Hyperlegible", "OpenDyslexic"];
+let fontsLoaded = false;
+const settingMenus = new WeakMap();
 // The view another document was on when it sent us here; "" when the sheet was
 // opened from inside this one, where it closes onto the chat beneath it.
 let openedFrom = "";
@@ -371,6 +374,9 @@ function render() {
   adoptPanels();
   const contentNode = sheet.querySelector(".settings-content");
   contentNode.scrollTop = scrollTop;
+  const nav = sheet.querySelector(".settings-nav"), selectedNav = nav?.querySelector(".selected");
+  if (selectedNav && (selectedNav.offsetLeft < nav.scrollLeft || selectedNav.offsetLeft + selectedNav.offsetWidth > nav.scrollLeft + nav.clientWidth))
+    nav.scrollLeft = Math.max(0, selectedNav.offsetLeft + selectedNav.offsetWidth - nav.clientWidth);
   for (const input of sheet.querySelectorAll('input[type="password"]')) {
     const value = secretValues.get(controlKey(input));
     if (value) input.value = value;
@@ -382,6 +388,11 @@ function render() {
   const focusNode = [...sheet.querySelectorAll("button, input, textarea, select, summary")]
     .find((node) => controlKey(node) === focusKey);
   focusNode?.focus({ preventScroll: true });
+  for (const menu of sheet.querySelectorAll(".setting-menu")) {
+    const anchor = menu.previousElementSibling;
+    settingMenus.set(anchor, registerMenu(menu, { anchor, onClose: () => anchor.setAttribute("aria-expanded", "false") }));
+  }
+  if (activeSection === "chats" && !fontsLoaded) void refreshFonts(false);
   // Item 2nn (c): THE BAR, NOT THE WORD. Test showed the bare text "testing" on the
   // control and, unless the walk happened to emit events, nothing else — "there are
   // still no loading bars. i hit test and it just says testing and goes back to that
@@ -418,6 +429,23 @@ function render() {
   refreshSaveControls();
   placeConfirmPopover();
   navigationSurfaceReady("settings", store);
+}
+
+async function refreshFonts(refresh) {
+  const reopen = refresh && sheet.querySelector('[data-menu-path="chat.typeface"]')?.getAttribute("aria-expanded") === "true";
+  try {
+    const answer = await api(`/api/fonts${refresh ? "?refresh=1" : ""}`, undefined, "GET");
+    if (Array.isArray(answer?.families) && answer.families.length) fontFamilies = answer.families;
+    fontsLoaded = true;
+    if (open && activeSection === "chats") {
+      render();
+      if (reopen) {
+        const anchor = sheet.querySelector('[data-menu-path="chat.typeface"]');
+        settingMenus.get(anchor)?.open();
+        anchor?.setAttribute("aria-expanded", "true");
+      }
+    }
+  } catch { fontsLoaded = true; }
 }
 
 // Item 2nc (c), corrected at rel-1.31.0 by item 2mo's journey walking it: the rect
@@ -492,7 +520,8 @@ function settingsPageContext(active) {
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList, agentProfiles: () => store.config.agents || [],
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm, signInStart,
-    row, subhead, field, text, number, numberControl, textarea, secret, toggle, choices, selectSetting, approvalChoices,
+    row, subhead, field, text, number, numberControl, textarea, secret, toggle, choices, selectSetting, approvalChoices, menuSetting,
+    fontFamilies: () => fontFamilies,
     copyRow, currentValue, issue, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView, errorMarkup,
   };
 }
@@ -585,17 +614,16 @@ function planSection() {
 // Item 2ni: hiding the Plan hides its ENTRY, which is the user's own choice
 // from Settings > Chats. The availability rule never removes an entry (2ni (b));
 // only this does.
-function navSections() {
-  const hidden = new Set(Array.isArray(store.config.chat?.hidden_surfaces) ? store.config.chat.hidden_surfaces : []);
-  return sectionLabels.filter(([id]) => !(id === "plan" && hidden.has("plan")));
-}
+function navSections() { return sectionLabels; }
 
 function group(name, content, section = "") {
-  const scoped = perProfileSections.has(section)
-    ? `<p class="settings-scope-note">These apply to the <strong>${html(store.profiles?.active || store.config.profiles?.active || "current")}</strong> user. Another user keeps its own.</p>`
+  const profiles = store.profiles || store.config.profiles || { active: "", names: [] };
+  const scoped = perProfileSections.has(section) && (profiles.names || []).length > 1
+    ? `<div class="setting-row settings-profile-row"><label>profile</label><div><select class="setting-input" data-profile-select>${profiles.names.map((name) => `<option value="${attr(name)}" ${name === profiles.active ? "selected" : ""}>${html(name)}</option>`).join("")}</select></div></div>`
     : "";
   const groupKeys = section === "connections" ? ["connections"]
     : section === "profiles" ? ["profiles"]
+      : perProfileSections.has(section) ? ["config", "profiles"]
       : section === "shell" ? "shell shell.trusted_folders".split(" ")
         : ["config"];
   const groupErrors = groupKeys.map((key) => errorMarkup(errors.get(key), `group:${key}`, "settings-group-error field-error")).join("");
@@ -881,6 +909,13 @@ function choices(path, label, values, selected, hint = "") {
   return field(path, label, `<span class="choice-row">${values.map((value) => `<button type="button" class="${value === selected ? "selected" : ""}" data-action="config-choice" data-path="${attr(path)}" data-value="${attr(value)}">${html(value)}</button>`).join("")}</span>`, false, hint);
 }
 
+function menuSetting(path, label, options, selected, extra = "", hint = "") {
+  selected = currentValue(path, selected);
+  const current = options.find((option) => option.value === selected) || { value: selected, label: selected };
+  const rows = options.map((option) => `<button type="button" role="option" aria-selected="${option.value === selected}" data-action="config-choice" data-path="${attr(path)}" data-value="${attr(option.value)}" style="${attr(option.style || "")}"><strong>${html(option.label)}</strong>${option.detail ? `<span>${html(option.detail)}</span>` : ""}</button>`).join("");
+  return field(path, label, `<span class="setting-menu-control ${extra}"><button type="button" data-action="setting-menu-toggle" data-menu-path="${attr(path)}" ${path === "chat.typeface" ? "data-refresh-fonts" : ""} style="${attr(current.style || "")}">${html(current.label || selected)}${current.missing ? " · missing" : ""}</button><div class="setting-menu" role="listbox" hidden>${rows}</div></span>`, false, hint);
+}
+
 function selectSetting(path, label, options, selected) {
 	selected = currentValue(path, selected);
 	return field(path, label, `<select class="setting-input" data-path="${attr(path)}" data-kind="text">${options.map(([value, text]) => `<option value="${attr(value)}" ${value === selected ? "selected" : ""}>${html(text)}</option>`).join("")}</select>`);
@@ -894,7 +929,7 @@ function approvalChoices(selected, hint = "") {
     ["mutating", "Confirm every file write, edit, and shell command."],
     ["all", "Confirm every tool call."],
   ];
-  return field("approval.mode", "approval mode", `<span class="approval-choices">${modes.map(([value, explanation]) => `<button type="button" class="${value === displayed ? "selected" : ""}" data-action="config-choice" data-path="approval.mode" data-value="${attr(value)}"><strong>${html(value)}</strong><span>${html(explanation)}</span></button>`).join("")}</span>`, false, hint);
+  return menuSetting("approval.mode", "approval mode", modes.map(([value, detail]) => ({ value, label: value, detail })), displayed, "approval-menu", hint);
 }
 
 function copyRow(label, value, hint = "") {
@@ -994,6 +1029,13 @@ function errorPanelMarkup() {
 
 // dispatchAction is the original body of click, unchanged.
 async function dispatchAction(event, button, action, id) {
+	if (action === "setting-menu-toggle") {
+		const controller = settingMenus.get(button);
+		controller?.toggle();
+		button.setAttribute("aria-expanded", String(button.nextElementSibling?.hidden === false));
+		if (button.hasAttribute("data-refresh-fonts")) void refreshFonts(true);
+		return;
+	}
 	if (action === "error-details") { errorPanel = button.dataset.detailKey || ""; return render(); }
 	if (action === "close-error-details") { errorPanel = ""; return render(); }
 	if (action === "close") return void leaveSettingsForChat();
@@ -1793,6 +1835,16 @@ async function blur(event) {
 }
 
 async function change(event) {
+  if (event.target.matches("[data-profile-select]")) {
+    try {
+      await api("/api/profiles", { action: "switch", name: event.target.value });
+      reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
+    } catch (error) {
+      errors.set("profiles", error.message);
+      render();
+    }
+    return;
+  }
   // Item 2nb (c): the one explicit way out of the dropdown, for a server that cannot
   // enumerate its models. Choosing it turns the control into a field and saves
   // nothing by itself.

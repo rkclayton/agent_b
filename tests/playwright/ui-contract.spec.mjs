@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 
@@ -508,23 +508,32 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   expect(await auditDisclosures(finished.page)).toEqual([]);
   await finished.page.evaluate(() => document.querySelector(".chat-response").insertAdjacentHTML("beforeend", '<button aria-expanded="false">ignored disclosure</button>'));
   expect(await auditDisclosures(finished.page)).toEqual(["ignored disclosure"]);
-  await finished.page.evaluate(() => document.querySelector("#chat-log").insertAdjacentHTML("beforeend", '<section class="chat-entry chat-summary"><div class="chat-speaker" aria-label="summary"><span aria-hidden="true">summary</span></div><div class="chat-content">summary row</div></section><section class="chat-entry chat-notice-row"><div class="chat-content">harness note</div></section>'));
+  await finished.page.evaluate(() => { [...document.querySelectorAll("button")].find((button) => button.textContent === "ignored disclosure")?.remove(); document.querySelector("#chat-log").insertAdjacentHTML("beforeend", '<section class="chat-entry chat-summary"><div class="chat-speaker" aria-label="summary" title="summary"><span aria-hidden="true"></span></div><div class="chat-content">summary row</div></section><section class="chat-entry chat-notice-row"><div class="chat-content">harness note</div></section>'); });
   await finished.page.setViewportSize({ width: 1400, height: 900 });
-  const rail = async (scale) => finished.page.evaluate((value) => {
-    document.querySelector(".chat-page").style.setProperty("--chat-scale", value);
+  const rail = async (pixels) => finished.page.evaluate((value) => {
+    document.querySelector(".chat-page").style.setProperty("--chat-size", `${value}px`);
+    document.documentElement.dataset.chatListWrap = String(value >= 28);
     const probe = Object.assign(document.createElement("i"), { textContent: "x" }); probe.style.cssText = "position:absolute;font-size:var(--ct)"; document.body.append(probe);
-    const rows = [...document.querySelectorAll("#chat-log > .chat-entry")].map((row) => ({ kind: row.className, track: parseFloat(getComputedStyle(row).gridTemplateColumns), left: row.querySelector(":scope > .chat-content")?.getBoundingClientRect().left }));
-    const speaker = document.querySelector(".chat-agent > .chat-speaker"), label = speaker.lastElementChild, robot = speaker.querySelector("img"), user = document.querySelector(".chat-user > .chat-speaker");
+    const rows = [...document.querySelectorAll("#chat-log > .chat-entry:not(.chat-user)")].map((row) => ({ kind: row.className, track: parseFloat(getComputedStyle(row).gridTemplateColumns), left: row.querySelector(":scope > .chat-content")?.getBoundingClientRect().left }));
+    const speaker = document.querySelector(".chat-agent > .chat-speaker"), label = speaker.lastElementChild, robot = speaker.querySelector("img"), user = document.querySelector(".chat-user > .chat-speaker"), listName = document.querySelector(".chat-list-name");
     const result = { rows, base: parseFloat(getComputedStyle(probe).fontSize), labelSize: parseFloat(getComputedStyle(label).fontSize), labelWidth: label.getBoundingClientRect().width,
       labelWhole: label.scrollWidth <= label.clientWidth + 1, robotWidth: robot.getBoundingClientRect().width, centers: Math.abs(label.getBoundingClientRect().x + label.getBoundingClientRect().width / 2 - robot.getBoundingClientRect().x - robot.getBoundingClientRect().width / 2),
-      userText: user.innerText, userName: user.getAttribute("aria-label") }; probe.remove(); return result;
-  }, scale);
-  const defaultRail = await rail(1); console.log("2r2 default rail", JSON.stringify(defaultRail));
+      userText: user.innerText, userName: user.getAttribute("aria-label"), listNameWhole: listName.scrollWidth <= listName.clientWidth + 1 && listName.scrollHeight <= listName.clientHeight + 1 }; probe.remove(); return result;
+  }, pixels);
+  const defaultRail = await rail(12); console.log("2r2 default rail", JSON.stringify(defaultRail));
   expect(new Set(defaultRail.rows.map((row) => row.track)).size).toBe(1); expect(new Set(defaultRail.rows.map((row) => row.left)).size).toBe(1);
   expect(Math.abs(defaultRail.rows[0].track - Math.max(defaultRail.robotWidth, defaultRail.labelWidth))).toBeLessThanOrEqual(2); expect(defaultRail.labelSize).toBeCloseTo(defaultRail.base * 2 / 3, 1);
   expect(defaultRail.centers).toBeLessThanOrEqual(1); expect({ text: defaultRail.userText, name: defaultRail.userName }).toEqual({ text: "", name: "you" });
   await finished.page.screenshot({ path: "test-results/2r2-default.png", fullPage: true });
-  for (const [name, scale] of [["smallest", .9], ["largest", 1.5]]) { const seen = await rail(scale); console.log(`2r2 ${name} rail`, JSON.stringify(seen)); expect(seen.labelWhole && seen.rows[0].track >= seen.robotWidth).toBe(true); await finished.page.screenshot({ path: `test-results/2r2-${name}.png`, fullPage: true }); }
+  for (const [name, pixels] of [["smallest", 9], ["largest", 32]]) { const seen = await rail(pixels); console.log(`2r2 ${name} rail`, JSON.stringify(seen)); expect(seen.labelWhole && seen.listNameWhole && seen.rows[0].track >= seen.robotWidth).toBe(true); await finished.page.screenshot({ path: `test-results/2r2-${name}.png`, fullPage: true }); }
+  await mkdir("logs/evidence/rel-1.62.33", { recursive: true });
+  await finished.page.setViewportSize({ width: 1280, height: 2400 });
+  for (const pixels of [9, 16, 32]) { await rail(pixels); await finished.page.locator("#chat-log").evaluate((node) => { node.scrollTop = 0; }); await finished.page.screenshot({ path: `logs/evidence/rel-1.62.33/2rg-transcript-${pixels}px.png`, fullPage: true }); }
+  for (const width of [304, 1280, 1920]) for (const pixels of [12, 32]) {
+    await finished.page.setViewportSize({ width, height: pixels === 32 ? 3000 : 1600 }); await rail(pixels); await finished.page.locator("#chat-log").evaluate((node) => { node.scrollTop = 0; });
+    await finished.page.evaluate((show) => { const panel = document.querySelector(".chat-list-panel"), handle = document.querySelector(".chat-list-handle"); document.body.classList.toggle("chat-list-visible", show); document.body.classList.toggle("chat-list-hidden", !show); panel.hidden = !show; handle.hidden = show; }, width > 360);
+    await finished.page.screenshot({ path: `logs/evidence/rel-1.62.33/2sl-mixed-${width}-${pixels}px.png`, fullPage: true });
+  }
   await finished.context.close();
 
   const live = await open("running", "live-2ql.test");
@@ -588,12 +597,12 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
 // have, at the wide width and at the phone viewport both.
 const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8");
 
-function chatPage(scale, face) {
+function chatPage(pixels, face) {
   return `<!doctype html><html><head><style>
-    :root { --bezel:#2A2E35; --well:#15181C; --ink:#D8DDE3; --mute:#7D8794; --trace:#F2B233; --alarm:#E4624F;
+    :root { --bezel:#2A2E35; --well:#15181C; --ink:#D8DDE3; --mute:#7D8794; --trace:#F2B233; --alarm:#E4624F; --signal:#3CF08A;
       --accent-plan:#5AC8FA; --sans:sans-serif; --mono:monospace;
       --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s8:32px; --app-header-height:32px;
-      --agent-tab-width:118px; --etch-fade:.165; --chat-scale:${scale}; --chat-face:${face}; }
+      --agent-tab-width:118px; --etch-fade:.165; --chat-size:${pixels}px; --chat-face:${face}; }
     ${appCSS}
     ${chatCSS}
   </style></head><body class="chat-page">
@@ -611,10 +620,10 @@ function chatPage(scale, face) {
 }
 
 for (const width of [1280, 390]) {
-  for (const [step, scale] of [["smallest", 0.9], ["largest", 1.5]]) {
+  for (const [step, pixels] of [["smallest", 9], ["largest", 32]]) {
     test(`the chat surface holds the UI contract at the ${step} step at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
-      await page.setContent(chatPage(scale, '"OpenDyslexic", var(--sans)'));
+      await page.setContent(chatPage(pixels, '"OpenDyslexic", var(--sans)'));
       const findings = await page.evaluate(() => {
         const problems = [];
         if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) problems.push("the page scrolls sideways");
@@ -629,6 +638,8 @@ for (const width of [1280, 390]) {
         return problems;
       });
       expect(findings, findings.join("; ")).toEqual([]);
+      expect(await page.locator(".chat-content").evaluate((node) => parseFloat(getComputedStyle(node).fontSize))).toBe(pixels);
+      expect(await page.locator("#chat-input").evaluate((node) => parseFloat(getComputedStyle(node).fontSize))).toBeCloseTo(pixels * 7 / 6, 3);
     });
   }
 }
@@ -638,7 +649,7 @@ for (const width of [1280, 390]) {
 test("a code block stays monospaced under every typeface", async ({ page }) => {
   const faces = ["IBM Plex Sans", "Atkinson Hyperlegible", "OpenDyslexic", "Segoe UI", "Verdana", "Comic Sans MS"];
   for (const face of faces) {
-    await page.setContent(chatPage(1, `"${face}", var(--sans)`));
+    await page.setContent(chatPage(12, `"${face}", var(--sans)`));
     const seen = await page.evaluate(() => ({
       prose: getComputedStyle(document.querySelector(".chat-content p")).fontFamily,
       code: getComputedStyle(document.querySelector(".chat-content code")).fontFamily,
@@ -647,6 +658,124 @@ test("a code block stays monospaced under every typeface", async ({ page }) => {
     expect(seen.code, `${face} leaked into a code block`).not.toContain(face);
     expect(seen.code).toContain("monospace");
   }
+});
+
+test("user bubbles hold short, long and attached content across the required range 2sl", async ({ page }) => {
+  for (const width of [304, 1280, 1920]) {
+    for (const pixels of [9, 12, 32]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.setContent(chatPage(pixels, '"IBM Plex Sans", sans-serif'));
+      await page.locator("#chat-log").evaluate((log, markup) => { log.innerHTML = markup; }, `<article class="chat-entry chat-user" tabindex="0"><div class="chat-speaker" aria-label="you"><span></span></div><div class="chat-content"><div class="chat-user-text">short</div></div></article>
+        <article class="chat-entry chat-user"><div class="chat-speaker" aria-label="you"><span></span></div><div class="chat-content"><div class="chat-user-text">${"x".repeat(400)}</div><pre><code>pasted block</code></pre><img alt="picture" width="40" height="30"><span class="file-chip">record.txt</span></div></article>
+        <article class="chat-entry chat-agent"><div class="chat-speaker">agent_b</div><div class="chat-content"><p>left answer</p></div></article>
+        <article class="chat-entry tool-entry"><div class="chat-speaker">tool</div><div class="chat-content">left tool</div></article>
+        <article class="chat-entry chat-summary"><div class="chat-speaker" aria-label="summary" title="summary"><span></span></div><div class="chat-content">left summary</div></article>`);
+      const seen = await page.evaluate(() => {
+        const log = document.querySelector("#chat-log");
+        const short = document.querySelectorAll(".chat-user")[0];
+        const long = document.querySelectorAll(".chat-user")[1];
+        const shortBubble = short.querySelector(".chat-content");
+        const longBubble = long.querySelector(".chat-content");
+        const input = document.querySelector(".chat-input-wrap");
+        const bubbleStyle = getComputedStyle(shortBubble), inputStyle = getComputedStyle(input);
+        const box = (node) => node.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(shortBubble.querySelector(".chat-user-text"));
+        const textWidth = range.getBoundingClientRect().width;
+        const padding = parseFloat(bubbleStyle.paddingLeft) + parseFloat(bubbleStyle.paddingRight);
+        const descendantsInside = [...longBubble.querySelectorAll("*")].every((node) => box(node).left >= box(longBubble).left - 1 && box(node).right <= box(longBubble).right + 1);
+        const selection = document.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+        short.focus();
+        return {
+          shortFits: box(shortBubble).width < box(short).width * .8,
+          shortContentWidth: Math.abs(box(shortBubble).width - textWidth - padding),
+          textInset: box(shortBubble.querySelector(".chat-user-text")).left - box(shortBubble).left,
+          right: Math.abs(box(shortBubble).right - box(short).right),
+          longRatio: box(longBubble).width / box(long).width,
+          longOverflow: longBubble.scrollWidth - longBubble.clientWidth,
+          transcriptOverflow: log.scrollWidth - log.clientWidth,
+          descendantsInside,
+          nestedVerticalScrollers: [...log.querySelectorAll("*")].filter((node) => /(auto|scroll)/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight + 1).length,
+          copied: selection.toString(),
+          focusWhole: getComputedStyle(short).outlineStyle !== "none" && box(short).left >= 0 && box(short).right <= innerWidth,
+          visuals: [bubbleStyle.backgroundColor, bubbleStyle.borderRadius, bubbleStyle.boxShadow],
+          inputVisuals: [inputStyle.backgroundColor, inputStyle.borderRadius, inputStyle.boxShadow],
+          leftRows: [...document.querySelectorAll(".chat-agent,.tool-entry,.chat-summary")].every((row) => getComputedStyle(row).display === "grid"),
+          summary: document.querySelector(".chat-summary .chat-speaker").textContent,
+        };
+      });
+      expect(seen.shortFits, `${width}px/${pixels}px short width`).toBe(true);
+      expect(seen.shortContentWidth, `${width}px/${pixels}px short content width`).toBeLessThanOrEqual(1);
+      expect(seen.textInset, `${width}px/${pixels}px text inset`).toBeGreaterThan(0);
+      expect(seen.right, `${width}px/${pixels}px right edge`).toBeLessThanOrEqual(1);
+      expect(seen.longRatio, `${width}px/${pixels}px long width`).toBeLessThanOrEqual(.801);
+      expect(seen.longOverflow, `${width}px/${pixels}px bubble overflow`).toBeLessThanOrEqual(1);
+      expect(seen.transcriptOverflow, `${width}px/${pixels}px transcript overflow`).toBeLessThanOrEqual(1);
+      expect(seen.descendantsInside, `${width}px/${pixels}px attached content`).toBe(true);
+      expect(seen.nestedVerticalScrollers, `${width}px/${pixels}px nested scroller`).toBe(0);
+      expect(seen.copied).toBe("short");
+      expect(seen.focusWhole, `${width}px/${pixels}px focus ring`).toBe(true);
+      expect(seen.visuals).toEqual(seen.inputVisuals);
+      expect(seen.leftRows).toBe(true);
+      expect(seen.summary).toBe("");
+    }
+  }
+});
+
+test("reading menus draw every entry in its own face and colour and open at constant cost 2rg", async ({ page }) => {
+  await page.setContent(`<!doctype html><style>
+    :root{--bezel:#15181c;--ink:#e8eef4;--mute:#7d8794;--trace:#f2b233;--sans:sans-serif}
+    ${appCSS}
+  </style><div class="setting-menu-control font-menu"><button id="font-anchor">IBM Plex Sans</button><div id="font-menu" class="setting-menu" role="listbox" hidden></div></div>
+  <div class="setting-menu-control colour-menu"><button>Default</button><div id="colour-menu" class="setting-menu" role="listbox"></div></div>`);
+  const result = await page.evaluate(() => {
+    const families = ["Arial", "Courier New", "Georgia", "Times New Roman", "Verdana", ...Array.from({ length: 495 }, (_, index) => `Synthetic Family ${String(index).padStart(3, "0")}`)];
+    const fontMenu = document.querySelector("#font-menu");
+    const fill = (count) => {
+      fontMenu.replaceChildren(...families.slice(0, count).map((family) => {
+        const button = document.createElement("button"); button.textContent = family; button.style.fontFamily = `"${family}", sans-serif`; return button;
+      }));
+    };
+    const time = (count) => {
+      fill(count); fontMenu.hidden = true; void fontMenu.offsetHeight;
+      const start = performance.now(); fontMenu.hidden = false; void fontMenu.offsetHeight;
+      return performance.now() - start;
+    };
+    const colours = { Default:"#E8EEF4", White:"#FFFFFF", Red:"#FF6B6B", Orange:"#FF9F43", Yellow:"#FFD166", Green:"#3CF08A", Cyan:"#4DDFF7", Blue:"#6CA8FF", Purple:"#C792EA", Pink:"#FF85C2" };
+    const colourMenu = document.querySelector("#colour-menu");
+    colourMenu.replaceChildren(...Object.entries(colours).map(([name, colour]) => { const button = document.createElement("button"); button.textContent = name; button.style.color = colour; return button; }));
+    fill(500);
+    const sampled = [...fontMenu.children].slice(0, 20).concat([...fontMenu.children].slice(-1)).map((node) => ({ name: node.textContent, face: getComputedStyle(node).fontFamily }));
+    return { thirty: time(30), fiveHundred: time(500), sampled, colours: [...colourMenu.children].map((node) => getComputedStyle(node).color), overflow: getComputedStyle(fontMenu).overflowY };
+  });
+  console.log("2rg menu open ms", JSON.stringify({ thirty: result.thirty, fiveHundred: result.fiveHundred }));
+  expect(result.thirty).toBeLessThan(100);
+  expect(result.fiveHundred).toBeLessThan(100);
+  expect(Math.abs(result.fiveHundred - result.thirty)).toBeLessThan(25);
+  for (const row of result.sampled) expect(row.face).toContain(row.name);
+  expect(result.colours).toEqual(["rgb(232, 238, 244)", "rgb(255, 255, 255)", "rgb(255, 107, 107)", "rgb(255, 159, 67)", "rgb(255, 209, 102)", "rgb(60, 240, 138)", "rgb(77, 223, 247)", "rgb(108, 168, 255)", "rgb(199, 146, 234)", "rgb(255, 133, 194)"]);
+  expect(result.overflow).toBe("auto");
+});
+
+test("reading face and Pink affect prose and composer but preserve semantic colours 2rg", async ({ page }) => {
+  await page.setContent(chatPage(16, '"A Family That Is Not Installed 2rg", sans-serif'));
+  await page.locator("#chat-log").evaluate((log) => { log.innerHTML = `<article class="chat-entry chat-agent"><div class="chat-speaker">agent_b</div><div class="chat-content chat-response-answer"><p id="prose">answer</p><code id="code">code</code><a id="link">link</a><span id="alarm" class="alarm">error</span></div></article><article class="chat-entry tool-entry"><div class="chat-speaker">tool</div><div id="tool" class="chat-content">output</div></article>`; });
+  const seen = await page.evaluate(() => {
+    document.documentElement.style.setProperty("--chat-ink", "#FF85C2");
+    const colour = (selector) => getComputedStyle(document.querySelector(selector)).color;
+    const width = (family) => { const node = document.createElement("span"); node.textContent = "mmmmWWWWiiii"; node.style.cssText = `position:absolute;font:16px ${family}`; document.body.append(node); const value = node.getBoundingClientRect().width; node.remove(); return value; };
+    return {
+      prose: colour("#prose"), composer: colour("#chat-input"), code: colour("#code"), link: colour("#link"), alarm: colour("#alarm"), tool: colour("#tool"),
+      missingWidth: width('"A Family That Is Not Installed 2rg", sans-serif'), defaultWidth: width("sans-serif"), codeFace: getComputedStyle(document.querySelector("#code")).fontFamily,
+    };
+  });
+  expect(seen.prose).toBe("rgb(255, 133, 194)");
+  expect(seen.composer).toBe("rgb(255, 133, 194)");
+  expect(seen.code).not.toBe(seen.prose);
+  expect(seen.link).not.toBe(seen.prose);
+  expect(seen.alarm).not.toBe(seen.prose);
+  expect(seen.tool).not.toBe(seen.prose);
+  expect(seen.missingWidth).toBeCloseTo(seen.defaultWidth, 3);
+  expect(seen.codeFace).toContain("monospace");
 });
 
 // Item 2lk (d): the same rule over EVERY settings page, not only Activity, so a
